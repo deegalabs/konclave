@@ -85,7 +85,7 @@ Detalhe completo e mapa de módulos: [docs/ARQUITETURA.md](docs/ARQUITETURA.md).
 |---|---|---|
 | `frostd` | `ZcashFoundation/frost-tools` | Servidor de coordenação (cego, só material público) |
 | `frost-client` | `ZcashFoundation/frost-tools` | Init de usuário, DKG/trusted-dealer, contatos, cerimônia |
-| `zcash-sign` | Zcash Signer (confirmar repo exato na Fase 1) | `generate --ak` → endereço Orchard + UFVK; extrai o que assinar; injeta assinatura |
+| `zcash-sign` | `ZcashFoundation/frost-tools` (verificado) | `generate --ak` → endereço Orchard + UFVK; `sign` injeta assinatura FROST em plano Ywallet/PCZT |
 | `zcash-devtool` | `zcash/zcash-devtool` | Suíte **PCZT** (criação/prova/assinatura/combinação) — envelope da tx e da folha |
 | `frost` (lib core) | `ZcashFoundation/frost` | Implementação de referência do FROST |
 | `zcash_client_backend` | `zcash/librustzcash` | **Linkada** no Rust: sync UFVK, saldo, construção de plano |
@@ -201,6 +201,20 @@ Plano completo: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## 11. Estado atual
 
-**Fase 0 — em andamento.** Esqueleto criado, docs-fonte movidos para `docs/`, reality-check
-concluído. Próximo: Fase 1 (vertical slice na mainnet) — começa verificando rede e
-compilando os binários do `frost-tools`.
+**Fase 1 (Vertical Slice) — passo 1A concluído.**
+- **Ambiente:** WSL2/Ubuntu (Windows nativo estava sem toolchain C/C++). rustc 1.96.1,
+  clang 21, cmake 4.2, protoc 3.21. Rede OK.
+- **Motor compilado:** `frost-tools` clonado e buildado; os TRÊS binários (`frostd`,
+  `frost-client`, `zcash-sign`) vivem **no mesmo repo**, pinados em
+  [motor/versions.lock](motor/versions.lock) (rev `3d2985c`). Crypto confirmada:
+  `frost-rerandomized 2.1.0`, `reddsa`, `orchard 0.11.0` (fork conradoplg), `pczt 0.5.0`.
+- **Interfaces verificadas:** `-C redpallas` (após `--`) ativa Rerandomized FROST;
+  `--cli` dá saída JSON; `trusted-dealer` aceita N configs (multi-membro numa máquina);
+  `zcash-sign generate --ak` → Orchard+UFVK; `zcash-sign sign` aceita plano Ywallet/PCZT.
+- **Tutorial de referência:** Ywallet demo (`frost.zfnd.org/zcash/ywallet-demo.html`).
+- **⚠️ Achado de segurança:** `frost-client init` guarda as shares em **texto claro** em
+  `~/.local/frost/credentials.toml`. Cifrar em repouso / keychain no produto (Fase 3).
+
+**Próximo (passo 1B):** gerar chave via `trusted-dealer -C redpallas` (andaime) →
+`zcash-sign generate --ak` → endereço **Orchard** + UFVK. Depois 1C (financiar) e 1D
+(plano de tx → cerimônia → broadcast).

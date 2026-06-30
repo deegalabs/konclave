@@ -1,0 +1,23 @@
+# Normalize line endings to LF in the repo and working tree.
+# The project is built in WSL2/Linux, so LF everywhere avoids CRLF churn.
+* text=auto eol=lf
+
+# Scripts that must keep LF (run under bash/WSL)
+*.sh   text eol=lf
+*.toml text eol=lf
+
+# Windows-only scripts keep CRLF
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Treat lock files as generated (still diffable, not in language stats)
+Cargo.lock linguist-generated=true
+
+# Binary assets
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
