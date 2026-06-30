@@ -1,0 +1,43 @@
+# Konclave — motor/versions.lock
+#
+# Pin determinístico das ferramentas oficiais da Zcash Foundation (Camada 1 — Motor).
+# Política: compilar da fonte em SHA fixado; nunca seguir `main`. Ancorar o pin no commit
+# do tutorial oficial FROST+Zcash (caminho conhecido-bom), garantindo coerência das
+# versões de `frost-core`/`reddsa` entre as ferramentas. Bump é sempre deliberado.
+#
+# Os campos `rev` e `sha256` são preenchidos na Fase 1 (1A), após verificar o tutorial
+# de referência e compilar. TBD = a definir na Fase 1.
+
+format = 1
+network_target = "NU6.2"   # hard-fork de 2026-06-03 que reabilitou o Orchard
+
+[frostd]
+repo   = "https://github.com/ZcashFoundation/frost-tools"
+bin    = "frostd"
+rev    = "TBD-Fase1"
+sha256 = "TBD-Fase1"
+role   = "Servidor de coordenação (cego — só material público)"
+
+[frost-client]
+repo   = "https://github.com/ZcashFoundation/frost-tools"
+bin    = "frost-client"
+rev    = "TBD-Fase1"
+sha256 = "TBD-Fase1"
+role   = "Init de usuário, DKG/trusted-dealer, contatos, cerimônia de assinatura"
+
+[zcash-sign]
+repo   = "TBD-Fase1"   # 'Zcash Signer' — confirmar repo exato (frost-tools vs. standalone)
+bin    = "zcash-sign"
+rev    = "TBD-Fase1"
+sha256 = "TBD-Fase1"
+role   = "generate --ak -> endereco Orchard + UFVK; extrai sighash+randomizer; injeta assinatura"
+
+[zcash-devtool]
+repo   = "https://github.com/zcash/zcash-devtool"
+bin    = "zcash-devtool"
+rev    = "TBD-Fase1"
+sha256 = "TBD-Fase1"
+role   = "Suite PCZT (criacao/prova/assinatura/combinacao) — envelope da tx e da folha"
+
+# Nota: zcash_client_backend (sync UFVK/saldo/plano) é LINKADA como crate, não binário —
+# pin via Cargo.lock do crate Rust do Orquestrador (src-tauri/), não aqui.

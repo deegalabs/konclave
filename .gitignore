@@ -1,0 +1,55 @@
+# Rust / Cargo
+/target/
+**/target/
+Cargo.lock.bak
+
+# Tauri
+src-tauri/gen/
+src-tauri/target/
+
+# Node / Next.js (Rosto)
+node_modules/
+.next/
+out/
+dist/
+*.tsbuildinfo
+.npm/
+.pnpm-store/
+
+# Binários do Motor compilados (versionamos o pin, não os binários)
+motor/bin/
+
+# Segredos e estado local — NUNCA versionar
+# (key shares, seeds, config de cofre, dados sensíveis)
+*.key
+*.share
+*.seed
+secrets/
+.env
+.env.*
+!.env.example
+
+# Estado local do app (SQLite, cache de sync)
+*.sqlite
+*.sqlite-*
+*.db
+
+# Internal product/planning docs — kept on disk, not published
+docs/CONCEITO_INICIAL.md
+docs/UX_E_FLUXOS.md
+docs/LOGICA_E_REGRAS.md
+
+# SO
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editores
+.vscode/
+.idea/
+*.swp
+*~
+
+# Logs
+*.log
+logs/
