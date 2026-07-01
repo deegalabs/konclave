@@ -22,8 +22,22 @@ if [ ! -f "$REPO/rosto/dist/index.html" ]; then
 fi
 
 pkill -f 'konclave serve' 2>/dev/null; sleep 0.4
+
+# Live balance (/api/balance) is wired only when the wallet tool + dir are present.
+# Overridable per machine; degrades to "configured:false" (mock saldo) when absent.
+DEVTOOL="${KONCLAVE_DEVTOOL:-$HOME/konclave-src/zcash-devtool/target/release/zcash-devtool}"
+WALLET="${KONCLAVE_WALLET:-$HOME/konclave-slice/wallet}"
+SERVER="${KONCLAVE_SERVER:-https://zec.rocks:443}"
+WALLET_ARGS=()
+if [ -x "$DEVTOOL" ] && [ -f "$WALLET/data.sqlite" ]; then
+  WALLET_ARGS=(--devtool "$DEVTOOL" --wallet "$WALLET" --server "$SERVER")
+  echo "→ saldo ao vivo: $WALLET"
+else
+  echo "→ saldo em modo demo (carteira não encontrada; saldo real desligado)"
+fi
+
 setsid nohup "$BIN" serve --port "$PORT" \
-  --web "$REPO/rosto/dist" --db "$DB" --demo \
+  --web "$REPO/rosto/dist" --db "$DB" --demo "${WALLET_ARGS[@]}" \
   > "$HOME/konclave-serve.log" 2>&1 &
 sleep 1
 
