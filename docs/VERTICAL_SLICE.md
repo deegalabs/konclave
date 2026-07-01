@@ -105,3 +105,22 @@ changes), so a DKG vault spends the same way.
 DKG notes: participants must hold each other as contacts; the creator passes the other
 participants via `-S`; `yes |` auto-confirms the interactive prompts; restart frostd
 between ceremonies to clear in-memory sessions.
+
+## Phase 5d — the same flow, now driven by the application (not the CLI)
+
+The Gate-1 flow above was run by hand across terminals. Phase 5d automates the entire
+recipe inside the Orquestrador (`src/send.rs`) and exposes it over the local HTTP bridge
+(`POST /api/proposals/{id}/send`), so a payment is proposed, approved to quorum, signed by
+the FROST ceremony, and broadcast **entirely through the app**. `frostd` is started fresh
+per call; coordinator + participants run as concurrent threads (one box; separate devices
+in the product); a `dry_run` flag signs without broadcasting (validates the ceremony with
+no funds moved).
+
+**Second on-chain proof — first UI/orchestrator-driven mainnet tx:**
+
+| | |
+|---|---|
+| **TXID** | `43433a109d3f2a078c0a9269ccb156392ade7a1f7ac1532981611eda1e59a572` |
+| **From** | the slice vault (2-of-3 trusted-dealer, RedPallas) — self-send |
+| **Path** | UI → `/api/proposals/{id}/send` → create → prove → extract → coordinator+participants → inject → broadcast |
+| **Key** | never reconstituted (threshold signature over the shares) |

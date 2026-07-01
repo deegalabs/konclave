@@ -267,5 +267,22 @@ Nova Folha, Proposta, Enviado, Razão. Ver [ADR-0003](docs/adr/0003-vite-over-ne
 - **Empacotamento Tauri (binário único desktop):** movido para **roadmap** (ADR-0004) —
   a garantia local-first não muda, só a forma de entrega.
 
-**Próximo:** ligar `/api/balance` ao vivo (`--devtool/--wallet/--server` apontando à
-carteira do slice) e expandir a API para propor/assinar (cerimônia FROST server-side).
+**Fase 5d (fluxo de escrita ponta a ponta pela UI) — ✅ CONCLUÍDA (2026-07-01).**
+Trilha "propor → aprovar → assinar → enviar" inteira pela aplicação:
+- **Saldo ao vivo:** `/api/balance` ligado à carteira do slice (re-sincronizada; 90000
+  zat gastáveis). Painel mostra saldo real.
+- **Criar/aprovar/recusar:** `POST /api/proposals` (validação de fronteira + guarda de
+  gasto contra saldo real) e `POST /api/proposals/{id}/approve|refuse` (máquina de
+  estados autoritativa; 409 em voto conflitante/fora de estado). Telas `NovoPagamento` e
+  `Proposta` ligadas ao vivo. **88 testes verdes.**
+- **Cerimônia + envio:** `orquestrador/src/send.rs` encadeia os wrappers testados
+  (pczt create/prove/send · konclave-signer extract/inject · frostd coordenador+
+  participantes concorrentes) num fluxo Ready→Sent, com **dry-run** que assina sem
+  transmitir. Exposto em `POST /api/proposals/{id}/send` (habilitado por `--ceremony`).
+- **🏁 Primeira tx de mainnet dirigida pela aplicação (não mais CLI manual):**
+  txid `43433a109d3f2a078c0a9269ccb156392ade7a1f7ac1532981611eda1e59a572` — pagamento
+  2-de-3 aprovado por quórum, assinado por cerimônia FROST server-side e transmitido, tudo
+  pela ponte HTTP. A chave **nunca foi remontada**.
+
+**Próximo:** trilha contábil (passo 3) — ligar a tela `Razão` à API e o **export de
+documentos para o contador** (a segunda trilha de peso do hackathon).
