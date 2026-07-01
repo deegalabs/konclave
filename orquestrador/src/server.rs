@@ -218,6 +218,9 @@ pub fn handle(cfg: &Config, method: &str, raw_path: &str, body: &[u8]) -> Respon
         if path == "/api/payroll" {
             return payroll_create(cfg, body);
         }
+        if path == "/api/vault/dkg" {
+            return create_vault_dkg_handler(cfg, body);
+        }
         if path == "/api/beneficiaries" {
             return beneficiary_add(cfg, body);
         }
@@ -431,6 +434,84 @@ fn load_ledger(cfg: &Config) -> Result<Vec<ProposalRecord>, Response> {
     store
         .list_all_proposals(&vault_id)
         .map_err(|e| Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})))
+}
+
+// ---- create vault by DKG (5-F) ----
+
+#[derive(serde::Deserialize)]
+struct NewVaultDkg {
+    name: String,
+    threshold: u16,
+    #[serde(default)]
+    members: Vec<String>,
+}
+
+/// `POST /api/vault/dkg` — create a vault by Distributed Key Generation. Runs the full
+/// DKG (key never reconstituted), derives the Orchard address, creates the view-only
+/// wallet, seals the shares, and saves the vault + members. Takes several seconds.
+fn create_vault_dkg_handler(cfg: &Config, body: &[u8]) -> Response {
+    use crate::proposal::Quorum;
+
+    let Some(sc) = cfg.ceremony.as_ref() else {
+        return Response::json(501, &serde_json::json!({
+            "error": "ceremony not configured",
+            "detail": "suba com --ceremony <config> (com zcash_sign, vaults_dir e sealing_key_file)"
+        }));
+    };
+    let req: NewVaultDkg = match serde_json::from_slice(body) {
+        Ok(v) => v,
+        Err(e) => return bad(e.to_string(), "bad request"),
+    };
+    if req.name.trim().is_empty() {
+        return bad("informe um nome para o cofre", "missing name");
+    }
+    if req.members.len() < 2 {
+        return bad("um cofre precisa de ao menos 2 membros", "too few members");
+    }
+    if req.threshold < 1 || req.threshold as usize > req.members.len() {
+        return bad(format!("quórum inválido {}-de-{}", req.threshold, req.members.len()), "invalid quorum");
+    }
+    let quorum = match Quorum::new(req.threshold, req.members.len() as u16) {
+        Ok(q) => q,
+        Err(e) => return bad(e.to_string(), "invalid quorum"),
+    };
+
+    let v = match crate::dkg::create_vault_dkg(sc, req.name.trim(), req.threshold, &req.members) {
+        Ok(v) => v,
+        Err(e) => return Response::json(502, &serde_json::json!({"error": "dkg failed", "detail": e.to_string()})),
+    };
+
+    let mut store = match open_store(cfg) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    let id = format!("vault-dkg-{}", &v.group_pubkey[..v.group_pubkey.len().min(12)]);
+    let record = VaultRecord {
+        id: id.clone(),
+        name: req.name.trim().to_string(),
+        quorum,
+        group_pubkey: v.group_pubkey.clone(),
+        orchard_address: v.orchard_address.clone(),
+        ufvk: v.ufvk.clone(),
+        server_url: Some(sc.server_url.clone()),
+    };
+    if let Err(e) = store.save_vault(&record) {
+        return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()}));
+    }
+    let members: Vec<crate::store::Member> = v
+        .members
+        .iter()
+        .map(|(nm, pk, _)| crate::store::Member { name: nm.clone(), pubkey: pk.clone() })
+        .collect();
+    if let Err(e) = store.save_vault_members(&id, &members) {
+        return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()}));
+    }
+
+    let member_list: Vec<MemberDto> =
+        members.into_iter().map(|m| MemberDto { name: m.name, pubkey: m.pubkey }).collect();
+    let mut dto = VaultDto::from(record);
+    dto.member_list = member_list;
+    Response::json(201, &serde_json::json!({ "vault": dto, "dkg": true }))
 }
 
 // ---- beneficiaries (address book: pick a name, not an address) ----

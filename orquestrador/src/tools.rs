@@ -118,3 +118,41 @@ pub fn run_text(
     let out = run(program, args, stdin_data)?;
     String::from_utf8(out).map_err(|e| ToolError::parse("utf-8 output", e.to_string()))
 }
+
+/// Run and return stdout **and** stderr combined (some tools — e.g. `frost-client` —
+/// write their human output to stderr). A non-zero exit is still an error.
+pub fn run_text_all(
+    program: &Path,
+    args: &[&str],
+    stdin_data: Option<&[u8]>,
+) -> Result<String, ToolError> {
+    let program_name = program.display().to_string();
+    let mut command = Command::new(program);
+    command.args(args).stdout(Stdio::piped()).stderr(Stdio::piped());
+    if stdin_data.is_some() {
+        command.stdin(Stdio::piped());
+    }
+    let mut child = command.spawn().map_err(|source| ToolError::Spawn {
+        program: program_name.clone(),
+        source,
+    })?;
+    if let Some(data) = stdin_data {
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| ToolError::parse("stdin", "child stdin was not piped"))?;
+        stdin.write_all(data).map_err(ToolError::Io)?;
+    }
+    let output = child.wait_with_output().map_err(ToolError::Io)?;
+    if !output.status.success() {
+        return Err(ToolError::NonZero {
+            program: program_name,
+            code: output.status.code(),
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        });
+    }
+    let mut s = String::from_utf8_lossy(&output.stdout).into_owned();
+    s.push('\n');
+    s.push_str(&String::from_utf8_lossy(&output.stderr));
+    Ok(s)
+}

@@ -65,6 +65,12 @@ pub struct SendConfig {
     /// uses the OS keychain.)
     #[serde(default)]
     pub sealing_key_file: Option<String>,
+    /// 5-F: `zcash-sign` binary (derives the Orchard address + UFVK from the group key).
+    #[serde(default)]
+    pub zcash_sign: Option<std::path::PathBuf>,
+    /// 5-F: directory under which new DKG vaults (configs + wallet) are created.
+    #[serde(default)]
+    pub vaults_dir: Option<String>,
 }
 
 fn default_ip() -> String {

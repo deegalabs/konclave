@@ -243,6 +243,24 @@ export async function createPayroll(
   }
 }
 
+/** Create a vault by DKG (5-F). Long-running: the DKG ceremony takes several seconds. */
+export async function createVaultDkg(
+  name: string, threshold: number, members: string[],
+): Promise<{ ok: true; vault: Vault } | { ok: false; error: string; detail?: string }> {
+  try {
+    const res = await fetch(`${BASE}/api/vault/dkg`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, threshold, members }),
+    })
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>
+    if (res.status === 201) return { ok: true, vault: data.vault as Vault }
+    return { ok: false, error: (data.error as string) ?? `HTTP ${res.status}`, detail: data.detail as string }
+  } catch (e) {
+    return { ok: false, error: 'sem conexão com o cofre local', detail: String(e) }
+  }
+}
+
 // ---- beneficiaries (address book) ----
 
 export type Beneficiary = { id: string; name: string; address: string; memo: string; is_public: boolean }

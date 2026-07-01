@@ -67,6 +67,7 @@ export default function Membros() {
           Nesta demonstração as três partes rodam nesta máquina. No produto, cada membro
           aprova <b>do seu próprio dispositivo</b> com a sua parte — é o passo de multi-dispositivo do roadmap.
         </div>
+        <div className="right mt"><button className="btn ghost sm-btn" onClick={() => nav('/criar')}>+ Criar um novo cofre (DKG)</button></div>
       </div>
     </>
   )

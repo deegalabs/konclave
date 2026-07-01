@@ -78,6 +78,47 @@ fn write_private_key(path: &str, key: &[u8; 32]) -> Result<(), String> {
     Ok(())
 }
 
+/// `konclave create-vault --ceremony <json> --name <name> --threshold <t> --members a,b,c`
+/// — create a vault by DKG (test harness; the same orchestration backs the HTTP endpoint).
+fn run_create_vault(args: &[String]) -> Result<(), String> {
+    let mut ceremony: Option<PathBuf> = None;
+    let mut name: Option<String> = None;
+    let mut threshold: Option<u16> = None;
+    let mut members: Vec<String> = Vec::new();
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        let mut next = || it.next().ok_or_else(|| format!("faltou valor para {a}"));
+        match a.as_str() {
+            "--ceremony" => ceremony = Some(PathBuf::from(next()?)),
+            "--name" => name = Some(next()?.clone()),
+            "--threshold" => threshold = Some(next()?.parse().map_err(|_| "threshold inválido".to_string())?),
+            "--members" => members = next()?.split(',').map(|s| s.trim().to_string()).collect(),
+            other => return Err(format!("opção desconhecida: {other}")),
+        }
+    }
+    let ceremony = ceremony.ok_or("--ceremony <json> é obrigatório")?;
+    let name = name.ok_or("--name é obrigatório")?;
+    let threshold = threshold.ok_or("--threshold é obrigatório")?;
+    if members.len() < 2 {
+        return Err("--members precisa de ao menos 2 nomes (ex.: Alice,Bob,Carol)".into());
+    }
+
+    let text = std::fs::read_to_string(&ceremony).map_err(|e| format!("lendo {}: {e}", ceremony.display()))?;
+    let sc: SendConfig = serde_json::from_str(&text).map_err(|e| format!("config inválida: {e}"))?;
+
+    eprintln!("DKG: criando cofre '{name}' {threshold}-de-{} ({})", members.len(), members.join(","));
+    let v = orquestrador::dkg::create_vault_dkg(&sc, &name, threshold, &members)
+        .map_err(|e| format!("DKG: {e}"))?;
+
+    println!("GROUP {}", v.group_pubkey);
+    println!("ADDRESS {}", v.orchard_address);
+    println!("WALLET {}", v.wallet_dir);
+    for (nm, pk, cfg) in &v.members {
+        println!("MEMBER {nm} {pk} {cfg}");
+    }
+    Ok(())
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
@@ -96,6 +137,13 @@ fn main() -> ExitCode {
             }
         },
         Some("seal") => match run_seal(&args[1..]) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("erro: {e}");
+                ExitCode::from(1)
+            }
+        },
+        Some("create-vault") => match run_create_vault(&args[1..]) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("erro: {e}");
