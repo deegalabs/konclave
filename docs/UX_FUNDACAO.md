@@ -30,6 +30,13 @@ Fecha livros e impostos. **Não opera o app** (ou tem uma **visão só-leitura**
 "Observador via UFVK", roadmap). Precisa de **registros limpos e exportáveis**: datas,
 valores, contraparte (quando conhecida), **quem aprovou**. Trabalha em planilha/PDF.
 
+### Nota de enquadramento (importante)
+A **função principal** é o **cofre coletivo com pagamentos aprovados por quórum**.
+**Pagamento avulso (1 destino)** e **folha (N destinos)** são **duas opções do MESMO
+mecanismo** — a folha **não é o rosto principal**, é *uma* forma de pagar. Um pagamento
+avulso é, no fundo, uma "folha de 1 linha". A UI trata os dois como **opções paralelas**
+(nunca a folha dominando).
+
 ### Tarefas priorizadas (nas palavras da Marina)
 1. "Montar um cofre onde **ninguém sozinho** manda no dinheiro."
 2. "Ter **um endereço privado** para receber contribuições."
