@@ -235,6 +235,15 @@ em [docs/VERTICAL_SLICE.md](docs/VERTICAL_SLICE.md).
   keychain via trait; arquivo efêmero 0600) — **débito de segurança quitado**;
   `store` (SQLite embutido: cofres, propostas, votos).
 
-**Próximo:** Fase 3.4 — folha de pagamento (plano N saídas) + comandos Tauri (IPC).
-Depois: integração com o Rosto (Fase 4/5). Build do crate: WSL2, `CARGO_TARGET_DIR`
-fora do repo (código versionado; `ktarget` só no WSL).
+- **3.4 Folha:** `payroll` (plano de N saídas, `import_csv`, validação agregada) +
+  `money::from_zec_str`. Os **comandos Tauri (IPC)** ficam para a **integração
+  (Fase 5)**, quando a casca Tauri existir — construí-los sem o frontend seria stub
+  não-testável.
+
+**Estado do backend:** `orquestrador/` completo no domínio + orquestração + segurança +
+store + folha, **59 testes destrutivos verdes**. Falta apenas a casca Tauri + IPC (na
+integração). Build: WSL2, `CARGO_TARGET_DIR` fora do repo (código versionado; `ktarget`
+só no WSL).
+
+**Próximo:** Fase 4 (Rosto/design — token system + telas contra mock) e/ou Fase 5
+(casca Tauri + IPC + integração ponta a ponta).

@@ -86,6 +86,42 @@ impl Zatoshis {
         let frac = self.0 % COIN;
         format!("{whole}.{frac:08}")
     }
+
+    /// Parse a ZEC decimal string (e.g. "0.5", "1", ".05") into zatoshis, WITHOUT
+    /// floating point. Rejects more than 8 fractional digits and non-numeric input.
+    pub fn from_zec_str(s: &str) -> Result<Zatoshis, MoneyError> {
+        let s = s.trim();
+        let (whole_str, frac_str) = match s.split_once('.') {
+            Some((w, f)) => (w, f),
+            None => (s, ""),
+        };
+        if whole_str.is_empty() && frac_str.is_empty() {
+            return Err(MoneyError::Parse); // "" or "."
+        }
+        if frac_str.len() > 8 {
+            return Err(MoneyError::Parse);
+        }
+        let all_digits = |t: &str| t.chars().all(|c| c.is_ascii_digit());
+        if !all_digits(whole_str) || !all_digits(frac_str) {
+            return Err(MoneyError::Parse);
+        }
+        let whole: u64 = if whole_str.is_empty() {
+            0
+        } else {
+            whole_str.parse().map_err(|_| MoneyError::Parse)?
+        };
+        let frac: u64 = if frac_str.is_empty() {
+            0
+        } else {
+            format!("{frac_str:0<8}").parse().map_err(|_| MoneyError::Parse)?
+        };
+        let zat = whole
+            .checked_mul(COIN)
+            .ok_or(MoneyError::Overflow)?
+            .checked_add(frac)
+            .ok_or(MoneyError::Overflow)?;
+        Zatoshis::from_u64(zat)
+    }
 }
 
 impl fmt::Display for Zatoshis {
@@ -134,5 +170,35 @@ mod tests {
         assert_eq!(Zatoshis::from_u64(10_000).unwrap().to_zec_string(), "0.00010000");
         assert_eq!(Zatoshis::from_u64(COIN).unwrap().to_zec_string(), "1.00000000");
         assert_eq!(Zatoshis::ZERO.to_zec_string(), "0.00000000");
+    }
+
+    #[test]
+    fn parse_zec_without_float() {
+        let z = |s: &str| Zatoshis::from_zec_str(s).unwrap().as_u64();
+        assert_eq!(z("1"), COIN);
+        assert_eq!(z("0.5"), 50_000_000);
+        assert_eq!(z(".05"), 5_000_000);
+        assert_eq!(z("0.00010000"), 10_000);
+        assert_eq!(z("0.0001"), 10_000); // trailing zeros implied
+        assert_eq!(z(" 2.5 "), 250_000_000); // trimmed
+        assert_eq!(z("0"), 0);
+    }
+
+    #[test]
+    fn parse_zec_rejects_garbage() {
+        for bad in ["", ".", "abc", "1.2.3", "-1", "0.123456789", "1e8", "0,5"] {
+            assert!(
+                Zatoshis::from_zec_str(bad).is_err(),
+                "expected {bad:?} to be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn zec_roundtrips_through_string() {
+        for zat in [0u64, 1, 10_000, 50_000_000, COIN, 21_000_000 * COIN] {
+            let z = Zatoshis::from_u64(zat).unwrap();
+            assert_eq!(Zatoshis::from_zec_str(&z.to_zec_string()).unwrap(), z);
+        }
     }
 }

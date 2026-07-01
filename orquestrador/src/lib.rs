@@ -10,6 +10,7 @@
 
 // --- domain core (dependency-free) ---
 pub mod money;
+pub mod payroll;
 pub mod proposal;
 pub mod validation;
 
@@ -27,11 +28,13 @@ pub mod tools;
 pub mod wallet;
 
 pub use money::{MoneyError, Zatoshis};
+pub use payroll::{import_csv, ImportReport, ImportRowError, PayrollPlan, PayrollSummary};
 pub use proposal::{Proposal, ProposalError, ProposalState, Quorum};
 pub use validation::{
-    available_to_propose, estimate_fee_for_payment, validate_amount, validate_memo,
-    validate_payroll, AddressKind, PayrollLine, ValidationError,
+    available_to_propose, estimate_fee_for_payment, validate_amount, validate_memo, AddressKind,
+    ValidationError,
 };
+pub use payroll::PayrollLine;
 
 pub use secrets::{generate_key, seal, unseal, with_unsealed_file, KeyStore, SecretError};
 pub use store::{ProposalKind, ProposalRecord, Store, StoreError, VaultRecord};

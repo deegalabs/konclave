@@ -156,41 +156,8 @@ pub fn validate_amount(value: Zatoshis, available: Zatoshis) -> Result<(), Valid
     Ok(())
 }
 
-/// A single payroll line.
-pub struct PayrollLine {
-    pub value: Zatoshis,
-    pub memo: String,
-    pub dest: AddressKind,
-}
-
-/// Validate a whole payroll: every line valid, and Σ values + estimated fee ≤ available.
-/// Returns the total to be sent (excluding fee) on success.
-pub fn validate_payroll(
-    lines: &[PayrollLine],
-    confirmed: Zatoshis,
-    reserved: Zatoshis,
-) -> Result<Zatoshis, ValidationError> {
-    if lines.is_empty() {
-        return Err(ValidationError::EmptyPayroll);
-    }
-    let mut total = Zatoshis::ZERO;
-    for line in lines {
-        if line.value.is_zero() {
-            return Err(ValidationError::ZeroValue);
-        }
-        validate_memo(&line.memo, line.dest)?;
-        total = total.checked_add(line.value)?;
-    }
-    let fee = estimate_fee_for_payment(lines.len() as u64, 1);
-    let available = available_to_propose(confirmed, reserved, fee)?;
-    if total > available {
-        return Err(ValidationError::InsufficientFunds {
-            needed: total.checked_add(fee)?.as_u64(),
-            available: confirmed.checked_sub(reserved).unwrap_or(Zatoshis::ZERO).as_u64(),
-        });
-    }
-    Ok(total)
-}
+// Payroll aggregation/validation and CSV import live in the `payroll` module, which
+// builds on these primitives (fee, memo, amount, available).
 
 #[cfg(test)]
 mod tests {
@@ -270,34 +237,4 @@ mod tests {
         );
     }
 
-    #[test]
-    fn payroll_rejects_empty_and_overspend() {
-        assert_eq!(validate_payroll(&[], zat(100_000), Zatoshis::ZERO), Err(ValidationError::EmptyPayroll));
-
-        // 2 lines of 40_000 = 80_000; fee for 2 recipients = 5000*3 = 15_000; total needed 95_000.
-        let lines = vec![
-            PayrollLine { value: zat(40_000), memo: String::new(), dest: AddressKind::Unified },
-            PayrollLine { value: zat(40_000), memo: String::new(), dest: AddressKind::Unified },
-        ];
-        assert_eq!(validate_payroll(&lines, zat(100_000), Zatoshis::ZERO), Ok(zat(80_000)));
-
-        // Same lines against 90_000 confirmed: 80_000 + 15_000 fee = 95_000 > 90_000 => reject.
-        assert!(matches!(
-            validate_payroll(&lines, zat(90_000), Zatoshis::ZERO),
-            Err(ValidationError::InsufficientFunds { .. })
-        ));
-    }
-
-    #[test]
-    fn payroll_line_memo_validated() {
-        let lines = vec![PayrollLine {
-            value: zat(1000),
-            memo: "x".repeat(600),
-            dest: AddressKind::Unified,
-        }];
-        assert!(matches!(
-            validate_payroll(&lines, zat(1_000_000), Zatoshis::ZERO),
-            Err(ValidationError::MemoTooLong { .. })
-        ));
-    }
 }
