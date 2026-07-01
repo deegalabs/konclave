@@ -50,6 +50,21 @@ enum Cmd {
         #[arg(long = "sig", required = true, value_parser = parse_sig)]
         sig: Vec<(usize, [u8; 64])>,
     },
+    /// Build an unproven multi-output Orchard PCZT for a payroll (N recipients, one tx).
+    BuildPayroll {
+        /// Wallet directory (contains data.sqlite).
+        #[arg(long)]
+        wallet: String,
+        /// Account UUID to spend from.
+        #[arg(long)]
+        account: String,
+        /// Payroll spec JSON path: [{"address":..,"value_zat":..,"memo":..}, ...].
+        #[arg(long)]
+        spec: String,
+        /// Output path for the unproven PCZT.
+        #[arg(long)]
+        out: String,
+    },
 }
 
 /// Error type for the orchard signing closure (must be `From<ParseError>`).
@@ -155,9 +170,117 @@ fn inject(path: &str, out_path: &str, sigs: Vec<(usize, [u8; 64])>) -> Result<()
     Ok(())
 }
 
+/// Build an unproven Orchard PCZT paying N recipients in one transaction. Mirrors
+/// `zcash-devtool pczt create` (which only pays one), extended to a multi-payment ZIP 321
+/// request — the multi-output engine the CLI lacks (roadmap 5-B.2, §2).
+fn build_payroll(wallet: &str, account_uuid: &str, spec_path: &str, out: &str) -> Result<()> {
+    use std::num::NonZeroUsize;
+    use std::str::FromStr;
+
+    use rand::rngs::OsRng;
+    use serde::Deserialize;
+    use uuid::Uuid;
+    use zcash_address::ZcashAddress;
+    use zcash_client_backend::{
+        data_api::{
+            error::Error as WalletErr,
+            wallet::{
+                create_pczt_from_proposal, input_selection::GreedyInputSelector, propose_transfer,
+                ConfirmationsPolicy,
+            },
+            Account as _, WalletRead,
+        },
+        fees::{standard::MultiOutputChangeStrategy, DustOutputPolicy, SplitPolicy, StandardFeeRule},
+        wallet::OvkPolicy,
+    };
+    use zcash_client_sqlite::{util::SystemClock, AccountUuid, WalletDb};
+    use zcash_protocol::{
+        consensus::Network,
+        memo::{Memo, MemoBytes},
+        value::Zatoshis,
+        ShieldedProtocol,
+    };
+    use zip321::{Payment, TransactionRequest};
+
+    #[derive(Deserialize)]
+    struct SpecLine {
+        address: String,
+        value_zat: u64,
+        #[serde(default)]
+        memo: Option<String>,
+    }
+
+    let params = Network::MainNetwork;
+    let db_path = format!("{}/data.sqlite", wallet.trim_end_matches('/'));
+    let mut db = WalletDb::for_path(&db_path, params, SystemClock, OsRng)
+        .map_err(|e| anyhow!("open wallet {db_path}: {e:?}"))?;
+
+    let uuid = Uuid::from_str(account_uuid).map_err(|_| anyhow!("invalid account uuid"))?;
+    let account = db
+        .get_account(AccountUuid::from_uuid(uuid))
+        .map_err(|e| anyhow!("get_account: {e:?}"))?
+        .ok_or_else(|| anyhow!("account not found: {account_uuid}"))?;
+
+    let lines: Vec<SpecLine> = serde_json::from_str(&std::fs::read_to_string(spec_path)?)?;
+    if lines.is_empty() {
+        return Err(anyhow!("payroll spec has no lines"));
+    }
+
+    let mut payments = Vec::with_capacity(lines.len());
+    for (i, l) in lines.iter().enumerate() {
+        let addr = ZcashAddress::from_str(&l.address).map_err(|_| anyhow!("line {i}: bad address"))?;
+        let value = Zatoshis::from_u64(l.value_zat).map_err(|_| anyhow!("line {i}: bad value"))?;
+        let memo = l
+            .memo
+            .as_ref()
+            .map(|m| Memo::from_str(m))
+            .transpose()?
+            .map(MemoBytes::from);
+        payments.push(
+            Payment::new(addr, Some(value), memo, None, None, vec![])
+                .map_err(|e| anyhow!("line {i}: {e:?}"))?,
+        );
+    }
+    let request = TransactionRequest::new(payments).map_err(|e| anyhow!("request: {e:?}"))?;
+
+    let change_strategy = MultiOutputChangeStrategy::new(
+        StandardFeeRule::Zip317,
+        None,
+        ShieldedProtocol::Orchard,
+        DustOutputPolicy::default(),
+        SplitPolicy::with_min_output_value(
+            NonZeroUsize::new(4).unwrap(),
+            Zatoshis::from_u64(10_000_000).unwrap(),
+        ),
+    );
+    let input_selector = GreedyInputSelector::new();
+
+    let proposal = propose_transfer(
+        &mut db,
+        &params,
+        account.id(),
+        &input_selector,
+        &change_strategy,
+        request,
+        ConfirmationsPolicy::default(),
+        None,
+    )
+    .map_err(|e: WalletErr<_, std::convert::Infallible, _, _, _, _>| anyhow!("propose_transfer: {e:?}"))?;
+
+    let pczt = create_pczt_from_proposal(&mut db, &params, account.id(), OvkPolicy::Sender, &proposal)
+        .map_err(|e: WalletErr<_, _, std::convert::Infallible, _, std::convert::Infallible, _>| {
+            anyhow!("create_pczt_from_proposal: {e:?}")
+        })?;
+
+    std::fs::write(out, pczt.serialize())?;
+    println!("wrote payroll PCZT ({} outputs) to {}", lines.len(), out);
+    Ok(())
+}
+
 fn main() -> Result<()> {
     match Cli::parse().cmd {
         Cmd::Extract { pczt } => extract(&pczt),
         Cmd::Inject { pczt, out, sig } => inject(&pczt, &out, sig),
+        Cmd::BuildPayroll { wallet, account, spec, out } => build_payroll(&wallet, &account, &spec, &out),
     }
 }

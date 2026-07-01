@@ -19,6 +19,18 @@ pczt = { version = "0.7", features = ["signer"] }
 zcash_primitives = "0.28"
 zcash_protocol = "0.9"
 
+# Multi-output PCZT construction for payroll (5-B.2): link zcash_client_backend directly
+# (§2 "linkar zcash_client_backend para o plano"), building an N-output Orchard PCZT the
+# CLI can't. Same librustzcash rev as the bridge (patched below) so the wire format matches.
+rand = "0.8"
+uuid = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+zcash_address = "0.12"
+zip321 = "0.8"
+zcash_client_backend = { version = "0.23", features = ["orchard", "pczt", "unstable"] }
+zcash_client_sqlite = { version = "0.21", features = ["transparent-inputs", "orchard", "unstable", "serde"] }
+
 # Mirror zcash-devtool's pins so the PCZT wire format matches byte-for-byte.
 [patch.crates-io]
 equihash = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
