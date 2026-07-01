@@ -62,6 +62,8 @@ pub struct ProposalRecord {
     pub proposer: String,
     pub value_total: Zatoshis,
     pub memo: Option<String>,
+    /// Destination address (single payment). Payroll keeps destinations in its lines.
+    pub to_address: Option<String>,
     pub expiry_unix: Option<i64>,
     pub txid: Option<String>,
     pub approvals: Vec<String>,
@@ -104,6 +106,7 @@ impl Store {
                 proposer     TEXT NOT NULL,
                 value_total  INTEGER NOT NULL,
                 memo         TEXT,
+                to_address   TEXT,
                 expiry_unix  INTEGER,
                 txid         TEXT
             );
@@ -115,6 +118,9 @@ impl Store {
             );
             "#,
         )?;
+        // Migration for DBs created before `to_address` existed. Succeeds once; the
+        // "duplicate column" error on later opens is expected and ignored.
+        let _ = conn.execute("ALTER TABLE proposals ADD COLUMN to_address TEXT", []);
         Ok(Store { conn })
     }
 
@@ -163,14 +169,14 @@ impl Store {
     pub fn save_proposal(&mut self, p: &ProposalRecord) -> Result<(), StoreError> {
         let tx = self.conn.transaction()?;
         tx.execute(
-            "INSERT INTO proposals (id, vault_id, kind, state, proposer, value_total, memo, expiry_unix, txid)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+            "INSERT INTO proposals (id, vault_id, kind, state, proposer, value_total, memo, to_address, expiry_unix, txid)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
              ON CONFLICT(id) DO UPDATE SET
                state=excluded.state, value_total=excluded.value_total, memo=excluded.memo,
-               expiry_unix=excluded.expiry_unix, txid=excluded.txid",
+               to_address=excluded.to_address, expiry_unix=excluded.expiry_unix, txid=excluded.txid",
             params![
                 p.id, p.vault_id, kind_str(p.kind), state_str(p.state), p.proposer,
-                p.value_total.as_u64() as i64, p.memo, p.expiry_unix, p.txid
+                p.value_total.as_u64() as i64, p.memo, p.to_address, p.expiry_unix, p.txid
             ],
         )?;
         tx.execute("DELETE FROM proposal_votes WHERE proposal_id = ?1", params![p.id])?;
@@ -192,7 +198,7 @@ impl Store {
 
     pub fn get_proposal(&self, id: &str) -> Result<Option<ProposalRecord>, StoreError> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, vault_id, kind, state, proposer, value_total, memo, expiry_unix, txid
+            "SELECT id, vault_id, kind, state, proposer, value_total, memo, expiry_unix, txid, to_address
              FROM proposals WHERE id = ?1",
         )?;
         let mut rows = stmt.query_map(params![id], |r| row_to_proposal_head(r))?;
@@ -206,7 +212,7 @@ impl Store {
     /// Open proposals (awaiting/ready/sent) for a vault — the "pending" list (spec §6.7).
     pub fn list_open_proposals(&self, vault_id: &str) -> Result<Vec<ProposalRecord>, StoreError> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, vault_id, kind, state, proposer, value_total, memo, expiry_unix, txid
+            "SELECT id, vault_id, kind, state, proposer, value_total, memo, expiry_unix, txid, to_address
              FROM proposals
              WHERE vault_id = ?1 AND state IN ('awaiting','ready','sent')",
         )?;
@@ -282,6 +288,7 @@ fn row_to_proposal_head(r: &rusqlite::Row) -> rusqlite::Result<Result<ProposalRe
         memo: r.get(6)?,
         expiry_unix: r.get(7)?,
         txid: r.get(8)?,
+        to_address: r.get(9)?,
         approvals: Vec::new(),
         refusals: Vec::new(),
     }))
@@ -377,6 +384,7 @@ mod tests {
             proposer: "alice".into(),
             value_total: zat(20_000),
             memo: Some("ref maio".into()),
+            to_address: Some("u1destalice".into()),
             expiry_unix: Some(1_800_000_000),
             txid: None,
             approvals: vec!["alice".into()],

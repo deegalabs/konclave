@@ -111,6 +111,9 @@ struct ProposalDto {
     value_zat: u64,
     value_zec: String,
     memo: Option<String>,
+    to_address: Option<String>,
+    /// Whether the destination is transparent (public) — drives the UI warning.
+    is_public: bool,
     expiry_unix: Option<i64>,
     txid: Option<String>,
     approvals: Vec<String>,
@@ -124,6 +127,11 @@ impl From<ProposalRecord> for ProposalDto {
             ProposalKind::Payment => "payment",
             ProposalKind::Payroll => "payroll",
         };
+        let is_public = p
+            .to_address
+            .as_deref()
+            .map(|a| crate::validation::AddressKind::classify(a).is_public())
+            .unwrap_or(false);
         ProposalDto {
             id: p.id,
             vault_id: p.vault_id,
@@ -133,6 +141,8 @@ impl From<ProposalRecord> for ProposalDto {
             value_zat: p.value_total.as_u64(),
             value_zec: p.value_total.to_zec_string(),
             memo: p.memo,
+            to_address: p.to_address,
+            is_public,
             expiry_unix: p.expiry_unix,
             txid: p.txid,
             approvals_count: p.approvals.len(),
@@ -182,12 +192,23 @@ impl From<Balance> for BalanceDto {
 // ---- dispatch (pure; no socket) ----
 
 /// Route a request to a [`Response`]. Pure enough to unit-test every branch.
-pub fn handle(cfg: &Config, method: &str, raw_path: &str) -> Response {
+pub fn handle(cfg: &Config, method: &str, raw_path: &str, body: &[u8]) -> Response {
+    // Drop any query string / fragment; keep just the path.
+    let path = raw_path.split(['?', '#']).next().unwrap_or(raw_path);
+
+    // Writes (state-changing) go through POST.
+    if method == "POST" {
+        return match path {
+            "/api/proposals" => create_proposal(cfg, body),
+            p if p.starts_with("/api/") => {
+                Response::json(404, &serde_json::json!({"error": "unknown endpoint", "path": p}))
+            }
+            _ => Response::json(405, &serde_json::json!({"error": "method not allowed"})),
+        };
+    }
     if method != "GET" && method != "HEAD" {
         return Response::json(405, &serde_json::json!({"error": "method not allowed"}));
     }
-    // Drop any query string / fragment; keep just the path.
-    let path = raw_path.split(['?', '#']).next().unwrap_or(raw_path);
 
     match path {
         "/api/health" => Response::json(
@@ -272,6 +293,121 @@ fn api_balance(cfg: &Config) -> Response {
     }
 }
 
+// ---- writes: create a proposal (single payment) ----
+
+#[derive(serde::Deserialize)]
+struct NewProposal {
+    proposer: String,
+    to_address: String,
+    value_zec: String,
+    #[serde(default)]
+    memo: Option<String>,
+}
+
+fn bad(detail: impl Into<String>, what: &str) -> Response {
+    Response::json(400, &serde_json::json!({"error": what, "detail": detail.into()}))
+}
+
+/// `POST /api/proposals` — validate at the boundary, then persist an Awaiting (or, for a
+/// 1-of-n vault, Ready) proposal with the proposer as first approval. No funds move here;
+/// spendability is authoritative at broadcast time (step 2c).
+fn create_proposal(cfg: &Config, body: &[u8]) -> Response {
+    use crate::proposal::Proposal;
+    use crate::validation::{
+        available_to_propose, estimate_fee_for_payment, validate_amount, validate_memo, AddressKind,
+    };
+
+    let input: NewProposal = match serde_json::from_slice(body) {
+        Ok(v) => v,
+        Err(e) => return bad(e.to_string(), "bad request"),
+    };
+    if input.proposer.trim().is_empty() {
+        return bad("informe quem está propondo", "missing proposer");
+    }
+
+    // Destination: reject unrecognized encodings; transparent is allowed but flagged
+    // downstream (is_public) so the UI warns.
+    let addr_kind = AddressKind::classify(&input.to_address);
+    if addr_kind == AddressKind::Unknown {
+        return bad("endereço Zcash não reconhecido", "invalid address");
+    }
+
+    // Amount (no floating point) — must be > 0.
+    let value = match Zatoshis::from_zec_str(&input.value_zec) {
+        Ok(v) => v,
+        Err(e) => return bad(e.to_string(), "invalid amount"),
+    };
+    if value.is_zero() {
+        return bad("o valor deve ser maior que zero", "invalid amount");
+    }
+
+    // Memo rules (length; not on a transparent destination).
+    let memo = input.memo.clone().unwrap_or_default();
+    if let Err(e) = validate_memo(&memo, addr_kind) {
+        return bad(e.to_string(), "invalid memo");
+    }
+
+    // Vault + quorum.
+    let mut store = match open_store(cfg) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    let vault = match store.list_vaults() {
+        Ok(mut vs) if !vs.is_empty() => vs.remove(0),
+        Ok(_) => return bad("nenhum cofre neste dispositivo", "no vault"),
+        Err(e) => return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
+    };
+
+    // Overspend guard when a live wallet is wired. Uses total balance as the proposable
+    // ceiling for the preview; spendable is re-checked authoritatively at broadcast.
+    if let Some(reader) = cfg.wallet.as_ref() {
+        if let Ok(bal) = reader.balance() {
+            let fee = estimate_fee_for_payment(1, 1);
+            let available = available_to_propose(bal.total, Zatoshis::ZERO, fee).unwrap_or(Zatoshis::ZERO);
+            if let Err(e) = validate_amount(value, available) {
+                return bad(e.to_string(), "insufficient funds");
+            }
+        }
+    }
+
+    // Build via the state machine (proposer = first approval), then persist.
+    let proposal = Proposal::propose(input.proposer.clone(), vault.quorum);
+    let rec = ProposalRecord {
+        id: new_id(),
+        vault_id: vault.id,
+        kind: ProposalKind::Payment,
+        state: proposal.state(),
+        proposer: input.proposer.clone(),
+        value_total: value,
+        memo: if memo.is_empty() { None } else { Some(memo) },
+        to_address: Some(input.to_address),
+        expiry_unix: now_unix().map(|n| n + 72 * 3600), // 72h expiry (spec §10)
+        txid: None,
+        approvals: vec![input.proposer],
+        refusals: vec![],
+    };
+    if let Err(e) = store.save_proposal(&rec) {
+        return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()}));
+    }
+    let dto = ProposalDto::from(rec);
+    Response::json(201, &serde_json::to_value(dto).unwrap_or_else(|_| serde_json::json!({})))
+}
+
+/// A short random hex id (public, non-secret) for a proposal.
+fn new_id() -> String {
+    let mut b = [0u8; 8];
+    let _ = getrandom::getrandom(&mut b);
+    b.iter().map(|x| format!("{x:02x}")).collect()
+}
+
+/// Wall-clock unix seconds (for expiry). `None` if the clock is before the epoch.
+fn now_unix() -> Option<i64> {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|d| d.as_secs() as i64)
+}
+
 // ---- static bundle (HashRouter → no SPA route fallback needed) ----
 
 /// Serve a file from `web_dir`. `/` → `index.html`. Traversal (`..`) is rejected.
@@ -343,6 +479,7 @@ pub fn seed_demo(store: &mut Store) -> Result<(), crate::store::StoreError> {
         proposer: "Bruno".into(),
         value_total: Zatoshis::from_u64(50_000_000).unwrap(), // 0.5 ZEC
         memo: Some("adiantamento maio".into()),
+        to_address: Some("u1recipientdemoxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx7ka2".into()),
         expiry_unix: Some(1_800_000_000),
         txid: None,
         approvals: vec!["Bruno".into()],
@@ -358,6 +495,7 @@ pub fn seed_demo(store: &mut Store) -> Result<(), crate::store::StoreError> {
         proposer: "Ana".into(),
         value_total: Zatoshis::from_u64(420_000_000).unwrap(), // 4.2 ZEC
         memo: Some("folha de abril — 8 pagamentos".into()),
+        to_address: None, // payroll: destinations live in its lines
         expiry_unix: Some(1_800_100_000),
         txid: None,
         approvals: vec!["Ana".into(), "Bruno".into()],
@@ -379,10 +517,12 @@ pub fn serve(cfg: Config, port: u16) -> std::io::Result<()> {
         cfg.web_dir.display(),
         cfg.db_path
     );
-    for req in server.incoming_requests() {
+    for mut req in server.incoming_requests() {
         let method = req.method().as_str().to_string();
         let url = req.url().to_string();
-        let resp = handle(&cfg, &method, &url);
+        let mut body = Vec::new();
+        let _ = req.as_reader().read_to_end(&mut body);
+        let resp = handle(&cfg, &method, &url, &body);
         let header = tiny_http::Header::from_bytes(&b"Content-Type"[..], resp.content_type.as_bytes())
             .expect("valid header");
         let response = tiny_http::Response::from_data(resp.body)
@@ -431,22 +571,22 @@ mod tests {
     #[test]
     fn health_is_ok() {
         let cfg = cfg_with(tmp_db(), None);
-        let r = handle(&cfg, "GET", "/api/health");
+        let r = handle(&cfg, "GET", "/api/health", b"");
         assert_eq!(r.status, 200);
         assert_eq!(body_json(&r)["status"], "ok");
     }
 
     #[test]
-    fn non_get_is_405() {
+    fn unsupported_method_is_405() {
         let cfg = cfg_with(tmp_db(), None);
-        let r = handle(&cfg, "POST", "/api/health");
+        let r = handle(&cfg, "PUT", "/api/health", b"");
         assert_eq!(r.status, 405);
     }
 
     #[test]
     fn unknown_api_is_404_json() {
         let cfg = cfg_with(tmp_db(), None);
-        let r = handle(&cfg, "GET", "/api/nope");
+        let r = handle(&cfg, "GET", "/api/nope", b"");
         assert_eq!(r.status, 404);
         assert_eq!(body_json(&r)["error"], "unknown endpoint");
     }
@@ -457,7 +597,7 @@ mod tests {
         let cfg = cfg_with(db.clone(), None);
 
         // Empty DB → vault is null.
-        let r = handle(&cfg, "GET", "/api/vault");
+        let r = handle(&cfg, "GET", "/api/vault", b"");
         assert_eq!(r.status, 200);
         assert!(body_json(&r)["vault"].is_null());
 
@@ -466,7 +606,7 @@ mod tests {
         seed_demo(&mut store).unwrap();
         drop(store);
 
-        let r = handle(&cfg, "GET", "/api/vault");
+        let r = handle(&cfg, "GET", "/api/vault", b"");
         let v = &body_json(&r)["vault"];
         assert_eq!(v["name"], "Tesouraria Comum");
         assert_eq!(v["threshold"], 2);
@@ -483,7 +623,7 @@ mod tests {
         drop(store);
 
         let cfg = cfg_with(db, None);
-        let r = handle(&cfg, "GET", "/api/proposals");
+        let r = handle(&cfg, "GET", "/api/proposals", b"");
         assert_eq!(r.status, 200);
         let ps = body_json(&r)["proposals"].as_array().unwrap().clone();
         assert_eq!(ps.len(), 2);
@@ -497,7 +637,7 @@ mod tests {
     #[test]
     fn balance_unconfigured_is_explicit() {
         let cfg = cfg_with(tmp_db(), None);
-        let r = handle(&cfg, "GET", "/api/balance");
+        let r = handle(&cfg, "GET", "/api/balance", b"");
         assert_eq!(r.status, 200);
         assert_eq!(body_json(&r)["configured"], false);
     }
@@ -512,7 +652,7 @@ mod tests {
             total: Zatoshis::from_u64(100_000).unwrap(),
         };
         let cfg = cfg_with(tmp_db(), Some(Box::new(FakeWallet { result: Ok(bal) })));
-        let r = handle(&cfg, "GET", "/api/balance");
+        let r = handle(&cfg, "GET", "/api/balance", b"");
         assert_eq!(r.status, 200);
         let j = body_json(&r);
         assert_eq!(j["configured"], true);
@@ -528,7 +668,7 @@ mod tests {
             tmp_db(),
             Some(Box::new(FakeWallet { result: Err("node offline".into()) })),
         );
-        let r = handle(&cfg, "GET", "/api/balance");
+        let r = handle(&cfg, "GET", "/api/balance", b"");
         assert_eq!(r.status, 502);
         assert_eq!(body_json(&r)["error"], "wallet");
     }
@@ -536,15 +676,116 @@ mod tests {
     #[test]
     fn static_traversal_is_forbidden() {
         let cfg = cfg_with(tmp_db(), None);
-        let r = handle(&cfg, "GET", "/../../etc/passwd");
+        let r = handle(&cfg, "GET", "/../../etc/passwd", b"");
         assert_eq!(r.status, 403);
     }
 
     #[test]
     fn missing_static_is_404_html() {
         let cfg = cfg_with(tmp_db(), None);
-        let r = handle(&cfg, "GET", "/definitely-not-here.js");
+        let r = handle(&cfg, "GET", "/definitely-not-here.js", b"");
         assert_eq!(r.status, 404);
         assert!(r.content_type.contains("text/html"));
+    }
+
+    // ---- create proposal (POST /api/proposals) ----
+
+    fn seeded_cfg(wallet: Option<Box<dyn WalletReader>>) -> Config {
+        let db = tmp_db();
+        let mut store = Store::open(&db).unwrap();
+        seed_demo(&mut store).unwrap();
+        drop(store);
+        cfg_with(db, wallet)
+    }
+
+    #[test]
+    fn create_proposal_happy_path_awaiting() {
+        let cfg = seeded_cfg(None);
+        let body = br#"{"proposer":"Ana","to_address":"u1recipientxxxxxxxxxxxxxxxxxxxxxxxx","value_zec":"0.25","memo":"reembolso"}"#;
+        let r = handle(&cfg, "POST", "/api/proposals", body);
+        assert_eq!(r.status, 201);
+        let j = body_json(&r);
+        assert_eq!(j["state"], "awaiting"); // 2-of-3 vault → needs one more
+        assert_eq!(j["value_zec"], "0.25000000");
+        assert_eq!(j["proposer"], "Ana");
+        assert_eq!(j["approvals_count"], 1);
+        assert_eq!(j["is_public"], false);
+        assert!(j["id"].as_str().unwrap().len() >= 8);
+
+        // It is now listed as open.
+        let list = handle(&cfg, "GET", "/api/proposals", b"");
+        let n = body_json(&list)["proposals"].as_array().unwrap().len();
+        assert_eq!(n, 3); // 2 seeded + 1 new
+    }
+
+    #[test]
+    fn create_proposal_zero_value_is_400() {
+        let cfg = seeded_cfg(None);
+        let body = br#"{"proposer":"Ana","to_address":"u1abc","value_zec":"0"}"#;
+        let r = handle(&cfg, "POST", "/api/proposals", body);
+        assert_eq!(r.status, 400);
+        assert_eq!(body_json(&r)["error"], "invalid amount");
+    }
+
+    #[test]
+    fn create_proposal_unknown_address_is_400() {
+        let cfg = seeded_cfg(None);
+        let body = br#"{"proposer":"Ana","to_address":"not-an-address","value_zec":"0.1"}"#;
+        let r = handle(&cfg, "POST", "/api/proposals", body);
+        assert_eq!(r.status, 400);
+        assert_eq!(body_json(&r)["error"], "invalid address");
+    }
+
+    #[test]
+    fn create_proposal_memo_on_transparent_is_400() {
+        let cfg = seeded_cfg(None);
+        // t1… is transparent → a memo is meaningless and rejected.
+        let body = br#"{"proposer":"Ana","to_address":"t1transparentxxxxxxxxxxxxxxxxxx","value_zec":"0.1","memo":"segredo"}"#;
+        let r = handle(&cfg, "POST", "/api/proposals", body);
+        assert_eq!(r.status, 400);
+        assert_eq!(body_json(&r)["error"], "invalid memo");
+    }
+
+    #[test]
+    fn create_proposal_transparent_is_flagged_public() {
+        let cfg = seeded_cfg(None);
+        let body = br#"{"proposer":"Ana","to_address":"t1transparentxxxxxxxxxxxxxxxxxx","value_zec":"0.1"}"#;
+        let r = handle(&cfg, "POST", "/api/proposals", body);
+        assert_eq!(r.status, 201);
+        assert_eq!(body_json(&r)["is_public"], true);
+    }
+
+    #[test]
+    fn create_proposal_overspend_is_400_when_wallet_live() {
+        // Live wallet with only 100_000 zat total → proposing 1 ZEC must be refused.
+        let bal = Balance {
+            chain_tip_height: 1,
+            orchard_spendable: Zatoshis::from_u64(100_000).unwrap(),
+            sapling_spendable: Zatoshis::ZERO,
+            transparent_spendable: Zatoshis::ZERO,
+            total: Zatoshis::from_u64(100_000).unwrap(),
+        };
+        let cfg = seeded_cfg(Some(Box::new(FakeWallet { result: Ok(bal) })));
+        let body = br#"{"proposer":"Ana","to_address":"u1abc","value_zec":"1.0"}"#;
+        let r = handle(&cfg, "POST", "/api/proposals", body);
+        assert_eq!(r.status, 400);
+        assert_eq!(body_json(&r)["error"], "insufficient funds");
+    }
+
+    #[test]
+    fn create_proposal_no_vault_is_400() {
+        let cfg = cfg_with(tmp_db(), None); // empty DB, no vault
+        let body = br#"{"proposer":"Ana","to_address":"u1abc","value_zec":"0.1"}"#;
+        let r = handle(&cfg, "POST", "/api/proposals", body);
+        assert_eq!(r.status, 400);
+        assert_eq!(body_json(&r)["error"], "no vault");
+    }
+
+    #[test]
+    fn create_proposal_malformed_json_is_400() {
+        let cfg = seeded_cfg(None);
+        let r = handle(&cfg, "POST", "/api/proposals", b"{not json");
+        assert_eq!(r.status, 400);
+        assert_eq!(body_json(&r)["error"], "bad request");
     }
 }

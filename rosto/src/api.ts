@@ -86,3 +86,37 @@ export function shortAddr(addr: string, head = 6, tail = 6): string {
   if (addr.length <= head + tail + 1) return addr
   return `${addr.slice(0, head)}…${addr.slice(-tail)}`
 }
+
+// ---- writes ----
+
+export type NewProposal = {
+  proposer: string
+  to_address: string
+  value_zec: string
+  memo?: string
+}
+
+export type CreateResult =
+  | { ok: true; proposal: Proposal }
+  | { ok: false; error: string; detail?: string }
+
+/** POST a new payment proposal. Returns a typed success or a readable error. */
+export async function createProposal(input: NewProposal): Promise<CreateResult> {
+  try {
+    const res = await fetch(`${BASE}/api/proposals`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    })
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>
+    if (res.status === 201) return { ok: true, proposal: data as unknown as Proposal }
+    return { ok: false, error: (data.error as string) ?? `HTTP ${res.status}`, detail: data.detail as string }
+  } catch (e) {
+    return { ok: false, error: 'sem conexão com o cofre local', detail: String(e) }
+  }
+}
+
+/** Classify a destination the same way the backend does (for the "público" warning). */
+export function isTransparent(addr: string): boolean {
+  return addr.startsWith('t1') || addr.startsWith('t3')
+}
