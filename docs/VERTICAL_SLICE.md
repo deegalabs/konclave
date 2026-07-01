@@ -75,3 +75,33 @@ zcash-devtool pczt send < tx3-signed.pczt                              -> broadc
 8. **Dummy spends:** Orchard pads with zero-value dummy actions; only real spends
    need a FROST signature (the bridge filters by value). Dummies are handled by the
    wallet's IO finalizer.
+
+## Phase 2 — Real DKG (distributed key generation)
+
+The slice used `trusted-dealer` (a scaffold that briefly holds the whole key). The
+product uses **DKG**, where the key is **never reconstituted anywhere**. Proven
+2026-07-01:
+
+```text
+# each participant, fresh:
+frost-client init -c a2.toml            # (and b2.toml, c2.toml)
+frost-client export -c a2.toml --name alice   -> contact string (encodes comm pubkey)
+# everyone imports everyone else's contact:
+frost-client import -c a2.toml <bob-contact>  # etc. (DKG encrypts round packages between peers)
+
+# DKG ceremony over frostd/TLS (all concurrent):
+frost-client dkg -c a2.toml -C redpallas -t 2 -d "..." -s 127.0.0.1:2744 -S <bob-pk>,<carol-pk>  # creator
+frost-client dkg -c b2.toml -C redpallas -t 2 -d "..." -s 127.0.0.1:2744                          # joiner
+frost-client dkg -c c2.toml -C redpallas -t 2 -d "..." -s 127.0.0.1:2744                          # joiner
+#   -> each config gets its own share; group key derived; full key never exists
+```
+
+**Result:** DKG group key `0ab93649e62dd68858ed57af1e7f7743cc2a4912110d7fb547d35c8c8494ee34`
+→ Orchard address `u1t2qphc0vktmflteelztv5l3v4ylw8kls3ja0ujj49ycvrvg579kv3pv6nllqga6k0s47whk7lrx86yd88pepkyvhfl8qqhlygg836yl2`.
+A 2-of-3 signing ceremony over the DKG shares produced a valid signature, proving the
+shares are functional. The spend pipeline is identical to Gate 1 (only the key source
+changes), so a DKG vault spends the same way.
+
+DKG notes: participants must hold each other as contacts; the creator passes the other
+participants via `-S`; `yes |` auto-confirms the interactive prompts; restart frostd
+between ceremonies to clear in-memory sessions.

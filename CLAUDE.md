@@ -219,5 +219,11 @@ Fluxo completo e lições em [docs/VERTICAL_SLICE.md](docs/VERTICAL_SLICE.md).
 - **⚠️ Débito de segurança:** `frost-client` guarda shares em **texto claro** em
   `~/.local/frost/credentials.toml` → cifrar/keychain na Fase 3.
 
-**Próximo:** Fase 2 — migrar do **trusted-dealer** para **DKG real** (a chave nunca é
-remontada, nem no dealer); depois dobrar `konclave-signer` no Orquestrador (Fase 3).
+**Fase 2 (DKG real) — ✅ CONCLUÍDA (2026-07-01).** Cofre gerado por **Distributed Key
+Generation** (3 participantes via `frostd`), a chave **nunca remontada**. Grupo DKG:
+`0ab93649e62dd68858ed57af1e7f7743cc2a4912110d7fb547d35c8c8494ee34` → endereço Orchard
+`u1t2qphc0v…836yl2`. Shares validadas por cerimônia de assinatura 2-de-3. Fluxo do DKG
+em [docs/VERTICAL_SLICE.md](docs/VERTICAL_SLICE.md).
+
+**Próximo:** Fase 3 — dobrar `konclave-signer` no Orquestrador; cifrar shares no keychain
+(débito de segurança); máquina de estados de proposta. Fase 4 (Rosto/design) em paralelo.
