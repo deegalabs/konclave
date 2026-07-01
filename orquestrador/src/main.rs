@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use orquestrador::send::{orchestrate_send, SendConfig};
+use orquestrador::send::{orchestrate_send, SendConfig, SpendPlan};
 use orquestrador::server::{self, Config, LiveWallet};
 use orquestrador::store::Store;
 
@@ -165,7 +165,8 @@ fn run_sign_send(args: &[String]) -> Result<(), String> {
     }
     eprintln!("destino {to} · valor {value_zat} zat");
 
-    let outcome = orchestrate_send(&sc, &to, value_zat, memo.as_deref(), dry_run)
+    let plan = SpendPlan::Payment { to: to.clone(), value_zat, memo: memo.clone() };
+    let outcome = orchestrate_send(&sc, &plan, dry_run)
         .map_err(|e| format!("cerimônia/envio: {e}"))?;
 
     eprintln!("sighash assinado: {}", outcome.sighash);

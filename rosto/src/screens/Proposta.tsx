@@ -137,19 +137,17 @@ export default function Proposta() {
           </>
         )}
 
-        {isReady && isPayroll && (
+        {isReady && (
           <>
-            <div className="confirm mt ready">✓ <b>Quórum atingido.</b> A folha está aprovada como um envelope único.</div>
-            <div className="hint mt-sm">O <b>envio</b> de folha (várias saídas numa transação só) depende do motor multi-saída — <b>próxima etapa (roadmap 5-B.2)</b>. Propor e aprovar já funcionam.</div>
-          </>
-        )}
-
-        {isReady && !isPayroll && (
-          <>
-            <div className="confirm mt ready">✓ <b>Quórum atingido.</b> A proposta está <b>pronta</b>. Assinar reúne as partes da chave (FROST) e transmite à mainnet.</div>
+            <div className="confirm mt ready">
+              ✓ <b>Quórum atingido.</b>{' '}
+              {isPayroll
+                ? <>A folha está pronta. Assinar reúne as partes da chave (FROST) e transmite as N saídas numa transação só.</>
+                : <>A proposta está <b>pronta</b>. Assinar reúne as partes da chave (FROST) e transmite à mainnet.</>}
+            </div>
             <div className="btns mt">
               <button className="btn ok" onClick={() => send(false)} disabled={sending !== null}>
-                {sending === 'real' ? 'Assinando e enviando… (pode levar ~1 min)' : '▸ Assinar e enviar à mainnet'}
+                {sending === 'real' ? 'Assinando e enviando… (pode levar ~1 min)' : (isPayroll ? '▸ Assinar e enviar a folha' : '▸ Assinar e enviar à mainnet')}
               </button>
               <button className="btn" onClick={() => send(true)} disabled={sending !== null} title="Executa a cerimônia e assina, sem transmitir">
                 {sending === 'dry' ? 'Validando…' : 'Validar (sem enviar)'}

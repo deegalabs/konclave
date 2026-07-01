@@ -841,19 +841,32 @@ fn send_proposal(cfg: &Config, id: &str, body: &[u8]) -> Response {
             "detail": format!("a proposta está {:?}; só uma proposta com quórum (Ready) pode ser enviada", rec.state)
         }));
     }
-    // Payroll (N outputs) needs a multi-output PCZT, which the CLI can't build. Honest
-    // limitation: the multi-output send engine (zcash_client_backend) is roadmap (5-B.2).
-    if rec.kind == ProposalKind::Payroll {
-        return Response::json(501, &serde_json::json!({
-            "error": "payroll send not implemented",
-            "detail": "o envio de folha (N saídas numa transação) ainda não está disponível — precisa do motor multi-saída (roadmap 5-B.2)"
-        }));
-    }
-    let Some(to) = rec.to_address.clone() else {
-        return Response::json(400, &serde_json::json!({"error": "no destination", "detail": "proposta sem endereço de destino"}));
+    // Build the spend plan: a single payment (CLI) or a payroll (multi-output builder).
+    let plan = match rec.kind {
+        ProposalKind::Payment => {
+            let Some(to) = rec.to_address.clone() else {
+                return Response::json(400, &serde_json::json!({"error": "no destination", "detail": "proposta sem endereço de destino"}));
+            };
+            crate::send::SpendPlan::Payment { to, value_zat: rec.value_total.as_u64(), memo: rec.memo.clone() }
+        }
+        ProposalKind::Payroll => {
+            let lines = store.get_payroll_lines(&rec.id).unwrap_or_default();
+            if lines.is_empty() {
+                return Response::json(400, &serde_json::json!({"error": "empty payroll", "detail": "folha sem linhas"}));
+            }
+            let dests = lines
+                .into_iter()
+                .map(|l| crate::send::PayrollDest {
+                    address: l.address,
+                    value_zat: l.value.as_u64(),
+                    memo: if l.memo.is_empty() { None } else { Some(l.memo) },
+                })
+                .collect();
+            crate::send::SpendPlan::Payroll { lines: dests }
+        }
     };
 
-    let outcome = orchestrate_send(sc, &to, rec.value_total.as_u64(), rec.memo.as_deref(), req.dry_run);
+    let outcome = orchestrate_send(sc, &plan, req.dry_run);
     let outcome = match outcome {
         Ok(o) => o,
         Err(e) => return Response::json(502, &serde_json::json!({"error": "send failed", "detail": e.to_string()})),
@@ -1441,24 +1454,24 @@ mod tests {
     }
 
     #[test]
-    fn payroll_send_is_501_not_implemented() {
+    fn payroll_send_attempts_ceremony_and_502_on_missing_tools() {
         let db = tmp_db();
         let mut store = Store::open(&db).unwrap();
         seed_demo(&mut store).unwrap();
         drop(store);
         let mut cfg = cfg_with(db, None);
-        cfg.ceremony = Some(dummy_ceremony());
+        cfg.ceremony = Some(dummy_ceremony()); // fake tool paths
 
         let r = handle(&cfg, "POST", "/api/payroll", br#"{"proposer":"Ana","lines":[{"address":"u1a","value_zec":"0.0002"}]}"#);
         assert_eq!(r.status, 201);
         let id = body_json(&r)["proposal"]["id"].as_str().unwrap().to_string();
-        // Reach the quorum (Ana proposed; Bruno approves) → Ready.
         let a = handle(&cfg, "POST", &format!("/api/proposals/{id}/approve"), br#"{"member":"Bruno"}"#);
         assert_eq!(body_json(&a)["proposal"]["state"], "ready");
-        // Sending a payroll is an honest 501 (multi-output engine is roadmap).
+        // Payroll now goes through the multi-output engine; with dummy tool paths the
+        // build step fails and surfaces a clean 502 (not a silent success, not a 501).
         let s = handle(&cfg, "POST", &format!("/api/proposals/{id}/send"), br#"{"dry_run":false}"#);
-        assert_eq!(s.status, 501);
-        assert_eq!(body_json(&s)["error"], "payroll send not implemented");
+        assert_eq!(s.status, 502);
+        assert_eq!(body_json(&s)["error"], "send failed");
     }
 
     // ---- send guards (the ceremony itself is validated live, not in unit tests) ----

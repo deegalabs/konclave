@@ -71,62 +71,95 @@ pub struct SendOutcome {
     pub sighash: String,
 }
 
+/// One payroll beneficiary, fed to the multi-output PCZT builder.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PayrollDest {
+    pub address: String,
+    pub value_zat: u64,
+    pub memo: Option<String>,
+}
+
+/// What to spend: a single payment, or a payroll (N outputs in one transaction).
+pub enum SpendPlan {
+    Payment { to: String, value_zat: u64, memo: Option<String> },
+    Payroll { lines: Vec<PayrollDest> },
+}
+
+/// Build the unproven PCZT for a plan. A single payment uses the official CLI (one
+/// output); a payroll uses our multi-output builder (`konclave-signer build-payroll`,
+/// which links `zcash_client_backend` — the engine the CLI lacks).
+fn build_unproven(sc: &SendConfig, plan: &SpendPlan) -> Result<Vec<u8>, ToolError> {
+    match plan {
+        SpendPlan::Payment { to, value_zat, memo } => {
+            pczt::create(&sc.devtool, &sc.wallet_dir, to, *value_zat, &sc.account, memo.as_deref())
+        }
+        SpendPlan::Payroll { lines } => {
+            let spec = serde_json::to_string(lines)
+                .map_err(|e| ToolError::parse("payroll spec", e.to_string()))?;
+            let spec_path = format!("{}/payroll-spec.json", sc.work_dir);
+            std::fs::write(&spec_path, spec).map_err(ToolError::Io)?;
+            let out_path = format!("{}/payroll.pczt", sc.work_dir);
+            crate::tools::run(
+                &sc.konclave_signer,
+                &[
+                    "build-payroll", "--wallet", &sc.wallet_dir, "--account", &sc.account,
+                    "--spec", &spec_path, "--out", &out_path,
+                ],
+                None,
+            )?;
+            std::fs::read(&out_path).map_err(ToolError::Io)
+        }
+    }
+}
+
 /// Run the full spend. On `dry_run` it stops after producing a signed PCZT (no broadcast,
 /// no funds moved) — the way to validate the ceremony works today without spending.
+///
+/// Handles multi-note spends: a transaction may consume several input notes, each a real
+/// Orchard spend needing its own FROST signature (one ceremony round per randomizer).
 pub fn orchestrate_send(
     sc: &SendConfig,
-    to: &str,
-    value_zat: u64,
-    memo: Option<&str>,
+    plan: &SpendPlan,
     dry_run: bool,
 ) -> Result<SendOutcome, ToolError> {
     std::fs::create_dir_all(&sc.work_dir).map_err(ToolError::Io)?;
 
-    // 1) build the (unproven) PCZT from the vault wallet.
-    let tx1 = pczt::create(&sc.devtool, &sc.wallet_dir, to, value_zat, &sc.account, memo)?;
+    // 1) build the (unproven) PCZT (single payment via CLI, payroll via our builder).
+    let tx1 = build_unproven(sc, plan)?;
 
     // 2) prove it (ZK proofs, local).
     let tx2 = pczt::prove(&sc.devtool, &sc.wallet_dir, &tx1)?;
     let tx2_path = format!("{}/tx2-proven.pczt", sc.work_dir);
     std::fs::write(&tx2_path, &tx2).map_err(ToolError::Io)?;
 
-    // 3) extract the sighash + randomizers the FROST ceremony must sign.
+    // 3) extract the sighash + the per-spend randomizers the ceremony must sign.
     let input = signer::extract(&sc.konclave_signer, &tx2_path)?;
-    if input.randomizers.len() != 1 {
-        return Err(ToolError::parse(
-            "ceremony",
-            format!(
-                "the automated ceremony currently supports a single real spend; this tx has {}",
-                input.randomizers.len()
-            ),
-        ));
+    if input.randomizers.is_empty() {
+        return Err(ToolError::parse("ceremony", "no real spends to sign"));
     }
-    let action_index = input.randomizers[0].action_index;
     let sighash_hex = hex_encode(&input.sighash);
-    let randomizer_hex = hex_encode(&input.randomizers[0].alpha);
 
     // 4) start frostd fresh (killed on drop → no stale session survives the call).
     let _frostd = Frostd::start(
-        &sc.frostd,
-        &sc.frostd_cert,
-        &sc.frostd_key,
-        &sc.frostd_ip,
-        sc.frostd_port,
+        &sc.frostd, &sc.frostd_cert, &sc.frostd_key, &sc.frostd_ip, sc.frostd_port,
     )?;
     thread::sleep(Duration::from_millis(900));
 
-    // 5) run the ceremony (coordinator + participants concurrently) → 64-byte signature.
-    let sig_path = format!("{}/sig.raw", sc.work_dir);
-    let signature = run_ceremony(sc, &sighash_hex, &randomizer_hex, &sig_path)?;
+    // 5) one ceremony per real spend → collect every (action_index, signature). The
+    //    message is the same sighash; each spend re-randomizes it with its own alpha.
+    let mut signatures = Vec::with_capacity(input.randomizers.len());
+    for (round, r) in input.randomizers.iter().enumerate() {
+        let alpha_hex = hex_encode(&r.alpha);
+        let sig_path = format!("{}/sig-{round}.raw", sc.work_dir);
+        let sig = run_ceremony(sc, &sighash_hex, &alpha_hex, &sig_path)?;
+        signatures.push((r.action_index, sig));
+        // Let the completed session settle before the next round's fresh session.
+        thread::sleep(Duration::from_millis(300));
+    }
 
-    // 6) inject the signature back into the PCZT (inject verifies it).
+    // 6) inject every signature back into the PCZT (inject verifies each).
     let tx3_path = format!("{}/tx3-signed.pczt", sc.work_dir);
-    signer::inject(
-        &sc.konclave_signer,
-        &tx2_path,
-        &tx3_path,
-        &[(action_index, signature)],
-    )?;
+    signer::inject(&sc.konclave_signer, &tx2_path, &tx3_path, &signatures)?;
 
     // 7) broadcast — unless this is a dry-run.
     let txid = if dry_run {
@@ -136,11 +169,7 @@ pub fn orchestrate_send(
         Some(pczt::send(&sc.devtool, &sc.wallet_dir, &sc.lightwalletd, &tx3)?)
     };
 
-    Ok(SendOutcome {
-        txid,
-        signed_pczt: tx3_path,
-        sighash: sighash_hex,
-    })
+    Ok(SendOutcome { txid, signed_pczt: tx3_path, sighash: sighash_hex })
 }
 
 /// Coordinator + participants run concurrently (they block on each other via frostd), as
