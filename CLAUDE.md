@@ -245,5 +245,27 @@ store + folha, **59 testes destrutivos verdes**. Falta apenas a casca Tauri + IP
 integração). Build: WSL2, `CARGO_TARGET_DIR` fora do repo (código versionado; `ktarget`
 só no WSL).
 
-**Próximo:** Fase 4 (Rosto/design — token system + telas contra mock) e/ou Fase 5
-(casca Tauri + IPC + integração ponta a ponta).
+**Fase 4 (Rosto/design) — ✅ CONCLUÍDA.** Design system **"Lacre"** (papel arquivístico,
+oxblood, Archivo + mono, tarja de sigilo, selo de cera) em `rosto/src/lacre.css`; app
+navegável em Vite + React + TS (HashRouter): Painel, Abertura, Cerimônia, Novo Pagamento,
+Nova Folha, Proposta, Enviado, Razão. Ver [ADR-0003](docs/adr/0003-vite-over-nextjs.md).
+
+**Fase 5c (integração UI ↔ núcleo) — ✅ pivô concluído (2026-07-01).**
+- **Go/no-go do WSLg falhou:** janela GTK/Tauri não renderiza nesta máquina (ícone na
+  barra, sem conteúdo; nem render por software resolve). Registrado em
+  [ADR-0004](docs/adr/0004-ponte-http-local.md).
+- **Pivô:** em vez de IPC Tauri, o Orquestrador expõe uma **ponte HTTP em loopback**
+  (`konclave serve`, bin novo no crate; `src/server.rs`, dep `tiny_http`) que serve o
+  bundle do Rosto **+ API `/api/*`** ligada ao núcleo testado. Bind **só em 127.0.0.1**.
+- **Provado ponta a ponta:** navegador do **Windows** → servidor no **WSL** via
+  `localhost:4762` (health, vault 2-de-3, propostas, estáticos). **69 testes verdes**
+  (10 novos de `server::handle`, incluindo destrutivos: 405/404-json/403-traversal/502).
+- **Rosto ligado ao vivo:** `rosto/src/api.ts` (cliente com fallback para mock) + proxy
+  Vite `/api`; Painel mostra cofre/propostas reais com selo de "● ao vivo".
+- **Launcher:** `scripts/konclave.ps1` (Windows) + `scripts/_serve.sh` (WSL) — builda,
+  sobe a ponte e abre o navegador.
+- **Empacotamento Tauri (binário único desktop):** movido para **roadmap** (ADR-0004) —
+  a garantia local-first não muda, só a forma de entrega.
+
+**Próximo:** ligar `/api/balance` ao vivo (`--devtool/--wallet/--server` apontando à
+carteira do slice) e expandir a API para propor/assinar (cerimônia FROST server-side).

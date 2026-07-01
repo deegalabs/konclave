@@ -17,5 +17,14 @@ chacha20poly1305 = "0.10"
 getrandom = "0.2"
 # Local per-device state (vaults, proposals). Bundled SQLite = no system dependency.
 rusqlite = { version = "0.31", features = ["bundled"] }
+# Loopback-only HTTP bridge to the Rosto UI (ADR-0004). Blocking server, coherent with
+# the synchronous core (rusqlite/subprocess) — no async runtime dragged in. Bound to
+# 127.0.0.1 only: a local daemon, never a network service.
+tiny_http = "0.12"
+
+# The `konclave serve` binary (the local bridge). The library stays the tested core.
+[[bin]]
+name = "konclave"
+path = "src/main.rs"
 
 [dev-dependencies]

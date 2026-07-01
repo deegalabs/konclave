@@ -1,33 +1,101 @@
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Letterhead, Seal, Secret, RevealButton } from '../components'
+import {
+  getVault, getProposals, getBalance, health, shortAddr,
+  type Vault, type Proposal, type Balance,
+} from '../api'
 
 type Movimento = { date: string; title: string; by?: string; value: string; dir: 'out' | 'in'; status: string }
 
+// Historical ledger — placeholder until on-chain history is wired (the pending card and
+// vault header below are live from the local bridge).
 const MOVIMENTOS: Movimento[] = [
   { date: '28/04', title: 'Folha de abril — 8 pagamentos', by: 'prop. Ana · aprov. Ana, Bruno', value: '−4.2000', dir: 'out', status: 'verificar' },
   { date: '22/04', title: 'Doação recebida', by: 'de contribuinte anônimo', value: '+1.0000', dir: 'in', status: 'confirmado' },
   { date: '15/04', title: 'Pagamento — infraestrutura', by: 'prop. Bruno · aprov. Bruno, Carla', value: '−0.3000', dir: 'out', status: 'verificar' },
 ]
 
-const ACOES: [string, string, string, string][] = [
-  ['01', 'Novo pagamento', 'um destino', '/pagar'],
-  ['02', 'Nova folha', 'N destinos, 1 aprovação', '/folha'],
-  ['03', 'Propostas', '1 aguardando', '/proposta'],
-  ['04', 'Razão / contas', 'entregar ao contador', '/razao'],
-]
+function fmt4(zec?: string, fallback = ''): string {
+  if (!zec) return fallback
+  const n = Number(zec)
+  return Number.isFinite(n) ? n.toFixed(4) : fallback
+}
+
+function expiryLabel(unix?: number): string {
+  if (!unix) return ''
+  const ms = unix * 1000 - Date.now()
+  if (ms <= 0) return 'expirada'
+  const h = Math.floor(ms / 3_600_000)
+  return h < 48 ? `expira em ${h}h` : `expira em ${Math.floor(h / 24)}d`
+}
 
 export default function Painel() {
+  const [vault, setVault] = useState<Vault | null>(null)
+  const [proposals, setProposals] = useState<Proposal[]>([])
+  const [balance, setBalance] = useState<Balance | null>(null)
+  const [live, setLive] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    let on = true
+    void (async () => {
+      const ok = await health()
+      if (!on) return
+      setLive(ok)
+      if (!ok) return
+      const [v, ps, b] = await Promise.all([getVault(), getProposals(), getBalance()])
+      if (!on) return
+      if (v) setVault(v)
+      if (ps) setProposals(ps)
+      if (b) setBalance(b)
+    })()
+    return () => { on = false }
+  }, [])
+
+  // Vault header — live when the bridge answers, faithful placeholder otherwise.
+  const name = vault?.name ?? 'Tesouraria Comum'
+  const t = vault?.threshold ?? 2
+  const n = vault?.total ?? 3
+  const members = vault?.members ?? n
+  const addr = vault ? shortAddr(vault.orchard_address) : 'u1vjgx…d406dr'
+
+  // Balance — live only once a wallet tool is wired (`--devtool/--wallet/--server`).
+  const hasBal = balance?.configured === true
+  const amt = hasBal ? fmt4(balance!.total_zec, '2.4180') : '2.4180'
+  const confirmado = hasBal ? fmt4(balance!.spendable_zec, amt) : '2.4180'
+  const pendente = hasBal ? `+${fmt4(balance!.pending_zec, '0.0000')}` : '+0.0100'
+
+  // Pending approval — first awaiting proposal from the bridge.
+  const awaiting = proposals.filter((p) => p.state === 'awaiting')
+  const pending = awaiting[0] ?? null
+  const pAmt = pending ? fmt4(pending.value_zec, '0.5000') : '0.5000'
+  const pMemo = pending?.memo ?? 'adiantamento maio'
+  const pProposer = pending?.proposer ?? 'Bruno'
+  const pApprovals = pending?.approvals_count ?? 1
+  const pExpiry = pending ? expiryLabel(pending.expiry_unix) : 'expira em 71h'
+
+  const acoes: [string, string, string, string][] = [
+    ['01', 'Novo pagamento', 'um destino', '/pagar'],
+    ['02', 'Nova folha', 'N destinos, 1 aprovação', '/folha'],
+    ['03', 'Propostas', `${live ? awaiting.length : 1} aguardando`, '/proposta'],
+    ['04', 'Razão / contas', 'entregar ao contador', '/razao'],
+  ]
+
   return (
     <>
-      <Letterhead right={<button className="switch">COFRE · <b>Tesouraria Comum</b> ▾</button>} />
+      <Letterhead right={<button className="switch">COFRE · <b>{name}</b> ▾</button>} />
       <div className="page">
         <div className="title-row">
           <div>
             <span className="klab">Cofre coletivo · quórum</span>
-            <h1 className="h1">Tesouraria Comum</h1>
-            <div className="vmeta">Privado por fora · <b>transparente por dentro</b> · 3 membros</div>
+            <h1 className="h1">{name}</h1>
+            <div className="vmeta">
+              Privado por fora · <b>transparente por dentro</b> · {members} membros
+              {live === true && <span className="livetag" title="Conectado ao cofre local">● ao vivo</span>}
+              {live === false && <span className="livetag off" title="Bridge local não encontrada">○ demonstração</span>}
+            </div>
           </div>
-          <Seal t={2} n={3} />
+          <Seal t={t} n={n} />
         </div>
 
         <section className="entry">
@@ -36,16 +104,16 @@ export default function Painel() {
             <RevealButton />
           </div>
           <div className="fig">
-            <Secret><span className="amt">2.4180</span></Secret>
+            <Secret><span className="amt">{amt}</span></Secret>
             <span className="unit">ZEC</span>
           </div>
           <div className="breakdown">
-            <span>confirmado <Secret sm><b>2.4180</b></Secret></span>
-            <span className="pd">pendente <Secret sm><b>+0.0100</b></Secret></span>
+            <span>confirmado <Secret sm><b>{confirmado}</b></Secret></span>
+            <span className="pd">pendente <Secret sm><b>{pendente}</b></Secret></span>
           </div>
           <div className="receive">
             <span className="klab plain">Receber em</span>
-            <code>u1vjgx…d406dr</code>
+            <code>{addr}</code>
             <span className="orchard">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2.5 4.5 5.5v6c0 5 3.4 8.4 7.5 9.9 4.1-1.5 7.5-4.9 7.5-9.9v-6L12 2.5Z" /></svg>
               SÓ ENDEREÇO ORCHARD
@@ -56,12 +124,12 @@ export default function Painel() {
         <div className="cols">
           <section className="approve">
             <div className="req"><span className="stamp">Pendente</span> Requer sua aprovação</div>
-            <div className="a-amt">0.5000 <span className="dim small">ZEC</span></div>
-            <div className="a-to">para <b>zs1q9f…7ka2</b> · memo “adiantamento maio”</div>
+            <div className="a-amt">{pAmt} <span className="dim small">ZEC</span></div>
+            <div className="a-to">memo “{pMemo}”</div>
             <div className="a-meta">
-              <span>proposto por <b>Bruno</b></span>
-              <span className="prog"><i className="on" /><i /></span>
-              <span>1 de 2 · expira em 71h</span>
+              <span>proposto por <b>{pProposer}</b></span>
+              <span className="prog">{Array.from({ length: t }, (_, i) => <i key={i} className={i < pApprovals ? 'on' : ''} />)}</span>
+              <span>{pApprovals} de {t}{pExpiry ? ` · ${pExpiry}` : ''}</span>
             </div>
             <div className="btns">
               <Link className="btn ok" to="/proposta">Aprovar</Link>
@@ -72,11 +140,11 @@ export default function Painel() {
 
           <nav className="opnav">
             <span className="klab">O que fazer</span>
-            {ACOES.map(([n, t, d, to]) => (
-              <Link className="op" to={to} key={n}>
-                <span className="n">{n}</span>
-                <span className="t">{t}</span>
-                <span className="d">{d}</span>
+            {acoes.map(([num, title, desc, to]) => (
+              <Link className="op" to={to} key={num}>
+                <span className="n">{num}</span>
+                <span className="t">{title}</span>
+                <span className="d">{desc}</span>
                 <span className="go">→</span>
               </Link>
             ))}

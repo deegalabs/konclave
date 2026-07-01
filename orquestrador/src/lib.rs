@@ -27,6 +27,9 @@ pub mod signer;
 pub mod tools;
 pub mod wallet;
 
+// --- local HTTP bridge to the Rosto UI (ADR-0004) ---
+pub mod server;
+
 pub use money::{MoneyError, Zatoshis};
 pub use payroll::{import_csv, ImportReport, ImportRowError, PayrollPlan, PayrollSummary};
 pub use proposal::{Proposal, ProposalError, ProposalState, Quorum};
