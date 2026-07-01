@@ -284,5 +284,17 @@ Trilha "propor → aprovar → assinar → enviar" inteira pela aplicação:
   2-de-3 aprovado por quórum, assinado por cerimônia FROST server-side e transmitido, tudo
   pela ponte HTTP. A chave **nunca foi remontada**.
 
-**Próximo:** trilha contábil (passo 3) — ligar a tela `Razão` à API e o **export de
-documentos para o contador** (a segunda trilha de peso do hackathon).
+**Trilha contábil — ✅ CONCLUÍDA (2026-07-01).** `store::list_all_proposals` (razão
+completo, estados terminais inclusos); `GET /api/ledger` (JSON) + `GET /api/ledger.csv`
+(download com escaping RFC-4180: id, estado, tipo, proponente, aprovadores, valor, memo,
+destino, txid). Tela `Razão` ao vivo com export CSV + imprimir/PDF. O CSV do contador
+inclui o pagamento real de mainnet (txid `43433a10…`). **92 testes verdes.**
+
+**Estado do produto:** o loop inteiro — **propor → aprovar → assinar (FROST) → enviar
+(mainnet) → prestar contas** — funciona ponta a ponta pela aplicação (navegador do
+Windows → ponte HTTP no WSL → núcleo testado + motor oficial). Ambas as trilhas de peso
+(FROST + Accounting) provadas.
+
+**Próximo (entrega, Fase 7):** README unicórnio + vídeo + diagrama; opcionalmente trocar
+o cofre-demo (trusted-dealer) pelo cofre **DKG** da Fase 2; empacotamento Tauri (roadmap,
+ADR-0004).
