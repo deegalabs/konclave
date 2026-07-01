@@ -36,8 +36,18 @@ else
   echo "→ saldo em modo demo (carteira não encontrada; saldo real desligado)"
 fi
 
+# Real send (FROST ceremony) is enabled only when a ceremony config is provided.
+CEREMONY="${KONCLAVE_CEREMONY:-}"
+CEREMONY_ARGS=()
+if [ -n "$CEREMONY" ] && [ -f "$CEREMONY" ]; then
+  CEREMONY_ARGS=(--ceremony "$CEREMONY")
+  echo "→ envio ao vivo (cerimônia FROST) habilitado: $CEREMONY"
+else
+  echo "→ envio desligado (defina KONCLAVE_CEREMONY=<config.json> para habilitar)"
+fi
+
 setsid nohup "$BIN" serve --port "$PORT" \
-  --web "$REPO/rosto/dist" --db "$DB" --demo "${WALLET_ARGS[@]}" \
+  --web "$REPO/rosto/dist" --db "$DB" --demo "${WALLET_ARGS[@]}" "${CEREMONY_ARGS[@]}" \
   > "$HOME/konclave-serve.log" 2>&1 &
 sleep 1
 

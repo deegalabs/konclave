@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Letterhead, Secret } from '../components'
 import {
-  getProposal, getProposals, getVault, voteProposal, shortAddr,
+  getProposal, getProposals, getVault, voteProposal, sendProposal, shortAddr,
   type Proposal,
 } from '../api'
 
@@ -21,6 +21,8 @@ export default function Proposta() {
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [sending, setSending] = useState<null | 'dry' | 'real'>(null)
+  const [dryOk, setDryOk] = useState<string | null>(null)
 
   useEffect(() => {
     let on = true
@@ -48,6 +50,19 @@ export default function Proposta() {
     else setError(res.detail ? `${res.error}: ${res.detail}` : res.error)
   }
 
+  async function send(dryRun: boolean) {
+    if (!p) return
+    setError(null); setDryOk(null); setSending(dryRun ? 'dry' : 'real')
+    const res = await sendProposal(p.id, dryRun)
+    setSending(null)
+    if (!res.ok) { setError(res.detail ? `${res.error}: ${res.detail}` : res.error); return }
+    if (res.dryRun) {
+      setDryOk(res.sighash ?? 'assinatura válida')
+    } else if (res.proposal) {
+      setP(res.proposal) // now Sent, carries the txid
+    }
+  }
+
   if (loading) {
     return (<><Letterhead right={<span className="klab back" onClick={() => nav('/')}>← Propostas</span>} />
       <div className="page narrow"><div className="hint">Carregando proposta…</div></div></>)
@@ -64,6 +79,7 @@ export default function Proposta() {
   const isAwaiting = p.state === 'awaiting'
   const isReady = p.state === 'ready'
   const isRejected = p.state === 'rejected'
+  const isSent = p.state === 'sent' || p.state === 'confirmed'
 
   return (
     <>
@@ -99,9 +115,30 @@ export default function Proposta() {
 
         {isReady && (
           <>
-            <div className="confirm mt ready">✓ <b>Quórum atingido.</b> A proposta está <b>pronta para enviar</b>.</div>
-            <div className="btns mt"><button className="btn ok" disabled title="Assinatura FROST + broadcast — próximo passo">▸ Assinar e enviar à mainnet</button></div>
-            <div className="hint mt-sm">Assinatura FROST das partes + broadcast à mainnet: <b>próxima etapa</b> (2c).</div>
+            <div className="confirm mt ready">✓ <b>Quórum atingido.</b> A proposta está <b>pronta</b>. Assinar reúne as partes da chave (FROST) e transmite à mainnet.</div>
+            <div className="btns mt">
+              <button className="btn ok" onClick={() => send(false)} disabled={sending !== null}>
+                {sending === 'real' ? 'Assinando e enviando… (pode levar ~1 min)' : '▸ Assinar e enviar à mainnet'}
+              </button>
+              <button className="btn" onClick={() => send(true)} disabled={sending !== null} title="Executa a cerimônia e assina, sem transmitir">
+                {sending === 'dry' ? 'Validando…' : 'Validar (sem enviar)'}
+              </button>
+            </div>
+            {dryOk && <div className="hint mt-sm ready">✓ Assinatura FROST válida (sighash <code>{dryOk.slice(0, 16)}…</code>). Nada foi transmitido.</div>}
+            <div className="hint mt-sm">A assinatura nunca remonta a chave: cada parte assina no seu lugar e só o resultado combinado vai à rede.</div>
+          </>
+        )}
+
+        {isSent && (
+          <>
+            <div className="confirm mt ready">✓ <b>Enviada à mainnet.</b> Pagamento transmitido e assinado por quórum.</div>
+            {p.txid && (
+              <div className="p-meta mt">
+                <div>txid</div>
+                <div className="mt-xs"><code>{p.txid}</code></div>
+                <div className="mt-xs"><a className="link" href={`https://mainnet.zcashexplorer.app/transactions/${p.txid}`} target="_blank" rel="noreferrer">ver no explorador ↗</a></div>
+              </div>
+            )}
           </>
         )}
 

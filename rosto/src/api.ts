@@ -129,6 +129,37 @@ export async function getProposal(id: string): Promise<Proposal | null> {
   return r?.proposal ?? null
 }
 
+export type SendResult =
+  | { ok: true; dryRun: boolean; txid?: string; sighash?: string; proposal?: Proposal }
+  | { ok: false; error: string; detail?: string }
+
+/**
+ * Run the FROST ceremony for a Ready proposal. `dryRun` signs without broadcasting.
+ * No client timeout: the ceremony (create→prove→sign→broadcast) can take 30–60s.
+ */
+export async function sendProposal(id: string, dryRun: boolean): Promise<SendResult> {
+  try {
+    const res = await fetch(`${BASE}/api/proposals/${encodeURIComponent(id)}/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dry_run: dryRun }),
+    })
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>
+    if (res.ok) {
+      return {
+        ok: true,
+        dryRun: Boolean(data.dry_run),
+        txid: data.txid as string | undefined,
+        sighash: data.sighash as string | undefined,
+        proposal: data.proposal as Proposal | undefined,
+      }
+    }
+    return { ok: false, error: (data.error as string) ?? `HTTP ${res.status}`, detail: data.detail as string }
+  } catch (e) {
+    return { ok: false, error: 'falha no envio', detail: String(e) }
+  }
+}
+
 /** Approve or refuse a proposal on behalf of `member`. */
 export async function voteProposal(
   id: string,

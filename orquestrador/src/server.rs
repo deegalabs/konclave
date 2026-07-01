@@ -48,6 +48,8 @@ pub struct Config {
     pub web_dir: PathBuf,
     pub db_path: String,
     pub wallet: Option<Box<dyn WalletReader>>,
+    /// The FROST ceremony config, present only when the send path is wired (`--ceremony`).
+    pub ceremony: Option<crate::send::SendConfig>,
 }
 
 /// A fully-formed HTTP response, independent of the transport.
@@ -207,6 +209,9 @@ pub fn handle(cfg: &Config, method: &str, raw_path: &str, body: &[u8]) -> Respon
             }
             if let Some(id) = rest.strip_suffix("/refuse") {
                 return vote_proposal(cfg, id, body, false);
+            }
+            if let Some(id) = rest.strip_suffix("/send") {
+                return send_proposal(cfg, id, body);
             }
         }
         if path.starts_with("/api/") {
@@ -479,6 +484,86 @@ fn vote_proposal(cfg: &Config, id: &str, body: &[u8], approve: bool) -> Response
     Response::json(200, &serde_json::json!({ "proposal": ProposalDto::from(updated) }))
 }
 
+#[derive(serde::Deserialize, Default)]
+struct SendReq {
+    #[serde(default)]
+    dry_run: bool,
+}
+
+/// `POST /api/proposals/{id}/send` — run the FROST ceremony for a Ready proposal and,
+/// unless `dry_run`, broadcast. On a real send the proposal transitions Ready→Sent with
+/// the txid recorded. This moves real funds; the caller (UI) confirms explicitly first.
+fn send_proposal(cfg: &Config, id: &str, body: &[u8]) -> Response {
+    use crate::proposal::Proposal;
+    use crate::send::orchestrate_send;
+    use std::collections::BTreeSet;
+
+    let req: SendReq = if body.is_empty() {
+        SendReq::default()
+    } else {
+        serde_json::from_slice(body).unwrap_or_default()
+    };
+
+    let Some(sc) = cfg.ceremony.as_ref() else {
+        return Response::json(501, &serde_json::json!({
+            "error": "ceremony not configured",
+            "detail": "suba a ponte com --ceremony <config.json> para habilitar o envio"
+        }));
+    };
+
+    let mut store = match open_store(cfg) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    let rec = match store.get_proposal(id) {
+        Ok(Some(r)) => r,
+        Ok(None) => return Response::json(404, &serde_json::json!({"error": "not found"})),
+        Err(e) => return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
+    };
+    if rec.state != crate::proposal::ProposalState::Ready {
+        return Response::json(409, &serde_json::json!({
+            "error": "not ready",
+            "detail": format!("a proposta está {:?}; só uma proposta com quórum (Ready) pode ser enviada", rec.state)
+        }));
+    }
+    let Some(to) = rec.to_address.clone() else {
+        return Response::json(400, &serde_json::json!({"error": "no destination", "detail": "proposta sem endereço de destino"}));
+    };
+
+    let outcome = orchestrate_send(sc, &to, rec.value_total.as_u64(), rec.memo.as_deref(), req.dry_run);
+    let outcome = match outcome {
+        Ok(o) => o,
+        Err(e) => return Response::json(502, &serde_json::json!({"error": "send failed", "detail": e.to_string()})),
+    };
+
+    if req.dry_run {
+        return Response::json(200, &serde_json::json!({
+            "dry_run": true, "sighash": outcome.sighash, "signed_pczt": outcome.signed_pczt
+        }));
+    }
+
+    // Real broadcast succeeded → transition Ready→Sent via the state machine, record txid.
+    let vault = match store.get_vault(&rec.vault_id) {
+        Ok(Some(v)) => v,
+        _ => return Response::json(500, &serde_json::json!({"error": "store", "detail": "cofre ausente"})),
+    };
+    let approvals: BTreeSet<String> = rec.approvals.iter().cloned().collect();
+    let refusals: BTreeSet<String> = rec.refusals.iter().cloned().collect();
+    let mut p = Proposal::from_parts(rec.proposer.clone(), vault.quorum, approvals, refusals, rec.state);
+    let _ = p.broadcast(); // Ready→Sent (state already verified above)
+
+    let mut updated = rec;
+    updated.state = p.state();
+    updated.txid = outcome.txid.clone();
+    if let Err(e) = store.save_proposal(&updated) {
+        return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()}));
+    }
+    Response::json(200, &serde_json::json!({
+        "proposal": ProposalDto::from(updated),
+        "txid": outcome.txid
+    }))
+}
+
 /// A short random hex id (public, non-secret) for a proposal.
 fn new_id() -> String {
     let mut b = [0u8; 8];
@@ -647,7 +732,7 @@ mod tests {
     }
 
     fn cfg_with(db: String, wallet: Option<Box<dyn WalletReader>>) -> Config {
-        Config { web_dir: std::env::temp_dir(), db_path: db, wallet }
+        Config { web_dir: std::env::temp_dir(), db_path: db, wallet, ceremony: None }
     }
 
     fn body_json(r: &Response) -> serde_json::Value {
@@ -931,5 +1016,48 @@ mod tests {
         assert_eq!(body_json(&r)["proposal"]["id"], id);
         let miss = handle(&cfg, "GET", "/api/proposals/nope", b"");
         assert_eq!(miss.status, 404);
+    }
+
+    // ---- send guards (the ceremony itself is validated live, not in unit tests) ----
+
+    fn dummy_ceremony() -> crate::send::SendConfig {
+        serde_json::from_str(
+            r#"{"devtool":"/x","wallet_dir":"/w","lightwalletd":"z:443","account":"a",
+                "konclave_signer":"/ks","frostd":"/fd","frost_client":"/fc",
+                "coordinator_config":"a.toml","participant_configs":["a.toml","b.toml"],
+                "group":"gg","signers":["aa","bb"],"frostd_cert":"c.pem","frostd_key":"k.pem",
+                "server_url":"127.0.0.1:2744","work_dir":"/tmp/w"}"#,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn send_without_ceremony_config_is_501() {
+        let cfg = seeded_cfg(None); // ceremony: None
+        let r = handle(&cfg, "POST", "/api/proposals/anything/send", b"");
+        assert_eq!(r.status, 501);
+        assert_eq!(body_json(&r)["error"], "ceremony not configured");
+    }
+
+    #[test]
+    fn send_on_non_ready_proposal_is_409() {
+        let db = tmp_db();
+        let mut store = Store::open(&db).unwrap();
+        seed_demo(&mut store).unwrap();
+        drop(store);
+        let mut cfg = cfg_with(db, None);
+        cfg.ceremony = Some(dummy_ceremony());
+        let id = create_one(&cfg); // awaiting (2-of-3, only proposer approved)
+        let r = handle(&cfg, "POST", &format!("/api/proposals/{id}/send"), br#"{"dry_run":false}"#);
+        assert_eq!(r.status, 409);
+        assert_eq!(body_json(&r)["error"], "not ready");
+    }
+
+    #[test]
+    fn send_on_missing_proposal_is_404() {
+        let mut cfg = seeded_cfg(None);
+        cfg.ceremony = Some(dummy_ceremony());
+        let r = handle(&cfg, "POST", "/api/proposals/deadbeef/send", b"");
+        assert_eq!(r.status, 404);
     }
 }
