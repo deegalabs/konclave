@@ -233,10 +233,10 @@ em [docs/VERTICAL_SLICE.md](docs/VERTICAL_SLICE.md).
 - **3.2 Orquestração:** `tools`/`wallet`/`signer`/`pczt`/`ceremony` — embrulham os
   binários com saída estruturada (parsers testados contra saída real do slice).
 - **3.3 Segurança + store:** `secrets` (XChaCha20-Poly1305 sela as shares em repouso;
-  keychain via trait; arquivo efêmero 0600) — cobre o armazenamento **do próprio
-  Orquestrador**, mas ⚠️ **o débito NÃO está quitado no sistema que roda**: o caminho vivo
-  da cerimônia ainda lê as shares em **texto claro** dos configs `frost-client` (dívida
-  real **em aberto**, ver 5-E); `store` (SQLite embutido: cofres, propostas, votos).
+  keychain via trait; arquivo efêmero 0600). **Quitado no 5-E**: o caminho vivo da
+  cerimônia passou a usar configs `frost-client` **selados**, desselados só para arquivos
+  efêmeros 0600 em tmpfs durante a assinatura — nada de share em texto claro no disco.
+  `store` (SQLite embutido: cofres, propostas, votos).
 
 - **3.4 Folha:** `payroll` (plano de N saídas, `import_csv`, validação agregada) +
   `money::from_zec_str`. Os **comandos Tauri (IPC)** ficam para a **integração
@@ -305,19 +305,28 @@ planejado em [docs/REDESENHO_FOLHA.md](docs/REDESENHO_FOLHA.md).
   **expiração** de proposta (§6.3).
 - **101 testes verdes.**
 
+**Fase 5 — identidade e segurança (2026-07-01):**
+- **5-D** membros e beneficiários como **entidades**: membros reais (nome + pubkey FROST) +
+  tela Membros; cadastro de beneficiários com pickers; e **aprovação ↔ share que assina** —
+  a cerimônia resolve os configs de **quem aprovou** (provado: aprovar como Carol faz a
+  `carol.toml` assinar).
+- **5-E** as **shares deixam de ficar em texto claro**: configs selados (XChaCha20-Poly1305,
+  `konclave seal`) e desselados só para arquivos **efêmeros 0600 em tmpfs** durante a
+  assinatura; os textos claros do slice foram removidos (provado por dry-run com só os
+  `.sealed`). Custódia da chave: arquivo 0600 (produto usa a keychain do SO).
+- **106 testes verdes.**
+
 **Estado real do produto (sem overclaim):** o núcleo roda pela UI para **pagamento e
-folha** — propor → validar (contínuo) → aprovar/recusar (quórum, expiração) → **assinar
-(FROST)** → prestar contas (razão + CSV itemizado). **Provado na mainnet:** 1 **pagamento
-único** (txid `43433a10…`). **Provado só por dry-run (assina, NÃO transmite):** a folha
-multi-saída — o **broadcast real da folha ainda não foi feito**.
+folha** — propor → validar (contínuo) → aprovar/recusar (quórum real, expiração) → **assinar
+(FROST com as shares de quem aprovou, seladas em repouso)** → prestar contas (razão + CSV
+itemizado). **Provado na mainnet:** 1 **pagamento único** (txid `43433a10…`). **Provado só
+por dry-run (assina, NÃO transmite):** a folha multi-saída e o caminho selado — os
+**broadcasts reais da folha/selado ainda não foram feitos**.
 
 **Dívidas honestas EM ABERTO (não prometer o que não entrega, §6.15):**
 - Cofre é **trusted-dealer** (andaime do slice), **não** o **DKG** da Fase 2 — DKG ainda
   não ligado na UI (5-F).
-- **Identidade de membro é cosmética**: os nomes de aprovação na UI não mapeiam às shares
-  que de fato assinam (a cerimônia usa sempre alice/bob do slice) (5-D).
-- **Shares em texto claro** no caminho vivo da cerimônia (5-E; ver 3.3).
 - **Broadcast real da folha** pendente; empacotamento **Tauri** é roadmap (ADR-0004).
+- ✅ **Quitadas:** identidade de membro cosmética (5-D.3) e shares em texto claro (5-E).
 
-**Próximo:** 5-D (membros/beneficiários como entidades) · 5-E (selar shares do caminho
-vivo) · 5-F (cofre por DKG na UI) · Fase 6 (extras) · Fase 7 (README/vídeo/diagrama).
+**Próximo:** 5-F (cofre por DKG na UI) · Fase 6 (extras) · Fase 7 (README/vídeo/diagrama).
