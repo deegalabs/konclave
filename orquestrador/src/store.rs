@@ -1,0 +1,457 @@
+//! Local per-device state (spec LOGICA_E_REGRAS §0): the vaults this device knows and
+//! the proposals in flight. On-chain is always the final truth about funds; this store
+//! is a cache + the record of "who proposed / who approved" that the chain can't hold.
+//!
+//! Backed by bundled SQLite (no system dependency). Shares are NEVER stored here — they
+//! live sealed via [`crate::secrets`] and in `frost-client`'s config; this store keeps
+//! only public material and local bookkeeping.
+
+use rusqlite::{params, Connection};
+
+use crate::money::Zatoshis;
+use crate::proposal::{ProposalState, Quorum};
+
+#[derive(Debug)]
+pub enum StoreError {
+    Db(rusqlite::Error),
+    /// A persisted value could not be mapped back to a domain type.
+    Decode(String),
+}
+
+impl std::fmt::Display for StoreError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StoreError::Db(e) => write!(f, "database error: {e}"),
+            StoreError::Decode(e) => write!(f, "could not decode stored value: {e}"),
+        }
+    }
+}
+impl std::error::Error for StoreError {}
+impl From<rusqlite::Error> for StoreError {
+    fn from(e: rusqlite::Error) -> Self {
+        StoreError::Db(e)
+    }
+}
+
+/// Whether a proposal is a single payment or a payroll (N outputs).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProposalKind {
+    Payment,
+    Payroll,
+}
+
+/// A vault known to this device (public material only).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VaultRecord {
+    pub id: String,
+    pub name: String,
+    pub quorum: Quorum,
+    pub group_pubkey: String,
+    pub orchard_address: String,
+    pub ufvk: String,
+    pub server_url: Option<String>,
+}
+
+/// A proposal as persisted (state + votes + optional broadcast txid).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProposalRecord {
+    pub id: String,
+    pub vault_id: String,
+    pub kind: ProposalKind,
+    pub state: ProposalState,
+    pub proposer: String,
+    pub value_total: Zatoshis,
+    pub memo: Option<String>,
+    pub expiry_unix: Option<i64>,
+    pub txid: Option<String>,
+    pub approvals: Vec<String>,
+    pub refusals: Vec<String>,
+}
+
+pub struct Store {
+    conn: Connection,
+}
+
+impl Store {
+    pub fn open(path: &str) -> Result<Store, StoreError> {
+        let conn = Connection::open(path)?;
+        Self::from_conn(conn)
+    }
+
+    pub fn open_in_memory() -> Result<Store, StoreError> {
+        Self::from_conn(Connection::open_in_memory()?)
+    }
+
+    fn from_conn(conn: Connection) -> Result<Store, StoreError> {
+        conn.execute_batch(
+            r#"
+            PRAGMA foreign_keys = ON;
+            CREATE TABLE IF NOT EXISTS vaults (
+                id              TEXT PRIMARY KEY,
+                name            TEXT NOT NULL,
+                threshold       INTEGER NOT NULL,
+                total           INTEGER NOT NULL,
+                group_pubkey    TEXT NOT NULL,
+                orchard_address TEXT NOT NULL,
+                ufvk            TEXT NOT NULL,
+                server_url      TEXT
+            );
+            CREATE TABLE IF NOT EXISTS proposals (
+                id           TEXT PRIMARY KEY,
+                vault_id     TEXT NOT NULL REFERENCES vaults(id),
+                kind         TEXT NOT NULL,
+                state        TEXT NOT NULL,
+                proposer     TEXT NOT NULL,
+                value_total  INTEGER NOT NULL,
+                memo         TEXT,
+                expiry_unix  INTEGER,
+                txid         TEXT
+            );
+            CREATE TABLE IF NOT EXISTS proposal_votes (
+                proposal_id  TEXT NOT NULL REFERENCES proposals(id) ON DELETE CASCADE,
+                member_id    TEXT NOT NULL,
+                vote         TEXT NOT NULL,
+                PRIMARY KEY (proposal_id, member_id)
+            );
+            "#,
+        )?;
+        Ok(Store { conn })
+    }
+
+    // ---- vaults ----
+
+    pub fn save_vault(&self, v: &VaultRecord) -> Result<(), StoreError> {
+        self.conn.execute(
+            "INSERT INTO vaults (id, name, threshold, total, group_pubkey, orchard_address, ufvk, server_url)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+             ON CONFLICT(id) DO UPDATE SET
+               name=excluded.name, threshold=excluded.threshold, total=excluded.total,
+               group_pubkey=excluded.group_pubkey, orchard_address=excluded.orchard_address,
+               ufvk=excluded.ufvk, server_url=excluded.server_url",
+            params![
+                v.id, v.name, v.quorum.threshold, v.quorum.total, v.group_pubkey,
+                v.orchard_address, v.ufvk, v.server_url
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_vault(&self, id: &str) -> Result<Option<VaultRecord>, StoreError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, name, threshold, total, group_pubkey, orchard_address, ufvk, server_url
+             FROM vaults WHERE id = ?1",
+        )?;
+        let mut rows = stmt.query_map(params![id], row_to_vault)?;
+        match rows.next() {
+            Some(r) => Ok(Some(r??)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn list_vaults(&self) -> Result<Vec<VaultRecord>, StoreError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, name, threshold, total, group_pubkey, orchard_address, ufvk, server_url
+             FROM vaults ORDER BY name",
+        )?;
+        let rows = stmt.query_map([], row_to_vault)?;
+        rows.map(|r| r?).collect()
+    }
+
+    // ---- proposals ----
+
+    /// Upsert a proposal and replace its votes atomically.
+    pub fn save_proposal(&mut self, p: &ProposalRecord) -> Result<(), StoreError> {
+        let tx = self.conn.transaction()?;
+        tx.execute(
+            "INSERT INTO proposals (id, vault_id, kind, state, proposer, value_total, memo, expiry_unix, txid)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+             ON CONFLICT(id) DO UPDATE SET
+               state=excluded.state, value_total=excluded.value_total, memo=excluded.memo,
+               expiry_unix=excluded.expiry_unix, txid=excluded.txid",
+            params![
+                p.id, p.vault_id, kind_str(p.kind), state_str(p.state), p.proposer,
+                p.value_total.as_u64() as i64, p.memo, p.expiry_unix, p.txid
+            ],
+        )?;
+        tx.execute("DELETE FROM proposal_votes WHERE proposal_id = ?1", params![p.id])?;
+        for m in &p.approvals {
+            tx.execute(
+                "INSERT OR REPLACE INTO proposal_votes (proposal_id, member_id, vote) VALUES (?1, ?2, 'approve')",
+                params![p.id, m],
+            )?;
+        }
+        for m in &p.refusals {
+            tx.execute(
+                "INSERT OR REPLACE INTO proposal_votes (proposal_id, member_id, vote) VALUES (?1, ?2, 'refuse')",
+                params![p.id, m],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn get_proposal(&self, id: &str) -> Result<Option<ProposalRecord>, StoreError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, vault_id, kind, state, proposer, value_total, memo, expiry_unix, txid
+             FROM proposals WHERE id = ?1",
+        )?;
+        let mut rows = stmt.query_map(params![id], |r| row_to_proposal_head(r))?;
+        let head = match rows.next() {
+            Some(r) => r??,
+            None => return Ok(None),
+        };
+        Ok(Some(self.attach_votes(head)?))
+    }
+
+    /// Open proposals (awaiting/ready/sent) for a vault — the "pending" list (spec §6.7).
+    pub fn list_open_proposals(&self, vault_id: &str) -> Result<Vec<ProposalRecord>, StoreError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, vault_id, kind, state, proposer, value_total, memo, expiry_unix, txid
+             FROM proposals
+             WHERE vault_id = ?1 AND state IN ('awaiting','ready','sent')",
+        )?;
+        let heads: Vec<ProposalRecord> = stmt
+            .query_map(params![vault_id], |r| row_to_proposal_head(r))?
+            .map(|r| r?)
+            .collect::<Result<_, StoreError>>()?;
+        heads.into_iter().map(|h| self.attach_votes(h)).collect()
+    }
+
+    fn attach_votes(&self, mut p: ProposalRecord) -> Result<ProposalRecord, StoreError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT member_id, vote FROM proposal_votes WHERE proposal_id = ?1")?;
+        let rows = stmt.query_map(params![p.id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })?;
+        for row in rows {
+            let (member, vote) = row?;
+            match vote.as_str() {
+                "approve" => p.approvals.push(member),
+                "refuse" => p.refusals.push(member),
+                other => return Err(StoreError::Decode(format!("unknown vote '{other}'"))),
+            }
+        }
+        p.approvals.sort();
+        p.refusals.sort();
+        Ok(p)
+    }
+}
+
+// ---- row mappers & enum <-> text ----
+
+fn row_to_vault(r: &rusqlite::Row) -> rusqlite::Result<Result<VaultRecord, StoreError>> {
+    let threshold: i64 = r.get(2)?;
+    let total: i64 = r.get(3)?;
+    let quorum = match Quorum::new(threshold as u16, total as u16) {
+        Ok(q) => q,
+        Err(e) => return Ok(Err(StoreError::Decode(e.to_string()))),
+    };
+    Ok(Ok(VaultRecord {
+        id: r.get(0)?,
+        name: r.get(1)?,
+        quorum,
+        group_pubkey: r.get(4)?,
+        orchard_address: r.get(5)?,
+        ufvk: r.get(6)?,
+        server_url: r.get(7)?,
+    }))
+}
+
+fn row_to_proposal_head(r: &rusqlite::Row) -> rusqlite::Result<Result<ProposalRecord, StoreError>> {
+    let kind = match kind_from(&r.get::<_, String>(2)?) {
+        Ok(k) => k,
+        Err(e) => return Ok(Err(e)),
+    };
+    let state = match state_from(&r.get::<_, String>(3)?) {
+        Ok(s) => s,
+        Err(e) => return Ok(Err(e)),
+    };
+    let value_raw: i64 = r.get(5)?;
+    let value_total = match Zatoshis::from_u64(value_raw as u64) {
+        Ok(v) => v,
+        Err(e) => return Ok(Err(StoreError::Decode(e.to_string()))),
+    };
+    Ok(Ok(ProposalRecord {
+        id: r.get(0)?,
+        vault_id: r.get(1)?,
+        kind,
+        state,
+        proposer: r.get(4)?,
+        value_total,
+        memo: r.get(6)?,
+        expiry_unix: r.get(7)?,
+        txid: r.get(8)?,
+        approvals: Vec::new(),
+        refusals: Vec::new(),
+    }))
+}
+
+fn kind_str(k: ProposalKind) -> &'static str {
+    match k {
+        ProposalKind::Payment => "payment",
+        ProposalKind::Payroll => "payroll",
+    }
+}
+fn kind_from(s: &str) -> Result<ProposalKind, StoreError> {
+    match s {
+        "payment" => Ok(ProposalKind::Payment),
+        "payroll" => Ok(ProposalKind::Payroll),
+        other => Err(StoreError::Decode(format!("unknown kind '{other}'"))),
+    }
+}
+
+fn state_str(s: ProposalState) -> &'static str {
+    match s {
+        ProposalState::Draft => "draft",
+        ProposalState::Awaiting => "awaiting",
+        ProposalState::Ready => "ready",
+        ProposalState::Sent => "sent",
+        ProposalState::Confirmed => "confirmed",
+        ProposalState::Rejected => "rejected",
+        ProposalState::Expired => "expired",
+        ProposalState::Cancelled => "cancelled",
+    }
+}
+fn state_from(s: &str) -> Result<ProposalState, StoreError> {
+    Ok(match s {
+        "draft" => ProposalState::Draft,
+        "awaiting" => ProposalState::Awaiting,
+        "ready" => ProposalState::Ready,
+        "sent" => ProposalState::Sent,
+        "confirmed" => ProposalState::Confirmed,
+        "rejected" => ProposalState::Rejected,
+        "expired" => ProposalState::Expired,
+        "cancelled" => ProposalState::Cancelled,
+        other => return Err(StoreError::Decode(format!("unknown state '{other}'"))),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn zat(z: u64) -> Zatoshis {
+        Zatoshis::from_u64(z).unwrap()
+    }
+
+    fn sample_vault() -> VaultRecord {
+        VaultRecord {
+            id: "vault-1".into(),
+            name: "Tesouraria".into(),
+            quorum: Quorum::new(2, 3).unwrap(),
+            group_pubkey: "0ab93649".into(),
+            orchard_address: "u1t2qphc0v".into(),
+            ufvk: "uview1m02wyj".into(),
+            server_url: Some("127.0.0.1:2744".into()),
+        }
+    }
+
+    #[test]
+    fn vault_roundtrip_and_list() {
+        let s = Store::open_in_memory().unwrap();
+        let v = sample_vault();
+        s.save_vault(&v).unwrap();
+        assert_eq!(s.get_vault("vault-1").unwrap().as_ref(), Some(&v));
+        assert!(s.get_vault("nope").unwrap().is_none());
+        assert_eq!(s.list_vaults().unwrap(), vec![v]);
+    }
+
+    #[test]
+    fn vault_upsert_updates() {
+        let s = Store::open_in_memory().unwrap();
+        let mut v = sample_vault();
+        s.save_vault(&v).unwrap();
+        v.name = "Renamed".into();
+        s.save_vault(&v).unwrap();
+        assert_eq!(s.get_vault("vault-1").unwrap().unwrap().name, "Renamed");
+        assert_eq!(s.list_vaults().unwrap().len(), 1);
+    }
+
+    fn sample_proposal() -> ProposalRecord {
+        ProposalRecord {
+            id: "prop-1".into(),
+            vault_id: "vault-1".into(),
+            kind: ProposalKind::Payment,
+            state: ProposalState::Awaiting,
+            proposer: "alice".into(),
+            value_total: zat(20_000),
+            memo: Some("ref maio".into()),
+            expiry_unix: Some(1_800_000_000),
+            txid: None,
+            approvals: vec!["alice".into()],
+            refusals: vec![],
+        }
+    }
+
+    #[test]
+    fn proposal_roundtrip_with_votes() {
+        let mut s = Store::open_in_memory().unwrap();
+        s.save_vault(&sample_vault()).unwrap();
+        let p = sample_proposal();
+        s.save_proposal(&p).unwrap();
+        assert_eq!(s.get_proposal("prop-1").unwrap().as_ref(), Some(&p));
+    }
+
+    #[test]
+    fn proposal_upsert_replaces_state_and_votes() {
+        let mut s = Store::open_in_memory().unwrap();
+        s.save_vault(&sample_vault()).unwrap();
+        let mut p = sample_proposal();
+        s.save_proposal(&p).unwrap();
+
+        // bob approves -> quorum reached -> Ready, then broadcast with a txid.
+        p.approvals = vec!["alice".into(), "bob".into()];
+        p.state = ProposalState::Sent;
+        p.txid = Some("f63ee64d".into());
+        s.save_proposal(&p).unwrap();
+
+        let loaded = s.get_proposal("prop-1").unwrap().unwrap();
+        assert_eq!(loaded.state, ProposalState::Sent);
+        assert_eq!(loaded.approvals, vec!["alice".to_string(), "bob".to_string()]);
+        assert_eq!(loaded.txid.as_deref(), Some("f63ee64d"));
+    }
+
+    #[test]
+    fn list_open_excludes_terminal_states() {
+        let mut s = Store::open_in_memory().unwrap();
+        s.save_vault(&sample_vault()).unwrap();
+
+        let mut awaiting = sample_proposal();
+        s.save_proposal(&awaiting).unwrap();
+
+        let mut confirmed = sample_proposal();
+        confirmed.id = "prop-2".into();
+        confirmed.state = ProposalState::Confirmed;
+        s.save_proposal(&confirmed).unwrap();
+
+        let mut rejected = sample_proposal();
+        rejected.id = "prop-3".into();
+        rejected.state = ProposalState::Rejected;
+        s.save_proposal(&rejected).unwrap();
+
+        let open = s.list_open_proposals("vault-1").unwrap();
+        assert_eq!(open.len(), 1);
+        assert_eq!(open[0].id, "prop-1");
+
+        // Move the open one to Sent (still open), confirm it stays listed.
+        awaiting.state = ProposalState::Sent;
+        s.save_proposal(&awaiting).unwrap();
+        assert_eq!(s.list_open_proposals("vault-1").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn corrupt_state_is_explicit_error() {
+        let s = Store::open_in_memory().unwrap();
+        s.save_vault(&sample_vault()).unwrap();
+        // Insert a proposal row with a bogus state directly.
+        s.conn
+            .execute(
+                "INSERT INTO proposals (id, vault_id, kind, state, proposer, value_total)
+                 VALUES ('x','vault-1','payment','bogus','alice',1)",
+                [],
+            )
+            .unwrap();
+        assert!(matches!(s.get_proposal("x"), Err(StoreError::Decode(_))));
+    }
+}

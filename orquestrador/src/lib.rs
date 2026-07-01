@@ -16,6 +16,9 @@ pub mod validation;
 // --- at-rest secret protection (shares) ---
 pub mod secrets;
 
+// --- local per-device persistence ---
+pub mod store;
+
 // --- orchestration layer (drives the official tools + our bridge) ---
 pub mod ceremony;
 pub mod pczt;
@@ -31,6 +34,7 @@ pub use validation::{
 };
 
 pub use secrets::{generate_key, seal, unseal, with_unsealed_file, KeyStore, SecretError};
+pub use store::{ProposalKind, ProposalRecord, Store, StoreError, VaultRecord};
 pub use signer::{parse_extract, Randomizer, SigningInput};
 pub use tools::{ToolError, Tools};
 pub use wallet::{Balance, ChainInfo};
