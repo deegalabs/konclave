@@ -3,330 +3,280 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Konclave — Painel do Cofre (protótipo)</title>
+<title>Konclave — Painel do Cofre</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Hanken+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Spline+Sans+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root{
-    --vault:#0E1311; --panel:#161D1A; --panel-2:#1B231F; --line:#26302B;
-    --text:#EAEFEA; --muted:#8A968F; --brass:#C79A4E; --shield:#77A08B; --brick:#BC5D50;
-    --serif:"Instrument Serif",Georgia,serif;
-    --sans:"Hanken Grotesk",system-ui,sans-serif;
-    --mono:"IBM Plex Mono",ui-monospace,monospace;
-    --r:16px;
-    --shadow:0 24px 60px -30px rgba(0,0,0,.85);
+    --paper:#E6E3DB; --paper-2:#EEEBE3; --ink:#1A1813; --muted:#6C685C;
+    --line:#C7C2B4; --line-2:#D8D3C6; --seal:#7E2A24; --seal-ink:#5E1F1B; --pine:#37493C;
+    --sans:"Archivo",system-ui,sans-serif; --mono:"Spline Sans Mono",ui-monospace,monospace;
   }
   *{box-sizing:border-box}
   html,body{margin:0}
   body{
-    font-family:var(--sans); color:var(--text); background:var(--vault);
-    -webkit-font-smoothing:antialiased; line-height:1.5;
-    min-height:100vh;
-    /* the single warm light in the vault */
-    background:
-      radial-gradient(120% 80% at 50% -10%, rgba(199,154,78,.10), transparent 55%),
-      radial-gradient(90% 60% at 85% 110%, rgba(119,160,139,.06), transparent 60%),
-      var(--vault);
+    background:var(--paper); color:var(--ink); font-family:var(--sans); line-height:1.5;
+    -webkit-font-smoothing:antialiased; min-height:100vh;
   }
-  /* film grain overlay for atmosphere */
-  body::after{
-    content:""; position:fixed; inset:0; pointer-events:none; z-index:9; opacity:.035;
-    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  }
-  .wrap{max-width:1020px; margin:0 auto; padding:28px 24px 80px}
+  /* faint guilloché edge strip, like a banknote margin */
+  .sheet{max-width:1000px; margin:0 auto; min-height:100vh; background:var(--paper);
+    border-left:1px solid var(--line-2); border-right:1px solid var(--line-2); position:relative}
+  .pad{padding:0 46px 90px}
+  @media(max-width:720px){.pad{padding:0 22px 70px}}
 
-  /* ---- top bar ---- */
-  .top{display:flex; align-items:center; justify-content:space-between; margin-bottom:44px}
+  /* letterhead */
+  .head{display:flex; align-items:center; justify-content:space-between; padding:22px 46px;
+    border-bottom:1.5px solid var(--ink)}
+  @media(max-width:720px){.head{padding:20px 22px}}
   .brand{display:flex; align-items:center; gap:12px}
-  .mark{width:26px;height:26px;flex:0 0 auto}
-  .wordmark{font-family:var(--mono); font-size:13px; letter-spacing:.42em; color:var(--text); text-indent:.42em}
-  .switch{display:flex; align-items:center; gap:10px; padding:8px 14px; border:1px solid var(--line);
-    border-radius:999px; background:rgba(255,255,255,.02); font-size:13px; color:var(--muted); cursor:pointer}
-  .switch b{color:var(--text); font-weight:600}
+  .mark{width:24px;height:24px}
+  .wm{font-family:var(--mono); font-weight:600; font-size:12px; letter-spacing:.44em; text-indent:.44em}
+  .switch{font-family:var(--mono); font-size:12px; color:var(--muted); border:1px solid var(--line);
+    background:var(--paper-2); padding:7px 12px; cursor:pointer; letter-spacing:.02em}
+  .switch b{color:var(--ink); font-weight:600}
 
-  /* ---- vault head ---- */
-  .head{display:flex; align-items:flex-end; justify-content:space-between; gap:24px; margin-bottom:30px}
-  .vname{font-family:var(--serif); font-weight:400; font-size:clamp(38px,6vw,64px); line-height:.98; letter-spacing:-.01em; margin:0}
-  .vsub{color:var(--muted); font-size:14px; margin-top:10px; display:flex; gap:14px; align-items:center}
-  .dot{width:4px;height:4px;border-radius:99px;background:var(--line)}
+  .klab{font-family:var(--mono); font-size:11px; letter-spacing:.24em; text-transform:uppercase; color:var(--muted)}
 
-  /* quorum seal */
-  .seal{display:flex; align-items:center; gap:12px}
-  .seal .ring{width:52px;height:52px}
-  .seal .lab{font-size:12px; color:var(--muted); line-height:1.3}
-  .seal .lab b{display:block; color:var(--text); font-size:15px; font-weight:600}
+  /* title block */
+  .title{display:flex; justify-content:space-between; align-items:flex-start; gap:30px; padding-top:40px}
+  .vname{font-weight:800; font-size:clamp(34px,6vw,56px); letter-spacing:-.02em; line-height:.98; margin:10px 0 0;
+    text-transform:uppercase}
+  .vmeta{font-family:var(--mono); font-size:12.5px; color:var(--muted); margin-top:12px; letter-spacing:.02em}
+  .vmeta b{color:var(--ink); font-weight:500}
 
-  /* members */
-  .members{display:flex}
-  .av{width:30px;height:30px;border-radius:99px;border:1.5px solid var(--vault);
-    margin-left:-9px; display:grid; place-items:center; font-size:12px; font-weight:600; color:var(--vault)}
-  .av:first-child{margin-left:0}
+  /* wax seal (quorum) */
+  .seal-wrap{text-align:center; flex:0 0 auto}
+  .seal-emb{width:96px;height:96px; position:relative; display:grid; place-items:center}
+  .seal-emb .num{font-weight:800; font-size:23px; color:var(--seal); letter-spacing:-.02em; z-index:2}
+  .seal-cap{font-family:var(--mono); font-size:10.5px; letter-spacing:.16em; text-transform:uppercase; color:var(--seal); margin-top:4px}
 
-  /* ---- balance ---- */
-  .panel{background:linear-gradient(180deg,var(--panel),var(--panel-2)); border:1px solid var(--line);
-    border-radius:var(--r); box-shadow:var(--shadow)}
-  .balance{padding:30px 32px; position:relative; overflow:hidden}
-  .row{display:flex; align-items:center; justify-content:space-between}
-  .klabel{font-size:12px; letter-spacing:.18em; text-transform:uppercase; color:var(--muted)}
-  .amount{font-family:var(--mono); font-weight:500; letter-spacing:-.01em;
-    font-size:clamp(40px,7vw,68px); line-height:1.05; margin:12px 0 4px; color:var(--text)}
-  .amount .zec{font-size:.34em; color:var(--muted); margin-left:.5em; letter-spacing:.1em}
-  .sub{display:flex; gap:26px; color:var(--muted); font-size:13px; margin-top:6px}
-  .sub b{color:var(--text); font-family:var(--mono); font-weight:500}
-  .sub .pend b{color:var(--shield)}
+  /* balance entry */
+  .entry{margin-top:40px; border-top:1.5px solid var(--ink); padding-top:20px}
+  .entry-top{display:flex; align-items:center; justify-content:space-between}
+  .figure{display:flex; align-items:baseline; gap:14px; margin:16px 0 10px}
+  .amt{font-family:var(--mono); font-weight:500; font-size:clamp(38px,7vw,62px); letter-spacing:-.02em}
+  .unit{font-family:var(--mono); font-size:16px; color:var(--muted); letter-spacing:.14em}
+  .breakdown{display:flex; gap:34px; font-family:var(--mono); font-size:12.5px; color:var(--muted)}
+  .breakdown b{color:var(--ink); font-weight:500}
+  .breakdown .pd b{color:var(--pine)}
 
-  /* the VEIL — signature element */
-  .veilable{position:relative; display:inline-block}
-  .veil{position:absolute; inset:-8px -14px; border-radius:12px; display:flex; align-items:center; gap:10px;
-    padding:0 16px; cursor:pointer;
-    background:rgba(22,29,26,.34); backdrop-filter:blur(13px) saturate(.6); -webkit-backdrop-filter:blur(13px) saturate(.6);
-    border:1px solid rgba(119,160,139,.18);
-    transition:opacity .45s ease, transform .45s ease, backdrop-filter .45s ease;
-  }
-  .veil::before{ /* grain on the frost */
-    content:""; position:absolute; inset:0; border-radius:12px; opacity:.5; pointer-events:none;
-    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.06'/%3E%3C/svg%3E");
-  }
-  .veil .glyph{color:var(--shield); flex:0 0 auto}
-  .veil .txt{font-size:12.5px; letter-spacing:.14em; text-transform:uppercase; color:var(--shield)}
-  .revealed .veil{opacity:0; transform:scale(1.02); pointer-events:none}
+  /* the REDACTION — privacy signature */
+  .secret{position:relative; display:inline-block}
+  .secret .bar{position:absolute; inset:-2px -6px; background:var(--ink); cursor:pointer;
+    background-image:
+      repeating-linear-gradient(90deg, rgba(255,255,255,.08) 0 1px, transparent 1px 4px),
+      repeating-linear-gradient(0deg, rgba(255,255,255,.05) 0 1px, transparent 1px 3px);
+    transition:transform .28s cubic-bezier(.3,.8,.3,1), opacity .28s;}
+  .secret .bar:not(.b2)::after{content:"SIGILOSO"; position:absolute; left:8px; top:50%; transform:translateY(-50%);
+    font-family:var(--mono); font-size:9px; letter-spacing:.22em; color:rgba(230,227,219,.62)}
+  .secret .bar.b2{inset:-1px -4px}
+  .revealed .secret .bar{transform:scaleX(0); transform-origin:left; opacity:0; pointer-events:none}
 
-  .eye{display:inline-flex; align-items:center; gap:8px; padding:8px 13px; border:1px solid var(--line);
-    background:rgba(255,255,255,.02); border-radius:999px; color:var(--muted); font-size:12.5px; cursor:pointer;
-    font-family:var(--sans)}
-  .eye:hover{color:var(--text); border-color:var(--shield)}
+  .reveal{display:inline-flex; align-items:center; gap:8px; font-family:var(--mono); font-size:11.5px;
+    letter-spacing:.08em; text-transform:uppercase; color:var(--muted); background:var(--paper-2);
+    border:1px solid var(--line); padding:8px 12px; cursor:pointer}
+  .reveal:hover{border-color:var(--seal); color:var(--seal)}
 
-  .addr{margin-top:22px; display:flex; align-items:center; gap:12px; padding-top:20px; border-top:1px solid var(--line)}
-  .addr .k{font-size:12px; color:var(--muted)}
-  .addr code{font-family:var(--mono); font-size:12.5px; color:var(--text); background:rgba(255,255,255,.03);
-    padding:6px 10px; border-radius:8px; border:1px solid var(--line)}
-  .addr .warn{margin-left:auto; font-size:11.5px; color:var(--brass); display:flex; align-items:center; gap:6px}
+  .receive{display:flex; align-items:center; gap:14px; margin-top:22px; padding-top:18px; border-top:1px solid var(--line)}
+  .receive code{font-family:var(--mono); font-size:12.5px; background:var(--paper-2); border:1px solid var(--line); padding:6px 10px}
+  .orchard{margin-left:auto; font-family:var(--mono); font-size:11px; letter-spacing:.06em; color:var(--seal);
+    display:flex; align-items:center; gap:7px}
 
-  /* ---- pending proposal (priority CTA) ---- */
-  .grid{display:grid; grid-template-columns:1.35fr .95fr; gap:18px; margin-top:18px}
-  @media(max-width:820px){.grid{grid-template-columns:1fr}}
-  .pending{padding:24px; position:relative; overflow:hidden;
-    border:1px solid rgba(199,154,78,.32);
-    background:
-      radial-gradient(120% 120% at 100% 0%, rgba(199,154,78,.10), transparent 60%),
-      linear-gradient(180deg,var(--panel),var(--panel-2));}
-  .flag{display:inline-flex; align-items:center; gap:8px; font-size:11.5px; letter-spacing:.16em;
-    text-transform:uppercase; color:var(--brass); margin-bottom:16px}
-  .flag .pip{width:6px;height:6px;border-radius:99px;background:var(--brass); box-shadow:0 0 0 0 rgba(199,154,78,.6);
-    animation:pulse 2.4s infinite}
-  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(199,154,78,.5)}70%{box-shadow:0 0 0 8px rgba(199,154,78,0)}100%{box-shadow:0 0 0 0 rgba(199,154,78,0)}}
-  .p-amt{font-family:var(--mono); font-size:30px; font-weight:500; margin:2px 0 2px}
-  .p-to{color:var(--muted); font-size:13px}
-  .p-to code{font-family:var(--mono); color:var(--text)}
-  .p-meta{display:flex; align-items:center; gap:10px; margin:16px 0 20px; color:var(--muted); font-size:13px}
-  .prog{display:flex; align-items:center; gap:7px}
-  .prog .b{width:26px;height:4px;border-radius:9px;background:var(--line)}
-  .prog .b.on{background:var(--brass)}
-  .actions{display:flex; gap:10px}
-  .btn{font-family:var(--sans); font-weight:600; font-size:14px; border-radius:11px; padding:12px 18px;
-    cursor:pointer; border:1px solid transparent; transition:.16s}
-  .btn-approve{background:var(--brass); color:#20180A}
-  .btn-approve:hover{filter:brightness(1.08)}
-  .btn-refuse{background:transparent; border-color:var(--line); color:var(--muted)}
-  .btn-refuse:hover{border-color:var(--brick); color:var(--brick)}
-  .resp{font-size:11.5px; color:var(--muted); margin-top:14px}
+  /* two-column: approval + actions */
+  .cols{display:grid; grid-template-columns:1.4fr 1fr; gap:0; margin-top:44px; border-top:1.5px solid var(--ink)}
+  @media(max-width:720px){.cols{grid-template-columns:1fr}}
+  .approve{padding:24px 30px 24px 0; border-right:1px solid var(--line)}
+  @media(max-width:720px){.approve{border-right:0; border-bottom:1px solid var(--line); padding:24px 0}}
+  .req{font-family:var(--mono); font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--seal);
+    display:flex; align-items:center; gap:9px}
+  .req .stamp{border:1.5px solid var(--seal); color:var(--seal); font-weight:700; font-size:9px; padding:2px 6px;
+    transform:rotate(-4deg); letter-spacing:.1em}
+  .a-amt{font-family:var(--mono); font-weight:500; font-size:28px; margin:16px 0 3px}
+  .a-to{font-family:var(--mono); font-size:12.5px; color:var(--muted)}
+  .a-to b{color:var(--ink); font-weight:500}
+  .a-meta{display:flex; align-items:center; gap:12px; margin:16px 0 20px; font-family:var(--mono); font-size:12px; color:var(--muted)}
+  .prog{display:flex; gap:5px}
+  .prog i{width:22px; height:5px; background:var(--line); display:block}
+  .prog i.on{background:var(--seal)}
+  .btns{display:flex; gap:10px}
+  .btn{font-family:var(--sans); font-weight:700; font-size:13.5px; padding:12px 20px; cursor:pointer; border:1.5px solid var(--ink);
+    letter-spacing:.01em; text-transform:uppercase}
+  .btn-ok{background:var(--seal); border-color:var(--seal); color:var(--paper)}
+  .btn-ok:hover{background:var(--seal-ink); border-color:var(--seal-ink)}
+  .btn-no{background:transparent; color:var(--ink)}
+  .btn-no:hover{background:var(--ink); color:var(--paper)}
+  .note{font-family:var(--mono); font-size:11px; color:var(--muted); margin-top:14px; max-width:34ch}
 
-  /* quick actions */
-  .side{display:flex; flex-direction:column; gap:12px}
-  .qa{display:flex; align-items:center; gap:14px; padding:16px 18px; border:1px solid var(--line);
-    border-radius:14px; background:rgba(255,255,255,.02); cursor:pointer; transition:.16s}
-  .qa:hover{border-color:var(--brass); background:rgba(199,154,78,.05); transform:translateY(-1px)}
-  .qa .ico{width:38px;height:38px;border-radius:10px;border:1px solid var(--line); display:grid; place-items:center; color:var(--brass); flex:0 0 auto}
-  .qa .t{font-weight:600; font-size:14.5px}
-  .qa .d{font-size:12px; color:var(--muted)}
-  .qa .arr{margin-left:auto; color:var(--muted)}
+  .do{padding:24px 0 24px 30px; display:flex; flex-direction:column}
+  @media(max-width:720px){.do{padding:24px 0}}
+  .do .klab{margin-bottom:6px}
+  .op{display:flex; align-items:baseline; gap:12px; padding:15px 0; border-bottom:1px solid var(--line); cursor:pointer; text-decoration:none; color:inherit}
+  .op:last-child{border-bottom:0}
+  .op .n{font-family:var(--mono); font-size:11px; color:var(--muted); width:20px}
+  .op .t{font-weight:700; font-size:15px; flex:1}
+  .op .d{font-family:var(--mono); font-size:11.5px; color:var(--muted)}
+  .op .go{color:var(--seal); font-weight:700}
+  .op:hover .t{color:var(--seal)}
 
-  /* ---- activity ---- */
-  .sec{margin-top:34px}
-  .sec h2{font-family:var(--serif); font-weight:400; font-size:24px; margin:0 0 4px}
-  .sec .cap{color:var(--muted); font-size:13px; margin-bottom:16px}
-  .list{border:1px solid var(--line); border-radius:var(--r); overflow:hidden}
-  .item{display:grid; grid-template-columns:34px 1fr auto; gap:16px; align-items:center; padding:16px 20px;
-    border-bottom:1px solid var(--line)}
-  .item:last-child{border-bottom:0}
-  .item:nth-child(odd){background:rgba(255,255,255,.012)}
-  .tag{width:34px;height:34px;border-radius:10px; display:grid; place-items:center; font-size:15px}
-  .tag.out{background:rgba(188,93,80,.12); color:var(--brick)}
-  .tag.in{background:rgba(119,160,139,.14); color:var(--shield)}
-  .it-main .who{font-weight:600; font-size:14.5px}
-  .it-main .meta{color:var(--muted); font-size:12.5px; margin-top:2px}
-  .it-main .meta b{color:var(--text); font-weight:500}
-  .it-amt{font-family:var(--mono); font-size:15px; text-align:right}
-  .it-amt.out{color:var(--text)} .it-amt.in{color:var(--shield)}
-  .it-amt .st{display:block; font-size:11px; color:var(--muted); margin-top:2px}
-  .link{color:var(--brass); text-decoration:none; border-bottom:1px solid rgba(199,154,78,.3)}
+  /* ledger */
+  .ledger{margin-top:46px}
+  .ledger .cap{font-family:var(--mono); font-size:12px; color:var(--muted); margin:6px 0 14px}
+  .lrow{display:grid; grid-template-columns:88px 1fr auto; gap:20px; align-items:baseline; padding:15px 0; border-bottom:1px solid var(--line)}
+  .lrow:first-of-type{border-top:1.5px solid var(--ink)}
+  .ldate{font-family:var(--mono); font-size:12px; color:var(--muted)}
+  .ldesc .t{font-weight:600; font-size:14.5px}
+  .ldesc .by{font-family:var(--mono); font-size:11.5px; color:var(--muted); margin-top:3px}
+  .ldesc .by b{color:var(--ink); font-weight:500}
+  .lval{font-family:var(--mono); font-size:15px; text-align:right; white-space:nowrap}
+  .lval.out{color:var(--ink)} .lval.in{color:var(--pine)}
+  .lval .st{display:block; font-size:10.5px; color:var(--muted); margin-top:3px; letter-spacing:.04em}
+  .lval .st a{color:var(--seal); text-decoration:none; border-bottom:1px solid rgba(126,42,36,.35)}
 
-  /* staggered load */
-  .rise{opacity:0; transform:translateY(14px); animation:rise .7s cubic-bezier(.2,.7,.2,1) forwards}
-  @keyframes rise{to{opacity:1; transform:none}}
-  .d1{animation-delay:.05s}.d2{animation-delay:.13s}.d3{animation-delay:.22s}.d4{animation-delay:.32s}.d5{animation-delay:.42s}
-
-  :focus-visible{outline:2px solid var(--brass); outline-offset:3px; border-radius:6px}
-  @media (prefers-reduced-motion: reduce){
-    .rise{animation:none; opacity:1; transform:none}
-    .veil{transition:opacity .001s} .flag .pip{animation:none}
-  }
+  :focus-visible{outline:2px solid var(--seal); outline-offset:2px}
+  @media (prefers-reduced-motion: reduce){ .secret .bar{transition:none} }
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="sheet">
 
-  <!-- top bar -->
-  <div class="top rise d1">
+  <header class="head">
     <div class="brand">
       <svg class="mark" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-        <path d="M16 2.5 27.5 9v14L16 29.5 4.5 23V9L16 2.5Z" stroke="#C79A4E" stroke-width="1.4"/>
-        <path d="M16 9.5 21.5 12.7v6.6L16 22.5l-5.5-3.2v-6.6L16 9.5Z" stroke="#77A08B" stroke-width="1.2"/>
-        <circle cx="16" cy="16" r="1.7" fill="#C79A4E"/>
+        <rect x="4.5" y="4.5" width="23" height="23" stroke="#1A1813" stroke-width="1.6"/>
+        <path d="M16 9.5 21.7 12.8v6.4L16 22.5l-5.7-3.3v-6.4L16 9.5Z" stroke="#7E2A24" stroke-width="1.4"/>
+        <circle cx="16" cy="16" r="1.6" fill="#7E2A24"/>
       </svg>
-      <span class="wordmark">KONCLAVE</span>
+      <span class="wm">KONCLAVE</span>
     </div>
-    <button class="switch">Cofre: <b>Tesouraria Ipê</b> ▾</button>
+    <button class="switch">COFRE · <b>Tesouraria Comum</b> ▾</button>
+  </header>
+
+  <div class="pad">
+
+    <!-- title block -->
+    <div class="title">
+      <div>
+        <span class="klab">Cofre coletivo · quórum</span>
+        <h1 class="vname">Tesouraria Comum</h1>
+        <div class="vmeta">Privado por fora · <b>transparente por dentro</b> · 3 membros</div>
+      </div>
+      <div class="seal-wrap">
+        <div class="seal-emb">
+          <svg width="96" height="96" viewBox="0 0 96 96" fill="none" aria-hidden="true">
+            <circle cx="48" cy="48" r="45" stroke="#7E2A24" stroke-width="1"/>
+            <circle cx="48" cy="48" r="39" stroke="#7E2A24" stroke-width="2.4"/>
+            <circle cx="48" cy="48" r="34" stroke="#7E2A24" stroke-width=".6" stroke-dasharray="1 3"/>
+            <g stroke="#7E2A24" stroke-width=".7" opacity=".8">
+              <circle cx="48" cy="48" r="30"/>
+              <path d="M48 18c9 12 9 48 0 60M48 18c-9 12-9 48 0 60M18 48c12-9 48-9 60 0M18 48c12 9 48 9 60 0"/>
+            </g>
+          </svg>
+          <span class="num" style="position:absolute">2/3</span>
+        </div>
+        <div class="seal-cap">Assinaturas</div>
+      </div>
+    </div>
+
+    <!-- balance -->
+    <section class="entry" id="bal">
+      <div class="entry-top">
+        <span class="klab">Saldo do cofre</span>
+        <button class="reveal" id="reveal" aria-pressed="false">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="2.4"/></svg>
+          <span id="reveal-t">Revelar</span>
+        </button>
+      </div>
+      <div class="figure">
+        <span class="secret">
+          <span class="amt">2.4180</span>
+          <span class="bar" id="bar" role="button" tabindex="0" aria-label="Saldo sigiloso. Revelar."></span>
+        </span>
+        <span class="unit">ZEC</span>
+      </div>
+      <div class="breakdown">
+        <span>confirmado <span class="secret"><b>2.4180</b><span class="bar b2"></span></span></span>
+        <span class="pd">pendente <span class="secret"><b>+0.0100</b><span class="bar b2"></span></span></span>
+      </div>
+      <div class="receive">
+        <span class="klab" style="text-transform:none;letter-spacing:.02em">Receber em</span>
+        <code>u1vjgx…d406dr</code>
+        <span class="orchard">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2.5 4.5 5.5v6c0 5 3.4 8.4 7.5 9.9 4.1-1.5 7.5-4.9 7.5-9.9v-6L12 2.5Z"/></svg>
+          SÓ ENDEREÇO ORCHARD
+        </span>
+      </div>
+    </section>
+
+    <!-- approval + actions -->
+    <div class="cols">
+      <section class="approve">
+        <div class="req"><span class="stamp">PENDENTE</span> Requer sua aprovação</div>
+        <div class="a-amt">0.5000 <span style="color:var(--muted);font-size:15px">ZEC</span></div>
+        <div class="a-to">para <b>zs1q9f…7ka2</b> · memo “adiantamento maio”</div>
+        <div class="a-meta">
+          <span>proposto por <b style="color:var(--ink)">Bruno</b></span>
+          <span class="prog"><i class="on"></i><i></i></span>
+          <span>1 de 2 · expira em 71h</span>
+        </div>
+        <div class="btns">
+          <button class="btn btn-ok">Aprovar</button>
+          <button class="btn btn-no">Recusar</button>
+        </div>
+        <div class="note">Ao aprovar, você autoriza este pagamento com a sua parte da chave.</div>
+      </section>
+
+      <nav class="do">
+        <span class="klab">O que fazer</span>
+        <a class="op" href="#"><span class="n">01</span><span class="t">Novo pagamento</span><span class="d">um destino</span><span class="go">→</span></a>
+        <a class="op" href="#"><span class="n">02</span><span class="t">Nova folha</span><span class="d">N destinos, 1 aprovação</span><span class="go">→</span></a>
+        <a class="op" href="#"><span class="n">03</span><span class="t">Propostas</span><span class="d">1 aguardando</span><span class="go">→</span></a>
+        <a class="op" href="#"><span class="n">04</span><span class="t">Membros</span><span class="d">modelo de confiança</span><span class="go">→</span></a>
+      </nav>
+    </div>
+
+    <!-- ledger -->
+    <section class="ledger">
+      <span class="klab">Movimentações</span>
+      <div class="cap">Transparência interna — quem propôs e quem aprovou fica registrado.</div>
+
+      <div class="lrow">
+        <div class="ldate">28 ABR</div>
+        <div class="ldesc"><div class="t">Folha de abril — 8 pagamentos</div>
+          <div class="by">proposto por <b>Ana</b> · aprovado por <b>Ana, Bruno</b></div></div>
+        <div class="lval out">−4.2000<span class="st"><a href="#">verificar ↗</a></span></div>
+      </div>
+      <div class="lrow">
+        <div class="ldate">22 ABR</div>
+        <div class="ldesc"><div class="t">Doação recebida</div>
+          <div class="by">de contribuinte anônimo</div></div>
+        <div class="lval in">+1.0000<span class="st">confirmado</span></div>
+      </div>
+      <div class="lrow">
+        <div class="ldate">15 ABR</div>
+        <div class="ldesc"><div class="t">Pagamento — infraestrutura</div>
+          <div class="by">proposto por <b>Bruno</b> · aprovado por <b>Bruno, Carla</b></div></div>
+        <div class="lval out">−0.3000<span class="st"><a href="#">verificar ↗</a></span></div>
+      </div>
+    </section>
+
   </div>
-
-  <!-- vault head -->
-  <div class="head rise d2">
-    <div>
-      <h1 class="vname">Tesouraria Ipê</h1>
-      <div class="vsub">
-        <span>Cofre coletivo</span><span class="dot"></span>
-        <span>Privado por fora, transparente por dentro</span>
-      </div>
-    </div>
-    <div class="seal">
-      <svg class="ring" viewBox="0 0 52 52" aria-label="Quórum 2 de 3">
-        <circle cx="26" cy="26" r="23" fill="none" stroke="#26302B" stroke-width="2"/>
-        <circle cx="26" cy="6"  r="3.4" fill="#C79A4E"/>
-        <circle cx="43" cy="36" r="3.4" fill="#C79A4E"/>
-        <circle cx="9"  cy="36" r="3.4" fill="none" stroke="#3a463f" stroke-width="1.6"/>
-      </svg>
-      <div class="lab"><b>2 de 3</b>aprovam cada pagamento</div>
-      <div class="members" style="margin-left:8px">
-        <div class="av" style="background:#C79A4E">A</div>
-        <div class="av" style="background:#77A08B">B</div>
-        <div class="av" style="background:#8A968F">C</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- balance -->
-  <div class="panel balance rise d3" id="bal">
-    <div class="row">
-      <span class="klabel">Saldo do cofre</span>
-      <button class="eye" id="reveal" aria-pressed="false">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="2.6"/></svg>
-        <span id="reveal-t">Revelar</span>
-      </button>
-    </div>
-
-    <div class="veilable">
-      <div class="amount">2.4180<span class="zec">ZEC</span></div>
-      <div class="sub">
-        <span>confirmado <b>2.4180</b></span>
-        <span class="pend">pendente <b>+0.0100</b></span>
-      </div>
-      <div class="veil" id="veil" role="button" tabindex="0" aria-label="Saldo oculto. Revelar.">
-        <svg class="glyph" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 2.5 4.5 5.5v6c0 5 3.4 8.4 7.5 9.9 4.1-1.5 7.5-4.9 7.5-9.9v-6L12 2.5Z"/></svg>
-        <span class="txt">Oculto</span>
-      </div>
-    </div>
-
-    <div class="addr">
-      <span class="k">Receber em</span>
-      <code>u1vjgx…d406dr</code>
-      <span class="warn">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2.5 4.5 5.5v6c0 5 3.4 8.4 7.5 9.9 4.1-1.5 7.5-4.9 7.5-9.9v-6L12 2.5Z"/></svg>
-        Só endereço Orchard
-      </span>
-    </div>
-  </div>
-
-  <!-- pending + quick actions -->
-  <div class="grid">
-    <div class="panel pending rise d4">
-      <div class="flag"><span class="pip"></span> Precisa da sua aprovação</div>
-      <div class="p-amt">0.5000 ZEC</div>
-      <div class="p-to">para <code>zs1q9f…7ka2</code> · memo “adiantamento maio”</div>
-      <div class="p-meta">
-        <span>Proposto por <b style="color:var(--text)">Bruno</b></span><span class="dot"></span>
-        <span class="prog"><i class="b on"></i><i class="b"></i></span> 1 de 2
-        <span class="dot"></span><span>expira em 71h</span>
-      </div>
-      <div class="actions">
-        <button class="btn btn-approve">Aprovar</button>
-        <button class="btn btn-refuse">Recusar</button>
-      </div>
-      <div class="resp">Ao aprovar, você autoriza este pagamento com a sua parte da chave.</div>
-    </div>
-
-    <div class="side rise d4">
-      <button class="qa">
-        <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 5v14M5 12h14"/></svg></span>
-        <span><span class="t">Novo pagamento</span><br><span class="d">um destino</span></span>
-        <span class="arr">→</span>
-      </button>
-      <button class="qa">
-        <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 6h16M4 12h16M4 18h10"/></svg></span>
-        <span><span class="t">Nova folha</span><br><span class="d">vários pagamentos, uma aprovação</span></span>
-        <span class="arr">→</span>
-      </button>
-      <button class="qa">
-        <span class="ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M9 11l3 3 8-8M4 12v6a2 2 0 0 0 2 2h12"/></svg></span>
-        <span><span class="t">Propostas pendentes</span><br><span class="d">1 aguardando</span></span>
-        <span class="arr">→</span>
-      </button>
-    </div>
-  </div>
-
-  <!-- activity -->
-  <div class="sec rise d5">
-    <h2>Movimentações</h2>
-    <div class="cap">Transparência interna · quem propôs e quem aprovou fica registrado.</div>
-    <div class="list">
-      <div class="item">
-        <div class="tag out">↑</div>
-        <div class="it-main"><div class="who">Folha de abril — 8 pagamentos</div>
-          <div class="meta">Proposto por <b>Ana</b> · aprovado por <b>Ana, Bruno</b> · 28 abr</div></div>
-        <div class="it-amt out">−4.2000<span class="st"><a class="link" href="#">no explorador ↗</a></span></div>
-      </div>
-      <div class="item">
-        <div class="tag in">↓</div>
-        <div class="it-main"><div class="who">Doação recebida</div>
-          <div class="meta">de contribuinte anônimo · 22 abr</div></div>
-        <div class="it-amt in">+1.0000<span class="st">confirmado</span></div>
-      </div>
-      <div class="item">
-        <div class="tag out">↑</div>
-        <div class="it-main"><div class="who">Pagamento — infraestrutura</div>
-          <div class="meta">Proposto por <b>Bruno</b> · aprovado por <b>Bruno, Carla</b> · 15 abr</div></div>
-        <div class="it-amt out">−0.3000<span class="st"><a class="link" href="#">no explorador ↗</a></span></div>
-      </div>
-    </div>
-  </div>
-
 </div>
 
 <script>
-  // The veil — privacy as a physical gesture.
   const bal = document.getElementById('bal');
-  const veil = document.getElementById('veil');
   const btn = document.getElementById('reveal');
-  const label = document.getElementById('reveal-t');
+  const t = document.getElementById('reveal-t');
+  const bar = document.getElementById('bar');
   function toggle(){
-    const revealed = bal.classList.toggle('revealed');
-    btn.setAttribute('aria-pressed', revealed);
-    label.textContent = revealed ? 'Ocultar' : 'Revelar';
-    veil.setAttribute('aria-label', revealed ? 'Saldo visível. Ocultar.' : 'Saldo oculto. Revelar.');
+    const r = bal.classList.toggle('revealed');
+    btn.setAttribute('aria-pressed', r);
+    t.textContent = r ? 'Ocultar' : 'Revelar';
+    bar.setAttribute('aria-label', r ? 'Saldo visível. Ocultar.' : 'Saldo sigiloso. Revelar.');
   }
   btn.addEventListener('click', toggle);
-  veil.addEventListener('click', toggle);
-  veil.addEventListener('keydown', e => { if(e.key==='Enter'||e.key===' '){ e.preventDefault(); toggle(); }});
+  bar.addEventListener('click', toggle);
+  bar.addEventListener('keydown', e => { if(e.key==='Enter'||e.key===' '){ e.preventDefault(); toggle(); }});
 </script>
 </body>
 </html>

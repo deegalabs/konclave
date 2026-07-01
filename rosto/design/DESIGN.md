@@ -1,74 +1,79 @@
-# Konclave — Design System ("O Cofre Selado")
+# Konclave — Design System ("Lacre")
 
 > Direção visual do Rosto. Fonte de verdade para tokens, tipografia e o
-> elemento-assinatura. Deriva do brief de UX ([docs/UX_E_FLUXOS.md](../../docs/UX_E_FLUXOS.md) §10):
+> elemento-assinatura. Deriva do brief de UX ([UX_E_FLUXOS](../../docs/UX_E_FLUXOS.md) §10):
 > *esconder a criptografia, expor a confiança* · *cofre sólido + discrição* · anti-default.
 
 ## Conceito
 
-Um **cofre coletivo à meia-luz**: escuro, arquitetônico, discreto. Sério sobre dinheiro
-e sigilo — não fintech alegre, não terminal hacker. Deriva do mundo **Orchard/shielded**
-(profundidade, jardim murado, véu) sem literalidade floral.
+Um **instrumento financeiro / dossiê selado** — papel institucional, plano e rigoroso,
+como uma cédula, um passaporte ou um livro-razão. Confiança pela **estrutura e
+precisão**; sigilo pela **redação (tarja de censura)**. Amarra com o nome: *Konclave* =
+conclave, sala lacrada → **cera de lacre (oxblood)**.
 
-## Elemento-assinatura — o VÉU
+Escolha deliberada de **fugir dos clichês** — inclusive os que o brief já bania
+(cream+serifa+terracota; preto+verde-ácido; jornalão com fios) **e** o clichê atual de
+"site feito por IA" (dark-SaaS + serifa display + dourado + cards flutuantes).
 
-A privacidade é um **gesto físico**. Todo valor sensível (saldo, montantes) nasce
-**coberto por um véu fosco** (vidro fosco + grão + glifo de escudo). "Revelar" **ergue o
-véu** com uma animação de desfoque→nitidez. É a interação memorável da interface e o
-tratamento próprio do estado shielded que o brief exige.
+## Elemento-assinatura — a TARJA (redação)
 
-Complemento: o **selo de quórum** — um anel de pontos (ex.: 2 de 3 preenchidos), lido
-como um lacre.
+A privacidade é um **gesto físico e temático**. Todo valor sensível nasce **censurado
+por uma tarja sólida** ("SIGILOSO"), como um documento sigiloso. "Revelar" **retira a
+tarja** (colapsa da esquerda). É a interação memorável e o tratamento próprio do estado
+shielded que o brief exige — no lugar de um borrão genérico.
 
-## Paleta (6 tokens nomeados + estados)
+Complemento: o **selo de lacre** — um emblema circular com **guilhochê** (fino-traçado
+de cédula) e o quórum ("2/3"), lido como um lacre oficial.
+
+## Paleta (papel + tinta + lacre)
 
 | Token | Hex | Uso |
 |---|---|---|
-| `--vault` | `#0E1311` | Fundo — o interior do cofre (quase-preto, subtom verde/Orchard) |
-| `--panel` | `#161D1A` | Superfícies elevadas (cards) |
-| `--line` | `#26302B` | Fios/bordas (1px) |
-| `--text` | `#EAEFEA` | Texto principal (off-white quente) |
-| `--muted` | `#8A968F` | Texto secundário |
-| `--brass` | `#C79A4E` | **Acento precioso** — quórum, aprovação, CTA (latão de cofre, não ouro fintech) |
-| `--shield` | `#77A08B` | Sinal de privacidade/shielded (sálvia-teal, laço com Orchard) |
-| `--brick` | `#BC5D50` | Recusa/erro (tijolo abafado — "erros dirigem, não alarmam") |
+| `--paper` | `#E6E3DB` | Fundo — papel arquivístico frio (não "cream") |
+| `--paper-2` | `#EEEBE3` | Campos/insets |
+| `--ink` | `#1A1813` | Tinta — texto, tarjas, fios estruturais |
+| `--muted` | `#6C685C` | Texto secundário |
+| `--line` | `#C7C2B4` | Fios finos |
+| `--seal` | `#7E2A24` | **Oxblood** — selo, carimbos, ações, links (cera de lacre) |
+| `--pine` | `#37493C` | Entradas/recebido (verde arquivístico abafado — laço com Orchard) |
 
-Regras: fundo dominante escuro, **um** acento (brass) usado com parcimônia. Contraste
-mínimo AA sobre `--vault`. Sem gradientes roxos, sem verde-ácido, sem cream+serif.
+Um acento (oxblood), usado com parcimônia. Contraste AA sobre papel. Sem gradiente,
+sem brilho, sem dourado, sem verde-ácido.
 
-## Tipografia (par display + texto + mono)
+## Tipografia
 
-- **Display — `Instrument Serif`**: títulos, nome do cofre. Serifa de alto contraste,
-  editorial e discreta — dá gravidade sem virar "luxo de igreja".
-- **Texto/UI — `Hanken Grotesk`**: corpo, rótulos, botões. Limpa, quente, legível.
-- **Mono — `IBM Plex Mono`**: montantes, endereços, txids. Legibilidade financeira e
-  "confiança técnica". Dinheiro sempre em mono, nunca ambíguo.
+- **`Archivo`** (grotesca institucional): títulos em **caixa-alta pesada e travada**
+  (feito um carimbo), rótulos e UI. Sólida, séria, humana — não serifa "de IA".
+- **`Spline Sans Mono`**: cifras, endereços, txids, metadados. Precisão de livro-razão;
+  dinheiro sempre em mono, inequívoco.
 
-## Layout & espaço
+## Layout & estrutura
 
-Calmo, arquitetônico, com **espinha vertical** e respiro generoso. Densidade controlada.
-Cantos suaves (raio 14–18px nos cards). Sombra profunda e difusa (não "material").
+Documento: plano, **cantos retos**, **fios** dividindo seções (com parcimônia — não
+jornalão), grid rigoroso, margens de folha. Letterhead no topo. Rótulos em mono
+caixa-alta travada. Sem sombra, sem card flutuante.
 
 ## Movimento
 
-Contido e refinado. Carga da página: **revelação escalonada** (staggered). O **erguer do
-véu**: `blur→0` + leve translate + fade, ~450ms ease. Aprovação: o anel de latão
-**preenche**. `prefers-reduced-motion` respeitado (sem exceção).
+Contido. A **tarja colapsa** ao revelar (~280ms). Nada de brilho ou parallax.
+`prefers-reduced-motion` respeitado.
 
 ## Princípios de interação (do brief)
 
-1. Esconder cripto, expor confiança.
-2. Toda ação que move fundos: **preview + confirmação explícita**.
-3. Copy honesta e ativa ("Propor" → "Aprovar" → "Enviado").
-4. Erros dirigem, não se desculpam.
-5. Privacidade como gesto (o véu).
-6. Estados sempre visíveis (a máquina de estados reflete na UI).
+Esconder cripto, expor confiança · preview + confirmação em toda ação que move fundos ·
+copy honesta e ativa ("Propor" → "Aprovar" → "Enviado") · erros dirigem, não se
+desculpam · privacidade como gesto (a tarja) · estados sempre visíveis.
 
-## Acessibilidade (piso, não enfeite)
+## Acessibilidade (piso)
 
-Foco de teclado visível (anel `--brass`), contraste AA, `prefers-reduced-motion`,
-área de toque ≥ 44px, o véu tem alternativa por teclado e rótulo ARIA.
+Foco visível (anel `--seal`), contraste AA, `prefers-reduced-motion`, alvo ≥ 44px, a
+tarja tem rótulo ARIA e ação por teclado.
 
 ## Fontes (Google Fonts)
 
-`Instrument Serif` · `Hanken Grotesk` (400/500/600/700) · `IBM Plex Mono` (400/500).
+`Archivo` (400–800) · `Spline Sans Mono` (400/500/600).
+
+## Referência
+
+Protótipo interativo: [prototype.html](prototype.html) — o Painel (tela interna, vista
+**depois** de entrar num cofre; a Abertura/cerimônia vêm antes).
