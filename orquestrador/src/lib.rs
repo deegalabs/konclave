@@ -13,6 +13,9 @@ pub mod money;
 pub mod proposal;
 pub mod validation;
 
+// --- at-rest secret protection (shares) ---
+pub mod secrets;
+
 // --- orchestration layer (drives the official tools + our bridge) ---
 pub mod ceremony;
 pub mod pczt;
@@ -27,6 +30,7 @@ pub use validation::{
     validate_payroll, AddressKind, PayrollLine, ValidationError,
 };
 
+pub use secrets::{generate_key, seal, unseal, with_unsealed_file, KeyStore, SecretError};
 pub use signer::{parse_extract, Randomizer, SigningInput};
 pub use tools::{ToolError, Tools};
 pub use wallet::{Balance, ChainInfo};
