@@ -698,58 +698,51 @@ fn content_type(path: &Path) -> &'static str {
     }
 }
 
-// ---- optional demo seed (no secrets; makes the UI alive for a walkthrough) ----
+// ---- demo seed (public material only; coherent with the real slice vault) ----
 
-/// Seed one vault + two proposals so a fresh DB renders a populated Painel. Public
-/// material only — never touches shares or sealed state. Idempotent-ish: skips if a
-/// vault already exists.
+/// Group public key of the real slice vault (2-of-3 trusted-dealer, RedPallas).
+pub const SLICE_GROUP: &str = "1539b0ec3bc70a98d5c0e436da0b103552544d77d6b199efc444cdbab9b6ac24";
+/// The real vault's Orchard receive address — public material (you hand it out to be paid).
+pub const SLICE_ADDRESS: &str = "u1vjgxlvz4ewnt43rkq6fzexpl639745spx369tc4j9n9l0qnt9rufxdt2pxe3jtku7lqv4gtzfqafxtf7gal5y9gmz84nkza6z5d406dr";
+
+/// Seed the **real** slice vault so a fresh DB renders a Painel coherent with the live
+/// balance and the ceremony (same address/group). Only PUBLIC material is committed here:
+/// the Orchard address and the group pubkey are public; the UFVK (view key) is not put in
+/// git — it is loaded from the wallet at runtime. Skips if a vault already exists.
 pub fn seed_demo(store: &mut Store) -> Result<(), crate::store::StoreError> {
     use crate::proposal::{ProposalState, Quorum};
     if !store.list_vaults()?.is_empty() {
         return Ok(());
     }
     let vault = VaultRecord {
-        id: "vault-demo".into(),
+        id: "vault-slice".into(),
         name: "Tesouraria Comum".into(),
         quorum: Quorum::new(2, 3).unwrap(),
-        group_pubkey: "0ab93649c3f1".into(),
-        orchard_address: "u1vjgx7m0q9c8s4d2f6h0k3l5n7p9r1t3v5x7z9b1d3f5h7j9k1m3n5p7r9d406dr".into(),
-        ufvk: "uview1m02wyjdemoonlyxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx".into(),
-        server_url: Some("https://zec.rocks:443".into()),
+        group_pubkey: SLICE_GROUP.into(),
+        orchard_address: SLICE_ADDRESS.into(),
+        // View key is loaded from the wallet at runtime; never committed.
+        ufvk: "(carregada da carteira em tempo de execução)".into(),
+        server_url: Some("127.0.0.1:2744".into()),
     };
     store.save_vault(&vault)?;
 
-    let p1 = ProposalRecord {
-        id: "prop-demo-1".into(),
-        vault_id: "vault-demo".into(),
+    // One example pending proposal, with a value that FITS the real vault balance
+    // (~0.0009 ZEC) — so nothing on screen contradicts the on-chain reality.
+    let example = ProposalRecord {
+        id: "prop-exemplo-1".into(),
+        vault_id: "vault-slice".into(),
         kind: ProposalKind::Payment,
         state: ProposalState::Awaiting,
         proposer: "Bruno".into(),
-        value_total: Zatoshis::from_u64(50_000_000).unwrap(), // 0.5 ZEC
+        value_total: Zatoshis::from_u64(30_000).unwrap(), // 0.0003 ZEC
         memo: Some("adiantamento maio".into()),
-        to_address: Some("u1recipientdemoxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx7ka2".into()),
+        to_address: Some(SLICE_ADDRESS.into()),
         expiry_unix: Some(1_800_000_000),
         txid: None,
         approvals: vec!["Bruno".into()],
         refusals: vec![],
     };
-    store.save_proposal(&p1)?;
-
-    let p2 = ProposalRecord {
-        id: "prop-demo-2".into(),
-        vault_id: "vault-demo".into(),
-        kind: ProposalKind::Payroll,
-        state: ProposalState::Awaiting,
-        proposer: "Ana".into(),
-        value_total: Zatoshis::from_u64(420_000_000).unwrap(), // 4.2 ZEC
-        memo: Some("folha de abril — 8 pagamentos".into()),
-        to_address: None, // payroll: destinations live in its lines
-        expiry_unix: Some(1_800_100_000),
-        txid: None,
-        approvals: vec!["Ana".into(), "Bruno".into()],
-        refusals: vec![],
-    };
-    store.save_proposal(&p2)?;
+    store.save_proposal(&example)?;
     Ok(())
 }
 
@@ -874,10 +867,10 @@ mod tests {
         let r = handle(&cfg, "GET", "/api/proposals", b"");
         assert_eq!(r.status, 200);
         let ps = body_json(&r)["proposals"].as_array().unwrap().clone();
-        assert_eq!(ps.len(), 2);
-        // 0.5 ZEC payment is present, formatted as a ZEC string.
+        assert_eq!(ps.len(), 1);
+        // The example payment fits the real balance, formatted as a ZEC string.
         let payment = ps.iter().find(|p| p["kind"] == "payment").unwrap();
-        assert_eq!(payment["value_zec"], "0.50000000");
+        assert_eq!(payment["value_zec"], "0.00030000");
         assert_eq!(payment["proposer"], "Bruno");
         assert_eq!(payment["approvals_count"], 1);
     }
@@ -963,7 +956,7 @@ mod tests {
         // It is now listed as open.
         let list = handle(&cfg, "GET", "/api/proposals", b"");
         let n = body_json(&list)["proposals"].as_array().unwrap().len();
-        assert_eq!(n, 3); // 2 seeded + 1 new
+        assert_eq!(n, 2); // 1 seeded + 1 new
     }
 
     #[test]
@@ -1102,7 +1095,7 @@ mod tests {
         let cfg = seeded_cfg(None);
         let r = handle(&cfg, "GET", "/api/ledger", b"");
         assert_eq!(r.status, 200);
-        assert_eq!(body_json(&r)["ledger"].as_array().unwrap().len(), 2);
+        assert_eq!(body_json(&r)["ledger"].as_array().unwrap().len(), 1);
     }
 
     #[test]
@@ -1114,7 +1107,7 @@ mod tests {
         let text = String::from_utf8(r.body).unwrap();
         assert!(text.starts_with("id,estado,tipo,proposto_por,aprovadores,valor_zec,memo,destino,txid"));
         assert!(text.contains("pagamento"));
-        assert!(text.lines().count() >= 3); // header + 2 seeded rows
+        assert!(text.lines().count() >= 2); // header + >=1 seeded row
     }
 
     #[test]

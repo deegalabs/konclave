@@ -2,18 +2,16 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Letterhead, Seal, Secret, RevealButton } from '../components'
 import {
-  getVault, getProposals, getBalance, health, shortAddr,
+  getVault, getProposals, getBalance, getLedger, health, shortAddr,
   type Vault, type Proposal, type Balance,
 } from '../api'
 
 type Movimento = { date: string; title: string; by?: string; value: string; dir: 'out' | 'in'; status: string }
 
-// Historical ledger — placeholder until on-chain history is wired (the pending card and
-// vault header below are live from the local bridge).
-const MOVIMENTOS: Movimento[] = [
+// Offline placeholder (only shown in the hosted mock showcase; the live app uses the ledger).
+const MOVIMENTOS_MOCK: Movimento[] = [
   { date: '28/04', title: 'Folha de abril — 8 pagamentos', by: 'prop. Ana · aprov. Ana, Bruno', value: '−4.2000', dir: 'out', status: 'verificar' },
   { date: '22/04', title: 'Doação recebida', by: 'de contribuinte anônimo', value: '+1.0000', dir: 'in', status: 'confirmado' },
-  { date: '15/04', title: 'Pagamento — infraestrutura', by: 'prop. Bruno · aprov. Bruno, Carla', value: '−0.3000', dir: 'out', status: 'verificar' },
 ]
 
 function fmt4(zec?: string, fallback = ''): string {
@@ -30,9 +28,16 @@ function expiryLabel(unix?: number): string {
   return h < 48 ? `expira em ${h}h` : `expira em ${Math.floor(h / 24)}d`
 }
 
+function dateFromExpiry(unix?: number): string {
+  if (!unix) return '—'
+  const d = new Date((unix - 72 * 3600) * 1000)
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
 export default function Painel() {
   const [vault, setVault] = useState<Vault | null>(null)
   const [proposals, setProposals] = useState<Proposal[]>([])
+  const [ledger, setLedger] = useState<Proposal[] | null>(null)
   const [balance, setBalance] = useState<Balance | null>(null)
   const [live, setLive] = useState<boolean | null>(null)
 
@@ -43,41 +48,59 @@ export default function Painel() {
       if (!on) return
       setLive(ok)
       if (!ok) return
-      const [v, ps, b] = await Promise.all([getVault(), getProposals(), getBalance()])
+      const [v, ps, b, l] = await Promise.all([getVault(), getProposals(), getBalance(), getLedger()])
       if (!on) return
       if (v) setVault(v)
       if (ps) setProposals(ps)
       if (b) setBalance(b)
+      if (l) setLedger(l)
     })()
     return () => { on = false }
   }, [])
 
-  // Vault header — live when the bridge answers, faithful placeholder otherwise.
+  const isLive = live === true
+
+  // Vault header — real vault from the bridge; placeholder only in the offline showcase.
   const name = vault?.name ?? 'Tesouraria Comum'
   const t = vault?.threshold ?? 2
   const n = vault?.total ?? 3
   const members = vault?.members ?? n
   const addr = vault ? shortAddr(vault.orchard_address) : 'u1vjgx…d406dr'
 
-  // Balance — live only once a wallet tool is wired (`--devtool/--wallet/--server`).
+  // Balance — real when the wallet is wired; "—" when live-but-unwired; mock when offline.
   const hasBal = balance?.configured === true
-  const amt = hasBal ? fmt4(balance!.total_zec, '2.4180') : '2.4180'
-  const confirmado = hasBal ? fmt4(balance!.spendable_zec, amt) : '2.4180'
-  const pendente = hasBal ? `+${fmt4(balance!.pending_zec, '0.0000')}` : '+0.0100'
+  const amt = hasBal ? fmt4(balance!.total_zec) : (isLive ? '—' : '2.4180')
+  const confirmado = hasBal ? fmt4(balance!.spendable_zec) : (isLive ? '—' : '2.4180')
+  const pendente = hasBal ? `+${fmt4(balance!.pending_zec)}` : (isLive ? '—' : '+0.0100')
 
-  // Pending approval — first awaiting proposal from the bridge.
+  // Pending approval — first awaiting proposal. When live with none, show an empty state
+  // instead of a fabricated card.
   const awaiting = proposals.filter((p) => p.state === 'awaiting')
   const pending = awaiting[0] ?? null
-  const pAmt = pending ? fmt4(pending.value_zec, '0.5000') : '0.5000'
+  const showApprovalCard = !isLive || pending !== null
+  const pAmt = pending ? fmt4(pending.value_zec, '0.0003') : '0.5000'
   const pMemo = pending?.memo ?? 'adiantamento maio'
   const pProposer = pending?.proposer ?? 'Bruno'
   const pApprovals = pending?.approvals_count ?? 1
   const pExpiry = pending ? expiryLabel(pending.expiry_unix) : 'expira em 71h'
 
+  // Movements — the real ledger when live; the mock only in the offline showcase.
+  const movs: Movimento[] | null = isLive && ledger
+    ? ledger.slice(0, 6).map((p) => ({
+        date: dateFromExpiry(p.expiry_unix),
+        title: p.memo || (p.kind === 'payroll' ? 'Folha de pagamento' : 'Pagamento'),
+        by: `prop. ${p.proposer}${p.approvals.length ? ` · aprov. ${p.approvals.join(', ')}` : ''}`,
+        value: `−${fmt4(p.value_zec)}`,
+        dir: 'out',
+        status: p.state === 'sent' || p.state === 'confirmed' ? 'confirmado' : 'verificar',
+      }))
+    : null
+  const movimentos = movs ?? MOVIMENTOS_MOCK
+
   const acoes: [string, string, string, string][] = [
     ['01', 'Novo pagamento', 'um destino', '/pagar'],
     ['02', 'Nova folha', 'N destinos, 1 aprovação', '/folha'],
-    ['03', 'Propostas', `${live ? awaiting.length : 1} aguardando`, '/proposta'],
+    ['03', 'Propostas', `${isLive ? awaiting.length : 1} aguardando`, '/proposta'],
     ['04', 'Razão / contas', 'entregar ao contador', '/razao'],
   ]
 
@@ -122,21 +145,29 @@ export default function Painel() {
         </section>
 
         <div className="cols">
-          <section className="approve">
-            <div className="req"><span className="stamp">Pendente</span> Requer sua aprovação</div>
-            <div className="a-amt">{pAmt} <span className="dim small">ZEC</span></div>
-            <div className="a-to">memo “{pMemo}”</div>
-            <div className="a-meta">
-              <span>proposto por <b>{pProposer}</b></span>
-              <span className="prog">{Array.from({ length: t }, (_, i) => <i key={i} className={i < pApprovals ? 'on' : ''} />)}</span>
-              <span>{pApprovals} de {t}{pExpiry ? ` · ${pExpiry}` : ''}</span>
-            </div>
-            <div className="btns">
-              <Link className="btn ok" to="/proposta">Aprovar</Link>
-              <button className="btn">Recusar</button>
-            </div>
-            <div className="note">Ao aprovar, você autoriza este pagamento com a sua parte da chave.</div>
-          </section>
+          {showApprovalCard ? (
+            <section className="approve">
+              <div className="req"><span className="stamp">Pendente</span> Requer sua aprovação</div>
+              <div className="a-amt">{pAmt} <span className="dim small">ZEC</span></div>
+              <div className="a-to">memo “{pMemo}”</div>
+              <div className="a-meta">
+                <span>proposto por <b>{pProposer}</b></span>
+                <span className="prog">{Array.from({ length: t }, (_, i) => <i key={i} className={i < pApprovals ? 'on' : ''} />)}</span>
+                <span>{pApprovals} de {t}{pExpiry ? ` · ${pExpiry}` : ''}</span>
+              </div>
+              <div className="btns">
+                <Link className="btn ok" to="/proposta">Aprovar</Link>
+                <button className="btn">Recusar</button>
+              </div>
+              <div className="note">Ao aprovar, você autoriza este pagamento com a sua parte da chave.</div>
+            </section>
+          ) : (
+            <section className="approve">
+              <div className="req"><span className="stamp">—</span> Nenhuma aprovação pendente</div>
+              <div className="note">Quando alguém propuser um pagamento, ele aparece aqui para o seu aval.</div>
+              <div className="btns"><Link className="btn ok" to="/pagar">▸ Propor pagamento</Link></div>
+            </section>
+          )}
 
           <nav className="opnav">
             <span className="klab">O que fazer</span>
@@ -154,7 +185,10 @@ export default function Painel() {
         <section className="ledger">
           <span className="klab">Movimentações</span>
           <div className="cap">Transparência interna — quem propôs e quem aprovou fica registrado.</div>
-          {MOVIMENTOS.map((m, i) => (
+          {movimentos.length === 0 && (
+            <div className="cap">Nenhuma movimentação ainda. As propostas aparecem aqui conforme são criadas.</div>
+          )}
+          {movimentos.map((m, i) => (
             <div className="lrow" key={i}>
               <div className="ldate">{m.date}</div>
               <div className="ldesc">
