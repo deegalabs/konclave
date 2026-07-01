@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Letterhead, Secret } from '../components'
 import {
-  previewPayroll, createPayroll, getBalance, health, classifyAddress,
+  previewPayroll, createPayroll, getBalance, health, classifyAddress, humanError,
 } from '../api'
 
 const ME = 'você'
@@ -118,7 +118,7 @@ export default function NovaFolha() {
     )
     setBusy(false)
     if (res.ok) { localStorage.removeItem(DRAFT_KEY); nav('/proposta', { state: { id: res.proposal.id } }) }
-    else setError(res.detail ? `${res.error}: ${res.detail}` : res.error)
+    else setError(humanError(res.error, res.detail))
   }
 
   return (

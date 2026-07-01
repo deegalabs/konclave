@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Letterhead, Secret } from '../components'
 import {
-  createProposal, getBalance, getVault, health, shortAddr, classifyAddress,
+  createProposal, getBalance, getVault, health, shortAddr, classifyAddress, humanError,
 } from '../api'
 
 const MEMO_MAX = 512
@@ -59,7 +59,7 @@ export default function NovoPagamento() {
     if (res.ok) {
       nav('/proposta', { state: { id: res.proposal.id } })
     } else {
-      setError(res.detail ? `${res.error}: ${res.detail}` : res.error)
+      setError(humanError(res.error, res.detail))
     }
   }
 

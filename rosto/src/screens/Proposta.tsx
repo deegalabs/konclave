@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Letterhead, Secret } from '../components'
 import {
-  getProposalDetail, getProposals, getVault, voteProposal, sendProposal, shortAddr,
+  getProposalDetail, getProposals, getVault, voteProposal, sendProposal, shortAddr, humanError,
   type Proposal, type PayrollLine,
 } from '../api'
 
@@ -51,7 +51,7 @@ export default function Proposta() {
     const res = await voteProposal(p.id, ME, approve)
     setBusy(false)
     if (res.ok) setP(res.proposal)
-    else setError(res.detail ? `${res.error}: ${res.detail}` : res.error)
+    else setError(humanError(res.error, res.detail))
   }
 
   async function send(dryRun: boolean) {
@@ -59,7 +59,7 @@ export default function Proposta() {
     setError(null); setDryOk(null); setSending(dryRun ? 'dry' : 'real')
     const res = await sendProposal(p.id, dryRun)
     setSending(null)
-    if (!res.ok) { setError(res.detail ? `${res.error}: ${res.detail}` : res.error); return }
+    if (!res.ok) { setError(humanError(res.error, res.detail)); return }
     if (res.dryRun) {
       setDryOk(res.sighash ?? 'assinatura válida')
     } else if (res.proposal) {

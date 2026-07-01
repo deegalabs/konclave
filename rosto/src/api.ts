@@ -130,6 +130,36 @@ export function isTransparent(addr: string): boolean {
   return classifyAddress(addr) === 'transparent'
 }
 
+/**
+ * Turn a backend error (code + technical detail) into a clear, actionable message in
+ * Portuguese (§6.11 "erros legíveis ao humano"). Keeps the raw detail only as a last resort.
+ */
+export function humanError(error?: string, detail?: string): string {
+  const e = (error ?? '').toLowerCase()
+  const d = (detail ?? '').toLowerCase()
+  const has = (s: string) => e.includes(s) || d.includes(s)
+
+  if (has('insufficient') || has('saldo')) return 'Saldo insuficiente no cofre para este valor (somando a taxa de rede).'
+  if (e === 'send failed' || has('connection') || has('frostd') || has('transport') || has('refused') || has('timed out'))
+    return 'Não foi possível concluir a cerimônia de assinatura. Verifique se o servidor de coordenação (frostd) está no ar e tente de novo.'
+  if (has('signature') || has('apply_signature') || has('share'))
+    return 'Uma das partes da chave falhou ao assinar. Confira se os membros do quórum estão disponíveis.'
+  if (has('expiry') || has('expired') || e === 'expired') return 'A proposta expirou. Crie uma nova.'
+  if (e === 'vote rejected') return 'Este voto não vale agora — a proposta já mudou de estado, ou há um voto conflitante.'
+  if (e === 'not ready') return 'A proposta ainda não atingiu o quórum necessário para ser enviada.'
+  if (e === 'invalid address' || has('endereço não reconhecido')) return 'Endereço de destino não reconhecido. Confira o endereço Zcash.'
+  if (e === 'invalid memo' || has('transparent')) return 'Memo inválido: endereços transparentes (públicos) não aceitam memo.'
+  if (e === 'invalid amount') return 'Valor inválido. Use um número em ZEC maior que zero.'
+  if (e === 'no vault') return 'Nenhum cofre neste dispositivo ainda.'
+  if (e === 'no destination') return 'A proposta está sem endereço de destino.'
+  if (e === 'empty payroll' || has('folha sem linhas')) return 'A folha não tem nenhuma linha válida.'
+  if (has('sem conexão') || has('failed to fetch')) return 'Sem conexão com o cofre local. O servidor está rodando?'
+
+  // Fallback: a short detail is probably already readable; otherwise a generic message.
+  if (detail && detail.length > 0 && detail.length < 140) return detail
+  return error && error.length < 140 ? error : 'Ocorreu um erro inesperado.'
+}
+
 /** The full ledger (all proposals, terminal states included) for the Razão screen. */
 export async function getLedger(): Promise<Proposal[] | null> {
   const r = await getJson<{ ledger: Proposal[] }>('/api/ledger')
