@@ -314,7 +314,12 @@ planejado em [docs/REDESENHO_FOLHA.md](docs/REDESENHO_FOLHA.md).
   `konclave seal`) e desselados só para arquivos **efêmeros 0600 em tmpfs** durante a
   assinatura; os textos claros do slice foram removidos (provado por dry-run com só os
   `.sealed`). Custódia da chave: arquivo 0600 (produto usa a keychain do SO).
-- **106 testes verdes.**
+- **5-F** **criar cofre por DKG pela UI** (`orquestrador/src/dkg.rs`, `POST /api/vault/dkg`,
+  tela `Cerimônia`): init → troca de contatos → DKG concorrente (frostd, RedPallas) → grupo
+  → `zcash-sign` (endereço Orchard + UFVK) → wallet view-only → **shares seladas** (5-E). A
+  chave **nunca é remontada**. Provado ao vivo (CLI e HTTP): cofre 2-de-3 novo com
+  endereço/UFVK reais e configs selados.
+- **110 testes verdes. Fase 5 (Gate 2) — trilha completa.**
 
 **Estado real do produto (sem overclaim):** o núcleo roda pela UI para **pagamento e
 folha** — propor → validar (contínuo) → aprovar/recusar (quórum real, expiração) → **assinar
@@ -324,9 +329,14 @@ por dry-run (assina, NÃO transmite):** a folha multi-saída e o caminho selado 
 **broadcasts reais da folha/selado ainda não foram feitos**.
 
 **Dívidas honestas EM ABERTO (não prometer o que não entrega, §6.15):**
-- Cofre é **trusted-dealer** (andaime do slice), **não** o **DKG** da Fase 2 — DKG ainda
-  não ligado na UI (5-F).
-- **Broadcast real da folha** pendente; empacotamento **Tauri** é roadmap (ADR-0004).
-- ✅ **Quitadas:** identidade de membro cosmética (5-D.3) e shares em texto claro (5-E).
+- **Enviar de um cofre DKG recém-criado** exige apontar a cerimônia para os configs dele
+  (o servidor usa uma cerimônia só); a **demo financiada** segue no cofre trusted-dealer do
+  slice. A **criação** por DKG (5-F) está completa; o **envio** de um cofre DKG novo é o
+  follow-up.
+- **Broadcast real** da folha e do caminho selado pendentes; empacotamento **Tauri** é
+  roadmap (ADR-0004).
+- ✅ **Quitadas:** identidade de membro cosmética (5-D.3), shares em texto claro (5-E), e
+  DKG não-ligado-na-UI (5-F cria cofre por DKG de verdade).
 
-**Próximo:** 5-F (cofre por DKG na UI) · Fase 6 (extras) · Fase 7 (README/vídeo/diagrama).
+**Próximo:** Fase 6 (extras) · Fase 7 (README/vídeo/diagrama/vitrine mock) · follow-ups
+(envio de cofre DKG · broadcasts reais).
