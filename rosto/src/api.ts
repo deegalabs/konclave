@@ -191,12 +191,16 @@ export async function previewPayroll(csv: string): Promise<PayrollPreview | null
 }
 
 /** Create a payroll proposal (N outputs, one envelope). */
-export async function createPayroll(proposer: string, lines: NewPayrollLine[]): Promise<CreateResult> {
+export async function createPayroll(
+  proposer: string,
+  lines: NewPayrollLine[],
+  description?: string,
+): Promise<CreateResult> {
   try {
     const res = await fetch(`${BASE}/api/payroll`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ proposer, lines }),
+      body: JSON.stringify({ proposer, description, lines }),
     })
     const data = (await res.json().catch(() => ({}))) as Record<string, unknown>
     if (res.status === 201) return { ok: true, proposal: data.proposal as Proposal }

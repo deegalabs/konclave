@@ -550,6 +550,9 @@ struct PreviewReq {
 #[derive(serde::Deserialize)]
 struct PayrollCreateReq {
     proposer: String,
+    /// Document description / competência (e.g. "Folha · abril/2026"). Optional.
+    #[serde(default)]
+    description: Option<String>,
     lines: Vec<PayrollLineIn>,
 }
 
@@ -672,6 +675,14 @@ fn payroll_create(cfg: &Config, body: &[u8]) -> Response {
         Err(e) => return bad(e.to_string(), "payroll invalid"),
     };
 
+    let description = req
+        .description
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("Folha — {} pagamentos", summary.count));
+
     let proposal = Proposal::propose(req.proposer.clone(), vault.quorum);
     let rec = ProposalRecord {
         id: new_id(),
@@ -680,7 +691,7 @@ fn payroll_create(cfg: &Config, body: &[u8]) -> Response {
         state: proposal.state(),
         proposer: req.proposer.clone(),
         value_total: summary.total,
-        memo: Some(format!("Folha — {} pagamentos", summary.count)),
+        memo: Some(description),
         to_address: None, // destinations live in the lines
         expiry_unix: now_unix().map(|n| n + 72 * 3600),
         txid: None,

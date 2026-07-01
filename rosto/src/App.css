@@ -17,6 +17,19 @@
 .ns.over{color:var(--seal, #7E2A24); font-weight:600}
 .confirm.ready{border-color:var(--pine, #37493C); color:var(--pine, #37493C)}
 .csv-area{width:100%; resize:vertical; line-height:1.5; padding:12px 14px; font-size:12.5px}
+/* Nova Folha — documento editável */
+.doc-head{display:flex; gap:22px; flex-wrap:wrap; margin-top:14px}
+.field.inline{flex:1 1 220px}
+.field.inline span{display:block; font-family:var(--mono); font-size:11px; color:var(--muted); margin-bottom:5px; text-transform:uppercase; letter-spacing:.04em}
+.cell-input{width:100%; border:1px solid transparent; background:transparent; font:inherit; font-size:13px; padding:6px 6px; color:var(--ink)}
+.cell-input:focus{outline:none; border-color:var(--line); background:var(--paper-2)}
+.cell-input.num-input{text-align:right}
+.cell-warn{font-family:var(--mono); font-size:10.5px; color:var(--seal, #7E2A24); margin-top:2px}
+.cell-warn.err{font-weight:600}
+.folha .row-bad td{background:rgba(126,42,36,.05)}
+.row-del{border:1px solid var(--line); background:var(--paper-2); color:var(--muted); width:24px; height:24px; cursor:pointer; line-height:1; font-size:14px}
+.row-del:hover{color:var(--seal, #7E2A24); border-color:var(--seal, #7E2A24)}
+.folha-actions{display:flex; gap:10px}
 .seal-wrap{text-align:center; flex:0 0 auto}
 .seal-emb{width:90px; height:90px}
 .seal-emb .num{font-weight:800; font-size:22px}

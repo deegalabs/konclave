@@ -1,108 +1,194 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Letterhead, Secret } from '../components'
-import { previewPayroll, createPayroll, shortAddr, type PayrollPreview } from '../api'
+import {
+  previewPayroll, createPayroll, getBalance, health, classifyAddress,
+} from '../api'
 
 const ME = 'você'
+const DRAFT_KEY = 'konclave.folha.rascunho'
 
-const CSV_EXEMPLO = `rótulo,endereço,valor,memo
-Ana,u1anaxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx,0.0003,contrib. abril
-Bruno,u1brunoxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx,0.0002,contrib. abril`
+type Row = { label: string; address: string; value: string; memo: string }
+const emptyRow = (): Row => ({ label: '', address: '', value: '', memo: '' })
+
+// Parse a ZEC decimal to zatoshis WITHOUT floating point (mirrors the backend).
+function parseZecToZat(s: string): number | null {
+  const t = s.trim()
+  if (t === '' || t === '.' || !/^\d*\.?\d{0,8}$/.test(t)) return null
+  const [w, f = ''] = t.split('.')
+  const whole = w === '' ? 0 : parseInt(w, 10)
+  const frac = parseInt(((f + '00000000').slice(0, 8)) || '0', 10)
+  return whole * 100_000_000 + frac
+}
+const zatToZec = (zat: number) => (zat / 100_000_000).toFixed(8)
+
+// A blocking problem with a row (null = ok). Warnings (public/sapling) are separate.
+function rowIssue(r: Row): string | null {
+  if (!r.address.trim()) return 'endereço vazio'
+  const k = classifyAddress(r.address.trim())
+  if (k === 'unknown') return 'endereço não reconhecido'
+  const zat = parseZecToZat(r.value)
+  if (zat === null || zat <= 0) return 'valor inválido'
+  if (k === 'transparent' && r.memo.trim()) return 'memo não vale em endereço transparente'
+  return null
+}
+const rowTouched = (r: Row) => !!(r.address.trim() || r.value.trim() || r.label.trim() || r.memo.trim())
 
 export default function NovaFolha() {
   const nav = useNavigate()
-  const [csv, setCsv] = useState(CSV_EXEMPLO)
-  const [preview, setPreview] = useState<PayrollPreview | null>(null)
-  const [busy, setBusy] = useState<null | 'preview' | 'propose'>(null)
+  const [competencia, setCompetencia] = useState('')
+  const [description, setDescription] = useState('')
+  const [rows, setRows] = useState<Row[]>([emptyRow()])
+  const [showImport, setShowImport] = useState(false)
+  const [csv, setCsv] = useState('')
+  const [balanceZat, setBalanceZat] = useState<number | null>(null)
+  const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [saved, setSaved] = useState(false)
 
-  async function doPreview() {
-    setError(null); setBusy('preview')
+  // Restore the local draft.
+  useEffect(() => {
+    const raw = localStorage.getItem(DRAFT_KEY)
+    if (raw) {
+      try {
+        const d = JSON.parse(raw)
+        setCompetencia(d.competencia ?? '')
+        setDescription(d.description ?? '')
+        if (Array.isArray(d.rows) && d.rows.length) setRows(d.rows)
+      } catch { /* ignore corrupt draft */ }
+    }
+  }, [])
+
+  // Auto-save the local draft (local-first: stays on this device).
+  useEffect(() => {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify({ competencia, description, rows }))
+    setSaved(true)
+  }, [competencia, description, rows])
+
+  useEffect(() => {
+    let on = true
+    void (async () => {
+      if (await health()) {
+        const b = await getBalance()
+        if (on && b?.configured) setBalanceZat(b.total_zat ?? null)
+      }
+    })()
+    return () => { on = false }
+  }, [])
+
+  function updateRow(i: number, patch: Partial<Row>) {
+    setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)))
+  }
+  const addRow = () => setRows((prev) => [...prev, emptyRow()])
+  const removeRow = (i: number) => setRows((prev) => (prev.length > 1 ? prev.filter((_, idx) => idx !== i) : [emptyRow()]))
+
+  async function importCsv() {
+    setError(null)
     const p = await previewPayroll(csv)
-    setBusy(null)
-    if (p) setPreview(p)
-    else setError('Não foi possível ler a folha (bridge local offline?).')
+    if (!p) { setError('Não foi possível ler o CSV (bridge local offline?).'); return }
+    const imported: Row[] = p.lines.map((l) => ({
+      label: l.label ?? '', address: l.address, value: l.value_zec, memo: l.memo,
+    }))
+    setRows(imported.length ? imported : [emptyRow()])
+    setShowImport(false)
+    if (p.errors.length) setError(`${p.errors.length} linha(s) do CSV com erro foram ignoradas (ex.: linha ${p.errors[0].row}: ${p.errors[0].reason}).`)
   }
 
-  async function propose() {
-    if (!preview || preview.lines.length === 0) return
-    setError(null); setBusy('propose')
+  // Live aggregates over the valid rows.
+  const validRows = rows.filter((r) => rowTouched(r) && rowIssue(r) === null)
+  const count = validRows.length
+  const totalZat = validRows.reduce((acc, r) => acc + (parseZecToZat(r.value) ?? 0), 0)
+  const feeZat = count > 0 ? 5000 * Math.max(2, count + 1) : 0
+  const afterZat = balanceZat === null ? null : balanceZat - totalZat - feeZat
+  const anyBadTouched = rows.some((r) => rowTouched(r) && rowIssue(r) !== null)
+  const canSubmit = count > 0 && !anyBadTouched && !busy
+
+  async function submit() {
+    setError(null)
+    if (count === 0) { setError('Adicione ao menos uma linha válida.'); return }
+    if (anyBadTouched) { setError('Corrija as linhas marcadas antes de enviar para aprovação.'); return }
+    setBusy(true)
+    const desc = competencia.trim()
+      ? `Folha · ${competencia.trim()}${description.trim() ? ` — ${description.trim()}` : ''}`
+      : (description.trim() || undefined)
     const res = await createPayroll(
       ME,
-      preview.lines.map((l) => ({
-        label: l.label ?? undefined,
-        address: l.address,
-        value_zec: l.value_zec,
-        memo: l.memo || undefined,
-      })),
+      validRows.map((r) => ({ label: r.label || undefined, address: r.address.trim(), value_zec: r.value.trim(), memo: r.memo || undefined })),
+      desc,
     )
-    setBusy(null)
-    if (res.ok) nav('/proposta', { state: { id: res.proposal.id } })
+    setBusy(false)
+    if (res.ok) { localStorage.removeItem(DRAFT_KEY); nav('/proposta', { state: { id: res.proposal.id } }) }
     else setError(res.detail ? `${res.error}: ${res.detail}` : res.error)
   }
-
-  const s = preview?.summary
-  const canPropose = !!preview && preview.lines.length > 0 && busy === null
 
   return (
     <>
       <Letterhead right={<span className="klab back" onClick={() => nav('/')}>← Painel</span>} />
       <div className="page">
         <h1 className="h1">Nova folha</h1>
-        <p className="cap">Uma transação com vários pagamentos, aprovada uma vez. Cole a planilha (CSV: <span className="mono">rótulo,endereço,valor,memo</span>) e confira antes de propor.</p>
+        <p className="cap">Um documento: vários pagamentos numa transação, aprovada uma vez. {saved && <span className="livetag" title="Rascunho salvo neste dispositivo">● rascunho salvo</span>}</p>
 
-        <textarea className="input mono csv-area" rows={6} value={csv} onChange={(e) => setCsv(e.target.value)} spellCheck={false} />
-        <div className="mt-sm"><button className="btn ghost sm-btn" onClick={doPreview} disabled={busy !== null}>{busy === 'preview' ? 'Lendo…' : '⭱ Ler / conferir folha'}</button></div>
+        <div className="doc-head">
+          <label className="field inline"><span>Competência</span>
+            <input className="input mono" placeholder="ex.: abril/2026" value={competencia} onChange={(e) => setCompetencia(e.target.value)} />
+          </label>
+          <label className="field inline"><span>Descrição (opcional)</span>
+            <input className="input" placeholder="ex.: contribuições de abril" value={description} onChange={(e) => setDescription(e.target.value)} />
+          </label>
+        </div>
 
-        {preview && (
-          <>
-            {preview.errors.length > 0 && (
-              <div className="confirm import-report mt">
-                <div><b>{preview.lines.length} linhas aceitas</b> · <span className="seal-tx">{preview.errors.length} com erro</span></div>
-                {preview.errors.map((e, i) => (
-                  <div className="import-detail" key={i}>⚠ linha {e.row}: {e.reason}</div>
-                ))}
-                <div className="import-detail dim">As linhas com erro são ignoradas; as demais seguem.</div>
-              </div>
-            )}
+        <table className="tbl folha mt">
+          <thead><tr><th>#</th><th>Beneficiário</th><th>Endereço</th><th>Valor</th><th>Memo / holerite</th><th></th></tr></thead>
+          <tbody>
+            {rows.map((r, i) => {
+              const k = r.address.trim().length > 1 ? classifyAddress(r.address.trim()) : null
+              const issue = rowTouched(r) ? rowIssue(r) : null
+              return (
+                <tr key={i} className={issue ? 'row-bad' : ''}>
+                  <td className="mono dim">{i + 1}</td>
+                  <td><input className="cell-input" placeholder="nome" value={r.label} onChange={(e) => updateRow(i, { label: e.target.value })} /></td>
+                  <td>
+                    <input className="cell-input mono" placeholder="u1… (Orchard)" value={r.address} onChange={(e) => updateRow(i, { address: e.target.value })} />
+                    {k === 'transparent' && <div className="cell-warn">⚠ público</div>}
+                    {k === 'sapling' && <div className="cell-warn">⚠ Sapling — prefira u1…</div>}
+                  </td>
+                  <td><input className="cell-input mono num-input" placeholder="0.0000" value={r.value} onChange={(e) => updateRow(i, { value: e.target.value })} /></td>
+                  <td><input className="cell-input" placeholder={k === 'transparent' ? 'sem memo (público)' : 'holerite…'} value={r.memo} onChange={(e) => updateRow(i, { memo: e.target.value })} disabled={k === 'transparent'} /></td>
+                  <td>
+                    <button className="row-del" title="remover" onClick={() => removeRow(i)}>×</button>
+                    {issue && <div className="cell-warn err">{issue}</div>}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
 
-            <table className="tbl folha mt">
-              <thead><tr><th>#</th><th>Rótulo</th><th>Endereço</th><th>Valor</th><th>Memo / holerite</th></tr></thead>
-              <tbody>
-                {preview.lines.map((l, i) => (
-                  <tr key={i}>
-                    <td className="mono dim">{i + 1}</td>
-                    <td>{l.label || '—'}</td>
-                    <td className={'mono' + (l.is_public ? ' seal-tx' : '')}>{shortAddr(l.address)}{l.is_public ? ' ⚠ público' : ''}</td>
-                    <td className="num"><Secret sm><span>{Number(l.value_zec).toFixed(4)}</span></Secret></td>
-                    <td className="mono dim">{l.memo || '—'}</td>
-                  </tr>
-                ))}
-                {preview.lines.length === 0 && (
-                  <tr><td colSpan={5} className="by">Nenhuma linha válida. Corrija a planilha e leia de novo.</td></tr>
-                )}
-              </tbody>
-            </table>
+        <div className="mt-sm folha-actions">
+          <button className="btn ghost sm-btn" onClick={addRow}>+ Adicionar linha</button>
+          <button className="btn ghost sm-btn" onClick={() => setShowImport((v) => !v)}>⭱ Importar CSV</button>
+        </div>
 
-            {s && (
-              <div className="foot">
-                <span>{s.count} pagamentos</span>
-                <span>total <Secret sm><b>{s.total_zec} ZEC</b></Secret></span>
-                <span>taxa est. <b>{s.fee_zec}</b></span>
-                <span>total + taxa <Secret sm><b>{s.total_with_fee_zec}</b></Secret></span>
-              </div>
-            )}
-
-            <div className="confirm mt">⚑ <b>Folha</b> — {s?.count ?? 0} pagamentos numa transação só. Precisa de <b>2 aprovações</b> (incluindo a sua).</div>
-          </>
+        {showImport && (
+          <div className="mt-sm">
+            <textarea className="input mono csv-area" rows={4} placeholder="rótulo,endereço,valor,memo" value={csv} onChange={(e) => setCsv(e.target.value)} spellCheck={false} />
+            <div className="mt-sm"><button className="btn ghost sm-btn" onClick={importCsv}>Ler e preencher tabela</button></div>
+          </div>
         )}
 
+        <div className="foot">
+          <span>{count} pagamento{count === 1 ? '' : 's'}</span>
+          <span>total <Secret sm><b>{zatToZec(totalZat)} ZEC</b></Secret></span>
+          <span>taxa est. <b>{zatToZec(feeZat)}</b></span>
+          <span>saldo após <Secret sm><b>{afterZat === null ? '—' : `${zatToZec(afterZat)}`}</b></Secret></span>
+        </div>
+        {afterZat !== null && afterZat < 0 && <div className="hint warn">⚠ Total + taxa excede o saldo do cofre.</div>}
+
+        <div className="confirm mt">⚑ <b>{competencia ? `Folha · ${competencia}` : 'Folha'}</b> — {count} pagamento{count === 1 ? '' : 's'} numa transação só. Precisa de <b>2 aprovações</b> (incluindo a sua).</div>
         {error && <div className="hint err mt">✗ {error}</div>}
 
         <div className="right mt">
-          <button className="btn ok" onClick={propose} disabled={!canPropose}>
-            {busy === 'propose' ? 'Propondo…' : '▸ Propor folha'}
-          </button>
+          <button className="btn ok" onClick={submit} disabled={!canSubmit}>{busy ? 'Enviando…' : '▸ Enviar para aprovação'}</button>
         </div>
       </div>
     </>
