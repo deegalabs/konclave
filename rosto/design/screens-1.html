@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="pt-BR"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Konclave — Telas (1/2)</title>
+<link rel="stylesheet" href="./lacre.css">
+<style>
+  body{background:#D9D6CD; padding:34px 20px}
+  .stage{max-width:860px; margin:0 auto}
+  .cap{font-family:var(--mono); font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:#5b574b; margin:30px 4px 10px}
+  .cap:first-child{margin-top:0}
+  .frame{box-shadow:0 18px 40px -26px rgba(0,0,0,.5)}
+  .pad{padding:26px 30px 30px}
+  .selq{display:flex; align-items:center; gap:10px; font-family:var(--mono); font-size:22px}
+  .selq .box{border:1.5px solid var(--ink); background:var(--paper-2); padding:4px 14px}
+  .memberrow{display:flex; align-items:center; justify-content:space-between; padding:11px 0; border-bottom:1px solid var(--line); font-family:var(--mono); font-size:13px}
+  .memberrow:last-child{border-bottom:0}
+  .tag{font-family:var(--mono); font-size:10.5px; letter-spacing:.06em; padding:2px 8px; border:1px solid var(--line); color:var(--muted)}
+  .tag.ok{color:var(--pine); border-color:var(--pine)}
+</style></head>
+<body><div class="stage">
+
+<!-- ABERTURA -->
+<div class="cap">1 · Abertura (sem cofre ainda)</div>
+<div class="frame sheet">
+  <div class="lh"><div class="brand"><svg class="mark" viewBox="0 0 32 32" fill="none"><rect x="4.5" y="4.5" width="23" height="23" stroke="#1A1813" stroke-width="1.6"/><path d="M16 9.5 21.7 12.8v6.4L16 22.5l-5.7-3.3v-6.4L16 9.5Z" stroke="#7E2A24" stroke-width="1.4"/></svg><span class="wm">KONCLAVE</span></div></div>
+  <div class="pad" style="text-align:center; padding:64px 30px">
+    <div class="klab">Tesouraria coletiva · privada · à prova de pessoa-única</div>
+    <div class="h1" style="margin:18px 0 8px">O cofre que<br>decide em conjunto</div>
+    <div class="dim mono" style="font-size:13px; margin-bottom:36px">Privado por fora · transparente por dentro</div>
+    <div style="display:flex; gap:14px; justify-content:center; max-width:520px; margin:0 auto">
+      <button class="btn ok block">▸ Criar cofre</button>
+      <button class="btn block">Entrar num cofre</button>
+    </div>
+    <div class="dim mono" style="font-size:11px; margin-top:16px">começar um grupo · tenho um convite</div>
+  </div>
+</div>
+
+<!-- CERIMÔNIA — DEFINIR -->
+<div class="cap">2 · Criar cofre — Definir</div>
+<div class="frame sheet">
+  <div class="lh"><span class="wm">KONCLAVE</span>
+    <div class="steps"><span class="st on"><span class="pip"></span>Definir</span><span class="seg"></span><span class="st"><span class="pip"></span>Convidar</span><span class="seg"></span><span class="st"><span class="pip"></span>Criar</span><span class="seg"></span><span class="st"><span class="pip"></span>Endereço</span></div>
+  </div>
+  <div class="pad">
+    <div class="h1">Criar cofre</div>
+    <label class="field"><span>Nome do cofre</span><input class="input" value="Tesouraria da comunidade"></label>
+    <div class="field"><span>Quantas pessoas precisam aprovar cada pagamento?</span>
+      <div class="selq"><span class="box">2</span> de <span class="box">3</span> <span class="dim" style="font-size:13px; font-family:var(--sans)">membros</span></div>
+      <div class="hint">↳ Nenhum pagamento sai sem 2 aprovações. Ninguém sozinho controla o dinheiro.</div>
+    </div>
+    <hr class="rule">
+    <div style="text-align:right"><button class="btn ok">▸ Avançar</button></div>
+  </div>
+</div>
+
+<!-- CERIMÔNIA — CONVIDAR -->
+<div class="cap">3 · Criar cofre — Convidar (todos precisam estar online)</div>
+<div class="frame sheet">
+  <div class="lh"><span class="wm">KONCLAVE</span>
+    <div class="steps"><span class="st"><span class="pip"></span>Definir</span><span class="seg"></span><span class="st on"><span class="pip"></span>Convidar</span><span class="seg"></span><span class="st"><span class="pip"></span>Criar</span><span class="seg"></span><span class="st"><span class="pip"></span>Endereço</span></div>
+  </div>
+  <div class="pad">
+    <div class="klab">Envie este convite para cada pessoa</div>
+    <div style="display:flex; gap:8px; margin:12px 0 24px">
+      <input class="input mono" value="konclave://convite/9f2e…a71" readonly>
+      <button class="btn ghost">Copiar</button><button class="btn ghost">QR</button>
+    </div>
+    <div class="klab">Membros · aguardando 2 de 3 entrarem</div>
+    <div style="margin-top:8px">
+      <div class="memberrow"><span>Você <span class="dim">(dona)</span></span><span class="tag ok">pronta</span></div>
+      <div class="memberrow"><span>Bruno</span><span class="tag ok">entrou</span></div>
+      <div class="memberrow"><span>Carla</span><span class="tag">aguardando…</span></div>
+    </div>
+    <hr class="rule">
+    <div class="confirm">⚠ Todos precisam estar no app agora — a criação acontece uma vez, em conjunto.</div>
+    <div style="text-align:right; margin-top:16px"><button class="btn ok" style="opacity:.5">▸ Criar cofre agora</button></div>
+  </div>
+</div>
+
+<!-- CERIMÔNIA — ENDEREÇO -->
+<div class="cap">4 · Criar cofre — Pronto</div>
+<div class="frame sheet">
+  <div class="lh"><span class="wm">KONCLAVE</span>
+    <div class="steps"><span class="st"><span class="pip"></span>Definir</span><span class="seg"></span><span class="st"><span class="pip"></span>Convidar</span><span class="seg"></span><span class="st"><span class="pip"></span>Criar</span><span class="seg"></span><span class="st on"><span class="pip"></span>Endereço</span></div>
+  </div>
+  <div class="pad">
+    <div class="h1" style="color:var(--pine)">✓ Cofre pronto</div>
+    <div class="dim mono" style="font-size:12.5px; margin-bottom:20px">Sua parte da chave foi guardada com segurança neste aparelho. Ela nunca sai daqui.</div>
+    <div class="klab">Endereço para receber ZEC</div>
+    <div style="display:flex; gap:8px; margin:12px 0 10px">
+      <input class="input mono" value="u1vjgxlvz4ewnt43rkq6fzexpl…d406dr" readonly>
+      <button class="btn ghost">Copiar</button><button class="btn ghost">QR</button>
+    </div>
+    <div class="hint warn">⚠ Receba apenas em endereço Orchard.</div>
+    <hr class="rule">
+    <div style="text-align:right"><button class="btn ok">▸ Ir ao painel</button></div>
+  </div>
+</div>
+
+<!-- NOVO PAGAMENTO -->
+<div class="cap">5 · Novo pagamento</div>
+<div class="frame sheet">
+  <div class="lh"><span class="wm">KONCLAVE</span><span class="klab">← Painel</span></div>
+  <div class="pad">
+    <div class="h1">Novo pagamento</div>
+    <label class="field"><span>Para</span><input class="input mono" placeholder="endereço Zcash…" value="zs1q9f7m…4ka2"></label>
+    <label class="field"><span>Valor</span><input class="input mono" value="0.5"></label>
+    <div class="hint">disponível para propor: <span class="secret sm mono"><b>2.4180 ZEC</b><span class="bar"></span></span></div>
+    <label class="field" style="margin-top:16px"><span>Memo · recibo/holerite — só o destinatário lê <span class="dim" style="text-transform:none">(6/512)</span></span><input class="input" value="adiantamento maio"></label>
+    <hr class="rule thin">
+    <div class="mono dim" style="font-size:12.5px">Taxa estimada <b style="color:var(--ink)">0.0001 ZEC</b> · saldo após <span class="secret sm"><b>—</b><span class="bar"></span></span></div>
+    <div class="confirm" style="margin-top:18px">⚑ Você vai <b>PROPOR</b> 0,5 ZEC → zs1q9f…4ka2. Precisa de <b>2 aprovações</b> (incluindo a sua).</div>
+    <div style="text-align:right; margin-top:16px"><button class="btn ok">▸ Propor pagamento</button></div>
+  </div>
+</div>
+
+</div></body></html>
