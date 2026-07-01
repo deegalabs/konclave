@@ -72,3 +72,69 @@
 /* reveal behavior — the tarja collapses to the left */
 .secret .bar{transition:transform .28s cubic-bezier(.3,.8,.3,1), opacity .28s}
 .revealed .secret .bar{transform:scaleX(0); transform-origin:left; opacity:0; pointer-events:none}
+
+/* ---- shared helpers across screens ---- */
+.page.narrow{max-width:560px}
+.right{text-align:right}
+.center{justify-content:center}
+.mt{margin-top:16px}
+.mt-sm{margin-top:10px}
+.mt-xs{margin-top:8px}
+.ink{color:var(--ink)}
+.pine{color:var(--pine)}
+.ns{text-transform:none}
+.seal-tx{color:var(--seal)}
+.dimmed{opacity:.5}
+.sm-btn{padding:8px 12px}
+.back{cursor:pointer}
+.back:hover{color:var(--seal)}
+.lh-actions{display:flex; align-items:center; gap:16px}
+.row-gap{display:flex; gap:8px; margin:12px 0 24px}
+.fee{font-size:12.5px}
+.mono{font-family:var(--mono)}
+
+/* stepper wrapper (from components) */
+.st-wrap{display:inline-flex; align-items:center; gap:8px}
+
+/* ---- Abertura ---- */
+.abertura{text-align:center; padding:64px 46px}
+.hero-title{font-weight:800; font-size:clamp(30px,5vw,46px); text-transform:uppercase; letter-spacing:-.02em; line-height:1; margin:18px 0 8px}
+.hero-sub{margin-bottom:36px; text-align:center}
+.abertura-btns{display:flex; gap:14px; justify-content:center; max-width:520px; margin:0 auto}
+.hero-hint{font-size:11px; margin-top:16px}
+
+/* ---- Cerimônia ---- */
+.selq{display:flex; align-items:center; gap:10px; font-family:var(--mono); font-size:22px}
+.selq .box{border:1.5px solid var(--ink); background:var(--paper-2); padding:4px 14px}
+.selq-unit{font-size:13px; font-family:var(--sans)}
+.members{margin-top:8px}
+.memberrow{display:flex; align-items:center; justify-content:space-between; padding:11px 0; border-bottom:1px solid var(--line); font-family:var(--mono); font-size:13px}
+.memberrow:last-child{border-bottom:0}
+.tag{font-family:var(--mono); font-size:10.5px; letter-spacing:.06em; padding:2px 8px; border:1px solid var(--line); color:var(--muted)}
+.tag.ok{color:var(--pine); border-color:var(--pine)}
+.progress-bar{height:6px; background:var(--line); margin:22px 0; position:relative; overflow:hidden}
+.progress-bar span{position:absolute; inset:0 auto 0 0; width:62%; background:var(--seal)}
+
+/* ---- Nova folha ---- */
+.foot{display:flex; gap:26px; font-family:var(--mono); font-size:12.5px; color:var(--muted); margin-top:18px; padding-top:16px; border-top:1.5px solid var(--ink); flex-wrap:wrap}
+.foot b{color:var(--ink)}
+.foot .pushr{margin-left:auto}
+.import-report{margin-bottom:20px}
+.import-detail{margin-top:8px}
+
+/* ---- Proposta ---- */
+.p-amt{font-family:var(--mono); font-size:30px; font-weight:500; margin:16px 0 4px}
+.p-meta{font-family:var(--mono); font-size:12.5px; color:var(--muted)}
+
+/* ---- Enviado ---- */
+.enviado{text-align:center; padding:48px 46px}
+.enviado-amt{font-family:var(--mono); font-size:18px; margin:14px 0 4px}
+.enviado-sub{font-size:12px; margin-bottom:28px}
+
+/* ---- Razão ---- */
+.filters{display:flex; gap:8px; margin:14px 0; align-items:center}
+.chip{font-family:var(--mono); font-size:12px; border:1.5px solid var(--line); background:var(--paper-2); padding:8px 12px}
+.filters .pushr{margin-left:auto}
+.filters .chip.pushr{border:0; background:none; padding:0}
+.tbl .num.out{color:var(--ink)}
+.tbl .num.in{color:var(--pine)}
