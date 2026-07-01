@@ -16,7 +16,7 @@
 ## 1. O que é
 
 **Konclave** — o cofre que decide em conjunto. App **desktop local-first** (Tauri:
-shell Rust + Next.js/React) que torna usável, para um tesoureiro comum, criar e operar
+shell Rust + Vite/React) que torna usável, para um tesoureiro comum, criar e operar
 um **cofre de fundos coletivo, privado e à prova de pessoa-única** sobre a rede Zcash,
 usando **assinaturas de limiar (FROST)**. Dois rostos de peso igual: **pagamento
 aprovado por quórum** e **folha de pagamento privada** (uma transação Orchard com N
@@ -38,7 +38,7 @@ Do [CONCEITO_INICIAL.md §13](docs/CONCEITO_INICIAL.md) + conversa de logística
 | Tema | Decisão |
 |---|---|
 | Nome | **Konclave** |
-| Plataforma | **Desktop local-first via Tauri** (shell Rust + Next.js/React) |
+| Plataforma | **Desktop local-first via Tauri** (shell Rust + Vite/React) |
 | Integração com o motor | **Caminho 1** (invocar binários CLI oficiais) com **rigor de Caminho 2** |
 | Onde mora a chave | **Key share NUNCA sai do dispositivo** (cofre seguro do SO). Entre membros trafega só **material público** |
 | Coordenação | **`frostd` oficial** (servidor cego — só vê dados públicos) + fallback QR/copy-paste (stretch) |
@@ -55,7 +55,8 @@ Decisões técnicas assumidas na logística:
   com checksum em `motor/versions.lock` (ver [ADR-0001](docs/adr/0001-decisoes-fechadas.md)).
 - **Camada carteira:** **linkar `zcash_client_backend`** no Rust para sync/saldo/plano
   (dado estruturado nativo) — shellar **apenas** os binários FROST/sign.
-- **Frontend:** Next.js em **static export** (Tauri serve estático).
+- **Frontend:** **Vite + React** em bundle estático ([ADR-0003](docs/adr/0003-vite-over-nextjs.md)
+  revisou o Next.js originalmente cogitado — inaplicável a um app local-first sem servidor).
 
 ---
 
@@ -71,7 +72,7 @@ Camada 2 — ORQUESTRADOR  o backend que construímos (Rust, dentro do src-tauri
    validação (ZIP 317) · store (SQLite + keychain) · IPC (comandos Tauri)
         │  (DTOs estruturados via comandos Tauri)
         ▼
-Camada 3 — ROSTO         a interface (Next.js/React)
+Camada 3 — ROSTO         a interface (Vite/React)
    Abertura · Criar/Entrar cofre · Painel · Pagamento/Folha · Proposta · Histórico · Membros
 ```
 
@@ -232,8 +233,10 @@ em [docs/VERTICAL_SLICE.md](docs/VERTICAL_SLICE.md).
 - **3.2 Orquestração:** `tools`/`wallet`/`signer`/`pczt`/`ceremony` — embrulham os
   binários com saída estruturada (parsers testados contra saída real do slice).
 - **3.3 Segurança + store:** `secrets` (XChaCha20-Poly1305 sela as shares em repouso;
-  keychain via trait; arquivo efêmero 0600) — **débito de segurança quitado**;
-  `store` (SQLite embutido: cofres, propostas, votos).
+  keychain via trait; arquivo efêmero 0600) — cobre o armazenamento **do próprio
+  Orquestrador**, mas ⚠️ **o débito NÃO está quitado no sistema que roda**: o caminho vivo
+  da cerimônia ainda lê as shares em **texto claro** dos configs `frost-client` (dívida
+  real **em aberto**, ver 5-E); `store` (SQLite embutido: cofres, propostas, votos).
 
 - **3.4 Folha:** `payroll` (plano de N saídas, `import_csv`, validação agregada) +
   `money::from_zec_str`. Os **comandos Tauri (IPC)** ficam para a **integração
@@ -284,17 +287,37 @@ Trilha "propor → aprovar → assinar → enviar" inteira pela aplicação:
   2-de-3 aprovado por quórum, assinado por cerimônia FROST server-side e transmitido, tudo
   pela ponte HTTP. A chave **nunca foi remontada**.
 
-**Trilha contábil — ✅ CONCLUÍDA (2026-07-01).** `store::list_all_proposals` (razão
+**Trilha contábil — ✅ funcional (2026-07-01).** `store::list_all_proposals` (razão
 completo, estados terminais inclusos); `GET /api/ledger` (JSON) + `GET /api/ledger.csv`
-(download com escaping RFC-4180: id, estado, tipo, proponente, aprovadores, valor, memo,
-destino, txid). Tela `Razão` ao vivo com export CSV + imprimir/PDF. O CSV do contador
-inclui o pagamento real de mainnet (txid `43433a10…`). **92 testes verdes.**
+(**export itemizado**: pagamento único = 1 lançamento; folha de N = **N lançamentos**, um
+por beneficiário, com escaping RFC-4180). Tela `Razão` ao vivo com export CSV + imprimir/
+PDF. Redesenho contábil (documento / competência / rascunho / beneficiário-entidade)
+planejado em [docs/REDESENHO_FOLHA.md](docs/REDESENHO_FOLHA.md).
 
-**Estado do produto:** o loop inteiro — **propor → aprovar → assinar (FROST) → enviar
-(mainnet) → prestar contas** — funciona ponta a ponta pela aplicação (navegador do
-Windows → ponte HTTP no WSL → núcleo testado + motor oficial). Ambas as trilhas de peso
-(FROST + Accounting) provadas.
+**Fase 5 — coerência, folha e robustez (2026-07-01):**
+- **5-A** cofre real (o app deixou de mostrar um seed falso; endereço/grupo agora = os da
+  carteira e da cerimônia).
+- **5-B** folha pela UI: **propor + aprovar** (documento editável, competência, rascunho
+  local); **motor multi-saída** (`konclave-signer build-payroll`, que linka
+  `zcash_client_backend` — §2) + **cerimônia multi-assinatura** (uma assinatura FROST por
+  spend real) — a folha **assina de verdade**.
+- **5-C** estados de erro: avisos de endereço, **erros técnicos → mensagens humanas** (§6.11),
+  **expiração** de proposta (§6.3).
+- **101 testes verdes.**
 
-**Próximo (entrega, Fase 7):** README unicórnio + vídeo + diagrama; opcionalmente trocar
-o cofre-demo (trusted-dealer) pelo cofre **DKG** da Fase 2; empacotamento Tauri (roadmap,
-ADR-0004).
+**Estado real do produto (sem overclaim):** o núcleo roda pela UI para **pagamento e
+folha** — propor → validar (contínuo) → aprovar/recusar (quórum, expiração) → **assinar
+(FROST)** → prestar contas (razão + CSV itemizado). **Provado na mainnet:** 1 **pagamento
+único** (txid `43433a10…`). **Provado só por dry-run (assina, NÃO transmite):** a folha
+multi-saída — o **broadcast real da folha ainda não foi feito**.
+
+**Dívidas honestas EM ABERTO (não prometer o que não entrega, §6.15):**
+- Cofre é **trusted-dealer** (andaime do slice), **não** o **DKG** da Fase 2 — DKG ainda
+  não ligado na UI (5-F).
+- **Identidade de membro é cosmética**: os nomes de aprovação na UI não mapeiam às shares
+  que de fato assinam (a cerimônia usa sempre alice/bob do slice) (5-D).
+- **Shares em texto claro** no caminho vivo da cerimônia (5-E; ver 3.3).
+- **Broadcast real da folha** pendente; empacotamento **Tauri** é roadmap (ADR-0004).
+
+**Próximo:** 5-D (membros/beneficiários como entidades) · 5-E (selar shares do caminho
+vivo) · 5-F (cofre por DKG na UI) · Fase 6 (extras) · Fase 7 (README/vídeo/diagrama).
