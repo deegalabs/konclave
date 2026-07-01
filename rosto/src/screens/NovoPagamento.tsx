@@ -53,7 +53,7 @@ export default function NovoPagamento() {
     if (!to.trim()) { setError('Informe o endereço de destino.'); return }
     setBusy(true)
     const res = await createProposal({
-      proposer: 'você', // this device's member; real member id wired with identity (fase seguinte)
+      proposer: 'Alice', // this device acts as the coordinator member (single-device demo)
       to_address: to.trim(),
       value_zec: value.trim(),
       memo: memo.trim() || undefined,

@@ -166,7 +166,9 @@ fn run_sign_send(args: &[String]) -> Result<(), String> {
     eprintln!("destino {to} · valor {value_zat} zat");
 
     let plan = SpendPlan::Payment { to: to.clone(), value_zat, memo: memo.clone() };
-    let outcome = orchestrate_send(&sc, &plan, dry_run)
+    // Harness: the first `threshold` members act as the approvers.
+    let approvers: Vec<String> = sc.members.iter().take(sc.threshold).map(|m| m.name.clone()).collect();
+    let outcome = orchestrate_send(&sc, &plan, &approvers, dry_run)
         .map_err(|e| format!("cerimônia/envio: {e}"))?;
 
     eprintln!("sighash assinado: {}", outcome.sighash);

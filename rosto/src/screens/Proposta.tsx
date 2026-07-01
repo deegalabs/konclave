@@ -6,8 +6,6 @@ import {
   type Proposal, type PayrollLine,
 } from '../api'
 
-const ME = 'você' // this device's member id (real identity wired in a later phase)
-
 const STAMP: Record<string, string> = {
   awaiting: 'Pendente', ready: 'Pronta', sent: 'Enviada',
   confirmed: 'Confirmada', rejected: 'Recusada', expired: 'Expirada', cancelled: 'Cancelada',
@@ -19,6 +17,8 @@ export default function Proposta() {
   const [p, setP] = useState<Proposal | null>(null)
   const [lines, setLines] = useState<PayrollLine[]>([])
   const [threshold, setThreshold] = useState(2)
+  const [members, setMembers] = useState<string[]>([])
+  const [approveAs, setApproveAs] = useState('')
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -29,7 +29,7 @@ export default function Proposta() {
     let on = true
     void (async () => {
       const v = await getVault()
-      if (on && v) setThreshold(v.threshold)
+      if (on && v) { setThreshold(v.threshold); setMembers(v.member_list.map((m) => m.name)) }
       let id = loc.state?.id
       if (!id) {
         const list = await getProposals()
@@ -47,10 +47,13 @@ export default function Proposta() {
 
   async function vote(approve: boolean) {
     if (!p) return
+    const canVote = members.filter((m) => !p.approvals.includes(m) && !p.refusals.includes(m))
+    const who = approveAs && canVote.includes(approveAs) ? approveAs : canVote[0]
+    if (!who) { setError('Não há membro disponível para votar.'); return }
     setError(null); setBusy(true)
-    const res = await voteProposal(p.id, ME, approve)
+    const res = await voteProposal(p.id, who, approve)
     setBusy(false)
-    if (res.ok) setP(res.proposal)
+    if (res.ok) { setP(res.proposal); setApproveAs('') }
     else setError(humanError(res.error, res.detail))
   }
 
@@ -86,6 +89,7 @@ export default function Proposta() {
   const isRejected = p.state === 'rejected'
   const isExpired = p.state === 'expired'
   const isSent = p.state === 'sent' || p.state === 'confirmed'
+  const pendingApprovers = members.filter((m) => !p.approvals.includes(m) && !p.refusals.includes(m))
 
   return (
     <>
@@ -129,12 +133,19 @@ export default function Proposta() {
 
         {isAwaiting && (
           <>
-            <div className="confirm mt">Ao aprovar, você autoriza este pagamento com a <b>sua parte da chave</b>.</div>
+            <div className="confirm mt">Ao aprovar, o membro autoriza este pagamento com a <b>sua parte da chave</b>. A cerimônia assina com as partes de <b>quem aprovou</b>.</div>
+            {pendingApprovers.length > 0 && (
+              <label className="field mt"><span>Aprovar como membro</span>
+                <select className="input" value={approveAs || pendingApprovers[0] || ''} onChange={(e) => setApproveAs(e.target.value)}>
+                  {pendingApprovers.map((m) => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </label>
+            )}
             <div className="btns mt">
-              <button className="btn ok" onClick={() => vote(true)} disabled={busy}>{busy ? '…' : '▸ Aprovar'}</button>
-              <button className="btn" onClick={() => vote(false)} disabled={busy}>Recusar</button>
+              <button className="btn ok" onClick={() => vote(true)} disabled={busy || pendingApprovers.length === 0}>{busy ? '…' : '▸ Aprovar'}</button>
+              <button className="btn" onClick={() => vote(false)} disabled={busy || pendingApprovers.length === 0}>Recusar</button>
             </div>
-            <div className="hint mt-sm">Ao bater {threshold} de {threshold}, a proposta fica pronta para a assinatura FROST.</div>
+            <div className="hint mt-sm">Nesta demo você atua por cada membro (single-device). Ao bater {threshold} de {threshold}, fica pronta para a assinatura FROST — que usará as partes de quem aprovou.</div>
           </>
         )}
 

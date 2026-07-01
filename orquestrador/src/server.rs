@@ -984,7 +984,8 @@ fn send_proposal(cfg: &Config, id: &str, body: &[u8]) -> Response {
         }
     };
 
-    let outcome = orchestrate_send(sc, &plan, req.dry_run);
+    // 5-D.3: the ceremony signs with the shares of WHO APPROVED (rec.approvals).
+    let outcome = orchestrate_send(sc, &plan, &rec.approvals, req.dry_run);
     let outcome = match outcome {
         Ok(o) => o,
         Err(e) => return Response::json(502, &serde_json::json!({"error": "send failed", "detail": e.to_string()})),
@@ -1120,13 +1121,13 @@ pub fn seed_demo(store: &mut Store) -> Result<(), crate::store::StoreError> {
         vault_id: "vault-slice".into(),
         kind: ProposalKind::Payment,
         state: ProposalState::Awaiting,
-        proposer: "Bruno".into(),
+        proposer: "Alice".into(),
         value_total: Zatoshis::from_u64(30_000).unwrap(), // 0.0003 ZEC
         memo: Some("adiantamento maio".into()),
         to_address: Some(SLICE_ADDRESS.into()),
-        expiry_unix: Some(1_800_000_000),
+        expiry_unix: Some(i64::MAX), // example: never expires
         txid: None,
-        approvals: vec!["Bruno".into()],
+        approvals: vec!["Alice".into()],
         refusals: vec![],
     };
     store.save_proposal(&example)?;
@@ -1311,7 +1312,7 @@ mod tests {
         // The example payment fits the real balance, formatted as a ZEC string.
         let payment = ps.iter().find(|p| p["kind"] == "payment").unwrap();
         assert_eq!(payment["value_zec"], "0.00030000");
-        assert_eq!(payment["proposer"], "Bruno");
+        assert_eq!(payment["proposer"], "Alice");
         assert_eq!(payment["approvals_count"], 1);
     }
 
@@ -1643,10 +1644,10 @@ mod tests {
         let mut cfg = cfg_with(db, None);
         cfg.ceremony = Some(dummy_ceremony()); // fake tool paths
 
-        let r = handle(&cfg, "POST", "/api/payroll", br#"{"proposer":"Ana","lines":[{"address":"u1a","value_zec":"0.0002"}]}"#);
+        let r = handle(&cfg, "POST", "/api/payroll", br#"{"proposer":"Alice","lines":[{"address":"u1a","value_zec":"0.0002"}]}"#);
         assert_eq!(r.status, 201);
         let id = body_json(&r)["proposal"]["id"].as_str().unwrap().to_string();
-        let a = handle(&cfg, "POST", &format!("/api/proposals/{id}/approve"), br#"{"member":"Bruno"}"#);
+        let a = handle(&cfg, "POST", &format!("/api/proposals/{id}/approve"), br#"{"member":"Bob"}"#);
         assert_eq!(body_json(&a)["proposal"]["state"], "ready");
         // Payroll now goes through the multi-output engine; with dummy tool paths the
         // build step fails and surfaces a clean 502 (not a silent success, not a 501).
@@ -1661,8 +1662,10 @@ mod tests {
         serde_json::from_str(
             r#"{"devtool":"/x","wallet_dir":"/w","lightwalletd":"z:443","account":"a",
                 "konclave_signer":"/ks","frostd":"/fd","frost_client":"/fc",
-                "coordinator_config":"a.toml","participant_configs":["a.toml","b.toml"],
-                "group":"gg","signers":["aa","bb"],"frostd_cert":"c.pem","frostd_key":"k.pem",
+                "members":[{"name":"Alice","pubkey":"aa","config":"a.toml"},
+                           {"name":"Bob","pubkey":"bb","config":"b.toml"},
+                           {"name":"Carol","pubkey":"cc","config":"c.toml"}],
+                "threshold":2,"group":"gg","frostd_cert":"c.pem","frostd_key":"k.pem",
                 "server_url":"127.0.0.1:2744","work_dir":"/tmp/w"}"#,
         )
         .unwrap()

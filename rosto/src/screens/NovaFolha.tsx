@@ -6,7 +6,7 @@ import {
   type Beneficiary,
 } from '../api'
 
-const ME = 'você'
+const ME = 'Alice' // this device acts as the coordinator member (single-device demo)
 const DRAFT_KEY = 'konclave.folha.rascunho'
 
 type Row = { label: string; address: string; value: string; memo: string }

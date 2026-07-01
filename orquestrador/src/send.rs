@@ -19,8 +19,17 @@ use crate::ceremony::{run_coordinator, run_participant, Frostd};
 use crate::tools::ToolError;
 use crate::{pczt, signer};
 
+/// A vault member as the ceremony knows them: name + comm pubkey + their frost-client
+/// config (which holds only that member's role material). Public paths, never a share.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CeremonyMember {
+    pub name: String,
+    pub pubkey: String,
+    pub config: String,
+}
+
 /// Everything the automated ceremony needs. Loaded from a JSON file (`--ceremony`) so
-/// the paths, group, signers and certs live outside the binary. Contains only paths and
+/// the paths, group, members and certs live outside the binary. Contains only paths and
 /// public material — never a key share.
 #[derive(Debug, Clone, Deserialize)]
 pub struct SendConfig {
@@ -33,14 +42,13 @@ pub struct SendConfig {
     pub konclave_signer: PathBuf,
     pub frostd: PathBuf,
     pub frost_client: PathBuf,
-    /// The coordinator's frost-client config (holds only that role's material).
-    pub coordinator_config: String,
-    /// One config per participant that will sign (t of them).
-    pub participant_configs: Vec<String>,
+    /// The vault's members — the ceremony picks the signing set from **who approved**
+    /// (5-D.3: aprovação ↔ share que assina).
+    pub members: Vec<CeremonyMember>,
+    /// How many signatures the quorum needs (t).
+    pub threshold: usize,
     /// Group public key (hex).
     pub group: String,
-    /// The signer comm public keys (hex), t of them, passed to the coordinator.
-    pub signers: Vec<String>,
     pub frostd_cert: String,
     pub frostd_key: String,
     #[serde(default = "default_ip")]
@@ -120,9 +128,36 @@ fn build_unproven(sc: &SendConfig, plan: &SpendPlan) -> Result<Vec<u8>, ToolErro
 pub fn orchestrate_send(
     sc: &SendConfig,
     plan: &SpendPlan,
+    approvers: &[String],
     dry_run: bool,
 ) -> Result<SendOutcome, ToolError> {
     std::fs::create_dir_all(&sc.work_dir).map_err(ToolError::Io)?;
+
+    // 5-D.3: the signing set is WHO APPROVED. Resolve the first `threshold` approvers to
+    // their configs — the ceremony signs with exactly those members' shares, not a fixed set.
+    let mut signers: Vec<&CeremonyMember> = Vec::new();
+    for a in approvers {
+        if let Some(m) = sc.members.iter().find(|m| m.name.eq_ignore_ascii_case(a)) {
+            if !signers.iter().any(|s| s.name == m.name) {
+                signers.push(m);
+            }
+        }
+        if signers.len() == sc.threshold {
+            break;
+        }
+    }
+    if signers.len() < sc.threshold {
+        return Err(ToolError::parse(
+            "ceremony",
+            format!(
+                "precisa de {} aprovadores com chave conhecida; encontrei {} (aprovadores: {:?})",
+                sc.threshold, signers.len(), approvers
+            ),
+        ));
+    }
+    let coordinator_config = signers[0].config.clone();
+    let participant_configs: Vec<String> = signers.iter().map(|m| m.config.clone()).collect();
+    let signer_pks: Vec<String> = signers.iter().map(|m| m.pubkey.clone()).collect();
 
     // 1) build the (unproven) PCZT (single payment via CLI, payroll via our builder).
     let tx1 = build_unproven(sc, plan)?;
@@ -151,7 +186,10 @@ pub fn orchestrate_send(
     for (round, r) in input.randomizers.iter().enumerate() {
         let alpha_hex = hex_encode(&r.alpha);
         let sig_path = format!("{}/sig-{round}.raw", sc.work_dir);
-        let sig = run_ceremony(sc, &sighash_hex, &alpha_hex, &sig_path)?;
+        let sig = run_ceremony(
+            sc, &coordinator_config, &participant_configs, &signer_pks,
+            &sighash_hex, &alpha_hex, &sig_path,
+        )?;
         signatures.push((r.action_index, sig));
         // Let the completed session settle before the next round's fresh session.
         thread::sleep(Duration::from_millis(300));
@@ -174,18 +212,22 @@ pub fn orchestrate_send(
 
 /// Coordinator + participants run concurrently (they block on each other via frostd), as
 /// on separate devices in the product. Here they are threads on one box.
+#[allow(clippy::too_many_arguments)]
 fn run_ceremony(
     sc: &SendConfig,
+    coordinator_config: &str,
+    participant_configs: &[String],
+    signer_pks: &[String],
     sighash_hex: &str,
     randomizer_hex: &str,
     sig_path: &str,
 ) -> Result<[u8; 64], ToolError> {
     // Owned copies so each closure is 'static.
     let fc = sc.frost_client.clone();
-    let coord_cfg = sc.coordinator_config.clone();
+    let coord_cfg = coordinator_config.to_string();
     let server_url = sc.server_url.clone();
     let group = sc.group.clone();
-    let signers = sc.signers.clone();
+    let signers = signer_pks.to_vec();
     let sighash = sighash_hex.to_string();
     let randomizer = randomizer_hex.to_string();
     let sig_out = sig_path.to_string();
@@ -210,7 +252,7 @@ fn run_ceremony(
 
     // Participants: each contributes its share (auto-confirming the sign prompt).
     let mut participants = Vec::new();
-    for cfg in &sc.participant_configs {
+    for cfg in participant_configs {
         let fc = sc.frost_client.clone();
         let cfg = cfg.clone();
         let server_url = sc.server_url.clone();
@@ -246,17 +288,23 @@ mod tests {
         let json = r#"{
             "devtool":"/bin/devtool","wallet_dir":"/w","lightwalletd":"zec.rocks:443",
             "account":"acc-1","konclave_signer":"/bin/ks","frostd":"/bin/frostd",
-            "frost_client":"/bin/fc","coordinator_config":"alice.toml",
-            "participant_configs":["alice.toml","bob.toml"],
-            "group":"deadbeef","signers":["aa","bb"],
+            "frost_client":"/bin/fc",
+            "members":[
+              {"name":"Alice","pubkey":"aa","config":"alice.toml"},
+              {"name":"Bob","pubkey":"bb","config":"bob.toml"},
+              {"name":"Carol","pubkey":"cc","config":"carol.toml"}
+            ],
+            "threshold":2,
+            "group":"deadbeef",
             "frostd_cert":"c.pem","frostd_key":"k.pem","server_url":"127.0.0.1:2744",
             "work_dir":"/tmp/x"
         }"#;
         let sc: SendConfig = serde_json::from_str(json).unwrap();
         assert_eq!(sc.frostd_port, 2744); // default
         assert_eq!(sc.frostd_ip, "127.0.0.1"); // default
-        assert_eq!(sc.signers.len(), 2);
-        assert_eq!(sc.participant_configs.len(), 2);
+        assert_eq!(sc.threshold, 2);
+        assert_eq!(sc.members.len(), 3);
+        assert_eq!(sc.members[1].name, "Bob");
     }
 
     #[test]
