@@ -14,6 +14,70 @@ const DEFAULT_PORT: u16 = 4762;
 const DEFAULT_WEB: &str = "rosto/dist";
 const DEFAULT_DB: &str = "konclave.db";
 
+/// `konclave seal --in <file> --out <file.sealed> --key <keyfile>` — seal a secret file
+/// (e.g. a frost-client config holding a share) at rest with XChaCha20-Poly1305. Creates
+/// the 32-byte key (0600) on first use. The ceremony unseals it to an ephemeral file.
+fn run_seal(args: &[String]) -> Result<(), String> {
+    let mut input: Option<String> = None;
+    let mut output: Option<String> = None;
+    let mut key_file: Option<String> = None;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        let mut next = || it.next().ok_or_else(|| format!("faltou valor para {a}"));
+        match a.as_str() {
+            "--in" => input = Some(next()?.clone()),
+            "--out" => output = Some(next()?.clone()),
+            "--key" => key_file = Some(next()?.clone()),
+            other => return Err(format!("opção desconhecida: {other}")),
+        }
+    }
+    let input = input.ok_or("--in <arquivo> é obrigatório")?;
+    let output = output.ok_or("--out <arquivo.sealed> é obrigatório")?;
+    let key_file = key_file.ok_or("--key <arquivo-chave> é obrigatório")?;
+
+    let key: [u8; 32] = if std::path::Path::new(&key_file).exists() {
+        let b = std::fs::read(&key_file).map_err(|e| format!("lendo chave: {e}"))?;
+        if b.len() != 32 {
+            return Err(format!("chave deve ter 32 bytes, tem {}", b.len()));
+        }
+        let mut k = [0u8; 32];
+        k.copy_from_slice(&b);
+        k
+    } else {
+        let k = orquestrador::secrets::generate_key().map_err(|e| format!("gerar chave: {e}"))?;
+        write_private_key(&key_file, &k)?;
+        eprintln!("chave de selagem criada em {key_file} (0600)");
+        k
+    };
+
+    let plaintext = std::fs::read(&input).map_err(|e| format!("lendo {input}: {e}"))?;
+    let sealed = orquestrador::secrets::seal(&plaintext, &key).map_err(|e| format!("selar: {e}"))?;
+    std::fs::write(&output, &sealed).map_err(|e| format!("escrevendo {output}: {e}"))?;
+    println!("selado {input} -> {output} ({} bytes)", sealed.len());
+    Ok(())
+}
+
+fn write_private_key(path: &str, key: &[u8; 32]) -> Result<(), String> {
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut f = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)
+            .map_err(|e| format!("criar arquivo de chave: {e}"))?;
+        f.write_all(key).map_err(|e| format!("escrever chave: {e}"))?;
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(path, key).map_err(|e| format!("escrever chave: {e}"))?;
+    }
+    Ok(())
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
@@ -25,6 +89,13 @@ fn main() -> ExitCode {
             }
         },
         Some("sign-send") => match run_sign_send(&args[1..]) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("erro: {e}");
+                ExitCode::from(1)
+            }
+        },
+        Some("seal") => match run_seal(&args[1..]) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("erro: {e}");

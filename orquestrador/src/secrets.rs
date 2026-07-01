@@ -161,6 +161,26 @@ pub fn with_unsealed_file<T>(
     Ok(result)
 }
 
+/// An unsealed secret materialized as a short-lived 0600 file, removed when dropped.
+/// Use this when several unsealed files must live at once (e.g. one config per FROST
+/// signer for the whole ceremony) — hold the guards, use their paths, let them drop.
+pub struct UnsealedFile {
+    file: EphemeralFile,
+}
+
+impl UnsealedFile {
+    /// Path to the ephemeral plaintext file (valid until this guard drops).
+    pub fn path(&self) -> &Path {
+        &self.file.path
+    }
+}
+
+/// Unseal into a short-lived 0600 file and return a guard that deletes it on drop.
+pub fn unseal_to_file(sealed: &[u8], key: &[u8; 32]) -> Result<UnsealedFile, SecretError> {
+    let plaintext = unseal(sealed, key)?;
+    Ok(UnsealedFile { file: EphemeralFile::create(&plaintext)? })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -256,5 +276,18 @@ mod tests {
 
         assert_eq!(content, b"credentials.toml bytes");
         assert!(!captured_path.exists(), "plaintext must be removed after use");
+    }
+
+    #[test]
+    fn unseal_to_file_guard_removes_on_drop() {
+        let key = generate_key().unwrap();
+        let sealed = seal(b"alice.toml share", &key).unwrap();
+        let path;
+        {
+            let uf = unseal_to_file(&sealed, &key).unwrap();
+            path = uf.path().to_path_buf();
+            assert_eq!(std::fs::read(uf.path()).unwrap(), b"alice.toml share");
+        } // guard drops here
+        assert!(!path.exists(), "plaintext must be removed when the guard drops");
     }
 }

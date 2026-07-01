@@ -59,6 +59,12 @@ pub struct SendConfig {
     pub server_url: String,
     /// Scratch directory for the intermediate PCZT files.
     pub work_dir: String,
+    /// 5-E: path to the 32-byte sealing key. When set, member configs ending in
+    /// `.sealed` are unsealed to ephemeral 0600 files just for the ceremony — the share
+    /// never sits in cleartext on disk. (Key custody is a 0600 file here; the product
+    /// uses the OS keychain.)
+    #[serde(default)]
+    pub sealing_key_file: Option<String>,
 }
 
 fn default_ip() -> String {
@@ -155,9 +161,33 @@ pub fn orchestrate_send(
             ),
         ));
     }
-    let coordinator_config = signers[0].config.clone();
-    let participant_configs: Vec<String> = signers.iter().map(|m| m.config.clone()).collect();
     let signer_pks: Vec<String> = signers.iter().map(|m| m.pubkey.clone()).collect();
+
+    // 5-E: resolve each signer's config path. A `.sealed` config is unsealed to an
+    // ephemeral 0600 file (kept alive by `_config_guards` for the whole ceremony, then
+    // deleted) — the share is never in cleartext on disk.
+    let key: Option<[u8; 32]> = match &sc.sealing_key_file {
+        Some(f) => Some(read_key_file(f)?),
+        None => None,
+    };
+    let mut _config_guards: Vec<crate::secrets::UnsealedFile> = Vec::new();
+    let mut configs: Vec<String> = Vec::with_capacity(signers.len());
+    for m in &signers {
+        if m.config.ends_with(".sealed") {
+            let key = key.ok_or_else(|| {
+                ToolError::parse("secrets", "config selado, mas sem sealing_key_file na cerimônia")
+            })?;
+            let sealed = std::fs::read(&m.config).map_err(ToolError::Io)?;
+            let uf = crate::secrets::unseal_to_file(&sealed, &key)
+                .map_err(|e| ToolError::parse("secrets", e.to_string()))?;
+            configs.push(uf.path().to_string_lossy().into_owned());
+            _config_guards.push(uf);
+        } else {
+            configs.push(m.config.clone());
+        }
+    }
+    let coordinator_config = configs[0].clone();
+    let participant_configs = configs;
 
     // 1) build the (unproven) PCZT (single payment via CLI, payroll via our builder).
     let tx1 = build_unproven(sc, plan)?;
@@ -277,6 +307,21 @@ fn hex_encode(bytes: &[u8]) -> String {
         s.push_str(&format!("{b:02x}"));
     }
     s
+}
+
+/// Read the 32-byte sealing key from a file (raw bytes, 0600). The product keeps this in
+/// the OS keychain; the file is the local-first stand-in.
+fn read_key_file(path: &str) -> Result<[u8; 32], ToolError> {
+    let bytes = std::fs::read(path).map_err(ToolError::Io)?;
+    if bytes.len() != 32 {
+        return Err(ToolError::parse(
+            "secrets",
+            format!("arquivo de chave deve ter 32 bytes, tem {} ({path})", bytes.len()),
+        ));
+    }
+    let mut k = [0u8; 32];
+    k.copy_from_slice(&bytes);
+    Ok(k)
 }
 
 #[cfg(test)]

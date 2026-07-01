@@ -40,7 +40,10 @@ pub use validation::{
 };
 pub use payroll::PayrollLine;
 
-pub use secrets::{generate_key, seal, unseal, with_unsealed_file, KeyStore, SecretError};
+pub use secrets::{
+    generate_key, seal, unseal, unseal_to_file, with_unsealed_file, KeyStore, SecretError,
+    UnsealedFile,
+};
 pub use store::{Beneficiary, Member, ProposalKind, ProposalRecord, Store, StoreError, VaultRecord};
 pub use signer::{parse_extract, Randomizer, SigningInput};
 pub use tools::{ToolError, Tools};
