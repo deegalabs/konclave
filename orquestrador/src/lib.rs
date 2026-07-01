@@ -8,13 +8,23 @@
 //! validated inputs, exhaustively unit-tested. Orchestration (subprocess wrappers),
 //! the SQLite store, and OS-keychain share storage are layered on top.
 
+// --- domain core (dependency-free) ---
 pub mod money;
 pub mod proposal;
 pub mod validation;
 
-pub use money::{Zatoshis, MoneyError};
+// --- orchestration layer (drives the official tools + our bridge) ---
+pub mod signer;
+pub mod tools;
+pub mod wallet;
+
+pub use money::{MoneyError, Zatoshis};
 pub use proposal::{Proposal, ProposalError, ProposalState, Quorum};
 pub use validation::{
     available_to_propose, estimate_fee_for_payment, validate_amount, validate_memo,
     validate_payroll, AddressKind, PayrollLine, ValidationError,
 };
+
+pub use signer::{parse_extract, Randomizer, SigningInput};
+pub use tools::{ToolError, Tools};
+pub use wallet::{Balance, ChainInfo};

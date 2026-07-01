@@ -5,8 +5,11 @@ edition = "2021"
 description = "Konclave Orquestrador (Layer 2): proposal state machine, validation, and orchestration of the official FROST/Zcash tools"
 license = "MIT OR Apache-2.0"
 
-# The domain core is intentionally dependency-free (std only): explicit states and
-# validation with zero supply-chain surface, instant builds, and pure-unit TDD.
+# The domain core modules (money, proposal, validation) are dependency-free — pure
+# std, instant builds, zero supply-chain surface. serde/serde_json are used ONLY by
+# the orchestration layer (tools, wallet, signer) to parse tool output robustly.
 [dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 [dev-dependencies]
