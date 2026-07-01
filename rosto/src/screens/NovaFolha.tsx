@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Letterhead, Secret } from '../components'
 import {
-  previewPayroll, createPayroll, getBalance, health, classifyAddress, humanError,
+  previewPayroll, createPayroll, getBalance, getBeneficiaries, health, classifyAddress, humanError,
+  type Beneficiary,
 } from '../api'
 
 const ME = 'você'
@@ -42,6 +43,7 @@ export default function NovaFolha() {
   const [showImport, setShowImport] = useState(false)
   const [csv, setCsv] = useState('')
   const [balanceZat, setBalanceZat] = useState<number | null>(null)
+  const [benefs, setBenefs] = useState<Beneficiary[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
@@ -69,8 +71,10 @@ export default function NovaFolha() {
     let on = true
     void (async () => {
       if (await health()) {
-        const b = await getBalance()
-        if (on && b?.configured) setBalanceZat(b.total_zat ?? null)
+        const [b, bs] = await Promise.all([getBalance(), getBeneficiaries()])
+        if (!on) return
+        if (b?.configured) setBalanceZat(b.total_zat ?? null)
+        if (bs) setBenefs(bs)
       }
     })()
     return () => { on = false }
@@ -166,6 +170,15 @@ export default function NovaFolha() {
 
         <div className="mt-sm folha-actions">
           <button className="btn ghost sm-btn" onClick={addRow}>+ Adicionar linha</button>
+          {benefs.length > 0 && (
+            <select className="btn ghost sm-btn" value="" onChange={(e) => {
+              const b = benefs.find((x) => x.id === e.target.value)
+              if (b) setRows((prev) => [...prev.filter(rowTouched), { label: b.name, address: b.address, value: '', memo: b.memo }])
+            }}>
+              <option value="">+ do cadastro…</option>
+              {benefs.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          )}
           <button className="btn ghost sm-btn" onClick={() => setShowImport((v) => !v)}>⭱ Importar CSV</button>
         </div>
 

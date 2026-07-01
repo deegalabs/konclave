@@ -41,7 +41,7 @@ pub use validation::{
 pub use payroll::PayrollLine;
 
 pub use secrets::{generate_key, seal, unseal, with_unsealed_file, KeyStore, SecretError};
-pub use store::{Member, ProposalKind, ProposalRecord, Store, StoreError, VaultRecord};
+pub use store::{Beneficiary, Member, ProposalKind, ProposalRecord, Store, StoreError, VaultRecord};
 pub use signer::{parse_extract, Randomizer, SigningInput};
 pub use tools::{ToolError, Tools};
 pub use wallet::{Balance, ChainInfo};

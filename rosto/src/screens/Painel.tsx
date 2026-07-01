@@ -102,6 +102,7 @@ export default function Painel() {
     ['02', 'Nova folha', 'N destinos, 1 aprovação', '/folha'],
     ['03', 'Propostas', `${isLive ? awaiting.length : 1} aguardando`, '/proposta'],
     ['04', 'Razão / contas', 'entregar ao contador', '/razao'],
+    ['05', 'Beneficiários', 'agenda de quem recebe', '/beneficiarios'],
   ]
 
   return (

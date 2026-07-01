@@ -40,6 +40,17 @@ pub enum ProposalKind {
     Payroll,
 }
 
+/// A saved payee (spec: beneficiário como entidade). Public material — an address book
+/// so the treasurer picks a name instead of pasting an address.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Beneficiary {
+    pub id: String,
+    pub vault_id: String,
+    pub name: String,
+    pub address: String,
+    pub memo: String,
+}
+
 /// A vault member = a quorum participant, identified by their FROST comm public key
 /// (public material). Names are for the humans; the pubkey ties them to a signing share.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -123,6 +134,13 @@ impl Store {
                 member_id    TEXT NOT NULL,
                 vote         TEXT NOT NULL,
                 PRIMARY KEY (proposal_id, member_id)
+            );
+            CREATE TABLE IF NOT EXISTS beneficiaries (
+                id        TEXT PRIMARY KEY,
+                vault_id  TEXT NOT NULL,
+                name      TEXT NOT NULL,
+                address   TEXT NOT NULL,
+                memo      TEXT NOT NULL DEFAULT ''
             );
             CREATE TABLE IF NOT EXISTS vault_members (
                 vault_id  TEXT NOT NULL REFERENCES vaults(id),
@@ -245,6 +263,39 @@ impl Store {
             .map(|r| r?)
             .collect::<Result<_, StoreError>>()?;
         heads.into_iter().map(|h| self.attach_votes(h)).collect()
+    }
+
+    /// Add or update a saved beneficiary.
+    pub fn save_beneficiary(&self, b: &Beneficiary) -> Result<(), StoreError> {
+        self.conn.execute(
+            "INSERT INTO beneficiaries (id, vault_id, name, address, memo) VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(id) DO UPDATE SET name=excluded.name, address=excluded.address, memo=excluded.memo",
+            params![b.id, b.vault_id, b.name, b.address, b.memo],
+        )?;
+        Ok(())
+    }
+
+    /// The saved beneficiaries for a vault, by name.
+    pub fn list_beneficiaries(&self, vault_id: &str) -> Result<Vec<Beneficiary>, StoreError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, vault_id, name, address, memo FROM beneficiaries WHERE vault_id = ?1 ORDER BY name",
+        )?;
+        let rows = stmt.query_map(params![vault_id], |r| {
+            Ok(Beneficiary {
+                id: r.get(0)?,
+                vault_id: r.get(1)?,
+                name: r.get(2)?,
+                address: r.get(3)?,
+                memo: r.get(4)?,
+            })
+        })?;
+        rows.map(|r| r.map_err(StoreError::from)).collect()
+    }
+
+    /// Remove a saved beneficiary. Returns whether a row was deleted.
+    pub fn delete_beneficiary(&self, id: &str) -> Result<bool, StoreError> {
+        let n = self.conn.execute("DELETE FROM beneficiaries WHERE id = ?1", params![id])?;
+        Ok(n > 0)
     }
 
     /// Replace a vault's member list (public material: names + comm pubkeys).
@@ -605,6 +656,27 @@ mod tests {
         assert_eq!(s.get_proposal("prop-future").unwrap().unwrap().state, ProposalState::Awaiting);
         // Idempotent: a second sweep expires nothing new.
         assert_eq!(s.expire_due(2_000).unwrap(), 0);
+    }
+
+    #[test]
+    fn beneficiaries_crud() {
+        let s = Store::open_in_memory().unwrap();
+        s.save_vault(&sample_vault()).unwrap();
+        let b = Beneficiary {
+            id: "b1".into(), vault_id: "vault-1".into(), name: "Alice".into(),
+            address: "u1alice".into(), memo: "salário".into(),
+        };
+        s.save_beneficiary(&b).unwrap();
+        assert_eq!(s.list_beneficiaries("vault-1").unwrap(), vec![b.clone()]);
+        // Upsert updates.
+        let mut b2 = b.clone();
+        b2.address = "u1alice2".into();
+        s.save_beneficiary(&b2).unwrap();
+        assert_eq!(s.list_beneficiaries("vault-1").unwrap()[0].address, "u1alice2");
+        // Delete.
+        assert!(s.delete_beneficiary("b1").unwrap());
+        assert!(s.list_beneficiaries("vault-1").unwrap().is_empty());
+        assert!(!s.delete_beneficiary("b1").unwrap());
     }
 
     #[test]

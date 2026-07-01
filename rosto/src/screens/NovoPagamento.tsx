@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Letterhead, Secret } from '../components'
 import {
-  createProposal, getBalance, getVault, health, shortAddr, classifyAddress, humanError,
+  createProposal, getBalance, getVault, getBeneficiaries, health, shortAddr, classifyAddress, humanError,
+  type Beneficiary,
 } from '../api'
 
 const MEMO_MAX = 512
@@ -18,6 +19,7 @@ export default function NovoPagamento() {
   const [memo, setMemo] = useState('adiantamento maio')
   const [threshold, setThreshold] = useState(2)
   const [available, setAvailable] = useState<string | null>(null)
+  const [benefs, setBenefs] = useState<Beneficiary[]>([])
   const [live, setLive] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -29,10 +31,11 @@ export default function NovoPagamento() {
       if (!on) return
       setLive(ok)
       if (!ok) return
-      const [v, b] = await Promise.all([getVault(), getBalance()])
+      const [v, b, bs] = await Promise.all([getVault(), getBalance(), getBeneficiaries()])
       if (!on) return
       if (v) setThreshold(v.threshold)
       if (b?.configured) setAvailable(b.total_zec ?? null)
+      if (bs) setBenefs(bs)
     })()
     return () => { on = false }
   }, [])
@@ -68,6 +71,18 @@ export default function NovoPagamento() {
       <Letterhead right={<span className="klab back" onClick={() => nav('/')}>← Painel</span>} />
       <div className="page narrow">
         <h1 className="h1">Novo pagamento</h1>
+
+        {benefs.length > 0 && (
+          <label className="field"><span>Beneficiário (do cadastro)</span>
+            <select className="input" value="" onChange={(e) => {
+              const b = benefs.find((x) => x.id === e.target.value)
+              if (b) { setTo(b.address); if (b.memo) setMemo(b.memo) }
+            }}>
+              <option value="">— escolher pelo nome, ou digite o endereço abaixo —</option>
+              {benefs.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          </label>
+        )}
 
         <label className="field"><span>Para</span>
           <input className="input mono" placeholder="endereço Zcash (u1… recomendado)"

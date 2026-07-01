@@ -218,6 +218,14 @@ pub fn handle(cfg: &Config, method: &str, raw_path: &str, body: &[u8]) -> Respon
         if path == "/api/payroll" {
             return payroll_create(cfg, body);
         }
+        if path == "/api/beneficiaries" {
+            return beneficiary_add(cfg, body);
+        }
+        if let Some(rest) = path.strip_prefix("/api/beneficiaries/") {
+            if let Some(id) = rest.strip_suffix("/delete") {
+                return beneficiary_delete(cfg, id);
+            }
+        }
         if let Some(rest) = path.strip_prefix("/api/proposals/") {
             if let Some(id) = rest.strip_suffix("/approve") {
                 return vote_proposal(cfg, id, body, true);
@@ -251,6 +259,7 @@ pub fn handle(cfg: &Config, method: &str, raw_path: &str, body: &[u8]) -> Respon
         "/api/proposals" => api_proposals(cfg),
         "/api/ledger" => api_ledger(cfg),
         "/api/ledger.csv" => api_ledger_csv(cfg),
+        "/api/beneficiaries" => api_beneficiaries(cfg),
         "/api/balance" => api_balance(cfg),
         p if p.starts_with("/api/proposals/") => {
             api_proposal_one(cfg, p.strip_prefix("/api/proposals/").unwrap())
@@ -422,6 +431,90 @@ fn load_ledger(cfg: &Config) -> Result<Vec<ProposalRecord>, Response> {
     store
         .list_all_proposals(&vault_id)
         .map_err(|e| Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})))
+}
+
+// ---- beneficiaries (address book: pick a name, not an address) ----
+
+fn beneficiary_json(b: &crate::store::Beneficiary) -> serde_json::Value {
+    serde_json::json!({
+        "id": b.id, "name": b.name, "address": b.address, "memo": b.memo,
+        "is_public": crate::validation::AddressKind::classify(&b.address).is_public(),
+    })
+}
+
+fn api_beneficiaries(cfg: &Config) -> Response {
+    let store = match open_store(cfg) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    let vault_id = match store.list_vaults() {
+        Ok(vs) => match vs.into_iter().next() {
+            Some(v) => v.id,
+            None => return Response::json(200, &serde_json::json!({ "beneficiaries": [] })),
+        },
+        Err(e) => return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
+    };
+    match store.list_beneficiaries(&vault_id) {
+        Ok(bs) => {
+            let list: Vec<_> = bs.iter().map(beneficiary_json).collect();
+            Response::json(200, &serde_json::json!({ "beneficiaries": list }))
+        }
+        Err(e) => Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct NewBeneficiary {
+    name: String,
+    address: String,
+    #[serde(default)]
+    memo: Option<String>,
+}
+
+fn beneficiary_add(cfg: &Config, body: &[u8]) -> Response {
+    use crate::validation::AddressKind;
+    let input: NewBeneficiary = match serde_json::from_slice(body) {
+        Ok(v) => v,
+        Err(e) => return bad(e.to_string(), "bad request"),
+    };
+    if input.name.trim().is_empty() {
+        return bad("informe um nome para o beneficiário", "missing name");
+    }
+    if AddressKind::classify(&input.address) == AddressKind::Unknown {
+        return bad("endereço Zcash não reconhecido", "invalid address");
+    }
+    let store = match open_store(cfg) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    let vault_id = match store.list_vaults() {
+        Ok(mut vs) if !vs.is_empty() => vs.remove(0).id,
+        Ok(_) => return bad("nenhum cofre neste dispositivo", "no vault"),
+        Err(e) => return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
+    };
+    let b = crate::store::Beneficiary {
+        id: new_id(),
+        vault_id,
+        name: input.name.trim().to_string(),
+        address: input.address.trim().to_string(),
+        memo: input.memo.unwrap_or_default(),
+    };
+    if let Err(e) = store.save_beneficiary(&b) {
+        return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()}));
+    }
+    Response::json(201, &serde_json::json!({ "beneficiary": beneficiary_json(&b) }))
+}
+
+fn beneficiary_delete(cfg: &Config, id: &str) -> Response {
+    let store = match open_store(cfg) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    match store.delete_beneficiary(id) {
+        Ok(true) => Response::json(200, &serde_json::json!({ "deleted": true })),
+        Ok(false) => Response::json(404, &serde_json::json!({"error": "not found"})),
+        Err(e) => Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
+    }
 }
 
 /// Minimal RFC-4180 CSV field escaping.
@@ -1037,6 +1130,20 @@ pub fn seed_demo(store: &mut Store) -> Result<(), crate::store::StoreError> {
         refusals: vec![],
     };
     store.save_proposal(&example)?;
+
+    // A couple of example saved beneficiaries (address book).
+    for (id, name, addr, memo) in [
+        ("benef-1", "Prestador Infra", SLICE_ADDRESS, "infra mensal"),
+        ("benef-2", "Design Estúdio", SLICE_ADDRESS, ""),
+    ] {
+        store.save_beneficiary(&crate::store::Beneficiary {
+            id: id.into(),
+            vault_id: "vault-slice".into(),
+            name: name.into(),
+            address: addr.into(),
+            memo: memo.into(),
+        })?;
+    }
     Ok(())
 }
 
@@ -1148,6 +1255,30 @@ mod tests {
         assert_eq!(v["total"], 3);
         assert!(v["orchard_address"].as_str().unwrap().starts_with("u1"));
         assert!(v.get("ufvk").is_some());
+    }
+
+    #[test]
+    fn beneficiaries_list_add_delete() {
+        let cfg = seeded_cfg(None);
+        // Seeded with two examples.
+        let r = handle(&cfg, "GET", "/api/beneficiaries", b"");
+        assert_eq!(r.status, 200);
+        assert_eq!(body_json(&r)["beneficiaries"].as_array().unwrap().len(), 2);
+
+        // Add one.
+        let a = handle(&cfg, "POST", "/api/beneficiaries", br#"{"name":"Nova","address":"u1nova","memo":"x"}"#);
+        assert_eq!(a.status, 201);
+        let id = body_json(&a)["beneficiary"]["id"].as_str().unwrap().to_string();
+        assert_eq!(body_json(&handle(&cfg, "GET", "/api/beneficiaries", b""))["beneficiaries"].as_array().unwrap().len(), 3);
+
+        // Bad address rejected.
+        let bad = handle(&cfg, "POST", "/api/beneficiaries", br#"{"name":"X","address":"nope"}"#);
+        assert_eq!(bad.status, 400);
+
+        // Delete.
+        let d = handle(&cfg, "POST", &format!("/api/beneficiaries/{id}/delete"), b"");
+        assert_eq!(d.status, 200);
+        assert_eq!(body_json(&handle(&cfg, "GET", "/api/beneficiaries", b""))["beneficiaries"].as_array().unwrap().len(), 2);
     }
 
     #[test]
