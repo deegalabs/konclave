@@ -201,20 +201,23 @@ Plano completo: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## 11. Estado atual
 
-**Fase 1 (Vertical Slice) — passo 1A concluído.**
-- **Ambiente:** WSL2/Ubuntu (Windows nativo estava sem toolchain C/C++). rustc 1.96.1,
-  clang 21, cmake 4.2, protoc 3.21. Rede OK.
-- **Motor compilado:** `frost-tools` clonado e buildado; os TRÊS binários (`frostd`,
-  `frost-client`, `zcash-sign`) vivem **no mesmo repo**, pinados em
-  [motor/versions.lock](motor/versions.lock) (rev `3d2985c`). Crypto confirmada:
-  `frost-rerandomized 2.1.0`, `reddsa`, `orchard 0.11.0` (fork conradoplg), `pczt 0.5.0`.
-- **Interfaces verificadas:** `-C redpallas` (após `--`) ativa Rerandomized FROST;
-  `--cli` dá saída JSON; `trusted-dealer` aceita N configs (multi-membro numa máquina);
-  `zcash-sign generate --ak` → Orchard+UFVK; `zcash-sign sign` aceita plano Ywallet/PCZT.
-- **Tutorial de referência:** Ywallet demo (`frost.zfnd.org/zcash/ywallet-demo.html`).
-- **⚠️ Achado de segurança:** `frost-client init` guarda as shares em **texto claro** em
-  `~/.local/frost/credentials.toml`. Cifrar em repouso / keychain no produto (Fase 3).
+**Fase 1 (Vertical Slice) — ✅ GATE 1 CONQUISTADO (2026-07-01).**
+Primeira transação FROST 2-de-3 do Konclave na **mainnet**:
+txid `f63ee64d7bc086a8286631d03936ec2ca2ca57f4e4c63712fc95c1f02c522360` (bloco 3.396.616).
+Fluxo completo e lições em [docs/VERTICAL_SLICE.md](docs/VERTICAL_SLICE.md).
 
-**Próximo (passo 1B):** gerar chave via `trusted-dealer -C redpallas` (andaime) →
-`zcash-sign generate --ak` → endereço **Orchard** + UFVK. Depois 1C (financiar) e 1D
-(plano de tx → cerimônia → broadcast).
+- **Ambiente:** WSL2/Ubuntu (Windows sem toolchain C/C++). rustc 1.96.1, clang 21, cmake, protoc.
+- **Motor:** `frost-tools` @ `3d2985c` (frostd/frost-client/zcash-sign) + `zcash-devtool`
+  @ `91ba536` (carteira/sync/PCZT/broadcast), compilados. Pins em
+  [motor/versions.lock](motor/versions.lock).
+- **A ponte (`konclave-signer`):** construída e provada — resolve o **vão de integração**
+  entre frost-tools (pczt 0.5) e zcash-devtool (pczt 0.7). É o **nascimento do Orquestrador**.
+  Ver [ADR-0002](docs/adr/0002-pczt-frost-bridge.md).
+- **Fluxo provado:** trusted-dealer 2-de-3 (redpallas) → endereço Orchard + UFVK →
+  financiado com ZEC real → sync → PCZT create/prove → `konclave-signer extract` →
+  cerimônia FROST via `frostd` (TLS) → `konclave-signer inject` → `pczt send` → mainnet.
+- **⚠️ Débito de segurança:** `frost-client` guarda shares em **texto claro** em
+  `~/.local/frost/credentials.toml` → cifrar/keychain na Fase 3.
+
+**Próximo:** Fase 2 — migrar do **trusted-dealer** para **DKG real** (a chave nunca é
+remontada, nem no dealer); depois dobrar `konclave-signer` no Orquestrador (Fase 3).

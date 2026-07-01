@@ -1,0 +1,36 @@
+[package]
+name = "konclave-signer"
+version = "0.1.0"
+edition = "2021"
+description = "Konclave FROST<->PCZT bridge: extract Orchard sighash + randomizers, inject external FROST signatures"
+license = "MIT OR Apache-2.0"
+
+[[bin]]
+name = "konclave-signer"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+hex = "0.4"
+ff = "0.13"
+orchard = { version = "0.14", default-features = false, features = ["unstable-frost"] }
+pczt = { version = "0.7", features = ["signer"] }
+zcash_primitives = "0.28"
+zcash_protocol = "0.9"
+
+# Mirror zcash-devtool's pins so the PCZT wire format matches byte-for-byte.
+[patch.crates-io]
+equihash = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
+f4jumble = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
+zcash_address = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
+zcash_encoding = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
+zcash_protocol = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
+zip321 = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
+pczt = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
+zcash_client_backend = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
+zcash_client_sqlite = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
+zcash_keys = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
+zcash_primitives = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
+zcash_proofs = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
+zcash_transparent = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
