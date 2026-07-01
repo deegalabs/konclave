@@ -309,37 +309,72 @@ fn api_ledger(cfg: &Config) -> Response {
     }
 }
 
-/// `GET /api/ledger.csv` — the same ledger as a CSV the treasurer hands to their
-/// accountant (spec: the accounting track). Downloaded by the browser as a file.
+/// `GET /api/ledger.csv` — the accountant's export, ITEMIZED: **one row per payment**.
+/// A single payment is one row; a payroll of N is **N rows** (one per beneficiary),
+/// sharing the document id/state/txid. This is the accounting "lançamentos" view
+/// (docs/REDESENHO_FOLHA.md), not one aggregate line per proposal.
 fn api_ledger_csv(cfg: &Config) -> Response {
-    let ps = match load_ledger(cfg) {
-        Ok(ps) => ps,
+    const HEADER: &str =
+        "documento,tipo,estado,proposto_por,aprovadores,beneficiario,valor_zec,memo,destino,txid\n";
+
+    let store = match open_store(cfg) {
+        Ok(s) => s,
         Err(r) => return r,
     };
-    let mut csv = String::new();
-    csv.push_str("id,estado,tipo,proposto_por,aprovadores,valor_zec,memo,destino,txid\n");
-    for p in ps {
-        let kind = match p.kind {
-            ProposalKind::Payment => "pagamento",
-            ProposalKind::Payroll => "folha",
-        };
+    let vault_id = match store.list_vaults() {
+        Ok(vs) => match vs.into_iter().next() {
+            Some(v) => v.id,
+            None => return csv_response(HEADER.to_string()),
+        },
+        Err(e) => return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
+    };
+    let proposals = match store.list_all_proposals(&vault_id) {
+        Ok(p) => p,
+        Err(e) => return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
+    };
+
+    let mut csv = String::from(HEADER);
+    for p in proposals {
         let state = format!("{:?}", p.state).to_lowercase();
         let approvers = p.approvals.join(" ");
-        let row = [
-            p.id,
-            state,
-            kind.to_string(),
-            p.proposer,
-            approvers,
-            p.value_total.to_zec_string(),
-            p.memo.unwrap_or_default(),
-            p.to_address.unwrap_or_default(),
-            p.txid.unwrap_or_default(),
-        ];
-        let line: Vec<String> = row.iter().map(|f| csv_field(f)).collect();
-        csv.push_str(&line.join(","));
-        csv.push('\n');
+        let txid = p.txid.clone().unwrap_or_default();
+        match p.kind {
+            ProposalKind::Payment => {
+                push_csv_row(&mut csv, &[
+                    &p.id, "pagamento", &state, &p.proposer, &approvers, "",
+                    &p.value_total.to_zec_string(), p.memo.as_deref().unwrap_or(""),
+                    p.to_address.as_deref().unwrap_or(""), &txid,
+                ]);
+            }
+            ProposalKind::Payroll => {
+                let lines = store.get_payroll_lines(&p.id).unwrap_or_default();
+                if lines.is_empty() {
+                    push_csv_row(&mut csv, &[
+                        &p.id, "folha", &state, &p.proposer, &approvers, "",
+                        &p.value_total.to_zec_string(), p.memo.as_deref().unwrap_or(""), "", &txid,
+                    ]);
+                } else {
+                    for l in &lines {
+                        push_csv_row(&mut csv, &[
+                            &p.id, "folha", &state, &p.proposer, &approvers,
+                            l.label.as_deref().unwrap_or(""), &l.value.to_zec_string(),
+                            &l.memo, &l.address, &txid,
+                        ]);
+                    }
+                }
+            }
+        }
     }
+    csv_response(csv)
+}
+
+fn push_csv_row(csv: &mut String, fields: &[&str]) {
+    let escaped: Vec<String> = fields.iter().map(|f| csv_field(f)).collect();
+    csv.push_str(&escaped.join(","));
+    csv.push('\n');
+}
+
+fn csv_response(csv: String) -> Response {
     Response {
         status: 200,
         content_type: "text/csv; charset=utf-8".into(),
@@ -1305,9 +1340,23 @@ mod tests {
         assert_eq!(r.status, 200);
         assert!(r.content_type.contains("text/csv"));
         let text = String::from_utf8(r.body).unwrap();
-        assert!(text.starts_with("id,estado,tipo,proposto_por,aprovadores,valor_zec,memo,destino,txid"));
+        assert!(text.starts_with("documento,tipo,estado,proposto_por,aprovadores,beneficiario,valor_zec,memo,destino,txid"));
         assert!(text.contains("pagamento"));
         assert!(text.lines().count() >= 2); // header + >=1 seeded row
+    }
+
+    #[test]
+    fn ledger_csv_itemizes_payroll_into_n_rows() {
+        let cfg = seeded_cfg(None); // seeded: 1 payment
+        let body = br#"{"proposer":"Ana","lines":[{"label":"Alice","address":"u1alice","value_zec":"0.0003","memo":"maio"},{"label":"Bob","address":"u1bob","value_zec":"0.0002"}]}"#;
+        assert_eq!(handle(&cfg, "POST", "/api/payroll", body).status, 201);
+
+        let r = handle(&cfg, "GET", "/api/ledger.csv", b"");
+        let text = String::from_utf8(r.body).unwrap();
+        // header + 1 payment + 2 payroll beneficiary rows.
+        assert_eq!(text.lines().count(), 4);
+        assert!(text.contains("Alice") && text.contains("Bob"));
+        assert_eq!(text.matches(",folha,").count(), 2); // each beneficiary is its own lançamento
     }
 
     #[test]
