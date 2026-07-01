@@ -128,6 +128,28 @@ impl Proposal {
         }
     }
 
+    /// Rehydrate from persisted parts (store boundary). The stored state is trusted;
+    /// further changes still go through the guarded transition methods.
+    pub fn from_parts(
+        proposer: MemberId,
+        quorum: Quorum,
+        approvals: BTreeSet<MemberId>,
+        refusals: BTreeSet<MemberId>,
+        state: ProposalState,
+    ) -> Self {
+        Proposal { proposer, quorum, approvals, refusals, state }
+    }
+
+    /// Members who have approved, sorted.
+    pub fn approved_by(&self) -> Vec<MemberId> {
+        self.approvals.iter().cloned().collect()
+    }
+
+    /// Members who have refused, sorted.
+    pub fn refused_by(&self) -> Vec<MemberId> {
+        self.refusals.iter().cloned().collect()
+    }
+
     pub fn state(&self) -> ProposalState {
         self.state
     }
@@ -299,6 +321,25 @@ mod tests {
         assert_eq!(p.state(), ProposalState::Sent);
         p.confirm().unwrap();
         assert_eq!(p.state(), ProposalState::Confirmed);
+    }
+
+    #[test]
+    fn from_parts_rehydrates_and_transitions() {
+        // Rebuild an Awaiting 2-of-3 with the proposer's approval, then a 2nd approval
+        // reaches quorum — proving stored state feeds back into the state machine.
+        let mut approvals = BTreeSet::new();
+        approvals.insert("alice".to_string());
+        let mut p = Proposal::from_parts(
+            "alice".into(),
+            q(2, 3),
+            approvals,
+            BTreeSet::new(),
+            ProposalState::Awaiting,
+        );
+        assert_eq!(p.approved_by(), vec!["alice".to_string()]);
+        p.approve("bob".into()).unwrap();
+        assert_eq!(p.state(), ProposalState::Ready);
+        assert_eq!(p.approved_by(), vec!["alice".to_string(), "bob".to_string()]);
     }
 
     #[test]

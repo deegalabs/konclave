@@ -26,6 +26,8 @@ export type Proposal = {
   value_zat: number
   value_zec: string
   memo?: string
+  to_address?: string
+  is_public: boolean
   expiry_unix?: number
   txid?: string
   approvals: string[]
@@ -119,4 +121,30 @@ export async function createProposal(input: NewProposal): Promise<CreateResult> 
 /** Classify a destination the same way the backend does (for the "público" warning). */
 export function isTransparent(addr: string): boolean {
   return addr.startsWith('t1') || addr.startsWith('t3')
+}
+
+/** A single proposal by id (proposal detail screen). */
+export async function getProposal(id: string): Promise<Proposal | null> {
+  const r = await getJson<{ proposal: Proposal }>(`/api/proposals/${encodeURIComponent(id)}`)
+  return r?.proposal ?? null
+}
+
+/** Approve or refuse a proposal on behalf of `member`. */
+export async function voteProposal(
+  id: string,
+  member: string,
+  approve: boolean,
+): Promise<CreateResult> {
+  try {
+    const res = await fetch(`${BASE}/api/proposals/${encodeURIComponent(id)}/${approve ? 'approve' : 'refuse'}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ member }),
+    })
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>
+    if (res.ok) return { ok: true, proposal: data.proposal as Proposal }
+    return { ok: false, error: (data.error as string) ?? `HTTP ${res.status}`, detail: data.detail as string }
+  } catch (e) {
+    return { ok: false, error: 'sem conexão com o cofre local', detail: String(e) }
+  }
 }

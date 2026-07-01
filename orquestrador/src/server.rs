@@ -198,13 +198,21 @@ pub fn handle(cfg: &Config, method: &str, raw_path: &str, body: &[u8]) -> Respon
 
     // Writes (state-changing) go through POST.
     if method == "POST" {
-        return match path {
-            "/api/proposals" => create_proposal(cfg, body),
-            p if p.starts_with("/api/") => {
-                Response::json(404, &serde_json::json!({"error": "unknown endpoint", "path": p}))
+        if path == "/api/proposals" {
+            return create_proposal(cfg, body);
+        }
+        if let Some(rest) = path.strip_prefix("/api/proposals/") {
+            if let Some(id) = rest.strip_suffix("/approve") {
+                return vote_proposal(cfg, id, body, true);
             }
-            _ => Response::json(405, &serde_json::json!({"error": "method not allowed"})),
-        };
+            if let Some(id) = rest.strip_suffix("/refuse") {
+                return vote_proposal(cfg, id, body, false);
+            }
+        }
+        if path.starts_with("/api/") {
+            return Response::json(404, &serde_json::json!({"error": "unknown endpoint", "path": path}));
+        }
+        return Response::json(405, &serde_json::json!({"error": "method not allowed"}));
     }
     if method != "GET" && method != "HEAD" {
         return Response::json(405, &serde_json::json!({"error": "method not allowed"}));
@@ -222,6 +230,9 @@ pub fn handle(cfg: &Config, method: &str, raw_path: &str, body: &[u8]) -> Respon
         "/api/vault" => api_vault(cfg),
         "/api/proposals" => api_proposals(cfg),
         "/api/balance" => api_balance(cfg),
+        p if p.starts_with("/api/proposals/") => {
+            api_proposal_one(cfg, p.strip_prefix("/api/proposals/").unwrap())
+        }
         p if p.starts_with("/api/") => {
             Response::json(404, &serde_json::json!({"error": "unknown endpoint", "path": p}))
         }
@@ -391,6 +402,81 @@ fn create_proposal(cfg: &Config, body: &[u8]) -> Response {
     }
     let dto = ProposalDto::from(rec);
     Response::json(201, &serde_json::to_value(dto).unwrap_or_else(|_| serde_json::json!({})))
+}
+
+/// `GET /api/proposals/{id}` — a single proposal (for the proposal detail screen).
+fn api_proposal_one(cfg: &Config, id: &str) -> Response {
+    let store = match open_store(cfg) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    match store.get_proposal(id) {
+        Ok(Some(r)) => Response::json(200, &serde_json::json!({ "proposal": ProposalDto::from(r) })),
+        Ok(None) => Response::json(404, &serde_json::json!({"error": "not found", "detail": "proposta não encontrada"})),
+        Err(e) => Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct Vote {
+    member: String,
+}
+
+/// `POST /api/proposals/{id}/approve|refuse` — record a vote through the state machine.
+/// The domain is authoritative: reaching the quorum flips to Ready; refusals that make
+/// the quorum unreachable auto-Reject. Conflicting/late votes are 409, never silent.
+fn vote_proposal(cfg: &Config, id: &str, body: &[u8], approve: bool) -> Response {
+    use crate::proposal::{Proposal, ProposalError};
+    use std::collections::BTreeSet;
+
+    let vote: Vote = match serde_json::from_slice(body) {
+        Ok(v) => v,
+        Err(e) => return bad(e.to_string(), "bad request"),
+    };
+    if vote.member.trim().is_empty() {
+        return bad("informe quem está votando", "missing member");
+    }
+
+    let mut store = match open_store(cfg) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    let rec = match store.get_proposal(id) {
+        Ok(Some(r)) => r,
+        Ok(None) => return Response::json(404, &serde_json::json!({"error": "not found", "detail": "proposta não encontrada"})),
+        Err(e) => return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
+    };
+    let vault = match store.get_vault(&rec.vault_id) {
+        Ok(Some(v)) => v,
+        Ok(None) => return Response::json(500, &serde_json::json!({"error": "store", "detail": "cofre da proposta ausente"})),
+        Err(e) => return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
+    };
+
+    let approvals: BTreeSet<String> = rec.approvals.iter().cloned().collect();
+    let refusals: BTreeSet<String> = rec.refusals.iter().cloned().collect();
+    let mut p = Proposal::from_parts(rec.proposer.clone(), vault.quorum, approvals, refusals, rec.state);
+
+    let outcome = if approve {
+        p.approve(vote.member.clone())
+    } else {
+        p.refuse(vote.member.clone())
+    };
+    if let Err(e) = outcome {
+        let status = match e {
+            ProposalError::ConflictingVote { .. } | ProposalError::WrongState { .. } => 409,
+            _ => 400,
+        };
+        return Response::json(status, &serde_json::json!({"error": "vote rejected", "detail": e.to_string()}));
+    }
+
+    let mut updated = rec;
+    updated.state = p.state();
+    updated.approvals = p.approved_by();
+    updated.refusals = p.refused_by();
+    if let Err(e) = store.save_proposal(&updated) {
+        return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()}));
+    }
+    Response::json(200, &serde_json::json!({ "proposal": ProposalDto::from(updated) }))
 }
 
 /// A short random hex id (public, non-secret) for a proposal.
@@ -787,5 +873,63 @@ mod tests {
         let r = handle(&cfg, "POST", "/api/proposals", b"{not json");
         assert_eq!(r.status, 400);
         assert_eq!(body_json(&r)["error"], "bad request");
+    }
+
+    // ---- vote on a proposal (POST /api/proposals/{id}/approve|refuse) ----
+
+    fn create_one(cfg: &Config) -> String {
+        let body = br#"{"proposer":"Ana","to_address":"u1recipient","value_zec":"0.001"}"#;
+        let r = handle(cfg, "POST", "/api/proposals", body);
+        assert_eq!(r.status, 201);
+        body_json(&r)["id"].as_str().unwrap().to_string()
+    }
+
+    #[test]
+    fn approve_reaches_quorum_ready() {
+        let cfg = seeded_cfg(None);
+        let id = create_one(&cfg); // Ana proposed → 1 approval, 2-of-3 → awaiting
+        let r = handle(&cfg, "POST", &format!("/api/proposals/{id}/approve"), br#"{"member":"Bruno"}"#);
+        assert_eq!(r.status, 200);
+        let j = body_json(&r);
+        assert_eq!(j["proposal"]["state"], "ready");
+        assert_eq!(j["proposal"]["approvals_count"], 2);
+    }
+
+    #[test]
+    fn conflicting_vote_is_409() {
+        let cfg = seeded_cfg(None);
+        let id = create_one(&cfg);
+        // Ana already approved (as proposer); Ana refusing is a conflict.
+        let r = handle(&cfg, "POST", &format!("/api/proposals/{id}/refuse"), br#"{"member":"Ana"}"#);
+        assert_eq!(r.status, 409);
+        assert_eq!(body_json(&r)["error"], "vote rejected");
+    }
+
+    #[test]
+    fn refusals_making_quorum_unreachable_reject() {
+        let cfg = seeded_cfg(None);
+        let id = create_one(&cfg); // 2-of-3, Ana approved
+        let r1 = handle(&cfg, "POST", &format!("/api/proposals/{id}/refuse"), br#"{"member":"Bruno"}"#);
+        assert_eq!(body_json(&r1)["proposal"]["state"], "awaiting"); // still reachable
+        let r2 = handle(&cfg, "POST", &format!("/api/proposals/{id}/refuse"), br#"{"member":"Carla"}"#);
+        assert_eq!(body_json(&r2)["proposal"]["state"], "rejected"); // now unreachable
+    }
+
+    #[test]
+    fn vote_on_missing_proposal_is_404() {
+        let cfg = seeded_cfg(None);
+        let r = handle(&cfg, "POST", "/api/proposals/deadbeef/approve", br#"{"member":"Bruno"}"#);
+        assert_eq!(r.status, 404);
+    }
+
+    #[test]
+    fn get_single_proposal_and_404() {
+        let cfg = seeded_cfg(None);
+        let id = create_one(&cfg);
+        let r = handle(&cfg, "GET", &format!("/api/proposals/{id}"), b"");
+        assert_eq!(r.status, 200);
+        assert_eq!(body_json(&r)["proposal"]["id"], id);
+        let miss = handle(&cfg, "GET", "/api/proposals/nope", b"");
+        assert_eq!(miss.status, 404);
     }
 }
