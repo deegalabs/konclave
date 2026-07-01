@@ -14,6 +14,8 @@ pub mod proposal;
 pub mod validation;
 
 // --- orchestration layer (drives the official tools + our bridge) ---
+pub mod ceremony;
+pub mod pczt;
 pub mod signer;
 pub mod tools;
 pub mod wallet;
