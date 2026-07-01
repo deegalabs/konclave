@@ -5,12 +5,15 @@
 // to their static placeholder and still render (useful in dev without the backend, and
 // resilient if the local daemon is momentarily down).
 
+export type Member = { name: string; pubkey: string }
+
 export type Vault = {
   id: string
   name: string
   threshold: number
   total: number
   members: number
+  member_list: Member[]
   group_pubkey: string
   orchard_address: string
   ufvk: string

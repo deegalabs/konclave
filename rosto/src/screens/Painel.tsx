@@ -113,7 +113,7 @@ export default function Painel() {
             <span className="klab">Cofre coletivo · quórum</span>
             <h1 className="h1">{name}</h1>
             <div className="vmeta">
-              Privado por fora · <b>transparente por dentro</b> · {members} membros
+              Privado por fora · <b>transparente por dentro</b> · <Link className="link" to="/membros">{members} membros</Link>
               {live === true && <span className="livetag" title="Conectado ao cofre local">● ao vivo</span>}
               {live === false && <span className="livetag off" title="Bridge local não encontrada">○ demonstração</span>}
             </div>

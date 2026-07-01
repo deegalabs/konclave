@@ -75,12 +75,20 @@ impl Response {
 // ---- DTOs (public material only; amounts carried as both zat and ZEC string) ----
 
 #[derive(Serialize)]
+struct MemberDto {
+    name: String,
+    pubkey: String,
+}
+
+#[derive(Serialize)]
 struct VaultDto {
     id: String,
     name: String,
     threshold: u16,
     total: u16,
+    /// Member count (kept for compatibility); the real member entities are in `member_list`.
     members: u16,
+    member_list: Vec<MemberDto>,
     group_pubkey: String,
     orchard_address: String,
     ufvk: String,
@@ -95,6 +103,7 @@ impl From<VaultRecord> for VaultDto {
             threshold: v.quorum.threshold,
             total: v.quorum.total,
             members: v.quorum.total,
+            member_list: Vec::new(),
             group_pubkey: v.group_pubkey,
             orchard_address: v.orchard_address,
             ufvk: v.ufvk,
@@ -270,7 +279,20 @@ fn api_vault(cfg: &Config) -> Response {
     };
     match store.list_vaults() {
         Ok(mut vs) => {
-            let vault = if vs.is_empty() { None } else { Some(VaultDto::from(vs.remove(0))) };
+            let vault = if vs.is_empty() {
+                None
+            } else {
+                let record = vs.remove(0);
+                let member_list = store
+                    .get_vault_members(&record.id)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|m| MemberDto { name: m.name, pubkey: m.pubkey })
+                    .collect();
+                let mut dto = VaultDto::from(record);
+                dto.member_list = member_list;
+                Some(dto)
+            };
             Response::json(200, &serde_json::json!({ "vault": vault }))
         }
         Err(e) => Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
@@ -988,6 +1010,16 @@ pub fn seed_demo(store: &mut Store) -> Result<(), crate::store::StoreError> {
     };
     store.save_vault(&vault)?;
 
+    // The real vault members = the FROST group's 3 participants (public comm pubkeys).
+    store.save_vault_members(
+        "vault-slice",
+        &[
+            crate::store::Member { name: "Alice".into(), pubkey: "317db5938d246aa64c3a08b5e74051cae6261838f482e8335450bb606f4b7214".into() },
+            crate::store::Member { name: "Bob".into(), pubkey: "2ca6d7365a44205e38bd2135446b454b1e2762708ea554493f0dbc7a1294b73a".into() },
+            crate::store::Member { name: "Carol".into(), pubkey: "2fd84a5cdb55a0a93ddaea092362190db2ce61d2fd5eefee2d661b44422d5d5a".into() },
+        ],
+    )?;
+
     // One example pending proposal, with a value that FITS the real vault balance
     // (~0.0009 ZEC) — so nothing on screen contradicts the on-chain reality.
     let example = ProposalRecord {
@@ -1116,6 +1148,21 @@ mod tests {
         assert_eq!(v["total"], 3);
         assert!(v["orchard_address"].as_str().unwrap().starts_with("u1"));
         assert!(v.get("ufvk").is_some());
+    }
+
+    #[test]
+    fn vault_includes_member_list() {
+        let db = tmp_db();
+        let mut store = Store::open(&db).unwrap();
+        seed_demo(&mut store).unwrap();
+        drop(store);
+        let cfg = cfg_with(db, None);
+        let r = handle(&cfg, "GET", "/api/vault", b"");
+        let v = &body_json(&r)["vault"];
+        let members = v["member_list"].as_array().unwrap();
+        assert_eq!(members.len(), 3);
+        assert_eq!(members[0]["name"], "Alice");
+        assert!(members[0]["pubkey"].as_str().unwrap().len() >= 8);
     }
 
     #[test]

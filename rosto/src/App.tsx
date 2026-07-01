@@ -8,6 +8,7 @@ import NovaFolha from './screens/NovaFolha'
 import Proposta from './screens/Proposta'
 import Enviado from './screens/Enviado'
 import Razao from './screens/Razao'
+import Membros from './screens/Membros'
 import './App.css'
 
 export default function App() {
@@ -23,6 +24,7 @@ export default function App() {
         <Route path="/proposta" element={<Proposta />} />
         <Route path="/enviado" element={<Enviado />} />
         <Route path="/razao" element={<Razao />} />
+        <Route path="/membros" element={<Membros />} />
       </Routes>
     </div>
   )

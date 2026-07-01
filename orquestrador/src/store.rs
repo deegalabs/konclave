@@ -40,6 +40,14 @@ pub enum ProposalKind {
     Payroll,
 }
 
+/// A vault member = a quorum participant, identified by their FROST comm public key
+/// (public material). Names are for the humans; the pubkey ties them to a signing share.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Member {
+    pub name: String,
+    pub pubkey: String,
+}
+
 /// A vault known to this device (public material only).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VaultRecord {
@@ -115,6 +123,13 @@ impl Store {
                 member_id    TEXT NOT NULL,
                 vote         TEXT NOT NULL,
                 PRIMARY KEY (proposal_id, member_id)
+            );
+            CREATE TABLE IF NOT EXISTS vault_members (
+                vault_id  TEXT NOT NULL REFERENCES vaults(id),
+                idx       INTEGER NOT NULL,
+                name      TEXT NOT NULL,
+                pubkey    TEXT NOT NULL,
+                PRIMARY KEY (vault_id, idx)
             );
             CREATE TABLE IF NOT EXISTS payroll_lines (
                 proposal_id  TEXT NOT NULL REFERENCES proposals(id) ON DELETE CASCADE,
@@ -230,6 +245,31 @@ impl Store {
             .map(|r| r?)
             .collect::<Result<_, StoreError>>()?;
         heads.into_iter().map(|h| self.attach_votes(h)).collect()
+    }
+
+    /// Replace a vault's member list (public material: names + comm pubkeys).
+    pub fn save_vault_members(&mut self, vault_id: &str, members: &[Member]) -> Result<(), StoreError> {
+        let tx = self.conn.transaction()?;
+        tx.execute("DELETE FROM vault_members WHERE vault_id = ?1", params![vault_id])?;
+        for (i, m) in members.iter().enumerate() {
+            tx.execute(
+                "INSERT INTO vault_members (vault_id, idx, name, pubkey) VALUES (?1, ?2, ?3, ?4)",
+                params![vault_id, i as i64, m.name, m.pubkey],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// A vault's members, in order.
+    pub fn get_vault_members(&self, vault_id: &str) -> Result<Vec<Member>, StoreError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT name, pubkey FROM vault_members WHERE vault_id = ?1 ORDER BY idx")?;
+        let rows = stmt.query_map(params![vault_id], |r| {
+            Ok(Member { name: r.get(0)?, pubkey: r.get(1)? })
+        })?;
+        rows.map(|r| r.map_err(StoreError::from)).collect()
     }
 
     /// Replace a payroll proposal's output lines (one row per beneficiary).
@@ -565,6 +605,22 @@ mod tests {
         assert_eq!(s.get_proposal("prop-future").unwrap().unwrap().state, ProposalState::Awaiting);
         // Idempotent: a second sweep expires nothing new.
         assert_eq!(s.expire_due(2_000).unwrap(), 0);
+    }
+
+    #[test]
+    fn vault_members_roundtrip() {
+        let mut s = Store::open_in_memory().unwrap();
+        s.save_vault(&sample_vault()).unwrap();
+        let members = vec![
+            Member { name: "Alice".into(), pubkey: "317db593".into() },
+            Member { name: "Bob".into(), pubkey: "2ca6d736".into() },
+        ];
+        s.save_vault_members("vault-1", &members).unwrap();
+        assert_eq!(s.get_vault_members("vault-1").unwrap(), members);
+        // Re-saving replaces.
+        s.save_vault_members("vault-1", &members[..1]).unwrap();
+        assert_eq!(s.get_vault_members("vault-1").unwrap().len(), 1);
+        assert!(s.get_vault_members("nope").unwrap().is_empty());
     }
 
     #[test]
