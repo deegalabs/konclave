@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Letterhead, Secret } from '../components'
 import {
-  getProposal, getProposals, getVault, voteProposal, sendProposal, shortAddr,
-  type Proposal,
+  getProposalDetail, getProposals, getVault, voteProposal, sendProposal, shortAddr,
+  type Proposal, type PayrollLine,
 } from '../api'
 
 const ME = 'você' // this device's member id (real identity wired in a later phase)
@@ -17,6 +17,7 @@ export default function Proposta() {
   const nav = useNavigate()
   const loc = useLocation() as { state?: { id?: string } }
   const [p, setP] = useState<Proposal | null>(null)
+  const [lines, setLines] = useState<PayrollLine[]>([])
   const [threshold, setThreshold] = useState(2)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -29,14 +30,17 @@ export default function Proposta() {
     void (async () => {
       const v = await getVault()
       if (on && v) setThreshold(v.threshold)
-      const id = loc.state?.id
-      let prop: Proposal | null = null
-      if (id) prop = await getProposal(id)
-      if (!prop) {
+      let id = loc.state?.id
+      if (!id) {
         const list = await getProposals()
-        prop = list?.find((x) => x.state === 'awaiting') ?? list?.[0] ?? null
+        id = (list?.find((x) => x.state === 'awaiting') ?? list?.[0])?.id
       }
-      if (on) { setP(prop); setLoading(false) }
+      const detail = id ? await getProposalDetail(id) : null
+      if (on) {
+        setP(detail?.proposal ?? null)
+        setLines(detail?.lines ?? [])
+        setLoading(false)
+      }
     })()
     return () => { on = false }
   }, [loc.state])
@@ -76,6 +80,7 @@ export default function Proposta() {
 
   const val = Number(p.value_zec).toFixed(4)
   const dest = p.to_address ? shortAddr(p.to_address) : '—'
+  const isPayroll = p.kind === 'payroll'
   const isAwaiting = p.state === 'awaiting'
   const isReady = p.state === 'ready'
   const isRejected = p.state === 'rejected'
@@ -87,10 +92,29 @@ export default function Proposta() {
       <div className="page narrow">
         <div><span className="stamp">{STAMP[p.state] ?? p.state}</span></div>
         <div className="p-amt"><Secret><span>{val}</span></Secret> <span className="dim small">ZEC</span></div>
-        <div className="a-to">
-          para <b>{dest}</b>{p.memo ? <> · memo “{p.memo}”</> : null}
-          {p.is_public && <span className="hint warn"> · ⚠ destino público</span>}
-        </div>
+        {isPayroll ? (
+          <>
+            <div className="a-to">folha · <b>{lines.length} pagamentos</b> numa transação, aprovada uma vez</div>
+            <table className="tbl folha mt">
+              <thead><tr><th>Rótulo</th><th>Destino</th><th>Valor</th><th>Memo</th></tr></thead>
+              <tbody>
+                {lines.map((l, i) => (
+                  <tr key={i}>
+                    <td>{l.label || '—'}</td>
+                    <td className={'mono' + (l.is_public ? ' seal-tx' : '')}>{shortAddr(l.address)}{l.is_public ? ' ⚠' : ''}</td>
+                    <td className="num"><Secret sm><span>{Number(l.value_zec).toFixed(4)}</span></Secret></td>
+                    <td className="mono dim">{l.memo || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        ) : (
+          <div className="a-to">
+            para <b>{dest}</b>{p.memo ? <> · memo “{p.memo}”</> : null}
+            {p.is_public && <span className="hint warn"> · ⚠ destino público</span>}
+          </div>
+        )}
         <hr className="rule thin" />
         <div className="p-meta">
           <div>proposto por <b>{p.proposer}</b></div>
@@ -113,7 +137,14 @@ export default function Proposta() {
           </>
         )}
 
-        {isReady && (
+        {isReady && isPayroll && (
+          <>
+            <div className="confirm mt ready">✓ <b>Quórum atingido.</b> A folha está aprovada como um envelope único.</div>
+            <div className="hint mt-sm">O <b>envio</b> de folha (várias saídas numa transação só) depende do motor multi-saída — <b>próxima etapa (roadmap 5-B.2)</b>. Propor e aprovar já funcionam.</div>
+          </>
+        )}
+
+        {isReady && !isPayroll && (
           <>
             <div className="confirm mt ready">✓ <b>Quórum atingido.</b> A proposta está <b>pronta</b>. Assinar reúne as partes da chave (FROST) e transmite à mainnet.</div>
             <div className="btns mt">

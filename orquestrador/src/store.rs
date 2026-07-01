@@ -116,6 +116,15 @@ impl Store {
                 vote         TEXT NOT NULL,
                 PRIMARY KEY (proposal_id, member_id)
             );
+            CREATE TABLE IF NOT EXISTS payroll_lines (
+                proposal_id  TEXT NOT NULL REFERENCES proposals(id) ON DELETE CASCADE,
+                idx          INTEGER NOT NULL,
+                label        TEXT,
+                address      TEXT NOT NULL,
+                value        INTEGER NOT NULL,
+                memo         TEXT NOT NULL,
+                PRIMARY KEY (proposal_id, idx)
+            );
             "#,
         )?;
         // Migration for DBs created before `to_address` existed. Succeeds once; the
@@ -221,6 +230,50 @@ impl Store {
             .map(|r| r?)
             .collect::<Result<_, StoreError>>()?;
         heads.into_iter().map(|h| self.attach_votes(h)).collect()
+    }
+
+    /// Replace a payroll proposal's output lines (one row per beneficiary).
+    pub fn save_payroll_lines(
+        &mut self,
+        proposal_id: &str,
+        lines: &[crate::payroll::PayrollLine],
+    ) -> Result<(), StoreError> {
+        let tx = self.conn.transaction()?;
+        tx.execute("DELETE FROM payroll_lines WHERE proposal_id = ?1", params![proposal_id])?;
+        for (i, l) in lines.iter().enumerate() {
+            tx.execute(
+                "INSERT INTO payroll_lines (proposal_id, idx, label, address, value, memo)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![proposal_id, i as i64, l.label, l.address, l.value.as_u64() as i64, l.memo],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// The output lines of a payroll proposal (empty for a single payment).
+    pub fn get_payroll_lines(
+        &self,
+        proposal_id: &str,
+    ) -> Result<Vec<crate::payroll::PayrollLine>, StoreError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT label, address, value, memo FROM payroll_lines WHERE proposal_id = ?1 ORDER BY idx",
+        )?;
+        let rows = stmt.query_map(params![proposal_id], |r| {
+            Ok((
+                r.get::<_, Option<String>>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, String>(3)?,
+            ))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (label, address, value, memo) = row?;
+            let value = Zatoshis::from_u64(value as u64).map_err(|e| StoreError::Decode(e.to_string()))?;
+            out.push(crate::payroll::PayrollLine { label, address, value, memo });
+        }
+        Ok(out)
     }
 
     /// Every proposal for a vault, newest first — the full ledger (spec §6.7), including
@@ -478,6 +531,30 @@ mod tests {
         // list_open drops the confirmed one; list_all keeps both.
         assert_eq!(s.list_open_proposals("vault-1").unwrap().len(), 1);
         assert_eq!(s.list_all_proposals("vault-1").unwrap().len(), 2);
+    }
+
+    #[test]
+    fn payroll_lines_roundtrip() {
+        use crate::payroll::PayrollLine;
+        let mut s = Store::open_in_memory().unwrap();
+        s.save_vault(&sample_vault()).unwrap();
+        let mut p = sample_proposal();
+        p.kind = ProposalKind::Payroll;
+        p.to_address = None;
+        s.save_proposal(&p).unwrap();
+
+        let lines = vec![
+            PayrollLine { label: Some("Alice".into()), address: "u1alice".into(), value: zat(30_000), memo: "maio".into() },
+            PayrollLine { label: None, address: "u1bob".into(), value: zat(20_000), memo: String::new() },
+        ];
+        s.save_payroll_lines("prop-1", &lines).unwrap();
+        assert_eq!(s.get_payroll_lines("prop-1").unwrap(), lines);
+
+        // Re-saving replaces (no duplication).
+        s.save_payroll_lines("prop-1", &lines[..1]).unwrap();
+        assert_eq!(s.get_payroll_lines("prop-1").unwrap().len(), 1);
+        // A payment proposal has no lines.
+        assert!(s.get_payroll_lines("nope").unwrap().is_empty());
     }
 
     #[test]

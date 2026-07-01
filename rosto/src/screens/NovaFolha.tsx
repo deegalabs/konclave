@@ -1,59 +1,109 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Letterhead, Secret } from '../components'
+import { previewPayroll, createPayroll, shortAddr, type PayrollPreview } from '../api'
 
-type Linha = { label: string; addr: string; value: string; memo: string; bad?: boolean }
+const ME = 'você'
 
-const LINHAS: Linha[] = [
-  { label: 'Ana', addr: 'u1ana…7f', value: '0.5000', memo: 'contrib. abril' },
-  { label: 'Bruno', addr: 'u1bruno…q2', value: '0.2500', memo: 'contrib. abril' },
-  { label: 'Carla', addr: 't1carla…9x ⚠ público', value: '0.3000', memo: '—', bad: true },
-]
+const CSV_EXEMPLO = `rótulo,endereço,valor,memo
+Ana,u1anaxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx,0.0003,contrib. abril
+Bruno,u1brunoxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx,0.0002,contrib. abril`
 
 export default function NovaFolha() {
   const nav = useNavigate()
-  const [report, setReport] = useState(false)
+  const [csv, setCsv] = useState(CSV_EXEMPLO)
+  const [preview, setPreview] = useState<PayrollPreview | null>(null)
+  const [busy, setBusy] = useState<null | 'preview' | 'propose'>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  async function doPreview() {
+    setError(null); setBusy('preview')
+    const p = await previewPayroll(csv)
+    setBusy(null)
+    if (p) setPreview(p)
+    else setError('Não foi possível ler a folha (bridge local offline?).')
+  }
+
+  async function propose() {
+    if (!preview || preview.lines.length === 0) return
+    setError(null); setBusy('propose')
+    const res = await createPayroll(
+      ME,
+      preview.lines.map((l) => ({
+        label: l.label ?? undefined,
+        address: l.address,
+        value_zec: l.value_zec,
+        memo: l.memo || undefined,
+      })),
+    )
+    setBusy(null)
+    if (res.ok) nav('/proposta', { state: { id: res.proposal.id } })
+    else setError(res.detail ? `${res.error}: ${res.detail}` : res.error)
+  }
+
+  const s = preview?.summary
+  const canPropose = !!preview && preview.lines.length > 0 && busy === null
+
   return (
     <>
-      <Letterhead right={<button className="btn ghost sm-btn" onClick={() => setReport(true)}>⭱ Importar CSV</button>} />
+      <Letterhead right={<span className="klab back" onClick={() => nav('/')}>← Painel</span>} />
       <div className="page">
         <h1 className="h1">Nova folha</h1>
+        <p className="cap">Uma transação com vários pagamentos, aprovada uma vez. Cole a planilha (CSV: <span className="mono">rótulo,endereço,valor,memo</span>) e confira antes de propor.</p>
 
-        {report && (
-          <div className="confirm import-report">
-            <div><b>7 linhas aceitas</b> · <span className="seal-tx">1 com erro</span></div>
-            <div className="import-detail">⚠ linha 4: valor inválido ("oops"). As demais estão prontas.</div>
-            <div className="btns mt-sm">
-              <button className="btn ok" onClick={() => setReport(false)}>Ignorar linha 4 e continuar</button>
-              <button className="btn ghost" onClick={() => setReport(false)}>Revisar planilha</button>
-            </div>
-          </div>
+        <textarea className="input mono csv-area" rows={6} value={csv} onChange={(e) => setCsv(e.target.value)} spellCheck={false} />
+        <div className="mt-sm"><button className="btn ghost sm-btn" onClick={doPreview} disabled={busy !== null}>{busy === 'preview' ? 'Lendo…' : '⭱ Ler / conferir folha'}</button></div>
+
+        {preview && (
+          <>
+            {preview.errors.length > 0 && (
+              <div className="confirm import-report mt">
+                <div><b>{preview.lines.length} linhas aceitas</b> · <span className="seal-tx">{preview.errors.length} com erro</span></div>
+                {preview.errors.map((e, i) => (
+                  <div className="import-detail" key={i}>⚠ linha {e.row}: {e.reason}</div>
+                ))}
+                <div className="import-detail dim">As linhas com erro são ignoradas; as demais seguem.</div>
+              </div>
+            )}
+
+            <table className="tbl folha mt">
+              <thead><tr><th>#</th><th>Rótulo</th><th>Endereço</th><th>Valor</th><th>Memo / holerite</th></tr></thead>
+              <tbody>
+                {preview.lines.map((l, i) => (
+                  <tr key={i}>
+                    <td className="mono dim">{i + 1}</td>
+                    <td>{l.label || '—'}</td>
+                    <td className={'mono' + (l.is_public ? ' seal-tx' : '')}>{shortAddr(l.address)}{l.is_public ? ' ⚠ público' : ''}</td>
+                    <td className="num"><Secret sm><span>{Number(l.value_zec).toFixed(4)}</span></Secret></td>
+                    <td className="mono dim">{l.memo || '—'}</td>
+                  </tr>
+                ))}
+                {preview.lines.length === 0 && (
+                  <tr><td colSpan={5} className="by">Nenhuma linha válida. Corrija a planilha e leia de novo.</td></tr>
+                )}
+              </tbody>
+            </table>
+
+            {s && (
+              <div className="foot">
+                <span>{s.count} pagamentos</span>
+                <span>total <Secret sm><b>{s.total_zec} ZEC</b></Secret></span>
+                <span>taxa est. <b>{s.fee_zec}</b></span>
+                <span>total + taxa <Secret sm><b>{s.total_with_fee_zec}</b></Secret></span>
+              </div>
+            )}
+
+            <div className="confirm mt">⚑ <b>Folha</b> — {s?.count ?? 0} pagamentos numa transação só. Precisa de <b>2 aprovações</b> (incluindo a sua).</div>
+          </>
         )}
 
-        <table className="tbl folha">
-          <thead><tr><th>#</th><th>Rótulo</th><th>Endereço</th><th>Valor</th><th>Memo / holerite</th></tr></thead>
-          <tbody>
-            {LINHAS.map((l, i) => (
-              <tr key={i}>
-                <td className="mono dim">{i + 1}</td>
-                <td>{l.label}</td>
-                <td className={'mono' + (l.bad ? ' seal-tx' : '')}>{l.addr}</td>
-                <td className="num">{l.value}</td>
-                <td className="mono dim">{l.memo}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <div className="mt-sm"><button className="btn ghost sm-btn">+ Adicionar linha</button></div>
+        {error && <div className="hint err mt">✗ {error}</div>}
 
-        <div className="foot">
-          <span>8 pagamentos</span>
-          <span>total <Secret sm><b>4.2 ZEC</b></Secret></span>
-          <span>taxa est. <b>0.00045</b></span>
-          <span>saldo após <Secret sm><b>—</b></Secret></span>
+        <div className="right mt">
+          <button className="btn ok" onClick={propose} disabled={!canPropose}>
+            {busy === 'propose' ? 'Propondo…' : '▸ Propor folha'}
+          </button>
         </div>
-        <div className="confirm mt">⚑ <b>Folha de maio</b> — 8 pagamentos. Precisa de <b>2 aprovações</b>. <span className="seal-tx">Corrija a linha 3 (destino público) para prosseguir.</span></div>
-        <div className="right mt"><button className="btn ok dimmed" onClick={() => nav('/proposta')}>▸ Propor folha</button></div>
       </div>
     </>
   )

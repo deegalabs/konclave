@@ -203,6 +203,12 @@ pub fn handle(cfg: &Config, method: &str, raw_path: &str, body: &[u8]) -> Respon
         if path == "/api/proposals" {
             return create_proposal(cfg, body);
         }
+        if path == "/api/payroll/preview" {
+            return payroll_preview(body);
+        }
+        if path == "/api/payroll" {
+            return payroll_create(cfg, body);
+        }
         if let Some(rest) = path.strip_prefix("/api/proposals/") {
             if let Some(id) = rest.strip_suffix("/approve") {
                 return vote_proposal(cfg, id, body, true);
@@ -486,14 +492,200 @@ fn create_proposal(cfg: &Config, body: &[u8]) -> Response {
     Response::json(201, &serde_json::to_value(dto).unwrap_or_else(|_| serde_json::json!({})))
 }
 
-/// `GET /api/proposals/{id}` — a single proposal (for the proposal detail screen).
+// ---- payroll (N outputs, one approval) ----
+
+#[derive(serde::Deserialize)]
+struct PayrollLineIn {
+    #[serde(default)]
+    label: Option<String>,
+    address: String,
+    value_zec: String,
+    #[serde(default)]
+    memo: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct PreviewReq {
+    #[serde(default)]
+    csv: Option<String>,
+    #[serde(default)]
+    lines: Option<Vec<PayrollLineIn>>,
+}
+
+#[derive(serde::Deserialize)]
+struct PayrollCreateReq {
+    proposer: String,
+    lines: Vec<PayrollLineIn>,
+}
+
+/// Convert one input line to a validated domain line (address/value/memo checked).
+fn line_in_to_payroll(l: &PayrollLineIn) -> Result<crate::payroll::PayrollLine, String> {
+    use crate::validation::{validate_memo, AddressKind};
+    let kind = AddressKind::classify(&l.address);
+    if kind == AddressKind::Unknown {
+        return Err(format!("endereço não reconhecido: {}", l.address));
+    }
+    let value = Zatoshis::from_zec_str(&l.value_zec).map_err(|e| e.to_string())?;
+    if value.is_zero() {
+        return Err("o valor deve ser maior que zero".into());
+    }
+    let memo = l.memo.clone().unwrap_or_default();
+    validate_memo(&memo, kind).map_err(|e| e.to_string())?;
+    Ok(crate::payroll::PayrollLine { label: l.label.clone(), address: l.address.clone(), value, memo })
+}
+
+fn payroll_line_json(l: &crate::payroll::PayrollLine) -> serde_json::Value {
+    serde_json::json!({
+        "label": l.label,
+        "address": l.address,
+        "value_zat": l.value.as_u64(),
+        "value_zec": l.value.to_zec_string(),
+        "memo": l.memo,
+        "is_public": crate::validation::AddressKind::classify(&l.address).is_public(),
+    })
+}
+
+fn payroll_summary_json(plan: &crate::payroll::PayrollPlan) -> serde_json::Value {
+    use crate::validation::estimate_fee_for_payment;
+    let count = plan.lines.len();
+    let total: u64 = plan.lines.iter().map(|l| l.value.as_u64()).sum();
+    let fee = estimate_fee_for_payment(count as u64, 1).as_u64();
+    let z = |v: u64| Zatoshis::from_u64(v).map(|x| x.to_zec_string()).unwrap_or_default();
+    serde_json::json!({
+        "count": count,
+        "total_zat": total, "total_zec": z(total),
+        "fee_zat": fee, "fee_zec": z(fee),
+        "total_with_fee_zec": z(total.saturating_add(fee)),
+    })
+}
+
+/// `POST /api/payroll/preview` — parse CSV or structured lines and report accepted lines,
+/// per-row errors, and the aggregate summary. No state change (local parse, spec §4.3).
+fn payroll_preview(body: &[u8]) -> Response {
+    use crate::payroll::{import_csv, PayrollPlan};
+    let req: PreviewReq = match serde_json::from_slice(body) {
+        Ok(v) => v,
+        Err(e) => return bad(e.to_string(), "bad request"),
+    };
+    let (lines, errors): (Vec<_>, Vec<serde_json::Value>) = if let Some(csv) = req.csv {
+        let report = import_csv(&csv);
+        let errs = report.errors.iter().map(|e| serde_json::json!({"row": e.row, "reason": e.reason})).collect();
+        (report.plan.lines, errs)
+    } else if let Some(ins) = req.lines {
+        let mut ls = Vec::new();
+        let mut errs = Vec::new();
+        for (i, l) in ins.iter().enumerate() {
+            match line_in_to_payroll(l) {
+                Ok(pl) => ls.push(pl),
+                Err(r) => errs.push(serde_json::json!({"row": i + 1, "reason": r})),
+            }
+        }
+        (ls, errs)
+    } else {
+        return bad("informe 'csv' ou 'lines'", "bad request");
+    };
+    let plan = PayrollPlan::new(lines);
+    let lines_json: Vec<_> = plan.lines.iter().map(payroll_line_json).collect();
+    Response::json(200, &serde_json::json!({
+        "lines": lines_json, "errors": errors, "summary": payroll_summary_json(&plan),
+    }))
+}
+
+/// `POST /api/payroll` — create a Payroll proposal (N outputs, one envelope). Every line
+/// is validated; the aggregate is checked against the balance when a wallet is wired.
+fn payroll_create(cfg: &Config, body: &[u8]) -> Response {
+    use crate::money::MAX_MONEY;
+    use crate::payroll::PayrollPlan;
+    use crate::proposal::Proposal;
+
+    let req: PayrollCreateReq = match serde_json::from_slice(body) {
+        Ok(v) => v,
+        Err(e) => return bad(e.to_string(), "bad request"),
+    };
+    if req.proposer.trim().is_empty() {
+        return bad("informe quem está propondo", "missing proposer");
+    }
+    let mut lines = Vec::new();
+    for (i, l) in req.lines.iter().enumerate() {
+        match line_in_to_payroll(l) {
+            Ok(pl) => lines.push(pl),
+            Err(r) => return bad(format!("linha {}: {}", i + 1, r), "invalid line"),
+        }
+    }
+    let plan = PayrollPlan::new(lines);
+
+    let mut store = match open_store(cfg) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    let vault = match store.list_vaults() {
+        Ok(mut vs) if !vs.is_empty() => vs.remove(0),
+        Ok(_) => return bad("nenhum cofre neste dispositivo", "no vault"),
+        Err(e) => return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
+    };
+
+    // Aggregate validation (empty, per-line, Σ+fee ≤ available). Uses the live balance as
+    // the ceiling when wired; otherwise a sentinel so only structure is enforced.
+    let available = cfg
+        .wallet
+        .as_ref()
+        .and_then(|w| w.balance().ok())
+        .map(|b| b.total)
+        .unwrap_or_else(|| Zatoshis::from_u64(MAX_MONEY).unwrap());
+    let summary = match plan.validate(available, Zatoshis::ZERO) {
+        Ok(s) => s,
+        Err(e) => return bad(e.to_string(), "payroll invalid"),
+    };
+
+    let proposal = Proposal::propose(req.proposer.clone(), vault.quorum);
+    let rec = ProposalRecord {
+        id: new_id(),
+        vault_id: vault.id,
+        kind: ProposalKind::Payroll,
+        state: proposal.state(),
+        proposer: req.proposer.clone(),
+        value_total: summary.total,
+        memo: Some(format!("Folha — {} pagamentos", summary.count)),
+        to_address: None, // destinations live in the lines
+        expiry_unix: now_unix().map(|n| n + 72 * 3600),
+        txid: None,
+        approvals: vec![req.proposer],
+        refusals: vec![],
+    };
+    if let Err(e) = store.save_proposal(&rec) {
+        return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()}));
+    }
+    if let Err(e) = store.save_payroll_lines(&rec.id, &plan.lines) {
+        return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()}));
+    }
+    let lines_json: Vec<_> = plan.lines.iter().map(payroll_line_json).collect();
+    Response::json(201, &serde_json::json!({
+        "proposal": ProposalDto::from(rec),
+        "lines": lines_json,
+        "summary": payroll_summary_json(&plan),
+    }))
+}
+
+/// `GET /api/proposals/{id}` — a single proposal (for the proposal detail screen). Payroll
+/// proposals also carry their output lines.
 fn api_proposal_one(cfg: &Config, id: &str) -> Response {
     let store = match open_store(cfg) {
         Ok(s) => s,
         Err(r) => return r,
     };
     match store.get_proposal(id) {
-        Ok(Some(r)) => Response::json(200, &serde_json::json!({ "proposal": ProposalDto::from(r) })),
+        Ok(Some(r)) => {
+            let lines = if r.kind == ProposalKind::Payroll {
+                store.get_payroll_lines(&r.id).unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+            let lines_json: Vec<_> = lines.iter().map(payroll_line_json).collect();
+            Response::json(200, &serde_json::json!({
+                "proposal": ProposalDto::from(r),
+                "lines": lines_json,
+            }))
+        }
         Ok(None) => Response::json(404, &serde_json::json!({"error": "not found", "detail": "proposta não encontrada"})),
         Err(e) => Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
     }
@@ -601,6 +793,14 @@ fn send_proposal(cfg: &Config, id: &str, body: &[u8]) -> Response {
         return Response::json(409, &serde_json::json!({
             "error": "not ready",
             "detail": format!("a proposta está {:?}; só uma proposta com quórum (Ready) pode ser enviada", rec.state)
+        }));
+    }
+    // Payroll (N outputs) needs a multi-output PCZT, which the CLI can't build. Honest
+    // limitation: the multi-output send engine (zcash_client_backend) is roadmap (5-B.2).
+    if rec.kind == ProposalKind::Payroll {
+        return Response::json(501, &serde_json::json!({
+            "error": "payroll send not implemented",
+            "detail": "o envio de folha (N saídas numa transação) ainda não está disponível — precisa do motor multi-saída (roadmap 5-B.2)"
         }));
     }
     let Some(to) = rec.to_address.clone() else {
@@ -1115,6 +1315,90 @@ mod tests {
         assert_eq!(csv_field("plain"), "plain");
         assert_eq!(csv_field("a,b"), "\"a,b\"");
         assert_eq!(csv_field("she said \"hi\""), "\"she said \"\"hi\"\"\"");
+    }
+
+    // ---- payroll (N outputs, one approval) ----
+
+    #[test]
+    fn payroll_preview_from_csv_reports_lines_errors_summary() {
+        let cfg = seeded_cfg(None);
+        let body = br#"{"csv":"Alice,u1alice,0.0003,maio\nBob,u1bob,0.0002,\nCarol,u1carol,oops,x"}"#;
+        let r = handle(&cfg, "POST", "/api/payroll/preview", body);
+        assert_eq!(r.status, 200);
+        let j = body_json(&r);
+        assert_eq!(j["lines"].as_array().unwrap().len(), 2); // Alice + Bob
+        assert_eq!(j["errors"].as_array().unwrap().len(), 1); // Carol: bad amount
+        assert_eq!(j["summary"]["count"], 2);
+        assert_eq!(j["summary"]["total_zec"], "0.00050000");
+    }
+
+    #[test]
+    fn payroll_create_stores_lines_and_single_get_returns_them() {
+        let cfg = seeded_cfg(None);
+        let body = br#"{"proposer":"Ana","lines":[{"label":"Alice","address":"u1alice","value_zec":"0.0003","memo":"maio"},{"address":"u1bob","value_zec":"0.0002"}]}"#;
+        let r = handle(&cfg, "POST", "/api/payroll", body);
+        assert_eq!(r.status, 201);
+        let j = body_json(&r);
+        assert_eq!(j["proposal"]["kind"], "payroll");
+        assert_eq!(j["proposal"]["value_zec"], "0.00050000");
+        assert_eq!(j["lines"].as_array().unwrap().len(), 2);
+
+        let id = j["proposal"]["id"].as_str().unwrap().to_string();
+        let g = handle(&cfg, "GET", &format!("/api/proposals/{id}"), b"");
+        assert_eq!(g.status, 200);
+        assert_eq!(body_json(&g)["lines"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn payroll_empty_is_400() {
+        let cfg = seeded_cfg(None);
+        let r = handle(&cfg, "POST", "/api/payroll", br#"{"proposer":"Ana","lines":[]}"#);
+        assert_eq!(r.status, 400);
+    }
+
+    #[test]
+    fn payroll_bad_line_is_400() {
+        let cfg = seeded_cfg(None);
+        let r = handle(&cfg, "POST", "/api/payroll", br#"{"proposer":"Ana","lines":[{"address":"nao-e-endereco","value_zec":"0.1"}]}"#);
+        assert_eq!(r.status, 400);
+        assert_eq!(body_json(&r)["error"], "invalid line");
+    }
+
+    #[test]
+    fn payroll_overspend_is_400_with_live_wallet() {
+        let bal = Balance {
+            chain_tip_height: 1,
+            orchard_spendable: Zatoshis::from_u64(100_000).unwrap(),
+            sapling_spendable: Zatoshis::ZERO,
+            transparent_spendable: Zatoshis::ZERO,
+            total: Zatoshis::from_u64(100_000).unwrap(),
+        };
+        let cfg = seeded_cfg(Some(Box::new(FakeWallet { result: Ok(bal) })));
+        let body = br#"{"proposer":"Ana","lines":[{"address":"u1a","value_zec":"1.0"},{"address":"u1b","value_zec":"1.0"}]}"#;
+        let r = handle(&cfg, "POST", "/api/payroll", body);
+        assert_eq!(r.status, 400);
+        assert_eq!(body_json(&r)["error"], "payroll invalid");
+    }
+
+    #[test]
+    fn payroll_send_is_501_not_implemented() {
+        let db = tmp_db();
+        let mut store = Store::open(&db).unwrap();
+        seed_demo(&mut store).unwrap();
+        drop(store);
+        let mut cfg = cfg_with(db, None);
+        cfg.ceremony = Some(dummy_ceremony());
+
+        let r = handle(&cfg, "POST", "/api/payroll", br#"{"proposer":"Ana","lines":[{"address":"u1a","value_zec":"0.0002"}]}"#);
+        assert_eq!(r.status, 201);
+        let id = body_json(&r)["proposal"]["id"].as_str().unwrap().to_string();
+        // Reach the quorum (Ana proposed; Bruno approves) → Ready.
+        let a = handle(&cfg, "POST", &format!("/api/proposals/{id}/approve"), br#"{"member":"Bruno"}"#);
+        assert_eq!(body_json(&a)["proposal"]["state"], "ready");
+        // Sending a payroll is an honest 501 (multi-output engine is roadmap).
+        let s = handle(&cfg, "POST", &format!("/api/proposals/{id}/send"), br#"{"dry_run":false}"#);
+        assert_eq!(s.status, 501);
+        assert_eq!(body_json(&s)["error"], "payroll send not implemented");
     }
 
     // ---- send guards (the ceremony itself is validated live, not in unit tests) ----

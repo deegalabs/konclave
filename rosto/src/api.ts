@@ -140,6 +140,74 @@ export async function getProposal(id: string): Promise<Proposal | null> {
   return r?.proposal ?? null
 }
 
+// ---- payroll ----
+
+export type PayrollLine = {
+  label?: string | null
+  address: string
+  value_zat: number
+  value_zec: string
+  memo: string
+  is_public: boolean
+}
+
+export type PayrollSummary = {
+  count: number
+  total_zat: number
+  total_zec: string
+  fee_zat: number
+  fee_zec: string
+  total_with_fee_zec: string
+}
+
+export type PayrollPreview = {
+  lines: PayrollLine[]
+  errors: { row: number; reason: string }[]
+  summary: PayrollSummary
+}
+
+export type NewPayrollLine = { label?: string; address: string; value_zec: string; memo?: string }
+
+/** Parse a CSV into accepted lines + per-row errors + summary (no state change). */
+export async function previewPayroll(csv: string): Promise<PayrollPreview | null> {
+  try {
+    const res = await fetch(`${BASE}/api/payroll/preview`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ csv }),
+    })
+    if (!res.ok) return null
+    return (await res.json()) as PayrollPreview
+  } catch {
+    return null
+  }
+}
+
+/** Create a payroll proposal (N outputs, one envelope). */
+export async function createPayroll(proposer: string, lines: NewPayrollLine[]): Promise<CreateResult> {
+  try {
+    const res = await fetch(`${BASE}/api/payroll`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ proposer, lines }),
+    })
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>
+    if (res.status === 201) return { ok: true, proposal: data.proposal as Proposal }
+    return { ok: false, error: (data.error as string) ?? `HTTP ${res.status}`, detail: data.detail as string }
+  } catch (e) {
+    return { ok: false, error: 'sem conexão com o cofre local', detail: String(e) }
+  }
+}
+
+/** Proposal detail including payroll lines (empty for a single payment). */
+export async function getProposalDetail(
+  id: string,
+): Promise<{ proposal: Proposal; lines: PayrollLine[] } | null> {
+  const r = await getJson<{ proposal: Proposal; lines: PayrollLine[] }>(`/api/proposals/${encodeURIComponent(id)}`)
+  if (!r?.proposal) return null
+  return { proposal: r.proposal, lines: r.lines ?? [] }
+}
+
 export type SendResult =
   | { ok: true; dryRun: boolean; txid?: string; sighash?: string; proposal?: Proposal }
   | { ok: false; error: string; detail?: string }
