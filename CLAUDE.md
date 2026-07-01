@@ -225,5 +225,16 @@ Generation** (3 participantes via `frostd`), a chave **nunca remontada**. Grupo 
 `u1t2qphc0v…836yl2`. Shares validadas por cerimônia de assinatura 2-de-3. Fluxo do DKG
 em [docs/VERTICAL_SLICE.md](docs/VERTICAL_SLICE.md).
 
-**Próximo:** Fase 3 — dobrar `konclave-signer` no Orquestrador; cifrar shares no keychain
-(débito de segurança); máquina de estados de proposta. Fase 4 (Rosto/design) em paralelo.
+**Fase 3 (Orquestrador) — 3.1–3.3 ✅ CONCLUÍDAS.** Crate `orquestrador/` (Rust, TDD),
+**51 testes destrutivos verdes**:
+- **3.1 Domínio:** `money` (Zatoshis checado), `proposal` (máquina de estados §6),
+  `validation` (ZIP 317, memo, folha).
+- **3.2 Orquestração:** `tools`/`wallet`/`signer`/`pczt`/`ceremony` — embrulham os
+  binários com saída estruturada (parsers testados contra saída real do slice).
+- **3.3 Segurança + store:** `secrets` (XChaCha20-Poly1305 sela as shares em repouso;
+  keychain via trait; arquivo efêmero 0600) — **débito de segurança quitado**;
+  `store` (SQLite embutido: cofres, propostas, votos).
+
+**Próximo:** Fase 3.4 — folha de pagamento (plano N saídas) + comandos Tauri (IPC).
+Depois: integração com o Rosto (Fase 4/5). Build do crate: WSL2, `CARGO_TARGET_DIR`
+fora do repo (código versionado; `ktarget` só no WSL).
