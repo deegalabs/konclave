@@ -276,6 +276,18 @@ impl Store {
         Ok(out)
     }
 
+    /// Mark every awaiting proposal whose expiry has passed as `expired` (spec §6.3).
+    /// Called on read paths so time-based expiry is enforced without a background job.
+    /// Returns how many were expired.
+    pub fn expire_due(&self, now_unix: i64) -> Result<usize, StoreError> {
+        let n = self.conn.execute(
+            "UPDATE proposals SET state = 'expired'
+             WHERE state = 'awaiting' AND expiry_unix IS NOT NULL AND expiry_unix < ?1",
+            params![now_unix],
+        )?;
+        Ok(n)
+    }
+
     /// Every proposal for a vault, newest first — the full ledger (spec §6.7), including
     /// terminal states (sent/confirmed/rejected/expired) for the accounting export.
     pub fn list_all_proposals(&self, vault_id: &str) -> Result<Vec<ProposalRecord>, StoreError> {
@@ -531,6 +543,28 @@ mod tests {
         // list_open drops the confirmed one; list_all keeps both.
         assert_eq!(s.list_open_proposals("vault-1").unwrap().len(), 1);
         assert_eq!(s.list_all_proposals("vault-1").unwrap().len(), 2);
+    }
+
+    #[test]
+    fn expire_due_marks_past_awaiting() {
+        let mut s = Store::open_in_memory().unwrap();
+        s.save_vault(&sample_vault()).unwrap();
+
+        let mut past = sample_proposal();
+        past.expiry_unix = Some(1_000); // long past
+        s.save_proposal(&past).unwrap();
+
+        let mut future = sample_proposal();
+        future.id = "prop-future".into();
+        future.expiry_unix = Some(i64::MAX);
+        s.save_proposal(&future).unwrap();
+
+        let n = s.expire_due(2_000).unwrap();
+        assert_eq!(n, 1);
+        assert_eq!(s.get_proposal("prop-1").unwrap().unwrap().state, ProposalState::Expired);
+        assert_eq!(s.get_proposal("prop-future").unwrap().unwrap().state, ProposalState::Awaiting);
+        // Idempotent: a second sweep expires nothing new.
+        assert_eq!(s.expire_due(2_000).unwrap(), 0);
     }
 
     #[test]

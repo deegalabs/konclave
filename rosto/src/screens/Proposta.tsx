@@ -84,6 +84,7 @@ export default function Proposta() {
   const isAwaiting = p.state === 'awaiting'
   const isReady = p.state === 'ready'
   const isRejected = p.state === 'rejected'
+  const isExpired = p.state === 'expired'
   const isSent = p.state === 'sent' || p.state === 'confirmed'
 
   return (
@@ -173,6 +174,10 @@ export default function Proposta() {
 
         {isRejected && (
           <div className="confirm mt">✗ <b>Recusada.</b> As recusas tornaram o quórum inviável.</div>
+        )}
+
+        {isExpired && (
+          <div className="confirm mt">⌛ <b>Expirada.</b> O prazo de aprovação passou sem atingir o quórum. Crie uma nova proposta.</div>
         )}
 
         {error && <div className="hint err mt">✗ {error}</div>}

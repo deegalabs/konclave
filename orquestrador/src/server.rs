@@ -254,9 +254,12 @@ pub fn handle(cfg: &Config, method: &str, raw_path: &str, body: &[u8]) -> Respon
 }
 
 fn open_store(cfg: &Config) -> Result<Store, Response> {
-    Store::open(&cfg.db_path).map_err(|e| {
+    let store = Store::open(&cfg.db_path).map_err(|e| {
         Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()}))
-    })
+    })?;
+    // Enforce time-based proposal expiry on every read (no background job needed).
+    let _ = store.expire_due(now_unix().unwrap_or(0));
+    Ok(store)
 }
 
 /// The current vault (first known). `{ "vault": null }` when none exists yet.
