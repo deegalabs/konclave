@@ -123,6 +123,17 @@ export function isTransparent(addr: string): boolean {
   return addr.startsWith('t1') || addr.startsWith('t3')
 }
 
+/** The full ledger (all proposals, terminal states included) for the Razão screen. */
+export async function getLedger(): Promise<Proposal[] | null> {
+  const r = await getJson<{ ledger: Proposal[] }>('/api/ledger')
+  return r?.ledger ?? null
+}
+
+/** URL of the CSV export the browser downloads (handed to the accountant). */
+export function ledgerCsvUrl(): string {
+  return `${BASE}/api/ledger.csv`
+}
+
 /** A single proposal by id (proposal detail screen). */
 export async function getProposal(id: string): Promise<Proposal | null> {
   const r = await getJson<{ proposal: Proposal }>(`/api/proposals/${encodeURIComponent(id)}`)

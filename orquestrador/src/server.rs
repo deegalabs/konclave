@@ -234,6 +234,8 @@ pub fn handle(cfg: &Config, method: &str, raw_path: &str, body: &[u8]) -> Respon
         ),
         "/api/vault" => api_vault(cfg),
         "/api/proposals" => api_proposals(cfg),
+        "/api/ledger" => api_ledger(cfg),
+        "/api/ledger.csv" => api_ledger_csv(cfg),
         "/api/balance" => api_balance(cfg),
         p if p.starts_with("/api/proposals/") => {
             api_proposal_one(cfg, p.strip_prefix("/api/proposals/").unwrap())
@@ -287,6 +289,81 @@ fn api_proposals(cfg: &Config) -> Response {
             Response::json(200, &serde_json::json!({ "proposals": dtos }))
         }
         Err(e) => Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
+    }
+}
+
+/// The full ledger (all proposals, terminal states included) for the current vault.
+fn api_ledger(cfg: &Config) -> Response {
+    match load_ledger(cfg) {
+        Ok(ps) => {
+            let dtos: Vec<ProposalDto> = ps.into_iter().map(ProposalDto::from).collect();
+            Response::json(200, &serde_json::json!({ "ledger": dtos }))
+        }
+        Err(r) => r,
+    }
+}
+
+/// `GET /api/ledger.csv` — the same ledger as a CSV the treasurer hands to their
+/// accountant (spec: the accounting track). Downloaded by the browser as a file.
+fn api_ledger_csv(cfg: &Config) -> Response {
+    let ps = match load_ledger(cfg) {
+        Ok(ps) => ps,
+        Err(r) => return r,
+    };
+    let mut csv = String::new();
+    csv.push_str("id,estado,tipo,proposto_por,aprovadores,valor_zec,memo,destino,txid\n");
+    for p in ps {
+        let kind = match p.kind {
+            ProposalKind::Payment => "pagamento",
+            ProposalKind::Payroll => "folha",
+        };
+        let state = format!("{:?}", p.state).to_lowercase();
+        let approvers = p.approvals.join(" ");
+        let row = [
+            p.id,
+            state,
+            kind.to_string(),
+            p.proposer,
+            approvers,
+            p.value_total.to_zec_string(),
+            p.memo.unwrap_or_default(),
+            p.to_address.unwrap_or_default(),
+            p.txid.unwrap_or_default(),
+        ];
+        let line: Vec<String> = row.iter().map(|f| csv_field(f)).collect();
+        csv.push_str(&line.join(","));
+        csv.push('\n');
+    }
+    Response {
+        status: 200,
+        content_type: "text/csv; charset=utf-8".into(),
+        body: csv.into_bytes(),
+    }
+}
+
+/// Load all proposals for the current vault, or a ready-to-return error Response.
+fn load_ledger(cfg: &Config) -> Result<Vec<ProposalRecord>, Response> {
+    let store = open_store(cfg)?;
+    let vault_id = match store.list_vaults() {
+        Ok(vs) => match vs.into_iter().next() {
+            Some(v) => v.id,
+            None => return Ok(Vec::new()),
+        },
+        Err(e) => {
+            return Err(Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})))
+        }
+    };
+    store
+        .list_all_proposals(&vault_id)
+        .map_err(|e| Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})))
+}
+
+/// Minimal RFC-4180 CSV field escaping.
+fn csv_field(s: &str) -> String {
+    if s.contains([',', '"', '\n', '\r']) {
+        format!("\"{}\"", s.replace('"', "\"\""))
+    } else {
+        s.to_string()
     }
 }
 
@@ -1016,6 +1093,35 @@ mod tests {
         assert_eq!(body_json(&r)["proposal"]["id"], id);
         let miss = handle(&cfg, "GET", "/api/proposals/nope", b"");
         assert_eq!(miss.status, 404);
+    }
+
+    // ---- ledger + CSV export (accounting track) ----
+
+    #[test]
+    fn ledger_json_lists_all_proposals() {
+        let cfg = seeded_cfg(None);
+        let r = handle(&cfg, "GET", "/api/ledger", b"");
+        assert_eq!(r.status, 200);
+        assert_eq!(body_json(&r)["ledger"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn ledger_csv_has_header_and_rows() {
+        let cfg = seeded_cfg(None);
+        let r = handle(&cfg, "GET", "/api/ledger.csv", b"");
+        assert_eq!(r.status, 200);
+        assert!(r.content_type.contains("text/csv"));
+        let text = String::from_utf8(r.body).unwrap();
+        assert!(text.starts_with("id,estado,tipo,proposto_por,aprovadores,valor_zec,memo,destino,txid"));
+        assert!(text.contains("pagamento"));
+        assert!(text.lines().count() >= 3); // header + 2 seeded rows
+    }
+
+    #[test]
+    fn csv_field_escapes_commas_and_quotes() {
+        assert_eq!(csv_field("plain"), "plain");
+        assert_eq!(csv_field("a,b"), "\"a,b\"");
+        assert_eq!(csv_field("she said \"hi\""), "\"she said \"\"hi\"\"\"");
     }
 
     // ---- send guards (the ceremony itself is validated live, not in unit tests) ----

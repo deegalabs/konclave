@@ -223,6 +223,20 @@ impl Store {
         heads.into_iter().map(|h| self.attach_votes(h)).collect()
     }
 
+    /// Every proposal for a vault, newest first — the full ledger (spec §6.7), including
+    /// terminal states (sent/confirmed/rejected/expired) for the accounting export.
+    pub fn list_all_proposals(&self, vault_id: &str) -> Result<Vec<ProposalRecord>, StoreError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, vault_id, kind, state, proposer, value_total, memo, expiry_unix, txid, to_address
+             FROM proposals WHERE vault_id = ?1 ORDER BY expiry_unix DESC, id DESC",
+        )?;
+        let heads: Vec<ProposalRecord> = stmt
+            .query_map(params![vault_id], |r| row_to_proposal_head(r))?
+            .map(|r| r?)
+            .collect::<Result<_, StoreError>>()?;
+        heads.into_iter().map(|h| self.attach_votes(h)).collect()
+    }
+
     fn attach_votes(&self, mut p: ProposalRecord) -> Result<ProposalRecord, StoreError> {
         let mut stmt = self
             .conn
@@ -446,6 +460,24 @@ mod tests {
         awaiting.state = ProposalState::Sent;
         s.save_proposal(&awaiting).unwrap();
         assert_eq!(s.list_open_proposals("vault-1").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn list_all_includes_terminal_states() {
+        let mut s = Store::open_in_memory().unwrap();
+        s.save_vault(&sample_vault()).unwrap();
+
+        let awaiting = sample_proposal();
+        s.save_proposal(&awaiting).unwrap();
+        let mut confirmed = sample_proposal();
+        confirmed.id = "prop-2".into();
+        confirmed.state = ProposalState::Confirmed;
+        confirmed.txid = Some("abcd".into());
+        s.save_proposal(&confirmed).unwrap();
+
+        // list_open drops the confirmed one; list_all keeps both.
+        assert_eq!(s.list_open_proposals("vault-1").unwrap().len(), 1);
+        assert_eq!(s.list_all_proposals("vault-1").unwrap().len(), 2);
     }
 
     #[test]
