@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Letterhead, Secret } from '../components'
 import {
-  createProposal, getBalance, getVault, health, shortAddr, isTransparent,
+  createProposal, getBalance, getVault, health, shortAddr, classifyAddress,
 } from '../api'
 
 const MEMO_MAX = 512
@@ -39,7 +39,10 @@ export default function NovoPagamento() {
 
   const memoLen = memoBytes(memo)
   const memoOver = memoLen > MEMO_MAX
-  const publicDest = to.length > 1 && isTransparent(to)
+  const kind = to.trim().length > 1 ? classifyAddress(to.trim()) : null
+  const publicDest = kind === 'transparent'
+  const saplingDest = kind === 'sapling'
+  const unknownDest = kind === 'unknown'
   const shownAvailable = available ?? '2.4180'
 
   async function submit() {
@@ -72,6 +75,12 @@ export default function NovoPagamento() {
         </label>
         {publicDest && (
           <div className="hint warn">⚠ Endereço transparente — este pagamento fica <b>público</b> na blockchain.</div>
+        )}
+        {saplingDest && (
+          <div className="hint warn">⚠ Endereço <b>Sapling</b> — funciona, mas o Konclave prefere <b>Orchard</b> (<span className="mono">u1…</span>) para privacidade máxima.</div>
+        )}
+        {unknownDest && (
+          <div className="hint warn">⚠ Endereço <b>não reconhecido</b> — confira. Um endereço inválido será recusado ao propor.</div>
         )}
 
         <label className="field"><span>Valor</span>

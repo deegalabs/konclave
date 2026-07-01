@@ -118,9 +118,16 @@ export async function createProposal(input: NewProposal): Promise<CreateResult> 
   }
 }
 
-/** Classify a destination the same way the backend does (for the "público" warning). */
+/** Classify a destination the same way the backend does (drives the UI warnings). */
+export type AddressKind = 'unified' | 'sapling' | 'transparent' | 'unknown'
+export function classifyAddress(addr: string): AddressKind {
+  if (addr.startsWith('u1')) return 'unified'
+  if (addr.startsWith('zs')) return 'sapling'
+  if (addr.startsWith('t1') || addr.startsWith('t3')) return 'transparent'
+  return 'unknown'
+}
 export function isTransparent(addr: string): boolean {
-  return addr.startsWith('t1') || addr.startsWith('t3')
+  return classifyAddress(addr) === 'transparent'
 }
 
 /** The full ledger (all proposals, terminal states included) for the Razão screen. */
