@@ -1,0 +1,12 @@
+[package]
+name = "orquestrador"
+version = "0.1.0"
+edition = "2021"
+description = "Konclave Orquestrador (Layer 2): proposal state machine, validation, and orchestration of the official FROST/Zcash tools"
+license = "MIT OR Apache-2.0"
+
+# The domain core is intentionally dependency-free (std only): explicit states and
+# validation with zero supply-chain surface, instant builds, and pure-unit TDD.
+[dependencies]
+
+[dev-dependencies]
