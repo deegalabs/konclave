@@ -206,23 +206,26 @@ impl From<Balance> for BalanceDto {
 pub fn handle(cfg: &Config, method: &str, raw_path: &str, body: &[u8]) -> Response {
     // Drop any query string / fragment; keep just the path.
     let path = raw_path.split(['?', '#']).next().unwrap_or(raw_path);
+    // Which vault the request targets (?vault=<id>); falls back to the first vault.
+    let vsel = query_param(raw_path, "vault");
+    let vsel = vsel.as_deref();
 
     // Writes (state-changing) go through POST.
     if method == "POST" {
         if path == "/api/proposals" {
-            return create_proposal(cfg, body);
+            return create_proposal(cfg, body, vsel);
         }
         if path == "/api/payroll/preview" {
             return payroll_preview(body);
         }
         if path == "/api/payroll" {
-            return payroll_create(cfg, body);
+            return payroll_create(cfg, body, vsel);
         }
         if path == "/api/vault/dkg" {
             return create_vault_dkg_handler(cfg, body);
         }
         if path == "/api/beneficiaries" {
-            return beneficiary_add(cfg, body);
+            return beneficiary_add(cfg, body, vsel);
         }
         if let Some(rest) = path.strip_prefix("/api/beneficiaries/") {
             if let Some(id) = rest.strip_suffix("/delete") {
@@ -258,12 +261,12 @@ pub fn handle(cfg: &Config, method: &str, raw_path: &str, body: &[u8]) -> Respon
                 "version": env!("CARGO_PKG_VERSION"),
             }),
         ),
-        "/api/vault" => api_vault(cfg),
+        "/api/vault" => api_vault(cfg, vsel),
         "/api/vaults" => api_vaults(cfg),
-        "/api/proposals" => api_proposals(cfg),
-        "/api/ledger" => api_ledger(cfg),
-        "/api/ledger.csv" => api_ledger_csv(cfg),
-        "/api/beneficiaries" => api_beneficiaries(cfg),
+        "/api/proposals" => api_proposals(cfg, vsel),
+        "/api/ledger" => api_ledger(cfg, vsel),
+        "/api/ledger.csv" => api_ledger_csv(cfg, vsel),
+        "/api/beneficiaries" => api_beneficiaries(cfg, vsel),
         "/api/balance" => api_balance(cfg),
         p if p.starts_with("/api/proposals/") => {
             api_proposal_one(cfg, p.strip_prefix("/api/proposals/").unwrap())
@@ -284,32 +287,56 @@ fn open_store(cfg: &Config) -> Result<Store, Response> {
     Ok(store)
 }
 
-/// The current vault (first known). `{ "vault": null }` when none exists yet.
-fn api_vault(cfg: &Config) -> Response {
+/// Read a query-string parameter (`?key=value`) from a raw request path.
+fn query_param(raw_path: &str, key: &str) -> Option<String> {
+    let q = raw_path.split('?').nth(1)?;
+    let q = q.split('#').next().unwrap_or(q);
+    q.split('&').find_map(|pair| {
+        let mut it = pair.splitn(2, '=');
+        (it.next() == Some(key)).then(|| it.next().unwrap_or("").to_string())
+    })
+}
+
+/// Which vault a request operates on: the requested `want` if it exists on this device,
+/// else the first known vault. `Ok(None)` when there are no vaults at all. This is what
+/// isolates each vault's data (proposals, ledger, people) instead of always the first.
+fn resolve_vault_id(store: &Store, want: Option<&str>) -> Result<Option<String>, Response> {
+    let vaults = store.list_vaults().map_err(|e| {
+        Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()}))
+    })?;
+    if let Some(w) = want {
+        if let Some(v) = vaults.iter().find(|v| v.id == w) {
+            return Ok(Some(v.id.clone()));
+        }
+    }
+    Ok(vaults.into_iter().next().map(|v| v.id))
+}
+
+/// The selected vault (`?vault=<id>`, else the first). `{ "vault": null }` when none.
+fn api_vault(cfg: &Config, want: Option<&str>) -> Response {
     let store = match open_store(cfg) {
         Ok(s) => s,
         Err(r) => return r,
     };
-    match store.list_vaults() {
-        Ok(mut vs) => {
-            let vault = if vs.is_empty() {
-                None
-            } else {
-                let record = vs.remove(0);
-                let member_list = store
-                    .get_vault_members(&record.id)
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(|m| MemberDto { name: m.name, pubkey: m.pubkey })
-                    .collect();
-                let mut dto = VaultDto::from(record);
-                dto.member_list = member_list;
-                Some(dto)
-            };
-            Response::json(200, &serde_json::json!({ "vault": vault }))
-        }
-        Err(e) => Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
-    }
+    let vault_id = match resolve_vault_id(&store, want) {
+        Ok(Some(id)) => id,
+        Ok(None) => return Response::json(200, &serde_json::json!({ "vault": null })),
+        Err(r) => return r,
+    };
+    let record = match store.get_vault(&vault_id) {
+        Ok(Some(r)) => r,
+        Ok(None) => return Response::json(200, &serde_json::json!({ "vault": null })),
+        Err(e) => return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
+    };
+    let member_list = store
+        .get_vault_members(&record.id)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|m| MemberDto { name: m.name, pubkey: m.pubkey })
+        .collect();
+    let mut dto = VaultDto::from(record);
+    dto.member_list = member_list;
+    Response::json(200, &serde_json::json!({ "vault": dto }))
 }
 
 /// Every vault known to this device (for the "Meus cofres" home).
@@ -340,20 +367,16 @@ fn api_vaults(cfg: &Config) -> Response {
     }
 }
 
-/// Open proposals for the current vault (empty list when there is no vault).
-fn api_proposals(cfg: &Config) -> Response {
+/// Open proposals for the selected vault (empty list when there is no vault).
+fn api_proposals(cfg: &Config, want: Option<&str>) -> Response {
     let store = match open_store(cfg) {
         Ok(s) => s,
         Err(r) => return r,
     };
-    let vault_id = match store.list_vaults() {
-        Ok(vs) => match vs.into_iter().next() {
-            Some(v) => v.id,
-            None => return Response::json(200, &serde_json::json!({ "proposals": [] })),
-        },
-        Err(e) => {
-            return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()}))
-        }
+    let vault_id = match resolve_vault_id(&store, want) {
+        Ok(Some(id)) => id,
+        Ok(None) => return Response::json(200, &serde_json::json!({ "proposals": [] })),
+        Err(r) => return r,
     };
     match store.list_open_proposals(&vault_id) {
         Ok(ps) => {
@@ -364,9 +387,9 @@ fn api_proposals(cfg: &Config) -> Response {
     }
 }
 
-/// The full ledger (all proposals, terminal states included) for the current vault.
-fn api_ledger(cfg: &Config) -> Response {
-    match load_ledger(cfg) {
+/// The full ledger (all proposals, terminal states included) for the selected vault.
+fn api_ledger(cfg: &Config, want: Option<&str>) -> Response {
+    match load_ledger(cfg, want) {
         Ok(ps) => {
             let dtos: Vec<ProposalDto> = ps.into_iter().map(ProposalDto::from).collect();
             Response::json(200, &serde_json::json!({ "ledger": dtos }))
@@ -379,7 +402,7 @@ fn api_ledger(cfg: &Config) -> Response {
 /// A single payment is one row; a payroll of N is **N rows** (one per beneficiary),
 /// sharing the document id/state/txid. This is the accounting "lançamentos" view
 /// (docs/REDESENHO_FOLHA.md), not one aggregate line per proposal.
-fn api_ledger_csv(cfg: &Config) -> Response {
+fn api_ledger_csv(cfg: &Config, want: Option<&str>) -> Response {
     const HEADER: &str =
         "documento,tipo,estado,proposto_por,aprovadores,beneficiario,valor_zec,memo,destino,txid\n";
 
@@ -387,12 +410,10 @@ fn api_ledger_csv(cfg: &Config) -> Response {
         Ok(s) => s,
         Err(r) => return r,
     };
-    let vault_id = match store.list_vaults() {
-        Ok(vs) => match vs.into_iter().next() {
-            Some(v) => v.id,
-            None => return csv_response(HEADER.to_string()),
-        },
-        Err(e) => return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
+    let vault_id = match resolve_vault_id(&store, want) {
+        Ok(Some(id)) => id,
+        Ok(None) => return csv_response(HEADER.to_string()),
+        Err(r) => return r,
     };
     let proposals = match store.list_all_proposals(&vault_id) {
         Ok(p) => p,
@@ -448,17 +469,12 @@ fn csv_response(csv: String) -> Response {
     }
 }
 
-/// Load all proposals for the current vault, or a ready-to-return error Response.
-fn load_ledger(cfg: &Config) -> Result<Vec<ProposalRecord>, Response> {
+/// Load all proposals for the selected vault, or a ready-to-return error Response.
+fn load_ledger(cfg: &Config, want: Option<&str>) -> Result<Vec<ProposalRecord>, Response> {
     let store = open_store(cfg)?;
-    let vault_id = match store.list_vaults() {
-        Ok(vs) => match vs.into_iter().next() {
-            Some(v) => v.id,
-            None => return Ok(Vec::new()),
-        },
-        Err(e) => {
-            return Err(Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})))
-        }
+    let vault_id = match resolve_vault_id(&store, want)? {
+        Some(id) => id,
+        None => return Ok(Vec::new()),
     };
     store
         .list_all_proposals(&vault_id)
@@ -552,17 +568,15 @@ fn beneficiary_json(b: &crate::store::Beneficiary) -> serde_json::Value {
     })
 }
 
-fn api_beneficiaries(cfg: &Config) -> Response {
+fn api_beneficiaries(cfg: &Config, want: Option<&str>) -> Response {
     let store = match open_store(cfg) {
         Ok(s) => s,
         Err(r) => return r,
     };
-    let vault_id = match store.list_vaults() {
-        Ok(vs) => match vs.into_iter().next() {
-            Some(v) => v.id,
-            None => return Response::json(200, &serde_json::json!({ "beneficiaries": [] })),
-        },
-        Err(e) => return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
+    let vault_id = match resolve_vault_id(&store, want) {
+        Ok(Some(id)) => id,
+        Ok(None) => return Response::json(200, &serde_json::json!({ "beneficiaries": [] })),
+        Err(r) => return r,
     };
     match store.list_beneficiaries(&vault_id) {
         Ok(bs) => {
@@ -581,7 +595,7 @@ struct NewBeneficiary {
     memo: Option<String>,
 }
 
-fn beneficiary_add(cfg: &Config, body: &[u8]) -> Response {
+fn beneficiary_add(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
     use crate::validation::AddressKind;
     let input: NewBeneficiary = match serde_json::from_slice(body) {
         Ok(v) => v,
@@ -597,10 +611,10 @@ fn beneficiary_add(cfg: &Config, body: &[u8]) -> Response {
         Ok(s) => s,
         Err(r) => return r,
     };
-    let vault_id = match store.list_vaults() {
-        Ok(mut vs) if !vs.is_empty() => vs.remove(0).id,
-        Ok(_) => return bad("nenhum cofre neste dispositivo", "no vault"),
-        Err(e) => return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
+    let vault_id = match resolve_vault_id(&store, want) {
+        Ok(Some(id)) => id,
+        Ok(None) => return bad("nenhum cofre neste dispositivo", "no vault"),
+        Err(r) => return r,
     };
     let b = crate::store::Beneficiary {
         id: new_id(),
@@ -673,7 +687,7 @@ fn bad(detail: impl Into<String>, what: &str) -> Response {
 /// `POST /api/proposals` — validate at the boundary, then persist an Awaiting (or, for a
 /// 1-of-n vault, Ready) proposal with the proposer as first approval. No funds move here;
 /// spendability is authoritative at broadcast time (step 2c).
-fn create_proposal(cfg: &Config, body: &[u8]) -> Response {
+fn create_proposal(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
     use crate::proposal::Proposal;
     use crate::validation::{
         available_to_propose, estimate_fee_for_payment, validate_amount, validate_memo, AddressKind,
@@ -714,9 +728,14 @@ fn create_proposal(cfg: &Config, body: &[u8]) -> Response {
         Ok(s) => s,
         Err(r) => return r,
     };
-    let vault = match store.list_vaults() {
-        Ok(mut vs) if !vs.is_empty() => vs.remove(0),
-        Ok(_) => return bad("nenhum cofre neste dispositivo", "no vault"),
+    let vault_id = match resolve_vault_id(&store, want) {
+        Ok(Some(id)) => id,
+        Ok(None) => return bad("nenhum cofre neste dispositivo", "no vault"),
+        Err(r) => return r,
+    };
+    let vault = match store.get_vault(&vault_id) {
+        Ok(Some(v)) => v,
+        Ok(None) => return bad("nenhum cofre neste dispositivo", "no vault"),
         Err(e) => return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
     };
 
@@ -859,7 +878,7 @@ fn payroll_preview(body: &[u8]) -> Response {
 
 /// `POST /api/payroll` — create a Payroll proposal (N outputs, one envelope). Every line
 /// is validated; the aggregate is checked against the balance when a wallet is wired.
-fn payroll_create(cfg: &Config, body: &[u8]) -> Response {
+fn payroll_create(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
     use crate::money::MAX_MONEY;
     use crate::payroll::PayrollPlan;
     use crate::proposal::Proposal;
@@ -884,9 +903,14 @@ fn payroll_create(cfg: &Config, body: &[u8]) -> Response {
         Ok(s) => s,
         Err(r) => return r,
     };
-    let vault = match store.list_vaults() {
-        Ok(mut vs) if !vs.is_empty() => vs.remove(0),
-        Ok(_) => return bad("nenhum cofre neste dispositivo", "no vault"),
+    let vault_id = match resolve_vault_id(&store, want) {
+        Ok(Some(id)) => id,
+        Ok(None) => return bad("nenhum cofre neste dispositivo", "no vault"),
+        Err(r) => return r,
+    };
+    let vault = match store.get_vault(&vault_id) {
+        Ok(Some(v)) => v,
+        Ok(None) => return bad("nenhum cofre neste dispositivo", "no vault"),
         Err(e) => return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
     };
 
@@ -1342,6 +1366,54 @@ mod tests {
         let r = handle(&cfg, "GET", "/api/nope", b"");
         assert_eq!(r.status, 404);
         assert_eq!(body_json(&r)["error"], "unknown endpoint");
+    }
+
+    #[test]
+    fn vaults_are_isolated_by_query_param() {
+        use crate::proposal::Quorum;
+        let db = tmp_db();
+        {
+            let mut store = Store::open(&db).unwrap();
+            for (vid, nm, benef) in [("vault-a", "Cofre A", "Ana"), ("vault-b", "Cofre B", "Bruno")] {
+                store
+                    .save_vault(&VaultRecord {
+                        id: vid.into(),
+                        name: nm.into(),
+                        quorum: Quorum::new(2, 3).unwrap(),
+                        group_pubkey: format!("{vid}-gp"),
+                        orchard_address: "u1demo".into(),
+                        ufvk: String::new(),
+                        server_url: None,
+                    })
+                    .unwrap();
+                store
+                    .save_beneficiary(&crate::store::Beneficiary {
+                        id: format!("{vid}-b"),
+                        vault_id: vid.into(),
+                        name: benef.into(),
+                        address: SLICE_ADDRESS.into(),
+                        memo: String::new(),
+                    })
+                    .unwrap();
+            }
+        }
+        let cfg = cfg_with(db, None);
+
+        // Each vault sees only its own people — no cross-vault leakage.
+        let b = handle(&cfg, "GET", "/api/beneficiaries?vault=vault-b", b"");
+        let list = body_json(&b)["beneficiaries"].as_array().unwrap().clone();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0]["name"], "Bruno");
+        let a = handle(&cfg, "GET", "/api/beneficiaries?vault=vault-a", b"");
+        assert_eq!(body_json(&a)["beneficiaries"][0]["name"], "Ana");
+
+        // The vault endpoint honours the selection.
+        let v = handle(&cfg, "GET", "/api/vault?vault=vault-b", b"");
+        assert_eq!(body_json(&v)["vault"]["name"], "Cofre B");
+
+        // An unknown vault falls back to the first (by name) — never errors.
+        let f = handle(&cfg, "GET", "/api/vault?vault=nope", b"");
+        assert_eq!(body_json(&f)["vault"]["id"], "vault-a");
     }
 
     #[test]

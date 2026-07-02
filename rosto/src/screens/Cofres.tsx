@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getVaults, health, shortAddr, type Vault } from '../api'
+import { getVaults, health, setSelectedVault, shortAddr, type Vault } from '../api'
 import { Identicon } from '../avatar'
 import '../redesign.css'
 
@@ -86,7 +86,7 @@ export default function Cofres() {
             const ms = v.member_list ?? []
             const avatars = ms.length ? ms : Array.from({ length: v.total }, (_, i) => ({ name: `Membro ${i + 1}`, pubkey: '' }))
             return (
-              <div key={v.id} className="rd-card" onClick={() => nav('/painel')}>
+              <div key={v.id} className="rd-card" onClick={() => { setSelectedVault(v.id); nav('/painel') }}>
                 <span className="rd-qtag">Quórum {v.threshold} de {v.total}</span>
                 <h3>{v.name}</h3>
                 <div className="rd-avatars">

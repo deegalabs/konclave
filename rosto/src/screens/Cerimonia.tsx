@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Letterhead, Stepper } from '../components'
-import { createVaultDkg, shortAddr, humanError, type Vault } from '../api'
+import { createVaultDkg, setSelectedVault, shortAddr, humanError, type Vault } from '../api'
 
 /** Illustrative invite code for the demo. In the product each member generates
  *  their own from their own device (frost-client contact token, zffrost1…). */
@@ -51,7 +51,7 @@ export default function Cerimonia() {
     setCreating(true)
     const res = await createVaultDkg(name.trim() || 'Cofre', threshold, names)
     setCreating(false)
-    if (res.ok) setVault(res.vault)
+    if (res.ok) { setSelectedVault(res.vault.id); setVault(res.vault) }
     else setError(humanError(res.error, res.detail))
   }
 

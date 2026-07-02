@@ -52,6 +52,22 @@ export type Balance = {
 const ENV = import.meta.env as Record<string, string | undefined>
 const BASE: string = ENV.VITE_API_BASE ?? ''
 
+// Which vault the UI is currently inside. Persisted so a reload stays in the same
+// vault; sent as ?vault=<id> so the bridge scopes data per vault (not always the first).
+const VAULT_KEY = 'konclave.selectedVault'
+export function setSelectedVault(id: string): void {
+  try { localStorage.setItem(VAULT_KEY, id) } catch { /* storage unavailable */ }
+}
+export function getSelectedVault(): string | null {
+  try { return localStorage.getItem(VAULT_KEY) } catch { return null }
+}
+/** Append `?vault=<selected>` to a path when a vault is selected. */
+function withVault(path: string): string {
+  const id = getSelectedVault()
+  if (!id) return path
+  return `${path}${path.includes('?') ? '&' : '?'}vault=${encodeURIComponent(id)}`
+}
+
 async function getJson<T>(path: string, timeoutMs = 4000): Promise<T | null> {
   const ctrl = new AbortController()
   const t = setTimeout(() => ctrl.abort(), timeoutMs)
@@ -73,17 +89,17 @@ export async function health(): Promise<boolean> {
 }
 
 export async function getVault(): Promise<Vault | null> {
-  const r = await getJson<{ vault: Vault | null }>('/api/vault')
+  const r = await getJson<{ vault: Vault | null }>(withVault('/api/vault'))
   return r?.vault ?? null
 }
 
 export async function getProposals(): Promise<Proposal[] | null> {
-  const r = await getJson<{ proposals: Proposal[] }>('/api/proposals')
+  const r = await getJson<{ proposals: Proposal[] }>(withVault('/api/proposals'))
   return r?.proposals ?? null
 }
 
 export async function getBalance(): Promise<Balance | null> {
-  return getJson<Balance>('/api/balance')
+  return getJson<Balance>(withVault('/api/balance'))
 }
 
 /** Shorten an address for display: `u1vjgx…d406dr`. */
@@ -108,7 +124,7 @@ export type CreateResult =
 /** POST a new payment proposal. Returns a typed success or a readable error. */
 export async function createProposal(input: NewProposal): Promise<CreateResult> {
   try {
-    const res = await fetch(`${BASE}/api/proposals`, {
+    const res = await fetch(`${BASE}${withVault('/api/proposals')}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
@@ -171,13 +187,13 @@ export async function getVaults(): Promise<Vault[] | null> {
 
 /** The full ledger (all proposals, terminal states included) for the Razão screen. */
 export async function getLedger(): Promise<Proposal[] | null> {
-  const r = await getJson<{ ledger: Proposal[] }>('/api/ledger')
+  const r = await getJson<{ ledger: Proposal[] }>(withVault('/api/ledger'))
   return r?.ledger ?? null
 }
 
 /** URL of the CSV export the browser downloads (handed to the accountant). */
 export function ledgerCsvUrl(): string {
-  return `${BASE}/api/ledger.csv`
+  return `${BASE}${withVault('/api/ledger.csv')}`
 }
 
 /** A single proposal by id (proposal detail screen). */
@@ -236,7 +252,7 @@ export async function createPayroll(
   description?: string,
 ): Promise<CreateResult> {
   try {
-    const res = await fetch(`${BASE}/api/payroll`, {
+    const res = await fetch(`${BASE}${withVault('/api/payroll')}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ proposer, description, lines }),
@@ -272,7 +288,7 @@ export async function createVaultDkg(
 export type Beneficiary = { id: string; name: string; address: string; memo: string; is_public: boolean }
 
 export async function getBeneficiaries(): Promise<Beneficiary[] | null> {
-  const r = await getJson<{ beneficiaries: Beneficiary[] }>('/api/beneficiaries')
+  const r = await getJson<{ beneficiaries: Beneficiary[] }>(withVault('/api/beneficiaries'))
   return r?.beneficiaries ?? null
 }
 
@@ -280,7 +296,7 @@ export async function addBeneficiary(
   name: string, address: string, memo?: string,
 ): Promise<{ ok: true; beneficiary: Beneficiary } | { ok: false; error: string; detail?: string }> {
   try {
-    const res = await fetch(`${BASE}/api/beneficiaries`, {
+    const res = await fetch(`${BASE}${withVault('/api/beneficiaries')}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, address, memo }),
