@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Letterhead, Seal, Secret, RevealButton } from '../components'
+import { Identicon } from '../avatar'
 import {
   getVault, getProposals, getBalance, getLedger, health, shortAddr,
   type Vault, type Proposal, type Balance,
@@ -122,6 +123,35 @@ export default function Painel() {
           <Seal t={t} n={n} />
         </div>
 
+        {/* 1 · O que precisa de você — a ação primeiro */}
+        {showApprovalCard ? (
+          <section className="needyou act">
+            <div className="req"><span className="stamp">Pendente</span> Precisa de você{isLive && awaiting.length > 1 ? ` · ${awaiting.length} aguardando` : ''}</div>
+            <div className="ny-body">
+              <Identicon seed={pProposer} size={38} />
+              <div className="ny-main">
+                <div className="ny-amt">{pAmt} <span className="dim small">ZEC</span></div>
+                <div className="a-to">memo “{pMemo}” · proposto por <b>{pProposer}</b></div>
+                <div className="a-meta">
+                  <span className="prog">{Array.from({ length: t }, (_, i) => <i key={i} className={i < pApprovals ? 'on' : ''} />)}</span>
+                  <span>{pApprovals} de {t}{pExpiry ? ` · ${pExpiry}` : ''}</span>
+                </div>
+              </div>
+            </div>
+            <div className="btns">
+              <Link className="btn ok" to="/proposta" state={pending ? { id: pending.id } : undefined}>▸ Revisar e votar</Link>
+            </div>
+            <div className="note">Você escolhe por quem aprova ou recusa na próxima tela.</div>
+          </section>
+        ) : (
+          <section className="needyou calm">
+            <div className="req"><span className="stamp">—</span> Nada aguardando você</div>
+            <div className="note">Quando alguém propuser um pagamento, ele aparece aqui para o seu aval.</div>
+            <div className="btns"><Link className="btn ok" to="/pagar">▸ Propor pagamento</Link></div>
+          </section>
+        )}
+
+        {/* 2 · Saldo */}
         <section className="entry">
           <div className="entry-top">
             <span className="klab">Saldo do cofre</span>
@@ -145,44 +175,20 @@ export default function Painel() {
           </div>
         </section>
 
-        <div className="cols">
-          {showApprovalCard ? (
-            <section className="approve">
-              <div className="req"><span className="stamp">Pendente</span> Requer sua aprovação</div>
-              <div className="a-amt">{pAmt} <span className="dim small">ZEC</span></div>
-              <div className="a-to">memo “{pMemo}”</div>
-              <div className="a-meta">
-                <span>proposto por <b>{pProposer}</b></span>
-                <span className="prog">{Array.from({ length: t }, (_, i) => <i key={i} className={i < pApprovals ? 'on' : ''} />)}</span>
-                <span>{pApprovals} de {t}{pExpiry ? ` · ${pExpiry}` : ''}</span>
-              </div>
-              <div className="btns">
-                <Link className="btn ok" to="/proposta">Aprovar</Link>
-                <button className="btn">Recusar</button>
-              </div>
-              <div className="note">Ao aprovar, você autoriza este pagamento com a sua parte da chave.</div>
-            </section>
-          ) : (
-            <section className="approve">
-              <div className="req"><span className="stamp">—</span> Nenhuma aprovação pendente</div>
-              <div className="note">Quando alguém propuser um pagamento, ele aparece aqui para o seu aval.</div>
-              <div className="btns"><Link className="btn ok" to="/pagar">▸ Propor pagamento</Link></div>
-            </section>
-          )}
+        {/* 3 · O que fazer */}
+        <nav className="opnav card">
+          <span className="klab">O que fazer</span>
+          {acoes.map(([num, title, desc, to]) => (
+            <Link className="op" to={to} key={num}>
+              <span className="n">{num}</span>
+              <span className="t">{title}</span>
+              <span className="d">{desc}</span>
+              <span className="go">→</span>
+            </Link>
+          ))}
+        </nav>
 
-          <nav className="opnav">
-            <span className="klab">O que fazer</span>
-            {acoes.map(([num, title, desc, to]) => (
-              <Link className="op" to={to} key={num}>
-                <span className="n">{num}</span>
-                <span className="t">{title}</span>
-                <span className="d">{desc}</span>
-                <span className="go">→</span>
-              </Link>
-            ))}
-          </nav>
-        </div>
-
+        {/* 4 · Histórico */}
         <section className="ledger">
           <span className="klab">Movimentações</span>
           <div className="cap">Transparência interna — quem propôs e quem aprovou fica registrado.</div>

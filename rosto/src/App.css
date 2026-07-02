@@ -76,6 +76,21 @@
 .op{display:flex; align-items:baseline; gap:12px; padding:15px 14px; margin:0 -14px; border-bottom:1px solid var(--line); cursor:pointer; text-decoration:none; color:inherit; border-radius:9px; transition:background .14s}
 .op:hover{background:linear-gradient(90deg,rgba(87,166,255,.06),transparent)}
 .op:last-child{border-bottom:0}
+
+/* Painel · "precisa de você" (a ação primeiro) + ações como painel */
+.needyou{margin-top:28px; padding:22px 26px; border-radius:16px;
+  box-shadow:0 1px 0 rgba(210,228,250,.05) inset, 0 22px 44px -30px rgba(0,0,0,.7)}
+.needyou.act{border:1px solid rgba(87,166,255,.30);
+  background:linear-gradient(180deg,rgba(87,166,255,.08),rgba(87,166,255,.02))}
+.needyou.calm{border:1px solid var(--line-2);
+  background:linear-gradient(180deg,rgba(200,220,245,.03),rgba(200,220,245,.008))}
+.ny-body{display:flex; gap:16px; align-items:flex-start; margin:14px 0 16px}
+.ny-body .idc{border-radius:9px; box-shadow:0 0 0 2px #1a2026; flex:0 0 auto; margin-top:2px}
+.ny-main{flex:1}
+.ny-amt{font-family:var(--mono); font-weight:500; font-size:34px; letter-spacing:-.01em}
+.opnav.card{padding:20px 26px; border-radius:16px; border:1px solid var(--line-2);
+  background:linear-gradient(180deg,rgba(200,220,245,.04),rgba(200,220,245,.01));
+  box-shadow:0 1px 0 rgba(210,228,250,.05) inset, 0 22px 44px -30px rgba(0,0,0,.7)}
 .op .n{font-family:var(--mono); font-size:11px; color:var(--muted); width:20px}
 .op .t{font-weight:700; font-size:15px; flex:1}
 .op .d{font-family:var(--mono); font-size:11.5px; color:var(--muted)}
