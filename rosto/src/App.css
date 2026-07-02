@@ -30,6 +30,8 @@
 .folha .row-bad td{background:rgba(255,110,110,.06)}
 .row-del{border:1px solid var(--line); background:var(--paper-2); color:var(--muted); width:24px; height:24px; cursor:pointer; line-height:1; font-size:14px}
 .row-del:hover{color:var(--seal, #7E2A24); border-color:var(--seal, #7E2A24)}
+.row-edit{border:1px solid var(--line); background:var(--paper-2); color:var(--muted); width:24px; height:24px; cursor:pointer; line-height:1; font-size:12px}
+.row-edit:hover{color:var(--seal); border-color:var(--seal)}
 .folha-actions{display:flex; gap:10px}
 .seal-wrap{text-align:center; flex:0 0 auto}
 .seal-emb{width:90px; height:90px}
@@ -237,6 +239,23 @@
 .pf-st.awaiting,.pf-st.ready{color:var(--seal); border-color:rgba(87,166,255,.4)}
 .pf-go{color:var(--seal); font-weight:700}
 
+/* ---- Propostas (lista) ---- */
+.plist-head{display:flex; align-items:center; gap:10px; margin:10px 0 8px}
+.plist-count{font-family:var(--mono); font-size:11px; color:var(--muted); border:1px solid var(--line); border-radius:999px; padding:2px 9px}
+.plist-count.ready{color:var(--pine); border-color:rgba(87,208,138,.4)}
+.plist{display:flex; flex-direction:column; border-radius:12px; border:1px solid var(--line-2); overflow:hidden;
+  background:linear-gradient(180deg,rgba(200,220,245,.03),rgba(200,220,245,.008))}
+.plist-row{display:flex; align-items:center; gap:12px; padding:13px 16px; border-bottom:1px solid var(--line); cursor:pointer; transition:background .14s}
+.plist-row:last-child{border-bottom:0}
+.plist-row:hover{background:linear-gradient(90deg,rgba(87,166,255,.06),transparent)}
+.plist-main{flex:1; min-width:0}
+.plist-title{font-weight:600; font-size:14.5px}
+.plist-sub{font-family:var(--mono); font-size:11.5px; color:var(--muted); margin-top:3px}
+.plist-right{text-align:right; font-family:var(--mono)}
+.plist-val{font-size:13.5px}
+.plist-prog{font-size:11px; color:var(--muted); margin-top:3px; display:flex; align-items:center; gap:7px; justify-content:flex-end}
+.plist-go{color:var(--seal); font-weight:700}
+
 /* ---- Proposta ---- */
 .p-amt{font-family:var(--mono); font-size:30px; font-weight:500; margin:16px 0 4px}
 .p-meta{font-family:var(--mono); font-size:12.5px; color:var(--muted)}
@@ -260,8 +279,12 @@
 .who-st.no{color:#ff8f8f; border-color:rgba(255,120,120,.4)}
 
 /* ---- Razão ---- */
-.filters{display:flex; gap:8px; margin:14px 0; align-items:center}
-.chip{font-family:var(--mono); font-size:12px; border:1.5px solid var(--line); background:var(--paper-2); padding:8px 12px}
+.filters{display:flex; gap:14px; margin:14px 0; align-items:center; flex-wrap:wrap}
+.chip-group{display:inline-flex; gap:6px}
+.chip{font-family:var(--mono); font-size:12px; color:var(--muted); border:1px solid var(--line); background:var(--paper-2); padding:7px 12px; border-radius:999px; cursor:pointer; transition:all .12s}
+.chip:hover{color:var(--ink); border-color:var(--muted)}
+.chip.on{color:var(--seal); border-color:var(--seal); background:rgba(87,166,255,.1)}
+.chip-note{font-family:var(--mono); font-size:11px; color:var(--muted)}
 .filters .pushr{margin-left:auto}
 .filters .chip.pushr{border:0; background:none; padding:0}
 .tbl .num.out{color:var(--ink)}

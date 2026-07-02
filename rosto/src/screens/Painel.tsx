@@ -101,7 +101,7 @@ export default function Painel() {
   const acoes: [string, string, string, string][] = [
     ['01', 'Novo pagamento', 'um destino', '/pagar'],
     ['02', 'Nova folha', 'N destinos, 1 aprovação', '/folha'],
-    ['03', 'Propostas', `${isLive ? awaiting.length : 1} aguardando`, '/proposta'],
+    ['03', 'Propostas', `${isLive ? awaiting.length : 1} aguardando`, '/propostas'],
     ['04', 'Razão / contas', 'entregar ao contador', '/razao'],
     ['05', 'Pessoas', 'cadastro de quem recebe', '/beneficiarios'],
   ]

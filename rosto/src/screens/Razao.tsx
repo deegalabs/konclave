@@ -23,6 +23,8 @@ export default function Razao() {
   const [vaultName, setVaultName] = useState<string | null>(null)
   const [open, setOpen] = useState<Set<string>>(new Set())
   const [linesById, setLinesById] = useState<Record<string, PayrollLine[]>>({})
+  const [fState, setFState] = useState<'all' | 'settled' | 'openp'>('all')
+  const [fKind, setFKind] = useState<'all' | 'payment' | 'payroll'>('all')
 
   useEffect(() => {
     let on = true
@@ -59,6 +61,11 @@ export default function Razao() {
   const period = dates.length
     ? `${dateFromExpiry(Math.min(...dates))} – ${dateFromExpiry(Math.max(...dates))}`
     : '—'
+  const filtered = ledger.filter((p) => {
+    const stOk = fState === 'all' || (fState === 'settled' ? SETTLED(p.state) : p.state === 'awaiting' || p.state === 'ready')
+    const knOk = fKind === 'all' || p.kind === fKind
+    return stOk && knOk
+  })
 
   return (
     <>
@@ -89,13 +96,30 @@ export default function Razao() {
         </div>
         <div className="cap">{live ? 'Registro ao vivo — quem propôs e aprovou fica registrado. A folha abre em cada beneficiário.' : 'Modo demonstração.'}</div>
 
+        <div className="filters">
+          <span className="chip-group">
+            <button className={'chip' + (fState === 'all' ? ' on' : '')} onClick={() => setFState('all')}>Todos</button>
+            <button className={'chip' + (fState === 'settled' ? ' on' : '')} onClick={() => setFState('settled')}>Liquidados</button>
+            <button className={'chip' + (fState === 'openp' ? ' on' : '')} onClick={() => setFState('openp')}>Em aberto</button>
+          </span>
+          <span className="chip-group">
+            <button className={'chip' + (fKind === 'all' ? ' on' : '')} onClick={() => setFKind('all')}>Tudo</button>
+            <button className={'chip' + (fKind === 'payment' ? ' on' : '')} onClick={() => setFKind('payment')}>Pagamentos</button>
+            <button className={'chip' + (fKind === 'payroll' ? ' on' : '')} onClick={() => setFKind('payroll')}>Folhas</button>
+          </span>
+          {filtered.length !== ledger.length && <span className="chip-note">mostrando {filtered.length} de {ledger.length}</span>}
+        </div>
+
         <table className="tbl razao mt">
           <thead><tr><th>Data</th><th>Documento</th><th>Quem propôs / aprovou</th><th>Valor</th></tr></thead>
           <tbody>
             {ledger.length === 0 && (
               <tr><td colSpan={4} className="by">Nenhum lançamento ainda. Propostas aparecem aqui conforme são criadas.</td></tr>
             )}
-            {ledger.map((p) => {
+            {ledger.length > 0 && filtered.length === 0 && (
+              <tr><td colSpan={4} className="by">Nenhum lançamento neste filtro.</td></tr>
+            )}
+            {filtered.map((p) => {
               const isPayroll = p.kind === 'payroll'
               const who = `prop. ${p.proposer}${p.approvals.length ? ` / aprov. ${p.approvals.join(', ')}` : ''}`
               const settledRow = SETTLED(p.state)

@@ -17,6 +17,7 @@ export default function Beneficiarios() {
   const [error, setError] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [loaded, setLoaded] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   async function reload() {
     const b = await getBeneficiaries()
@@ -29,13 +30,23 @@ export default function Beneficiarios() {
 
   const kind = address.trim().length > 1 ? classifyAddress(address.trim()) : null
 
+  function startEdit(b: Beneficiary) {
+    setEditingId(b.id); setName(b.name); setAddress(b.address); setMemo(b.memo)
+    setError(null); setShowForm(true)
+  }
+  function cancelForm() {
+    setEditingId(null); setName(''); setAddress(''); setMemo(''); setError(null); setShowForm(false)
+  }
+
   async function add() {
     setError(null)
     if (!name.trim() || !address.trim()) { setError('Preencha nome e endereço.'); return }
     setBusy(true)
+    // Edit = add the updated entry, then drop the old one (no update endpoint).
     const res = await addBeneficiary(name.trim(), address.trim(), memo.trim() || undefined)
+    if (res.ok && editingId) await deleteBeneficiary(editingId)
     setBusy(false)
-    if (res.ok) { setName(''); setAddress(''); setMemo(''); setShowForm(false); void reload() }
+    if (res.ok) { setName(''); setAddress(''); setMemo(''); setShowForm(false); setEditingId(null); void reload() }
     else setError(humanError(res.error, res.detail))
   }
 
@@ -65,6 +76,7 @@ export default function Beneficiarios() {
                     {b.memo ? <span className="dim"> · {b.memo}</span> : null}
                   </div>
                 </div>
+                <button className="row-edit" title="editar" onClick={() => startEdit(b)}>✎</button>
                 <button className="row-del" title="remover" onClick={() => remove(b.id)}>×</button>
               </div>
             ))}
@@ -72,13 +84,14 @@ export default function Beneficiarios() {
         )}
 
         <div className="mt">
-          <button className="btn ghost sm-btn" onClick={() => setShowForm((v) => !v)}>
+          <button className="btn ghost sm-btn" onClick={() => (showForm ? cancelForm() : setShowForm(true))}>
             {showForm ? '× Fechar' : '＋ Cadastrar pessoa'}
           </button>
         </div>
 
         {showForm && (
           <div className="add-form mt">
+            <div className="klab">{editingId ? 'Editar pessoa' : 'Nova pessoa'}</div>
             <div className="doc-head">
               <label className="field inline"><span>Nome</span>
                 <input className="input" placeholder="ex.: Prestador Infra" value={name} onChange={(e) => setName(e.target.value)} />
@@ -93,7 +106,10 @@ export default function Beneficiarios() {
             {kind === 'transparent' && <div className="hint warn">⚠ Endereço transparente (público) — sem memo.</div>}
             {kind === 'sapling' && <div className="hint warn">⚠ Endereço Sapling — prefira Orchard (u1…).</div>}
             {error && <div className="hint err mt">✗ {error}</div>}
-            <div className="mt-sm"><button className="btn ok sm-btn" onClick={add} disabled={busy}>{busy ? 'Salvando…' : '＋ Salvar pessoa'}</button></div>
+            <div className="mt-sm folha-actions">
+              <button className="btn ok sm-btn" onClick={add} disabled={busy}>{busy ? 'Salvando…' : (editingId ? '✓ Salvar alterações' : '＋ Salvar pessoa')}</button>
+              {editingId && <button className="btn ghost sm-btn" onClick={cancelForm}>Cancelar</button>}
+            </div>
           </div>
         )}
       </div>

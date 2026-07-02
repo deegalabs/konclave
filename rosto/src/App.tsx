@@ -6,6 +6,7 @@ import Cerimonia from './screens/Cerimonia'
 import NovoPagamento from './screens/NovoPagamento'
 import NovaFolha from './screens/NovaFolha'
 import Proposta from './screens/Proposta'
+import Propostas from './screens/Propostas'
 import Razao from './screens/Razao'
 import Membros from './screens/Membros'
 import Beneficiarios from './screens/Beneficiarios'
@@ -25,6 +26,7 @@ export default function App() {
         <Route path="/pagar" element={<NovoPagamento />} />
         <Route path="/folha" element={<NovaFolha />} />
         <Route path="/proposta" element={<Proposta />} />
+        <Route path="/propostas" element={<Propostas />} />
         <Route path="/razao" element={<Razao />} />
         <Route path="/membros" element={<Membros />} />
         <Route path="/beneficiarios" element={<Beneficiarios />} />

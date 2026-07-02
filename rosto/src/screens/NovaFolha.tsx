@@ -222,6 +222,9 @@ export default function NovaFolha() {
           )}
           <button className="btn ghost sm-btn" onClick={() => setShowImport((v) => !v)}>⭱ Importar CSV</button>
         </div>
+        {count === 0 && !showImport && (
+          <div className="hint mt-sm">Comece a montar a folha: escreva na tabela acima, escolha alguém <b>do cadastro</b>, ou <b>importe um CSV</b> (rótulo, endereço, valor, memo).</div>
+        )}
 
         {showImport && (
           <div className="mt-sm">
@@ -230,15 +233,14 @@ export default function NovaFolha() {
           </div>
         )}
 
-        <div className="foot">
-          <span>{count} pagamento{count === 1 ? '' : 's'}</span>
-          <span>total <Secret sm><b>{zatToZec(totalZat)} ZEC</b></Secret></span>
-          <span>taxa est. <b>{zatToZec(feeZat)}</b></span>
-          <span>saldo após <Secret sm><b>{afterZat === null ? '—' : `${zatToZec(afterZat)}`}</b></Secret></span>
+        <div className="confirm mt preview">
+          <div className="pv-row"><span className="pv-k">Documento</span><span className="pv-v"><b>{competencia ? `Folha · ${competencia}` : 'Folha'}</b></span></div>
+          <div className="pv-row"><span className="pv-k">Pagamentos</span><span className="pv-v"><b>{count}</b> numa transação só, aprovada uma vez</span></div>
+          <div className="pv-row"><span className="pv-k">Total</span><span className="pv-v"><Secret sm><b>{zatToZec(totalZat)} ZEC</b></Secret> + taxa est. {zatToZec(feeZat)}</span></div>
+          <div className="pv-row"><span className="pv-k">Saldo após</span><span className="pv-v"><Secret sm><b>{afterZat === null ? '—' : zatToZec(afterZat)}</b></Secret></span></div>
+          <div className="pv-row"><span className="pv-k">Aprovação</span><span className="pv-v">Enviar já conta como a de <b>{proposer}</b></span></div>
         </div>
-        {afterZat !== null && afterZat < 0 && <div className="hint warn">⚠ Total + taxa excede o saldo do cofre.</div>}
-
-        <div className="confirm mt">⚑ <b>{competencia ? `Folha · ${competencia}` : 'Folha'}</b> — {count} pagamento{count === 1 ? '' : 's'} numa transação só. Enviar para aprovação <b>já conta como a aprovação de {proposer}</b>.</div>
+        {afterZat !== null && afterZat < 0 && <div className="hint warn mt-sm">⚠ Total + taxa excede o saldo do cofre.</div>}
         {error && <div className="hint err mt">✗ {error}</div>}
 
         <div className="right mt">
