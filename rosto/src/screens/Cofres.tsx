@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getVaults, health, setSelectedVault, unlockVault, shortAddr, type Vault } from '../api'
+import { getVaults, health, setSelectedVault, unlockVault, markVaultUnlocked, shortAddr, type Vault } from '../api'
 import { Identicon } from '../avatar'
 import '../redesign.css'
 
@@ -67,7 +67,7 @@ export default function Cofres() {
     setUnlockBusy(true); setUnlockErr(null)
     const r = await unlockVault(pass)
     setUnlockBusy(false)
-    if (r.ok) nav('/painel')
+    if (r.ok) { markVaultUnlocked(unlocking.id); nav('/painel') }
     else setUnlockErr(r.wrong ? 'Palavra incorreta. Tente de novo.' : 'Não foi possível verificar (cofre local offline?).')
   }
 

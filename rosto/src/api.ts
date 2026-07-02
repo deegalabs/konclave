@@ -69,6 +69,12 @@ function withVault(path: string): string {
   return `${path}${path.includes('?') ? '&' : '?'}vault=${encodeURIComponent(id)}`
 }
 
+// Vaults unlocked in THIS browser session (in-memory: a reload re-locks, so the
+// passphrase is asked again on every fresh entry — that is the intended behaviour).
+const unlockedSession = new Set<string>()
+export function markVaultUnlocked(id: string): void { unlockedSession.add(id) }
+export function isVaultUnlocked(id: string): boolean { return unlockedSession.has(id) }
+
 async function getJson<T>(path: string, timeoutMs = 4000): Promise<T | null> {
   const ctrl = new AbortController()
   const t = setTimeout(() => ctrl.abort(), timeoutMs)

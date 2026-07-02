@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Letterhead, Seal, Secret, RevealButton } from '../components'
 import { Identicon } from '../avatar'
 import {
-  getVault, getProposals, getBalance, getLedger, health, shortAddr,
+  getVault, getProposals, getBalance, getLedger, health, shortAddr, isVaultUnlocked,
   type Vault, type Proposal, type Balance,
 } from '../api'
 
@@ -36,6 +36,7 @@ function dateFromExpiry(unix?: number): string {
 }
 
 export default function Painel() {
+  const nav = useNavigate()
   const [vault, setVault] = useState<Vault | null>(null)
   const [proposals, setProposals] = useState<Proposal[]>([])
   const [ledger, setLedger] = useState<Proposal[] | null>(null)
@@ -49,9 +50,13 @@ export default function Painel() {
       if (!on) return
       setLive(ok)
       if (!ok) return
-      const [v, ps, b, l] = await Promise.all([getVault(), getProposals(), getBalance(), getLedger()])
+      const v = await getVault()
       if (!on) return
+      // Locked vault not unlocked this session → send back to unlock (§ passphrase).
+      if (v?.locked && !isVaultUnlocked(v.id)) { nav('/'); return }
       if (v) setVault(v)
+      const [ps, b, l] = await Promise.all([getProposals(), getBalance(), getLedger()])
+      if (!on) return
       if (ps) setProposals(ps)
       if (b) setBalance(b)
       if (l) setLedger(l)
