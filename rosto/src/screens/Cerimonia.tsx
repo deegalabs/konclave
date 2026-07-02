@@ -24,6 +24,9 @@ export default function Cerimonia() {
   const [threshold, setThreshold] = useState(2)
   const [creating, setCreating] = useState(false)
   const [vault, setVault] = useState<Vault | null>(null)
+  const [passphrase, setPassphrase] = useState<string | null>(null)
+  const [acked, setAcked] = useState(false)
+  const [wordCopied, setWordCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState<number | null>(null)
 
@@ -51,7 +54,7 @@ export default function Cerimonia() {
     setCreating(true)
     const res = await createVaultDkg(name.trim() || 'Cofre', threshold, names)
     setCreating(false)
-    if (res.ok) { setSelectedVault(res.vault.id); setVault(res.vault) }
+    if (res.ok) { setSelectedVault(res.vault.id); setVault(res.vault); setPassphrase(res.passphrase ?? null) }
     else setError(humanError(res.error, res.detail))
   }
 
@@ -64,6 +67,24 @@ export default function Cerimonia() {
           <Stepper step={4} />
           <h1 className="h1 pine">✓ Cofre criado por DKG</h1>
           <div className="vmeta">A chave <b>nunca foi remontada</b> — cada membro gerou apenas a sua parte, e elas ficam <b>seladas</b> neste aparelho.</div>
+
+          {passphrase && (
+            <div className="word-box mt">
+              <div className="word-head">🔑 A palavra do cofre — <b>anote agora</b></div>
+              <div className="word-value mono">{passphrase}</div>
+              <button className="btn ghost sm-btn" onClick={() => { void navigator.clipboard.writeText(passphrase).then(() => setWordCopied(true)).catch(() => {}) }}>
+                {wordCopied ? '✓ copiada' : 'copiar palavra'}
+              </button>
+              <div className="word-warn">
+                É a <b>senha do cofre</b>: sem ela, a parte da chave selada neste aparelho <b>não abre</b> — nem para você.
+                <b> Ninguém recupera.</b> Mostramos uma única vez. Guarde num lugar seguro e combine com os membros.
+                <div className="hint mt-xs">Isso é uma trava de acesso ao cofre — diferente do <b>quórum</b>, que é a garantia criptográfica do FROST.</div>
+              </div>
+              <label className="word-ack">
+                <input type="checkbox" checked={acked} onChange={(e) => setAcked(e.target.checked)} /> Guardei a palavra num lugar seguro.
+              </label>
+            </div>
+          )}
 
           <span className="klab mt">Cofre</span>
           <div className="mono">{vault.name} · quórum {vault.threshold}-de-{vault.total}</div>
@@ -85,7 +106,10 @@ export default function Cerimonia() {
           </table>
 
           <hr className="rule" />
-          <div className="right"><button className="btn ok" onClick={() => nav('/painel')}>▸ Ir para o cofre</button></div>
+          <div className="right">
+            <button className="btn ok" onClick={() => nav('/painel')} disabled={!!passphrase && !acked}
+              title={!!passphrase && !acked ? 'Confirme que guardou a palavra' : ''}>▸ Ir para o cofre</button>
+          </div>
         </div>
       </>
     )

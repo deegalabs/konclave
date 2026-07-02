@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getVaults, health, setSelectedVault, shortAddr, type Vault } from '../api'
+import { getVaults, health, setSelectedVault, unlockVault, shortAddr, type Vault } from '../api'
 import { Identicon } from '../avatar'
 import '../redesign.css'
 
@@ -52,6 +52,24 @@ export default function Cofres() {
   const [vaults, setVaults] = useState<Vault[]>([])
   const [loaded, setLoaded] = useState(false)
   const [live, setLive] = useState(false)
+  const [unlocking, setUnlocking] = useState<Vault | null>(null)
+  const [pass, setPass] = useState('')
+  const [unlockErr, setUnlockErr] = useState<string | null>(null)
+  const [unlockBusy, setUnlockBusy] = useState(false)
+
+  function enter(v: Vault) {
+    setSelectedVault(v.id)
+    if (v.locked) { setUnlocking(v); setPass(''); setUnlockErr(null) }
+    else nav('/painel')
+  }
+  async function doUnlock() {
+    if (!unlocking || !pass) return
+    setUnlockBusy(true); setUnlockErr(null)
+    const r = await unlockVault(pass)
+    setUnlockBusy(false)
+    if (r.ok) nav('/painel')
+    else setUnlockErr(r.wrong ? 'Palavra incorreta. Tente de novo.' : 'Não foi possível verificar (cofre local offline?).')
+  }
 
   useEffect(() => {
     let on = true
@@ -86,8 +104,8 @@ export default function Cofres() {
             const ms = v.member_list ?? []
             const avatars = ms.length ? ms : Array.from({ length: v.total }, (_, i) => ({ name: `Membro ${i + 1}`, pubkey: '' }))
             return (
-              <div key={v.id} className="rd-card" onClick={() => { setSelectedVault(v.id); nav('/painel') }}>
-                <span className="rd-qtag">Quórum {v.threshold} de {v.total}</span>
+              <div key={v.id} className="rd-card" onClick={() => enter(v)}>
+                <span className="rd-qtag">Quórum {v.threshold} de {v.total}{v.locked ? ' · 🔒' : ''}</span>
                 <h3>{v.name}</h3>
                 <div className="rd-avatars">
                   {avatars.slice(0, 4).map((m, i) => <Identicon key={i} seed={m.pubkey || m.name} />)}
@@ -123,6 +141,28 @@ export default function Cofres() {
           {!live && <> · <i>(modo demonstração — sem o cofre local rodando)</i></>}
         </div>
       </div>
+
+      {unlocking && (
+        <div className="unlock-overlay" onClick={() => setUnlocking(null)}>
+          <div className="unlock-card" onClick={(e) => e.stopPropagation()}>
+            <div className="rd-eyebrow">Cofre protegido</div>
+            <h2>{unlocking.name}</h2>
+            <p>Escreva a <b>palavra do cofre</b> para entrar. É a senha combinada entre os membros na criação.</p>
+            <input
+              className="unlock-input mono" autoFocus type="password" placeholder="palavra-do-cofre"
+              value={pass} onChange={(e) => setPass(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') void doUnlock() }}
+            />
+            {unlockErr && <div className="unlock-err">✗ {unlockErr}</div>}
+            <div className="unlock-btns">
+              <button className="rd-enter" onClick={() => setUnlocking(null)}>Cancelar</button>
+              <button className="rd-enter primary" onClick={() => void doUnlock()} disabled={unlockBusy || !pass}>
+                {unlockBusy ? 'Verificando…' : 'Entrar →'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

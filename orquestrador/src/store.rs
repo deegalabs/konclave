@@ -158,12 +158,45 @@ impl Store {
                 memo         TEXT NOT NULL,
                 PRIMARY KEY (proposal_id, idx)
             );
+            CREATE TABLE IF NOT EXISTS vault_locks (
+                vault_id  TEXT PRIMARY KEY REFERENCES vaults(id),
+                salt      BLOB NOT NULL,
+                verifier  BLOB NOT NULL
+            );
             "#,
         )?;
         // Migration for DBs created before `to_address` existed. Succeeds once; the
         // "duplicate column" error on later opens is expected and ignored.
         let _ = conn.execute("ALTER TABLE proposals ADD COLUMN to_address TEXT", []);
         Ok(Store { conn })
+    }
+
+    // ---- vault passphrase lock (salt + verifier for the "palavra do cofre") ----
+
+    /// Store (or replace) a vault's passphrase lock: the KDF salt and the sealed
+    /// verifier used to check the word on unlock.
+    pub fn set_vault_lock(&self, vault_id: &str, salt: &[u8], verifier: &[u8]) -> Result<(), StoreError> {
+        self.conn.execute(
+            "INSERT INTO vault_locks (vault_id, salt, verifier) VALUES (?1, ?2, ?3)
+             ON CONFLICT(vault_id) DO UPDATE SET salt=excluded.salt, verifier=excluded.verifier",
+            params![vault_id, salt, verifier],
+        )?;
+        Ok(())
+    }
+
+    /// A vault's `(salt, verifier)`, or `None` when the vault has no passphrase.
+    pub fn get_vault_lock(&self, vault_id: &str) -> Result<Option<(Vec<u8>, Vec<u8>)>, StoreError> {
+        let mut stmt = self.conn.prepare("SELECT salt, verifier FROM vault_locks WHERE vault_id = ?1")?;
+        let mut rows = stmt.query(params![vault_id])?;
+        match rows.next()? {
+            Some(row) => Ok(Some((row.get(0)?, row.get(1)?))),
+            None => Ok(None),
+        }
+    }
+
+    /// Whether a vault is passphrase-protected.
+    pub fn vault_has_lock(&self, vault_id: &str) -> Result<bool, StoreError> {
+        Ok(self.get_vault_lock(vault_id)?.is_some())
     }
 
     // ---- vaults ----

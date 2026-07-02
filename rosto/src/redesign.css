@@ -114,3 +114,25 @@
 .rd-note b { color: #c2ccd7; font-weight: 600; }
 
 .idc { display: block; }
+
+/* Desbloqueio de cofre protegido (palavra do cofre) */
+.unlock-overlay {
+  position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 24px;
+  background: rgba(8, 11, 15, 0.66); backdrop-filter: blur(4px);
+}
+.unlock-card {
+  width: 100%; max-width: 400px; padding: 26px 26px 22px; border-radius: 16px;
+  background: linear-gradient(180deg, #1e252d, #171c22); border: 1px solid rgba(87, 166, 255, 0.28);
+  box-shadow: 0 30px 60px -24px rgba(0, 0, 0, 0.8);
+}
+.unlock-card h2 { margin: 6px 0 4px; font-size: 22px; color: #f0f4fa; }
+.unlock-card p { color: #a7b2c0; font-size: 13.5px; line-height: 1.55; margin: 0 0 16px; }
+.unlock-input {
+  width: 100%; font-size: 15px; color: var(--rd-text); background: #12161a;
+  border: 1px solid var(--rd-line); border-radius: 10px; padding: 12px 14px;
+}
+.unlock-input:focus { outline: none; border-color: var(--rd-accent); }
+.unlock-err { color: #ff9d9d; font-family: var(--mono, monospace); font-size: 12.5px; margin-top: 10px; }
+.unlock-btns { display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px; }
+.rd-enter.primary { background: var(--rd-accent); border-color: transparent; color: #08121e; font-weight: 600; }
+.rd-enter.primary:disabled { opacity: 0.5; cursor: default; }

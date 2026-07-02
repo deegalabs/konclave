@@ -23,6 +23,13 @@ pub struct DkgVault {
     pub wallet_dir: String,
     /// (name, comm pubkey, sealed config path) per member.
     pub members: Vec<(String, String, String)>,
+    /// The vault passphrase ("palavra do cofre"), generated here and shown ONCE. The
+    /// shares are sealed under a key derived from it — without it they do not open.
+    pub passphrase: String,
+    /// KDF salt for the passphrase (persist with the vault; not a secret).
+    pub salt: Vec<u8>,
+    /// Sealed verifier to check the passphrase on unlock (persist with the vault).
+    pub verifier: Vec<u8>,
 }
 
 fn err(what: &str, detail: impl Into<String>) -> ToolError {
@@ -38,7 +45,6 @@ pub fn create_vault_dkg(
 ) -> Result<DkgVault, ToolError> {
     let zcash_sign = sc.zcash_sign.as_ref().ok_or_else(|| err("dkg", "zcash_sign não configurado"))?;
     let vaults_dir = sc.vaults_dir.as_ref().ok_or_else(|| err("dkg", "vaults_dir não configurado"))?;
-    let key_file = sc.sealing_key_file.as_ref().ok_or_else(|| err("dkg", "sealing_key_file obrigatório"))?;
     let n = member_names.len();
     if n < 2 || threshold < 1 || threshold as usize > n {
         return Err(err("dkg", format!("quórum inválido {threshold}-de-{n}")));
@@ -116,8 +122,13 @@ pub fn create_vault_dkg(
         None,
     )?;
 
-    // 9) seal each config (5-E), remove plaintext.
-    let key = read_key(key_file)?;
+    // 9) generate the vault passphrase, derive the sealing key from it, seal each config
+    //    under it (5-E + "palavra do cofre"), remove plaintext. Without the word, the
+    //    sealed shares do not open — no sealing key sits on disk.
+    let passphrase = secrets::generate_passphrase().map_err(|e| err("secrets", e.to_string()))?;
+    let salt = secrets::generate_salt().map_err(|e| err("secrets", e.to_string()))?;
+    let key = secrets::derive_key(&passphrase, &salt).map_err(|e| err("secrets", e.to_string()))?;
+    let verifier = secrets::make_verifier(&key).map_err(|e| err("secrets", e.to_string()))?;
     let mut members = Vec::with_capacity(n);
     for (nm, cfg) in member_names.iter().zip(&configs) {
         let plaintext = std::fs::read(cfg).map_err(ToolError::Io)?;
@@ -128,7 +139,10 @@ pub fn create_vault_dkg(
         members.push((nm.clone(), pk_of(nm)?, sealed));
     }
 
-    Ok(DkgVault { group_pubkey, orchard_address, ufvk, wallet_dir, members })
+    Ok(DkgVault {
+        group_pubkey, orchard_address, ufvk, wallet_dir, members,
+        passphrase, salt: salt.to_vec(), verifier,
+    })
 }
 
 /// Run the DKG for all participants concurrently (RedPallas / Rerandomized FROST). The
@@ -221,16 +235,6 @@ fn extract_quoted(out: &str, after: &str) -> Result<String, ToolError> {
         }
     }
     Err(err("dkg", format!("não achei valor entre aspas após '{after}'")))
-}
-
-fn read_key(path: &str) -> Result<[u8; 32], ToolError> {
-    let b = std::fs::read(path).map_err(ToolError::Io)?;
-    if b.len() != 32 {
-        return Err(err("secrets", format!("chave deve ter 32 bytes, tem {}", b.len())));
-    }
-    let mut k = [0u8; 32];
-    k.copy_from_slice(&b);
-    Ok(k)
 }
 
 fn short_id() -> String {

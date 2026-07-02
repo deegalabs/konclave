@@ -193,6 +193,16 @@
 .pv-k{flex:0 0 96px; color:var(--muted); text-transform:uppercase; font-size:10.5px; letter-spacing:.1em}
 .pv-v{flex:1; color:var(--ink)}
 
+/* ---- Cerimônia · palavra do cofre ---- */
+.word-box{padding:18px 20px; border-radius:14px; border:1px solid rgba(87,166,255,.30);
+  background:linear-gradient(180deg,rgba(87,166,255,.08),rgba(87,166,255,.02))}
+.word-head{font-family:var(--mono); font-size:12px; letter-spacing:.04em; color:var(--silver)}
+.word-value{font-size:22px; font-weight:600; letter-spacing:.02em; color:#eaf1fb; margin:10px 0 12px;
+  padding:12px 14px; border-radius:10px; background:var(--paper-2); border:1px dashed var(--line); word-break:break-all}
+.word-warn{font-family:var(--mono); font-size:12px; line-height:1.6; color:#ffcf87; margin-top:12px}
+.word-warn b{color:#ffe0a3}
+.word-ack{display:flex; align-items:center; gap:9px; margin-top:14px; font-size:13px; color:var(--ink); cursor:pointer}
+
 /* ---- Cerimônia · convite ---- */
 .invite-list{display:flex; flex-direction:column; gap:12px; margin-top:14px}
 .invite{padding:14px 16px; border-radius:12px; border:1px solid var(--line-2);

@@ -31,6 +31,8 @@ pub enum SecretError {
     KeyStore(String),
     /// An I/O error handling the unsealed material.
     Io(String),
+    /// Key derivation from the passphrase failed.
+    Kdf,
 }
 
 impl std::fmt::Display for SecretError {
@@ -44,6 +46,7 @@ impl std::fmt::Display for SecretError {
             SecretError::Malformed => write!(f, "sealed blob is malformed"),
             SecretError::KeyStore(e) => write!(f, "key store error: {e}"),
             SecretError::Io(e) => write!(f, "io error: {e}"),
+            SecretError::Kdf => write!(f, "failed to derive key from passphrase"),
         }
     }
 }
@@ -94,6 +97,75 @@ pub fn generate_key() -> Result<[u8; 32], SecretError> {
     random(&mut k)?;
     Ok(k)
 }
+
+// ---- vault passphrase ("palavra do cofre") ----
+//
+// The passphrase derives the sealing key (Argon2id, memory-hard) with a per-vault salt.
+// Without the word, the sealed shares do not open — no sealing key sits on disk. This is
+// a product access-lock strengthened by a real KDF, distinct from the FROST quorum
+// guarantee (§14): losing the word means the sealed share on this device is unrecoverable.
+
+/// Salt length for [`derive_key`] (Argon2 requires ≥ 8 bytes).
+pub const SALT_LEN: usize = 16;
+/// How many words a generated passphrase has.
+pub const PASSPHRASE_WORDS: usize = 4;
+/// Known plaintext sealed under the derived key so a passphrase can be *verified*
+/// (on "unlock") without opening a real share.
+const VERIFY_MAGIC: &[u8] = b"konclave-vault-unlock-v1";
+
+/// Derive the 32-byte sealing key from a passphrase + per-vault salt (Argon2id).
+/// Deterministic: same inputs → same key; any change → a key that cannot unseal.
+pub fn derive_key(passphrase: &str, salt: &[u8]) -> Result<[u8; 32], SecretError> {
+    let mut key = [0u8; 32];
+    argon2::Argon2::default()
+        .hash_password_into(passphrase.as_bytes(), salt, &mut key)
+        .map_err(|_| SecretError::Kdf)?;
+    Ok(key)
+}
+
+/// A fresh random salt for a new vault's passphrase.
+pub fn generate_salt() -> Result<[u8; SALT_LEN], SecretError> {
+    let mut s = [0u8; SALT_LEN];
+    random(&mut s)?;
+    Ok(s)
+}
+
+/// Generate a memorable passphrase: `PASSPHRASE_WORDS` words joined by '-' (no accents,
+/// easy to write down and type). Shown once at vault creation.
+pub fn generate_passphrase() -> Result<String, SecretError> {
+    let mut idx = [0u8; PASSPHRASE_WORDS];
+    random(&mut idx)?;
+    let words: Vec<&str> = idx.iter().map(|b| WORDLIST[*b as usize % WORDLIST.len()]).collect();
+    Ok(words.join("-"))
+}
+
+/// Seal a fixed marker under `key` so the passphrase can later be verified.
+pub fn make_verifier(key: &[u8; 32]) -> Result<Vec<u8>, SecretError> {
+    seal(VERIFY_MAGIC, key)
+}
+
+/// True when `key` opens `verifier` (i.e. the passphrase that derived `key` is correct).
+pub fn verify(key: &[u8; 32], verifier: &[u8]) -> bool {
+    matches!(unseal(verifier, key), Ok(m) if m == VERIFY_MAGIC)
+}
+
+/// 128 simple, accent-free Portuguese words — enough to be memorable; the memory-hard
+/// KDF does the heavy lifting against guessing. (Product lock, not the FROST guarantee.)
+const WORDLIST: &[&str] = &[
+    "cedro", "barco", "pedra", "chave", "monte", "folha", "vento", "praia", "campo", "porto",
+    "livro", "ponte", "nuvem", "trigo", "areia", "lagoa", "serra", "coral", "manga", "cacau",
+    "prata", "ouro", "ferro", "vidro", "linho", "seda", "lenha", "carvao", "raiz", "galho",
+    "flor", "fruto", "mel", "sal", "cera", "corda", "rede", "vela", "remo", "mastro",
+    "farol", "cais", "duna", "gruta", "cume", "vale", "rio", "fonte", "poco", "trilha",
+    "mapa", "bussola", "norte", "sul", "leste", "oeste", "aurora", "brisa", "orvalho", "geada",
+    "raio", "trovao", "chuva", "neve", "gelo", "brasa", "chama", "fumaca", "cinza", "faisca",
+    "tigre", "lobo", "raposa", "coruja", "falcao", "gaviao", "garca", "cisne", "pato", "ganso",
+    "abelha", "formiga", "grilo", "besouro", "libelula", "aranha", "cobra", "lagarto", "sapo", "peixe",
+    "baleia", "golfinho", "polvo", "camarao", "ostra", "concha", "estrela", "medusa", "alga", "musgo",
+    "roble", "faia", "pinho", "salgueiro", "bambu", "junco", "espiga", "grao", "farinha", "massa",
+    "queijo", "leite", "manteiga", "azeite", "cacto", "palma", "figo", "uva", "amora", "pinha",
+    "castanha", "avela", "noz", "amendoa", "canela", "cravo", "gengibre", "pimenta",
+];
 
 /// A short-lived file holding unsealed plaintext, removed on drop (best-effort) so it
 /// cannot outlive the operation even on panic.
@@ -276,6 +348,51 @@ mod tests {
 
         assert_eq!(content, b"credentials.toml bytes");
         assert!(!captured_path.exists(), "plaintext must be removed after use");
+    }
+
+    #[test]
+    fn derive_key_is_stable_and_input_sensitive() {
+        let salt = generate_salt().unwrap();
+        let k = derive_key("cedro-barco-pedra-chave", &salt).unwrap();
+        // Same passphrase + salt => same key (so the vault reopens next session).
+        assert_eq!(k, derive_key("cedro-barco-pedra-chave", &salt).unwrap());
+        // A different passphrase => a different key.
+        assert_ne!(k, derive_key("cedro-barco-pedra-monte", &salt).unwrap());
+        // A different salt => a different key (defeats precomputation across vaults).
+        let salt2 = generate_salt().unwrap();
+        assert_ne!(k, derive_key("cedro-barco-pedra-chave", &salt2).unwrap());
+    }
+
+    #[test]
+    fn passphrase_unseals_share_but_wrong_word_does_not() {
+        let salt = generate_salt().unwrap();
+        let key = derive_key("cedro-barco-pedra-chave", &salt).unwrap();
+        let sealed = seal(b"credentials.toml (private share)", &key).unwrap();
+
+        // Right passphrase re-derives the key and opens the share.
+        let right = derive_key("cedro-barco-pedra-chave", &salt).unwrap();
+        assert_eq!(unseal(&sealed, &right).unwrap(), b"credentials.toml (private share)");
+        // Wrong passphrase derives a different key — the share stays closed.
+        let wrong = derive_key("cedro-barco-pedra-monte", &salt).unwrap();
+        assert_eq!(unseal(&sealed, &wrong), Err(SecretError::Unseal));
+    }
+
+    #[test]
+    fn verifier_accepts_right_passphrase_only() {
+        let salt = generate_salt().unwrap();
+        let key = derive_key("serra-coral-manga-cacau", &salt).unwrap();
+        let verifier = make_verifier(&key).unwrap();
+        assert!(verify(&key, &verifier), "right key verifies");
+        let wrong = derive_key("serra-coral-manga-prata", &salt).unwrap();
+        assert!(!verify(&wrong, &verifier), "wrong key must not verify");
+    }
+
+    #[test]
+    fn generated_passphrase_has_the_expected_shape() {
+        let p = generate_passphrase().unwrap();
+        let words: Vec<&str> = p.split('-').collect();
+        assert_eq!(words.len(), PASSPHRASE_WORDS);
+        assert!(words.iter().all(|w| !w.is_empty()));
     }
 
     #[test]

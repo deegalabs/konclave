@@ -18,6 +18,7 @@ export type Vault = {
   orchard_address: string
   ufvk: string
   server_url?: string
+  locked?: boolean
 }
 
 export type Proposal = {
@@ -268,7 +269,7 @@ export async function createPayroll(
 /** Create a vault by DKG (5-F). Long-running: the DKG ceremony takes several seconds. */
 export async function createVaultDkg(
   name: string, threshold: number, members: string[],
-): Promise<{ ok: true; vault: Vault } | { ok: false; error: string; detail?: string }> {
+): Promise<{ ok: true; vault: Vault; passphrase?: string } | { ok: false; error: string; detail?: string }> {
   try {
     const res = await fetch(`${BASE}/api/vault/dkg`, {
       method: 'POST',
@@ -276,10 +277,25 @@ export async function createVaultDkg(
       body: JSON.stringify({ name, threshold, members }),
     })
     const data = (await res.json().catch(() => ({}))) as Record<string, unknown>
-    if (res.status === 201) return { ok: true, vault: data.vault as Vault }
+    if (res.status === 201) return { ok: true, vault: data.vault as Vault, passphrase: data.passphrase as string | undefined }
     return { ok: false, error: (data.error as string) ?? `HTTP ${res.status}`, detail: data.detail as string }
   } catch (e) {
     return { ok: false, error: 'sem conexão com o cofre local', detail: String(e) }
+  }
+}
+
+/** Verify the passphrase ("palavra do cofre") for the currently selected vault. */
+export async function unlockVault(passphrase: string): Promise<{ ok: boolean; wrong: boolean }> {
+  try {
+    const res = await fetch(`${BASE}${withVault('/api/vault/unlock')}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ passphrase }),
+    })
+    if (res.ok) return { ok: true, wrong: false }
+    return { ok: false, wrong: res.status === 401 }
+  } catch {
+    return { ok: false, wrong: false }
   }
 }
 

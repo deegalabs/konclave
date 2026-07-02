@@ -93,6 +93,8 @@ struct VaultDto {
     orchard_address: String,
     ufvk: String,
     server_url: Option<String>,
+    /// Whether the vault is passphrase-protected (the UI prompts for the word on entry).
+    locked: bool,
 }
 
 impl From<VaultRecord> for VaultDto {
@@ -108,6 +110,7 @@ impl From<VaultRecord> for VaultDto {
             orchard_address: v.orchard_address,
             ufvk: v.ufvk,
             server_url: v.server_url,
+            locked: false,
         }
     }
 }
@@ -224,6 +227,9 @@ pub fn handle(cfg: &Config, method: &str, raw_path: &str, body: &[u8]) -> Respon
         if path == "/api/vault/dkg" {
             return create_vault_dkg_handler(cfg, body);
         }
+        if path == "/api/vault/unlock" {
+            return vault_unlock(cfg, body, vsel);
+        }
         if path == "/api/beneficiaries" {
             return beneficiary_add(cfg, body, vsel);
         }
@@ -334,8 +340,10 @@ fn api_vault(cfg: &Config, want: Option<&str>) -> Response {
         .into_iter()
         .map(|m| MemberDto { name: m.name, pubkey: m.pubkey })
         .collect();
+    let locked = store.vault_has_lock(&record.id).unwrap_or(false);
     let mut dto = VaultDto::from(record);
     dto.member_list = member_list;
+    dto.locked = locked;
     Response::json(200, &serde_json::json!({ "vault": dto }))
 }
 
@@ -356,8 +364,10 @@ fn api_vaults(cfg: &Config) -> Response {
                         .into_iter()
                         .map(|m| MemberDto { name: m.name, pubkey: m.pubkey })
                         .collect();
+                    let locked = store.vault_has_lock(&record.id).unwrap_or(false);
                     let mut dto = VaultDto::from(record);
                     dto.member_list = member_list;
+                    dto.locked = locked;
                     dto
                 })
                 .collect();
@@ -551,12 +561,60 @@ fn create_vault_dkg_handler(cfg: &Config, body: &[u8]) -> Response {
     if let Err(e) = store.save_vault_members(&id, &members) {
         return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()}));
     }
+    // Persist the passphrase lock (salt + verifier). The passphrase itself is NOT stored
+    // — it is returned once below for the user to write down.
+    if let Err(e) = store.set_vault_lock(&id, &v.salt, &v.verifier) {
+        return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()}));
+    }
 
     let member_list: Vec<MemberDto> =
         members.into_iter().map(|m| MemberDto { name: m.name, pubkey: m.pubkey }).collect();
     let mut dto = VaultDto::from(record);
     dto.member_list = member_list;
-    Response::json(201, &serde_json::json!({ "vault": dto, "dkg": true }))
+    dto.locked = true;
+    // `passphrase` is shown ONCE and never persisted; losing it makes the sealed shares
+    // on this device unrecoverable (that is the point of the lock).
+    Response::json(201, &serde_json::json!({ "vault": dto, "dkg": true, "passphrase": v.passphrase }))
+}
+
+// ---- vault passphrase unlock ("palavra do cofre") ----
+
+#[derive(serde::Deserialize)]
+struct UnlockReq {
+    passphrase: String,
+}
+
+/// `POST /api/vault/unlock` — verify a vault's passphrase against its stored verifier.
+/// 200 `{ok:true, locked:true}` on the right word; 401 on the wrong one; `{ok:true,
+/// locked:false}` when the vault has no passphrase (legacy/slice). Never returns the key.
+fn vault_unlock(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
+    let req: UnlockReq = match serde_json::from_slice(body) {
+        Ok(v) => v,
+        Err(e) => return bad(e.to_string(), "bad request"),
+    };
+    let store = match open_store(cfg) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    let vault_id = match resolve_vault_id(&store, want) {
+        Ok(Some(id)) => id,
+        Ok(None) => return bad("nenhum cofre neste dispositivo", "no vault"),
+        Err(r) => return r,
+    };
+    let (salt, verifier) = match store.get_vault_lock(&vault_id) {
+        Ok(Some(l)) => l,
+        Ok(None) => return Response::json(200, &serde_json::json!({ "ok": true, "locked": false })),
+        Err(e) => return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
+    };
+    let key = match crate::secrets::derive_key(&req.passphrase, &salt) {
+        Ok(k) => k,
+        Err(e) => return Response::json(500, &serde_json::json!({"error": "kdf", "detail": e.to_string()})),
+    };
+    if crate::secrets::verify(&key, &verifier) {
+        Response::json(200, &serde_json::json!({ "ok": true, "locked": true }))
+    } else {
+        Response::json(401, &serde_json::json!({ "error": "wrong passphrase", "detail": "palavra do cofre incorreta" }))
+    }
 }
 
 // ---- beneficiaries (address book: pick a name, not an address) ----
@@ -1414,6 +1472,42 @@ mod tests {
         // An unknown vault falls back to the first (by name) — never errors.
         let f = handle(&cfg, "GET", "/api/vault?vault=nope", b"");
         assert_eq!(body_json(&f)["vault"]["id"], "vault-a");
+    }
+
+    #[test]
+    fn vault_unlock_checks_the_passphrase() {
+        use crate::proposal::Quorum;
+        let db = tmp_db();
+        {
+            let mut store = Store::open(&db).unwrap();
+            store
+                .save_vault(&VaultRecord {
+                    id: "v-lock".into(),
+                    name: "Cofre".into(),
+                    quorum: Quorum::new(2, 3).unwrap(),
+                    group_pubkey: "gp".into(),
+                    orchard_address: "u1".into(),
+                    ufvk: String::new(),
+                    server_url: None,
+                })
+                .unwrap();
+            let salt = crate::secrets::generate_salt().unwrap();
+            let key = crate::secrets::derive_key("cedro-barco-pedra-chave", &salt).unwrap();
+            let verifier = crate::secrets::make_verifier(&key).unwrap();
+            store.set_vault_lock("v-lock", &salt, &verifier).unwrap();
+        }
+        let cfg = cfg_with(db, None);
+
+        // The vault reports itself locked.
+        let v = handle(&cfg, "GET", "/api/vault?vault=v-lock", b"");
+        assert_eq!(body_json(&v)["vault"]["locked"], true);
+
+        // The right word unlocks; the wrong word is rejected (401), never leaking a key.
+        let ok = handle(&cfg, "POST", "/api/vault/unlock?vault=v-lock", br#"{"passphrase":"cedro-barco-pedra-chave"}"#);
+        assert_eq!(ok.status, 200);
+        assert_eq!(body_json(&ok)["ok"], true);
+        let no = handle(&cfg, "POST", "/api/vault/unlock?vault=v-lock", br#"{"passphrase":"cedro-barco-pedra-monte"}"#);
+        assert_eq!(no.status, 401);
     }
 
     #[test]
