@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Letterhead, Secret } from '../components'
 import {
-  previewPayroll, createPayroll, getBalance, getBeneficiaries, getLedger, health, classifyAddress, humanError,
-  type Beneficiary, type Proposal,
+  previewPayroll, createPayroll, getBalance, getBeneficiaries, getLedger, getVault, health, classifyAddress, humanError,
+  type Beneficiary, type Proposal, type Member,
 } from '../api'
 
 const FOLHA_STAMP: Record<string, string> = {
@@ -11,7 +11,6 @@ const FOLHA_STAMP: Record<string, string> = {
   confirmed: 'confirmada', rejected: 'recusada', expired: 'expirada', cancelled: 'cancelada',
 }
 
-const ME = 'Alice' // this device acts as the coordinator member (single-device demo)
 const DRAFT_KEY = 'konclave.folha.rascunho'
 
 type Row = { label: string; address: string; value: string; memo: string }
@@ -53,6 +52,9 @@ export default function NovaFolha() {
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [pastFolhas, setPastFolhas] = useState<Proposal[]>([])
+  const [vaultName, setVaultName] = useState('Tesouraria Comum')
+  const [membersList, setMembersList] = useState<Member[]>([])
+  const [proposer, setProposer] = useState('Alice')
 
   // Restore the local draft.
   useEffect(() => {
@@ -77,11 +79,15 @@ export default function NovaFolha() {
     let on = true
     void (async () => {
       if (await health()) {
-        const [b, bs, led] = await Promise.all([getBalance(), getBeneficiaries(), getLedger()])
+        const [b, bs, led, v] = await Promise.all([getBalance(), getBeneficiaries(), getLedger(), getVault()])
         if (!on) return
         if (b?.configured) setBalanceZat(b.total_zat ?? null)
         if (bs) setBenefs(bs)
         if (led) setPastFolhas(led.filter((x) => x.kind === 'payroll'))
+        if (v) {
+          setVaultName(v.name)
+          if (v.member_list?.length) { setMembersList(v.member_list); setProposer(v.member_list[0].name) }
+        }
       }
     })()
     return () => { on = false }
@@ -123,7 +129,7 @@ export default function NovaFolha() {
       ? `Folha · ${competencia.trim()}${description.trim() ? ` — ${description.trim()}` : ''}`
       : (description.trim() || undefined)
     const res = await createPayroll(
-      ME,
+      proposer,
       validRows.map((r) => ({ label: r.label || undefined, address: r.address.trim(), value_zec: r.value.trim(), memo: r.memo || undefined })),
       desc,
     )
@@ -138,6 +144,18 @@ export default function NovaFolha() {
       <div className="page">
         <h1 className="h1">Nova folha</h1>
         <p className="cap">Um documento: vários pagamentos numa transação, aprovada uma vez. {saved && <span className="livetag" title="Rascunho salvo neste dispositivo">● rascunho salvo</span>}</p>
+
+        <div className="ctx">
+          <span>Do cofre <b>{vaultName}</b></span>
+          {membersList.length > 0 && (
+            <label className="ctx-as">
+              propondo como
+              <select value={proposer} onChange={(e) => setProposer(e.target.value)}>
+                {membersList.map((m) => <option key={m.pubkey || m.name} value={m.name}>{m.name}</option>)}
+              </select>
+            </label>
+          )}
+        </div>
 
         {pastFolhas.length > 0 && (
           <div className="past-folhas">
@@ -220,7 +238,7 @@ export default function NovaFolha() {
         </div>
         {afterZat !== null && afterZat < 0 && <div className="hint warn">⚠ Total + taxa excede o saldo do cofre.</div>}
 
-        <div className="confirm mt">⚑ <b>{competencia ? `Folha · ${competencia}` : 'Folha'}</b> — {count} pagamento{count === 1 ? '' : 's'} numa transação só. Precisa de <b>2 aprovações</b> (incluindo a sua).</div>
+        <div className="confirm mt">⚑ <b>{competencia ? `Folha · ${competencia}` : 'Folha'}</b> — {count} pagamento{count === 1 ? '' : 's'} numa transação só. Enviar para aprovação <b>já conta como a aprovação de {proposer}</b>.</div>
         {error && <div className="hint err mt">✗ {error}</div>}
 
         <div className="right mt">

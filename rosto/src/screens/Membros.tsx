@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Letterhead, Seal } from '../components'
+import { Identicon } from '../avatar'
 import { getVault, health, shortAddr, type Vault } from '../api'
 
 const ME = 'Alice' // this device acts as the coordinator member (single-device demo)
@@ -45,18 +46,18 @@ export default function Membros() {
           <Seal t={t} n={n} />
         </div>
 
-        <table className="tbl razao mt">
-          <thead><tr><th>Membro</th><th>Chave de comunicação</th><th>Papel</th></tr></thead>
-          <tbody>
-            {members.map((m, i) => (
-              <tr key={i}>
-                <td><b>{m.name}</b>{m.name === ME && <span className="klab"> · você</span>}</td>
-                <td className="mono dim">{shortAddr(m.pubkey, 8, 6)}</td>
-                <td className="by">{i === 0 ? 'coordenador + assina' : 'assina'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="people mt">
+          {members.map((m, i) => (
+            <div className="who-row" key={i}>
+              <Identicon seed={m.pubkey || m.name} size={38} />
+              <div className="person-main">
+                <div className="who-name">{m.name}{m.name === ME && <span className="klab"> · você</span>}</div>
+                <div className="person-sub mono">{i === 0 ? 'coordenador + assina' : 'assina'} · id {shortAddr(m.pubkey, 8, 6)}</div>
+              </div>
+              <span className="who-st ok">assina</span>
+            </div>
+          ))}
+        </div>
 
         <div className="foot">
           <span>{members.length} membros · quórum {t}-de-{n}</span>

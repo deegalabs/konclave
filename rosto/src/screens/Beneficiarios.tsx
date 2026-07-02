@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Letterhead } from '../components'
+import { Identicon } from '../avatar'
 import {
   getBeneficiaries, addBeneficiary, deleteBeneficiary, classifyAddress, shortAddr, humanError,
   type Beneficiary,
@@ -14,10 +15,15 @@ export default function Beneficiarios() {
   const [memo, setMemo] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showForm, setShowForm] = useState(false)
+  const [loaded, setLoaded] = useState(false)
 
   async function reload() {
     const b = await getBeneficiaries()
     if (b) setList(b)
+    setLoaded(true)
+    // First time / empty registry: open the form so there's an obvious next step.
+    if (b && b.length === 0) setShowForm(true)
   }
   useEffect(() => { void reload() }, [])
 
@@ -29,7 +35,7 @@ export default function Beneficiarios() {
     setBusy(true)
     const res = await addBeneficiary(name.trim(), address.trim(), memo.trim() || undefined)
     setBusy(false)
-    if (res.ok) { setName(''); setAddress(''); setMemo(''); void reload() }
+    if (res.ok) { setName(''); setAddress(''); setMemo(''); setShowForm(false); void reload() }
     else setError(humanError(res.error, res.detail))
   }
 
@@ -44,36 +50,52 @@ export default function Beneficiarios() {
         <h1 className="h1">Pessoas</h1>
         <p className="cap">O cadastro de quem recebe. Guarde uma vez e escolha por nome ao pagar ou montar a folha — em vez de colar endereços toda vez.</p>
 
-        <div className="doc-head">
-          <label className="field inline"><span>Nome</span>
-            <input className="input" placeholder="ex.: Prestador Infra" value={name} onChange={(e) => setName(e.target.value)} />
-          </label>
-          <label className="field inline"><span>Endereço</span>
-            <input className="input mono" placeholder="u1… (Orchard)" value={address} onChange={(e) => setAddress(e.target.value)} />
-          </label>
-          <label className="field inline"><span>Memo padrão (opcional)</span>
-            <input className="input" placeholder="ex.: infra mensal" value={memo} onChange={(e) => setMemo(e.target.value)} disabled={kind === 'transparent'} />
-          </label>
-        </div>
-        {kind === 'transparent' && <div className="hint warn">⚠ Endereço transparente (público) — sem memo.</div>}
-        {kind === 'sapling' && <div className="hint warn">⚠ Endereço Sapling — prefira Orchard (u1…).</div>}
-        {error && <div className="hint err">✗ {error}</div>}
-        <div className="mt-sm"><button className="btn ok sm-btn" onClick={add} disabled={busy}>{busy ? 'Salvando…' : '+ Cadastrar pessoa'}</button></div>
-
-        <table className="tbl razao mt">
-          <thead><tr><th>Nome</th><th>Endereço</th><th>Memo padrão</th><th></th></tr></thead>
-          <tbody>
-            {list.length === 0 && <tr><td colSpan={4} className="by">Nenhuma pessoa cadastrada ainda.</td></tr>}
+        {/* Lista primeiro — é o que se consulta */}
+        {loaded && list.length === 0 ? (
+          <div className="empty-note mt">Ninguém cadastrado ainda. Cadastre quem recebe para pagar pelo nome.</div>
+        ) : (
+          <div className="people mt">
             {list.map((b) => (
-              <tr key={b.id}>
-                <td><b>{b.name}</b></td>
-                <td className={'mono' + (b.is_public ? ' seal-tx' : '')}>{shortAddr(b.address)}{b.is_public ? ' ⚠' : ''}</td>
-                <td className="mono dim">{b.memo || '—'}</td>
-                <td><button className="row-del" title="remover" onClick={() => remove(b.id)}>×</button></td>
-              </tr>
+              <div className="who-row" key={b.id}>
+                <Identicon seed={b.address || b.name} size={34} />
+                <div className="person-main">
+                  <div className="who-name">{b.name}</div>
+                  <div className="person-sub mono">
+                    <span className={b.is_public ? 'seal-tx' : 'dim'}>{shortAddr(b.address)}{b.is_public ? ' · ⚠ público' : ''}</span>
+                    {b.memo ? <span className="dim"> · {b.memo}</span> : null}
+                  </div>
+                </div>
+                <button className="row-del" title="remover" onClick={() => remove(b.id)}>×</button>
+              </div>
             ))}
-          </tbody>
-        </table>
+          </div>
+        )}
+
+        <div className="mt">
+          <button className="btn ghost sm-btn" onClick={() => setShowForm((v) => !v)}>
+            {showForm ? '× Fechar' : '＋ Cadastrar pessoa'}
+          </button>
+        </div>
+
+        {showForm && (
+          <div className="add-form mt">
+            <div className="doc-head">
+              <label className="field inline"><span>Nome</span>
+                <input className="input" placeholder="ex.: Prestador Infra" value={name} onChange={(e) => setName(e.target.value)} />
+              </label>
+              <label className="field inline"><span>Endereço</span>
+                <input className="input mono" placeholder="u1… (Orchard)" value={address} onChange={(e) => setAddress(e.target.value)} />
+              </label>
+              <label className="field inline"><span>Memo padrão (opcional)</span>
+                <input className="input" placeholder="ex.: infra mensal" value={memo} onChange={(e) => setMemo(e.target.value)} disabled={kind === 'transparent'} />
+              </label>
+            </div>
+            {kind === 'transparent' && <div className="hint warn">⚠ Endereço transparente (público) — sem memo.</div>}
+            {kind === 'sapling' && <div className="hint warn">⚠ Endereço Sapling — prefira Orchard (u1…).</div>}
+            {error && <div className="hint err mt">✗ {error}</div>}
+            <div className="mt-sm"><button className="btn ok sm-btn" onClick={add} disabled={busy}>{busy ? 'Salvando…' : '＋ Salvar pessoa'}</button></div>
+          </div>
+        )}
       </div>
     </>
   )
