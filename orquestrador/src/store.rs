@@ -217,6 +217,21 @@ impl Store {
         Ok(())
     }
 
+    /// Delete a vault and everything scoped to it on THIS device: its proposals
+    /// (votes + payroll lines cascade), beneficiaries, members and passphrase lock.
+    /// Local only — this cannot touch the chain or other members' devices.
+    pub fn delete_vault(&mut self, vault_id: &str) -> Result<(), StoreError> {
+        let tx = self.conn.transaction()?;
+        // proposal_votes and payroll_lines cascade from proposals (ON DELETE CASCADE).
+        tx.execute("DELETE FROM proposals WHERE vault_id = ?1", params![vault_id])?;
+        tx.execute("DELETE FROM beneficiaries WHERE vault_id = ?1", params![vault_id])?;
+        tx.execute("DELETE FROM vault_members WHERE vault_id = ?1", params![vault_id])?;
+        tx.execute("DELETE FROM vault_locks WHERE vault_id = ?1", params![vault_id])?;
+        tx.execute("DELETE FROM vaults WHERE id = ?1", params![vault_id])?;
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn get_vault(&self, id: &str) -> Result<Option<VaultRecord>, StoreError> {
         let mut stmt = self.conn.prepare(
             "SELECT id, name, threshold, total, group_pubkey, orchard_address, ufvk, server_url
@@ -576,6 +591,28 @@ mod tests {
         s.save_vault(&v).unwrap();
         assert_eq!(s.get_vault("vault-1").unwrap().unwrap().name, "Renamed");
         assert_eq!(s.list_vaults().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn delete_vault_removes_everything_scoped_to_it() {
+        let mut s = Store::open_in_memory().unwrap();
+        s.save_vault(&sample_vault()).unwrap();
+        s.save_vault_members("vault-1", &[Member { name: "Alice".into(), pubkey: "aa".into() }]).unwrap();
+        s.set_vault_lock("vault-1", b"salt-16-bytes-xx", b"verifier-blob").unwrap();
+        s.save_beneficiary(&Beneficiary {
+            id: "b1".into(), vault_id: "vault-1".into(), name: "Ana".into(),
+            address: "u1".into(), memo: String::new(),
+        }).unwrap();
+        s.save_proposal(&sample_proposal()).unwrap();
+
+        s.delete_vault("vault-1").unwrap();
+
+        assert!(s.list_vaults().unwrap().is_empty());
+        assert!(s.get_vault("vault-1").unwrap().is_none());
+        assert!(s.get_vault_members("vault-1").unwrap().is_empty());
+        assert!(s.get_vault_lock("vault-1").unwrap().is_none());
+        assert!(s.list_beneficiaries("vault-1").unwrap().is_empty());
+        assert!(s.list_all_proposals("vault-1").unwrap().is_empty());
     }
 
     fn sample_proposal() -> ProposalRecord {

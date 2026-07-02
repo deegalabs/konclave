@@ -4,6 +4,7 @@ import { Letterhead, Seal, Secret, RevealButton } from '../components'
 import { Identicon } from '../avatar'
 import {
   getVault, getProposals, getBalance, getLedger, health, shortAddr, isVaultUnlocked,
+  deleteVault, clearSelectedVault,
   type Vault, type Proposal, type Balance,
 } from '../api'
 
@@ -42,6 +43,11 @@ export default function Painel() {
   const [ledger, setLedger] = useState<Proposal[] | null>(null)
   const [balance, setBalance] = useState<Balance | null>(null)
   const [live, setLive] = useState<boolean | null>(null)
+  const [showDelete, setShowDelete] = useState(false)
+  const [delPass, setDelPass] = useState('')
+  const [delName, setDelName] = useState('')
+  const [delErr, setDelErr] = useState<string | null>(null)
+  const [delBusy, setDelBusy] = useState(false)
 
   useEffect(() => {
     let on = true
@@ -110,6 +116,19 @@ export default function Painel() {
     ['04', 'Razão / contas', 'entregar ao contador', '/razao'],
     ['05', 'Pessoas', 'cadastro de quem recebe', '/beneficiarios'],
   ]
+
+  // Delete flow (local only). Locked vaults require the word; unlocked ones require
+  // typing the vault name. If this device sees a spendable balance, warn hard.
+  const locked = vault?.locked === true
+  const seesFunds = hasBal && Number(balance?.total_zat ?? 0) > 0
+  const canDelete = locked ? delPass.length > 0 : delName.trim() === name
+  async function doDelete() {
+    setDelBusy(true); setDelErr(null)
+    const r = await deleteVault(locked ? delPass : undefined)
+    setDelBusy(false)
+    if (r.ok) { clearSelectedVault(); nav('/') }
+    else setDelErr(r.wrong ? 'Palavra do cofre incorreta.' : 'Não foi possível excluir (cofre local offline?).')
+  }
 
   return (
     <>
@@ -214,7 +233,56 @@ export default function Painel() {
             </div>
           ))}
         </section>
+
+        {/* Zona de perigo */}
+        <section className="danger-zone">
+          <span className="klab danger-lab">Zona de perigo</span>
+          <div className="danger-body">
+            <div>
+              <div className="danger-t">Excluir este cofre</div>
+              <div className="danger-d">Remove o cofre deste aparelho. Não afeta a rede Zcash nem os outros membros.</div>
+            </div>
+            <button className="btn danger-btn" onClick={() => { setShowDelete(true); setDelErr(null); setDelPass(''); setDelName('') }}>Excluir cofre</button>
+          </div>
+        </section>
       </div>
+
+      {showDelete && (
+        <div className="modal-overlay" onClick={() => setShowDelete(false)}>
+          <div className="modal-card danger" onClick={(e) => e.stopPropagation()}>
+            <span className="klab danger-lab">Excluir cofre</span>
+            <h2 className="modal-h">Excluir “{name}”?</h2>
+            <p className="modal-p">Isto remove o cofre <b>só deste aparelho</b> — registros, propostas e pessoas. <b>Não dá para desfazer.</b></p>
+
+            <div className="danger-funds">
+              ⚠ Se este cofre tiver <b>ZEC</b>, ao excluir você <b>perde o acesso a esse dinheiro</b> — a sua parte da chave some deste aparelho.
+              {' '}<b>Envie o saldo para outro lugar antes de excluir.</b>
+              {seesFunds && <div className="mt-xs">Este dispositivo vê um saldo de <b>{fmt4(balance?.total_zec)} ZEC</b>.</div>}
+            </div>
+            <div className="hint">Isto não apaga nada na rede Zcash nem no aparelho dos outros membros — é só a sua cópia local.</div>
+
+            {locked ? (
+              <label className="field mt"><span>Digite a palavra do cofre para confirmar</span>
+                <input className="input" type="password" value={delPass} onChange={(e) => setDelPass(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && canDelete) void doDelete() }} autoFocus />
+              </label>
+            ) : (
+              <label className="field mt"><span>Digite o nome do cofre (<b>{name}</b>) para confirmar</span>
+                <input className="input" value={delName} onChange={(e) => setDelName(e.target.value)} placeholder={name}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && canDelete) void doDelete() }} autoFocus />
+              </label>
+            )}
+            {delErr && <div className="hint err mt">✗ {delErr}</div>}
+
+            <div className="btns right mt">
+              <button className="btn ghost" onClick={() => setShowDelete(false)}>Cancelar</button>
+              <button className="btn danger-btn" onClick={() => void doDelete()} disabled={delBusy || !canDelete}>
+                {delBusy ? 'Excluindo…' : 'Excluir definitivamente'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   )
 }

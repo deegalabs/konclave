@@ -230,6 +230,9 @@ pub fn handle(cfg: &Config, method: &str, raw_path: &str, body: &[u8]) -> Respon
         if path == "/api/vault/unlock" {
             return vault_unlock(cfg, body, vsel);
         }
+        if path == "/api/vault/delete" {
+            return vault_delete(cfg, body, vsel);
+        }
         if path == "/api/beneficiaries" {
             return beneficiary_add(cfg, body, vsel);
         }
@@ -615,6 +618,49 @@ fn vault_unlock(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
     } else {
         Response::json(401, &serde_json::json!({ "error": "wrong passphrase", "detail": "palavra do cofre incorreta" }))
     }
+}
+
+// ---- delete a vault (local only) ----
+
+#[derive(serde::Deserialize)]
+struct DeleteReq {
+    #[serde(default)]
+    passphrase: Option<String>,
+}
+
+/// `POST /api/vault/delete` — remove a vault from THIS device (records, proposals,
+/// people, members, lock). Passphrase-protected vaults require the correct word. This
+/// is local only: it cannot touch the chain or other members' devices, and if the vault
+/// still holds funds they become unreachable from here (the UI warns before calling this).
+fn vault_delete(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
+    let req: DeleteReq = serde_json::from_slice(body).unwrap_or(DeleteReq { passphrase: None });
+    let mut store = match open_store(cfg) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    let vault_id = match resolve_vault_id(&store, want) {
+        Ok(Some(id)) => id,
+        Ok(None) => return bad("nenhum cofre neste dispositivo", "no vault"),
+        Err(r) => return r,
+    };
+    // A locked vault can only be deleted with the right passphrase.
+    match store.get_vault_lock(&vault_id) {
+        Ok(Some((salt, verifier))) => {
+            let key = match crate::secrets::derive_key(req.passphrase.as_deref().unwrap_or(""), &salt) {
+                Ok(k) => k,
+                Err(e) => return Response::json(500, &serde_json::json!({"error": "kdf", "detail": e.to_string()})),
+            };
+            if !crate::secrets::verify(&key, &verifier) {
+                return Response::json(401, &serde_json::json!({"error": "wrong passphrase", "detail": "palavra do cofre incorreta"}));
+            }
+        }
+        Ok(None) => {}
+        Err(e) => return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
+    }
+    if let Err(e) = store.delete_vault(&vault_id) {
+        return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()}));
+    }
+    Response::json(200, &serde_json::json!({ "ok": true, "deleted": vault_id }))
 }
 
 // ---- beneficiaries (address book: pick a name, not an address) ----
@@ -1508,6 +1554,41 @@ mod tests {
         assert_eq!(body_json(&ok)["ok"], true);
         let no = handle(&cfg, "POST", "/api/vault/unlock?vault=v-lock", br#"{"passphrase":"cedro-barco-pedra-monte"}"#);
         assert_eq!(no.status, 401);
+    }
+
+    #[test]
+    fn vault_delete_requires_passphrase_then_removes() {
+        use crate::proposal::Quorum;
+        let db = tmp_db();
+        {
+            let mut store = Store::open(&db).unwrap();
+            for id in ["v-locked", "v-plain"] {
+                store.save_vault(&VaultRecord {
+                    id: id.into(), name: id.into(), quorum: Quorum::new(2, 3).unwrap(),
+                    group_pubkey: "gp".into(), orchard_address: "u1".into(),
+                    ufvk: String::new(), server_url: None,
+                }).unwrap();
+            }
+            let salt = crate::secrets::generate_salt().unwrap();
+            let key = crate::secrets::derive_key("cedro-barco-pedra-chave", &salt).unwrap();
+            store.set_vault_lock("v-locked", &salt, &crate::secrets::make_verifier(&key).unwrap()).unwrap();
+        }
+        let cfg = cfg_with(db, None);
+
+        // Wrong word cannot delete a locked vault.
+        let no = handle(&cfg, "POST", "/api/vault/delete?vault=v-locked", br#"{"passphrase":"cedro-barco-pedra-monte"}"#);
+        assert_eq!(no.status, 401);
+        assert_eq!(handle(&cfg, "GET", "/api/vault?vault=v-locked", b"").status, 200);
+        assert_eq!(body_json(&handle(&cfg, "GET", "/api/vault?vault=v-locked", b""))["vault"]["id"], "v-locked");
+
+        // Right word deletes it.
+        let ok = handle(&cfg, "POST", "/api/vault/delete?vault=v-locked", br#"{"passphrase":"cedro-barco-pedra-chave"}"#);
+        assert_eq!(ok.status, 200);
+        // An unlocked vault deletes without a passphrase.
+        let ok2 = handle(&cfg, "POST", "/api/vault/delete?vault=v-plain", b"{}");
+        assert_eq!(ok2.status, 200);
+        // Nothing left.
+        assert!(body_json(&handle(&cfg, "GET", "/api/vaults", b""))["vaults"].as_array().unwrap().is_empty());
     }
 
     #[test]

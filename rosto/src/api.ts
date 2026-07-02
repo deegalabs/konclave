@@ -62,6 +62,9 @@ export function setSelectedVault(id: string): void {
 export function getSelectedVault(): string | null {
   try { return localStorage.getItem(VAULT_KEY) } catch { return null }
 }
+export function clearSelectedVault(): void {
+  try { localStorage.removeItem(VAULT_KEY) } catch { /* storage unavailable */ }
+}
 /** Append `?vault=<selected>` to a path when a vault is selected. */
 function withVault(path: string): string {
   const id = getSelectedVault()
@@ -294,6 +297,21 @@ export async function createVaultDkg(
 export async function unlockVault(passphrase: string): Promise<{ ok: boolean; wrong: boolean }> {
   try {
     const res = await fetch(`${BASE}${withVault('/api/vault/unlock')}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ passphrase }),
+    })
+    if (res.ok) return { ok: true, wrong: false }
+    return { ok: false, wrong: res.status === 401 }
+  } catch {
+    return { ok: false, wrong: false }
+  }
+}
+
+/** Delete the selected vault from THIS device. Locked vaults require the passphrase. */
+export async function deleteVault(passphrase?: string): Promise<{ ok: boolean; wrong: boolean }> {
+  try {
+    const res = await fetch(`${BASE}${withVault('/api/vault/delete')}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ passphrase }),
