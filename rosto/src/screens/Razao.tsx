@@ -42,7 +42,7 @@ export default function Razao() {
       <Letterhead
         right={
           <span className="lh-actions">
-            <span className="klab back" onClick={() => nav('/')}>← Painel</span>
+            <span className="klab back" onClick={() => nav('/painel')}>← Painel</span>
             <a className="btn ghost sm-btn" href={ledgerCsvUrl()} download="konclave-razao.csv">⭳ Exportar CSV</a>
             <button className="btn ghost sm-btn" onClick={() => window.print()}>⭳ PDF</button>
           </span>

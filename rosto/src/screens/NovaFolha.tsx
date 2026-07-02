@@ -127,7 +127,7 @@ export default function NovaFolha() {
 
   return (
     <>
-      <Letterhead right={<span className="klab back" onClick={() => nav('/')}>← Painel</span>} />
+      <Letterhead right={<span className="klab back" onClick={() => nav('/painel')}>← Painel</span>} />
       <div className="page">
         <h1 className="h1">Nova folha</h1>
         <p className="cap">Um documento: vários pagamentos numa transação, aprovada uma vez. {saved && <span className="livetag" title="Rascunho salvo neste dispositivo">● rascunho salvo</span>}</p>

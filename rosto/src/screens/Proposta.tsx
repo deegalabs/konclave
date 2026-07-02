@@ -71,11 +71,11 @@ export default function Proposta() {
   }
 
   if (loading) {
-    return (<><Letterhead right={<span className="klab back" onClick={() => nav('/')}>← Propostas</span>} />
+    return (<><Letterhead right={<span className="klab back" onClick={() => nav('/painel')}>← Propostas</span>} />
       <div className="page narrow"><div className="hint">Carregando proposta…</div></div></>)
   }
   if (!p) {
-    return (<><Letterhead right={<span className="klab back" onClick={() => nav('/')}>← Propostas</span>} />
+    return (<><Letterhead right={<span className="klab back" onClick={() => nav('/painel')}>← Propostas</span>} />
       <div className="page narrow"><h1 className="h1">Nenhuma proposta</h1>
         <div className="hint">Não há proposta aberta. <span className="link" onClick={() => nav('/pagar')}>Propor um pagamento →</span></div>
       </div></>)
@@ -93,7 +93,7 @@ export default function Proposta() {
 
   return (
     <>
-      <Letterhead right={<span className="klab back" onClick={() => nav('/')}>← Propostas</span>} />
+      <Letterhead right={<span className="klab back" onClick={() => nav('/painel')}>← Propostas</span>} />
       <div className="page narrow">
         <div><span className="stamp">{STAMP[p.state] ?? p.state}</span></div>
         <div className="p-amt"><Secret><span>{val}</span></Secret> <span className="dim small">ZEC</span></div>

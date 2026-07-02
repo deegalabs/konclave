@@ -31,7 +31,7 @@ export default function Membros() {
 
   return (
     <>
-      <Letterhead right={<span className="klab back" onClick={() => nav('/')}>← Painel</span>} />
+      <Letterhead right={<span className="klab back" onClick={() => nav('/painel')}>← Painel</span>} />
       <div className="page">
         <div className="title-row">
           <div>

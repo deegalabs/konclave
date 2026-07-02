@@ -39,7 +39,7 @@ export default function Beneficiarios() {
 
   return (
     <>
-      <Letterhead right={<span className="klab back" onClick={() => nav('/')}>← Painel</span>} />
+      <Letterhead right={<span className="klab back" onClick={() => nav('/painel')}>← Painel</span>} />
       <div className="page">
         <h1 className="h1">Beneficiários</h1>
         <p className="cap">Uma agenda de quem recebe. Cadastre uma vez e escolha por nome ao pagar ou montar a folha — em vez de colar endereços.</p>
