@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Letterhead, Secret } from '../components'
+import { Identicon } from '../avatar'
 import {
   getProposalDetail, getProposals, getVault, voteProposal, sendProposal, shortAddr, humanError,
   type Proposal, type PayrollLine,
@@ -89,47 +90,87 @@ export default function Proposta() {
   const isRejected = p.state === 'rejected'
   const isExpired = p.state === 'expired'
   const isSent = p.state === 'sent' || p.state === 'confirmed'
+  const isTerminalBad = isRejected || isExpired || p.state === 'cancelled'
   const pendingApprovers = members.filter((m) => !p.approvals.includes(m) && !p.refusals.includes(m))
+
+  // Title carries meaning (what/referente), not just a stamp.
+  const eyebrow = isPayroll ? 'Folha de pagamento' : 'Pagamento'
+  const title = p.memo?.trim() || (isPayroll ? 'Folha de pagamento' : `Pagamento a ${dest}`)
+  const subtitle = isPayroll ? `${lines.length} pagamentos numa transação, aprovada uma vez` : `para ${dest}`
+
+  // State trail: Aprovação → Assinatura → Enviado (null while terminal-negative).
+  const trailIdx = isAwaiting ? 0 : isReady ? 1 : isSent ? 2 : null
+
+  // Everyone involved, with their stance — people, not a mono string.
+  const everyone = Array.from(new Set([p.proposer, ...members, ...p.approvals, ...p.refusals]))
+  const stance = (m: string) => {
+    const approved = p.approvals.includes(m)
+    if (approved) return { cls: 'ok', label: m === p.proposer ? 'propôs · aprovou' : 'aprovou' }
+    if (p.refusals.includes(m)) return { cls: 'no', label: 'recusou' }
+    return { cls: '', label: 'aguardando' }
+  }
 
   return (
     <>
-      <Letterhead right={<span className="klab back" onClick={() => nav('/painel')}>← Propostas</span>} />
+      <Letterhead right={<span className="klab back" onClick={() => nav('/painel')}>← Painel</span>} />
       <div className="page narrow">
-        <div><span className="stamp">{STAMP[p.state] ?? p.state}</span></div>
-        <div className="p-amt"><Secret><span>{val}</span></Secret> <span className="dim small">ZEC</span></div>
-        {isPayroll ? (
-          <>
-            <div className="a-to">folha · <b>{lines.length} pagamentos</b> numa transação, aprovada uma vez</div>
-            <table className="tbl folha mt">
-              <thead><tr><th>Rótulo</th><th>Destino</th><th>Valor</th><th>Memo</th></tr></thead>
-              <tbody>
-                {lines.map((l, i) => (
-                  <tr key={i}>
-                    <td>{l.label || '—'}</td>
-                    <td className={'mono' + (l.is_public ? ' seal-tx' : '')}>{shortAddr(l.address)}{l.is_public ? ' ⚠' : ''}</td>
-                    <td className="num"><Secret sm><span>{Number(l.value_zec).toFixed(4)}</span></Secret></td>
-                    <td className="mono dim">{l.memo || '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </>
-        ) : (
-          <div className="a-to">
-            para <b>{dest}</b>{p.memo ? <> · memo “{p.memo}”</> : null}
-            {p.is_public && <span className="hint warn"> · ⚠ destino público</span>}
+        <div className="prop-head">
+          <span className="klab">{eyebrow}</span>
+          <span className={'stamp st-' + p.state}>{STAMP[p.state] ?? p.state}</span>
+        </div>
+        <h1 className="h1 prop-title">{title}</h1>
+        <div className="p-meta">{subtitle}{p.is_public && !isPayroll && <span className="hint warn"> · ⚠ destino público</span>}</div>
+
+        <div className="steps ptrail">
+          {['Aprovação', 'Assinatura', 'Enviado'].map((label, i) => (
+            <span className="st-wrap" key={label}>
+              {i > 0 && <span className="seg" />}
+              <span className={'st' + (trailIdx !== null && i <= trailIdx ? ' on' : '')}><span className="pip" />{label}</span>
+            </span>
+          ))}
+        </div>
+
+        <div className="p-amt mt"><Secret><span>{val}</span></Secret> <span className="dim small">ZEC</span></div>
+        {isPayroll && (
+          <table className="tbl folha mt">
+            <thead><tr><th>Rótulo</th><th>Destino</th><th>Valor</th><th>Memo</th></tr></thead>
+            <tbody>
+              {lines.map((l, i) => (
+                <tr key={i}>
+                  <td>{l.label || '—'}</td>
+                  <td className={'mono' + (l.is_public ? ' seal-tx' : '')}>{shortAddr(l.address)}{l.is_public ? ' ⚠' : ''}</td>
+                  <td className="num"><Secret sm><span>{Number(l.value_zec).toFixed(4)}</span></Secret></td>
+                  <td className="mono dim">{l.memo || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
+        <div className="who-head">
+          <span className="klab">Aprovações</span>
+          <span className="who-prog"><span className="prog">{Array.from({ length: threshold }, (_, i) => <i key={i} className={i < p.approvals_count ? 'on' : ''} />)}</span> <b>{p.approvals_count} de {threshold}</b></span>
+        </div>
+        <div className="people">
+          {everyone.map((m) => {
+            const s = stance(m)
+            return (
+              <div className="who-row" key={m}>
+                <Identicon seed={m} size={30} />
+                <span className="who-name">{m}</span>
+                <span className={'who-st ' + s.cls}>{s.label}</span>
+              </div>
+            )
+          })}
+        </div>
+
+        {isTerminalBad && (
+          <div className="confirm mt">
+            {isRejected && <>✗ <b>Recusada.</b> As recusas tornaram o quórum inviável.</>}
+            {isExpired && <>⌛ <b>Expirada.</b> O prazo de aprovação passou sem atingir o quórum. Crie uma nova proposta.</>}
+            {p.state === 'cancelled' && <>⊘ <b>Cancelada</b> por quem propôs.</>}
           </div>
         )}
-        <hr className="rule thin" />
-        <div className="p-meta">
-          <div>proposto por <b>{p.proposer}</b></div>
-          <div className="mt-xs">
-            progresso <span className="prog">{Array.from({ length: threshold }, (_, i) => <i key={i} className={i < p.approvals_count ? 'on' : ''} />)}</span>
-            {' '}<b>{p.approvals_count} de {threshold}</b>
-            {p.approvals.length > 0 && <> · aprovou: {p.approvals.join(', ')}</>}
-            {p.refusals.length > 0 && <> · recusou: {p.refusals.join(', ')}</>}
-          </div>
-        </div>
 
         {isAwaiting && (() => {
           const who = approveAs || pendingApprovers[0] || ''
@@ -192,14 +233,6 @@ export default function Proposta() {
               </div>
             )}
           </>
-        )}
-
-        {isRejected && (
-          <div className="confirm mt">✗ <b>Recusada.</b> As recusas tornaram o quórum inviável.</div>
-        )}
-
-        {isExpired && (
-          <div className="confirm mt">⌛ <b>Expirada.</b> O prazo de aprovação passou sem atingir o quórum. Crie uma nova proposta.</div>
         )}
 
         {error && <div className="hint err mt">✗ {error}</div>}

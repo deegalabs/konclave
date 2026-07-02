@@ -192,6 +192,24 @@
 /* ---- Proposta ---- */
 .p-amt{font-family:var(--mono); font-size:30px; font-weight:500; margin:16px 0 4px}
 .p-meta{font-family:var(--mono); font-size:12.5px; color:var(--muted)}
+.prop-head{display:flex; align-items:center; justify-content:space-between; gap:14px; padding-top:8px}
+.prop-title{margin:6px 0 6px}
+.stamp.st-sent,.stamp.st-confirmed{border-color:var(--pine); color:var(--pine)}
+.stamp.st-rejected,.stamp.st-expired,.stamp.st-cancelled{border-color:#ff6b6b; color:#ff8f8f}
+.ptrail{margin:18px 0 6px; padding:14px 16px; border-radius:12px; border:1px solid var(--line-2);
+  background:linear-gradient(180deg,rgba(200,220,245,.035),rgba(200,220,245,.01))}
+.who-head{display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:26px}
+.who-prog{font-family:var(--mono); font-size:12px; color:var(--muted); display:inline-flex; align-items:center; gap:8px}
+.who-prog b{color:var(--ink); font-weight:600}
+.people{margin-top:10px; padding:6px 16px; border-radius:12px; border:1px solid var(--line-2);
+  background:linear-gradient(180deg,rgba(200,220,245,.03),rgba(200,220,245,.008))}
+.who-row{display:flex; align-items:center; gap:12px; padding:11px 0; border-bottom:1px solid var(--line)}
+.who-row:last-child{border-bottom:0}
+.who-name{font-weight:600; font-size:14.5px}
+.who-st{margin-left:auto; font-family:var(--mono); font-size:10.5px; text-transform:uppercase; letter-spacing:.06em;
+  border:1px solid var(--line); border-radius:999px; padding:3px 11px; color:var(--muted)}
+.who-st.ok{color:var(--pine); border-color:rgba(87,208,138,.4)}
+.who-st.no{color:#ff8f8f; border-color:rgba(255,120,120,.4)}
 
 /* ---- Enviado ---- */
 .enviado{text-align:center; padding:48px 46px}
