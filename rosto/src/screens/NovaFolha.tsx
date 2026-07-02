@@ -2,9 +2,14 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Letterhead, Secret } from '../components'
 import {
-  previewPayroll, createPayroll, getBalance, getBeneficiaries, health, classifyAddress, humanError,
-  type Beneficiary,
+  previewPayroll, createPayroll, getBalance, getBeneficiaries, getLedger, health, classifyAddress, humanError,
+  type Beneficiary, type Proposal,
 } from '../api'
+
+const FOLHA_STAMP: Record<string, string> = {
+  awaiting: 'aguardando', ready: 'pronta', sent: 'enviada',
+  confirmed: 'confirmada', rejected: 'recusada', expired: 'expirada', cancelled: 'cancelada',
+}
 
 const ME = 'Alice' // this device acts as the coordinator member (single-device demo)
 const DRAFT_KEY = 'konclave.folha.rascunho'
@@ -47,6 +52,7 @@ export default function NovaFolha() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
+  const [pastFolhas, setPastFolhas] = useState<Proposal[]>([])
 
   // Restore the local draft.
   useEffect(() => {
@@ -71,10 +77,11 @@ export default function NovaFolha() {
     let on = true
     void (async () => {
       if (await health()) {
-        const [b, bs] = await Promise.all([getBalance(), getBeneficiaries()])
+        const [b, bs, led] = await Promise.all([getBalance(), getBeneficiaries(), getLedger()])
         if (!on) return
         if (b?.configured) setBalanceZat(b.total_zat ?? null)
         if (bs) setBenefs(bs)
+        if (led) setPastFolhas(led.filter((x) => x.kind === 'payroll'))
       }
     })()
     return () => { on = false }
@@ -131,6 +138,22 @@ export default function NovaFolha() {
       <div className="page">
         <h1 className="h1">Nova folha</h1>
         <p className="cap">Um documento: vários pagamentos numa transação, aprovada uma vez. {saved && <span className="livetag" title="Rascunho salvo neste dispositivo">● rascunho salvo</span>}</p>
+
+        {pastFolhas.length > 0 && (
+          <div className="past-folhas">
+            <span className="klab">Folhas anteriores</span>
+            {pastFolhas.slice(0, 4).map((f) => (
+              <div className="pf-row" key={f.id} onClick={() => nav('/proposta', { state: { id: f.id } })}>
+                <span className="pf-name">{f.memo || 'Folha de pagamento'}</span>
+                <span className="pf-meta">
+                  <span className="pf-val"><Secret sm><span>{Number(f.value_zec).toFixed(4)} ZEC</span></Secret></span>
+                  <span className={'pf-st ' + f.state}>{FOLHA_STAMP[f.state] ?? f.state}</span>
+                  <span className="pf-go">→</span>
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
 
         <div className="doc-head">
           <label className="field inline"><span>Competência</span>

@@ -41,8 +41,8 @@ export default function Beneficiarios() {
     <>
       <Letterhead right={<span className="klab back" onClick={() => nav('/painel')}>← Painel</span>} />
       <div className="page">
-        <h1 className="h1">Beneficiários</h1>
-        <p className="cap">Uma agenda de quem recebe. Cadastre uma vez e escolha por nome ao pagar ou montar a folha — em vez de colar endereços.</p>
+        <h1 className="h1">Pessoas</h1>
+        <p className="cap">O cadastro de quem recebe. Guarde uma vez e escolha por nome ao pagar ou montar a folha — em vez de colar endereços toda vez.</p>
 
         <div className="doc-head">
           <label className="field inline"><span>Nome</span>
@@ -58,12 +58,12 @@ export default function Beneficiarios() {
         {kind === 'transparent' && <div className="hint warn">⚠ Endereço transparente (público) — sem memo.</div>}
         {kind === 'sapling' && <div className="hint warn">⚠ Endereço Sapling — prefira Orchard (u1…).</div>}
         {error && <div className="hint err">✗ {error}</div>}
-        <div className="mt-sm"><button className="btn ok sm-btn" onClick={add} disabled={busy}>{busy ? 'Salvando…' : '+ Cadastrar beneficiário'}</button></div>
+        <div className="mt-sm"><button className="btn ok sm-btn" onClick={add} disabled={busy}>{busy ? 'Salvando…' : '+ Cadastrar pessoa'}</button></div>
 
         <table className="tbl razao mt">
           <thead><tr><th>Nome</th><th>Endereço</th><th>Memo padrão</th><th></th></tr></thead>
           <tbody>
-            {list.length === 0 && <tr><td colSpan={4} className="by">Nenhum beneficiário cadastrado ainda.</td></tr>}
+            {list.length === 0 && <tr><td colSpan={4} className="by">Nenhuma pessoa cadastrada ainda.</td></tr>}
             {list.map((b) => (
               <tr key={b.id}>
                 <td><b>{b.name}</b></td>

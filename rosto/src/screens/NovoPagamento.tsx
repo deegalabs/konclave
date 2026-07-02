@@ -95,7 +95,7 @@ export default function NovoPagamento() {
         </div>
 
         {benefs.length > 0 && (
-          <label className="field"><span>Beneficiário (do cadastro)</span>
+          <label className="field"><span>Pessoa (do cadastro)</span>
             <select className="input" value="" onChange={(e) => {
               const b = benefs.find((x) => x.id === e.target.value)
               if (b) { setTo(b.address); setToName(b.name); if (b.memo) setMemo(b.memo) }
