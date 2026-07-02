@@ -259,11 +259,6 @@
 .who-st.ok{color:var(--pine); border-color:rgba(87,208,138,.4)}
 .who-st.no{color:#ff8f8f; border-color:rgba(255,120,120,.4)}
 
-/* ---- Enviado ---- */
-.enviado{text-align:center; padding:48px 46px}
-.enviado-amt{font-family:var(--mono); font-size:18px; margin:14px 0 4px}
-.enviado-sub{font-size:12px; margin-bottom:28px}
-
 /* ---- Razão ---- */
 .filters{display:flex; gap:8px; margin:14px 0; align-items:center}
 .chip{font-family:var(--mono); font-size:12px; border:1.5px solid var(--line); background:var(--paper-2); padding:8px 12px}

@@ -138,6 +138,8 @@ export default function Cofres() {
 
         <div className="rd-note">
           🔒 Seus dados e a sua parte da chave ficam <b>só aqui, no seu aparelho</b> — não vão para nenhum servidor na internet.
+          {' · '}<span className="rd-link" onClick={() => nav('/abertura')} role="link" tabIndex={0}
+            onKeyDown={(e) => { if (e.key === 'Enter') nav('/abertura') }}>como funciona</span>
           {!live && <> · <i>(modo demonstração — sem o cofre local rodando)</i></>}
         </div>
       </div>

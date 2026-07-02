@@ -112,8 +112,29 @@
   font-family: var(--mono, monospace); font-size: 12px; line-height: 1.6; color: #8a95a3;
 }
 .rd-note b { color: #c2ccd7; font-weight: 600; }
+.rd-link { color: #7fb4ec; cursor: pointer; border-bottom: 1px solid rgba(127, 180, 236, 0.35); }
+.rd-link:hover { color: #a9cdf5; }
 
 .idc { display: block; }
+
+/* Intro / o-que-é (ex-Abertura) */
+.rd-shell.intro { max-width: 960px; }
+.intro-hero { text-align: center; padding: 8px 0 10px; }
+.intro-logo { height: 104px; margin: 0 auto 22px; }
+.intro-hero h1 { font-size: 42px; line-height: 1.06; letter-spacing: -0.025em; color: #f2f6fb; margin: 12px 0 0; }
+.intro-hero p { color: #a7b2c0; font-size: 15.5px; line-height: 1.65; margin: 16px auto 0; max-width: 60ch; }
+.intro-hero p b { color: #dbe3ec; font-weight: 600; }
+.intro-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px; margin: 40px 0 8px; }
+.intro-card {
+  padding: 22px 20px; border-radius: 14px; border: 1px solid var(--rd-line);
+  background: linear-gradient(180deg, rgba(200, 220, 245, 0.05), rgba(200, 220, 245, 0.015));
+  box-shadow: 0 1px 0 rgba(210, 228, 250, 0.06) inset, 0 22px 44px -26px rgba(0, 0, 0, 0.7);
+}
+.intro-ic { font-size: 24px; }
+.intro-t { font-size: 16px; font-weight: 700; color: #eaf1fb; margin-top: 12px; }
+.intro-d { font-size: 13.5px; line-height: 1.6; color: #9aa5b2; margin-top: 8px; }
+.intro-cta { text-align: center; margin: 34px 0 6px; }
+.intro-cta .rd-enter { font-size: 14px; padding: 12px 22px; }
 
 /* Desbloqueio de cofre protegido (palavra do cofre) */
 .unlock-overlay {
