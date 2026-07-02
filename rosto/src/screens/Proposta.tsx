@@ -131,23 +131,34 @@ export default function Proposta() {
           </div>
         </div>
 
-        {isAwaiting && (
+        {isAwaiting && (() => {
+          const who = approveAs || pendingApprovers[0] || ''
+          const falta = Math.max(0, threshold - p.approvals_count)
+          return (
           <>
-            <div className="confirm mt">Ao aprovar, o membro autoriza este pagamento com a <b>sua parte da chave</b>. A cerimônia assina com as partes de <b>quem aprovou</b>.</div>
-            {pendingApprovers.length > 0 && (
-              <label className="field mt"><span>Aprovar como membro</span>
-                <select className="input" value={approveAs || pendingApprovers[0] || ''} onChange={(e) => setApproveAs(e.target.value)}>
-                  {pendingApprovers.map((m) => <option key={m} value={m}>{m}</option>)}
-                </select>
-              </label>
-            )}
-            <div className="btns mt">
-              <button className="btn ok" onClick={() => vote(true)} disabled={busy || pendingApprovers.length === 0}>{busy ? '…' : '▸ Aprovar'}</button>
-              <button className="btn" onClick={() => vote(false)} disabled={busy || pendingApprovers.length === 0}>Recusar</button>
+            <div className="confirm mt">
+              <b>{p.proposer}</b> propôs — e propor <b>já conta como a aprovação de {p.proposer}</b> ({p.approvals_count} de {threshold}).
+              {falta > 0 ? <> Falta{falta > 1 ? 'm' : ''} <b>{falta}</b>.</> : <> Quórum atingido.</>}
             </div>
-            <div className="hint mt-sm">Nesta demo você atua por cada membro (single-device). Ao bater {threshold} de {threshold}, fica pronta para a assinatura FROST — que usará as partes de quem aprovou.</div>
+            {pendingApprovers.length > 0 ? (
+              <>
+                <div className="hint mt">Nesta demonstração você atua por cada membro. <b>Escolha por quem</b> está aprovando — a assinatura FROST usará a parte da chave dessa pessoa.</div>
+                <label className="field mt-sm"><span>Aprovar / recusar como</span>
+                  <select className="input" value={who} onChange={(e) => setApproveAs(e.target.value)}>
+                    {pendingApprovers.map((m) => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </label>
+                <div className="btns mt">
+                  <button className="btn ok" onClick={() => vote(true)} disabled={busy}>{busy ? '…' : `▸ Aprovar como ${who}`}</button>
+                  <button className="btn" onClick={() => vote(false)} disabled={busy}>Recusar como {who}</button>
+                </div>
+              </>
+            ) : (
+              <div className="hint mt">Todos os membros já votaram nesta proposta.</div>
+            )}
           </>
-        )}
+          )
+        })()}
 
         {isReady && (
           <>

@@ -143,7 +143,7 @@ export default function NovoPagamento() {
           {memo.trim() && !publicDest && <div className="pv-row"><span className="pv-k">Memo</span><span className="pv-v">“{memo.trim()}”</span></div>}
           <div className="pv-row"><span className="pv-k">Aprovações</span><span className="pv-v"><b>{threshold}</b> (incluindo a sua)</span></div>
         </div>
-        <div className="hint">Ao propor, o pagamento vai para a fila de aprovação — nada sai antes de {threshold} {threshold === 1 ? 'aval' : 'avais'}.</div>
+        <div className="hint">Propor <b>já conta como a aprovação de {proposer}</b> (1 de {threshold}). Nada sai antes de {threshold} {threshold === 1 ? 'aval' : 'avais'} — {threshold > 1 ? `faltará mais ${threshold - 1}` : 'já fica pronta'}.</div>
 
         {error && <div className="hint err mt">✗ {error}</div>}
 
