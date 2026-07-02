@@ -10,6 +10,7 @@ import Enviado from './screens/Enviado'
 import Razao from './screens/Razao'
 import Membros from './screens/Membros'
 import Beneficiarios from './screens/Beneficiarios'
+import Cofres from './screens/Cofres'
 import './App.css'
 
 export default function App() {
@@ -17,7 +18,9 @@ export default function App() {
   return (
     <div className={'sheet' + (revealed ? ' revealed' : '')}>
       <Routes>
-        <Route path="/" element={<Painel />} />
+        <Route path="/" element={<Cofres />} />
+        <Route path="/painel" element={<Painel />} />
+        <Route path="/cofres" element={<Cofres />} />
         <Route path="/abertura" element={<Abertura />} />
         <Route path="/criar" element={<Cerimonia />} />
         <Route path="/pagar" element={<NovoPagamento />} />

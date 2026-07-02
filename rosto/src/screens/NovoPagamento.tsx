@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Letterhead, Secret } from '../components'
 import {
   createProposal, getBalance, getVault, getBeneficiaries, health, shortAddr, classifyAddress, humanError,
-  type Beneficiary,
+  type Beneficiary, type Member,
 } from '../api'
 
 const MEMO_MAX = 512
@@ -20,6 +20,10 @@ export default function NovoPagamento() {
   const [threshold, setThreshold] = useState(2)
   const [available, setAvailable] = useState<string | null>(null)
   const [benefs, setBenefs] = useState<Beneficiary[]>([])
+  const [vaultName, setVaultName] = useState('Tesouraria Comum')
+  const [membersList, setMembersList] = useState<Member[]>([])
+  const [proposer, setProposer] = useState('Alice')
+  const [toName, setToName] = useState<string | null>(null)
   const [live, setLive] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -33,7 +37,11 @@ export default function NovoPagamento() {
       if (!ok) return
       const [v, b, bs] = await Promise.all([getVault(), getBalance(), getBeneficiaries()])
       if (!on) return
-      if (v) setThreshold(v.threshold)
+      if (v) {
+        setThreshold(v.threshold)
+        setVaultName(v.name)
+        if (v.member_list?.length) { setMembersList(v.member_list); setProposer(v.member_list[0].name) }
+      }
       if (b?.configured) setAvailable(b.total_zec ?? null)
       if (bs) setBenefs(bs)
     })()
@@ -53,7 +61,7 @@ export default function NovoPagamento() {
     if (!to.trim()) { setError('Informe o endereço de destino.'); return }
     setBusy(true)
     const res = await createProposal({
-      proposer: 'Alice', // this device acts as the coordinator member (single-device demo)
+      proposer, // the member this device is acting as (single-device demo)
       to_address: to.trim(),
       value_zec: value.trim(),
       memo: memo.trim() || undefined,
@@ -68,15 +76,29 @@ export default function NovoPagamento() {
 
   return (
     <>
-      <Letterhead right={<span className="klab back" onClick={() => nav('/')}>← Painel</span>} />
+      <Letterhead right={<span className="klab back" onClick={() => nav('/painel')}>← Painel</span>} />
       <div className="page narrow">
         <h1 className="h1">Novo pagamento</h1>
+
+        <div className="ctx">
+          <span>Do cofre <b>{vaultName}</b></span>
+          <span className="ctx-sep">·</span>
+          <span>disponível <Secret sm><b>{shownAvailable} ZEC</b></Secret></span>
+          {membersList.length > 0 && (
+            <label className="ctx-as">
+              propondo como
+              <select value={proposer} onChange={(e) => setProposer(e.target.value)}>
+                {membersList.map((m) => <option key={m.pubkey || m.name} value={m.name}>{m.name}</option>)}
+              </select>
+            </label>
+          )}
+        </div>
 
         {benefs.length > 0 && (
           <label className="field"><span>Beneficiário (do cadastro)</span>
             <select className="input" value="" onChange={(e) => {
               const b = benefs.find((x) => x.id === e.target.value)
-              if (b) { setTo(b.address); if (b.memo) setMemo(b.memo) }
+              if (b) { setTo(b.address); setToName(b.name); if (b.memo) setMemo(b.memo) }
             }}>
               <option value="">— escolher pelo nome, ou digite o endereço abaixo —</option>
               {benefs.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
@@ -86,7 +108,7 @@ export default function NovoPagamento() {
 
         <label className="field"><span>Para</span>
           <input className="input mono" placeholder="endereço Zcash (u1… recomendado)"
-            value={to} onChange={(e) => setTo(e.target.value)} />
+            value={to} onChange={(e) => { setTo(e.target.value); setToName(null) }} />
         </label>
         {publicDest && (
           <div className="hint warn">⚠ Endereço transparente — este pagamento fica <b>público</b> na blockchain.</div>
@@ -101,10 +123,7 @@ export default function NovoPagamento() {
         <label className="field"><span>Valor</span>
           <input className="input mono" value={value} onChange={(e) => setValue(e.target.value)} />
         </label>
-        <div className="hint">
-          disponível para propor: <Secret sm><b>{shownAvailable} ZEC</b></Secret>
-          {live ? '' : ' (modo demonstração)'}
-        </div>
+        {!live && <div className="hint">modo demonstração — sem o cofre local rodando</div>}
 
         <label className="field mt"><span>
           Memo · recibo/holerite — só o destinatário lê{' '}
@@ -117,10 +136,14 @@ export default function NovoPagamento() {
         <hr className="rule thin" />
         <div className="mono dim fee">Taxa estimada <b className="ink">0.0001 ZEC</b> · confirmada ao construir a transação</div>
 
-        <div className="confirm mt">
-          ⚑ Você vai <b>PROPOR</b> {value || '—'} ZEC → {to ? shortAddr(to) : '…'}.
-          {' '}Precisa de <b>{threshold} aprovações</b> (incluindo a sua).
+        <div className="confirm mt preview">
+          <div className="pv-row"><span className="pv-k">Propõe</span><span className="pv-v"><b>{proposer}</b></span></div>
+          <div className="pv-row"><span className="pv-k">Paga</span><span className="pv-v"><b>{value || '—'} ZEC</b></span></div>
+          <div className="pv-row"><span className="pv-k">Para</span><span className="pv-v">{toName ? <><b>{toName}</b> · {to ? shortAddr(to) : '…'}</> : (to ? shortAddr(to) : '…')}</span></div>
+          {memo.trim() && !publicDest && <div className="pv-row"><span className="pv-k">Memo</span><span className="pv-v">“{memo.trim()}”</span></div>}
+          <div className="pv-row"><span className="pv-k">Aprovações</span><span className="pv-v"><b>{threshold}</b> (incluindo a sua)</span></div>
         </div>
+        <div className="hint">Ao propor, o pagamento vai para a fila de aprovação — nada sai antes de {threshold} {threshold === 1 ? 'aval' : 'avais'}.</div>
 
         {error && <div className="hint err mt">✗ {error}</div>}
 

@@ -163,6 +163,12 @@ export function humanError(error?: string, detail?: string): string {
   return error && error.length < 140 ? error : 'Ocorreu um erro inesperado.'
 }
 
+/** Every vault known to this device (for the "Meus cofres" home). */
+export async function getVaults(): Promise<Vault[] | null> {
+  const r = await getJson<{ vaults: Vault[] }>('/api/vaults')
+  return r?.vaults ?? null
+}
+
 /** The full ledger (all proposals, terminal states included) for the Razão screen. */
 export async function getLedger(): Promise<Proposal[] | null> {
   const r = await getJson<{ ledger: Proposal[] }>('/api/ledger')

@@ -2,12 +2,21 @@ import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useReveal } from './reveal'
 
-/** Konclave mark. */
+/** Konclave mark — the radial-key emblem (silver spokes + blue keyhole), matching the logo. */
 export function Mark() {
+  const spokes = Array.from({ length: 12 }, (_, i) => i * 30)
   return (
-    <svg className="mark" viewBox="0 0 32 32" fill="none" aria-hidden="true">
-      <rect x="4.5" y="4.5" width="23" height="23" stroke="#1A1813" strokeWidth="1.6" />
-      <path d="M16 9.5 21.7 12.8v6.4L16 22.5l-5.7-3.3v-6.4L16 9.5Z" stroke="#7E2A24" strokeWidth="1.4" />
+    <svg className="mark" viewBox="0 0 40 40" fill="none" aria-hidden="true"
+      style={{ filter: 'drop-shadow(0 0 4px rgba(87,166,255,.35))' }}>
+      <g stroke="#c6cfd9" strokeWidth="1.3" strokeLinecap="round" opacity="0.9">
+        {spokes.map((a, i) => {
+          const r = (a * Math.PI) / 180
+          return <line key={i} x1={20 + Math.cos(r) * 13} y1={20 + Math.sin(r) * 13} x2={20 + Math.cos(r) * 18} y2={20 + Math.sin(r) * 18} />
+        })}
+      </g>
+      <circle cx="20" cy="19" r="7" stroke="#c6cfd9" strokeWidth="1.5" />
+      <circle cx="20" cy="17.6" r="2.4" fill="#57a6ff" />
+      <path d="M20 19.4 L18.7 25 L21.3 25 Z" fill="#57a6ff" />
     </svg>
   )
 }
@@ -55,11 +64,12 @@ export function Seal({ t, n, cap = 'Assinaturas' }: { t: number; n: number; cap?
   return (
     <div className="seal-wrap">
       <div className="seal-emb">
-        <svg width="90" height="90" viewBox="0 0 96 96" fill="none" aria-hidden="true">
-          <circle cx="48" cy="48" r="45" stroke="#7E2A24" strokeWidth="1" />
-          <circle cx="48" cy="48" r="39" stroke="#7E2A24" strokeWidth="2.4" />
-          <circle cx="48" cy="48" r="34" stroke="#7E2A24" strokeWidth=".6" strokeDasharray="1 3" />
-          <g stroke="#7E2A24" strokeWidth=".7" opacity=".8">
+        <svg width="90" height="90" viewBox="0 0 96 96" fill="none" aria-hidden="true"
+          style={{ filter: 'drop-shadow(0 0 8px rgba(87,166,255,.28))' }}>
+          <circle cx="48" cy="48" r="45" stroke="#57a6ff" strokeWidth="1" />
+          <circle cx="48" cy="48" r="39" stroke="#57a6ff" strokeWidth="2.4" />
+          <circle cx="48" cy="48" r="34" stroke="#c6cfd9" strokeWidth=".6" strokeDasharray="1 3" />
+          <g stroke="#8ba7c9" strokeWidth=".7" opacity=".8">
             <circle cx="48" cy="48" r="30" />
             <path d="M48 18c9 12 9 48 0 60M48 18c-9 12-9 48 0 60M18 48c12-9 48-9 60 0M18 48c12 9 48 9 60 0" />
           </g>

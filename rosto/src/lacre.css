@@ -4,15 +4,24 @@
 @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Spline+Sans+Mono:wght@400;500;600&display=swap');
 
 :root{
-  --paper:#E6E3DB; --paper-2:#EEEBE3; --ink:#1A1813; --muted:#6C685C;
-  --line:#C7C2B4; --line-2:#D8D3C6; --seal:#7E2A24; --seal-ink:#5E1F1B; --pine:#37493C;
+  /* Silver + blue on dark slate — the logo's identity. Same token names, dark values,
+     so every screen built on this system flips at once. */
+  --paper:#171c22; --paper-2:#1e252d; --ink:#dfe6ee; --muted:#8a95a3;
+  --line:#333d47; --line-2:#28313a; --seal:#57a6ff; --seal-ink:#3f86e0; --pine:#57d08a;
+  --silver:#c6cfd9;
   --sans:"Archivo",system-ui,sans-serif; --mono:"Spline Sans Mono",ui-monospace,monospace;
 }
 *{box-sizing:border-box}
-body{margin:0; background:var(--paper); color:var(--ink); font-family:var(--sans); line-height:1.5; -webkit-font-smoothing:antialiased}
+body{margin:0; color:var(--ink); font-family:var(--sans); line-height:1.5; -webkit-font-smoothing:antialiased;
+  background:
+    radial-gradient(70% 45% at 50% -8%, rgba(87,166,255,.10), transparent 60%),
+    radial-gradient(130% 95% at 50% -15%, #2b333c 0%, #1b2127 55%, #12161a 100%) fixed;
+  min-height:100vh}
+body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0; opacity:.05;
+  background-image:radial-gradient(rgba(200,220,245,.7) .5px, transparent .5px); background-size:3px 3px}
 
-/* letterhead / sheet */
-.sheet{background:var(--paper); border:1px solid var(--line-2)}
+/* letterhead / sheet — no box: the slate gradient shows through */
+.sheet{background:transparent; position:relative; z-index:1}
 .lh{display:flex; align-items:center; justify-content:space-between; padding:16px 26px; border-bottom:1.5px solid var(--ink)}
 .brand{display:flex; align-items:center; gap:11px}
 .wm{font-family:var(--mono); font-weight:600; font-size:11px; letter-spacing:.42em; text-indent:.42em}
@@ -47,8 +56,8 @@ body{margin:0; background:var(--paper); color:var(--ink); font-family:var(--sans
 
 /* the redaction / tarja */
 .secret{position:relative; display:inline-block}
-.secret .bar{position:absolute; inset:-2px -6px; background:var(--ink); cursor:pointer;
-  background-image:repeating-linear-gradient(90deg,rgba(255,255,255,.08) 0 1px,transparent 1px 4px);}
+.secret .bar{position:absolute; inset:-2px -6px; background:#0c1014; cursor:pointer;
+  background-image:repeating-linear-gradient(90deg,rgba(255,255,255,.06) 0 1px,transparent 1px 4px);}
 .secret.sm .bar{inset:-1px -4px}
 .secret .bar::after{content:"SIGILOSO"; position:absolute; left:7px; top:50%; transform:translateY(-50%);
   font-family:var(--mono); font-size:9px; letter-spacing:.2em; color:rgba(230,227,219,.6)}

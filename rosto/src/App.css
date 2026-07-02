@@ -1,6 +1,6 @@
 /* Painel (home) — screen-specific layout on top of the lacre.css design system. */
 
-.sheet{max-width:1000px; margin:0 auto; min-height:100vh; border-left:1px solid var(--line-2); border-right:1px solid var(--line-2)}
+.sheet{max-width:1080px; margin:0 auto; min-height:100vh}
 .switch{font-family:var(--mono); font-size:12px; color:var(--muted); border:1px solid var(--line); background:var(--paper-2); padding:7px 12px; cursor:pointer}
 .switch b{color:var(--ink); font-weight:600}
 .page{padding:0 46px 90px}
@@ -26,7 +26,7 @@
 .cell-input.num-input{text-align:right}
 .cell-warn{font-family:var(--mono); font-size:10.5px; color:var(--seal, #7E2A24); margin-top:2px}
 .cell-warn.err{font-weight:600}
-.folha .row-bad td{background:rgba(126,42,36,.05)}
+.folha .row-bad td{background:rgba(255,110,110,.06)}
 .row-del{border:1px solid var(--line); background:var(--paper-2); color:var(--muted); width:24px; height:24px; cursor:pointer; line-height:1; font-size:14px}
 .row-del:hover{color:var(--seal, #7E2A24); border-color:var(--seal, #7E2A24)}
 .folha-actions{display:flex; gap:10px}
@@ -35,7 +35,9 @@
 .seal-emb .num{font-weight:800; font-size:22px}
 .seal-cap{font-family:var(--mono); font-size:10.5px; letter-spacing:.16em; text-transform:uppercase; color:var(--seal); margin-top:4px}
 
-.entry{margin-top:40px; border-top:1.5px solid var(--ink); padding-top:20px}
+.entry{margin-top:34px; padding:24px 28px 22px; border-radius:16px;
+  background:linear-gradient(180deg,rgba(200,220,245,.045),rgba(200,220,245,.012));
+  border:1px solid var(--line-2); box-shadow:0 1px 0 rgba(210,228,250,.05) inset, 0 22px 44px -30px rgba(0,0,0,.7)}
 .entry-top{display:flex; align-items:center; justify-content:space-between}
 .reveal-btn{display:inline-flex; align-items:center; gap:8px; font-family:var(--mono); font-size:11.5px;
   letter-spacing:.08em; text-transform:uppercase; color:var(--muted); background:var(--paper-2);
@@ -51,9 +53,11 @@
 .receive code{font-family:var(--mono); font-size:12.5px; background:var(--paper-2); border:1px solid var(--line); padding:6px 10px}
 .orchard{margin-left:auto; font-family:var(--mono); font-size:11px; letter-spacing:.06em; color:var(--seal); display:flex; align-items:center; gap:7px}
 
-.cols{display:grid; grid-template-columns:1.4fr 1fr; margin-top:44px; border-top:1.5px solid var(--ink)}
+.cols{display:grid; grid-template-columns:1.4fr 1fr; margin-top:24px; border-radius:16px; overflow:hidden;
+  background:linear-gradient(180deg,rgba(200,220,245,.04),rgba(200,220,245,.01));
+  border:1px solid var(--line-2); box-shadow:0 1px 0 rgba(210,228,250,.05) inset, 0 22px 44px -30px rgba(0,0,0,.7)}
 @media(max-width:720px){.cols{grid-template-columns:1fr}}
-.approve{padding:24px 30px 24px 0; border-right:1px solid var(--line)}
+.approve{padding:26px 30px; border-right:1px solid var(--line)}
 @media(max-width:720px){.approve{border-right:0; border-bottom:1px solid var(--line); padding:24px 0}}
 .req{font-family:var(--mono); font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--seal); display:flex; align-items:center; gap:9px}
 .a-amt{font-family:var(--mono); font-weight:500; font-size:28px; margin:16px 0 3px}
@@ -66,10 +70,10 @@
 .prog i.on{background:var(--seal)}
 .btns{display:flex; gap:10px}
 .note{font-family:var(--mono); font-size:11px; color:var(--muted); margin-top:14px; max-width:34ch}
-.opnav{padding:24px 0 24px 30px; display:flex; flex-direction:column}
-@media(max-width:720px){.opnav{padding:24px 0}}
+.opnav{padding:26px 26px; display:flex; flex-direction:column}
 .opnav .klab{margin-bottom:6px}
-.op{display:flex; align-items:baseline; gap:12px; padding:15px 0; border-bottom:1px solid var(--line); cursor:pointer; text-decoration:none; color:inherit}
+.op{display:flex; align-items:baseline; gap:12px; padding:15px 14px; margin:0 -14px; border-bottom:1px solid var(--line); cursor:pointer; text-decoration:none; color:inherit; border-radius:9px; transition:background .14s}
+.op:hover{background:linear-gradient(90deg,rgba(87,166,255,.06),transparent)}
 .op:last-child{border-bottom:0}
 .op .n{font-family:var(--mono); font-size:11px; color:var(--muted); width:20px}
 .op .t{font-weight:700; font-size:15px; flex:1}
@@ -134,6 +138,34 @@
 .tag.ok{color:var(--pine); border-color:var(--pine)}
 .progress-bar{height:6px; background:var(--line); margin:22px 0; position:relative; overflow:hidden}
 .progress-bar span{position:absolute; inset:0 auto 0 0; width:62%; background:var(--seal)}
+
+/* ---- contexto (de qual cofre / quem propõe) ---- */
+.ctx{display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin:6px 0 22px;
+  font-family:var(--mono); font-size:12.5px; color:var(--muted)}
+.ctx b{color:var(--ink); font-weight:600}
+.ctx-sep{opacity:.5}
+.ctx-as{display:inline-flex; align-items:center; gap:7px; margin-left:auto; color:var(--muted)}
+.ctx-as select{font-family:var(--mono); font-size:12.5px; color:var(--ink); background:var(--paper-2);
+  border:1px solid var(--line); border-radius:8px; padding:5px 9px}
+
+/* ---- preview de confirmação (chave/valor) ---- */
+.confirm.preview{border-left:3px solid var(--seal); display:flex; flex-direction:column; gap:7px}
+.pv-row{display:flex; gap:14px; align-items:baseline}
+.pv-k{flex:0 0 96px; color:var(--muted); text-transform:uppercase; font-size:10.5px; letter-spacing:.1em}
+.pv-v{flex:1; color:var(--ink)}
+
+/* ---- Cerimônia · convite ---- */
+.invite-list{display:flex; flex-direction:column; gap:12px; margin-top:14px}
+.invite{padding:14px 16px; border-radius:12px; border:1px solid var(--line-2);
+  background:linear-gradient(180deg,rgba(200,220,245,.04),rgba(200,220,245,.012))}
+.invite-top{display:flex; align-items:center; justify-content:space-between; gap:12px}
+.invite-name{font-weight:700; font-size:15px}
+.invite-tag{font-family:var(--mono); font-size:10.5px; letter-spacing:.04em; color:var(--muted);
+  border:1px solid var(--line); border-radius:999px; padding:3px 10px}
+.invite-code{display:flex; align-items:center; gap:10px; margin-top:11px}
+.invite-code code{flex:1; font-family:var(--mono); font-size:12px; color:var(--silver);
+  background:var(--paper-2); border:1px solid var(--line); border-radius:8px; padding:8px 11px}
+.center-between{justify-content:space-between; align-items:center}
 
 /* ---- Nova folha ---- */
 .foot{display:flex; gap:26px; font-family:var(--mono); font-size:12.5px; color:var(--muted); margin-top:18px; padding-top:16px; border-top:1.5px solid var(--ink); flex-wrap:wrap}

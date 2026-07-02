@@ -259,6 +259,7 @@ pub fn handle(cfg: &Config, method: &str, raw_path: &str, body: &[u8]) -> Respon
             }),
         ),
         "/api/vault" => api_vault(cfg),
+        "/api/vaults" => api_vaults(cfg),
         "/api/proposals" => api_proposals(cfg),
         "/api/ledger" => api_ledger(cfg),
         "/api/ledger.csv" => api_ledger_csv(cfg),
@@ -306,6 +307,34 @@ fn api_vault(cfg: &Config) -> Response {
                 Some(dto)
             };
             Response::json(200, &serde_json::json!({ "vault": vault }))
+        }
+        Err(e) => Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
+    }
+}
+
+/// Every vault known to this device (for the "Meus cofres" home).
+fn api_vaults(cfg: &Config) -> Response {
+    let store = match open_store(cfg) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    match store.list_vaults() {
+        Ok(vs) => {
+            let vaults: Vec<_> = vs
+                .into_iter()
+                .map(|record| {
+                    let member_list: Vec<MemberDto> = store
+                        .get_vault_members(&record.id)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|m| MemberDto { name: m.name, pubkey: m.pubkey })
+                        .collect();
+                    let mut dto = VaultDto::from(record);
+                    dto.member_list = member_list;
+                    dto
+                })
+                .collect();
+            Response::json(200, &serde_json::json!({ "vaults": vaults }))
         }
         Err(e) => Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
     }

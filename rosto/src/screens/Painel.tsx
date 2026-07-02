@@ -107,7 +107,7 @@ export default function Painel() {
 
   return (
     <>
-      <Letterhead right={<button className="switch">COFRE · <b>{name}</b> ▾</button>} />
+      <Letterhead right={<Link className="switch" to="/" title="Trocar de cofre">COFRE · <b>{name}</b> ▾</Link>} />
       <div className="page">
         <div className="title-row">
           <div>
