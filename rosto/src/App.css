@@ -114,7 +114,7 @@
 .revealed .secret .bar{transform:scaleX(0); transform-origin:left; opacity:0; pointer-events:none}
 
 /* ---- shared helpers across screens ---- */
-.page.narrow{max-width:560px}
+.page.narrow{max-width:560px; margin:0 auto}
 .right{text-align:right}
 .center{justify-content:center}
 .mt{margin-top:16px}
