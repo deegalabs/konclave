@@ -26,7 +26,7 @@
 .rd-top { display: flex; justify-content: space-between; align-items: center; }
 .rd-brandwrap { display: inline-flex; align-items: center; gap: 11px; }
 .rd-emblem { filter: drop-shadow(0 0 6px rgba(87, 166, 255, 0.35)); }
-.rd-logo { border-radius: 7px; object-fit: contain; filter: drop-shadow(0 0 7px rgba(87, 166, 255, 0.35)); }
+.rd-lockup { height: 64px; width: auto; display: block; filter: drop-shadow(0 0 12px rgba(87, 166, 255, 0.28)); }
 .rd-brand {
   font-weight: 800; letter-spacing: 0.22em; text-transform: uppercase; font-size: 15px;
   background: linear-gradient(180deg, #f6f9fc 0%, #c2ccd7 46%, #8b96a3 56%, #d6dee7 100%);

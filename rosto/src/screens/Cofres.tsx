@@ -21,16 +21,17 @@ function Emblem({ size = 26 }: { size?: number }) {
   )
 }
 
-/** Shows the real logo (public/logo.png) if present; falls back to the SVG emblem. */
-function Logo({ size = 30 }: { size?: number }) {
+/** Brand: the real logo lockup (public/logo.png) if present; falls back to the
+ *  SVG emblem + wordmark so the header never breaks before the asset is saved. */
+function Brand() {
   const [failed, setFailed] = useState(false)
-  if (failed) return <Emblem size={size} />
+  if (failed) {
+    return <span className="rd-brandwrap"><Emblem size={30} /><span className="rd-brand">Konclave</span></span>
+  }
   return (
     <img
-      className="rd-logo"
+      className="rd-lockup"
       src={`${import.meta.env.BASE_URL}logo.png`}
-      width={size}
-      height={size}
       alt="Konclave"
       onError={() => setFailed(true)}
     />
@@ -94,7 +95,7 @@ export default function Cofres() {
     <div className="rd">
       <div className="rd-shell">
         <div className="rd-top">
-          <span className="rd-brandwrap"><Logo size={30} /><span className="rd-brand">Konclave</span></span>
+          <Brand />
           <span className="rd-status"><span className="dot" /> <b>Ambiente seguro</b> · Local-first</span>
         </div>
 
