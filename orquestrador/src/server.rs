@@ -134,6 +134,8 @@ struct ProposalDto {
     is_public: bool,
     expiry_unix: Option<i64>,
     txid: Option<String>,
+    /// Unix seconds when the proposal was created — the real date the UI renders.
+    created_at: Option<i64>,
     approvals: Vec<String>,
     refusals: Vec<String>,
     approvals_count: usize,
@@ -163,6 +165,7 @@ impl From<ProposalRecord> for ProposalDto {
             is_public,
             expiry_unix: p.expiry_unix,
             txid: p.txid,
+            created_at: p.created_at,
             approvals_count: p.approvals.len(),
             approvals: p.approvals,
             refusals: p.refusals,
@@ -1029,6 +1032,7 @@ fn create_proposal(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
         to_address: Some(input.to_address),
         expiry_unix: now_unix().map(|n| n + 72 * 3600), // 72h expiry (spec §10)
         txid: None,
+        created_at: now_unix(),
         approvals: vec![input.proposer],
         refusals: vec![],
     };
@@ -1239,6 +1243,7 @@ fn payroll_create(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
         to_address: None, // destinations live in the lines
         expiry_unix: now_unix().map(|n| n + 72 * 3600),
         txid: None,
+        created_at: now_unix(),
         approvals: vec![req.proposer],
         refusals: vec![],
     };
@@ -1669,6 +1674,7 @@ pub fn seed_demo(store: &mut Store) -> Result<(), crate::store::StoreError> {
         to_address: Some(SLICE_ADDRESS.into()),
         expiry_unix: Some(i64::MAX), // example: never expires
         txid: None,
+        created_at: now_unix(),
         approvals: vec!["Alice".into()],
         refusals: vec![],
     };

@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Letterhead, Secret, RevealButton } from '../components'
 import { getLedger, getProposalDetail, getVault, ledgerCsvUrl, health, shortAddr, type Proposal, type PayrollLine } from '../api'
+import { fmtDate } from '../format'
 
 const STATE_LABEL: Record<string, string> = {
   awaiting: 'aguardando', ready: 'pronta', sent: 'enviada',
@@ -9,12 +10,6 @@ const STATE_LABEL: Record<string, string> = {
 }
 const SETTLED = (s: string) => s === 'sent' || s === 'confirmed'
 
-function dateFromExpiry(unix?: number): string {
-  if (!unix) return '—'
-  // proposals carry expiry = created + 72h; recover an approximate creation date.
-  const d = new Date((unix - 72 * 3600) * 1000)
-  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`
-}
 
 export default function Razao() {
   const nav = useNavigate()
@@ -56,10 +51,10 @@ export default function Razao() {
   const pending = ledger.filter((p) => p.state === 'awaiting' || p.state === 'ready')
   const totalOut = settled.reduce((acc, p) => acc + Number(p.value_zec), 0)
   const totalPending = pending.reduce((acc, p) => acc + Number(p.value_zec), 0)
-  // Approximate period from the entries' recovered dates.
-  const dates = ledger.map((p) => p.expiry_unix).filter(Boolean) as number[]
+  // Period from the entries' real creation dates.
+  const dates = ledger.map((p) => p.created_at).filter(Boolean) as number[]
   const period = dates.length
-    ? `${dateFromExpiry(Math.min(...dates))} – ${dateFromExpiry(Math.max(...dates))}`
+    ? `${fmtDate(Math.min(...dates))} – ${fmtDate(Math.max(...dates))}`
     : '—'
   const filtered = ledger.filter((p) => {
     const stOk = fState === 'all' || (fState === 'settled' ? SETTLED(p.state) : p.state === 'awaiting' || p.state === 'ready')
@@ -128,7 +123,7 @@ export default function Razao() {
               return (
                 <Fragment key={p.id}>
                   <tr className={isPayroll ? 'doc-row' : ''} onClick={() => toggle(p)} style={isPayroll ? { cursor: 'pointer' } : undefined}>
-                    <td className="mono">{dateFromExpiry(p.expiry_unix)}</td>
+                    <td className="mono">{fmtDate(p.created_at)}</td>
                     <td>
                       {isPayroll && <span className="caret">{isOpen ? '▾' : '▸'} </span>}
                       {p.memo || (isPayroll ? 'Folha de pagamento' : 'Pagamento')}

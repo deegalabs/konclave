@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Letterhead, Seal, Secret, RevealButton } from '../components'
 import { Identicon } from '../avatar'
+import { fmtZec as fmt4, expiryLabel, fmtDate } from '../format'
 import {
   getVault, getProposals, getBalance, getLedger, health, shortAddr, isVaultUnlocked,
   deleteVault, clearSelectedVault,
@@ -16,25 +17,6 @@ const MOVIMENTOS_MOCK: Movimento[] = [
   { date: '22/04', title: 'Doação recebida', by: 'de contribuinte anônimo', value: '+1.0000', dir: 'in', status: 'confirmado' },
 ]
 
-function fmt4(zec?: string, fallback = ''): string {
-  if (!zec) return fallback
-  const n = Number(zec)
-  return Number.isFinite(n) ? n.toFixed(4) : fallback
-}
-
-function expiryLabel(unix?: number): string {
-  if (!unix) return ''
-  const ms = unix * 1000 - Date.now()
-  if (ms <= 0) return 'expirada'
-  const h = Math.floor(ms / 3_600_000)
-  return h < 48 ? `expira em ${h}h` : `expira em ${Math.floor(h / 24)}d`
-}
-
-function dateFromExpiry(unix?: number): string {
-  if (!unix) return '—'
-  const d = new Date((unix - 72 * 3600) * 1000)
-  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`
-}
 
 export default function Painel() {
   const nav = useNavigate()
@@ -99,7 +81,7 @@ export default function Painel() {
   // Movements — the real ledger when live; the mock only in the offline showcase.
   const movs: Movimento[] | null = isLive && ledger
     ? ledger.slice(0, 6).map((p) => ({
-        date: dateFromExpiry(p.expiry_unix),
+        date: fmtDate(p.created_at),
         title: p.memo || (p.kind === 'payroll' ? 'Folha de pagamento' : 'Pagamento'),
         by: `prop. ${p.proposer}${p.approvals.length ? ` · aprov. ${p.approvals.join(', ')}` : ''}`,
         value: `−${fmt4(p.value_zec)}`,

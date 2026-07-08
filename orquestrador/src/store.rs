@@ -85,6 +85,9 @@ pub struct ProposalRecord {
     pub to_address: Option<String>,
     pub expiry_unix: Option<i64>,
     pub txid: Option<String>,
+    /// Unix seconds when the proposal was created. `None` for legacy rows predating
+    /// the column. This is the real timestamp the ledger/history render (spec §2.4).
+    pub created_at: Option<i64>,
     pub approvals: Vec<String>,
     pub refusals: Vec<String>,
 }
@@ -127,7 +130,8 @@ impl Store {
                 memo         TEXT,
                 to_address   TEXT,
                 expiry_unix  INTEGER,
-                txid         TEXT
+                txid         TEXT,
+                created_at   INTEGER
             );
             CREATE TABLE IF NOT EXISTS proposal_votes (
                 proposal_id  TEXT NOT NULL REFERENCES proposals(id) ON DELETE CASCADE,
@@ -168,6 +172,8 @@ impl Store {
         // Migration for DBs created before `to_address` existed. Succeeds once; the
         // "duplicate column" error on later opens is expected and ignored.
         let _ = conn.execute("ALTER TABLE proposals ADD COLUMN to_address TEXT", []);
+        // Migration for DBs created before `created_at` existed; ignored on later opens.
+        let _ = conn.execute("ALTER TABLE proposals ADD COLUMN created_at INTEGER", []);
         Ok(Store { conn })
     }
 
@@ -278,14 +284,14 @@ impl Store {
     pub fn save_proposal(&mut self, p: &ProposalRecord) -> Result<(), StoreError> {
         let tx = self.conn.transaction()?;
         tx.execute(
-            "INSERT INTO proposals (id, vault_id, kind, state, proposer, value_total, memo, to_address, expiry_unix, txid)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+            "INSERT INTO proposals (id, vault_id, kind, state, proposer, value_total, memo, to_address, expiry_unix, txid, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
              ON CONFLICT(id) DO UPDATE SET
                state=excluded.state, value_total=excluded.value_total, memo=excluded.memo,
                to_address=excluded.to_address, expiry_unix=excluded.expiry_unix, txid=excluded.txid",
             params![
                 p.id, p.vault_id, kind_str(p.kind), state_str(p.state), p.proposer,
-                p.value_total.as_u64() as i64, p.memo, p.to_address, p.expiry_unix, p.txid
+                p.value_total.as_u64() as i64, p.memo, p.to_address, p.expiry_unix, p.txid, p.created_at
             ],
         )?;
         tx.execute(
@@ -310,7 +316,7 @@ impl Store {
 
     pub fn get_proposal(&self, id: &str) -> Result<Option<ProposalRecord>, StoreError> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, vault_id, kind, state, proposer, value_total, memo, expiry_unix, txid, to_address
+            "SELECT id, vault_id, kind, state, proposer, value_total, memo, expiry_unix, txid, to_address, created_at
              FROM proposals WHERE id = ?1",
         )?;
         let mut rows = stmt.query_map(params![id], |r| row_to_proposal_head(r))?;
@@ -324,7 +330,7 @@ impl Store {
     /// Open proposals (awaiting/ready/sent) for a vault — the "pending" list (spec §6.7).
     pub fn list_open_proposals(&self, vault_id: &str) -> Result<Vec<ProposalRecord>, StoreError> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, vault_id, kind, state, proposer, value_total, memo, expiry_unix, txid, to_address
+            "SELECT id, vault_id, kind, state, proposer, value_total, memo, expiry_unix, txid, to_address, created_at
              FROM proposals
              WHERE vault_id = ?1 AND state IN ('awaiting','ready','sent')",
         )?;
@@ -481,8 +487,8 @@ impl Store {
     /// terminal states (sent/confirmed/rejected/expired) for the accounting export.
     pub fn list_all_proposals(&self, vault_id: &str) -> Result<Vec<ProposalRecord>, StoreError> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, vault_id, kind, state, proposer, value_total, memo, expiry_unix, txid, to_address
-             FROM proposals WHERE vault_id = ?1 ORDER BY expiry_unix DESC, id DESC",
+            "SELECT id, vault_id, kind, state, proposer, value_total, memo, expiry_unix, txid, to_address, created_at
+             FROM proposals WHERE vault_id = ?1 ORDER BY created_at DESC, id DESC",
         )?;
         let heads: Vec<ProposalRecord> = stmt
             .query_map(params![vault_id], |r| row_to_proposal_head(r))?
@@ -557,6 +563,7 @@ fn row_to_proposal_head(r: &rusqlite::Row) -> rusqlite::Result<Result<ProposalRe
         expiry_unix: r.get(7)?,
         txid: r.get(8)?,
         to_address: r.get(9)?,
+        created_at: r.get(10)?,
         approvals: Vec::new(),
         refusals: Vec::new(),
     }))
@@ -689,9 +696,28 @@ mod tests {
             to_address: Some("u1destalice".into()),
             expiry_unix: Some(1_800_000_000),
             txid: None,
+            created_at: Some(1_700_000_000),
             approvals: vec!["alice".into()],
             refusals: vec![],
         }
+    }
+
+    #[test]
+    fn created_at_roundtrips_and_survives_resave() {
+        let mut s = Store::open_in_memory().unwrap();
+        s.save_vault(&sample_vault()).unwrap();
+        let mut p = sample_proposal();
+        p.created_at = Some(1_700_000_042);
+        s.save_proposal(&p).unwrap();
+        assert_eq!(s.get_proposal("prop-1").unwrap().unwrap().created_at, Some(1_700_000_042));
+
+        // Re-saving (e.g. a vote/state change) must NOT overwrite the original creation time.
+        p.state = ProposalState::Ready;
+        p.created_at = Some(9_999_999_999); // a would-be clobber
+        s.save_proposal(&p).unwrap();
+        let got = s.get_proposal("prop-1").unwrap().unwrap();
+        assert_eq!(got.state, ProposalState::Ready);
+        assert_eq!(got.created_at, Some(1_700_000_042), "created_at must be immutable after creation");
     }
 
     #[test]

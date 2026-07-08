@@ -33,6 +33,7 @@ export type Proposal = {
   to_address?: string
   is_public: boolean
   expiry_unix?: number
+  created_at?: number
   txid?: string
   approvals: string[]
   refusals: string[]

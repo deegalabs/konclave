@@ -3,14 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Letterhead, Secret } from '../components'
 import { Identicon } from '../avatar'
 import { getProposals, getVault, health, type Proposal } from '../api'
-
-function expiryLabel(unix?: number): string {
-  if (!unix) return ''
-  const ms = unix * 1000 - Date.now()
-  if (ms <= 0) return 'expirada'
-  const h = Math.floor(ms / 3_600_000)
-  return h < 48 ? `expira em ${h}h` : `expira em ${Math.floor(h / 24)}d`
-}
+import { expiryLabel } from '../format'
 
 const MOCK: Proposal[] = [
   { id: 'm1', vault_id: '', kind: 'payment', state: 'awaiting', proposer: 'Bruno', value_zat: 30000, value_zec: '0.0003', memo: 'adiantamento maio', is_public: false, approvals: ['Bruno'], refusals: [], approvals_count: 1, expiry_unix: undefined },
