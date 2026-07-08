@@ -106,7 +106,7 @@ export default function Painel() {
   const canDelete = locked ? delPass.length > 0 : delName.trim() === name
   async function doDelete() {
     setDelBusy(true); setDelErr(null)
-    const r = await deleteVault(locked ? delPass : undefined)
+    const r = await deleteVault(locked ? delPass : undefined, locked ? undefined : delName.trim())
     setDelBusy(false)
     if (r.ok) { clearSelectedVault(); nav('/') }
     else setDelErr(r.wrong ? 'Palavra do cofre incorreta.' : 'Não foi possível excluir (cofre local offline?).')

@@ -107,8 +107,11 @@ pub fn generate_key() -> Result<[u8; 32], SecretError> {
 
 /// Salt length for [`derive_key`] (Argon2 requires ≥ 8 bytes).
 pub const SALT_LEN: usize = 16;
-/// How many words a generated passphrase has.
-pub const PASSPHRASE_WORDS: usize = 4;
+/// How many words a generated passphrase has. 6 words over the 128-word list is ~42 bits
+/// of entropy (was 4 = ~28); combined with the memory-hard KDF this moves an offline guess
+/// of the on-disk sealed shares from hours to years for a serious attacker. The list length
+/// is a power of two so `byte % len` stays a uniform draw (guarded by a test).
+pub const PASSPHRASE_WORDS: usize = 6;
 /// Known plaintext sealed under the derived key so a passphrase can be *verified*
 /// (on "unlock") without opening a real share.
 const VERIFY_MAGIC: &[u8] = b"konclave-vault-unlock-v1";
@@ -487,6 +490,31 @@ mod tests {
         // A different salt => a different key (defeats precomputation across vaults).
         let salt2 = generate_salt().unwrap();
         assert_ne!(k, derive_key("cedro-barco-pedra-chave", &salt2).unwrap());
+    }
+
+    #[test]
+    fn generated_passphrase_is_unbiased_and_has_enough_entropy() {
+        // The list must be a power of two so `byte % len` is a uniform draw (no modulo bias),
+        // and the words must be distinct so each really carries log2(len) bits.
+        assert!(
+            WORDLIST.len().is_power_of_two(),
+            "WORDLIST length must be a power of two"
+        );
+        let unique: std::collections::HashSet<&&str> = WORDLIST.iter().collect();
+        assert_eq!(unique.len(), WORDLIST.len(), "WORDLIST has duplicate words");
+
+        // Entropy floor: raising PASSPHRASE_WORDS or the list only ever increases this.
+        let bits = PASSPHRASE_WORDS as f64 * (WORDLIST.len() as f64).log2();
+        assert!(
+            bits >= 42.0,
+            "generated passphrase entropy too low: {bits} bits"
+        );
+
+        // A generated passphrase is PASSPHRASE_WORDS words from the list, joined by '-'.
+        let p = generate_passphrase().unwrap();
+        let words: Vec<&str> = p.split('-').collect();
+        assert_eq!(words.len(), PASSPHRASE_WORDS);
+        assert!(words.iter().all(|w| WORDLIST.contains(w)));
     }
 
     #[test]

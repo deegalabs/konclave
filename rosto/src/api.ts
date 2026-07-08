@@ -319,12 +319,15 @@ export async function unlockVault(passphrase: string): Promise<{ ok: boolean; wr
 }
 
 /** Delete the selected vault from THIS device. Locked vaults require the passphrase. */
-export async function deleteVault(passphrase?: string): Promise<{ ok: boolean; wrong: boolean }> {
+export async function deleteVault(
+  passphrase?: string,
+  confirmName?: string,
+): Promise<{ ok: boolean; wrong: boolean }> {
   try {
     const res = await fetch(`${BASE}${withVault('/api/vault/delete')}`, {
       method: 'POST',
       headers: postHeaders(),
-      body: JSON.stringify({ passphrase }),
+      body: JSON.stringify({ passphrase, confirm_name: confirmName }),
     })
     if (res.ok) return { ok: true, wrong: false }
     return { ok: false, wrong: res.status === 401 }

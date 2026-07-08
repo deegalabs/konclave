@@ -752,6 +752,10 @@ fn vault_unlock(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
 struct DeleteReq {
     #[serde(default)]
     passphrase: Option<String>,
+    /// For an unlocked/legacy vault (no passphrase), the exact vault name typed back as a
+    /// destructive-action confirmation — verified server-side, not just in the UI.
+    #[serde(default)]
+    confirm_name: Option<String>,
 }
 
 /// `POST /api/vault/delete` — remove a vault from THIS device (records, proposals,
@@ -759,7 +763,10 @@ struct DeleteReq {
 /// is local only: it cannot touch the chain or other members' devices, and if the vault
 /// still holds funds they become unreachable from here (the UI warns before calling this).
 fn vault_delete(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
-    let req: DeleteReq = serde_json::from_slice(body).unwrap_or(DeleteReq { passphrase: None });
+    let req: DeleteReq = serde_json::from_slice(body).unwrap_or(DeleteReq {
+        passphrase: None,
+        confirm_name: None,
+    });
     let mut store = match open_store(cfg) {
         Ok(s) => s,
         Err(r) => return r,
@@ -789,7 +796,23 @@ fn vault_delete(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
                 );
             }
         }
-        Ok(None) => {}
+        Ok(None) => {
+            // Unlocked/legacy vault: require the exact vault name typed back as a destructive
+            // confirmation, enforced here (not only in the UI) so a request can't silently wipe it.
+            let name = match store.get_vault(&vault_id) {
+                Ok(Some(v)) => v.name,
+                _ => String::new(),
+            };
+            match req.confirm_name.as_deref() {
+                Some(n) if n == name => {}
+                _ => {
+                    return Response::json(
+                        401,
+                        &serde_json::json!({"error": "confirm_required", "detail": "digite o nome do cofre para confirmar a exclusão"}),
+                    )
+                }
+            }
+        }
         Err(e) => {
             return Response::json(
                 500,
@@ -2021,6 +2044,33 @@ mod tests {
     }
 
     #[test]
+    fn delete_unlocked_vault_requires_the_typed_name() {
+        // The seeded demo vault has no passphrase; deletion must still be confirmed by typing
+        // its exact name, enforced server-side (M3) — not only in the UI.
+        let cfg = seeded_cfg(None);
+        let none = handle(&cfg, "POST", "/api/vault/delete", b"{}");
+        assert_eq!(none.status, 401);
+        assert_eq!(body_json(&none)["error"], "confirm_required");
+
+        let wrong = handle(
+            &cfg,
+            "POST",
+            "/api/vault/delete",
+            br#"{"confirm_name":"Errado"}"#,
+        );
+        assert_eq!(wrong.status, 401);
+
+        let ok = handle(
+            &cfg,
+            "POST",
+            "/api/vault/delete",
+            br#"{"confirm_name":"Tesouraria Comum"}"#,
+        );
+        assert_eq!(ok.status, 200);
+        assert_eq!(body_json(&ok)["ok"], true);
+    }
+
+    #[test]
     fn health_is_ok() {
         let cfg = cfg_with(tmp_db(), None);
         let r = handle(&cfg, "GET", "/api/health", b"");
@@ -2196,8 +2246,16 @@ mod tests {
             br#"{"passphrase":"cedro-barco-pedra-chave"}"#,
         );
         assert_eq!(ok.status, 200);
-        // An unlocked vault deletes without a passphrase.
-        let ok2 = handle(&cfg, "POST", "/api/vault/delete?vault=v-plain", b"{}");
+        // An unlocked vault deletes only when its name is typed back (M3): a bare request
+        // is refused server-side, not just in the UI.
+        let refused = handle(&cfg, "POST", "/api/vault/delete?vault=v-plain", b"{}");
+        assert_eq!(refused.status, 401);
+        let ok2 = handle(
+            &cfg,
+            "POST",
+            "/api/vault/delete?vault=v-plain",
+            br#"{"confirm_name":"v-plain"}"#,
+        );
         assert_eq!(ok2.status, 200);
         // Nothing left.
         assert!(
