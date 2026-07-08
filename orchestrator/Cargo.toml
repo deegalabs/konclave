@@ -2,7 +2,7 @@
 name = "orchestrator"
 version = "0.1.0"
 edition = "2021"
-description = "Konclave Orquestrador (Layer 2): proposal state machine, validation, and orchestration of the official FROST/Zcash tools"
+description = "Konclave Orchestrator (Layer 2): proposal state machine, validation, and orchestration of the official FROST/Zcash tools"
 license = "MIT OR Apache-2.0"
 
 # The domain core modules (money, proposal, validation) are dependency-free — pure
@@ -20,7 +20,7 @@ getrandom = "0.2"
 argon2 = "0.5"
 # Local per-device state (vaults, proposals). Bundled SQLite = no system dependency.
 rusqlite = { version = "0.31", features = ["bundled"] }
-# Loopback-only HTTP bridge to the Rosto UI (ADR-0004). Blocking server, coherent with
+# Loopback-only HTTP bridge to the UI (ADR-0004). Blocking server, coherent with
 # the synchronous core (rusqlite/subprocess) — no async runtime dragged in. Bound to
 # 127.0.0.1 only: a local daemon, never a network service.
 tiny_http = "0.12"

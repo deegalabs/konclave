@@ -1,6 +1,6 @@
 # Konclave — launcher local de dev/demo (Windows).
 #
-# Fluxo (ADR-0004): builda o bundle do Rosto no Windows, sobe a ponte local
+# Fluxo (ADR-0004): builda o UI bundle no Windows, sobe a ponte local
 # (`konclave serve`) dentro do WSL escutando só em 127.0.0.1, e abre o navegador.
 # Não depende do WSLg — a UI roda no navegador do Windows falando com o backend no WSL
 # via localhost.
@@ -15,7 +15,7 @@ $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 
 if (-not $NoBuild) {
-  Write-Host "→ buildando o bundle do Rosto (npm run build)…" -ForegroundColor Cyan
+  Write-Host "→ buildando o UI bundle (npm run build)…" -ForegroundColor Cyan
   Push-Location "$repo\ui"
   try { npm run build | Out-Null } finally { Pop-Location }
 }

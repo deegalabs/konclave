@@ -1,7 +1,7 @@
 // Shared formatting helpers — single source of truth for money, dates, and expiry,
 // so screens don't each reimplement (and diverge on) the same logic.
 //
-// Money mirrors the backend's Zatoshis (orquestrador/src/money.rs): 8 fractional digits,
+// Money mirrors the backend's Zatoshis (orchestrator/src/money.rs): 8 fractional digits,
 // integer zatoshis, no floating-point drift.
 
 const ZAT_PER_ZEC = 100_000_000
