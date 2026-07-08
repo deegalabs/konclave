@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { getVaults, health, setSelectedVault, unlockVault, markVaultUnlocked, shortAddr, type Vault } from '../api'
 import { Identicon } from '../avatar'
 import { LangToggle } from '../components'
+import { useT, useTr } from '../i18n'
 import '../redesign.css'
 
 /** The radial-key emblem from the logo (silver spokes + blue keyhole glow). */
@@ -49,6 +50,8 @@ const MOCK: Vault[] = [
 ]
 
 export default function Vaults() {
+  const t = useT()
+  const tr = useTr()
   const nav = useNavigate()
   const [vaults, setVaults] = useState<Vault[]>([])
   const [loaded, setLoaded] = useState(false)
@@ -69,7 +72,7 @@ export default function Vaults() {
     const r = await unlockVault(pass)
     setUnlockBusy(false)
     if (r.ok) { markVaultUnlocked(unlocking.id); nav('/dashboard') }
-    else setUnlockErr(r.wrong ? 'Palavra incorreta. Tente de novo.' : 'Não foi possível verificar (cofre local offline?).')
+    else setUnlockErr(r.wrong ? t('vaults.unlockWrong') : t('vaults.unlockFail'))
   }
 
   useEffect(() => {
@@ -92,33 +95,33 @@ export default function Vaults() {
         <div className="rd-top">
           <Brand />
           <span className="rd-top-right">
-            <span className="rd-status"><span className="dot" /> <b>Ambiente seguro</b> · Local-first</span>
+            <span className="rd-status"><span className="dot" /> {tr('vaults.secureEnv')}</span>
             <LangToggle />
           </span>
         </div>
 
         <div className="rd-hero">
-          <span className="rd-eyebrow">Cofres coletivos</span>
-          <h1>Seus cofres</h1>
-          <p>Cada cofre é um fundo que várias pessoas cuidam <b>juntas</b> — ninguém mexe no dinheiro sozinho. Entre num cofre ou crie um novo.</p>
+          <span className="rd-eyebrow">{t('vaults.eyebrow')}</span>
+          <h1>{t('vaults.heading')}</h1>
+          <p>{tr('vaults.lead')}</p>
         </div>
 
         <div className="rd-grid">
           {vaults.map((v) => {
             const ms = v.member_list ?? []
-            const avatars = ms.length ? ms : Array.from({ length: v.total }, (_, i) => ({ name: `Membro ${i + 1}`, pubkey: '' }))
+            const avatars = ms.length ? ms : Array.from({ length: v.total }, (_, i) => ({ name: t('vaults.memberN', { n: i + 1 }), pubkey: '' }))
             return (
               <div key={v.id} className="rd-card" onClick={() => enter(v)}>
-                <span className="rd-qtag">Quórum {v.threshold} de {v.total}{v.locked ? ' · 🔒' : ''}</span>
+                <span className="rd-qtag">{t('vaults.quorumOf', { t: v.threshold, n: v.total })}{v.locked ? ' · 🔒' : ''}</span>
                 <h3>{v.name}</h3>
                 <div className="rd-avatars">
                   {avatars.slice(0, 4).map((m, i) => <Identicon key={i} seed={m.pubkey || m.name} />)}
-                  <span className="names">{ms.length ? ms.map((m) => m.name).join(', ') : `${v.total} membros`}</span>
+                  <span className="names">{ms.length ? ms.map((m) => m.name).join(', ') : t('vaults.membersCount', { n: v.total })}</span>
                 </div>
                 {v.orchard_address && (
-                  <div className="rd-recv"><span className="lab">receber&nbsp;</span><span className="val">{shortAddr(v.orchard_address)}</span></div>
+                  <div className="rd-recv"><span className="lab">{t('vaults.receive')}&nbsp;</span><span className="val">{shortAddr(v.orchard_address)}</span></div>
                 )}
-                <button className="rd-enter">Entrar <span className="arw">→</span></button>
+                <button className="rd-enter">{t('vaults.enter')} <span className="arw">→</span></button>
               </div>
             )
           })}
@@ -130,40 +133,40 @@ export default function Vaults() {
                   <circle cx="13.5" cy="17" r="7.5" /><circle cx="20.5" cy="17" r="7.5" />
                 </svg>
               </div>
-              <div className="t">Criar um novo cofre</div>
-              <div className="sub">por DKG — a chave nunca existe inteira</div>
+              <div className="t">{t('vaults.createTitle')}</div>
+              <div className="sub">{t('vaults.createSub')}</div>
             </div>
           </div>
         </div>
 
         {loaded && vaults.length === 0 && (
-          <div className="rd-empty">Nenhum cofre ainda. Comece criando o primeiro.</div>
+          <div className="rd-empty">{t('vaults.empty')}</div>
         )}
 
         <div className="rd-note">
-          🔒 Seus dados e a sua parte da chave ficam <b>só aqui, no seu aparelho</b> — não vão para nenhum servidor na internet.
+          {tr('vaults.note')}
           {' · '}<span className="rd-link" onClick={() => nav('/intro')} role="link" tabIndex={0}
-            onKeyDown={(e) => { if (e.key === 'Enter') nav('/intro') }}>como funciona</span>
-          {!live && <> · <i>(modo demonstração — sem o cofre local rodando)</i></>}
+            onKeyDown={(e) => { if (e.key === 'Enter') nav('/intro') }}>{t('vaults.howItWorks')}</span>
+          {!live && <> · <i>{t('vaults.demoMode')}</i></>}
         </div>
       </div>
 
       {unlocking && (
         <div className="unlock-overlay" onClick={() => setUnlocking(null)}>
           <div className="unlock-card" onClick={(e) => e.stopPropagation()}>
-            <div className="rd-eyebrow">Cofre protegido</div>
+            <div className="rd-eyebrow">{t('vaults.protectedVault')}</div>
             <h2>{unlocking.name}</h2>
-            <p>Escreva a <b>palavra do cofre</b> para entrar. É a senha combinada entre os membros na criação.</p>
+            <p>{tr('vaults.unlockPrompt')}</p>
             <input
-              className="unlock-input mono" autoFocus type="password" placeholder="palavra-do-cofre"
+              className="unlock-input mono" autoFocus type="password" placeholder={t('vaults.wordPlaceholder')}
               value={pass} onChange={(e) => setPass(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') void doUnlock() }}
             />
             {unlockErr && <div className="unlock-err">✗ {unlockErr}</div>}
             <div className="unlock-btns">
-              <button className="rd-enter" onClick={() => setUnlocking(null)}>Cancelar</button>
+              <button className="rd-enter" onClick={() => setUnlocking(null)}>{t('common.cancel')}</button>
               <button className="rd-enter primary" onClick={() => void doUnlock()} disabled={unlockBusy || !pass}>
-                {unlockBusy ? 'Verificando…' : 'Entrar →'}
+                {unlockBusy ? t('vaults.verifying') : t('vaults.enterArrow')}
               </button>
             </div>
           </div>

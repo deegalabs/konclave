@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Mark } from '../components'
+import { useT, useTr } from '../i18n'
 import '../redesign.css'
 
 /** The logo lockup with a graceful fallback to the SVG mark. */
@@ -13,25 +14,22 @@ function IntroLogo() {
   )
 }
 
-const CARDS: Array<{ ic: string; t: string; d: string }> = [
-  { ic: '🖥️', t: 'Roda no seu aparelho', d: 'Local-first: seus dados e a sua parte da chave ficam só aqui. Não há servidor na internet guardando nada.' },
-  { ic: '🤝', t: 'Decidido em conjunto', d: 'Um cofre tem um quórum (ex.: 2 de 3). Nenhum pagamento sai sem as aprovações combinadas — ninguém move o dinheiro sozinho.' },
-  { ic: '🛡️', t: 'Privado por fora, transparente por dentro', d: 'Pagamentos blindados na rede Zcash (Orchard); dentro do grupo, quem propôs e quem aprovou fica registrado.' },
-]
-
 export default function Intro() {
+  const t = useT()
+  const tr = useTr()
+  const CARDS: Array<{ ic: string; t: string; d: string }> = [
+    { ic: '🖥️', t: t('intro.card1Title'), d: t('intro.card1Desc') },
+    { ic: '🤝', t: t('intro.card2Title'), d: t('intro.card2Desc') },
+    { ic: '🛡️', t: t('intro.card3Title'), d: t('intro.card3Desc') },
+  ]
   return (
     <div className="rd">
       <div className="rd-shell intro">
         <div className="intro-hero">
           <IntroLogo />
-          <span className="rd-eyebrow">O cofre que decide em conjunto</span>
-          <h1>Um fundo coletivo que<br />ninguém move sozinho.</h1>
-          <p>
-            O <b>Konclave</b> deixa um grupo cuidar de um fundo <b>junto</b> — criar o cofre,
-            aprovar pagamentos por quórum e fazer uma folha privada — sem CLI, sem copiar hex,
-            sem confiar em uma pessoa só.
-          </p>
+          <span className="rd-eyebrow">{t('intro.eyebrow')}</span>
+          <h1>{tr('intro.heroTitle')}</h1>
+          <p>{tr('intro.lead')}</p>
         </div>
 
         <div className="intro-cards">
@@ -45,13 +43,10 @@ export default function Intro() {
         </div>
 
         <div className="intro-cta">
-          <Link className="rd-enter primary" to="/">Ver meus cofres <span className="arw">→</span></Link>
+          <Link className="rd-enter primary" to="/">{t('intro.cta')} <span className="arw">→</span></Link>
         </div>
 
-        <div className="rd-note">
-          🔑 A criptografia é feita pelas ferramentas oficiais da <b>Zcash Foundation</b> (FROST/Orchard).
-          O Konclave é a camada humana por cima — a usabilidade, não a cripto.
-        </div>
+        <div className="rd-note">{tr('intro.note')}</div>
       </div>
     </div>
   )

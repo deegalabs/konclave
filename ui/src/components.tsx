@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useReveal } from './reveal'
-import { useI18n } from './i18n'
+import { useI18n, useT } from './i18n'
 
 /** Language toggle (PT / EN). Keyboard-operable buttons; the choice persists per device. */
 export function LangToggle() {
@@ -62,19 +62,22 @@ export function Secret({ children, sm }: { children: ReactNode; sm?: boolean }) 
 /** The reveal / hide toggle. */
 export function RevealButton() {
   const { revealed, toggle } = useReveal()
+  const t = useT()
   return (
     <button className="reveal-btn" aria-pressed={revealed} onClick={toggle}>
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
         <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
         <circle cx="12" cy="12" r="2.4" />
       </svg>
-      {revealed ? 'Ocultar' : 'Revelar'}
+      {revealed ? t('common.hide') : t('common.reveal')}
     </button>
   )
 }
 
 /** The wax seal with the quorum (t of n). */
-export function Seal({ t, n, cap = 'Assinaturas' }: { t: number; n: number; cap?: string }) {
+export function Seal({ t, n, cap }: { t: number; n: number; cap?: string }) {
+  const tr = useT()
+  const caption = cap ?? tr('seal.caption')
   return (
     <div className="seal-wrap">
       <div className="seal-emb">
@@ -92,18 +95,18 @@ export function Seal({ t, n, cap = 'Assinaturas' }: { t: number; n: number; cap?
           {t}/{n}
         </span>
       </div>
-      <div className="seal-cap">{cap}</div>
+      <div className="seal-cap">{caption}</div>
     </div>
   )
 }
 
-const CERIMONIA_STEPS = ['Definir', 'Convidar', 'Criar', 'Endereço']
-
 /** The ceremony stepper (1-based current step). */
 export function Stepper({ step }: { step: number }) {
+  const t = useT()
+  const steps = [t('stepper.define'), t('stepper.invite'), t('stepper.create'), t('stepper.address')]
   return (
     <div className="steps">
-      {CERIMONIA_STEPS.map((label, i) => (
+      {steps.map((label, i) => (
         <span className="st-wrap" key={label}>
           {i > 0 && <span className="seg" />}
           <span className={'st' + (i + 1 === step ? ' on' : '')}>

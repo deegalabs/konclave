@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { Letterhead, Seal, Secret, RevealButton } from '../components'
 import { Identicon } from '../avatar'
 import { fmtZec as fmt4, expiryLabel, fmtDate } from '../format'
+import { useT, useTr } from '../i18n'
 import {
   getVault, getProposals, getBalance, getLedger, health, shortAddr, isVaultUnlocked,
   deleteVault, clearSelectedVault,
@@ -19,6 +20,8 @@ const MOVIMENTOS_MOCK: Movimento[] = [
 
 
 export default function Dashboard() {
+  const t = useT()
+  const tr = useTr()
   const nav = useNavigate()
   const [vault, setVault] = useState<Vault | null>(null)
   const [proposals, setProposals] = useState<Proposal[]>([])
@@ -56,7 +59,7 @@ export default function Dashboard() {
 
   // Vault header — real vault from the bridge; placeholder only in the offline showcase.
   const name = vault?.name ?? 'Tesouraria Comum'
-  const t = vault?.threshold ?? 2
+  const thr = vault?.threshold ?? 2
   const n = vault?.total ?? 3
   const members = vault?.members ?? n
   const addr = vault ? shortAddr(vault.orchard_address) : 'u1vjgx…d406dr'
@@ -82,8 +85,8 @@ export default function Dashboard() {
   const movs: Movimento[] | null = isLive && ledger
     ? ledger.slice(0, 6).map((p) => ({
         date: fmtDate(p.created_at),
-        title: p.memo || (p.kind === 'payroll' ? 'Folha de pagamento' : 'Pagamento'),
-        by: `prop. ${p.proposer}${p.approvals.length ? ` · aprov. ${p.approvals.join(', ')}` : ''}`,
+        title: p.memo || (p.kind === 'payroll' ? t('kind.payroll') : t('kind.payment')),
+        by: t('dashboard.movBy', { proposer: p.proposer }) + (p.approvals.length ? t('dashboard.movApprovedBy', { who: p.approvals.join(', ') }) : ''),
         value: `−${fmt4(p.value_zec)}`,
         dir: 'out',
         status: p.state === 'sent' || p.state === 'confirmed' ? 'confirmado' : 'verificar',
@@ -92,11 +95,11 @@ export default function Dashboard() {
   const movimentos = movs ?? MOVIMENTOS_MOCK
 
   const acoes: [string, string, string, string][] = [
-    ['01', 'Novo pagamento', 'um destino', '/pay'],
-    ['02', 'Nova folha', 'N destinos, 1 aprovação', '/payroll'],
-    ['03', 'Propostas', `${isLive ? awaiting.length : 1} aguardando`, '/proposals'],
-    ['04', 'Razão / contas', 'entregar ao contador', '/ledger'],
-    ['05', 'Pessoas', 'cadastro de quem recebe', '/people'],
+    ['01', t('dashboard.actPayTitle'), t('dashboard.actPayDesc'), '/pay'],
+    ['02', t('dashboard.actPayrollTitle'), t('dashboard.actPayrollDesc'), '/payroll'],
+    ['03', t('dashboard.actProposalsTitle'), t('dashboard.actProposalsDesc', { n: isLive ? awaiting.length : 1 }), '/proposals'],
+    ['04', t('dashboard.actLedgerTitle'), t('dashboard.actLedgerDesc'), '/ledger'],
+    ['05', t('dashboard.actPeopleTitle'), t('dashboard.actPeopleDesc'), '/people'],
   ]
 
   // Delete flow (local only). Locked vaults require the word; unlocked ones require
@@ -109,58 +112,58 @@ export default function Dashboard() {
     const r = await deleteVault(locked ? delPass : undefined, locked ? undefined : delName.trim())
     setDelBusy(false)
     if (r.ok) { clearSelectedVault(); nav('/') }
-    else setDelErr(r.wrong ? 'Palavra do cofre incorreta.' : 'Não foi possível excluir (cofre local offline?).')
+    else setDelErr(r.wrong ? t('dashboard.delWrong') : t('dashboard.delFail'))
   }
 
   return (
     <>
-      <Letterhead right={<Link className="switch" to="/" title="Trocar de cofre">COFRE · <b>{name}</b> ▾</Link>} />
+      <Letterhead right={<Link className="switch" to="/" title={t('dashboard.switchVault')}>{tr('dashboard.vaultLabel', { name })} ▾</Link>} />
       <div className="page">
         <div className="title-row">
           <div>
-            <span className="klab">Cofre coletivo · quórum</span>
+            <span className="klab">{t('dashboard.collectiveVault')}</span>
             <h1 className="h1">{name}</h1>
             <div className="vmeta">
-              Privado por fora · <b>transparente por dentro</b> · <Link className="link" to="/members">{members} membros</Link>
-              {live === true && <span className="livetag" title="Conectado ao cofre local">● ao vivo</span>}
-              {live === false && <span className="livetag off" title="Bridge local não encontrada">○ demonstração</span>}
+              {tr('dashboard.vmetaPre')} · <Link className="link" to="/members">{t('dashboard.membersCount', { n: members })}</Link>
+              {live === true && <span className="livetag" title={t('dashboard.liveTitle')}>{t('dashboard.live')}</span>}
+              {live === false && <span className="livetag off" title={t('dashboard.demoTitle')}>{t('dashboard.demo')}</span>}
             </div>
           </div>
-          <Seal t={t} n={n} />
+          <Seal t={thr} n={n} />
         </div>
 
         {/* 1 · O que precisa de você — a ação primeiro */}
         {showApprovalCard ? (
           <section className="needyou act">
-            <div className="req"><span className="stamp">Pendente</span> Precisa de você{isLive && awaiting.length > 1 ? ` · ${awaiting.length} aguardando` : ''}</div>
+            <div className="req"><span className="stamp">{t('stamp.awaiting')}</span> {t('dashboard.needsYou')}{isLive && awaiting.length > 1 ? t('dashboard.awaitingSuffix', { n: awaiting.length }) : ''}</div>
             <div className="ny-body">
               <Identicon seed={pProposer} size={38} />
               <div className="ny-main">
                 <div className="ny-amt">{pAmt} <span className="dim small">ZEC</span></div>
-                <div className="a-to">memo “{pMemo}” · proposto por <b>{pProposer}</b></div>
+                <div className="a-to">{tr('dashboard.memoProposedBy', { memo: pMemo, proposer: pProposer })}</div>
                 <div className="a-meta">
-                  <span className="prog">{Array.from({ length: t }, (_, i) => <i key={i} className={i < pApprovals ? 'on' : ''} />)}</span>
-                  <span>{pApprovals} de {t}{pExpiry ? ` · ${pExpiry}` : ''}</span>
+                  <span className="prog">{Array.from({ length: thr }, (_, i) => <i key={i} className={i < pApprovals ? 'on' : ''} />)}</span>
+                  <span>{t('dashboard.ofApprovals', { count: pApprovals, total: thr })}{pExpiry ? ` · ${pExpiry}` : ''}</span>
                 </div>
               </div>
             </div>
             <div className="btns">
-              <Link className="btn ok" to="/proposal" state={pending ? { id: pending.id } : undefined}>▸ Revisar e votar</Link>
+              <Link className="btn ok" to="/proposal" state={pending ? { id: pending.id } : undefined}>{t('dashboard.reviewVote')}</Link>
             </div>
-            <div className="note">Você escolhe por quem aprova ou recusa na próxima tela.</div>
+            <div className="note">{t('dashboard.chooseWhoNote')}</div>
           </section>
         ) : (
           <section className="needyou calm">
-            <div className="req"><span className="stamp">—</span> Nada aguardando você</div>
-            <div className="note">Quando alguém propuser um pagamento, ele aparece aqui para o seu aval.</div>
-            <div className="btns"><Link className="btn ok" to="/pay">▸ Propor pagamento</Link></div>
+            <div className="req"><span className="stamp">—</span> {t('dashboard.nothingWaiting')}</div>
+            <div className="note">{t('dashboard.nothingWaitingNote')}</div>
+            <div className="btns"><Link className="btn ok" to="/pay">{t('dashboard.proposePayment')}</Link></div>
           </section>
         )}
 
         {/* 2 · Saldo */}
         <section className="entry">
           <div className="entry-top">
-            <span className="klab">Saldo do cofre</span>
+            <span className="klab">{t('dashboard.vaultBalance')}</span>
             <RevealButton />
           </div>
           <div className="fig">
@@ -168,22 +171,22 @@ export default function Dashboard() {
             <span className="unit">ZEC</span>
           </div>
           <div className="breakdown">
-            <span>confirmado <Secret sm><b>{confirmado}</b></Secret></span>
-            <span className="pd">pendente <Secret sm><b>{pendente}</b></Secret></span>
+            <span>{t('dashboard.confirmedLower')} <Secret sm><b>{confirmado}</b></Secret></span>
+            <span className="pd">{t('dashboard.pendingLower')} <Secret sm><b>{pendente}</b></Secret></span>
           </div>
           <div className="receive">
-            <span className="klab plain">Receber em</span>
+            <span className="klab plain">{t('dashboard.receiveIn')}</span>
             <code>{addr}</code>
             <span className="orchard">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2.5 4.5 5.5v6c0 5 3.4 8.4 7.5 9.9 4.1-1.5 7.5-4.9 7.5-9.9v-6L12 2.5Z" /></svg>
-              SÓ ENDEREÇO ORCHARD
+              {t('dashboard.orchardOnly')}
             </span>
           </div>
         </section>
 
         {/* 3 · O que fazer */}
         <nav className="opnav card">
-          <span className="klab">O que fazer</span>
+          <span className="klab">{t('dashboard.whatToDo')}</span>
           {acoes.map(([num, title, desc, to]) => (
             <Link className="op" to={to} key={num}>
               <span className="n">{num}</span>
@@ -196,10 +199,10 @@ export default function Dashboard() {
 
         {/* 4 · Histórico */}
         <section className="ledger">
-          <span className="klab">Movimentações</span>
-          <div className="cap">Transparência interna — quem propôs e quem aprovou fica registrado.</div>
+          <span className="klab">{t('dashboard.movements')}</span>
+          <div className="cap">{t('dashboard.movementsCap')}</div>
           {movimentos.length === 0 && (
-            <div className="cap">Nenhuma movimentação ainda. As propostas aparecem aqui conforme são criadas.</div>
+            <div className="cap">{t('dashboard.noMovements')}</div>
           )}
           {movimentos.map((m, i) => (
             <div className="lrow" key={i}>
@@ -210,7 +213,7 @@ export default function Dashboard() {
               </div>
               <div className={'lval ' + m.dir}>
                 <Secret sm><span>{m.value}</span></Secret>
-                <div className="st">{m.status === 'verificar' ? <Link className="link" to="/ledger">verificar ↗</Link> : 'confirmado'}</div>
+                <div className="st">{m.status === 'verificar' ? <Link className="link" to="/ledger">{t('dashboard.verify')}</Link> : t('dashboard.confirmed')}</div>
               </div>
             </div>
           ))}
@@ -218,13 +221,13 @@ export default function Dashboard() {
 
         {/* Zona de perigo */}
         <section className="danger-zone">
-          <span className="klab danger-lab">Zona de perigo</span>
+          <span className="klab danger-lab">{t('dashboard.dangerZone')}</span>
           <div className="danger-body">
             <div>
-              <div className="danger-t">Excluir este cofre</div>
-              <div className="danger-d">Remove o cofre deste aparelho. Não afeta a rede Zcash nem os outros membros.</div>
+              <div className="danger-t">{t('dashboard.deleteThisVault')}</div>
+              <div className="danger-d">{t('dashboard.deleteThisVaultDesc')}</div>
             </div>
-            <button className="btn danger-btn" onClick={() => { setShowDelete(true); setDelErr(null); setDelPass(''); setDelName('') }}>Excluir cofre</button>
+            <button className="btn danger-btn" onClick={() => { setShowDelete(true); setDelErr(null); setDelPass(''); setDelName('') }}>{t('dashboard.deleteVault')}</button>
           </div>
         </section>
       </div>
@@ -232,24 +235,23 @@ export default function Dashboard() {
       {showDelete && (
         <div className="modal-overlay" onClick={() => setShowDelete(false)}>
           <div className="modal-card danger" onClick={(e) => e.stopPropagation()}>
-            <span className="klab danger-lab">Excluir cofre</span>
-            <h2 className="modal-h">Excluir “{name}”?</h2>
-            <p className="modal-p">Isto remove o cofre <b>só deste aparelho</b> — registros, propostas e pessoas. <b>Não dá para desfazer.</b></p>
+            <span className="klab danger-lab">{t('dashboard.deleteVault')}</span>
+            <h2 className="modal-h">{tr('dashboard.deleteConfirmTitle', { name })}</h2>
+            <p className="modal-p">{tr('dashboard.deleteConfirmBody')}</p>
 
             <div className="danger-funds">
-              ⚠ Se este cofre tiver <b>ZEC</b>, ao excluir você <b>perde o acesso a esse dinheiro</b> — a sua parte da chave some deste aparelho.
-              {' '}<b>Envie o saldo para outro lugar antes de excluir.</b>
-              {seesFunds && <div className="mt-xs">Este dispositivo vê um saldo de <b>{fmt4(balance?.total_zec)} ZEC</b>.</div>}
+              {tr('dashboard.deleteFundsWarn')}
+              {seesFunds && <div className="mt-xs">{tr('dashboard.deleteSeesFunds', { amt: fmt4(balance?.total_zec) })}</div>}
             </div>
-            <div className="hint">Isto não apaga nada na rede Zcash nem no aparelho dos outros membros — é só a sua cópia local.</div>
+            <div className="hint">{t('dashboard.deleteLocalHint')}</div>
 
             {locked ? (
-              <label className="field mt"><span>Digite a palavra do cofre para confirmar</span>
+              <label className="field mt"><span>{t('dashboard.deleteTypeWord')}</span>
                 <input className="input" type="password" value={delPass} onChange={(e) => setDelPass(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter' && canDelete) void doDelete() }} autoFocus />
               </label>
             ) : (
-              <label className="field mt"><span>Digite o nome do cofre (<b>{name}</b>) para confirmar</span>
+              <label className="field mt"><span>{tr('dashboard.deleteTypeName', { name })}</span>
                 <input className="input" value={delName} onChange={(e) => setDelName(e.target.value)} placeholder={name}
                   onKeyDown={(e) => { if (e.key === 'Enter' && canDelete) void doDelete() }} autoFocus />
               </label>
@@ -257,9 +259,9 @@ export default function Dashboard() {
             {delErr && <div className="hint err mt">✗ {delErr}</div>}
 
             <div className="btns right mt">
-              <button className="btn ghost" onClick={() => setShowDelete(false)}>Cancelar</button>
+              <button className="btn ghost" onClick={() => setShowDelete(false)}>{t('common.cancel')}</button>
               <button className="btn danger-btn" onClick={() => void doDelete()} disabled={delBusy || !canDelete}>
-                {delBusy ? 'Excluindo…' : 'Excluir definitivamente'}
+                {delBusy ? t('dashboard.deleting') : t('dashboard.deletePermanently')}
               </button>
             </div>
           </div>

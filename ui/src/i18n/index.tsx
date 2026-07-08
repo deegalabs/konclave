@@ -2,7 +2,7 @@
 // Portuguese-first (the target treasurer audience), English available via the toggle.
 // Local-first friendly: no network, no telemetry — just two static dictionaries.
 
-import { createContext, useCallback, useContext, useState, type ReactNode } from 'react'
+import { createContext, Fragment, useCallback, useContext, useState, type ReactNode } from 'react'
 import { en } from './en'
 import { ptBR } from './pt-BR'
 
@@ -52,4 +52,25 @@ export function useI18n(): I18n {
 /** Convenience hook for components that only need the translate function. */
 export function useT(): TFn {
   return useI18n().t
+}
+
+/** Render a translated string, turning **double-asterisk** runs into <b>…</b>.
+ *  Lets copy with inline emphasis stay a single readable dictionary value. */
+function renderBold(s: string): ReactNode {
+  // Each line may contain **bold** runs; blank-line-free \n becomes a <br/>.
+  const lines = s.split('\n')
+  return lines.map((line, li) => (
+    <Fragment key={li}>
+      {li > 0 && <br />}
+      {line.split('**').map((seg, i) => (i % 2 === 1 ? <b key={i}>{seg}</b> : <Fragment key={i}>{seg}</Fragment>))}
+    </Fragment>
+  ))
+}
+
+export type TRichFn = (key: string, vars?: Record<string, string | number>) => ReactNode
+
+/** Like useT, but returns a ReactNode with **bold** markers rendered as <b>. */
+export function useTr(): TRichFn {
+  const t = useT()
+  return useCallback<TRichFn>((key, vars) => renderBold(t(key, vars)), [t])
 }

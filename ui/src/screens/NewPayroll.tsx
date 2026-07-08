@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Letterhead, Secret } from '../components'
 import { fmtZec, parseZecToZat, zatToZec } from '../format'
-import { useT } from '../i18n'
+import { useT, useTr } from '../i18n'
 import {
   previewPayroll, createPayroll, getBalance, getBeneficiaries, getLedger, getVault, health, classifyAddress, humanError,
   type Beneficiary, type Proposal, type Member,
@@ -14,20 +14,21 @@ type Row = { label: string; address: string; value: string; memo: string }
 const emptyRow = (): Row => ({ label: '', address: '', value: '', memo: '' })
 
 
-// A blocking problem with a row (null = ok). Warnings (public/sapling) are separate.
+// A blocking problem with a row (null = ok); returns an i18n key. Warnings (public/sapling) separate.
 function rowIssue(r: Row): string | null {
-  if (!r.address.trim()) return 'endereço vazio'
+  if (!r.address.trim()) return 'payroll.issueEmpty'
   const k = classifyAddress(r.address.trim())
-  if (k === 'unknown') return 'endereço não reconhecido'
+  if (k === 'unknown') return 'payroll.issueUnknown'
   const zat = parseZecToZat(r.value)
-  if (zat === null || zat <= 0) return 'valor inválido'
-  if (k === 'transparent' && r.memo.trim()) return 'memo não vale em endereço transparente'
+  if (zat === null || zat <= 0) return 'payroll.issueInvalid'
+  if (k === 'transparent' && r.memo.trim()) return 'payroll.issueMemoPublic'
   return null
 }
 const rowTouched = (r: Row) => !!(r.address.trim() || r.value.trim() || r.label.trim() || r.memo.trim())
 
 export default function NewPayroll() {
   const t = useT()
+  const tr = useTr()
   const nav = useNavigate()
   const [competencia, setCompetencia] = useState('')
   const [description, setDescription] = useState('')
@@ -91,14 +92,14 @@ export default function NewPayroll() {
   async function importCsv() {
     setError(null)
     const p = await previewPayroll(csv)
-    if (!p) { setError('Não foi possível ler o CSV (bridge local offline?).'); return }
+    if (!p) { setError(t('payroll.errCsvRead')); return }
     const imported: Row[] = p.lines.map((l) => ({
       label: l.label ?? '', address: l.address, value: l.value_zec, memo: l.memo,
     }))
     setRows(imported.length ? imported : [emptyRow()])
     setShowImport(false)
     const e0 = p.errors[0]
-    if (e0) setError(`${p.errors.length} linha(s) do CSV com erro foram ignoradas (ex.: linha ${e0.row}: ${e0.reason}).`)
+    if (e0) setError(t('payroll.errCsvRows', { count: p.errors.length, row: e0.row, reason: e0.reason }))
   }
 
   // Live aggregates over the valid rows.
@@ -112,11 +113,11 @@ export default function NewPayroll() {
 
   async function submit() {
     setError(null)
-    if (count === 0) { setError('Adicione ao menos uma linha válida.'); return }
-    if (anyBadTouched) { setError('Corrija as linhas marcadas antes de enviar para aprovação.'); return }
+    if (count === 0) { setError(t('payroll.errNoRows')); return }
+    if (anyBadTouched) { setError(t('payroll.errFixRows')); return }
     setBusy(true)
     const desc = competencia.trim()
-      ? `Folha · ${competencia.trim()}${description.trim() ? ` — ${description.trim()}` : ''}`
+      ? `${t('payroll.docPrefix')} · ${competencia.trim()}${description.trim() ? ` — ${description.trim()}` : ''}`
       : (description.trim() || undefined)
     const res = await createPayroll(
       proposer,
@@ -130,16 +131,16 @@ export default function NewPayroll() {
 
   return (
     <>
-      <Letterhead right={<span className="klab back" onClick={() => nav('/dashboard')}>← Painel</span>} />
+      <Letterhead right={<span className="klab back" onClick={() => nav('/dashboard')}>{t('common.backPanel')}</span>} />
       <div className="page">
-        <h1 className="h1">Nova folha</h1>
-        <p className="cap">Um documento: vários pagamentos numa transação, aprovada uma vez. {saved && <span className="livetag" title="Rascunho salvo neste dispositivo">● rascunho salvo</span>}</p>
+        <h1 className="h1">{t('payroll.title')}</h1>
+        <p className="cap">{t('payroll.cap')} {saved && <span className="livetag" title={t('payroll.draftSavedTitle')}>{t('payroll.draftSaved')}</span>}</p>
 
         <div className="ctx">
-          <span>Do cofre <b>{vaultName}</b></span>
+          <span>{tr('payment.fromVault', { name: vaultName })}</span>
           {membersList.length > 0 && (
             <label className="ctx-as">
-              propondo como
+              {t('payment.proposingAs')}
               <select value={proposer} onChange={(e) => setProposer(e.target.value)}>
                 {membersList.map((m) => <option key={m.pubkey || m.name} value={m.name}>{m.name}</option>)}
               </select>
@@ -149,10 +150,10 @@ export default function NewPayroll() {
 
         {pastFolhas.length > 0 && (
           <div className="past-folhas">
-            <span className="klab">Folhas anteriores</span>
+            <span className="klab">{t('payroll.pastPayrolls')}</span>
             {pastFolhas.slice(0, 4).map((f) => (
               <div className="pf-row" key={f.id} onClick={() => nav('/proposal', { state: { id: f.id } })}>
-                <span className="pf-name">{f.memo || 'Folha de pagamento'}</span>
+                <span className="pf-name">{f.memo || t('kind.payroll')}</span>
                 <span className="pf-meta">
                   <span className="pf-val"><Secret sm><span>{fmtZec(f.value_zec)} ZEC</span></Secret></span>
                   <span className={'pf-st ' + f.state}>{t('state.' + f.state)}</span>
@@ -164,16 +165,16 @@ export default function NewPayroll() {
         )}
 
         <div className="doc-head">
-          <label className="field inline"><span>Competência</span>
-            <input className="input mono" placeholder="ex.: abril/2026" value={competencia} onChange={(e) => setCompetencia(e.target.value)} />
+          <label className="field inline"><span>{t('payroll.competence')}</span>
+            <input className="input mono" placeholder={t('payroll.competencePlaceholder')} value={competencia} onChange={(e) => setCompetencia(e.target.value)} />
           </label>
-          <label className="field inline"><span>Descrição (opcional)</span>
-            <input className="input" placeholder="ex.: contribuições de abril" value={description} onChange={(e) => setDescription(e.target.value)} />
+          <label className="field inline"><span>{t('payroll.description')}</span>
+            <input className="input" placeholder={t('payroll.descriptionPlaceholder')} value={description} onChange={(e) => setDescription(e.target.value)} />
           </label>
         </div>
 
         <table className="tbl folha mt">
-          <thead><tr><th>#</th><th>Beneficiário</th><th>Endereço</th><th>Valor</th><th>Memo / holerite</th><th></th></tr></thead>
+          <thead><tr><th>#</th><th>{t('payroll.colBeneficiary')}</th><th>{t('payroll.colAddress')}</th><th>{t('payroll.colValue')}</th><th>{t('payroll.colMemo')}</th><th></th></tr></thead>
           <tbody>
             {rows.map((r, i) => {
               const k = r.address.trim().length > 1 ? classifyAddress(r.address.trim()) : null
@@ -181,17 +182,17 @@ export default function NewPayroll() {
               return (
                 <tr key={i} className={issue ? 'row-bad' : ''}>
                   <td className="mono dim">{i + 1}</td>
-                  <td><input className="cell-input" placeholder="nome" value={r.label} onChange={(e) => updateRow(i, { label: e.target.value })} /></td>
+                  <td><input className="cell-input" placeholder={t('payroll.namePlaceholder')} value={r.label} onChange={(e) => updateRow(i, { label: e.target.value })} /></td>
                   <td>
-                    <input className="cell-input mono" placeholder="u1… (Orchard)" value={r.address} onChange={(e) => updateRow(i, { address: e.target.value })} />
-                    {k === 'transparent' && <div className="cell-warn">⚠ público</div>}
-                    {k === 'sapling' && <div className="cell-warn">⚠ Sapling — prefira u1…</div>}
+                    <input className="cell-input mono" placeholder={t('payroll.addrPlaceholder')} value={r.address} onChange={(e) => updateRow(i, { address: e.target.value })} />
+                    {k === 'transparent' && <div className="cell-warn">{t('payroll.cellPublic')}</div>}
+                    {k === 'sapling' && <div className="cell-warn">{t('payroll.cellSapling')}</div>}
                   </td>
                   <td><input className="cell-input mono num-input" placeholder="0.0000" value={r.value} onChange={(e) => updateRow(i, { value: e.target.value })} /></td>
-                  <td><input className="cell-input" placeholder={k === 'transparent' ? 'sem memo (público)' : 'holerite…'} value={r.memo} onChange={(e) => updateRow(i, { memo: e.target.value })} disabled={k === 'transparent'} /></td>
+                  <td><input className="cell-input" placeholder={k === 'transparent' ? t('payroll.memoPublicPlaceholder') : t('payroll.memoPlaceholder')} value={r.memo} onChange={(e) => updateRow(i, { memo: e.target.value })} disabled={k === 'transparent'} /></td>
                   <td>
-                    <button className="row-del" title="remover" onClick={() => removeRow(i)}>×</button>
-                    {issue && <div className="cell-warn err">{issue}</div>}
+                    <button className="row-del" title={t('common.remove')} onClick={() => removeRow(i)}>×</button>
+                    {issue && <div className="cell-warn err">{t(issue)}</div>}
                   </td>
                 </tr>
               )
@@ -200,41 +201,41 @@ export default function NewPayroll() {
         </table>
 
         <div className="mt-sm folha-actions">
-          <button className="btn ghost sm-btn" onClick={addRow}>+ Adicionar linha</button>
+          <button className="btn ghost sm-btn" onClick={addRow}>{t('payroll.addRow')}</button>
           {benefs.length > 0 && (
             <select className="btn ghost sm-btn" value="" onChange={(e) => {
               const b = benefs.find((x) => x.id === e.target.value)
               if (b) setRows((prev) => [...prev.filter(rowTouched), { label: b.name, address: b.address, value: '', memo: b.memo }])
             }}>
-              <option value="">+ do cadastro…</option>
+              <option value="">{t('payroll.fromRegistry')}</option>
               {benefs.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           )}
-          <button className="btn ghost sm-btn" onClick={() => setShowImport((v) => !v)}>↑ Importar CSV</button>
+          <button className="btn ghost sm-btn" onClick={() => setShowImport((v) => !v)}>{t('payroll.importCsv')}</button>
         </div>
         {count === 0 && !showImport && (
-          <div className="hint mt-sm">Comece a montar a folha: escreva na tabela acima, escolha alguém <b>do cadastro</b>, ou <b>importe um CSV</b> (rótulo, endereço, valor, memo).</div>
+          <div className="hint mt-sm">{tr('payroll.startHint')}</div>
         )}
 
         {showImport && (
           <div className="mt-sm">
-            <textarea className="input mono csv-area" rows={4} placeholder="rótulo,endereço,valor,memo" value={csv} onChange={(e) => setCsv(e.target.value)} spellCheck={false} />
-            <div className="mt-sm"><button className="btn ghost sm-btn" onClick={importCsv}>Ler e preencher tabela</button></div>
+            <textarea className="input mono csv-area" rows={4} placeholder={t('payroll.csvPlaceholder')} value={csv} onChange={(e) => setCsv(e.target.value)} spellCheck={false} />
+            <div className="mt-sm"><button className="btn ghost sm-btn" onClick={importCsv}>{t('payroll.csvRead')}</button></div>
           </div>
         )}
 
         <div className="confirm mt preview">
-          <div className="pv-row"><span className="pv-k">Documento</span><span className="pv-v"><b>{competencia ? `Folha · ${competencia}` : 'Folha'}</b></span></div>
-          <div className="pv-row"><span className="pv-k">Pagamentos</span><span className="pv-v"><b>{count}</b> numa transação só, aprovada uma vez</span></div>
-          <div className="pv-row"><span className="pv-k">Total</span><span className="pv-v"><Secret sm><b>{zatToZec(totalZat)} ZEC</b></Secret> + taxa est. {zatToZec(feeZat)}</span></div>
-          <div className="pv-row"><span className="pv-k">Saldo após</span><span className="pv-v"><Secret sm><b>{afterZat === null ? '—' : zatToZec(afterZat)}</b></Secret></span></div>
-          <div className="pv-row"><span className="pv-k">Aprovação</span><span className="pv-v">Enviar já conta como a de <b>{proposer}</b></span></div>
+          <div className="pv-row"><span className="pv-k">{t('payroll.pvDocument')}</span><span className="pv-v"><b>{competencia ? `${t('payroll.docPrefix')} · ${competencia}` : t('payroll.docPrefix')}</b></span></div>
+          <div className="pv-row"><span className="pv-k">{t('payroll.pvPayments')}</span><span className="pv-v"><b>{count}</b> {t('payroll.pvPaymentsSuffix')}</span></div>
+          <div className="pv-row"><span className="pv-k">{t('payroll.pvTotal')}</span><span className="pv-v"><Secret sm><b>{zatToZec(totalZat)} ZEC</b></Secret> {t('payroll.pvPlusFee', { fee: zatToZec(feeZat) })}</span></div>
+          <div className="pv-row"><span className="pv-k">{t('payroll.pvAfter')}</span><span className="pv-v"><Secret sm><b>{afterZat === null ? '—' : zatToZec(afterZat)}</b></Secret></span></div>
+          <div className="pv-row"><span className="pv-k">{t('payroll.pvApproval')}</span><span className="pv-v">{tr('payroll.pvApprovalValue', { proposer })}</span></div>
         </div>
-        {afterZat !== null && afterZat < 0 && <div className="hint warn mt-sm">⚠ Total + taxa excede o saldo do cofre.</div>}
+        {afterZat !== null && afterZat < 0 && <div className="hint warn mt-sm">{t('payroll.warnExceeds')}</div>}
         {error && <div className="hint err mt">✗ {error}</div>}
 
         <div className="right mt">
-          <button className="btn ok" onClick={submit} disabled={!canSubmit}>{busy ? 'Enviando…' : '▸ Enviar para aprovação'}</button>
+          <button className="btn ok" onClick={submit} disabled={!canSubmit}>{busy ? t('payroll.sending') : t('payroll.submitBtn')}</button>
         </div>
       </div>
     </>

@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { Letterhead, Secret } from '../components'
 import { Identicon } from '../avatar'
 import { fmtZec } from '../format'
-import { useT } from '../i18n'
+import { useT, useTr } from '../i18n'
 import {
   getProposalDetail, getProposals, getVault, voteProposal, sendProposal, shortAddr, humanError,
   type Proposal, type PayrollLine,
@@ -11,6 +11,7 @@ import {
 
 export default function Proposal() {
   const t = useT()
+  const tr = useTr()
   const nav = useNavigate()
   const loc = useLocation() as { state?: { id?: string } }
   const [p, setP] = useState<Proposal | null>(null)
@@ -48,7 +49,7 @@ export default function Proposal() {
     if (!p) return
     const canVote = members.filter((m) => !p.approvals.includes(m) && !p.refusals.includes(m))
     const who = approveAs && canVote.includes(approveAs) ? approveAs : canVote[0]
-    if (!who) { setError('Não há membro disponível para votar.'); return }
+    if (!who) { setError(t('proposal.errNoVoter')); return }
     setError(null); setBusy(true)
     const res = await voteProposal(p.id, who, approve)
     setBusy(false)
@@ -63,20 +64,20 @@ export default function Proposal() {
     setSending(null)
     if (!res.ok) { setError(humanError(res.error, res.detail)); return }
     if (res.dryRun) {
-      setDryOk(res.sighash ?? 'assinatura válida')
+      setDryOk(res.sighash ?? t('proposal.validSignature'))
     } else if (res.proposal) {
       setP(res.proposal) // now Sent, carries the txid
     }
   }
 
   if (loading) {
-    return (<><Letterhead right={<span className="klab back" onClick={() => nav('/dashboard')}>← Propostas</span>} />
-      <div className="page narrow"><div className="hint">Carregando proposta…</div></div></>)
+    return (<><Letterhead right={<span className="klab back" onClick={() => nav('/dashboard')}>{t('common.backProposals')}</span>} />
+      <div className="page narrow"><div className="hint">{t('proposal.loading')}</div></div></>)
   }
   if (!p) {
-    return (<><Letterhead right={<span className="klab back" onClick={() => nav('/dashboard')}>← Propostas</span>} />
-      <div className="page narrow"><h1 className="h1">Nenhuma proposta</h1>
-        <div className="hint">Não há proposta aberta. <span className="link" onClick={() => nav('/pay')}>Propor um pagamento →</span></div>
+    return (<><Letterhead right={<span className="klab back" onClick={() => nav('/dashboard')}>{t('common.backProposals')}</span>} />
+      <div className="page narrow"><h1 className="h1">{t('proposal.noneTitle')}</h1>
+        <div className="hint">{t('proposal.noneBody')} <span className="link" onClick={() => nav('/pay')}>{t('proposal.proposePaymentLink')}</span></div>
       </div></>)
   }
 
@@ -92,9 +93,9 @@ export default function Proposal() {
   const pendingApprovers = members.filter((m) => !p.approvals.includes(m) && !p.refusals.includes(m))
 
   // Title carries meaning (what/referente), not just a stamp.
-  const eyebrow = isPayroll ? 'Folha de pagamento' : 'Pagamento'
-  const title = p.memo?.trim() || (isPayroll ? 'Folha de pagamento' : `Pagamento a ${dest}`)
-  const subtitle = isPayroll ? `${lines.length} pagamentos numa transação, aprovada uma vez` : `para ${dest}`
+  const eyebrow = isPayroll ? t('kind.payroll') : t('kind.payment')
+  const title = p.memo?.trim() || (isPayroll ? t('kind.payroll') : t('proposal.paymentTo', { dest }))
+  const subtitle = isPayroll ? t('proposal.payrollSubtitle', { n: lines.length }) : t('proposal.paymentSubtitle', { dest })
 
   // State trail: Aprovação → Assinatura → Enviado (null while terminal-negative).
   const trailIdx = isAwaiting ? 0 : isReady ? 1 : isSent ? 2 : null
@@ -103,24 +104,24 @@ export default function Proposal() {
   const everyone = Array.from(new Set([p.proposer, ...members, ...p.approvals, ...p.refusals]))
   const stance = (m: string) => {
     const approved = p.approvals.includes(m)
-    if (approved) return { cls: 'ok', label: m === p.proposer ? 'propôs · aprovou' : 'aprovou' }
-    if (p.refusals.includes(m)) return { cls: 'no', label: 'recusou' }
-    return { cls: '', label: 'aguardando' }
+    if (approved) return { cls: 'ok', label: m === p.proposer ? t('proposal.stanceProposedApproved') : t('proposal.stanceApproved') }
+    if (p.refusals.includes(m)) return { cls: 'no', label: t('proposal.stanceRefused') }
+    return { cls: '', label: t('proposal.stanceAwaiting') }
   }
 
   return (
     <>
-      <Letterhead right={<span className="klab back" onClick={() => nav('/dashboard')}>← Painel</span>} />
+      <Letterhead right={<span className="klab back" onClick={() => nav('/dashboard')}>{t('common.backPanel')}</span>} />
       <div className="page narrow">
         <div className="prop-head">
           <span className="klab">{eyebrow}</span>
           <span className={'stamp st-' + p.state}>{t('stamp.' + p.state)}</span>
         </div>
         <h1 className="h1 prop-title">{title}</h1>
-        <div className="p-meta">{subtitle}{p.is_public && !isPayroll && <span className="hint warn"> · ⚠ destino público</span>}</div>
+        <div className="p-meta">{subtitle}{p.is_public && !isPayroll && <span className="hint warn"> {t('proposal.publicDestSuffix')}</span>}</div>
 
         <div className="steps ptrail">
-          {['Aprovação', 'Assinatura', 'Enviado'].map((label, i) => (
+          {[t('proposal.trailApproval'), t('proposal.trailSignature'), t('proposal.trailSent')].map((label, i) => (
             <span className="st-wrap" key={label}>
               {i > 0 && <span className="seg" />}
               <span className={'st' + (trailIdx !== null && i <= trailIdx ? ' on' : '')}><span className="pip" />{label}</span>
@@ -131,7 +132,7 @@ export default function Proposal() {
         <div className="p-amt mt"><Secret><span>{val}</span></Secret> <span className="dim small">ZEC</span></div>
         {isPayroll && (
           <table className="tbl folha mt">
-            <thead><tr><th>Rótulo</th><th>Destino</th><th>Valor</th><th>Memo</th></tr></thead>
+            <thead><tr><th>{t('proposal.colLabel')}</th><th>{t('proposal.colDest')}</th><th>{t('proposal.colValue')}</th><th>{t('proposal.colMemo')}</th></tr></thead>
             <tbody>
               {lines.map((l, i) => (
                 <tr key={i}>
@@ -146,8 +147,8 @@ export default function Proposal() {
         )}
 
         <div className="who-head">
-          <span className="klab">Aprovações</span>
-          <span className="who-prog"><span className="prog">{Array.from({ length: threshold }, (_, i) => <i key={i} className={i < p.approvals_count ? 'on' : ''} />)}</span> <b>{p.approvals_count} de {threshold}</b></span>
+          <span className="klab">{t('proposal.approvals')}</span>
+          <span className="who-prog"><span className="prog">{Array.from({ length: threshold }, (_, i) => <i key={i} className={i < p.approvals_count ? 'on' : ''} />)}</span> <b>{t('proposal.ofN', { count: p.approvals_count, total: threshold })}</b></span>
         </div>
         <div className="people">
           {everyone.map((m) => {
@@ -164,9 +165,9 @@ export default function Proposal() {
 
         {isTerminalBad && (
           <div className="confirm mt">
-            {isRejected && <>✗ <b>Recusada.</b> As recusas tornaram o quórum inviável.</>}
-            {isExpired && <>⌛ <b>Expirada.</b> O prazo de aprovação passou sem atingir o quórum. Crie uma nova proposta.</>}
-            {p.state === 'cancelled' && <>⊘ <b>Cancelada</b> por quem propôs.</>}
+            {isRejected && tr('proposal.terminalRejected')}
+            {isExpired && tr('proposal.terminalExpired')}
+            {p.state === 'cancelled' && tr('proposal.terminalCancelled')}
           </div>
         )}
 
@@ -176,24 +177,24 @@ export default function Proposal() {
           return (
           <>
             <div className="confirm mt">
-              <b>{p.proposer}</b> propôs — e propor <b>já conta como a aprovação de {p.proposer}</b> ({p.approvals_count} de {threshold}).
-              {falta > 0 ? <> Falta{falta > 1 ? 'm' : ''} <b>{falta}</b>.</> : <> Quórum atingido.</>}
+              {tr('proposal.awaitingIntro', { proposer: p.proposer, count: p.approvals_count, total: threshold })}{' '}
+              {falta > 0 ? tr(falta > 1 ? 'proposal.remainingMany' : 'proposal.remainingOne', { falta }) : tr('proposal.quorumReachedShort')}
             </div>
             {pendingApprovers.length > 0 ? (
               <>
-                <div className="hint mt">Nesta demonstração você atua por cada membro. <b>Escolha por quem</b> está aprovando — a assinatura FROST usará a parte da chave dessa pessoa.</div>
-                <label className="field mt-sm"><span>Aprovar / recusar como</span>
+                <div className="hint mt">{tr('proposal.demoActNote')}</div>
+                <label className="field mt-sm"><span>{t('proposal.approveRefuseAs')}</span>
                   <select className="input" value={who} onChange={(e) => setApproveAs(e.target.value)}>
                     {pendingApprovers.map((m) => <option key={m} value={m}>{m}</option>)}
                   </select>
                 </label>
                 <div className="btns mt">
-                  <button className="btn ok" onClick={() => vote(true)} disabled={busy}>{busy ? '…' : `▸ Aprovar como ${who}`}</button>
-                  <button className="btn" onClick={() => vote(false)} disabled={busy}>Recusar como {who}</button>
+                  <button className="btn ok" onClick={() => vote(true)} disabled={busy}>{busy ? '…' : t('proposal.approveAs', { who })}</button>
+                  <button className="btn" onClick={() => vote(false)} disabled={busy}>{t('proposal.refuseAs', { who })}</button>
                 </div>
               </>
             ) : (
-              <div className="hint mt">Todos os membros já votaram nesta proposta.</div>
+              <div className="hint mt">{t('proposal.allVoted')}</div>
             )}
           </>
           )
@@ -202,32 +203,29 @@ export default function Proposal() {
         {isReady && (
           <>
             <div className="confirm mt ready">
-              ✓ <b>Quórum atingido.</b>{' '}
-              {isPayroll
-                ? <>A folha está pronta. Assinar reúne as partes da chave (FROST) e transmite as N saídas numa transação só.</>
-                : <>A proposta está <b>pronta</b>. Assinar reúne as partes da chave (FROST) e transmite à mainnet.</>}
+              {isPayroll ? tr('proposal.readyPayroll') : tr('proposal.readyPayment')}
             </div>
             <div className="btns mt">
               <button className="btn ok" onClick={() => send(false)} disabled={sending !== null}>
-                {sending === 'real' ? 'Assinando e enviando… (pode levar ~1 min)' : (isPayroll ? '▸ Assinar e enviar a folha' : '▸ Assinar e enviar à mainnet')}
+                {sending === 'real' ? t('proposal.signingSending') : (isPayroll ? t('proposal.signSendPayroll') : t('proposal.signSendPayment'))}
               </button>
-              <button className="btn" onClick={() => send(true)} disabled={sending !== null} title="Executa a cerimônia e assina, sem transmitir">
-                {sending === 'dry' ? 'Validando…' : 'Validar (sem enviar)'}
+              <button className="btn" onClick={() => send(true)} disabled={sending !== null} title={t('proposal.validateTitle')}>
+                {sending === 'dry' ? t('proposal.validating') : t('proposal.validateBtn')}
               </button>
             </div>
-            {dryOk && <div className="hint mt-sm ready">✓ Assinatura FROST válida (sighash <code>{dryOk.slice(0, 16)}…</code>). Nada foi transmitido.</div>}
-            <div className="hint mt-sm">A assinatura nunca remonta a chave: cada parte assina no seu lugar e só o resultado combinado vai à rede.</div>
+            {dryOk && <div className="hint mt-sm ready">{t('proposal.dryOkPre')}<code>{dryOk.slice(0, 16)}…</code>{t('proposal.dryOkPost')}</div>}
+            <div className="hint mt-sm">{t('proposal.signNeverReassembles')}</div>
           </>
         )}
 
         {isSent && (
           <>
-            <div className="confirm mt ready">✓ <b>Enviada à mainnet.</b> Pagamento transmitido e assinado por quórum.</div>
+            <div className="confirm mt ready">{tr('proposal.sentConfirm')}</div>
             {p.txid && (
               <div className="p-meta mt">
-                <div>txid</div>
+                <div>{t('proposal.txid')}</div>
                 <div className="mt-xs"><code>{p.txid}</code></div>
-                <div className="mt-xs"><a className="link" href={`https://mainnet.zcashexplorer.app/transactions/${p.txid}`} target="_blank" rel="noreferrer">ver no explorador ↗</a></div>
+                <div className="mt-xs"><a className="link" href={`https://mainnet.zcashexplorer.app/transactions/${p.txid}`} target="_blank" rel="noreferrer">{t('proposal.viewExplorer')}</a></div>
               </div>
             )}
           </>

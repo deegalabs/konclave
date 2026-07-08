@@ -64,56 +64,56 @@ export default function Ledger() {
       <Letterhead
         right={
           <span className="lh-actions">
-            <span className="klab back" onClick={() => nav('/dashboard')}>← Painel</span>
-            <a className="btn ghost sm-btn" href={ledgerCsvUrl()} download="konclave-razao.csv">↓ Exportar CSV</a>
-            <button className="btn ghost sm-btn" onClick={() => window.print()}>↓ PDF</button>
+            <span className="klab back" onClick={() => nav('/dashboard')}>{t('common.backPanel')}</span>
+            <a className="btn ghost sm-btn" href={ledgerCsvUrl()} download="konclave-razao.csv">{t('ledger.exportCsv')}</a>
+            <button className="btn ghost sm-btn" onClick={() => window.print()}>{t('ledger.pdf')}</button>
           </span>
         }
       />
       <div className="page">
-        <h1 className="h1">Razão</h1>
+        <h1 className="h1">{t('ledger.title')}</h1>
 
         {/* Banda de documento — o livro do cofre para entregar ao contador */}
         <div className="doc-band">
           <div className="db-meta">
-            <div><span className="klab">Cofre</span><b>{vaultName ?? 'Tesouraria Comum'}</b></div>
-            <div><span className="klab">Período</span><b className="mono">{period}</b></div>
-            <div><span className="klab">Lançamentos</span><b>{ledger.length}</b></div>
+            <div><span className="klab">{t('ledger.vault')}</span><b>{vaultName ?? 'Tesouraria Comum'}</b></div>
+            <div><span className="klab">{t('ledger.period')}</span><b className="mono">{period}</b></div>
+            <div><span className="klab">{t('ledger.entries')}</span><b>{ledger.length}</b></div>
           </div>
           <div className="db-totals">
-            <div className="db-t"><span className="klab">Saída liquidada</span><Secret sm><b className="out">−{fmtZec(totalOut)}</b></Secret></div>
-            <div className="db-t"><span className="klab">Em aberto</span><Secret sm><b className="dim">{fmtZec(totalPending)}</b></Secret></div>
+            <div className="db-t"><span className="klab">{t('ledger.settledOut')}</span><Secret sm><b className="out">−{fmtZec(totalOut)}</b></Secret></div>
+            <div className="db-t"><span className="klab">{t('ledger.open')}</span><Secret sm><b className="dim">{fmtZec(totalPending)}</b></Secret></div>
             <span className="db-reveal"><RevealButton /></span>
           </div>
         </div>
-        <div className="cap">{live ? 'Registro ao vivo — quem propôs e aprovou fica registrado. A folha abre em cada beneficiário.' : 'Modo demonstração.'}</div>
+        <div className="cap">{live ? t('ledger.capLive') : t('ledger.capDemo')}</div>
 
         <div className="filters">
           <span className="chip-group">
-            <button className={'chip' + (fState === 'all' ? ' on' : '')} onClick={() => setFState('all')}>Todos</button>
-            <button className={'chip' + (fState === 'settled' ? ' on' : '')} onClick={() => setFState('settled')}>Liquidados</button>
-            <button className={'chip' + (fState === 'openp' ? ' on' : '')} onClick={() => setFState('openp')}>Em aberto</button>
+            <button className={'chip' + (fState === 'all' ? ' on' : '')} onClick={() => setFState('all')}>{t('ledger.filterAll')}</button>
+            <button className={'chip' + (fState === 'settled' ? ' on' : '')} onClick={() => setFState('settled')}>{t('ledger.filterSettled')}</button>
+            <button className={'chip' + (fState === 'openp' ? ' on' : '')} onClick={() => setFState('openp')}>{t('ledger.open')}</button>
           </span>
           <span className="chip-group">
-            <button className={'chip' + (fKind === 'all' ? ' on' : '')} onClick={() => setFKind('all')}>Tudo</button>
-            <button className={'chip' + (fKind === 'payment' ? ' on' : '')} onClick={() => setFKind('payment')}>Pagamentos</button>
-            <button className={'chip' + (fKind === 'payroll' ? ' on' : '')} onClick={() => setFKind('payroll')}>Folhas</button>
+            <button className={'chip' + (fKind === 'all' ? ' on' : '')} onClick={() => setFKind('all')}>{t('ledger.filterEverything')}</button>
+            <button className={'chip' + (fKind === 'payment' ? ' on' : '')} onClick={() => setFKind('payment')}>{t('ledger.filterPayments')}</button>
+            <button className={'chip' + (fKind === 'payroll' ? ' on' : '')} onClick={() => setFKind('payroll')}>{t('ledger.filterPayrolls')}</button>
           </span>
-          {filtered.length !== ledger.length && <span className="chip-note">mostrando {filtered.length} de {ledger.length}</span>}
+          {filtered.length !== ledger.length && <span className="chip-note">{t('ledger.showingOf', { shown: filtered.length, total: ledger.length })}</span>}
         </div>
 
         <table className="tbl razao mt">
-          <thead><tr><th>Data</th><th>Documento</th><th>Quem propôs / aprovou</th><th>Valor</th></tr></thead>
+          <thead><tr><th>{t('ledger.colDate')}</th><th>{t('ledger.colDocument')}</th><th>{t('ledger.colWho')}</th><th>{t('ledger.colValue')}</th></tr></thead>
           <tbody>
             {ledger.length === 0 && (
-              <tr><td colSpan={4} className="by">Nenhum lançamento ainda. Propostas aparecem aqui conforme são criadas.</td></tr>
+              <tr><td colSpan={4} className="by">{t('ledger.emptyNone')}</td></tr>
             )}
             {ledger.length > 0 && filtered.length === 0 && (
-              <tr><td colSpan={4} className="by">Nenhum lançamento neste filtro.</td></tr>
+              <tr><td colSpan={4} className="by">{t('ledger.emptyFilter')}</td></tr>
             )}
             {filtered.map((p) => {
               const isPayroll = p.kind === 'payroll'
-              const who = `prop. ${p.proposer}${p.approvals.length ? ` / aprov. ${p.approvals.join(', ')}` : ''}`
+              const who = t('ledger.whoProposed', { proposer: p.proposer }) + (p.approvals.length ? t('ledger.whoApproved', { who: p.approvals.join(', ') }) : '')
               const settledRow = SETTLED(p.state)
               const isOpen = open.has(p.id)
               const lines = linesById[p.id]
@@ -123,10 +123,10 @@ export default function Ledger() {
                     <td className="mono">{fmtDate(p.created_at)}</td>
                     <td>
                       {isPayroll && <span className="caret">{isOpen ? '▾' : '▸'} </span>}
-                      {p.memo || (isPayroll ? 'Folha de pagamento' : 'Pagamento')}
+                      {p.memo || (isPayroll ? t('kind.payroll') : t('kind.payment'))}
                       <div className="by">
-                        {isPayroll ? 'folha' : 'pagamento'}
-                        {isPayroll ? ' · abre em cada beneficiário' : (p.to_address ? ` · para ${shortAddr(p.to_address)}` : '')}
+                        {isPayroll ? t('kindShort.payroll') : t('kindShort.payment')}
+                        {isPayroll ? t('ledger.opensPerBeneficiary') : (p.to_address ? t('ledger.toAddress', { addr: shortAddr(p.to_address) }) : '')}
                       </div>
                     </td>
                     <td className="by">{who}</td>
@@ -143,12 +143,12 @@ export default function Ledger() {
                     ? lines.map((l, i) => (
                       <tr key={`${p.id}-${i}`} className="li-sub">
                         <td></td>
-                        <td className="mono dim">↳ {l.label || shortAddr(l.address)}<div className="by">{shortAddr(l.address)}{l.is_public ? ' · ⚠ público' : ''}{l.memo ? ` · ${l.memo}` : ''}</div></td>
+                        <td className="mono dim">↳ {l.label || shortAddr(l.address)}<div className="by">{shortAddr(l.address)}{l.is_public ? t('ledger.publicSuffix') : ''}{l.memo ? ` · ${l.memo}` : ''}</div></td>
                         <td></td>
                         <td className="num"><Secret sm><span>−{fmtZec(l.value_zec)}</span></Secret></td>
                       </tr>
                     ))
-                    : <tr className="li-sub"><td></td><td className="by" colSpan={3}>carregando beneficiários…</td></tr>
+                    : <tr className="li-sub"><td></td><td className="by" colSpan={3}>{t('ledger.loadingBeneficiaries')}</td></tr>
                   )}
                 </Fragment>
               )
@@ -157,7 +157,7 @@ export default function Ledger() {
         </table>
 
         <div className="foot">
-          <span className="dim pushr">transparência interna · a blockchain pública nada revela</span>
+          <span className="dim pushr">{t('ledger.foot')}</span>
         </div>
       </div>
     </>

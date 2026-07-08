@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Letterhead, Secret } from '../components'
+import { useT, useTr } from '../i18n'
 import {
   createProposal, getBalance, getVault, getBeneficiaries, health, shortAddr, classifyAddress, humanError,
   type Beneficiary, type Member,
@@ -13,6 +14,8 @@ function memoBytes(s: string): number {
 }
 
 export default function NewPayment() {
+  const t = useT()
+  const tr = useTr()
   const nav = useNavigate()
   const [to, setTo] = useState('')
   const [value, setValue] = useState('0.5')
@@ -59,7 +62,7 @@ export default function NewPayment() {
 
   async function submit() {
     setError(null)
-    if (!to.trim()) { setError('Informe o endereço de destino.'); return }
+    if (!to.trim()) { setError(t('payment.errNoAddress')); return }
     setBusy(true)
     const res = await createProposal({
       proposer, // the member this device is acting as (single-device demo)
@@ -77,17 +80,17 @@ export default function NewPayment() {
 
   return (
     <>
-      <Letterhead right={<span className="klab back" onClick={() => nav('/dashboard')}>← Painel</span>} />
+      <Letterhead right={<span className="klab back" onClick={() => nav('/dashboard')}>{t('common.backPanel')}</span>} />
       <div className="page narrow">
-        <h1 className="h1">Novo pagamento</h1>
+        <h1 className="h1">{t('payment.title')}</h1>
 
         <div className="ctx">
-          <span>Do cofre <b>{vaultName}</b></span>
+          <span>{tr('payment.fromVault', { name: vaultName })}</span>
           <span className="ctx-sep">·</span>
-          <span>disponível <Secret sm><b>{shownAvailable} ZEC</b></Secret></span>
+          <span>{t('payment.available')} <Secret sm><b>{shownAvailable} ZEC</b></Secret></span>
           {membersList.length > 0 && (
             <label className="ctx-as">
-              propondo como
+              {t('payment.proposingAs')}
               <select value={proposer} onChange={(e) => setProposer(e.target.value)}>
                 {membersList.map((m) => <option key={m.pubkey || m.name} value={m.name}>{m.name}</option>)}
               </select>
@@ -96,61 +99,61 @@ export default function NewPayment() {
         </div>
 
         {benefs.length > 0 && (
-          <label className="field"><span>Pessoa (do cadastro)</span>
+          <label className="field"><span>{t('payment.personFromRegistry')}</span>
             <select className="input" value="" onChange={(e) => {
               const b = benefs.find((x) => x.id === e.target.value)
               if (b) { setTo(b.address); setToName(b.name); if (b.memo) setMemo(b.memo) }
             }}>
-              <option value="">— escolher pelo nome, ou digite o endereço abaixo —</option>
+              <option value="">{t('payment.chooseByName')}</option>
               {benefs.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </label>
         )}
 
-        <label className="field"><span>Para</span>
-          <input className="input mono" placeholder="endereço Zcash (u1… recomendado)"
+        <label className="field"><span>{t('payment.to')}</span>
+          <input className="input mono" placeholder={t('payment.addrPlaceholder')}
             value={to} onChange={(e) => { setTo(e.target.value); setToName(null) }} />
         </label>
         {publicDest && (
-          <div className="hint warn">⚠ Endereço transparente — este pagamento fica <b>público</b> na blockchain.</div>
+          <div className="hint warn">{tr('payment.warnTransparent')}</div>
         )}
         {saplingDest && (
-          <div className="hint warn">⚠ Endereço <b>Sapling</b> — funciona, mas o Konclave prefere <b>Orchard</b> (<span className="mono">u1…</span>) para privacidade máxima.</div>
+          <div className="hint warn">{tr('payment.warnSaplingA')} (<span className="mono">u1…</span>) {tr('payment.warnSaplingB')}</div>
         )}
         {unknownDest && (
-          <div className="hint warn">⚠ Endereço <b>não reconhecido</b> — confira. Um endereço inválido será recusado ao propor.</div>
+          <div className="hint warn">{tr('payment.warnUnknown')}</div>
         )}
 
-        <label className="field"><span>Valor</span>
+        <label className="field"><span>{t('payment.value')}</span>
           <input className="input mono" value={value} onChange={(e) => setValue(e.target.value)} />
         </label>
-        {!live && <div className="hint">modo demonstração — sem o cofre local rodando</div>}
+        {!live && <div className="hint">{t('common.demoModeNoBridge')}</div>}
 
         <label className="field mt"><span>
-          Memo · recibo/holerite — só o destinatário lê{' '}
+          {t('payment.memoLabel')}{' '}
           <span className={'dim ns' + (memoOver ? ' over' : '')}>({memoLen}/{MEMO_MAX})</span>
         </span>
           <input className="input" value={memo} onChange={(e) => setMemo(e.target.value)}
-            disabled={publicDest} placeholder={publicDest ? 'sem memo em endereço transparente' : ''} />
+            disabled={publicDest} placeholder={publicDest ? t('payment.memoDisabledPlaceholder') : ''} />
         </label>
 
         <hr className="rule thin" />
-        <div className="mono dim fee">Taxa estimada <b className="ink">0.0001 ZEC</b> · confirmada ao construir a transação</div>
+        <div className="mono dim fee">{tr('payment.feeEstimate')}</div>
 
         <div className="confirm mt preview">
-          <div className="pv-row"><span className="pv-k">Propõe</span><span className="pv-v"><b>{proposer}</b></span></div>
-          <div className="pv-row"><span className="pv-k">Paga</span><span className="pv-v"><b>{value || '—'} ZEC</b></span></div>
-          <div className="pv-row"><span className="pv-k">Para</span><span className="pv-v">{toName ? <><b>{toName}</b> · {to ? shortAddr(to) : '…'}</> : (to ? shortAddr(to) : '…')}</span></div>
-          {memo.trim() && !publicDest && <div className="pv-row"><span className="pv-k">Memo</span><span className="pv-v">“{memo.trim()}”</span></div>}
-          <div className="pv-row"><span className="pv-k">Aprovações</span><span className="pv-v"><b>{threshold}</b> (incluindo a sua)</span></div>
+          <div className="pv-row"><span className="pv-k">{t('payment.pvProposes')}</span><span className="pv-v"><b>{proposer}</b></span></div>
+          <div className="pv-row"><span className="pv-k">{t('payment.pvPays')}</span><span className="pv-v"><b>{value || '—'} ZEC</b></span></div>
+          <div className="pv-row"><span className="pv-k">{t('payment.pvTo')}</span><span className="pv-v">{toName ? <><b>{toName}</b> · {to ? shortAddr(to) : '…'}</> : (to ? shortAddr(to) : '…')}</span></div>
+          {memo.trim() && !publicDest && <div className="pv-row"><span className="pv-k">{t('payment.pvMemo')}</span><span className="pv-v">“{memo.trim()}”</span></div>}
+          <div className="pv-row"><span className="pv-k">{t('payment.pvApprovals')}</span><span className="pv-v"><b>{threshold}</b> {t('payment.includingYours')}</span></div>
         </div>
-        <div className="hint">Propor <b>já conta como a aprovação de {proposer}</b> (1 de {threshold}). Nada sai antes de {threshold} {threshold === 1 ? 'aval' : 'avais'} — {threshold > 1 ? `faltará mais ${threshold - 1}` : 'já fica pronta'}.</div>
+        <div className="hint">{tr('payment.approvalHint', { proposer, threshold, rest: threshold > 1 ? t('payment.approvalHintMore', { n: threshold - 1 }) : t('payment.approvalHintReady'), aval: threshold === 1 ? t('payment.avalSingular') : t('payment.avalPlural') })}</div>
 
         {error && <div className="hint err mt">✗ {error}</div>}
 
         <div className="right mt">
           <button className="btn ok" onClick={submit} disabled={busy || memoOver}>
-            {busy ? 'Propondo…' : '▸ Propor pagamento'}
+            {busy ? t('payment.proposing') : t('payment.proposeBtn')}
           </button>
         </div>
       </div>

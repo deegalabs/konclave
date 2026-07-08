@@ -2,12 +2,14 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Letterhead } from '../components'
 import { Identicon } from '../avatar'
+import { useT } from '../i18n'
 import {
   getBeneficiaries, addBeneficiary, deleteBeneficiary, classifyAddress, shortAddr, humanError,
   type Beneficiary,
 } from '../api'
 
 export default function People() {
+  const t = useT()
   const nav = useNavigate()
   const [list, setList] = useState<Beneficiary[]>([])
   const [name, setName] = useState('')
@@ -40,7 +42,7 @@ export default function People() {
 
   async function add() {
     setError(null)
-    if (!name.trim() || !address.trim()) { setError('Preencha nome e endereço.'); return }
+    if (!name.trim() || !address.trim()) { setError(t('people.errFillNameAddr')); return }
     setBusy(true)
     // Edit = add the updated entry, then drop the old one (no update endpoint).
     const res = await addBeneficiary(name.trim(), address.trim(), memo.trim() || undefined)
@@ -56,14 +58,14 @@ export default function People() {
 
   return (
     <>
-      <Letterhead right={<span className="klab back" onClick={() => nav('/dashboard')}>← Painel</span>} />
+      <Letterhead right={<span className="klab back" onClick={() => nav('/dashboard')}>{t('common.backPanel')}</span>} />
       <div className="page">
-        <h1 className="h1">Pessoas</h1>
-        <p className="cap">O cadastro de quem recebe. Guarde uma vez e escolha por nome ao pagar ou montar a folha — em vez de colar endereços toda vez.</p>
+        <h1 className="h1">{t('people.title')}</h1>
+        <p className="cap">{t('people.cap')}</p>
 
         {/* Lista primeiro — é o que se consulta */}
         {loaded && list.length === 0 ? (
-          <div className="empty-note mt">Ninguém cadastrado ainda. Cadastre quem recebe para pagar pelo nome.</div>
+          <div className="empty-note mt">{t('people.empty')}</div>
         ) : (
           <div className="people mt">
             {list.map((b) => (
@@ -72,12 +74,12 @@ export default function People() {
                 <div className="person-main">
                   <div className="who-name">{b.name}</div>
                   <div className="person-sub mono">
-                    <span className={b.is_public ? 'seal-tx' : 'dim'}>{shortAddr(b.address)}{b.is_public ? ' · ⚠ público' : ''}</span>
+                    <span className={b.is_public ? 'seal-tx' : 'dim'}>{shortAddr(b.address)}{b.is_public ? t('people.publicSuffix') : ''}</span>
                     {b.memo ? <span className="dim"> · {b.memo}</span> : null}
                   </div>
                 </div>
-                <button className="row-edit" title="editar" onClick={() => startEdit(b)}>✎</button>
-                <button className="row-del" title="remover" onClick={() => remove(b.id)}>×</button>
+                <button className="row-edit" title={t('people.edit')} onClick={() => startEdit(b)}>✎</button>
+                <button className="row-del" title={t('common.remove')} onClick={() => remove(b.id)}>×</button>
               </div>
             ))}
           </div>
@@ -85,30 +87,30 @@ export default function People() {
 
         <div className="mt">
           <button className="btn ghost sm-btn" onClick={() => (showForm ? cancelForm() : setShowForm(true))}>
-            {showForm ? '× Fechar' : '＋ Cadastrar pessoa'}
+            {showForm ? t('people.close') : t('people.register')}
           </button>
         </div>
 
         {showForm && (
           <div className="add-form mt">
-            <div className="klab">{editingId ? 'Editar pessoa' : 'Nova pessoa'}</div>
+            <div className="klab">{editingId ? t('people.editPerson') : t('people.newPerson')}</div>
             <div className="doc-head">
-              <label className="field inline"><span>Nome</span>
-                <input className="input" placeholder="ex.: Prestador Infra" value={name} onChange={(e) => setName(e.target.value)} />
+              <label className="field inline"><span>{t('people.name')}</span>
+                <input className="input" placeholder={t('people.namePlaceholder')} value={name} onChange={(e) => setName(e.target.value)} />
               </label>
-              <label className="field inline"><span>Endereço</span>
-                <input className="input mono" placeholder="u1… (Orchard)" value={address} onChange={(e) => setAddress(e.target.value)} />
+              <label className="field inline"><span>{t('people.address')}</span>
+                <input className="input mono" placeholder={t('payroll.addrPlaceholder')} value={address} onChange={(e) => setAddress(e.target.value)} />
               </label>
-              <label className="field inline"><span>Memo padrão (opcional)</span>
-                <input className="input" placeholder="ex.: infra mensal" value={memo} onChange={(e) => setMemo(e.target.value)} disabled={kind === 'transparent'} />
+              <label className="field inline"><span>{t('people.defaultMemo')}</span>
+                <input className="input" placeholder={t('people.memoPlaceholder')} value={memo} onChange={(e) => setMemo(e.target.value)} disabled={kind === 'transparent'} />
               </label>
             </div>
-            {kind === 'transparent' && <div className="hint warn">⚠ Endereço transparente (público) — sem memo.</div>}
-            {kind === 'sapling' && <div className="hint warn">⚠ Endereço Sapling — prefira Orchard (u1…).</div>}
+            {kind === 'transparent' && <div className="hint warn">{t('people.warnTransparent')}</div>}
+            {kind === 'sapling' && <div className="hint warn">{t('people.warnSapling')}</div>}
             {error && <div className="hint err mt">✗ {error}</div>}
             <div className="mt-sm folha-actions">
-              <button className="btn ok sm-btn" onClick={add} disabled={busy}>{busy ? 'Salvando…' : (editingId ? '✓ Salvar alterações' : '＋ Salvar pessoa')}</button>
-              {editingId && <button className="btn ghost sm-btn" onClick={cancelForm}>Cancelar</button>}
+              <button className="btn ok sm-btn" onClick={add} disabled={busy}>{busy ? t('people.saving') : (editingId ? t('people.saveChanges') : t('people.savePerson'))}</button>
+              {editingId && <button className="btn ghost sm-btn" onClick={cancelForm}>{t('common.cancel')}</button>}
             </div>
           </div>
         )}
