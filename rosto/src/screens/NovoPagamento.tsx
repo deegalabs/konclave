@@ -40,7 +40,8 @@ export default function NovoPagamento() {
       if (v) {
         setThreshold(v.threshold)
         setVaultName(v.name)
-        if (v.member_list?.length) { setMembersList(v.member_list); setProposer(v.member_list[0].name) }
+        const first0 = v.member_list?.[0]
+        if (first0) { setMembersList(v.member_list!); setProposer(first0.name) }
       }
       if (b?.configured) setAvailable(b.total_zec ?? null)
       if (bs) setBenefs(bs)

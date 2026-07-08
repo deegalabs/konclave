@@ -21,7 +21,7 @@ const emptyRow = (): Row => ({ label: '', address: '', value: '', memo: '' })
 function parseZecToZat(s: string): number | null {
   const t = s.trim()
   if (t === '' || t === '.' || !/^\d*\.?\d{0,8}$/.test(t)) return null
-  const [w, f = ''] = t.split('.')
+  const [w = '', f = ''] = t.split('.')
   const whole = w === '' ? 0 : parseInt(w, 10)
   const frac = parseInt(((f + '00000000').slice(0, 8)) || '0', 10)
   return whole * 100_000_000 + frac
@@ -87,7 +87,8 @@ export default function NovaFolha() {
         if (led) setPastFolhas(led.filter((x) => x.kind === 'payroll'))
         if (v) {
           setVaultName(v.name)
-          if (v.member_list?.length) { setMembersList(v.member_list); setProposer(v.member_list[0].name) }
+          const first0 = v.member_list?.[0]
+          if (first0) { setMembersList(v.member_list!); setProposer(first0.name) }
         }
       }
     })()
@@ -109,7 +110,8 @@ export default function NovaFolha() {
     }))
     setRows(imported.length ? imported : [emptyRow()])
     setShowImport(false)
-    if (p.errors.length) setError(`${p.errors.length} linha(s) do CSV com erro foram ignoradas (ex.: linha ${p.errors[0].row}: ${p.errors[0].reason}).`)
+    const e0 = p.errors[0]
+    if (e0) setError(`${p.errors.length} linha(s) do CSV com erro foram ignoradas (ex.: linha ${e0.row}: ${e0.reason}).`)
   }
 
   // Live aggregates over the valid rows.
