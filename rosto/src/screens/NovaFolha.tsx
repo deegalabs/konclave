@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Letterhead, Secret } from '../components'
-import { fmtZec } from '../format'
+import { fmtZec, parseZecToZat, zatToZec } from '../format'
 import { stateLabel } from '../labels'
 import {
   previewPayroll, createPayroll, getBalance, getBeneficiaries, getLedger, getVault, health, classifyAddress, humanError,
@@ -13,16 +13,6 @@ const DRAFT_KEY = 'konclave.folha.rascunho'
 type Row = { label: string; address: string; value: string; memo: string }
 const emptyRow = (): Row => ({ label: '', address: '', value: '', memo: '' })
 
-// Parse a ZEC decimal to zatoshis WITHOUT floating point (mirrors the backend).
-function parseZecToZat(s: string): number | null {
-  const t = s.trim()
-  if (t === '' || t === '.' || !/^\d*\.?\d{0,8}$/.test(t)) return null
-  const [w = '', f = ''] = t.split('.')
-  const whole = w === '' ? 0 : parseInt(w, 10)
-  const frac = parseInt(((f + '00000000').slice(0, 8)) || '0', 10)
-  return whole * 100_000_000 + frac
-}
-const zatToZec = (zat: number) => (zat / 100_000_000).toFixed(8)
 
 // A blocking problem with a row (null = ok). Warnings (public/sapling) are separate.
 function rowIssue(r: Row): string | null {

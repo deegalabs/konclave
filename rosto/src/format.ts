@@ -22,14 +22,22 @@ export function fmtZec(zec?: string | number, fallback = '—'): string {
   return Number.isFinite(n) ? n.toFixed(4) : fallback
 }
 
-/** Parse a ZEC decimal string into integer zatoshis, mirroring money.rs::from_zec_str.
- *  Returns null on invalid input (empty, non-numeric, negative, or > 8 fractional digits). */
+/** Parse a ZEC decimal string into integer zatoshis, mirroring money.rs::from_zec_str,
+ *  without floating point. Accepts `12`, `1.5`, `.5`, `5.` (typing-friendly); rejects empty,
+ *  a lone dot, non-numeric, negative, or > 8 fractional digits. Returns null when invalid. */
 export function parseZecToZat(zec: string): number | null {
   const s = (zec ?? '').trim()
-  if (!/^\d+(\.\d{1,8})?$/.test(s)) return null
-  const [whole, frac = ''] = s.split('.')
-  const zat = Number(whole) * ZAT_PER_ZEC + Number(frac.padEnd(8, '0'))
+  if (!/^(\d+\.?\d{0,8}|\.\d{1,8})$/.test(s)) return null
+  const [w = '', f = ''] = s.split('.')
+  const whole = w === '' ? 0 : parseInt(w, 10)
+  const frac = parseInt((f + '00000000').slice(0, 8) || '0', 10)
+  const zat = whole * ZAT_PER_ZEC + frac
   return Number.isSafeInteger(zat) ? zat : null
+}
+
+/** Format integer zatoshis as a full ZEC decimal string (8 places). */
+export function zatToZec(zat: number): string {
+  return (zat / ZAT_PER_ZEC).toFixed(8)
 }
 
 /** Human expiry label from an expiry unix (seconds). Empty string when there is no expiry
