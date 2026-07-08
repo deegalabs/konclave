@@ -1,7 +1,5 @@
 /* Konclave — "Lacre" design system (tokens + components).
-   Shared by the hi-fi prototypes; the reference for the Next.js port. */
-
-@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Spline+Sans+Mono:wght@400;500;600&display=swap');
+   Fonts are self-hosted (see main.tsx) — no external CDN, per local-first / no-telemetry. */
 
 :root{
   /* Silver + blue on dark slate — the logo's identity. Same token names, dark values,

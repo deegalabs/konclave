@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Letterhead, Secret } from '../components'
 import { Identicon } from '../avatar'
 import { getProposals, getVault, health, type Proposal } from '../api'
-import { expiryLabel } from '../format'
+import { expiryLabel, fmtZec } from '../format'
 
 const MOCK: Proposal[] = [
   { id: 'm1', vault_id: '', kind: 'payment', state: 'awaiting', proposer: 'Bruno', value_zat: 30000, value_zec: '0.0003', memo: 'adiantamento maio', is_public: false, approvals: ['Bruno'], refusals: [], approvals_count: 1, expiry_unix: undefined },
@@ -47,7 +47,7 @@ export default function Propostas() {
         </div>
       </div>
       <div className="plist-right">
-        <div className="plist-val"><Secret sm><span>{Number(p.value_zec).toFixed(4)} ZEC</span></Secret></div>
+        <div className="plist-val"><Secret sm><span>{fmtZec(p.value_zec)} ZEC</span></Secret></div>
         <div className="plist-prog">
           <span className="prog">{Array.from({ length: threshold }, (_, i) => <i key={i} className={i < p.approvals_count ? 'on' : ''} />)}</span>
           {' '}{p.approvals_count} de {threshold}

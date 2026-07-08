@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Letterhead, Secret } from '../components'
+import { fmtZec } from '../format'
 import {
   previewPayroll, createPayroll, getBalance, getBeneficiaries, getLedger, getVault, health, classifyAddress, humanError,
   type Beneficiary, type Proposal, type Member,
@@ -164,7 +165,7 @@ export default function NovaFolha() {
               <div className="pf-row" key={f.id} onClick={() => nav('/proposta', { state: { id: f.id } })}>
                 <span className="pf-name">{f.memo || 'Folha de pagamento'}</span>
                 <span className="pf-meta">
-                  <span className="pf-val"><Secret sm><span>{Number(f.value_zec).toFixed(4)} ZEC</span></Secret></span>
+                  <span className="pf-val"><Secret sm><span>{fmtZec(f.value_zec)} ZEC</span></Secret></span>
                   <span className={'pf-st ' + f.state}>{FOLHA_STAMP[f.state] ?? f.state}</span>
                   <span className="pf-go">→</span>
                 </span>
@@ -220,7 +221,7 @@ export default function NovaFolha() {
               {benefs.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           )}
-          <button className="btn ghost sm-btn" onClick={() => setShowImport((v) => !v)}>⭱ Importar CSV</button>
+          <button className="btn ghost sm-btn" onClick={() => setShowImport((v) => !v)}>↑ Importar CSV</button>
         </div>
         {count === 0 && !showImport && (
           <div className="hint mt-sm">Comece a montar a folha: escreva na tabela acima, escolha alguém <b>do cadastro</b>, ou <b>importe um CSV</b> (rótulo, endereço, valor, memo).</div>

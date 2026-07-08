@@ -2,7 +2,7 @@ import { Fragment, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Letterhead, Secret, RevealButton } from '../components'
 import { getLedger, getProposalDetail, getVault, ledgerCsvUrl, health, shortAddr, type Proposal, type PayrollLine } from '../api'
-import { fmtDate } from '../format'
+import { fmtDate, fmtZec } from '../format'
 
 const STATE_LABEL: Record<string, string> = {
   awaiting: 'aguardando', ready: 'pronta', sent: 'enviada',
@@ -68,8 +68,8 @@ export default function Razao() {
         right={
           <span className="lh-actions">
             <span className="klab back" onClick={() => nav('/painel')}>← Painel</span>
-            <a className="btn ghost sm-btn" href={ledgerCsvUrl()} download="konclave-razao.csv">⭳ Exportar CSV</a>
-            <button className="btn ghost sm-btn" onClick={() => window.print()}>⭳ PDF</button>
+            <a className="btn ghost sm-btn" href={ledgerCsvUrl()} download="konclave-razao.csv">↓ Exportar CSV</a>
+            <button className="btn ghost sm-btn" onClick={() => window.print()}>↓ PDF</button>
           </span>
         }
       />
@@ -84,8 +84,8 @@ export default function Razao() {
             <div><span className="klab">Lançamentos</span><b>{ledger.length}</b></div>
           </div>
           <div className="db-totals">
-            <div className="db-t"><span className="klab">Saída liquidada</span><Secret sm><b className="out">−{totalOut.toFixed(4)}</b></Secret></div>
-            <div className="db-t"><span className="klab">Em aberto</span><Secret sm><b className="dim">{totalPending.toFixed(4)}</b></Secret></div>
+            <div className="db-t"><span className="klab">Saída liquidada</span><Secret sm><b className="out">−{fmtZec(totalOut)}</b></Secret></div>
+            <div className="db-t"><span className="klab">Em aberto</span><Secret sm><b className="dim">{fmtZec(totalPending)}</b></Secret></div>
             <span className="db-reveal"><RevealButton /></span>
           </div>
         </div>
@@ -134,7 +134,7 @@ export default function Razao() {
                     </td>
                     <td className="by">{who}</td>
                     <td className="num out">
-                      <Secret sm><span>−{Number(p.value_zec).toFixed(4)}</span></Secret>
+                      <Secret sm><span>−{fmtZec(p.value_zec)}</span></Secret>
                       <div className="by">
                         {settledRow && p.txid
                           ? <a className="link" href={`https://mainnet.zcashexplorer.app/transactions/${p.txid}`} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>{STATE_LABEL[p.state]} ↗</a>
@@ -148,7 +148,7 @@ export default function Razao() {
                         <td></td>
                         <td className="mono dim">↳ {l.label || shortAddr(l.address)}<div className="by">{shortAddr(l.address)}{l.is_public ? ' · ⚠ público' : ''}{l.memo ? ` · ${l.memo}` : ''}</div></td>
                         <td></td>
-                        <td className="num"><Secret sm><span>−{Number(l.value_zec).toFixed(4)}</span></Secret></td>
+                        <td className="num"><Secret sm><span>−{fmtZec(l.value_zec)}</span></Secret></td>
                       </tr>
                     ))
                     : <tr className="li-sub"><td></td><td className="by" colSpan={3}>carregando beneficiários…</td></tr>

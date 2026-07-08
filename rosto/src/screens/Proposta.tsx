@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Letterhead, Secret } from '../components'
 import { Identicon } from '../avatar'
+import { fmtZec } from '../format'
 import {
   getProposalDetail, getProposals, getVault, voteProposal, sendProposal, shortAddr, humanError,
   type Proposal, type PayrollLine,
@@ -82,7 +83,7 @@ export default function Proposta() {
       </div></>)
   }
 
-  const val = Number(p.value_zec).toFixed(4)
+  const val = fmtZec(p.value_zec)
   const dest = p.to_address ? shortAddr(p.to_address) : '—'
   const isPayroll = p.kind === 'payroll'
   const isAwaiting = p.state === 'awaiting'
@@ -139,7 +140,7 @@ export default function Proposta() {
                 <tr key={i}>
                   <td>{l.label || '—'}</td>
                   <td className={'mono' + (l.is_public ? ' seal-tx' : '')}>{shortAddr(l.address)}{l.is_public ? ' ⚠' : ''}</td>
-                  <td className="num"><Secret sm><span>{Number(l.value_zec).toFixed(4)}</span></Secret></td>
+                  <td className="num"><Secret sm><span>{fmtZec(l.value_zec)}</span></Secret></td>
                   <td className="mono dim">{l.memo || '—'}</td>
                 </tr>
               ))}
