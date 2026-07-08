@@ -1696,13 +1696,120 @@ pub fn seed_demo(store: &mut Store) -> Result<(), crate::store::StoreError> {
     Ok(())
 }
 
+// ---- local-bridge security (anti CSRF / DNS-rebinding) ----
+
+/// A fresh, unguessable per-run token. Injected into the served HTML and required back on
+/// state-changing API requests (a header a cross-site page cannot forge).
+fn new_session_token() -> String {
+    let mut b = [0u8; 24];
+    let _ = getrandom::getrandom(&mut b);
+    b.iter().map(|x| format!("{x:02x}")).collect()
+}
+
+/// Does the `Host` (or an `Origin`'s host) point at our loopback? Accepts `localhost` /
+/// `127.0.0.1`, with or without a port. A foreign/absent host is rejected — this is what
+/// defeats DNS-rebinding (an attacker domain resolving to 127.0.0.1 still sends its own Host).
+fn host_is_local(host: Option<&str>) -> bool {
+    match host {
+        Some(h) => {
+            let name = h.rsplit_once(':').map(|(n, _)| n).unwrap_or(h);
+            name.eq_ignore_ascii_case("localhost") || name == "127.0.0.1"
+        }
+        None => false,
+    }
+}
+
+/// The host[:port] part of an `Origin` header (drops the scheme). `null`/malformed stays as-is
+/// (and will fail `host_is_local`).
+fn origin_host(origin: &str) -> Option<&str> {
+    Some(
+        origin
+            .split_once("://")
+            .map(|(_, rest)| rest)
+            .unwrap_or(origin),
+    )
+}
+
+fn constant_time_eq(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for i in 0..a.len() {
+        diff |= a[i] ^ b[i];
+    }
+    diff == 0
+}
+
+/// Hand the session token to the SPA via the HTML it bootstraps from (window.__KONCLAVE_SESSION__).
+fn inject_session(html: Vec<u8>, token: &str) -> Vec<u8> {
+    match String::from_utf8(html) {
+        Ok(s) => {
+            let tag = format!("<script>window.__KONCLAVE_SESSION__={token:?}</script>");
+            match s.find("</head>") {
+                Some(pos) => format!("{}{}{}", &s[..pos], tag, &s[pos..]).into_bytes(),
+                None => format!("{tag}{s}").into_bytes(),
+            }
+        }
+        Err(e) => e.into_bytes(),
+    }
+}
+
+/// Security wrapper around [`handle`]. Enforces the loopback `Host` (anti DNS-rebinding) on every
+/// request and a per-session token on state-changing API calls (anti CSRF), then injects the token
+/// into the served index.html. `handle` itself stays a pure router (kept directly testable).
+///
+/// Reads are protected by the Host gate + the browser same-origin policy (no CORS headers are ever
+/// emitted), so only writes (POST) need the token — which also keeps the `<a download>` CSV export,
+/// a plain GET, working.
+#[allow(clippy::too_many_arguments)]
+pub fn handle_secured(
+    cfg: &Config,
+    session_token: &str,
+    method: &str,
+    raw_path: &str,
+    body: &[u8],
+    host: Option<&str>,
+    origin: Option<&str>,
+    csrf_token: Option<&str>,
+) -> Response {
+    if !host_is_local(host) {
+        return Response::json(403, &serde_json::json!({ "error": "bad_host" }));
+    }
+    let path = raw_path.split(['?', '#']).next().unwrap_or(raw_path);
+    if method == "POST" && path.starts_with("/api/") {
+        if let Some(o) = origin {
+            if !host_is_local(origin_host(o)) {
+                return Response::json(403, &serde_json::json!({ "error": "bad_origin" }));
+            }
+        }
+        match csrf_token {
+            Some(t) if constant_time_eq(t, session_token) => {}
+            _ => {
+                return Response::json(403, &serde_json::json!({ "error": "missing_or_bad_token" }))
+            }
+        }
+    }
+    let resp = handle(cfg, method, raw_path, body);
+    if (path == "/" || path == "/index.html")
+        && resp.status == 200
+        && resp.content_type.starts_with("text/html")
+    {
+        let ct = resp.content_type.clone();
+        return Response::text(200, &ct, inject_session(resp.body, session_token));
+    }
+    resp
+}
+
 // ---- socket loop (thin) ----
 
 /// Bind **127.0.0.1** only and serve requests serially (single local user).
 pub fn serve(cfg: Config, port: u16) -> std::io::Result<()> {
     let addr = format!("127.0.0.1:{port}");
-    let server = tiny_http::Server::http(&addr)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+    let server =
+        tiny_http::Server::http(&addr).map_err(|e| std::io::Error::other(e.to_string()))?;
+    let session_token = new_session_token();
     eprintln!(
         "konclave serve → http://{addr}  (web: {}, db: {})",
         cfg.web_dir.display(),
@@ -1711,9 +1818,29 @@ pub fn serve(cfg: Config, port: u16) -> std::io::Result<()> {
     for mut req in server.incoming_requests() {
         let method = req.method().as_str().to_string();
         let url = req.url().to_string();
+        let (mut host, mut origin, mut token) = (None, None, None);
+        for h in req.headers() {
+            let f = h.field.as_str().as_str();
+            if f.eq_ignore_ascii_case("host") {
+                host = Some(h.value.as_str().to_string());
+            } else if f.eq_ignore_ascii_case("origin") {
+                origin = Some(h.value.as_str().to_string());
+            } else if f.eq_ignore_ascii_case("x-konclave-session") {
+                token = Some(h.value.as_str().to_string());
+            }
+        }
         let mut body = Vec::new();
         let _ = req.as_reader().read_to_end(&mut body);
-        let resp = handle(&cfg, &method, &url, &body);
+        let resp = handle_secured(
+            &cfg,
+            &session_token,
+            &method,
+            &url,
+            &body,
+            host.as_deref(),
+            origin.as_deref(),
+            token.as_deref(),
+        );
         let header =
             tiny_http::Header::from_bytes(&b"Content-Type"[..], resp.content_type.as_bytes())
                 .expect("valid header");
@@ -1765,6 +1892,134 @@ mod tests {
         serde_json::from_slice(&r.body).expect("json body")
     }
 
+    // ---- local-bridge security gate (anti CSRF / DNS-rebinding) ----
+
+    #[test]
+    fn security_rejects_foreign_host() {
+        let cfg = cfg_with(tmp_db(), None);
+        let r = handle_secured(
+            &cfg,
+            "tok",
+            "GET",
+            "/api/health",
+            b"",
+            Some("evil.com"),
+            None,
+            None,
+        );
+        assert_eq!(r.status, 403);
+        assert_eq!(body_json(&r)["error"], "bad_host");
+    }
+
+    #[test]
+    fn security_rejects_absent_host() {
+        let cfg = cfg_with(tmp_db(), None);
+        let r = handle_secured(&cfg, "tok", "GET", "/api/health", b"", None, None, None);
+        assert_eq!(r.status, 403);
+    }
+
+    #[test]
+    fn security_allows_reads_on_local_host_without_token() {
+        // Reads are safe under the Host gate + same-origin policy, so no token is required
+        // (this keeps the `<a download>` CSV export, a plain GET, working).
+        let cfg = cfg_with(tmp_db(), None);
+        let r = handle_secured(
+            &cfg,
+            "tok",
+            "GET",
+            "/api/health",
+            b"",
+            Some("127.0.0.1:4762"),
+            None,
+            None,
+        );
+        assert_eq!(r.status, 200);
+        assert_eq!(body_json(&r)["status"], "ok");
+    }
+
+    #[test]
+    fn security_post_requires_the_session_token() {
+        let cfg = cfg_with(tmp_db(), None);
+        let none = handle_secured(
+            &cfg,
+            "tok",
+            "POST",
+            "/api/payroll/preview",
+            b"{}",
+            Some("localhost"),
+            None,
+            None,
+        );
+        assert_eq!(none.status, 403);
+        assert_eq!(body_json(&none)["error"], "missing_or_bad_token");
+        let bad = handle_secured(
+            &cfg,
+            "tok",
+            "POST",
+            "/api/payroll/preview",
+            b"{}",
+            Some("localhost"),
+            None,
+            Some("nope"),
+        );
+        assert_eq!(bad.status, 403);
+    }
+
+    #[test]
+    fn security_post_with_token_passes_the_gate() {
+        let cfg = cfg_with(tmp_db(), None);
+        let ok = handle_secured(
+            &cfg,
+            "tok",
+            "POST",
+            "/api/payroll/preview",
+            b"",
+            Some("localhost"),
+            Some("http://localhost:4762"),
+            Some("tok"),
+        );
+        // Gate passed → the real handler ran; its status is never our 403 gate response.
+        assert_ne!(ok.status, 403);
+    }
+
+    #[test]
+    fn security_post_rejects_foreign_origin() {
+        let cfg = cfg_with(tmp_db(), None);
+        let r = handle_secured(
+            &cfg,
+            "tok",
+            "POST",
+            "/api/payroll/preview",
+            b"{}",
+            Some("localhost"),
+            Some("http://evil.com"),
+            Some("tok"),
+        );
+        assert_eq!(r.status, 403);
+        assert_eq!(body_json(&r)["error"], "bad_origin");
+    }
+
+    #[test]
+    fn host_and_token_matchers() {
+        assert!(host_is_local(Some("localhost")));
+        assert!(host_is_local(Some("localhost:4762")));
+        assert!(host_is_local(Some("127.0.0.1:4762")));
+        assert!(!host_is_local(Some("evil.com")));
+        assert!(!host_is_local(Some("evil.com:4762")));
+        assert!(!host_is_local(None));
+        assert!(constant_time_eq("abc", "abc"));
+        assert!(!constant_time_eq("abc", "abd"));
+        assert!(!constant_time_eq("a", "ab"));
+    }
+
+    #[test]
+    fn session_token_is_injected_into_html() {
+        let html = b"<html><head><title>x</title></head><body></body></html>".to_vec();
+        let out = String::from_utf8(inject_session(html, "deadbeef")).unwrap();
+        assert!(out.contains("window.__KONCLAVE_SESSION__=\"deadbeef\""));
+        assert!(out.find("__KONCLAVE_SESSION__").unwrap() < out.find("</head>").unwrap());
+    }
+
     #[test]
     fn health_is_ok() {
         let cfg = cfg_with(tmp_db(), None);
@@ -1793,7 +2048,7 @@ mod tests {
         use crate::proposal::Quorum;
         let db = tmp_db();
         {
-            let mut store = Store::open(&db).unwrap();
+            let store = Store::open(&db).unwrap();
             for (vid, nm, benef) in [
                 ("vault-a", "Cofre A", "Ana"),
                 ("vault-b", "Cofre B", "Bruno"),
@@ -1844,7 +2099,7 @@ mod tests {
         use crate::proposal::Quorum;
         let db = tmp_db();
         {
-            let mut store = Store::open(&db).unwrap();
+            let store = Store::open(&db).unwrap();
             store
                 .save_vault(&VaultRecord {
                     id: "v-lock".into(),
@@ -1890,7 +2145,7 @@ mod tests {
         use crate::proposal::Quorum;
         let db = tmp_db();
         {
-            let mut store = Store::open(&db).unwrap();
+            let store = Store::open(&db).unwrap();
             for id in ["v-locked", "v-plain"] {
                 store
                     .save_vault(&VaultRecord {

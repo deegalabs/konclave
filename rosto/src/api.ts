@@ -54,6 +54,15 @@ export type Balance = {
 const ENV = import.meta.env as Record<string, string | undefined>
 const BASE: string = ENV.VITE_API_BASE ?? ''
 
+// Per-session CSRF token, injected into index.html by the local bridge (window.__KONCLAVE_SESSION__).
+// Sent back on state-changing requests so a cross-site page cannot drive the vault. Reads are
+// protected by the bridge's Host gate + the browser same-origin policy, so they don't carry it.
+const SESSION: string =
+  (typeof window !== 'undefined' && (window as { __KONCLAVE_SESSION__?: string }).__KONCLAVE_SESSION__) || ''
+function postHeaders(): Record<string, string> {
+  return { 'Content-Type': 'application/json', 'X-Konclave-Session': SESSION }
+}
+
 // Which vault the UI is currently inside. Persisted so a reload stays in the same
 // vault; sent as ?vault=<id> so the bridge scopes data per vault (not always the first).
 const VAULT_KEY = 'konclave.selectedVault'
@@ -137,7 +146,7 @@ export async function createProposal(input: NewProposal): Promise<CreateResult> 
   try {
     const res = await fetch(`${BASE}${withVault('/api/proposals')}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: postHeaders(),
       body: JSON.stringify(input),
     })
     const data = (await res.json().catch(() => ({}))) as Record<string, unknown>
@@ -246,7 +255,7 @@ export async function previewPayroll(csv: string): Promise<PayrollPreview | null
   try {
     const res = await fetch(`${BASE}/api/payroll/preview`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: postHeaders(),
       body: JSON.stringify({ csv }),
     })
     if (!res.ok) return null
@@ -265,7 +274,7 @@ export async function createPayroll(
   try {
     const res = await fetch(`${BASE}${withVault('/api/payroll')}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: postHeaders(),
       body: JSON.stringify({ proposer, description, lines }),
     })
     const data = (await res.json().catch(() => ({}))) as Record<string, unknown>
@@ -283,7 +292,7 @@ export async function createVaultDkg(
   try {
     const res = await fetch(`${BASE}/api/vault/dkg`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: postHeaders(),
       body: JSON.stringify({ name, threshold, members }),
     })
     const data = (await res.json().catch(() => ({}))) as Record<string, unknown>
@@ -299,7 +308,7 @@ export async function unlockVault(passphrase: string): Promise<{ ok: boolean; wr
   try {
     const res = await fetch(`${BASE}${withVault('/api/vault/unlock')}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: postHeaders(),
       body: JSON.stringify({ passphrase }),
     })
     if (res.ok) return { ok: true, wrong: false }
@@ -314,7 +323,7 @@ export async function deleteVault(passphrase?: string): Promise<{ ok: boolean; w
   try {
     const res = await fetch(`${BASE}${withVault('/api/vault/delete')}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: postHeaders(),
       body: JSON.stringify({ passphrase }),
     })
     if (res.ok) return { ok: true, wrong: false }
@@ -339,7 +348,7 @@ export async function addBeneficiary(
   try {
     const res = await fetch(`${BASE}${withVault('/api/beneficiaries')}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: postHeaders(),
       body: JSON.stringify({ name, address, memo }),
     })
     const data = (await res.json().catch(() => ({}))) as Record<string, unknown>
@@ -380,7 +389,7 @@ export async function sendProposal(id: string, dryRun: boolean): Promise<SendRes
   try {
     const res = await fetch(`${BASE}/api/proposals/${encodeURIComponent(id)}/send`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: postHeaders(),
       body: JSON.stringify({ dry_run: dryRun }),
     })
     const data = (await res.json().catch(() => ({}))) as Record<string, unknown>
@@ -408,7 +417,7 @@ export async function voteProposal(
   try {
     const res = await fetch(`${BASE}/api/proposals/${encodeURIComponent(id)}/${approve ? 'approve' : 'refuse'}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: postHeaders(),
       body: JSON.stringify({ member }),
     })
     const data = (await res.json().catch(() => ({}))) as Record<string, unknown>
