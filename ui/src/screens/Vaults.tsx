@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getVaults, health, setSelectedVault, unlockVault, markVaultUnlocked, shortAddr, type Vault } from '../api'
 import { Identicon } from '../avatar'
+import { LangToggle } from '../components'
 import '../redesign.css'
 
 /** The radial-key emblem from the logo (silver spokes + blue keyhole glow). */
@@ -90,7 +91,10 @@ export default function Vaults() {
       <div className="rd-shell">
         <div className="rd-top">
           <Brand />
-          <span className="rd-status"><span className="dot" /> <b>Ambiente seguro</b> · Local-first</span>
+          <span className="rd-top-right">
+            <span className="rd-status"><span className="dot" /> <b>Ambiente seguro</b> · Local-first</span>
+            <LangToggle />
+          </span>
         </div>
 
         <div className="rd-hero">

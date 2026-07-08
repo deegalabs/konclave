@@ -157,3 +157,10 @@
 .unlock-btns { display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px; }
 .rd-enter.primary { background: var(--rd-accent); border-color: transparent; color: #08121e; font-weight: 600; }
 .rd-enter.primary:disabled { opacity: 0.5; cursor: default; }
+
+/* Language toggle (PT / EN) */
+.rd-top-right { display: flex; align-items: center; gap: 14px; }
+.lang-toggle { display: inline-flex; border: 1px solid var(--rd-line); border-radius: 6px; overflow: hidden; }
+.lang-btn { background: transparent; color: var(--rd-silver); border: none; padding: 3px 9px; font: inherit; font-size: 11px; letter-spacing: .04em; cursor: pointer; }
+.lang-btn.on { background: var(--rd-accent); color: #06121f; font-weight: 700; }
+.lang-btn:focus-visible { outline: 2px solid var(--rd-accent); outline-offset: -2px; }

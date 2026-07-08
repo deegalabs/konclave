@@ -3,12 +3,12 @@ import { useNavigate } from 'react-router-dom'
 import { Letterhead, Secret, RevealButton } from '../components'
 import { getLedger, getProposalDetail, getVault, ledgerCsvUrl, health, shortAddr, type Proposal, type PayrollLine } from '../api'
 import { fmtDate, fmtZec } from '../format'
-import { stateLabel } from '../labels'
+import { useT } from '../i18n'
 
 const SETTLED = (s: string) => s === 'sent' || s === 'confirmed'
 
-
 export default function Ledger() {
+  const t = useT()
   const nav = useNavigate()
   const [rows, setRows] = useState<Proposal[] | null>(null)
   const [live, setLive] = useState(false)
@@ -134,8 +134,8 @@ export default function Ledger() {
                       <Secret sm><span>−{fmtZec(p.value_zec)}</span></Secret>
                       <div className="by">
                         {settledRow && p.txid
-                          ? <a className="link" href={`https://mainnet.zcashexplorer.app/transactions/${p.txid}`} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>{stateLabel(p.state)} ↗</a>
-                          : stateLabel(p.state)}
+                          ? <a className="link" href={`https://mainnet.zcashexplorer.app/transactions/${p.txid}`} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>{t('state.' + p.state)} ↗</a>
+                          : t('state.' + p.state)}
                       </div>
                     </td>
                   </tr>

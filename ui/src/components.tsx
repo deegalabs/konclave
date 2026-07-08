@@ -1,6 +1,20 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { useReveal } from './reveal'
+import { useI18n } from './i18n'
+
+/** Language toggle (PT / EN). Keyboard-operable buttons; the choice persists per device. */
+export function LangToggle() {
+  const { locale, setLocale, t } = useI18n()
+  return (
+    <span className="lang-toggle" role="group" aria-label={t('lang.label')}>
+      <button type="button" className={'lang-btn' + (locale === 'pt-BR' ? ' on' : '')}
+        aria-pressed={locale === 'pt-BR'} onClick={() => setLocale('pt-BR')}>{t('lang.pt')}</button>
+      <button type="button" className={'lang-btn' + (locale === 'en' ? ' on' : '')}
+        aria-pressed={locale === 'en'} onClick={() => setLocale('en')}>{t('lang.en')}</button>
+    </span>
+  )
+}
 
 /** Konclave mark — the radial-key emblem (silver spokes + blue keyhole), matching the logo. */
 export function Mark() {

@@ -13,13 +13,16 @@ import '@fontsource/spline-sans-mono/600.css'
 import './lacre.css'
 import App from './App.tsx'
 import { RevealProvider } from './reveal'
+import { I18nProvider } from './i18n'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <RevealProvider>
-      <HashRouter>
-        <App />
-      </HashRouter>
-    </RevealProvider>
+    <I18nProvider>
+      <RevealProvider>
+        <HashRouter>
+          <App />
+        </HashRouter>
+      </RevealProvider>
+    </I18nProvider>
   </StrictMode>,
 )

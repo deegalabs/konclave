@@ -3,13 +3,14 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { Letterhead, Secret } from '../components'
 import { Identicon } from '../avatar'
 import { fmtZec } from '../format'
-import { stateStamp } from '../labels'
+import { useT } from '../i18n'
 import {
   getProposalDetail, getProposals, getVault, voteProposal, sendProposal, shortAddr, humanError,
   type Proposal, type PayrollLine,
 } from '../api'
 
 export default function Proposal() {
+  const t = useT()
   const nav = useNavigate()
   const loc = useLocation() as { state?: { id?: string } }
   const [p, setP] = useState<Proposal | null>(null)
@@ -113,7 +114,7 @@ export default function Proposal() {
       <div className="page narrow">
         <div className="prop-head">
           <span className="klab">{eyebrow}</span>
-          <span className={'stamp st-' + p.state}>{stateStamp(p.state)}</span>
+          <span className={'stamp st-' + p.state}>{t('stamp.' + p.state)}</span>
         </div>
         <h1 className="h1 prop-title">{title}</h1>
         <div className="p-meta">{subtitle}{p.is_public && !isPayroll && <span className="hint warn"> · ⚠ destino público</span>}</div>

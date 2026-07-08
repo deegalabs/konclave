@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Letterhead, Secret } from '../components'
 import { fmtZec, parseZecToZat, zatToZec } from '../format'
-import { stateLabel } from '../labels'
+import { useT } from '../i18n'
 import {
   previewPayroll, createPayroll, getBalance, getBeneficiaries, getLedger, getVault, health, classifyAddress, humanError,
   type Beneficiary, type Proposal, type Member,
@@ -27,6 +27,7 @@ function rowIssue(r: Row): string | null {
 const rowTouched = (r: Row) => !!(r.address.trim() || r.value.trim() || r.label.trim() || r.memo.trim())
 
 export default function NewPayroll() {
+  const t = useT()
   const nav = useNavigate()
   const [competencia, setCompetencia] = useState('')
   const [description, setDescription] = useState('')
@@ -154,7 +155,7 @@ export default function NewPayroll() {
                 <span className="pf-name">{f.memo || 'Folha de pagamento'}</span>
                 <span className="pf-meta">
                   <span className="pf-val"><Secret sm><span>{fmtZec(f.value_zec)} ZEC</span></Secret></span>
-                  <span className={'pf-st ' + f.state}>{stateLabel(f.state)}</span>
+                  <span className={'pf-st ' + f.state}>{t('state.' + f.state)}</span>
                   <span className="pf-go">→</span>
                 </span>
               </div>
