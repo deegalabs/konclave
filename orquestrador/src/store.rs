@@ -40,7 +40,7 @@ pub enum ProposalKind {
     Payroll,
 }
 
-/// A saved payee (spec: beneficiário como entidade). Public material — an address book
+/// A saved payee (spec: beneficiary as an entity). Public material — an address book
 /// so the treasurer picks a name instead of pasting an address.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Beneficiary {

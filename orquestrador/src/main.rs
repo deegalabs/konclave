@@ -23,38 +23,39 @@ fn run_seal(args: &[String]) -> Result<(), String> {
     let mut key_file: Option<String> = None;
     let mut it = args.iter();
     while let Some(a) = it.next() {
-        let mut next = || it.next().ok_or_else(|| format!("faltou valor para {a}"));
+        let mut next = || it.next().ok_or_else(|| format!("missing value for {a}"));
         match a.as_str() {
             "--in" => input = Some(next()?.clone()),
             "--out" => output = Some(next()?.clone()),
             "--key" => key_file = Some(next()?.clone()),
-            other => return Err(format!("opção desconhecida: {other}")),
+            other => return Err(format!("unknown option: {other}")),
         }
     }
-    let input = input.ok_or("--in <arquivo> é obrigatório")?;
-    let output = output.ok_or("--out <arquivo.sealed> é obrigatório")?;
-    let key_file = key_file.ok_or("--key <arquivo-chave> é obrigatório")?;
+    let input = input.ok_or("--in <file> is required")?;
+    let output = output.ok_or("--out <file.sealed> is required")?;
+    let key_file = key_file.ok_or("--key <key-file> is required")?;
 
     let key: [u8; 32] = if std::path::Path::new(&key_file).exists() {
-        let b = std::fs::read(&key_file).map_err(|e| format!("lendo chave: {e}"))?;
+        let b = std::fs::read(&key_file).map_err(|e| format!("reading key: {e}"))?;
         if b.len() != 32 {
-            return Err(format!("chave deve ter 32 bytes, tem {}", b.len()));
+            return Err(format!("key must be 32 bytes, has {}", b.len()));
         }
         let mut k = [0u8; 32];
         k.copy_from_slice(&b);
         k
     } else {
-        let k = orquestrador::secrets::generate_key().map_err(|e| format!("gerar chave: {e}"))?;
+        let k =
+            orquestrador::secrets::generate_key().map_err(|e| format!("generating key: {e}"))?;
         write_private_key(&key_file, &k)?;
-        eprintln!("chave de selagem criada em {key_file} (0600)");
+        eprintln!("sealing key created at {key_file} (0600)");
         k
     };
 
-    let plaintext = std::fs::read(&input).map_err(|e| format!("lendo {input}: {e}"))?;
+    let plaintext = std::fs::read(&input).map_err(|e| format!("reading {input}: {e}"))?;
     let sealed =
-        orquestrador::secrets::seal(&plaintext, &key).map_err(|e| format!("selar: {e}"))?;
-    std::fs::write(&output, &sealed).map_err(|e| format!("escrevendo {output}: {e}"))?;
-    println!("selado {input} -> {output} ({} bytes)", sealed.len());
+        orquestrador::secrets::seal(&plaintext, &key).map_err(|e| format!("sealing: {e}"))?;
+    std::fs::write(&output, &sealed).map_err(|e| format!("writing {output}: {e}"))?;
+    println!("sealed {input} -> {output} ({} bytes)", sealed.len());
     Ok(())
 }
 
@@ -69,13 +70,12 @@ fn write_private_key(path: &str, key: &[u8; 32]) -> Result<(), String> {
             .truncate(true)
             .mode(0o600)
             .open(path)
-            .map_err(|e| format!("criar arquivo de chave: {e}"))?;
-        f.write_all(key)
-            .map_err(|e| format!("escrever chave: {e}"))?;
+            .map_err(|e| format!("creating key file: {e}"))?;
+        f.write_all(key).map_err(|e| format!("writing key: {e}"))?;
     }
     #[cfg(not(unix))]
     {
-        std::fs::write(path, key).map_err(|e| format!("escrever chave: {e}"))?;
+        std::fs::write(path, key).map_err(|e| format!("writing key: {e}"))?;
     }
     Ok(())
 }
@@ -89,7 +89,7 @@ fn run_create_vault(args: &[String]) -> Result<(), String> {
     let mut members: Vec<String> = Vec::new();
     let mut it = args.iter();
     while let Some(a) = it.next() {
-        let mut next = || it.next().ok_or_else(|| format!("faltou valor para {a}"));
+        let mut next = || it.next().ok_or_else(|| format!("missing value for {a}"));
         match a.as_str() {
             "--ceremony" => ceremony = Some(PathBuf::from(next()?)),
             "--name" => name = Some(next()?.clone()),
@@ -97,27 +97,26 @@ fn run_create_vault(args: &[String]) -> Result<(), String> {
                 threshold = Some(
                     next()?
                         .parse()
-                        .map_err(|_| "threshold inválido".to_string())?,
+                        .map_err(|_| "invalid threshold".to_string())?,
                 )
             }
             "--members" => members = next()?.split(',').map(|s| s.trim().to_string()).collect(),
-            other => return Err(format!("opção desconhecida: {other}")),
+            other => return Err(format!("unknown option: {other}")),
         }
     }
-    let ceremony = ceremony.ok_or("--ceremony <json> é obrigatório")?;
-    let name = name.ok_or("--name é obrigatório")?;
-    let threshold = threshold.ok_or("--threshold é obrigatório")?;
+    let ceremony = ceremony.ok_or("--ceremony <json> is required")?;
+    let name = name.ok_or("--name is required")?;
+    let threshold = threshold.ok_or("--threshold is required")?;
     if members.len() < 2 {
-        return Err("--members precisa de ao menos 2 nomes (ex.: Alice,Bob,Carol)".into());
+        return Err("--members needs at least 2 names (e.g. Alice,Bob,Carol)".into());
     }
 
     let text = std::fs::read_to_string(&ceremony)
-        .map_err(|e| format!("lendo {}: {e}", ceremony.display()))?;
-    let sc: SendConfig =
-        serde_json::from_str(&text).map_err(|e| format!("config inválida: {e}"))?;
+        .map_err(|e| format!("reading {}: {e}", ceremony.display()))?;
+    let sc: SendConfig = serde_json::from_str(&text).map_err(|e| format!("invalid config: {e}"))?;
 
     eprintln!(
-        "DKG: criando cofre '{name}' {threshold}-de-{} ({})",
+        "DKG: creating vault '{name}' {threshold}-of-{} ({})",
         members.len(),
         members.join(",")
     );
@@ -139,28 +138,28 @@ fn main() -> ExitCode {
         Some("serve") => match run_serve(&args[1..]) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                eprintln!("erro: {e}");
+                eprintln!("error: {e}");
                 ExitCode::from(1)
             }
         },
         Some("sign-send") => match run_sign_send(&args[1..]) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                eprintln!("erro: {e}");
+                eprintln!("error: {e}");
                 ExitCode::from(1)
             }
         },
         Some("seal") => match run_seal(&args[1..]) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                eprintln!("erro: {e}");
+                eprintln!("error: {e}");
                 ExitCode::from(1)
             }
         },
         Some("create-vault") => match run_create_vault(&args[1..]) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                eprintln!("erro: {e}");
+                eprintln!("error: {e}");
                 ExitCode::from(1)
             }
         },
@@ -169,7 +168,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Some(other) => {
-            eprintln!("comando desconhecido: {other}\n");
+            eprintln!("unknown command: {other}\n");
             print_usage();
             ExitCode::from(2)
         }
@@ -178,20 +177,20 @@ fn main() -> ExitCode {
 
 fn print_usage() {
     eprintln!(
-        "konclave — ponte local do Konclave\n\
+        "konclave — Konclave local bridge\n\
          \n\
-         USO:\n\
-         \x20 konclave serve [OPÇÕES]\n\
+         USAGE:\n\
+         \x20 konclave serve [OPTIONS]\n\
          \n\
-         OPÇÕES de `serve`:\n\
-         \x20 --port <N>        porta em 127.0.0.1 (padrão {DEFAULT_PORT})\n\
-         \x20 --web <DIR>       bundle do Rosto (padrão {DEFAULT_WEB})\n\
-         \x20 --db <PATH>       banco local SQLite (padrão {DEFAULT_DB})\n\
-         \x20 --demo            semear cofre + propostas de exemplo se o banco estiver vazio\n\
-         \x20 --devtool <PATH>  binário zcash-devtool (habilita /api/balance ao vivo)\n\
-         \x20 --wallet <DIR>    diretório da carteira do zcash-devtool\n\
-         \x20 --server <URI>    servidor lightwalletd (ex.: https://zec.rocks:443)\n\
-         \x20 --ceremony <JSON> config da cerimônia FROST (habilita o envio real)\n"
+         `serve` OPTIONS:\n\
+         \x20 --port <N>        port on 127.0.0.1 (default {DEFAULT_PORT})\n\
+         \x20 --web <DIR>       Rosto bundle (default {DEFAULT_WEB})\n\
+         \x20 --db <PATH>       local SQLite database (default {DEFAULT_DB})\n\
+         \x20 --demo            seed a sample vault + proposals if the database is empty\n\
+         \x20 --devtool <PATH>  zcash-devtool binary (enables live /api/balance)\n\
+         \x20 --wallet <DIR>    zcash-devtool wallet directory\n\
+         \x20 --server <URI>    lightwalletd server (e.g. https://zec.rocks:443)\n\
+         \x20 --ceremony <JSON> FROST ceremony config (enables real sends)\n"
     );
 }
 
@@ -207,9 +206,9 @@ fn run_serve(args: &[String]) -> Result<(), String> {
 
     let mut it = args.iter();
     while let Some(a) = it.next() {
-        let mut next = || it.next().ok_or_else(|| format!("faltou valor para {a}"));
+        let mut next = || it.next().ok_or_else(|| format!("missing value for {a}"));
         match a.as_str() {
-            "--port" => port = next()?.parse().map_err(|_| "porta inválida".to_string())?,
+            "--port" => port = next()?.parse().map_err(|_| "invalid port".to_string())?,
             "--web" => web = PathBuf::from(next()?),
             "--db" => db = next()?.clone(),
             "--demo" => demo = true,
@@ -217,20 +216,20 @@ fn run_serve(args: &[String]) -> Result<(), String> {
             "--wallet" => wallet_dir = Some(next()?.clone()),
             "--server" => server_uri = Some(next()?.clone()),
             "--ceremony" => ceremony_path = Some(PathBuf::from(next()?)),
-            other => return Err(format!("opção desconhecida: {other}")),
+            other => return Err(format!("unknown option: {other}")),
         }
     }
 
     if demo {
-        let mut store = Store::open(&db).map_err(|e| format!("abrir banco: {e}"))?;
-        server::seed_demo(&mut store).map_err(|e| format!("semear demo: {e}"))?;
-        eprintln!("demo: cofre e propostas de exemplo prontos em {db}");
+        let mut store = Store::open(&db).map_err(|e| format!("opening database: {e}"))?;
+        server::seed_demo(&mut store).map_err(|e| format!("seeding demo: {e}"))?;
+        eprintln!("demo: sample vault and proposals ready in {db}");
     }
 
     // Live balance is only available when all three wallet inputs are present.
     let wallet = match (devtool, wallet_dir, server_uri) {
         (Some(devtool), Some(wallet_dir), Some(server)) => {
-            eprintln!("carteira ao vivo: {} @ {server}", wallet_dir);
+            eprintln!("live wallet: {} @ {server}", wallet_dir);
             Some(Box::new(LiveWallet {
                 devtool,
                 wallet_dir,
@@ -240,7 +239,7 @@ fn run_serve(args: &[String]) -> Result<(), String> {
         (None, None, None) => None,
         _ => {
             return Err(
-                "para /api/balance ao vivo, forneça os três: --devtool, --wallet e --server".into(),
+                "for live /api/balance, provide all three: --devtool, --wallet and --server".into(),
             )
         }
     };
@@ -248,13 +247,10 @@ fn run_serve(args: &[String]) -> Result<(), String> {
     let ceremony = match ceremony_path {
         Some(p) => {
             let text = std::fs::read_to_string(&p)
-                .map_err(|e| format!("lendo cerimônia {}: {e}", p.display()))?;
-            let sc: SendConfig = serde_json::from_str(&text)
-                .map_err(|e| format!("config de cerimônia inválida: {e}"))?;
-            eprintln!(
-                "envio ao vivo habilitado (cerimônia FROST): grupo {}",
-                sc.group
-            );
+                .map_err(|e| format!("reading ceremony {}: {e}", p.display()))?;
+            let sc: SendConfig =
+                serde_json::from_str(&text).map_err(|e| format!("invalid ceremony config: {e}"))?;
+            eprintln!("live send enabled (FROST ceremony): group {}", sc.group);
             Some(sc)
         }
         None => None,
@@ -266,7 +262,7 @@ fn run_serve(args: &[String]) -> Result<(), String> {
         wallet,
         ceremony,
     };
-    server::serve(cfg, port).map_err(|e| format!("servidor: {e}"))
+    server::serve(cfg, port).map_err(|e| format!("server: {e}"))
 }
 
 /// `konclave sign-send --ceremony <json> --to <addr> --value-zat <n> [--memo <m>] [--dry-run]`
@@ -281,7 +277,7 @@ fn run_sign_send(args: &[String]) -> Result<(), String> {
 
     let mut it = args.iter();
     while let Some(a) = it.next() {
-        let mut next = || it.next().ok_or_else(|| format!("faltou valor para {a}"));
+        let mut next = || it.next().ok_or_else(|| format!("missing value for {a}"));
         match a.as_str() {
             "--ceremony" => ceremony = Some(PathBuf::from(next()?)),
             "--to" => to = Some(next()?.clone()),
@@ -289,30 +285,30 @@ fn run_sign_send(args: &[String]) -> Result<(), String> {
                 value_zat = Some(
                     next()?
                         .parse()
-                        .map_err(|_| "value-zat inválido".to_string())?,
+                        .map_err(|_| "invalid value-zat".to_string())?,
                 )
             }
             "--memo" => memo = Some(next()?.clone()),
             "--dry-run" => dry_run = true,
-            other => return Err(format!("opção desconhecida: {other}")),
+            other => return Err(format!("unknown option: {other}")),
         }
     }
 
-    let ceremony = ceremony.ok_or("--ceremony <json> é obrigatório")?;
-    let to = to.ok_or("--to <endereço> é obrigatório")?;
-    let value_zat = value_zat.ok_or("--value-zat <zatoshis> é obrigatório")?;
+    let ceremony = ceremony.ok_or("--ceremony <json> is required")?;
+    let to = to.ok_or("--to <address> is required")?;
+    let value_zat = value_zat.ok_or("--value-zat <zatoshis> is required")?;
 
     let text = std::fs::read_to_string(&ceremony)
-        .map_err(|e| format!("lendo {}: {e}", ceremony.display()))?;
+        .map_err(|e| format!("reading {}: {e}", ceremony.display()))?;
     let sc: SendConfig =
-        serde_json::from_str(&text).map_err(|e| format!("config de cerimônia inválida: {e}"))?;
+        serde_json::from_str(&text).map_err(|e| format!("invalid ceremony config: {e}"))?;
 
     if dry_run {
-        eprintln!("== DRY-RUN: assina mas NÃO transmite (nenhum fundo se move) ==");
+        eprintln!("== DRY-RUN: signs but does NOT broadcast (no funds move) ==");
     } else {
-        eprintln!("== ENVIO REAL: vai transmitir à mainnet ==");
+        eprintln!("== REAL SEND: will broadcast to mainnet ==");
     }
-    eprintln!("destino {to} · valor {value_zat} zat");
+    eprintln!("destination {to} · value {value_zat} zat");
 
     let plan = SpendPlan::Payment {
         to: to.clone(),
@@ -327,13 +323,13 @@ fn run_sign_send(args: &[String]) -> Result<(), String> {
         .map(|m| m.name.clone())
         .collect();
     let outcome = orchestrate_send(&sc, &plan, &approvers, dry_run)
-        .map_err(|e| format!("cerimônia/envio: {e}"))?;
+        .map_err(|e| format!("ceremony/send: {e}"))?;
 
-    eprintln!("sighash assinado: {}", outcome.sighash);
-    eprintln!("PCZT assinado: {}", outcome.signed_pczt);
+    eprintln!("signed sighash: {}", outcome.sighash);
+    eprintln!("signed PCZT: {}", outcome.signed_pczt);
     match outcome.txid {
         Some(txid) => println!("TXID {txid}"),
-        None => println!("DRY-RUN OK (PCZT assinado, sem broadcast)"),
+        None => println!("DRY-RUN OK (PCZT signed, no broadcast)"),
     }
     Ok(())
 }

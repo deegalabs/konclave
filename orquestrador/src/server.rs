@@ -451,7 +451,7 @@ fn api_ledger(cfg: &Config, want: Option<&str>) -> Response {
 
 /// `GET /api/ledger.csv` — the accountant's export, ITEMIZED: **one row per payment**.
 /// A single payment is one row; a payroll of N is **N rows** (one per beneficiary),
-/// sharing the document id/state/txid. This is the accounting "lançamentos" view
+/// sharing the document id/state/txid. This is the accounting "entries" (lançamentos) view
 /// (docs/REDESENHO_FOLHA.md), not one aggregate line per proposal.
 fn api_ledger_csv(cfg: &Config, want: Option<&str>) -> Response {
     const HEADER: &str =
@@ -592,7 +592,7 @@ fn create_vault_dkg_handler(cfg: &Config, body: &[u8]) -> Response {
             501,
             &serde_json::json!({
                 "error": "ceremony not configured",
-                "detail": "suba com --ceremony <config> (com zcash_sign, vaults_dir e sealing_key_file)"
+                "detail": "start with --ceremony <config> (with zcash_sign, vaults_dir and sealing_key_file)"
             }),
         );
     };
@@ -601,14 +601,14 @@ fn create_vault_dkg_handler(cfg: &Config, body: &[u8]) -> Response {
         Err(e) => return bad(e.to_string(), "bad request"),
     };
     if req.name.trim().is_empty() {
-        return bad("informe um nome para o cofre", "missing name");
+        return bad("enter a name for the vault", "missing name");
     }
     if req.members.len() < 2 {
-        return bad("um cofre precisa de ao menos 2 membros", "too few members");
+        return bad("a vault needs at least 2 members", "too few members");
     }
     if req.threshold < 1 || req.threshold as usize > req.members.len() {
         return bad(
-            format!("quórum inválido {}-de-{}", req.threshold, req.members.len()),
+            format!("invalid quorum {}-of-{}", req.threshold, req.members.len()),
             "invalid quorum",
         );
     }
@@ -712,7 +712,7 @@ fn vault_unlock(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
     };
     let vault_id = match resolve_vault_id(&store, want) {
         Ok(Some(id)) => id,
-        Ok(None) => return bad("nenhum cofre neste dispositivo", "no vault"),
+        Ok(None) => return bad("no vault on this device", "no vault"),
         Err(r) => return r,
     };
     let (salt, verifier) = match store.get_vault_lock(&vault_id) {
@@ -741,7 +741,7 @@ fn vault_unlock(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
     } else {
         Response::json(
             401,
-            &serde_json::json!({ "error": "wrong passphrase", "detail": "palavra do cofre incorreta" }),
+            &serde_json::json!({ "error": "wrong passphrase", "detail": "incorrect vault word" }),
         )
     }
 }
@@ -773,7 +773,7 @@ fn vault_delete(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
     };
     let vault_id = match resolve_vault_id(&store, want) {
         Ok(Some(id)) => id,
-        Ok(None) => return bad("nenhum cofre neste dispositivo", "no vault"),
+        Ok(None) => return bad("no vault on this device", "no vault"),
         Err(r) => return r,
     };
     // A locked vault can only be deleted with the right passphrase.
@@ -792,7 +792,7 @@ fn vault_delete(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
             if !crate::secrets::verify(&key, &verifier) {
                 return Response::json(
                     401,
-                    &serde_json::json!({"error": "wrong passphrase", "detail": "palavra do cofre incorreta"}),
+                    &serde_json::json!({"error": "wrong passphrase", "detail": "incorrect vault word"}),
                 );
             }
         }
@@ -808,7 +808,7 @@ fn vault_delete(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
                 _ => {
                     return Response::json(
                         401,
-                        &serde_json::json!({"error": "confirm_required", "detail": "digite o nome do cofre para confirmar a exclusão"}),
+                        &serde_json::json!({"error": "confirm_required", "detail": "type the vault name to confirm deletion"}),
                     )
                 }
             }
@@ -875,10 +875,10 @@ fn beneficiary_add(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
         Err(e) => return bad(e.to_string(), "bad request"),
     };
     if input.name.trim().is_empty() {
-        return bad("informe um nome para o beneficiário", "missing name");
+        return bad("enter a name for the beneficiary", "missing name");
     }
     if AddressKind::classify(&input.address) == AddressKind::Unknown {
-        return bad("endereço Zcash não reconhecido", "invalid address");
+        return bad("unrecognized Zcash address", "invalid address");
     }
     let store = match open_store(cfg) {
         Ok(s) => s,
@@ -886,7 +886,7 @@ fn beneficiary_add(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
     };
     let vault_id = match resolve_vault_id(&store, want) {
         Ok(Some(id)) => id,
-        Ok(None) => return bad("nenhum cofre neste dispositivo", "no vault"),
+        Ok(None) => return bad("no vault on this device", "no vault"),
         Err(r) => return r,
     };
     let b = crate::store::Beneficiary {
@@ -983,14 +983,14 @@ fn create_proposal(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
         Err(e) => return bad(e.to_string(), "bad request"),
     };
     if input.proposer.trim().is_empty() {
-        return bad("informe quem está propondo", "missing proposer");
+        return bad("enter who is proposing", "missing proposer");
     }
 
     // Destination: reject unrecognized encodings; transparent is allowed but flagged
     // downstream (is_public) so the UI warns.
     let addr_kind = AddressKind::classify(&input.to_address);
     if addr_kind == AddressKind::Unknown {
-        return bad("endereço Zcash não reconhecido", "invalid address");
+        return bad("unrecognized Zcash address", "invalid address");
     }
 
     // Amount (no floating point) — must be > 0.
@@ -999,7 +999,7 @@ fn create_proposal(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
         Err(e) => return bad(e.to_string(), "invalid amount"),
     };
     if value.is_zero() {
-        return bad("o valor deve ser maior que zero", "invalid amount");
+        return bad("the value must be greater than zero", "invalid amount");
     }
 
     // Memo rules (length; not on a transparent destination).
@@ -1015,12 +1015,12 @@ fn create_proposal(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
     };
     let vault_id = match resolve_vault_id(&store, want) {
         Ok(Some(id)) => id,
-        Ok(None) => return bad("nenhum cofre neste dispositivo", "no vault"),
+        Ok(None) => return bad("no vault on this device", "no vault"),
         Err(r) => return r,
     };
     let vault = match store.get_vault(&vault_id) {
         Ok(Some(v)) => v,
-        Ok(None) => return bad("nenhum cofre neste dispositivo", "no vault"),
+        Ok(None) => return bad("no vault on this device", "no vault"),
         Err(e) => {
             return Response::json(
                 500,
@@ -1095,7 +1095,7 @@ struct PreviewReq {
 #[derive(serde::Deserialize)]
 struct PayrollCreateReq {
     proposer: String,
-    /// Document description / competência (e.g. "Folha · abril/2026"). Optional.
+    /// Document description / accounting period (e.g. "Folha · abril/2026"). Optional.
     #[serde(default)]
     description: Option<String>,
     lines: Vec<PayrollLineIn>,
@@ -1106,11 +1106,11 @@ fn line_in_to_payroll(l: &PayrollLineIn) -> Result<crate::payroll::PayrollLine, 
     use crate::validation::{validate_memo, AddressKind};
     let kind = AddressKind::classify(&l.address);
     if kind == AddressKind::Unknown {
-        return Err(format!("endereço não reconhecido: {}", l.address));
+        return Err(format!("unrecognized address: {}", l.address));
     }
     let value = Zatoshis::from_zec_str(&l.value_zec).map_err(|e| e.to_string())?;
     if value.is_zero() {
-        return Err("o valor deve ser maior que zero".into());
+        return Err("the value must be greater than zero".into());
     }
     let memo = l.memo.clone().unwrap_or_default();
     validate_memo(&memo, kind).map_err(|e| e.to_string())?;
@@ -1178,7 +1178,7 @@ fn payroll_preview(body: &[u8]) -> Response {
         }
         (ls, errs)
     } else {
-        return bad("informe 'csv' ou 'lines'", "bad request");
+        return bad("provide 'csv' or 'lines'", "bad request");
     };
     let plan = PayrollPlan::new(lines);
     let lines_json: Vec<_> = plan.lines.iter().map(payroll_line_json).collect();
@@ -1202,13 +1202,13 @@ fn payroll_create(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
         Err(e) => return bad(e.to_string(), "bad request"),
     };
     if req.proposer.trim().is_empty() {
-        return bad("informe quem está propondo", "missing proposer");
+        return bad("enter who is proposing", "missing proposer");
     }
     let mut lines = Vec::new();
     for (i, l) in req.lines.iter().enumerate() {
         match line_in_to_payroll(l) {
             Ok(pl) => lines.push(pl),
-            Err(r) => return bad(format!("linha {}: {}", i + 1, r), "invalid line"),
+            Err(r) => return bad(format!("line {}: {}", i + 1, r), "invalid line"),
         }
     }
     let plan = PayrollPlan::new(lines);
@@ -1219,12 +1219,12 @@ fn payroll_create(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
     };
     let vault_id = match resolve_vault_id(&store, want) {
         Ok(Some(id)) => id,
-        Ok(None) => return bad("nenhum cofre neste dispositivo", "no vault"),
+        Ok(None) => return bad("no vault on this device", "no vault"),
         Err(r) => return r,
     };
     let vault = match store.get_vault(&vault_id) {
         Ok(Some(v)) => v,
-        Ok(None) => return bad("nenhum cofre neste dispositivo", "no vault"),
+        Ok(None) => return bad("no vault on this device", "no vault"),
         Err(e) => {
             return Response::json(
                 500,
@@ -1318,7 +1318,7 @@ fn api_proposal_one(cfg: &Config, id: &str) -> Response {
         }
         Ok(None) => Response::json(
             404,
-            &serde_json::json!({"error": "not found", "detail": "proposta não encontrada"}),
+            &serde_json::json!({"error": "not found", "detail": "proposal not found"}),
         ),
         Err(e) => Response::json(
             500,
@@ -1344,7 +1344,7 @@ fn vote_proposal(cfg: &Config, id: &str, body: &[u8], approve: bool) -> Response
         Err(e) => return bad(e.to_string(), "bad request"),
     };
     if vote.member.trim().is_empty() {
-        return bad("informe quem está votando", "missing member");
+        return bad("enter who is voting", "missing member");
     }
 
     let mut store = match open_store(cfg) {
@@ -1356,7 +1356,7 @@ fn vote_proposal(cfg: &Config, id: &str, body: &[u8], approve: bool) -> Response
         Ok(None) => {
             return Response::json(
                 404,
-                &serde_json::json!({"error": "not found", "detail": "proposta não encontrada"}),
+                &serde_json::json!({"error": "not found", "detail": "proposal not found"}),
             )
         }
         Err(e) => {
@@ -1371,7 +1371,7 @@ fn vote_proposal(cfg: &Config, id: &str, body: &[u8], approve: bool) -> Response
         Ok(None) => {
             return Response::json(
                 500,
-                &serde_json::json!({"error": "store", "detail": "cofre da proposta ausente"}),
+                &serde_json::json!({"error": "store", "detail": "proposal's vault is missing"}),
             )
         }
         Err(e) => {
@@ -1449,7 +1449,7 @@ fn send_proposal(cfg: &Config, id: &str, body: &[u8]) -> Response {
             501,
             &serde_json::json!({
                 "error": "ceremony not configured",
-                "detail": "suba a ponte com --ceremony <config.json> para habilitar o envio"
+                "detail": "start the bridge with --ceremony <config.json> to enable sending"
             }),
         );
     };
@@ -1473,7 +1473,7 @@ fn send_proposal(cfg: &Config, id: &str, body: &[u8]) -> Response {
             409,
             &serde_json::json!({
                 "error": "not ready",
-                "detail": format!("a proposta está {:?}; só uma proposta com quórum (Ready) pode ser enviada", rec.state)
+                "detail": format!("the proposal is {:?}; only a proposal that reached quorum (Ready) can be sent", rec.state)
             }),
         );
     }
@@ -1483,7 +1483,7 @@ fn send_proposal(cfg: &Config, id: &str, body: &[u8]) -> Response {
             let Some(to) = rec.to_address.clone() else {
                 return Response::json(
                     400,
-                    &serde_json::json!({"error": "no destination", "detail": "proposta sem endereço de destino"}),
+                    &serde_json::json!({"error": "no destination", "detail": "proposal has no destination address"}),
                 );
             };
             crate::send::SpendPlan::Payment {
@@ -1497,7 +1497,7 @@ fn send_proposal(cfg: &Config, id: &str, body: &[u8]) -> Response {
             if lines.is_empty() {
                 return Response::json(
                     400,
-                    &serde_json::json!({"error": "empty payroll", "detail": "folha sem linhas"}),
+                    &serde_json::json!({"error": "empty payroll", "detail": "payroll has no lines"}),
                 );
             }
             let dests = lines
@@ -1543,7 +1543,7 @@ fn send_proposal(cfg: &Config, id: &str, body: &[u8]) -> Response {
         _ => {
             return Response::json(
                 500,
-                &serde_json::json!({"error": "store", "detail": "cofre ausente"}),
+                &serde_json::json!({"error": "store", "detail": "vault is missing"}),
             )
         }
     };
@@ -2651,7 +2651,7 @@ mod tests {
         // header + 1 payment + 2 payroll beneficiary rows.
         assert_eq!(text.lines().count(), 4);
         assert!(text.contains("Alice") && text.contains("Bob"));
-        assert_eq!(text.matches(",folha,").count(), 2); // each beneficiary is its own lançamento
+        assert_eq!(text.matches(",folha,").count(), 2); // each beneficiary is its own entry
     }
 
     #[test]

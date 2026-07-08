@@ -46,14 +46,14 @@ pub fn create_vault_dkg(
     let zcash_sign = sc
         .zcash_sign
         .as_ref()
-        .ok_or_else(|| err("dkg", "zcash_sign não configurado"))?;
+        .ok_or_else(|| err("dkg", "zcash_sign not configured"))?;
     let vaults_dir = sc
         .vaults_dir
         .as_ref()
-        .ok_or_else(|| err("dkg", "vaults_dir não configurado"))?;
+        .ok_or_else(|| err("dkg", "vaults_dir not configured"))?;
     let n = member_names.len();
     if n < 2 || threshold < 1 || threshold as usize > n {
-        return Err(err("dkg", format!("quórum inválido {threshold}-de-{n}")));
+        return Err(err("dkg", format!("invalid quorum {threshold}-of-{n}")));
     }
 
     // Fresh vault dir + one config per member.
@@ -112,7 +112,7 @@ pub fn create_vault_dkg(
         pubkeys
             .get(nm)
             .cloned()
-            .ok_or_else(|| err("dkg", format!("pubkey de {nm} não encontrada")))
+            .ok_or_else(|| err("dkg", format!("pubkey for {nm} not found")))
     };
 
     // -S for the creator: the OTHER members' pubkeys.
@@ -291,7 +291,7 @@ fn parse_contact(out: &str) -> Result<String, ToolError> {
     out.split_whitespace()
         .find(|t| t.starts_with("zffrost1"))
         .map(str::to_string)
-        .ok_or_else(|| err("dkg", "contato exportado sem string zffrost1"))
+        .ok_or_else(|| err("dkg", "exported contact missing zffrost1 string"))
 }
 
 fn parse_contacts(out: &str) -> Vec<(String, String)> {
@@ -317,7 +317,7 @@ fn parse_group_pubkey(out: &str) -> Result<String, ToolError> {
                 .strip_prefix("Public key ")
                 .map(|s| s.trim().to_string())
         })
-        .ok_or_else(|| err("dkg", "saída de groups sem 'Public key'"))
+        .ok_or_else(|| err("dkg", "groups output missing 'Public key'"))
 }
 
 fn parse_generate(out: &str) -> Result<(String, String), ToolError> {
@@ -337,10 +337,7 @@ fn extract_quoted(out: &str, after: &str) -> Result<String, ToolError> {
             }
         }
     }
-    Err(err(
-        "dkg",
-        format!("não achei valor entre aspas após '{after}'"),
-    ))
+    Err(err("dkg", format!("no quoted value found after '{after}'")))
 }
 
 fn short_id() -> String {

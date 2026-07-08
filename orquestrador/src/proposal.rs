@@ -2,11 +2,11 @@
 //! auditable, never implicit. Applies to both single payments and payroll.
 //!
 //! ```text
-//! rascunho ─propor→ aguardando ─quórum→ pronta ─broadcast→ enviada ─confirma→ confirmada
+//! draft ─propose→ awaiting ─quorum→ ready ─broadcast→ sent ─confirm→ confirmed
 //!                      │
-//!                      ├─recusa inviabiliza quórum→ recusada
-//!                      ├─expira→ expirada
-//!                      └─cancela (só proponente)→ cancelada
+//!                      ├─refusal makes quorum unreachable→ rejected
+//!                      ├─expire→ expired
+//!                      └─cancel (proposer only)→ cancelled
 //! ```
 //! Rules: the proposer counts as the 1st approval; approvals needed = `t`; a member
 //! cannot both approve and refuse; approval/refusal are idempotent; if refusals make

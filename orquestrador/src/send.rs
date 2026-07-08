@@ -43,7 +43,7 @@ pub struct SendConfig {
     pub frostd: PathBuf,
     pub frost_client: PathBuf,
     /// The vault's members — the ceremony picks the signing set from **who approved**
-    /// (5-D.3: aprovação ↔ share que assina).
+    /// (5-D.3: approval ↔ share that signs).
     pub members: Vec<CeremonyMember>,
     /// How many signatures the quorum needs (t).
     pub threshold: usize,
@@ -184,7 +184,7 @@ pub fn orchestrate_send(
         return Err(ToolError::parse(
             "ceremony",
             format!(
-                "precisa de {} aprovadores com chave conhecida; encontrei {} (aprovadores: {:?})",
+                "need {} approvers with a known key; found {} (approvers: {:?})",
                 sc.threshold,
                 signers.len(),
                 approvers
@@ -207,7 +207,7 @@ pub fn orchestrate_send(
             let key = key.ok_or_else(|| {
                 ToolError::parse(
                     "secrets",
-                    "config selado, mas sem sealing_key_file na cerimônia",
+                    "sealed config, but no sealing_key_file in the ceremony",
                 )
             })?;
             let sealed = std::fs::read(&m.config).map_err(ToolError::Io)?;
@@ -367,10 +367,7 @@ fn read_key_file(path: &str) -> Result<[u8; 32], ToolError> {
     if bytes.len() != 32 {
         return Err(ToolError::parse(
             "secrets",
-            format!(
-                "arquivo de chave deve ter 32 bytes, tem {} ({path})",
-                bytes.len()
-            ),
+            format!("key file must be 32 bytes, has {} ({path})", bytes.len()),
         ));
     }
     let mut k = [0u8; 32];

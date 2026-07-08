@@ -186,12 +186,12 @@ export function humanError(error?: string, detail?: string): string {
   if (has('expiry') || has('expired') || e === 'expired') return 'A proposta expirou. Crie uma nova.'
   if (e === 'vote rejected') return 'Este voto não vale agora — a proposta já mudou de estado, ou há um voto conflitante.'
   if (e === 'not ready') return 'A proposta ainda não atingiu o quórum necessário para ser enviada.'
-  if (e === 'invalid address' || has('endereço não reconhecido')) return 'Endereço de destino não reconhecido. Confira o endereço Zcash.'
+  if (e === 'invalid address' || has('unrecognized address')) return 'Endereço de destino não reconhecido. Confira o endereço Zcash.'
   if (e === 'invalid memo' || has('transparent')) return 'Memo inválido: endereços transparentes (públicos) não aceitam memo.'
   if (e === 'invalid amount') return 'Valor inválido. Use um número em ZEC maior que zero.'
   if (e === 'no vault') return 'Nenhum cofre neste dispositivo ainda.'
   if (e === 'no destination') return 'A proposta está sem endereço de destino.'
-  if (e === 'empty payroll' || has('folha sem linhas')) return 'A folha não tem nenhuma linha válida.'
+  if (e === 'empty payroll' || has('payroll has no lines')) return 'A folha não tem nenhuma linha válida.'
   if (has('sem conexão') || has('failed to fetch')) return 'Sem conexão com o cofre local. O servidor está rodando?'
 
   // Fallback: a short detail is probably already readable; otherwise a generic message.
