@@ -1,0 +1,321 @@
+# Konclave — GSP design-system preset (single source of truth)
+# Phase: guidelines | Brand: konclave | Generated: 2026-07-08
+# Source: brand audit + discover (.design/branding/konclave/audit + discover)
+# Mode: dark-first (light-ready structure). Stack: Vite/React/TS + PLAIN CSS
+#       (NO Tailwind, NO shadcn). Tokens are CSS custom properties in :root.
+# Strategy: EVOLVE / CONSOLIDATE. Owner decision (locked): KEEP the current dark
+#           theme + blue accent #57a6ff. This is NOT a recolor — it renames the
+#           lying tokens, merges the 3 CSS files (lacre.css + redesign.css + App.css)
+#           into one token layer, and deletes stray oxblood literals. Every value
+#           below traces to the current code.
+
+name: konclave
+source: brand
+mode: dark-first          # light-ready: role-based names so [data-theme=light] needs no renames
+archetype: Guardian/Steward
+positioning: the vault that decides together — private on the outside, transparent on the inside
+tagline: The vault that decides together.
+motif_line: Propose. Approve. Sent.
+voice: [Honest, Calm, Precise]
+tags:
+  - local-first
+  - dark
+  - collective-custody
+  - threshold-signature
+  - zcash
+  - shielded
+  - instrument
+  - archival
+  - anti-dark-saas
+
+# ---------------------------------------------------------------------------
+# INTENSITY — the build dials.
+# ---------------------------------------------------------------------------
+intensity:
+  variance: 2   # strict, ruled, ledger-like grids; the tarja is the one ornament
+  motion: 2     # motion confirms or reveals only. NO infinite pulse, NO glow-sweep
+  density: 6    # dense-but-legible ledger/payroll tables
+
+# ---------------------------------------------------------------------------
+# TOKENS — the ONE truthful, role-based set. Names now match values.
+# Components never touch hex; everything is a var (see components/token-mapping.md).
+# ---------------------------------------------------------------------------
+tokens:
+  color:
+    # --- surfaces: dark-first depth ramp (from paper / paper-2 / line depth) ---
+    surface-0: "#12161a"   # app canvas / deepest ground (body gradient terminal, rd #12161a)
+    surface-1: "#171c22"   # panels, sheet base            (WAS --paper)
+    surface-2: "#1e252d"   # cards, inputs, chips, wells    (WAS --paper-2)
+    surface-3: "#28313a"   # raised / hover / selected fill (shares the line-depth tone)
+
+    # --- text ---
+    text: "#dfe6ee"        # headings, body, lead figures   (WAS --ink; unifies rd-text #dde5ee)
+    text-muted: "#8a95a3"  # metadata, labels, captions     (WAS --muted; == rd-muted)
+    silver: "#c6cfd9"      # the working metal: numerals, key labels, mark strokes (WAS --silver == rd-silver)
+
+    # --- lines / borders ---
+    line: "#333d47"        # primary divider, letterhead rule (WAS --line)
+    line-2: "#28313a"      # soft card border                 (WAS --line-2)
+    line-soft: "rgba(180,205,235,0.10)"  # translucent hairline on glass-lite cards (WAS --rd-line)
+
+    # --- accent: THE blue. Rare + meaningful (interactive + quorum only). ---
+    accent: "#57a6ff"      # focus, primary action, quorum, links (WAS --seal — the misnamed one)
+    accent-ink: "#3f86e0"  # hover / pressed accent fill          (WAS --seal-ink)
+    accent-soft: "rgba(87,166,255,0.10)"  # chip.on / wash fills
+    accent-line: "rgba(87,166,255,0.30)"  # accent borders (0.28-0.40 in code, normalized)
+    on-accent: "#08121e"   # dark ink for text on an accent fill  (rd #08121e / #06121f)
+
+    # --- success: mint green. Earned (quorum-met / sent / received / live). ---
+    success: "#57d08a"     # (WAS --pine — the second misnamed one)
+    success-soft: "rgba(87,208,138,0.08)"
+    success-line: "rgba(87,208,138,0.40)"
+
+    # --- warn: amber (address warnings, expiring-soon) ---
+    warn: "#ffcf87"        # (WAS hardcoded #ffcf87 in App.css)
+    warn-strong: "#ffe0a3"
+
+    # --- danger: destructive / error only ---
+    danger: "#ff6b6b"      # border / accent for destructive (WAS hardcoded #ff6b6b)
+    danger-text: "#ff9d9d" # danger text on dark (App.css #ff9d9d / #ffb4b4 / #ff8f8f)
+    danger-soft: "rgba(255,90,90,0.09)"   # error fill
+    danger-line: "rgba(255,110,110,0.28)" # danger border
+
+    # --- signature-device tokens ---
+    tarja-ink: "#0c1014"                  # the redaction bar fill (WAS hardcoded in .secret .bar)
+    tarja-text: "rgba(230,227,219,0.60)"  # the "SEALED" label on the bar
+
+# ---------------------------------------------------------------------------
+# TYPOGRAPHY — the one fully-coherent layer. PRESERVE.
+# Archivo = language (headings, UI, body). Spline Sans Mono = record
+# (EVERY figure/amount/address/txid/state/label). Both self-hosted (@fontsource).
+# ---------------------------------------------------------------------------
+typography:
+  fonts:
+    sans: 'Archivo, system-ui, sans-serif'
+    mono: '"Spline Sans Mono", ui-monospace, monospace'
+  self_hosted: true          # @fontsource in ui/src/main.tsx — NO external CDN (local-first)
+  weights:
+    sans: [400, 500, 600, 700, 800]   # loaded weights
+    mono: [400, 500, 600]
+  base_px: 15
+  levels:
+    # display / page title — Archivo, uppercase, heavy (WAS .h1 / .hero-title)
+    display:    { clamp: "clamp(26px, 4.5vw, 40px)", weight: 800, lh: 1.0, tracking: "-0.02em", transform: uppercase, face: sans }
+    h2:         { px: 21, weight: 700, lh: 1.2, tracking: "-0.01em", face: sans }
+    h3:         { px: 15, weight: 700, lh: 1.3, face: sans }
+    body:       { px: 15, weight: 400, lh: 1.5, face: sans }
+    body-sm:    { px: 13, weight: 400, lh: 1.45, face: sans }
+    # label / overline — mono, uppercase, tracked, muted (WAS .klab / field > span)
+    label:      { px: 11, weight: 500, lh: 1.3, tracking: "0.18em", transform: uppercase, face: mono }
+    # money + record — mono ALWAYS (the inviolable rule)
+    money-hero: { clamp: "clamp(38px, 7vw, 62px)", weight: 500, lh: 1.0, tracking: "-0.02em", face: mono }
+    money:      { px: 28, weight: 500, lh: 1.1, face: mono }
+    mono:       { px: 13, weight: 400, lh: 1.4, face: mono }   # addresses, txids, ledger cells, state
+  figure_contract:
+    face: mono                 # money, addresses, txids, IDs, state, dates, counts are ALWAYS mono
+    currency-align: right      # right-align numeric columns so decimals stack
+    rule: "If it is a number, a key, or a machine-state, it is Spline Sans Mono. No exceptions."
+
+# ---------------------------------------------------------------------------
+# SHAPE — radius. The instrument core (buttons, inputs, tarja, stamp) stays
+# SHARP (radius 0) for the ledger/dossier edge; cards/modals/pills are rounded.
+# ---------------------------------------------------------------------------
+shape:
+  radius: 12px          # cards, wells, panels
+  radius-sm: 8px        # small controls, chips-as-boxes, code pills
+  radius-lg: 16px       # large cards, modals, entry blocks
+  radius-pill: 999px    # tags, status pills, avatars
+  instrument-radius: 0  # buttons, inputs, tarja, stamp, table rules — deliberately square
+
+# ---------------------------------------------------------------------------
+# ELEVATION — ONE rule. Flat by default: cards separate by border + tone, not
+# float. Shadow exists at exactly one level: overlays (modals, popovers).
+# This kills the floating-glass card look (the dark-SaaS cliché the brief bans).
+# ---------------------------------------------------------------------------
+elevation:
+  model: flat-by-default
+  shadow-policy: overlay-only
+  shadow-overlay: "0 30px 60px -24px rgba(0,0,0,0.8)"   # modals ONLY (WAS on cards too — removed)
+  card: "border (line-2 or line-soft) + surface tone; NO drop shadow, NO hover-lift"
+
+# ---------------------------------------------------------------------------
+# SPACING — base 8-ish; the ledger reads on a ruled grid.
+# ---------------------------------------------------------------------------
+spacing:
+  base: 8
+  scale: [4, 6, 8, 11, 14, 16, 22, 26, 40, 46, 90]   # values in use across the current CSS
+  page-pad: "0 46px 90px"     # .page (desktop); 0 22px 70px on <=720px
+
+# ---------------------------------------------------------------------------
+# MOTION — dial 2. Motion confirms or reveals; never decorates.
+# KILL the infinite green pulse (@keyframes rd-pulse) and glow-on-everything.
+# Gate everything on prefers-reduced-motion.
+# ---------------------------------------------------------------------------
+motion:
+  ease-out: "cubic-bezier(0.3, 0.8, 0.3, 1)"    # the tarja-reveal easing (WAS in App.css)
+  durations: { fast: 140ms, base: 240ms, reveal: 280ms }
+  rules:
+    hover: "fast — border-brighten / alpha-step only"
+    reveal: "reveal — tarja collapses left to expose the mono figure (one-time)"
+  forbidden:
+    - infinite pulse / looping glow (the rd-pulse status dot)
+    - hover-lift translateY on cards (floating-glass)
+    - glow-sweep / spotlight
+  reduced-motion: instant-state-swaps
+
+# ---------------------------------------------------------------------------
+# EFFECTS — the interaction vocabulary. Calm, matte, no glow spam.
+# ---------------------------------------------------------------------------
+effects:
+  interaction-vocabulary:
+    - border-brighten      # hairline -> accent-line on hover/focus of cards, rows, chips
+    - accent-focus         # inputs: border-color -> accent on :focus-visible (visible ring required)
+    - alpha-step           # row/op hover: subtle surface tone step (accent-soft -> transparent gradient)
+    - tarja-reveal         # the redaction bar collapses left; the one signature motion
+  forbidden:
+    - drop-shadow glow on the mark / lockup / seal / emblem (matte, no glow)
+    - metallic-bevel / background-clip:text wordmark (web3 chrome)
+    - infinite / looping animations
+  grain:
+    allowed: true          # a faint archival paper tooth is on-concept
+    spec: "radial-gradient dot, 3px tile, opacity <= 0.05, fixed"   # WAS body::before / .rd::before
+
+# ---------------------------------------------------------------------------
+# PATTERNS — component recipes (full tables in STYLE.md / components/*).
+# ---------------------------------------------------------------------------
+patterns:
+  card:
+    surface: surface-2      # (or a very faint top-lit fill over surface-1)
+    border: line-2          # or line-soft on the lighter cards
+    radius: radius          # 12px (lg cards use radius-lg)
+    elevation: "flat — border + tone only; NO drop shadow; NO hover-lift"
+    hover: "border -> accent-line (border-brighten), no transform"
+  button-primary:
+    fill: accent
+    text: on-accent
+    border: accent
+    radius: instrument-radius   # 0 — squared instrument
+    hover: "fill -> accent-ink"
+    transform: uppercase
+    weight: 700
+  button-secondary:
+    fill: transparent
+    border: text            # 1.5px solid ink outline (the lacre default .btn)
+    text: text
+    radius: instrument-radius
+    hover: "fill -> text, text -> surface-1 (invert)"
+  button-ghost:
+    fill: transparent
+    border: line
+    text: text-muted
+    hover: "border -> text, text -> text"
+  input:
+    fill: surface-2
+    border: line
+    text: text
+    face: mono
+    radius: instrument-radius   # 0 (unlock/rd inputs used radius-sm; normalize to squared)
+    focus: "border-color -> accent (visible; do NOT remove outline without a ring)"
+  chip:
+    rest: "surface-2 fill, line border, text-muted, radius-pill"
+    on: "accent-soft fill, accent-line border, accent text"
+  tag-status:
+    ok: "success text + success-line border"
+    warn: "warn text"
+    danger: "danger-text + danger-line border"
+    radius: radius-pill
+  stamp:                    # the rotated state marker
+    border: accent
+    text: accent
+    face: mono
+    transform: "rotate(-4deg) uppercase"
+    radius: instrument-radius
+    variants: "st-sent/st-confirmed -> success; st-rejected/st-expired/st-cancelled -> danger"
+  tarja:                    # THE signature device — the redaction bar
+    fill: tarja-ink
+    label: "SEALED (i18n: SIGILOSO) — mono, wide-tracked, tarja-text color"
+    texture: "faint vertical hatch (repeating-linear-gradient, <=0.06 alpha)"
+    behavior: "veils a mono figure; the reveal collapses the bar left (scaleX 0, origin left)"
+    a11y: "MUST be keyboard-operable — role=button, tabindex=0, Enter/Space toggles, aria-pressed, focus ring. Currently a bare div; this is a hard requirement."
+    motion: reveal          # dur-reveal + ease-out; instant under reduced-motion
+  seal:                     # the quorum medallion (Seal / seal-emb)
+    fill: surface-2
+    accent: accent          # the number + filled notches
+    finish: "matte, embossed-by-tone — NO glow, NO gradient, NO bevel"
+    behavior: "N segments fill as approvals arrive (quorum made visible)"
+  identicon:
+    kind: "deterministic symmetric grid, steel-blue on surface"
+    ring: "2px surface ring (box-shadow 0 0 0 2px surface-1)"
+    radius: radius-sm
+  confirm-block:
+    border-left: "3px solid accent"    # preview/confirm; ready-state flips to success
+    fill: surface-2
+    face: mono
+  table:
+    header: "mono label, text-muted, border-bottom line (1.5px)"
+    row: "border-bottom line (1px)"
+    numeric: "mono, right-aligned; out -> text, in -> success"
+  modal:
+    surface: "gradient(surface-2 -> surface-1)"
+    border: line-2          # danger variant: danger-line
+    shadow: shadow-overlay  # the ONLY place a drop shadow is allowed
+    radius: radius-lg
+  nav-letterhead:
+    border-bottom: "1.5px solid text"
+    wordmark: "KONCLAVE — mono 600, letter-spacing 0.42em (plain tracked caps; NOT the metallic-bevel wordmark)"
+
+# ---------------------------------------------------------------------------
+# CONSTRAINTS — hard rules. Violations are bugs. The anti-dark-SaaS ban.
+# ---------------------------------------------------------------------------
+constraints:
+  never:
+    - a new palette or a new hue (the accent is blue #57a6ff, locked; success/warn/danger are semantic only)
+    - accent (blue) as body text or as decoration — it is interactive + quorum ONLY, rare per screen
+    - a non-mono figure — money, addresses, txids, IDs, state, dates, counts are ALWAYS Spline Sans Mono
+    - drop shadows on non-overlay surfaces (cards are flat; float is the banned dark-SaaS look)
+    - hover-lift (translateY) on cards
+    - glow / drop-shadow on the mark, lockup, seal, or emblem (matte only)
+    - metallic-bevel / background-clip:text "web3" wordmark
+    - infinite or looping animation (the pulsing status dot is removed)
+    - a gradient "web3" wordmark, floating glass cards, or glow spam
+    - the oxblood literals #7E2A24 / #37493C / rgba(126,42,36,.35) (dead light-theme; delete on sight)
+    - the purple #863bff (dead favicon); the favicon derives from the blue mark
+    - removing an input focus outline without providing a visible ring
+    - a non-keyboard-operable tarja or nav
+    - emoji, em-dashes, or crypto jargon (FROST/DKG/nonce/SIGHASH) in product copy
+  always:
+    - mono + right-align on every amount, address, txid, id, count, and date
+    - elevation by border + surface tone; shadow only on overlays
+    - accent used sparingly and meaningfully (focus, primary action, quorum, links)
+    - silver as the true secondary metal (numerals, key labels, mark strokes)
+    - success is earned (quorum-met / sent / received / live), never ambient
+    - a visible focus ring on every interactive element (accessibility floor)
+    - the tarja + nav are keyboard-operable (role=button, tabindex, Enter/Space, aria-pressed)
+    - self-hosted fonts, no external CDN (local-first / no telemetry)
+    - honest active voice: "Propose -> Approve -> Sent"; every money action has preview + explicit confirm
+    - gate all motion on prefers-reduced-motion
+
+# ---------------------------------------------------------------------------
+# DARK MODE — dark-first, light-ready.
+# ---------------------------------------------------------------------------
+dark_mode: >
+  Dark-first and, today, dark-only. The token set is role-based (surface-*, text,
+  text-muted, accent, success, warn, danger) precisely so a future light theme is a
+  values-only override under [data-theme="light"] on :root — NO token renames, NO
+  component edits. Do not hardcode a dark hex where a role token exists; that is what
+  keeps the light path free. There is no light theme shipped yet; do not build one
+  until asked.
+
+# ---------------------------------------------------------------------------
+# LOCAL-FIRST — non-negotiable environment constraints.
+# ---------------------------------------------------------------------------
+local_first:
+  fonts: "self-hosted via @fontsource (ui/src/main.tsx). NO Google Fonts / no external CDN in the app."
+  telemetry: none
+  note: "guidelines.html is a STANDALONE doc and MAY use a Google Fonts @import for preview convenience; the SHIPPED app must not."
+
+references:
+  audit: ../audit/            # coherence-assessment.md, evolution-map.md, brand-inventory.md
+  discover: ../discover/mood-board-direction.md   # language only; the oxblood pivot was DECLINED
+  token-map: ./components/token-mapping.md         # the mechanical old->new migration
+  source-css: [ui/src/lacre.css, ui/src/redesign.css, ui/src/App.css]

@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Konclave — Brand Guidelines</title>
+<!-- Standalone preview doc: Google Fonts @import is fine HERE. The shipped app
+     self-hosts via @fontsource — never a CDN. -->
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Spline+Sans+Mono:wght@400;500;600&display=swap');
+
+:root{
+  --surface-0:#12161a; --surface-1:#171c22; --surface-2:#1e252d; --surface-3:#28313a;
+  --text:#dfe6ee; --text-muted:#8a95a3; --silver:#c6cfd9;
+  --line:#333d47; --line-2:#28313a; --line-soft:rgba(180,205,235,.10);
+  --accent:#57a6ff; --accent-ink:#3f86e0;
+  --accent-soft:rgba(87,166,255,.10); --accent-line:rgba(87,166,255,.30); --on-accent:#08121e;
+  --success:#57d08a; --success-soft:rgba(87,208,138,.08); --success-line:rgba(87,208,138,.40);
+  --warn:#ffcf87; --warn-strong:#ffe0a3;
+  --danger:#ff6b6b; --danger-text:#ff9d9d; --danger-soft:rgba(255,90,90,.09); --danger-line:rgba(255,110,110,.28);
+  --tarja-ink:#0c1014; --tarja-text:rgba(230,227,219,.60);
+  --font-sans:"Archivo",system-ui,sans-serif; --font-mono:"Spline Sans Mono",ui-monospace,monospace;
+  --radius:12px; --radius-sm:8px; --radius-lg:16px; --radius-pill:999px;
+  --shadow-overlay:0 30px 60px -24px rgba(0,0,0,.8);
+  --dur-fast:140ms; --dur-reveal:280ms; --ease-out:cubic-bezier(.3,.8,.3,1);
+}
+*{box-sizing:border-box}
+body{margin:0; font-family:var(--font-sans); color:var(--text); line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+  background:
+    radial-gradient(70% 45% at 50% -8%, rgba(87,166,255,.10), transparent 60%),
+    radial-gradient(130% 95% at 50% -15%, #2b333c 0%, #1b2127 55%, #12161a 100%) fixed;
+  min-height:100vh}
+body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0; opacity:.05;
+  background-image:radial-gradient(rgba(200,220,245,.7) .5px, transparent .5px); background-size:3px 3px}
+.wrap{max-width:1040px; margin:0 auto; padding:0 40px 120px; position:relative; z-index:1}
+
+/* letterhead */
+.lh{display:flex; align-items:center; justify-content:space-between; padding:22px 0 16px; border-bottom:1.5px solid var(--text)}
+.wm{font-family:var(--font-mono); font-weight:600; font-size:12px; letter-spacing:.42em; text-indent:.42em}
+.lh .meta{font-family:var(--font-mono); font-size:11px; color:var(--text-muted); letter-spacing:.04em}
+
+h1.title{font-weight:800; font-size:clamp(30px,5vw,46px); letter-spacing:-.02em; line-height:1; text-transform:uppercase; margin:44px 0 6px}
+.lede{color:var(--text-muted); max-width:64ch; font-size:15.5px; margin:0}
+.lede b{color:var(--text); font-weight:600}
+
+section{margin-top:56px}
+h2{font-family:var(--font-mono); font-size:11px; letter-spacing:.22em; text-transform:uppercase; color:var(--text-muted);
+  margin:0 0 18px; padding-bottom:10px; border-bottom:1px solid var(--line)}
+
+/* swatches */
+.swatches{display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:14px}
+.sw{border:1px solid var(--line-2); border-radius:var(--radius); overflow:hidden; background:var(--surface-2)}
+.sw .chip{height:66px}
+.sw .lab{padding:10px 12px; font-family:var(--font-mono); font-size:11px}
+.sw .lab .n{color:var(--text); display:block}
+.sw .lab .v{color:var(--text-muted); display:block; margin-top:3px}
+.sw .lab .role{color:var(--text-muted); display:block; margin-top:6px; font-size:10px; letter-spacing:.04em}
+.grp{font-family:var(--font-mono); font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--silver); margin:22px 0 12px}
+
+/* type scale */
+.type-row{display:flex; align-items:baseline; gap:20px; padding:14px 0; border-bottom:1px solid var(--line)}
+.type-row .tag{flex:0 0 150px; font-family:var(--font-mono); font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--text-muted)}
+.t-display{font-weight:800; font-size:40px; letter-spacing:-.02em; text-transform:uppercase; line-height:1}
+.t-h2{font-weight:700; font-size:21px; letter-spacing:-.01em}
+.t-body{font-weight:400; font-size:15px}
+.t-label{font-family:var(--font-mono); font-size:11px; letter-spacing:.18em; text-transform:uppercase; color:var(--text-muted)}
+.t-money{font-family:var(--font-mono); font-weight:500; font-size:44px; letter-spacing:-.02em}
+.t-mono{font-family:var(--font-mono); font-size:13px}
+
+/* device demos */
+.grid2{display:grid; grid-template-columns:1fr 1fr; gap:20px}
+@media(max-width:760px){.grid2{grid-template-columns:1fr}}
+.demo{border:1px solid var(--line-2); border-radius:var(--radius); padding:22px 24px; background:var(--surface-2)}
+.demo .cap{font-family:var(--font-mono); font-size:10.5px; letter-spacing:.14em; text-transform:uppercase; color:var(--text-muted); margin-bottom:16px}
+.demo .note{font-family:var(--font-mono); font-size:11px; color:var(--text-muted); margin-top:14px; line-height:1.6}
+
+/* tarja */
+.secret{position:relative; display:inline-block}
+.secret .val{font-family:var(--font-mono); font-size:20px}
+.secret .bar{position:absolute; inset:-2px -8px; background:var(--tarja-ink); cursor:pointer;
+  background-image:repeating-linear-gradient(90deg,rgba(255,255,255,.06) 0 1px,transparent 1px 4px);
+  display:flex; align-items:center; transition:transform var(--dur-reveal) var(--ease-out), opacity var(--dur-reveal)}
+.secret .bar::after{content:"SEALED"; margin-left:8px; font-family:var(--font-mono); font-size:9px; letter-spacing:.2em; color:var(--tarja-text)}
+.secret .bar:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+.secret.open .bar{transform:scaleX(0); transform-origin:left; opacity:0; pointer-events:none}
+
+/* seal */
+.seal{width:96px; height:96px; border-radius:50%; background:var(--surface-2); border:1.5px solid var(--line);
+  display:grid; place-items:center; position:relative}
+.seal .num{font-family:var(--font-mono); font-weight:800; font-size:24px; color:var(--accent)}
+.seal .seg{position:absolute; inset:6px; border-radius:50%;
+  background:conic-gradient(var(--accent) 0 66%, var(--line-2) 66% 100%); -webkit-mask:radial-gradient(transparent 60%,#000 61%); mask:radial-gradient(transparent 60%,#000 61%)}
+.seal-cap{font-family:var(--font-mono); font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:var(--text-muted); margin-top:10px; text-align:center}
+
+/* buttons */
+.btn{font-family:var(--font-sans); font-weight:700; font-size:13.5px; padding:12px 20px; cursor:pointer;
+  border:1.5px solid var(--text); letter-spacing:.02em; text-transform:uppercase; background:transparent; color:var(--text); border-radius:0}
+.btn:hover{background:var(--text); color:var(--surface-1)}
+.btn.ok{background:var(--accent); border-color:var(--accent); color:var(--on-accent)}
+.btn.ok:hover{background:var(--accent-ink); border-color:var(--accent-ink)}
+.btn.ghost{border-color:var(--line); color:var(--text-muted)}
+.btn.ghost:hover{border-color:var(--text); color:var(--text); background:transparent}
+.btn.danger{border-color:var(--danger); color:var(--danger-text)}
+.btn.danger:hover{background:var(--danger); color:var(--tarja-ink)}
+.btn:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+.btnrow{display:flex; gap:12px; flex-wrap:wrap}
+
+/* input */
+.field span{display:block; font-family:var(--font-mono); font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--text-muted); margin-bottom:7px}
+.input{width:100%; font-family:var(--font-mono); font-size:14px; color:var(--text); background:var(--surface-2);
+  border:1.5px solid var(--line); padding:11px 13px; border-radius:0}
+.input:focus{outline:none; border-color:var(--accent)}
+
+/* stamp + tags */
+.stamp{display:inline-block; border:1.5px solid var(--accent); color:var(--accent); font-family:var(--font-mono); font-weight:700;
+  font-size:9px; padding:2px 6px; transform:rotate(-4deg); letter-spacing:.12em; text-transform:uppercase}
+.stamp.sent{border-color:var(--success); color:var(--success)}
+.stamp.bad{border-color:var(--danger); color:var(--danger-text)}
+.tag{font-family:var(--font-mono); font-size:10.5px; letter-spacing:.06em; padding:3px 11px; border:1px solid var(--line);
+  color:var(--text-muted); border-radius:var(--radius-pill)}
+.tag.ok{color:var(--success); border-color:var(--success-line)}
+.tag.on{color:var(--accent); border-color:var(--accent-line); background:var(--accent-soft)}
+
+/* confirm block */
+.confirm{border-left:3px solid var(--accent); background:var(--surface-2); padding:13px 16px; font-family:var(--font-mono); font-size:12.5px}
+.confirm.ready{border-left-color:var(--success); color:var(--success); background:var(--success-soft)}
+
+/* voice */
+.voice{display:grid; grid-template-columns:1fr 1fr; gap:20px}
+@media(max-width:760px){.voice{grid-template-columns:1fr}}
+.vcol{border:1px solid var(--line-2); border-radius:var(--radius); padding:20px 22px; background:var(--surface-2)}
+.vcol h3{margin:0 0 14px; font-family:var(--font-mono); font-size:11px; letter-spacing:.16em; text-transform:uppercase}
+.vcol.no h3{color:var(--danger-text)} .vcol.yes h3{color:var(--success)}
+.vcol li{list-style:none; padding:8px 0 8px 22px; position:relative; font-size:13.5px; border-bottom:1px solid var(--line)}
+.vcol li:last-child{border-bottom:0}
+.vcol.no li::before{content:"\00d7"; position:absolute; left:0; color:var(--danger-text); font-weight:700}
+.vcol.yes li::before{content:"\2713"; position:absolute; left:0; color:var(--success); font-weight:700}
+
+/* overlay demo */
+.overlay-demo{border-radius:var(--radius-lg); background:linear-gradient(180deg,var(--surface-2),var(--surface-1));
+  border:1px solid var(--line-2); box-shadow:var(--shadow-overlay); padding:22px 24px; max-width:360px}
+.overlay-demo h4{margin:0 0 6px; font-size:18px}
+.overlay-demo p{margin:0; color:var(--text-muted); font-size:13px}
+.foot{margin-top:70px; padding-top:20px; border-top:1px solid var(--line); font-family:var(--font-mono); font-size:11px; color:var(--text-muted); line-height:1.7}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="lh">
+    <span class="wm">KONCLAVE</span>
+    <span class="meta">BRAND GUIDELINES · DARK-FIRST · CONSOLIDATION</span>
+  </div>
+
+  <h1 class="title">The vault that decides together</h1>
+  <p class="lede">A sealed treasury instrument. Graphite surfaces, silver numerals,
+  mono figures on a ruled ledger, and <b>one deliberate blue signal</b> for the things
+  that carry trust: focus, the primary action, and quorum. Anti dark-SaaS: no floating
+  glass, no glow-on-everything, no gradient web3 wordmark. <b>Propose. Approve. Sent.</b></p>
+
+  <!-- COLOR -->
+  <section>
+    <h2>Color</h2>
+
+    <div class="grp">Surfaces — flat depth by tone, not float</div>
+    <div class="swatches">
+      <div class="sw"><div class="chip" style="background:#12161a"></div><div class="lab"><span class="n">--surface-0</span><span class="v">#12161a</span><span class="role">app canvas</span></div></div>
+      <div class="sw"><div class="chip" style="background:#171c22"></div><div class="lab"><span class="n">--surface-1</span><span class="v">#171c22</span><span class="role">panels</span></div></div>
+      <div class="sw"><div class="chip" style="background:#1e252d"></div><div class="lab"><span class="n">--surface-2</span><span class="v">#1e252d</span><span class="role">cards, inputs</span></div></div>
+      <div class="sw"><div class="chip" style="background:#28313a"></div><div class="lab"><span class="n">--surface-3</span><span class="v">#28313a</span><span class="role">raised / hover</span></div></div>
+    </div>
+
+    <div class="grp">Text &amp; metal</div>
+    <div class="swatches">
+      <div class="sw"><div class="chip" style="background:#dfe6ee"></div><div class="lab"><span class="n">--text</span><span class="v">#dfe6ee</span><span class="role">headings, body</span></div></div>
+      <div class="sw"><div class="chip" style="background:#8a95a3"></div><div class="lab"><span class="n">--text-muted</span><span class="v">#8a95a3</span><span class="role">metadata, labels</span></div></div>
+      <div class="sw"><div class="chip" style="background:#c6cfd9"></div><div class="lab"><span class="n">--silver</span><span class="v">#c6cfd9</span><span class="role">secondary metal</span></div></div>
+      <div class="sw"><div class="chip" style="background:#333d47"></div><div class="lab"><span class="n">--line</span><span class="v">#333d47</span><span class="role">divider</span></div></div>
+    </div>
+
+    <div class="grp">Accent — the blue. Rare + meaningful (focus · action · quorum · links)</div>
+    <div class="swatches">
+      <div class="sw"><div class="chip" style="background:#57a6ff"></div><div class="lab"><span class="n">--accent</span><span class="v">#57a6ff</span><span class="role">was --seal</span></div></div>
+      <div class="sw"><div class="chip" style="background:#3f86e0"></div><div class="lab"><span class="n">--accent-ink</span><span class="v">#3f86e0</span><span class="role">hover fill</span></div></div>
+      <div class="sw"><div class="chip" style="background:rgba(87,166,255,.10)"></div><div class="lab"><span class="n">--accent-soft</span><span class="v">rgba(87,166,255,.10)</span><span class="role">wash</span></div></div>
+      <div class="sw"><div class="chip" style="background:#08121e"></div><div class="lab"><span class="n">--on-accent</span><span class="v">#08121e</span><span class="role">ink on accent</span></div></div>
+    </div>
+
+    <div class="grp">Semantic — earned / advisory / destructive</div>
+    <div class="swatches">
+      <div class="sw"><div class="chip" style="background:#57d08a"></div><div class="lab"><span class="n">--success</span><span class="v">#57d08a</span><span class="role">was --pine · earned</span></div></div>
+      <div class="sw"><div class="chip" style="background:#ffcf87"></div><div class="lab"><span class="n">--warn</span><span class="v">#ffcf87</span><span class="role">address / expiry</span></div></div>
+      <div class="sw"><div class="chip" style="background:#ff6b6b"></div><div class="lab"><span class="n">--danger</span><span class="v">#ff6b6b</span><span class="role">destructive</span></div></div>
+      <div class="sw"><div class="chip" style="background:#ff9d9d"></div><div class="lab"><span class="n">--danger-text</span><span class="v">#ff9d9d</span><span class="role">danger text</span></div></div>
+    </div>
+  </section>
+
+  <!-- TYPE -->
+  <section>
+    <h2>Typography — Archivo (language) · Spline Sans Mono (record)</h2>
+    <div class="type-row"><span class="tag">Display / title</span><span class="t-display">Konclave</span></div>
+    <div class="type-row"><span class="tag">H2 / section</span><span class="t-h2">Payment approved by quorum</span></div>
+    <div class="type-row"><span class="tag">Body</span><span class="t-body">No one moves the money alone. Every payment is proposed, approved, then sent.</span></div>
+    <div class="type-row"><span class="tag">Label / mono</span><span class="t-label">Recipient · Orchard</span></div>
+    <div class="type-row"><span class="tag">Money / mono</span><span class="t-money">0.01 ZEC</span></div>
+    <div class="type-row"><span class="tag">Record / mono</span><span class="t-mono">u1t2qphc0v…836yl2 · txid 43433a10…</span></div>
+    <p class="lede" style="margin-top:16px">Inviolable rule: money, addresses, txids, IDs, state, dates, and counts are <b>always</b> mono. Prose and headings are Archivo.</p>
+  </section>
+
+  <!-- DEVICES -->
+  <section>
+    <h2>Signature devices</h2>
+    <div class="grid2">
+      <div class="demo">
+        <div class="cap">The tarja — click / Enter to reveal</div>
+        <span class="secret" tabindex="-1">
+          <span class="val">0.01 ZEC</span>
+          <span class="bar" role="button" tabindex="0" aria-pressed="false"
+                onclick="this.closest('.secret').classList.toggle('open')"
+                onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();this.closest('.secret').classList.toggle('open')}"></span>
+        </span>
+        <div class="note">Veils a mono figure until revealed. The reveal collapses the bar left. MUST be keyboard-operable (role=button, tabindex, Enter/Space, aria-pressed, focus ring). Clean edges, no grunge.</div>
+      </div>
+      <div class="demo" style="display:flex; gap:26px; align-items:center">
+        <div style="text-align:center">
+          <div class="seal"><div class="seg"></div><div class="num">2/3</div></div>
+          <div class="seal-cap">Quorum</div>
+        </div>
+        <div class="note">The quorum seal: matte, embossed-by-tone, single accent. <b>No glow, no gradient, no bevel.</b> Segments fill as approvals arrive — trust made visible. The mark, favicon, and this medallion are one object.</div>
+      </div>
+    </div>
+    <div style="margin-top:20px; display:flex; gap:16px; align-items:center; flex-wrap:wrap">
+      <span class="stamp">Awaiting</span>
+      <span class="stamp sent">Sent</span>
+      <span class="stamp bad">Expired</span>
+      <span class="note" style="margin:0">The stamp — rotated state marker (accent / success / danger).</span>
+    </div>
+  </section>
+
+  <!-- COMPONENTS -->
+  <section>
+    <h2>Components — flat, squared instrument</h2>
+    <div class="grid2">
+      <div class="demo">
+        <div class="cap">Buttons (squared, radius 0)</div>
+        <div class="btnrow">
+          <button class="btn ok">Approve</button>
+          <button class="btn">Propose</button>
+          <button class="btn ghost">Cancel</button>
+          <button class="btn danger">Delete vault</button>
+        </div>
+        <div class="note">Primary = accent fill (rare). Secondary = ink outline. Ghost = line. Danger = destructive only.</div>
+      </div>
+      <div class="demo">
+        <div class="cap">Input — accent focus</div>
+        <label class="field"><span>Recipient address</span>
+          <input class="input" value="u1t2qphc0v…836yl2" /></label>
+        <div class="note">Focus turns the border to accent. Never remove the outline without a visible ring.</div>
+      </div>
+      <div class="demo">
+        <div class="cap">Chips &amp; tags</div>
+        <div class="btnrow">
+          <span class="tag on">2-of-3</span>
+          <span class="tag ok">Approved</span>
+          <span class="tag">Draft</span>
+        </div>
+        <div class="note">Accent chip for interactive/selected; success tag for earned state.</div>
+      </div>
+      <div class="demo">
+        <div class="cap">Confirm / preview block</div>
+        <div class="confirm">Sending 0.01 ZEC to u1t2q…836yl2 · fee 0.0001</div>
+        <div style="height:10px"></div>
+        <div class="confirm ready">Quorum met — ready to send</div>
+        <div class="note">Left-border accent for preview; flips to success when ready.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ELEVATION -->
+  <section>
+    <h2>Surfaces &amp; the one elevation rule</h2>
+    <p class="lede" style="margin-bottom:20px">Flat by default: cards separate by <b>border + tone</b>, never by float. Shadow exists at exactly one level — <b>overlays</b>. No hover-lift, no card drop-shadow, no glow.</p>
+    <div class="overlay-demo">
+      <h4>Delete this vault?</h4>
+      <p>This cannot be undone. The only surface that earns a shadow is a modal.</p>
+    </div>
+  </section>
+
+  <!-- VOICE -->
+  <section>
+    <h2>Voice &amp; anti-cliché</h2>
+    <div class="voice">
+      <div class="vcol no">
+        <h3>Never</h3>
+        <ul>
+          <li>A new palette or a new hue — the accent is blue #57a6ff, locked</li>
+          <li>Accent as body text or decoration; it is interactive + quorum only</li>
+          <li>Non-mono money, addresses, txids, or state</li>
+          <li>Floating glass cards, drop-shadow on cards, hover-lift</li>
+          <li>Glow on the mark / seal / lockup; metallic-bevel web3 wordmark</li>
+          <li>Infinite pulse or looping glow</li>
+          <li>Oxblood #7E2A24 / #37493C or purple #863bff literals</li>
+          <li>Crypto jargon (FROST, DKG, nonce), emoji, or em-dashes in copy</li>
+        </ul>
+      </div>
+      <div class="vcol yes">
+        <h3>Always</h3>
+        <ul>
+          <li>Mono + right-align on every amount, address, txid, count, date</li>
+          <li>Elevation by border + tone; shadow only on overlays</li>
+          <li>Accent used sparingly and meaningfully</li>
+          <li>Silver as the true secondary metal</li>
+          <li>Success earned (quorum-met / sent / received / live)</li>
+          <li>A visible focus ring; the tarja + nav keyboard-operable</li>
+          <li>Self-hosted fonts, no CDN (local-first)</li>
+          <li>Honest active voice; preview + explicit confirm on money</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <div class="foot">
+    KONCLAVE · consolidation, not rebrand · owner decision: keep dark + blue accent #57a6ff<br/>
+    Source of truth: konclave.yml · STYLE.md · components/token-mapping.md<br/>
+    Standalone doc — uses a font CDN for preview only; the shipped app self-hosts fonts.
+  </div>
+
+</div>
+</body>
+</html>
