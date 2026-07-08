@@ -1,16 +1,16 @@
-# engine/ — Camada 1 (ferramentas oficiais)
+# engine/ — Layer 1 (official tools)
 
-Ferramentas da **Zcash Foundation** que o Konclave **orquestra, mas não reimplementa**
-(Caminho 1). Nada de criptografia nossa aqui.
+**Zcash Foundation** tools that Konclave **orchestrates but does not reimplement**
+(Path 1). No cryptography of ours lives here.
 
-- **Não versionamos os binários compilados** no git (ver `.gitignore`); versionamos o
-  **pin** em [`versions.lock`](versions.lock) e o script de build.
-- Build: compilar da fonte em SHA pinado → emitir para `engine/bin/<target-triple>/` →
-  registrar checksum em `versions.lock`.
-- Empacotamento: os binários entram como **sidecars** do Tauri, por plataforma.
+- **We do not version the compiled binaries** in git (see `.gitignore`); we version the
+  **pin** in [`versions.lock`](versions.lock) and the build script.
+- Build: compile from source at a pinned SHA → emit to `engine/bin/<target-triple>/` →
+  record the checksum in `versions.lock`.
+- Packaging: the binaries ship as Tauri **sidecars**, per platform.
 
-Ferramentas: `frostd`, `frost-client` (`ZcashFoundation/frost-tools`), `zcash-sign`
-(Zcash Signer), `zcash-devtool` (`zcash/zcash-devtool`, suíte PCZT). A crate
-`zcash_client_backend` é **linkada** no Orquestrador, não vive aqui.
+Tools: `frostd`, `frost-client` (`ZcashFoundation/frost-tools`), `zcash-sign`
+(Zcash Signer), `zcash-devtool` (`zcash/zcash-devtool`, PCZT suite). The
+`zcash_client_backend` crate is **linked** into the Orchestrator, it does not live here.
 
-> Preenchimento dos SHAs e checksums: **Fase 1 (1A)**.
+> Filling in the SHAs and checksums: **Phase 1 (1A)**.

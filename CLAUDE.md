@@ -1,342 +1,341 @@
 # CLAUDE.md — Konclave
 
-> **Memória do projeto.** Metodologia GSD: documentação-primeiro. Este arquivo é a
-> fonte de contexto de qualquer sessão de trabalho no Konclave. Leia-o antes de codar.
+> **Project memory.** GSD methodology: documentation-first. This file is the source of
+> context for any work session on Konclave. Read it before coding.
 >
-> **Fontes de verdade do produto (ler na íntegra, nesta ordem):**
-> 1. [docs/CONCEITO_INICIAL.md](docs/CONCEITO_INICIAL.md) — o quê, por quê, decisões fechadas, princípios.
-> 2. [docs/UX_E_FLUXOS.md](docs/UX_E_FLUXOS.md) — jornadas, telas, ligações, direção de UX.
-> 3. [docs/LOGICA_E_REGRAS.md](docs/LOGICA_E_REGRAS.md) — estados, validações, ciclos de vida (a especificação).
+> **Product sources of truth (read in full, in this order):**
+> 1. [docs/CONCEITO_INICIAL.md](docs/CONCEITO_INICIAL.md) — the what, the why, closed decisions, principles.
+> 2. [docs/UX_E_FLUXOS.md](docs/UX_E_FLUXOS.md) — journeys, screens, links, UX direction.
+> 3. [docs/LOGICA_E_REGRAS.md](docs/LOGICA_E_REGRAS.md) — states, validations, lifecycles (the specification).
 >
-> Se algo a fazer contradisser qualquer um dos três, **pare e aponte a contradição**.
-> Onde os docs deixam algo "para a logística", é decisão em aberto — pergunte, não invente.
+> If anything to be done contradicts any of the three, **stop and point out the contradiction**.
+> Where the docs leave something "to logistics", it is an open decision — ask, don't invent.
 
 ---
 
-## 1. O que é
+## 1. What it is
 
-**Konclave** — o cofre que decide em conjunto. App **desktop local-first** (Tauri:
-shell Rust + Vite/React) que torna usável, para um tesoureiro comum, criar e operar
-um **cofre de fundos coletivo, privado e à prova de pessoa-única** sobre a rede Zcash,
-usando **assinaturas de limiar (FROST)**. Dois rostos de peso igual: **pagamento
-aprovado por quórum** e **folha de pagamento privada** (uma transação Orchard com N
-saídas, aprovada uma vez). *Privado por fora, transparente por dentro.*
+**Konclave** — the vault that decides together. A **local-first desktop app** (Tauri:
+Rust shell + Vite/React) that makes it usable, for an ordinary treasurer, to create and
+operate a **collective, private, single-person-proof fund vault** on the Zcash network,
+using **threshold signatures (FROST)**. Two equally weighted faces: **quorum-approved
+payment** and **private payroll** (a single Orchard transaction with N outputs, approved
+once). *Private on the outside, transparent on the inside.*
 
-A lacuna que preenche **não é a criptografia** (o motor oficial já existe e funciona) —
-é a **camada de usabilidade**. Hoje usar FROST no Zcash exige CLI, múltiplos terminais
-e cópia manual de hex. Konclave é a camada humana por cima das ferramentas da Foundation.
+The gap it fills is **not the cryptography** (the official engine already exists and works) —
+it is the **usability layer**. Today, using FROST on Zcash requires a CLI, multiple
+terminals, and manual copying of hex. Konclave is the human layer on top of the Foundation's
+tools.
 
-**Contexto:** ZecHub Hackathon 3.0 (2026), tracks FROST + Accounting (peso igual).
-Deadline de submissão: **15/jul/2026 UTC**. Desenvolvimento **solo**.
+**Context:** ZecHub Hackathon 3.0 (2026), FROST + Accounting tracks (equal weight).
+Submission deadline: **2026-07-15 UTC**. Development is **solo**.
 
 ---
 
-## 2. Decisões FECHADAS (não reabrir)
+## 2. CLOSED decisions (do not reopen)
 
-Do [CONCEITO_INICIAL.md §13](docs/CONCEITO_INICIAL.md) + conversa de logística:
+From [CONCEITO_INICIAL.md §13](docs/CONCEITO_INICIAL.md) + the logistics conversation:
 
-| Tema | Decisão |
+| Topic | Decision |
 |---|---|
-| Nome | **Konclave** |
-| Plataforma | **Desktop local-first via Tauri** (shell Rust + Vite/React) |
-| Integração com o motor | **Caminho 1** (invocar binários CLI oficiais) com **rigor de Caminho 2** |
-| Onde mora a chave | **Key share NUNCA sai do dispositivo** (cofre seguro do SO). Entre membros trafega só **material público** |
-| Coordenação | **`frostd` oficial** (servidor cego — só vê dados públicos) + fallback QR/copy-paste (stretch) |
-| Geração de chave (produto) | **DKG real** (trusted-dealer só como andaime do slice) |
-| Rede | **Mainnet, ZEC real, valor mínimo** (~0,01 ZEC). Receber **só em Orchard** |
-| Privacidade | **Shielded-first** (Orchard); sem telemetria; segredos nunca em log/disco/URL |
-| Escopo | Núcleo intocável + 3 extras promovidos (memo-holerite, prestação de contas, mesa de propostas) |
-| Licença | **Dual Apache-2.0 / MIT** |
-| Equipe | **Solo** → escopo travado no núcleo; extras só se sobrar fôlego; stretch fora |
+| Name | **Konclave** |
+| Platform | **Local-first desktop via Tauri** (Rust shell + Vite/React) |
+| Engine integration | **Path 1** (invoke official CLI binaries) with **Path 2 rigor** |
+| Where the key lives | **The key share NEVER leaves the device** (OS secure vault). Only **public material** travels between members |
+| Coordination | **Official `frostd`** (blind server — sees only public data) + QR/copy-paste fallback (stretch) |
+| Key generation (product) | **Real DKG** (trusted-dealer only as slice scaffolding) |
+| Network | **Mainnet, real ZEC, minimal amount** (~0.01 ZEC). Receive **only in Orchard** |
+| Privacy | **Shielded-first** (Orchard); no telemetry; secrets never in log/disk/URL |
+| Scope | Untouchable core + 3 promoted extras (memo-payslip, accounting, proposal desk) |
+| License | **Dual Apache-2.0 / MIT** |
+| Team | **Solo** → scope locked to the core; extras only if there is room; stretch out of scope |
 
-Decisões técnicas assumidas na logística:
-- **SO de dev:** começar nativo no **Windows**; **WSL2** só se o tooling quebrar.
-- **Binários:** compilar da fonte, **pinados por SHA**, vendorizados como submódulos,
-  com checksum em `engine/versions.lock` (ver [ADR-0001](docs/adr/0001-decisoes-fechadas.md)).
-- **Camada carteira:** **linkar `zcash_client_backend`** no Rust para sync/saldo/plano
-  (dado estruturado nativo) — shellar **apenas** os binários FROST/sign.
-- **Frontend:** **Vite + React** em bundle estático ([ADR-0003](docs/adr/0003-vite-over-nextjs.md)
-  revisou o Next.js originalmente cogitado — inaplicável a um app local-first sem servidor).
+Technical decisions assumed in logistics:
+- **Dev OS:** start native on **Windows**; **WSL2** only if the tooling breaks.
+- **Binaries:** compile from source, **pinned by SHA**, vendored as submodules,
+  with a checksum in `engine/versions.lock` (see [ADR-0001](docs/adr/0001-decisoes-fechadas.md)).
+- **Wallet layer:** **link `zcash_client_backend`** in Rust for sync/balance/plan
+  (native structured data) — shell out **only** the FROST/sign binaries.
+- **Frontend:** **Vite + React** as a static bundle ([ADR-0003](docs/adr/0003-vite-over-nextjs.md)
+  revised the originally considered Next.js — inapplicable to a local-first app with no server).
 
 ---
 
-## 3. Arquitetura — 3 camadas
+## 3. Architecture — 3 layers
 
 ```
-Camada 1 — MOTOR        ferramentas oficiais da Zcash Foundation (NÃO reimplementar cripto)
+Layer 1 — ENGINE        official Zcash Foundation tools (do NOT reimplement crypto)
    frost-client · frostd · zcash-sign · zcash-devtool (PCZT) · zcash_client_backend
-        │  (invocação de binários + biblioteca linkada)
+        │  (binary invocation + linked library)
         ▼
-Camada 2 — ORQUESTRADOR  o backend que construímos (Rust, dentro do src-tauri/)
-   cerimônia · assinatura · carteira/sync · propostas (máquina de estados) ·
-   validação (ZIP 317) · store (SQLite + keychain) · IPC (comandos Tauri)
-        │  (DTOs estruturados via comandos Tauri)
+Layer 2 — ORCHESTRATOR  the backend we build (Rust, inside src-tauri/)
+   ceremony · signing · wallet/sync · proposals (state machine) ·
+   validation (ZIP 317) · store (SQLite + keychain) · IPC (Tauri commands)
+        │  (structured DTOs via Tauri commands)
         ▼
-Camada 3 — ROSTO         a interface (Vite/React)
-   Abertura · Criar/Entrar cofre · Painel · Pagamento/Folha · Proposta · Histórico · Membros
+Layer 3 — UI            the interface (Vite/React)
+   Intro · Create/Join vault · Dashboard · Payment/Payroll · Proposal · Ledger · Members
 ```
 
-Detalhe completo e mapa de módulos: [docs/ARQUITETURA.md](docs/ARQUITETURA.md).
+Full detail and module map: [docs/ARQUITETURA.md](docs/ARQUITETURA.md).
 
 ---
 
-## 4. O Motor — ferramentas oficiais (mapa verificado em 30/jun/2026)
+## 4. The Engine — official tools (map verified 2026-06-30)
 
-| Ferramenta | Repo | Papel |
+| Tool | Repo | Role |
 |---|---|---|
-| `frostd` | `ZcashFoundation/frost-tools` | Servidor de coordenação (cego, só material público) |
-| `frost-client` | `ZcashFoundation/frost-tools` | Init de usuário, DKG/trusted-dealer, contatos, cerimônia |
-| `zcash-sign` | `ZcashFoundation/frost-tools` (verificado) | `generate --ak` → endereço Orchard + UFVK; `sign` injeta assinatura FROST em plano Ywallet/PCZT |
-| `zcash-devtool` | `zcash/zcash-devtool` | Suíte **PCZT** (criação/prova/assinatura/combinação) — envelope da tx e da folha |
-| `frost` (lib core) | `ZcashFoundation/frost` | Implementação de referência do FROST |
-| `zcash_client_backend` | `zcash/librustzcash` | **Linkada** no Rust: sync UFVK, saldo, construção de plano |
+| `frostd` | `ZcashFoundation/frost-tools` | Coordination server (blind, public material only) |
+| `frost-client` | `ZcashFoundation/frost-tools` | User init, DKG/trusted-dealer, contacts, ceremony |
+| `zcash-sign` | `ZcashFoundation/frost-tools` (verified) | `generate --ak` → Orchard address + UFVK; `sign` injects the FROST signature into a Ywallet/PCZT plan |
+| `zcash-devtool` | `zcash/zcash-devtool` | **PCZT** suite (create/prove/sign/combine) — the envelope for the tx and the payroll |
+| `frost` (core lib) | `ZcashFoundation/frost` | Reference implementation of FROST |
+| `zcash_client_backend` | `zcash/librustzcash` | **Linked** in Rust: UFVK sync, balance, plan construction |
 
-**Chave criptográfica do Zcash:** passar **`-C redpallas`** ativa **Rerandomized FROST**
-(compatível com Orchard). O `zcash-sign` lida com o randomizer Orchard. Seguir o tutorial
-oficial **sem desvio** no slice — é onde um erro custa fundos reais.
-
----
-
-## 5. Contexto de rede — NU6.2 / bug Orchard (jun/2026)
-
-Fatos (verificados 30/jun/2026):
-- Bug de **soundness** no circuito ZK do Orchard (risco de **falsificação**, NÃO de
-  privacidade), presente desde mai/2022, descoberto em 29/mai/2026 por Taylor Hornby
-  **usando o Opus 4.8**.
-- Corrigido: soft-fork (02/jun, bloco 3.363.426) + **hard-fork NU6.2** (03/jun, bloco
-  3.364.600), que **reabilitou o Orchard com o circuito corrigido**. Sem evidência de
-  exploração.
-- **Status atual:** Orchard vivo e seguro na mainnet. **Buildar contra NU6.2** (tooling
-  e lightwalletd cientes do upgrade).
-- **Ângulo de narrativa (honesto) para o README:** ferramenta de custódia compartilhada
-  confiável logo após o abalo de confiança — exatamente o que o [CONCEITO §8](docs/CONCEITO_INICIAL.md)
-  prevê como peso narrativo. O bug foi achado com Opus 4.8; o Konclave é construído com o
-  mesmo modelo. Declarar sem exagero.
+**Zcash cryptographic key:** passing **`-C redpallas`** activates **Rerandomized FROST**
+(compatible with Orchard). `zcash-sign` handles the Orchard randomizer. Follow the official
+tutorial **without deviation** in the slice — this is where a mistake costs real funds.
 
 ---
 
-## 6. Princípios inegociáveis (o contrato de qualidade)
+## 5. Network context — NU6.2 / Orchard bug (Jun 2026)
 
-**Privacidade por padrão**
-1. Shielded-first (Orchard). Destino transparente é exceção explícita e avisada.
-2. Minimização de dados. Sem telemetria. Nada coletado/logado/transmitido sem necessidade.
-3. Segredos nunca persistem fora do cofre seguro do SO. Nunca em disco texto-plano, log, URL, query string.
-4. O servidor de coordenação é **cego** (só material público). Documentado e demonstrável.
-5. Memos cifrados (holerite) = dado sensível; só o destinatário/UFVK lê.
-6. Transparência interna, privacidade externa.
-
-**Qualidade de código (Caminho 1 com rigor de Caminho 2)**
-7. **Saída estruturada, nunca "ler a tela".** Forçar JSON/saída parseável dos binários.
-8. **Validação em toda fronteira** (entrada de usuário, saída de binário, dado de rede). Falhas explícitas, nunca silenciosas.
-9. **TDD com testes destrutivos** (ver §8).
-10. **Estados explícitos.** Máquina de estados de proposta modelada e auditável.
-11. **Erros legíveis ao humano** — toda falha vira mensagem clara e acionável na UI.
-12. **Documentação-primeiro (GSD).** Este CLAUDE.md e os docs antes do código.
-
-**Honestidade de posicionamento**
-13. **Creditar as ferramentas da Foundation** explicitamente.
-14. **Distinguir garantia criptográfica de trava de produto** (ex.: quórum-por-valor e
-    reserva de saldo são produto, não protocolo) — inclusive na copy.
-15. **Não prometer o que não entrega.** Roadmap é roadmap.
-
-**Regras de execução (do prompt de inicialização)**
-- **Sem coautoria.** Nada de "Co-authored-by" / "Generated with Claude Code" em commits,
-  PRs, código ou README. Commits saem limpos, no nome do dono.
-- Licença dual Apache-2.0 / MIT em todo o repo.
+Facts (verified 2026-06-30):
+- A **soundness** bug in Orchard's ZK circuit (risk of **forgery**, NOT of privacy),
+  present since May 2022, discovered on 2026-05-29 by Taylor Hornby **using Opus 4.8**.
+- Fixed: soft-fork (Jun 2, block 3,363,426) + **hard-fork NU6.2** (Jun 3, block
+  3,364,600), which **re-enabled Orchard with the corrected circuit**. No evidence of
+  exploitation.
+- **Current status:** Orchard is live and safe on mainnet. **Build against NU6.2** (tooling
+  and lightwalletd aware of the upgrade).
+- **(Honest) narrative angle for the README:** a trustworthy shared-custody tool right after
+  the confidence shock — exactly what [CONCEITO §8](docs/CONCEITO_INICIAL.md) foresees as
+  narrative weight. The bug was found with Opus 4.8; Konclave is built with the same model.
+  State it without overstatement.
 
 ---
 
-## 7. Princípio de UX que governa o Rosto
+## 6. Non-negotiable principles (the quality contract)
 
-**Esconder a criptografia, expor a confiança.** O usuário nunca vê "FROST", "DKG",
-"SIGHASH" ou "nonce" — vê cofre, membros, aprovação, pagamento. Toda ação que move fundos
-tem **preview + confirmação explícita**; nunca um clique único dispara dinheiro. Copy
-honesta e ativa ("Propor pagamento" → "Aprovar" → "Enviado"). Estados sempre visíveis.
+**Privacy by default**
+1. Shielded-first (Orchard). A transparent destination is an explicit, warned exception.
+2. Data minimization. No telemetry. Nothing collected/logged/transmitted without need.
+3. Secrets never persist outside the OS secure vault. Never in plaintext on disk, log, URL, query string.
+4. The coordination server is **blind** (public material only). Documented and demonstrable.
+5. Encrypted memos (payslip) = sensitive data; only the recipient/UFVK reads them.
+6. Internal transparency, external privacy.
+
+**Code quality (Path 1 with Path 2 rigor)**
+7. **Structured output, never "reading the screen".** Force JSON/parseable output from the binaries.
+8. **Validation at every boundary** (user input, binary output, network data). Explicit failures, never silent.
+9. **TDD with destructive tests** (see §8).
+10. **Explicit states.** The proposal state machine is modeled and auditable.
+11. **Human-readable errors** — every failure becomes a clear, actionable message in the UI.
+12. **Documentation-first (GSD).** This CLAUDE.md and the docs before the code.
+
+**Positioning honesty**
+13. **Credit the Foundation's tools** explicitly.
+14. **Distinguish cryptographic guarantee from product lock** (e.g. quorum-by-value and
+    balance reservation are product, not protocol) — including in the copy.
+15. **Do not promise what you do not deliver.** A roadmap is a roadmap.
+
+**Execution rules (from the bootstrap prompt)**
+- **No co-authorship.** No "Co-authored-by" / "Generated with Claude Code" in commits,
+  PRs, code, or README. Commits go out clean, in the owner's name.
+- Dual Apache-2.0 / MIT license across the whole repo.
 
 ---
 
-## 8. Suíte de testes destrutivos (nasce na Fase 3)
+## 7. The UX principle that governs the UI
 
-O código nasce para passar nestes cenários de falha:
-- Quórum insuficiente.
-- Share corrompida / ausente.
+**Hide the cryptography, expose the trust.** The user never sees "FROST", "DKG",
+"SIGHASH" or "nonce" — they see vault, members, approval, payment. Every action that moves
+funds has a **preview + explicit confirmation**; a single click never fires money. Honest,
+active copy ("Propose payment" → "Approve" → "Sent"). States always visible.
+
+---
+
+## 8. Destructive test suite (born in Phase 3)
+
+The code is born to pass these failure scenarios:
+- Insufficient quorum.
+- Corrupted / missing share.
 - `frostd` offline.
-- Transação malformada.
-- **Endereço Sapling em vez de Orchard** (risco de fundos travados).
-- Saldo insuficiente.
-- Proposta expirada.
-- Reconciliação multi-dispositivo (cache local diverge do on-chain → on-chain vence).
+- Malformed transaction.
+- **Sapling address instead of Orchard** (risk of locked funds).
+- Insufficient balance.
+- Expired proposal.
+- Multi-device reconciliation (local cache diverges from on-chain → on-chain wins).
 
-> Testar multi-membro solo = rodar N identidades `frost-client` contra um `frostd`.
+> Testing multi-member solo = running N `frost-client` identities against one `frostd`.
 
 ---
 
-## 9. Roadmap de fases
+## 9. Phase roadmap
 
-Plano completo: [docs/ROADMAP.md](docs/ROADMAP.md).
+Full plan: [docs/ROADMAP.md](docs/ROADMAP.md).
 
-| Fase | Objetivo | Portão |
+| Phase | Objective | Gate |
 |---|---|---|
-| 0 — Fundação & Docs | Repo, licença, CLAUDE.md, esqueleto, reality-check | — |
-| 1 — Vertical Slice (mainnet) | 1ª transação FROST real confirmada via CLI | 🔴 Gate 1 |
-| 2 — Migração para DKG real | Cofre por DKG (chave nunca remontada) | — |
-| 3 — Orquestrador (backend) | Máquina de estados, validação, folha, TDD destrutivo | — |
-| 4 — Rosto (design + telas) | Token system + telas contra mock | — |
-| 5 — Integração | Núcleo inteiro pela UI na mainnet | 🔴 Gate 2 |
-| 6 — Extras de impacto | Memo-holerite, prestação de contas, mesa de propostas | — |
-| 7 — Entrega | README unicórnio, vídeo, diagrama, submissão | 🏁 |
+| 0 — Foundation & Docs | Repo, license, CLAUDE.md, skeleton, reality-check | — |
+| 1 — Vertical Slice (mainnet) | 1st real FROST transaction confirmed via CLI | 🔴 Gate 1 |
+| 2 — Migration to real DKG | Vault via DKG (key never reconstituted) | — |
+| 3 — Orchestrator (backend) | State machine, validation, payroll, destructive TDD | — |
+| 4 — UI (design + screens) | Token system + screens against mock | — |
+| 5 — Integration | Whole core through the UI on mainnet | 🔴 Gate 2 |
+| 6 — Impact extras | Memo-payslip, accounting, proposal desk | — |
+| 7 — Delivery | Unicorn README, video, diagram, submission | 🏁 |
 
 ---
 
-## 10. Parâmetros de logística
+## 10. Logistics parameters
 
-| Parâmetro | Valor | Status |
+| Parameter | Value | Status |
 |---|---|---|
-| Financiamento da demo | ~0,01 ZEC (≈ $4 a ~$395/ZEC em 30/jun/2026) | decidido |
-| Prazo de expiração de proposta | 72h | placeholder configurável |
-| Limite de linhas por folha | função do tamanho máx. de tx | a fixar na Fase 3 |
-| Colunas do CSV da folha | rótulo, endereço, valor, memo | a fixar na Fase 3 |
-| Hospedagem do `frostd` na demo | localhost (slice) → VPS se demo multi-máquina | a decidir |
+| Demo funding | ~0.01 ZEC (≈ $4 at ~$395/ZEC on 2026-06-30) | decided |
+| Proposal expiry deadline | 72h | configurable placeholder |
+| Line limit per payroll | function of the max tx size | to fix in Phase 3 |
+| Payroll CSV columns | label, address, amount, memo | to fix in Phase 3 |
+| `frostd` hosting in the demo | localhost (slice) → VPS if a multi-machine demo | to decide |
 
 ---
 
-## 11. Estado atual
+## 11. Current state
 
-**Fase 1 (Vertical Slice) — ✅ GATE 1 CONQUISTADO (2026-07-01).**
-Primeira transação FROST 2-de-3 do Konclave na **mainnet**:
-txid `f63ee64d7bc086a8286631d03936ec2ca2ca57f4e4c63712fc95c1f02c522360` (bloco 3.396.616).
-Fluxo completo e lições em [docs/VERTICAL_SLICE.md](docs/VERTICAL_SLICE.md).
+**Phase 1 (Vertical Slice) — ✅ GATE 1 ACHIEVED (2026-07-01).**
+Konclave's first 2-of-3 FROST transaction on **mainnet**:
+txid `f63ee64d7bc086a8286631d03936ec2ca2ca57f4e4c63712fc95c1f02c522360` (block 3,396,616).
+Full flow and lessons in [docs/VERTICAL_SLICE.md](docs/VERTICAL_SLICE.md).
 
-- **Ambiente:** WSL2/Ubuntu (Windows sem toolchain C/C++). rustc 1.96.1, clang 21, cmake, protoc.
-- **Motor:** `frost-tools` @ `3d2985c` (frostd/frost-client/zcash-sign) + `zcash-devtool`
-  @ `91ba536` (carteira/sync/PCZT/broadcast), compilados. Pins em
+- **Environment:** WSL2/Ubuntu (Windows without a C/C++ toolchain). rustc 1.96.1, clang 21, cmake, protoc.
+- **Engine:** `frost-tools` @ `3d2985c` (frostd/frost-client/zcash-sign) + `zcash-devtool`
+  @ `91ba536` (wallet/sync/PCZT/broadcast), compiled. Pins in
   [engine/versions.lock](engine/versions.lock).
-- **A ponte (`konclave-signer`):** construída e provada — resolve o **vão de integração**
-  entre frost-tools (pczt 0.5) e zcash-devtool (pczt 0.7). É o **nascimento do Orquestrador**.
-  Ver [ADR-0002](docs/adr/0002-pczt-frost-bridge.md).
-- **Fluxo provado:** trusted-dealer 2-de-3 (redpallas) → endereço Orchard + UFVK →
-  financiado com ZEC real → sync → PCZT create/prove → `konclave-signer extract` →
-  cerimônia FROST via `frostd` (TLS) → `konclave-signer inject` → `pczt send` → mainnet.
-- **⚠️ Débito de segurança:** `frost-client` guarda shares em **texto claro** em
-  `~/.local/frost/credentials.toml` → cifrar/keychain na Fase 3.
+- **The bridge (`konclave-signer`):** built and proven — it resolves the **integration gap**
+  between frost-tools (pczt 0.5) and zcash-devtool (pczt 0.7). It is the **birth of the
+  Orchestrator**. See [ADR-0002](docs/adr/0002-pczt-frost-bridge.md).
+- **Proven flow:** trusted-dealer 2-of-3 (redpallas) → Orchard address + UFVK →
+  funded with real ZEC → sync → PCZT create/prove → `konclave-signer extract` →
+  FROST ceremony via `frostd` (TLS) → `konclave-signer inject` → `pczt send` → mainnet.
+- **⚠️ Security debt:** `frost-client` stores shares in **plaintext** in
+  `~/.local/frost/credentials.toml` → encrypt/keychain in Phase 3.
 
-**Fase 2 (DKG real) — ✅ CONCLUÍDA (2026-07-01).** Cofre gerado por **Distributed Key
-Generation** (3 participantes via `frostd`), a chave **nunca remontada**. Grupo DKG:
-`0ab93649e62dd68858ed57af1e7f7743cc2a4912110d7fb547d35c8c8494ee34` → endereço Orchard
-`u1t2qphc0v…836yl2`. Shares validadas por cerimônia de assinatura 2-de-3. Fluxo do DKG
-em [docs/VERTICAL_SLICE.md](docs/VERTICAL_SLICE.md).
+**Phase 2 (real DKG) — ✅ COMPLETE (2026-07-01).** Vault generated by **Distributed Key
+Generation** (3 participants via `frostd`), the key **never reconstituted**. DKG group:
+`0ab93649e62dd68858ed57af1e7f7743cc2a4912110d7fb547d35c8c8494ee34` → Orchard address
+`u1t2qphc0v…836yl2`. Shares validated by a 2-of-3 signing ceremony. DKG flow
+in [docs/VERTICAL_SLICE.md](docs/VERTICAL_SLICE.md).
 
-**Fase 3 (Orquestrador) — 3.1–3.3 ✅ CONCLUÍDAS.** Crate `orchestrator/` (Rust, TDD),
-**51 testes destrutivos verdes**:
-- **3.1 Domínio:** `money` (Zatoshis checado), `proposal` (máquina de estados §6),
-  `validation` (ZIP 317, memo, folha).
-- **3.2 Orquestração:** `tools`/`wallet`/`signer`/`pczt`/`ceremony` — embrulham os
-  binários com saída estruturada (parsers testados contra saída real do slice).
-- **3.3 Segurança + store:** `secrets` (XChaCha20-Poly1305 sela as shares em repouso;
-  keychain via trait; arquivo efêmero 0600). **Quitado no 5-E**: o caminho vivo da
-  cerimônia passou a usar configs `frost-client` **selados**, desselados só para arquivos
-  efêmeros 0600 em tmpfs durante a assinatura — nada de share em texto claro no disco.
-  `store` (SQLite embutido: cofres, propostas, votos).
+**Phase 3 (Orchestrator) — 3.1–3.3 ✅ COMPLETE.** Crate `orchestrator/` (Rust, TDD),
+**51 green destructive tests**:
+- **3.1 Domain:** `money` (checked Zatoshis), `proposal` (state machine §6),
+  `validation` (ZIP 317, memo, payroll).
+- **3.2 Orchestration:** `tools`/`wallet`/`signer`/`pczt`/`ceremony` — they wrap the
+  binaries with structured output (parsers tested against the slice's real output).
+- **3.3 Security + store:** `secrets` (XChaCha20-Poly1305 seals the shares at rest; keychain
+  via trait; ephemeral 0600 file). **Settled in 5-E**: the live ceremony path came to use
+  **sealed** `frost-client` configs, unsealed only to ephemeral 0600 files in tmpfs during
+  signing — no plaintext share on disk. `store` (embedded SQLite: vaults, proposals, votes).
 
-- **3.4 Folha:** `payroll` (plano de N saídas, `import_csv`, validação agregada) +
-  `money::from_zec_str`. Os **comandos Tauri (IPC)** ficam para a **integração
-  (Fase 5)**, quando a casca Tauri existir — construí-los sem o frontend seria stub
-  não-testável.
+- **3.4 Payroll:** `payroll` (N-output plan, `import_csv`, aggregate validation) +
+  `money::from_zec_str`. The **Tauri commands (IPC)** are left for the **integration
+  (Phase 5)**, when the Tauri shell exists — building them without the frontend would be an
+  untestable stub.
 
-**Estado do backend:** `orchestrator/` completo no domínio + orquestração + segurança +
-store + folha, **59 testes destrutivos verdes**. Falta apenas a casca Tauri + IPC (na
-integração). Build: WSL2, `CARGO_TARGET_DIR` fora do repo (código versionado; `ktarget`
-só no WSL).
+**Backend state:** `orchestrator/` complete across domain + orchestration + security +
+store + payroll, **59 green destructive tests**. Only the Tauri shell + IPC remain (in
+integration). Build: WSL2, `CARGO_TARGET_DIR` outside the repo (code versioned; `ktarget`
+only in WSL).
 
-**Fase 4 (Rosto/design) — ✅ CONCLUÍDA.** Design system **"Lacre"** (papel arquivístico,
-oxblood, Archivo + mono, tarja de sigilo, selo de cera) em `ui/src/lacre.css`; app
-navegável em Vite + React + TS (HashRouter): Painel, Abertura, Cerimônia, Novo Pagamento,
-Nova Folha, Proposta, Enviado, Razão. Ver [ADR-0003](docs/adr/0003-vite-over-nextjs.md).
+**Phase 4 (UI/design) — ✅ COMPLETE.** Design system **"Lacre"** (archival paper,
+oxblood, Archivo + mono, secrecy banner, wax seal) in `ui/src/lacre.css`; a navigable
+app in Vite + React + TS (HashRouter): Dashboard, Intro, Ceremony, New Payment,
+New Payroll, Proposal, Sent, Ledger. See [ADR-0003](docs/adr/0003-vite-over-nextjs.md).
 
-**Fase 5c (integração UI ↔ núcleo) — ✅ pivô concluído (2026-07-01).**
-- **Go/no-go do WSLg falhou:** janela GTK/Tauri não renderiza nesta máquina (ícone na
-  barra, sem conteúdo; nem render por software resolve). Registrado em
+**Phase 5c (UI ↔ core integration) — ✅ pivot complete (2026-07-01).**
+- **WSLg go/no-go failed:** the GTK/Tauri window does not render on this machine (icon in
+  the taskbar, no content; not even software rendering fixes it). Recorded in
   [ADR-0004](docs/adr/0004-ponte-http-local.md).
-- **Pivô:** em vez de IPC Tauri, o Orquestrador expõe uma **ponte HTTP em loopback**
-  (`konclave serve`, bin novo no crate; `src/server.rs`, dep `tiny_http`) que serve o
-  bundle do Rosto **+ API `/api/*`** ligada ao núcleo testado. Bind **só em 127.0.0.1**.
-- **Provado ponta a ponta:** navegador do **Windows** → servidor no **WSL** via
-  `localhost:4762` (health, vault 2-de-3, propostas, estáticos). **69 testes verdes**
-  (10 novos de `server::handle`, incluindo destrutivos: 405/404-json/403-traversal/502).
-- **Rosto ligado ao vivo:** `ui/src/api.ts` (cliente com fallback para mock) + proxy
-  Vite `/api`; Painel mostra cofre/propostas reais com selo de "● ao vivo".
-- **Launcher:** `scripts/konclave.ps1` (Windows) + `scripts/_serve.sh` (WSL) — builda,
-  sobe a ponte e abre o navegador.
-- **Empacotamento Tauri (binário único desktop):** movido para **roadmap** (ADR-0004) —
-  a garantia local-first não muda, só a forma de entrega.
+- **Pivot:** instead of Tauri IPC, the Orchestrator exposes a **local loopback HTTP bridge**
+  (`konclave serve`, a new bin in the crate; `src/server.rs`, dep `tiny_http`) that serves
+  the UI bundle **+ the `/api/*` API** wired to the tested core. Binds **only on 127.0.0.1**.
+- **Proven end to end:** the **Windows** browser → the server on **WSL** via
+  `localhost:4762` (health, 2-of-3 vault, proposals, statics). **69 green tests**
+  (10 new for `server::handle`, including destructive ones: 405/404-json/403-traversal/502).
+- **UI wired to live data:** `ui/src/api.ts` (client with a fallback to the mock) + Vite
+  proxy `/api`; the Dashboard shows the real vault/proposals with a "● live" seal.
+- **Launcher:** `scripts/konclave.ps1` (Windows) + `scripts/_serve.sh` (WSL) — it builds,
+  brings up the bridge, and opens the browser.
+- **Tauri packaging (single desktop binary):** moved to the **roadmap** (ADR-0004) —
+  the local-first guarantee does not change, only the delivery form.
 
-**Fase 5d (fluxo de escrita ponta a ponta pela UI) — ✅ CONCLUÍDA (2026-07-01).**
-Trilha "propor → aprovar → assinar → enviar" inteira pela aplicação:
-- **Saldo ao vivo:** `/api/balance` ligado à carteira do slice (re-sincronizada; 90000
-  zat gastáveis). Painel mostra saldo real.
-- **Criar/aprovar/recusar:** `POST /api/proposals` (validação de fronteira + guarda de
-  gasto contra saldo real) e `POST /api/proposals/{id}/approve|refuse` (máquina de
-  estados autoritativa; 409 em voto conflitante/fora de estado). Telas `NovoPagamento` e
-  `Proposta` ligadas ao vivo. **88 testes verdes.**
-- **Cerimônia + envio:** `orchestrator/src/send.rs` encadeia os wrappers testados
-  (pczt create/prove/send · konclave-signer extract/inject · frostd coordenador+
-  participantes concorrentes) num fluxo Ready→Sent, com **dry-run** que assina sem
-  transmitir. Exposto em `POST /api/proposals/{id}/send` (habilitado por `--ceremony`).
-- **🏁 Primeira tx de mainnet dirigida pela aplicação (não mais CLI manual):**
-  txid `43433a109d3f2a078c0a9269ccb156392ade7a1f7ac1532981611eda1e59a572` — pagamento
-  2-de-3 aprovado por quórum, assinado por cerimônia FROST server-side e transmitido, tudo
-  pela ponte HTTP. A chave **nunca foi remontada**.
+**Phase 5d (end-to-end write flow through the UI) — ✅ COMPLETE (2026-07-01).**
+The whole "propose → approve → sign → send" track through the application:
+- **Live balance:** `/api/balance` wired to the slice wallet (re-synced; 90000
+  spendable zat). The Dashboard shows the real balance.
+- **Create/approve/refuse:** `POST /api/proposals` (boundary validation + spend guard
+  against the real balance) and `POST /api/proposals/{id}/approve|refuse` (authoritative
+  state machine; 409 on a conflicting/out-of-state vote). The `NewPayment` and `Proposal`
+  screens wired to live data. **88 green tests.**
+- **Ceremony + send:** `orchestrator/src/send.rs` chains the tested wrappers
+  (pczt create/prove/send · konclave-signer extract/inject · frostd coordinator +
+  concurrent participants) into a Ready→Sent flow, with a **dry-run** that signs without
+  broadcasting. Exposed at `POST /api/proposals/{id}/send` (enabled by `--ceremony`).
+- **🏁 First application-driven mainnet tx (no longer manual CLI):**
+  txid `43433a109d3f2a078c0a9269ccb156392ade7a1f7ac1532981611eda1e59a572` — a 2-of-3
+  quorum-approved payment, signed by a FROST ceremony server-side and broadcast, all
+  through the HTTP bridge. The key was **never reconstituted**.
 
-**Trilha contábil — ✅ funcional (2026-07-01).** `store::list_all_proposals` (razão
-completo, estados terminais inclusos); `GET /api/ledger` (JSON) + `GET /api/ledger.csv`
-(**export itemizado**: pagamento único = 1 lançamento; folha de N = **N lançamentos**, um
-por beneficiário, com escaping RFC-4180). Tela `Razão` ao vivo com export CSV + imprimir/
-PDF. Redesenho contábil (documento / competência / rascunho / beneficiário-entidade)
-planejado em [docs/REDESENHO_FOLHA.md](docs/REDESENHO_FOLHA.md).
+**Accounting trail — ✅ functional (2026-07-01).** `store::list_all_proposals` (full
+ledger, terminal states included); `GET /api/ledger` (JSON) + `GET /api/ledger.csv`
+(**itemized export**: a single payment = 1 entry; a payroll of N = **N entries**, one
+per beneficiary, with RFC-4180 escaping). The `Ledger` screen wired to live data with CSV
+export + print/PDF. Accounting redesign (document / accrual / draft / beneficiary-entity)
+planned in [docs/REDESENHO_FOLHA.md](docs/REDESENHO_FOLHA.md).
 
-**Fase 5 — coerência, folha e robustez (2026-07-01):**
-- **5-A** cofre real (o app deixou de mostrar um seed falso; endereço/grupo agora = os da
-  carteira e da cerimônia).
-- **5-B** folha pela UI: **propor + aprovar** (documento editável, competência, rascunho
-  local); **motor multi-saída** (`konclave-signer build-payroll`, que linka
-  `zcash_client_backend` — §2) + **cerimônia multi-assinatura** (uma assinatura FROST por
-  spend real) — a folha **assina de verdade**.
-- **5-C** estados de erro: avisos de endereço, **erros técnicos → mensagens humanas** (§6.11),
-  **expiração** de proposta (§6.3).
-- **101 testes verdes.**
+**Phase 5 — coherence, payroll, and robustness (2026-07-01):**
+- **5-A** real vault (the app stopped showing a fake seed; the address/group are now = those
+  of the wallet and the ceremony).
+- **5-B** payroll through the UI: **propose + approve** (editable document, accrual period,
+  local draft); **multi-output engine** (`konclave-signer build-payroll`, which links
+  `zcash_client_backend` — §2) + **multi-signature ceremony** (one FROST signature per real
+  spend) — the payroll **actually signs**.
+- **5-C** error states: address warnings, **technical errors → human messages** (§6.11),
+  proposal **expiry** (§6.3).
+- **101 green tests.**
 
-**Fase 5 — identidade e segurança (2026-07-01):**
-- **5-D** membros e beneficiários como **entidades**: membros reais (nome + pubkey FROST) +
-  tela Membros; cadastro de beneficiários com pickers; e **aprovação ↔ share que assina** —
-  a cerimônia resolve os configs de **quem aprovou** (provado: aprovar como Carol faz a
-  `carol.toml` assinar).
-- **5-E** as **shares deixam de ficar em texto claro**: configs selados (XChaCha20-Poly1305,
-  `konclave seal`) e desselados só para arquivos **efêmeros 0600 em tmpfs** durante a
-  assinatura; os textos claros do slice foram removidos (provado por dry-run com só os
-  `.sealed`). Custódia da chave: arquivo 0600 (produto usa a keychain do SO).
-- **5-F** **criar cofre por DKG pela UI** (`orchestrator/src/dkg.rs`, `POST /api/vault/dkg`,
-  tela `Cerimônia`): init → troca de contatos → DKG concorrente (frostd, RedPallas) → grupo
-  → `zcash-sign` (endereço Orchard + UFVK) → wallet view-only → **shares seladas** (5-E). A
-  chave **nunca é remontada**. Provado ao vivo (CLI e HTTP): cofre 2-de-3 novo com
-  endereço/UFVK reais e configs selados.
-- **110 testes verdes. Fase 5 (Gate 2) — trilha completa.**
+**Phase 5 — identity and security (2026-07-01):**
+- **5-D** members and beneficiaries as **entities**: real members (name + FROST pubkey) +
+  a Members screen; beneficiary registry with pickers; and **approval ↔ the share that
+  signs** — the ceremony resolves the configs of **whoever approved** (proven: approving as
+  Carol makes `carol.toml` sign).
+- **5-E** shares **stop being in plaintext**: sealed configs (XChaCha20-Poly1305,
+  `konclave seal`) and unsealed only to **ephemeral 0600 files in tmpfs** during signing;
+  the slice's plaintexts were removed (proven by a dry-run with only the `.sealed` files).
+  Key custody: a 0600 file (the product uses the OS keychain).
+- **5-F** **create a vault via DKG through the UI** (`orchestrator/src/dkg.rs`,
+  `POST /api/vault/dkg`, the `Ceremony` screen): init → contact exchange → concurrent DKG
+  (frostd, RedPallas) → group → `zcash-sign` (Orchard address + UFVK) → view-only wallet →
+  **sealed shares** (5-E). The key is **never reconstituted**. Proven live (CLI and HTTP):
+  a new 2-of-3 vault with a real address/UFVK and sealed configs.
+- **110 green tests. Phase 5 (Gate 2) — full track.**
 
-**Estado real do produto (sem overclaim):** o núcleo roda pela UI para **pagamento e
-folha** — propor → validar (contínuo) → aprovar/recusar (quórum real, expiração) → **assinar
-(FROST com as shares de quem aprovou, seladas em repouso)** → prestar contas (razão + CSV
-itemizado). **Provado na mainnet:** 1 **pagamento único** (txid `43433a10…`). **Provado só
-por dry-run (assina, NÃO transmite):** a folha multi-saída e o caminho selado — os
-**broadcasts reais da folha/selado ainda não foram feitos**.
+**Real product state (no overclaim):** the core runs through the UI for **payment and
+payroll** — propose → validate (continuous) → approve/refuse (real quorum, expiry) → **sign
+(FROST with the shares of whoever approved, sealed at rest)** → account (ledger + itemized
+CSV). **Proven on mainnet:** 1 **single payment** (txid `43433a10…`). **Proven only by
+dry-run (signs, does NOT broadcast):** the multi-output payroll and the sealed path — the
+**real broadcasts of the payroll/sealed path have not yet been done**.
 
-**Dívidas honestas EM ABERTO (não prometer o que não entrega, §6.15):**
-- **Enviar de um cofre DKG recém-criado** exige apontar a cerimônia para os configs dele
-  (o servidor usa uma cerimônia só); a **demo financiada** segue no cofre trusted-dealer do
-  slice. A **criação** por DKG (5-F) está completa; o **envio** de um cofre DKG novo é o
-  follow-up.
-- **Broadcast real** da folha e do caminho selado pendentes; empacotamento **Tauri** é
+**Honest debts STILL OPEN (do not promise what you do not deliver, §6.15):**
+- **Sending from a freshly created DKG vault** requires pointing the ceremony at its configs
+  (the server uses a single ceremony); the **funded demo** stays on the slice's
+  trusted-dealer vault. DKG **creation** (5-F) is complete; **sending** from a new DKG vault
+  is the follow-up.
+- **Real broadcast** of the payroll and the sealed path are pending; **Tauri** packaging is
   roadmap (ADR-0004).
-- ✅ **Quitadas:** identidade de membro cosmética (5-D.3), shares em texto claro (5-E), e
-  DKG não-ligado-na-UI (5-F cria cofre por DKG de verdade).
+- ✅ **Settled:** cosmetic member identity (5-D.3), plaintext shares (5-E), and
+  DKG-not-wired-into-the-UI (5-F truly creates a vault via DKG).
 
-**Próximo:** Fase 6 (extras) · Fase 7 (README/vídeo/diagrama/vitrine mock) · follow-ups
-(envio de cofre DKG · broadcasts reais).
+**Next:** Phase 6 (extras) · Phase 7 (README/video/diagram/mock showcase) · follow-ups
+(DKG vault send · real broadcasts).

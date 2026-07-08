@@ -1,6 +1,6 @@
 # Konclave — engine/versions.lock
 #
-# Deterministic pin of the official Zcash Foundation tools (Layer 1 — Motor).
+# Deterministic pin of the official Zcash Foundation tools (Layer 1 — Engine).
 # Policy: build from source at a fixed git rev; never follow `main`. Bumps are deliberate.
 #
 # Verified and pinned in Phase 1A (2026-06-30): all three tools live in ONE repo
@@ -47,5 +47,5 @@ zcash_client_backend = "0.21.0"
 
 # NOTE: sha256 values are for binaries built on THIS machine; the build is not bit-reproducible,
 # so the authoritative reproducibility anchor is (repo rev + the repo's committed Cargo.lock).
-# zcash_client_backend is also LINKED into the Orquestrador (src-tauri/), pinned there via its own
+# zcash_client_backend is also LINKED into the Orchestrator (src-tauri/), pinned there via its own
 # Cargo.lock — not invoked as a binary.

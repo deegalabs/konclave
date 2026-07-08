@@ -1,44 +1,45 @@
 # Konclave
 
-> **O cofre que decide em conjunto.** Nenhum pagamento sai sem o quórum.
-> Privado por fora, transparente por dentro.
+> **The vault that decides together.** No payment goes out without quorum.
+> Private on the outside, transparent on the inside.
 
-Konclave é um app **desktop local-first** que torna usável, para pessoas comuns, criar e
-operar um **cofre de fundos coletivo e privado** sobre a rede **Zcash**, usando
-assinaturas de limiar (**FROST**). Pague por quórum ou rode uma **folha de pagamento
-privada** inteira num único envelope aprovado coletivamente — sem tocar em linha de
-comando, e sem vazar nada na blockchain pública.
+Konclave is a **local-first desktop app** that makes it usable, for ordinary people, to
+create and operate a **collective, private fund vault** on the **Zcash** network, using
+threshold signatures (**FROST**). Pay by quorum or run an entire **private payroll** in a
+single collectively-approved envelope — without touching a command line, and without
+leaking anything to the public blockchain.
 
-A criptografia já existe e é das ferramentas oficiais da **Zcash Foundation**. O que
-faltava era a **camada humana** — é isso que o Konclave entrega.
+The cryptography already exists and comes from the official **Zcash Foundation** tools.
+What was missing was the **human layer** — that is what Konclave delivers.
 
-> ⚠️ **Status:** em construção (ZecHub Hackathon 3.0, 2026). Este README é provisório;
-> a vitrine completa, com demo na mainnet e link de transação real, vem na entrega final.
+> ⚠️ **Status:** under construction (ZecHub Hackathon 3.0, 2026). This README is
+> provisional; the full showcase, with a mainnet demo and a real transaction link, comes
+> with the final delivery.
 
-## Documentação
+## Documentation
 
-- [CLAUDE.md](CLAUDE.md) — memória e contexto do projeto.
-- [docs/CONCEITO_INICIAL.md](docs/CONCEITO_INICIAL.md) — o quê e o porquê.
-- [docs/UX_E_FLUXOS.md](docs/UX_E_FLUXOS.md) — jornadas e telas.
-- [docs/LOGICA_E_REGRAS.md](docs/LOGICA_E_REGRAS.md) — estados e regras.
-- [docs/ARQUITETURA.md](docs/ARQUITETURA.md) — as três camadas.
-- [docs/ROADMAP.md](docs/ROADMAP.md) — plano de construção.
+- [CLAUDE.md](CLAUDE.md) — project memory and context.
+- [docs/CONCEITO_INICIAL.md](docs/CONCEITO_INICIAL.md) — the what and the why.
+- [docs/UX_E_FLUXOS.md](docs/UX_E_FLUXOS.md) — journeys and screens.
+- [docs/LOGICA_E_REGRAS.md](docs/LOGICA_E_REGRAS.md) — states and rules.
+- [docs/ARQUITETURA.md](docs/ARQUITETURA.md) — the three layers.
+- [docs/ROADMAP.md](docs/ROADMAP.md) — build plan.
 
-## Como funciona (em uma frase)
+## How it works (in one sentence)
 
-A chave do cofre é dividida entre os membros; **nenhum pedaço sozinho move fundos** e a
-chave inteira **nunca é remontada**. As aprovações produzem uma assinatura única que, de
-fora, parece uma transação normal de uma pessoa só. A sua parte da chave **nunca sai do
-seu dispositivo**.
+The vault key is split among the members; **no single piece moves funds** and the whole
+key is **never reconstituted**. The approvals produce a single signature that, from the
+outside, looks like a normal one-person transaction. Your part of the key **never leaves
+your device**.
 
-## Crédito
+## Credit
 
-Construído sobre as ferramentas da **Zcash Foundation**: `frostd`, `frost-client`
-([frost-tools](https://github.com/ZcashFoundation/frost-tools)), o Zcash Signer e
-[zcash-devtool](https://github.com/zcash/zcash-devtool). O Konclave não reimplementa
-criptografia — agrega a camada de usabilidade por cima.
+Built on top of the **Zcash Foundation** tools: `frostd`, `frost-client`
+([frost-tools](https://github.com/ZcashFoundation/frost-tools)), the Zcash Signer, and
+[zcash-devtool](https://github.com/zcash/zcash-devtool). Konclave does not reimplement
+cryptography — it adds the usability layer on top.
 
-## Licença
+## License
 
-Dual **Apache-2.0** / **MIT**, à escolha do usuário (espelha o ecossistema Rust/Zcash).
-Ver [LICENSE-APACHE](LICENSE-APACHE) e [LICENSE-MIT](LICENSE-MIT).
+Dual **Apache-2.0** / **MIT**, at the user's choice (mirrors the Rust/Zcash ecosystem).
+See [LICENSE-APACHE](LICENSE-APACHE) and [LICENSE-MIT](LICENSE-MIT).

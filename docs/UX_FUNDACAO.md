@@ -1,163 +1,168 @@
-# Konclave — Fundação de UX (Etapas 1–3)
+# Konclave — UX Foundation (Steps 1–3)
 
-> Persona, arquitetura de informação e os 4 fluxos que importam. O alicerce barato que
-> faz o modelo fiel nascer certo. Segue a [ROTA_UX.md](ROTA_UX.md).
-
----
-
-## Etapa 1 — Persona + tarefas (jobs-to-be-done)
-
-### Primária — Marina, a tesoureira do coletivo
-- **Quem:** lidera as operações de uma DAO / comunidade Web3 / pequeno coletivo (ou dona
-  de um negócio que administra um fundo comum). Cuida do dinheiro de todos.
-- **Nível técnico:** **não-técnica.** Vive de planilha e app de banco. Não entende — nem
-  quer entender — criptografia.
-- **Metas:** pagar contribuidores de forma justa e privada; **não ser o ponto único de
-  falha**; conseguir **justificar cada gasto** ao grupo e ao contador; fazer rápido, sem
-  ajuda de ninguém.
-- **Dores de hoje:** as opções são ruins — uma pessoa segura a chave (risco), chave
-  compartilhada (inseguro), multisig transparente (vaza tudo on-chain). FROST no terminal
-  é impossível pra ela.
-- **Vitória:** *"Paguei a equipe, de forma privada, com duas aprovações, e entrego ao meu
-  contador um relatório limpo."*
-
-### Secundária — os co-signatários (Bruno, Carla)
-Membros que detêm uma parte da chave. Querem só **aprovar/recusar com um toque** quando
-algo precisa deles. Baixo engajamento, esforço mínimo. Não operam o dia a dia.
-
-### Terciária — Sr. Oliveira, o contador
-Fecha livros e impostos. **Não opera o app** (ou tem uma **visão só-leitura** — o
-"Observador via UFVK", roadmap). Precisa de **registros limpos e exportáveis**: datas,
-valores, contraparte (quando conhecida), **quem aprovou**. Trabalha em planilha/PDF.
-
-### Nota de enquadramento (importante)
-A **função principal** é o **cofre coletivo com pagamentos aprovados por quórum**.
-**Pagamento avulso (1 destino)** e **folha (N destinos)** são **duas opções do MESMO
-mecanismo** — a folha **não é o rosto principal**, é *uma* forma de pagar. Um pagamento
-avulso é, no fundo, uma "folha de 1 linha". A UI trata os dois como **opções paralelas**
-(nunca a folha dominando).
-
-### Tarefas priorizadas (nas palavras da Marina)
-1. "Montar um cofre onde **ninguém sozinho** manda no dinheiro."
-2. "Ter **um endereço privado** para receber contribuições."
-3. "**Pagar** um contribuidor/fornecedor com **aprovação do grupo**, sem vazar."
-4. "Pagar **todo mundo de uma vez**, conforme contribuição (folha/split), com **uma**
-   aprovação."
-5. "Ao abrir, ver **quanto tem** e **o que espera minha aprovação**."
-6. "Mostrar ao grupo e ao contador **o que aconteceu — quem propôs e quem aprovou — e
-   exportar**." ← elevado pelo track de Accounting.
-7. "Fazer tudo isso **sem lidar com criptografia**."
+> Persona, information architecture, and the 4 flows that matter. The cheap foundation that
+> makes the hi-fi model come out right. Follows [ROTA_UX.md](ROTA_UX.md).
 
 ---
 
-## Etapa 2 — Arquitetura de informação
+## Step 1 — Persona + tasks (jobs-to-be-done)
 
-### Mapa de navegação (com a lente de contabilidade)
+### Primary — Marina, the collective's treasurer
+- **Who:** leads the operations of a DAO / Web3 community / small collective (or owns a
+  business that manages a common fund). Looks after everyone's money.
+- **Technical level:** **non-technical.** Lives on spreadsheets and a banking app. Does not
+  understand — nor wants to understand — cryptography.
+- **Goals:** pay contributors fairly and privately; **not be the single point of failure**;
+  be able to **justify every expense** to the group and to the accountant; do it fast,
+  without anyone's help.
+- **Today's pains:** the options are bad — one person holds the key (risk), a shared key
+  (insecure), transparent multisig (leaks everything on-chain). FROST in the terminal is
+  impossible for her.
+- **Win:** *"I paid the team, privately, with two approvals, and I hand my accountant a
+  clean report."*
+
+### Secondary — the co-signers (Bruno, Carla)
+Members who hold a part of the key. They just want to **approve/refuse with one tap** when
+something needs them. Low engagement, minimal effort. They do not run the day-to-day.
+
+### Tertiary — Mr. Oliveira, the accountant
+Closes the books and taxes. **Does not operate the app** (or has a **read-only view** — the
+"UFVK Observer", roadmap). Needs **clean, exportable records**: dates, amounts, counterparty
+(when known), **who approved**. Works in spreadsheets/PDF.
+
+### Framing note (important)
+The **main function** is the **collective vault with quorum-approved payments**.
+**Single payment (1 destination)** and **payroll (N destinations)** are **two options of the
+SAME mechanism** — payroll **is not the main face**, it is *one* way to pay. A single payment
+is, at bottom, a "1-line payroll". The UI treats both as **parallel options** (never payroll
+dominating).
+
+### Prioritized tasks (in Marina's words)
+1. "Set up a vault where **no one alone** controls the money."
+2. "Have **a private address** to receive contributions."
+3. "**Pay** a contributor/supplier with **the group's approval**, without leaking."
+4. "Pay **everyone at once**, according to contribution (payroll/split), with **one**
+   approval."
+5. "On opening, see **how much there is** and **what is waiting for my approval**."
+6. "Show the group and the accountant **what happened — who proposed and who approved — and
+   export it**." ← elevated by the Accounting track.
+7. "Do all of this **without dealing with cryptography**."
+
+---
+
+## Step 2 — Information architecture
+
+### Navigation map (with the accounting lens)
 
 ```
                  ┌───────────────┐
-                 │   ABERTURA     │  sem cofre ainda
+                 │    INTRO       │  no vault yet
                  └───────┬───────┘
-             Criar cofre │ Entrar num cofre
+             Create vault │ Join a vault
                  ┌───────▼───────┐
-                 │   CERIMÔNIA    │  DKG passo a passo (parece "montar um grupo")
+                 │   CEREMONY     │  step-by-step DKG (feels like "forming a group")
                  └───────┬───────┘
                  ┌───────▼─────────────────────────────────────┐
-                 │                 PAINEL (home)                │◄────────┐
-                 │  saldo (tarja) · o que precisa de mim · atalhos       │
+                 │               DASHBOARD (home)               │◄────────┐
+                 │  balance (banner) · what needs me · shortcuts         │
                  └──┬─────────┬──────────┬───────────┬──────────┬────────┘
-        Novo pagamento   Nova folha   Propostas   RAZÃO/          Membros /
-             │              │         pendentes   PRESTAÇÃO       Modelo de
-             └──────┬───────┘             │       DE CONTAS       confiança
-                    ▼                     ▼          │  (filtrar,       │
-             ┌─────────────┐      ┌──────────────┐   │   exportar) ─────┘
-             │  PROPOSTA    │◄─────┤  (detalhe)   │   │
-             │  aprovar /   │      └──────────────┘   ▼
-             │  acompanhar  │                    (stretch) OBSERVADOR
-             └──────┬───────┘                    só-leitura p/ contador
+          New payment    New payroll   Pending      LEDGER/         Members /
+             │              │         proposals    ACCOUNTING       Trust
+             └──────┬───────┘             │       │  (filter,       model
+                    ▼                     ▼       │   export) ───────┘
+             ┌─────────────┐      ┌──────────────┐   │
+             │  PROPOSAL    │◄─────┤  (detail)    │   │
+             │  approve /   │      └──────────────┘   ▼
+             │  track       │                    (stretch) OBSERVER
+             └──────┬───────┘                    read-only for the accountant
                     ▼
              ┌─────────────┐
-             │   ENVIADO    │  confirmação + link do explorador
+             │    SENT      │  confirmation + explorer link
              └─────────────┘
 ```
 
-### O que cada tela responde (e a ação primária)
+### What each screen answers (and the primary action)
 
-| Tela | Responde | Ação primária |
+| Screen | Answers | Primary action |
 |---|---|---|
-| **Abertura** | "Tenho um cofre?" | Criar / Entrar |
-| **Cerimônia** | "Como nasce o cofre com segurança?" | Convidar + criar juntos |
-| **Painel** | "Quanto tem? Precisa de mim? O que houve?" | Aprovar o pendente |
-| **Novo pagamento** | "Como pago um destino?" | Propor |
-| **Nova folha** | "Como pago vários conforme contribuição?" | Montar/importar → Propor |
-| **Proposta (detalhe)** | "Autorizo este gasto?" | Aprovar / Recusar |
-| **Enviado** | "Saiu mesmo? Como provo?" | Ver no explorador |
-| **Razão / Prestação de contas** | "O que aconteceu? Como entrego ao contador?" | Filtrar → **Exportar** |
-| **Membros** | "Quem controla? Dá pra confiar?" | Ver modelo de confiança |
-| **Observador** (stretch) | (contador) "O que registrar?" | Só-leitura / export |
+| **Intro** | "Do I have a vault?" | Create / Join |
+| **Ceremony** | "How is the vault born securely?" | Invite + create together |
+| **Dashboard** | "How much is there? Does it need me? What happened?" | Approve the pending item |
+| **New payment** | "How do I pay one destination?" | Propose |
+| **New payroll** | "How do I pay several by contribution?" | Build/import → Propose |
+| **Proposal (detail)** | "Do I authorize this expense?" | Approve / Refuse |
+| **Sent** | "Did it really go out? How do I prove it?" | View on the explorer |
+| **Ledger / Accounting** | "What happened? How do I hand it to the accountant?" | Filter → **Export** |
+| **Members** | "Who is in control? Can I trust it?" | See the trust model |
+| **Observer** (stretch) | (accountant) "What to record?" | Read-only / export |
 
-**Mudança-chave da IA:** o histórico vira **Razão/Prestação de contas** — uma superfície
-de trabalho contábil (filtro por período/membro/tipo, export CSV/PDF), não três linhas
-decorativas.
-
----
-
-## Etapa 3 — Os 4 fluxos que importam
-
-> Formato: passos humanos · *(o que roda escondido)* · ramos de erro.
-
-### Fluxo 1 — Nascer (criar o cofre)
-O onboarding mais delicado. Meta: parecer **"montar um grupo"**, não "rodar um protocolo".
-1. Marina define **nome do cofre** e a **regra** em linguagem humana: *"Quantas pessoas
-   precisam aprovar cada pagamento?"* → **2 de 3**. Microcopy: "Ninguém sozinho controla."
-2. **Convida os membros** (link/QR). Lista preenche conforme entram. *"Aguardando 2 de 3…"*
-3. Todos online → botão único **"Criar cofre agora"**. *(roda o DKG via frostd; cada um
-   guarda sua parte localmente, cifrada — nunca remontada.)* Tela: "Gerando as chaves…
-   (acontece uma vez)".
-4. **Endereço pronto** (Orchard + UFVK). *"Este é o endereço para receber. **Só Orchard.**"*
-- **Erros:** membro cai no meio → "A criação parou porque [nome] saiu. Recomece quando
-  todos estiverem prontos." · `frostd` fora → fallback QR/copy-paste.
-
-### Fluxo 2 — Pagar com aprovação (o laço central)
-1. Marina abre **Novo pagamento**: destino, valor, **memo opcional** (holerite privado).
-   *Validação ao vivo:* endereço válido? saldo suficiente (valor + taxa)?
-2. **Preview + confirmação:** "Você vai propor 0,5 ZEC → zs1… Precisa de 2 aprovações
-   (incluindo a sua)." Botão **"Propor pagamento"** (não "enviar" — ainda não envia).
-   *(monta o plano → PCZT → extrai o que assinar; a proponente já conta como 1 aprovação.)*
-3. **A proposta viaja.** Bruno vê no Painel, abre a **Proposta**, lê quem propôs/destino/
-   valor/memo, e **Aprova** com um toque. Microcopy: "Ao aprovar, você autoriza com a sua
-   parte da chave." *(cerimônia FROST via frostd; ao bater 2 de 3, injeta a assinatura.)*
-4. **Enviado** → confirmação + **link do explorador** (prova on-chain). O Razão registra
-   **quem propôs e quem aprovou**.
-- **Erros/estados:** recusa que inviabiliza o quórum → "Recusada por [nome]." · expira →
-  "Expirou; reproponha." · falha de rede → "A proposta segue válida; tente reenviar."
-
-### Fluxo 3 — Folha por contribuição (o segundo rosto)
-Mesma aprovação, entrada de **N destinos**.
-1. **Montar a folha:** tabela editável (rótulo, endereço, valor, memo/holerite) **ou
-   importar CSV** (o tesoureiro vive em planilha). *Rodapé vivo:* total + **taxa estimada**
-   (cresce com nº de destinos, sem surpresa) + saldo após.
-2. **Import CSV** → relatório: linhas aceitas, linhas com erro (motivo + nº da linha).
-   Import parcial permitido.
-3. **Revisar:** "Folha de maio — 8 pagamentos, total 4,2 ZEC. Precisa de 2 aprovações."
-4. **Propor → aprovar → enviado** (idêntico ao Fluxo 2), mas **uma transação, N saídas,
-   uma aprovação** cobre tudo. Cada um recebe seu valor e seu holerite cifrado.
-
-### Fluxo 4 — Fechar as contas (o pedido do contador)
-O que o track de Accounting exige.
-1. Marina abre o **Razão**: lista completa, entradas e saídas.
-2. **Filtra** por período (mês/trimestre), membro, tipo (pagamento/folha/entrada).
-3. Cada saída mostra **quem propôs e quem aprovou** + status + link do explorador.
-4. **Exporta** (CSV/PDF) — gerado **localmente**, nunca enviado a servidor — e **entrega
-   ao contador**. *(read-only via UFVK; mostra sem poder gastar.)*
-- **Privacidade:** tudo isto é **transparência interna**; a blockchain pública nada revela.
-  Valores sob a **tarja** por padrão; revelar é gesto.
+**Key IA change:** history becomes the **Ledger/Accounting** — an accounting work surface
+(filter by period/member/type, CSV/PDF export), not three decorative lines.
 
 ---
 
-## O que isto trava para o modelo fiel
-- A **ação primária** de cada tela (o que o não-técnico faz sem pensar).
-- O **Razão/Prestação de contas** como superfície contábil de primeira classe (filtro +
-  export) — a resposta ao track de Accounting.
-- Onde **preview + confirmação** são obrigatórios (tudo que move fundos).
-- Onde a **tarja** e o **guia/microcopy** carregam a confiança sem jargão.
+## Step 3 — The 4 flows that matter
+
+> Format: human steps · *(what runs hidden)* · error branches.
+
+### Flow 1 — Birth (create the vault)
+The most delicate onboarding. Goal: feel like **"forming a group"**, not "running a
+protocol".
+1. Marina sets the **vault name** and the **rule** in human language: *"How many people
+   need to approve each payment?"* → **2 of 3**. Microcopy: "No one controls it alone."
+2. **Invite the members** (link/QR). The list fills as they join. *"Waiting for 2 of 3…"*
+3. Everyone online → a single **"Create vault now"** button. *(runs the DKG via frostd; each
+   one keeps their part locally, encrypted — never reconstituted.)* Screen: "Generating the
+   keys… (happens once)".
+4. **Address ready** (Orchard + UFVK). *"This is the address to receive. **Orchard only.**"*
+- **Errors:** a member drops mid-way → "Creation stopped because [name] left. Restart when
+  everyone is ready." · `frostd` down → QR/copy-paste fallback.
+
+### Flow 2 — Pay with approval (the central loop)
+1. Marina opens **New payment**: destination, amount, **optional memo** (private payslip).
+   *Live validation:* is the address valid? enough balance (amount + fee)?
+2. **Preview + confirmation:** "You are about to propose 0.5 ZEC → zs1… It needs 2 approvals
+   (including yours)." Button **"Propose payment"** (not "send" — it does not send yet).
+   *(builds the plan → PCZT → extracts what to sign; the proposer already counts as 1
+   approval.)*
+3. **The proposal travels.** Bruno sees it on the Dashboard, opens the **Proposal**, reads
+   who proposed/destination/amount/memo, and **Approves** with one tap. Microcopy: "By
+   approving, you authorize this with your part of the key." *(FROST ceremony via frostd;
+   when it hits 2 of 3, it injects the signature.)*
+4. **Sent** → confirmation + **explorer link** (on-chain proof). The Ledger records **who
+   proposed and who approved**.
+- **Errors/states:** a refusal that makes quorum unreachable → "Refused by [name]." ·
+  expires → "Expired; re-propose." · network failure → "The proposal is still valid; try
+  resending."
+
+### Flow 3 — Payroll by contribution (the second face)
+Same approval, entry of **N destinations**.
+1. **Build the payroll:** editable table (label, address, amount, memo/payslip) **or import
+   CSV** (the treasurer lives in a spreadsheet). *Live footer:* total + **estimated fee**
+   (grows with the number of destinations, no surprise) + balance after.
+2. **Import CSV** → report: accepted lines, lines with errors (reason + line number). Partial
+   import allowed.
+3. **Review:** "May payroll — 8 payments, total 4.2 ZEC. It needs 2 approvals."
+4. **Propose → approve → sent** (identical to Flow 2), but **one transaction, N outputs, one
+   approval** covers everything. Each person receives their amount and their encrypted
+   payslip.
+
+### Flow 4 — Close the books (the accountant's request)
+What the Accounting track demands.
+1. Marina opens the **Ledger**: full list, entries and exits.
+2. **Filters** by period (month/quarter), member, type (payment/payroll/income).
+3. Each exit shows **who proposed and who approved** + status + explorer link.
+4. **Exports** (CSV/PDF) — generated **locally**, never sent to a server — and **hands it to
+   the accountant**. *(read-only via UFVK; shows without being able to spend.)*
+- **Privacy:** all of this is **internal transparency**; the public blockchain reveals
+  nothing. Amounts under the **banner** by default; revealing is a deliberate gesture.
+
+---
+
+## What this locks for the hi-fi model
+- The **primary action** of each screen (what the non-technical person does without
+  thinking).
+- The **Ledger/Accounting** as a first-class accounting surface (filter + export) — the
+  answer to the Accounting track.
+- Where **preview + confirmation** are mandatory (anything that moves funds).
+- Where the **banner** and the **guidance/microcopy** carry trust without jargon.

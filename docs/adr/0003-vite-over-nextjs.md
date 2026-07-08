@@ -1,29 +1,29 @@
-# ADR-0003 — Vite + React em vez de Next.js para o Rosto
+# ADR-0003 — Vite + React instead of Next.js for the UI
 
-- **Status:** aceito
-- **Data:** 2026-07-01
-- **Contexto:** [ADR-0001](0001-decisoes-fechadas.md) fixou "Frontend: Next.js em static
-  export" como decisão de menor consequência, a confirmar na execução. Ao iniciar a
-  Fase 5 (o app de verdade), a escolha foi reavaliada.
+- **Status:** accepted
+- **Date:** 2026-07-01
+- **Context:** [ADR-0001](0001-decisoes-fechadas.md) set "Frontend: Next.js as a static
+  export" as a lower-consequence decision, to be confirmed during execution. On starting
+  Phase 5 (the real app), the choice was reassessed.
 
-## Decisão
+## Decision
 
-Usar **Vite + React + TypeScript** (não Next.js) para o Rosto.
+Use **Vite + React + TypeScript** (not Next.js) for the UI.
 
-## Porquê
+## Why
 
-- O Konclave é um **app desktop Tauri**, não um site. Não há SSR, rotas de servidor,
-  SEO nem edge — todo o valor do Next.js (o runtime de servidor) é **inaplicável**.
-- O que a Tauri consome é um **bundle estático** (`file://`). Vite entrega isso
-  nativamente, com build mais leve e rápido; Next.js exigiria `output: export` e ainda
-  carregaria peso desnecessário.
-- Vite é o caminho **padrão e recomendado** para frontends Tauri.
+- Konclave is a **Tauri desktop app**, not a website. There is no SSR, no server routes,
+  no SEO, no edge — all of Next.js's value (the server runtime) is **inapplicable**.
+- What Tauri consumes is a **static bundle** (`file://`). Vite delivers this natively, with
+  a lighter and faster build; Next.js would require `output: export` and still carry
+  unnecessary weight.
+- Vite is the **default and recommended** path for Tauri frontends.
 
-## Consequências
+## Consequences
 
-- Estrutura simples: `ui/` = app Vite; `ui/design/` = design system + protótipos;
-  `ui/src/lacre.css` = o design system aplicado.
-- Build para `file://` exige `base: './'` (relativo) no `vite.config.ts` — já
-  configurado. (Nota: módulos ES não carregam via `file://` fora do Tauri por CORS;
-  para preview usa-se `vite preview` ou a flag de dev.)
-- Sem perda: o design (tokens + componentes em `lacre.css`) independe do framework.
+- Simple structure: `ui/` = the Vite app; `ui/design/` = design system + prototypes;
+  `ui/src/lacre.css` = the applied design system.
+- Building for `file://` requires `base: './'` (relative) in `vite.config.ts` — already
+  configured. (Note: ES modules do not load via `file://` outside Tauri due to CORS; for
+  preview use `vite preview` or the dev flag.)
+- No loss: the design (tokens + components in `lacre.css`) is framework-independent.

@@ -1,44 +1,44 @@
-# ADR-0001 — Decisões fechadas de arquitetura
+# ADR-0001 — Closed architecture decisions
 
-- **Status:** aceito
-- **Data:** 2026-06-30
-- **Contexto:** Konclave (ZecHub Hackathon 3.0). Decisões consolidadas do
-  [CONCEITO_INICIAL.md §13](../CONCEITO_INICIAL.md) e da conversa de logística inicial.
+- **Status:** accepted
+- **Date:** 2026-06-30
+- **Context:** Konclave (ZecHub Hackathon 3.0). Decisions consolidated from
+  [CONCEITO_INICIAL.md §13](../CONCEITO_INICIAL.md) and the initial logistics conversation.
 
-## Decisão
+## Decision
 
-### Produto (fonte: CONCEITO §13)
-1. **Nome:** Konclave.
-2. **Plataforma:** desktop local-first via Tauri (shell Rust + Next.js/React).
-3. **Integração com o motor:** Caminho 1 (invocar binários CLI oficiais) com rigor de
-   Caminho 2 (saída estruturada, validação em toda fronteira, TDD destrutivo).
-4. **Custódia:** key share nunca sai do dispositivo (keychain do SO); entre membros
-   trafega só material público.
-5. **Coordenação:** `frostd` oficial (servidor cego) + fallback QR/copy-paste (stretch).
-6. **Geração de chave do produto:** DKG real (trusted-dealer só como andaime do slice).
-7. **Rede:** mainnet, ZEC real, valor mínimo; receber só em Orchard.
-8. **Privacidade:** shielded-first; sem telemetria; segredos nunca em log/disco/URL.
-9. **Escopo:** núcleo + 3 extras promovidos; stretch e roadmap separados.
-10. **Licença:** dual Apache-2.0 / MIT.
+### Product (source: CONCEITO §13)
+1. **Name:** Konclave.
+2. **Platform:** local-first desktop via Tauri (Rust shell + Next.js/React).
+3. **Engine integration:** Path 1 (invoke official CLI binaries) with Path 2 rigor
+   (structured output, validation at every boundary, destructive TDD).
+4. **Custody:** the key share never leaves the device (OS keychain); between members only
+   public material travels.
+5. **Coordination:** official `frostd` (blind server) + QR/copy-paste fallback (stretch).
+6. **Product key generation:** real DKG (trusted-dealer only as a slice scaffold).
+7. **Network:** mainnet, real ZEC, minimal amount; receive only in Orchard.
+8. **Privacy:** shielded-first; no telemetry; secrets never in log/disk/URL.
+9. **Scope:** core + 3 promoted extras; stretch and roadmap kept separate.
+10. **License:** dual Apache-2.0 / MIT.
 
-### Técnicas (fonte: logística)
-11. **Equipe:** solo → escopo travado no núcleo; extras só se sobrar fôlego.
-12. **SO de dev:** Windows nativo primeiro; WSL2 só se o tooling quebrar.
-13. **Origem dos binários:** compilar da fonte, pinados por SHA, vendorizados como
-    submódulos, com checksum em `engine/versions.lock`. Pin ancorado no commit do tutorial
-    oficial FROST+Zcash (caminho conhecido-bom), garantindo coerência de versões de
-    `frost-core`/`reddsa` entre as ferramentas.
-14. **Camada carteira:** linkar `zcash_client_backend` no Rust para sync/saldo/plano
-    (dado estruturado nativo); shellar apenas os binários FROST/sign.
-15. **Frontend:** Next.js em static export.
+### Technical (source: logistics)
+11. **Team:** solo → scope locked to the core; extras only if there is room.
+12. **Dev OS:** native Windows first; WSL2 only if the tooling breaks.
+13. **Binary origin:** compile from source, pinned by SHA, vendored as submodules, with a
+    checksum in `engine/versions.lock`. The pin is anchored to the commit of the official
+    FROST+Zcash tutorial (a known-good path), guaranteeing version coherence of
+    `frost-core`/`reddsa` across the tools.
+14. **Wallet layer:** link `zcash_client_backend` in Rust for sync/balance/plan (native
+    structured data); shell out only the FROST/sign binaries.
+15. **Frontend:** Next.js as a static export.
 
-## Consequências
-- Os binários **devem** ser mutuamente compatíveis no SHA pinado (mesma versão de
-  `frost-core`/`reddsa`), sob risco de a assinatura não verificar.
-- A promessa "share nunca sai do dispositivo" exige reconciliar onde o `frost-client`
-  guarda a share (storage próprio) com o keychain — decidir na Fase 1/3.
-- Buildar contra **NU6.2** (hard-fork de 03/jun/2026 que reabilitou o Orchard).
+## Consequences
+- The binaries **must** be mutually compatible at the pinned SHA (same version of
+  `frost-core`/`reddsa`), otherwise the signature may not verify.
+- The "share never leaves the device" promise requires reconciling where `frost-client`
+  stores the share (its own storage) with the keychain — to decide in Phase 1/3.
+- Build against **NU6.2** (the 2026-06-03 hard-fork that re-enabled Orchard).
 
-## Decisões adiadas (logística)
-Prazo de expiração de proposta (placeholder 72h), limite de linhas por folha, colunas do
-CSV, fonte de tempo confiável para expiração, hospedagem do `frostd` na demo.
+## Deferred decisions (logistics)
+Proposal expiry deadline (72h placeholder), payroll line limit, CSV columns, a trusted
+time source for expiry, `frostd` hosting for the demo.
