@@ -3,15 +3,11 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { Letterhead, Secret } from '../components'
 import { Identicon } from '../avatar'
 import { fmtZec } from '../format'
+import { stateStamp } from '../labels'
 import {
   getProposalDetail, getProposals, getVault, voteProposal, sendProposal, shortAddr, humanError,
   type Proposal, type PayrollLine,
 } from '../api'
-
-const STAMP: Record<string, string> = {
-  awaiting: 'Pendente', ready: 'Pronta', sent: 'Enviada',
-  confirmed: 'Confirmada', rejected: 'Recusada', expired: 'Expirada', cancelled: 'Cancelada',
-}
 
 export default function Proposta() {
   const nav = useNavigate()
@@ -117,7 +113,7 @@ export default function Proposta() {
       <div className="page narrow">
         <div className="prop-head">
           <span className="klab">{eyebrow}</span>
-          <span className={'stamp st-' + p.state}>{STAMP[p.state] ?? p.state}</span>
+          <span className={'stamp st-' + p.state}>{stateStamp(p.state)}</span>
         </div>
         <h1 className="h1 prop-title">{title}</h1>
         <div className="p-meta">{subtitle}{p.is_public && !isPayroll && <span className="hint warn"> · ⚠ destino público</span>}</div>

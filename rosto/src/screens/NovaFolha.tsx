@@ -2,15 +2,11 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Letterhead, Secret } from '../components'
 import { fmtZec } from '../format'
+import { stateLabel } from '../labels'
 import {
   previewPayroll, createPayroll, getBalance, getBeneficiaries, getLedger, getVault, health, classifyAddress, humanError,
   type Beneficiary, type Proposal, type Member,
 } from '../api'
-
-const FOLHA_STAMP: Record<string, string> = {
-  awaiting: 'aguardando', ready: 'pronta', sent: 'enviada',
-  confirmed: 'confirmada', rejected: 'recusada', expired: 'expirada', cancelled: 'cancelada',
-}
 
 const DRAFT_KEY = 'konclave.folha.rascunho'
 
@@ -168,7 +164,7 @@ export default function NovaFolha() {
                 <span className="pf-name">{f.memo || 'Folha de pagamento'}</span>
                 <span className="pf-meta">
                   <span className="pf-val"><Secret sm><span>{fmtZec(f.value_zec)} ZEC</span></Secret></span>
-                  <span className={'pf-st ' + f.state}>{FOLHA_STAMP[f.state] ?? f.state}</span>
+                  <span className={'pf-st ' + f.state}>{stateLabel(f.state)}</span>
                   <span className="pf-go">→</span>
                 </span>
               </div>

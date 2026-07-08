@@ -3,11 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { Letterhead, Secret, RevealButton } from '../components'
 import { getLedger, getProposalDetail, getVault, ledgerCsvUrl, health, shortAddr, type Proposal, type PayrollLine } from '../api'
 import { fmtDate, fmtZec } from '../format'
+import { stateLabel } from '../labels'
 
-const STATE_LABEL: Record<string, string> = {
-  awaiting: 'aguardando', ready: 'pronta', sent: 'enviada',
-  confirmed: 'confirmada', rejected: 'recusada', expired: 'expirada', cancelled: 'cancelada',
-}
 const SETTLED = (s: string) => s === 'sent' || s === 'confirmed'
 
 
@@ -137,8 +134,8 @@ export default function Razao() {
                       <Secret sm><span>−{fmtZec(p.value_zec)}</span></Secret>
                       <div className="by">
                         {settledRow && p.txid
-                          ? <a className="link" href={`https://mainnet.zcashexplorer.app/transactions/${p.txid}`} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>{STATE_LABEL[p.state]} ↗</a>
-                          : (STATE_LABEL[p.state] ?? p.state)}
+                          ? <a className="link" href={`https://mainnet.zcashexplorer.app/transactions/${p.txid}`} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>{stateLabel(p.state)} ↗</a>
+                          : stateLabel(p.state)}
                       </div>
                     </td>
                   </tr>
