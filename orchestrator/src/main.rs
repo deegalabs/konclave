@@ -1,7 +1,7 @@
 //! `konclave` — the local bridge binary (ADR-0004).
 //!
 //! `konclave serve` binds **127.0.0.1** and serves the UI bundle + JSON API from the
-//! tested Orquestrador core. This is a local daemon, not a network service.
+//! tested Orchestrator core. This is a local daemon, not a network service.
 
 use std::path::PathBuf;
 use std::process::ExitCode;

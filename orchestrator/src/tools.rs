@@ -9,7 +9,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-/// Absolute paths to the external binaries the Orquestrador drives.
+/// Absolute paths to the external binaries the Orchestrator drives.
 #[derive(Clone, Debug)]
 pub struct Tools {
     pub frost_client: PathBuf,
