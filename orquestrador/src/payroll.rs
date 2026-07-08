@@ -69,7 +69,10 @@ impl PayrollPlan {
             let total_with_fee = total.checked_add(estimated_fee)?;
             return Err(ValidationError::InsufficientFunds {
                 needed: total_with_fee.as_u64(),
-                available: confirmed.checked_sub(reserved).unwrap_or(Zatoshis::ZERO).as_u64(),
+                available: confirmed
+                    .checked_sub(reserved)
+                    .unwrap_or(Zatoshis::ZERO)
+                    .as_u64(),
             });
         }
         Ok(PayrollSummary {
@@ -151,7 +154,10 @@ fn parse_row(line: &str) -> Result<PayrollLine, String> {
     if value.is_zero() {
         return Err("amount must be greater than zero".into());
     }
-    let memo = parts.get(3).map(|m| m.trim().to_string()).unwrap_or_default();
+    let memo = parts
+        .get(3)
+        .map(|m| m.trim().to_string())
+        .unwrap_or_default();
     validate_memo(&memo, AddressKind::classify(&address)).map_err(|e| e.to_string())?;
     Ok(PayrollLine {
         label,
@@ -228,9 +234,24 @@ Carol,u1carol,oops,bad amount
     fn validate_totals_and_fee() {
         // 3 recipients => fee = 5000 * max(2, 4) = 20_000 zat.
         let plan = PayrollPlan::new(vec![
-            PayrollLine { label: None, address: "u1a".into(), value: zat(30_000), memo: String::new() },
-            PayrollLine { label: None, address: "u1b".into(), value: zat(30_000), memo: String::new() },
-            PayrollLine { label: None, address: "u1c".into(), value: zat(30_000), memo: String::new() },
+            PayrollLine {
+                label: None,
+                address: "u1a".into(),
+                value: zat(30_000),
+                memo: String::new(),
+            },
+            PayrollLine {
+                label: None,
+                address: "u1b".into(),
+                value: zat(30_000),
+                memo: String::new(),
+            },
+            PayrollLine {
+                label: None,
+                address: "u1c".into(),
+                value: zat(30_000),
+                memo: String::new(),
+            },
         ]);
         let summary = plan.validate(zat(200_000), Zatoshis::ZERO).unwrap();
         assert_eq!(summary.count, 3);

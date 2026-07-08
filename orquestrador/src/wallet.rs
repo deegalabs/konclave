@@ -50,8 +50,8 @@ pub fn parse_chain_info(json: &str) -> Result<ChainInfo, ToolError> {
     // get-info logs an INFO line to stderr; stdout is the single JSON object. Be
     // defensive: take the last non-empty line in case anything leaked to stdout.
     let line = last_json_line(json)?;
-    let raw: ChainInfoRaw = serde_json::from_str(line)
-        .map_err(|e| ToolError::parse("get-info JSON", e.to_string()))?;
+    let raw: ChainInfoRaw =
+        serde_json::from_str(line).map_err(|e| ToolError::parse("get-info JSON", e.to_string()))?;
     Ok(ChainInfo {
         chain_name: raw.chain_name,
         chain_tip_height: raw.chain_tip_height,
@@ -62,10 +62,11 @@ pub fn parse_chain_info(json: &str) -> Result<ChainInfo, ToolError> {
 /// Parse the JSON from `wallet balance --json`, validating every amount.
 pub fn parse_balance(json: &str) -> Result<Balance, ToolError> {
     let line = last_json_line(json)?;
-    let raw: BalanceRaw = serde_json::from_str(line)
-        .map_err(|e| ToolError::parse("balance JSON", e.to_string()))?;
+    let raw: BalanceRaw =
+        serde_json::from_str(line).map_err(|e| ToolError::parse("balance JSON", e.to_string()))?;
     let z = |v: u64, field: &str| {
-        Zatoshis::from_u64(v).map_err(|e| ToolError::parse(format!("balance.{field}"), e.to_string()))
+        Zatoshis::from_u64(v)
+            .map_err(|e| ToolError::parse(format!("balance.{field}"), e.to_string()))
     };
     Ok(Balance {
         chain_tip_height: raw.chain_tip_height,
@@ -95,7 +96,9 @@ fn server_args<'a>(server: &'a str) -> [&'a str; 4] {
 /// `zcash-devtool wallet -w <dir> get-info -s <server> --connection direct`
 pub fn get_info(devtool: &Path, wallet_dir: &str, server: &str) -> Result<ChainInfo, ToolError> {
     let s = server_args(server);
-    let args = ["wallet", "-w", wallet_dir, "get-info", s[0], s[1], s[2], s[3]];
+    let args = [
+        "wallet", "-w", wallet_dir, "get-info", s[0], s[1], s[2], s[3],
+    ];
     parse_chain_info(&run_text(devtool, &args, None)?)
 }
 

@@ -68,7 +68,11 @@ impl Response {
         }
     }
     fn text(status: u16, ct: &str, body: Vec<u8>) -> Response {
-        Response { status, content_type: ct.into(), body }
+        Response {
+            status,
+            content_type: ct.into(),
+            body,
+        }
     }
 }
 
@@ -187,7 +191,11 @@ impl From<Balance> for BalanceDto {
             + b.transparent_spendable.as_u64();
         // total includes notes not yet spendable (awaiting confirmations).
         let pending = b.total.as_u64().saturating_sub(spendable);
-        let zec = |z: u64| Zatoshis::from_u64(z).map(|v| v.to_zec_string()).unwrap_or_default();
+        let zec = |z: u64| {
+            Zatoshis::from_u64(z)
+                .map(|v| v.to_zec_string())
+                .unwrap_or_default()
+        };
         BalanceDto {
             chain_tip_height: b.chain_tip_height,
             total_zat: b.total.as_u64(),
@@ -253,7 +261,10 @@ pub fn handle(cfg: &Config, method: &str, raw_path: &str, body: &[u8]) -> Respon
             }
         }
         if path.starts_with("/api/") {
-            return Response::json(404, &serde_json::json!({"error": "unknown endpoint", "path": path}));
+            return Response::json(
+                404,
+                &serde_json::json!({"error": "unknown endpoint", "path": path}),
+            );
         }
         return Response::json(405, &serde_json::json!({"error": "method not allowed"}));
     }
@@ -280,16 +291,20 @@ pub fn handle(cfg: &Config, method: &str, raw_path: &str, body: &[u8]) -> Respon
         p if p.starts_with("/api/proposals/") => {
             api_proposal_one(cfg, p.strip_prefix("/api/proposals/").unwrap())
         }
-        p if p.starts_with("/api/") => {
-            Response::json(404, &serde_json::json!({"error": "unknown endpoint", "path": p}))
-        }
+        p if p.starts_with("/api/") => Response::json(
+            404,
+            &serde_json::json!({"error": "unknown endpoint", "path": p}),
+        ),
         _ => serve_static(&cfg.web_dir, path),
     }
 }
 
 fn open_store(cfg: &Config) -> Result<Store, Response> {
     let store = Store::open(&cfg.db_path).map_err(|e| {
-        Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()}))
+        Response::json(
+            500,
+            &serde_json::json!({"error": "store", "detail": e.to_string()}),
+        )
     })?;
     // Enforce time-based proposal expiry on every read (no background job needed).
     let _ = store.expire_due(now_unix().unwrap_or(0));
@@ -311,7 +326,10 @@ fn query_param(raw_path: &str, key: &str) -> Option<String> {
 /// isolates each vault's data (proposals, ledger, people) instead of always the first.
 fn resolve_vault_id(store: &Store, want: Option<&str>) -> Result<Option<String>, Response> {
     let vaults = store.list_vaults().map_err(|e| {
-        Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()}))
+        Response::json(
+            500,
+            &serde_json::json!({"error": "store", "detail": e.to_string()}),
+        )
     })?;
     if let Some(w) = want {
         if let Some(v) = vaults.iter().find(|v| v.id == w) {
@@ -335,13 +353,21 @@ fn api_vault(cfg: &Config, want: Option<&str>) -> Response {
     let record = match store.get_vault(&vault_id) {
         Ok(Some(r)) => r,
         Ok(None) => return Response::json(200, &serde_json::json!({ "vault": null })),
-        Err(e) => return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
+        Err(e) => {
+            return Response::json(
+                500,
+                &serde_json::json!({"error": "store", "detail": e.to_string()}),
+            )
+        }
     };
     let member_list = store
         .get_vault_members(&record.id)
         .unwrap_or_default()
         .into_iter()
-        .map(|m| MemberDto { name: m.name, pubkey: m.pubkey })
+        .map(|m| MemberDto {
+            name: m.name,
+            pubkey: m.pubkey,
+        })
         .collect();
     let locked = store.vault_has_lock(&record.id).unwrap_or(false);
     let mut dto = VaultDto::from(record);
@@ -365,7 +391,10 @@ fn api_vaults(cfg: &Config) -> Response {
                         .get_vault_members(&record.id)
                         .unwrap_or_default()
                         .into_iter()
-                        .map(|m| MemberDto { name: m.name, pubkey: m.pubkey })
+                        .map(|m| MemberDto {
+                            name: m.name,
+                            pubkey: m.pubkey,
+                        })
                         .collect();
                     let locked = store.vault_has_lock(&record.id).unwrap_or(false);
                     let mut dto = VaultDto::from(record);
@@ -376,7 +405,10 @@ fn api_vaults(cfg: &Config) -> Response {
                 .collect();
             Response::json(200, &serde_json::json!({ "vaults": vaults }))
         }
-        Err(e) => Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
+        Err(e) => Response::json(
+            500,
+            &serde_json::json!({"error": "store", "detail": e.to_string()}),
+        ),
     }
 }
 
@@ -396,7 +428,10 @@ fn api_proposals(cfg: &Config, want: Option<&str>) -> Response {
             let dtos: Vec<ProposalDto> = ps.into_iter().map(ProposalDto::from).collect();
             Response::json(200, &serde_json::json!({ "proposals": dtos }))
         }
-        Err(e) => Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
+        Err(e) => Response::json(
+            500,
+            &serde_json::json!({"error": "store", "detail": e.to_string()}),
+        ),
     }
 }
 
@@ -430,7 +465,12 @@ fn api_ledger_csv(cfg: &Config, want: Option<&str>) -> Response {
     };
     let proposals = match store.list_all_proposals(&vault_id) {
         Ok(p) => p,
-        Err(e) => return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
+        Err(e) => {
+            return Response::json(
+                500,
+                &serde_json::json!({"error": "store", "detail": e.to_string()}),
+            )
+        }
     };
 
     let mut csv = String::from(HEADER);
@@ -440,26 +480,57 @@ fn api_ledger_csv(cfg: &Config, want: Option<&str>) -> Response {
         let txid = p.txid.clone().unwrap_or_default();
         match p.kind {
             ProposalKind::Payment => {
-                push_csv_row(&mut csv, &[
-                    &p.id, "pagamento", &state, &p.proposer, &approvers, "",
-                    &p.value_total.to_zec_string(), p.memo.as_deref().unwrap_or(""),
-                    p.to_address.as_deref().unwrap_or(""), &txid,
-                ]);
+                push_csv_row(
+                    &mut csv,
+                    &[
+                        &p.id,
+                        "pagamento",
+                        &state,
+                        &p.proposer,
+                        &approvers,
+                        "",
+                        &p.value_total.to_zec_string(),
+                        p.memo.as_deref().unwrap_or(""),
+                        p.to_address.as_deref().unwrap_or(""),
+                        &txid,
+                    ],
+                );
             }
             ProposalKind::Payroll => {
                 let lines = store.get_payroll_lines(&p.id).unwrap_or_default();
                 if lines.is_empty() {
-                    push_csv_row(&mut csv, &[
-                        &p.id, "folha", &state, &p.proposer, &approvers, "",
-                        &p.value_total.to_zec_string(), p.memo.as_deref().unwrap_or(""), "", &txid,
-                    ]);
+                    push_csv_row(
+                        &mut csv,
+                        &[
+                            &p.id,
+                            "folha",
+                            &state,
+                            &p.proposer,
+                            &approvers,
+                            "",
+                            &p.value_total.to_zec_string(),
+                            p.memo.as_deref().unwrap_or(""),
+                            "",
+                            &txid,
+                        ],
+                    );
                 } else {
                     for l in &lines {
-                        push_csv_row(&mut csv, &[
-                            &p.id, "folha", &state, &p.proposer, &approvers,
-                            l.label.as_deref().unwrap_or(""), &l.value.to_zec_string(),
-                            &l.memo, &l.address, &txid,
-                        ]);
+                        push_csv_row(
+                            &mut csv,
+                            &[
+                                &p.id,
+                                "folha",
+                                &state,
+                                &p.proposer,
+                                &approvers,
+                                l.label.as_deref().unwrap_or(""),
+                                &l.value.to_zec_string(),
+                                &l.memo,
+                                &l.address,
+                                &txid,
+                            ],
+                        );
                     }
                 }
             }
@@ -489,9 +560,12 @@ fn load_ledger(cfg: &Config, want: Option<&str>) -> Result<Vec<ProposalRecord>, 
         Some(id) => id,
         None => return Ok(Vec::new()),
     };
-    store
-        .list_all_proposals(&vault_id)
-        .map_err(|e| Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})))
+    store.list_all_proposals(&vault_id).map_err(|e| {
+        Response::json(
+            500,
+            &serde_json::json!({"error": "store", "detail": e.to_string()}),
+        )
+    })
 }
 
 // ---- create vault by DKG (5-F) ----
@@ -511,10 +585,13 @@ fn create_vault_dkg_handler(cfg: &Config, body: &[u8]) -> Response {
     use crate::proposal::Quorum;
 
     let Some(sc) = cfg.ceremony.as_ref() else {
-        return Response::json(501, &serde_json::json!({
-            "error": "ceremony not configured",
-            "detail": "suba com --ceremony <config> (com zcash_sign, vaults_dir e sealing_key_file)"
-        }));
+        return Response::json(
+            501,
+            &serde_json::json!({
+                "error": "ceremony not configured",
+                "detail": "suba com --ceremony <config> (com zcash_sign, vaults_dir e sealing_key_file)"
+            }),
+        );
     };
     let req: NewVaultDkg = match serde_json::from_slice(body) {
         Ok(v) => v,
@@ -527,7 +604,10 @@ fn create_vault_dkg_handler(cfg: &Config, body: &[u8]) -> Response {
         return bad("um cofre precisa de ao menos 2 membros", "too few members");
     }
     if req.threshold < 1 || req.threshold as usize > req.members.len() {
-        return bad(format!("quórum inválido {}-de-{}", req.threshold, req.members.len()), "invalid quorum");
+        return bad(
+            format!("quórum inválido {}-de-{}", req.threshold, req.members.len()),
+            "invalid quorum",
+        );
     }
     let quorum = match Quorum::new(req.threshold, req.members.len() as u16) {
         Ok(q) => q,
@@ -536,14 +616,22 @@ fn create_vault_dkg_handler(cfg: &Config, body: &[u8]) -> Response {
 
     let v = match crate::dkg::create_vault_dkg(sc, req.name.trim(), req.threshold, &req.members) {
         Ok(v) => v,
-        Err(e) => return Response::json(502, &serde_json::json!({"error": "dkg failed", "detail": e.to_string()})),
+        Err(e) => {
+            return Response::json(
+                502,
+                &serde_json::json!({"error": "dkg failed", "detail": e.to_string()}),
+            )
+        }
     };
 
     let mut store = match open_store(cfg) {
         Ok(s) => s,
         Err(r) => return r,
     };
-    let id = format!("vault-dkg-{}", &v.group_pubkey[..v.group_pubkey.len().min(12)]);
+    let id = format!(
+        "vault-dkg-{}",
+        &v.group_pubkey[..v.group_pubkey.len().min(12)]
+    );
     let record = VaultRecord {
         id: id.clone(),
         name: req.name.trim().to_string(),
@@ -554,30 +642,50 @@ fn create_vault_dkg_handler(cfg: &Config, body: &[u8]) -> Response {
         server_url: Some(sc.server_url.clone()),
     };
     if let Err(e) = store.save_vault(&record) {
-        return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()}));
+        return Response::json(
+            500,
+            &serde_json::json!({"error": "store", "detail": e.to_string()}),
+        );
     }
     let members: Vec<crate::store::Member> = v
         .members
         .iter()
-        .map(|(nm, pk, _)| crate::store::Member { name: nm.clone(), pubkey: pk.clone() })
+        .map(|(nm, pk, _)| crate::store::Member {
+            name: nm.clone(),
+            pubkey: pk.clone(),
+        })
         .collect();
     if let Err(e) = store.save_vault_members(&id, &members) {
-        return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()}));
+        return Response::json(
+            500,
+            &serde_json::json!({"error": "store", "detail": e.to_string()}),
+        );
     }
     // Persist the passphrase lock (salt + verifier). The passphrase itself is NOT stored
     // — it is returned once below for the user to write down.
     if let Err(e) = store.set_vault_lock(&id, &v.salt, &v.verifier) {
-        return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()}));
+        return Response::json(
+            500,
+            &serde_json::json!({"error": "store", "detail": e.to_string()}),
+        );
     }
 
-    let member_list: Vec<MemberDto> =
-        members.into_iter().map(|m| MemberDto { name: m.name, pubkey: m.pubkey }).collect();
+    let member_list: Vec<MemberDto> = members
+        .into_iter()
+        .map(|m| MemberDto {
+            name: m.name,
+            pubkey: m.pubkey,
+        })
+        .collect();
     let mut dto = VaultDto::from(record);
     dto.member_list = member_list;
     dto.locked = true;
     // `passphrase` is shown ONCE and never persisted; losing it makes the sealed shares
     // on this device unrecoverable (that is the point of the lock).
-    Response::json(201, &serde_json::json!({ "vault": dto, "dkg": true, "passphrase": v.passphrase }))
+    Response::json(
+        201,
+        &serde_json::json!({ "vault": dto, "dkg": true, "passphrase": v.passphrase }),
+    )
 }
 
 // ---- vault passphrase unlock ("palavra do cofre") ----
@@ -606,17 +714,32 @@ fn vault_unlock(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
     };
     let (salt, verifier) = match store.get_vault_lock(&vault_id) {
         Ok(Some(l)) => l,
-        Ok(None) => return Response::json(200, &serde_json::json!({ "ok": true, "locked": false })),
-        Err(e) => return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
+        Ok(None) => {
+            return Response::json(200, &serde_json::json!({ "ok": true, "locked": false }))
+        }
+        Err(e) => {
+            return Response::json(
+                500,
+                &serde_json::json!({"error": "store", "detail": e.to_string()}),
+            )
+        }
     };
     let key = match crate::secrets::derive_key(&req.passphrase, &salt) {
         Ok(k) => k,
-        Err(e) => return Response::json(500, &serde_json::json!({"error": "kdf", "detail": e.to_string()})),
+        Err(e) => {
+            return Response::json(
+                500,
+                &serde_json::json!({"error": "kdf", "detail": e.to_string()}),
+            )
+        }
     };
     if crate::secrets::verify(&key, &verifier) {
         Response::json(200, &serde_json::json!({ "ok": true, "locked": true }))
     } else {
-        Response::json(401, &serde_json::json!({ "error": "wrong passphrase", "detail": "palavra do cofre incorreta" }))
+        Response::json(
+            401,
+            &serde_json::json!({ "error": "wrong passphrase", "detail": "palavra do cofre incorreta" }),
+        )
     }
 }
 
@@ -646,19 +769,36 @@ fn vault_delete(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
     // A locked vault can only be deleted with the right passphrase.
     match store.get_vault_lock(&vault_id) {
         Ok(Some((salt, verifier))) => {
-            let key = match crate::secrets::derive_key(req.passphrase.as_deref().unwrap_or(""), &salt) {
-                Ok(k) => k,
-                Err(e) => return Response::json(500, &serde_json::json!({"error": "kdf", "detail": e.to_string()})),
-            };
+            let key =
+                match crate::secrets::derive_key(req.passphrase.as_deref().unwrap_or(""), &salt) {
+                    Ok(k) => k,
+                    Err(e) => {
+                        return Response::json(
+                            500,
+                            &serde_json::json!({"error": "kdf", "detail": e.to_string()}),
+                        )
+                    }
+                };
             if !crate::secrets::verify(&key, &verifier) {
-                return Response::json(401, &serde_json::json!({"error": "wrong passphrase", "detail": "palavra do cofre incorreta"}));
+                return Response::json(
+                    401,
+                    &serde_json::json!({"error": "wrong passphrase", "detail": "palavra do cofre incorreta"}),
+                );
             }
         }
         Ok(None) => {}
-        Err(e) => return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
+        Err(e) => {
+            return Response::json(
+                500,
+                &serde_json::json!({"error": "store", "detail": e.to_string()}),
+            )
+        }
     }
     if let Err(e) = store.delete_vault(&vault_id) {
-        return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()}));
+        return Response::json(
+            500,
+            &serde_json::json!({"error": "store", "detail": e.to_string()}),
+        );
     }
     Response::json(200, &serde_json::json!({ "ok": true, "deleted": vault_id }))
 }
@@ -687,7 +827,10 @@ fn api_beneficiaries(cfg: &Config, want: Option<&str>) -> Response {
             let list: Vec<_> = bs.iter().map(beneficiary_json).collect();
             Response::json(200, &serde_json::json!({ "beneficiaries": list }))
         }
-        Err(e) => Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
+        Err(e) => Response::json(
+            500,
+            &serde_json::json!({"error": "store", "detail": e.to_string()}),
+        ),
     }
 }
 
@@ -728,9 +871,15 @@ fn beneficiary_add(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
         memo: input.memo.unwrap_or_default(),
     };
     if let Err(e) = store.save_beneficiary(&b) {
-        return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()}));
+        return Response::json(
+            500,
+            &serde_json::json!({"error": "store", "detail": e.to_string()}),
+        );
     }
-    Response::json(201, &serde_json::json!({ "beneficiary": beneficiary_json(&b) }))
+    Response::json(
+        201,
+        &serde_json::json!({ "beneficiary": beneficiary_json(&b) }),
+    )
 }
 
 fn beneficiary_delete(cfg: &Config, id: &str) -> Response {
@@ -741,7 +890,10 @@ fn beneficiary_delete(cfg: &Config, id: &str) -> Response {
     match store.delete_beneficiary(id) {
         Ok(true) => Response::json(200, &serde_json::json!({ "deleted": true })),
         Ok(false) => Response::json(404, &serde_json::json!({"error": "not found"})),
-        Err(e) => Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
+        Err(e) => Response::json(
+            500,
+            &serde_json::json!({"error": "store", "detail": e.to_string()}),
+        ),
     }
 }
 
@@ -785,7 +937,10 @@ struct NewProposal {
 }
 
 fn bad(detail: impl Into<String>, what: &str) -> Response {
-    Response::json(400, &serde_json::json!({"error": what, "detail": detail.into()}))
+    Response::json(
+        400,
+        &serde_json::json!({"error": what, "detail": detail.into()}),
+    )
 }
 
 /// `POST /api/proposals` — validate at the boundary, then persist an Awaiting (or, for a
@@ -840,7 +995,12 @@ fn create_proposal(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
     let vault = match store.get_vault(&vault_id) {
         Ok(Some(v)) => v,
         Ok(None) => return bad("nenhum cofre neste dispositivo", "no vault"),
-        Err(e) => return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
+        Err(e) => {
+            return Response::json(
+                500,
+                &serde_json::json!({"error": "store", "detail": e.to_string()}),
+            )
+        }
     };
 
     // Overspend guard when a live wallet is wired. Uses total balance as the proposable
@@ -848,7 +1008,8 @@ fn create_proposal(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
     if let Some(reader) = cfg.wallet.as_ref() {
         if let Ok(bal) = reader.balance() {
             let fee = estimate_fee_for_payment(1, 1);
-            let available = available_to_propose(bal.total, Zatoshis::ZERO, fee).unwrap_or(Zatoshis::ZERO);
+            let available =
+                available_to_propose(bal.total, Zatoshis::ZERO, fee).unwrap_or(Zatoshis::ZERO);
             if let Err(e) = validate_amount(value, available) {
                 return bad(e.to_string(), "insufficient funds");
             }
@@ -872,10 +1033,16 @@ fn create_proposal(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
         refusals: vec![],
     };
     if let Err(e) = store.save_proposal(&rec) {
-        return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()}));
+        return Response::json(
+            500,
+            &serde_json::json!({"error": "store", "detail": e.to_string()}),
+        );
     }
     let dto = ProposalDto::from(rec);
-    Response::json(201, &serde_json::to_value(dto).unwrap_or_else(|_| serde_json::json!({})))
+    Response::json(
+        201,
+        &serde_json::to_value(dto).unwrap_or_else(|_| serde_json::json!({})),
+    )
 }
 
 // ---- payroll (N outputs, one approval) ----
@@ -920,7 +1087,12 @@ fn line_in_to_payroll(l: &PayrollLineIn) -> Result<crate::payroll::PayrollLine, 
     }
     let memo = l.memo.clone().unwrap_or_default();
     validate_memo(&memo, kind).map_err(|e| e.to_string())?;
-    Ok(crate::payroll::PayrollLine { label: l.label.clone(), address: l.address.clone(), value, memo })
+    Ok(crate::payroll::PayrollLine {
+        label: l.label.clone(),
+        address: l.address.clone(),
+        value,
+        memo,
+    })
 }
 
 fn payroll_line_json(l: &crate::payroll::PayrollLine) -> serde_json::Value {
@@ -939,7 +1111,11 @@ fn payroll_summary_json(plan: &crate::payroll::PayrollPlan) -> serde_json::Value
     let count = plan.lines.len();
     let total: u64 = plan.lines.iter().map(|l| l.value.as_u64()).sum();
     let fee = estimate_fee_for_payment(count as u64, 1).as_u64();
-    let z = |v: u64| Zatoshis::from_u64(v).map(|x| x.to_zec_string()).unwrap_or_default();
+    let z = |v: u64| {
+        Zatoshis::from_u64(v)
+            .map(|x| x.to_zec_string())
+            .unwrap_or_default()
+    };
     serde_json::json!({
         "count": count,
         "total_zat": total, "total_zec": z(total),
@@ -958,7 +1134,11 @@ fn payroll_preview(body: &[u8]) -> Response {
     };
     let (lines, errors): (Vec<_>, Vec<serde_json::Value>) = if let Some(csv) = req.csv {
         let report = import_csv(&csv);
-        let errs = report.errors.iter().map(|e| serde_json::json!({"row": e.row, "reason": e.reason})).collect();
+        let errs = report
+            .errors
+            .iter()
+            .map(|e| serde_json::json!({"row": e.row, "reason": e.reason}))
+            .collect();
         (report.plan.lines, errs)
     } else if let Some(ins) = req.lines {
         let mut ls = Vec::new();
@@ -975,9 +1155,12 @@ fn payroll_preview(body: &[u8]) -> Response {
     };
     let plan = PayrollPlan::new(lines);
     let lines_json: Vec<_> = plan.lines.iter().map(payroll_line_json).collect();
-    Response::json(200, &serde_json::json!({
-        "lines": lines_json, "errors": errors, "summary": payroll_summary_json(&plan),
-    }))
+    Response::json(
+        200,
+        &serde_json::json!({
+            "lines": lines_json, "errors": errors, "summary": payroll_summary_json(&plan),
+        }),
+    )
 }
 
 /// `POST /api/payroll` — create a Payroll proposal (N outputs, one envelope). Every line
@@ -1015,7 +1198,12 @@ fn payroll_create(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
     let vault = match store.get_vault(&vault_id) {
         Ok(Some(v)) => v,
         Ok(None) => return bad("nenhum cofre neste dispositivo", "no vault"),
-        Err(e) => return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
+        Err(e) => {
+            return Response::json(
+                500,
+                &serde_json::json!({"error": "store", "detail": e.to_string()}),
+            )
+        }
     };
 
     // Aggregate validation (empty, per-line, Σ+fee ≤ available). Uses the live balance as
@@ -1055,17 +1243,26 @@ fn payroll_create(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
         refusals: vec![],
     };
     if let Err(e) = store.save_proposal(&rec) {
-        return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()}));
+        return Response::json(
+            500,
+            &serde_json::json!({"error": "store", "detail": e.to_string()}),
+        );
     }
     if let Err(e) = store.save_payroll_lines(&rec.id, &plan.lines) {
-        return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()}));
+        return Response::json(
+            500,
+            &serde_json::json!({"error": "store", "detail": e.to_string()}),
+        );
     }
     let lines_json: Vec<_> = plan.lines.iter().map(payroll_line_json).collect();
-    Response::json(201, &serde_json::json!({
-        "proposal": ProposalDto::from(rec),
-        "lines": lines_json,
-        "summary": payroll_summary_json(&plan),
-    }))
+    Response::json(
+        201,
+        &serde_json::json!({
+            "proposal": ProposalDto::from(rec),
+            "lines": lines_json,
+            "summary": payroll_summary_json(&plan),
+        }),
+    )
 }
 
 /// `GET /api/proposals/{id}` — a single proposal (for the proposal detail screen). Payroll
@@ -1083,13 +1280,22 @@ fn api_proposal_one(cfg: &Config, id: &str) -> Response {
                 Vec::new()
             };
             let lines_json: Vec<_> = lines.iter().map(payroll_line_json).collect();
-            Response::json(200, &serde_json::json!({
-                "proposal": ProposalDto::from(r),
-                "lines": lines_json,
-            }))
+            Response::json(
+                200,
+                &serde_json::json!({
+                    "proposal": ProposalDto::from(r),
+                    "lines": lines_json,
+                }),
+            )
         }
-        Ok(None) => Response::json(404, &serde_json::json!({"error": "not found", "detail": "proposta não encontrada"})),
-        Err(e) => Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
+        Ok(None) => Response::json(
+            404,
+            &serde_json::json!({"error": "not found", "detail": "proposta não encontrada"}),
+        ),
+        Err(e) => Response::json(
+            500,
+            &serde_json::json!({"error": "store", "detail": e.to_string()}),
+        ),
     }
 }
 
@@ -1119,18 +1325,44 @@ fn vote_proposal(cfg: &Config, id: &str, body: &[u8], approve: bool) -> Response
     };
     let rec = match store.get_proposal(id) {
         Ok(Some(r)) => r,
-        Ok(None) => return Response::json(404, &serde_json::json!({"error": "not found", "detail": "proposta não encontrada"})),
-        Err(e) => return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
+        Ok(None) => {
+            return Response::json(
+                404,
+                &serde_json::json!({"error": "not found", "detail": "proposta não encontrada"}),
+            )
+        }
+        Err(e) => {
+            return Response::json(
+                500,
+                &serde_json::json!({"error": "store", "detail": e.to_string()}),
+            )
+        }
     };
     let vault = match store.get_vault(&rec.vault_id) {
         Ok(Some(v)) => v,
-        Ok(None) => return Response::json(500, &serde_json::json!({"error": "store", "detail": "cofre da proposta ausente"})),
-        Err(e) => return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
+        Ok(None) => {
+            return Response::json(
+                500,
+                &serde_json::json!({"error": "store", "detail": "cofre da proposta ausente"}),
+            )
+        }
+        Err(e) => {
+            return Response::json(
+                500,
+                &serde_json::json!({"error": "store", "detail": e.to_string()}),
+            )
+        }
     };
 
     let approvals: BTreeSet<String> = rec.approvals.iter().cloned().collect();
     let refusals: BTreeSet<String> = rec.refusals.iter().cloned().collect();
-    let mut p = Proposal::from_parts(rec.proposer.clone(), vault.quorum, approvals, refusals, rec.state);
+    let mut p = Proposal::from_parts(
+        rec.proposer.clone(),
+        vault.quorum,
+        approvals,
+        refusals,
+        rec.state,
+    );
 
     let outcome = if approve {
         p.approve(vote.member.clone())
@@ -1142,7 +1374,10 @@ fn vote_proposal(cfg: &Config, id: &str, body: &[u8], approve: bool) -> Response
             ProposalError::ConflictingVote { .. } | ProposalError::WrongState { .. } => 409,
             _ => 400,
         };
-        return Response::json(status, &serde_json::json!({"error": "vote rejected", "detail": e.to_string()}));
+        return Response::json(
+            status,
+            &serde_json::json!({"error": "vote rejected", "detail": e.to_string()}),
+        );
     }
 
     let mut updated = rec;
@@ -1150,9 +1385,15 @@ fn vote_proposal(cfg: &Config, id: &str, body: &[u8], approve: bool) -> Response
     updated.approvals = p.approved_by();
     updated.refusals = p.refused_by();
     if let Err(e) = store.save_proposal(&updated) {
-        return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()}));
+        return Response::json(
+            500,
+            &serde_json::json!({"error": "store", "detail": e.to_string()}),
+        );
     }
-    Response::json(200, &serde_json::json!({ "proposal": ProposalDto::from(updated) }))
+    Response::json(
+        200,
+        &serde_json::json!({ "proposal": ProposalDto::from(updated) }),
+    )
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -1176,10 +1417,13 @@ fn send_proposal(cfg: &Config, id: &str, body: &[u8]) -> Response {
     };
 
     let Some(sc) = cfg.ceremony.as_ref() else {
-        return Response::json(501, &serde_json::json!({
-            "error": "ceremony not configured",
-            "detail": "suba a ponte com --ceremony <config.json> para habilitar o envio"
-        }));
+        return Response::json(
+            501,
+            &serde_json::json!({
+                "error": "ceremony not configured",
+                "detail": "suba a ponte com --ceremony <config.json> para habilitar o envio"
+            }),
+        );
     };
 
     let mut store = match open_store(cfg) {
@@ -1189,33 +1433,55 @@ fn send_proposal(cfg: &Config, id: &str, body: &[u8]) -> Response {
     let rec = match store.get_proposal(id) {
         Ok(Some(r)) => r,
         Ok(None) => return Response::json(404, &serde_json::json!({"error": "not found"})),
-        Err(e) => return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()})),
+        Err(e) => {
+            return Response::json(
+                500,
+                &serde_json::json!({"error": "store", "detail": e.to_string()}),
+            )
+        }
     };
     if rec.state != crate::proposal::ProposalState::Ready {
-        return Response::json(409, &serde_json::json!({
-            "error": "not ready",
-            "detail": format!("a proposta está {:?}; só uma proposta com quórum (Ready) pode ser enviada", rec.state)
-        }));
+        return Response::json(
+            409,
+            &serde_json::json!({
+                "error": "not ready",
+                "detail": format!("a proposta está {:?}; só uma proposta com quórum (Ready) pode ser enviada", rec.state)
+            }),
+        );
     }
     // Build the spend plan: a single payment (CLI) or a payroll (multi-output builder).
     let plan = match rec.kind {
         ProposalKind::Payment => {
             let Some(to) = rec.to_address.clone() else {
-                return Response::json(400, &serde_json::json!({"error": "no destination", "detail": "proposta sem endereço de destino"}));
+                return Response::json(
+                    400,
+                    &serde_json::json!({"error": "no destination", "detail": "proposta sem endereço de destino"}),
+                );
             };
-            crate::send::SpendPlan::Payment { to, value_zat: rec.value_total.as_u64(), memo: rec.memo.clone() }
+            crate::send::SpendPlan::Payment {
+                to,
+                value_zat: rec.value_total.as_u64(),
+                memo: rec.memo.clone(),
+            }
         }
         ProposalKind::Payroll => {
             let lines = store.get_payroll_lines(&rec.id).unwrap_or_default();
             if lines.is_empty() {
-                return Response::json(400, &serde_json::json!({"error": "empty payroll", "detail": "folha sem linhas"}));
+                return Response::json(
+                    400,
+                    &serde_json::json!({"error": "empty payroll", "detail": "folha sem linhas"}),
+                );
             }
             let dests = lines
                 .into_iter()
                 .map(|l| crate::send::PayrollDest {
                     address: l.address,
                     value_zat: l.value.as_u64(),
-                    memo: if l.memo.is_empty() { None } else { Some(l.memo) },
+                    memo: if l.memo.is_empty() {
+                        None
+                    } else {
+                        Some(l.memo)
+                    },
                 })
                 .collect();
             crate::send::SpendPlan::Payroll { lines: dests }
@@ -1226,35 +1492,60 @@ fn send_proposal(cfg: &Config, id: &str, body: &[u8]) -> Response {
     let outcome = orchestrate_send(sc, &plan, &rec.approvals, req.dry_run);
     let outcome = match outcome {
         Ok(o) => o,
-        Err(e) => return Response::json(502, &serde_json::json!({"error": "send failed", "detail": e.to_string()})),
+        Err(e) => {
+            return Response::json(
+                502,
+                &serde_json::json!({"error": "send failed", "detail": e.to_string()}),
+            )
+        }
     };
 
     if req.dry_run {
-        return Response::json(200, &serde_json::json!({
-            "dry_run": true, "sighash": outcome.sighash, "signed_pczt": outcome.signed_pczt
-        }));
+        return Response::json(
+            200,
+            &serde_json::json!({
+                "dry_run": true, "sighash": outcome.sighash, "signed_pczt": outcome.signed_pczt
+            }),
+        );
     }
 
     // Real broadcast succeeded → transition Ready→Sent via the state machine, record txid.
     let vault = match store.get_vault(&rec.vault_id) {
         Ok(Some(v)) => v,
-        _ => return Response::json(500, &serde_json::json!({"error": "store", "detail": "cofre ausente"})),
+        _ => {
+            return Response::json(
+                500,
+                &serde_json::json!({"error": "store", "detail": "cofre ausente"}),
+            )
+        }
     };
     let approvals: BTreeSet<String> = rec.approvals.iter().cloned().collect();
     let refusals: BTreeSet<String> = rec.refusals.iter().cloned().collect();
-    let mut p = Proposal::from_parts(rec.proposer.clone(), vault.quorum, approvals, refusals, rec.state);
+    let mut p = Proposal::from_parts(
+        rec.proposer.clone(),
+        vault.quorum,
+        approvals,
+        refusals,
+        rec.state,
+    );
     let _ = p.broadcast(); // Ready→Sent (state already verified above)
 
     let mut updated = rec;
     updated.state = p.state();
     updated.txid = outcome.txid.clone();
     if let Err(e) = store.save_proposal(&updated) {
-        return Response::json(500, &serde_json::json!({"error": "store", "detail": e.to_string()}));
+        return Response::json(
+            500,
+            &serde_json::json!({"error": "store", "detail": e.to_string()}),
+        );
     }
-    Response::json(200, &serde_json::json!({
-        "proposal": ProposalDto::from(updated),
-        "txid": outcome.txid
-    }))
+    Response::json(
+        200,
+        &serde_json::json!({
+            "proposal": ProposalDto::from(updated),
+            "txid": outcome.txid
+        }),
+    )
 }
 
 /// A short random hex id (public, non-secret) for a proposal.
@@ -1276,7 +1567,11 @@ fn now_unix() -> Option<i64> {
 
 /// Serve a file from `web_dir`. `/` → `index.html`. Traversal (`..`) is rejected.
 fn serve_static(web_dir: &Path, path: &str) -> Response {
-    let rel = if path == "/" { "index.html" } else { path.trim_start_matches('/') };
+    let rel = if path == "/" {
+        "index.html"
+    } else {
+        path.trim_start_matches('/')
+    };
     if rel.split(['/', '\\']).any(|seg| seg == "..") {
         return Response::text(403, "text/plain; charset=utf-8", b"forbidden".to_vec());
     }
@@ -1346,9 +1641,18 @@ pub fn seed_demo(store: &mut Store) -> Result<(), crate::store::StoreError> {
     store.save_vault_members(
         "vault-slice",
         &[
-            crate::store::Member { name: "Alice".into(), pubkey: "317db5938d246aa64c3a08b5e74051cae6261838f482e8335450bb606f4b7214".into() },
-            crate::store::Member { name: "Bob".into(), pubkey: "2ca6d7365a44205e38bd2135446b454b1e2762708ea554493f0dbc7a1294b73a".into() },
-            crate::store::Member { name: "Carol".into(), pubkey: "2fd84a5cdb55a0a93ddaea092362190db2ce61d2fd5eefee2d661b44422d5d5a".into() },
+            crate::store::Member {
+                name: "Alice".into(),
+                pubkey: "317db5938d246aa64c3a08b5e74051cae6261838f482e8335450bb606f4b7214".into(),
+            },
+            crate::store::Member {
+                name: "Bob".into(),
+                pubkey: "2ca6d7365a44205e38bd2135446b454b1e2762708ea554493f0dbc7a1294b73a".into(),
+            },
+            crate::store::Member {
+                name: "Carol".into(),
+                pubkey: "2fd84a5cdb55a0a93ddaea092362190db2ce61d2fd5eefee2d661b44422d5d5a".into(),
+            },
         ],
     )?;
 
@@ -1404,8 +1708,9 @@ pub fn serve(cfg: Config, port: u16) -> std::io::Result<()> {
         let mut body = Vec::new();
         let _ = req.as_reader().read_to_end(&mut body);
         let resp = handle(&cfg, &method, &url, &body);
-        let header = tiny_http::Header::from_bytes(&b"Content-Type"[..], resp.content_type.as_bytes())
-            .expect("valid header");
+        let header =
+            tiny_http::Header::from_bytes(&b"Content-Type"[..], resp.content_type.as_bytes())
+                .expect("valid header");
         let response = tiny_http::Response::from_data(resp.body)
             .with_status_code(resp.status)
             .with_header(header);
@@ -1442,7 +1747,12 @@ mod tests {
     }
 
     fn cfg_with(db: String, wallet: Option<Box<dyn WalletReader>>) -> Config {
-        Config { web_dir: std::env::temp_dir(), db_path: db, wallet, ceremony: None }
+        Config {
+            web_dir: std::env::temp_dir(),
+            db_path: db,
+            wallet,
+            ceremony: None,
+        }
     }
 
     fn body_json(r: &Response) -> serde_json::Value {
@@ -1478,7 +1788,10 @@ mod tests {
         let db = tmp_db();
         {
             let mut store = Store::open(&db).unwrap();
-            for (vid, nm, benef) in [("vault-a", "Cofre A", "Ana"), ("vault-b", "Cofre B", "Bruno")] {
+            for (vid, nm, benef) in [
+                ("vault-a", "Cofre A", "Ana"),
+                ("vault-b", "Cofre B", "Bruno"),
+            ] {
                 store
                     .save_vault(&VaultRecord {
                         id: vid.into(),
@@ -1549,10 +1862,20 @@ mod tests {
         assert_eq!(body_json(&v)["vault"]["locked"], true);
 
         // The right word unlocks; the wrong word is rejected (401), never leaking a key.
-        let ok = handle(&cfg, "POST", "/api/vault/unlock?vault=v-lock", br#"{"passphrase":"cedro-barco-pedra-chave"}"#);
+        let ok = handle(
+            &cfg,
+            "POST",
+            "/api/vault/unlock?vault=v-lock",
+            br#"{"passphrase":"cedro-barco-pedra-chave"}"#,
+        );
         assert_eq!(ok.status, 200);
         assert_eq!(body_json(&ok)["ok"], true);
-        let no = handle(&cfg, "POST", "/api/vault/unlock?vault=v-lock", br#"{"passphrase":"cedro-barco-pedra-monte"}"#);
+        let no = handle(
+            &cfg,
+            "POST",
+            "/api/vault/unlock?vault=v-lock",
+            br#"{"passphrase":"cedro-barco-pedra-monte"}"#,
+        );
         assert_eq!(no.status, 401);
     }
 
@@ -1563,32 +1886,65 @@ mod tests {
         {
             let mut store = Store::open(&db).unwrap();
             for id in ["v-locked", "v-plain"] {
-                store.save_vault(&VaultRecord {
-                    id: id.into(), name: id.into(), quorum: Quorum::new(2, 3).unwrap(),
-                    group_pubkey: "gp".into(), orchard_address: "u1".into(),
-                    ufvk: String::new(), server_url: None,
-                }).unwrap();
+                store
+                    .save_vault(&VaultRecord {
+                        id: id.into(),
+                        name: id.into(),
+                        quorum: Quorum::new(2, 3).unwrap(),
+                        group_pubkey: "gp".into(),
+                        orchard_address: "u1".into(),
+                        ufvk: String::new(),
+                        server_url: None,
+                    })
+                    .unwrap();
             }
             let salt = crate::secrets::generate_salt().unwrap();
             let key = crate::secrets::derive_key("cedro-barco-pedra-chave", &salt).unwrap();
-            store.set_vault_lock("v-locked", &salt, &crate::secrets::make_verifier(&key).unwrap()).unwrap();
+            store
+                .set_vault_lock(
+                    "v-locked",
+                    &salt,
+                    &crate::secrets::make_verifier(&key).unwrap(),
+                )
+                .unwrap();
         }
         let cfg = cfg_with(db, None);
 
         // Wrong word cannot delete a locked vault.
-        let no = handle(&cfg, "POST", "/api/vault/delete?vault=v-locked", br#"{"passphrase":"cedro-barco-pedra-monte"}"#);
+        let no = handle(
+            &cfg,
+            "POST",
+            "/api/vault/delete?vault=v-locked",
+            br#"{"passphrase":"cedro-barco-pedra-monte"}"#,
+        );
         assert_eq!(no.status, 401);
-        assert_eq!(handle(&cfg, "GET", "/api/vault?vault=v-locked", b"").status, 200);
-        assert_eq!(body_json(&handle(&cfg, "GET", "/api/vault?vault=v-locked", b""))["vault"]["id"], "v-locked");
+        assert_eq!(
+            handle(&cfg, "GET", "/api/vault?vault=v-locked", b"").status,
+            200
+        );
+        assert_eq!(
+            body_json(&handle(&cfg, "GET", "/api/vault?vault=v-locked", b""))["vault"]["id"],
+            "v-locked"
+        );
 
         // Right word deletes it.
-        let ok = handle(&cfg, "POST", "/api/vault/delete?vault=v-locked", br#"{"passphrase":"cedro-barco-pedra-chave"}"#);
+        let ok = handle(
+            &cfg,
+            "POST",
+            "/api/vault/delete?vault=v-locked",
+            br#"{"passphrase":"cedro-barco-pedra-chave"}"#,
+        );
         assert_eq!(ok.status, 200);
         // An unlocked vault deletes without a passphrase.
         let ok2 = handle(&cfg, "POST", "/api/vault/delete?vault=v-plain", b"{}");
         assert_eq!(ok2.status, 200);
         // Nothing left.
-        assert!(body_json(&handle(&cfg, "GET", "/api/vaults", b""))["vaults"].as_array().unwrap().is_empty());
+        assert!(
+            body_json(&handle(&cfg, "GET", "/api/vaults", b""))["vaults"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -1624,19 +1980,49 @@ mod tests {
         assert_eq!(body_json(&r)["beneficiaries"].as_array().unwrap().len(), 2);
 
         // Add one.
-        let a = handle(&cfg, "POST", "/api/beneficiaries", br#"{"name":"Nova","address":"u1nova","memo":"x"}"#);
+        let a = handle(
+            &cfg,
+            "POST",
+            "/api/beneficiaries",
+            br#"{"name":"Nova","address":"u1nova","memo":"x"}"#,
+        );
         assert_eq!(a.status, 201);
-        let id = body_json(&a)["beneficiary"]["id"].as_str().unwrap().to_string();
-        assert_eq!(body_json(&handle(&cfg, "GET", "/api/beneficiaries", b""))["beneficiaries"].as_array().unwrap().len(), 3);
+        let id = body_json(&a)["beneficiary"]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert_eq!(
+            body_json(&handle(&cfg, "GET", "/api/beneficiaries", b""))["beneficiaries"]
+                .as_array()
+                .unwrap()
+                .len(),
+            3
+        );
 
         // Bad address rejected.
-        let bad = handle(&cfg, "POST", "/api/beneficiaries", br#"{"name":"X","address":"nope"}"#);
+        let bad = handle(
+            &cfg,
+            "POST",
+            "/api/beneficiaries",
+            br#"{"name":"X","address":"nope"}"#,
+        );
         assert_eq!(bad.status, 400);
 
         // Delete.
-        let d = handle(&cfg, "POST", &format!("/api/beneficiaries/{id}/delete"), b"");
+        let d = handle(
+            &cfg,
+            "POST",
+            &format!("/api/beneficiaries/{id}/delete"),
+            b"",
+        );
         assert_eq!(d.status, 200);
-        assert_eq!(body_json(&handle(&cfg, "GET", "/api/beneficiaries", b""))["beneficiaries"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            body_json(&handle(&cfg, "GET", "/api/beneficiaries", b""))["beneficiaries"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
     }
 
     #[test]
@@ -1705,7 +2091,9 @@ mod tests {
     fn balance_tool_failure_is_502() {
         let cfg = cfg_with(
             tmp_db(),
-            Some(Box::new(FakeWallet { result: Err("node offline".into()) })),
+            Some(Box::new(FakeWallet {
+                result: Err("node offline".into()),
+            })),
         );
         let r = handle(&cfg, "GET", "/api/balance", b"");
         assert_eq!(r.status, 502);
@@ -1841,7 +2229,12 @@ mod tests {
     fn approve_reaches_quorum_ready() {
         let cfg = seeded_cfg(None);
         let id = create_one(&cfg); // Ana proposed → 1 approval, 2-of-3 → awaiting
-        let r = handle(&cfg, "POST", &format!("/api/proposals/{id}/approve"), br#"{"member":"Bruno"}"#);
+        let r = handle(
+            &cfg,
+            "POST",
+            &format!("/api/proposals/{id}/approve"),
+            br#"{"member":"Bruno"}"#,
+        );
         assert_eq!(r.status, 200);
         let j = body_json(&r);
         assert_eq!(j["proposal"]["state"], "ready");
@@ -1853,7 +2246,12 @@ mod tests {
         let cfg = seeded_cfg(None);
         let id = create_one(&cfg);
         // Ana already approved (as proposer); Ana refusing is a conflict.
-        let r = handle(&cfg, "POST", &format!("/api/proposals/{id}/refuse"), br#"{"member":"Ana"}"#);
+        let r = handle(
+            &cfg,
+            "POST",
+            &format!("/api/proposals/{id}/refuse"),
+            br#"{"member":"Ana"}"#,
+        );
         assert_eq!(r.status, 409);
         assert_eq!(body_json(&r)["error"], "vote rejected");
     }
@@ -1862,16 +2260,31 @@ mod tests {
     fn refusals_making_quorum_unreachable_reject() {
         let cfg = seeded_cfg(None);
         let id = create_one(&cfg); // 2-of-3, Ana approved
-        let r1 = handle(&cfg, "POST", &format!("/api/proposals/{id}/refuse"), br#"{"member":"Bruno"}"#);
+        let r1 = handle(
+            &cfg,
+            "POST",
+            &format!("/api/proposals/{id}/refuse"),
+            br#"{"member":"Bruno"}"#,
+        );
         assert_eq!(body_json(&r1)["proposal"]["state"], "awaiting"); // still reachable
-        let r2 = handle(&cfg, "POST", &format!("/api/proposals/{id}/refuse"), br#"{"member":"Carla"}"#);
+        let r2 = handle(
+            &cfg,
+            "POST",
+            &format!("/api/proposals/{id}/refuse"),
+            br#"{"member":"Carla"}"#,
+        );
         assert_eq!(body_json(&r2)["proposal"]["state"], "rejected"); // now unreachable
     }
 
     #[test]
     fn vote_on_missing_proposal_is_404() {
         let cfg = seeded_cfg(None);
-        let r = handle(&cfg, "POST", "/api/proposals/deadbeef/approve", br#"{"member":"Bruno"}"#);
+        let r = handle(
+            &cfg,
+            "POST",
+            "/api/proposals/deadbeef/approve",
+            br#"{"member":"Bruno"}"#,
+        );
         assert_eq!(r.status, 404);
     }
 
@@ -1934,7 +2347,8 @@ mod tests {
     #[test]
     fn payroll_preview_from_csv_reports_lines_errors_summary() {
         let cfg = seeded_cfg(None);
-        let body = br#"{"csv":"Alice,u1alice,0.0003,maio\nBob,u1bob,0.0002,\nCarol,u1carol,oops,x"}"#;
+        let body =
+            br#"{"csv":"Alice,u1alice,0.0003,maio\nBob,u1bob,0.0002,\nCarol,u1carol,oops,x"}"#;
         let r = handle(&cfg, "POST", "/api/payroll/preview", body);
         assert_eq!(r.status, 200);
         let j = body_json(&r);
@@ -1964,14 +2378,24 @@ mod tests {
     #[test]
     fn payroll_empty_is_400() {
         let cfg = seeded_cfg(None);
-        let r = handle(&cfg, "POST", "/api/payroll", br#"{"proposer":"Ana","lines":[]}"#);
+        let r = handle(
+            &cfg,
+            "POST",
+            "/api/payroll",
+            br#"{"proposer":"Ana","lines":[]}"#,
+        );
         assert_eq!(r.status, 400);
     }
 
     #[test]
     fn payroll_bad_line_is_400() {
         let cfg = seeded_cfg(None);
-        let r = handle(&cfg, "POST", "/api/payroll", br#"{"proposer":"Ana","lines":[{"address":"nao-e-endereco","value_zec":"0.1"}]}"#);
+        let r = handle(
+            &cfg,
+            "POST",
+            "/api/payroll",
+            br#"{"proposer":"Ana","lines":[{"address":"nao-e-endereco","value_zec":"0.1"}]}"#,
+        );
         assert_eq!(r.status, 400);
         assert_eq!(body_json(&r)["error"], "invalid line");
     }
@@ -2001,14 +2425,32 @@ mod tests {
         let mut cfg = cfg_with(db, None);
         cfg.ceremony = Some(dummy_ceremony()); // fake tool paths
 
-        let r = handle(&cfg, "POST", "/api/payroll", br#"{"proposer":"Alice","lines":[{"address":"u1a","value_zec":"0.0002"}]}"#);
+        let r = handle(
+            &cfg,
+            "POST",
+            "/api/payroll",
+            br#"{"proposer":"Alice","lines":[{"address":"u1a","value_zec":"0.0002"}]}"#,
+        );
         assert_eq!(r.status, 201);
-        let id = body_json(&r)["proposal"]["id"].as_str().unwrap().to_string();
-        let a = handle(&cfg, "POST", &format!("/api/proposals/{id}/approve"), br#"{"member":"Bob"}"#);
+        let id = body_json(&r)["proposal"]["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let a = handle(
+            &cfg,
+            "POST",
+            &format!("/api/proposals/{id}/approve"),
+            br#"{"member":"Bob"}"#,
+        );
         assert_eq!(body_json(&a)["proposal"]["state"], "ready");
         // Payroll now goes through the multi-output engine; with dummy tool paths the
         // build step fails and surfaces a clean 502 (not a silent success, not a 501).
-        let s = handle(&cfg, "POST", &format!("/api/proposals/{id}/send"), br#"{"dry_run":false}"#);
+        let s = handle(
+            &cfg,
+            "POST",
+            &format!("/api/proposals/{id}/send"),
+            br#"{"dry_run":false}"#,
+        );
         assert_eq!(s.status, 502);
         assert_eq!(body_json(&s)["error"], "send failed");
     }
@@ -2045,7 +2487,12 @@ mod tests {
         let mut cfg = cfg_with(db, None);
         cfg.ceremony = Some(dummy_ceremony());
         let id = create_one(&cfg); // awaiting (2-of-3, only proposer approved)
-        let r = handle(&cfg, "POST", &format!("/api/proposals/{id}/send"), br#"{"dry_run":false}"#);
+        let r = handle(
+            &cfg,
+            "POST",
+            &format!("/api/proposals/{id}/send"),
+            br#"{"dry_run":false}"#,
+        );
         assert_eq!(r.status, 409);
         assert_eq!(body_json(&r)["error"], "not ready");
     }

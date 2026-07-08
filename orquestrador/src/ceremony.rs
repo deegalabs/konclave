@@ -69,8 +69,17 @@ pub fn run_coordinator(
 ) -> Result<[u8; 64], ToolError> {
     let signers_csv = signers.join(",");
     let mut args: Vec<&str> = vec![
-        "coordinator", "-c", config, "--server-url", server_url, "--group", group, "-S",
-        &signers_csv, "-m", "-",
+        "coordinator",
+        "-c",
+        config,
+        "--server-url",
+        server_url,
+        "--group",
+        group,
+        "-S",
+        &signers_csv,
+        "-m",
+        "-",
     ];
     // The coordinator reads the message (hex) from stdin, then the randomizer if `-r -`.
     let stdin = match randomizer_hex {
@@ -100,7 +109,15 @@ pub fn run_participant(
 ) -> Result<(), ToolError> {
     run(
         frost_client,
-        &["participant", "-c", config, "--server-url", server_url, "--group", group],
+        &[
+            "participant",
+            "-c",
+            config,
+            "--server-url",
+            server_url,
+            "--group",
+            group,
+        ],
         Some(b"y\n"),
     )?;
     Ok(())

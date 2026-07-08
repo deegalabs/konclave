@@ -113,7 +113,9 @@ impl Zatoshis {
         let frac: u64 = if frac_str.is_empty() {
             0
         } else {
-            format!("{frac_str:0<8}").parse().map_err(|_| MoneyError::Parse)?
+            format!("{frac_str:0<8}")
+                .parse()
+                .map_err(|_| MoneyError::Parse)?
         };
         let zat = whole
             .checked_mul(COIN)
@@ -158,17 +160,20 @@ mod tests {
         let a = Zatoshis::from_u64(100).unwrap();
         let b = Zatoshis::from_u64(200).unwrap();
         assert_eq!(a.checked_sub(b), Err(MoneyError::Overflow));
-        assert_eq!(
-            b.checked_sub(a),
-            Ok(Zatoshis::from_u64(100).unwrap())
-        );
+        assert_eq!(b.checked_sub(a), Ok(Zatoshis::from_u64(100).unwrap()));
     }
 
     #[test]
     fn zec_formatting() {
         // 0.0001 ZEC = 10_000 zat (the ZIP 317 minimum fee).
-        assert_eq!(Zatoshis::from_u64(10_000).unwrap().to_zec_string(), "0.00010000");
-        assert_eq!(Zatoshis::from_u64(COIN).unwrap().to_zec_string(), "1.00000000");
+        assert_eq!(
+            Zatoshis::from_u64(10_000).unwrap().to_zec_string(),
+            "0.00010000"
+        );
+        assert_eq!(
+            Zatoshis::from_u64(COIN).unwrap().to_zec_string(),
+            "1.00000000"
+        );
         assert_eq!(Zatoshis::ZERO.to_zec_string(), "0.00000000");
     }
 

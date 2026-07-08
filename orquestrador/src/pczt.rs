@@ -21,7 +21,14 @@ pub fn create(
 ) -> Result<Vec<u8>, ToolError> {
     let value_s = value_zat.to_string();
     let mut args: Vec<&str> = vec![
-        "pczt", "-w", wallet_dir, "create", "--address", address, "--value", value_s.as_str(),
+        "pczt",
+        "-w",
+        wallet_dir,
+        "create",
+        "--address",
+        address,
+        "--value",
+        value_s.as_str(),
     ];
     if let Some(m) = memo {
         args.push("--memo");
@@ -46,7 +53,16 @@ pub fn send(
 ) -> Result<String, ToolError> {
     let out = run_text(
         devtool,
-        &["pczt", "-w", wallet_dir, "send", "-s", server, "--connection", "direct"],
+        &[
+            "pczt",
+            "-w",
+            wallet_dir,
+            "send",
+            "-s",
+            server,
+            "--connection",
+            "direct",
+        ],
         Some(signed_pczt),
     )?;
     parse_txid(&out)

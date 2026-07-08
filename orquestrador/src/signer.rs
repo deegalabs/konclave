@@ -112,8 +112,7 @@ fn hex_decode(s: &str) -> Result<Vec<u8>, ToolError> {
     (0..s.len())
         .step_by(2)
         .map(|i| {
-            u8::from_str_radix(&s[i..i + 2], 16)
-                .map_err(|e| ToolError::parse("hex", e.to_string()))
+            u8::from_str_radix(&s[i..i + 2], 16).map_err(|e| ToolError::parse("hex", e.to_string()))
         })
         .collect()
 }
@@ -135,7 +134,10 @@ mod tests {
     #[test]
     fn parses_sighash_and_randomizer() {
         let input = parse_extract(EXTRACT).unwrap();
-        assert_eq!(hex_encode(&input.sighash), "9d65aa4b4c1b23e777006823381a5228d8a7171c6f5c77c2cfaba2b001b19849");
+        assert_eq!(
+            hex_encode(&input.sighash),
+            "9d65aa4b4c1b23e777006823381a5228d8a7171c6f5c77c2cfaba2b001b19849"
+        );
         assert_eq!(input.randomizers.len(), 1);
         assert_eq!(input.randomizers[0].action_index, 1);
         assert_eq!(
@@ -155,7 +157,9 @@ mod tests {
     #[test]
     fn missing_sighash_is_error() {
         assert!(matches!(
-            parse_extract("RANDOMIZER 0 320f2f9d61fd336a03db6609953704d49ce13ab059711c87e332ed240a569911"),
+            parse_extract(
+                "RANDOMIZER 0 320f2f9d61fd336a03db6609953704d49ce13ab059711c87e332ed240a569911"
+            ),
             Err(ToolError::Parse { .. })
         ));
     }
@@ -163,8 +167,12 @@ mod tests {
     #[test]
     fn no_randomizers_is_error() {
         // A sighash with no real spends to sign is a malformed request.
-        let only_sighash = "SIGHASH 9d65aa4b4c1b23e777006823381a5228d8a7171c6f5c77c2cfaba2b001b19849";
-        assert!(matches!(parse_extract(only_sighash), Err(ToolError::Parse { .. })));
+        let only_sighash =
+            "SIGHASH 9d65aa4b4c1b23e777006823381a5228d8a7171c6f5c77c2cfaba2b001b19849";
+        assert!(matches!(
+            parse_extract(only_sighash),
+            Err(ToolError::Parse { .. })
+        ));
     }
 
     #[test]

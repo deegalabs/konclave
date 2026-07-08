@@ -51,7 +51,8 @@ fn run_seal(args: &[String]) -> Result<(), String> {
     };
 
     let plaintext = std::fs::read(&input).map_err(|e| format!("lendo {input}: {e}"))?;
-    let sealed = orquestrador::secrets::seal(&plaintext, &key).map_err(|e| format!("selar: {e}"))?;
+    let sealed =
+        orquestrador::secrets::seal(&plaintext, &key).map_err(|e| format!("selar: {e}"))?;
     std::fs::write(&output, &sealed).map_err(|e| format!("escrevendo {output}: {e}"))?;
     println!("selado {input} -> {output} ({} bytes)", sealed.len());
     Ok(())
@@ -69,7 +70,8 @@ fn write_private_key(path: &str, key: &[u8; 32]) -> Result<(), String> {
             .mode(0o600)
             .open(path)
             .map_err(|e| format!("criar arquivo de chave: {e}"))?;
-        f.write_all(key).map_err(|e| format!("escrever chave: {e}"))?;
+        f.write_all(key)
+            .map_err(|e| format!("escrever chave: {e}"))?;
     }
     #[cfg(not(unix))]
     {
@@ -91,7 +93,13 @@ fn run_create_vault(args: &[String]) -> Result<(), String> {
         match a.as_str() {
             "--ceremony" => ceremony = Some(PathBuf::from(next()?)),
             "--name" => name = Some(next()?.clone()),
-            "--threshold" => threshold = Some(next()?.parse().map_err(|_| "threshold inválido".to_string())?),
+            "--threshold" => {
+                threshold = Some(
+                    next()?
+                        .parse()
+                        .map_err(|_| "threshold inválido".to_string())?,
+                )
+            }
             "--members" => members = next()?.split(',').map(|s| s.trim().to_string()).collect(),
             other => return Err(format!("opção desconhecida: {other}")),
         }
@@ -103,10 +111,16 @@ fn run_create_vault(args: &[String]) -> Result<(), String> {
         return Err("--members precisa de ao menos 2 nomes (ex.: Alice,Bob,Carol)".into());
     }
 
-    let text = std::fs::read_to_string(&ceremony).map_err(|e| format!("lendo {}: {e}", ceremony.display()))?;
-    let sc: SendConfig = serde_json::from_str(&text).map_err(|e| format!("config inválida: {e}"))?;
+    let text = std::fs::read_to_string(&ceremony)
+        .map_err(|e| format!("lendo {}: {e}", ceremony.display()))?;
+    let sc: SendConfig =
+        serde_json::from_str(&text).map_err(|e| format!("config inválida: {e}"))?;
 
-    eprintln!("DKG: criando cofre '{name}' {threshold}-de-{} ({})", members.len(), members.join(","));
+    eprintln!(
+        "DKG: criando cofre '{name}' {threshold}-de-{} ({})",
+        members.len(),
+        members.join(",")
+    );
     let v = orquestrador::dkg::create_vault_dkg(&sc, &name, threshold, &members)
         .map_err(|e| format!("DKG: {e}"))?;
 
@@ -217,7 +231,11 @@ fn run_serve(args: &[String]) -> Result<(), String> {
     let wallet = match (devtool, wallet_dir, server_uri) {
         (Some(devtool), Some(wallet_dir), Some(server)) => {
             eprintln!("carteira ao vivo: {} @ {server}", wallet_dir);
-            Some(Box::new(LiveWallet { devtool, wallet_dir, server }) as Box<_>)
+            Some(Box::new(LiveWallet {
+                devtool,
+                wallet_dir,
+                server,
+            }) as Box<_>)
         }
         (None, None, None) => None,
         _ => {
@@ -233,13 +251,21 @@ fn run_serve(args: &[String]) -> Result<(), String> {
                 .map_err(|e| format!("lendo cerimônia {}: {e}", p.display()))?;
             let sc: SendConfig = serde_json::from_str(&text)
                 .map_err(|e| format!("config de cerimônia inválida: {e}"))?;
-            eprintln!("envio ao vivo habilitado (cerimônia FROST): grupo {}", sc.group);
+            eprintln!(
+                "envio ao vivo habilitado (cerimônia FROST): grupo {}",
+                sc.group
+            );
             Some(sc)
         }
         None => None,
     };
 
-    let cfg = Config { web_dir: web, db_path: db, wallet, ceremony };
+    let cfg = Config {
+        web_dir: web,
+        db_path: db,
+        wallet,
+        ceremony,
+    };
     server::serve(cfg, port).map_err(|e| format!("servidor: {e}"))
 }
 
@@ -260,7 +286,11 @@ fn run_sign_send(args: &[String]) -> Result<(), String> {
             "--ceremony" => ceremony = Some(PathBuf::from(next()?)),
             "--to" => to = Some(next()?.clone()),
             "--value-zat" => {
-                value_zat = Some(next()?.parse().map_err(|_| "value-zat inválido".to_string())?)
+                value_zat = Some(
+                    next()?
+                        .parse()
+                        .map_err(|_| "value-zat inválido".to_string())?,
+                )
             }
             "--memo" => memo = Some(next()?.clone()),
             "--dry-run" => dry_run = true,
@@ -284,9 +314,18 @@ fn run_sign_send(args: &[String]) -> Result<(), String> {
     }
     eprintln!("destino {to} · valor {value_zat} zat");
 
-    let plan = SpendPlan::Payment { to: to.clone(), value_zat, memo: memo.clone() };
+    let plan = SpendPlan::Payment {
+        to: to.clone(),
+        value_zat,
+        memo: memo.clone(),
+    };
     // Harness: the first `threshold` members act as the approvers.
-    let approvers: Vec<String> = sc.members.iter().take(sc.threshold).map(|m| m.name.clone()).collect();
+    let approvers: Vec<String> = sc
+        .members
+        .iter()
+        .take(sc.threshold)
+        .map(|m| m.name.clone())
+        .collect();
     let outcome = orchestrate_send(&sc, &plan, &approvers, dry_run)
         .map_err(|e| format!("cerimônia/envio: {e}"))?;
 

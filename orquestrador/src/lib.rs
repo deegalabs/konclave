@@ -33,19 +33,21 @@ pub mod wallet;
 pub mod server;
 
 pub use money::{MoneyError, Zatoshis};
+pub use payroll::PayrollLine;
 pub use payroll::{import_csv, ImportReport, ImportRowError, PayrollPlan, PayrollSummary};
 pub use proposal::{Proposal, ProposalError, ProposalState, Quorum};
 pub use validation::{
     available_to_propose, estimate_fee_for_payment, validate_amount, validate_memo, AddressKind,
     ValidationError,
 };
-pub use payroll::PayrollLine;
 
 pub use secrets::{
     generate_key, seal, unseal, unseal_to_file, with_unsealed_file, KeyStore, SecretError,
     UnsealedFile,
 };
-pub use store::{Beneficiary, Member, ProposalKind, ProposalRecord, Store, StoreError, VaultRecord};
 pub use signer::{parse_extract, Randomizer, SigningInput};
+pub use store::{
+    Beneficiary, Member, ProposalKind, ProposalRecord, Store, StoreError, VaultRecord,
+};
 pub use tools::{ToolError, Tools};
 pub use wallet::{Balance, ChainInfo};

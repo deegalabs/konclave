@@ -22,7 +22,10 @@ pub struct Tools {
 #[derive(Debug)]
 pub enum ToolError {
     /// The process could not be started (e.g. binary missing).
-    Spawn { program: String, source: std::io::Error },
+    Spawn {
+        program: String,
+        source: std::io::Error,
+    },
     /// The process exited non-zero; carries its stderr for diagnosis.
     NonZero {
         program: String,
@@ -57,7 +60,8 @@ impl std::fmt::Display for ToolError {
             } => write!(
                 f,
                 "{program} exited with {}: {}",
-                code.map(|c| c.to_string()).unwrap_or_else(|| "signal".into()),
+                code.map(|c| c.to_string())
+                    .unwrap_or_else(|| "signal".into()),
                 stderr.trim()
             ),
             ToolError::Parse { what, detail } => write!(f, "failed to parse {what}: {detail}"),
@@ -72,14 +76,13 @@ impl std::error::Error for ToolError {}
 ///
 /// A non-zero exit is an error carrying stderr. Intended for small payloads (PCZTs
 /// are a few KB); for large streaming output a threaded pump would be needed.
-pub fn run(
-    program: &Path,
-    args: &[&str],
-    stdin_data: Option<&[u8]>,
-) -> Result<Vec<u8>, ToolError> {
+pub fn run(program: &Path, args: &[&str], stdin_data: Option<&[u8]>) -> Result<Vec<u8>, ToolError> {
     let program_name = program.display().to_string();
     let mut command = Command::new(program);
-    command.args(args).stdout(Stdio::piped()).stderr(Stdio::piped());
+    command
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     if stdin_data.is_some() {
         command.stdin(Stdio::piped());
     }
@@ -128,7 +131,10 @@ pub fn run_text_all(
 ) -> Result<String, ToolError> {
     let program_name = program.display().to_string();
     let mut command = Command::new(program);
-    command.args(args).stdout(Stdio::piped()).stderr(Stdio::piped());
+    command
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     if stdin_data.is_some() {
         command.stdin(Stdio::piped());
     }

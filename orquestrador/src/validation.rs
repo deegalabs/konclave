@@ -208,7 +208,9 @@ mod tests {
         let too_long = "a".repeat(MEMO_MAX_BYTES + 1);
         assert_eq!(
             validate_memo(&too_long, AddressKind::Unified),
-            Err(ValidationError::MemoTooLong { bytes: MEMO_MAX_BYTES + 1 })
+            Err(ValidationError::MemoTooLong {
+                bytes: MEMO_MAX_BYTES + 1
+            })
         );
         // Multi-byte chars count as bytes, not chars.
         let emoji = "🔒".repeat(129); // 4 bytes each = 516 bytes
@@ -220,11 +222,17 @@ mod tests {
 
     #[test]
     fn amount_rejects_zero_and_overspend() {
-        assert_eq!(validate_amount(zat(0), zat(1000)), Err(ValidationError::ZeroValue));
+        assert_eq!(
+            validate_amount(zat(0), zat(1000)),
+            Err(ValidationError::ZeroValue)
+        );
         assert!(validate_amount(zat(1000), zat(1000)).is_ok());
         assert_eq!(
             validate_amount(zat(1001), zat(1000)),
-            Err(ValidationError::InsufficientFunds { needed: 1001, available: 1000 })
+            Err(ValidationError::InsufficientFunds {
+                needed: 1001,
+                available: 1000
+            })
         );
     }
 
@@ -236,5 +244,4 @@ mod tests {
             Ok(Zatoshis::ZERO)
         );
     }
-
 }

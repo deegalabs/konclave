@@ -175,7 +175,12 @@ impl Store {
 
     /// Store (or replace) a vault's passphrase lock: the KDF salt and the sealed
     /// verifier used to check the word on unlock.
-    pub fn set_vault_lock(&self, vault_id: &str, salt: &[u8], verifier: &[u8]) -> Result<(), StoreError> {
+    pub fn set_vault_lock(
+        &self,
+        vault_id: &str,
+        salt: &[u8],
+        verifier: &[u8],
+    ) -> Result<(), StoreError> {
         self.conn.execute(
             "INSERT INTO vault_locks (vault_id, salt, verifier) VALUES (?1, ?2, ?3)
              ON CONFLICT(vault_id) DO UPDATE SET salt=excluded.salt, verifier=excluded.verifier",
@@ -186,7 +191,9 @@ impl Store {
 
     /// A vault's `(salt, verifier)`, or `None` when the vault has no passphrase.
     pub fn get_vault_lock(&self, vault_id: &str) -> Result<Option<(Vec<u8>, Vec<u8>)>, StoreError> {
-        let mut stmt = self.conn.prepare("SELECT salt, verifier FROM vault_locks WHERE vault_id = ?1")?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT salt, verifier FROM vault_locks WHERE vault_id = ?1")?;
         let mut rows = stmt.query(params![vault_id])?;
         match rows.next()? {
             Some(row) => Ok(Some((row.get(0)?, row.get(1)?))),
@@ -223,10 +230,22 @@ impl Store {
     pub fn delete_vault(&mut self, vault_id: &str) -> Result<(), StoreError> {
         let tx = self.conn.transaction()?;
         // proposal_votes and payroll_lines cascade from proposals (ON DELETE CASCADE).
-        tx.execute("DELETE FROM proposals WHERE vault_id = ?1", params![vault_id])?;
-        tx.execute("DELETE FROM beneficiaries WHERE vault_id = ?1", params![vault_id])?;
-        tx.execute("DELETE FROM vault_members WHERE vault_id = ?1", params![vault_id])?;
-        tx.execute("DELETE FROM vault_locks WHERE vault_id = ?1", params![vault_id])?;
+        tx.execute(
+            "DELETE FROM proposals WHERE vault_id = ?1",
+            params![vault_id],
+        )?;
+        tx.execute(
+            "DELETE FROM beneficiaries WHERE vault_id = ?1",
+            params![vault_id],
+        )?;
+        tx.execute(
+            "DELETE FROM vault_members WHERE vault_id = ?1",
+            params![vault_id],
+        )?;
+        tx.execute(
+            "DELETE FROM vault_locks WHERE vault_id = ?1",
+            params![vault_id],
+        )?;
         tx.execute("DELETE FROM vaults WHERE id = ?1", params![vault_id])?;
         tx.commit()?;
         Ok(())
@@ -269,7 +288,10 @@ impl Store {
                 p.value_total.as_u64() as i64, p.memo, p.to_address, p.expiry_unix, p.txid
             ],
         )?;
-        tx.execute("DELETE FROM proposal_votes WHERE proposal_id = ?1", params![p.id])?;
+        tx.execute(
+            "DELETE FROM proposal_votes WHERE proposal_id = ?1",
+            params![p.id],
+        )?;
         for m in &p.approvals {
             tx.execute(
                 "INSERT OR REPLACE INTO proposal_votes (proposal_id, member_id, vote) VALUES (?1, ?2, 'approve')",
@@ -342,14 +364,23 @@ impl Store {
 
     /// Remove a saved beneficiary. Returns whether a row was deleted.
     pub fn delete_beneficiary(&self, id: &str) -> Result<bool, StoreError> {
-        let n = self.conn.execute("DELETE FROM beneficiaries WHERE id = ?1", params![id])?;
+        let n = self
+            .conn
+            .execute("DELETE FROM beneficiaries WHERE id = ?1", params![id])?;
         Ok(n > 0)
     }
 
     /// Replace a vault's member list (public material: names + comm pubkeys).
-    pub fn save_vault_members(&mut self, vault_id: &str, members: &[Member]) -> Result<(), StoreError> {
+    pub fn save_vault_members(
+        &mut self,
+        vault_id: &str,
+        members: &[Member],
+    ) -> Result<(), StoreError> {
         let tx = self.conn.transaction()?;
-        tx.execute("DELETE FROM vault_members WHERE vault_id = ?1", params![vault_id])?;
+        tx.execute(
+            "DELETE FROM vault_members WHERE vault_id = ?1",
+            params![vault_id],
+        )?;
         for (i, m) in members.iter().enumerate() {
             tx.execute(
                 "INSERT INTO vault_members (vault_id, idx, name, pubkey) VALUES (?1, ?2, ?3, ?4)",
@@ -366,7 +397,10 @@ impl Store {
             .conn
             .prepare("SELECT name, pubkey FROM vault_members WHERE vault_id = ?1 ORDER BY idx")?;
         let rows = stmt.query_map(params![vault_id], |r| {
-            Ok(Member { name: r.get(0)?, pubkey: r.get(1)? })
+            Ok(Member {
+                name: r.get(0)?,
+                pubkey: r.get(1)?,
+            })
         })?;
         rows.map(|r| r.map_err(StoreError::from)).collect()
     }
@@ -378,12 +412,22 @@ impl Store {
         lines: &[crate::payroll::PayrollLine],
     ) -> Result<(), StoreError> {
         let tx = self.conn.transaction()?;
-        tx.execute("DELETE FROM payroll_lines WHERE proposal_id = ?1", params![proposal_id])?;
+        tx.execute(
+            "DELETE FROM payroll_lines WHERE proposal_id = ?1",
+            params![proposal_id],
+        )?;
         for (i, l) in lines.iter().enumerate() {
             tx.execute(
                 "INSERT INTO payroll_lines (proposal_id, idx, label, address, value, memo)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![proposal_id, i as i64, l.label, l.address, l.value.as_u64() as i64, l.memo],
+                params![
+                    proposal_id,
+                    i as i64,
+                    l.label,
+                    l.address,
+                    l.value.as_u64() as i64,
+                    l.memo
+                ],
             )?;
         }
         tx.commit()?;
@@ -409,8 +453,14 @@ impl Store {
         let mut out = Vec::new();
         for row in rows {
             let (label, address, value, memo) = row?;
-            let value = Zatoshis::from_u64(value as u64).map_err(|e| StoreError::Decode(e.to_string()))?;
-            out.push(crate::payroll::PayrollLine { label, address, value, memo });
+            let value =
+                Zatoshis::from_u64(value as u64).map_err(|e| StoreError::Decode(e.to_string()))?;
+            out.push(crate::payroll::PayrollLine {
+                label,
+                address,
+                value,
+                memo,
+            });
         }
         Ok(out)
     }
@@ -597,12 +647,24 @@ mod tests {
     fn delete_vault_removes_everything_scoped_to_it() {
         let mut s = Store::open_in_memory().unwrap();
         s.save_vault(&sample_vault()).unwrap();
-        s.save_vault_members("vault-1", &[Member { name: "Alice".into(), pubkey: "aa".into() }]).unwrap();
-        s.set_vault_lock("vault-1", b"salt-16-bytes-xx", b"verifier-blob").unwrap();
+        s.save_vault_members(
+            "vault-1",
+            &[Member {
+                name: "Alice".into(),
+                pubkey: "aa".into(),
+            }],
+        )
+        .unwrap();
+        s.set_vault_lock("vault-1", b"salt-16-bytes-xx", b"verifier-blob")
+            .unwrap();
         s.save_beneficiary(&Beneficiary {
-            id: "b1".into(), vault_id: "vault-1".into(), name: "Ana".into(),
-            address: "u1".into(), memo: String::new(),
-        }).unwrap();
+            id: "b1".into(),
+            vault_id: "vault-1".into(),
+            name: "Ana".into(),
+            address: "u1".into(),
+            memo: String::new(),
+        })
+        .unwrap();
         s.save_proposal(&sample_proposal()).unwrap();
 
         s.delete_vault("vault-1").unwrap();
@@ -656,7 +718,10 @@ mod tests {
 
         let loaded = s.get_proposal("prop-1").unwrap().unwrap();
         assert_eq!(loaded.state, ProposalState::Sent);
-        assert_eq!(loaded.approvals, vec!["alice".to_string(), "bob".to_string()]);
+        assert_eq!(
+            loaded.approvals,
+            vec!["alice".to_string(), "bob".to_string()]
+        );
         assert_eq!(loaded.txid.as_deref(), Some("f63ee64d"));
     }
 
@@ -722,8 +787,14 @@ mod tests {
 
         let n = s.expire_due(2_000).unwrap();
         assert_eq!(n, 1);
-        assert_eq!(s.get_proposal("prop-1").unwrap().unwrap().state, ProposalState::Expired);
-        assert_eq!(s.get_proposal("prop-future").unwrap().unwrap().state, ProposalState::Awaiting);
+        assert_eq!(
+            s.get_proposal("prop-1").unwrap().unwrap().state,
+            ProposalState::Expired
+        );
+        assert_eq!(
+            s.get_proposal("prop-future").unwrap().unwrap().state,
+            ProposalState::Awaiting
+        );
         // Idempotent: a second sweep expires nothing new.
         assert_eq!(s.expire_due(2_000).unwrap(), 0);
     }
@@ -733,8 +804,11 @@ mod tests {
         let s = Store::open_in_memory().unwrap();
         s.save_vault(&sample_vault()).unwrap();
         let b = Beneficiary {
-            id: "b1".into(), vault_id: "vault-1".into(), name: "Alice".into(),
-            address: "u1alice".into(), memo: "salário".into(),
+            id: "b1".into(),
+            vault_id: "vault-1".into(),
+            name: "Alice".into(),
+            address: "u1alice".into(),
+            memo: "salário".into(),
         };
         s.save_beneficiary(&b).unwrap();
         assert_eq!(s.list_beneficiaries("vault-1").unwrap(), vec![b.clone()]);
@@ -742,7 +816,10 @@ mod tests {
         let mut b2 = b.clone();
         b2.address = "u1alice2".into();
         s.save_beneficiary(&b2).unwrap();
-        assert_eq!(s.list_beneficiaries("vault-1").unwrap()[0].address, "u1alice2");
+        assert_eq!(
+            s.list_beneficiaries("vault-1").unwrap()[0].address,
+            "u1alice2"
+        );
         // Delete.
         assert!(s.delete_beneficiary("b1").unwrap());
         assert!(s.list_beneficiaries("vault-1").unwrap().is_empty());
@@ -754,8 +831,14 @@ mod tests {
         let mut s = Store::open_in_memory().unwrap();
         s.save_vault(&sample_vault()).unwrap();
         let members = vec![
-            Member { name: "Alice".into(), pubkey: "317db593".into() },
-            Member { name: "Bob".into(), pubkey: "2ca6d736".into() },
+            Member {
+                name: "Alice".into(),
+                pubkey: "317db593".into(),
+            },
+            Member {
+                name: "Bob".into(),
+                pubkey: "2ca6d736".into(),
+            },
         ];
         s.save_vault_members("vault-1", &members).unwrap();
         assert_eq!(s.get_vault_members("vault-1").unwrap(), members);
@@ -776,8 +859,18 @@ mod tests {
         s.save_proposal(&p).unwrap();
 
         let lines = vec![
-            PayrollLine { label: Some("Alice".into()), address: "u1alice".into(), value: zat(30_000), memo: "maio".into() },
-            PayrollLine { label: None, address: "u1bob".into(), value: zat(20_000), memo: String::new() },
+            PayrollLine {
+                label: Some("Alice".into()),
+                address: "u1alice".into(),
+                value: zat(30_000),
+                memo: "maio".into(),
+            },
+            PayrollLine {
+                label: None,
+                address: "u1bob".into(),
+                value: zat(20_000),
+                memo: String::new(),
+            },
         ];
         s.save_payroll_lines("prop-1", &lines).unwrap();
         assert_eq!(s.get_payroll_lines("prop-1").unwrap(), lines);

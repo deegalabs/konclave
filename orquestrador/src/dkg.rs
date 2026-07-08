@@ -43,8 +43,14 @@ pub fn create_vault_dkg(
     threshold: u16,
     member_names: &[String],
 ) -> Result<DkgVault, ToolError> {
-    let zcash_sign = sc.zcash_sign.as_ref().ok_or_else(|| err("dkg", "zcash_sign não configurado"))?;
-    let vaults_dir = sc.vaults_dir.as_ref().ok_or_else(|| err("dkg", "vaults_dir não configurado"))?;
+    let zcash_sign = sc
+        .zcash_sign
+        .as_ref()
+        .ok_or_else(|| err("dkg", "zcash_sign não configurado"))?;
+    let vaults_dir = sc
+        .vaults_dir
+        .as_ref()
+        .ok_or_else(|| err("dkg", "vaults_dir não configurado"))?;
     let n = member_names.len();
     if n < 2 || threshold < 1 || threshold as usize > n {
         return Err(err("dkg", format!("quórum inválido {threshold}-de-{n}")));
@@ -53,7 +59,13 @@ pub fn create_vault_dkg(
     // Fresh vault dir + one config per member.
     let slug: String = name
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
         .collect();
     let vdir = format!("{vaults_dir}/{slug}-{}", short_id());
     std::fs::create_dir_all(&vdir).map_err(ToolError::Io)?;
@@ -67,7 +79,11 @@ pub fn create_vault_dkg(
     // 2) export each contact.
     let mut contacts = Vec::with_capacity(n);
     for (nm, cfg) in member_names.iter().zip(&configs) {
-        let out = run_text_all(&sc.frost_client, &["export", "-c", cfg.as_str(), "--name", nm.as_str()], None)?;
+        let out = run_text_all(
+            &sc.frost_client,
+            &["export", "-c", cfg.as_str(), "--name", nm.as_str()],
+            None,
+        )?;
         contacts.push(parse_contact(&out)?);
     }
 
@@ -75,7 +91,11 @@ pub fn create_vault_dkg(
     for (i, cfg) in configs.iter().enumerate() {
         for (j, contact) in contacts.iter().enumerate() {
             if i != j {
-                run(&sc.frost_client, &["import", "-c", cfg.as_str(), contact.as_str()], None)?;
+                run(
+                    &sc.frost_client,
+                    &["import", "-c", cfg.as_str(), contact.as_str()],
+                    None,
+                )?;
             }
         }
     }
@@ -89,15 +109,27 @@ pub fn create_vault_dkg(
         }
     }
     let pk_of = |nm: &str| -> Result<String, ToolError> {
-        pubkeys.get(nm).cloned().ok_or_else(|| err("dkg", format!("pubkey de {nm} não encontrada")))
+        pubkeys
+            .get(nm)
+            .cloned()
+            .ok_or_else(|| err("dkg", format!("pubkey de {nm} não encontrada")))
     };
 
     // -S for the creator: the OTHER members' pubkeys.
-    let other_pks: Vec<String> = member_names[1..].iter().map(|nm| pk_of(nm)).collect::<Result<_, _>>()?;
+    let other_pks: Vec<String> = member_names[1..]
+        .iter()
+        .map(|nm| pk_of(nm))
+        .collect::<Result<_, _>>()?;
     let s_list = other_pks.join(",");
 
     // 4) frostd fresh (killed on drop).
-    let _frostd = Frostd::start(&sc.frostd, &sc.frostd_cert, &sc.frostd_key, &sc.frostd_ip, sc.frostd_port)?;
+    let _frostd = Frostd::start(
+        &sc.frostd,
+        &sc.frostd_cert,
+        &sc.frostd_key,
+        &sc.frostd_ip,
+        sc.frostd_port,
+    )?;
     thread::sleep(Duration::from_millis(900));
 
     // 5) DKG: creator (with -S) + joiners, concurrent.
@@ -105,10 +137,24 @@ pub fn create_vault_dkg(
     run_dkg_all(sc, &configs, &desc, &threshold.to_string(), &s_list)?;
 
     // 6) group pubkey.
-    let group_pubkey = parse_group_pubkey(&run_text_all(&sc.frost_client, &["groups", "-c", configs[0].as_str()], None)?)?;
+    let group_pubkey = parse_group_pubkey(&run_text_all(
+        &sc.frost_client,
+        &["groups", "-c", configs[0].as_str()],
+        None,
+    )?)?;
 
     // 7) Orchard address + UFVK.
-    let gen = run_text_all(zcash_sign, &["generate", "--ak", group_pubkey.as_str(), "--network", "main"], None)?;
+    let gen = run_text_all(
+        zcash_sign,
+        &[
+            "generate",
+            "--ak",
+            group_pubkey.as_str(),
+            "--network",
+            "main",
+        ],
+        None,
+    )?;
     let (orchard_address, ufvk) = parse_generate(&gen)?;
 
     // 8) view-only wallet.
@@ -116,8 +162,18 @@ pub fn create_vault_dkg(
     run(
         &sc.devtool,
         &[
-            "wallet", "-w", wallet_dir.as_str(), "init-fvk", "--name", name, "--fvk", ufvk.as_str(),
-            "-s", sc.lightwalletd.as_str(), "--connection", "direct",
+            "wallet",
+            "-w",
+            wallet_dir.as_str(),
+            "init-fvk",
+            "--name",
+            name,
+            "--fvk",
+            ufvk.as_str(),
+            "-s",
+            sc.lightwalletd.as_str(),
+            "--connection",
+            "direct",
         ],
         None,
     )?;
@@ -140,25 +196,54 @@ pub fn create_vault_dkg(
     }
 
     Ok(DkgVault {
-        group_pubkey, orchard_address, ufvk, wallet_dir, members,
-        passphrase, salt: salt.to_vec(), verifier,
+        group_pubkey,
+        orchard_address,
+        ufvk,
+        wallet_dir,
+        members,
+        passphrase,
+        salt: salt.to_vec(),
+        verifier,
     })
 }
 
 /// Run the DKG for all participants concurrently (RedPallas / Rerandomized FROST). The
 /// creator passes the other participants via `-S`; joiners omit it. Prompts auto-confirmed.
-fn run_dkg_all(sc: &SendConfig, configs: &[String], desc: &str, threshold: &str, s_list: &str) -> Result<(), ToolError> {
+fn run_dkg_all(
+    sc: &SendConfig,
+    configs: &[String],
+    desc: &str,
+    threshold: &str,
+    s_list: &str,
+) -> Result<(), ToolError> {
     let confirm = b"y\ny\ny\ny\n".as_slice();
 
     // Creator (config[0]) with -S.
     let creator = {
-        let (fc, cfg, server) = (sc.frost_client.clone(), configs[0].clone(), sc.server_url.clone());
+        let (fc, cfg, server) = (
+            sc.frost_client.clone(),
+            configs[0].clone(),
+            sc.server_url.clone(),
+        );
         let (desc, t, s) = (desc.to_string(), threshold.to_string(), s_list.to_string());
         thread::spawn(move || {
             run(
                 &fc,
-                &["dkg", "-c", cfg.as_str(), "-C", "redpallas", "-t", t.as_str(), "-d", desc.as_str(),
-                  "-s", server.as_str(), "-S", s.as_str()],
+                &[
+                    "dkg",
+                    "-c",
+                    cfg.as_str(),
+                    "-C",
+                    "redpallas",
+                    "-t",
+                    t.as_str(),
+                    "-d",
+                    desc.as_str(),
+                    "-s",
+                    server.as_str(),
+                    "-S",
+                    s.as_str(),
+                ],
                 Some(confirm),
             )
         })
@@ -173,16 +258,30 @@ fn run_dkg_all(sc: &SendConfig, configs: &[String], desc: &str, threshold: &str,
         joiners.push(thread::spawn(move || {
             run(
                 &fc,
-                &["dkg", "-c", cfg.as_str(), "-C", "redpallas", "-t", t.as_str(), "-d", desc.as_str(),
-                  "-s", server.as_str()],
+                &[
+                    "dkg",
+                    "-c",
+                    cfg.as_str(),
+                    "-C",
+                    "redpallas",
+                    "-t",
+                    t.as_str(),
+                    "-d",
+                    desc.as_str(),
+                    "-s",
+                    server.as_str(),
+                ],
                 Some(confirm),
             )
         }));
     }
     for j in joiners {
-        j.join().map_err(|_| err("dkg", "joiner thread panicked"))??;
+        j.join()
+            .map_err(|_| err("dkg", "joiner thread panicked"))??;
     }
-    creator.join().map_err(|_| err("dkg", "creator thread panicked"))??;
+    creator
+        .join()
+        .map_err(|_| err("dkg", "creator thread panicked"))??;
     Ok(())
 }
 
@@ -213,7 +312,11 @@ fn parse_contacts(out: &str) -> Vec<(String, String)> {
 
 fn parse_group_pubkey(out: &str) -> Result<String, ToolError> {
     out.lines()
-        .find_map(|l| l.trim().strip_prefix("Public key ").map(|s| s.trim().to_string()))
+        .find_map(|l| {
+            l.trim()
+                .strip_prefix("Public key ")
+                .map(|s| s.trim().to_string())
+        })
         .ok_or_else(|| err("dkg", "saída de groups sem 'Public key'"))
 }
 
@@ -234,7 +337,10 @@ fn extract_quoted(out: &str, after: &str) -> Result<String, ToolError> {
             }
         }
     }
-    Err(err("dkg", format!("não achei valor entre aspas após '{after}'")))
+    Err(err(
+        "dkg",
+        format!("não achei valor entre aspas após '{after}'"),
+    ))
 }
 
 fn short_id() -> String {
@@ -250,7 +356,10 @@ mod tests {
     #[test]
     fn parses_group_pubkey() {
         let out = "Group \"Konclave DKG vault\"\nPublic key 0ab93649e62dd68858ed57af1e7f7743cc2a4912110d7fb547d35c8c8494ee34\nThreshold: 2\n";
-        assert_eq!(parse_group_pubkey(out).unwrap(), "0ab93649e62dd68858ed57af1e7f7743cc2a4912110d7fb547d35c8c8494ee34");
+        assert_eq!(
+            parse_group_pubkey(out).unwrap(),
+            "0ab93649e62dd68858ed57af1e7f7743cc2a4912110d7fb547d35c8c8494ee34"
+        );
     }
 
     #[test]
@@ -265,7 +374,13 @@ mod tests {
     fn parses_contacts_names_and_pubkeys() {
         let out = "Name: bob\nPublic Key: f647b57b\nzffrost1qqp\n\nName: carol\nPublic Key: c85e8ebd\nzffrost1qqz\n";
         let cs = parse_contacts(out);
-        assert_eq!(cs, vec![("bob".into(), "f647b57b".into()), ("carol".into(), "c85e8ebd".into())]);
+        assert_eq!(
+            cs,
+            vec![
+                ("bob".into(), "f647b57b".into()),
+                ("carol".into(), "c85e8ebd".into())
+            ]
+        );
     }
 
     #[test]

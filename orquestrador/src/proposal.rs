@@ -137,7 +137,13 @@ impl Proposal {
         refusals: BTreeSet<MemberId>,
         state: ProposalState,
     ) -> Self {
-        Proposal { proposer, quorum, approvals, refusals, state }
+        Proposal {
+            proposer,
+            quorum,
+            approvals,
+            refusals,
+            state,
+        }
     }
 
     /// Members who have approved, sorted.
@@ -223,11 +229,7 @@ impl Proposal {
         self.transition(ProposalState::Awaiting, ProposalState::Cancelled)
     }
 
-    fn transition(
-        &mut self,
-        from: ProposalState,
-        to: ProposalState,
-    ) -> Result<(), ProposalError> {
+    fn transition(&mut self, from: ProposalState, to: ProposalState) -> Result<(), ProposalError> {
         if self.state == from {
             self.state = to;
             Ok(())
@@ -289,7 +291,9 @@ mod tests {
         p.refuse("bob".into()).unwrap();
         assert_eq!(
             p.approve("bob".into()),
-            Err(ProposalError::ConflictingVote { member: "bob".into() })
+            Err(ProposalError::ConflictingVote {
+                member: "bob".into()
+            })
         );
     }
 
@@ -339,7 +343,10 @@ mod tests {
         assert_eq!(p.approved_by(), vec!["alice".to_string()]);
         p.approve("bob".into()).unwrap();
         assert_eq!(p.state(), ProposalState::Ready);
-        assert_eq!(p.approved_by(), vec!["alice".to_string(), "bob".to_string()]);
+        assert_eq!(
+            p.approved_by(),
+            vec!["alice".to_string(), "bob".to_string()]
+        );
     }
 
     #[test]
@@ -356,22 +363,37 @@ mod tests {
         p.broadcast().unwrap();
         p.confirm().unwrap(); // Confirmed (terminal)
         assert!(p.state().is_terminal());
-        assert!(matches!(p.approve("bob".into()), Err(ProposalError::WrongState { .. })));
-        assert!(matches!(p.broadcast(), Err(ProposalError::WrongState { .. })));
+        assert!(matches!(
+            p.approve("bob".into()),
+            Err(ProposalError::WrongState { .. })
+        ));
+        assert!(matches!(
+            p.broadcast(),
+            Err(ProposalError::WrongState { .. })
+        ));
         assert!(matches!(p.expire(), Err(ProposalError::WrongState { .. })));
-        assert!(matches!(p.cancel("alice"), Err(ProposalError::WrongState { .. })));
+        assert!(matches!(
+            p.cancel("alice"),
+            Err(ProposalError::WrongState { .. })
+        ));
     }
 
     #[test]
     fn cannot_broadcast_before_ready() {
         let mut p = Proposal::propose("alice".into(), q(2, 3)); // Awaiting
-        assert!(matches!(p.broadcast(), Err(ProposalError::WrongState { .. })));
+        assert!(matches!(
+            p.broadcast(),
+            Err(ProposalError::WrongState { .. })
+        ));
     }
 
     #[test]
     fn expire_only_from_awaiting() {
         let mut ready = Proposal::propose("alice".into(), q(1, 3)); // Ready
-        assert!(matches!(ready.expire(), Err(ProposalError::WrongState { .. })));
+        assert!(matches!(
+            ready.expire(),
+            Err(ProposalError::WrongState { .. })
+        ));
         let mut awaiting = Proposal::propose("alice".into(), q(2, 3));
         awaiting.expire().unwrap();
         assert_eq!(awaiting.state(), ProposalState::Expired);

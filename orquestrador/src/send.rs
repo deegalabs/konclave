@@ -101,8 +101,14 @@ pub struct PayrollDest {
 
 /// What to spend: a single payment, or a payroll (N outputs in one transaction).
 pub enum SpendPlan {
-    Payment { to: String, value_zat: u64, memo: Option<String> },
-    Payroll { lines: Vec<PayrollDest> },
+    Payment {
+        to: String,
+        value_zat: u64,
+        memo: Option<String>,
+    },
+    Payroll {
+        lines: Vec<PayrollDest>,
+    },
 }
 
 /// Build the unproven PCZT for a plan. A single payment uses the official CLI (one
@@ -110,9 +116,18 @@ pub enum SpendPlan {
 /// which links `zcash_client_backend` — the engine the CLI lacks).
 fn build_unproven(sc: &SendConfig, plan: &SpendPlan) -> Result<Vec<u8>, ToolError> {
     match plan {
-        SpendPlan::Payment { to, value_zat, memo } => {
-            pczt::create(&sc.devtool, &sc.wallet_dir, to, *value_zat, &sc.account, memo.as_deref())
-        }
+        SpendPlan::Payment {
+            to,
+            value_zat,
+            memo,
+        } => pczt::create(
+            &sc.devtool,
+            &sc.wallet_dir,
+            to,
+            *value_zat,
+            &sc.account,
+            memo.as_deref(),
+        ),
         SpendPlan::Payroll { lines } => {
             let spec = serde_json::to_string(lines)
                 .map_err(|e| ToolError::parse("payroll spec", e.to_string()))?;
@@ -122,8 +137,15 @@ fn build_unproven(sc: &SendConfig, plan: &SpendPlan) -> Result<Vec<u8>, ToolErro
             crate::tools::run(
                 &sc.konclave_signer,
                 &[
-                    "build-payroll", "--wallet", &sc.wallet_dir, "--account", &sc.account,
-                    "--spec", &spec_path, "--out", &out_path,
+                    "build-payroll",
+                    "--wallet",
+                    &sc.wallet_dir,
+                    "--account",
+                    &sc.account,
+                    "--spec",
+                    &spec_path,
+                    "--out",
+                    &out_path,
                 ],
                 None,
             )?;
@@ -163,7 +185,9 @@ pub fn orchestrate_send(
             "ceremony",
             format!(
                 "precisa de {} aprovadores com chave conhecida; encontrei {} (aprovadores: {:?})",
-                sc.threshold, signers.len(), approvers
+                sc.threshold,
+                signers.len(),
+                approvers
             ),
         ));
     }
@@ -181,7 +205,10 @@ pub fn orchestrate_send(
     for m in &signers {
         if m.config.ends_with(".sealed") {
             let key = key.ok_or_else(|| {
-                ToolError::parse("secrets", "config selado, mas sem sealing_key_file na cerimônia")
+                ToolError::parse(
+                    "secrets",
+                    "config selado, mas sem sealing_key_file na cerimônia",
+                )
             })?;
             let sealed = std::fs::read(&m.config).map_err(ToolError::Io)?;
             let uf = crate::secrets::unseal_to_file(&sealed, &key)
@@ -212,7 +239,11 @@ pub fn orchestrate_send(
 
     // 4) start frostd fresh (killed on drop → no stale session survives the call).
     let _frostd = Frostd::start(
-        &sc.frostd, &sc.frostd_cert, &sc.frostd_key, &sc.frostd_ip, sc.frostd_port,
+        &sc.frostd,
+        &sc.frostd_cert,
+        &sc.frostd_key,
+        &sc.frostd_ip,
+        sc.frostd_port,
     )?;
     thread::sleep(Duration::from_millis(900));
 
@@ -223,8 +254,13 @@ pub fn orchestrate_send(
         let alpha_hex = hex_encode(&r.alpha);
         let sig_path = format!("{}/sig-{round}.raw", sc.work_dir);
         let sig = run_ceremony(
-            sc, &coordinator_config, &participant_configs, &signer_pks,
-            &sighash_hex, &alpha_hex, &sig_path,
+            sc,
+            &coordinator_config,
+            &participant_configs,
+            &signer_pks,
+            &sighash_hex,
+            &alpha_hex,
+            &sig_path,
         )?;
         signatures.push((r.action_index, sig));
         // Let the completed session settle before the next round's fresh session.
@@ -240,10 +276,19 @@ pub fn orchestrate_send(
         None
     } else {
         let tx3 = std::fs::read(&tx3_path).map_err(ToolError::Io)?;
-        Some(pczt::send(&sc.devtool, &sc.wallet_dir, &sc.lightwalletd, &tx3)?)
+        Some(pczt::send(
+            &sc.devtool,
+            &sc.wallet_dir,
+            &sc.lightwalletd,
+            &tx3,
+        )?)
     };
 
-    Ok(SendOutcome { txid, signed_pczt: tx3_path, sighash: sighash_hex })
+    Ok(SendOutcome {
+        txid,
+        signed_pczt: tx3_path,
+        sighash: sighash_hex,
+    })
 }
 
 /// Coordinator + participants run concurrently (they block on each other via frostd), as
@@ -322,7 +367,10 @@ fn read_key_file(path: &str) -> Result<[u8; 32], ToolError> {
     if bytes.len() != 32 {
         return Err(ToolError::parse(
             "secrets",
-            format!("arquivo de chave deve ter 32 bytes, tem {} ({path})", bytes.len()),
+            format!(
+                "arquivo de chave deve ter 32 bytes, tem {} ({path})",
+                bytes.len()
+            ),
         ));
     }
     let mut k = [0u8; 32];

@@ -135,7 +135,10 @@ pub fn generate_salt() -> Result<[u8; SALT_LEN], SecretError> {
 pub fn generate_passphrase() -> Result<String, SecretError> {
     let mut idx = [0u8; PASSPHRASE_WORDS];
     random(&mut idx)?;
-    let words: Vec<&str> = idx.iter().map(|b| WORDLIST[*b as usize % WORDLIST.len()]).collect();
+    let words: Vec<&str> = idx
+        .iter()
+        .map(|b| WORDLIST[*b as usize % WORDLIST.len()])
+        .collect();
     Ok(words.join("-"))
 }
 
@@ -152,19 +155,134 @@ pub fn verify(key: &[u8; 32], verifier: &[u8]) -> bool {
 /// 128 simple, accent-free Portuguese words — enough to be memorable; the memory-hard
 /// KDF does the heavy lifting against guessing. (Product lock, not the FROST guarantee.)
 const WORDLIST: &[&str] = &[
-    "cedro", "barco", "pedra", "chave", "monte", "folha", "vento", "praia", "campo", "porto",
-    "livro", "ponte", "nuvem", "trigo", "areia", "lagoa", "serra", "coral", "manga", "cacau",
-    "prata", "ouro", "ferro", "vidro", "linho", "seda", "lenha", "carvao", "raiz", "galho",
-    "flor", "fruto", "mel", "sal", "cera", "corda", "rede", "vela", "remo", "mastro",
-    "farol", "cais", "duna", "gruta", "cume", "vale", "rio", "fonte", "poco", "trilha",
-    "mapa", "bussola", "norte", "sul", "leste", "oeste", "aurora", "brisa", "orvalho", "geada",
-    "raio", "trovao", "chuva", "neve", "gelo", "brasa", "chama", "fumaca", "cinza", "faisca",
-    "tigre", "lobo", "raposa", "coruja", "falcao", "gaviao", "garca", "cisne", "pato", "ganso",
-    "abelha", "formiga", "grilo", "besouro", "libelula", "aranha", "cobra", "lagarto", "sapo", "peixe",
-    "baleia", "golfinho", "polvo", "camarao", "ostra", "concha", "estrela", "medusa", "alga", "musgo",
-    "roble", "faia", "pinho", "salgueiro", "bambu", "junco", "espiga", "grao", "farinha", "massa",
-    "queijo", "leite", "manteiga", "azeite", "cacto", "palma", "figo", "uva", "amora", "pinha",
-    "castanha", "avela", "noz", "amendoa", "canela", "cravo", "gengibre", "pimenta",
+    "cedro",
+    "barco",
+    "pedra",
+    "chave",
+    "monte",
+    "folha",
+    "vento",
+    "praia",
+    "campo",
+    "porto",
+    "livro",
+    "ponte",
+    "nuvem",
+    "trigo",
+    "areia",
+    "lagoa",
+    "serra",
+    "coral",
+    "manga",
+    "cacau",
+    "prata",
+    "ouro",
+    "ferro",
+    "vidro",
+    "linho",
+    "seda",
+    "lenha",
+    "carvao",
+    "raiz",
+    "galho",
+    "flor",
+    "fruto",
+    "mel",
+    "sal",
+    "cera",
+    "corda",
+    "rede",
+    "vela",
+    "remo",
+    "mastro",
+    "farol",
+    "cais",
+    "duna",
+    "gruta",
+    "cume",
+    "vale",
+    "rio",
+    "fonte",
+    "poco",
+    "trilha",
+    "mapa",
+    "bussola",
+    "norte",
+    "sul",
+    "leste",
+    "oeste",
+    "aurora",
+    "brisa",
+    "orvalho",
+    "geada",
+    "raio",
+    "trovao",
+    "chuva",
+    "neve",
+    "gelo",
+    "brasa",
+    "chama",
+    "fumaca",
+    "cinza",
+    "faisca",
+    "tigre",
+    "lobo",
+    "raposa",
+    "coruja",
+    "falcao",
+    "gaviao",
+    "garca",
+    "cisne",
+    "pato",
+    "ganso",
+    "abelha",
+    "formiga",
+    "grilo",
+    "besouro",
+    "libelula",
+    "aranha",
+    "cobra",
+    "lagarto",
+    "sapo",
+    "peixe",
+    "baleia",
+    "golfinho",
+    "polvo",
+    "camarao",
+    "ostra",
+    "concha",
+    "estrela",
+    "medusa",
+    "alga",
+    "musgo",
+    "roble",
+    "faia",
+    "pinho",
+    "salgueiro",
+    "bambu",
+    "junco",
+    "espiga",
+    "grao",
+    "farinha",
+    "massa",
+    "queijo",
+    "leite",
+    "manteiga",
+    "azeite",
+    "cacto",
+    "palma",
+    "figo",
+    "uva",
+    "amora",
+    "pinha",
+    "castanha",
+    "avela",
+    "noz",
+    "amendoa",
+    "canela",
+    "cravo",
+    "gengibre",
+    "pimenta",
 ];
 
 /// A short-lived file holding unsealed plaintext, removed on drop (best-effort) so it
@@ -185,7 +303,10 @@ impl EphemeralFile {
         random(&mut suffix)?;
         let name = format!(
             "konclave-{}.tmp",
-            suffix.iter().map(|b| format!("{b:02x}")).collect::<String>()
+            suffix
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
         );
         let path = dir.join(name);
 
@@ -250,7 +371,9 @@ impl UnsealedFile {
 /// Unseal into a short-lived 0600 file and return a guard that deletes it on drop.
 pub fn unseal_to_file(sealed: &[u8], key: &[u8; 32]) -> Result<UnsealedFile, SecretError> {
     let plaintext = unseal(sealed, key)?;
-    Ok(UnsealedFile { file: EphemeralFile::create(&plaintext)? })
+    Ok(UnsealedFile {
+        file: EphemeralFile::create(&plaintext)?,
+    })
 }
 
 #[cfg(test)]
@@ -347,7 +470,10 @@ mod tests {
         .unwrap();
 
         assert_eq!(content, b"credentials.toml bytes");
-        assert!(!captured_path.exists(), "plaintext must be removed after use");
+        assert!(
+            !captured_path.exists(),
+            "plaintext must be removed after use"
+        );
     }
 
     #[test]
@@ -371,7 +497,10 @@ mod tests {
 
         // Right passphrase re-derives the key and opens the share.
         let right = derive_key("cedro-barco-pedra-chave", &salt).unwrap();
-        assert_eq!(unseal(&sealed, &right).unwrap(), b"credentials.toml (private share)");
+        assert_eq!(
+            unseal(&sealed, &right).unwrap(),
+            b"credentials.toml (private share)"
+        );
         // Wrong passphrase derives a different key — the share stays closed.
         let wrong = derive_key("cedro-barco-pedra-monte", &salt).unwrap();
         assert_eq!(unseal(&sealed, &wrong), Err(SecretError::Unseal));
@@ -405,6 +534,9 @@ mod tests {
             path = uf.path().to_path_buf();
             assert_eq!(std::fs::read(uf.path()).unwrap(), b"alice.toml share");
         } // guard drops here
-        assert!(!path.exists(), "plaintext must be removed when the guard drops");
+        assert!(
+            !path.exists(),
+            "plaintext must be removed when the guard drops"
+        );
     }
 }
