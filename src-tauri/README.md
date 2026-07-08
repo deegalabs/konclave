@@ -10,10 +10,10 @@ the transport differs. See [docs/adr/0004-ponte-http-local.md](../docs/adr/0004-
 
 Where the code actually lives today:
 
-- **Backend / orchestrator (Layer 2):** `orquestrador/` — the proposal state machine,
+- **Backend / orchestrator (Layer 2):** `orchestrator/` — the proposal state machine,
   validation, wallet, ceremony, store, sealing, and the loopback bridge.
 - **FROST↔PCZT bridge:** `konclave-signer/`.
-- **Frontend (Layer 3 — "Rosto"):** `rosto/`.
+- **Frontend (Layer 3 — "Rosto"):** `ui/`.
 
 Packaging the app as a single Tauri desktop binary is a post-submission roadmap item; it
 changes only the delivery, not the architecture.

@@ -1,5 +1,5 @@
 [package]
-name = "orquestrador"
+name = "orchestrator"
 version = "0.1.0"
 edition = "2021"
 description = "Konclave Orquestrador (Layer 2): proposal state machine, validation, and orchestration of the official FROST/Zcash tools"

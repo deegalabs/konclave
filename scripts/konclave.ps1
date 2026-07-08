@@ -16,7 +16,7 @@ $repo = Split-Path -Parent $PSScriptRoot
 
 if (-not $NoBuild) {
   Write-Host "→ buildando o bundle do Rosto (npm run build)…" -ForegroundColor Cyan
-  Push-Location "$repo\rosto"
+  Push-Location "$repo\ui"
   try { npm run build | Out-Null } finally { Pop-Location }
 }
 

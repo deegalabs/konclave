@@ -12,7 +12,7 @@ function memoBytes(s: string): number {
   return new TextEncoder().encode(s).length
 }
 
-export default function NovoPagamento() {
+export default function NewPayment() {
   const nav = useNavigate()
   const [to, setTo] = useState('')
   const [value, setValue] = useState('0.5')
@@ -69,7 +69,7 @@ export default function NovoPagamento() {
     })
     setBusy(false)
     if (res.ok) {
-      nav('/proposta', { state: { id: res.proposal.id } })
+      nav('/proposal', { state: { id: res.proposal.id } })
     } else {
       setError(humanError(res.error, res.detail))
     }
@@ -77,7 +77,7 @@ export default function NovoPagamento() {
 
   return (
     <>
-      <Letterhead right={<span className="klab back" onClick={() => nav('/painel')}>← Painel</span>} />
+      <Letterhead right={<span className="klab back" onClick={() => nav('/dashboard')}>← Painel</span>} />
       <div className="page narrow">
         <h1 className="h1">Novo pagamento</h1>
 

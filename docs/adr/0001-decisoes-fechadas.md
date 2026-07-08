@@ -25,7 +25,7 @@
 11. **Equipe:** solo → escopo travado no núcleo; extras só se sobrar fôlego.
 12. **SO de dev:** Windows nativo primeiro; WSL2 só se o tooling quebrar.
 13. **Origem dos binários:** compilar da fonte, pinados por SHA, vendorizados como
-    submódulos, com checksum em `motor/versions.lock`. Pin ancorado no commit do tutorial
+    submódulos, com checksum em `engine/versions.lock`. Pin ancorado no commit do tutorial
     oficial FROST+Zcash (caminho conhecido-bom), garantindo coerência de versões de
     `frost-core`/`reddsa` entre as ferramentas.
 14. **Camada carteira:** linkar `zcash_client_backend` no Rust para sync/saldo/plano

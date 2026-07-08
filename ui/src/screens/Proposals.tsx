@@ -9,7 +9,7 @@ const MOCK: Proposal[] = [
   { id: 'm1', vault_id: '', kind: 'payment', state: 'awaiting', proposer: 'Bruno', value_zat: 30000, value_zec: '0.0003', memo: 'adiantamento maio', is_public: false, approvals: ['Bruno'], refusals: [], approvals_count: 1, expiry_unix: undefined },
 ]
 
-export default function Propostas() {
+export default function Proposals() {
   const nav = useNavigate()
   const [rows, setRows] = useState<Proposal[]>([])
   const [threshold, setThreshold] = useState(2)
@@ -34,7 +34,7 @@ export default function Propostas() {
   const awaiting = rows.filter((p) => p.state === 'awaiting')
   const ready = rows.filter((p) => p.state === 'ready')
 
-  const open = (p: Proposal) => nav('/proposta', { state: { id: p.id } })
+  const open = (p: Proposal) => nav('/proposal', { state: { id: p.id } })
 
   const Row = ({ p }: { p: Proposal }) => (
     <div className="plist-row" onClick={() => open(p)}>
@@ -59,7 +59,7 @@ export default function Propostas() {
 
   return (
     <>
-      <Letterhead right={<span className="klab back" onClick={() => nav('/painel')}>← Painel</span>} />
+      <Letterhead right={<span className="klab back" onClick={() => nav('/dashboard')}>← Painel</span>} />
       <div className="page narrow">
         <h1 className="h1">Propostas</h1>
         <p className="cap">Pagamentos e folhas em andamento neste cofre. {live ? '' : '(modo demonstração)'}</p>
@@ -75,11 +75,11 @@ export default function Propostas() {
         {awaiting.length > 0 ? (
           <div className="plist">{awaiting.map((p) => <Row key={p.id} p={p} />)}</div>
         ) : (
-          <div className="empty-note">Nada aguardando aprovação. <span className="link" onClick={() => nav('/pagar')}>Propor um pagamento →</span></div>
+          <div className="empty-note">Nada aguardando aprovação. <span className="link" onClick={() => nav('/pay')}>Propor um pagamento →</span></div>
         )}
 
         {loaded && rows.length === 0 && ready.length === 0 && (
-          <div className="hint mt">O razão guarda o histórico completo, inclusive as concluídas. <span className="link" onClick={() => nav('/razao')}>Ver razão →</span></div>
+          <div className="hint mt">O razão guarda o histórico completo, inclusive as concluídas. <span className="link" onClick={() => nav('/ledger')}>Ver razão →</span></div>
         )}
       </div>
     </>

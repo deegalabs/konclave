@@ -84,5 +84,5 @@ rascunho ──propor──> aguardando ──quórum──> pronta ──broadc
 
 - **Tauri sidecars:** os binários do Motor entram empacotados por target-triple.
 - **Dev:** Windows nativo primeiro; WSL2 como fallback se o tooling exigir Linux.
-- **Build determinístico:** `motor/` compila da fonte em SHA pinado; checksum em
-  `motor/versions.lock`.
+- **Build determinístico:** `engine/` compila da fonte em SHA pinado; checksum em
+  `engine/versions.lock`.

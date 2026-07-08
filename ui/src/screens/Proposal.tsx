@@ -9,7 +9,7 @@ import {
   type Proposal, type PayrollLine,
 } from '../api'
 
-export default function Proposta() {
+export default function Proposal() {
   const nav = useNavigate()
   const loc = useLocation() as { state?: { id?: string } }
   const [p, setP] = useState<Proposal | null>(null)
@@ -69,13 +69,13 @@ export default function Proposta() {
   }
 
   if (loading) {
-    return (<><Letterhead right={<span className="klab back" onClick={() => nav('/painel')}>← Propostas</span>} />
+    return (<><Letterhead right={<span className="klab back" onClick={() => nav('/dashboard')}>← Propostas</span>} />
       <div className="page narrow"><div className="hint">Carregando proposta…</div></div></>)
   }
   if (!p) {
-    return (<><Letterhead right={<span className="klab back" onClick={() => nav('/painel')}>← Propostas</span>} />
+    return (<><Letterhead right={<span className="klab back" onClick={() => nav('/dashboard')}>← Propostas</span>} />
       <div className="page narrow"><h1 className="h1">Nenhuma proposta</h1>
-        <div className="hint">Não há proposta aberta. <span className="link" onClick={() => nav('/pagar')}>Propor um pagamento →</span></div>
+        <div className="hint">Não há proposta aberta. <span className="link" onClick={() => nav('/pay')}>Propor um pagamento →</span></div>
       </div></>)
   }
 
@@ -109,7 +109,7 @@ export default function Proposta() {
 
   return (
     <>
-      <Letterhead right={<span className="klab back" onClick={() => nav('/painel')}>← Painel</span>} />
+      <Letterhead right={<span className="klab back" onClick={() => nav('/dashboard')}>← Painel</span>} />
       <div className="page narrow">
         <div className="prop-head">
           <span className="klab">{eyebrow}</span>

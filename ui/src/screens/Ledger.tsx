@@ -8,7 +8,7 @@ import { stateLabel } from '../labels'
 const SETTLED = (s: string) => s === 'sent' || s === 'confirmed'
 
 
-export default function Razao() {
+export default function Ledger() {
   const nav = useNavigate()
   const [rows, setRows] = useState<Proposal[] | null>(null)
   const [live, setLive] = useState(false)
@@ -64,7 +64,7 @@ export default function Razao() {
       <Letterhead
         right={
           <span className="lh-actions">
-            <span className="klab back" onClick={() => nav('/painel')}>← Painel</span>
+            <span className="klab back" onClick={() => nav('/dashboard')}>← Painel</span>
             <a className="btn ghost sm-btn" href={ledgerCsvUrl()} download="konclave-razao.csv">↓ Exportar CSV</a>
             <button className="btn ghost sm-btn" onClick={() => window.print()}>↓ PDF</button>
           </span>

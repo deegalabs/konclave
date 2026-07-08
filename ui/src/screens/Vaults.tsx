@@ -47,7 +47,7 @@ const MOCK: Vault[] = [
   },
 ]
 
-export default function Cofres() {
+export default function Vaults() {
   const nav = useNavigate()
   const [vaults, setVaults] = useState<Vault[]>([])
   const [loaded, setLoaded] = useState(false)
@@ -60,14 +60,14 @@ export default function Cofres() {
   function enter(v: Vault) {
     setSelectedVault(v.id)
     if (v.locked) { setUnlocking(v); setPass(''); setUnlockErr(null) }
-    else nav('/painel')
+    else nav('/dashboard')
   }
   async function doUnlock() {
     if (!unlocking || !pass) return
     setUnlockBusy(true); setUnlockErr(null)
     const r = await unlockVault(pass)
     setUnlockBusy(false)
-    if (r.ok) { markVaultUnlocked(unlocking.id); nav('/painel') }
+    if (r.ok) { markVaultUnlocked(unlocking.id); nav('/dashboard') }
     else setUnlockErr(r.wrong ? 'Palavra incorreta. Tente de novo.' : 'Não foi possível verificar (cofre local offline?).')
   }
 
@@ -119,7 +119,7 @@ export default function Cofres() {
             )
           })}
 
-          <div className="rd-card rd-create" onClick={() => nav('/criar')}>
+          <div className="rd-card rd-create" onClick={() => nav('/create')}>
             <div>
               <div className="ic">
                 <svg width="34" height="34" viewBox="0 0 34 34" fill="none" stroke="currentColor" strokeWidth="1.6">
@@ -138,8 +138,8 @@ export default function Cofres() {
 
         <div className="rd-note">
           🔒 Seus dados e a sua parte da chave ficam <b>só aqui, no seu aparelho</b> — não vão para nenhum servidor na internet.
-          {' · '}<span className="rd-link" onClick={() => nav('/abertura')} role="link" tabIndex={0}
-            onKeyDown={(e) => { if (e.key === 'Enter') nav('/abertura') }}>como funciona</span>
+          {' · '}<span className="rd-link" onClick={() => nav('/intro')} role="link" tabIndex={0}
+            onKeyDown={(e) => { if (e.key === 'Enter') nav('/intro') }}>como funciona</span>
           {!live && <> · <i>(modo demonstração — sem o cofre local rodando)</i></>}
         </div>
       </div>

@@ -52,7 +52,7 @@ Do [CONCEITO_INICIAL.md §13](docs/CONCEITO_INICIAL.md) + conversa de logística
 Decisões técnicas assumidas na logística:
 - **SO de dev:** começar nativo no **Windows**; **WSL2** só se o tooling quebrar.
 - **Binários:** compilar da fonte, **pinados por SHA**, vendorizados como submódulos,
-  com checksum em `motor/versions.lock` (ver [ADR-0001](docs/adr/0001-decisoes-fechadas.md)).
+  com checksum em `engine/versions.lock` (ver [ADR-0001](docs/adr/0001-decisoes-fechadas.md)).
 - **Camada carteira:** **linkar `zcash_client_backend`** no Rust para sync/saldo/plano
   (dado estruturado nativo) — shellar **apenas** os binários FROST/sign.
 - **Frontend:** **Vite + React** em bundle estático ([ADR-0003](docs/adr/0003-vite-over-nextjs.md)
@@ -210,7 +210,7 @@ Fluxo completo e lições em [docs/VERTICAL_SLICE.md](docs/VERTICAL_SLICE.md).
 - **Ambiente:** WSL2/Ubuntu (Windows sem toolchain C/C++). rustc 1.96.1, clang 21, cmake, protoc.
 - **Motor:** `frost-tools` @ `3d2985c` (frostd/frost-client/zcash-sign) + `zcash-devtool`
   @ `91ba536` (carteira/sync/PCZT/broadcast), compilados. Pins em
-  [motor/versions.lock](motor/versions.lock).
+  [engine/versions.lock](engine/versions.lock).
 - **A ponte (`konclave-signer`):** construída e provada — resolve o **vão de integração**
   entre frost-tools (pczt 0.5) e zcash-devtool (pczt 0.7). É o **nascimento do Orquestrador**.
   Ver [ADR-0002](docs/adr/0002-pczt-frost-bridge.md).
@@ -226,7 +226,7 @@ Generation** (3 participantes via `frostd`), a chave **nunca remontada**. Grupo 
 `u1t2qphc0v…836yl2`. Shares validadas por cerimônia de assinatura 2-de-3. Fluxo do DKG
 em [docs/VERTICAL_SLICE.md](docs/VERTICAL_SLICE.md).
 
-**Fase 3 (Orquestrador) — 3.1–3.3 ✅ CONCLUÍDAS.** Crate `orquestrador/` (Rust, TDD),
+**Fase 3 (Orquestrador) — 3.1–3.3 ✅ CONCLUÍDAS.** Crate `orchestrator/` (Rust, TDD),
 **51 testes destrutivos verdes**:
 - **3.1 Domínio:** `money` (Zatoshis checado), `proposal` (máquina de estados §6),
   `validation` (ZIP 317, memo, folha).
@@ -243,13 +243,13 @@ em [docs/VERTICAL_SLICE.md](docs/VERTICAL_SLICE.md).
   (Fase 5)**, quando a casca Tauri existir — construí-los sem o frontend seria stub
   não-testável.
 
-**Estado do backend:** `orquestrador/` completo no domínio + orquestração + segurança +
+**Estado do backend:** `orchestrator/` completo no domínio + orquestração + segurança +
 store + folha, **59 testes destrutivos verdes**. Falta apenas a casca Tauri + IPC (na
 integração). Build: WSL2, `CARGO_TARGET_DIR` fora do repo (código versionado; `ktarget`
 só no WSL).
 
 **Fase 4 (Rosto/design) — ✅ CONCLUÍDA.** Design system **"Lacre"** (papel arquivístico,
-oxblood, Archivo + mono, tarja de sigilo, selo de cera) em `rosto/src/lacre.css`; app
+oxblood, Archivo + mono, tarja de sigilo, selo de cera) em `ui/src/lacre.css`; app
 navegável em Vite + React + TS (HashRouter): Painel, Abertura, Cerimônia, Novo Pagamento,
 Nova Folha, Proposta, Enviado, Razão. Ver [ADR-0003](docs/adr/0003-vite-over-nextjs.md).
 
@@ -263,7 +263,7 @@ Nova Folha, Proposta, Enviado, Razão. Ver [ADR-0003](docs/adr/0003-vite-over-ne
 - **Provado ponta a ponta:** navegador do **Windows** → servidor no **WSL** via
   `localhost:4762` (health, vault 2-de-3, propostas, estáticos). **69 testes verdes**
   (10 novos de `server::handle`, incluindo destrutivos: 405/404-json/403-traversal/502).
-- **Rosto ligado ao vivo:** `rosto/src/api.ts` (cliente com fallback para mock) + proxy
+- **Rosto ligado ao vivo:** `ui/src/api.ts` (cliente com fallback para mock) + proxy
   Vite `/api`; Painel mostra cofre/propostas reais com selo de "● ao vivo".
 - **Launcher:** `scripts/konclave.ps1` (Windows) + `scripts/_serve.sh` (WSL) — builda,
   sobe a ponte e abre o navegador.
@@ -278,7 +278,7 @@ Trilha "propor → aprovar → assinar → enviar" inteira pela aplicação:
   gasto contra saldo real) e `POST /api/proposals/{id}/approve|refuse` (máquina de
   estados autoritativa; 409 em voto conflitante/fora de estado). Telas `NovoPagamento` e
   `Proposta` ligadas ao vivo. **88 testes verdes.**
-- **Cerimônia + envio:** `orquestrador/src/send.rs` encadeia os wrappers testados
+- **Cerimônia + envio:** `orchestrator/src/send.rs` encadeia os wrappers testados
   (pczt create/prove/send · konclave-signer extract/inject · frostd coordenador+
   participantes concorrentes) num fluxo Ready→Sent, com **dry-run** que assina sem
   transmitir. Exposto em `POST /api/proposals/{id}/send` (habilitado por `--ceremony`).
@@ -314,7 +314,7 @@ planejado em [docs/REDESENHO_FOLHA.md](docs/REDESENHO_FOLHA.md).
   `konclave seal`) e desselados só para arquivos **efêmeros 0600 em tmpfs** durante a
   assinatura; os textos claros do slice foram removidos (provado por dry-run com só os
   `.sealed`). Custódia da chave: arquivo 0600 (produto usa a keychain do SO).
-- **5-F** **criar cofre por DKG pela UI** (`orquestrador/src/dkg.rs`, `POST /api/vault/dkg`,
+- **5-F** **criar cofre por DKG pela UI** (`orchestrator/src/dkg.rs`, `POST /api/vault/dkg`,
   tela `Cerimônia`): init → troca de contatos → DKG concorrente (frostd, RedPallas) → grupo
   → `zcash-sign` (endereço Orchard + UFVK) → wallet view-only → **shares seladas** (5-E). A
   chave **nunca é remontada**. Provado ao vivo (CLI e HTTP): cofre 2-de-3 novo com

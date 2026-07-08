@@ -29,7 +29,7 @@ pub mod signer;
 pub mod tools;
 pub mod wallet;
 
-// --- local HTTP bridge to the Rosto UI (ADR-0004) ---
+// --- local HTTP bridge to the UI (ADR-0004) ---
 pub mod server;
 
 pub use money::{MoneyError, Zatoshis};

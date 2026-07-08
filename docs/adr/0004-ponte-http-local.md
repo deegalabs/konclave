@@ -18,7 +18,7 @@
 Ligar **Rosto ↔ Orquestrador por HTTP em loopback** (`127.0.0.1`), não por IPC Tauri:
 
 - O Orquestrador expõe um **servidor local** (`konclave serve`) que:
-  1. serve o bundle estático do Rosto (`rosto/dist`), e
+  1. serve o bundle estático do Rosto (`ui/dist`), e
   2. expõe a API sob `/api/*` (JSON), envolvendo o núcleo já testado (Store, wallet reads,
      máquina de estados de proposta, orquestração dos binários oficiais).
 - O Rosto, no navegador (ou numa futura webview), consome essa API **na mesma origem**
@@ -43,7 +43,7 @@ Ligar **Rosto ↔ Orquestrador por HTTP em loopback** (`127.0.0.1`), não por IP
 
 ## Consequências
 
-- **Nova superfície:** um bin `konclave` no crate `orquestrador` com o subcomando `serve`
+- **Nova superfície:** um bin `konclave` no crate `orchestrator` com o subcomando `serve`
   (`--port`, `--web <dir>`, `--db <path>`). Bind **fixo em `127.0.0.1`** — nunca `0.0.0.0`.
 - **Dependência mínima:** um servidor HTTP bloqueante leve (`tiny_http`), coerente com o
   núcleo síncrono (rusqlite/subprocessos são bloqueantes) — sem arrastar runtime async.

@@ -48,7 +48,7 @@ já traz os ganchos de FROST** (`unstable-frost`, `apply_signature`, acesso a
   nosso), construído mais cedo. Será dobrado em `src-tauri/` na Fase 3.
 - **Correção de honestidade** ao CONCEITO §6: o "já funciona hoje" vale só para a
   combinação Ywallet+zcash-sign; com carteira headless, é preciso fixar um conjunto
-  compatível **ou** ser dono da ponte. O `motor/versions.lock` fixa o conjunto.
+  compatível **ou** ser dono da ponte. O `engine/versions.lock` fixa o conjunto.
 - Comunicação FROST na demo: `frostd` exige HTTPS; para teste local geramos uma CA
   local + cert-folha para `127.0.0.1` na loja do sistema (reqwest usa
   `rustls-tls-native-roots`). Participantes confirmam com `y` (prompt interativo).

@@ -1,17 +1,17 @@
 //! `konclave` — the local bridge binary (ADR-0004).
 //!
-//! `konclave serve` binds **127.0.0.1** and serves the Rosto bundle + JSON API from the
+//! `konclave serve` binds **127.0.0.1** and serves the UI bundle + JSON API from the
 //! tested Orquestrador core. This is a local daemon, not a network service.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use orquestrador::send::{orchestrate_send, SendConfig, SpendPlan};
-use orquestrador::server::{self, Config, LiveWallet};
-use orquestrador::store::Store;
+use orchestrator::send::{orchestrate_send, SendConfig, SpendPlan};
+use orchestrator::server::{self, Config, LiveWallet};
+use orchestrator::store::Store;
 
 const DEFAULT_PORT: u16 = 4762;
-const DEFAULT_WEB: &str = "rosto/dist";
+const DEFAULT_WEB: &str = "ui/dist";
 const DEFAULT_DB: &str = "konclave.db";
 
 /// `konclave seal --in <file> --out <file.sealed> --key <keyfile>` — seal a secret file
@@ -45,7 +45,7 @@ fn run_seal(args: &[String]) -> Result<(), String> {
         k
     } else {
         let k =
-            orquestrador::secrets::generate_key().map_err(|e| format!("generating key: {e}"))?;
+            orchestrator::secrets::generate_key().map_err(|e| format!("generating key: {e}"))?;
         write_private_key(&key_file, &k)?;
         eprintln!("sealing key created at {key_file} (0600)");
         k
@@ -53,7 +53,7 @@ fn run_seal(args: &[String]) -> Result<(), String> {
 
     let plaintext = std::fs::read(&input).map_err(|e| format!("reading {input}: {e}"))?;
     let sealed =
-        orquestrador::secrets::seal(&plaintext, &key).map_err(|e| format!("sealing: {e}"))?;
+        orchestrator::secrets::seal(&plaintext, &key).map_err(|e| format!("sealing: {e}"))?;
     std::fs::write(&output, &sealed).map_err(|e| format!("writing {output}: {e}"))?;
     println!("sealed {input} -> {output} ({} bytes)", sealed.len());
     Ok(())
@@ -120,7 +120,7 @@ fn run_create_vault(args: &[String]) -> Result<(), String> {
         members.len(),
         members.join(",")
     );
-    let v = orquestrador::dkg::create_vault_dkg(&sc, &name, threshold, &members)
+    let v = orchestrator::dkg::create_vault_dkg(&sc, &name, threshold, &members)
         .map_err(|e| format!("DKG: {e}"))?;
 
     println!("GROUP {}", v.group_pubkey);
@@ -184,7 +184,7 @@ fn print_usage() {
          \n\
          `serve` OPTIONS:\n\
          \x20 --port <N>        port on 127.0.0.1 (default {DEFAULT_PORT})\n\
-         \x20 --web <DIR>       Rosto bundle (default {DEFAULT_WEB})\n\
+         \x20 --web <DIR>       UI bundle (default {DEFAULT_WEB})\n\
          \x20 --db <PATH>       local SQLite database (default {DEFAULT_DB})\n\
          \x20 --demo            seed a sample vault + proposals if the database is empty\n\
          \x20 --devtool <PATH>  zcash-devtool binary (enables live /api/balance)\n\

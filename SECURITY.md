@@ -18,8 +18,8 @@ a report.
 
 ## Scope
 
-In scope: the orchestrator (`orquestrador/`), the FROST↔PCZT bridge (`konclave-signer/`),
-the loopback HTTP bridge, key sealing/derivation, and the frontend (`rosto/`).
+In scope: the orchestrator (`orchestrator/`), the FROST↔PCZT bridge (`konclave-signer/`),
+the loopback HTTP bridge, key sealing/derivation, and the frontend (`ui/`).
 
 Out of scope: the upstream Zcash Foundation tools (`frostd`, `frost-client`, `zcash-sign`,
 `zcash-devtool`) and `librustzcash` — report those to their maintainers.

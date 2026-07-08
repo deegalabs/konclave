@@ -1,4 +1,4 @@
-# rosto/ — Camada 3 (interface)
+# ui/ — Camada 3 (interface)
 
 A experiência humana. **Next.js/React** em static export, servido pelo Tauri. Princípio
 mestre: **esconder a criptografia, expor a confiança** — o usuário vê cofre, membros,
@@ -19,4 +19,4 @@ Saldo/Histórico · Membros · Propostas pendentes.
 ## Design
 Token system (paleta, tipografia, elemento-assinatura) derivado do mundo Zcash/Orchard —
 definido na **Fase 4A** com a skill `frontend-design`, validado antes de virar tela.
-Desenvolve contra **mock** do Orquestrador (`rosto/mocks/`) até a integração (Fase 5).
+Desenvolve contra **mock** do Orquestrador (`ui/mocks/`) até a integração (Fase 5).

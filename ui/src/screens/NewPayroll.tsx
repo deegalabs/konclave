@@ -26,7 +26,7 @@ function rowIssue(r: Row): string | null {
 }
 const rowTouched = (r: Row) => !!(r.address.trim() || r.value.trim() || r.label.trim() || r.memo.trim())
 
-export default function NovaFolha() {
+export default function NewPayroll() {
   const nav = useNavigate()
   const [competencia, setCompetencia] = useState('')
   const [description, setDescription] = useState('')
@@ -123,13 +123,13 @@ export default function NovaFolha() {
       desc,
     )
     setBusy(false)
-    if (res.ok) { localStorage.removeItem(DRAFT_KEY); nav('/proposta', { state: { id: res.proposal.id } }) }
+    if (res.ok) { localStorage.removeItem(DRAFT_KEY); nav('/proposal', { state: { id: res.proposal.id } }) }
     else setError(humanError(res.error, res.detail))
   }
 
   return (
     <>
-      <Letterhead right={<span className="klab back" onClick={() => nav('/painel')}>← Painel</span>} />
+      <Letterhead right={<span className="klab back" onClick={() => nav('/dashboard')}>← Painel</span>} />
       <div className="page">
         <h1 className="h1">Nova folha</h1>
         <p className="cap">Um documento: vários pagamentos numa transação, aprovada uma vez. {saved && <span className="livetag" title="Rascunho salvo neste dispositivo">● rascunho salvo</span>}</p>
@@ -150,7 +150,7 @@ export default function NovaFolha() {
           <div className="past-folhas">
             <span className="klab">Folhas anteriores</span>
             {pastFolhas.slice(0, 4).map((f) => (
-              <div className="pf-row" key={f.id} onClick={() => nav('/proposta', { state: { id: f.id } })}>
+              <div className="pf-row" key={f.id} onClick={() => nav('/proposal', { state: { id: f.id } })}>
                 <span className="pf-name">{f.memo || 'Folha de pagamento'}</span>
                 <span className="pf-meta">
                   <span className="pf-val"><Secret sm><span>{fmtZec(f.value_zec)} ZEC</span></Secret></span>

@@ -1,4 +1,4 @@
-//! The local HTTP bridge (ADR-0004): serves the Rosto bundle and a small JSON API,
+//! The local HTTP bridge (ADR-0004): serves the UI bundle and a small JSON API,
 //! bound to **`127.0.0.1` only**. This is not a network service — it is a local daemon
 //! that a same-machine UI (browser today, a packaged webview tomorrow) talks to.
 //!
@@ -1611,8 +1611,8 @@ fn serve_static(web_dir: &Path, path: &str) -> Response {
             "text/html; charset=utf-8",
             b"<!doctype html><meta charset=utf-8><title>404</title>\
               <body style=\"font-family:monospace;padding:2rem\">\
-              404 - recurso nao encontrado. O bundle do Rosto foi buildado? \
-              (<code>npm run build</code> em <code>rosto/</code>)</body>"
+              404 - not found. Was the UI bundle built? \
+              (<code>npm run build</code> in <code>ui/</code>)</body>"
                 .to_vec(),
         ),
     }

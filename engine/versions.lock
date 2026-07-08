@@ -1,4 +1,4 @@
-# Konclave — motor/versions.lock
+# Konclave — engine/versions.lock
 #
 # Deterministic pin of the official Zcash Foundation tools (Layer 1 — Motor).
 # Policy: build from source at a fixed git rev; never follow `main`. Bumps are deliberate.

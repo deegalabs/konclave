@@ -21,8 +21,8 @@ Usar **Vite + React + TypeScript** (não Next.js) para o Rosto.
 
 ## Consequências
 
-- Estrutura simples: `rosto/` = app Vite; `rosto/design/` = design system + protótipos;
-  `rosto/src/lacre.css` = o design system aplicado.
+- Estrutura simples: `ui/` = app Vite; `ui/design/` = design system + protótipos;
+  `ui/src/lacre.css` = o design system aplicado.
 - Build para `file://` exige `base: './'` (relativo) no `vite.config.ts` — já
   configurado. (Nota: módulos ES não carregam via `file://` fora do Tauri por CORS;
   para preview usa-se `vite preview` ou a flag de dev.)

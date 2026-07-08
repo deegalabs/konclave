@@ -6,7 +6,7 @@ import { getVault, health, shortAddr, type Vault } from '../api'
 
 const ME = 'Alice' // this device acts as the coordinator member (single-device demo)
 
-export default function Membros() {
+export default function Members() {
   const nav = useNavigate()
   const [vault, setVault] = useState<Vault | null>(null)
   const [live, setLive] = useState<boolean | null>(null)
@@ -32,7 +32,7 @@ export default function Membros() {
 
   return (
     <>
-      <Letterhead right={<span className="klab back" onClick={() => nav('/painel')}>← Painel</span>} />
+      <Letterhead right={<span className="klab back" onClick={() => nav('/dashboard')}>← Painel</span>} />
       <div className="page">
         <div className="title-row">
           <div>
@@ -68,7 +68,7 @@ export default function Membros() {
           Nesta demonstração as três partes rodam nesta máquina. No produto, cada membro
           aprova <b>do seu próprio dispositivo</b> com a sua parte — é o passo de multi-dispositivo do roadmap.
         </div>
-        <div className="right mt"><button className="btn ghost sm-btn" onClick={() => nav('/criar')}>+ Criar um novo cofre (DKG)</button></div>
+        <div className="right mt"><button className="btn ghost sm-btn" onClick={() => nav('/create')}>+ Criar um novo cofre (DKG)</button></div>
       </div>
     </>
   )

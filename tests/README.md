@@ -3,16 +3,16 @@
 **The unit + destructive test suites live inside the crates**, next to the code they
 exercise (Rust `#[cfg(test)]` modules), not in this directory:
 
-- `orquestrador/src/*.rs` — the destructive suite (129 tests): money, the proposal state
+- `orchestrator/src/*.rs` — the destructive suite (129 tests): money, the proposal state
   machine, validation, store, the loopback bridge (`handle`/`handle_secured`), sealing,
   payroll, DKG, send.
 - `konclave-signer/src/main.rs` — the FROST↔PCZT bridge (crypto-vector tests: in progress).
-- `rosto/` — frontend tests are a follow-up (a Vitest runner is not yet wired).
+- `ui/` — frontend tests are a follow-up (a Vitest runner is not yet wired).
 
 Run them with:
 
 ```bash
-cargo test --manifest-path orquestrador/Cargo.toml
+cargo test --manifest-path orchestrator/Cargo.toml
 cargo test --manifest-path konclave-signer/Cargo.toml
 ```
 

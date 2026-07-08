@@ -25,8 +25,8 @@
 
 ## Fase 0 — Fundação & Documentação (GSD) — Dia 1
 **Objetivo:** terreno e memória do projeto antes de qualquer código.
-**Entregáveis:** esqueleto (`motor/`, `src-tauri/`, `rosto/`, `docs/`, `tests/`); licença
-dual; `CLAUDE.md`; docs-fonte em `docs/`; `motor/versions.lock` (esqueleto); ADR-0001;
+**Entregáveis:** esqueleto (`engine/`, `src-tauri/`, `ui/`, `docs/`, `tests/`); licença
+dual; `CLAUDE.md`; docs-fonte em `docs/`; `engine/versions.lock` (esqueleto); ADR-0001;
 `.gitignore`; este roadmap.
 **Reality-check:** repos oficiais localizados, tutorial de referência confirmado, status
 Orchard pós-NU6.2 verificado (Orchard vivo e seguro na mainnet).

@@ -16,7 +16,7 @@ function inviteCode(name: string, i: number): string {
   return `zffrost1${s}`
 }
 
-export default function Cerimonia() {
+export default function Ceremony() {
   const nav = useNavigate()
   const [step, setStep] = useState(1) // 1 Definir · 2 Convidar · 3 Criar
   const [name, setName] = useState('Tesouraria da comunidade')
@@ -62,7 +62,7 @@ export default function Cerimonia() {
   if (vault) {
     return (
       <>
-        <Letterhead right={<span className="klab back" onClick={() => nav('/painel')}>← Painel</span>} />
+        <Letterhead right={<span className="klab back" onClick={() => nav('/dashboard')}>← Painel</span>} />
         <div className="page">
           <Stepper step={4} />
           <h1 className="h1 pine">✓ Cofre criado por DKG</h1>
@@ -107,7 +107,7 @@ export default function Cerimonia() {
 
           <hr className="rule" />
           <div className="right">
-            <button className="btn ok" onClick={() => nav('/painel')} disabled={!!passphrase && !acked}
+            <button className="btn ok" onClick={() => nav('/dashboard')} disabled={!!passphrase && !acked}
               title={!!passphrase && !acked ? 'Confirme que guardou a palavra' : ''}>▸ Ir para o cofre</button>
           </div>
         </div>

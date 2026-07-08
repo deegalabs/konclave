@@ -2,7 +2,7 @@
 
 > Plano da Fase 4 (Rosto). O caminho que leva das ideias a telas de alta fidelidade
 > **usáveis por um dono de negócio não-técnico**, não por um dev. Companion de
-> [rosto/design/DESIGN.md](../rosto/design/DESIGN.md) e [ROADMAP.md](ROADMAP.md).
+> [ui/design/DESIGN.md](../ui/design/DESIGN.md) e [ROADMAP.md](ROADMAP.md).
 
 ## Princípio-âncora
 

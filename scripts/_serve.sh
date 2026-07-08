@@ -14,11 +14,11 @@ BIN="$CARGO_TARGET_DIR/debug/konclave"
 DB="$HOME/konclave-demo.db"
 
 echo "→ building konclave bin…"
-( cd "$REPO/orquestrador" && cargo build --bin konclave 2>&1 | tail -3 )
+( cd "$REPO/orchestrator" && cargo build --bin konclave 2>&1 | tail -3 )
 
 if [ ! -x "$BIN" ]; then echo "ERRO: bin não encontrado em $BIN"; exit 1; fi
-if [ ! -f "$REPO/rosto/dist/index.html" ]; then
-  echo "AVISO: rosto/dist não existe — rode 'npm run build' em rosto/ (o launcher .ps1 já faz isso)."
+if [ ! -f "$REPO/ui/dist/index.html" ]; then
+  echo "AVISO: ui/dist não existe — rode 'npm run build' em ui/ (o launcher .ps1 já faz isso)."
 fi
 
 pkill -f 'konclave serve' 2>/dev/null; sleep 0.4
@@ -47,7 +47,7 @@ else
 fi
 
 setsid nohup "$BIN" serve --port "$PORT" \
-  --web "$REPO/rosto/dist" --db "$DB" --demo "${WALLET_ARGS[@]}" "${CEREMONY_ARGS[@]}" \
+  --web "$REPO/ui/dist" --db "$DB" --demo "${WALLET_ARGS[@]}" "${CEREMONY_ARGS[@]}" \
   > "$HOME/konclave-serve.log" 2>&1 &
 sleep 1
 

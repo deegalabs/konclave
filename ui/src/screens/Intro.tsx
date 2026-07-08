@@ -19,7 +19,7 @@ const CARDS: Array<{ ic: string; t: string; d: string }> = [
   { ic: '🛡️', t: 'Privado por fora, transparente por dentro', d: 'Pagamentos blindados na rede Zcash (Orchard); dentro do grupo, quem propôs e quem aprovou fica registrado.' },
 ]
 
-export default function Abertura() {
+export default function Intro() {
   return (
     <div className="rd">
       <div className="rd-shell intro">

@@ -25,20 +25,20 @@ correctness, privacy, and honesty matter more than speed.
 ## Workflow
 
 1. Branch off `main`. One coherent change per PR.
-2. Commits: `type(scope): description` (e.g. `fix(rosto): guard the no-expiry sentinel`).
+2. Commits: `type(scope): description` (e.g. `fix(ui): guard the no-expiry sentinel`).
    **No AI co-author trailer.**
 3. Fill in the PR checklist.
 
 ## Verify before finishing
 
 ```bash
-# Rust (orquestrador + konclave-signer)
-cargo fmt --manifest-path orquestrador/Cargo.toml -- --check
-cargo clippy --manifest-path orquestrador/Cargo.toml --all-targets -- -D warnings
-cargo test  --manifest-path orquestrador/Cargo.toml
+# Rust (orchestrator + konclave-signer)
+cargo fmt --manifest-path orchestrator/Cargo.toml -- --check
+cargo clippy --manifest-path orchestrator/Cargo.toml --all-targets -- -D warnings
+cargo test  --manifest-path orchestrator/Cargo.toml
 
 # Frontend
-cd rosto && npm run lint && npm run build
+cd ui && npm run lint && npm run build
 ```
 
 ## Tests

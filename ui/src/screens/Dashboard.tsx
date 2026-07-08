@@ -18,7 +18,7 @@ const MOVIMENTOS_MOCK: Movimento[] = [
 ]
 
 
-export default function Painel() {
+export default function Dashboard() {
   const nav = useNavigate()
   const [vault, setVault] = useState<Vault | null>(null)
   const [proposals, setProposals] = useState<Proposal[]>([])
@@ -92,11 +92,11 @@ export default function Painel() {
   const movimentos = movs ?? MOVIMENTOS_MOCK
 
   const acoes: [string, string, string, string][] = [
-    ['01', 'Novo pagamento', 'um destino', '/pagar'],
-    ['02', 'Nova folha', 'N destinos, 1 aprovação', '/folha'],
-    ['03', 'Propostas', `${isLive ? awaiting.length : 1} aguardando`, '/propostas'],
-    ['04', 'Razão / contas', 'entregar ao contador', '/razao'],
-    ['05', 'Pessoas', 'cadastro de quem recebe', '/beneficiarios'],
+    ['01', 'Novo pagamento', 'um destino', '/pay'],
+    ['02', 'Nova folha', 'N destinos, 1 aprovação', '/payroll'],
+    ['03', 'Propostas', `${isLive ? awaiting.length : 1} aguardando`, '/proposals'],
+    ['04', 'Razão / contas', 'entregar ao contador', '/ledger'],
+    ['05', 'Pessoas', 'cadastro de quem recebe', '/people'],
   ]
 
   // Delete flow (local only). Locked vaults require the word; unlocked ones require
@@ -121,7 +121,7 @@ export default function Painel() {
             <span className="klab">Cofre coletivo · quórum</span>
             <h1 className="h1">{name}</h1>
             <div className="vmeta">
-              Privado por fora · <b>transparente por dentro</b> · <Link className="link" to="/membros">{members} membros</Link>
+              Privado por fora · <b>transparente por dentro</b> · <Link className="link" to="/members">{members} membros</Link>
               {live === true && <span className="livetag" title="Conectado ao cofre local">● ao vivo</span>}
               {live === false && <span className="livetag off" title="Bridge local não encontrada">○ demonstração</span>}
             </div>
@@ -145,7 +145,7 @@ export default function Painel() {
               </div>
             </div>
             <div className="btns">
-              <Link className="btn ok" to="/proposta" state={pending ? { id: pending.id } : undefined}>▸ Revisar e votar</Link>
+              <Link className="btn ok" to="/proposal" state={pending ? { id: pending.id } : undefined}>▸ Revisar e votar</Link>
             </div>
             <div className="note">Você escolhe por quem aprova ou recusa na próxima tela.</div>
           </section>
@@ -153,7 +153,7 @@ export default function Painel() {
           <section className="needyou calm">
             <div className="req"><span className="stamp">—</span> Nada aguardando você</div>
             <div className="note">Quando alguém propuser um pagamento, ele aparece aqui para o seu aval.</div>
-            <div className="btns"><Link className="btn ok" to="/pagar">▸ Propor pagamento</Link></div>
+            <div className="btns"><Link className="btn ok" to="/pay">▸ Propor pagamento</Link></div>
           </section>
         )}
 
@@ -210,7 +210,7 @@ export default function Painel() {
               </div>
               <div className={'lval ' + m.dir}>
                 <Secret sm><span>{m.value}</span></Secret>
-                <div className="st">{m.status === 'verificar' ? <Link className="link" to="/razao">verificar ↗</Link> : 'confirmado'}</div>
+                <div className="st">{m.status === 'verificar' ? <Link className="link" to="/ledger">verificar ↗</Link> : 'confirmado'}</div>
               </div>
             </div>
           ))}

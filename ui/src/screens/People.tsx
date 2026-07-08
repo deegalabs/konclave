@@ -7,7 +7,7 @@ import {
   type Beneficiary,
 } from '../api'
 
-export default function Beneficiarios() {
+export default function People() {
   const nav = useNavigate()
   const [list, setList] = useState<Beneficiary[]>([])
   const [name, setName] = useState('')
@@ -56,7 +56,7 @@ export default function Beneficiarios() {
 
   return (
     <>
-      <Letterhead right={<span className="klab back" onClick={() => nav('/painel')}>← Painel</span>} />
+      <Letterhead right={<span className="klab back" onClick={() => nav('/dashboard')}>← Painel</span>} />
       <div className="page">
         <h1 className="h1">Pessoas</h1>
         <p className="cap">O cadastro de quem recebe. Guarde uma vez e escolha por nome ao pagar ou montar a folha — em vez de colar endereços toda vez.</p>
