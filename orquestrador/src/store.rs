@@ -92,6 +92,9 @@ pub struct ProposalRecord {
     pub refusals: Vec<String>,
 }
 
+/// A vault passphrase lock at rest: the KDF `(salt, verifier)` pair.
+pub type VaultLock = (Vec<u8>, Vec<u8>);
+
 pub struct Store {
     conn: Connection,
 }
@@ -196,7 +199,7 @@ impl Store {
     }
 
     /// A vault's `(salt, verifier)`, or `None` when the vault has no passphrase.
-    pub fn get_vault_lock(&self, vault_id: &str) -> Result<Option<(Vec<u8>, Vec<u8>)>, StoreError> {
+    pub fn get_vault_lock(&self, vault_id: &str) -> Result<Option<VaultLock>, StoreError> {
         let mut stmt = self
             .conn
             .prepare("SELECT salt, verifier FROM vault_locks WHERE vault_id = ?1")?;
@@ -319,7 +322,7 @@ impl Store {
             "SELECT id, vault_id, kind, state, proposer, value_total, memo, expiry_unix, txid, to_address, created_at
              FROM proposals WHERE id = ?1",
         )?;
-        let mut rows = stmt.query_map(params![id], |r| row_to_proposal_head(r))?;
+        let mut rows = stmt.query_map(params![id], row_to_proposal_head)?;
         let head = match rows.next() {
             Some(r) => r??,
             None => return Ok(None),
@@ -335,7 +338,7 @@ impl Store {
              WHERE vault_id = ?1 AND state IN ('awaiting','ready','sent')",
         )?;
         let heads: Vec<ProposalRecord> = stmt
-            .query_map(params![vault_id], |r| row_to_proposal_head(r))?
+            .query_map(params![vault_id], row_to_proposal_head)?
             .map(|r| r?)
             .collect::<Result<_, StoreError>>()?;
         heads.into_iter().map(|h| self.attach_votes(h)).collect()
@@ -491,7 +494,7 @@ impl Store {
              FROM proposals WHERE vault_id = ?1 ORDER BY created_at DESC, id DESC",
         )?;
         let heads: Vec<ProposalRecord> = stmt
-            .query_map(params![vault_id], |r| row_to_proposal_head(r))?
+            .query_map(params![vault_id], row_to_proposal_head)?
             .map(|r| r?)
             .collect::<Result<_, StoreError>>()?;
         heads.into_iter().map(|h| self.attach_votes(h)).collect()
@@ -709,7 +712,10 @@ mod tests {
         let mut p = sample_proposal();
         p.created_at = Some(1_700_000_042);
         s.save_proposal(&p).unwrap();
-        assert_eq!(s.get_proposal("prop-1").unwrap().unwrap().created_at, Some(1_700_000_042));
+        assert_eq!(
+            s.get_proposal("prop-1").unwrap().unwrap().created_at,
+            Some(1_700_000_042)
+        );
 
         // Re-saving (e.g. a vote/state change) must NOT overwrite the original creation time.
         p.state = ProposalState::Ready;
@@ -717,7 +723,11 @@ mod tests {
         s.save_proposal(&p).unwrap();
         let got = s.get_proposal("prop-1").unwrap().unwrap();
         assert_eq!(got.state, ProposalState::Ready);
-        assert_eq!(got.created_at, Some(1_700_000_042), "created_at must be immutable after creation");
+        assert_eq!(
+            got.created_at,
+            Some(1_700_000_042),
+            "created_at must be immutable after creation"
+        );
     }
 
     #[test]

@@ -135,7 +135,7 @@ pub fn validate_memo(memo: &str, dest: AddressKind) -> Result<(), ValidationErro
     if !dest.supports_memo() {
         return Err(ValidationError::MemoOnTransparent);
     }
-    let bytes = memo.as_bytes().len();
+    let bytes = memo.len();
     if bytes > MEMO_MAX_BYTES {
         return Err(ValidationError::MemoTooLong { bytes });
     }

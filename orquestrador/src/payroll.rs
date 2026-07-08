@@ -112,7 +112,7 @@ pub fn import_csv(csv: &str) -> ImportReport {
 
     // Header detection: if the first row's value column doesn't parse as ZEC, it's a header.
     if let Some((_, first)) = rows.first() {
-        let value_field = first.splitn(4, ',').nth(2).unwrap_or("");
+        let value_field = first.split(',').nth(2).unwrap_or("");
         if Zatoshis::from_zec_str(value_field).is_err() {
             rows.remove(0);
         }

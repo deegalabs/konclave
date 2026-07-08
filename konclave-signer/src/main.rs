@@ -68,7 +68,9 @@ enum Cmd {
 }
 
 /// Error type for the orchard signing closure (must be `From<ParseError>`).
+/// The payloads are carried for `Debug` diagnostics (surfaced on failure), not matched on.
 #[derive(Debug)]
+#[allow(dead_code)]
 enum OErr {
     Parse(orchard::pczt::ParseError),
     Sign(orchard::pczt::SignerError),

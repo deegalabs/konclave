@@ -81,15 +81,14 @@ pub fn parse_balance(json: &str) -> Result<Balance, ToolError> {
 fn last_json_line(text: &str) -> Result<&str, ToolError> {
     text.lines()
         .map(str::trim)
-        .filter(|l| l.starts_with('{') && l.ends_with('}'))
-        .next_back()
+        .rfind(|l| l.starts_with('{') && l.ends_with('}'))
         .ok_or_else(|| ToolError::parse("tool output", "no JSON object found"))
 }
 
 // ---- wrappers that actually run the tool ----
 
 /// Common server args for read commands.
-fn server_args<'a>(server: &'a str) -> [&'a str; 4] {
+fn server_args(server: &str) -> [&str; 4] {
     ["-s", server, "--connection", "direct"]
 }
 
