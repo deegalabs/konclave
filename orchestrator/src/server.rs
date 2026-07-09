@@ -1865,18 +1865,28 @@ pub fn serve(cfg: Config, port: u16) -> std::io::Result<()> {
                 token = Some(h.value.as_str().to_string());
             }
         }
+        // Bounded body (L4): reject an over-large payload up front by Content-Length — a local
+        // daemon must not buffer an unbounded Vec. 2 MiB is generous for a payroll. Over → 413.
+        const MAX_BODY: usize = 2 * 1024 * 1024;
+        let too_large = req.body_length().map(|n| n > MAX_BODY).unwrap_or(false);
         let mut body = Vec::new();
-        let _ = req.as_reader().read_to_end(&mut body);
-        let resp = handle_secured(
-            &cfg,
-            &session_token,
-            &method,
-            &url,
-            &body,
-            host.as_deref(),
-            origin.as_deref(),
-            token.as_deref(),
-        );
+        if !too_large {
+            let _ = req.as_reader().read_to_end(&mut body);
+        }
+        let resp = if too_large {
+            Response::json(413, &serde_json::json!({ "error": "payload too large" }))
+        } else {
+            handle_secured(
+                &cfg,
+                &session_token,
+                &method,
+                &url,
+                &body,
+                host.as_deref(),
+                origin.as_deref(),
+                token.as_deref(),
+            )
+        };
         let header =
             tiny_http::Header::from_bytes(&b"Content-Type"[..], resp.content_type.as_bytes())
                 .expect("valid header");
