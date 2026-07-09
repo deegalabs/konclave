@@ -22,6 +22,14 @@ function detectLocale(): Locale {
 
 export type TFn = (key: string, vars?: Record<string, string | number>) => string
 
+/** Substitute `{name}` placeholders in a translated string. Pure (no locale state) so it
+ *  can be unit-tested directly. Unknown placeholders are left untouched. */
+export function interpolate(s: string, vars?: Record<string, string | number>): string {
+  if (!vars) return s
+  for (const [k, v] of Object.entries(vars)) s = s.split(`{${k}}`).join(String(v))
+  return s
+}
+
 type I18n = { locale: Locale; setLocale: (l: Locale) => void; t: TFn }
 const Ctx = createContext<I18n | null>(null)
 
@@ -35,9 +43,8 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   const t = useCallback<TFn>((key, vars) => {
     // Fall back to English, then to the raw key, so a missing translation is never a blank.
-    let s = DICTS[locale][key] ?? DICTS.en[key] ?? key
-    if (vars) for (const [k, v] of Object.entries(vars)) s = s.split(`{${k}}`).join(String(v))
-    return s
+    const s = DICTS[locale][key] ?? DICTS.en[key] ?? key
+    return interpolate(s, vars)
   }, [locale])
 
   return <Ctx.Provider value={{ locale, setLocale, t }}>{children}</Ctx.Provider>

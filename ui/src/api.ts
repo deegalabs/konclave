@@ -182,6 +182,9 @@ export function humanError(t: TFn, error?: string, detail?: string): string {
   const has = (s: string) => e.includes(s) || d.includes(s)
 
   if (has('insufficient') || has('saldo')) return t('error.insufficient')
+  // A client-side fetch failure surfaces as 'no connection' — match it BEFORE the ceremony
+  // rule below, whose bare 'connection' substring would otherwise swallow it.
+  if (has('no connection') || has('failed to fetch')) return t('error.noConnection')
   if (e === 'send failed' || has('connection') || has('frostd') || has('transport') || has('refused') || has('timed out'))
     return t('error.ceremony')
   if (has('signature') || has('apply_signature') || has('share')) return t('error.share')
@@ -194,7 +197,6 @@ export function humanError(t: TFn, error?: string, detail?: string): string {
   if (e === 'no vault') return t('error.noVault')
   if (e === 'no destination') return t('error.noDestination')
   if (e === 'empty payroll' || has('payroll has no lines')) return t('error.emptyPayroll')
-  if (has('no connection') || has('failed to fetch')) return t('error.noConnection')
 
   // Fallback: a short detail is probably already readable; otherwise a generic message.
   if (detail && detail.length > 0 && detail.length < 140) return detail

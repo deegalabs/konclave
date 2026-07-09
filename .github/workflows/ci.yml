@@ -55,5 +55,7 @@ jobs:
       - run: npm ci
       - name: Lint (oxlint)
         run: npm run lint
+      - name: Unit tests (vitest)
+        run: npm run test
       - name: Type-check + build (tsc -b && vite build)
         run: npm run build
