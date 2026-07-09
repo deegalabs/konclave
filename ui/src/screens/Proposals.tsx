@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Letterhead, Secret } from '../components'
+import { Link, useNavigate } from 'react-router-dom'
+import { Letterhead, Secret, activateOnKey } from '../components'
 import { Identicon } from '../avatar'
 import { getProposals, getVault, health, type Proposal } from '../api'
 import { expiryLabel, fmtZec } from '../format'
@@ -40,7 +40,7 @@ export default function Proposals() {
   const open = (p: Proposal) => nav('/proposal', { state: { id: p.id } })
 
   const Row = ({ p }: { p: Proposal }) => (
-    <div className="plist-row" onClick={() => open(p)}>
+    <div className="plist-row" role="button" tabIndex={0} onClick={() => open(p)} onKeyDown={activateOnKey(() => open(p))}>
       <Identicon seed={p.proposer} size={34} />
       <div className="plist-main">
         <div className="plist-title">{p.memo || (p.kind === 'payroll' ? t('kind.payroll') : t('kind.payment'))}</div>
@@ -62,8 +62,8 @@ export default function Proposals() {
 
   return (
     <>
-      <Letterhead right={<span className="klab back" onClick={() => nav('/dashboard')}>{t('common.backPanel')}</span>} />
-      <div className="page narrow">
+      <Letterhead right={<Link className="klab back" to="/dashboard">{t('common.backPanel')}</Link>} />
+      <main className="page narrow">
         <h1 className="h1">{t('proposals.title')}</h1>
         <p className="cap">{t('proposals.cap')} {live ? '' : t('proposals.demoMode')}</p>
 
@@ -78,13 +78,13 @@ export default function Proposals() {
         {awaiting.length > 0 ? (
           <div className="plist">{awaiting.map((p) => <Row key={p.id} p={p} />)}</div>
         ) : (
-          <div className="empty-note">{t('proposals.nothingAwaiting')} <span className="link" onClick={() => nav('/pay')}>{t('proposal.proposePaymentLink')}</span></div>
+          <div className="empty-note">{t('proposals.nothingAwaiting')} <Link className="link" to="/pay">{t('proposal.proposePaymentLink')}</Link></div>
         )}
 
         {loaded && rows.length === 0 && ready.length === 0 && (
-          <div className="hint mt">{t('proposals.ledgerHint')} <span className="link" onClick={() => nav('/ledger')}>{t('proposals.viewLedger')}</span></div>
+          <div className="hint mt">{t('proposals.ledgerHint')} <Link className="link" to="/ledger">{t('proposals.viewLedger')}</Link></div>
         )}
-      </div>
+      </main>
     </>
   )
 }

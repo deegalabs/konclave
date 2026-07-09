@@ -41,6 +41,10 @@ export const en: Record<string, string> = {
   'common.backProposals': '← Proposals',
   'common.remove': 'remove',
   'common.demoModeNoBridge': 'demo mode — the local vault isn’t running',
+
+  // accessible names (screen-reader only)
+  'a11y.addFromRegistry': 'Add beneficiary from registry',
+
   'seal.caption': 'Signatures',
   'stepper.define': 'Define',
   'stepper.invite': 'Invite',

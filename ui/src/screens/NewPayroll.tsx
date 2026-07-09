@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Letterhead, Secret } from '../components'
+import { Link, useNavigate } from 'react-router-dom'
+import { Letterhead, Secret, activateOnKey } from '../components'
 import { fmtZec, parseZecToZat, zatToZec } from '../format'
 import { useT, useTr } from '../i18n'
 import {
@@ -131,10 +131,10 @@ export default function NewPayroll() {
 
   return (
     <>
-      <Letterhead right={<span className="klab back" onClick={() => nav('/dashboard')}>{t('common.backPanel')}</span>} />
-      <div className="page">
+      <Letterhead right={<Link className="klab back" to="/dashboard">{t('common.backPanel')}</Link>} />
+      <main className="page">
         <h1 className="h1">{t('payroll.title')}</h1>
-        <p className="cap">{t('payroll.cap')} {saved && <span className="livetag" title={t('payroll.draftSavedTitle')}>{t('payroll.draftSaved')}</span>}</p>
+        <p className="cap">{t('payroll.cap')} {saved && <span className="livetag" title={t('payroll.draftSavedTitle')} aria-live="polite">{t('payroll.draftSaved')}</span>}</p>
 
         <div className="ctx">
           <span>{tr('payment.fromVault', { name: vaultName })}</span>
@@ -152,7 +152,9 @@ export default function NewPayroll() {
           <div className="past-folhas">
             <span className="klab">{t('payroll.pastPayrolls')}</span>
             {pastFolhas.slice(0, 4).map((f) => (
-              <div className="pf-row" key={f.id} onClick={() => nav('/proposal', { state: { id: f.id } })}>
+              <div className="pf-row" key={f.id} role="button" tabIndex={0}
+                onClick={() => nav('/proposal', { state: { id: f.id } })}
+                onKeyDown={activateOnKey(() => nav('/proposal', { state: { id: f.id } }))}>
                 <span className="pf-name">{f.memo || t('kind.payroll')}</span>
                 <span className="pf-meta">
                   <span className="pf-val"><Secret sm><span>{fmtZec(f.value_zec)} ZEC</span></Secret></span>
@@ -203,7 +205,7 @@ export default function NewPayroll() {
         <div className="mt-sm folha-actions">
           <button className="btn ghost sm-btn" onClick={addRow}>{t('payroll.addRow')}</button>
           {benefs.length > 0 && (
-            <select className="btn ghost sm-btn" value="" onChange={(e) => {
+            <select className="btn ghost sm-btn" value="" aria-label={t('a11y.addFromRegistry')} onChange={(e) => {
               const b = benefs.find((x) => x.id === e.target.value)
               if (b) setRows((prev) => [...prev.filter(rowTouched), { label: b.name, address: b.address, value: '', memo: b.memo }])
             }}>
@@ -232,12 +234,12 @@ export default function NewPayroll() {
           <div className="pv-row"><span className="pv-k">{t('payroll.pvApproval')}</span><span className="pv-v">{tr('payroll.pvApprovalValue', { proposer })}</span></div>
         </div>
         {afterZat !== null && afterZat < 0 && <div className="hint warn mt-sm">{t('payroll.warnExceeds')}</div>}
-        {error && <div className="hint err mt">✗ {error}</div>}
+        {error && <div className="hint err mt" role="alert">✗ {error}</div>}
 
         <div className="right mt">
           <button className="btn ok" onClick={submit} disabled={!canSubmit}>{busy ? t('payroll.sending') : t('payroll.submitBtn')}</button>
         </div>
-      </div>
+      </main>
     </>
   )
 }

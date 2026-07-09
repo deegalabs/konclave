@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Letterhead, Seal, Secret, RevealButton } from '../components'
+import { Dialog, Letterhead, Seal, Secret, RevealButton } from '../components'
 import { Identicon } from '../avatar'
 import { fmtZec as fmt4, expiryLabel, fmtDate } from '../format'
 import { useT, useTr } from '../i18n'
@@ -118,15 +118,15 @@ export default function Dashboard() {
   return (
     <>
       <Letterhead right={<Link className="switch" to="/" title={t('dashboard.switchVault')}>{tr('dashboard.vaultLabel', { name })} ▾</Link>} />
-      <div className="page">
+      <main className="page">
         <div className="title-row">
           <div>
             <span className="klab">{t('dashboard.collectiveVault')}</span>
             <h1 className="h1">{name}</h1>
             <div className="vmeta">
               {tr('dashboard.vmetaPre')} · <Link className="link" to="/members">{t('dashboard.membersCount', { n: members })}</Link>
-              {live === true && <span className="livetag" title={t('dashboard.liveTitle')}>{t('dashboard.live')}</span>}
-              {live === false && <span className="livetag off" title={t('dashboard.demoTitle')}>{t('dashboard.demo')}</span>}
+              {live === true && <span className="livetag" title={t('dashboard.liveTitle')} aria-live="polite">{t('dashboard.live')}</span>}
+              {live === false && <span className="livetag off" title={t('dashboard.demoTitle')} aria-live="polite">{t('dashboard.demo')}</span>}
             </div>
           </div>
           <Seal t={thr} n={n} />
@@ -163,7 +163,7 @@ export default function Dashboard() {
         {/* 2 · Saldo */}
         <section className="entry">
           <div className="entry-top">
-            <span className="klab">{t('dashboard.vaultBalance')}</span>
+            <h2 className="klab">{t('dashboard.vaultBalance')}</h2>
             <RevealButton />
           </div>
           <div className="fig">
@@ -186,7 +186,7 @@ export default function Dashboard() {
 
         {/* 3 · O que fazer */}
         <nav className="opnav card">
-          <span className="klab">{t('dashboard.whatToDo')}</span>
+          <h2 className="klab">{t('dashboard.whatToDo')}</h2>
           {acoes.map(([num, title, desc, to]) => (
             <Link className="op" to={to} key={num}>
               <span className="n">{num}</span>
@@ -199,7 +199,7 @@ export default function Dashboard() {
 
         {/* 4 · Histórico */}
         <section className="ledger">
-          <span className="klab">{t('dashboard.movements')}</span>
+          <h2 className="klab">{t('dashboard.movements')}</h2>
           <div className="cap">{t('dashboard.movementsCap')}</div>
           {movimentos.length === 0 && (
             <div className="cap">{t('dashboard.noMovements')}</div>
@@ -221,7 +221,7 @@ export default function Dashboard() {
 
         {/* Zona de perigo */}
         <section className="danger-zone">
-          <span className="klab danger-lab">{t('dashboard.dangerZone')}</span>
+          <h2 className="klab danger-lab">{t('dashboard.dangerZone')}</h2>
           <div className="danger-body">
             <div>
               <div className="danger-t">{t('dashboard.deleteThisVault')}</div>
@@ -230,13 +230,12 @@ export default function Dashboard() {
             <button className="btn danger-btn" onClick={() => { setShowDelete(true); setDelErr(null); setDelPass(''); setDelName('') }}>{t('dashboard.deleteVault')}</button>
           </div>
         </section>
-      </div>
+      </main>
 
       {showDelete && (
-        <div className="modal-overlay" onClick={() => setShowDelete(false)}>
-          <div className="modal-card danger" onClick={(e) => e.stopPropagation()}>
+        <Dialog className="modal-overlay" cardClassName="modal-card danger" labelledBy="delete-title" onClose={() => setShowDelete(false)}>
             <span className="klab danger-lab">{t('dashboard.deleteVault')}</span>
-            <h2 className="modal-h">{tr('dashboard.deleteConfirmTitle', { name })}</h2>
+            <h2 id="delete-title" className="modal-h">{tr('dashboard.deleteConfirmTitle', { name })}</h2>
             <p className="modal-p">{tr('dashboard.deleteConfirmBody')}</p>
 
             <div className="danger-funds">
@@ -256,7 +255,7 @@ export default function Dashboard() {
                   onKeyDown={(e) => { if (e.key === 'Enter' && canDelete) void doDelete() }} autoFocus />
               </label>
             )}
-            {delErr && <div className="hint err mt">✗ {delErr}</div>}
+            {delErr && <div className="hint err mt" role="alert">✗ {delErr}</div>}
 
             <div className="btns right mt">
               <button className="btn ghost" onClick={() => setShowDelete(false)}>{t('common.cancel')}</button>
@@ -264,8 +263,7 @@ export default function Dashboard() {
                 {delBusy ? t('dashboard.deleting') : t('dashboard.deletePermanently')}
               </button>
             </div>
-          </div>
-        </div>
+        </Dialog>
       )}
     </>
   )

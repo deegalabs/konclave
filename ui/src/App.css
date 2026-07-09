@@ -131,6 +131,15 @@
 .sm-btn{padding:8px 12px}
 .back{cursor:pointer}
 .back:hover{color:var(--accent)}
+
+/* a11y: text-styled controls rendered as <a>/<button> instead of <span> —
+   strip the native chrome so they look identical to the spans they replaced */
+a.klab.back{text-decoration:none}
+button.link{appearance:none;-webkit-appearance:none;background:transparent;
+  border-top:0;border-left:0;border-right:0;padding:0;margin:0;text-align:left;
+  cursor:pointer;line-height:inherit}
+/* section titles promoted from <span> to real headings keep the label look */
+h1.klab,h2.klab,h3.klab{margin:0;font-weight:400}
 .lh-actions{display:flex; align-items:center; gap:16px}
 .row-gap{display:flex; gap:8px; margin:12px 0 24px}
 .fee{font-size:12.5px}

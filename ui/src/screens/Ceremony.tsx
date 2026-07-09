@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Letterhead, Stepper } from '../components'
 import { useT, useTr } from '../i18n'
 import { createVaultDkg, setSelectedVault, markVaultUnlocked, shortAddr, humanError, type Vault } from '../api'
@@ -65,8 +65,8 @@ export default function Ceremony() {
   if (vault) {
     return (
       <>
-        <Letterhead right={<span className="klab back" onClick={() => nav('/dashboard')}>{t('common.backPanel')}</span>} />
-        <div className="page">
+        <Letterhead right={<Link className="klab back" to="/dashboard">{t('common.backPanel')}</Link>} />
+        <main className="page">
           <Stepper step={4} />
           <h1 className="h1 pine">{t('ceremony.createdTitle')}</h1>
           <div className="vmeta">{tr('ceremony.createdSubtitle')}</div>
@@ -112,7 +112,7 @@ export default function Ceremony() {
             <button className="btn ok" onClick={() => nav('/dashboard')} disabled={!!passphrase && !acked}
               title={!!passphrase && !acked ? t('ceremony.confirmSavedWord') : ''}>{t('ceremony.goToVault')}</button>
           </div>
-        </div>
+        </main>
       </>
     )
   }
@@ -122,12 +122,12 @@ export default function Ceremony() {
     return (
       <>
         <Letterhead right={<span className="klab">{t('ceremony.creating')}</span>} />
-        <div className="page">
+        <main className="page">
           <Stepper step={3} />
           <h1 className="h1">{t('ceremony.generatingTitle')}</h1>
           <div className="vmeta">{t('ceremony.generatingSubtitle')}</div>
           <div className="progress-bar"><span /></div>
-        </div>
+        </main>
       </>
     )
   }
@@ -135,8 +135,8 @@ export default function Ceremony() {
   // --- form: step 1 Definir · step 2 Convidar ---
   return (
     <>
-      <Letterhead right={<span className="klab back" onClick={() => nav('/')}>{t('common.backVaults')}</span>} />
-      <div className="page narrow">
+      <Letterhead right={<Link className="klab back" to="/">{t('common.backVaults')}</Link>} />
+      <main className="page narrow">
         <Stepper step={step} />
 
         {step === 1 && (
@@ -159,7 +159,7 @@ export default function Ceremony() {
 
             <div className="field mt"><span>{t('ceremony.howManyApprovals')}</span>
               <div className="selq">
-                <select className="box" value={threshold} onChange={(e) => setThreshold(Number(e.target.value))}>
+                <select className="box" aria-label={t('ceremony.howManyApprovals')} value={threshold} onChange={(e) => setThreshold(Number(e.target.value))}>
                   {Array.from({ length: Math.max(n, 1) }, (_, i) => i + 1).map((q) => <option key={q} value={q}>{q}</option>)}
                 </select>
                 <span className="selq-unit"> {t('ceremony.ofNPeople', { n })}</span>
@@ -167,7 +167,7 @@ export default function Ceremony() {
               <div className="hint">{t('ceremony.quorumHint', { threshold, approvals: threshold === 1 ? t('ceremony.approvalSingular') : t('ceremony.approvalPlural') })}</div>
             </div>
 
-            {error && <div className="hint err mt">✗ {error}</div>}
+            {error && <div className="hint err mt" role="alert">✗ {error}</div>}
             <hr className="rule" />
             <div className="right"><button className="btn ok" onClick={goConvidar}>{t('ceremony.invitePeople')}</button></div>
           </>
@@ -195,7 +195,7 @@ export default function Ceremony() {
 
             <div className="confirm mt">{tr('ceremony.demoNote')}</div>
 
-            {error && <div className="hint err mt">✗ {error}</div>}
+            {error && <div className="hint err mt" role="alert">✗ {error}</div>}
             <hr className="rule" />
             <div className="row-gap center-between">
               <button className="btn ghost" onClick={() => setStep(1)}>{t('common.back')}</button>
@@ -203,7 +203,7 @@ export default function Ceremony() {
             </div>
           </>
         )}
-      </div>
+      </main>
     </>
   )
 }

@@ -1,7 +1,59 @@
-import type { ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useReveal } from './reveal'
 import { useI18n, useT } from './i18n'
+
+/** Enter/Space handler for elements given `role="button"` + `tabIndex`.
+ *  Ignores events bubbling up from nested controls so a row doesn't fire when
+ *  an inner link/button is activated. */
+export function activateOnKey(fn: () => void) {
+  return (e: ReactKeyboardEvent) => {
+    if (e.target !== e.currentTarget) return
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn() }
+  }
+}
+
+/** Accessible modal dialog: role/aria-modal/aria-labelledby, focus moved inside
+ *  on open, a Tab focus-trap, Esc to close, and focus returned to the trigger on
+ *  close. Backdrop click closes (via onClose). Keeps the existing overlay/card
+ *  classes so the visual design is unchanged. */
+export function Dialog({ labelledBy, onClose, className, cardClassName, children }: {
+  labelledBy: string
+  onClose: () => void
+  className: string
+  cardClassName: string
+  children: ReactNode
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+  useEffect(() => {
+    const node = ref.current
+    const prev = document.activeElement as HTMLElement | null
+    const sel = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
+    const focusables = () => (node ? Array.from(node.querySelectorAll<HTMLElement>(sel)) : [])
+    ;(focusables()[0] ?? node)?.focus()
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') { e.preventDefault(); onCloseRef.current(); return }
+      if (e.key !== 'Tab') return
+      const f = focusables()
+      const first = f[0], last = f[f.length - 1]
+      if (!first || !last) return
+      const active = document.activeElement
+      if (e.shiftKey && active === first) { e.preventDefault(); last.focus() }
+      else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus() }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('keydown', onKey); prev?.focus?.() }
+  }, [])
+  return (
+    <div className={className} onClick={() => onCloseRef.current()}>
+      <div ref={ref} className={cardClassName} role="dialog" aria-modal="true" aria-labelledby={labelledBy} onClick={(e) => e.stopPropagation()}>
+        {children}
+      </div>
+    </div>
+  )
+}
 
 /** Language toggle (PT / EN). Keyboard-operable buttons; the choice persists per device. */
 export function LangToggle() {

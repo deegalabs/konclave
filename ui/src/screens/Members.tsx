@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Letterhead, Seal } from '../components'
 import { Identicon } from '../avatar'
 import { useT, useTr } from '../i18n'
@@ -35,8 +35,8 @@ export default function Members() {
 
   return (
     <>
-      <Letterhead right={<span className="klab back" onClick={() => nav('/dashboard')}>{t('common.backPanel')}</span>} />
-      <div className="page">
+      <Letterhead right={<Link className="klab back" to="/dashboard">{t('common.backPanel')}</Link>} />
+      <main className="page">
         <div className="title-row">
           <div>
             <span className="klab">{t('members.eyebrow', { t: thr, n })}</span>
@@ -69,7 +69,7 @@ export default function Members() {
 
         <div className="confirm mt">{tr('members.demoNote')}</div>
         <div className="right mt"><button className="btn ghost sm-btn" onClick={() => nav('/create')}>{t('members.createNew')}</button></div>
-      </div>
+      </main>
     </>
   )
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { Letterhead, Secret } from '../components'
 import { Identicon } from '../avatar'
 import { fmtZec } from '../format'
@@ -12,7 +12,6 @@ import {
 export default function Proposal() {
   const t = useT()
   const tr = useTr()
-  const nav = useNavigate()
   const loc = useLocation() as { state?: { id?: string } }
   const [p, setP] = useState<Proposal | null>(null)
   const [lines, setLines] = useState<PayrollLine[]>([])
@@ -71,14 +70,14 @@ export default function Proposal() {
   }
 
   if (loading) {
-    return (<><Letterhead right={<span className="klab back" onClick={() => nav('/dashboard')}>{t('common.backProposals')}</span>} />
-      <div className="page narrow"><div className="hint">{t('proposal.loading')}</div></div></>)
+    return (<><Letterhead right={<Link className="klab back" to="/dashboard">{t('common.backProposals')}</Link>} />
+      <main className="page narrow"><div className="hint">{t('proposal.loading')}</div></main></>)
   }
   if (!p) {
-    return (<><Letterhead right={<span className="klab back" onClick={() => nav('/dashboard')}>{t('common.backProposals')}</span>} />
-      <div className="page narrow"><h1 className="h1">{t('proposal.noneTitle')}</h1>
-        <div className="hint">{t('proposal.noneBody')} <span className="link" onClick={() => nav('/pay')}>{t('proposal.proposePaymentLink')}</span></div>
-      </div></>)
+    return (<><Letterhead right={<Link className="klab back" to="/dashboard">{t('common.backProposals')}</Link>} />
+      <main className="page narrow"><h1 className="h1">{t('proposal.noneTitle')}</h1>
+        <div className="hint">{t('proposal.noneBody')} <Link className="link" to="/pay">{t('proposal.proposePaymentLink')}</Link></div>
+      </main></>)
   }
 
   const val = fmtZec(p.value_zec)
@@ -111,8 +110,8 @@ export default function Proposal() {
 
   return (
     <>
-      <Letterhead right={<span className="klab back" onClick={() => nav('/dashboard')}>{t('common.backPanel')}</span>} />
-      <div className="page narrow">
+      <Letterhead right={<Link className="klab back" to="/dashboard">{t('common.backPanel')}</Link>} />
+      <main className="page narrow">
         <div className="prop-head">
           <span className="klab">{eyebrow}</span>
           <span className={'stamp st-' + p.state}>{t('stamp.' + p.state)}</span>
@@ -231,8 +230,8 @@ export default function Proposal() {
           </>
         )}
 
-        {error && <div className="hint err mt">✗ {error}</div>}
-      </div>
+        {error && <div className="hint err mt" role="alert">✗ {error}</div>}
+      </main>
     </>
   )
 }

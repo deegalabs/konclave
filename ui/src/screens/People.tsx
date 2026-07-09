@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { Letterhead } from '../components'
 import { Identicon } from '../avatar'
 import { useT } from '../i18n'
@@ -10,7 +10,6 @@ import {
 
 export default function People() {
   const t = useT()
-  const nav = useNavigate()
   const [list, setList] = useState<Beneficiary[]>([])
   const [name, setName] = useState('')
   const [address, setAddress] = useState('')
@@ -58,8 +57,8 @@ export default function People() {
 
   return (
     <>
-      <Letterhead right={<span className="klab back" onClick={() => nav('/dashboard')}>{t('common.backPanel')}</span>} />
-      <div className="page">
+      <Letterhead right={<Link className="klab back" to="/dashboard">{t('common.backPanel')}</Link>} />
+      <main className="page">
         <h1 className="h1">{t('people.title')}</h1>
         <p className="cap">{t('people.cap')}</p>
 
@@ -107,14 +106,14 @@ export default function People() {
             </div>
             {kind === 'transparent' && <div className="hint warn">{t('people.warnTransparent')}</div>}
             {kind === 'sapling' && <div className="hint warn">{t('people.warnSapling')}</div>}
-            {error && <div className="hint err mt">✗ {error}</div>}
+            {error && <div className="hint err mt" role="alert">✗ {error}</div>}
             <div className="mt-sm folha-actions">
               <button className="btn ok sm-btn" onClick={add} disabled={busy}>{busy ? t('people.saving') : (editingId ? t('people.saveChanges') : t('people.savePerson'))}</button>
               {editingId && <button className="btn ghost sm-btn" onClick={cancelForm}>{t('common.cancel')}</button>}
             </div>
           </div>
         )}
-      </div>
+      </main>
     </>
   )
 }

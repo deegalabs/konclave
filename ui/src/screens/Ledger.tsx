@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Letterhead, Secret, RevealButton } from '../components'
+import { Link } from 'react-router-dom'
+import { Letterhead, Secret, RevealButton, activateOnKey } from '../components'
 import { getLedger, getProposalDetail, getVault, ledgerCsvUrl, health, shortAddr, type Proposal, type PayrollLine } from '../api'
 import { fmtDate, fmtZec } from '../format'
 import { useT } from '../i18n'
@@ -9,7 +9,6 @@ const SETTLED = (s: string) => s === 'sent' || s === 'confirmed'
 
 export default function Ledger() {
   const t = useT()
-  const nav = useNavigate()
   const [rows, setRows] = useState<Proposal[] | null>(null)
   const [live, setLive] = useState(false)
   const [vaultName, setVaultName] = useState<string | null>(null)
@@ -64,13 +63,13 @@ export default function Ledger() {
       <Letterhead
         right={
           <span className="lh-actions">
-            <span className="klab back" onClick={() => nav('/dashboard')}>{t('common.backPanel')}</span>
+            <Link className="klab back" to="/dashboard">{t('common.backPanel')}</Link>
             <a className="btn ghost sm-btn" href={ledgerCsvUrl()} download="konclave-razao.csv">{t('ledger.exportCsv')}</a>
             <button className="btn ghost sm-btn" onClick={() => window.print()}>{t('ledger.pdf')}</button>
           </span>
         }
       />
-      <div className="page">
+      <main className="page">
         <h1 className="h1">{t('ledger.title')}</h1>
 
         {/* Banda de documento — o livro do cofre para entregar ao contador */}
@@ -119,7 +118,12 @@ export default function Ledger() {
               const lines = linesById[p.id]
               return (
                 <Fragment key={p.id}>
-                  <tr className={isPayroll ? 'doc-row' : ''} onClick={() => toggle(p)} style={isPayroll ? { cursor: 'pointer' } : undefined}>
+                  <tr
+                    className={isPayroll ? 'doc-row' : ''}
+                    onClick={() => toggle(p)}
+                    style={isPayroll ? { cursor: 'pointer' } : undefined}
+                    {...(isPayroll ? { role: 'button' as const, tabIndex: 0, 'aria-expanded': isOpen, onKeyDown: activateOnKey(() => toggle(p)) } : {})}
+                  >
                     <td className="mono">{fmtDate(p.created_at)}</td>
                     <td>
                       {isPayroll && <span className="caret">{isOpen ? '▾' : '▸'} </span>}
@@ -159,7 +163,7 @@ export default function Ledger() {
         <div className="foot">
           <span className="dim pushr">{t('ledger.foot')}</span>
         </div>
-      </div>
+      </main>
     </>
   )
 }

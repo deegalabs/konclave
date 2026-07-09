@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getVaults, health, setSelectedVault, unlockVault, markVaultUnlocked, shortAddr, type Vault } from '../api'
 import { Identicon } from '../avatar'
-import { LangToggle } from '../components'
+import { Dialog, LangToggle, activateOnKey } from '../components'
 import { useT, useTr } from '../i18n'
 import '../redesign.css'
 
@@ -91,7 +91,7 @@ export default function Vaults() {
 
   return (
     <div className="rd">
-      <div className="rd-shell">
+      <main className="rd-shell">
         <div className="rd-top">
           <Brand />
           <span className="rd-top-right">
@@ -111,7 +111,8 @@ export default function Vaults() {
             const ms = v.member_list ?? []
             const avatars = ms.length ? ms : Array.from({ length: v.total }, (_, i) => ({ name: t('vaults.memberN', { n: i + 1 }), pubkey: '' }))
             return (
-              <div key={v.id} className="rd-card" onClick={() => enter(v)}>
+              <div key={v.id} className="rd-card" role="button" tabIndex={0}
+                onClick={() => enter(v)} onKeyDown={activateOnKey(() => enter(v))}>
                 <span className="rd-qtag">{t('vaults.quorumOf', { t: v.threshold, n: v.total })}{v.locked ? ' · 🔒' : ''}</span>
                 <h3>{v.name}</h3>
                 <div className="rd-avatars">
@@ -121,12 +122,13 @@ export default function Vaults() {
                 {v.orchard_address && (
                   <div className="rd-recv"><span className="lab">{t('vaults.receive')}&nbsp;</span><span className="val">{shortAddr(v.orchard_address)}</span></div>
                 )}
-                <button className="rd-enter">{t('vaults.enter')} <span className="arw">→</span></button>
+                <span className="rd-enter">{t('vaults.enter')} <span className="arw">→</span></span>
               </div>
             )
           })}
 
-          <div className="rd-card rd-create" onClick={() => nav('/create')}>
+          <div className="rd-card rd-create" role="button" tabIndex={0}
+            onClick={() => nav('/create')} onKeyDown={activateOnKey(() => nav('/create'))}>
             <div>
               <div className="ic">
                 <svg width="34" height="34" viewBox="0 0 34 34" fill="none" stroke="currentColor" strokeWidth="1.6">
@@ -149,28 +151,26 @@ export default function Vaults() {
             onKeyDown={(e) => { if (e.key === 'Enter') nav('/intro') }}>{t('vaults.howItWorks')}</span>
           {!live && <> · <i>{t('vaults.demoMode')}</i></>}
         </div>
-      </div>
+      </main>
 
       {unlocking && (
-        <div className="unlock-overlay" onClick={() => setUnlocking(null)}>
-          <div className="unlock-card" onClick={(e) => e.stopPropagation()}>
-            <div className="rd-eyebrow">{t('vaults.protectedVault')}</div>
-            <h2>{unlocking.name}</h2>
-            <p>{tr('vaults.unlockPrompt')}</p>
-            <input
-              className="unlock-input mono" autoFocus type="password" placeholder={t('vaults.wordPlaceholder')}
-              value={pass} onChange={(e) => setPass(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') void doUnlock() }}
-            />
-            {unlockErr && <div className="unlock-err">✗ {unlockErr}</div>}
-            <div className="unlock-btns">
-              <button className="rd-enter" onClick={() => setUnlocking(null)}>{t('common.cancel')}</button>
-              <button className="rd-enter primary" onClick={() => void doUnlock()} disabled={unlockBusy || !pass}>
-                {unlockBusy ? t('vaults.verifying') : t('vaults.enterArrow')}
-              </button>
-            </div>
+        <Dialog className="unlock-overlay" cardClassName="unlock-card" labelledBy="unlock-title" onClose={() => setUnlocking(null)}>
+          <div className="rd-eyebrow">{t('vaults.protectedVault')}</div>
+          <h2 id="unlock-title">{unlocking.name}</h2>
+          <p>{tr('vaults.unlockPrompt')}</p>
+          <input
+            className="unlock-input mono" type="password" placeholder={t('vaults.wordPlaceholder')}
+            value={pass} onChange={(e) => setPass(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') void doUnlock() }}
+          />
+          {unlockErr && <div className="unlock-err" role="alert">✗ {unlockErr}</div>}
+          <div className="unlock-btns">
+            <button className="rd-enter" onClick={() => setUnlocking(null)}>{t('common.cancel')}</button>
+            <button className="rd-enter primary" onClick={() => void doUnlock()} disabled={unlockBusy || !pass}>
+              {unlockBusy ? t('vaults.verifying') : t('vaults.enterArrow')}
+            </button>
           </div>
-        </div>
+        </Dialog>
       )}
     </div>
   )

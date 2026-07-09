@@ -24,7 +24,7 @@ export default function Intro() {
   ]
   return (
     <div className="rd">
-      <div className="rd-shell intro">
+      <main className="rd-shell intro">
         <div className="intro-hero">
           <IntroLogo />
           <span className="rd-eyebrow">{t('intro.eyebrow')}</span>
@@ -47,7 +47,7 @@ export default function Intro() {
         </div>
 
         <div className="rd-note">{tr('intro.note')}</div>
-      </div>
+      </main>
     </div>
   )
 }

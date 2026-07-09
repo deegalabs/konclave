@@ -41,6 +41,10 @@ export const ptBR: Record<string, string> = {
   'common.backProposals': '← Propostas',
   'common.remove': 'remover',
   'common.demoModeNoBridge': 'modo demonstração — sem o cofre local rodando',
+
+  // accessible names (screen-reader only)
+  'a11y.addFromRegistry': 'Adicionar beneficiário do cadastro',
+
   'seal.caption': 'Assinaturas',
   'stepper.define': 'Definir',
   'stepper.invite': 'Convidar',

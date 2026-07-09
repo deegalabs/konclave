@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Letterhead, Secret } from '../components'
 import { useT, useTr } from '../i18n'
 import {
@@ -80,8 +80,8 @@ export default function NewPayment() {
 
   return (
     <>
-      <Letterhead right={<span className="klab back" onClick={() => nav('/dashboard')}>{t('common.backPanel')}</span>} />
-      <div className="page narrow">
+      <Letterhead right={<Link className="klab back" to="/dashboard">{t('common.backPanel')}</Link>} />
+      <main className="page narrow">
         <h1 className="h1">{t('payment.title')}</h1>
 
         <div className="ctx">
@@ -127,7 +127,7 @@ export default function NewPayment() {
         <label className="field"><span>{t('payment.value')}</span>
           <input className="input mono" value={value} onChange={(e) => setValue(e.target.value)} />
         </label>
-        {!live && <div className="hint">{t('common.demoModeNoBridge')}</div>}
+        {!live && <div className="hint" aria-live="polite">{t('common.demoModeNoBridge')}</div>}
 
         <label className="field mt"><span>
           {t('payment.memoLabel')}{' '}
@@ -149,14 +149,14 @@ export default function NewPayment() {
         </div>
         <div className="hint">{tr('payment.approvalHint', { proposer, threshold, rest: threshold > 1 ? t('payment.approvalHintMore', { n: threshold - 1 }) : t('payment.approvalHintReady'), aval: threshold === 1 ? t('payment.avalSingular') : t('payment.avalPlural') })}</div>
 
-        {error && <div className="hint err mt">✗ {error}</div>}
+        {error && <div className="hint err mt" role="alert">✗ {error}</div>}
 
         <div className="right mt">
           <button className="btn ok" onClick={submit} disabled={busy || memoOver}>
             {busy ? t('payment.proposing') : t('payment.proposeBtn')}
           </button>
         </div>
-      </div>
+      </main>
     </>
   )
 }
