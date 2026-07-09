@@ -53,7 +53,7 @@ konclave-signer inject tx2.pczt tx3-signed.pczt --sig <idx>:<sig-hex>   # apply_
 zcash-devtool pczt send < tx3-signed.pczt                              -> broadcast -> txid
 ```
 
-## Hard-won lessons (encoded for the Orquestrador, Phase 3)
+## Hard-won lessons (encoded for the Orchestrator, Phase 3)
 
 1. **Version gap:** frost-tools (pczt 0.5) and zcash-devtool (pczt 0.7) don't
    interoperate; we own the bridge (`konclave-signer`). See [ADR-0002](adr/0002-pczt-frost-bridge.md).
@@ -109,7 +109,7 @@ between ceremonies to clear in-memory sessions.
 ## Phase 5d — the same flow, now driven by the application (not the CLI)
 
 The Gate-1 flow above was run by hand across terminals. Phase 5d automates the entire
-recipe inside the Orquestrador (`src/send.rs`) and exposes it over the local HTTP bridge
+recipe inside the Orchestrator (`src/send.rs`) and exposes it over the local HTTP bridge
 (`POST /api/proposals/{id}/send`), so a payment is proposed, approved to quorum, signed by
 the FROST ceremony, and broadcast **entirely through the app**. `frostd` is started fresh
 per call; coordinator + participants run as concurrent threads (one box; separate devices

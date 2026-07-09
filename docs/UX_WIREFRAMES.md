@@ -1,218 +1,218 @@
-# Konclave — Wireframes de baixa fidelidade (Etapa 4)
+# Konclave — Low-fidelity wireframes (Step 4)
 
-> Estrutura e hierarquia, **sem cor/tipo** — o objetivo é validar a **facilidade** para
-> a Marina (não-técnica) antes do modelo fiel. Legenda: **▸** ação primária · **⚑**
-> preview+confirmação · **⚠** erro/estado · **🔒** valor sob a tarja · *(itálico)* = roda
-> escondido. Segue [UX_FUNDACAO.md](UX_FUNDACAO.md).
+> Structure and hierarchy, **without color/type** — the goal is to validate **ease** for
+> Marina (non-technical) before the hi-fi model. Legend: **▸** primary action · **⚑**
+> preview+confirmation · **⚠** error/state · **🔒** value under the banner · *(italic)* = runs
+> hidden. Follows [UX_FUNDACAO.md](UX_FUNDACAO.md).
 
 ---
 
-## 1. Abertura (sem cofre ainda)
+## 1. Intro (no vault yet)
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  ◧ KONCLAVE                                                │
-│                                                            │
-│      O cofre que decide em conjunto.                       │  tese em 1 linha
-│      Privado por fora, transparente por dentro.            │
-│                                                            │
-│   ┌───────────────────────┐   ┌───────────────────────┐   │
-│   │  ▸ CRIAR COFRE         │   │    ENTRAR NUM COFRE    │   │
-│   │    começar um grupo    │   │    tenho um convite    │   │
-│   └───────────────────────┘   └───────────────────────┘   │
+│  ◧ KONCLAVE                                              │
+│                                                          │
+│      The vault that decides together.                    │  thesis in 1 line
+│      Private outside, transparent inside.                │
+│                                                          │
+│   ┌───────────────────────┐   ┌───────────────────────┐  │
+│   │  ▸ CREATE VAULT        │   │      JOIN A VAULT      │   │
+│   │    start a group       │   │    I have an invite    │   │
+│   └───────────────────────┘   └───────────────────────┘  │
 └──────────────────────────────────────────────────────────┘
 ```
-Só dois caminhos. Zero jargão. Nada de "wallet/seed/chave".
+Only two paths. Zero jargon. No "wallet/seed/key".
 
 ---
 
-## 2. Cerimônia — Criar cofre  (stepper de 4 passos)
+## 2. Ceremony — Create vault  (4-step stepper)
 
 ```
- [●───○───○───○]  1. Definir   2. Convidar   3. Criar   4. Endereço
+ [●───○───○───○]  1. Define   2. Invite   3. Create   4. Address
 ```
 
-**Passo 1 — Definir**
+**Step 1 — Define**
 ```
 ┌───────────────────────────────────────────────┐
-│  Nome do cofre   [ Tesouraria da comunidade  ] │
-│                                                │
-│  Quantas pessoas precisam aprovar cada         │  regra em linguagem
-│  pagamento?                                    │  humana (não "threshold")
-│      [ 2 ] de [ 3 ]  membros   ◁ seletor       │
-│  ↳ "Ninguém sozinho controla o dinheiro."      │  microcopy da consequência
-│                                    [ ▸ Avançar ]│
+│  Vault name   [ Community treasury           ]│
+│                                               │
+│  How many people need to approve each         │  rule in human
+│  payment?                                     │  language (not "threshold")
+│      [ 2 ] of [ 3 ]  members   ◁ selector     │
+│  ↳ "No one controls the money alone."         │  consequence microcopy
+│                                    [ ▸ Next ] │
 └───────────────────────────────────────────────┘
 ```
 
-**Passo 2 — Convidar**
+**Step 2 — Invite**
 ```
 ┌───────────────────────────────────────────────┐
-│  Envie este convite para cada pessoa:          │
-│   [ konclave://convite/9f2… ]  [copiar] [QR]   │
-│                                                │
-│  Membros            Aguardando 2 de 3 entrarem │
-│   ✓ Você (dona)                                │
-│   ✓ Bruno           entrou                     │
-│   ⋯ Carla           aguardando…                │
-│                                    [ ▸ Avançar ]│  (habilita quando todos entram)
+│  Send this invite to each person:             │
+│   [ konclave://invite/9f2… ]  [copy] [QR]     │
+│                                               │
+│  Members            Waiting for 2 of 3 to join│
+│   ✓ You (owner)                               │
+│   ✓ Bruno           joined                    │
+│   ⋯ Carla           waiting…                  │
+│                                    [ ▸ Next ] │  (enables when everyone joins)
 └───────────────────────────────────────────────┘
 ```
 
-**Passo 3 — Criar (a cerimônia)**
+**Step 3 — Create (the ceremony)**
 ```
 ┌───────────────────────────────────────────────┐
-│  ⚠ Todos precisam estar no app agora.          │  aviso ANTES de iniciar
-│                                                │
-│         [ ▸ Criar cofre agora ]                │
+│  ⚠ Everyone must be in the app now.           │  warning BEFORE starting
+│                                               │
+│         [ ▸ Create vault now ]                │
 │  ───────────────────────────────              │
-│  Gerando as chaves do cofre…  (acontece 1 vez) │  progresso, linguagem neutra
-│  ↳ "Sua parte da chave fica só neste aparelho. │  (roda o DKG via frostd;
-│     Ela nunca sai daqui."                      │   share cifrada localmente)
+│  Generating the vault keys…  (happens once)   │  progress, neutral language
+│  ↳ "Your part of the key stays only on this   │  (runs the DKG via frostd;
+│     device. It never leaves here."            │   share encrypted locally)
 └───────────────────────────────────────────────┘
-  ⚠ Membro caiu → "A criação parou porque [nome] saiu. Recomece quando todos
-     estiverem prontos."   ⚠ frostd fora → oferecer QR/copy-paste.
+  ⚠ Member dropped → "Creation stopped because [name] left. Restart when everyone
+     is ready."   ⚠ frostd down → offer QR/copy-paste.
 ```
 
-**Passo 4 — Endereço pronto**
+**Step 4 — Address ready**
 ```
 ┌───────────────────────────────────────────────┐
-│  ✓ Seu cofre está pronto.                      │
-│  Endereço para receber ZEC:                    │
-│   [ u1vjgx…d406dr ]  [copiar]  [QR]            │
-│  ⚠ Receba apenas em endereço Orchard.          │  guardrail (fundos travados)
-│                              [ ▸ Ir ao painel ]│
+│  ✓ Your vault is ready.                       │
+│  Address to receive ZEC:                      │
+│   [ u1vjgx…d406dr ]  [copy]  [QR]             │
+│  ⚠ Receive only at an Orchard address.        │  guardrail (locked funds)
+│                          [ ▸ Go to dashboard ]│
 └───────────────────────────────────────────────┘
 ```
 
 ---
 
-## 3. Novo pagamento
+## 3. New payment
 
 ```
 ┌───────────────────────────────────────────────┐
-│  ← Painel            Novo pagamento            │
-│                                                │
-│  Para   [ endereço Zcash…                    ] │  ✓ válido? ✓ shielded?
-│         ⚠ "Este destino é público" (se transp.)│
-│  Valor  [ 0.5 ] ZEC        disponível: 🔒 2.41 │  ≤ disponível (saldo−reserva−taxa)
-│  Memo   [ ref maio                    ] 6/512  │  só shielded · contador
-│         (recibo/holerite — só o destinatário lê)│
+│  ← Dashboard         New payment              │
+│                                               │
+│  To     [ Zcash address…                     ]│  ✓ valid? ✓ shielded?
+│         ⚠ "This destination is public" (if transp.)│
+│  Amount [ 0.5 ] ZEC        available: 🔒 2.41  │  ≤ available (balance−reserve−fee)
+│  Memo   [ ref may                     ] 6/512 │  shielded only · counterparty
+│         (receipt/payslip — only the recipient reads)│
 │  ─────────────────────────────────────────    │
-│  Taxa estimada  0.0001 ZEC   ·  Saldo após 🔒  │  ZIP 317, sem surpresa
-│                                                │
-│  ⚑ Preview: "Você vai PROPOR 0,5 ZEC → zs1…    │  confirmação explícita
-│     Precisa de 2 aprovações (incluindo a sua)."│
-│                          [ ▸ Propor pagamento ]│  (não "enviar" — copy honesta)
+│  Est. fee 0.0001 ZEC · Balance after 🔒        │  ZIP 317, no surprise
+│                                               │
+│  ⚑ Preview: "You are about to PROPOSE 0.5 ZEC │  explicit confirmation
+│     → zs1… needs 2 approvals (incl. yours)."  │
+│                          [ ▸ Propose payment ]│  (not "send" — honest copy)
 └───────────────────────────────────────────────┘
 ```
-*(monta plano → PCZT → extrai o que assinar; a proponente já conta como 1ª aprovação.)*
+*(builds plan → PCZT → extracts what to sign; the proposer already counts as the 1st approval.)*
 
 ---
 
-## 4. Nova folha  (o segundo rosto — N destinos)
+## 4. New payroll  (the second face — N destinations)
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  ← Painel      Nova folha        [ ⭱ Importar CSV ]        │
-│                                                            │
-│  #  Rótulo     Endereço          Valor      Memo/holerite  │
-│  1  Ana        u1ana…           [0.5 ]     [abril      ]   │
-│  2  Bruno      u1bruno…         [0.25]     [abril      ]   │
-│  3  Carla      t1carla…  ⚠pub   [0.30]     [—          ]   │  linha inválida sinalizada
-│  [ + adicionar linha ]  [ duplicar ]                       │
+│  ← Dashboard   New payroll       [ ⭱ Import CSV ]        │
+│                                                          │
+│  #  Label      Address           Amount     Memo/payslip │
+│  1  Ana        u1ana…           [0.5 ]     [april      ] │
+│  2  Bruno      u1bruno…         [0.25]     [april      ] │
+│  3  Carla      t1carla…  ⚠pub   [0.30]     [—          ] │  invalid line flagged
+│  [ + add line ]  [ duplicate ]                           │
 │  ──────────────────────────────────────────────────────  │
-│  RODAPÉ VIVO:  8 pagamentos · total 🔒 · taxa est. 🔒 ·    │  cresce c/ nº destinos
-│                saldo após 🔒                               │
-│                                                            │
-│  ⚑ "Folha de maio — 8 pagamentos. Precisa de 2 aprovações."│
-│                                    [ ▸ Propor folha ]      │  (bloqueado se linha inválida)
+│  LIVE FOOTER:  8 payments · total 🔒 · est. fee 🔒 ·       │  grows w/ # destinations
+│                balance after 🔒                           │
+│                                                          │
+│  ⚑ "May payroll — 8 payments. It needs 2 approvals."     │
+│                                    [ ▸ Propose payroll ] │  (blocked if line invalid)
 └──────────────────────────────────────────────────────────┘
 ```
 
-**Estado — relatório de import CSV**
+**State — CSV import report**
 ```
 ┌───────────────────────────────────────────────┐
-│  Importado: 7 linhas aceitas · 1 com erro      │
-│   ⚠ linha 4: valor inválido ("oops")           │  motivo + nº da linha
-│   [ Ignorar a linha 4 e continuar ]  [ Revisar ]│  import parcial permitido
+│  Imported: 7 lines accepted · 1 with error    │
+│   ⚠ line 4: invalid amount ("oops")           │  reason + line number
+│   [ Skip line 4 and continue ]  [ Review ]    │  partial import allowed
 └───────────────────────────────────────────────┘
 ```
-*(vira UMA transação com N saídas → UMA aprovação cobre tudo.)*
+*(becomes ONE transaction with N outputs → ONE approval covers everything.)*
 
 ---
 
-## 5. Proposta (detalhe) — aprovar / acompanhar
+## 5. Proposal (detail) — approve / track
 
 ```
 ┌───────────────────────────────────────────────┐
-│  ← Propostas          PENDENTE                 │
-│  0.5000 ZEC → zs1q9f…7ka2                       │  (valor sob 🔒 até revelar)
-│  memo "adiantamento maio"                      │
-│  Proposto por Bruno                            │
-│  Progresso  [██──]  1 de 2  · quem já aprovou: Bruno │
-│  Expira em 71h                                 │
-│                                                │
-│  ↳ "Ao aprovar, você autoriza este pagamento   │  microcopy de responsabilidade
-│     com a sua parte da chave."                 │
-│        [ ▸ Aprovar ]     [ Recusar ]           │
-│                                                │
-│  (se sou o proponente: vejo "aguardando os     │  visão muda por papel (§6.7)
-│   outros" + [ Cancelar ])                      │
+│  ← Proposals          PENDING                 │
+│  0.5000 ZEC → zs1q9f…7ka2                     │  (value under 🔒 until revealed)
+│  memo "may advance"                           │
+│  Proposed by Bruno                            │
+│  Progress  [██──]  1 of 2  · already approved: Bruno │
+│  Expires in 71h                               │
+│                                               │
+│  ↳ "By approving, you authorize this payment  │  responsibility microcopy
+│     with your part of the key."               │
+│        [ ▸ Approve ]     [ Refuse ]           │
+│                                               │
+│  (if I am the proposer: I see "waiting on the │  view changes by role (§6.7)
+│   others" + [ Cancel ])                       │
 └───────────────────────────────────────────────┘
-  Estados: Aguardando · Pronta/enviando · Recusada · Expirada · Enviada
-  → ao bater 2 de 2, vai à mainnet automaticamente. (cerimônia FROST via frostd)
-```
-
----
-
-## 6. Enviado (confirmação)
-
-```
-┌───────────────────────────────────────────────┐
-│              ✓ Pagamento enviado               │
-│         0.5000 ZEC → zs1q9f…7ka2                │
-│                                                │
-│   [ ▸ Ver no explorador ↗ ]  (prova on-chain)  │  verificabilidade
-│   [ Voltar ao painel ]                         │
-│                                                │
-│  O memo/holerite fica acessível só ao          │
-│  destinatário.                                 │
-└───────────────────────────────────────────────┘
+  States: Awaiting · Ready/sending · Refused · Expired · Sent
+  → when it hits 2 of 2, it goes to mainnet automatically. (FROST ceremony via frostd)
 ```
 
 ---
 
-## 7. Razão / Prestação de contas  (o pedido do contador)
+## 6. Sent (confirmation)
+
+```
+┌───────────────────────────────────────────────┐
+│              ✓ Payment sent                   │
+│         0.5000 ZEC → zs1q9f…7ka2              │
+│                                               │
+│   [ ▸ View on explorer ↗ ]  (on-chain proof)  │  verifiability
+│   [ Back to dashboard ]                       │
+│                                               │
+│  The memo/payslip stays accessible only to    │
+│  the recipient.                               │
+└───────────────────────────────────────────────┘
+```
+
+---
+
+## 7. Ledger / Accounting  (the accountant's request)
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  ← Painel     Razão / Prestação de contas   [ ⭳ Exportar ]│  CSV/PDF, local
-│                                                            │
-│  Filtros: [ mês ▾ ] [ membro ▾ ] [ tipo ▾ ]   [ 🔒 ocultar]│  período/membro/tipo
+│  ← Dashboard  Ledger / Accounting        [ ⭳ Export ]    │  CSV/PDF, local
+│                                                          │
+│  Filters: [ month ▾ ] [ member ▾ ] [ type ▾ ]  [ 🔒 hide ]│  period/member/type
 │  ─────────────────────────────────────────────────────── │
-│  DATA    DESCRIÇÃO              QUEM               VALOR   │  cabeçalho de razão
-│  28/04   Folha de abril (8)     prop. Ana          −🔒     │
-│                                 aprov. Ana, Bruno   ↗      │  quem propôs/aprovou
-│  22/04   Doação recebida        —                  +🔒     │
-│  15/04   Pgto infraestrutura    prop. Bruno         −🔒    │
-│                                 aprov. Bruno, Carla  ↗     │
+│  DATE    DESCRIPTION            WHO                AMOUNT│  ledger header
+│  04/28   April payroll (8)      prop. Ana          −🔒    │
+│                                 appr. Ana, Bruno   ↗     │  who proposed/approved
+│  04/22   Donation received      —                  +🔒    │
+│  04/15   Infrastructure pmt     prop. Bruno         −🔒   │
+│                                 appr. Bruno, Carla  ↗    │
 │  ─────────────────────────────────────────────────────── │
-│  Saldo do período: 🔒     (tudo sob a tarja; revelar é gesto)│
-│                                                            │
-│  ↳ "Transparência interna. A blockchain pública nada      │
-│     revela." — entregue este export ao seu contador.      │
+│  Period balance: 🔒     (all under the banner; revealing is a gesture)│
+│                                                          │
+│  ↳ "Internal transparency. The public blockchain reveals │
+│     nothing." — hand this export to your accountant.     │
 └──────────────────────────────────────────────────────────┘
 ```
-*(read-only via UFVK — mostra sem poder gastar; export gerado localmente.)*
+*(read-only via UFVK — shows without being able to spend; export generated locally.)*
 
 ---
 
-## O que estes wireframes provam (checklist de usabilidade)
-- [x] Cada tela tem **uma** ação primária óbvia (▸).
-- [x] **Preview + confirmação** em tudo que move fundos (⚑) — nunca 1 clique dispara ZEC.
-- [x] **Zero jargão cripto** visível; a segurança aparece como microcopy de confiança.
-- [x] O **Razão + Export** dá conta do "entregar ao contador" (track Accounting).
-- [x] Erros **dirigem** (⚠): dizem o que houve e o que fazer.
-- [x] A **tarja (🔒)** protege valores por padrão em toda superfície.
-- [x] A **folha** aceita planilha (CSV) — o mundo real do tesoureiro.
+## What these wireframes prove (usability checklist)
+- [x] Each screen has **one** obvious primary action (▸).
+- [x] **Preview + confirmation** on anything that moves funds (⚑) — never 1 click fires ZEC.
+- [x] **Zero visible crypto jargon**; security appears as trust microcopy.
+- [x] The **Ledger + Export** covers "hand it to the accountant" (Accounting track).
+- [x] Errors **direct** (⚠): they say what happened and what to do.
+- [x] The **banner (🔒)** protects amounts by default across every surface.
+- [x] The **payroll** accepts a spreadsheet (CSV) — the treasurer's real world.

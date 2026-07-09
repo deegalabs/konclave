@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: Rust (orchestrator + konclave-signer)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            orchestrator
+            konclave-signer
+      - name: Install build deps (protoc)
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - name: Format check
+        run: |
+          cargo fmt --manifest-path orchestrator/Cargo.toml -- --check
+          cargo fmt --manifest-path konclave-signer/Cargo.toml -- --check
+      - name: Clippy
+        run: |
+          cargo clippy --manifest-path orchestrator/Cargo.toml --all-targets -- -D warnings
+          cargo clippy --manifest-path konclave-signer/Cargo.toml --all-targets -- -D warnings
+      - name: Test
+        run: |
+          cargo test --manifest-path orchestrator/Cargo.toml
+          cargo test --manifest-path konclave-signer/Cargo.toml
+
+  ui:
+    name: UI (Vite/React frontend)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - run: npm ci
+      - name: Lint (oxlint)
+        run: npm run lint
+      - name: Type-check + build (tsc -b && vite build)
+        run: npm run build

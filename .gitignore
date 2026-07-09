@@ -38,6 +38,13 @@ secrets/
 docs/CONCEITO_INICIAL.md
 docs/UX_E_FLUXOS.md
 docs/LOGICA_E_REGRAS.md
+docs/HANDOFF.md
+
+# Pasta de trabalho local (análises, planos, necessidades) — nunca versionar
+/temp/
+
+# Internal security audit log — kept private until findings are fixed
+SECURITY_AUDIT.md
 
 # SO
 .DS_Store

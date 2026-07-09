@@ -1,91 +1,92 @@
-# Konclave — Roadmap de Construção
+# Konclave — Build Roadmap
 
-> Plano de fases aprovado. Calibrado para **solo, ~15 dias** (início 30/jun/2026 →
-> deadline 15/jul/2026 UTC), **vertical slice primeiro**, escopo travado no núcleo.
+> Approved phase plan. Calibrated for **solo, ~15 days** (start 2026-06-30 →
+> deadline 2026-07-15 UTC), **vertical slice first**, scope locked to the core.
 
-## Princípios do cronograma
-- **O risco está na Fase 1** (cripto → broadcast). Vem primeiro e é o portão existencial.
-- **Solo = disciplina de escopo.** Núcleo é compromisso firme; extras só se o núcleo fechar.
-- **Documentação e segurança são transversais** (dia 1 ao 15), não fases.
+## Schedule principles
+- **The risk is in Phase 1** (crypto → broadcast). It comes first and is the existential gate.
+- **Solo = scope discipline.** The core is a firm commitment; extras only if the core closes.
+- **Documentation and security are cross-cutting** (day 1 to 15), not phases.
 
-## Visão geral
+## Overview
 
-| Fase | Dias | Objetivo | Portão |
+| Phase | Days | Objective | Gate |
 |---|---|---|---|
-| 0 — Fundação & Docs | 1 | Repo, licença, CLAUDE.md, esqueleto, reality-check | — |
-| 1 — Vertical Slice (mainnet) | 1–4 | 1ª transação FROST real confirmada via CLI | 🔴 Gate 1 |
-| 2 — Migração para DKG real | 4–5 | Cofre por DKG (chave nunca remontada) | — |
-| 3 — Orquestrador (backend) | 5–9 | Máquina de estados, validação, folha, TDD destrutivo | — |
-| 4 — Rosto (design + telas) | 6–10 (paralela) | Token system + telas contra mock | — |
-| 5 — Integração | 9–11 | Núcleo inteiro pela UI na mainnet | 🔴 Gate 2 |
-| 6 — Extras de impacto | 11–13 | Memo-holerite, prestação de contas, mesa de propostas | — |
-| 7 — Entrega | 13–15 | README unicórnio, vídeo, diagrama, submissão | 🏁 |
+| 0 — Foundation & Docs | 1 | Repo, license, CLAUDE.md, skeleton, reality-check | — |
+| 1 — Vertical Slice (mainnet) | 1–4 | 1st real FROST transaction confirmed via CLI | 🔴 Gate 1 |
+| 2 — Migration to real DKG | 4–5 | Vault via DKG (key never reconstituted) | — |
+| 3 — Orchestrator (backend) | 5–9 | State machine, validation, payroll, destructive TDD | — |
+| 4 — UI (design + screens) | 6–10 (parallel) | Token system + screens against mock | — |
+| 5 — Integration | 9–11 | Full core through the UI on mainnet | 🔴 Gate 2 |
+| 6 — Impact extras | 11–13 | Memo-payslip, accounting, proposal desk | — |
+| 7 — Delivery | 13–15 | Unicorn README, video, diagram, submission | 🏁 |
 
 ---
 
-## Fase 0 — Fundação & Documentação (GSD) — Dia 1
-**Objetivo:** terreno e memória do projeto antes de qualquer código.
-**Entregáveis:** esqueleto (`motor/`, `src-tauri/`, `rosto/`, `docs/`, `tests/`); licença
-dual; `CLAUDE.md`; docs-fonte em `docs/`; `motor/versions.lock` (esqueleto); ADR-0001;
-`.gitignore`; este roadmap.
-**Reality-check:** repos oficiais localizados, tutorial de referência confirmado, status
-Orchard pós-NU6.2 verificado (Orchard vivo e seguro na mainnet).
-**Pronto quando:** repo navegável; CLAUDE.md é a fonte de contexto.
+## Phase 0 — Foundation & Documentation (GSD) — Day 1
+**Objective:** ground and project memory before any code.
+**Deliverables:** skeleton (`engine/`, `src-tauri/`, `ui/`, `docs/`, `tests/`); dual
+license; `CLAUDE.md`; source docs in `docs/`; `engine/versions.lock` (skeleton); ADR-0001;
+`.gitignore`; this roadmap.
+**Reality-check:** official repos located, reference tutorial confirmed, post-NU6.2 Orchard
+status verified (Orchard live and safe on mainnet).
+**Done when:** repo is navigable; CLAUDE.md is the source of context.
 
-## Fase 1 — Vertical Slice na Mainnet — Dias 1–4 🔴
-**Objetivo:** uma transação FROST real, confirmada na mainnet, mesmo feia (via CLI).
-- **1A — Toolchain:** compilar os binários do `frost-tools` + `zcash-sign` da fonte
-  (Windows nativo → WSL2 se quebrar), pinar SHA + checksum, **verificar interfaces
-  (`--json`?)**, **testar acesso de rede** (clonar repo + alcançar lightwalletd NU6.2).
-- **1B — Chave:** material via trusted-dealer (andaime) → `zcash-sign generate --ak` →
-  **endereço Orchard + UFVK**.
-- **1C — Fundos:** financiar ~0,01 ZEC no endereço **Orchard** → sync via UFVK → ler saldo.
-- **1D — Gasto:** plano de tx (PCZT) → cerimônia de assinatura (`-C redpallas`) via
-  `frostd` → tx assinada → broadcast → **confirmação no explorador**.
-> **🔴 GATE 1 (go/no-go):** transação verificável on-chain. Se não fechar, replanejar
-> antes de gastar tempo em UX.
+## Phase 1 — Vertical Slice on Mainnet — Days 1–4 🔴
+**Objective:** one real FROST transaction, confirmed on mainnet, even if ugly (via CLI).
+- **1A — Toolchain:** compile the `frost-tools` + `zcash-sign` binaries from source
+  (native Windows → WSL2 if it breaks), pin SHA + checksum, **verify interfaces
+  (`--json`?)**, **test network access** (clone repo + reach lightwalletd NU6.2).
+- **1B — Key:** material via trusted-dealer (scaffold) → `zcash-sign generate --ak` →
+  **Orchard address + UFVK**.
+- **1C — Funds:** fund ~0.01 ZEC to the **Orchard** address → sync via UFVK → read balance.
+- **1D — Spend:** tx plan (PCZT) → signing ceremony (`-C redpallas`) via
+  `frostd` → signed tx → broadcast → **confirmation on the explorer**.
+> **🔴 GATE 1 (go/no-go):** transaction verifiable on-chain. If it doesn't close, replan
+> before spending time on UX.
 
-## Fase 2 — Migração para DKG real — Dias 4–5
-**Objetivo:** trocar trusted-dealer por **DKG real** via `frostd`.
-**Pronto quando:** cofre nasce por DKG, chave nunca remontada, transação sai por cima.
+## Phase 2 — Migration to real DKG — Days 4–5
+**Objective:** swap trusted-dealer for **real DKG** via `frostd`.
+**Done when:** the vault is born from DKG, the key is never reconstituted, and a
+transaction goes out on top of it.
 
-## Fase 3 — Orquestrador — Dias 5–9
-**Objetivo:** envelopar cada passo CLI como comando Rust com **DTO estruturado**.
-**Módulos:** `ceremony`, `signing`, `wallet`, `proposals` (máquina de estados §6),
+## Phase 3 — Orchestrator — Days 5–9
+**Objective:** wrap each CLI step as a Rust command with a **structured DTO**.
+**Modules:** `ceremony`, `signing`, `wallet`, `proposals` (state machine §6),
 `validation` (ZIP 317), `store` (SQLite + keychain), `ipc`.
-**Inclui:** reserva de saldo, expiração, reconciliação, lógica da folha (N saídas).
-**Pronto quando:** núcleo operável por comandos + **toda a suíte destrutiva passando**.
+**Includes:** balance reservation, expiry, reconciliation, payroll logic (N outputs).
+**Done when:** the core is operable via commands + **the whole destructive suite passing**.
 
-## Fase 4 — Rosto — Dias 6–10 (paralela à Fase 3)
-- **4A — Token system** (skill `frontend-design`): paleta, tipografia, elemento-assinatura
-  derivado do mundo Zcash/Orchard, tratamento próprio pro "ocultar valor". Validado antes
-  de virar tela.
-- **4B — Telas** contra mock: Abertura → Criar/Entrar → Painel → Pagamento/Folha →
-  Proposta → Enviado → Histórico, Membros, Propostas pendentes.
-**Pronto quando:** telas navegáveis contra mock; acessibilidade de piso.
+## Phase 4 — UI — Days 6–10 (parallel to Phase 3)
+- **4A — Token system** (`frontend-design` skill): palette, typography, signature element
+  derived from the Zcash/Orchard world, a dedicated treatment for "hiding value". Validated
+  before it becomes a screen.
+- **4B — Screens** against a mock: Intro → Create/Join → Dashboard → Payment/Payroll →
+  Proposal → Sent → Ledger, Members, pending Proposals.
+**Done when:** screens are navigable against the mock; baseline accessibility.
 
-## Fase 5 — Integração — Dias 9–11 🔴
-**Objetivo:** mock → comandos reais; núcleo inteiro funciona **pela UI** na mainnet.
-**Inclui:** estados de erro reais (frostd offline, saldo insuficiente, endereço Sapling).
-> **🔴 GATE 2:** demo do núcleo ponta a ponta pela interface. Se atrasar, corta Fase 6.
+## Phase 5 — Integration — Days 9–11 🔴
+**Objective:** mock → real commands; the whole core works **through the UI** on mainnet.
+**Includes:** real error states (frostd offline, insufficient balance, Sapling address).
+> **🔴 GATE 2:** end-to-end core demo through the interface. If it slips, cut Phase 6.
 
-## Fase 6 — Extras de impacto (se sobrar fôlego) — Dias 11–13
-Em ordem de impacto: **memo-holerite** → **prestação de contas via UFVK** (quem
-propôs/aprovou + export CSV) → **mesa de propostas pendentes** (com expiração).
-**Pronto quando:** o que der entra polido; o que não der fica honesto no roadmap do README.
+## Phase 6 — Impact extras (if there is room) — Days 11–13
+In order of impact: **memo-payslip** → **accounting via UFVK** (who proposed/approved +
+CSV export) → **pending proposal desk** (with expiry).
+**Done when:** what fits ships polished; what doesn't stays honest in the README roadmap.
 
-## Fase 7 — Entrega — Dias 13–15 🏁
-**Entregáveis:** README padrão unicórnio (hero, "por que existe", demo GIF + link de tx
-real, diagrama 3 camadas, crédito à Foundation, quickstart, modelo de confiança, roadmap
-honesto, licença); vídeo demo na mainnet; vídeo backup; checklist de submissão.
-**Pronto quando:** submetido antes de 15/jul/2026 UTC.
+## Phase 7 — Delivery — Days 13–15 🏁
+**Deliverables:** unicorn-standard README (hero, "why it exists", demo GIF + real tx link,
+3-layer diagram, credit to the Foundation, quickstart, trust model, honest roadmap,
+license); mainnet demo video; backup video; submission checklist.
+**Done when:** submitted before 2026-07-15 UTC.
 
 ---
 
-## Portões go/no-go
-- **Gate 1 (fim Fase 1):** transação FROST real na mainnet. Risco existencial.
-- **Gate 2 (fim Fase 5):** núcleo funcional pela UI. Se falhar, corta extras e foca polir.
+## Go/no-go gates
+- **Gate 1 (end of Phase 1):** real FROST transaction on mainnet. Existential risk.
+- **Gate 2 (end of Phase 5):** core functional through the UI. If it fails, cut extras and focus on polish.
 
-## Folga
-Slice fechado até dia ~4–5; núcleo até ~11; dias 12–15 para entrega **e buffer**. Se o
-slice escorregar, a Fase 6 é a válvula de escape — nunca o núcleo.
+## Slack
+Slice closed by ~day 4–5; core by ~11; days 12–15 for delivery **and buffer**. If the
+slice slips, Phase 6 is the escape valve — never the core.

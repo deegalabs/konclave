@@ -1,76 +1,76 @@
-# Redesenho da Folha — visão de sistema contábil
+# Payroll Redesign — accounting-system view
 
-> **Status:** plano aprovado (2026-07-01). O motor da folha já existe e é sólido
-> (validação linha-a-linha + agregada, envelope único, quórum). O que falta é dar à
-> **experiência de trâmite** a cara de um **documento contábil com ciclo de vida**, não a
-> de um formulário de importação. Aplicar **aos poucos**, página a página.
+> **Status:** approved plan (2026-07-01). The payroll engine already exists and is solid
+> (line-by-line + aggregate validation, single envelope, quorum). What is missing is giving
+> the **workflow experience** the face of an **accounting document with a lifecycle**, not
+> that of an import form. Apply it **gradually**, page by page.
 
-## Princípio transversal (vale para todas as telas)
+## Cross-cutting principle (applies to every screen)
 
-**"Cada movimento de dinheiro é um documento contábil, não um formulário."** Toda página
-que mexe com valores deve ter:
-1. **Entidades, não strings cruas.** Beneficiário/membro é escolhido de um cadastro (nome),
-   não um endereço `u1…` colado.
-2. **Competência/período e identidade de documento.** "Folha · abril/2026", com número/ref.
-3. **Estados explícitos e visíveis** (rascunho → conferida → aguardando → paga → lançada →
-   conciliada), reusando a máquina de estados (o estado `Draft` já existe e está ocioso).
-4. **Validação contínua**, não um botão "conferir" à parte.
-5. **Totais sempre visíveis** (nº, total, taxa, saldo após).
-6. **Razão itemizado**: uma folha de N pessoas vira **N lançamentos**, não 1 linha agregada.
+**"Every money movement is an accounting document, not a form."** Every page that touches
+amounts must have:
+1. **Entities, not raw strings.** A beneficiary/member is chosen from a registry (name),
+   not a pasted `u1…` address.
+2. **Period/accrual and document identity.** "Payroll · April/2026", with a number/ref.
+3. **Explicit and visible states** (draft → checked → awaiting → paid → posted →
+   reconciled), reusing the state machine (the `Draft` state already exists and is idle).
+4. **Continuous validation**, not a separate "check" button.
+5. **Totals always visible** (count, total, fee, balance after).
+6. **Itemized ledger:** a payroll of N people becomes **N entries**, not 1 aggregate line.
 
-## Ciclo de vida da folha (o alvo)
+## Payroll lifecycle (the target)
 
 ```
-0. CADASTRO        beneficiários existem (nome, endereço, memo padrão)   [depende de 5-D]
+0. REGISTRY        beneficiaries exist (name, address, default memo)      [depends on 5-D]
         ↓
-1. PREPARAR        abrir folha de uma COMPETÊNCIA → tabela EDITÁVEL (importar/escolher/manual)
-   (rascunho)      validação contínua por linha; totais ao vivo; SALVAR rascunho (estado Draft)
+1. PREPARE         open a payroll for a PERIOD → EDITABLE table (import/pick/manual)
+   (draft)         continuous per-line validation; live totals; SAVE draft (Draft state)
         ↓
-2. CONFERIR        revisão do documento: total, avisos (público, saldo, DUPLICADOS)
+2. CHECK           document review: total, warnings (public, balance, DUPLICATES)
         ↓
-3. SUBMETER        vira UM documento → "aguardando aprovação" (segregação preparador≠aprovador)
+3. SUBMIT          becomes ONE document → "awaiting approval" (preparer≠approver segregation)
         ↓
-4. PAGAR           quórum → assinar (FROST) + transmitir → "paga" (txid)          [5-B.2]
+4. PAY             quorum → sign (FROST) + broadcast → "paid" (txid)          [5-B.2]
         ↓
-5. LANÇAR+CONCILIAR  N lançamentos no razão (data, beneficiário, valor, memo, competência,
-                     txid) → on-chain confirma → "conciliada" → export detalhado
+5. POST+RECONCILE  N ledger entries (date, beneficiary, amount, memo, period,
+                   txid) → on-chain confirms → "reconciled" → detailed export
 ```
 
-## Redesenho da tela `Nova Folha` (target)
+## Redesign of the `New Payroll` screen (target)
 
-Substituir o **textarea de CSV + botão "Ler/conferir"** por um **documento editável**:
+Replace the **CSV textarea + "Read/check" button** with an **editable document**:
 
-- **Cabeçalho do documento:** competência (mês/ano), data, descrição; nº de documento gerado.
-- **Tabela editável** (uma linha por beneficiário):
-  - colunas: beneficiário (do cadastro quando houver; texto+endereço enquanto não houver),
-    valor, memo/holerite, avisos inline (endereço público, memo em transparente, valor zero).
-  - ações: **+ adicionar linha**, remover linha, **importar planilha** (CSV) que *popula a
-    tabela* (o CSV vira um atalho de entrada, não a interface).
-  - **validação contínua** por célula; linha inválida fica marcada, não some.
-- **Rodapé sempre visível:** nº pagamentos · total · taxa estimada · **saldo após**.
-- **Rascunho:** "Salvar rascunho" (persiste como `Draft`); dá pra sair e voltar.
-- **Submeter:** "Enviar para aprovação" (um passo claro, separado de conferir) → `Awaiting`.
+- **Document header:** period (month/year), date, description; generated document number.
+- **Editable table** (one line per beneficiary):
+  - columns: beneficiary (from the registry when it exists; text+address until it does),
+    amount, memo/payslip, inline warnings (public address, transparent memo, zero amount).
+  - actions: **+ add line**, remove line, **import spreadsheet** (CSV) that *populates the
+    table* (the CSV becomes an input shortcut, not the interface).
+  - **continuous validation** per cell; an invalid line is flagged, it does not disappear.
+- **Always-visible footer:** payment count · total · estimated fee · **balance after**.
+- **Draft:** "Save draft" (persists as `Draft`); you can leave and come back.
+- **Submit:** "Send for approval" (a clear step, separate from checking) → `Awaiting`.
 
-## Export itemizado (trilha contábil)
+## Itemized export (accounting trail)
 
-`GET /api/ledger.csv` deve emitir **um lançamento por pagamento**:
-- pagamento único → 1 linha;
-- folha de N → **N linhas** (uma por beneficiário), compartilhando documento/estado/txid.
-- colunas propostas: `documento,tipo,estado,proposto_por,aprovadores,beneficiario,valor_zec,
-  memo,destino,txid` (competência/data entram quando o cabeçalho de documento existir).
+`GET /api/ledger.csv` must emit **one entry per payment**:
+- single payment → 1 line;
+- payroll of N → **N lines** (one per beneficiary), sharing document/state/txid.
+- proposed columns: `document,type,state,proposed_by,approvers,beneficiary,amount_zec,
+  memo,destination,txid` (period/date come in once the document header exists).
 
-## Encaixe no roadmap
+## Roadmap fit
 
-| Item | Onde |
+| Item | Where |
 |---|---|
-| Export itemizado (N lançamentos) | **trilha contábil** — fatia imediata, independente do 5-D |
-| Tabela editável + competência + rascunho (`Draft`) | **5-B.3** (redesenho da UI da folha) |
-| Beneficiário como entidade (cadastro de membros) | **5-D** (identidade real de membro) |
-| Envio real N-saídas | **5-B.2** (motor multi-saída, `zcash_client_backend`) |
-| Conciliação on-chain (sent→confirmed) | **trilha contábil** / 5-C (sync + estados) |
+| Itemized export (N entries) | **accounting trail** — immediate slice, independent of 5-D |
+| Editable table + period + draft (`Draft`) | **5-B.3** (payroll UI redesign) |
+| Beneficiary as an entity (member registry) | **5-D** (real member identity) |
+| Real N-output send | **5-B.2** (multi-output engine, `zcash_client_backend`) |
+| On-chain reconciliation (sent→confirmed) | **accounting trail** / 5-C (sync + states) |
 
-## Fora de escopo agora (incremental, honesto)
+## Out of scope for now (incremental, honest)
 
-Categorias contábeis/plano de contas, recibos/holerite PDF por beneficiário, e
-importação de planilhas ricas (xlsx) ficam para depois. A cara contábil entra **página a
-página**, não de uma vez.
+Accounting categories/chart of accounts, per-beneficiary PDF receipts/payslips, and rich
+spreadsheet (xlsx) import are left for later. The accounting face comes in **page by page**,
+not all at once.

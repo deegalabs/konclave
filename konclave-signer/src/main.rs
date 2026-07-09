@@ -68,7 +68,9 @@ enum Cmd {
 }
 
 /// Error type for the orchard signing closure (must be `From<ParseError>`).
+/// The payloads are carried for `Debug` diagnostics (surfaced on failure), not matched on.
 #[derive(Debug)]
+#[allow(dead_code)]
 enum OErr {
     Parse(orchard::pczt::ParseError),
     Sign(orchard::pczt::SignerError),
@@ -82,7 +84,9 @@ impl From<orchard::pczt::ParseError> for OErr {
 
 fn parse_sig(s: &str) -> std::result::Result<(usize, [u8; 64]), String> {
     let (idx, hexsig) = s.split_once(':').ok_or("expected <index>:<hex>")?;
-    let idx: usize = idx.parse().map_err(|_| "invalid action index".to_string())?;
+    let idx: usize = idx
+        .parse()
+        .map_err(|_| "invalid action index".to_string())?;
     let bytes = hex::decode(hexsig.trim()).map_err(|_| "invalid hex signature".to_string())?;
     let arr: [u8; 64] = bytes
         .try_into()
@@ -127,7 +131,8 @@ fn extract(path: &str) -> Result<()> {
             for (idx, action) in bundle.actions().iter().enumerate() {
                 // Only real spends need a FROST signature; dummy spends (zero value)
                 // are signed by the wallet via the IO finalizer.
-                let is_real = matches!(action.spend().value(), Some(v) if *v != NoteValue::default());
+                let is_real =
+                    matches!(action.spend().value(), Some(v) if *v != NoteValue::default());
                 if is_real {
                     if let Some(alpha) = action.spend().alpha() {
                         out.push((idx, hex::encode::<&[u8]>(alpha.to_repr().as_ref())));
@@ -190,7 +195,9 @@ fn build_payroll(wallet: &str, account_uuid: &str, spec_path: &str, out: &str) -
             },
             Account as _, WalletRead,
         },
-        fees::{standard::MultiOutputChangeStrategy, DustOutputPolicy, SplitPolicy, StandardFeeRule},
+        fees::{
+            standard::MultiOutputChangeStrategy, DustOutputPolicy, SplitPolicy, StandardFeeRule,
+        },
         wallet::OvkPolicy,
     };
     use zcash_client_sqlite::{util::SystemClock, AccountUuid, WalletDb};
@@ -228,7 +235,8 @@ fn build_payroll(wallet: &str, account_uuid: &str, spec_path: &str, out: &str) -
 
     let mut payments = Vec::with_capacity(lines.len());
     for (i, l) in lines.iter().enumerate() {
-        let addr = ZcashAddress::from_str(&l.address).map_err(|_| anyhow!("line {i}: bad address"))?;
+        let addr =
+            ZcashAddress::from_str(&l.address).map_err(|_| anyhow!("line {i}: bad address"))?;
         let value = Zatoshis::from_u64(l.value_zat).map_err(|_| anyhow!("line {i}: bad value"))?;
         let memo = l
             .memo
@@ -265,12 +273,17 @@ fn build_payroll(wallet: &str, account_uuid: &str, spec_path: &str, out: &str) -
         ConfirmationsPolicy::default(),
         None,
     )
-    .map_err(|e: WalletErr<_, std::convert::Infallible, _, _, _, _>| anyhow!("propose_transfer: {e:?}"))?;
+    .map_err(|e: WalletErr<_, std::convert::Infallible, _, _, _, _>| {
+        anyhow!("propose_transfer: {e:?}")
+    })?;
 
-    let pczt = create_pczt_from_proposal(&mut db, &params, account.id(), OvkPolicy::Sender, &proposal)
-        .map_err(|e: WalletErr<_, _, std::convert::Infallible, _, std::convert::Infallible, _>| {
-            anyhow!("create_pczt_from_proposal: {e:?}")
-        })?;
+    let pczt =
+        create_pczt_from_proposal(&mut db, &params, account.id(), OvkPolicy::Sender, &proposal)
+            .map_err(
+                |e: WalletErr<_, _, std::convert::Infallible, _, std::convert::Infallible, _>| {
+                    anyhow!("create_pczt_from_proposal: {e:?}")
+                },
+            )?;
 
     std::fs::write(out, pczt.serialize())?;
     println!("wrote payroll PCZT ({} outputs) to {}", lines.len(), out);
@@ -281,6 +294,11 @@ fn main() -> Result<()> {
     match Cli::parse().cmd {
         Cmd::Extract { pczt } => extract(&pczt),
         Cmd::Inject { pczt, out, sig } => inject(&pczt, &out, sig),
-        Cmd::BuildPayroll { wallet, account, spec, out } => build_payroll(&wallet, &account, &spec, &out),
+        Cmd::BuildPayroll {
+            wallet,
+            account,
+            spec,
+            out,
+        } => build_payroll(&wallet, &account, &spec, &out),
     }
 }

@@ -1,88 +1,88 @@
-# Konclave — Arquitetura
+# Konclave — Architecture
 
-> Documento de arquitetura (GSD). Companion de [CLAUDE.md](../CLAUDE.md) e dos 3 docs-fonte.
+> Architecture document (GSD). Companion to [CLAUDE.md](../CLAUDE.md) and the 3 source docs.
 
-## 1. Visão de três camadas
+## 1. Three-layer view
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│ Camada 3 — ROSTO (Next.js/React, static export servido pelo Tauri)    │
-│   Abertura · Criar/Entrar cofre · Painel · Pagamento/Folha ·          │
-│   Proposta (aprovar/recusar) · Enviado · Histórico · Membros          │
+│ Layer 3 — UI (Next.js/React, static export served by Tauri)           │
+│   Intro · Create/Join vault · Dashboard · Payment/Payroll ·           │
+│   Proposal (approve/refuse) · Sent · Ledger · Members                 │
 └───────────────────────────────┬─────────────────────────────────────┘
-                                 │  comandos Tauri (DTOs estruturados)
+                                 │  Tauri commands (structured DTOs)
 ┌───────────────────────────────▼─────────────────────────────────────┐
-│ Camada 2 — ORQUESTRADOR (Rust, dentro de src-tauri/ — o que construímos)│
+│ Layer 2 — ORCHESTRATOR (Rust, inside src-tauri/ — what we build)      │
 │   ceremony · signing · wallet · proposals · validation · store · ipc  │
 └───────────────────────────────┬─────────────────────────────────────┘
-        invocação de binários (saída estruturada)  │  biblioteca linkada
+        binary invocation (structured output)     │  linked library
 ┌───────────────────────────────▼─────────────────────────────────────┐
-│ Camada 1 — MOTOR (ferramentas oficiais da Foundation — não reimplementar)│
+│ Layer 1 — ENGINE (official Foundation tools — do not reimplement)     │
 │   frostd · frost-client · zcash-sign · zcash-devtool(PCZT) ·          │
-│   zcash_client_backend (linkada)                                      │
+│   zcash_client_backend (linked)                                       │
 └──────────────────────────────────────────────────────────────────────┘
                                  │
-                    rede: frostd (coordenação) · lightwalletd · mainnet Zcash (NU6.2)
+                    network: frostd (coordination) · lightwalletd · Zcash mainnet (NU6.2)
 ```
 
-## 2. O que viaja vs. o que fica (modelo de confiança)
+## 2. What travels vs. what stays (trust model)
 
-| Fica **só no dispositivo** (nunca sai) | **Viaja pela rede** (público) |
+| Stays **on the device only** (never leaves) | **Travels over the network** (public) |
 |---|---|
-| Key share, seed, segredos | Pacotes de round do DKG, commitments de nonce |
-| Memos decifrados | Assinaturas parciais |
-| O ato de assinar | A transação final (vai à mainnet) |
+| Key share, seed, secrets | DKG round packages, nonce commitments |
+| Decrypted memos | Partial signatures |
+| The act of signing | The final transaction (goes to mainnet) |
 
-O `frostd` é um **carteiro cego**: transporta envelopes públicos, não abre nenhum.
-Comprometê-lo não revela segredos nem permite gastar — no máximo atrapalha a coordenação
-(daí o fallback QR/copy-paste).
+`frostd` is a **blind courier**: it carries public envelopes and opens none of them.
+Compromising it reveals no secrets and grants no ability to spend — at worst it disrupts
+coordination (hence the QR/copy-paste fallback).
 
-## 3. Fontes de verdade
+## 3. Sources of truth
 
-- **On-chain (mainnet):** verdade final sobre fundos. **On-chain vence sempre.**
-- **Estado local (por dispositivo):** share, cofres, rótulos, cache, propostas em andamento.
-- **`frostd`:** transporte efêmero de material **público**; não é fonte de verdade.
+- **On-chain (mainnet):** final truth about funds. **On-chain always wins.**
+- **Local state (per device):** share, vaults, labels, cache, in-progress proposals.
+- **`frostd`:** ephemeral transport of **public** material; not a source of truth.
 
-## 4. Mapa de módulos do Orquestrador (`src-tauri/`)
+## 4. Orchestrator module map (`src-tauri/`)
 
-| Módulo | Responsabilidade |
+| Module | Responsibility |
 |---|---|
-| `ceremony` | DKG (e trusted-dealer no slice) via `frost-client` + `frostd` |
-| `signing` | Rodadas de assinatura de proposta; **Rerandomized FROST** (`-C redpallas`) via `zcash-sign` |
-| `wallet` | Sync via UFVK, saldo/histórico, construção de plano (PCZT) — `zcash_client_backend` linkado |
-| `proposals` | **Máquina de estados** (LOGICA §6), reserva de saldo, expiração, reconciliação |
-| `validation` | Endereço/valor/memo/taxa (ZIP 317); falhas explícitas em toda fronteira |
-| `store` | Estado local em SQLite + share no keychain do SO |
-| `ipc` | Comandos Tauri expostos ao Rosto; DTOs tipados |
+| `ceremony` | DKG (and trusted-dealer in the slice) via `frost-client` + `frostd` |
+| `signing` | Proposal signing rounds; **Rerandomized FROST** (`-C redpallas`) via `zcash-sign` |
+| `wallet` | Sync via UFVK, balance/history, plan construction (PCZT) — `zcash_client_backend` linked |
+| `proposals` | **State machine** (LOGICA §6), balance reservation, expiry, reconciliation |
+| `validation` | Address/amount/memo/fee (ZIP 317); explicit failures at every boundary |
+| `store` | Local state in SQLite + share in the OS keychain |
+| `ipc` | Tauri commands exposed to the UI; typed DTOs |
 
-## 5. Máquina de estados da Proposta (LOGICA §6)
+## 5. Proposal state machine (LOGICA §6)
 
 ```
-rascunho ──propor──> aguardando ──quórum──> pronta ──broadcast──> enviada ──confirma──> confirmada
+draft ──propose──> awaiting ──quorum──> ready ──broadcast──> sent ──confirms──> confirmed
    │                    │
-   │                    ├──recusa inviabiliza quórum──> recusada
-   │                    ├──expira──> expirada
-   │                    └──cancela (só proponente)──> cancelada
-   descartar
+   │                    ├──refusal makes quorum unreachable──> refused
+   │                    ├──expires──> expired
+   │                    └──cancel (proposer only)──> cancelled
+   discard
 ```
-- Proponente conta como 1ª aprovação. Quórum = `t`. Aprovação idempotente.
-- Inalcançabilidade: se recusas > (n − t) → `recusada` automático.
-- Reserva de saldo enquanto a proposta vive (trava **de produto**, não de protocolo).
-- Folha = **uma** transação com N saídas → **uma** proposta → **uma** rodada de aprovações.
+- Proposer counts as the 1st approval. Quorum = `t`. Approval is idempotent.
+- Unreachability: if refusals > (n − t) → automatic `refused`.
+- Balance reserved while the proposal is alive (a **product** lock, not a protocol one).
+- Payroll = **one** transaction with N outputs → **one** proposal → **one** approval round.
 
-## 6. Fluxo de uma transação (slice → produto)
+## 6. Transaction flow (slice → product)
 
-1. `frost-client` init de cada membro → contatos.
-2. **DKG** via `frostd` (produto) / trusted-dealer (slice) → group key, shares locais.
-3. `zcash-sign generate --ak` → endereço **Orchard** + UFVK.
-4. Financiamento na mainnet (Orchard) → `wallet` sincroniza via UFVK.
-5. Propor: `wallet` monta plano → **PCZT** → `zcash-sign` extrai o que assinar (+ randomizer).
-6. Cerimônia de assinatura (`-C redpallas`) coordenada por `frostd` → assinatura FROST.
-7. `zcash-sign` injeta a assinatura no PCZT → tx assinada → broadcast → confirmação.
+1. `frost-client` init for each member → contacts.
+2. **DKG** via `frostd` (product) / trusted-dealer (slice) → group key, local shares.
+3. `zcash-sign generate --ak` → **Orchard** address + UFVK.
+4. Funding on mainnet (Orchard) → `wallet` syncs via UFVK.
+5. Propose: `wallet` builds the plan → **PCZT** → `zcash-sign` extracts what to sign (+ randomizer).
+6. Signing ceremony (`-C redpallas`) coordinated by `frostd` → FROST signature.
+7. `zcash-sign` injects the signature into the PCZT → signed tx → broadcast → confirmation.
 
-## 7. Empacotamento
+## 7. Packaging
 
-- **Tauri sidecars:** os binários do Motor entram empacotados por target-triple.
-- **Dev:** Windows nativo primeiro; WSL2 como fallback se o tooling exigir Linux.
-- **Build determinístico:** `motor/` compila da fonte em SHA pinado; checksum em
-  `motor/versions.lock`.
+- **Tauri sidecars:** the Engine binaries are packaged per target-triple.
+- **Dev:** native Windows first; WSL2 as a fallback if the tooling requires Linux.
+- **Deterministic build:** `engine/` compiles from source at a pinned SHA; checksum in
+  `engine/versions.lock`.

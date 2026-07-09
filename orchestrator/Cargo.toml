@@ -1,0 +1,33 @@
+[package]
+name = "orchestrator"
+version = "0.1.0"
+edition = "2021"
+description = "Konclave Orchestrator (Layer 2): proposal state machine, validation, and orchestration of the official FROST/Zcash tools"
+license = "MIT OR Apache-2.0"
+
+# The domain core modules (money, proposal, validation) are dependency-free — pure
+# std, instant builds, zero supply-chain surface. serde/serde_json are used ONLY by
+# the orchestration layer (tools, wallet, signer) to parse tool output robustly.
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# At-rest protection for FROST shares (security debt): AEAD via a vetted library,
+# never hand-rolled crypto. XChaCha20-Poly1305 for authenticated encryption.
+chacha20poly1305 = "0.10"
+getrandom = "0.2"
+# Key derivation for the vault passphrase ("palavra do cofre"): the word derives the
+# sealing key (memory-hard Argon2id), so without it the sealed shares do not open.
+argon2 = "0.5"
+# Local per-device state (vaults, proposals). Bundled SQLite = no system dependency.
+rusqlite = { version = "0.31", features = ["bundled"] }
+# Loopback-only HTTP bridge to the UI (ADR-0004). Blocking server, coherent with
+# the synchronous core (rusqlite/subprocess) — no async runtime dragged in. Bound to
+# 127.0.0.1 only: a local daemon, never a network service.
+tiny_http = "0.12"
+
+# The `konclave serve` binary (the local bridge). The library stays the tested core.
+[[bin]]
+name = "konclave"
+path = "src/main.rs"
+
+[dev-dependencies]

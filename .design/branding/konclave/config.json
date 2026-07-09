@@ -1,0 +1,30 @@
+{
+  "version": "0.5.0",
+  "project_type": "brand",
+  "brand_mode": "evolve",
+  "name": "konclave",
+  "created": "2026-07-08",
+  "system_config": {
+    "system_strategy": "consolidate"
+  },
+  "evolution_scope": {
+    "intent": "Consolidate the existing DARK design into one coherent token system + STYLE.md agent contract. Not a new brand.",
+    "preserve": [
+      "dark 'solid vault + discretion' aesthetic",
+      "the tarja / redaction bar as the signature privacy gesture",
+      "mono type for money, addresses, txids",
+      "Archivo (display) + Spline Sans Mono typography",
+      "the quorum seal / medallion device"
+    ],
+    "evolve": [
+      "token names (--seal is blue not oxblood; --pine is mint)",
+      "merge lacre.css + redesign.css + App.css into one token system",
+      "the mark/emblem"
+    ],
+    "replace": [
+      "purple favicon (#863bff) that matches nothing",
+      "stray oxblood literals left from the light theme",
+      "the two parallel CSS vocabularies (global lacre + .rd-scoped redesign)"
+    ]
+  }
+}
