@@ -52,10 +52,13 @@ export function expiryLabel(unix: number | undefined, t: TFn): string {
   return h < 48 ? t('expiry.hours', { h }) : t('expiry.days', { d: Math.floor(h / 24) })
 }
 
-/** Short DD/MM date from a real unix timestamp (seconds). '—' when absent/invalid — never NaN. */
+/** DD/MM/YYYY date from a real unix timestamp (seconds). '—' when absent/invalid, never NaN.
+ *  Year-qualified: a ledger handed to an accountant must distinguish 2026 from 2027. */
 export function fmtDate(unix?: number): string {
   if (!isRealUnix(unix)) return '—'
   const d = new Date(unix * 1000)
   if (Number.isNaN(d.getTime())) return '—'
-  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`
+  const dd = String(d.getDate()).padStart(2, '0')
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  return `${dd}/${mm}/${d.getFullYear()}`
 }

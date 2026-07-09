@@ -66,6 +66,9 @@ export default function Dashboard() {
 
   // Balance — real when the wallet is wired; "—" when live-but-unwired; mock when offline.
   const hasBal = balance?.configured === true
+  // Live but no wallet wired: show an explicit "not connected" state, never a dash veiled
+  // behind the redaction tarja (the privacy gesture must never hide *nothing*).
+  const walletUnwired = isLive && !hasBal
   const amt = hasBal ? fmt4(balance!.total_zec) : (isLive ? '—' : '2.4180')
   const confirmado = hasBal ? fmt4(balance!.spendable_zec) : (isLive ? '—' : '2.4180')
   const pendente = hasBal ? `+${fmt4(balance!.pending_zec)}` : (isLive ? '—' : '+0.0100')
@@ -166,14 +169,25 @@ export default function Dashboard() {
             <h2 className="klab">{t('dashboard.vaultBalance')}</h2>
             <RevealButton />
           </div>
-          <div className="fig">
-            <Secret><span className="amt">{amt}</span></Secret>
-            <span className="unit">ZEC</span>
-          </div>
-          <div className="breakdown">
-            <span>{t('dashboard.confirmedLower')} <Secret sm><b>{confirmado}</b></Secret></span>
-            <span className="pd">{t('dashboard.pendingLower')} <Secret sm><b>{pendente}</b></Secret></span>
-          </div>
+          {walletUnwired ? (
+            <div className="fig">
+              <span className="amt" style={{ fontSize: '17px', letterSpacing: '.02em', color: 'var(--text-muted)' }}>
+                {t('dashboard.walletNotConnected')}
+              </span>
+            </div>
+          ) : (
+            <>
+              <div className="fig">
+                <Secret><span className="amt">{amt}</span></Secret>
+                <span className="unit">ZEC</span>
+              </div>
+              <div className="breakdown">
+                <span>{t('dashboard.confirmedLower')} <Secret sm><b>{confirmado}</b></Secret></span>
+                <span className="pd">{t('dashboard.pendingLower')} <Secret sm><b>{pendente}</b></Secret></span>
+              </div>
+            </>
+          )}
+          {walletUnwired && <div className="breakdown"><span className="dim small">{t('dashboard.walletNotConnectedNote')}</span></div>}
           <div className="receive">
             <span className="klab plain">{t('dashboard.receiveIn')}</span>
             <code>{addr}</code>

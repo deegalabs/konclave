@@ -91,6 +91,10 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 .btn:hover{background:var(--text); color:var(--surface-1)}
 .btn.ok{background:var(--accent); border-color:var(--accent); color:var(--on-accent)}
 .btn.ok:hover{background:var(--accent-ink); border-color:var(--accent-ink)}
+/* A disabled action must LOOK disabled (T6): no accent pull, no hover, not-allowed. */
+.btn:disabled, .btn:disabled:hover{opacity:.42; cursor:not-allowed; background:var(--surface-2);
+  border-color:var(--line); color:var(--text-muted)}
+.btn.ok:disabled, .btn.ok:disabled:hover{background:var(--surface-2); border-color:var(--line); color:var(--text-muted)}
 .btn.ghost{border-color:var(--line); color:var(--text-muted)}
 .btn.ghost:hover{background:transparent; border-color:var(--text); color:var(--text)}
 .btn.block{width:100%; text-align:center}
@@ -102,7 +106,7 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
   background-image:repeating-linear-gradient(90deg,rgba(255,255,255,.06) 0 1px,transparent 1px 4px);}
 .secret .bar:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
 .secret.sm .bar{inset:-1px -4px}
-.secret .bar::after{content:"SIGILOSO"; position:absolute; left:7px; top:50%; transform:translateY(-50%);
+.secret .bar::after{content:attr(data-label); position:absolute; left:7px; top:50%; transform:translateY(-50%);
   font-family:var(--font-mono); font-size:9px; letter-spacing:.2em; color:var(--tarja-text)}
 .secret.sm .bar::after{content:""}
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Letterhead } from '../components'
+import { Letterhead, Dialog } from '../components'
 import { Identicon } from '../avatar'
 import { useT } from '../i18n'
 import {
@@ -19,6 +19,7 @@ export default function People() {
   const [showForm, setShowForm] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [confirmDel, setConfirmDel] = useState<Beneficiary | null>(null)
 
   async function reload() {
     const b = await getBeneficiaries()
@@ -51,8 +52,10 @@ export default function People() {
     else setError(humanError(t, res.error, res.detail))
   }
 
-  async function remove(id: string) {
-    if (await deleteBeneficiary(id)) void reload()
+  async function doRemove() {
+    const b = confirmDel
+    setConfirmDel(null)
+    if (b && (await deleteBeneficiary(b.id))) void reload()
   }
 
   return (
@@ -78,7 +81,7 @@ export default function People() {
                   </div>
                 </div>
                 <button className="row-edit" title={t('people.edit')} onClick={() => startEdit(b)}>✎</button>
-                <button className="row-del" title={t('common.remove')} onClick={() => remove(b.id)}>×</button>
+                <button className="row-del" title={t('common.remove')} onClick={() => setConfirmDel(b)}>×</button>
               </div>
             ))}
           </div>
@@ -114,6 +117,18 @@ export default function People() {
           </div>
         )}
       </main>
+
+      {confirmDel && (
+        <Dialog className="unlock-overlay" cardClassName="unlock-card" labelledBy="del-title" onClose={() => setConfirmDel(null)}>
+          <div className="rd-eyebrow">{t('people.confirmDeleteEyebrow')}</div>
+          <h2 id="del-title">{confirmDel.name}</h2>
+          <p>{t('people.confirmDeleteBody')}</p>
+          <div className="unlock-btns">
+            <button className="rd-enter" onClick={() => setConfirmDel(null)}>{t('common.cancel')}</button>
+            <button className="rd-enter primary" onClick={() => void doRemove()}>{t('people.confirmDeleteAction')}</button>
+          </div>
+        </Dialog>
+      )}
     </>
   )
 }

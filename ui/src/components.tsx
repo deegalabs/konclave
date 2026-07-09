@@ -110,6 +110,7 @@ export function Secret({ children, sm }: { children: ReactNode; sm?: boolean }) 
       <button
         type="button"
         className="bar"
+        data-label={t('secret.tarja')}
         onClick={toggle}
         aria-pressed={revealed}
         aria-label={revealed ? t('common.hide') : t('common.reveal')}
