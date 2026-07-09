@@ -261,12 +261,7 @@ fn run_serve(args: &[String]) -> Result<(), String> {
         None => None,
     };
 
-    let cfg = Config {
-        web_dir: web,
-        db_path: db,
-        wallet,
-        ceremony,
-    };
+    let cfg = Config::new(web, db, wallet, ceremony);
     server::serve(cfg, port).map_err(|e| format!("server: {e}"))
 }
 

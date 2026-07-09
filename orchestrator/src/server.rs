@@ -50,6 +50,29 @@ pub struct Config {
     pub wallet: Option<Box<dyn WalletReader>>,
     /// The FROST ceremony config, present only when the send path is wired (`--ceremony`).
     pub ceremony: Option<crate::send::SendConfig>,
+    /// In-memory per-vault unlock throttle (audit L1): `vault_id -> (recent fails, window
+    /// start unix)`. Loopback-only defense-in-depth so a wrong passphrase cannot be retried
+    /// without bound, on top of the session token (C1) and the memory-hard KDF cost.
+    pub unlock_throttle: std::sync::Mutex<std::collections::HashMap<String, (u32, i64)>>,
+}
+
+impl Config {
+    /// Build a Config with an empty unlock throttle. Prefer this over the struct literal so
+    /// callers do not have to know about the throttle field.
+    pub fn new(
+        web_dir: PathBuf,
+        db_path: String,
+        wallet: Option<Box<dyn WalletReader>>,
+        ceremony: Option<crate::send::SendConfig>,
+    ) -> Config {
+        Config {
+            web_dir,
+            db_path,
+            wallet,
+            ceremony,
+            unlock_throttle: std::sync::Mutex::new(std::collections::HashMap::new()),
+        }
+    }
 }
 
 /// A fully-formed HTTP response, independent of the transport.
@@ -711,9 +734,61 @@ struct UnlockReq {
     passphrase: String,
 }
 
+/// Unlock throttle (audit L1): after this many wrong words within the window, the vault is
+/// locked out for the rest of it. Small numbers: this is defense-in-depth behind the session
+/// token and the memory-hard KDF, not the primary control.
+const UNLOCK_MAX_FAILS: u32 = 5;
+const UNLOCK_LOCKOUT_SECS: i64 = 60;
+
+/// If the vault is currently locked out (too many recent wrong passphrases), return the 429
+/// to send. Called BEFORE the expensive KDF so a locked-out attempt is refused cheaply.
+fn unlock_locked_out(cfg: &Config, vault_id: &str) -> Option<Response> {
+    let now = now_unix().unwrap_or(0);
+    let mut map = cfg
+        .unlock_throttle
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if let Some(&(fails, start)) = map.get(vault_id) {
+        let elapsed = now.saturating_sub(start);
+        if elapsed >= UNLOCK_LOCKOUT_SECS {
+            map.remove(vault_id); // window expired → forget
+        } else if fails >= UNLOCK_MAX_FAILS {
+            let retry = UNLOCK_LOCKOUT_SECS - elapsed;
+            return Some(Response::json(
+                429,
+                &serde_json::json!({
+                    "error": "too many attempts",
+                    "detail": format!("wait {retry}s before trying the vault word again"),
+                }),
+            ));
+        }
+    }
+    None
+}
+
+/// Record an unlock attempt: clear the record on success, increment (restarting a stale
+/// window) on failure.
+fn record_unlock(cfg: &Config, vault_id: &str, success: bool) {
+    let now = now_unix().unwrap_or(0);
+    let mut map = cfg
+        .unlock_throttle
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if success {
+        map.remove(vault_id);
+    } else {
+        let entry = map.entry(vault_id.to_string()).or_insert((0, now));
+        if now.saturating_sub(entry.1) >= UNLOCK_LOCKOUT_SECS {
+            *entry = (0, now); // stale window → restart the count
+        }
+        entry.0 += 1;
+    }
+}
+
 /// `POST /api/vault/unlock` — verify a vault's passphrase against its stored verifier.
 /// 200 `{ok:true, locked:true}` on the right word; 401 on the wrong one; `{ok:true,
 /// locked:false}` when the vault has no passphrase (legacy/slice). Never returns the key.
+/// Repeated wrong words are throttled per vault (L1). Never returns the key.
 fn vault_unlock(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
     let req: UnlockReq = match serde_json::from_slice(body) {
         Ok(v) => v,
@@ -740,6 +815,10 @@ fn vault_unlock(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
             )
         }
     };
+    // L1: refuse (429) while locked out — before spending the KDF on another guess.
+    if let Some(resp) = unlock_locked_out(cfg, &vault_id) {
+        return resp;
+    }
     let key = match crate::secrets::derive_key(&req.passphrase, &salt) {
         Ok(k) => zeroize::Zeroizing::new(k), // wipe the derived key on drop (M4)
         Err(e) => {
@@ -749,7 +828,9 @@ fn vault_unlock(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
             )
         }
     };
-    if crate::secrets::verify(&key, &verifier) {
+    let ok = crate::secrets::verify(&key, &verifier);
+    record_unlock(cfg, &vault_id, ok);
+    if ok {
         Response::json(200, &serde_json::json!({ "ok": true, "locked": true }))
     } else {
         Response::json(
@@ -1964,12 +2045,7 @@ mod tests {
     }
 
     fn cfg_with(db: String, wallet: Option<Box<dyn WalletReader>>) -> Config {
-        Config {
-            web_dir: std::env::temp_dir(),
-            db_path: db,
-            wallet,
-            ceremony: None,
-        }
+        Config::new(std::env::temp_dir(), db, wallet, None)
     }
 
     fn body_json(r: &Response) -> serde_json::Value {
@@ -2251,6 +2327,51 @@ mod tests {
             br#"{"passphrase":"cedro-barco-pedra-monte"}"#,
         );
         assert_eq!(no.status, 401);
+    }
+
+    #[test]
+    fn unlock_is_rate_limited_after_repeated_wrong_words() {
+        use crate::proposal::Quorum;
+        let db = tmp_db();
+        {
+            let store = Store::open(&db).unwrap();
+            store
+                .save_vault(&VaultRecord {
+                    id: "v-lock".into(),
+                    name: "Cofre".into(),
+                    quorum: Quorum::new(2, 3).unwrap(),
+                    group_pubkey: "gp".into(),
+                    orchard_address: "u1".into(),
+                    ufvk: String::new(),
+                    server_url: None,
+                })
+                .unwrap();
+            let salt = crate::secrets::generate_salt().unwrap();
+            let key = crate::secrets::derive_key("cedro-barco-pedra-chave", &salt).unwrap();
+            let verifier = crate::secrets::make_verifier(&key).unwrap();
+            store.set_vault_lock("v-lock", &salt, &verifier).unwrap();
+        }
+        let cfg = cfg_with(db, None);
+
+        // Exhaust the allowance with wrong words (401 each).
+        for _ in 0..UNLOCK_MAX_FAILS {
+            let r = handle(
+                &cfg,
+                "POST",
+                "/api/vault/unlock?vault=v-lock",
+                br#"{"passphrase":"cedro-barco-pedra-monte"}"#,
+            );
+            assert_eq!(r.status, 401);
+        }
+        // Now locked out: even the RIGHT word is refused (429) — no key check happens.
+        let r = handle(
+            &cfg,
+            "POST",
+            "/api/vault/unlock?vault=v-lock",
+            br#"{"passphrase":"cedro-barco-pedra-chave"}"#,
+        );
+        assert_eq!(r.status, 429);
+        assert_eq!(body_json(&r)["error"], "too many attempts");
     }
 
     #[test]
