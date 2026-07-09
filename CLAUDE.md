@@ -339,3 +339,30 @@ dry-run (signs, does NOT broadcast):** the multi-output payroll and the sealed p
 
 **Next:** Phase 6 (extras) · Phase 7 (README/video/diagram/mock showcase) · follow-ups
 (DKG vault send · real broadcasts).
+
+---
+
+**Phase 8 — Polish & standardization — 🔧 IN PROGRESS on branch `polish/foundation`
+(2026-07-08, not yet merged; 21 commits, CI-green, 129 tests).** A hardening + standardization
+pass that does NOT touch the crypto core. Highlights:
+- **OSS foundation:** CI (fmt + clippy `-D warnings` + test on both crates + UI lint/build),
+  `SECURITY.md` + internal `SECURITY_AUDIT.md`, CONTRIBUTING/CoC, editorconfig/nvmrc/rustfmt.
+- **Security (audit Round 1):** **C1** CSRF/DNS-rebinding on the loopback bridge FIXED
+  (`handle_secured`: Host gate + per-session token); **M3** delete-vault name confirmation
+  enforced server-side; **H1** passphrase entropy raised (Argon2id, 6 words). Open: M2 address
+  guard, M1 UFVK, C2 keychain, C6 signer tests.
+- **Bugs fixed:** real `created_at` timestamp (kills the expiry/date display bugs), tofu icons,
+  self-hosted fonts (local-first), shared `format.ts`.
+- **Standardization:** repo is **English** (folders `rosto→ui`, `orquestrador→orchestrator`,
+  `motor→engine`; screens + routes + components English; comments + backend strings + versioned
+  docs translated). **UI is bilingual** via a dependency-free i18n (PT-BR default + EN, 377
+  keys/locale, a language toggle).
+- **Design system (GSP):** ran the GSP brand pipeline (`.design/branding/konclave/`) in
+  consolidate mode (kept the current dark + blue `#57a6ff`) → one truthful token layer +
+  `STYLE.md`, applied to the code (merged the 3 CSS systems, flattened, on-brand favicon).
+- **Accessibility:** WCAG 2.2 AA pass — the tarja and all nav/rows are keyboard-operable,
+  modals are real dialogs, live regions, focus-visible, reduced-motion.
+
+Remaining polish backlog (see `temp/ROADMAP-EXECUCAO.md`): Tier 2 security (M2/M1/C2/C6, Cargo
+workspace), Tier 3 (console simulation harness + Vitest), remaining a11y moderates. Blocker for
+real functional tests: the engine binaries are not built on this machine.
