@@ -50,6 +50,29 @@ pub struct Config {
     pub wallet: Option<Box<dyn WalletReader>>,
     /// The FROST ceremony config, present only when the send path is wired (`--ceremony`).
     pub ceremony: Option<crate::send::SendConfig>,
+    /// In-memory per-vault unlock throttle (audit L1): `vault_id -> (recent fails, window
+    /// start unix)`. Loopback-only defense-in-depth so a wrong passphrase cannot be retried
+    /// without bound, on top of the session token (C1) and the memory-hard KDF cost.
+    pub unlock_throttle: std::sync::Mutex<std::collections::HashMap<String, (u32, i64)>>,
+}
+
+impl Config {
+    /// Build a Config with an empty unlock throttle. Prefer this over the struct literal so
+    /// callers do not have to know about the throttle field.
+    pub fn new(
+        web_dir: PathBuf,
+        db_path: String,
+        wallet: Option<Box<dyn WalletReader>>,
+        ceremony: Option<crate::send::SendConfig>,
+    ) -> Config {
+        Config {
+            web_dir,
+            db_path,
+            wallet,
+            ceremony,
+            unlock_throttle: std::sync::Mutex::new(std::collections::HashMap::new()),
+        }
+    }
 }
 
 /// A fully-formed HTTP response, independent of the transport.
@@ -711,9 +734,61 @@ struct UnlockReq {
     passphrase: String,
 }
 
+/// Unlock throttle (audit L1): after this many wrong words within the window, the vault is
+/// locked out for the rest of it. Small numbers: this is defense-in-depth behind the session
+/// token and the memory-hard KDF, not the primary control.
+const UNLOCK_MAX_FAILS: u32 = 5;
+const UNLOCK_LOCKOUT_SECS: i64 = 60;
+
+/// If the vault is currently locked out (too many recent wrong passphrases), return the 429
+/// to send. Called BEFORE the expensive KDF so a locked-out attempt is refused cheaply.
+fn unlock_locked_out(cfg: &Config, vault_id: &str) -> Option<Response> {
+    let now = now_unix().unwrap_or(0);
+    let mut map = cfg
+        .unlock_throttle
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if let Some(&(fails, start)) = map.get(vault_id) {
+        let elapsed = now.saturating_sub(start);
+        if elapsed >= UNLOCK_LOCKOUT_SECS {
+            map.remove(vault_id); // window expired → forget
+        } else if fails >= UNLOCK_MAX_FAILS {
+            let retry = UNLOCK_LOCKOUT_SECS - elapsed;
+            return Some(Response::json(
+                429,
+                &serde_json::json!({
+                    "error": "too many attempts",
+                    "detail": format!("wait {retry}s before trying the vault word again"),
+                }),
+            ));
+        }
+    }
+    None
+}
+
+/// Record an unlock attempt: clear the record on success, increment (restarting a stale
+/// window) on failure.
+fn record_unlock(cfg: &Config, vault_id: &str, success: bool) {
+    let now = now_unix().unwrap_or(0);
+    let mut map = cfg
+        .unlock_throttle
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if success {
+        map.remove(vault_id);
+    } else {
+        let entry = map.entry(vault_id.to_string()).or_insert((0, now));
+        if now.saturating_sub(entry.1) >= UNLOCK_LOCKOUT_SECS {
+            *entry = (0, now); // stale window → restart the count
+        }
+        entry.0 += 1;
+    }
+}
+
 /// `POST /api/vault/unlock` — verify a vault's passphrase against its stored verifier.
 /// 200 `{ok:true, locked:true}` on the right word; 401 on the wrong one; `{ok:true,
 /// locked:false}` when the vault has no passphrase (legacy/slice). Never returns the key.
+/// Repeated wrong words are throttled per vault (L1). Never returns the key.
 fn vault_unlock(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
     let req: UnlockReq = match serde_json::from_slice(body) {
         Ok(v) => v,
@@ -740,8 +815,12 @@ fn vault_unlock(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
             )
         }
     };
+    // L1: refuse (429) while locked out — before spending the KDF on another guess.
+    if let Some(resp) = unlock_locked_out(cfg, &vault_id) {
+        return resp;
+    }
     let key = match crate::secrets::derive_key(&req.passphrase, &salt) {
-        Ok(k) => k,
+        Ok(k) => zeroize::Zeroizing::new(k), // wipe the derived key on drop (M4)
         Err(e) => {
             return Response::json(
                 500,
@@ -749,7 +828,9 @@ fn vault_unlock(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
             )
         }
     };
-    if crate::secrets::verify(&key, &verifier) {
+    let ok = crate::secrets::verify(&key, &verifier);
+    record_unlock(cfg, &vault_id, ok);
+    if ok {
         Response::json(200, &serde_json::json!({ "ok": true, "locked": true }))
     } else {
         Response::json(
@@ -794,7 +875,7 @@ fn vault_delete(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
         Ok(Some((salt, verifier))) => {
             let key =
                 match crate::secrets::derive_key(req.passphrase.as_deref().unwrap_or(""), &salt) {
-                    Ok(k) => k,
+                    Ok(k) => zeroize::Zeroizing::new(k), // wipe the derived key on drop (M4)
                     Err(e) => {
                         return Response::json(
                             500,
@@ -1004,6 +1085,23 @@ fn create_proposal(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
     let addr_kind = AddressKind::classify(&input.to_address);
     if addr_kind == AddressKind::Unknown {
         return bad("unrecognized Zcash address", "invalid address");
+    }
+
+    // Authoritative decode when real funds are at stake (a live wallet is configured).
+    // The prefix heuristic above lets malformed / wrong-network / Sapling-only strings
+    // through; the builder would then try to pay them and lock the funds (§8). Demo mode
+    // (no wallet) keeps the lenient check so placeholder addresses work.
+    if cfg.wallet.is_some() {
+        match crate::address::validate_recipient(&input.to_address) {
+            Ok(rep) if rep.is_payable() => {}
+            Ok(_) => {
+                return bad(
+                    "this address can't receive from an Orchard vault — the funds would be locked",
+                    "unpayable address",
+                )
+            }
+            Err(e) => return bad(e.human(), "invalid address"),
+        }
     }
 
     // Amount (no floating point) — must be > 0.
@@ -1225,6 +1323,27 @@ fn payroll_create(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
         }
     }
     let plan = PayrollPlan::new(lines);
+
+    // Authoritative per-line decode when a live wallet is configured (real funds). A
+    // single Sapling-only / malformed / wrong-network beneficiary would lock the whole
+    // multi-output envelope (§8). Demo mode keeps the lenient prefix check.
+    if cfg.wallet.is_some() {
+        for (i, l) in plan.lines.iter().enumerate() {
+            match crate::address::validate_recipient(&l.address) {
+                Ok(rep) if rep.is_payable() => {}
+                Ok(_) => {
+                    return bad(
+                        format!(
+                            "line {}: this address can't receive from an Orchard vault (funds would lock)",
+                            i + 1
+                        ),
+                        "invalid line",
+                    )
+                }
+                Err(e) => return bad(format!("line {}: {}", i + 1, e.human()), "invalid line"),
+            }
+        }
+    }
 
     let mut store = match open_store(cfg) {
         Ok(s) => s,
@@ -1926,12 +2045,7 @@ mod tests {
     }
 
     fn cfg_with(db: String, wallet: Option<Box<dyn WalletReader>>) -> Config {
-        Config {
-            web_dir: std::env::temp_dir(),
-            db_path: db,
-            wallet,
-            ceremony: None,
-        }
+        Config::new(std::env::temp_dir(), db, wallet, None)
     }
 
     fn body_json(r: &Response) -> serde_json::Value {
@@ -2213,6 +2327,51 @@ mod tests {
             br#"{"passphrase":"cedro-barco-pedra-monte"}"#,
         );
         assert_eq!(no.status, 401);
+    }
+
+    #[test]
+    fn unlock_is_rate_limited_after_repeated_wrong_words() {
+        use crate::proposal::Quorum;
+        let db = tmp_db();
+        {
+            let store = Store::open(&db).unwrap();
+            store
+                .save_vault(&VaultRecord {
+                    id: "v-lock".into(),
+                    name: "Cofre".into(),
+                    quorum: Quorum::new(2, 3).unwrap(),
+                    group_pubkey: "gp".into(),
+                    orchard_address: "u1".into(),
+                    ufvk: String::new(),
+                    server_url: None,
+                })
+                .unwrap();
+            let salt = crate::secrets::generate_salt().unwrap();
+            let key = crate::secrets::derive_key("cedro-barco-pedra-chave", &salt).unwrap();
+            let verifier = crate::secrets::make_verifier(&key).unwrap();
+            store.set_vault_lock("v-lock", &salt, &verifier).unwrap();
+        }
+        let cfg = cfg_with(db, None);
+
+        // Exhaust the allowance with wrong words (401 each).
+        for _ in 0..UNLOCK_MAX_FAILS {
+            let r = handle(
+                &cfg,
+                "POST",
+                "/api/vault/unlock?vault=v-lock",
+                br#"{"passphrase":"cedro-barco-pedra-monte"}"#,
+            );
+            assert_eq!(r.status, 401);
+        }
+        // Now locked out: even the RIGHT word is refused (429) — no key check happens.
+        let r = handle(
+            &cfg,
+            "POST",
+            "/api/vault/unlock?vault=v-lock",
+            br#"{"passphrase":"cedro-barco-pedra-chave"}"#,
+        );
+        assert_eq!(r.status, 429);
+        assert_eq!(body_json(&r)["error"], "too many attempts");
     }
 
     #[test]
@@ -2538,10 +2697,83 @@ mod tests {
             total: Zatoshis::from_u64(100_000).unwrap(),
         };
         let cfg = seeded_cfg(Some(Box::new(FakeWallet { result: Ok(bal) })));
-        let body = br#"{"proposer":"Ana","to_address":"u1abc","value_zec":"1.0"}"#;
-        let r = handle(&cfg, "POST", "/api/proposals", body);
+        // Real Orchard address so the authoritative check passes and the OVERSPEND guard
+        // is what fires (a fake `u1abc` would now be rejected as malformed first).
+        let body =
+            format!(r#"{{"proposer":"Ana","to_address":"{SLICE_ADDRESS}","value_zec":"1.0"}}"#);
+        let r = handle(&cfg, "POST", "/api/proposals", body.as_bytes());
         assert_eq!(r.status, 400);
         assert_eq!(body_json(&r)["error"], "insufficient funds");
+    }
+
+    // Real mainnet vectors for the authoritative address guard (audit M2 / §8).
+    const SAPLING_ADDR: &str =
+        "zs1qqqqqqqqqqqqqqqqqqcguyvaw2vjk4sdyeg0lc970u659lvhqq7t0np6hlup5lusxle75c8v35z";
+    const TESTNET_UA: &str = "utest10c5kutapazdnf8ztl3pu43nkfsjx89fy3uuff8tsmxm6s86j37pe7uz94z5jhkl49pqe8yz75rlsaygexk6jpaxwx0esjr8wm5ut7d5s";
+
+    fn live_cfg() -> Config {
+        let bal = Balance {
+            chain_tip_height: 1,
+            orchard_spendable: Zatoshis::from_u64(100_000_000).unwrap(),
+            sapling_spendable: Zatoshis::ZERO,
+            transparent_spendable: Zatoshis::ZERO,
+            total: Zatoshis::from_u64(100_000_000).unwrap(),
+        };
+        seeded_cfg(Some(Box::new(FakeWallet { result: Ok(bal) })))
+    }
+
+    #[test]
+    fn create_proposal_rejects_sapling_dest_with_live_wallet() {
+        // §8: a Sapling address handed to an Orchard vault would lock the funds.
+        let cfg = live_cfg();
+        let body =
+            format!(r#"{{"proposer":"Ana","to_address":"{SAPLING_ADDR}","value_zec":"0.001"}}"#);
+        let r = handle(&cfg, "POST", "/api/proposals", body.as_bytes());
+        assert_eq!(r.status, 400);
+        assert_eq!(body_json(&r)["error"], "unpayable address");
+    }
+
+    #[test]
+    fn create_proposal_rejects_malformed_unified_with_live_wallet() {
+        // `u1recipient…` passes the prefix heuristic but is not a real address — the exact
+        // gap the authoritative decode closes on the fund-moving path.
+        let cfg = live_cfg();
+        let body =
+            br#"{"proposer":"Ana","to_address":"u1recipientxxxxxxxxxxxxxxxxxxxxxxxx","value_zec":"0.001"}"#;
+        let r = handle(&cfg, "POST", "/api/proposals", body);
+        assert_eq!(r.status, 400);
+        assert_eq!(body_json(&r)["error"], "invalid address");
+    }
+
+    #[test]
+    fn create_proposal_rejects_testnet_dest_with_live_wallet() {
+        let cfg = live_cfg();
+        let body =
+            format!(r#"{{"proposer":"Ana","to_address":"{TESTNET_UA}","value_zec":"0.001"}}"#);
+        let r = handle(&cfg, "POST", "/api/proposals", body.as_bytes());
+        assert_eq!(r.status, 400);
+        assert_eq!(body_json(&r)["error"], "invalid address");
+    }
+
+    #[test]
+    fn create_proposal_accepts_real_orchard_dest_with_live_wallet() {
+        // The positive control: a real Orchard UA passes the authoritative gate.
+        let cfg = live_cfg();
+        let body =
+            format!(r#"{{"proposer":"Ana","to_address":"{SLICE_ADDRESS}","value_zec":"0.001"}}"#);
+        let r = handle(&cfg, "POST", "/api/proposals", body.as_bytes());
+        assert_eq!(r.status, 201);
+    }
+
+    #[test]
+    fn payroll_rejects_sapling_line_with_live_wallet() {
+        let cfg = live_cfg();
+        let body = format!(
+            r#"{{"proposer":"Ana","lines":[{{"address":"{SLICE_ADDRESS}","value_zec":"0.001"}},{{"address":"{SAPLING_ADDR}","value_zec":"0.001"}}]}}"#
+        );
+        let r = handle(&cfg, "POST", "/api/payroll", body.as_bytes());
+        assert_eq!(r.status, 400);
+        assert_eq!(body_json(&r)["error"], "invalid line");
     }
 
     #[test]
@@ -2755,8 +2987,12 @@ mod tests {
             total: Zatoshis::from_u64(100_000).unwrap(),
         };
         let cfg = seeded_cfg(Some(Box::new(FakeWallet { result: Ok(bal) })));
-        let body = br#"{"proposer":"Ana","lines":[{"address":"u1a","value_zec":"1.0"},{"address":"u1b","value_zec":"1.0"}]}"#;
-        let r = handle(&cfg, "POST", "/api/payroll", body);
+        // Real Orchard addresses so the OVERSPEND aggregate is what fires (fakes would be
+        // rejected as malformed first).
+        let body = format!(
+            r#"{{"proposer":"Ana","lines":[{{"address":"{SLICE_ADDRESS}","value_zec":"1.0"}},{{"address":"{SLICE_ADDRESS}","value_zec":"1.0"}}]}}"#
+        );
+        let r = handle(&cfg, "POST", "/api/payroll", body.as_bytes());
         assert_eq!(r.status, 400);
         assert_eq!(body_json(&r)["error"], "payroll invalid");
     }

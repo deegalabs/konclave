@@ -18,12 +18,23 @@ getrandom = "0.2"
 # Key derivation for the vault passphrase ("palavra do cofre"): the word derives the
 # sealing key (memory-hard Argon2id), so without it the sealed shares do not open.
 argon2 = "0.5"
+# Wipe secret material from memory on drop (audit M4): unsealed share plaintext, the
+# derived sealing key, and cleartext configs are held in `Zeroizing` so freed memory
+# does not linger with private key bytes.
+zeroize = "1"
 # Local per-device state (vaults, proposals). Bundled SQLite = no system dependency.
 rusqlite = { version = "0.31", features = ["bundled"] }
 # Loopback-only HTTP bridge to the UI (ADR-0004). Blocking server, coherent with
 # the synchronous core (rusqlite/subprocess) — no async runtime dragged in. Bound to
 # 127.0.0.1 only: a local daemon, never a network service.
 tiny_http = "0.12"
+# Authoritative Zcash address validation (audit M2): a real bech32m/base58 decode with
+# receiver-pool inspection before the send path, so a malformed / wrong-network /
+# Sapling-only destination cannot reach the builder and lock funds (§8). Pure Rust, no
+# proving. Pinned to the SAME librustzcash rev as konclave-signer for type parity across
+# the repo (do not bump in isolation — see CLAUDE.md §11 / ADR-0002).
+zcash_address = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
+zcash_protocol = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
 
 # The `konclave serve` binary (the local bridge). The library stays the tested core.
 [[bin]]

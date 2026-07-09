@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 
 use chacha20poly1305::aead::{Aead, KeyInit};
 use chacha20poly1305::{Key, XChaCha20Poly1305, XNonce};
+use zeroize::Zeroizing;
 
 const NONCE_LEN: usize = 24;
 
@@ -350,7 +351,9 @@ pub fn with_unsealed_file<T>(
     key: &[u8; 32],
     op: impl FnOnce(&Path) -> T,
 ) -> Result<T, SecretError> {
-    let plaintext = unseal(sealed, key)?;
+    // `Zeroizing` wipes the in-memory share bytes on drop (M4); the file guard removes
+    // the on-disk copy.
+    let plaintext = Zeroizing::new(unseal(sealed, key)?);
     let file = EphemeralFile::create(&plaintext)?;
     let result = op(&file.path);
     // `file` drops here, removing the plaintext.
@@ -373,7 +376,8 @@ impl UnsealedFile {
 
 /// Unseal into a short-lived 0600 file and return a guard that deletes it on drop.
 pub fn unseal_to_file(sealed: &[u8], key: &[u8; 32]) -> Result<UnsealedFile, SecretError> {
-    let plaintext = unseal(sealed, key)?;
+    // Wipe the in-memory share bytes on drop (M4); the guard removes the on-disk copy.
+    let plaintext = Zeroizing::new(unseal(sealed, key)?);
     Ok(UnsealedFile {
         file: EphemeralFile::create(&plaintext)?,
     })
