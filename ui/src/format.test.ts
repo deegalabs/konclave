@@ -67,10 +67,10 @@ describe('expiryLabel', () => {
 })
 
 describe('fmtDate', () => {
-  it('renders DD/MM from a real unix timestamp', () => {
+  it('renders DD/MM/YYYY from a real unix timestamp', () => {
     // Build in LOCAL time so format (which reads local getDate/getMonth) is tz-independent.
-    const unix = Math.floor(new Date(2026, 4, 4, 12, 0, 0).getTime() / 1000) // 2026-05-04 → 04/05
-    expect(fmtDate(unix)).toBe('04/05')
+    const unix = Math.floor(new Date(2026, 4, 4, 12, 0, 0).getTime() / 1000) // 2026-05-04
+    expect(fmtDate(unix)).toBe('04/05/2026')
   })
   it('returns — for absent/invalid, never NaN', () => {
     expect(fmtDate(undefined)).toBe('—')

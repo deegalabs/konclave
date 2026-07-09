@@ -34,7 +34,7 @@
 }
 .rd-status b { color: #d6dee7; font-weight: 600; }
 /* live-ness is a static success dot + label — no infinite pulse */
-.rd-status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
+.rd-status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--silver); }
 
 .rd-hero { margin: 48px 0 30px; }
 .rd-eyebrow { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #6fa8de; }

@@ -152,7 +152,7 @@ export default function NewPayment() {
         {error && <div className="hint err mt" role="alert">✗ {error}</div>}
 
         <div className="right mt">
-          <button className="btn ok" onClick={submit} disabled={busy || memoOver}>
+          <button className="btn ok" onClick={submit} disabled={busy || memoOver || !to.trim()}>
             {busy ? t('payment.proposing') : t('payment.proposeBtn')}
           </button>
         </div>

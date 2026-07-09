@@ -4,7 +4,7 @@ export function Identicon({ seed, size = 26 }: { seed: string; size?: number }) 
   let h = 2166136261
   for (let i = 0; i < seed.length; i++) { h ^= seed.charCodeAt(i); h = Math.imul(h, 16777619) }
   h = h >>> 0
-  const hue = 198 + (h % 52) // blues / steels
+  const hue = 200 + (h % 18) // steel-blue only (200–217); never drift into the banned purple
   const bg = `hsl(${hue} 30% 22%)`
   const fg = `hsl(${hue} 46% 62%)`
   const c = size / 5
@@ -17,7 +17,8 @@ export function Identicon({ seed, size = 26 }: { seed: string; size?: number }) 
     }
   }
   return (
-    <svg className="idc" width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+    <svg className="idc" width={size} height={size} viewBox={`0 0 ${size} ${size}`}
+      style={{ borderRadius: size * 0.28, boxShadow: '0 0 0 2px var(--surface-1)' }}>
       <rect width={size} height={size} rx={size * 0.28} fill={bg} />
       {cells.map(([x, y], i) => <rect key={i} x={x * c} y={y * c} width={c} height={c} fill={fg} />)}
     </svg>

@@ -57,7 +57,7 @@ export default function Members() {
                 <div className="who-name">{m.name}{m.name === ME && <span className="klab"> {t('members.you')}</span>}</div>
                 <div className="person-sub mono">{i === 0 ? t('members.roleCoordinator') : t('members.roleSigns')} · id {shortAddr(m.pubkey, 8, 6)}</div>
               </div>
-              <span className="who-st ok">{t('members.signs')}</span>
+              <span className="who-st cap">{t('members.signs')}</span>
             </div>
           ))}
         </div>
