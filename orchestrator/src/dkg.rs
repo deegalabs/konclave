@@ -36,6 +36,33 @@ fn err(what: &str, detail: impl Into<String>) -> ToolError {
     ToolError::parse(what, detail.into())
 }
 
+/// A directory wiped (recursively) when this guard drops, so the cleartext configs never
+/// outlive the ceremony, even on panic (audit C3).
+struct DirGuard(std::path::PathBuf);
+impl Drop for DirGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// A fresh 0700 directory in tmpfs (`/dev/shm`, never touches disk) when available, else the
+/// OS temp dir — for the transient cleartext frost-client configs (C3).
+fn make_tmpfs_dir() -> Result<std::path::PathBuf, ToolError> {
+    let base = if std::path::Path::new("/dev/shm").is_dir() {
+        std::path::PathBuf::from("/dev/shm")
+    } else {
+        std::env::temp_dir()
+    };
+    let dir = base.join(format!("konclave-dkg-{}", short_id()));
+    std::fs::create_dir_all(&dir).map_err(ToolError::Io)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
+    }
+    Ok(dir)
+}
+
 /// Create a `threshold`-of-`members.len()` vault by DKG.
 pub fn create_vault_dkg(
     sc: &SendConfig,
@@ -69,7 +96,19 @@ pub fn create_vault_dkg(
         .collect();
     let vdir = format!("{vaults_dir}/{slug}-{}", short_id());
     std::fs::create_dir_all(&vdir).map_err(ToolError::Io)?;
-    let configs: Vec<String> = (0..n).map(|i| format!("{vdir}/m{i}.toml")).collect();
+    // C3: the cleartext configs (which hold the raw share) live ONLY in tmpfs and are wiped
+    // when `_cfg_guard` drops — even on panic. The durable vault dir gets only the sealed
+    // outputs + the view-only wallet.
+    let tmp_cfg_dir = make_tmpfs_dir()?;
+    let _cfg_guard = DirGuard(tmp_cfg_dir.clone());
+    let configs: Vec<String> = (0..n)
+        .map(|i| {
+            tmp_cfg_dir
+                .join(format!("m{i}.toml"))
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
 
     // 1) init each participant's config (comm keypair).
     for cfg in &configs {
@@ -189,11 +228,13 @@ pub fn create_vault_dkg(
     );
     let verifier = secrets::make_verifier(&key).map_err(|e| err("secrets", e.to_string()))?;
     let mut members = Vec::with_capacity(n);
-    for (nm, cfg) in member_names.iter().zip(&configs) {
-        // The cleartext share, read only to seal it, is wiped on drop (M4).
+    for (i, (nm, cfg)) in member_names.iter().zip(&configs).enumerate() {
+        // The cleartext share, read only to seal it, is wiped from memory on drop (M4).
         let plaintext = zeroize::Zeroizing::new(std::fs::read(cfg).map_err(ToolError::Io)?);
         let blob = secrets::seal(&plaintext, &key).map_err(|e| err("secrets", e.to_string()))?;
-        let sealed = format!("{cfg}.sealed");
+        // The sealed output lands in the DURABLE vault dir; the tmpfs cleartext is removed
+        // now (best-effort) and again by `_cfg_guard` on drop (C3).
+        let sealed = format!("{vdir}/m{i}.toml.sealed");
         std::fs::write(&sealed, &blob).map_err(ToolError::Io)?;
         let _ = std::fs::remove_file(cfg);
         members.push((nm.clone(), pk_of(nm)?, sealed));

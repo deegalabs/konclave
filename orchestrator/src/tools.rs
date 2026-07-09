@@ -162,3 +162,75 @@ pub fn run_text_all(
     s.push_str(&String::from_utf8_lossy(&output.stderr));
     Ok(s)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn run_captures_stdout() {
+        assert_eq!(
+            run(Path::new("/bin/echo"), &["hello"], None).unwrap(),
+            b"hello\n"
+        );
+    }
+
+    #[test]
+    fn run_passes_stdin_to_child() {
+        // `cat` with no args echoes stdin — proves the pipe is wired and closed (EOF).
+        let out = run(Path::new("/bin/cat"), &[], Some(b"piped-in")).unwrap();
+        assert_eq!(out, b"piped-in");
+    }
+
+    #[test]
+    fn run_nonzero_exit_is_error_with_code() {
+        let err = run(Path::new("/bin/false"), &[], None).unwrap_err();
+        assert!(
+            matches!(err, ToolError::NonZero { code: Some(1), .. }),
+            "got {err:?}"
+        );
+    }
+
+    #[test]
+    fn run_missing_binary_is_spawn_error() {
+        let err = run(Path::new("/no/such/konclave-binary-xyz"), &[], None).unwrap_err();
+        assert!(matches!(err, ToolError::Spawn { .. }), "got {err:?}");
+    }
+
+    #[test]
+    fn run_text_decodes_utf8() {
+        assert_eq!(
+            run_text(Path::new("/bin/echo"), &["olá"], None).unwrap(),
+            "olá\n"
+        );
+    }
+
+    #[test]
+    fn run_text_all_merges_stdout_and_stderr() {
+        // Some tools (frost-client) write human output to stderr — run_text_all must keep both.
+        let s = run_text_all(
+            Path::new("/bin/sh"),
+            &["-c", "echo on-stdout; echo on-stderr 1>&2"],
+            None,
+        )
+        .unwrap();
+        assert!(
+            s.contains("on-stdout") && s.contains("on-stderr"),
+            "got {s:?}"
+        );
+    }
+
+    #[test]
+    fn run_text_all_still_errors_on_nonzero() {
+        let err = run_text_all(Path::new("/bin/false"), &[], None).unwrap_err();
+        assert!(matches!(err, ToolError::NonZero { .. }), "got {err:?}");
+    }
+
+    #[test]
+    fn tool_error_messages_are_human_readable() {
+        assert!(ToolError::parse("wallet output", "bad json")
+            .to_string()
+            .contains("failed to parse wallet output: bad json"));
+    }
+}
