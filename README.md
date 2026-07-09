@@ -1,20 +1,158 @@
 # Konclave
 
-> **The vault that decides together.** No payment goes out without quorum.
+> **The vault that decides together.** No payment leaves without a quorum.
 > Private on the outside, transparent on the inside.
 
+[![License: Apache-2.0 OR MIT](https://img.shields.io/badge/license-Apache--2.0%20OR%20MIT-blue.svg)](#license)
+[![Network: Zcash mainnet](https://img.shields.io/badge/network-Zcash%20mainnet%20(NU6.2)-e5a00d.svg)](#proven-on-mainnet)
+[![FROST + Accounting](https://img.shields.io/badge/ZecHub%203.0-FROST%20%2B%20Accounting-6f42c1.svg)](#why-it-exists)
+![Tests: 141 backend + 23 UI](https://img.shields.io/badge/tests-141%20backend%20%2B%2023%20UI-2ea44f.svg)
+
 Konclave is a **local-first desktop app** that makes it usable, for ordinary people, to
-create and operate a **collective, private fund vault** on the **Zcash** network, using
-threshold signatures (**FROST**). Pay by quorum or run an entire **private payroll** in a
-single collectively-approved envelope — without touching a command line, and without
-leaking anything to the public blockchain.
+create and operate a **collective, private fund vault** on the **Zcash** network using
+threshold signatures (**FROST**). Pay by quorum, or run an entire **private payroll** in one
+collectively-approved shielded transaction — without touching a command line, and without
+leaking amounts, recipients, or the group's makeup to the public chain.
 
 The cryptography already exists and comes from the official **Zcash Foundation** tools.
 What was missing was the **human layer** — that is what Konclave delivers.
 
-> ⚠️ **Status:** under construction (ZecHub Hackathon 3.0, 2026). This README is
-> provisional; the full showcase, with a mainnet demo and a real transaction link, comes
-> with the final delivery.
+---
+
+## Why it exists
+
+Today, using FROST on Zcash requires a **CLI, several terminals, and manually copying hex
+between participants**. The Zcash Foundation finished the cryptography (audited twice) and
+says plainly that *wallet integration is the missing piece* — it is gated to
+"technically-inclined users." **No usable GUI for FROST on Zcash exists.** Making
+"easy multi-sig tools for shielded addresses (FROST in user-facing wallets)" is even a
+[named Zcash Community Grants funding priority](https://zcashcommunitygrants.org/).
+
+Konclave fills that gap for the people who need it most:
+
+- A **treasurer of a collective** who must not be a single point of failure — or a single
+  point of theft.
+- **Cooperatives, community funds, and small orgs** that decide together and want shared
+  books without a bank.
+- **NGOs, journalists, and activists** for whom a *transparent* multisig is not a feature
+  but a liability — it doxes the donor set, staff salaries, and org structure to anyone
+  watching the chain.
+
+A FROST signature looks, on-chain, like an ordinary single-signer transaction. Konclave
+gives these groups **collective control + privacy + an internal audit trail** — a
+combination no transparent multisig (e.g. on EVM) can offer.
+
+## Proven on mainnet
+
+This is not a mock. A **2-of-3 quorum payment**, proposed and approved in the app, signed by
+a real **FROST ceremony**, and broadcast to **Zcash mainnet** — the key never reconstituted:
+
+> **txid** [`43433a109d3f2a078c0a9269ccb156392ade7a1f7ac1532981611eda1e59a572`](https://mainnet.zcashexplorer.app/transactions/43433a109d3f2a078c0a9269ccb156392ade7a1f7ac1532981611eda1e59a572)
+
+(The first Konclave FROST transaction — a CLI-driven Gate-1 slice — is
+[`f63ee64d…c522360`](https://mainnet.zcashexplorer.app/transactions/f63ee64d7bc086a8286631d03936ec2ca2ca57f4e4c63712fc95c1f02c522360), block 3,396,616.)
+
+## What you can do
+
+| | |
+|---|---|
+| **Quorum payment** | Propose a payment → members approve → at quorum the vault signs and sends. One click never moves money; every fund-moving action has a preview + explicit confirmation. |
+| **Private payroll** | Import a CSV of beneficiaries → one shielded Orchard transaction with N outputs, approved **once**. Each payslip rides in an **encrypted memo** only its recipient can read. |
+| **Accounting** | A full internal ledger (who proposed, who approved, states, dates) + an **itemized CSV export** — a payroll of N is N line-items. Transparent inside, private outside. |
+
+## How it works
+
+**Hide the cryptography, expose the trust.** You never see "FROST", "DKG" or "SIGHASH" — you
+see *vault, members, approval, payment*. The vault key is split among members by real
+**Distributed Key Generation**; **no single share moves funds** and the whole key is **never
+reconstituted**, not at creation and not at signing. Your share **never leaves your device**.
+
+```
+  propose ─▶ approve (real M-of-N quorum, with expiry) ─▶ sign (FROST ceremony,
+  only the shares of whoever approved) ─▶ broadcast (Orchard, shielded) ─▶ ledger
+                              the key is never reassembled
+```
+
+Three layers, each with a clear job:
+
+```
+  Layer 3 — UI            Vite + React (vault · members · payment · payroll · proposal · ledger)
+     │  structured JSON over a loopback-only bridge (127.0.0.1)
+  Layer 2 — ORCHESTRATOR  Rust: proposal state machine · validation (ZIP-317, addresses) ·
+     │                    payroll · sealed key custody · SQLite store · the FROST↔PCZT bridge
+     │  structured I/O (never "screen-scraping" a CLI)
+  Layer 1 — ENGINE        the official Zcash Foundation tools (crypto is NOT reimplemented):
+                          frostd · frost-client · zcash-sign · zcash-devtool · librustzcash
+```
+
+## Try it in 10 seconds
+
+No engine, no funds, no setup — a console walkthrough of every use case against the **real**
+backend (in-process, no server):
+
+```sh
+cargo run --manifest-path orchestrator/Cargo.toml --example simulate
+```
+
+It prints the whole flow: the vault, authoritative address safety, propose → approve to
+quorum, a refusal, a private payroll (N beneficiaries), and the itemized ledger/CSV.
+
+To run the full app locally (browser via a local bridge; live balance/signing needs the
+Zcash Foundation engine binaries built per [`engine/versions.lock`](engine/versions.lock)):
+
+```sh
+# build the UI bundle once, then serve it + the API from the tested core
+npm --prefix ui ci && npm --prefix ui run build
+cargo run --manifest-path orchestrator/Cargo.toml --bin konclave -- serve --web ui/dist --demo
+# then open the printed http://127.0.0.1:4762
+```
+
+## Trust model & honest limits
+
+We distinguish **what the cryptography guarantees** from **what the product enforces**, and
+we do not promise what we do not deliver:
+
+- **Guaranteed by the protocol:** the key is never reconstituted; a quorum signature is
+  required to spend; the coordination server (`frostd`) is **blind** (only public material
+  crosses it); your share never leaves your device.
+- **Enforced by the product (not the chain):** quorum-by-value, balance reservation, and
+  proposal expiry are application policy — not on-chain-enforced rules. We say so plainly.
+- **Security posture:** shares are sealed at rest (XChaCha20-Poly1305, Argon2id-derived key)
+  and only unsealed to ephemeral `0600` files in tmpfs during signing; the loopback bridge is
+  guarded against CSRF/DNS-rebinding; secret material is zeroized in memory; destinations are
+  validated with an authoritative `zcash_address` decode before any send. See
+  [`SECURITY.md`](SECURITY.md).
+- **Proven vs pending (honesty):** a single **payment** is proven on mainnet (txid above).
+  The **payroll** and the fully-sealed path are proven **only by dry-run** (they sign, they
+  do not yet broadcast). A single desktop binary (Tauri) is roadmap, not shipped.
+- **On the June 2026 Orchard episode:** Konclave targets **NU6.2**, which re-enabled Orchard
+  with a corrected circuit. The earlier soundness bug was a *forgery* risk, **not** a privacy
+  loss; there is **no evidence of exploitation**. Konclave is a trust-restoring tool built
+  right after that confidence shock — stated without overstatement.
+
+## Roadmap (honest)
+
+- **Real broadcasts** of the payroll and the sealed path; sending from a freshly-created DKG
+  vault.
+- **Delivery form:** a single installable desktop app (Tauri) — the local-first guarantee
+  does not change, only the packaging.
+- **Decentralized, online coordination:** a *blind, swappable* relay (self-hostable / P2P)
+  plus a QR/air-gapped fallback that needs no server — so members approve and sign
+  asynchronously from anywhere, with the secret always local.
+- **Browser/extension client:** a proof-of-concept already **signs a rerandomized redpallas
+  FROST (Orchard) transaction inside a real browser via WebAssembly**
+  (`wasm-signer-spike/`, branch `feat/wasm-signer`) — to our knowledge a first for Zcash. It
+  is a PoC, not a shipped, audited client.
+- Auditor / viewing-key read-only role (selective disclosure); share recovery & rotation.
+
+## Built on the Zcash Foundation's tools
+
+Konclave does **not** reimplement cryptography. It stands on
+[frost-tools](https://github.com/ZcashFoundation/frost-tools) (`frostd`, `frost-client`,
+`zcash-sign`), the reference [`frost`](https://github.com/ZcashFoundation/frost) crate,
+[zcash-devtool](https://github.com/zcash/zcash-devtool), and
+[librustzcash](https://github.com/zcash/librustzcash) — and adds the usability, orchestration,
+and accounting layer on top. Thank you to the Zcash Foundation and the wider Zcash community.
 
 ## Documentation
 
@@ -23,23 +161,9 @@ What was missing was the **human layer** — that is what Konclave delivers.
 - [docs/UX_E_FLUXOS.md](docs/UX_E_FLUXOS.md) — journeys and screens.
 - [docs/LOGICA_E_REGRAS.md](docs/LOGICA_E_REGRAS.md) — states and rules.
 - [docs/ARQUITETURA.md](docs/ARQUITETURA.md) — the three layers.
-- [docs/ROADMAP.md](docs/ROADMAP.md) — build plan.
-
-## How it works (in one sentence)
-
-The vault key is split among the members; **no single piece moves funds** and the whole
-key is **never reconstituted**. The approvals produce a single signature that, from the
-outside, looks like a normal one-person transaction. Your part of the key **never leaves
-your device**.
-
-## Credit
-
-Built on top of the **Zcash Foundation** tools: `frostd`, `frost-client`
-([frost-tools](https://github.com/ZcashFoundation/frost-tools)), the Zcash Signer, and
-[zcash-devtool](https://github.com/zcash/zcash-devtool). Konclave does not reimplement
-cryptography — it adds the usability layer on top.
+- [docs/ROADMAP.md](docs/ROADMAP.md) — build plan · [SECURITY.md](SECURITY.md) — reporting & posture.
 
 ## License
 
-Dual **Apache-2.0** / **MIT**, at the user's choice (mirrors the Rust/Zcash ecosystem).
+Dual **Apache-2.0** / **MIT**, at your choice (mirrors the Rust/Zcash ecosystem).
 See [LICENSE-APACHE](LICENSE-APACHE) and [LICENSE-MIT](LICENSE-MIT).
