@@ -7,8 +7,10 @@
 //! coordination is the server's job. (Our tests ran all roles on one box, which is
 //! just a harness, not the product shape.)
 
+use std::net::{SocketAddr, TcpStream};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
+use std::time::{Duration, Instant};
 
 use crate::tools::{run, ToolError};
 
@@ -36,6 +38,18 @@ impl Frostd {
                 program: frostd.display().to_string(),
                 source,
             })?;
+        // Wait for frostd to actually accept connections instead of a fixed sleep — poll the
+        // TLS port until it's listening (a real readiness handshake, not a magic timeout), up
+        // to ~5s. If it never comes up, the ceremony surfaces a clear connection error next.
+        if let Ok(addr) = format!("{ip}:{port}").parse::<SocketAddr>() {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while Instant::now() < deadline {
+                if TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_ok() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(40));
+            }
+        }
         Ok(Frostd { child })
     }
 

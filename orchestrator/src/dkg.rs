@@ -168,8 +168,7 @@ pub fn create_vault_dkg(
         &sc.frostd_key,
         &sc.frostd_ip,
         sc.frostd_port,
-    )?;
-    thread::sleep(Duration::from_millis(900));
+    )?; // start() now blocks until frostd accepts connections (no magic sleep)
 
     // 5) DKG: creator (with -S) + joiners, concurrent.
     let desc = format!("Konclave — {name}");

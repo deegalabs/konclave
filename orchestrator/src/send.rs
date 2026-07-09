@@ -245,8 +245,7 @@ pub fn orchestrate_send(
         &sc.frostd_key,
         &sc.frostd_ip,
         sc.frostd_port,
-    )?;
-    thread::sleep(Duration::from_millis(900));
+    )?; // start() now blocks until frostd accepts connections (no magic sleep)
 
     // 5) one ceremony per real spend → collect every (action_index, signature). The
     //    message is the same sighash; each spend re-randomizes it with its own alpha.
