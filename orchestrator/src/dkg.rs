@@ -183,11 +183,15 @@ pub fn create_vault_dkg(
     //    sealed shares do not open — no sealing key sits on disk.
     let passphrase = secrets::generate_passphrase().map_err(|e| err("secrets", e.to_string()))?;
     let salt = secrets::generate_salt().map_err(|e| err("secrets", e.to_string()))?;
-    let key = secrets::derive_key(&passphrase, &salt).map_err(|e| err("secrets", e.to_string()))?;
+    // Hold the derived sealing key in `Zeroizing` so it is wiped from memory on drop (M4).
+    let key = zeroize::Zeroizing::new(
+        secrets::derive_key(&passphrase, &salt).map_err(|e| err("secrets", e.to_string()))?,
+    );
     let verifier = secrets::make_verifier(&key).map_err(|e| err("secrets", e.to_string()))?;
     let mut members = Vec::with_capacity(n);
     for (nm, cfg) in member_names.iter().zip(&configs) {
-        let plaintext = std::fs::read(cfg).map_err(ToolError::Io)?;
+        // The cleartext share, read only to seal it, is wiped on drop (M4).
+        let plaintext = zeroize::Zeroizing::new(std::fs::read(cfg).map_err(ToolError::Io)?);
         let blob = secrets::seal(&plaintext, &key).map_err(|e| err("secrets", e.to_string()))?;
         let sealed = format!("{cfg}.sealed");
         std::fs::write(&sealed, &blob).map_err(ToolError::Io)?;

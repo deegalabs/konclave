@@ -741,7 +741,7 @@ fn vault_unlock(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
         }
     };
     let key = match crate::secrets::derive_key(&req.passphrase, &salt) {
-        Ok(k) => k,
+        Ok(k) => zeroize::Zeroizing::new(k), // wipe the derived key on drop (M4)
         Err(e) => {
             return Response::json(
                 500,
@@ -794,7 +794,7 @@ fn vault_delete(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
         Ok(Some((salt, verifier))) => {
             let key =
                 match crate::secrets::derive_key(req.passphrase.as_deref().unwrap_or(""), &salt) {
-                    Ok(k) => k,
+                    Ok(k) => zeroize::Zeroizing::new(k), // wipe the derived key on drop (M4)
                     Err(e) => {
                         return Response::json(
                             500,

@@ -384,6 +384,7 @@ dependencies = [
  "tiny_http",
  "zcash_address",
  "zcash_protocol",
+ "zeroize",
 ]
 
 [[package]]

@@ -14,6 +14,7 @@ use std::thread;
 use std::time::Duration;
 
 use serde::Deserialize;
+use zeroize::Zeroizing;
 
 use crate::ceremony::{run_coordinator, run_participant, Frostd};
 use crate::tools::ToolError;
@@ -196,7 +197,7 @@ pub fn orchestrate_send(
     // 5-E: resolve each signer's config path. A `.sealed` config is unsealed to an
     // ephemeral 0600 file (kept alive by `_config_guards` for the whole ceremony, then
     // deleted) — the share is never in cleartext on disk.
-    let key: Option<[u8; 32]> = match &sc.sealing_key_file {
+    let key: Option<Zeroizing<[u8; 32]>> = match &sc.sealing_key_file {
         Some(f) => Some(read_key_file(f)?),
         None => None,
     };
@@ -204,14 +205,14 @@ pub fn orchestrate_send(
     let mut configs: Vec<String> = Vec::with_capacity(signers.len());
     for m in &signers {
         if m.config.ends_with(".sealed") {
-            let key = key.ok_or_else(|| {
+            let key: &[u8; 32] = key.as_deref().ok_or_else(|| {
                 ToolError::parse(
                     "secrets",
                     "sealed config, but no sealing_key_file in the ceremony",
                 )
             })?;
             let sealed = std::fs::read(&m.config).map_err(ToolError::Io)?;
-            let uf = crate::secrets::unseal_to_file(&sealed, &key)
+            let uf = crate::secrets::unseal_to_file(&sealed, key)
                 .map_err(|e| ToolError::parse("secrets", e.to_string()))?;
             configs.push(uf.path().to_string_lossy().into_owned());
             _config_guards.push(uf);
@@ -362,15 +363,17 @@ fn hex_encode(bytes: &[u8]) -> String {
 
 /// Read the 32-byte sealing key from a file (raw bytes, 0600). The product keeps this in
 /// the OS keychain; the file is the local-first stand-in.
-fn read_key_file(path: &str) -> Result<[u8; 32], ToolError> {
-    let bytes = std::fs::read(path).map_err(ToolError::Io)?;
+fn read_key_file(path: &str) -> Result<Zeroizing<[u8; 32]>, ToolError> {
+    // Hold both the raw file bytes and the extracted key in `Zeroizing` (M4): the sealing
+    // key never lingers in freed memory after the ceremony.
+    let bytes = Zeroizing::new(std::fs::read(path).map_err(ToolError::Io)?);
     if bytes.len() != 32 {
         return Err(ToolError::parse(
             "secrets",
             format!("key file must be 32 bytes, has {} ({path})", bytes.len()),
         ));
     }
-    let mut k = [0u8; 32];
+    let mut k = Zeroizing::new([0u8; 32]);
     k.copy_from_slice(&bytes);
     Ok(k)
 }

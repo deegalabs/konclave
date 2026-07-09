@@ -6,6 +6,8 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use zeroize::Zeroizing;
+
 use orchestrator::send::{orchestrate_send, SendConfig, SpendPlan};
 use orchestrator::server::{self, Config, LiveWallet};
 use orchestrator::store::Store;
@@ -35,12 +37,14 @@ fn run_seal(args: &[String]) -> Result<(), String> {
     let output = output.ok_or("--out <file.sealed> is required")?;
     let key_file = key_file.ok_or("--key <key-file> is required")?;
 
-    let key: [u8; 32] = if std::path::Path::new(&key_file).exists() {
-        let b = std::fs::read(&key_file).map_err(|e| format!("reading key: {e}"))?;
+    // Key and plaintext are held in `Zeroizing` so the sealing key and the secret file
+    // bytes are wiped from memory on drop (M4).
+    let key: Zeroizing<[u8; 32]> = if std::path::Path::new(&key_file).exists() {
+        let b = Zeroizing::new(std::fs::read(&key_file).map_err(|e| format!("reading key: {e}"))?);
         if b.len() != 32 {
             return Err(format!("key must be 32 bytes, has {}", b.len()));
         }
-        let mut k = [0u8; 32];
+        let mut k = Zeroizing::new([0u8; 32]);
         k.copy_from_slice(&b);
         k
     } else {
@@ -48,10 +52,11 @@ fn run_seal(args: &[String]) -> Result<(), String> {
             orchestrator::secrets::generate_key().map_err(|e| format!("generating key: {e}"))?;
         write_private_key(&key_file, &k)?;
         eprintln!("sealing key created at {key_file} (0600)");
-        k
+        Zeroizing::new(k)
     };
 
-    let plaintext = std::fs::read(&input).map_err(|e| format!("reading {input}: {e}"))?;
+    let plaintext =
+        Zeroizing::new(std::fs::read(&input).map_err(|e| format!("reading {input}: {e}"))?);
     let sealed =
         orchestrator::secrets::seal(&plaintext, &key).map_err(|e| format!("sealing: {e}"))?;
     std::fs::write(&output, &sealed).map_err(|e| format!("writing {output}: {e}"))?;
