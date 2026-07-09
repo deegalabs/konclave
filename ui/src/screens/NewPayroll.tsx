@@ -134,7 +134,7 @@ export default function NewPayroll() {
       <Letterhead right={<Link className="klab back" to="/dashboard">{t('common.backPanel')}</Link>} />
       <main className="page">
         <h1 className="h1">{t('payroll.title')}</h1>
-        <p className="cap">{t('payroll.cap')} {saved && <span className="livetag" title={t('payroll.draftSavedTitle')} aria-live="polite">{t('payroll.draftSaved')}</span>}</p>
+        <p className="cap">{t('payroll.cap')} {saved && <span className="draft-note" title={t('payroll.draftSavedTitle')} aria-live="polite">{t('payroll.draftSaved')}</span>}</p>
 
         <div className="ctx">
           <span>{tr('payment.fromVault', { name: vaultName })}</span>
@@ -229,8 +229,16 @@ export default function NewPayroll() {
         <div className="confirm mt preview">
           <div className="pv-row"><span className="pv-k">{t('payroll.pvDocument')}</span><span className="pv-v"><b>{competencia ? `${t('payroll.docPrefix')} · ${competencia}` : t('payroll.docPrefix')}</b></span></div>
           <div className="pv-row"><span className="pv-k">{t('payroll.pvPayments')}</span><span className="pv-v"><b>{count}</b> {t('payroll.pvPaymentsSuffix')}</span></div>
-          <div className="pv-row"><span className="pv-k">{t('payroll.pvTotal')}</span><span className="pv-v"><Secret sm><b>{zatToZec(totalZat)} ZEC</b></Secret> {t('payroll.pvPlusFee', { fee: zatToZec(feeZat) })}</span></div>
-          <div className="pv-row"><span className="pv-k">{t('payroll.pvAfter')}</span><span className="pv-v"><Secret sm><b>{afterZat === null ? '—' : zatToZec(afterZat)}</b></Secret></span></div>
+          {/* Redact only when there's a real figure — hiding a zero behind the tarja is theatre. */}
+          <div className="pv-row"><span className="pv-k">{t('payroll.pvTotal')}</span><span className="pv-v">
+            {count > 0
+              ? <><Secret sm><b>{zatToZec(totalZat)} ZEC</b></Secret> {t('payroll.pvPlusFee', { fee: zatToZec(feeZat) })}</>
+              : <b className="dim">{zatToZec(totalZat)} ZEC</b>}
+          </span></div>
+          <div className="pv-row"><span className="pv-k">{t('payroll.pvAfter')}</span><span className="pv-v">
+            {afterZat === null ? <b className="dim">—</b>
+              : count > 0 ? <Secret sm><b>{zatToZec(afterZat)}</b></Secret> : <b className="dim">{zatToZec(afterZat)}</b>}
+          </span></div>
           <div className="pv-row"><span className="pv-k">{t('payroll.pvApproval')}</span><span className="pv-v">{tr('payroll.pvApprovalValue', { proposer })}</span></div>
         </div>
         {afterZat !== null && afterZat < 0 && <div className="hint warn mt-sm">{t('payroll.warnExceeds')}</div>}

@@ -46,7 +46,7 @@ export default function Proposals() {
         <div className="plist-title">{p.memo || (p.kind === 'payroll' ? t('kind.payroll') : t('kind.payment'))}</div>
         <div className="plist-sub">
           {tr('proposals.subProposedBy', { kind: p.kind === 'payroll' ? t('kindShort.payroll') : t('kindShort.payment'), proposer: p.proposer })}
-          {p.expiry_unix ? ` · ${expiryLabel(p.expiry_unix, t)}` : ''}
+          {(() => { const e = p.expiry_unix ? expiryLabel(p.expiry_unix, t) : ''; return e ? ` · ${e}` : '' })()}
         </div>
       </div>
       <div className="plist-right">
