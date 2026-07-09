@@ -324,6 +324,7 @@ export const en: Record<string, string> = {
   'proposal.remainingOne': '**{falta}** more needed.',
   'proposal.quorumReachedShort': 'Quorum reached.',
   'proposal.demoActNote': 'In this demo you act for each member. **Choose who** you’re approving as · the signature will use that person’s share of the key.',
+  'proposal.demoTag': 'Demo mode',
   'proposal.approveRefuseAs': 'Approve / refuse as',
   'proposal.approveAs': '▸ Approve as {who}',
   'proposal.refuseAs': 'Refuse as {who}',

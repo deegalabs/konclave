@@ -30,9 +30,9 @@
 .cell-warn{font-family:var(--font-mono); font-size:10.5px; color:var(--warn); margin-top:2px}
 .cell-warn.err{font-weight:600}
 .folha .row-bad td{background:rgba(255,110,110,.06)}
-.row-del{border:1px solid var(--line); background:var(--surface-2); color:var(--text-muted); width:24px; height:24px; cursor:pointer; line-height:1; font-size:14px}
+.row-del{border:1px solid var(--line); background:var(--surface-2); color:var(--text-muted); width:29px; height:29px; border-radius:var(--radius-sm); cursor:pointer; line-height:1; font-size:14px}
 .row-del:hover{color:var(--danger); border-color:var(--danger)}
-.row-edit{border:1px solid var(--line); background:var(--surface-2); color:var(--text-muted); width:24px; height:24px; cursor:pointer; line-height:1; font-size:12px}
+.row-edit{border:1px solid var(--line); background:var(--surface-2); color:var(--text-muted); width:29px; height:29px; border-radius:var(--radius-sm); cursor:pointer; line-height:1; font-size:12px}
 .row-edit:hover{color:var(--accent); border-color:var(--accent)}
 .folha-actions{display:flex; gap:10px}
 .seal-wrap{text-align:center; flex:0 0 auto}
@@ -324,3 +324,5 @@ h1.klab,h2.klab,h3.klab{margin:0;font-weight:400}
 .draft-note{margin-left:10px; font-size:11px; letter-spacing:.04em; color:var(--silver)}
 /* Selects: drop the OS chrome so they match the squared mono inputs (custom chevron). */
 select{appearance:none; -webkit-appearance:none; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238a95a3' stroke-width='1.5'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 9px center; padding-right:26px}
+.demo-note{margin-top:14px; border:1px dashed var(--line); border-radius:var(--radius-sm); padding:12px 14px 14px; background:var(--surface-1)}
+.demo-tag{display:inline-block; margin-bottom:6px; font-family:var(--font-mono); font-size:9px; letter-spacing:.16em; text-transform:uppercase; color:var(--text-muted)}

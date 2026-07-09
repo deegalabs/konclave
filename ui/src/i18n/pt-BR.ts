@@ -324,6 +324,7 @@ export const ptBR: Record<string, string> = {
   'proposal.remainingOne': 'Falta **{falta}**.',
   'proposal.quorumReachedShort': 'Quórum atingido.',
   'proposal.demoActNote': 'Nesta demonstração você atua por cada membro. **Escolha por quem** está aprovando · a assinatura usará a parte da chave dessa pessoa.',
+  'proposal.demoTag': 'Modo demonstração',
   'proposal.approveRefuseAs': 'Aprovar / recusar como',
   'proposal.approveAs': '▸ Aprovar como {who}',
   'proposal.refuseAs': 'Recusar como {who}',

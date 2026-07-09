@@ -181,12 +181,15 @@ export default function Proposal() {
             </div>
             {pendingApprovers.length > 0 ? (
               <>
-                <div className="hint mt">{tr('proposal.demoActNote')}</div>
-                <label className="field mt-sm"><span>{t('proposal.approveRefuseAs')}</span>
-                  <select className="input" value={who} onChange={(e) => setApproveAs(e.target.value)}>
-                    {pendingApprovers.map((m) => <option key={m} value={m}>{m}</option>)}
-                  </select>
-                </label>
+                <div className="demo-note mt">
+                  <span className="demo-tag">{t('proposal.demoTag')}</span>
+                  <div className="hint">{tr('proposal.demoActNote')}</div>
+                  <label className="field mt-sm"><span>{t('proposal.approveRefuseAs')}</span>
+                    <select className="input" value={who} onChange={(e) => setApproveAs(e.target.value)}>
+                      {pendingApprovers.map((m) => <option key={m} value={m}>{m}</option>)}
+                    </select>
+                  </label>
+                </div>
                 <div className="btns mt">
                   <button className="btn ok" onClick={() => vote(true)} disabled={busy}>{busy ? '…' : t('proposal.approveAs', { who })}</button>
                   <button className="btn" onClick={() => vote(false)} disabled={busy}>{t('proposal.refuseAs', { who })}</button>
