@@ -20,8 +20,7 @@ export function LangToggle() {
 export function Mark() {
   const spokes = Array.from({ length: 12 }, (_, i) => i * 30)
   return (
-    <svg className="mark" viewBox="0 0 40 40" fill="none" aria-hidden="true"
-      style={{ filter: 'drop-shadow(0 0 4px rgba(87,166,255,.35))' }}>
+    <svg className="mark" viewBox="0 0 40 40" fill="none" aria-hidden="true">
       <g stroke="#c6cfd9" strokeWidth="1.3" strokeLinecap="round" opacity="0.9">
         {spokes.map((a, i) => {
           const r = (a * Math.PI) / 180
@@ -48,13 +47,21 @@ export function Letterhead({ right }: { right?: ReactNode }) {
   )
 }
 
-/** A sensitive value hidden behind the redaction bar until revealed. */
+/** A sensitive value hidden behind the redaction bar (tarja) until revealed.
+ *  The bar is a real button so the privacy gesture is keyboard-operable. */
 export function Secret({ children, sm }: { children: ReactNode; sm?: boolean }) {
-  const { toggle } = useReveal()
+  const { revealed, toggle } = useReveal()
+  const t = useT()
   return (
     <span className={'secret' + (sm ? ' sm' : '')}>
       {children}
-      <span className="bar" onClick={toggle} />
+      <button
+        type="button"
+        className="bar"
+        onClick={toggle}
+        aria-pressed={revealed}
+        aria-label={revealed ? t('common.hide') : t('common.reveal')}
+      />
     </span>
   )
 }
@@ -81,8 +88,7 @@ export function Seal({ t, n, cap }: { t: number; n: number; cap?: string }) {
   return (
     <div className="seal-wrap">
       <div className="seal-emb">
-        <svg width="90" height="90" viewBox="0 0 96 96" fill="none" aria-hidden="true"
-          style={{ filter: 'drop-shadow(0 0 8px rgba(87,166,255,.28))' }}>
+        <svg width="90" height="90" viewBox="0 0 96 96" fill="none" aria-hidden="true">
           <circle cx="48" cy="48" r="45" stroke="#57a6ff" strokeWidth="1" />
           <circle cx="48" cy="48" r="39" stroke="#57a6ff" strokeWidth="2.4" />
           <circle cx="48" cy="48" r="34" stroke="#c6cfd9" strokeWidth=".6" strokeDasharray="1 3" />
