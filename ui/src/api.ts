@@ -18,7 +18,7 @@ export type Vault = {
   member_list: Member[]
   group_pubkey: string
   orchard_address: string
-  ufvk: string
+  // ufvk is intentionally NOT sent by the bridge (it decrypts the whole tx graph + memos).
   server_url?: string
   locked?: boolean
 }

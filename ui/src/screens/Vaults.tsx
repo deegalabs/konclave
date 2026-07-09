@@ -45,7 +45,7 @@ const MOCK: Vault[] = [
   {
     id: 'mock', name: 'Tesouraria Comum', threshold: 2, total: 3, members: 3,
     member_list: [{ name: 'Alice', pubkey: 'a' }, { name: 'Bob', pubkey: 'b' }, { name: 'Carol', pubkey: 'c' }],
-    group_pubkey: '', orchard_address: 'u1vjgxlvz4ewnt43rkq6fzexpld406dr', ufvk: '',
+    group_pubkey: '', orchard_address: 'u1vjgxlvz4ewnt43rkq6fzexpld406dr',
   },
 ]
 

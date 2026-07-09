@@ -95,6 +95,11 @@ struct VaultDto {
     member_list: Vec<MemberDto>,
     group_pubkey: String,
     orchard_address: String,
+    /// The Unified Full Viewing Key decrypts the vault's entire transaction graph and every
+    /// incoming memo (the payslips). The UI never needs the raw key, so it is NEVER served
+    /// over the bridge (SECURITY_AUDIT M1) — kept in the struct only for internal use.
+    #[serde(skip)]
+    #[allow(dead_code)]
     ufvk: String,
     server_url: Option<String>,
     /// Whether the vault is passphrase-protected (the UI prompts for the word on entry).
@@ -220,7 +225,8 @@ impl From<Balance> for BalanceDto {
 pub fn handle(cfg: &Config, method: &str, raw_path: &str, body: &[u8]) -> Response {
     // Drop any query string / fragment; keep just the path.
     let path = raw_path.split(['?', '#']).next().unwrap_or(raw_path);
-    // Which vault the request targets (?vault=<id>); falls back to the first vault.
+    // Which vault the request targets (?vault=<id>); no selector = the default (first) vault,
+    // an explicit unknown id = 404 (see resolve_vault_id, L3).
     let vsel = query_param(raw_path, "vault");
     let vsel = vsel.as_deref();
 
@@ -335,10 +341,17 @@ fn resolve_vault_id(store: &Store, want: Option<&str>) -> Result<Option<String>,
         )
     })?;
     if let Some(w) = want {
-        if let Some(v) = vaults.iter().find(|v| v.id == w) {
-            return Ok(Some(v.id.clone()));
-        }
+        return match vaults.iter().find(|v| v.id == w) {
+            Some(v) => Ok(Some(v.id.clone())),
+            // An explicit ?vault=<id> that doesn't exist is a 404 — never silently fall back
+            // to the first vault (SECURITY_AUDIT L3), which could land a write on the wrong one.
+            None => Err(Response::json(
+                404,
+                &serde_json::json!({"error": "unknown vault", "detail": "no vault with that id on this device"}),
+            )),
+        };
     }
+    // No selector → the device's default (first) vault.
     Ok(vaults.into_iter().next().map(|v| v.id))
 }
 
@@ -2139,9 +2152,11 @@ mod tests {
         let v = handle(&cfg, "GET", "/api/vault?vault=vault-b", b"");
         assert_eq!(body_json(&v)["vault"]["name"], "Cofre B");
 
-        // An unknown vault falls back to the first (by name) — never errors.
+        // An explicit unknown ?vault=<id> is a 404 — it must NOT fall back to the first
+        // vault (L3), so a stale/guessed id can't land a request on the wrong vault.
         let f = handle(&cfg, "GET", "/api/vault?vault=nope", b"");
-        assert_eq!(body_json(&f)["vault"]["id"], "vault-a");
+        assert_eq!(f.status, 404);
+        assert_eq!(body_json(&f)["error"], "unknown vault");
     }
 
     #[test]
@@ -2287,7 +2302,8 @@ mod tests {
         assert_eq!(v["threshold"], 2);
         assert_eq!(v["total"], 3);
         assert!(v["orchard_address"].as_str().unwrap().starts_with("u1"));
-        assert!(v.get("ufvk").is_some());
+        // The UFVK is NEVER served over the bridge (M1) — it decrypts the whole tx graph + memos.
+        assert!(v.get("ufvk").is_none());
     }
 
     #[test]
