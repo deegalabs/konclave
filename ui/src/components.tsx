@@ -134,21 +134,28 @@ export function RevealButton() {
   )
 }
 
-/** The wax seal with the quorum (t of n). */
+/** The quorum medallion: `n` notches around a matte ring, `t` of them filled — the quorum
+ *  made physical (no glow, no gradient). */
 export function Seal({ t, n, cap }: { t: number; n: number; cap?: string }) {
   const tr = useT()
   const caption = cap ?? tr('seal.caption')
+  const notches = Array.from({ length: Math.max(1, n) }, (_, i) => {
+    const a = (-90 + (i * 360) / Math.max(1, n)) * (Math.PI / 180)
+    const [x1, y1] = [48 + Math.cos(a) * 31, 48 + Math.sin(a) * 31]
+    const [x2, y2] = [48 + Math.cos(a) * 41, 48 + Math.sin(a) * 41]
+    const filled = i < t
+    return (
+      <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} strokeLinecap="round"
+        stroke={filled ? 'var(--accent)' : 'var(--line)'} strokeWidth={filled ? 4 : 3} />
+    )
+  })
   return (
     <div className="seal-wrap">
       <div className="seal-emb">
         <svg width="90" height="90" viewBox="0 0 96 96" fill="none" aria-hidden="true">
-          <circle cx="48" cy="48" r="45" stroke="#57a6ff" strokeWidth="1" />
-          <circle cx="48" cy="48" r="39" stroke="#57a6ff" strokeWidth="2.4" />
-          <circle cx="48" cy="48" r="34" stroke="#c6cfd9" strokeWidth=".6" strokeDasharray="1 3" />
-          <g stroke="#8ba7c9" strokeWidth=".7" opacity=".8">
-            <circle cx="48" cy="48" r="30" />
-            <path d="M48 18c9 12 9 48 0 60M48 18c-9 12-9 48 0 60M18 48c12-9 48-9 60 0M18 48c12 9 48 9 60 0" />
-          </g>
+          <circle cx="48" cy="48" r="44" stroke="var(--line)" strokeWidth="1" />
+          <circle cx="48" cy="48" r="26" stroke="var(--silver)" strokeWidth="1" opacity=".45" />
+          {notches}
         </svg>
         <span className="num">
           {t}/{n}

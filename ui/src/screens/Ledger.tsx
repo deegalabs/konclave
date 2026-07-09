@@ -12,6 +12,7 @@ export default function Ledger() {
   const [rows, setRows] = useState<Proposal[] | null>(null)
   const [live, setLive] = useState(false)
   const [vaultName, setVaultName] = useState<string | null>(null)
+  const [threshold, setThreshold] = useState(2)
   const [open, setOpen] = useState<Set<string>>(new Set())
   const [linesById, setLinesById] = useState<Record<string, PayrollLine[]>>({})
   const [fState, setFState] = useState<'all' | 'settled' | 'openp'>('all')
@@ -26,7 +27,7 @@ export default function Ledger() {
       const [l, v] = await Promise.all([getLedger(), getVault()])
       if (!on) return
       if (l) setRows(l)
-      if (v) setVaultName(v.name)
+      if (v) { setVaultName(v.name); setThreshold(v.threshold) }
     })()
     return () => { on = false }
   }, [])
@@ -89,11 +90,13 @@ export default function Ledger() {
 
         <div className="filters">
           <span className="chip-group">
+            <span className="chip-glabel">{t('ledger.filterStateLabel')}</span>
             <button className={'chip' + (fState === 'all' ? ' on' : '')} onClick={() => setFState('all')}>{t('ledger.filterAll')}</button>
             <button className={'chip' + (fState === 'settled' ? ' on' : '')} onClick={() => setFState('settled')}>{t('ledger.filterSettled')}</button>
             <button className={'chip' + (fState === 'openp' ? ' on' : '')} onClick={() => setFState('openp')}>{t('ledger.open')}</button>
           </span>
           <span className="chip-group">
+            <span className="chip-glabel">{t('ledger.filterKindLabel')}</span>
             <button className={'chip' + (fKind === 'all' ? ' on' : '')} onClick={() => setFKind('all')}>{t('ledger.filterEverything')}</button>
             <button className={'chip' + (fKind === 'payment' ? ' on' : '')} onClick={() => setFKind('payment')}>{t('ledger.filterPayments')}</button>
             <button className={'chip' + (fKind === 'payroll' ? ' on' : '')} onClick={() => setFKind('payroll')}>{t('ledger.filterPayrolls')}</button>
@@ -112,7 +115,11 @@ export default function Ledger() {
             )}
             {filtered.map((p) => {
               const isPayroll = p.kind === 'payroll'
-              const who = t('ledger.whoProposed', { proposer: p.proposer }) + (p.approvals.length ? t('ledger.whoApproved', { who: p.approvals.join(', ') }) : '')
+              const selfOnly = p.approvals.length === 1 && p.approvals[0] === p.proposer
+              const who = t('ledger.whoProposed', { proposer: p.proposer })
+                + (p.approvals.length ? t('ledger.whoApproved', { who: p.approvals.join(', ') }) : '')
+                + ' · ' + t('ledger.approvalsOf', { count: p.approvals.length, total: threshold })
+                + (selfOnly ? ' · ' + t('ledger.selfApproved') : '')
               const settledRow = SETTLED(p.state)
               const isOpen = open.has(p.id)
               const lines = linesById[p.id]
