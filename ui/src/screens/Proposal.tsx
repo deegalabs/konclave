@@ -53,7 +53,7 @@ export default function Proposal() {
     const res = await voteProposal(p.id, who, approve)
     setBusy(false)
     if (res.ok) { setP(res.proposal); setApproveAs('') }
-    else setError(humanError(res.error, res.detail))
+    else setError(humanError(t, res.error, res.detail))
   }
 
   async function send(dryRun: boolean) {
@@ -61,7 +61,7 @@ export default function Proposal() {
     setError(null); setDryOk(null); setSending(dryRun ? 'dry' : 'real')
     const res = await sendProposal(p.id, dryRun)
     setSending(null)
-    if (!res.ok) { setError(humanError(res.error, res.detail)); return }
+    if (!res.ok) { setError(humanError(t, res.error, res.detail)); return }
     if (res.dryRun) {
       setDryOk(res.sighash ?? t('proposal.validSignature'))
     } else if (res.proposal) {

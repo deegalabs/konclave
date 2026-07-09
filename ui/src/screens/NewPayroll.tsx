@@ -126,7 +126,7 @@ export default function NewPayroll() {
     )
     setBusy(false)
     if (res.ok) { localStorage.removeItem(DRAFT_KEY); nav('/proposal', { state: { id: res.proposal.id } }) }
-    else setError(humanError(res.error, res.detail))
+    else setError(humanError(t, res.error, res.detail))
   }
 
   return (

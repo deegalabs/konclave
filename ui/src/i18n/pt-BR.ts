@@ -26,6 +26,27 @@ export const ptBR: Record<string, string> = {
   'kindShort.payment': 'pagamento',
   'kindShort.payroll': 'folha',
 
+  // proposal expiry
+  'expiry.expired': 'expirada',
+  'expiry.hours': 'expira em {h}h',
+  'expiry.days': 'expira em {d}d',
+
+  // human errors (humanError)
+  'error.insufficient': 'Saldo insuficiente no cofre para este valor (somando a taxa de rede).',
+  'error.ceremony': 'Não foi possível concluir a cerimônia de assinatura. Verifique se o servidor de coordenação (frostd) está no ar e tente de novo.',
+  'error.share': 'Uma das partes da chave falhou ao assinar. Confira se os membros do quórum estão disponíveis.',
+  'error.expired': 'A proposta expirou. Crie uma nova.',
+  'error.voteRejected': 'Este voto não vale agora — a proposta já mudou de estado, ou há um voto conflitante.',
+  'error.notReady': 'A proposta ainda não atingiu o quórum necessário para ser enviada.',
+  'error.invalidAddress': 'Endereço de destino não reconhecido. Confira o endereço Zcash.',
+  'error.invalidMemo': 'Memo inválido: endereços transparentes (públicos) não aceitam memo.',
+  'error.invalidAmount': 'Valor inválido. Use um número em ZEC maior que zero.',
+  'error.noVault': 'Nenhum cofre neste dispositivo ainda.',
+  'error.noDestination': 'A proposta está sem endereço de destino.',
+  'error.emptyPayroll': 'A folha não tem nenhuma linha válida.',
+  'error.noConnection': 'Sem conexão com o cofre local. O servidor está rodando?',
+  'error.unexpected': 'Ocorreu um erro inesperado.',
+
   // language toggle
   'lang.label': 'Idioma',
   'lang.en': 'EN',

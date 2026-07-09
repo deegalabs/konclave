@@ -74,7 +74,7 @@ export default function NewPayment() {
     if (res.ok) {
       nav('/proposal', { state: { id: res.proposal.id } })
     } else {
-      setError(humanError(res.error, res.detail))
+      setError(humanError(t, res.error, res.detail))
     }
   }
 

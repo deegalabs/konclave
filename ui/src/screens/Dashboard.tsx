@@ -79,7 +79,7 @@ export default function Dashboard() {
   const pMemo = pending?.memo ?? 'adiantamento maio'
   const pProposer = pending?.proposer ?? 'Bruno'
   const pApprovals = pending?.approvals_count ?? 1
-  const pExpiry = pending ? expiryLabel(pending.expiry_unix) : 'expira em 71h'
+  const pExpiry = pending ? expiryLabel(pending.expiry_unix, t) : t('expiry.hours', { h: 71 })
 
   // Movements — the real ledger when live; the mock only in the offline showcase.
   const movs: Movimento[] | null = isLive && ledger

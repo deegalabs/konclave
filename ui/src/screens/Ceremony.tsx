@@ -58,7 +58,7 @@ export default function Ceremony() {
     const res = await createVaultDkg(name.trim() || 'Cofre', threshold, names)
     setCreating(false)
     if (res.ok) { setSelectedVault(res.vault.id); markVaultUnlocked(res.vault.id); setVault(res.vault); setPassphrase(res.passphrase ?? null) }
-    else setError(humanError(res.error, res.detail))
+    else setError(humanError(t, res.error, res.detail))
   }
 
   // --- result ---

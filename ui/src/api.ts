@@ -5,6 +5,8 @@
 // to their static placeholder and still render (useful in dev without the backend, and
 // resilient if the local daemon is momentarily down).
 
+import type { TFn } from './i18n'
+
 export type Member = { name: string; pubkey: string }
 
 export type Vault = {
@@ -153,7 +155,7 @@ export async function createProposal(input: NewProposal): Promise<CreateResult> 
     if (res.status === 201) return { ok: true, proposal: data as unknown as Proposal }
     return { ok: false, error: (data.error as string) ?? `HTTP ${res.status}`, detail: data.detail as string }
   } catch (e) {
-    return { ok: false, error: 'sem conexão com o cofre local', detail: String(e) }
+    return { ok: false, error: 'no connection', detail: String(e) }
   }
 }
 
@@ -170,33 +172,33 @@ export function isTransparent(addr: string): boolean {
 }
 
 /**
- * Turn a backend error (code + technical detail) into a clear, actionable message in
- * Portuguese (§6.11 "erros legíveis ao humano"). Keeps the raw detail only as a last resort.
+ * Turn a backend error (code + technical detail) into a clear, actionable message via i18n
+ * (§6.11 "human-readable errors"). Matches on the backend's English error CODES; returns a
+ * localized message. Keeps the raw detail only as a last resort.
  */
-export function humanError(error?: string, detail?: string): string {
+export function humanError(t: TFn, error?: string, detail?: string): string {
   const e = (error ?? '').toLowerCase()
   const d = (detail ?? '').toLowerCase()
   const has = (s: string) => e.includes(s) || d.includes(s)
 
-  if (has('insufficient') || has('saldo')) return 'Saldo insuficiente no cofre para este valor (somando a taxa de rede).'
+  if (has('insufficient') || has('saldo')) return t('error.insufficient')
   if (e === 'send failed' || has('connection') || has('frostd') || has('transport') || has('refused') || has('timed out'))
-    return 'Não foi possível concluir a cerimônia de assinatura. Verifique se o servidor de coordenação (frostd) está no ar e tente de novo.'
-  if (has('signature') || has('apply_signature') || has('share'))
-    return 'Uma das partes da chave falhou ao assinar. Confira se os membros do quórum estão disponíveis.'
-  if (has('expiry') || has('expired') || e === 'expired') return 'A proposta expirou. Crie uma nova.'
-  if (e === 'vote rejected') return 'Este voto não vale agora — a proposta já mudou de estado, ou há um voto conflitante.'
-  if (e === 'not ready') return 'A proposta ainda não atingiu o quórum necessário para ser enviada.'
-  if (e === 'invalid address' || has('unrecognized address')) return 'Endereço de destino não reconhecido. Confira o endereço Zcash.'
-  if (e === 'invalid memo' || has('transparent')) return 'Memo inválido: endereços transparentes (públicos) não aceitam memo.'
-  if (e === 'invalid amount') return 'Valor inválido. Use um número em ZEC maior que zero.'
-  if (e === 'no vault') return 'Nenhum cofre neste dispositivo ainda.'
-  if (e === 'no destination') return 'A proposta está sem endereço de destino.'
-  if (e === 'empty payroll' || has('payroll has no lines')) return 'A folha não tem nenhuma linha válida.'
-  if (has('sem conexão') || has('failed to fetch')) return 'Sem conexão com o cofre local. O servidor está rodando?'
+    return t('error.ceremony')
+  if (has('signature') || has('apply_signature') || has('share')) return t('error.share')
+  if (has('expiry') || has('expired') || e === 'expired') return t('error.expired')
+  if (e === 'vote rejected') return t('error.voteRejected')
+  if (e === 'not ready') return t('error.notReady')
+  if (e === 'invalid address' || has('unrecognized address')) return t('error.invalidAddress')
+  if (e === 'invalid memo' || has('transparent')) return t('error.invalidMemo')
+  if (e === 'invalid amount') return t('error.invalidAmount')
+  if (e === 'no vault') return t('error.noVault')
+  if (e === 'no destination') return t('error.noDestination')
+  if (e === 'empty payroll' || has('payroll has no lines')) return t('error.emptyPayroll')
+  if (has('no connection') || has('failed to fetch')) return t('error.noConnection')
 
   // Fallback: a short detail is probably already readable; otherwise a generic message.
   if (detail && detail.length > 0 && detail.length < 140) return detail
-  return error && error.length < 140 ? error : 'Ocorreu um erro inesperado.'
+  return error && error.length < 140 ? error : t('error.unexpected')
 }
 
 /** Every vault known to this device (for the "Meus cofres" home). */
@@ -281,7 +283,7 @@ export async function createPayroll(
     if (res.status === 201) return { ok: true, proposal: data.proposal as Proposal }
     return { ok: false, error: (data.error as string) ?? `HTTP ${res.status}`, detail: data.detail as string }
   } catch (e) {
-    return { ok: false, error: 'sem conexão com o cofre local', detail: String(e) }
+    return { ok: false, error: 'no connection', detail: String(e) }
   }
 }
 
@@ -299,7 +301,7 @@ export async function createVaultDkg(
     if (res.status === 201) return { ok: true, vault: data.vault as Vault, passphrase: data.passphrase as string | undefined }
     return { ok: false, error: (data.error as string) ?? `HTTP ${res.status}`, detail: data.detail as string }
   } catch (e) {
-    return { ok: false, error: 'sem conexão com o cofre local', detail: String(e) }
+    return { ok: false, error: 'no connection', detail: String(e) }
   }
 }
 
@@ -358,7 +360,7 @@ export async function addBeneficiary(
     if (res.status === 201) return { ok: true, beneficiary: data.beneficiary as Beneficiary }
     return { ok: false, error: (data.error as string) ?? `HTTP ${res.status}`, detail: data.detail as string }
   } catch (e) {
-    return { ok: false, error: 'sem conexão com o cofre local', detail: String(e) }
+    return { ok: false, error: 'no connection', detail: String(e) }
   }
 }
 
@@ -427,6 +429,6 @@ export async function voteProposal(
     if (res.ok) return { ok: true, proposal: data.proposal as Proposal }
     return { ok: false, error: (data.error as string) ?? `HTTP ${res.status}`, detail: data.detail as string }
   } catch (e) {
-    return { ok: false, error: 'sem conexão com o cofre local', detail: String(e) }
+    return { ok: false, error: 'no connection', detail: String(e) }
   }
 }

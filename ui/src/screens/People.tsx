@@ -48,7 +48,7 @@ export default function People() {
     if (res.ok && editingId) await deleteBeneficiary(editingId)
     setBusy(false)
     if (res.ok) { setName(''); setAddress(''); setMemo(''); setShowForm(false); setEditingId(null); void reload() }
-    else setError(humanError(res.error, res.detail))
+    else setError(humanError(t, res.error, res.detail))
   }
 
   async function remove(id: string) {

@@ -26,6 +26,27 @@ export const en: Record<string, string> = {
   'kindShort.payment': 'payment',
   'kindShort.payroll': 'payroll',
 
+  // proposal expiry
+  'expiry.expired': 'expired',
+  'expiry.hours': 'expires in {h}h',
+  'expiry.days': 'expires in {d}d',
+
+  // human errors (humanError)
+  'error.insufficient': 'The vault does not have enough balance for this amount (including the network fee).',
+  'error.ceremony': 'The signing ceremony could not be completed. Check that the coordination server (frostd) is up, then try again.',
+  'error.share': 'One of the key shares failed to sign. Make sure the quorum members are available.',
+  'error.expired': 'The proposal has expired. Create a new one.',
+  'error.voteRejected': 'This vote no longer applies — the proposal already changed state, or there is a conflicting vote.',
+  'error.notReady': 'The proposal has not reached the required quorum to be sent.',
+  'error.invalidAddress': 'Unrecognized destination address. Check the Zcash address.',
+  'error.invalidMemo': 'Invalid memo: transparent (public) addresses do not accept a memo.',
+  'error.invalidAmount': 'Invalid amount. Use a ZEC number greater than zero.',
+  'error.noVault': 'No vault on this device yet.',
+  'error.noDestination': 'The proposal has no destination address.',
+  'error.emptyPayroll': 'The payroll has no valid lines.',
+  'error.noConnection': 'No connection to the local vault. Is the server running?',
+  'error.unexpected': 'An unexpected error occurred.',
+
   // language toggle
   'lang.label': 'Language',
   'lang.en': 'EN',

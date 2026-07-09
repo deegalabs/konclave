@@ -4,6 +4,8 @@
 // Money mirrors the backend's Zatoshis (orchestrator/src/money.rs): 8 fractional digits,
 // integer zatoshis, no floating-point drift.
 
+import type { TFn } from './i18n'
+
 const ZAT_PER_ZEC = 100_000_000
 
 /** Far-future unix (seconds) horizon. The backend uses i64::MAX to mean "never expires";
@@ -42,12 +44,12 @@ export function zatToZec(zat: number): string {
 
 /** Human expiry label from an expiry unix (seconds). Empty string when there is no expiry
  *  (missing, or the "never expires" sentinel). */
-export function expiryLabel(unix?: number): string {
+export function expiryLabel(unix: number | undefined, t: TFn): string {
   if (!isRealUnix(unix)) return ''
   const ms = unix * 1000 - Date.now()
-  if (ms <= 0) return 'expirada'
+  if (ms <= 0) return t('expiry.expired')
   const h = Math.floor(ms / 3_600_000)
-  return h < 48 ? `expira em ${h}h` : `expira em ${Math.floor(h / 24)}d`
+  return h < 48 ? t('expiry.hours', { h }) : t('expiry.days', { d: Math.floor(h / 24) })
 }
 
 /** Short DD/MM date from a real unix timestamp (seconds). '—' when absent/invalid — never NaN. */
