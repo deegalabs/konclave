@@ -14,6 +14,9 @@ pub mod payroll;
 pub mod proposal;
 pub mod validation;
 
+// --- authoritative Zcash address validation (audit M2; uses zcash_address) ---
+pub mod address;
+
 // --- at-rest secret protection (shares) ---
 pub mod secrets;
 
@@ -32,6 +35,7 @@ pub mod wallet;
 // --- local HTTP bridge to the UI (ADR-0004) ---
 pub mod server;
 
+pub use address::{validate_recipient, AddressError, AddressReport};
 pub use money::{MoneyError, Zatoshis};
 pub use payroll::PayrollLine;
 pub use payroll::{import_csv, ImportReport, ImportRowError, PayrollPlan, PayrollSummary};

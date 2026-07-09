@@ -24,6 +24,13 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 # the synchronous core (rusqlite/subprocess) — no async runtime dragged in. Bound to
 # 127.0.0.1 only: a local daemon, never a network service.
 tiny_http = "0.12"
+# Authoritative Zcash address validation (audit M2): a real bech32m/base58 decode with
+# receiver-pool inspection before the send path, so a malformed / wrong-network /
+# Sapling-only destination cannot reach the builder and lock funds (§8). Pure Rust, no
+# proving. Pinned to the SAME librustzcash rev as konclave-signer for type parity across
+# the repo (do not bump in isolation — see CLAUDE.md §11 / ADR-0002).
+zcash_address = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
+zcash_protocol = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
 
 # The `konclave serve` binary (the local bridge). The library stays the tested core.
 [[bin]]

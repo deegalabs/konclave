@@ -1006,6 +1006,23 @@ fn create_proposal(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
         return bad("unrecognized Zcash address", "invalid address");
     }
 
+    // Authoritative decode when real funds are at stake (a live wallet is configured).
+    // The prefix heuristic above lets malformed / wrong-network / Sapling-only strings
+    // through; the builder would then try to pay them and lock the funds (§8). Demo mode
+    // (no wallet) keeps the lenient check so placeholder addresses work.
+    if cfg.wallet.is_some() {
+        match crate::address::validate_recipient(&input.to_address) {
+            Ok(rep) if rep.is_payable() => {}
+            Ok(_) => {
+                return bad(
+                    "this address can't receive from an Orchard vault — the funds would be locked",
+                    "unpayable address",
+                )
+            }
+            Err(e) => return bad(e.human(), "invalid address"),
+        }
+    }
+
     // Amount (no floating point) — must be > 0.
     let value = match Zatoshis::from_zec_str(&input.value_zec) {
         Ok(v) => v,
@@ -1225,6 +1242,27 @@ fn payroll_create(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
         }
     }
     let plan = PayrollPlan::new(lines);
+
+    // Authoritative per-line decode when a live wallet is configured (real funds). A
+    // single Sapling-only / malformed / wrong-network beneficiary would lock the whole
+    // multi-output envelope (§8). Demo mode keeps the lenient prefix check.
+    if cfg.wallet.is_some() {
+        for (i, l) in plan.lines.iter().enumerate() {
+            match crate::address::validate_recipient(&l.address) {
+                Ok(rep) if rep.is_payable() => {}
+                Ok(_) => {
+                    return bad(
+                        format!(
+                            "line {}: this address can't receive from an Orchard vault (funds would lock)",
+                            i + 1
+                        ),
+                        "invalid line",
+                    )
+                }
+                Err(e) => return bad(format!("line {}: {}", i + 1, e.human()), "invalid line"),
+            }
+        }
+    }
 
     let mut store = match open_store(cfg) {
         Ok(s) => s,
@@ -2538,10 +2576,83 @@ mod tests {
             total: Zatoshis::from_u64(100_000).unwrap(),
         };
         let cfg = seeded_cfg(Some(Box::new(FakeWallet { result: Ok(bal) })));
-        let body = br#"{"proposer":"Ana","to_address":"u1abc","value_zec":"1.0"}"#;
-        let r = handle(&cfg, "POST", "/api/proposals", body);
+        // Real Orchard address so the authoritative check passes and the OVERSPEND guard
+        // is what fires (a fake `u1abc` would now be rejected as malformed first).
+        let body =
+            format!(r#"{{"proposer":"Ana","to_address":"{SLICE_ADDRESS}","value_zec":"1.0"}}"#);
+        let r = handle(&cfg, "POST", "/api/proposals", body.as_bytes());
         assert_eq!(r.status, 400);
         assert_eq!(body_json(&r)["error"], "insufficient funds");
+    }
+
+    // Real mainnet vectors for the authoritative address guard (audit M2 / §8).
+    const SAPLING_ADDR: &str =
+        "zs1qqqqqqqqqqqqqqqqqqcguyvaw2vjk4sdyeg0lc970u659lvhqq7t0np6hlup5lusxle75c8v35z";
+    const TESTNET_UA: &str = "utest10c5kutapazdnf8ztl3pu43nkfsjx89fy3uuff8tsmxm6s86j37pe7uz94z5jhkl49pqe8yz75rlsaygexk6jpaxwx0esjr8wm5ut7d5s";
+
+    fn live_cfg() -> Config {
+        let bal = Balance {
+            chain_tip_height: 1,
+            orchard_spendable: Zatoshis::from_u64(100_000_000).unwrap(),
+            sapling_spendable: Zatoshis::ZERO,
+            transparent_spendable: Zatoshis::ZERO,
+            total: Zatoshis::from_u64(100_000_000).unwrap(),
+        };
+        seeded_cfg(Some(Box::new(FakeWallet { result: Ok(bal) })))
+    }
+
+    #[test]
+    fn create_proposal_rejects_sapling_dest_with_live_wallet() {
+        // §8: a Sapling address handed to an Orchard vault would lock the funds.
+        let cfg = live_cfg();
+        let body =
+            format!(r#"{{"proposer":"Ana","to_address":"{SAPLING_ADDR}","value_zec":"0.001"}}"#);
+        let r = handle(&cfg, "POST", "/api/proposals", body.as_bytes());
+        assert_eq!(r.status, 400);
+        assert_eq!(body_json(&r)["error"], "unpayable address");
+    }
+
+    #[test]
+    fn create_proposal_rejects_malformed_unified_with_live_wallet() {
+        // `u1recipient…` passes the prefix heuristic but is not a real address — the exact
+        // gap the authoritative decode closes on the fund-moving path.
+        let cfg = live_cfg();
+        let body =
+            br#"{"proposer":"Ana","to_address":"u1recipientxxxxxxxxxxxxxxxxxxxxxxxx","value_zec":"0.001"}"#;
+        let r = handle(&cfg, "POST", "/api/proposals", body);
+        assert_eq!(r.status, 400);
+        assert_eq!(body_json(&r)["error"], "invalid address");
+    }
+
+    #[test]
+    fn create_proposal_rejects_testnet_dest_with_live_wallet() {
+        let cfg = live_cfg();
+        let body =
+            format!(r#"{{"proposer":"Ana","to_address":"{TESTNET_UA}","value_zec":"0.001"}}"#);
+        let r = handle(&cfg, "POST", "/api/proposals", body.as_bytes());
+        assert_eq!(r.status, 400);
+        assert_eq!(body_json(&r)["error"], "invalid address");
+    }
+
+    #[test]
+    fn create_proposal_accepts_real_orchard_dest_with_live_wallet() {
+        // The positive control: a real Orchard UA passes the authoritative gate.
+        let cfg = live_cfg();
+        let body =
+            format!(r#"{{"proposer":"Ana","to_address":"{SLICE_ADDRESS}","value_zec":"0.001"}}"#);
+        let r = handle(&cfg, "POST", "/api/proposals", body.as_bytes());
+        assert_eq!(r.status, 201);
+    }
+
+    #[test]
+    fn payroll_rejects_sapling_line_with_live_wallet() {
+        let cfg = live_cfg();
+        let body = format!(
+            r#"{{"proposer":"Ana","lines":[{{"address":"{SLICE_ADDRESS}","value_zec":"0.001"}},{{"address":"{SAPLING_ADDR}","value_zec":"0.001"}}]}}"#
+        );
+        let r = handle(&cfg, "POST", "/api/payroll", body.as_bytes());
+        assert_eq!(r.status, 400);
+        assert_eq!(body_json(&r)["error"], "invalid line");
     }
 
     #[test]
@@ -2755,8 +2866,12 @@ mod tests {
             total: Zatoshis::from_u64(100_000).unwrap(),
         };
         let cfg = seeded_cfg(Some(Box::new(FakeWallet { result: Ok(bal) })));
-        let body = br#"{"proposer":"Ana","lines":[{"address":"u1a","value_zec":"1.0"},{"address":"u1b","value_zec":"1.0"}]}"#;
-        let r = handle(&cfg, "POST", "/api/payroll", body);
+        // Real Orchard addresses so the OVERSPEND aggregate is what fires (fakes would be
+        // rejected as malformed first).
+        let body = format!(
+            r#"{{"proposer":"Ana","lines":[{{"address":"{SLICE_ADDRESS}","value_zec":"1.0"}},{{"address":"{SLICE_ADDRESS}","value_zec":"1.0"}}]}}"#
+        );
+        let r = handle(&cfg, "POST", "/api/payroll", body.as_bytes());
         assert_eq!(r.status, 400);
         assert_eq!(body_json(&r)["error"], "payroll invalid");
     }
