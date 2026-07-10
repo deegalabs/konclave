@@ -97,14 +97,6 @@ export default function Dashboard() {
     : null
   const movimentos = movs ?? MOVIMENTOS_MOCK
 
-  const acoes: [string, string, string, string][] = [
-    ['01', t('dashboard.actPayTitle'), t('dashboard.actPayDesc'), '/pay'],
-    ['02', t('dashboard.actPayrollTitle'), t('dashboard.actPayrollDesc'), '/payroll'],
-    ['03', t('dashboard.actProposalsTitle'), t('dashboard.actProposalsDesc', { n: isLive ? awaiting.length : 1 }), '/proposals'],
-    ['04', t('dashboard.actLedgerTitle'), t('dashboard.actLedgerDesc'), '/ledger'],
-    ['05', t('dashboard.actPeopleTitle'), t('dashboard.actPeopleDesc'), '/people'],
-  ]
-
   // Delete flow (local only). Locked vaults require the word; unlocked ones require
   // typing the vault name. If this device sees a spendable balance, warn hard.
   const locked = vault?.locked === true
@@ -197,18 +189,19 @@ export default function Dashboard() {
           </div>
         </section>
 
-        {/* 3 · O que fazer */}
-        <nav className="opnav card">
-          <h2 className="klab">{t('dashboard.whatToDo')}</h2>
-          {acoes.map(([num, title, desc, to]) => (
-            <Link className="op" to={to} key={num}>
-              <span className="n">{num}</span>
-              <span className="t">{title}</span>
-              <span className="d">{desc}</span>
-              <span className="go">→</span>
-            </Link>
-          ))}
-        </nav>
+        {/* 3 · Ações primárias (a navegação de seções vive no rail) */}
+        <section className="actions">
+          <Link className="action" to="/pay">
+            <span className="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M12 5v14M5 12h14" /></svg></span>
+            <div className="action-main"><h3>{t('dashboard.actPayTitle')}</h3><p>{t('dashboard.actPayDesc')}</p></div>
+            <span className="go">→</span>
+          </Link>
+          <Link className="action" to="/payroll">
+            <span className="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 7h16M4 12h16M4 17h10" /></svg></span>
+            <div className="action-main"><h3>{t('dashboard.actPayrollTitle')}</h3><p>{t('dashboard.actPayrollDesc')}</p></div>
+            <span className="go">→</span>
+          </Link>
+        </section>
 
         {/* 4 · Histórico */}
         <section className="ledger">

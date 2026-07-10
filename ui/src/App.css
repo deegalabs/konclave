@@ -105,6 +105,23 @@
 .op .go{color:var(--accent); font-weight:700}
 .op:hover .t{color:var(--accent)}
 
+/* Painel · primary action cards (section nav lives in the rail now) */
+.actions{display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:24px}
+@media(max-width:560px){.actions{grid-template-columns:1fr}}
+.action{display:flex; align-items:center; gap:15px; text-decoration:none; color:inherit;
+  border:1px solid var(--line-2); border-radius:var(--radius); background:var(--surface-1); padding:18px 20px;
+  transition:border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out)}
+.action:hover{border-color:var(--accent-line); background:var(--surface-2)}
+.action:active{transform:translateY(1px)}
+.action .ico{width:40px; height:40px; border-radius:10px; flex:none; display:grid; place-items:center;
+  background:var(--accent-soft); color:var(--accent); border:1px solid var(--accent-line)}
+.action .ico svg{width:19px; height:19px}
+.action-main{flex:1; min-width:0}
+.action-main h3{margin:0; font-size:15px; font-weight:600; color:var(--text)}
+.action-main p{margin:2px 0 0; font-family:var(--font-mono); font-size:12px; color:var(--text-muted)}
+.action .go{margin-left:auto; color:var(--text-muted); font-weight:700; transition:color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out)}
+.action:hover .go{color:var(--accent); transform:translateX(2px)}
+
 .ledger{margin-top:46px}
 .ledger .cap{font-family:var(--font-mono); font-size:12px; color:var(--text-muted); margin:6px 0 14px}
 .lrow{display:grid; grid-template-columns:88px 1fr auto; gap:20px; align-items:baseline; padding:15px 0; border-bottom:1px solid var(--line)}
