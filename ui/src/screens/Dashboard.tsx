@@ -112,7 +112,7 @@ export default function Dashboard() {
 
   return (
     <>
-      <main className="page">
+      <main className="page dash">
         <div className="title-row">
           <div>
             <span className="klab">{t('dashboard.collectiveVault')}</span>

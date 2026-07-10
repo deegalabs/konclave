@@ -3,6 +3,12 @@
 
 .sheet{max-width:1080px; margin:0 auto; min-height:100vh}
 .root{min-height:100vh}
+/* Painel — one uniform vertical rhythm between cards (overrides the per-section
+   margins so the stack is evenly spaced, not visually uneven) */
+.page.dash{display:flex; flex-direction:column; gap:22px}
+.page.dash > *{margin-top:0}
+.page.dash .ledger{margin-top:16px}
+.page.dash .danger-zone{margin-top:22px}
 /* page header with title + right-aligned actions (rail replaced the top letterhead) */
 .page-head{display:flex; align-items:flex-end; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:6px}
 .page-head .h1{margin:0}
