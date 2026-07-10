@@ -1,0 +1,108 @@
+/* Landing / explainer (Intro) — the "why" surface. Consumes the shared token
+   layer (lacre.css); dark-refined, editorial. */
+
+.lp{min-height:100vh; position:relative; z-index:1}
+.lp-wrap{max-width:1080px; margin-inline:auto; padding-inline:clamp(22px,5vw,64px); position:relative}
+.lp .eyebrow{font-family:var(--font-mono); font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--accent)}
+.lp .sec-eyebrow{display:block; text-align:center}
+
+/* top bar */
+.lp-top{display:flex; align-items:center; justify-content:space-between; padding:22px 0}
+.lp-brand{display:flex; align-items:center; gap:11px; text-decoration:none; color:inherit}
+.lp-brand .wm{font-family:var(--font-mono); font-weight:600; font-size:13px; letter-spacing:.28em}
+.lp-env{font-family:var(--font-mono); font-size:11px; color:var(--text-muted); border:1px solid var(--line); border-radius:var(--radius-pill); padding:6px 13px; background:var(--surface-1)}
+.lp-env b{color:var(--success); font-weight:500}
+
+/* buttons */
+.lp-btn{display:inline-flex; align-items:center; gap:9px; font-weight:600; font-size:14.5px; padding:13px 22px;
+  border-radius:var(--radius-sm); border:1px solid var(--line-strong); background:var(--surface-2); color:var(--text);
+  text-decoration:none; cursor:pointer; transition:background var(--dur-fast), border-color var(--dur-fast), transform var(--dur-fast)}
+.lp-btn:hover{background:var(--surface-3); border-color:var(--accent-line)}
+.lp-btn:active{transform:translateY(1px)}
+.lp-btn.primary{background:var(--accent); color:var(--on-accent); border-color:var(--accent)}
+.lp-btn.primary:hover{background:#6cb2ff}
+.lp-btn svg{width:17px; height:17px}
+
+/* hero */
+.lp-hero{padding:clamp(30px,6vh,64px) 0 clamp(30px,5vh,54px); text-align:center; display:flex; flex-direction:column; align-items:center}
+.lp-hero .seal{width:74px; height:74px; margin-bottom:24px}
+.lp-hero h1{font-size:clamp(34px,6vw,60px); line-height:1.03; letter-spacing:-.03em; font-weight:800; margin:16px 0 0; text-wrap:balance; max-width:16ch}
+.lp-hero .sub{color:var(--text-muted); font-size:clamp(16px,2vw,19px); line-height:1.6; margin:20px auto 0; max-width:56ch}
+.lp-hero .sub b{color:var(--text); font-weight:600}
+.lp-ctas{display:flex; gap:13px; flex-wrap:wrap; justify-content:center}
+.lp-hero .lp-ctas{margin-top:34px}
+.lp-hero .trust{margin-top:22px; font-family:var(--font-mono); font-size:12px; color:var(--text-muted); display:inline-flex; align-items:center; gap:8px}
+.lp-hero .trust i{width:6px; height:6px; border-radius:50%; background:var(--success)}
+
+.lp-section{padding:clamp(40px,7vh,76px) 0}
+.lp-title{text-align:center; font-size:clamp(24px,3.4vw,34px); font-weight:700; letter-spacing:-.02em; margin:12px auto 0; text-wrap:balance; max-width:22ch}
+.lp-lead{text-align:center; color:var(--text-muted); max-width:56ch; margin:14px auto 0; font-size:15.5px}
+
+/* pillars */
+.lp-pillars{display:grid; grid-template-columns:repeat(3,1fr); gap:18px; margin-top:44px}
+@media(max-width:760px){.lp-pillars{grid-template-columns:1fr}}
+.lp-pillar{border:1px solid var(--line-soft); border-radius:var(--radius); background:linear-gradient(180deg,var(--surface-2),var(--surface-1)); padding:24px 22px}
+.lp-pillar .ic{width:42px; height:42px; border-radius:11px; display:grid; place-items:center; background:var(--accent-soft); color:var(--accent); border:1px solid var(--accent-line); margin-bottom:16px}
+.lp-pillar .ic svg{width:21px; height:21px}
+.lp-pillar h3{margin:0; font-size:17px; font-weight:700; letter-spacing:-.01em}
+.lp-pillar p{margin:8px 0 0; color:var(--text-muted); font-size:14px; line-height:1.6}
+.lp-pillar p b{color:var(--text); font-weight:600}
+
+/* compare table */
+.lp-compare{margin-top:40px; border:1px solid var(--line); border-radius:var(--radius); overflow:hidden; background:var(--surface-1)}
+.lp-cscroll{overflow-x:auto}
+table.lp-cmp{width:100%; border-collapse:collapse; min-width:620px}
+table.lp-cmp th, table.lp-cmp td{padding:14px 18px; text-align:left; border-top:1px solid var(--line-soft)}
+table.lp-cmp thead th{background:var(--surface-2); border-top:0; font-family:var(--font-mono); font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--text-muted); font-weight:400}
+table.lp-cmp thead th.col{text-align:center}
+table.lp-cmp td.name{font-weight:500; font-size:14px}
+table.lp-cmp td.mk{text-align:center; font-family:var(--font-mono); font-size:16px}
+table.lp-cmp .yes{color:var(--success)} table.lp-cmp .no{color:var(--danger)} table.lp-cmp .mid{color:var(--warn)}
+table.lp-cmp tr.kon td{background:var(--accent-soft)}
+table.lp-cmp tr.kon td.name{color:var(--accent); font-weight:700}
+
+/* killer use case */
+.lp-killer{border:1px solid var(--accent-line); border-radius:var(--radius-lg);
+  background:linear-gradient(180deg,rgba(87,166,255,.08),rgba(87,166,255,.02)); padding:clamp(26px,4vw,44px);
+  display:grid; grid-template-columns:1.3fr 1fr; gap:34px; align-items:center}
+@media(max-width:760px){.lp-killer{grid-template-columns:1fr}}
+.lp-killer h3{font-size:clamp(22px,2.8vw,28px); font-weight:700; letter-spacing:-.02em; margin:12px 0 0; text-wrap:balance}
+.lp-killer p{color:var(--text-muted); margin:14px 0 0; font-size:15px; line-height:1.65}
+.lp-killer p b{color:var(--text); font-weight:600}
+.lp-slip{border:1px solid var(--line); border-radius:var(--radius); background:var(--surface-0); padding:18px; font-family:var(--font-mono)}
+.lp-slip .ph{font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:var(--text-muted); display:flex; justify-content:space-between}
+.lp-slip .prow{display:flex; justify-content:space-between; align-items:center; padding:10px 0; border-top:1px solid var(--line-soft); font-size:13px}
+.lp-slip .prow:first-of-type{border-top:0; margin-top:8px}
+.lp-slip .amt{position:relative; color:transparent}
+.lp-slip .amt::after{content:""; position:absolute; inset:12% -4px; border-radius:3px; background:repeating-linear-gradient(135deg,#222b34 0 8px,#1a222b 8px 16px)}
+.lp-slip .tot{display:flex; justify-content:space-between; margin-top:12px; padding-top:12px; border-top:1px solid var(--line); font-size:13px; color:var(--text-muted)}
+.lp-slip .tot b{color:var(--success); font-weight:500}
+
+/* how it works */
+.lp-steps{display:grid; grid-template-columns:repeat(3,1fr); gap:18px; margin-top:44px}
+@media(max-width:760px){.lp-steps{grid-template-columns:1fr}}
+.lp-step{border:1px solid var(--line-soft); border-radius:var(--radius); background:var(--surface-1); padding:24px 22px}
+.lp-step .n{font-family:var(--font-mono); font-size:12px; color:var(--accent); border:1px solid var(--accent-line); border-radius:var(--radius-pill); width:30px; height:30px; display:grid; place-items:center; margin-bottom:16px}
+.lp-step h3{margin:0; font-size:16px; font-weight:700}
+.lp-step p{margin:8px 0 0; color:var(--text-muted); font-size:13.5px; line-height:1.6}
+.lp-step p b{color:var(--text); font-weight:600}
+
+/* trust band */
+.lp-trust{border-top:1px solid var(--line-soft); border-bottom:1px solid var(--line-soft); background:var(--surface-1)}
+.lp-trust .lp-wrap{padding-block:clamp(34px,5vh,54px)}
+.lp-trust-inner{display:grid; grid-template-columns:auto 1fr; gap:26px; align-items:center}
+@media(max-width:640px){.lp-trust-inner{grid-template-columns:1fr}}
+.lp-trust-inner .shield{width:64px; height:64px; color:var(--accent)}
+.lp-trust-inner h3{margin:8px 0 0; font-size:20px; font-weight:700; letter-spacing:-.01em}
+.lp-trust-inner p{margin:10px 0 0; color:var(--text-muted); font-size:14.5px; line-height:1.65; max-width:70ch}
+.lp-trust-inner p b{color:var(--text); font-weight:600}
+
+/* final cta */
+.lp-final{text-align:center}
+.lp-final h2{font-size:clamp(26px,3.6vw,38px); font-weight:800; letter-spacing:-.02em; margin:0; text-wrap:balance}
+.lp-final p{color:var(--text-muted); margin:14px auto 0; max-width:48ch}
+.lp-final .lp-ctas{margin-top:30px}
+
+.lp-footer{border-top:1px solid var(--line-soft); padding:30px 0; color:var(--text-muted); font-family:var(--font-mono); font-size:12px; line-height:1.7}
+.lp-footer b{color:var(--silver); font-weight:500}
+.lp-footer .lp-wrap > div{margin:0 auto}
