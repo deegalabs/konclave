@@ -72,10 +72,11 @@ export default function Intro() {
           <h1>{t('landing.h1')}</h1>
           <p className="sub">{tr('landing.sub')}</p>
           <div className="lp-ctas">
-            <a className="lp-btn primary" href="#lp-como" onClick={scrollTo('lp-como')}>
-              {t('landing.ctaHow')}
+            <Link className="lp-btn primary" to="/demo">
+              {t('demo.watchCta')}
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
-            </a>
+            </Link>
+            <a className="lp-btn" href="#lp-como" onClick={scrollTo('lp-como')}>{t('landing.ctaHow')}</a>
             <Link className="lp-btn" to="/vaults">{t('landing.ctaVaults')}</Link>
           </div>
           <span className="trust"><i />{t('landing.heroTrust')}</span>
