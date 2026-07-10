@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { Letterhead, Seal } from '../components'
+import { useNavigate } from 'react-router-dom'
+import { Seal } from '../components'
 import { Identicon } from '../avatar'
 import { useT, useTr } from '../i18n'
 import { getVault, health, shortAddr, type Vault } from '../api'
@@ -35,7 +35,6 @@ export default function Members() {
 
   return (
     <>
-      <Letterhead right={<Link className="klab back" to="/dashboard">{t('common.backPanel')}</Link>} />
       <main className="page">
         <div className="title-row">
           <div>

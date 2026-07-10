@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { Letterhead, Secret } from '../components'
+import { useNavigate } from 'react-router-dom'
+import { Secret } from '../components'
 import { useT, useTr } from '../i18n'
 import {
   createProposal, getBalance, getVault, getBeneficiaries, health, shortAddr, classifyAddress, humanError,
@@ -80,7 +80,6 @@ export default function NewPayment() {
 
   return (
     <>
-      <Letterhead right={<Link className="klab back" to="/dashboard">{t('common.backPanel')}</Link>} />
       <main className="page narrow">
         <h1 className="h1">{t('payment.title')}</h1>
 

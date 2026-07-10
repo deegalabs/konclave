@@ -1,5 +1,6 @@
 import { Routes, Route } from 'react-router-dom'
 import { useReveal } from './reveal'
+import Layout from './Layout'
 import Dashboard from './screens/Dashboard'
 import Intro from './screens/Intro'
 import Ceremony from './screens/Ceremony'
@@ -16,20 +17,24 @@ import './App.css'
 export default function App() {
   const { revealed } = useReveal()
   return (
-    <div className={'sheet' + (revealed ? ' revealed' : '')}>
+    <div className={'root' + (revealed ? ' revealed' : '')}>
       <Routes>
+        {/* Onboarding — standalone, no rail */}
         <Route path="/" element={<Vaults />} />
-        <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/vaults" element={<Vaults />} />
         <Route path="/intro" element={<Intro />} />
         <Route path="/create" element={<Ceremony />} />
-        <Route path="/pay" element={<NewPayment />} />
-        <Route path="/payroll" element={<NewPayroll />} />
-        <Route path="/proposal" element={<Proposal />} />
-        <Route path="/proposals" element={<Proposals />} />
-        <Route path="/ledger" element={<Ledger />} />
-        <Route path="/members" element={<Members />} />
-        <Route path="/people" element={<People />} />
+        {/* In-vault — persistent left rail */}
+        <Route element={<Layout />}>
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/pay" element={<NewPayment />} />
+          <Route path="/payroll" element={<NewPayroll />} />
+          <Route path="/proposal" element={<Proposal />} />
+          <Route path="/proposals" element={<Proposals />} />
+          <Route path="/ledger" element={<Ledger />} />
+          <Route path="/members" element={<Members />} />
+          <Route path="/people" element={<People />} />
+        </Route>
       </Routes>
     </div>
   )

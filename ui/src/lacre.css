@@ -4,23 +4,23 @@
    override under [data-theme="light"] — no renames, no component edits. */
 
 :root{
-  /* surfaces */
-  --surface-0:#12161a; --surface-1:#171c22; --surface-2:#1e252d; --surface-3:#28313a;
+  /* surfaces — cooler, blue-biased ground (Linear/Vercel-refined dark) */
+  --surface-0:#0f141a; --surface-1:#151b22; --surface-2:#1a212a; --surface-3:#202832;
   /* text */
-  --text:#dfe6ee; --text-muted:#8a95a3; --silver:#c6cfd9;
-  /* lines */
-  --line:#333d47; --line-2:#28313a; --line-soft:rgba(180,205,235,.10);
+  --text:#e7edf3; --text-muted:#9aa6b2; --silver:#c6cfd9;
+  /* lines — hairlines, not heavy rules */
+  --line:#28313c; --line-2:#20272f; --line-strong:#37424e; --line-soft:rgba(180,205,235,.08);
   /* accent (blue — rare, interactive + quorum) */
   --accent:#57a6ff; --accent-ink:#3f86e0;
-  --accent-soft:rgba(87,166,255,.10); --accent-line:rgba(87,166,255,.30);
-  --on-accent:#08121e;
+  --accent-soft:rgba(87,166,255,.10); --accent-line:rgba(87,166,255,.32);
+  --on-accent:#0f141a;
   /* success (earned) */
-  --success:#57d08a; --success-soft:rgba(87,208,138,.08); --success-line:rgba(87,208,138,.40);
+  --success:#5ed39a; --success-soft:rgba(94,211,154,.10); --success-line:rgba(94,211,154,.35);
   /* warn */
-  --warn:#ffcf87; --warn-strong:#ffe0a3;
+  --warn:#e3ad52; --warn-strong:#f0c574;
   /* danger */
-  --danger:#ff6b6b; --danger-text:#ff9d9d;
-  --danger-soft:rgba(255,90,90,.09); --danger-line:rgba(255,110,110,.28);
+  --danger:#e77f74; --danger-text:#ef9a92;
+  --danger-soft:rgba(231,127,116,.10); --danger-line:rgba(231,127,116,.30);
   /* signature devices */
   --tarja-ink:#0c1014; --tarja-text:rgba(230,227,219,.60);
   /* type */
@@ -53,26 +53,26 @@ html{scrollbar-width:thin; scrollbar-color:rgba(150,170,195,.28) transparent; sc
 
 body{margin:0; color:var(--text); font-family:var(--font-sans); line-height:1.5; -webkit-font-smoothing:antialiased;
   background:
-    radial-gradient(70% 45% at 50% -8%, rgba(87,166,255,.10), transparent 60%),
-    radial-gradient(130% 95% at 50% -15%, #2b333c 0%, #1b2127 55%, var(--surface-0) 100%) fixed;
+    radial-gradient(1100px 520px at 78% -8%, rgba(87,166,255,.06), transparent 60%),
+    var(--surface-0) fixed;
   min-height:100vh}
-/* faint archival paper grain — matte, never atmospheric glow (opacity <= .05) */
-body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0; opacity:.05;
+/* faint archival paper grain — matte, never atmospheric glow (opacity <= .04) */
+body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0; opacity:.035;
   background-image:radial-gradient(rgba(200,220,245,.7) .5px, transparent .5px); background-size:3px 3px}
 
 /* letterhead / sheet — no box: the slate gradient shows through */
 .sheet{background:transparent; position:relative; z-index:1}
-.lh{display:flex; align-items:center; justify-content:space-between; padding:16px 26px; border-bottom:1.5px solid var(--text)}
+.lh{display:flex; align-items:center; justify-content:space-between; padding:16px 26px; border-bottom:1px solid var(--line)}
 .brand{display:flex; align-items:center; gap:11px}
 .wm{font-family:var(--font-mono); font-weight:600; font-size:11px; letter-spacing:.42em; text-indent:.42em}
 .mark{width:22px;height:22px}
 
 /* type helpers */
 .klab{font-family:var(--font-mono); font-size:11px; letter-spacing:.22em; text-transform:uppercase; color:var(--text-muted)}
-.h1{font-weight:800; font-size:clamp(26px,4.5vw,40px); letter-spacing:-.02em; line-height:1; text-transform:uppercase; margin:8px 0}
+.h1{font-weight:700; font-size:clamp(24px,3vw,33px); letter-spacing:-.018em; line-height:1.08; text-wrap:balance; margin:6px 0 4px}
 .mono{font-family:var(--font-mono)}
 .dim{color:var(--text-muted)}
-.rule{height:0; border:0; border-top:1.5px solid var(--text); margin:22px 0}
+.rule{height:0; border:0; border-top:1px solid var(--line); margin:22px 0}
 .rule.thin{border-top:1px solid var(--line)}
 
 /* fields */
@@ -89,13 +89,13 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 .hint.warn{color:var(--warn)}
 
 /* buttons */
-.btn{font-family:var(--font-sans); font-weight:700; font-size:13.5px; padding:12px 20px; cursor:pointer; border:1.5px solid var(--text);
-  letter-spacing:.03em; text-transform:uppercase; background:transparent; color:var(--text); border-radius:var(--radius-sm);
+.btn{font-family:var(--font-sans); font-weight:600; font-size:13.5px; padding:11px 17px; cursor:pointer; border:1px solid var(--line-strong);
+  letter-spacing:.005em; background:var(--surface-2); color:var(--text); border-radius:var(--radius-sm); display:inline-flex; align-items:center; gap:8px; justify-content:center;
   transition:background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out)}
-.btn:hover{background:var(--text); color:var(--surface-1)}
+.btn:hover{background:var(--surface-3); border-color:var(--accent-line)}
 .btn:active{transform:translateY(1px)}
 .btn.ok{background:var(--accent); border-color:var(--accent); color:var(--on-accent)}
-.btn.ok:hover{background:var(--accent-ink); border-color:var(--accent-ink)}
+.btn.ok:hover{background:#6cb2ff; border-color:#6cb2ff}
 /* A disabled action must LOOK disabled (T6): no accent pull, no hover, not-allowed. */
 .btn:disabled, .btn:disabled:hover{opacity:.42; cursor:not-allowed; background:var(--surface-2);
   border-color:var(--line); color:var(--text-muted)}
@@ -128,8 +128,8 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 
 /* table (ledger / payroll) */
 .tbl{width:100%; border-collapse:collapse; font-size:13.5px}
-.tbl th{font-family:var(--font-mono); font-size:10.5px; letter-spacing:.14em; text-transform:uppercase; color:var(--text-muted);
-  text-align:left; font-weight:500; padding:8px 10px; border-bottom:1.5px solid var(--text)}
+.tbl th{font-family:var(--font-mono); font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--text-muted);
+  text-align:left; font-weight:400; padding:11px 12px; border-bottom:1px solid var(--line); background:var(--surface-2)}
 .tbl td{padding:12px 10px; border-bottom:1px solid var(--line); vertical-align:top}
 .tbl td.num{font-family:var(--font-mono); text-align:right; white-space:nowrap}
 .tbl .by{font-family:var(--font-mono); font-size:11px; color:var(--text-muted); margin-top:3px}
@@ -143,6 +143,69 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 .steps .st.on .pip{background:var(--accent); border-color:var(--accent)}
 .steps .st.on{color:var(--text)}
 .steps .seg{width:26px;height:1.5px;background:var(--line)}
+
+/* ============================================================
+   App shell — persistent left rail (refined dark, Linear/Vercel)
+   ============================================================ */
+:root{ --pad:clamp(20px,3vw,40px); --rail-w:248px }
+.applayout{display:grid; grid-template-columns:var(--rail-w) minmax(0,1fr); min-height:100vh; max-width:1320px; margin-inline:auto}
+.railcontent{min-width:0}
+.applayout .page{max-width:940px; padding:var(--pad) var(--pad) 84px}
+
+.rail{border-right:1px solid var(--line-soft); padding:24px 18px; display:flex; flex-direction:column; gap:28px;
+  position:sticky; top:0; height:100vh}
+.rail .brand{display:flex; align-items:center; gap:11px; text-decoration:none; color:inherit}
+.rail .wm{font-family:var(--font-mono); font-weight:600; font-size:12px; letter-spacing:.24em}
+.rail .brand-sub{font-family:var(--font-mono); font-size:9px; letter-spacing:.2em; color:var(--text-muted); text-transform:uppercase; margin-top:2px}
+.railnav{display:flex; flex-direction:column; gap:2px}
+.nav-item{display:flex; align-items:center; gap:11px; padding:9px 11px; border-radius:var(--radius-sm);
+  color:var(--text-muted); font-size:14px; font-weight:500; text-decoration:none;
+  transition:background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out)}
+.nav-item svg{width:17px; height:17px; flex:none; opacity:.8}
+.nav-item:hover{background:var(--surface-1); color:var(--text)}
+.nav-item.active{background:var(--surface-2); color:var(--text)}
+.nav-item.active svg{opacity:1; color:var(--accent)}
+.rail-foot{margin-top:auto; display:flex; flex-direction:column; gap:13px}
+.rail-quorum{border:1px solid var(--line); border-radius:var(--radius); background:var(--surface-1); padding:13px; display:flex; align-items:center; gap:12px; text-decoration:none; color:inherit;
+  transition:border-color var(--dur-fast) var(--ease-out)}
+.rail-quorum:hover{border-color:var(--accent-line)}
+.rail-quorum .q{font-family:var(--font-mono); font-weight:600; font-size:16px; letter-spacing:.02em}
+.rail-quorum small{display:block; color:var(--text-muted); font-size:10px; letter-spacing:.1em; text-transform:uppercase; margin-top:2px}
+.rail-bottom{display:flex; flex-direction:column; gap:9px; align-items:flex-start}
+.rail-avatars{display:flex; padding-left:2px}
+.rail-avatars .idc{border-radius:50%; box-shadow:0 0 0 2px var(--surface-0); margin-left:-7px}
+.rail-avatars .idc:first-child{margin-left:0}
+.rail-switch{font-family:var(--font-mono); font-size:11px; color:var(--text-muted); padding:2px; text-decoration:none}
+.rail-switch:hover{color:var(--accent)}
+
+/* "ao vivo" status pill */
+.live{display:inline-flex; align-items:center; gap:7px; font-family:var(--font-mono); font-size:11px; letter-spacing:.06em;
+  color:var(--success); border:1px solid var(--line); border-radius:var(--radius-pill); padding:6px 12px; background:var(--surface-1)}
+.live.off{color:var(--text-muted)}
+.live i{width:6px; height:6px; border-radius:50%; background:var(--success); box-shadow:0 0 0 3px var(--success-soft)}
+.live.off i{background:var(--text-muted); box-shadow:none}
+
+/* rail collapses to a top strip on narrow */
+@media(max-width:860px){
+  .applayout{grid-template-columns:1fr}
+  .rail{position:static; height:auto; flex-direction:row; align-items:center; flex-wrap:wrap; gap:14px;
+    border-right:0; border-bottom:1px solid var(--line-soft); padding:14px var(--pad)}
+  .railnav{flex-direction:row; flex-wrap:wrap}
+  .nav-item span{display:none}
+  .nav-item{padding:9px}
+  .rail-foot{margin:0 0 0 auto; flex-direction:row; align-items:center}
+  .rail-bottom{flex-direction:row; align-items:center; gap:12px}
+  .rail-quorum small{display:none}
+  .rail-avatars{display:none}
+  .applayout .page{padding:var(--pad) var(--pad) 70px}
+}
+
+/* refined reveal toggle — pill, not a boxed mono chip */
+.reveal-btn{display:inline-flex; align-items:center; gap:8px; font-family:var(--font-mono); font-size:11px;
+  letter-spacing:.06em; text-transform:uppercase; color:var(--text-muted); background:transparent;
+  border:1px solid var(--line); border-radius:var(--radius-pill); padding:7px 13px; cursor:pointer;
+  transition:border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out)}
+.reveal-btn:hover{border-color:var(--line-strong); color:var(--text)}
 
 /* motion is confirm/reveal only — honor reduced-motion everywhere */
 @media (prefers-reduced-motion: reduce){

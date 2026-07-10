@@ -1,6 +1,5 @@
 import { Fragment, useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { Letterhead, Secret, RevealButton, activateOnKey } from '../components'
+import { Secret, RevealButton, activateOnKey } from '../components'
 import { getLedger, getProposalDetail, getVault, ledgerCsvUrl, health, shortAddr, type Proposal, type PayrollLine } from '../api'
 import { fmtDate, fmtZec } from '../format'
 import { useT } from '../i18n'
@@ -61,17 +60,14 @@ export default function Ledger() {
 
   return (
     <>
-      <Letterhead
-        right={
+      <main className="page">
+        <div className="page-head">
+          <h1 className="h1">{t('ledger.title')}</h1>
           <span className="lh-actions">
-            <Link className="klab back" to="/dashboard">{t('common.backPanel')}</Link>
             <a className="btn ghost sm-btn" href={ledgerCsvUrl()} download="konclave-razao.csv">{t('ledger.exportCsv')}</a>
             <button className="btn ghost sm-btn" onClick={() => window.print()}>{t('ledger.pdf')}</button>
           </span>
-        }
-      />
-      <main className="page">
-        <h1 className="h1">{t('ledger.title')}</h1>
+        </div>
 
         {/* Banda de documento — o livro do cofre para entregar ao contador */}
         <div className="doc-band">

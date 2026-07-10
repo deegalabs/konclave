@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { Letterhead, Dialog } from '../components'
+import { Dialog } from '../components'
 import { Identicon } from '../avatar'
 import { useT } from '../i18n'
 import {
@@ -60,7 +59,6 @@ export default function People() {
 
   return (
     <>
-      <Letterhead right={<Link className="klab back" to="/dashboard">{t('common.backPanel')}</Link>} />
       <main className="page">
         <h1 className="h1">{t('people.title')}</h1>
         <p className="cap">{t('people.cap')}</p>

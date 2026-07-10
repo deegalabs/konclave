@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Letterhead, Secret, activateOnKey } from '../components'
+import { Secret, activateOnKey } from '../components'
 import { Identicon } from '../avatar'
 import { getProposals, getVault, health, type Proposal } from '../api'
 import { expiryLabel, fmtZec } from '../format'
@@ -62,7 +62,6 @@ export default function Proposals() {
 
   return (
     <>
-      <Letterhead right={<Link className="klab back" to="/dashboard">{t('common.backPanel')}</Link>} />
       <main className="page narrow">
         <h1 className="h1">{t('proposals.title')}</h1>
         <p className="cap">{t('proposals.cap')} {live ? '' : t('proposals.demoMode')}</p>

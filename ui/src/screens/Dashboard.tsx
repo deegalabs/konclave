@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Dialog, Letterhead, Seal, Secret, RevealButton } from '../components'
+import { Dialog, Seal, Secret, RevealButton } from '../components'
 import { Identicon } from '../avatar'
 import { fmtZec as fmt4, expiryLabel, fmtDate } from '../format'
 import { useT, useTr } from '../i18n'
@@ -120,7 +120,6 @@ export default function Dashboard() {
 
   return (
     <>
-      <Letterhead right={<Link className="switch" to="/" title={t('dashboard.switchVault')}>{tr('dashboard.vaultLabel', { name })} ▾</Link>} />
       <main className="page">
         <div className="title-row">
           <div>

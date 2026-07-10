@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { Letterhead, Secret, activateOnKey } from '../components'
+import { useNavigate } from 'react-router-dom'
+import { Secret, activateOnKey } from '../components'
 import { fmtZec, parseZecToZat, zatToZec } from '../format'
 import { useT, useTr } from '../i18n'
 import {
@@ -131,7 +131,6 @@ export default function NewPayroll() {
 
   return (
     <>
-      <Letterhead right={<Link className="klab back" to="/dashboard">{t('common.backPanel')}</Link>} />
       <main className="page">
         <h1 className="h1">{t('payroll.title')}</h1>
         <p className="cap">{t('payroll.cap')} {saved && <span className="draft-note" title={t('payroll.draftSavedTitle')} aria-live="polite">{t('payroll.draftSaved')}</span>}</p>

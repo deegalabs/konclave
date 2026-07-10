@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { Letterhead, Secret } from '../components'
+import { Secret } from '../components'
 import { Identicon } from '../avatar'
 import { fmtZec } from '../format'
 import { useT, useTr } from '../i18n'
@@ -70,12 +70,10 @@ export default function Proposal() {
   }
 
   if (loading) {
-    return (<><Letterhead right={<Link className="klab back" to="/dashboard">{t('common.backProposals')}</Link>} />
-      <main className="page narrow"><div className="hint">{t('proposal.loading')}</div></main></>)
+    return (<><main className="page narrow"><div className="hint">{t('proposal.loading')}</div></main></>)
   }
   if (!p) {
-    return (<><Letterhead right={<Link className="klab back" to="/dashboard">{t('common.backProposals')}</Link>} />
-      <main className="page narrow"><h1 className="h1">{t('proposal.noneTitle')}</h1>
+    return (<><main className="page narrow"><h1 className="h1">{t('proposal.noneTitle')}</h1>
         <div className="hint">{t('proposal.noneBody')} <Link className="link" to="/pay">{t('proposal.proposePaymentLink')}</Link></div>
       </main></>)
   }
@@ -110,7 +108,6 @@ export default function Proposal() {
 
   return (
     <>
-      <Letterhead right={<Link className="klab back" to="/dashboard">{t('common.backPanel')}</Link>} />
       <main className="page narrow">
         <div className="prop-head">
           <span className="klab">{eyebrow}</span>
