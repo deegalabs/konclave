@@ -188,6 +188,20 @@ export const ptBR: Record<string, string> = {
   'landing.footer1': '**Konclave** — o cofre que decide em conjunto · local-first, sem telemetria · a criptografia é da **Zcash Foundation**; o Konclave é a camada de usabilidade por cima.',
   'landing.footer2': 'ZecHub Hackathon 3.0 · trilhas FROST + Contabilidade · licença dupla Apache-2.0 / MIT.',
 
+  // Landing · roadmap (where it's going)
+  'landing.roadEyebrow': 'Para onde vai',
+  'landing.roadTitle': 'Hoje no seu aparelho. Amanhã, de qualquer navegador.',
+  'landing.roadLead': 'O mesmo cofre, aberto de uma URL — e a **chave continua sem sair do seu aparelho** (FROST em WASM, servidor cego). Local-first é onde a chave mora, não de onde o app é baixado.',
+  'landing.roadNowLabel': 'Hoje',
+  'landing.roadNowTitle': 'App local-first',
+  'landing.roadNowDesc': 'No seu computador. Já provado na **mainnet**, com pagamento por quórum e folha privada.',
+  'landing.roadNowBadge': 'entregue',
+  'landing.roadNextLabel': 'Amanhã',
+  'landing.roadNextTitle': 'konclave.app',
+  'landing.roadNextDesc': 'Abre numa URL; a **chave nasce e assina no navegador**, o servidor de coordenação é cego. A parte mais difícil (FROST no browser) **já está provada**.',
+  'landing.roadNextBadge': 'crypto provado',
+  'landing.roadNote': 'Roadmap honesto: hoje entregue, amanhã desenhado e des-arriscado — sem prometer o que não entrega.',
+
   // Guided demo (Horizonte)
   'demo.tag': 'Demonstração guiada · coletivo Horizonte',
   'demo.stepOf': 'Passo {n} de {total}',

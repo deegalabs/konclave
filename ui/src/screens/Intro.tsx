@@ -166,6 +166,31 @@ export default function Intro() {
         </div>
       </section>
 
+      {/* where it's going */}
+      <section className="lp-section" style={{ paddingTop: 0 }}>
+        <div className="lp-wrap">
+          <span className="eyebrow sec-eyebrow">{t('landing.roadEyebrow')}</span>
+          <h2 className="lp-title">{t('landing.roadTitle')}</h2>
+          <p className="lp-lead">{tr('landing.roadLead')}</p>
+          <div className="lp-road">
+            <div className="lp-phase now">
+              <div className="ptop"><span className="plabel">{t('landing.roadNowLabel')}</span><span className="pbadge ok">{t('landing.roadNowBadge')}</span></div>
+              <h3>{t('landing.roadNowTitle')}</h3>
+              <p>{tr('landing.roadNowDesc')}</p>
+            </div>
+            <span className="lp-road-arrow" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+            </span>
+            <div className="lp-phase next">
+              <div className="ptop"><span className="plabel">{t('landing.roadNextLabel')}</span><span className="pbadge accent">{t('landing.roadNextBadge')}</span></div>
+              <h3>{t('landing.roadNextTitle')}</h3>
+              <p>{tr('landing.roadNextDesc')}</p>
+            </div>
+          </div>
+          <p className="lp-road-note">{t('landing.roadNote')}</p>
+        </div>
+      </section>
+
       {/* trust band */}
       <div className="lp-trust">
         <div className="lp-wrap">

@@ -188,6 +188,20 @@ export const en: Record<string, string> = {
   'landing.footer1': '**Konclave** — the vault that decides together · local-first, no telemetry · the cryptography is the **Zcash Foundation’s**; Konclave is the usability layer on top.',
   'landing.footer2': 'ZecHub Hackathon 3.0 · FROST + Accounting tracks · dual Apache-2.0 / MIT license.',
 
+  // Landing · roadmap (where it's going)
+  'landing.roadEyebrow': 'Where it’s going',
+  'landing.roadTitle': 'Today on your device. Tomorrow, from any browser.',
+  'landing.roadLead': 'The same vault, opened from a URL — and the **key still never leaves your device** (FROST in WASM, blind server). Local-first is where the key lives, not where the app is downloaded from.',
+  'landing.roadNowLabel': 'Today',
+  'landing.roadNowTitle': 'Local-first app',
+  'landing.roadNowDesc': 'On your computer. Already proven on **mainnet**, with quorum payments and private payroll.',
+  'landing.roadNowBadge': 'shipped',
+  'landing.roadNextLabel': 'Tomorrow',
+  'landing.roadNextTitle': 'konclave.app',
+  'landing.roadNextDesc': 'Opens from a URL; the **key is born and signs in the browser**, the coordination server is blind. The hardest part (FROST in the browser) **is already proven**.',
+  'landing.roadNextBadge': 'crypto proven',
+  'landing.roadNote': 'Honest roadmap: delivered today, designed and de-risked for tomorrow — no promising what it doesn’t deliver.',
+
   // Guided demo (Horizonte)
   'demo.tag': 'Guided demo · Horizonte collective',
   'demo.stepOf': 'Step {n} of {total}',
