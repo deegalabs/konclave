@@ -66,6 +66,11 @@ pub struct SendConfig {
     /// uses the OS keychain.)
     #[serde(default)]
     pub sealing_key_file: Option<String>,
+    /// C2: OS-keychain vault id for the sealing key (Windows Credential Manager / macOS
+    /// Keychain / Linux Secret Service). Preferred over `sealing_key_file` on a real
+    /// desktop — no sealing key on disk. When both are set, the keychain wins.
+    #[serde(default)]
+    pub sealing_keychain_id: Option<String>,
     /// 5-F: `zcash-sign` binary (derives the Orchard address + UFVK from the group key).
     #[serde(default)]
     pub zcash_sign: Option<std::path::PathBuf>,
@@ -197,9 +202,17 @@ pub fn orchestrate_send(
     // 5-E: resolve each signer's config path. A `.sealed` config is unsealed to an
     // ephemeral 0600 file (kept alive by `_config_guards` for the whole ceremony, then
     // deleted) — the share is never in cleartext on disk.
-    let key: Option<Zeroizing<[u8; 32]>> = match &sc.sealing_key_file {
-        Some(f) => Some(read_key_file(f)?),
-        None => None,
+    // C2: the sealing key comes from the OS keychain when configured, else the 0600 file.
+    let key: Option<Zeroizing<[u8; 32]>> = match (&sc.sealing_keychain_id, &sc.sealing_key_file) {
+        (Some(vault_id), _) => {
+            use crate::secrets::KeyStore;
+            let k = crate::secrets::KeychainStore
+                .get_or_create_key(vault_id)
+                .map_err(|e| ToolError::parse("keychain", e.to_string()))?;
+            Some(Zeroizing::new(k))
+        }
+        (None, Some(f)) => Some(read_key_file(f)?),
+        (None, None) => None,
     };
     let mut _config_guards: Vec<crate::secrets::UnsealedFile> = Vec::new();
     let mut configs: Vec<String> = Vec::with_capacity(signers.len());

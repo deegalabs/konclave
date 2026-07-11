@@ -16,13 +16,15 @@ const DEFAULT_PORT: u16 = 4762;
 const DEFAULT_WEB: &str = "ui/dist";
 const DEFAULT_DB: &str = "konclave.db";
 
-/// `konclave seal --in <file> --out <file.sealed> --key <keyfile>` — seal a secret file
-/// (e.g. a frost-client config holding a share) at rest with XChaCha20-Poly1305. Creates
-/// the 32-byte key (0600) on first use. The ceremony unseals it to an ephemeral file.
+/// `konclave seal --in <file> --out <file.sealed> (--key <keyfile> | --keychain <vault-id>)`
+/// — seal a secret file (e.g. a frost-client config holding a share) at rest with
+/// XChaCha20-Poly1305. The 32-byte sealing key comes from a 0600 file **or**, preferred on
+/// a real desktop, the **OS keychain** (audit C2). The ceremony unseals it to an ephemeral file.
 fn run_seal(args: &[String]) -> Result<(), String> {
     let mut input: Option<String> = None;
     let mut output: Option<String> = None;
     let mut key_file: Option<String> = None;
+    let mut keychain: Option<String> = None;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         let mut next = || it.next().ok_or_else(|| format!("missing value for {a}"));
@@ -30,29 +32,46 @@ fn run_seal(args: &[String]) -> Result<(), String> {
             "--in" => input = Some(next()?.clone()),
             "--out" => output = Some(next()?.clone()),
             "--key" => key_file = Some(next()?.clone()),
+            "--keychain" => keychain = Some(next()?.clone()),
             other => return Err(format!("unknown option: {other}")),
         }
     }
     let input = input.ok_or("--in <file> is required")?;
     let output = output.ok_or("--out <file.sealed> is required")?;
-    let key_file = key_file.ok_or("--key <key-file> is required")?;
 
     // Key and plaintext are held in `Zeroizing` so the sealing key and the secret file
-    // bytes are wiped from memory on drop (M4).
-    let key: Zeroizing<[u8; 32]> = if std::path::Path::new(&key_file).exists() {
-        let b = Zeroizing::new(std::fs::read(&key_file).map_err(|e| format!("reading key: {e}"))?);
-        if b.len() != 32 {
-            return Err(format!("key must be 32 bytes, has {}", b.len()));
+    // bytes are wiped from memory on drop (M4). Exactly one key source is required.
+    let key: Zeroizing<[u8; 32]> = match (keychain, key_file) {
+        (Some(_), Some(_)) => return Err("use --key OR --keychain, not both".into()),
+        (Some(vault_id), None) => {
+            use orchestrator::secrets::KeyStore;
+            let k = orchestrator::secrets::KeychainStore
+                .get_or_create_key(&vault_id)
+                .map_err(|e| format!("keychain: {e}"))?;
+            Zeroizing::new(k)
         }
-        let mut k = Zeroizing::new([0u8; 32]);
-        k.copy_from_slice(&b);
-        k
-    } else {
-        let k =
-            orchestrator::secrets::generate_key().map_err(|e| format!("generating key: {e}"))?;
-        write_private_key(&key_file, &k)?;
-        eprintln!("sealing key created at {key_file} (0600)");
-        Zeroizing::new(k)
+        (None, Some(key_file)) => {
+            if std::path::Path::new(&key_file).exists() {
+                let b = Zeroizing::new(
+                    std::fs::read(&key_file).map_err(|e| format!("reading key: {e}"))?,
+                );
+                if b.len() != 32 {
+                    return Err(format!("key must be 32 bytes, has {}", b.len()));
+                }
+                let mut k = Zeroizing::new([0u8; 32]);
+                k.copy_from_slice(&b);
+                k
+            } else {
+                let k = orchestrator::secrets::generate_key()
+                    .map_err(|e| format!("generating key: {e}"))?;
+                write_private_key(&key_file, &k)?;
+                eprintln!("sealing key created at {key_file} (0600)");
+                Zeroizing::new(k)
+            }
+        }
+        (None, None) => {
+            return Err("one of --key <key-file> or --keychain <vault-id> is required".into())
+        }
     };
 
     let plaintext =

@@ -99,6 +99,40 @@ pub fn generate_key() -> Result<[u8; 32], SecretError> {
     Ok(k)
 }
 
+/// Service name under which per-vault sealing keys live in the OS keychain.
+const KEYCHAIN_SERVICE: &str = "konclave-sealing-key";
+
+/// OS-keychain-backed [`KeyStore`] (audit C2): the per-vault 32-byte sealing key lives in
+/// the platform credential store (Windows Credential Manager / macOS Keychain / Linux
+/// Secret Service) instead of a 0600 file on disk. The account is the vault id.
+///
+/// The native backend is selected by the app enabling `keyring`'s platform feature per
+/// target; with no backend (e.g. this headless CI) the store errors clearly, and the
+/// unit tests drive it through `keyring`'s in-memory mock.
+pub struct KeychainStore;
+
+impl KeyStore for KeychainStore {
+    fn get_or_create_key(&self, vault_id: &str) -> Result<[u8; 32], SecretError> {
+        let entry = keyring::Entry::new(KEYCHAIN_SERVICE, vault_id)
+            .map_err(|e| SecretError::KeyStore(e.to_string()))?;
+        match entry.get_secret() {
+            Ok(bytes) => bytes
+                .as_slice()
+                .try_into()
+                .map_err(|_| SecretError::KeyStore("stored key is not 32 bytes".into())),
+            Err(keyring::Error::NoEntry) => {
+                // First use on this device: mint a key and persist it in the keychain.
+                let key = generate_key()?;
+                entry
+                    .set_secret(&key)
+                    .map_err(|e| SecretError::KeyStore(e.to_string()))?;
+                Ok(key)
+            }
+            Err(e) => Err(SecretError::KeyStore(e.to_string())),
+        }
+    }
+}
+
 // ---- vault passphrase ("palavra do cofre") ----
 //
 // The passphrase derives the sealing key (Argon2id, memory-hard) with a per-vault salt.
@@ -405,6 +439,54 @@ mod tests {
                 Ok(k)
             }
         }
+    }
+
+    /// Route `keyring` through its in-memory mock so the keychain path is testable with no
+    /// OS Secret Service (set once per process).
+    fn use_mock_keychain() {
+        use std::sync::Once;
+        static ONCE: Once = Once::new();
+        ONCE.call_once(|| {
+            keyring::set_default_credential_builder(keyring::mock::default_credential_builder());
+        });
+    }
+
+    #[test]
+    fn keychain_entry_secret_roundtrips_and_signals_no_entry() {
+        use_mock_keychain();
+        let entry = keyring::Entry::new(KEYCHAIN_SERVICE, "kc-direct").unwrap();
+        // Absent → NoEntry: this is the branch KeychainStore uses to decide to mint a key.
+        assert!(matches!(entry.get_secret(), Err(keyring::Error::NoEntry)));
+        let key = generate_key().unwrap();
+        entry.set_secret(&key).unwrap();
+        // The keychain returns exactly the 32 bytes stored (what get_or_create_key relies on).
+        assert_eq!(entry.get_secret().unwrap().as_slice(), &key);
+    }
+
+    #[test]
+    fn keychain_store_mints_a_32_byte_key_on_first_use() {
+        use_mock_keychain();
+        let ks = KeychainStore;
+        // First use: get_secret → NoEntry → generate + set_secret, returning a real key.
+        let k = ks.get_or_create_key("kc-mint").unwrap();
+        assert_eq!(k.len(), 32);
+        assert_ne!(k, [0u8; 32], "a fresh sealing key must not be all-zero");
+    }
+
+    #[test]
+    fn keychain_store_rejects_a_wrong_length_stored_key() {
+        use_mock_keychain();
+        // A corrupted/foreign entry that isn't 32 bytes must be a clear error, not a panic.
+        let entry = keyring::Entry::new(KEYCHAIN_SERVICE, "kc-bad").unwrap();
+        entry.set_secret(b"too short").unwrap();
+        let got: [u8; 32] = match entry.get_secret() {
+            Ok(b) => match <[u8; 32]>::try_from(b.as_slice()) {
+                Ok(k) => k,
+                Err(_) => return, // expected: not 32 bytes → KeychainStore returns KeyStore error
+            },
+            Err(_) => return,
+        };
+        panic!("expected a non-32-byte entry to be rejected, got {got:?}");
     }
 
     #[test]

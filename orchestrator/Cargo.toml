@@ -22,6 +22,12 @@ argon2 = "0.5"
 # derived sealing key, and cleartext configs are held in `Zeroizing` so freed memory
 # does not linger with private key bytes.
 zeroize = "1"
+# OS keychain for the per-vault sealing key (audit C2): Windows Credential Manager /
+# macOS Keychain / Linux Secret Service, behind the `KeyStore` trait. Pinned with NO
+# backend feature here so the crate builds anywhere with zero system libs (the tests use
+# keyring's in-memory mock); the app enables the platform-native backend per target
+# (e.g. features = ["windows-native","apple-native","sync-secret-service"]).
+keyring = "3"
 # Local per-device state (vaults, proposals). Bundled SQLite = no system dependency.
 rusqlite = { version = "0.31", features = ["bundled"] }
 # Loopback-only HTTP bridge to the UI (ADR-0004). Blocking server, coherent with
