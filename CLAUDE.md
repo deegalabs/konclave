@@ -348,9 +348,12 @@ pass that does NOT touch the crypto core. Highlights:
 - **OSS foundation:** CI (fmt + clippy `-D warnings` + test on both crates + UI lint/build),
   `SECURITY.md` + internal `SECURITY_AUDIT.md`, CONTRIBUTING/CoC, editorconfig/nvmrc/rustfmt.
 - **Security (audit Round 1):** **C1** CSRF/DNS-rebinding on the loopback bridge FIXED
-  (`handle_secured`: Host gate + per-session token); **M3** delete-vault name confirmation
-  enforced server-side; **H1** passphrase entropy raised (Argon2id, 6 words). Open: M2 address
-  guard, M1 UFVK, C2 keychain, C6 signer tests.
+  (`handle_secured`: Host gate + per-session token); **M1** stop serving the UFVK; **M3**
+  delete-vault name confirmation enforced server-side; **H1** passphrase entropy raised
+  (Argon2id, 6 words); **C3** DKG cleartext only in tmpfs + RAII guard; **C2** sealing key in
+  the OS keychain (`KeychainStore` behind `KeyStore`; `seal --keychain` / `sealing_keychain_id`;
+  keyring pinned with no backend feature, mock-tested). Open: M2 address guard, C6 signer tests
+  (funds-blocked — needs a real Orchard PCZT vector).
 - **Bugs fixed:** real `created_at` timestamp (kills the expiry/date display bugs), tofu icons,
   self-hosted fonts (local-first), shared `format.ts`.
 - **Standardization:** repo is **English** (folders `rosto→ui`, `orquestrador→orchestrator`,
@@ -363,6 +366,8 @@ pass that does NOT touch the crypto core. Highlights:
 - **Accessibility:** WCAG 2.2 AA pass — the tarja and all nav/rows are keyboard-operable,
   modals are real dialogs, live regions, focus-visible, reduced-motion.
 
-Remaining polish backlog (see `temp/ROADMAP-EXECUCAO.md`): Tier 2 security (M2/M1/C2/C6, Cargo
-workspace), Tier 3 (console simulation harness + Vitest), remaining a11y moderates. Blocker for
-real functional tests: the engine binaries are not built on this machine.
+Remaining polish backlog (see `temp/ROADMAP-EXECUCAO.md`): Tier 2 security (M2 address guard;
+C6 signer tests — funds-blocked; Cargo workspace deferred — rusqlite 0.31 vs 0.35 / libsqlite3
+conflict), Tier 3 (remaining a11y moderates). Engine binaries ARE built on this machine now
+(`~/ktarget-engine`: zcash-devtool, frostd; frost-tools compiled). The `frostd` readiness
+handshake replaced the fixed sleep in the DKG/send ceremony.
