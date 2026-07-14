@@ -1,0 +1,17 @@
+{
+  "name": "konclave-wasm",
+  "type": "module",
+  "description": "Konclave browser signer core (WS1): FROST redpallas round + Orchard action verification + ZIP-244 sig_digest, compiled to WASM.",
+  "version": "0.1.0",
+  "license": "MIT OR Apache-2.0",
+  "files": [
+    "konclave_wasm_bg.wasm",
+    "konclave_wasm.js",
+    "konclave_wasm.d.ts"
+  ],
+  "main": "konclave_wasm.js",
+  "types": "konclave_wasm.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

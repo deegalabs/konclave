@@ -1,0 +1,31 @@
+/* tslint:disable */
+/* eslint-disable */
+export const memory: WebAssembly.Memory;
+export const __wbg_coordinator_free: (a: number, b: number) => void;
+export const __wbg_round1_free: (a: number, b: number) => void;
+export const __wbg_testvault_free: (a: number, b: number) => void;
+export const coordinator_addCommitment: (a: number, b: number, c: number, d: number, e: number) => void;
+export const coordinator_addShare: (a: number, b: number, c: number, d: number, e: number) => void;
+export const coordinator_aggregate: (a: number) => [number, number, number, number];
+export const coordinator_new: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
+export const coordinator_prepare: (a: number) => [number, number];
+export const coordinator_seed: (a: number) => [number, number];
+export const coordinator_signingPackage: (a: number) => [number, number];
+export const coordinator_verify: (a: number, b: number, c: number) => [number, number, number];
+export const participantRound1: (a: number, b: number) => [number, number, number];
+export const participantRound2: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
+export const round1_commitment: (a: number) => [number, number];
+export const round1_nonces: (a: number) => [number, number];
+export const testvault_groupVk: (a: number) => [number, number];
+export const testvault_id: (a: number, b: number) => [number, number];
+export const testvault_key_package: (a: number, b: number) => [number, number];
+export const testvault_new: () => [number, number, number];
+export const testvault_pubkeys: (a: number) => [number, number];
+export const selftest: () => [number, number];
+export const __wbindgen_exn_store: (a: number) => void;
+export const __externref_table_alloc: () => number;
+export const __wbindgen_externrefs: WebAssembly.Table;
+export const __wbindgen_malloc: (a: number, b: number) => number;
+export const __externref_table_dealloc: (a: number) => void;
+export const __wbindgen_free: (a: number, b: number, c: number) => void;
+export const __wbindgen_start: () => void;

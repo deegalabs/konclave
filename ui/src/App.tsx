@@ -2,6 +2,7 @@ import { Routes, Route } from 'react-router-dom'
 import { useReveal } from './reveal'
 import Layout from './Layout'
 import Demo from './screens/Demo'
+import WasmSigner from './screens/WasmSigner'
 import Dashboard from './screens/Dashboard'
 import Intro from './screens/Intro'
 import Ceremony from './screens/Ceremony'
@@ -25,6 +26,7 @@ export default function App() {
         <Route path="/vaults" element={<Vaults />} />
         <Route path="/intro" element={<Intro />} />
         <Route path="/demo" element={<Demo />} />
+        <Route path="/signer" element={<WasmSigner />} />
         <Route path="/create" element={<Ceremony />} />
         {/* In-vault — persistent left rail */}
         <Route element={<Layout />}>
