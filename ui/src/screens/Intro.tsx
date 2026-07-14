@@ -1,5 +1,6 @@
 import { type ReactNode, type MouseEvent } from 'react'
 import { Link } from 'react-router-dom'
+import { LangToggle } from '../components'
 import { useT, useTr } from '../i18n'
 import '../redesign.css'
 import '../landing.css'
@@ -54,7 +55,10 @@ export default function Intro() {
             </svg>
             <span className="wm">KONCLAVE</span>
           </Link>
-          <span className="lp-env">{tr('landing.env')}</span>
+          <div className="lp-top-right">
+            <LangToggle />
+            <span className="lp-env">{tr('landing.env')}</span>
+          </div>
         </header>
       </div>
 

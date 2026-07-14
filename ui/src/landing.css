@@ -10,7 +10,9 @@
 .lp-top{display:flex; align-items:center; justify-content:space-between; padding:22px 0}
 .lp-brand{display:flex; align-items:center; gap:11px; text-decoration:none; color:inherit}
 .lp-brand .wm{font-family:var(--font-mono); font-weight:600; font-size:13px; letter-spacing:.28em}
+.lp-top-right{display:flex; align-items:center; gap:12px; flex-wrap:wrap; justify-content:flex-end}
 .lp-env{font-family:var(--font-mono); font-size:11px; color:var(--text-muted); border:1px solid var(--line); border-radius:var(--radius-pill); padding:6px 13px; background:var(--surface-1)}
+@media(max-width:560px){.lp-env{display:none}}
 .lp-env b{color:var(--success); font-weight:500}
 
 /* buttons */
