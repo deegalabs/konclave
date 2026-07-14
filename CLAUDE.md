@@ -352,8 +352,14 @@ pass that does NOT touch the crypto core. Highlights:
   delete-vault name confirmation enforced server-side; **H1** passphrase entropy raised
   (Argon2id, 6 words); **C3** DKG cleartext only in tmpfs + RAII guard; **C2** sealing key in
   the OS keychain (`KeychainStore` behind `KeyStore`; `seal --keychain` / `sealing_keychain_id`;
-  keyring pinned with no backend feature, mock-tested). Open: M2 address guard, C6 signer tests
-  (funds-blocked — needs a real Orchard PCZT vector).
+  keyring pinned with no backend feature, mock-tested); **M2** authoritative address guard
+  (`address::validate_recipient` via `zcash_address` — decode + receiver-pool + network check,
+  wired into both proposal paths so a Sapling-only/wrong-network/malformed destination is a 400
+  before the builder; 7 unit + 2 server tests); **L2** local DB encrypted at rest (SQLCipher via
+  `bundled-sqlcipher-vendored-openssl`; `Store::open_keyed` + `serve --db-keychain <id>` with the
+  key from the C2 keychain; non-breaking — plaintext DBs still open; protects vault metadata +
+  UFVK; 3 store tests, verified live). Open: C6 signer tests (funds-blocked — needs a real
+  Orchard PCZT vector).
 - **Bugs fixed:** real `created_at` timestamp (kills the expiry/date display bugs), tofu icons,
   self-hosted fonts (local-first), shared `format.ts`.
 - **Standardization:** repo is **English** (folders `rosto→ui`, `orquestrador→orchestrator`,
@@ -366,8 +372,9 @@ pass that does NOT touch the crypto core. Highlights:
 - **Accessibility:** WCAG 2.2 AA pass — the tarja and all nav/rows are keyboard-operable,
   modals are real dialogs, live regions, focus-visible, reduced-motion.
 
-Remaining polish backlog (see `temp/ROADMAP-EXECUCAO.md`): Tier 2 security (M2 address guard;
-C6 signer tests — funds-blocked; Cargo workspace deferred — rusqlite 0.31 vs 0.35 / libsqlite3
-conflict), Tier 3 (remaining a11y moderates). Engine binaries ARE built on this machine now
+Remaining polish backlog (see `temp/ROADMAP-EXECUCAO.md`): Tier 2 security — only **C6 signer
+tests** left (funds-blocked — needs a real Orchard PCZT vector); M2/C2/C3/L2/M1 all closed.
+Cargo workspace still deferred (rusqlite 0.31 vs 0.35 / libsqlite3 conflict). Tier 3 (remaining
+a11y moderates). Engine binaries ARE built on this machine now
 (`~/ktarget-engine`: zcash-devtool, frostd; frost-tools compiled). The `frostd` readiness
 handshake replaced the fixed sleep in the DKG/send ceremony.
