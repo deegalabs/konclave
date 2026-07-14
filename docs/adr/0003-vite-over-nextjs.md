@@ -2,7 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-07-01
-- **Context:** [ADR-0001](0001-decisoes-fechadas.md) set "Frontend: Next.js as a static
+- **Context:** [ADR-0001](0001-closed-decisions.md) set "Frontend: Next.js as a static
   export" as a lower-consequence decision, to be confirmed during execution. On starting
   Phase 5 (the real app), the choice was reassessed.
 

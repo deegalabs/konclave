@@ -502,7 +502,7 @@ fn api_ledger(cfg: &Config, want: Option<&str>) -> Response {
 /// `GET /api/ledger.csv` — the accountant's export, ITEMIZED: **one row per payment**.
 /// A single payment is one row; a payroll of N is **N rows** (one per beneficiary),
 /// sharing the document id/state/txid. This is the accounting "entries" (lançamentos) view
-/// (docs/REDESENHO_FOLHA.md), not one aggregate line per proposal.
+/// (temp/REDESENHO_FOLHA.md), not one aggregate line per proposal.
 fn api_ledger_csv(cfg: &Config, want: Option<&str>) -> Response {
     const HEADER: &str =
         "documento,data,tipo,estado,proposto_por,aprovadores,beneficiario,valor_zec,memo,destino,txid\n";

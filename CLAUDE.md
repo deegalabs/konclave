@@ -53,7 +53,7 @@ From [CONCEITO_INICIAL.md §13](docs/CONCEITO_INICIAL.md) + the logistics conver
 Technical decisions assumed in logistics:
 - **Dev OS:** start native on **Windows**; **WSL2** only if the tooling breaks.
 - **Binaries:** compile from source, **pinned by SHA**, vendored as submodules,
-  with a checksum in `engine/versions.lock` (see [ADR-0001](docs/adr/0001-decisoes-fechadas.md)).
+  with a checksum in `engine/versions.lock` (see [ADR-0001](docs/adr/0001-closed-decisions.md)).
 - **Wallet layer:** **link `zcash_client_backend`** in Rust for sync/balance/plan
   (native structured data) — shell out **only** the FROST/sign binaries.
 - **Frontend:** **Vite + React** as a static bundle ([ADR-0003](docs/adr/0003-vite-over-nextjs.md)
@@ -77,7 +77,7 @@ Layer 3 — UI            the interface (Vite/React)
    Intro · Create/Join vault · Dashboard · Payment/Payroll · Proposal · Ledger · Members
 ```
 
-Full detail and module map: [docs/ARQUITETURA.md](docs/ARQUITETURA.md).
+Full detail and module map: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ---
 
@@ -255,7 +255,7 @@ New Payroll, Proposal, Sent, Ledger. See [ADR-0003](docs/adr/0003-vite-over-next
 **Phase 5c (UI ↔ core integration) — ✅ pivot complete (2026-07-01).**
 - **WSLg go/no-go failed:** the GTK/Tauri window does not render on this machine (icon in
   the taskbar, no content; not even software rendering fixes it). Recorded in
-  [ADR-0004](docs/adr/0004-ponte-http-local.md).
+  [ADR-0004](docs/adr/0004-local-http-bridge.md).
 - **Pivot:** instead of Tauri IPC, the Orchestrator exposes a **local loopback HTTP bridge**
   (`konclave serve`, a new bin in the crate; `src/server.rs`, dep `tiny_http`) that serves
   the UI bundle **+ the `/api/*` API** wired to the tested core. Binds **only on 127.0.0.1**.
@@ -291,7 +291,7 @@ ledger, terminal states included); `GET /api/ledger` (JSON) + `GET /api/ledger.c
 (**itemized export**: a single payment = 1 entry; a payroll of N = **N entries**, one
 per beneficiary, with RFC-4180 escaping). The `Ledger` screen wired to live data with CSV
 export + print/PDF. Accounting redesign (document / accrual / draft / beneficiary-entity)
-planned in [docs/REDESENHO_FOLHA.md](docs/REDESENHO_FOLHA.md).
+planned in [temp/REDESENHO_FOLHA.md](temp/REDESENHO_FOLHA.md).
 
 **Phase 5 — coherence, payroll, and robustness (2026-07-01):**
 - **5-A** real vault (the app stopped showing a fake seed; the address/group are now = those

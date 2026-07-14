@@ -6,7 +6,7 @@ The plan was a Tauri desktop shell hosting the Rust backend. During integration 
 WSLg/GTK window would not render on the dev machine, so we pivoted to a **loopback HTTP
 bridge** — `konclave serve` binds `127.0.0.1` and serves the Rosto bundle plus a JSON API
 wired to the tested core. Same local-first guarantee (keys never leave the device), only
-the transport differs. See [docs/adr/0004-ponte-http-local.md](../docs/adr/0004-ponte-http-local.md).
+the transport differs. See [docs/adr/0004-local-http-bridge.md](../docs/adr/0004-local-http-bridge.md).
 
 Where the code actually lives today:
 

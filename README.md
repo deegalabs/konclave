@@ -160,7 +160,7 @@ and accounting layer on top. Thank you to the Zcash Foundation and the wider Zca
 - [docs/CONCEITO_INICIAL.md](docs/CONCEITO_INICIAL.md) — the what and the why.
 - [docs/UX_E_FLUXOS.md](docs/UX_E_FLUXOS.md) — journeys and screens.
 - [docs/LOGICA_E_REGRAS.md](docs/LOGICA_E_REGRAS.md) — states and rules.
-- [docs/ARQUITETURA.md](docs/ARQUITETURA.md) — the three layers.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — the three layers.
 - [docs/ROADMAP.md](docs/ROADMAP.md) — build plan · [SECURITY.md](SECURITY.md) — reporting & posture.
 
 ## License
