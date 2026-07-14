@@ -54,6 +54,9 @@ pub struct Config {
     /// start unix)`. Loopback-only defense-in-depth so a wrong passphrase cannot be retried
     /// without bound, on top of the session token (C1) and the memory-hard KDF cost.
     pub unlock_throttle: std::sync::Mutex<std::collections::HashMap<String, (u32, i64)>>,
+    /// L2: when set, the DB is opened with SQLCipher under this key (from the OS keychain),
+    /// so vault metadata + the UFVK are encrypted at rest. `None` = plaintext (legacy/default).
+    pub db_key: Option<zeroize::Zeroizing<[u8; 32]>>,
 }
 
 impl Config {
@@ -71,7 +74,14 @@ impl Config {
             wallet,
             ceremony,
             unlock_throttle: std::sync::Mutex::new(std::collections::HashMap::new()),
+            db_key: None,
         }
+    }
+
+    /// Encrypt the local DB at rest (audit L2): subsequent opens use SQLCipher under `key`.
+    pub fn with_db_key(mut self, key: [u8; 32]) -> Config {
+        self.db_key = Some(zeroize::Zeroizing::new(key));
+        self
     }
 }
 
@@ -332,7 +342,11 @@ pub fn handle(cfg: &Config, method: &str, raw_path: &str, body: &[u8]) -> Respon
 }
 
 fn open_store(cfg: &Config) -> Result<Store, Response> {
-    let store = Store::open(&cfg.db_path).map_err(|e| {
+    let opened = match &cfg.db_key {
+        Some(key) => Store::open_keyed(&cfg.db_path, key), // L2: encrypted at rest (SQLCipher)
+        None => Store::open(&cfg.db_path),
+    };
+    let store = opened.map_err(|e| {
         Response::json(
             500,
             &serde_json::json!({"error": "store", "detail": e.to_string()}),

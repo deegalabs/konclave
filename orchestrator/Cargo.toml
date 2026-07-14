@@ -28,8 +28,11 @@ zeroize = "1"
 # keyring's in-memory mock); the app enables the platform-native backend per target
 # (e.g. features = ["windows-native","apple-native","sync-secret-service"]).
 keyring = "3"
-# Local per-device state (vaults, proposals). Bundled SQLite = no system dependency.
-rusqlite = { version = "0.31", features = ["bundled"] }
+# Local per-device state (vaults, proposals). Bundled SQLite; the sqlcipher build adds
+# at-rest DB encryption (audit L2) via `Store::open_keyed` with a key from the OS keychain
+# (C2). SQLCipher is a SQLite superset, so a plaintext DB still opens with plain `open` —
+# encryption is opt-in and non-breaking. Vendored OpenSSL = no system lib needed (gcc only).
+rusqlite = { version = "0.31", features = ["bundled-sqlcipher-vendored-openssl"] }
 # Loopback-only HTTP bridge to the UI (ADR-0004). Blocking server, coherent with
 # the synchronous core (rusqlite/subprocess) — no async runtime dragged in. Bound to
 # 127.0.0.1 only: a local daemon, never a network service.

@@ -99,9 +99,27 @@ pub struct Store {
     conn: Connection,
 }
 
+/// Set the SQLCipher key on a fresh connection as the raw 32-byte key (hex blob literal),
+/// before any other statement. Deterministic: the same key reopens the same DB.
+fn apply_key(conn: &Connection, key: &[u8; 32]) -> Result<(), StoreError> {
+    let hex: String = key.iter().map(|b| format!("{b:02x}")).collect();
+    conn.pragma_update(None, "key", format!("x'{hex}'"))?;
+    Ok(())
+}
+
 impl Store {
     pub fn open(path: &str) -> Result<Store, StoreError> {
         let conn = Connection::open(path)?;
+        Self::from_conn(conn)
+    }
+
+    /// Open (or create) an **encrypted** DB with SQLCipher (audit L2): the file on disk is
+    /// AES-encrypted under `key` (a 32-byte key from the OS keychain via C2), so vault
+    /// metadata and the UFVK never sit in cleartext at rest. `key` must be set before any
+    /// other statement; a wrong key fails the first read, not silently.
+    pub fn open_keyed(path: &str, key: &[u8; 32]) -> Result<Store, StoreError> {
+        let conn = Connection::open(path)?;
+        apply_key(&conn, key)?;
         Self::from_conn(conn)
     }
 
@@ -630,6 +648,83 @@ mod tests {
             ufvk: "uview1m02wyj".into(),
             server_url: Some("127.0.0.1:2744".into()),
         }
+    }
+
+    fn temp_db_path(tag: &str) -> String {
+        let mut r = [0u8; 6];
+        getrandom::getrandom(&mut r).unwrap();
+        let hex: String = r.iter().map(|b| format!("{b:02x}")).collect();
+        std::env::temp_dir()
+            .join(format!("konclave-test-{tag}-{hex}.db"))
+            .to_string_lossy()
+            .into_owned()
+    }
+    fn contains(hay: &[u8], needle: &[u8]) -> bool {
+        hay.windows(needle.len()).any(|w| w == needle)
+    }
+
+    #[test]
+    fn encrypted_db_reopens_with_the_same_key_only() {
+        let path = temp_db_path("l2");
+        let key = crate::secrets::generate_key().unwrap();
+        {
+            let s = Store::open_keyed(&path, &key).unwrap();
+            s.save_vault(&sample_vault()).unwrap();
+        }
+        // Right key reopens and reads back.
+        {
+            let s = Store::open_keyed(&path, &key).unwrap();
+            assert_eq!(s.get_vault("vault-1").unwrap().unwrap().name, "Tesouraria");
+        }
+        // Wrong key cannot open the encrypted DB.
+        let wrong = crate::secrets::generate_key().unwrap();
+        assert!(
+            Store::open_keyed(&path, &wrong).is_err(),
+            "a wrong key must not open the encrypted DB"
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn encrypted_file_is_not_cleartext_on_disk() {
+        let path = temp_db_path("l2enc");
+        let key = crate::secrets::generate_key().unwrap();
+        {
+            let s = Store::open_keyed(&path, &key).unwrap();
+            s.save_vault(&sample_vault()).unwrap(); // name "Tesouraria", ufvk "uview1m02wyj"
+        }
+        let bytes = std::fs::read(&path).unwrap();
+        assert!(
+            !bytes.starts_with(b"SQLite format 3"),
+            "encrypted DB must not carry the plaintext SQLite header"
+        );
+        assert!(
+            !contains(&bytes, b"Tesouraria"),
+            "vault name leaked in cleartext"
+        );
+        assert!(
+            !contains(&bytes, b"uview1m02wyj"),
+            "UFVK leaked in cleartext"
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn plaintext_db_still_opens_unkeyed() {
+        // Non-breaking: an existing plaintext DB keeps working with plain `open`.
+        let path = temp_db_path("l2plain");
+        {
+            let s = Store::open(&path).unwrap();
+            s.save_vault(&sample_vault()).unwrap();
+        }
+        let s = Store::open(&path).unwrap();
+        assert_eq!(s.get_vault("vault-1").unwrap().unwrap().name, "Tesouraria");
+        let bytes = std::fs::read(&path).unwrap();
+        assert!(
+            bytes.starts_with(b"SQLite format 3"),
+            "a plaintext DB keeps the standard SQLite header"
+        );
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

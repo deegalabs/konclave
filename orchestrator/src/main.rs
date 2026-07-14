@@ -210,6 +210,7 @@ fn print_usage() {
          \x20 --port <N>        port on 127.0.0.1 (default {DEFAULT_PORT})\n\
          \x20 --web <DIR>       UI bundle (default {DEFAULT_WEB})\n\
          \x20 --db <PATH>       local SQLite database (default {DEFAULT_DB})\n\
+         \x20 --db-keychain <ID> encrypt the DB at rest (SQLCipher, key from OS keychain)\n\
          \x20 --demo            seed a sample vault + proposals if the database is empty\n\
          \x20 --devtool <PATH>  zcash-devtool binary (enables live /api/balance)\n\
          \x20 --wallet <DIR>    zcash-devtool wallet directory\n\
@@ -227,6 +228,7 @@ fn run_serve(args: &[String]) -> Result<(), String> {
     let mut wallet_dir: Option<String> = None;
     let mut server_uri: Option<String> = None;
     let mut ceremony_path: Option<PathBuf> = None;
+    let mut db_keychain: Option<String> = None;
 
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -235,6 +237,7 @@ fn run_serve(args: &[String]) -> Result<(), String> {
             "--port" => port = next()?.parse().map_err(|_| "invalid port".to_string())?,
             "--web" => web = PathBuf::from(next()?),
             "--db" => db = next()?.clone(),
+            "--db-keychain" => db_keychain = Some(next()?.clone()),
             "--demo" => demo = true,
             "--devtool" => devtool = Some(PathBuf::from(next()?)),
             "--wallet" => wallet_dir = Some(next()?.clone()),
@@ -244,8 +247,26 @@ fn run_serve(args: &[String]) -> Result<(), String> {
         }
     }
 
+    // L2: when --db-keychain is given, the DB is encrypted at rest (SQLCipher) under a key
+    // from the OS keychain (C2). The same key must open it for seeding and for serving.
+    let db_key: Option<[u8; 32]> = match &db_keychain {
+        Some(id) => {
+            use orchestrator::secrets::KeyStore;
+            let k = orchestrator::secrets::KeychainStore
+                .get_or_create_key(id)
+                .map_err(|e| format!("db keychain: {e}"))?;
+            eprintln!("db: encrypted at rest (SQLCipher, keychain '{id}')");
+            Some(k)
+        }
+        None => None,
+    };
+
     if demo {
-        let mut store = Store::open(&db).map_err(|e| format!("opening database: {e}"))?;
+        let mut store = match &db_key {
+            Some(k) => Store::open_keyed(&db, k),
+            None => Store::open(&db),
+        }
+        .map_err(|e| format!("opening database: {e}"))?;
         server::seed_demo(&mut store).map_err(|e| format!("seeding demo: {e}"))?;
         eprintln!("demo: sample vault and proposals ready in {db}");
     }
@@ -280,7 +301,10 @@ fn run_serve(args: &[String]) -> Result<(), String> {
         None => None,
     };
 
-    let cfg = Config::new(web, db, wallet, ceremony);
+    let mut cfg = Config::new(web, db, wallet, ceremony);
+    if let Some(k) = db_key {
+        cfg = cfg.with_db_key(k);
+    }
     server::serve(cfg, port).map_err(|e| format!("server: {e}"))
 }
 
