@@ -16,8 +16,13 @@ function detectLocale(): Locale {
   try {
     const saved = localStorage.getItem(LOCALE_KEY)
     if (saved === 'en' || saved === 'pt-BR') return saved
+    // No saved choice: Portuguese browsers get PT, everyone else (e.g. international judges)
+    // gets English. The toggle overrides and persists either way.
+    if (typeof navigator !== 'undefined' && navigator.language?.toLowerCase().startsWith('pt')) {
+      return 'pt-BR'
+    }
   } catch { /* storage unavailable */ }
-  return 'pt-BR'
+  return 'en'
 }
 
 export type TFn = (key: string, vars?: Record<string, string | number>) => string
