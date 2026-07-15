@@ -6,7 +6,7 @@
 [![License: Apache-2.0 OR MIT](https://img.shields.io/badge/license-Apache--2.0%20OR%20MIT-blue.svg)](#license)
 [![Network: Zcash mainnet](https://img.shields.io/badge/network-Zcash%20mainnet%20(NU6.2)-e5a00d.svg)](#proven-on-mainnet)
 [![FROST + Accounting](https://img.shields.io/badge/ZecHub%203.0-FROST%20%2B%20Accounting-6f42c1.svg)](#why-it-exists)
-![Tests: 173 Rust + 23 UI](https://img.shields.io/badge/tests-173%20Rust%20%2B%2023%20UI-2ea44f.svg)
+![Tests: 181 Rust + 23 UI](https://img.shields.io/badge/tests-181%20Rust%20%2B%2023%20UI-2ea44f.svg)
 
 Konclave is a **local-first desktop app** that makes it usable, for ordinary people, to
 create and operate a **collective, private fund vault** on the **Zcash** network using
@@ -130,6 +130,12 @@ we do not promise what we do not deliver:
   - 🌐 **In the browser** (proven across tabs): separate browser contexts create **one vault by a
     real Distributed Key Generation** and then **sign together with a verifying FROST group
     signature**, over a **blind relay**, each keeping only its own share (see below).
+  - 🔁 **Proven by test (shared-custody safety):** **social recovery** — a quorum rebuilds a
+    lost member's share via the Repairable Threshold Scheme, the group key untouched and the
+    repaired share byte-identical (it then signs a verifying 2-of-3); and an **inheritance /
+    dead-man's-switch** policy engine (proof-of-life heartbeats → lapse → grace → the quorum may
+    release to a named heir). Both build on the DKG/relay foundation; the release reuses the
+    FROST send path.
   - 🗺️ **Roadmap, not shipped:** real payroll/sealed broadcasts, sending from a fresh DKG vault,
     hosting the relay publicly (phone-to-phone), persisting the share on-device, the single
     installable desktop binary (Tauri).

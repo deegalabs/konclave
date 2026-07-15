@@ -490,6 +490,122 @@ pub mod dkg {
     }
 }
 
+// ---------- Social recovery: repair a lost share (Repairable Threshold Scheme) ----------
+//
+// Steward has this; now so do we. When a member loses their device, a QUORUM of the others
+// helps rebuild that member's share — the group key is never touched, no share is revealed to
+// anyone, and the repaired share is byte-identical to the lost one (repair in place). This is
+// the RTS of <https://eprint.iacr.org/2017/1155>, which frost-core ships as `repair_share_*`.
+// Only "delta"/"sigma" scalars cross between helpers (blindable public material), so this rides
+// the same blind relay as the DKG and the signing.
+pub mod recovery {
+    use super::*;
+    use frost::keys::repairable::{repair_share_part1, repair_share_part2, repair_share_part3, Delta, Sigma};
+    use frost::keys::KeyPackage;
+    use frost::Identifier;
+
+    /// A helper's round-1 output for repairing `lost`'s share: one Delta per helper (keyed by
+    /// recipient). Takes the helper's own KeyPackage (what the DKG produced). Over the relay each
+    /// Delta serializes to 32 bytes and is sealed to its recipient — the same blind path as DKG.
+    pub fn helper_deltas(
+        helpers: &[Identifier],
+        helper_kp: &KeyPackage,
+        lost: Identifier,
+    ) -> Result<std::collections::BTreeMap<Identifier, Delta>, String> {
+        repair_share_part1::<frost::PallasBlake2b512, _>(helpers, helper_kp, &mut OsRng, lost)
+            .map_err(|e| e.to_string())
+    }
+
+    /// A helper sums the Deltas it received (from every helper) into its Sigma.
+    pub fn helper_sigma(deltas: &[Delta]) -> Sigma {
+        repair_share_part2(deltas)
+    }
+
+    /// Combine the helpers' Sigmas into the repaired member's KeyPackage. The group key and the
+    /// other members' shares are untouched; the repaired share is the same one that was lost.
+    pub fn repaired_key_package(
+        sigmas: &[Sigma],
+        lost: Identifier,
+        pubkeys: &frost::keys::PublicKeyPackage,
+    ) -> Result<KeyPackage, String> {
+        repair_share_part3(sigmas, lost, pubkeys).map_err(|e| e.to_string())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use frost::keys::IdentifierList;
+
+        #[test]
+        fn a_quorum_repairs_a_lost_share_and_it_still_signs() {
+            let (n, t) = (3u16, 2u16);
+            let (shares, pubkeys) =
+                frost::keys::generate_with_dealer(n, t, IdentifierList::Default, &mut OsRng)
+                    .unwrap();
+            let kps: std::collections::BTreeMap<Identifier, KeyPackage> = shares
+                .into_iter()
+                .map(|(id, s)| (id, KeyPackage::try_from(s).unwrap()))
+                .collect();
+            let ids: Vec<Identifier> = kps.keys().copied().collect();
+            let lost = ids[2]; // member 3 lost their device
+            let helpers = vec![ids[0], ids[1]]; // a quorum of t helpers rebuilds it, key never assembled
+
+            // Step 1: each helper makes a Delta for every helper (incl. itself), for this repair.
+            let mut deltas_by_helper = std::collections::BTreeMap::new();
+            for h in &helpers {
+                deltas_by_helper.insert(*h, helper_deltas(&helpers, &kps[h], lost).unwrap());
+            }
+            // Step 2: each helper j sums the Deltas it received from all helpers -> sigma_j.
+            let sigmas: Vec<Sigma> = helpers
+                .iter()
+                .map(|j| {
+                    let deltas_for_j: Vec<Delta> =
+                        helpers.iter().map(|h| deltas_by_helper[h][j]).collect();
+                    helper_sigma(&deltas_for_j)
+                })
+                .collect();
+            // Step 3: the repaired member's KeyPackage, from the public group data + the sigmas.
+            let repaired = repaired_key_package(&sigmas, lost, &pubkeys).unwrap();
+
+            // Correctness: the repaired share matches the group's known public share for that member.
+            assert_eq!(
+                repaired.verifying_share(),
+                pubkeys.verifying_shares().get(&lost).unwrap(),
+                "the repaired share must match the group's public share for that member"
+            );
+
+            // And it still signs: a 2-of-3 with {helper 1, repaired member 3} verifies.
+            let group_vk = *pubkeys.verifying_key();
+            let message = b"konclave: a repaired share signs again";
+            let signers = [(helpers[0], kps[&helpers[0]].clone()), (lost, repaired)];
+            let mut nonces = Vec::new();
+            let mut commits = Vec::new();
+            for (id, kp) in &signers {
+                let (nc, c) = super::super::ceremony::participant_round1(kp);
+                nonces.push((*id, nc));
+                commits.push((id.serialize(), c));
+            }
+            let sp = super::super::ceremony::coordinator_signing_package(&commits, message).unwrap();
+            let seed = super::super::ceremony::coordinator_randomizer_seed(&group_vk, &sp).unwrap();
+            let mut shares_wire = Vec::new();
+            for ((id, kp), (_id, nc)) in signers.iter().zip(nonces.iter()) {
+                shares_wire.push((
+                    id.serialize(),
+                    super::super::ceremony::participant_round2(&sp, nc, kp, &seed).unwrap(),
+                ));
+            }
+            let sig = super::super::ceremony::coordinator_aggregate(
+                &sp, &group_vk, &seed, &shares_wire, &pubkeys,
+            )
+            .unwrap();
+            assert!(
+                super::super::ceremony::verify(&group_vk, &sp, &seed, message, &sig).unwrap(),
+                "the repaired share must produce a verifying signature"
+            );
+        }
+    }
+}
+
 // ---------- 3b. The confidential channel (seal the DKG's secret packages) ----------
 //
 // The DKG's round-2 packages are the ONE secret piece that must travel between devices.

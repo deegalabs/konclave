@@ -38,6 +38,9 @@ pub mod server;
 // --- the blind mailbox: the konclave.app network transport (Milestone 1) ---
 pub mod relay;
 
+// --- inheritance / dead-man's-switch policy engine ---
+pub mod inheritance;
+
 pub use address::{validate_recipient, AddressError, AddressReport};
 pub use money::{MoneyError, Zatoshis};
 pub use payroll::PayrollLine;

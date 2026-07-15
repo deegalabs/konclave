@@ -420,3 +420,16 @@ two browser tabs. Submitted to ZecHub Hackathon 3.0 (FROST + Accounting) on the 
 **Submission (ZecHub 3.0):** `SUBMISSION.md` (judge-facing one-pager), repo public at
 `github.com/deegalabs/konclave`, hosted demo `konclave-demo.vercel.app` (mock + `/signer`),
 mainnet txid `43433a10…`. No pitch required (functional demo + docs satisfy the rules).
+
+**Phase 9 addendum — shared-custody safety (Steward parity, 2026-07-15).** Two human-layer
+features that match the strongest competitor (Steward), both on the FROST + blind-relay base,
+proven by tests (no JS wiring yet — core proven, like the DKG before it):
+- **Social recovery** (`konclave-wasm` `recovery`): the Repairable Threshold Scheme
+  (`reddsa` `repair_share_part1/2/3`, RTS eprint 2017/1155). A quorum of helpers rebuilds a lost
+  member's share from their KeyPackages + the PublicKeyPackage; group key untouched, repaired
+  share matches the group's public share and signs a verifying 2-of-3. Integrates directly with
+  our DKG output. Konclave's edge over Steward here: our DKG is real (Steward is trusted-dealer).
+- **Inheritance / dead-man's-switch** (`orchestrator/src/inheritance.rs`): a pure, tested policy
+  engine (proof-of-life heartbeats → lapse → cancellable grace → the quorum may release to a
+  named heir). The release reuses the FROST send path. 7 tests (skew-safe, grace, countdown).
+- Tests now: orchestrator **173**, konclave-wasm **8**, UI 23.

@@ -98,6 +98,19 @@ cargo run --manifest-path orchestrator/Cargo.toml --bin konclave -- serve --web 
 # both tabs run a real blind DKG and show the same vault key; then "Assinar" signs together.
 ```
 
+## Shared-custody safety: recovery + inheritance
+
+Beyond spending, a real shared vault has to survive a lost device and an absent owner. Both are
+built on the same FROST + blind-relay foundation and proven by tests:
+
+- **Social recovery** — when a member loses their device, a **quorum rebuilds that member's
+  share** (the Repairable Threshold Scheme). The group key is never touched, no share is revealed,
+  and the repaired share is byte-identical to the lost one — it then signs a verifying 2-of-3.
+- **Inheritance / dead-man's-switch** — the owner sends signed proof-of-life heartbeats; if they
+  lapse past a window (plus a grace period the owner can still cancel in), the quorum is
+  authorized to **release** the vault to a named heir. The release is an ordinary quorum-signed
+  payment (reuses the FROST send path).
+
 ## Honest limits (we do not promise what we do not deliver)
 
 - ✅ **On mainnet:** a 2-of-3 quorum payment (proposed/approved in-app, FROST-signed,
