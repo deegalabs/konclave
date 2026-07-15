@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Secret, activateOnKey } from '../components'
+import { PageHeader } from '../page'
 import { fmtZec, parseZecToZat, zatToZec } from '../format'
 import { useT, useTr } from '../i18n'
 import {
@@ -132,8 +133,10 @@ export default function NewPayroll() {
   return (
     <>
       <main className="page">
-        <h1 className="h1">{t('payroll.title')}</h1>
-        <p className="cap">{t('payroll.cap')} {saved && <span className="draft-note" title={t('payroll.draftSavedTitle')} aria-live="polite">{t('payroll.draftSaved')}</span>}</p>
+        <PageHeader
+          title={t('payroll.title')}
+          subtitle={<>{t('payroll.cap')} {saved && <span className="draft-note" title={t('payroll.draftSavedTitle')} aria-live="polite">{t('payroll.draftSaved')}</span>}</>}
+        />
 
         <div className="ctx">
           <span>{tr('payment.fromVault', { name: vaultName })}</span>

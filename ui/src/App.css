@@ -7,11 +7,24 @@
    margins so the stack is evenly spaced, not visually uneven) */
 .page.dash{display:flex; flex-direction:column; gap:22px}
 .page.dash > *{margin-top:0}
+.page.dash .page-header{margin-bottom:0}
 .page.dash .ledger{margin-top:16px}
 .page.dash .danger-zone{margin-top:22px}
-/* page header with title + right-aligned actions (rail replaced the top letterhead) */
-.page-head{display:flex; align-items:flex-end; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:6px}
-.page-head .h1{margin:0}
+/* ============================================================
+   Unified page header + footer — ONE opening/closing language
+   for every in-vault screen (eyebrow / title / subtitle · actions).
+   Rendered by ./page.tsx (PageHeader / PageFooter).
+   ============================================================ */
+.page-header{display:flex; align-items:flex-start; justify-content:space-between; gap:18px 30px;
+  flex-wrap:wrap; padding-top:8px; margin-bottom:24px}
+.page-header-main{min-width:0; flex:1 1 auto}
+.page-header-eyebrow{display:block; margin-bottom:2px}
+.page-header .h1{margin:4px 0 0}
+.page-header-sub{margin-top:11px; font-family:var(--font-mono); font-size:12.5px; line-height:1.55; color:var(--text-muted)}
+.page-header-sub b{color:var(--text); font-weight:500}
+.page-header-actions{display:flex; align-items:center; gap:14px; flex:0 0 auto; margin-left:auto}
+@media(max-width:560px){.page-header-actions{margin-left:0}}
+
 .switch{font-family:var(--font-mono); font-size:12px; color:var(--text-muted); border:1px solid var(--line); background:var(--surface-2); padding:7px 12px; cursor:pointer}
 .switch b{color:var(--text); font-weight:600}
 .page{padding:32px 46px 90px}
@@ -19,7 +32,6 @@
 @media(max-width:720px){.page{padding:0 22px 70px}}
 .klab.plain{text-transform:none; letter-spacing:.02em}
 
-.title-row{display:flex; justify-content:space-between; align-items:flex-start; gap:30px; padding-top:8px}
 .vmeta{font-family:var(--font-mono); font-size:12.5px; color:var(--text-muted); margin-top:12px}
 .vmeta b{color:var(--text); font-weight:500}
 .livetag{margin-left:10px; font-size:11px; letter-spacing:.04em; color:var(--success)}
@@ -168,7 +180,6 @@ button.link{appearance:none;-webkit-appearance:none;background:transparent;
   cursor:pointer;line-height:inherit}
 /* section titles promoted from <span> to real headings keep the label look */
 h1.klab,h2.klab,h3.klab{margin:0;font-weight:400}
-.lh-actions{display:flex; align-items:center; gap:16px}
 .row-gap{display:flex; gap:8px; margin:12px 0 24px}
 .fee{font-size:12.5px}
 .mono{font-family:var(--font-mono)}
@@ -319,8 +330,6 @@ h1.klab,h2.klab,h3.klab{margin:0;font-weight:400}
 /* ---- Proposta ---- */
 .p-amt{font-family:var(--font-mono); font-size:30px; font-weight:500; margin:16px 0 4px}
 .p-meta{font-family:var(--font-mono); font-size:12.5px; color:var(--text-muted)}
-.prop-head{display:flex; align-items:center; justify-content:space-between; gap:14px; padding-top:8px}
-.prop-title{margin:6px 0 6px}
 .stamp.st-sent,.stamp.st-confirmed{border-color:var(--success); color:var(--success)}
 .stamp.st-rejected,.stamp.st-expired,.stamp.st-cancelled{border-color:var(--danger); color:var(--danger-text)}
 .ptrail{margin:18px 0 6px; padding:14px 16px; border-radius:var(--radius); border:1px solid var(--line-2);

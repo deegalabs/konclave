@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useState } from 'react'
 import { Secret, RevealButton, activateOnKey } from '../components'
+import { PageHeader, PageFooter } from '../page'
 import { getLedger, getProposalDetail, getVault, ledgerCsvUrl, health, shortAddr, type Proposal, type PayrollLine } from '../api'
 import { fmtDate, fmtZec } from '../format'
 import { useT } from '../i18n'
@@ -61,13 +62,13 @@ export default function Ledger() {
   return (
     <>
       <main className="page">
-        <div className="page-head">
-          <h1 className="h1">{t('ledger.title')}</h1>
-          <span className="lh-actions">
+        <PageHeader
+          title={t('ledger.title')}
+          actions={<>
             <a className="btn ghost sm-btn" href={ledgerCsvUrl()} download="konclave-razao.csv">{t('ledger.exportCsv')}</a>
             <button className="btn ghost sm-btn" onClick={() => window.print()}>{t('ledger.pdf')}</button>
-          </span>
-        </div>
+          </>}
+        />
 
         {/* Banda de documento — o livro do cofre para entregar ao contador */}
         <div className="doc-band">
@@ -163,9 +164,9 @@ export default function Ledger() {
           </tbody>
         </table>
 
-        <div className="foot">
+        <PageFooter>
           <span className="dim pushr">{t('ledger.foot')}</span>
-        </div>
+        </PageFooter>
       </main>
     </>
   )

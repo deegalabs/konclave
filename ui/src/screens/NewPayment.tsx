@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Secret } from '../components'
+import { PageHeader } from '../page'
 import { useT, useTr } from '../i18n'
 import {
   createProposal, getBalance, getVault, getBeneficiaries, health, shortAddr, classifyAddress, humanError,
@@ -81,7 +82,7 @@ export default function NewPayment() {
   return (
     <>
       <main className="page narrow">
-        <h1 className="h1">{t('payment.title')}</h1>
+        <PageHeader title={t('payment.title')} />
 
         <div className="ctx">
           <span>{tr('payment.fromVault', { name: vaultName })}</span>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Dialog } from '../components'
+import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
 import { useT } from '../i18n'
 import {
@@ -60,8 +61,7 @@ export default function People() {
   return (
     <>
       <main className="page">
-        <h1 className="h1">{t('people.title')}</h1>
-        <p className="cap">{t('people.cap')}</p>
+        <PageHeader title={t('people.title')} subtitle={t('people.cap')} />
 
         {/* Lista primeiro — é o que se consulta */}
         {loaded && list.length === 0 ? (

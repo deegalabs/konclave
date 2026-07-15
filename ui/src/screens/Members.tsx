@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Seal } from '../components'
+import { PageHeader, PageFooter } from '../page'
 import { Identicon } from '../avatar'
 import { useT, useTr } from '../i18n'
 import { getVault, health, shortAddr, type Vault } from '../api'
@@ -36,17 +37,15 @@ export default function Members() {
   return (
     <>
       <main className="page">
-        <div className="title-row">
-          <div>
-            <span className="klab">{t('members.eyebrow', { t: thr, n })}</span>
-            <h1 className="h1">{t('members.title')}</h1>
-            <div className="vmeta">
-              {tr('members.vmeta', { t: thr })}
-              {live === false && <span className="livetag off"> {t('members.demo')}</span>}
-            </div>
-          </div>
-          <Seal t={thr} n={n} />
-        </div>
+        <PageHeader
+          eyebrow={t('members.eyebrow', { t: thr, n })}
+          title={t('members.title')}
+          subtitle={<>
+            {tr('members.vmeta', { t: thr })}
+            {live === false && <span className="livetag off"> {t('members.demo')}</span>}
+          </>}
+          actions={<Seal t={thr} n={n} />}
+        />
 
         <div className="people mt">
           {members.map((m, i) => (
@@ -61,10 +60,10 @@ export default function Members() {
           ))}
         </div>
 
-        <div className="foot">
+        <PageFooter>
           <span>{t('members.footCount', { count: members.length, t: thr, n })}</span>
           <span className="dim pushr">{t('members.footNote')}</span>
-        </div>
+        </PageFooter>
 
         <div className="confirm mt">{tr('members.demoNote')}</div>
         <div className="right mt"><button className="btn ghost sm-btn" onClick={() => nav('/create')}>{t('members.createNew')}</button></div>

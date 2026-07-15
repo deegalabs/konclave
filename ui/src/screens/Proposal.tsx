@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { Secret, Dialog } from '../components'
+import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
 import { fmtZec } from '../format'
 import { useT, useTr } from '../i18n'
@@ -74,7 +75,7 @@ export default function Proposal() {
     return (<><main className="page narrow"><div className="hint">{t('proposal.loading')}</div></main></>)
   }
   if (!p) {
-    return (<><main className="page narrow"><h1 className="h1">{t('proposal.noneTitle')}</h1>
+    return (<><main className="page narrow"><PageHeader title={t('proposal.noneTitle')} />
         <div className="hint">{t('proposal.noneBody')} <Link className="link" to="/pay">{t('proposal.proposePaymentLink')}</Link></div>
       </main></>)
   }
@@ -110,12 +111,12 @@ export default function Proposal() {
   return (
     <>
       <main className="page narrow">
-        <div className="prop-head">
-          <span className="klab">{eyebrow}</span>
-          <span className={'stamp st-' + p.state}>{t('stamp.' + p.state)}</span>
-        </div>
-        <h1 className="h1 prop-title">{title}</h1>
-        <div className="p-meta">{subtitle}{p.is_public && !isPayroll && <span className="hint warn"> {t('proposal.publicDestSuffix')}</span>}</div>
+        <PageHeader
+          eyebrow={eyebrow}
+          title={title}
+          subtitle={<>{subtitle}{p.is_public && !isPayroll && <span className="hint warn"> {t('proposal.publicDestSuffix')}</span>}</>}
+          actions={<span className={'stamp st-' + p.state}>{t('stamp.' + p.state)}</span>}
+        />
 
         <div className="steps ptrail">
           {[t('proposal.trailApproval'), t('proposal.trailSignature'), t('proposal.trailSent')].map((label, i) => (
