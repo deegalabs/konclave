@@ -378,3 +378,45 @@ Cargo workspace still deferred (rusqlite 0.31 vs 0.35 / libsqlite3 conflict). Ti
 a11y moderates). Engine binaries ARE built on this machine now
 (`~/ktarget-engine`: zcash-devtool, frostd; frost-tools compiled). The `frostd` readiness
 handshake replaced the fixed sleep in the DKG/send ceremony.
+
+---
+
+**Phase 9 — konclave.app network (multi-device FROST in the browser) — 🚧 Marcos 1–4 DONE
+(2026-07-15).** The step from "one machine" to "any device": separate browsers create and
+operate ONE vault over a **blind relay**, no server ever seeing a secret. Proven live across
+two browser tabs. Submitted to ZecHub Hackathon 3.0 (FROST + Accounting) on the deadline.
+
+- **Marco 1 — blind relay** (`orchestrator/src/relay.rs`): an in-memory room mailbox (opaque
+  messages, short-poll, `/api/relay/{room}`) that forwards only public/encrypted bytes and
+  cannot read them. No new dep (same `tiny_http`). CSRF-exempt (public by design), still
+  Host-gated. **10 tests**; the relay POST exemption has its own `handle_secured` test.
+- **Marco 2 — transport client** (`ui/src/net.ts`): `relayPost`/`relayPoll`/`RelaySession`
+  (poll loop, dedup by seq, peer count), `newRoomCode`, `ephemeralTag`, base64 helpers.
+- **Marco 3 — blind DKG across devices** (`konclave-wasm`): `dkg::part1/2/3` over serialized
+  wire (native test: 3-party DKG → then a 2-of-3 signature verifies); the **confidential
+  channel** `seal` (ECIES: X25519 → HKDF-SHA256 → XChaCha20-Poly1305) for the secret round-2
+  packages (4 tests); the JS surface `DkgSession` (stateful, secrets never cross to JS),
+  `DeviceKey`/`sealTo`/`open`, `identifierBytes`. The `/net` screen
+  (`ui/src/screens/NetVault.tsx`) drives create/join + the full DKG over the relay
+  (deterministic seating by sorted tags, round-1 broadcast, round-2 sealed per recipient,
+  round-3 combine). Both tabs derive the SAME group key.
+- **Marco 4 — signing across devices** (`konclave-wasm` `verifyRedpallas` + the existing
+  `Coordinator`/`participantRound1/2`): the DKG-born shares produce a **verifying FROST group
+  signature** over the relay, each device signing with only its own piece; every device
+  verifies for itself. Honest limit: the signed message is a **test digest**, not yet a
+  broadcast Orchard transaction.
+- **New deps (wasm-clean):** `x25519-dalek` (static_secrets), `chacha20poly1305`, `hkdf`,
+  `sha2`. **Tests:** orchestrator **166**, konclave-wasm **7**, UI 23.
+
+**Honest debts STILL OPEN (§6.15):**
+- **Marco 5 — persist the share on-device:** today the share lives only in memory (a reload
+  loses the vault). Needs encrypted IndexedDB + passkey/WebAuthn unlock; then multi-vault.
+- **Marco 6 — host the relay publicly:** today it is two tabs on one machine via the loopback
+  bridge. A public relay (0.0.0.0, CORS, no loopback guard — the handler already serves both)
+  makes it phone-to-phone over the internet.
+- Real-transaction browser signing (a broadcast Orchard tx, not a test digest); real payroll
+  broadcast; sending from a freshly-created DKG vault; **C6** signer tests (funds-blocked).
+
+**Submission (ZecHub 3.0):** `SUBMISSION.md` (judge-facing one-pager), repo public at
+`github.com/deegalabs/konclave`, hosted demo `konclave-demo.vercel.app` (mock + `/signer`),
+mainnet txid `43433a10…`. No pitch required (functional demo + docs satisfy the rules).

@@ -6,7 +6,7 @@
 [![License: Apache-2.0 OR MIT](https://img.shields.io/badge/license-Apache--2.0%20OR%20MIT-blue.svg)](#license)
 [![Network: Zcash mainnet](https://img.shields.io/badge/network-Zcash%20mainnet%20(NU6.2)-e5a00d.svg)](#proven-on-mainnet)
 [![FROST + Accounting](https://img.shields.io/badge/ZecHub%203.0-FROST%20%2B%20Accounting-6f42c1.svg)](#why-it-exists)
-![Tests: 156 backend + 23 UI](https://img.shields.io/badge/tests-156%20backend%20%2B%2023%20UI-2ea44f.svg)
+![Tests: 173 Rust + 23 UI](https://img.shields.io/badge/tests-173%20Rust%20%2B%2023%20UI-2ea44f.svg)
 
 Konclave is a **local-first desktop app** that makes it usable, for ordinary people, to
 create and operate a **collective, private fund vault** on the **Zcash** network using
@@ -127,10 +127,12 @@ we do not promise what we do not deliver:
     broadcast (txid above); the vault created by **real DKG**; shares **sealed** at rest.
   - 🔬 **By dry-run** (it *signs*, it does not yet *broadcast*): the **private payroll**
     (multi-output Orchard) and the fully-sealed signing path.
-  - 🌐 **In the browser** (PoC): a full FROST ceremony **signs in a real browser via WebAssembly**
-    (see below).
+  - 🌐 **In the browser** (proven across tabs): separate browser contexts create **one vault by a
+    real Distributed Key Generation** and then **sign together with a verifying FROST group
+    signature**, over a **blind relay**, each keeping only its own share (see below).
   - 🗺️ **Roadmap, not shipped:** real payroll/sealed broadcasts, sending from a fresh DKG vault,
-    the single installable desktop binary (Tauri).
+    hosting the relay publicly (phone-to-phone), persisting the share on-device, the single
+    installable desktop binary (Tauri).
 - **On the June 2026 Orchard episode:** Konclave targets **NU6.2**, which re-enabled Orchard
   with a corrected circuit. The earlier soundness bug was a *forgery* risk, **not** a privacy
   loss; there is **no evidence of exploitation**. Konclave is a trust-restoring tool built
@@ -145,14 +147,20 @@ we do not promise what we do not deliver:
 - **Decentralized, online coordination:** a *blind, swappable* relay (self-hostable / P2P)
   plus a QR/air-gapped fallback that needs no server — so members approve and sign
   asynchronously from anywhere, with the secret always local.
-- **Browser/extension client (`konclave.app`):** a proof-of-concept — the crate
-  [`konclave-wasm`](konclave-wasm/) — runs a full **2-of-3 rerandomized redpallas (Orchard) FROST
-  ceremony entirely in WebAssembly**, driven from JavaScript **inside the app** (the `/signer`
-  route signs a valid 64-byte signature in ~60 ms). It re-derives **what it signs** with a
-  **byte-exact ZIP-244 `sig_digest`** (pure blake2b, anchored to the `orchard` crate's own
-  digest — no `secp256k1`), so a blind relay/delegate can never make it sign blind. The share
-  and nonces never leave the device. To our knowledge a first for Zcash — a PoC, not a shipped,
-  audited client (crate on `main`; multi-device relay work on branch `feat/wasm-signer`).
+- **Browser client (`konclave.app`) — multi-device FROST in the browser:** the crate
+  [`konclave-wasm`](konclave-wasm/) runs the full **rerandomized redpallas (Orchard) FROST**
+  stack in WebAssembly. Proven **across two browser contexts over a blind relay**
+  ([`orchestrator/src/relay.rs`](orchestrator/src/relay.rs), [`ui/src/screens/NetVault.tsx`](ui/src/screens/NetVault.tsx)):
+  they **create one vault by a real Distributed Key Generation** (the secret round-2 packages
+  sealed end-to-end with X25519 → HKDF → XChaCha20-Poly1305, so the relay stays blind), then
+  **produce a verifying FROST group signature together**, each device keeping only its own
+  share. The single-tab `/signer` route also signs a valid 64-byte signature in ~60 ms and
+  re-derives **what it signs** with a **byte-exact ZIP-244 `sig_digest`** (pure blake2b,
+  anchored to the `orchard` crate's own digest, no `secp256k1`), so a blind relay/delegate can
+  never make it sign blind. The share and nonces never leave the device. To our knowledge a
+  first for Zcash. Still a proof-of-concept, not a shipped, audited client: the browser
+  signature is over a test digest (not yet a broadcast transaction), and the relay is not yet
+  hosted (runs locally; two tabs on one machine today).
 - Auditor / viewing-key read-only role (selective disclosure); share recovery & rotation.
 
 ## Built on the Zcash Foundation's tools
