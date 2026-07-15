@@ -215,12 +215,12 @@ export const SECTIONS: Section[] = [
         k: 'ul',
         items: [
           {
-            'pt-BR': '**Na mainnet:** um pagamento por quórum 2-de-3, proposto e aprovado no app, assinado por FROST, transmitido; o cofre criado por DKG real; shares lacrados em repouso.',
-            en: '**On mainnet:** a 2-of-3 quorum payment, proposed and approved in the app, FROST-signed, broadcast; the vault created by real DKG; shares sealed at rest.',
+            'pt-BR': '**Na mainnet, 4 txids verificáveis** (`node scripts/verify-proof.mjs` ou a tela /proof): um pagamento por quórum 2-de-3 (proposto/aprovado no app, assinado por FROST, cofre por DKG real, shares lacrados); uma folha privada (uma tx Orchard blindada com 3 saídas, cada uma com memo criptografado, 2-de-3 FROST); e um pagamento reproduzido ponta a ponta de um cofre criado e financiado do zero. Nota honesta: a folha e o cofre-novo usaram trusted-dealer; o pagamento pelo app usou DKG.',
+            en: '**On mainnet, 4 verifiable txids** (`node scripts/verify-proof.mjs` or the /proof page): a 2-of-3 quorum payment (proposed/approved in the app, FROST-signed, real-DKG vault, sealed shares); a private payroll (one shielded Orchard tx with 3 outputs, each with an encrypted memo, 2-of-3 FROST); and a payment reproduced end to end from a freshly created and funded vault. Honest note: the payroll and fresh vault used trusted-dealer; the app payment used DKG.',
           },
           {
-            'pt-BR': '**Por dry-run** (assina, ainda não transmite): a folha privada (Orchard multi-saída) e o caminho de assinatura totalmente lacrado.',
-            en: '**By dry-run** (it signs, it does not yet broadcast): the private payroll (multi-output Orchard) and the fully-sealed signing path.',
+            'pt-BR': '**Por dry-run** (assina, ainda não transmite): o caminho de assinatura totalmente lacrado (configs abertos só em tmpfs).',
+            en: '**By dry-run** (it signs, it does not yet broadcast): the fully-sealed signing path (configs unsealed only to tmpfs).',
           },
           {
             'pt-BR': '**No navegador, ao vivo:** DKG multi-dispositivo e assinatura FROST por um relay cego hospedado. A assinatura é real; a mensagem é um digest de teste.',
@@ -231,8 +231,8 @@ export const SECTIONS: Section[] = [
             en: '**Proven by test:** social recovery (RTS share repair) and the inheritance policy engine.',
           },
           {
-            'pt-BR': '**Roadmap, não entregue:** transmissões reais de folha e do caminho lacrado, envio a partir de um cofre DKG novo, endurecer o relay hospedado, assinatura de transação real no navegador, persistir o share no dispositivo, e o binário desktop único instalável (Tauri).',
-            en: '**Roadmap, not shipped:** real payroll and sealed-path broadcasts, sending from a fresh DKG vault, hardening the hosted relay, real-transaction signing in the browser, persisting the share on-device, and the single installable desktop binary (Tauri).',
+            'pt-BR': '**Roadmap, não entregue:** envio a partir de um cofre DKG novo (a evidência de folha usou trusted-dealer), assinatura de transação real no navegador (ainda um digest de teste), persistência completa do share no dispositivo (restaura; assinar-após-restore pendente), e o binário desktop único instalável (Tauri).',
+            en: '**Roadmap, not shipped:** sending from a fresh DKG vault (the payroll evidence used trusted-dealer), real-transaction signing in the browser (still a test digest), full on-device share persistence (restore works; signing-after-restore pending), and the single installable desktop binary (Tauri).',
           },
         ],
       },

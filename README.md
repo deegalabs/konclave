@@ -158,17 +158,22 @@ not promise what we do not deliver.
 
 **Proven vs pending, the honest ladder:**
 
-- ✅ **On mainnet:** a **2-of-3 quorum payment**, proposed and approved in the app, FROST-signed,
-  broadcast (txid above); the vault created by **real DKG**; shares **sealed** at rest.
-- 🔬 **By dry-run** (it *signs*, it does not yet *broadcast*): the **private payroll** (multi-output
-  Orchard) and the fully-sealed signing path.
+- ✅ **On mainnet, four independently verifiable txids** (`node scripts/verify-proof.mjs`, or the
+  [/proof](https://konclave-demo.vercel.app/#/proof) page): a **2-of-3 quorum payment** (proposed and
+  approved in the app, FROST-signed, from a **real-DKG** vault, shares **sealed**); a **private
+  payroll**, one shielded Orchard transaction with **three outputs, each carrying its own encrypted
+  memo**, 2-of-3 FROST-signed; and a payment reproduced **end to end from a freshly created and funded
+  vault**. Honest note: the payroll and fresh-vault txids used a **trusted-dealer** vault; the
+  app-driven payment used DKG.
+- 🔬 **By dry-run** (it *signs*, it does not yet *broadcast*): the fully-sealed signing path (sealed
+  configs unsealed only to ephemeral tmpfs files).
 - 🌐 **In the browser, live over the internet:** multi-device DKG and FROST signing over a **hosted
   blind relay**. The signature is real; the message is a **test digest**, not yet a broadcast tx.
 - 🔁 **Proven by test:** social recovery (RTS share repair) and the inheritance policy engine.
-- 🗺️ **Roadmap, not shipped:** real payroll and sealed broadcasts, sending from a fresh DKG vault,
-  hardening the hosted relay, real-transaction signing in the browser, persisting the share
-  on-device, and the single installable desktop binary (Tauri, see
-  [ADR-0004](docs/adr/0004-local-http-bridge.md)).
+- 🗺️ **Roadmap, not shipped:** sending from a fresh **DKG** vault (the payroll evidence used a
+  trusted-dealer vault), real-transaction signing in the browser (still a test digest), full on-device
+  share persistence (restore works; signing-after-restore pending), and the single installable desktop
+  binary (Tauri, see [ADR-0004](docs/adr/0004-local-http-bridge.md)).
 
 On the June 2026 Orchard episode: Konclave targets **NU6.2**, which re-enabled Orchard with a
 corrected circuit. The earlier soundness bug was a *forgery* risk, **not** a privacy loss, and there
