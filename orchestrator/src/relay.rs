@@ -9,8 +9,10 @@
 //! Honest about metadata: the relay does see room ids, per-peer `from` tags, message sizes
 //! and timing. It sees **nothing** that lets it forge a signature or reconstruct a share.
 //! For a hosted relay the `from` tag should be an ephemeral per-session pseudonym (not a
-//! real identity), and rooms are short-lived (evicted on TTL below). This is the same trust
-//! model as the Zcash Foundation's `frostd`: a public-material-only coordinator.
+//! real identity), and rooms are short-lived (evicted on TTL below). The presence map is
+//! pruned past `PRESENCE_TTL` and a per-source fixed-window rate limiter refuses floods with
+//! `429`, so neither grows without bound. This is the same trust model as the Zcash
+//! Foundation's `frostd`: a public-material-only coordinator.
 //!
 //! Transport shape: HTTP short-poll (no new dependency — same `tiny_http` server). A room is
 //! an in-memory append-only log of messages with monotonic sequence numbers; a reader asks
@@ -39,6 +41,17 @@ const MAX_FROM: usize = 128;
 const ROOM_TTL: i64 = 3600;
 /// A peer counts as "present" if seen within this window (seconds).
 const PEER_WINDOW: i64 = 45;
+/// A member entry idle longer than this (seconds) is dropped from the presence map so it
+/// cannot grow without bound. Larger than `PEER_WINDOW`: the live count already excludes it
+/// after 45s; this just reclaims the memory once it is long gone.
+const PRESENCE_TTL: i64 = 300;
+/// Fixed-window rate limit: at most `RATE_MAX` requests per `RATE_WINDOW` seconds per source
+/// key (a `from` tag, or the room id when a poll carries none). Generous — a real short-poll
+/// ceremony sends a couple of requests per second, well under this — it only refuses floods.
+const RATE_WINDOW: i64 = 10;
+const RATE_MAX: u32 = 150;
+/// Cap on distinct rate-limit keys tracked at once (stale windows are reclaimed past this).
+const MAX_RATE_KEYS: usize = 4096;
 
 /// One relayed message. `data` is opaque to the relay — it is only ever stored and echoed.
 #[derive(Clone, Serialize)]
@@ -71,6 +84,11 @@ impl Room {
             .filter(|&&seen| now.saturating_sub(seen) <= PEER_WINDOW)
             .count()
     }
+    /// Drop `from` tags not seen within `PRESENCE_TTL` so the map cannot grow without bound.
+    fn prune_members(&mut self, now: i64) {
+        self.members
+            .retain(|_, &mut seen| now.saturating_sub(seen) <= PRESENCE_TTL);
+    }
 }
 
 /// The relay's whole state: a set of rooms behind one lock. `handle` takes `&self` (interior
@@ -78,6 +96,8 @@ impl Room {
 #[derive(Default)]
 pub struct RelayState {
     rooms: Mutex<HashMap<String, Room>>,
+    /// Source key -> (window_start_unix, count_in_window). A fixed-window flood limiter.
+    limiter: Mutex<HashMap<String, (i64, u32)>>,
 }
 
 impl RelayState {
@@ -110,6 +130,21 @@ impl RelayState {
         }
     }
 
+    /// Fixed-window per-key rate check. Returns `true` if the request is within budget.
+    /// O(1) amortized; the key map is pruned of stale windows only when it grows large.
+    fn rate_ok(&self, key: &str, now: i64) -> bool {
+        let mut lim = self.limiter.lock().unwrap_or_else(|e| e.into_inner());
+        if lim.len() > MAX_RATE_KEYS {
+            lim.retain(|_, (start, _)| now.saturating_sub(*start) < RATE_WINDOW);
+        }
+        let entry = lim.entry(key.to_string()).or_insert((now, 0));
+        if now.saturating_sub(entry.0) >= RATE_WINDOW {
+            *entry = (now, 0);
+        }
+        entry.1 += 1;
+        entry.1 <= RATE_MAX
+    }
+
     fn post(&self, room_id: &str, body: &[u8], now: i64) -> Response {
         #[derive(Deserialize)]
         struct PostReq {
@@ -127,6 +162,9 @@ impl RelayState {
         };
         if req.from.is_empty() || req.from.len() > MAX_FROM {
             return json(400, serde_json::json!({"error": "bad from tag"}));
+        }
+        if !self.rate_ok(&req.from, now) {
+            return json(429, serde_json::json!({"error": "rate limited"}));
         }
         if req.data.len() > MAX_DATA {
             return json(413, serde_json::json!({"error": "message too large"}));
@@ -160,6 +198,13 @@ impl RelayState {
             .and_then(|s| s.parse().ok())
             .unwrap_or(0);
         let from = query(raw_path, "from");
+        let key = match &from {
+            Some(f) if !f.is_empty() => f.as_str(),
+            _ => room_id,
+        };
+        if !self.rate_ok(key, now) {
+            return json(429, serde_json::json!({"error": "rate limited"}));
+        }
 
         let mut rooms = self.rooms.lock().unwrap_or_else(|e| e.into_inner());
         prune(&mut rooms, now);
@@ -187,9 +232,13 @@ impl RelayState {
     }
 }
 
-/// Drop idle rooms and, if still over the ceiling, evict the least-recently-active ones.
+/// Drop idle rooms, prune each surviving room's stale presence entries, and, if still over the
+/// ceiling, evict the least-recently-active rooms.
 fn prune(rooms: &mut HashMap<String, Room>, now: i64) {
     rooms.retain(|_, r| now.saturating_sub(r.last_active) <= ROOM_TTL);
+    for r in rooms.values_mut() {
+        r.prune_members(now);
+    }
     while rooms.len() > MAX_ROOMS {
         if let Some(oldest) = rooms
             .iter()
@@ -336,15 +385,58 @@ mod tests {
     #[test]
     fn history_is_capped_but_the_sequence_keeps_climbing() {
         let s = RelayState::new();
-        let now = 1000;
+        // Advance the clock by a second per post: it is more realistic than a same-instant
+        // burst and keeps each post inside a fresh rate-limit window (the cap is about floods,
+        // not a long, paced stream of messages).
+        let start = 1000;
         for i in 0..(MAX_MSGS + 10) {
-            post(&s, "R", "a", &format!("m{i}"), now);
+            post(&s, "R", "a", &format!("m{i}"), start + i as i64);
         }
         // A fresh reader (since=0) gets only the retained tail, but seq numbers are monotonic
         // so a caught-up reader never re-sees or misses a message.
-        let g = get(&s, "R", 0, "b", now);
+        let g = get(&s, "R", 0, "b", start + (MAX_MSGS + 10) as i64);
         let v = body_json(&g);
         assert_eq!(v["messages"].as_array().unwrap().len(), MAX_MSGS);
         assert_eq!(v["next"], (MAX_MSGS + 10) as u64);
+    }
+
+    #[test]
+    fn a_flood_from_one_source_is_rate_limited() {
+        let s = RelayState::new();
+        let now = 500;
+        // The whole per-window budget passes...
+        for _ in 0..RATE_MAX {
+            assert_eq!(post(&s, "R", "spammer", "x", now).status, 200);
+        }
+        // ...the next request in the same window is refused with 429...
+        assert_eq!(post(&s, "R", "spammer", "x", now).status, 429);
+        // ...and a later window resets the budget.
+        assert_eq!(post(&s, "R", "spammer", "x", now + RATE_WINDOW).status, 200);
+    }
+
+    #[test]
+    fn a_paced_ceremony_is_never_throttled() {
+        // A generous stand-in for real short-poll traffic: a couple of requests per second
+        // from each of three peers over a minute stays well under the limit.
+        let s = RelayState::new();
+        for t in 0..60 {
+            for tag in ["dev-a", "dev-b", "dev-c"] {
+                assert_eq!(post(&s, "R", tag, "round", 1000 + t).status, 200);
+                assert_eq!(get(&s, "R", 0, tag, 1000 + t).status, 200);
+            }
+        }
+    }
+
+    #[test]
+    fn stale_members_are_pruned_from_the_presence_map() {
+        let s = RelayState::new();
+        post(&s, "R", "alice", "x", 100);
+        get(&s, "R", 0, "bob", 101);
+        // A touch long past PRESENCE_TTL prunes the stale tags entirely, and only the live
+        // peer is both counted and retained in the map.
+        let g = get(&s, "R", 0, "carol", 100 + PRESENCE_TTL + 10);
+        assert_eq!(body_json(&g)["peers"], 1);
+        let rooms = s.rooms.lock().unwrap();
+        assert_eq!(rooms.get("R").unwrap().members.len(), 1);
     }
 }

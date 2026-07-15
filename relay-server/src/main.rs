@@ -6,9 +6,10 @@
 //! blind by construction — it forwards public/encrypted bytes it cannot read and holds no key.
 //!
 //! Public by design, so there is NO Host gate and NO session token here (unlike the loopback
-//! bridge). Honest limits for a demo relay: rooms/messages are capped and TTL-evicted, but the
-//! presence map is not pruned and there is no rate limiting — hardening tracked before any
-//! serious use. It moves nothing but ciphertext/public FROST material between peers.
+//! bridge). Hardening in place for a public relay: rooms/messages are capped and TTL-evicted,
+//! the presence map is pruned (stale `from` tags dropped past `PRESENCE_TTL`), and a
+//! dependency-free per-source fixed-window rate limiter refuses floods with `429`. It moves
+//! nothing but ciphertext/public FROST material between peers.
 
 use std::collections::HashMap;
 use std::io::Read;
@@ -24,6 +25,17 @@ const MAX_DATA: usize = 128 * 1024;
 const MAX_FROM: usize = 128;
 const ROOM_TTL: i64 = 3600;
 const PEER_WINDOW: i64 = 45;
+// A member idle longer than this (seconds) is dropped from the presence map so it cannot grow
+// without bound. Larger than PEER_WINDOW: the live count already excludes it after 45s; this
+// just reclaims the memory once it is long gone.
+const PRESENCE_TTL: i64 = 300;
+// Fixed-window rate limit: at most RATE_MAX requests per RATE_WINDOW seconds per source key
+// (a `from` tag, or the room id when a poll carries none). Generous — a real short-poll
+// ceremony sends a couple of requests per second, well under this — it only refuses floods.
+const RATE_WINDOW: i64 = 10;
+const RATE_MAX: u32 = 150;
+// Cap on distinct rate-limit keys tracked at once (stale windows are reclaimed past this).
+const MAX_RATE_KEYS: usize = 4096;
 
 #[derive(Clone, Serialize)]
 struct Msg {
@@ -54,11 +66,17 @@ impl Room {
             .filter(|&&seen| now.saturating_sub(seen) <= PEER_WINDOW)
             .count()
     }
+    fn prune_members(&mut self, now: i64) {
+        self.members
+            .retain(|_, &mut seen| now.saturating_sub(seen) <= PRESENCE_TTL);
+    }
 }
 
 #[derive(Default)]
 struct RelayState {
     rooms: Mutex<HashMap<String, Room>>,
+    // Source key -> (window_start_unix, count_in_window). A fixed-window flood limiter.
+    limiter: Mutex<HashMap<String, (i64, u32)>>,
 }
 
 impl RelayState {
@@ -84,6 +102,21 @@ impl RelayState {
         }
     }
 
+    /// Fixed-window per-key rate check. Returns `true` if the request is within budget.
+    /// O(1) amortized; the key map is pruned of stale windows only when it grows large.
+    fn rate_ok(&self, key: &str, now: i64) -> bool {
+        let mut lim = self.limiter.lock().unwrap_or_else(|e| e.into_inner());
+        if lim.len() > MAX_RATE_KEYS {
+            lim.retain(|_, (start, _)| now.saturating_sub(*start) < RATE_WINDOW);
+        }
+        let entry = lim.entry(key.to_string()).or_insert((now, 0));
+        if now.saturating_sub(entry.0) >= RATE_WINDOW {
+            *entry = (now, 0);
+        }
+        entry.1 += 1;
+        entry.1 <= RATE_MAX
+    }
+
     fn post(&self, room_id: &str, body: &[u8], now: i64) -> (u16, String) {
         #[derive(Deserialize)]
         struct PostReq {
@@ -96,6 +129,9 @@ impl RelayState {
         };
         if req.from.is_empty() || req.from.len() > MAX_FROM {
             return (400, r#"{"error":"bad from tag"}"#.into());
+        }
+        if !self.rate_ok(&req.from, now) {
+            return (429, r#"{"error":"rate limited"}"#.into());
         }
         if req.data.len() > MAX_DATA {
             return (413, r#"{"error":"message too large"}"#.into());
@@ -130,6 +166,13 @@ impl RelayState {
             .and_then(|s| s.parse().ok())
             .unwrap_or(0);
         let from = query(raw, "from");
+        let key = match &from {
+            Some(f) if !f.is_empty() => f.as_str(),
+            _ => room_id,
+        };
+        if !self.rate_ok(key, now) {
+            return (429, r#"{"error":"rate limited"}"#.into());
+        }
         let mut rooms = self.rooms.lock().unwrap_or_else(|e| e.into_inner());
         prune(&mut rooms, now);
         let Some(room) = rooms.get_mut(room_id) else {
@@ -156,6 +199,9 @@ impl RelayState {
 
 fn prune(rooms: &mut HashMap<String, Room>, now: i64) {
     rooms.retain(|_, r| now.saturating_sub(r.last_active) <= ROOM_TTL);
+    for r in rooms.values_mut() {
+        r.prune_members(now);
+    }
     while rooms.len() > MAX_ROOMS {
         if let Some(oldest) = rooms
             .iter()
