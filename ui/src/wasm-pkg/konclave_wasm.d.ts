@@ -82,6 +82,51 @@ export class DkgSession {
 }
 
 /**
+ * The recovering member: collect the helpers' sigmas and combine them into the repaired
+ * KeyPackage (validated against the group's public share). Runs entirely on this device.
+ */
+export class RecoveryCombiner {
+    free(): void;
+    [Symbol.dispose](): void;
+    addSigma(sigma: Uint8Array): void;
+    /**
+     * Combine → the repaired KeyPackage bytes. Errors if the result doesn't match the group.
+     */
+    keyPackage(): Uint8Array;
+    constructor(lost_id: Uint8Array, pubkeys: Uint8Array);
+}
+
+/**
+ * A helper's recovery session. Register the helper set (including self), compute the
+ * per-recipient deltas (round 1), then sum the deltas received into this helper's sigma
+ * (round 2). The helper's own KeyPackage stays local; only deltas/sigma cross the wire.
+ */
+export class RecoveryHelper {
+    free(): void;
+    [Symbol.dispose](): void;
+    /**
+     * Register a helper's identifier — call once per helper seat, INCLUDING this one.
+     */
+    addHelper(id: Uint8Array): void;
+    /**
+     * Collect a delta (already opened) addressed to me, from any helper.
+     */
+    addIncomingDelta(delta: Uint8Array): void;
+    /**
+     * Round 1: produce one delta per helper (read via deltaCount/deltaRecipient/delta).
+     */
+    computeDeltas(): void;
+    delta(i: number): Uint8Array;
+    deltaCount(): number;
+    deltaRecipient(i: number): Uint8Array;
+    constructor(my_key_package: Uint8Array, lost_id: Uint8Array);
+    /**
+     * Round 2: sum the received deltas into this helper's sigma bytes (sealed to the member).
+     */
+    sigma(): Uint8Array;
+}
+
+/**
  * Participant round-1 output: nonces stay on THIS device; commitment goes to the relay.
  */
 export class Round1 {
@@ -145,26 +190,6 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
-    readonly __wbg_coordinator_free: (a: number, b: number) => void;
-    readonly __wbg_round1_free: (a: number, b: number) => void;
-    readonly __wbg_testvault_free: (a: number, b: number) => void;
-    readonly coordinator_addCommitment: (a: number, b: number, c: number, d: number, e: number) => void;
-    readonly coordinator_addShare: (a: number, b: number, c: number, d: number, e: number) => void;
-    readonly coordinator_aggregate: (a: number) => [number, number, number, number];
-    readonly coordinator_new: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
-    readonly coordinator_prepare: (a: number) => [number, number];
-    readonly coordinator_seed: (a: number) => [number, number];
-    readonly coordinator_signingPackage: (a: number) => [number, number];
-    readonly coordinator_verify: (a: number, b: number, c: number) => [number, number, number];
-    readonly participantRound1: (a: number, b: number) => [number, number, number];
-    readonly participantRound2: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
-    readonly round1_commitment: (a: number) => [number, number];
-    readonly round1_nonces: (a: number) => [number, number];
-    readonly testvault_groupVk: (a: number) => [number, number];
-    readonly testvault_id: (a: number, b: number) => [number, number];
-    readonly testvault_key_package: (a: number, b: number) => [number, number];
-    readonly testvault_new: () => [number, number, number];
-    readonly testvault_pubkeys: (a: number) => [number, number];
     readonly __wbg_devicekey_free: (a: number, b: number) => void;
     readonly __wbg_dkgsession_free: (a: number, b: number) => void;
     readonly devicekey_fromSecret: (a: number, b: number) => [number, number, number];
@@ -189,6 +214,39 @@ export interface InitOutput {
     readonly sealTo: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
     readonly verifyRedpallas: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
     readonly selftest: () => [number, number];
+    readonly __wbg_recoverycombiner_free: (a: number, b: number) => void;
+    readonly __wbg_recoveryhelper_free: (a: number, b: number) => void;
+    readonly recoverycombiner_addSigma: (a: number, b: number, c: number) => void;
+    readonly recoverycombiner_keyPackage: (a: number) => [number, number, number, number];
+    readonly recoverycombiner_new: (a: number, b: number, c: number, d: number) => number;
+    readonly recoveryhelper_addHelper: (a: number, b: number, c: number) => void;
+    readonly recoveryhelper_addIncomingDelta: (a: number, b: number, c: number) => void;
+    readonly recoveryhelper_computeDeltas: (a: number) => [number, number];
+    readonly recoveryhelper_delta: (a: number, b: number) => [number, number];
+    readonly recoveryhelper_deltaCount: (a: number) => number;
+    readonly recoveryhelper_deltaRecipient: (a: number, b: number) => [number, number];
+    readonly recoveryhelper_new: (a: number, b: number, c: number, d: number) => number;
+    readonly recoveryhelper_sigma: (a: number) => [number, number, number, number];
+    readonly __wbg_coordinator_free: (a: number, b: number) => void;
+    readonly __wbg_round1_free: (a: number, b: number) => void;
+    readonly __wbg_testvault_free: (a: number, b: number) => void;
+    readonly coordinator_addCommitment: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly coordinator_addShare: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly coordinator_aggregate: (a: number) => [number, number, number, number];
+    readonly coordinator_new: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
+    readonly coordinator_prepare: (a: number) => [number, number];
+    readonly coordinator_seed: (a: number) => [number, number];
+    readonly coordinator_signingPackage: (a: number) => [number, number];
+    readonly coordinator_verify: (a: number, b: number, c: number) => [number, number, number];
+    readonly participantRound1: (a: number, b: number) => [number, number, number];
+    readonly participantRound2: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
+    readonly round1_commitment: (a: number) => [number, number];
+    readonly round1_nonces: (a: number) => [number, number];
+    readonly testvault_groupVk: (a: number) => [number, number];
+    readonly testvault_id: (a: number, b: number) => [number, number];
+    readonly testvault_key_package: (a: number, b: number) => [number, number];
+    readonly testvault_new: () => [number, number, number];
+    readonly testvault_pubkeys: (a: number) => [number, number];
     readonly __wbindgen_exn_store: (a: number) => void;
     readonly __externref_table_alloc: () => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;

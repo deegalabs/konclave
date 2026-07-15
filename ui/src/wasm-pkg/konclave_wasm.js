@@ -343,6 +343,159 @@ export class DkgSession {
 if (Symbol.dispose) DkgSession.prototype[Symbol.dispose] = DkgSession.prototype.free;
 
 /**
+ * The recovering member: collect the helpers' sigmas and combine them into the repaired
+ * KeyPackage (validated against the group's public share). Runs entirely on this device.
+ */
+export class RecoveryCombiner {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        RecoveryCombinerFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_recoverycombiner_free(ptr, 0);
+    }
+    /**
+     * @param {Uint8Array} sigma
+     */
+    addSigma(sigma) {
+        const ptr0 = passArray8ToWasm0(sigma, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.recoverycombiner_addSigma(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
+     * Combine → the repaired KeyPackage bytes. Errors if the result doesn't match the group.
+     * @returns {Uint8Array}
+     */
+    keyPackage() {
+        const ret = wasm.recoverycombiner_keyPackage(this.__wbg_ptr);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
+     * @param {Uint8Array} lost_id
+     * @param {Uint8Array} pubkeys
+     */
+    constructor(lost_id, pubkeys) {
+        const ptr0 = passArray8ToWasm0(lost_id, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArray8ToWasm0(pubkeys, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.recoverycombiner_new(ptr0, len0, ptr1, len1);
+        this.__wbg_ptr = ret;
+        RecoveryCombinerFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+}
+if (Symbol.dispose) RecoveryCombiner.prototype[Symbol.dispose] = RecoveryCombiner.prototype.free;
+
+/**
+ * A helper's recovery session. Register the helper set (including self), compute the
+ * per-recipient deltas (round 1), then sum the deltas received into this helper's sigma
+ * (round 2). The helper's own KeyPackage stays local; only deltas/sigma cross the wire.
+ */
+export class RecoveryHelper {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        RecoveryHelperFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_recoveryhelper_free(ptr, 0);
+    }
+    /**
+     * Register a helper's identifier — call once per helper seat, INCLUDING this one.
+     * @param {Uint8Array} id
+     */
+    addHelper(id) {
+        const ptr0 = passArray8ToWasm0(id, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.recoveryhelper_addHelper(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
+     * Collect a delta (already opened) addressed to me, from any helper.
+     * @param {Uint8Array} delta
+     */
+    addIncomingDelta(delta) {
+        const ptr0 = passArray8ToWasm0(delta, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.recoveryhelper_addIncomingDelta(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
+     * Round 1: produce one delta per helper (read via deltaCount/deltaRecipient/delta).
+     */
+    computeDeltas() {
+        const ret = wasm.recoveryhelper_computeDeltas(this.__wbg_ptr);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
+     * @param {number} i
+     * @returns {Uint8Array}
+     */
+    delta(i) {
+        const ret = wasm.recoveryhelper_delta(this.__wbg_ptr, i);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
+     * @returns {number}
+     */
+    deltaCount() {
+        const ret = wasm.recoveryhelper_deltaCount(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} i
+     * @returns {Uint8Array}
+     */
+    deltaRecipient(i) {
+        const ret = wasm.recoveryhelper_deltaRecipient(this.__wbg_ptr, i);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
+     * @param {Uint8Array} my_key_package
+     * @param {Uint8Array} lost_id
+     */
+    constructor(my_key_package, lost_id) {
+        const ptr0 = passArray8ToWasm0(my_key_package, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArray8ToWasm0(lost_id, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.recoveryhelper_new(ptr0, len0, ptr1, len1);
+        this.__wbg_ptr = ret;
+        RecoveryHelperFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    /**
+     * Round 2: sum the received deltas into this helper's sigma bytes (sealed to the member).
+     * @returns {Uint8Array}
+     */
+    sigma() {
+        const ret = wasm.recoveryhelper_sigma(this.__wbg_ptr);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+}
+if (Symbol.dispose) RecoveryHelper.prototype[Symbol.dispose] = RecoveryHelper.prototype.free;
+
+/**
  * Participant round-1 output: nonces stay on THIS device; commitment goes to the relay.
  */
 export class Round1 {
@@ -698,6 +851,12 @@ const DeviceKeyFinalization = (typeof FinalizationRegistry === 'undefined')
 const DkgSessionFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_dkgsession_free(ptr, 1));
+const RecoveryCombinerFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_recoverycombiner_free(ptr, 1));
+const RecoveryHelperFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_recoveryhelper_free(ptr, 1));
 const Round1Finalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_round1_free(ptr, 1));

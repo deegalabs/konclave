@@ -542,6 +542,49 @@ pub mod recovery {
         Ok(kp)
     }
 
+    // ---- wire helpers (bytes over the blind relay) ----
+
+    /// Round 1 over the wire: `(recipient_id_bytes, delta_bytes)` per helper. Each delta is
+    /// SECRET (it carries share info to its recipient) → seal it to that recipient before it
+    /// touches the relay, exactly like a DKG round-2 package.
+    pub fn helper_deltas_wire(
+        helpers: &[Identifier],
+        helper_kp: &KeyPackage,
+        lost: Identifier,
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>, String> {
+        let map = helper_deltas(helpers, helper_kp, lost)?;
+        Ok(map
+            .into_iter()
+            .map(|(id, d)| (id.serialize(), d.serialize()))
+            .collect())
+    }
+
+    /// Round 2 over the wire: sum the deltas this helper received into its sigma bytes.
+    pub fn helper_sigma_wire(delta_bytes: &[Vec<u8>]) -> Result<Vec<u8>, String> {
+        let deltas: Vec<Delta> = delta_bytes
+            .iter()
+            .map(|b| Delta::deserialize(b))
+            .collect::<Result<_, _>>()
+            .map_err(|e| e.to_string())?;
+        Ok(helper_sigma(&deltas).serialize())
+    }
+
+    /// Round 3 over the wire: combine the sigmas into the repaired member's KeyPackage bytes
+    /// (validated against the group's public share).
+    pub fn repaired_wire(
+        sigma_bytes: &[Vec<u8>],
+        lost: Identifier,
+        pubkeys: &frost::keys::PublicKeyPackage,
+    ) -> Result<Vec<u8>, String> {
+        let sigmas: Vec<Sigma> = sigma_bytes
+            .iter()
+            .map(|b| Sigma::deserialize(b))
+            .collect::<Result<_, _>>()
+            .map_err(|e| e.to_string())?;
+        let kp = repaired_key_package(&sigmas, lost, pubkeys)?;
+        kp.serialize().map_err(|e| e.to_string())
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;
@@ -612,6 +655,44 @@ pub mod recovery {
             assert!(
                 super::super::ceremony::verify(&group_vk, &sp, &seed, message, &sig).unwrap(),
                 "the repaired share must produce a verifying signature"
+            );
+        }
+
+        #[test]
+        fn recovery_works_over_the_serialized_wire() {
+            // Same repair, but every Delta/Sigma crosses as bytes (what the relay carries).
+            let (n, t) = (3u16, 2u16);
+            let (shares, pubkeys) =
+                frost::keys::generate_with_dealer(n, t, IdentifierList::Default, &mut OsRng)
+                    .unwrap();
+            let kps: std::collections::BTreeMap<Identifier, KeyPackage> = shares
+                .into_iter()
+                .map(|(id, s)| (id, KeyPackage::try_from(s).unwrap()))
+                .collect();
+            let ids: Vec<Identifier> = kps.keys().copied().collect();
+            let lost = ids[2];
+            let helpers = vec![ids[0], ids[1]];
+
+            // Round 1: each helper emits (recipient_id, delta_bytes); route into each recipient's inbox.
+            let mut inbox: std::collections::HashMap<Vec<u8>, Vec<Vec<u8>>> =
+                std::collections::HashMap::new();
+            for h in &helpers {
+                for (recip, delta) in helper_deltas_wire(&helpers, &kps[h], lost).unwrap() {
+                    inbox.entry(recip).or_default().push(delta);
+                }
+            }
+            // Round 2: each helper sums the delta bytes it received → sigma bytes.
+            let sigmas: Vec<Vec<u8>> = helpers
+                .iter()
+                .map(|h| helper_sigma_wire(&inbox[&h.serialize()]).unwrap())
+                .collect();
+            // Round 3: combine sigma bytes → repaired KeyPackage bytes; must match the group share.
+            let kp_bytes = repaired_wire(&sigmas, lost, &pubkeys).unwrap();
+            let repaired = KeyPackage::deserialize(&kp_bytes).unwrap();
+            assert_eq!(
+                repaired.verifying_share(),
+                pubkeys.verifying_shares().get(&lost).unwrap(),
+                "the wire-repaired share must match the group's public share"
             );
         }
     }
@@ -1160,5 +1241,119 @@ mod js_dkg {
     ) -> Result<bool, JsValue> {
         let vk = frost::VerifyingKey::deserialize(group_vk).map_err(je)?;
         super::ceremony::verify(&vk, sp, seed, message, sig).map_err(je)
+    }
+}
+
+// ---------- wasm-bindgen JS API for social recovery (RTS over the relay) ----------
+// Two roles: helpers (who still have their shares) rebuild a lost member's share; the
+// recovering member combines the result. Deltas are secret — JS seals each to its recipient
+// with sealTo (same confidential path as the DKG's round-2), so the relay stays blind.
+#[cfg(target_arch = "wasm32")]
+mod js_recovery {
+    use super::frost;
+    use super::recovery;
+    use frost::keys::{KeyPackage, PublicKeyPackage};
+    use frost::Identifier;
+    use wasm_bindgen::prelude::*;
+
+    fn je(e: impl core::fmt::Display) -> JsValue {
+        JsValue::from_str(&e.to_string())
+    }
+
+    /// A helper's recovery session. Register the helper set (including self), compute the
+    /// per-recipient deltas (round 1), then sum the deltas received into this helper's sigma
+    /// (round 2). The helper's own KeyPackage stays local; only deltas/sigma cross the wire.
+    #[wasm_bindgen]
+    pub struct RecoveryHelper {
+        my_kp: Vec<u8>,
+        lost: Vec<u8>,
+        helper_ids: Vec<Vec<u8>>,
+        out: Vec<(Vec<u8>, Vec<u8>)>, // (recipient id, delta bytes)
+        incoming: Vec<Vec<u8>>,       // delta bytes addressed to me (already opened)
+    }
+
+    #[wasm_bindgen]
+    impl RecoveryHelper {
+        #[wasm_bindgen(constructor)]
+        pub fn new(my_key_package: &[u8], lost_id: &[u8]) -> RecoveryHelper {
+            RecoveryHelper {
+                my_kp: my_key_package.into(),
+                lost: lost_id.into(),
+                helper_ids: vec![],
+                out: vec![],
+                incoming: vec![],
+            }
+        }
+        /// Register a helper's identifier — call once per helper seat, INCLUDING this one.
+        #[wasm_bindgen(js_name = addHelper)]
+        pub fn add_helper(&mut self, id: &[u8]) {
+            self.helper_ids.push(id.into());
+        }
+        /// Round 1: produce one delta per helper (read via deltaCount/deltaRecipient/delta).
+        #[wasm_bindgen(js_name = computeDeltas)]
+        pub fn compute_deltas(&mut self) -> Result<(), JsValue> {
+            let kp = KeyPackage::deserialize(&self.my_kp).map_err(je)?;
+            let lost = Identifier::deserialize(&self.lost).map_err(je)?;
+            let helpers: Vec<Identifier> = self
+                .helper_ids
+                .iter()
+                .map(|b| Identifier::deserialize(b))
+                .collect::<Result<_, _>>()
+                .map_err(je)?;
+            self.out = recovery::helper_deltas_wire(&helpers, &kp, lost).map_err(je)?;
+            Ok(())
+        }
+        #[wasm_bindgen(js_name = deltaCount)]
+        pub fn delta_count(&self) -> usize {
+            self.out.len()
+        }
+        #[wasm_bindgen(js_name = deltaRecipient)]
+        pub fn delta_recipient(&self, i: usize) -> Vec<u8> {
+            self.out[i].0.clone()
+        }
+        pub fn delta(&self, i: usize) -> Vec<u8> {
+            self.out[i].1.clone()
+        }
+        /// Collect a delta (already opened) addressed to me, from any helper.
+        #[wasm_bindgen(js_name = addIncomingDelta)]
+        pub fn add_incoming_delta(&mut self, delta: &[u8]) {
+            self.incoming.push(delta.into());
+        }
+        /// Round 2: sum the received deltas into this helper's sigma bytes (sealed to the member).
+        pub fn sigma(&self) -> Result<Vec<u8>, JsValue> {
+            recovery::helper_sigma_wire(&self.incoming).map_err(je)
+        }
+    }
+
+    /// The recovering member: collect the helpers' sigmas and combine them into the repaired
+    /// KeyPackage (validated against the group's public share). Runs entirely on this device.
+    #[wasm_bindgen]
+    pub struct RecoveryCombiner {
+        lost: Vec<u8>,
+        pubkeys: Vec<u8>,
+        sigmas: Vec<Vec<u8>>,
+    }
+
+    #[wasm_bindgen]
+    impl RecoveryCombiner {
+        #[wasm_bindgen(constructor)]
+        pub fn new(lost_id: &[u8], pubkeys: &[u8]) -> RecoveryCombiner {
+            RecoveryCombiner {
+                lost: lost_id.into(),
+                pubkeys: pubkeys.into(),
+                sigmas: vec![],
+            }
+        }
+        #[wasm_bindgen(js_name = addSigma)]
+        pub fn add_sigma(&mut self, sigma: &[u8]) {
+            self.sigmas.push(sigma.into());
+        }
+        /// Combine → the repaired KeyPackage bytes. Errors if the result doesn't match the group.
+        #[wasm_bindgen(js_name = keyPackage)]
+        pub fn key_package(&self) -> Result<Vec<u8>, JsValue> {
+            let lost = Identifier::deserialize(&self.lost).map_err(je)?;
+            let pubkeys = PublicKeyPackage::deserialize(&self.pubkeys).map_err(je)?;
+            recovery::repaired_wire(&self.sigmas, lost, &pubkeys).map_err(je)
+        }
     }
 }
