@@ -130,6 +130,7 @@ export const en: Record<string, string> = {
   // rail navigation
   'nav.brandSub': 'collective vault',
   'nav.dashboard': 'Dashboard',
+  'nav.receive': 'Add funds',
   'nav.proposals': 'Proposals',
   'nav.payroll': 'Payroll',
   'nav.ledger': 'Ledger',

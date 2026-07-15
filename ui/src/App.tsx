@@ -15,6 +15,7 @@ import Ledger from './screens/Ledger'
 import Members from './screens/Members'
 import People from './screens/People'
 import Vaults from './screens/Vaults'
+import Receive from './screens/Receive'
 import './App.css'
 
 export default function App() {
@@ -33,6 +34,7 @@ export default function App() {
         {/* In-vault — persistent left rail */}
         <Route element={<Layout />}>
           <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/receive" element={<Receive />} />
           <Route path="/pay" element={<NewPayment />} />
           <Route path="/payroll" element={<NewPayroll />} />
           <Route path="/proposal" element={<Proposal />} />

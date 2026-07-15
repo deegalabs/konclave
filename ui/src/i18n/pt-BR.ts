@@ -130,6 +130,7 @@ export const ptBR: Record<string, string> = {
   // rail navigation
   'nav.brandSub': 'cofre coletivo',
   'nav.dashboard': 'Painel',
+  'nav.receive': 'Receber',
   'nav.proposals': 'Propostas',
   'nav.payroll': 'Folha',
   'nav.ledger': 'Registro',

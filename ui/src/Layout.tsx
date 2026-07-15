@@ -37,6 +37,7 @@ export default function Layout() {
 
   const items: [string, string, ReactNode][] = [
     ['/dashboard', t('nav.dashboard'), <IconGrid key="i" />],
+    ['/receive', t('nav.receive'), <IconReceive key="i" />],
     ['/proposals', t('nav.proposals'), <IconInbox key="i" />],
     ['/payroll', t('nav.payroll'), <IconRows key="i" />],
     ['/ledger', t('nav.ledger'), <IconDoc key="i" />],
@@ -102,3 +103,4 @@ function IconRows() { return <svg viewBox="0 0 24 24" {...s}><path d="M4 6h16M4 
 function IconDoc() { return <svg viewBox="0 0 24 24" {...s}><path d="M6 3h9l4 4v14H6z" /><path d="M14 3v4h4M9 13h6M9 17h6" /></svg> }
 function IconUsers() { return <svg viewBox="0 0 24 24" {...s}><circle cx="9" cy="8" r="3.2" /><path d="M3.5 19a5.5 5.5 0 0 1 11 0" /><path d="M17 8.5a3 3 0 0 1 0 5M18.5 19a5 5 0 0 0-3-4.6" /></svg> }
 function IconUser() { return <svg viewBox="0 0 24 24" {...s}><circle cx="12" cy="8" r="3.4" /><path d="M5 20a7 7 0 0 1 14 0" /></svg> }
+function IconReceive() { return <svg viewBox="0 0 24 24" {...s}><path d="M12 4v11m0 0l-4-4m4 4l4-4" /><path d="M5 20h14" /></svg> }
