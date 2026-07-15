@@ -104,6 +104,9 @@ export default function NetVault() {
   const sentS2Ref = useRef(false)
   const signSharesSeenRef = useRef<Set<number>>(new Set())
   const sigDoneRef = useRef(false)
+  // Ceremony watchdog: fires if the vault isn't created in time (a peer never joined, a
+  // message was lost) — surfaces an error instead of hanging on "Criando…" forever (§8).
+  const ceremonyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const addLog = useCallback((line: string) => setLog((l) => [...l, line]), [])
 
@@ -121,7 +124,11 @@ export default function NetVault() {
   // Seat everyone deterministically by sorting their tags — every device computes the same
   // seating with no central assigner (the invite code names the room, not the seats).
   const computeSeating = useCallback(() => {
-    const tags = [...rosterRef.current.keys()].sort()
+    // Admission control: cap the roster at n by sorted tag, so a late/extra peer can never
+    // shift everyone else's seats (which would misroute round-2 packages). Beyond n, this
+    // device is unseated (mySeat = 0) and shows "room full" instead of corrupting the vault.
+    const n = configRef.current?.n ?? 2
+    const tags = [...rosterRef.current.keys()].sort().slice(0, n)
     seatByTagRef.current = new Map(tags.map((tag, i) => [tag, i + 1]))
     seatTableRef.current = tags.map((tag, i) => ({
       tag,
@@ -129,6 +136,9 @@ export default function NetVault() {
       id: identifierBytes(i + 1),
     }))
     mySeatRef.current = seatByTagRef.current.get(myTagRef.current) ?? 0
+    if (mySeatRef.current === 0) {
+      setError('Esta sala já está cheia (o cofre tem o número de dispositivos definido). Gere um novo convite.')
+    }
   }, [])
 
   const doPart2 = useCallback(async () => {
@@ -153,6 +163,7 @@ export default function NetVault() {
     const dkg = dkgRef.current!
     dkg.part3()
     part3DoneRef.current = true
+    if (ceremonyTimerRef.current) clearTimeout(ceremonyTimerRef.current)
     setGroupVk(hex(dkg.groupVk()))
     setPhase('done')
     addLog('round 3: combinei tudo — meu pedaço da chave ficou aqui, o cofre nasceu')
@@ -389,6 +400,11 @@ export default function NetVault() {
         const sess = new RelaySession(code, myTagRef.current, onMessage, (p) => setPeers(p))
         sessionRef.current = sess
         sess.start()
+        ceremonyTimerRef.current = setTimeout(() => {
+          if (!part3DoneRef.current) {
+            setError('A cerimônia não completou a tempo. Confira se todos os dispositivos entraram na sala e recarregue para refazer.')
+          }
+        }, 90000)
         // The creator declares the group size/threshold; everyone announces their enc key.
         if (asRole === 'create') {
           configRef.current = { n: total, t: threshold }
@@ -408,7 +424,10 @@ export default function NetVault() {
   )
 
   useEffect(() => {
-    return () => sessionRef.current?.stop()
+    return () => {
+      sessionRef.current?.stop()
+      if (ceremonyTimerRef.current) clearTimeout(ceremonyTimerRef.current)
+    }
   }, [])
 
   // ---- render ----
