@@ -49,9 +49,9 @@ export default function Ledger() {
   const totalPending = pending.reduce((acc, p) => acc + Number(p.value_zec), 0)
   // Period from the entries' real creation dates.
   const dates = ledger.map((p) => p.created_at).filter(Boolean) as number[]
-  const period = dates.length
-    ? `${fmtDate(Math.min(...dates))} – ${fmtDate(Math.max(...dates))}`
-    : '—'
+  const lo = dates.length ? Math.min(...dates) : 0
+  const hi = dates.length ? Math.max(...dates) : 0
+  const period = !dates.length ? '—' : lo === hi ? fmtDate(lo) : `${fmtDate(lo)} - ${fmtDate(hi)}`
   const filtered = ledger.filter((p) => {
     const stOk = fState === 'all' || (fState === 'settled' ? SETTLED(p.state) : p.state === 'awaiting' || p.state === 'ready')
     const knOk = fKind === 'all' || p.kind === fKind

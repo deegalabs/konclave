@@ -14,7 +14,7 @@ type Movimento = { date: string; title: string; by?: string; value: string; dir:
 
 // Offline placeholder (only shown in the hosted mock showcase; the live app uses the ledger).
 const MOVIMENTOS_MOCK: Movimento[] = [
-  { date: '28/04', title: 'Folha de abril — 8 pagamentos', by: 'prop. Ana · aprov. Ana, Bruno', value: '−4.2000', dir: 'out', status: 'verificar' },
+  { date: '28/04', title: 'Folha de abril · 8 pagamentos', by: 'prop. Ana · aprov. Ana, Bruno', value: '−4.2000', dir: 'out', status: 'verificar' },
   { date: '22/04', title: 'Doação recebida', by: 'de contribuinte anônimo', value: '+1.0000', dir: 'in', status: 'confirmado' },
 ]
 

@@ -133,7 +133,7 @@
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 13px;
   line-height: 1.5;
-  color: var(--success, #57d08a);
+  color: var(--silver, #c6cfd9);
   background: var(--surface-0, #0f141a);
   border: 1px solid var(--success-line, rgba(87, 208, 138, 0.35));
   border-radius: 12px;
@@ -156,7 +156,7 @@
   font-size: 12.5px;
   color: var(--text-muted, #8a95a3);
 }
-.net-log-row span { color: var(--accent, #57a6ff); margin-right: 6px; }
+.net-log-row span { color: var(--text-muted, #8a95a3); margin-right: 6px; }
 
 .net-error {
   background: rgba(224, 84, 76, 0.12);

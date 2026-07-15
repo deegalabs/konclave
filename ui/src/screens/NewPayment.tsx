@@ -19,7 +19,7 @@ export default function NewPayment() {
   const nav = useNavigate()
   const [to, setTo] = useState('')
   const [value, setValue] = useState('0.5')
-  const [memo, setMemo] = useState('adiantamento maio')
+  const [memo, setMemo] = useState('')
   const [threshold, setThreshold] = useState(2)
   const [available, setAvailable] = useState<string | null>(null)
   const [benefs, setBenefs] = useState<Beneficiary[]>([])

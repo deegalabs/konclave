@@ -13,7 +13,7 @@
 .lp-top-right{display:flex; align-items:center; gap:12px; flex-wrap:wrap; justify-content:flex-end}
 .lp-env{font-family:var(--font-mono); font-size:11px; color:var(--text-muted); border:1px solid var(--line); border-radius:var(--radius-pill); padding:6px 13px; background:var(--surface-1)}
 @media(max-width:560px){.lp-env{display:none}}
-.lp-env b{color:var(--success); font-weight:500}
+.lp-env b{color:var(--text); font-weight:500}
 
 /* buttons */
 .lp-btn{display:inline-flex; align-items:center; gap:9px; font-weight:600; font-size:14.5px; padding:13px 22px;

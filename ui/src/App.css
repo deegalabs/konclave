@@ -64,7 +64,7 @@
 .unit{font-family:var(--font-mono); font-size:16px; color:var(--text-muted); letter-spacing:.14em}
 .breakdown{display:flex; gap:34px; font-family:var(--font-mono); font-size:12.5px; color:var(--text-muted)}
 .breakdown b{color:var(--text); font-weight:500}
-.breakdown .pd b{color:var(--success)}
+.breakdown .pd b{color:var(--silver)}
 .receive{display:flex; align-items:center; gap:14px; margin-top:22px; padding-top:18px; border-top:1px solid var(--line)}
 .receive code{font-family:var(--font-mono); font-size:12.5px; background:var(--surface-2); border:1px solid var(--line); padding:6px 10px}
 .orchard{margin-left:auto; font-family:var(--font-mono); font-size:11px; letter-spacing:.06em; color:var(--accent); display:flex; align-items:center; gap:7px}

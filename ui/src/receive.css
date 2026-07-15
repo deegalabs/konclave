@@ -61,7 +61,7 @@
   padding: 12px 14px;
   word-break: break-all;
 }
-.rcv-uri { color: var(--accent, #57a6ff); }
+.rcv-uri { color: var(--silver, #c6cfd9); }
 
 .rcv-input {
   width: 100%;

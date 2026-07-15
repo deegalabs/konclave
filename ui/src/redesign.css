@@ -66,7 +66,7 @@
 
 .rd-recv { margin-top: 13px; font-family: var(--font-mono); font-size: 11px; }
 .rd-recv .lab { color: #737d8a; }
-.rd-recv .val { color: #7fb4ec; }
+.rd-recv .val { color: var(--silver); }
 
 .rd-enter {
   margin-top: 16px; display: inline-flex; align-items: center; gap: 6px;
