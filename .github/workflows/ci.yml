@@ -84,3 +84,18 @@ jobs:
         run: npm run test
       - name: Type-check + build (tsc -b && vite build)
         run: npm run build
+
+  node-packages:
+    name: Node packages (mcp-server · sdk)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: mcp-server (install + type-check)
+        working-directory: mcp-server
+        run: npm ci && npx tsc --noEmit
+      - name: sdk (install + type-check)
+        working-directory: sdk
+        run: npm ci && npx tsc --noEmit
