@@ -1656,6 +1656,39 @@ fn send_proposal(cfg: &Config, id: &str, body: &[u8]) -> Response {
             }),
         );
     }
+    // Vault-binding guard: this server drives ONE ceremony, configured for a single vault
+    // (sc.group). A proposal from a DIFFERENT vault must never be signed from the configured
+    // wallet — refuse explicitly instead of silently spending the wrong vault's funds. This
+    // turns the "sending from a fresh DKG vault is not wired" debt into a clear error rather
+    // than a dangerous silent mis-send.
+    match store.get_vault(&rec.vault_id) {
+        Ok(Some(v)) if v.group_pubkey.eq_ignore_ascii_case(&sc.group) => {}
+        Ok(Some(v)) => {
+            return Response::json(
+                409,
+                &serde_json::json!({
+                    "error": "vault not signable here",
+                    "detail": format!(
+                        "this server's signing ceremony is configured for a different vault; sending from vault '{}' is not wired on this server",
+                        v.id
+                    )
+                }),
+            )
+        }
+        Ok(None) => {
+            return Response::json(
+                404,
+                &serde_json::json!({"error": "no vault", "detail": "the proposal's vault is unknown on this device"}),
+            )
+        }
+        Err(e) => {
+            return Response::json(
+                500,
+                &serde_json::json!({"error": "store", "detail": e.to_string()}),
+            )
+        }
+    }
+
     // Build the spend plan: a single payment (CLI) or a payroll (multi-output builder).
     let plan = match rec.kind {
         ProposalKind::Payment => {
@@ -3133,16 +3166,64 @@ mod tests {
     // ---- send guards (the ceremony itself is validated live, not in unit tests) ----
 
     fn dummy_ceremony() -> crate::send::SendConfig {
-        serde_json::from_str(
-            r#"{"devtool":"/x","wallet_dir":"/w","lightwalletd":"z:443","account":"a",
+        // The group MUST match the seeded vault (SLICE_GROUP) so the vault-binding guard in
+        // send_proposal passes and the ceremony is actually attempted.
+        serde_json::from_str(&format!(
+            r#"{{"devtool":"/x","wallet_dir":"/w","lightwalletd":"z:443","account":"a",
                 "konclave_signer":"/ks","frostd":"/fd","frost_client":"/fc",
-                "members":[{"name":"Alice","pubkey":"aa","config":"a.toml"},
-                           {"name":"Bob","pubkey":"bb","config":"b.toml"},
-                           {"name":"Carol","pubkey":"cc","config":"c.toml"}],
-                "threshold":2,"group":"gg","frostd_cert":"c.pem","frostd_key":"k.pem",
-                "server_url":"127.0.0.1:2744","work_dir":"/tmp/w"}"#,
-        )
+                "members":[{{"name":"Alice","pubkey":"aa","config":"a.toml"}},
+                           {{"name":"Bob","pubkey":"bb","config":"b.toml"}},
+                           {{"name":"Carol","pubkey":"cc","config":"c.toml"}}],
+                "threshold":2,"group":"{SLICE_GROUP}","frostd_cert":"c.pem","frostd_key":"k.pem",
+                "server_url":"127.0.0.1:2744","work_dir":"/tmp/w"}}"#,
+        ))
         .unwrap()
+    }
+
+    #[test]
+    fn send_refuses_a_proposal_from_a_vault_the_ceremony_is_not_configured_for() {
+        use crate::proposal::{ProposalState, Quorum};
+        use crate::store::{ProposalRecord, VaultRecord};
+        let db = tmp_db();
+        let mut store = Store::open(&db).unwrap();
+        seed_demo(&mut store).unwrap();
+        // A second vault with a DIFFERENT group key than the configured ceremony (SLICE_GROUP).
+        store
+            .save_vault(&VaultRecord {
+                id: "vault-other".into(),
+                name: "Other".into(),
+                quorum: Quorum::new(2, 3).unwrap(),
+                group_pubkey: "00".repeat(32), // != SLICE_GROUP
+                orchard_address: SLICE_ADDRESS.into(),
+                ufvk: "u".into(),
+                server_url: None,
+            })
+            .unwrap();
+        // A Ready proposal on that other vault.
+        store
+            .save_proposal(&ProposalRecord {
+                id: "p-other".into(),
+                vault_id: "vault-other".into(),
+                kind: ProposalKind::Payment,
+                state: ProposalState::Ready,
+                proposer: "Alice".into(),
+                value_total: Zatoshis::from_u64(1000).unwrap(),
+                memo: None,
+                to_address: Some(SLICE_ADDRESS.into()),
+                expiry_unix: None,
+                txid: None,
+                created_at: Some(0),
+                approvals: vec!["Alice".into(), "Bob".into()],
+                refusals: vec![],
+            })
+            .unwrap();
+        drop(store);
+        let mut cfg = cfg_with(db, None);
+        cfg.ceremony = Some(dummy_ceremony()); // configured for SLICE_GROUP, not vault-other
+
+        let s = handle(&cfg, "POST", "/api/proposals/p-other/send", br#"{"dry_run":false}"#);
+        assert_eq!(s.status, 409, "a send from a vault the ceremony isn't configured for must be refused");
+        assert_eq!(body_json(&s)["error"], "vault not signable here");
     }
 
     #[test]
