@@ -12,6 +12,7 @@ export type Block =
   | { k: 'ul'; items: L[] }
   | { k: 'code'; t: string }
   | { k: 'note'; t: L }
+  | { k: 'img'; src: string; alt: L }
 
 export type Section = {
   id: string
@@ -120,6 +121,9 @@ export const SECTIONS: Section[] = [
         t:
           'Layer 3 . UI            Vite + React (vault, members, payment, payroll, proposal, ledger)\nLayer 2 . ORCHESTRATOR  Rust: state machine, validation (ZIP-317, addresses), payroll,\n                        sealed key custody, SQLite/SQLCipher store, the FROST-PCZT bridge\nLayer 1 . ENGINE        official Zcash Foundation tools:\n                        frostd, frost-client, zcash-sign, zcash-devtool, librustzcash',
       },
+      { k: 'h', t: { 'pt-BR': 'Diagramas', en: 'Diagrams' } },
+      { k: 'img', src: 'diagrams/system-overview.svg', alt: { 'pt-BR': 'Visão geral do sistema em três camadas', en: 'System overview in three layers' } },
+      { k: 'img', src: 'diagrams/quorum-payment.svg', alt: { 'pt-BR': 'Fluxo do pagamento por quórum: propor, aprovar, assinar, transmitir', en: 'Quorum payment flow: propose, approve, sign, broadcast' } },
     ],
   },
   {
@@ -131,6 +135,13 @@ export const SECTIONS: Section[] = [
       en: 'The answer to "can I just use it on my phone?": the whole threshold stack runs in the browser, live over the internet, with no server ever seeing a secret.',
     },
     blocks: [
+      {
+        k: 'note',
+        t: {
+          'pt-BR': '**Experimente:** abra a [rede multi-dispositivo](#/net) em duas abas, ou rode a [assinatura FROST no navegador](#/signer).',
+          en: '**Try it:** open the [multi-device network](#/net) in two tabs, or run the [browser FROST signer](#/signer).',
+        },
+      },
       {
         k: 'p',
         t: {
@@ -170,6 +181,7 @@ export const SECTIONS: Section[] = [
           en: 'Honest limit: in the browser the signature is real, but the signed message is a **test digest**, not yet a broadcast Orchard transaction. See the Roadmap.',
         },
       },
+      { k: 'img', src: 'diagrams/multi-device.svg', alt: { 'pt-BR': 'Fluxo multi-dispositivo pelo relay cego: DKG e assinatura entre abas', en: 'Multi-device flow over the blind relay: DKG and signing across tabs' } },
     ],
   },
   {
@@ -224,6 +236,7 @@ export const SECTIONS: Section[] = [
           },
         ],
       },
+      { k: 'img', src: 'diagrams/trust-boundary.svg', alt: { 'pt-BR': 'Fronteira de confiança: o que nunca sai do dispositivo, o que o relay vê, o que a rede vê', en: 'Trust boundary: what never leaves the device, what the relay sees, what the chain sees' } },
     ],
   },
   {

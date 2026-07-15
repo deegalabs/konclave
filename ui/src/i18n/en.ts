@@ -146,6 +146,8 @@ export const en: Record<string, string> = {
   'landing.sub': 'A group looks after a fund **together**: create the vault, approve payments by quorum and run a private payroll. **Private outside, transparent inside.** No command line, no pasting codes, no trusting a single person.',
   'landing.ctaHow': 'See how it works',
   'landing.ctaVaults': 'My vaults',
+  'landing.navNet': 'Network',
+  'landing.navSigner': 'Signer',
   'landing.heroTrust': 'Built on the official Zcash Foundation tools · no telemetry',
   'landing.whyEyebrow': 'Why Konclave',
   'landing.whyTitle': 'Shared custody and real privacy, usable by an ordinary treasurer.',

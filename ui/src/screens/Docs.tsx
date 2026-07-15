@@ -7,9 +7,11 @@ import '../docs.css'
 
 // Inline formatter: renders **bold** and `code` spans inside a plain string.
 function rich(s: string): ReactNode[] {
-  return s.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).map((p, i) => {
+  return s.split(/(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)]+\))/g).map((p, i) => {
     if (p.startsWith('**') && p.endsWith('**')) return <strong key={i}>{p.slice(2, -2)}</strong>
     if (p.startsWith('`') && p.endsWith('`')) return <code key={i}>{p.slice(1, -1)}</code>
+    const m = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(p)
+    if (m) return <a key={i} className="docs-link" href={m[2]}>{m[1]}</a>
     return <span key={i}>{p}</span>
   })
 }
@@ -30,6 +32,13 @@ function renderBlock(b: Block, loc: Locale, i: number): ReactNode {
       return <pre key={i} className="docs-code"><code>{b.t}</code></pre>
     case 'note':
       return <aside key={i} className="docs-note">{rich(b.t[loc])}</aside>
+    case 'img':
+      return (
+        <figure key={i} className="docs-fig">
+          <div className="docs-fig-scroll"><img src={b.src} alt={b.alt[loc]} loading="lazy" /></div>
+          <figcaption>{b.alt[loc]}</figcaption>
+        </figure>
+      )
   }
 }
 
