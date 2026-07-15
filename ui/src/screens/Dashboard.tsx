@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Dialog, Seal, Secret, RevealButton } from '../components'
+import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
 import { fmtZec as fmt4, expiryLabel, fmtDate } from '../format'
 import { useT, useTr } from '../i18n'
 import {
   getVault, getProposals, getBalance, getLedger, health, shortAddr, isVaultUnlocked,
-  deleteVault, clearSelectedVault,
+  deleteVault, clearSelectedVault, IS_DEMO,
   type Vault, type Proposal, type Balance,
 } from '../api'
 
@@ -40,7 +41,7 @@ export default function Dashboard() {
       const ok = await health()
       if (!on) return
       setLive(ok)
-      if (!ok) return
+      if (!ok && !IS_DEMO) return
       const v = await getVault()
       if (!on) return
       // Locked vault not unlocked this session → send back to unlock (§ passphrase).
@@ -85,7 +86,7 @@ export default function Dashboard() {
   const pExpiry = pending ? expiryLabel(pending.expiry_unix, t) : t('expiry.hours', { h: 71 })
 
   // Movements — the real ledger when live; the mock only in the offline showcase.
-  const movs: Movimento[] | null = isLive && ledger
+  const movs: Movimento[] | null = ledger && ledger.length
     ? ledger.slice(0, 6).map((p) => ({
         date: fmtDate(p.created_at),
         title: p.memo || (p.kind === 'payroll' ? t('kind.payroll') : t('kind.payment')),
@@ -113,18 +114,16 @@ export default function Dashboard() {
   return (
     <>
       <main className="page dash">
-        <div className="title-row">
-          <div>
-            <span className="klab">{t('dashboard.collectiveVault')}</span>
-            <h1 className="h1">{name}</h1>
-            <div className="vmeta">
-              {tr('dashboard.vmetaPre')} · <Link className="link" to="/members">{t('dashboard.membersCount', { n: members })}</Link>
-              {live === true && <span className="livetag" title={t('dashboard.liveTitle')} aria-live="polite">{t('dashboard.live')}</span>}
-              {live === false && <span className="livetag off" title={t('dashboard.demoTitle')} aria-live="polite">{t('dashboard.demo')}</span>}
-            </div>
-          </div>
-          <Seal t={thr} n={n} />
-        </div>
+        <PageHeader
+          eyebrow={t('dashboard.collectiveVault')}
+          title={name}
+          subtitle={<>
+            {tr('dashboard.vmetaPre')} · <Link className="link" to="/members">{t('dashboard.membersCount', { n: members })}</Link>
+            {live === true && <span className="livetag" title={t('dashboard.liveTitle')} aria-live="polite">{t('dashboard.live')}</span>}
+            {live === false && <span className="livetag off" title={t('dashboard.demoTitle')} aria-live="polite">{t('dashboard.demo')}</span>}
+          </>}
+          actions={<Seal t={thr} n={n} />}
+        />
 
         {/* 1 · O que precisa de você — a ação primeiro */}
         {showApprovalCard ? (

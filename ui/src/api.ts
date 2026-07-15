@@ -6,6 +6,7 @@
 // resilient if the local daemon is momentarily down).
 
 import type { TFn } from './i18n'
+import { MOCK } from './mock'
 
 export type Member = { name: string; pubkey: string }
 
@@ -55,6 +56,14 @@ export type Balance = {
 
 const ENV = import.meta.env as Record<string, string | undefined>
 const BASE: string = ENV.VITE_API_BASE ?? ''
+
+// Hosted-demo mode (Vercel, no backend). When set, reads that fail (they all do without a
+// bridge) fall back to a coherent mock dataset so every screen renders fully populated.
+// `health()` is deliberately NOT affected, so the "demo/offline" pill still shows.
+const DEMO = ENV.VITE_DEMO === '1'
+/** True in the hosted demo build: screens should load api data (which falls back to
+ *  the coherent mock) even though `health()` is false. */
+export const IS_DEMO = DEMO
 
 // Per-session CSRF token, injected into index.html by the local bridge (window.__KONCLAVE_SESSION__).
 // Sent back on state-changing requests so a cross-site page cannot drive the vault. Reads are
@@ -112,16 +121,16 @@ export async function health(): Promise<boolean> {
 
 export async function getVault(): Promise<Vault | null> {
   const r = await getJson<{ vault: Vault | null }>(withVault('/api/vault'))
-  return r?.vault ?? null
+  return r?.vault ?? (DEMO ? MOCK.vault : null)
 }
 
 export async function getProposals(): Promise<Proposal[] | null> {
   const r = await getJson<{ proposals: Proposal[] }>(withVault('/api/proposals'))
-  return r?.proposals ?? null
+  return r?.proposals ?? (DEMO ? MOCK.proposals : null)
 }
 
 export async function getBalance(): Promise<Balance | null> {
-  return getJson<Balance>(withVault('/api/balance'))
+  return (await getJson<Balance>(withVault('/api/balance'))) ?? (DEMO ? MOCK.balance : null)
 }
 
 /** Shorten an address for display: `u1vjgx…d406dr`. */
@@ -145,6 +154,25 @@ export type CreateResult =
 
 /** POST a new payment proposal. Returns a typed success or a readable error. */
 export async function createProposal(input: NewProposal): Promise<CreateResult> {
+  if (DEMO) {
+    const proposal: Proposal = {
+      id: `demo-${Date.now()}`,
+      vault_id: 'demo',
+      kind: 'payment',
+      state: 'awaiting',
+      proposer: input.proposer,
+      value_zat: Math.round((parseFloat(input.value_zec) || 0) * 1e8),
+      value_zec: input.value_zec,
+      memo: input.memo,
+      to_address: input.to_address,
+      is_public: classifyAddress(input.to_address) !== 'unified',
+      created_at: Math.floor(Date.now() / 1000),
+      approvals: [input.proposer],
+      refusals: [],
+      approvals_count: 1,
+    }
+    return { ok: true, proposal }
+  }
   try {
     const res = await fetch(`${BASE}${withVault('/api/proposals')}`, {
       method: 'POST',
@@ -206,13 +234,13 @@ export function humanError(t: TFn, error?: string, detail?: string): string {
 /** Every vault known to this device (for the "Meus cofres" home). */
 export async function getVaults(): Promise<Vault[] | null> {
   const r = await getJson<{ vaults: Vault[] }>('/api/vaults')
-  return r?.vaults ?? null
+  return r?.vaults ?? (DEMO ? MOCK.vaults : null)
 }
 
 /** The full ledger (all proposals, terminal states included) for the Razão screen. */
 export async function getLedger(): Promise<Proposal[] | null> {
   const r = await getJson<{ ledger: Proposal[] }>(withVault('/api/ledger'))
-  return r?.ledger ?? null
+  return r?.ledger ?? (DEMO ? MOCK.ledger : null)
 }
 
 /** URL of the CSV export the browser downloads (handed to the accountant). */
@@ -223,7 +251,7 @@ export function ledgerCsvUrl(): string {
 /** A single proposal by id (proposal detail screen). */
 export async function getProposal(id: string): Promise<Proposal | null> {
   const r = await getJson<{ proposal: Proposal }>(`/api/proposals/${encodeURIComponent(id)}`)
-  return r?.proposal ?? null
+  return r?.proposal ?? (DEMO ? MOCK.proposalById(id) : null)
 }
 
 // ---- payroll ----
@@ -346,7 +374,7 @@ export type Beneficiary = { id: string; name: string; address: string; memo: str
 
 export async function getBeneficiaries(): Promise<Beneficiary[] | null> {
   const r = await getJson<{ beneficiaries: Beneficiary[] }>(withVault('/api/beneficiaries'))
-  return r?.beneficiaries ?? null
+  return r?.beneficiaries ?? (DEMO ? MOCK.beneficiaries : null)
 }
 
 export async function addBeneficiary(
@@ -380,7 +408,7 @@ export async function getProposalDetail(
   id: string,
 ): Promise<{ proposal: Proposal; lines: PayrollLine[] } | null> {
   const r = await getJson<{ proposal: Proposal; lines: PayrollLine[] }>(`/api/proposals/${encodeURIComponent(id)}`)
-  if (!r?.proposal) return null
+  if (!r?.proposal) return DEMO ? MOCK.proposalDetail(id) : null
   return { proposal: r.proposal, lines: r.lines ?? [] }
 }
 
@@ -421,6 +449,15 @@ export async function voteProposal(
   member: string,
   approve: boolean,
 ): Promise<CreateResult> {
+  if (DEMO) {
+    const base = MOCK.proposalById(id)
+    if (!base) return { ok: false, error: 'not found' }
+    const approvals = approve && !base.approvals.includes(member) ? [...base.approvals, member] : base.approvals
+    const refusals = !approve && !base.refusals.includes(member) ? [...base.refusals, member] : base.refusals
+    const approvals_count = approvals.length
+    const state = approve && approvals_count >= MOCK.vault.threshold ? 'ready' : base.state
+    return { ok: true, proposal: { ...base, approvals, refusals, approvals_count, state } }
+  }
   try {
     const res = await fetch(`${BASE}/api/proposals/${encodeURIComponent(id)}/${approve ? 'approve' : 'refuse'}`, {
       method: 'POST',

@@ -1,14 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Secret, activateOnKey } from '../components'
+import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
 import { getProposals, getVault, health, type Proposal } from '../api'
 import { expiryLabel, fmtZec } from '../format'
 import { useT, useTr } from '../i18n'
-
-const MOCK: Proposal[] = [
-  { id: 'm1', vault_id: '', kind: 'payment', state: 'awaiting', proposer: 'Bruno', value_zat: 30000, value_zec: '0.0003', memo: 'adiantamento maio', is_public: false, approvals: ['Bruno'], refusals: [], approvals_count: 1, expiry_unix: undefined },
-]
 
 export default function Proposals() {
   const t = useT()
@@ -25,10 +22,10 @@ export default function Proposals() {
       const ok = await health()
       if (!on) return
       setLive(ok)
-      const [ps, v] = await Promise.all([ok ? getProposals() : null, ok ? getVault() : null])
+      const [ps, v] = await Promise.all([getProposals(), getVault()])
       if (!on) return
       if (v) setThreshold(v.threshold)
-      setRows(ps && ps.length ? ps : (ok ? [] : MOCK))
+      setRows(ps ?? [])
       setLoaded(true)
     })()
     return () => { on = false }
@@ -63,8 +60,7 @@ export default function Proposals() {
   return (
     <>
       <main className="page narrow">
-        <h1 className="h1">{t('proposals.title')}</h1>
-        <p className="cap">{t('proposals.cap')} {live ? '' : t('proposals.demoMode')}</p>
+        <PageHeader title={t('proposals.title')} subtitle={<>{t('proposals.cap')} {live ? '' : t('proposals.demoMode')}</>} />
 
         {ready.length > 0 && (
           <>
