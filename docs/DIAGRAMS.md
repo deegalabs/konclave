@@ -9,45 +9,19 @@ material** (commitments, signing packages, signatures) crosses the wire freely, 
 
 ```mermaid
 flowchart TB
-  subgraph Devices["Member devices, the share never leaves"]
-    A["Alice, share 1"]
-    B["Bob, share 2"]
-    C["Carol, share 3"]
-  end
+  A["Member devices: Alice, Bob, Carol. The share never leaves the device"]
+  UI["Layer 3, UI (Vite + React): Dashboard, Payment, Payroll, Proposal, Ledger, /net, /signer"]
+  Orch["Layer 2, Orchestrator (Rust): state machine, validation, store (SQLCipher), sealed custody, FROST-to-PCZT bridge"]
+  Eng["Layer 1, Engine (Zcash Foundation): frostd, frost-client, zcash-sign, zcash-devtool, librustzcash"]
+  Relay["Blind relay (loopback and hosted)"]
+  Chain["Zcash mainnet (Orchard, shielded)"]
 
-  subgraph L3["Layer 3, UI (Vite + React)"]
-    Dash["Dashboard"]
-    Pay["Payment and Payroll"]
-    Prop["Proposal and Ledger"]
-    Net["/net, multi-device vault"]
-    Signer["/signer, browser FROST"]
-  end
-
-  subgraph L2["Layer 2, Orchestrator (Rust)"]
-    SM["Proposal state machine"]
-    Val["Validation, ZIP-317 and address"]
-    Store["Store, SQLite with SQLCipher"]
-    Sec["Sealed key custody"]
-    Bridge["FROST to PCZT bridge"]
-  end
-
-  subgraph L1["Layer 1, Engine (Zcash Foundation)"]
-    Frostd["frostd"]
-    FClient["frost-client"]
-    Sign["zcash-sign"]
-    Devtool["zcash-devtool, PCZT"]
-    Lib["librustzcash"]
-  end
-
-  Relay["Blind relay, loopback and hosted"]
-  Chain["Zcash mainnet, Orchard shielded"]
-
-  Devices --> L3
-  L3 -->|"structured JSON, loopback only"| L2
-  L2 --> L1
-  L1 -->|"broadcast"| Chain
-  Net <-.->|"public or encrypted bytes only"| Relay
-  Relay <-.-> Devices
+  A --> UI
+  UI -->|"JSON, loopback only"| Orch
+  Orch --> Eng
+  Eng -->|"broadcast"| Chain
+  UI -.->|"public or encrypted bytes"| Relay
+  A -.-> Relay
 ```
 
 ## 2. Create a vault by Distributed Key Generation
@@ -68,14 +42,12 @@ sequenceDiagram
   B->>R: hello (enc pubkey)
   A->>R: round-1 package (public, broadcast)
   B->>R: round-1 package (public, broadcast)
-  Note over A,B: part2 produces one secret round-2 package per recipient
+  Note over A,B: part2 makes one secret round-2 package per recipient
   A->>R: round-2 package for Bob (sealed to Bob)
   B->>R: round-2 package for Alice (sealed to Alice)
   Note over A,B: part3 combines everything locally
-  A-->>A: KeyPackage (share A) + group key
-  B-->>B: KeyPackage (share B) + group key
   A->>Z: group verifying key
-  Z-->>A: Orchard address + UFVK
+  Z->>A: Orchard address and UFVK
   Note over A,B: same group key on both, the whole key never existed
 ```
 
@@ -91,30 +63,29 @@ sequenceDiagram
   participant C as Zcash mainnet
 
   U->>O: propose payment (to, amount, memo)
-  O->>O: validate address (zcash_address), amount, balance
-  O-->>U: Awaiting (proposer counts as first approval)
+  Note over O: validate address, amount, balance
+  O->>U: Awaiting (proposer is first approval)
   M->>O: approve
-  O->>O: quorum reached -> Ready
+  Note over O: quorum reached, state becomes Ready
   U->>O: send (explicit confirmation)
-  O->>O: vault-binding guard (proposal vault == ceremony vault)
-  O->>E: PCZT create, prove
-  E->>E: FROST ceremony over frostd (shares of who approved)
-  E->>E: inject signature into PCZT, finalize
-  E->>C: broadcast (Orchard shielded)
-  C-->>O: txid
-  O-->>U: Sent, txid recorded in the ledger
+  Note over O: vault-binding guard, proposal vault must match the ceremony
+  O->>E: PCZT create and prove
+  Note over E: FROST ceremony over frostd, shares of who approved
+  E->>C: inject signature, finalize, broadcast (Orchard)
+  C->>O: txid
+  O->>U: Sent, txid recorded in the ledger
 ```
 
 ## 4. Private payroll (N outputs, one approval)
 
 ```mermaid
 flowchart LR
-  CSV["CSV, label, address, amount, memo"] --> Parse["Parse and validate each line"]
+  CSV["CSV: label, address, amount, memo"] --> Parse["Parse and validate each line"]
   Parse --> Plan["Payroll plan, N outputs"]
   Plan --> Prop["One proposal, approved once"]
   Prop --> Quorum{"Quorum reached?"}
   Quorum -->|no| Wait["Awaiting"]
-  Quorum -->|yes| Build["Multi-output Orchard builder, zcash_client_backend"]
+  Quorum -->|yes| Build["Multi-output Orchard builder (zcash_client_backend)"]
   Build --> Sign["FROST ceremony, one signature per real spend"]
   Sign --> Tx["One shielded transaction, N encrypted memos"]
   Tx --> Ledger["Itemized ledger, N line-items, CSV export"]
@@ -130,7 +101,7 @@ sequenceDiagram
   participant HR as Hosted blind relay (Railway)
 
   TA->>HR: create room, config (n, t), hello
-  TA-->>TA: show invite code
+  Note over TA: show the invite code
   TB->>HR: join with code, hello
   Note over TA,TB: seating is deterministic (sorted tags)
   TA->>HR: DKG round 1 (public)
@@ -141,7 +112,7 @@ sequenceDiagram
   TA->>HR: sign request (test digest)
   TA->>HR: commitment (round 1)
   TB->>HR: commitment (round 1)
-  TA->>HR: signing package + seed
+  TA->>HR: signing package and seed
   TA->>HR: signature share (round 2)
   TB->>HR: signature share (round 2)
   Note over TA,TB: aggregate, each device verifies the group signature itself
@@ -164,10 +135,10 @@ sequenceDiagram
   H1->>R: delta for H2 (sealed)
   H2->>R: delta for H1 (sealed)
   Note over H1,H2: each helper sums received deltas into a sigma (part 2)
-  H1->>R: sigma (sealed to member)
-  H2->>R: sigma (sealed to member)
-  M->>M: combine sigmas into the repaired KeyPackage (part 3)
-  M->>M: validate against the group public share, reject if mismatch
+  H1->>R: sigma (sealed to the member)
+  H2->>R: sigma (sealed to the member)
+  R->>M: sigmas
+  Note over M: combine into the repaired KeyPackage (part 3), validate vs the group share
   Note over M: the repaired share signs a verifying quorum again
 ```
 
@@ -176,12 +147,11 @@ sequenceDiagram
 ```mermaid
 stateDiagram-v2
   [*] --> Awaiting: propose (proposer is first approval)
-  Awaiting --> Awaiting: approve (below quorum)
   Awaiting --> Ready: approve (quorum reached)
   Awaiting --> Refused: refusal makes quorum unreachable
   Awaiting --> Expired: past the expiry window
   Ready --> Sent: sign (FROST) and broadcast
-  Ready --> Refused: refusal (still possible before send)
+  Ready --> Refused: refusal before send
   Refused --> [*]
   Expired --> [*]
   Sent --> [*]
@@ -192,51 +162,31 @@ stateDiagram-v2
 ```mermaid
 stateDiagram-v2
   [*] --> Active: policy armed (lapse window, grace, heir)
-  Active --> Active: proof-of-life heartbeat (resets the clock)
   Active --> Pending: silence past the lapse window
   Pending --> Active: heartbeat within the grace period
   Pending --> Released: silence past lapse plus grace
-  Released --> [*]: quorum may release to the heir
-  note right of Released
-    release is an ordinary quorum-signed payment
-  end note
+  Released --> [*]: quorum releases to the heir (an ordinary quorum-signed payment)
 ```
 
 ## 9. Deployment topology
 
 ```mermaid
 flowchart LR
-  Dev["Developer, git push to main"] --> GH["GitHub, deegalabs/konclave"]
-  GH --> CI["CI, fmt + clippy + tests, 4 Rust crates + wasm build + UI"]
-  GH -->|"auto-deploy"| Vercel["Vercel, UI demo (konclave-demo.vercel.app)"]
-  GH -.->|"native connect, docs/DEPLOY.md"| Railway["Railway, blind relay (relay-server)"]
+  Dev["Developer: git push to main"] --> GH["GitHub: deegalabs/konclave"]
+  GH --> CI["CI: fmt, clippy, tests (4 Rust crates), wasm build, UI"]
+  GH -->|"auto-deploy"| Vercel["Vercel: UI demo (konclave-demo.vercel.app)"]
+  GH -.->|"native connect, see DEPLOY.md"| Railway["Railway: blind relay (relay-server)"]
   Vercel -->|"/net posts opaque bytes"| Railway
-  subgraph Local["Local, the real mainnet path"]
-    Bridge["konclave serve, loopback bridge"]
-    EngineBins["Engine binaries, per engine/versions.lock"]
-  end
-  Bridge --> EngineBins --> Mainnet["Zcash mainnet"]
+  Bridge["Local: konclave serve (loopback bridge)"] --> EngineBins["Engine binaries (engine/versions.lock)"]
+  EngineBins --> Mainnet["Zcash mainnet (the real path)"]
 ```
 
 ## 10. The trust boundary, at a glance
 
 ```mermaid
-flowchart TB
-  subgraph Secret["Never leaves the device"]
-    Share["FROST share"]
-    Nonce["Signing nonces"]
-  end
-  subgraph Relay["The relay sees (blind)"]
-    Pub["Public FROST material"]
-    Ct["Ciphertext, sealed round-2 and deltas"]
-    Meta["Metadata, room id, timing, sizes"]
-  end
-  subgraph Chain["Zcash mainnet sees"]
-    OneTx["One ordinary single-signer shielded tx"]
-  end
-  Share -.->|"produces, never transmitted"| Pub
-  Nonce -.->|"local only"| Pub
-  Pub --> OneTx
-  Ct --> Relay
-  Note1["The whole key is never reconstituted"]
+flowchart LR
+  Dev["The device: FROST share and signing nonces, never leave"] -->|"produces"| Pub["Public FROST material"]
+  Pub -->|"broadcast"| Tx["Mainnet sees one ordinary single-signer shielded tx"]
+  Dev -.->|"sealed round-2 and deltas"| Relay["Blind relay sees only ciphertext and metadata"]
+  Tx --> Key["The whole key is never reconstituted"]
 ```
