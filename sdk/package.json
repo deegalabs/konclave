@@ -1,0 +1,65 @@
+{
+  "name": "@konclave/frost",
+  "version": "0.1.0",
+  "description": "A reusable browser primitive for FROST threshold signatures on Zcash Orchard (rerandomized redpallas): real DKG, group signing, ECIES sealing, and RTS social recovery, with the secret share never leaving the device. A thin, typed wrapper over Konclave's WebAssembly core.",
+  "type": "module",
+  "license": "Apache-2.0 OR MIT",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "LICENSE-APACHE",
+    "LICENSE-MIT"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "zcash",
+    "frost",
+    "threshold",
+    "threshold-signatures",
+    "multisig",
+    "orchard",
+    "redpallas",
+    "dkg",
+    "distributed-key-generation",
+    "shielded",
+    "wasm",
+    "webassembly",
+    "cryptography"
+  ],
+  "author": "Deega Labs",
+  "homepage": "https://github.com/deegalabs/konclave",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/deegalabs/konclave.git",
+    "directory": "sdk"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "sideEffects": false,
+  "//": "This package wraps the compiled WebAssembly core published as `konclave-wasm` (the wasm-pkg artifact from ui/src/wasm-pkg). Install it alongside this SDK and pass the .wasm URL to init(). The large .wasm binary is intentionally NOT bundled here; see the README for how to obtain and point at it.",
+  "peerDependencies": {
+    "konclave-wasm": "^0.1.0"
+  },
+  "peerDependenciesMeta": {
+    "konclave-wasm": {
+      "optional": false
+    }
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}
