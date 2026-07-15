@@ -63,7 +63,14 @@ struct RelayState {
 
 impl RelayState {
     /// Route a `/api/relay/...` request → `(status, json_body)`.
-    fn handle(&self, method: &Method, path: &str, raw: &str, body: &[u8], now: i64) -> (u16, String) {
+    fn handle(
+        &self,
+        method: &Method,
+        path: &str,
+        raw: &str,
+        body: &[u8],
+        now: i64,
+    ) -> (u16, String) {
         let Some(room_id) = path.strip_prefix("/api/relay/") else {
             return (404, r#"{"error":"not found"}"#.into());
         };
@@ -112,11 +119,16 @@ impl RelayState {
             room.messages.drain(0..drop);
         }
         let peers = room.peers(now);
-        (200, serde_json::json!({ "seq": seq, "peers": peers }).to_string())
+        (
+            200,
+            serde_json::json!({ "seq": seq, "peers": peers }).to_string(),
+        )
     }
 
     fn get(&self, room_id: &str, raw: &str, now: i64) -> (u16, String) {
-        let since: u64 = query(raw, "since").and_then(|s| s.parse().ok()).unwrap_or(0);
+        let since: u64 = query(raw, "since")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
         let from = query(raw, "from");
         let mut rooms = self.rooms.lock().unwrap_or_else(|e| e.into_inner());
         prune(&mut rooms, now);
@@ -180,7 +192,10 @@ fn header(k: &str, v: &str) -> Header {
 fn with_cors<R: Read>(mut resp: Response<R>, json: bool) -> Response<R> {
     resp.add_header(header("Access-Control-Allow-Origin", "*"));
     resp.add_header(header("Access-Control-Allow-Methods", "GET, POST, OPTIONS"));
-    resp.add_header(header("Access-Control-Allow-Headers", "Content-Type, X-Konclave-Session"));
+    resp.add_header(header(
+        "Access-Control-Allow-Headers",
+        "Content-Type, X-Konclave-Session",
+    ));
     if json {
         resp.add_header(header("Content-Type", "application/json; charset=utf-8"));
     }
@@ -209,12 +224,19 @@ fn main() {
 
         let (status, body) = if path.starts_with("/api/relay/") {
             let mut buf = Vec::new();
-            if req.body_length().map(|n| n <= 2 * 1024 * 1024).unwrap_or(true) {
+            if req
+                .body_length()
+                .map(|n| n <= 2 * 1024 * 1024)
+                .unwrap_or(true)
+            {
                 let _ = req.as_reader().read_to_end(&mut buf);
             }
             state.handle(&method, &path, &url, &buf, now_unix())
         } else if path == "/" || path == "/health" {
-            (200, r#"{"status":"ok","service":"konclave-relay"}"#.to_string())
+            (
+                200,
+                r#"{"status":"ok","service":"konclave-relay"}"#.to_string(),
+            )
         } else {
             (404, r#"{"error":"not found"}"#.to_string())
         };

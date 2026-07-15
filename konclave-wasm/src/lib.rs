@@ -1,9 +1,11 @@
 //! Konclave browser-signer core (WS1 of the konclave.app plan).
 //!
 //! Assembles the three de-risked probes into ONE module the browser calls:
-//!   1. FROST-redpallas signing round   (wasm-signer-spike)
-//!   2. Orchard action verification     (wasm-orchard-probe)
-//!   3. ZIP-244 sig_digest recompute    (wasm-sighash-probe)
+//!
+//! 1. FROST-redpallas signing round (wasm-signer-spike)
+//! 2. Orchard action verification (wasm-orchard-probe)
+//! 3. ZIP-244 sig_digest recompute (wasm-sighash-probe)
+//!
 //! The point of this crate is that they **compile together** to wasm32 as a single
 //! wasm-bindgen module — the "package the core as WASM" milestone. The full stateful API
 //! (session handles, per-participant rounds over the wire) lands on top of this.
@@ -22,7 +24,7 @@ use reddsa::frost::redpallas as frost;
 pub fn frost_selftest() -> Result<String, String> {
     let mut rng = OsRng;
     let (shares, pubkeys) =
-        frost::keys::generate_with_dealer(3, 2, frost::keys::IdentifierList::Default, &mut rng)
+        frost::keys::generate_with_dealer(3, 2, frost::keys::IdentifierList::Default, rng)
             .map_err(|e| format!("keygen: {e}"))?;
     let key_packages: BTreeMap<_, _> = shares
         .into_iter()
@@ -245,7 +247,7 @@ pub mod ceremony {
                 3,
                 2,
                 frost::keys::IdentifierList::Default,
-                &mut OsRng,
+                OsRng,
             )
             .unwrap();
             let kps: std::collections::BTreeMap<_, _> = shares
@@ -500,9 +502,14 @@ pub mod dkg {
 // the same blind relay as the DKG and the signing.
 pub mod recovery {
     use super::*;
-    use frost::keys::repairable::{repair_share_part1, repair_share_part2, repair_share_part3, Delta, Sigma};
+    use frost::keys::repairable::{
+        repair_share_part1, repair_share_part2, repair_share_part3, Delta, Sigma,
+    };
     use frost::keys::KeyPackage;
     use frost::Identifier;
+
+    /// One wire item: a 32-byte identifier label + serialized bytes (a delta or a package).
+    pub type WirePair = (Vec<u8>, Vec<u8>);
 
     /// A helper's round-1 output for repairing `lost`'s share: one Delta per helper (keyed by
     /// recipient). Takes the helper's own KeyPackage (what the DKG produced). Over the relay each
@@ -551,7 +558,7 @@ pub mod recovery {
         helpers: &[Identifier],
         helper_kp: &KeyPackage,
         lost: Identifier,
-    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>, String> {
+    ) -> Result<Vec<WirePair>, String> {
         let map = helper_deltas(helpers, helper_kp, lost)?;
         Ok(map
             .into_iter()
@@ -594,8 +601,7 @@ pub mod recovery {
         fn a_quorum_repairs_a_lost_share_and_it_still_signs() {
             let (n, t) = (3u16, 2u16);
             let (shares, pubkeys) =
-                frost::keys::generate_with_dealer(n, t, IdentifierList::Default, &mut OsRng)
-                    .unwrap();
+                frost::keys::generate_with_dealer(n, t, IdentifierList::Default, OsRng).unwrap();
             let kps: std::collections::BTreeMap<Identifier, KeyPackage> = shares
                 .into_iter()
                 .map(|(id, s)| (id, KeyPackage::try_from(s).unwrap()))
@@ -639,7 +645,8 @@ pub mod recovery {
                 nonces.push((*id, nc));
                 commits.push((id.serialize(), c));
             }
-            let sp = super::super::ceremony::coordinator_signing_package(&commits, message).unwrap();
+            let sp =
+                super::super::ceremony::coordinator_signing_package(&commits, message).unwrap();
             let seed = super::super::ceremony::coordinator_randomizer_seed(&group_vk, &sp).unwrap();
             let mut shares_wire = Vec::new();
             for ((id, kp), (_id, nc)) in signers.iter().zip(nonces.iter()) {
@@ -649,7 +656,11 @@ pub mod recovery {
                 ));
             }
             let sig = super::super::ceremony::coordinator_aggregate(
-                &sp, &group_vk, &seed, &shares_wire, &pubkeys,
+                &sp,
+                &group_vk,
+                &seed,
+                &shares_wire,
+                &pubkeys,
             )
             .unwrap();
             assert!(
@@ -663,8 +674,7 @@ pub mod recovery {
             // Same repair, but every Delta/Sigma crosses as bytes (what the relay carries).
             let (n, t) = (3u16, 2u16);
             let (shares, pubkeys) =
-                frost::keys::generate_with_dealer(n, t, IdentifierList::Default, &mut OsRng)
-                    .unwrap();
+                frost::keys::generate_with_dealer(n, t, IdentifierList::Default, OsRng).unwrap();
             let kps: std::collections::BTreeMap<Identifier, KeyPackage> = shares
                 .into_iter()
                 .map(|(id, s)| (id, KeyPackage::try_from(s).unwrap()))
@@ -1060,9 +1070,9 @@ mod js_dkg {
         my_id: Vec<u8>,
         r1_secret: Option<round1::SecretPackage>,
         r2_secret: Option<round2::SecretPackage>,
-        r1_in: Vec<WireItem>, // (sender_id, round-1 package) from the OTHERS
-        r2_in: Vec<WireItem>, // (sender_id, round-2 package) addressed to me, already opened
-        r1_pkg: Vec<u8>,      // my round-1 package (public, to broadcast)
+        r1_in: Vec<WireItem>,  // (sender_id, round-1 package) from the OTHERS
+        r2_in: Vec<WireItem>,  // (sender_id, round-2 package) addressed to me, already opened
+        r1_pkg: Vec<u8>,       // my round-1 package (public, to broadcast)
         r2_out: Vec<WireItem>, // (recipient_id, round-2 package) — SECRET, seal each before send
         key_package: Vec<u8>,
         pubkeys: Vec<u8>,
@@ -1192,7 +1202,9 @@ mod js_dkg {
         }
         #[wasm_bindgen(js_name = fromSecret)]
         pub fn from_secret(bytes: &[u8]) -> Result<DeviceKey, JsValue> {
-            let b: [u8; 32] = bytes.try_into().map_err(|_| je("secret must be 32 bytes"))?;
+            let b: [u8; 32] = bytes
+                .try_into()
+                .map_err(|_| je("secret must be 32 bytes"))?;
             Ok(DeviceKey {
                 inner: seal::DeviceKey::from_secret_bytes(&b),
             })
