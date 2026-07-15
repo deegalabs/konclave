@@ -1,4 +1,4 @@
-# ADR-0001 — Closed architecture decisions
+# ADR-0001: Closed architecture decisions
 
 - **Status:** accepted
 - **Date:** 2026-06-30
@@ -36,7 +36,7 @@
 - The binaries **must** be mutually compatible at the pinned SHA (same version of
   `frost-core`/`reddsa`), otherwise the signature may not verify.
 - The "share never leaves the device" promise requires reconciling where `frost-client`
-  stores the share (its own storage) with the keychain — to decide in Phase 1/3.
+  stores the share (its own storage) with the keychain, to decide in Phase 1/3.
 - Build against **NU6.2** (the 2026-06-03 hard-fork that re-enabled Orchard).
 
 ## Deferred decisions (logistics)

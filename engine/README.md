@@ -1,4 +1,4 @@
-# engine/ — Layer 1 (official tools)
+# engine/: Layer 1 (official tools)
 
 **Zcash Foundation** tools that Konclave **orchestrates but does not reimplement**
 (Path 1). No cryptography of ours lives here.

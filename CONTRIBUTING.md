@@ -8,8 +8,8 @@ correctness, privacy, and honesty matter more than speed.
 
 - **Read the context first:** `CLAUDE.md` and `docs/` (concept, UX, logic-and-rules,
   architecture, ADRs). If a change contradicts them, stop and raise it.
-- **Hide the cryptography, expose the trust.** Users see vault / members / approve / pay —
-  never FROST / DKG / SIGHASH / nonce. Every fund-moving action has preview + explicit
+- **Hide the cryptography, expose the trust.** Users see vault / members / approve / pay,
+  never FROST / DKG / SIGHASH / nonce. Every fund-moving action has a preview and explicit
   confirmation.
 - **Don't reimplement cryptography.** We orchestrate the official Foundation tools and
   credit them.
@@ -19,7 +19,7 @@ correctness, privacy, and honesty matter more than speed.
 ## Language
 
 - Code, comments, identifiers, commits, and docs: **English.**
-- UI copy: **internationalized** — English keys in code, translations in the PT-BR locale.
+- UI copy: **internationalized**, English keys in code, translations in the PT-BR locale.
   No hardcoded user-facing strings.
 
 ## Workflow

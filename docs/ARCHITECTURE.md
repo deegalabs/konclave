@@ -1,4 +1,4 @@
-# Konclave — Architecture
+# Konclave: Architecture
 
 > Architecture document (GSD). Companion to [CLAUDE.md](../CLAUDE.md) and the 3 source docs.
 
@@ -6,18 +6,18 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│ Layer 3 — UI (Next.js/React, static export served by Tauri)           │
+│ Layer 3: UI (Next.js/React, static export served by Tauri)           │
 │   Intro · Create/Join vault · Dashboard · Payment/Payroll ·           │
 │   Proposal (approve/refuse) · Sent · Ledger · Members                 │
 └───────────────────────────────┬─────────────────────────────────────┘
                                  │  Tauri commands (structured DTOs)
 ┌───────────────────────────────▼─────────────────────────────────────┐
-│ Layer 2 — ORCHESTRATOR (Rust, inside src-tauri/ — what we build)      │
+│ Layer 2: ORCHESTRATOR (Rust, inside src-tauri/ · what we build)      │
 │   ceremony · signing · wallet · proposals · validation · store · ipc  │
 └───────────────────────────────┬─────────────────────────────────────┘
         binary invocation (structured output)     │  linked library
 ┌───────────────────────────────▼─────────────────────────────────────┐
-│ Layer 1 — ENGINE (official Foundation tools — do not reimplement)     │
+│ Layer 1: ENGINE (official Foundation tools · do not reimplement)     │
 │   frostd · frost-client · zcash-sign · zcash-devtool(PCZT) ·          │
 │   zcash_client_backend (linked)                                       │
 └──────────────────────────────────────────────────────────────────────┘
@@ -34,7 +34,7 @@
 | The act of signing | The final transaction (goes to mainnet) |
 
 `frostd` is a **blind courier**: it carries public envelopes and opens none of them.
-Compromising it reveals no secrets and grants no ability to spend — at worst it disrupts
+Compromising it reveals no secrets and grants no ability to spend; at worst it disrupts
 coordination (hence the QR/copy-paste fallback).
 
 ## 3. Sources of truth
@@ -49,7 +49,7 @@ coordination (hence the QR/copy-paste fallback).
 |---|---|
 | `ceremony` | DKG (and trusted-dealer in the slice) via `frost-client` + `frostd` |
 | `signing` | Proposal signing rounds; **Rerandomized FROST** (`-C redpallas`) via `zcash-sign` |
-| `wallet` | Sync via UFVK, balance/history, plan construction (PCZT) — `zcash_client_backend` linked |
+| `wallet` | Sync via UFVK, balance/history, plan construction (PCZT), `zcash_client_backend` linked |
 | `proposals` | **State machine** (LOGICA §6), balance reservation, expiry, reconciliation |
 | `validation` | Address/amount/memo/fee (ZIP 317); explicit failures at every boundary |
 | `store` | Local state in SQLite + share in the OS keychain |

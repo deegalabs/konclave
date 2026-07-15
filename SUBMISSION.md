@@ -1,4 +1,4 @@
-# Konclave — ZecHub Hackathon 3.0 submission
+# Konclave: ZecHub Hackathon 3.0 submission
 
 > **The vault that decides together.** A local-first app that makes **FROST threshold
 > vaults usable for ordinary treasurers** on Zcash. Private on the outside, transparent on
@@ -16,23 +16,23 @@
 Using FROST on Zcash today means a command line, several terminals, and copying hex between
 participants by hand. The Zcash Foundation finished the cryptography; the missing piece is the
 **human layer**. Konclave is that layer: a group creates a shared vault, and **no payment
-leaves without a quorum** — without anyone ever holding the whole key.
+leaves without a quorum**, without anyone ever holding the whole key.
 
 Two equally-weighted faces:
 
-- **Quorum payment** — propose → members approve → at quorum the vault signs (FROST) and
+- **Quorum payment:** propose → members approve → at quorum the vault signs (FROST) and
   broadcasts a shielded Orchard transaction. One click never moves money.
-- **Private payroll** — one shielded transaction with N outputs, approved once; each payslip
+- **Private payroll:** one shielded transaction with N outputs, approved once; each payslip
   rides in an **encrypted memo** only its recipient can read.
 
 Plus a full internal **ledger** with an itemized CSV export (the Accounting track).
 
 **Design principle:** hide the cryptography, expose the trust. The user sees *vault, members,
-approval, payment* — never "FROST", "DKG" or "SIGHASH".
+approval, payment*, never "FROST", "DKG" or "SIGHASH".
 
 ## How it uses the Zcash network (mainnet)
 
-This is not a mock. A **2-of-3 quorum payment** — proposed and approved in the app, signed by
+This is not a mock. A **2-of-3 quorum payment**, proposed and approved in the app, signed by
 a real **FROST ceremony**, broadcast to **Zcash mainnet**, the key never reconstituted:
 
 - App-driven tx: [`43433a109d3f2a078c0a9269ccb156392ade7a1f7ac1532981611eda1e59a572`](https://mainnet.zcashexplorer.app/transactions/43433a109d3f2a078c0a9269ccb156392ade7a1f7ac1532981611eda1e59a572)
@@ -49,7 +49,7 @@ the reference [`frost`](https://github.com/ZcashFoundation/frost) crate,
 [librustzcash](https://github.com/zcash/librustzcash). Konclave adds the usability,
 orchestration, and accounting layer on top.
 
-## The step beyond: konclave.app — FROST across devices, in the browser
+## The step beyond: konclave.app (FROST across devices, in the browser)
 
 The headline new capability, aimed straight at the FROST track's "threshold signing wallets"
 idea: **separate devices create and operate one vault entirely in the browser, over a blind
@@ -62,15 +62,15 @@ relay, with no server ever seeing a secret.**
   the one secret step (the DKG round-2 packages) is **sealed end-to-end** (X25519 →
   HKDF-SHA256 → XChaCha20-Poly1305) so the relay stays blind.
 - Those DKG-born shares then **produce a verifying FROST group signature together**, each
-  device signing with only its own piece — proven live across tabs.
+  device signing with only its own piece, proven live across tabs.
 
 To our knowledge, a first for Zcash: a full rerandomized-redpallas (Orchard) FROST ceremony,
 including DKG, driven entirely from the browser. This is the path to "your key lives on your
-phone, the platform never has access" — a shared-custody wallet you open on any device.
+phone, the platform never has access", a shared-custody wallet you open on any device.
 
 ## Try it
 
-**In the browser, no setup** — the hosted demo (mock data) and the in-browser signer:
+**In the browser, no setup:** the hosted demo (mock data) and the in-browser signer:
 
 - App walkthrough: https://konclave-demo.vercel.app
 - FROST signing in the browser (WebAssembly, ~60 ms): https://konclave-demo.vercel.app/#/signer
@@ -103,10 +103,10 @@ cargo run --manifest-path orchestrator/Cargo.toml --bin konclave -- serve --web 
 Beyond spending, a real shared vault has to survive a lost device and an absent owner. Both are
 built on the same FROST + blind-relay foundation and proven by tests:
 
-- **Social recovery** — when a member loses their device, a **quorum rebuilds that member's
+- **Social recovery:** when a member loses their device, a **quorum rebuilds that member's
   share** (the Repairable Threshold Scheme). The group key is never touched, no share is revealed,
-  and the repaired share is byte-identical to the lost one — it then signs a verifying 2-of-3.
-- **Inheritance / dead-man's-switch** — the owner sends signed proof-of-life heartbeats; if they
+  and the repaired share is byte-identical to the lost one. It then signs a verifying 2-of-3.
+- **Inheritance / dead-man's-switch:** the owner sends signed proof-of-life heartbeats; if they
   lapse past a window (plus a grace period the owner can still cancel in), the quorum is
   authorized to **release** the vault to a named heir. The release is an ordinary quorum-signed
   payment (reuses the FROST send path).
@@ -117,7 +117,7 @@ built on the same FROST + blind-relay foundation and proven by tests:
   broadcast); vault by real DKG; shares sealed at rest.
 - 🔬 **By dry-run** (signs, does not yet broadcast): the private payroll (multi-output Orchard).
 - 🌐 **In the browser, live over the internet:** multi-device DKG + FROST signing over a **hosted
-  blind relay** (Railway) — try it at https://konclave-demo.vercel.app/#/net in two tabs. The
+  blind relay** (Railway). Try it at https://konclave-demo.vercel.app/#/net in two tabs. The
   signature is real; the message is a test digest, not yet a broadcast transaction.
 - 🗺️ **Roadmap:** hosting the relay publicly (phone-to-phone over the internet), persisting the
   share on-device (open with a passkey), real payroll broadcast, a single desktop binary.

@@ -1,6 +1,6 @@
 # konclave-signer
 
-The **FROST ↔ PCZT bridge** — the seed of the Konclave Orquestrador (Layer 2).
+The **FROST ↔ PCZT bridge**: the seed of the Konclave Orquestrador (Layer 2).
 
 ## Why it exists
 

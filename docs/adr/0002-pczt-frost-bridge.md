@@ -1,4 +1,4 @@
-# ADR-0002 — The PCZT/FROST integration gap and the konclave-signer bridge
+# ADR-0002: The PCZT/FROST integration gap and the konclave-signer bridge
 
 - **Status:** accepted
 - **Date:** 2026-07-01
@@ -27,7 +27,7 @@ other injects but does not read the new PCZT. No official binary closes the loop
 
 ## Decision
 
-Build **`konclave-signer`** — a minimal bridge that:
+Build **`konclave-signer`**, a minimal bridge that:
 1. reads the proved PCZT from `zcash-devtool`, computes the `sighash` (v5) and extracts the
    `randomizer` (alpha) of each real spend (dummies filtered out);
 2. after the FROST ceremony, injects the redpallas signature via
@@ -37,7 +37,7 @@ Build **`konclave-signer`** — a minimal bridge that:
 Pinned to the **same versions as `zcash-devtool`** (`orchard 0.14` with
 `unstable-frost`, `pczt 0.7`, librustzcash `rev 08334ebe`) so that the PCZT wire format
 matches byte for byte. Enabling discovery: **mainline `orchard 0.14` already ships the
-FROST hooks** (`unstable-frost`, `apply_signature`, access to `alpha`) — the old fork was
+FROST hooks** (`unstable-frost`, `apply_signature`, access to `alpha`): the old fork was
 upstreamed.
 
 ## Consequences

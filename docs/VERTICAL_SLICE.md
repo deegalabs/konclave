@@ -1,4 +1,4 @@
-# Vertical Slice — first FROST transaction on Zcash mainnet
+# Vertical Slice: first FROST transaction on Zcash mainnet
 
 **Status:** ✅ Gate 1 achieved (2026-07-01).
 
@@ -17,13 +17,13 @@ mainnet**, entirely headless via the official tools + the `konclave-signer` brid
 | **Quorum** | 2-of-3 (trusted-dealer, RedPallas / Rerandomized FROST) |
 
 Being Orchard/shielded, the explorer shows the transaction exists but reveals no
-amounts or addresses — privacy by default, exactly the product thesis.
+amounts or addresses: privacy by default, exactly the product thesis.
 
 ## Components (all built in WSL2/Ubuntu, rustc 1.96.1)
 
-- **`frostd`, `frost-client`, `zcash-sign`** — ZcashFoundation/frost-tools @ `3d2985c`
-- **`zcash-devtool`** — zcash/zcash-devtool @ `91ba536` (wallet/sync/PCZT/broadcast)
-- **`konclave-signer`** — our bridge (this repo), pinned to devtool's stack
+- **`frostd`, `frost-client`, `zcash-sign`**: ZcashFoundation/frost-tools @ `3d2985c`
+- **`zcash-devtool`**: zcash/zcash-devtool @ `91ba536` (wallet/sync/PCZT/broadcast)
+- **`konclave-signer`**: our bridge (this repo), pinned to devtool's stack
 
 ## The flow
 
@@ -64,7 +64,7 @@ zcash-devtool pczt send < tx3-signed.pczt                              -> broadc
    `rustls-tls-native-roots` (system trust store). For local runs: a local CA +
    leaf cert for `127.0.0.1` installed via `update-ca-certificates`. A self-signed
    cert used directly fails with `CaUsedAsEndEntity`.
-4. **Participants are interactive:** they prompt `sign it? (y/n)` — feed `y`.
+4. **Participants are interactive:** they prompt `sign it? (y/n)`, feed `y`.
 5. **Stale sessions:** cancelled ceremonies leave sessions on frostd; restart it
    (in-memory) or pass an explicit session id.
 6. **Confirmations:** an externally-received note needs ~10 confirmations before it
@@ -76,7 +76,7 @@ zcash-devtool pczt send < tx3-signed.pczt                              -> broadc
    need a FROST signature (the bridge filters by value). Dummies are handled by the
    wallet's IO finalizer.
 
-## Phase 2 — Real DKG (distributed key generation)
+## Phase 2: Real DKG (distributed key generation)
 
 The slice used `trusted-dealer` (a scaffold that briefly holds the whole key). The
 product uses **DKG**, where the key is **never reconstituted anywhere**. Proven
@@ -106,7 +106,7 @@ DKG notes: participants must hold each other as contacts; the creator passes the
 participants via `-S`; `yes |` auto-confirms the interactive prompts; restart frostd
 between ceremonies to clear in-memory sessions.
 
-## Phase 5d — the same flow, now driven by the application (not the CLI)
+## Phase 5d: the same flow, now driven by the application (not the CLI)
 
 The Gate-1 flow above was run by hand across terminals. Phase 5d automates the entire
 recipe inside the Orchestrator (`src/send.rs`) and exposes it over the local HTTP bridge
@@ -116,11 +116,11 @@ per call; coordinator + participants run as concurrent threads (one box; separat
 in the product); a `dry_run` flag signs without broadcasting (validates the ceremony with
 no funds moved).
 
-**Second on-chain proof — first UI/orchestrator-driven mainnet tx:**
+**Second on-chain proof, first UI/orchestrator-driven mainnet tx:**
 
 | | |
 |---|---|
 | **TXID** | `43433a109d3f2a078c0a9269ccb156392ade7a1f7ac1532981611eda1e59a572` |
-| **From** | the slice vault (2-of-3 trusted-dealer, RedPallas) — self-send |
+| **From** | the slice vault (2-of-3 trusted-dealer, RedPallas), self-send |
 | **Path** | UI → `/api/proposals/{id}/send` → create → prove → extract → coordinator+participants → inject → broadcast |
 | **Key** | never reconstituted (threshold signature over the shares) |
