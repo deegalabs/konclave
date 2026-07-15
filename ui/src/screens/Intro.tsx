@@ -1,14 +1,47 @@
 import { type ReactNode, type MouseEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { LangToggle } from '../components'
-import { useT, useTr } from '../i18n'
+import { useT, useTr, useI18n } from '../i18n'
 import '../redesign.css'
 import '../landing.css'
+
+// A single directory of every live surface, so a first-time visitor (or a judge) finds
+// them all in one place instead of dispersed across the app. Bilingual inline.
+const EXPLORE: Record<'pt-BR' | 'en', { eyebrow: string; title: string; items: { to: string; name: string; desc: string; tag?: string }[] }> = {
+  'pt-BR': {
+    eyebrow: 'EXPLORE',
+    title: 'Tudo pra experimentar, num lugar só',
+    items: [
+      { to: '/vaults', name: 'Abrir o cofre', desc: 'Pagamento, folha, propostas, razão. O produto rodando.', tag: 'app' },
+      { to: '/proof', name: 'Prova on-chain', desc: 'Confira nossas 4 transações reais na mainnet, você mesmo.', tag: 'prova' },
+      { to: '/net', name: 'Rede multi-dispositivo', desc: 'Crie um cofre entre abas/dispositivos por um relay cego, ao vivo.' },
+      { to: '/signer', name: 'Signer no navegador', desc: 'Uma cerimônia FROST 2-de-3 inteira em WebAssembly.' },
+      { to: '/recovery', name: 'Recuperação social', desc: 'Um quórum reconstrói o share perdido de um membro (RTS).' },
+      { to: '/inheritance', name: 'Herança', desc: 'O dead-man’s-switch: prova de vida, lapso, liberação ao herdeiro.' },
+      { to: '/docs', name: 'Documentação', desc: 'Como funciona, a arquitetura, os diagramas.' },
+    ],
+  },
+  en: {
+    eyebrow: 'EXPLORE',
+    title: 'Everything to try, in one place',
+    items: [
+      { to: '/vaults', name: 'Open the vault', desc: 'Payment, payroll, proposals, ledger. The product running.', tag: 'app' },
+      { to: '/proof', name: 'On-chain proof', desc: 'Verify our 4 real mainnet transactions yourself.', tag: 'proof' },
+      { to: '/net', name: 'Multi-device network', desc: 'Create a vault across tabs/devices over a blind relay, live.' },
+      { to: '/signer', name: 'Browser signer', desc: 'A full 2-of-3 FROST ceremony entirely in WebAssembly.' },
+      { to: '/recovery', name: 'Social recovery', desc: 'A quorum rebuilds a member’s lost share (RTS).' },
+      { to: '/inheritance', name: 'Inheritance', desc: 'The dead-man’s-switch: proof-of-life, lapse, release to an heir.' },
+      { to: '/docs', name: 'Documentation', desc: 'How it works, the architecture, the diagrams.' },
+    ],
+  },
+}
 
 /** Landing / explainer — the "why" surface and the app's front door. */
 export default function Intro() {
   const t = useT()
   const tr = useTr()
+  const { locale } = useI18n()
+  const ex = EXPLORE[locale === 'pt-BR' ? 'pt-BR' : 'en']
   const scrollTo = (id: string) => (e: MouseEvent) => {
     e.preventDefault()
     document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' })
@@ -90,6 +123,26 @@ export default function Intro() {
           <span className="trust"><i />{t('landing.heroTrust')}</span>
         </div>
       </div>
+
+      {/* explore — one directory of every live surface */}
+      <section className="lp-section lp-explore" id="lp-explore" style={{ paddingTop: 8 }}>
+        <div className="lp-wrap">
+          <span className="eyebrow sec-eyebrow">{ex.eyebrow}</span>
+          <h2 className="lp-title">{ex.title}</h2>
+          <div className="lp-explore-grid">
+            {ex.items.map((it) => (
+              <Link key={it.to} to={it.to} className="lp-explore-card">
+                <span className="lp-ex-head">
+                  <span className="lp-ex-name">{it.name}</span>
+                  {it.tag && <span className="lp-ex-tag">{it.tag}</span>}
+                </span>
+                <span className="lp-ex-desc">{it.desc}</span>
+                <span className="lp-ex-go" aria-hidden="true">→</span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      </section>
 
       {/* why */}
       <section className="lp-section" id="lp-porque">

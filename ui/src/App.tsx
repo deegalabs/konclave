@@ -28,7 +28,7 @@ export default function App() {
     <div className={'root' + (revealed ? ' revealed' : '')}>
       <Routes>
         {/* Onboarding — standalone, no rail */}
-        <Route path="/" element={<Vaults />} />
+        <Route path="/" element={<Intro />} />
         <Route path="/vaults" element={<Vaults />} />
         <Route path="/intro" element={<Intro />} />
         <Route path="/demo" element={<Demo />} />

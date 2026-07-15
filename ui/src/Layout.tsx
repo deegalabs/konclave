@@ -23,7 +23,7 @@ export default function Layout() {
       const v = await getVault()
       if (!on) return
       // A locked vault not unlocked this session → back to the unlock/picker.
-      if (v?.locked && !isVaultUnlocked(v.id)) { nav('/'); return }
+      if (v?.locked && !isVaultUnlocked(v.id)) { nav('/vaults'); return }
       if (v) setVault(v)
     })()
     return () => { on = false }

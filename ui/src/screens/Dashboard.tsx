@@ -45,7 +45,7 @@ export default function Dashboard() {
       const v = await getVault()
       if (!on) return
       // Locked vault not unlocked this session → send back to unlock (§ passphrase).
-      if (v?.locked && !isVaultUnlocked(v.id)) { nav('/'); return }
+      if (v?.locked && !isVaultUnlocked(v.id)) { nav('/vaults'); return }
       if (v) setVault(v)
       const [ps, b, l] = await Promise.all([getProposals(), getBalance(), getLedger()])
       if (!on) return
@@ -107,7 +107,7 @@ export default function Dashboard() {
     setDelBusy(true); setDelErr(null)
     const r = await deleteVault(locked ? delPass : undefined, locked ? undefined : delName.trim())
     setDelBusy(false)
-    if (r.ok) { clearSelectedVault(); nav('/') }
+    if (r.ok) { clearSelectedVault(); nav('/vaults') }
     else setDelErr(r.wrong ? t('dashboard.delWrong') : t('dashboard.delFail'))
   }
 

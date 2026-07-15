@@ -126,3 +126,21 @@ table.lp-cmp tr.kon td.name{color:var(--accent); font-weight:700}
 .lp-footer{border-top:1px solid var(--line-soft); padding:30px 0; color:var(--text-muted); font-family:var(--font-mono); font-size:12px; line-height:1.7}
 .lp-footer b{color:var(--silver); font-weight:500}
 .lp-footer .lp-wrap > div{margin:0 auto}
+
+/* explore — a single directory of every live surface */
+.lp-explore-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-top:26px}
+@media(max-width:820px){.lp-explore-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:520px){.lp-explore-grid{grid-template-columns:1fr}}
+.lp-explore-card{position:relative; display:flex; flex-direction:column; gap:6px; border:1px solid var(--line-soft);
+  border-radius:var(--radius); background:var(--surface-1); padding:18px 40px 16px 18px; text-decoration:none;
+  transition:border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out)}
+.lp-explore-card:hover{border-color:var(--accent-line); background:var(--surface-2)}
+.lp-explore-card:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+.lp-ex-head{display:flex; align-items:center; gap:9px}
+.lp-ex-name{font-size:16px; font-weight:700; color:var(--text); letter-spacing:-.01em}
+.lp-ex-tag{font-family:var(--font-mono); font-size:9.5px; letter-spacing:.12em; text-transform:uppercase; color:var(--accent);
+  border:1px solid var(--accent-line); border-radius:var(--radius-pill); padding:2px 7px}
+.lp-ex-desc{font-size:13.5px; line-height:1.5; color:var(--text-muted)}
+.lp-ex-go{position:absolute; top:16px; right:16px; color:var(--text-muted); font-size:15px;
+  transition:transform var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out)}
+.lp-explore-card:hover .lp-ex-go{color:var(--accent); transform:translateX(3px)}
