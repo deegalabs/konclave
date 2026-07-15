@@ -44,7 +44,7 @@ const TXT = {
   'pt-BR': {
     eyebrow: 'Konclave · Prova',
     title: 'Confira nossa prova de mainnet',
-    lead: 'Duas transações reais na mainnet do Zcash. Confira você mesmo, por exploradores públicos independentes. Nada aqui pede confiança cega.',
+    lead: 'Transações reais na mainnet do Zcash. Confira você mesmo, por exploradores públicos independentes. Nada aqui pede confiança cega.',
     labelApp: 'Pagamento por quórum 2-de-3 conduzido pelo app (assinado por FROST, transmitido)',
     labelSlice: 'Pagamento do Gate 1, fatia vertical pela CLI',
     labelFresh: 'Pagamento 2-de-3 FROST de um cofre criado e financiado do zero (reproduzido ponta a ponta)',
@@ -73,7 +73,7 @@ const TXT = {
   en: {
     eyebrow: 'Konclave · Proof',
     title: 'Verify our mainnet proof yourself',
-    lead: 'Two real transactions on the Zcash mainnet. Confirm them yourself, through independent public explorers. Nothing here asks you to take it on faith.',
+    lead: 'Real transactions on the Zcash mainnet. Confirm them yourself, through independent public explorers. Nothing here asks you to take it on faith.',
     labelApp: 'Application-driven 2-of-3 quorum payment (FROST-signed, broadcast)',
     labelSlice: 'Gate-1 CLI-driven vertical-slice payment',
     labelFresh: '2-of-3 FROST payment from a freshly created and funded vault (reproduced end to end)',
