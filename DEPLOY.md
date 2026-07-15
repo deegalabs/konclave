@@ -43,7 +43,7 @@ opaque/encrypted bytes between devices for the `/#/net` multi-device ceremonies.
 
 ## Honest limits
 
-The hosted relay is **not hardened** (no rate limiting; the presence map is unpruned), fine for
-the demo, tracked before any serious use. The browser signature over `/#/net` is a **test digest**,
+The hosted relay now has a **per-source rate limit and presence-map pruning** (both the loopback and
+the hosted `relay-server` share the policy). The browser signature over `/#/net` is a **test digest**,
 not a broadcast transaction. The real mainnet FROST path runs through the local orchestrator +
 engine binaries, not these hosted demo surfaces.
