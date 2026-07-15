@@ -53,7 +53,7 @@ html{scrollbar-width:thin; scrollbar-color:rgba(150,170,195,.28) transparent; sc
 
 body{margin:0; color:var(--text); font-family:var(--font-sans); line-height:1.5; -webkit-font-smoothing:antialiased;
   background:
-    radial-gradient(1100px 520px at 78% -8%, rgba(87,166,255,.06), transparent 60%),
+    radial-gradient(1100px 520px at 78% -8%, rgba(87,166,255,.025), transparent 60%),
     var(--surface-0) fixed;
   min-height:100vh}
 /* faint archival paper grain — matte, never atmospheric glow (opacity <= .04) */
@@ -156,7 +156,7 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 .rail{border-right:1px solid var(--line-soft); padding:24px 18px; display:flex; flex-direction:column; gap:28px;
   position:sticky; top:0; height:100vh}
 .rail .brand{display:flex; align-items:center; gap:11px; text-decoration:none; color:inherit}
-.rail .wm{font-family:var(--font-mono); font-weight:600; font-size:12px; letter-spacing:.24em}
+.rail .wm{font-family:var(--font-mono); font-weight:600; font-size:12px; letter-spacing:.42em; text-indent:.42em}
 .rail .brand-sub{font-family:var(--font-mono); font-size:9px; letter-spacing:.2em; color:var(--text-muted); text-transform:uppercase; margin-top:2px}
 .railnav{display:flex; flex-direction:column; gap:2px}
 .nav-item{display:flex; align-items:center; gap:11px; padding:9px 11px; border-radius:var(--radius-sm);

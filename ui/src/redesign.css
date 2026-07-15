@@ -6,7 +6,7 @@
 .rd {
   min-height: 100vh;
   background:
-    radial-gradient(70% 45% at 50% -8%, rgba(87, 166, 255, 0.10), transparent 60%),
+    radial-gradient(70% 45% at 50% -8%, rgba(87, 166, 255, 0.04), transparent 60%),
     radial-gradient(130% 95% at 50% -15%, #2b333c 0%, #1b2127 55%, var(--surface-0) 100%);
   color: var(--text);
   font-family: var(--font-sans);
