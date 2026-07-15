@@ -157,15 +157,18 @@ active copy ("Propose payment" → "Approve" → "Sent"). States always visible.
 
 ## 8. Destructive test suite (born in Phase 3)
 
-The code is born to pass these failure scenarios:
-- Insufficient quorum.
-- Corrupted / missing share.
-- `frostd` offline.
-- Malformed transaction.
-- **Sapling address instead of Orchard** (risk of locked funds).
-- Insufficient balance.
-- Expired proposal.
-- Multi-device reconciliation (local cache diverges from on-chain → on-chain wins).
+The code is born to pass these failure scenarios. **Honest coverage: 6 of 8 have automated
+tests; `frostd`-offline is validated live (not in unit tests); multi-device reconciliation is
+not yet implemented or tested.**
+- Insufficient quorum. — ✅ tested (proposal state machine + `409` votes)
+- Corrupted / missing share. — ✅ tested (sealed-share tamper/wrong-key + FROST share repair)
+- `frostd` offline. — ⚠️ validated **live only** (the ceremony talks to a real frostd; no unit test)
+- Malformed transaction. — ✅ tested **at the tool-output parser boundary** (not a real malformed tx object)
+- **Sapling address instead of Orchard** (risk of locked funds). — ✅ tested (authoritative `zcash_address` decode)
+- Insufficient balance. — ✅ tested (against a `WalletReader`; the test uses a mock balance, not a real sync)
+- Expired proposal. — ✅ tested
+- Multi-device reconciliation (local cache diverges from on-chain → on-chain wins). — 🔴 **not
+  implemented, not tested** (open debt).
 
 > Testing multi-member solo = running N `frost-client` identities against one `frostd`.
 

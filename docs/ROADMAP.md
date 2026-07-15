@@ -55,7 +55,9 @@ transaction goes out on top of it.
 **Modules:** `ceremony`, `signing`, `wallet`, `proposals` (state machine §6),
 `validation` (ZIP 317), `store` (SQLite + keychain), `ipc`.
 **Includes:** balance reservation, expiry, reconciliation, payroll logic (N outputs).
-**Done when:** the core is operable via commands + **the whole destructive suite passing**.
+**Done when:** the core is operable via commands + **the destructive suite passing** (6 of the
+8 §8 scenarios have automated tests; `frostd`-offline is validated live and multi-device
+reconciliation is an open item — see CLAUDE.md §8 for the honest per-scenario status).
 
 ## Phase 4 — UI — Days 6–10 (parallel to Phase 3)
 - **4A — Token system** (`frontend-design` skill): palette, typography, signature element
