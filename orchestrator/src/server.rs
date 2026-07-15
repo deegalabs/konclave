@@ -3221,8 +3221,16 @@ mod tests {
         let mut cfg = cfg_with(db, None);
         cfg.ceremony = Some(dummy_ceremony()); // configured for SLICE_GROUP, not vault-other
 
-        let s = handle(&cfg, "POST", "/api/proposals/p-other/send", br#"{"dry_run":false}"#);
-        assert_eq!(s.status, 409, "a send from a vault the ceremony isn't configured for must be refused");
+        let s = handle(
+            &cfg,
+            "POST",
+            "/api/proposals/p-other/send",
+            br#"{"dry_run":false}"#,
+        );
+        assert_eq!(
+            s.status, 409,
+            "a send from a vault the ceremony isn't configured for must be refused"
+        );
         assert_eq!(body_json(&s)["error"], "vault not signable here");
     }
 
