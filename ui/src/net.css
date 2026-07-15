@@ -1,0 +1,170 @@
+/* /net — the network vault (DKG across devices over the blind relay). Dark, uses the
+   consolidated tokens with hard fallbacks so it renders even before global CSS loads. */
+
+.net-wrap {
+  max-width: 760px;
+  margin-inline: auto;
+  padding: clamp(20px, 4vw, 40px);
+  min-height: 100vh;
+}
+.net-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 28px;
+}
+.net-back {
+  color: var(--text-muted, #8a95a3);
+  text-decoration: none;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 13px;
+}
+.net-back:hover { color: var(--text, #dfe6ee); }
+.net-tag {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent, #57a6ff);
+  border: 1px solid var(--accent-line, rgba(87, 166, 255, 0.35));
+  border-radius: 999px;
+  padding: 5px 12px;
+}
+
+.net-h1 {
+  font-size: clamp(26px, 4vw, 38px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin: 0 0 12px;
+}
+.net-lead {
+  color: var(--text-muted, #8a95a3);
+  font-size: 15.5px;
+  line-height: 1.6;
+  margin: 0 0 20px;
+  max-width: 62ch;
+}
+.net-lead b { color: var(--text, #dfe6ee); font-weight: 600; }
+
+.net-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  margin: 8px 0 20px;
+}
+@media (max-width: 620px) { .net-cards { grid-template-columns: 1fr; } }
+.net-card {
+  border: 1px solid var(--line, #333d47);
+  border-radius: 14px;
+  background: var(--surface-1, #1a2129);
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.net-card h3 { margin: 0; font-size: 18px; font-weight: 700; }
+.net-card p { margin: 0; color: var(--text-muted, #8a95a3); font-size: 14px; line-height: 1.55; }
+.net-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+  color: var(--text-muted, #8a95a3);
+}
+.net-row select,
+.net-input {
+  background: var(--surface-0, #0f141a);
+  border: 1px solid var(--line, #333d47);
+  border-radius: 9px;
+  color: var(--text, #dfe6ee);
+  padding: 9px 12px;
+  font-size: 14px;
+  font-family: inherit;
+}
+.net-input { width: 100%; box-sizing: border-box; letter-spacing: 0.14em; font-family: var(--font-mono, ui-monospace, monospace); }
+
+.net-btn {
+  margin-top: auto;
+  border: 1px solid var(--line-strong, #46525e);
+  background: var(--surface-2, #222b34);
+  color: var(--text, #dfe6ee);
+  border-radius: 10px;
+  padding: 12px 18px;
+  font-size: 14.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms;
+}
+.net-btn:hover:not(:disabled) { background: var(--surface-3, #2a343e); border-color: var(--accent-line, rgba(87, 166, 255, 0.35)); }
+.net-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.net-btn.primary { background: var(--accent, #57a6ff); color: var(--on-accent, #06121f); border-color: var(--accent, #57a6ff); }
+.net-btn.primary:hover { background: #6cb2ff; }
+
+.net-code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: clamp(30px, 7vw, 52px);
+  letter-spacing: 0.28em;
+  font-weight: 700;
+  text-align: center;
+  color: var(--accent, #57a6ff);
+  background: var(--surface-1, #1a2129);
+  border: 1px dashed var(--accent-line, rgba(87, 166, 255, 0.4));
+  border-radius: 14px;
+  padding: 24px 16px;
+  margin: 8px 0 20px;
+  cursor: pointer;
+  word-break: break-all;
+}
+
+.net-status { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0; }
+.net-pill {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  color: var(--text-muted, #8a95a3);
+  border: 1px solid var(--line, #333d47);
+  border-radius: 999px;
+  padding: 6px 12px;
+  background: var(--surface-1, #1a2129);
+}
+
+.net-done { margin: 12px 0; }
+.net-vk {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--success, #57d08a);
+  background: var(--surface-0, #0f141a);
+  border: 1px solid var(--success-line, rgba(87, 208, 138, 0.35));
+  border-radius: 12px;
+  padding: 16px;
+  word-break: break-all;
+}
+.net-tip { color: var(--text-muted, #8a95a3); font-size: 13px; margin: 12px 0 0; }
+.net-tip b { color: var(--text, #dfe6ee); font-weight: 600; }
+
+.net-log {
+  margin-top: 22px;
+  border-top: 1px solid var(--line-soft, #242c34);
+  padding-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.net-log-row {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12.5px;
+  color: var(--text-muted, #8a95a3);
+}
+.net-log-row span { color: var(--accent, #57a6ff); margin-right: 6px; }
+
+.net-error {
+  background: rgba(224, 84, 76, 0.12);
+  border: 1px solid rgba(224, 84, 76, 0.4);
+  color: #f0a8a2;
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  font-size: 13.5px;
+  word-break: break-word;
+}

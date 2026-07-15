@@ -109,6 +109,240 @@ export class Coordinator {
 if (Symbol.dispose) Coordinator.prototype[Symbol.dispose] = Coordinator.prototype.free;
 
 /**
+ * A device's long-term encryption keypair for the confidential channel (round-2 sealing).
+ * The public half rides in the invite; the secret half never leaves the device.
+ */
+export class DeviceKey {
+    static __wrap(ptr) {
+        const obj = Object.create(DeviceKey.prototype);
+        obj.__wbg_ptr = ptr;
+        DeviceKeyFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        DeviceKeyFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_devicekey_free(ptr, 0);
+    }
+    /**
+     * @param {Uint8Array} bytes
+     * @returns {DeviceKey}
+     */
+    static fromSecret(bytes) {
+        const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.devicekey_fromSecret(ptr0, len0);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return DeviceKey.__wrap(ret[0]);
+    }
+    constructor() {
+        const ret = wasm.devicekey_new();
+        this.__wbg_ptr = ret;
+        DeviceKeyFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    /**
+     * Open a package sealed to this device. Errors on a wrong key or any tampering.
+     * @param {Uint8Array} sealed
+     * @param {Uint8Array} aad
+     * @returns {Uint8Array}
+     */
+    open(sealed, aad) {
+        const ptr0 = passArray8ToWasm0(sealed, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArray8ToWasm0(aad, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.devicekey_open(this.__wbg_ptr, ptr0, len0, ptr1, len1);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        var v3 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v3;
+    }
+    /**
+     * @returns {Uint8Array}
+     */
+    publicBytes() {
+        const ret = wasm.devicekey_publicBytes(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
+     * @returns {Uint8Array}
+     */
+    secretBytes() {
+        const ret = wasm.devicekey_secretBytes(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+}
+if (Symbol.dispose) DeviceKey.prototype[Symbol.dispose] = DeviceKey.prototype.free;
+
+/**
+ * A device's stateful DKG session. Round 1 runs on construction; JS then exchanges the
+ * wire bytes over the relay and calls part2/part3. SecretPackages never leave this struct.
+ */
+export class DkgSession {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        DkgSessionFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_dkgsession_free(ptr, 0);
+    }
+    /**
+     * Accept another member's round-1 package (public). Our own id is ignored.
+     * @param {Uint8Array} sender_id
+     * @param {Uint8Array} pkg
+     */
+    addRound1(sender_id, pkg) {
+        const ptr0 = passArray8ToWasm0(sender_id, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArray8ToWasm0(pkg, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        wasm.dkgsession_addRound1(this.__wbg_ptr, ptr0, len0, ptr1, len1);
+    }
+    /**
+     * Accept a round-2 package addressed to me (already opened via DeviceKey.open),
+     * keyed by the SENDER's id.
+     * @param {Uint8Array} sender_id
+     * @param {Uint8Array} pkg
+     */
+    addRound2(sender_id, pkg) {
+        const ptr0 = passArray8ToWasm0(sender_id, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArray8ToWasm0(pkg, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        wasm.dkgsession_addRound2(this.__wbg_ptr, ptr0, len0, ptr1, len1);
+    }
+    /**
+     * The vault's identity: the 32-byte group verifying key. Every honest device derives
+     * the SAME value — the UI shows it so both tabs can confirm they built one vault.
+     * @returns {Uint8Array}
+     */
+    groupVk() {
+        const ret = wasm.dkgsession_groupVk(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
+     * @returns {Uint8Array}
+     */
+    keyPackage() {
+        const ret = wasm.dkgsession_keyPackage(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
+     * @returns {Uint8Array}
+     */
+    myId() {
+        const ret = wasm.dkgsession_myId(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
+     * Round 1 on construction: keeps the round-1 secret local, exposes the public package.
+     * @param {Uint8Array} my_id
+     * @param {number} max_signers
+     * @param {number} min_signers
+     */
+    constructor(my_id, max_signers, min_signers) {
+        const ptr0 = passArray8ToWasm0(my_id, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.dkgsession_new(ptr0, len0, max_signers, min_signers);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        this.__wbg_ptr = ret[0];
+        DkgSessionFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    /**
+     * Round 2: consume the round-1 secret + collected round-1 packages. Produces one
+     * round-2 package per recipient (read via round2Count/Recipient/Package). Each is
+     * SECRET → JS must sealTo its recipient before it touches the relay.
+     */
+    part2() {
+        const ret = wasm.dkgsession_part2(this.__wbg_ptr);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
+     * Round 3: combine everything into this device's share + the shared group key.
+     */
+    part3() {
+        const ret = wasm.dkgsession_part3(this.__wbg_ptr);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
+     * @returns {Uint8Array}
+     */
+    pubkeys() {
+        const ret = wasm.dkgsession_pubkeys(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
+     * @returns {Uint8Array}
+     */
+    round1Package() {
+        const ret = wasm.dkgsession_round1Package(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
+     * @returns {number}
+     */
+    round2Count() {
+        const ret = wasm.dkgsession_round2Count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * @param {number} i
+     * @returns {Uint8Array}
+     */
+    round2Package(i) {
+        const ret = wasm.dkgsession_round2Package(this.__wbg_ptr, i);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
+     * @param {number} i
+     * @returns {Uint8Array}
+     */
+    round2Recipient(i) {
+        const ret = wasm.dkgsession_round2Recipient(this.__wbg_ptr, i);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+}
+if (Symbol.dispose) DkgSession.prototype[Symbol.dispose] = DkgSession.prototype.free;
+
+/**
  * Participant round-1 output: nonces stay on THIS device; commitment goes to the relay.
  */
 export class Round1 {
@@ -215,6 +449,22 @@ export class TestVault {
 if (Symbol.dispose) TestVault.prototype[Symbol.dispose] = TestVault.prototype.free;
 
 /**
+ * Deterministic identifier bytes for participant number `index` (1-based), so every device
+ * agrees on who is who without a central registry.
+ * @param {number} index
+ * @returns {Uint8Array}
+ */
+export function identifierBytes(index) {
+    const ret = wasm.identifierBytes(index);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v1;
+}
+
+/**
  * Participant device, round 1 (JS): from the local key-package bytes.
  * @param {Uint8Array} kp_bytes
  * @returns {Round1}
@@ -256,6 +506,30 @@ export function participantRound2(sp, nonces_bytes, kp_bytes, seed) {
 }
 
 /**
+ * Seal `plaintext` to a recipient's 32-byte public key (used on each round-2 package so the
+ * relay only ever carries ciphertext). `aad` binds context (sender+recipient) into the tag.
+ * @param {Uint8Array} recipient_pub
+ * @param {Uint8Array} plaintext
+ * @param {Uint8Array} aad
+ * @returns {Uint8Array}
+ */
+export function sealTo(recipient_pub, plaintext, aad) {
+    const ptr0 = passArray8ToWasm0(recipient_pub, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passArray8ToWasm0(plaintext, wasm.__wbindgen_malloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passArray8ToWasm0(aad, wasm.__wbindgen_malloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ret = wasm.sealTo(ptr0, len0, ptr1, len1, ptr2, len2);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v4 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v4;
+}
+
+/**
  * Browser self-test: runs a full FROST ceremony, touches the Orchard + digest surfaces.
  * Returns "OK: …" or "ERR: …". Proves the assembled module runs in a real browser.
  * @returns {string}
@@ -271,6 +545,35 @@ export function selftest() {
     } finally {
         wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
     }
+}
+
+/**
+ * Verify a group signature against the vault's key — so EVERY device confirms the result
+ * for itself, not on the coordinator's word. All inputs are public (signing package, seed,
+ * message, signature); the share never enters.
+ * @param {Uint8Array} group_vk
+ * @param {Uint8Array} sp
+ * @param {Uint8Array} seed
+ * @param {Uint8Array} message
+ * @param {Uint8Array} sig
+ * @returns {boolean}
+ */
+export function verifyRedpallas(group_vk, sp, seed, message, sig) {
+    const ptr0 = passArray8ToWasm0(group_vk, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passArray8ToWasm0(sp, wasm.__wbindgen_malloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passArray8ToWasm0(seed, wasm.__wbindgen_malloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ptr3 = passArray8ToWasm0(message, wasm.__wbindgen_malloc);
+    const len3 = WASM_VECTOR_LEN;
+    const ptr4 = passArray8ToWasm0(sig, wasm.__wbindgen_malloc);
+    const len4 = WASM_VECTOR_LEN;
+    const ret = wasm.verifyRedpallas(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return ret[0] !== 0;
 }
 function __wbg_get_imports() {
     const import0 = {
@@ -389,6 +692,12 @@ function __wbg_get_imports() {
 const CoordinatorFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_coordinator_free(ptr, 1));
+const DeviceKeyFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_devicekey_free(ptr, 1));
+const DkgSessionFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_dkgsession_free(ptr, 1));
 const Round1Finalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_round1_free(ptr, 1));

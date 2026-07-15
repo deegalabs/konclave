@@ -57,6 +57,9 @@ pub struct Config {
     /// L2: when set, the DB is opened with SQLCipher under this key (from the OS keychain),
     /// so vault metadata + the UFVK are encrypted at rest. `None` = plaintext (legacy/default).
     pub db_key: Option<zeroize::Zeroizing<[u8; 32]>>,
+    /// The blind mailbox (konclave.app network transport). In-memory, opaque messages only —
+    /// it moves ciphertext/public FROST material between devices and cannot read either.
+    pub relay: crate::relay::RelayState,
 }
 
 impl Config {
@@ -75,6 +78,7 @@ impl Config {
             ceremony,
             unlock_throttle: std::sync::Mutex::new(std::collections::HashMap::new()),
             db_key: None,
+            relay: crate::relay::RelayState::new(),
         }
     }
 
@@ -262,6 +266,14 @@ pub fn handle(cfg: &Config, method: &str, raw_path: &str, body: &[u8]) -> Respon
     // an explicit unknown id = 404 (see resolve_vault_id, L3).
     let vsel = query_param(raw_path, "vault");
     let vsel = vsel.as_deref();
+
+    // The blind mailbox (konclave.app network transport) owns its own GET/POST/HEAD routing.
+    // It carries opaque bytes between devices and is intentionally NOT vault-scoped.
+    if path.starts_with("/api/relay/") {
+        return cfg
+            .relay
+            .handle(method, path, raw_path, body, now_unix().unwrap_or(0));
+    }
 
     // Writes (state-changing) go through POST.
     if method == "POST" {
@@ -1968,7 +1980,13 @@ pub fn handle_secured(
         return Response::json(403, &serde_json::json!({ "error": "bad_host" }));
     }
     let path = raw_path.split(['?', '#']).next().unwrap_or(raw_path);
-    if method == "POST" && path.starts_with("/api/") {
+    // The blind mailbox is public-by-design: it carries only opaque/encrypted bytes between
+    // devices and is meant to be reached cross-origin (a hosted relay has no session at all).
+    // So it is exempt from the per-session CSRF token — the Host gate below still applies. It
+    // changes no vault state; the worst a forged POST can do is add bounded noise to a room
+    // whose random code it does not know.
+    let is_relay = path.starts_with("/api/relay/");
+    if method == "POST" && path.starts_with("/api/") && !is_relay {
         if let Some(o) = origin {
             if !host_is_local(origin_host(o)) {
                 return Response::json(403, &serde_json::json!({ "error": "bad_origin" }));
@@ -2158,6 +2176,40 @@ mod tests {
             Some("nope"),
         );
         assert_eq!(bad.status, 403);
+    }
+
+    #[test]
+    fn relay_post_is_exempt_from_the_csrf_token_but_not_the_host_gate() {
+        let cfg = cfg_with(tmp_db(), None);
+        // The blind mailbox is public-by-design: a POST with NO token still goes through.
+        let ok = handle_secured(
+            &cfg,
+            "tok",
+            "POST",
+            "/api/relay/ROOM1",
+            br#"{"from":"a","data":"opaque"}"#,
+            Some("localhost"),
+            None,
+            None,
+        );
+        assert_eq!(
+            ok.status, 200,
+            "relay POST must not require the session token"
+        );
+        assert_eq!(body_json(&ok)["seq"], 1);
+        // But a non-local Host is still refused (anti DNS-rebinding stays in force).
+        let bad_host = handle_secured(
+            &cfg,
+            "tok",
+            "POST",
+            "/api/relay/ROOM1",
+            br#"{"from":"a","data":"opaque"}"#,
+            Some("evil.example.com"),
+            None,
+            None,
+        );
+        assert_eq!(bad_host.status, 403);
+        assert_eq!(body_json(&bad_host)["error"], "bad_host");
     }
 
     #[test]

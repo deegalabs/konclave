@@ -17,6 +17,12 @@ orchard = { version = "0.14", default-features = false, features = ["unstable-fr
 blake2b_simd = "1"
 rand = "0.8"
 getrandom = { version = "0.2", features = ["js"] }
+# The confidential channel for the DKG's secret round-2 packages (Milestone 3b): seal each
+# to its recipient so the blind relay carries only ciphertext. ECIES over X25519.
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+chacha20poly1305 = "0.10"
+hkdf = "0.12"
+sha2 = "0.10"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
