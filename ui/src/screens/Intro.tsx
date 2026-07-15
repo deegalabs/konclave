@@ -56,6 +56,7 @@ export default function Intro() {
             <span className="wm">KONCLAVE</span>
           </Link>
           <div className="lp-top-right">
+            <Link to="/proof" className="doclink">{t('landing.navProof')}</Link>
             <Link to="/net" className="doclink">{t('landing.navNet')}</Link>
             <Link to="/signer" className="doclink">{t('landing.navSigner')}</Link>
             <Link to="/docs" className="doclink">Docs</Link>

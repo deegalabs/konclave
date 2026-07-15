@@ -1,0 +1,94 @@
+/* /recovery — social recovery (Repairable Threshold Scheme) run live in the browser.
+   Dark, on the consolidated tokens with hard fallbacks so it renders before global CSS.
+   The "live demo" framing (.demo-eyebrow / .demo-title / .demo-caption / .demo-lead /
+   .demo-note / .demo-result) is shared with /signer and comes from net.css. Accent is
+   reserved for the single primary action (.btn.ok); keys and records read in --silver. */
+
+.rec {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+.rec-main {
+  flex: 1;
+  display: grid;
+  place-items: start center;
+  padding: clamp(24px, 5vw, 48px) 24px;
+}
+.rec-col {
+  max-width: 640px;
+  width: 100%;
+}
+
+/* The narrative: what actually happened, in order, as the ceremony ran. A quiet mono list
+   with a numbered silver seat marker — a record of the proof, not a decorated stepper. */
+.rec-steps {
+  list-style: none;
+  margin: 22px 0 0;
+  padding: 18px 0 4px;
+  border-top: 1px solid var(--line-soft, #242c34);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.rec-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text, #dfe6ee);
+}
+.rec-step-n {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--silver, #c6cfd9);
+  border: 1px solid var(--line, #333d47);
+  background: var(--surface-1, #1a2129);
+  margin-top: 1px;
+}
+.rec-step-text {
+  color: var(--text-muted, #aeb8c4);
+}
+
+/* The receipts: the load-bearing values a reviewer wants to see for themselves. Records
+   read in brushed silver (keys, not accents), each on the deep surface. */
+.rec-records {
+  margin-top: 20px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+@media (max-width: 560px) {
+  .rec-records { grid-template-columns: 1fr; }
+}
+.rec-record {
+  border: 1px solid var(--line, #333d47);
+  border-radius: 12px;
+  background: var(--surface-1, #1a2129);
+  padding: 13px 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.rec-record-k {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted, #9aa6b2);
+}
+.rec-record-v {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 13.5px;
+  color: var(--silver, #c6cfd9);
+  word-break: break-all;
+}

@@ -148,6 +148,7 @@ export const ptBR: Record<string, string> = {
   'landing.ctaVaults': 'Meus cofres',
   'landing.navNet': 'Rede',
   'landing.navSigner': 'Signer',
+  'landing.navProof': 'Prova',
   'landing.heroTrust': 'Sobre as ferramentas oficiais da Zcash Foundation · sem telemetria',
   'landing.whyEyebrow': 'Por que Konclave',
   'landing.whyTitle': 'Custódia compartilhada e privacidade real, usável por um tesoureiro comum.',

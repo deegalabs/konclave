@@ -138,8 +138,8 @@ export const SECTIONS: Section[] = [
       {
         k: 'note',
         t: {
-          'pt-BR': '**Experimente:** abra a [rede multi-dispositivo](#/net) em duas abas, ou rode a [assinatura FROST no navegador](#/signer).',
-          en: '**Try it:** open the [multi-device network](#/net) in two tabs, or run the [browser FROST signer](#/signer).',
+          'pt-BR': '**Experimente ao vivo:** a [rede multi-dispositivo](#/net) em duas abas, a [assinatura FROST no navegador](#/signer), a [recuperação social](#/recovery), a [herança](#/inheritance), e [confira nossos txids na mainnet](#/proof).',
+          en: '**Try it live:** the [multi-device network](#/net) in two tabs, the [browser FROST signer](#/signer), [social recovery](#/recovery), [inheritance](#/inheritance), and [verify our mainnet txids](#/proof).',
         },
       },
       {

@@ -148,6 +148,7 @@ export const en: Record<string, string> = {
   'landing.ctaVaults': 'My vaults',
   'landing.navNet': 'Network',
   'landing.navSigner': 'Signer',
+  'landing.navProof': 'Proof',
   'landing.heroTrust': 'Built on the official Zcash Foundation tools · no telemetry',
   'landing.whyEyebrow': 'Why Konclave',
   'landing.whyTitle': 'Shared custody and real privacy, usable by an ordinary treasurer.',

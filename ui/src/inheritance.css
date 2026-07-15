@@ -1,0 +1,242 @@
+/* /inheritance — a live, client-side visualization of the dead-man's-switch policy engine
+   (orchestrator/src/inheritance.rs). Dark, on-brand: role-based tokens with hard fallbacks so
+   it renders even before the global CSS loads. Accent stays scarce; mono carries the figures
+   and countdowns. Reuses the shared .demo-* / .net-* framing (net.css) for buttons/inputs. */
+
+.inh-wrap {
+  max-width: 720px;
+  margin-inline: auto;
+  padding: clamp(20px, 4vw, 40px);
+  min-height: 100vh;
+}
+
+.inh-title {
+  font-size: clamp(26px, 4vw, 36px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin: 14px 0 12px;
+}
+.inh-lead {
+  color: var(--text-muted, #9aa6b2);
+  font-size: 15px;
+  line-height: 1.62;
+  margin: 0 0 10px;
+  max-width: 64ch;
+}
+.inh-lead b { color: var(--text, #e7edf3); font-weight: 600; }
+
+/* --- State stamp + countdown ---------------------------------------------------------- */
+.inh-state {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin: 24px 0 6px;
+}
+/* A large state stamp, echoing the platform .stamp (mono, uppercase, rotated), scaled up and
+   color-coded per phase: Active=accent (locked, present), Pending=warn (grace running),
+   Released=danger (armed, high-stakes). */
+.inh-stamp {
+  display: inline-block;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  padding: 9px 16px;
+  border-radius: var(--radius-sm, 8px);
+  border: 1.5px solid;
+  transform: rotate(-2deg);
+}
+.inh-stamp.active { color: var(--accent, #57a6ff); border-color: var(--accent-line, rgba(87, 166, 255, 0.32)); background: var(--accent-soft, rgba(87, 166, 255, 0.1)); }
+.inh-stamp.pending { color: var(--warn, #e3ad52); border-color: rgba(227, 173, 82, 0.4); background: rgba(227, 173, 82, 0.1); }
+.inh-stamp.released { color: var(--danger-text, #ef9a92); border-color: var(--danger-line, rgba(231, 127, 116, 0.3)); background: var(--danger-soft, rgba(231, 127, 116, 0.1)); }
+
+.inh-count { display: flex; flex-direction: column; gap: 2px; }
+.inh-count-lab {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted, #9aa6b2);
+}
+.inh-count-val {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--silver, #c6cfd9);
+  font-variant-numeric: tabular-nums;
+}
+
+.inh-desc {
+  color: var(--text-muted, #9aa6b2);
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 12px 0 12px;
+  max-width: 62ch;
+}
+
+.inh-auth {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  border-radius: var(--radius-pill, 999px);
+  padding: 6px 14px;
+  border: 1px solid var(--line, #28313c);
+}
+.inh-auth::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.inh-auth.no { color: var(--text-muted, #9aa6b2); }
+.inh-auth.yes { color: var(--danger-text, #ef9a92); border-color: var(--danger-line, rgba(231, 127, 116, 0.3)); background: var(--danger-soft, rgba(231, 127, 116, 0.1)); }
+
+/* --- Timeline ------------------------------------------------------------------------- */
+.inh-timeline { margin: 26px 0 30px; }
+.inh-track {
+  position: relative;
+  display: flex;
+  height: 40px;
+  border-radius: var(--radius-sm, 8px);
+  overflow: hidden;
+  border: 1px solid var(--line, #28313c);
+  background: var(--surface-0, #0f141a);
+}
+.inh-zone {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  overflow: hidden;
+}
+.inh-zone.lapse { background: rgba(87, 166, 255, 0.1); }
+.inh-zone.grace { background: rgba(227, 173, 82, 0.12); }
+.inh-zone.released { flex: 1; background: rgba(231, 127, 116, 0.12); }
+.inh-zone + .inh-zone { border-left: 1px dashed var(--line-strong, #37424e); }
+.inh-zone-lab {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted, #9aa6b2);
+  white-space: nowrap;
+  padding: 0 6px;
+}
+/* The "now" marker — a bright vertical rule tinted by the current phase. */
+.inh-marker {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 2px;
+  background: var(--silver, #c6cfd9);
+  box-shadow: 0 0 0 3px var(--surface-0, #0f141a);
+  transition: left var(--dur-base, 240ms) var(--ease-out, ease);
+}
+.inh-marker.active { background: var(--accent, #57a6ff); }
+.inh-marker.pending { background: var(--warn, #e3ad52); }
+.inh-marker.released { background: var(--danger, #e77f74); }
+
+.inh-ticks {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  color: var(--text-muted, #9aa6b2);
+}
+
+/* --- Sections (sim + config) ---------------------------------------------------------- */
+.inh-sec-title {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted, #9aa6b2);
+}
+
+.inh-sim, .inh-cfg {
+  border: 1px solid var(--line, #28313c);
+  border-radius: var(--radius, 12px);
+  background: var(--surface-1, #151b22);
+  padding: 20px 22px;
+  margin: 18px 0;
+}
+.inh-sim-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.inh-elapsed {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12.5px;
+  color: var(--text-muted, #9aa6b2);
+}
+.inh-elapsed b { color: var(--silver, #c6cfd9); font-weight: 700; font-variant-numeric: tabular-nums; }
+.inh-sim-hint {
+  color: var(--text-muted, #9aa6b2);
+  font-size: 12.5px;
+  line-height: 1.55;
+  margin: 8px 0;
+}
+
+.inh-range {
+  width: 100%;
+  margin: 6px 0 14px;
+  accent-color: var(--accent, #57a6ff);
+  cursor: pointer;
+}
+
+.inh-jumps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+/* The +Nd jumps are compact; the heartbeat is the single primary action, pushed to the end. */
+.inh-jumps .net-btn { margin-top: 0; }
+.inh-jumps .net-btn.primary { margin-left: auto; }
+@media (max-width: 520px) {
+  .inh-jumps .net-btn.primary { margin-left: 0; flex: 1 1 100%; }
+}
+
+/* --- Policy fields -------------------------------------------------------------------- */
+.inh-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin: 14px 0;
+}
+@media (max-width: 520px) { .inh-fields { grid-template-columns: 1fr; } }
+.inh-field { display: flex; flex-direction: column; gap: 7px; margin-top: 12px; }
+.inh-fields .inh-field { margin-top: 0; }
+.inh-flab { font-size: 13px; color: var(--text-muted, #9aa6b2); }
+.inh-num { display: flex; align-items: center; gap: 8px; }
+.inh-inp { width: 90px; letter-spacing: normal; font-family: var(--font-mono, ui-monospace, monospace); }
+.inh-unit {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12.5px;
+  color: var(--text-muted, #9aa6b2);
+}
+.inh-heir {
+  letter-spacing: normal;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 13px;
+}
+
+.inh-foot {
+  color: var(--text-muted, #9aa6b2);
+  font-size: 12.5px;
+  line-height: 1.6;
+  border-left: 3px solid var(--line-strong, #37424e);
+  padding: 4px 0 4px 14px;
+  margin: 22px 0 24px;
+  max-width: 64ch;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inh-marker { transition: none; }
+}

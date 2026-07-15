@@ -17,6 +17,9 @@ import People from './screens/People'
 import Vaults from './screens/Vaults'
 import Receive from './screens/Receive'
 import Docs from './screens/Docs'
+import Proof from './screens/Proof'
+import Recovery from './screens/Recovery'
+import Inheritance from './screens/Inheritance'
 import './App.css'
 
 export default function App() {
@@ -33,6 +36,9 @@ export default function App() {
         <Route path="/net" element={<NetVault />} />
         <Route path="/docs" element={<Docs />} />
         <Route path="/docs/:section" element={<Docs />} />
+        <Route path="/proof" element={<Proof />} />
+        <Route path="/recovery" element={<Recovery />} />
+        <Route path="/inheritance" element={<Inheritance />} />
         <Route path="/create" element={<Ceremony />} />
         {/* In-vault — persistent left rail */}
         <Route element={<Layout />}>
