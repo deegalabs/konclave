@@ -11,8 +11,16 @@ import init, {
 } from '../wasm-pkg/konclave_wasm.js'
 import wasmUrl from '../wasm-pkg/konclave_wasm_bg.wasm?url'
 import { RelaySession, newRoomCode, ephemeralTag, b64, unb64, bytesEqual, type RelayMsg } from '../net'
-import { useT, useTr } from '../i18n'
+import { useT, useTr, useI18n } from '../i18n'
 import { Letterhead } from '../components'
+import {
+  saveVault,
+  loadVault,
+  listVaults,
+  deleteVault,
+  storageAvailable,
+  type VaultPublic,
+} from '../storage'
 import '../redesign.css'
 import '../net.css'
 
@@ -21,7 +29,55 @@ import '../net.css'
 // sealed to their recipient, so the relay only ever carries public material or ciphertext.
 // This is the "I created / I invited / I entered the code" flow, running for real across tabs.
 
-type Phase = 'idle' | 'roster' | 'dkg' | 'done' | 'error'
+type Phase = 'idle' | 'roster' | 'dkg' | 'done' | 'error' | 'restored'
+
+// Local, dependency-free labels for the on-device persistence UI (Marco 5). These are ADDITIVE
+// to the /net flow, so rather than touch the shared i18n dictionaries we key a small table by the
+// active locale. No em dashes in copy.
+const PERSIST_LABELS = {
+  'pt-BR': {
+    saveTitle: 'Guardar neste dispositivo',
+    saveHint: 'Cifra a sua parte do cofre com uma frase-senha, para nao perder o cofre ao recarregar a pagina.',
+    savePlaceholder: 'Frase-senha (minimo 8 caracteres)',
+    saveBtn: 'Guardar cofre',
+    saving: 'Guardando...',
+    saved: 'Cofre guardado neste dispositivo, cifrado.',
+    saveErr: 'Nao foi possivel guardar o cofre: ',
+    unavailable: 'Este navegador nao permite guardar o cofre (sem IndexedDB/WebCrypto).',
+    restoreTitle: 'Cofres guardados neste dispositivo',
+    restorePlaceholder: 'Frase-senha',
+    unlockBtn: 'Abrir',
+    deleteBtn: 'Apagar',
+    unlocking: 'Abrindo...',
+    restoreErr: 'Nao foi possivel abrir o cofre: ',
+    restoredTitle: 'Cofre restaurado',
+    restoredLead: 'A sua parte do cofre foi restaurada deste dispositivo, sem refazer a criacao.',
+    restoredNote: 'Para assinar, os membros precisam se reconectar a uma sala de assinatura (proximo passo).',
+    rosterLabel: 'Participantes registrados:',
+    backBtn: 'Voltar',
+  },
+  en: {
+    saveTitle: 'Save on this device',
+    saveHint: 'Encrypts your share of the vault with a passphrase, so a page reload does not lose the vault.',
+    savePlaceholder: 'Passphrase (at least 8 characters)',
+    saveBtn: 'Save vault',
+    saving: 'Saving...',
+    saved: 'Vault saved on this device, encrypted.',
+    saveErr: 'Could not save the vault: ',
+    unavailable: 'This browser cannot save the vault (no IndexedDB/WebCrypto).',
+    restoreTitle: 'Vaults saved on this device',
+    restorePlaceholder: 'Passphrase',
+    unlockBtn: 'Open',
+    deleteBtn: 'Delete',
+    unlocking: 'Opening...',
+    restoreErr: 'Could not open the vault: ',
+    restoredTitle: 'Vault restored',
+    restoredLead: 'Your share of the vault was restored from this device, without redoing creation.',
+    restoredNote: 'To sign, the members must reconnect to a signing room (the next step).',
+    rosterLabel: 'Registered participants:',
+    backBtn: 'Back',
+  },
+} as const
 
 // Wire messages (JSON inside the relay's opaque `data`; the relay never parses them).
 type Msg =
@@ -62,6 +118,8 @@ function Shell({ error, children }: { error: string; children: ReactNode }) {
 export default function NetVault() {
   const tt = useT()
   const ttr = useTr()
+  const { locale } = useI18n()
+  const L = PERSIST_LABELS[locale]
   const [phase, setPhase] = useState<Phase>('idle')
   const [role, setRole] = useState<'create' | 'join'>('create')
   const [room, setRoom] = useState('')
@@ -76,6 +134,26 @@ export default function NetVault() {
   const [signPhase, setSignPhase] = useState<'none' | 'signing' | 'signed'>('none')
   const [signature, setSignature] = useState('')
   const [signOk, setSignOk] = useState(false)
+
+  // --- on-device persistence (Marco 5) — additive, does not touch the DKG/relay/ceremony ---
+  const [savePass, setSavePass] = useState('')
+  const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle')
+  const [saveErr, setSaveErr] = useState('')
+  const [savedVaults, setSavedVaults] = useState<VaultPublic[]>([])
+  const [restorePass, setRestorePass] = useState<Record<string, string>>({})
+  const [restoreBusy, setRestoreBusy] = useState('')
+  const [restoreErr, setRestoreErr] = useState('')
+  const [restoredRoster, setRestoredRoster] = useState<string[]>([])
+  // Restored secret material, kept only in memory (never surfaced to JSON logs). Present after a
+  // restore so a future signing-after-restore step has the bytes; not yet wired to the relay.
+  const restoredRef = useRef<{
+    keyPackage: Uint8Array
+    pubkeys: Uint8Array
+    groupVk: Uint8Array
+    seat: number
+    n: number
+    t: number
+  } | null>(null)
 
   // --- mutable ceremony state (refs so the poll callback always sees the latest) ---
   const sessionRef = useRef<RelaySession | null>(null)
@@ -428,6 +506,112 @@ export default function NetVault() {
     [addLog, advance, onMessage, tt],
   )
 
+  // ---- on-device persistence handlers (Marco 5), all additive to the flow above ----
+
+  const refreshSaved = useCallback(async () => {
+    try {
+      setSavedVaults(await listVaults())
+    } catch {
+      /* listing failure is non-fatal — just show no saved vaults */
+    }
+  }, [])
+
+  // Save the completed vault: encrypt this device's share (+ the public material a future signing
+  // step needs) under a passphrase and store it. Reads live refs; does not alter ceremony state.
+  const doSave = useCallback(async () => {
+    if (!storageAvailable()) {
+      setSaveErr(L.unavailable)
+      return
+    }
+    if (savePass.length < 8) return
+    const dkg = dkgRef.current
+    if (!dkg) return
+    setSaveState('saving')
+    setSaveErr('')
+    try {
+      const gvk = dkg.groupVk()
+      const cfg = configRef.current
+      // The secret bundle (encrypted at rest): the share plus the public bytes a restored device
+      // would need to sign again (pubkeys, seat, config). Public metadata rides outside, in clear.
+      const bundle = new TextEncoder().encode(
+        JSON.stringify({
+          kp: b64(dkg.keyPackage()),
+          pubkeys: b64(dkg.pubkeys()),
+          deviceSecret: b64(deviceKeyRef.current?.secretBytes() ?? new Uint8Array()),
+          seat: mySeatRef.current,
+          n: cfg?.n ?? 0,
+          t: cfg?.t ?? 0,
+        }),
+      )
+      const roster = seatTableRef.current.map((s) => s.tag)
+      await saveVault(hex(gvk), { groupKey: gvk, address: '', roster, sealedShare: bundle }, savePass)
+      setSaveState('saved')
+      setSavePass('')
+      await refreshSaved()
+    } catch (e) {
+      setSaveState('idle')
+      setSaveErr(L.saveErr + String(e))
+    }
+  }, [savePass, L, refreshSaved])
+
+  // Restore a saved vault: unlock with the passphrase, bring the vault identity back into view
+  // WITHOUT redoing the DKG. The secret material is held in memory (restoredRef) for a future
+  // signing-after-restore step; the live relay/ceremony refs are left untouched.
+  const doRestore = useCallback(
+    async (id: string) => {
+      const pass = restorePass[id] ?? ''
+      if (!pass) return
+      setRestoreBusy(id)
+      setRestoreErr('')
+      try {
+        const v = await loadVault(id, pass)
+        const bundle = JSON.parse(new TextDecoder().decode(v.sealedShare)) as {
+          kp: string
+          pubkeys: string
+          seat: number
+          n: number
+          t: number
+        }
+        restoredRef.current = {
+          keyPackage: unb64(bundle.kp),
+          pubkeys: unb64(bundle.pubkeys),
+          groupVk: v.groupKey,
+          seat: bundle.seat,
+          n: bundle.n,
+          t: bundle.t,
+        }
+        setGroupVk(hex(v.groupKey))
+        setRestoredRoster(v.roster)
+        if (bundle.n) setN(bundle.n)
+        if (bundle.t) setT(bundle.t)
+        setRestorePass((m) => ({ ...m, [id]: '' }))
+        setPhase('restored')
+      } catch (e) {
+        setRestoreErr(L.restoreErr + String(e))
+      } finally {
+        setRestoreBusy('')
+      }
+    },
+    [restorePass, L],
+  )
+
+  const doDelete = useCallback(
+    async (id: string) => {
+      try {
+        await deleteVault(id)
+        await refreshSaved()
+      } catch {
+        /* deletion failure is non-fatal */
+      }
+    },
+    [refreshSaved],
+  )
+
+  // Load the list of saved vaults once, so the idle screen can offer to restore one.
+  useEffect(() => {
+    void refreshSaved()
+  }, [refreshSaved])
+
   useEffect(() => {
     return () => {
       sessionRef.current?.stop()
@@ -488,7 +672,53 @@ export default function NetVault() {
             </button>
           </div>
         </div>
+
+        {savedVaults.length > 0 && (
+          <div className="net-card" style={{ marginTop: 16 }}>
+            <h3>{L.restoreTitle}</h3>
+            {restoreErr && <div className="net-error">{restoreErr}</div>}
+            {savedVaults.map((v) => (
+              <div key={v.id} className="net-row" style={{ flexWrap: 'wrap', gap: 8 }}>
+                <code style={{ flex: '1 1 100%', wordBreak: 'break-all', fontSize: '0.8em' }}>{v.id}</code>
+                <input
+                  className="net-input"
+                  type="password"
+                  style={{ flex: '1 1 auto', margin: 0 }}
+                  placeholder={L.restorePlaceholder}
+                  value={restorePass[v.id] ?? ''}
+                  onChange={(e) => setRestorePass((m) => ({ ...m, [v.id]: e.target.value }))}
+                />
+                <button
+                  className="net-btn"
+                  disabled={restoreBusy === v.id || !(restorePass[v.id] ?? '')}
+                  onClick={() => void doRestore(v.id)}
+                >
+                  {restoreBusy === v.id ? L.unlocking : L.unlockBtn}
+                </button>
+                <button className="net-btn" onClick={() => void doDelete(v.id)}>{L.deleteBtn}</button>
+              </div>
+            ))}
+          </div>
+        )}
+
         <p className="net-tip">{ttr('net.idle.tip')}</p>
+      </Shell>
+    )
+  }
+
+  if (phase === 'restored') {
+    return (
+      <Shell error={error}>
+        <h1 className="net-h1">{L.restoredTitle}</h1>
+        <p className="net-lead">{L.restoredLead}</p>
+        <div className="net-vk">{groupVk}</div>
+        {restoredRoster.length > 0 && (
+          <p className="net-tip">{L.rosterLabel} {restoredRoster.join(', ')}</p>
+        )}
+        <p className="net-tip">{L.restoredNote}</p>
+        <button className="net-btn" style={{ marginTop: 16 }} onClick={() => setPhase('idle')}>
+          {L.backBtn}
+        </button>
       </Shell>
     )
   }
@@ -531,6 +761,32 @@ export default function NetVault() {
           <p className="net-lead">{ttr('net.done.lead')}</p>
           <div className="net-vk">{groupVk}</div>
           <p className="net-tip">{tt('net.done.tip')}</p>
+
+          <div className="net-card" style={{ marginTop: 16 }}>
+            <h3>{L.saveTitle}</h3>
+            <p>{L.saveHint}</p>
+            {saveState === 'saved' ? (
+              <p className="net-tip">{L.saved}</p>
+            ) : (
+              <>
+                {saveErr && <div className="net-error">{saveErr}</div>}
+                <input
+                  className="net-input"
+                  type="password"
+                  placeholder={L.savePlaceholder}
+                  value={savePass}
+                  onChange={(e) => setSavePass(e.target.value)}
+                />
+                <button
+                  className="net-btn"
+                  disabled={saveState === 'saving' || savePass.length < 8}
+                  onClick={() => void doSave()}
+                >
+                  {saveState === 'saving' ? L.saving : L.saveBtn}
+                </button>
+              </>
+            )}
+          </div>
 
           <div className="net-sign">
             {signPhase === 'none' && (
