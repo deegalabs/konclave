@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { getVaults, health, setSelectedVault, unlockVault, markVaultUnlocked, shortAddr, type Vault } from '../api'
 import { Identicon } from '../avatar'
 import { Dialog, LangToggle, activateOnKey } from '../components'
@@ -96,6 +96,7 @@ export default function Vaults() {
           <Brand />
           <span className="rd-top-right">
             <span className="rd-status"><span className="dot" /> {tr('vaults.secureEnv')}</span>
+            <Link to="/docs" className="doclink">Docs</Link>
             <LangToggle />
           </span>
         </div>

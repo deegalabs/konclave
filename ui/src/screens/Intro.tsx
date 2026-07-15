@@ -56,6 +56,7 @@ export default function Intro() {
             <span className="wm">KONCLAVE</span>
           </Link>
           <div className="lp-top-right">
+            <Link to="/docs" className="doclink">Docs</Link>
             <LangToggle />
             <span className="lp-env">{tr('landing.env')}</span>
           </div>

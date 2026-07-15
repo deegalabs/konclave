@@ -16,6 +16,7 @@ import Members from './screens/Members'
 import People from './screens/People'
 import Vaults from './screens/Vaults'
 import Receive from './screens/Receive'
+import Docs from './screens/Docs'
 import './App.css'
 
 export default function App() {
@@ -30,6 +31,8 @@ export default function App() {
         <Route path="/demo" element={<Demo />} />
         <Route path="/signer" element={<WasmSigner />} />
         <Route path="/net" element={<NetVault />} />
+        <Route path="/docs" element={<Docs />} />
+        <Route path="/docs/:section" element={<Docs />} />
         <Route path="/create" element={<Ceremony />} />
         {/* In-vault — persistent left rail */}
         <Route element={<Layout />}>

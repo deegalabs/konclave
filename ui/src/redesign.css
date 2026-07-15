@@ -148,6 +148,9 @@
 
 /* Language toggle (PT / EN) */
 .rd-top-right { display: flex; align-items: center; gap: 14px; }
+.doclink { font-size: 13px; font-weight: 600; color: var(--silver); text-decoration: none; letter-spacing: .01em; transition: color .15s; }
+.doclink:hover { color: var(--accent); }
+.doclink:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
 .lang-toggle { display: inline-flex; border: 1px solid var(--line-soft); border-radius: var(--radius-sm); overflow: hidden; }
 .lang-btn { background: transparent; color: var(--silver); border: none; padding: 3px 9px; font: inherit; font-size: 11px; letter-spacing: .04em; cursor: pointer; }
 .lang-btn.on { background: var(--accent); color: var(--on-accent); font-weight: 700; }
