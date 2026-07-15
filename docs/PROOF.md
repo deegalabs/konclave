@@ -6,7 +6,7 @@ plainly what on-chain data can and cannot prove, so nothing here is overclaimed.
 
 ## What the proof shows
 
-Konclave claims two real Zcash **mainnet** transactions:
+Konclave claims four real Zcash **mainnet** transactions:
 
 | Role | Transaction ID | Block |
 |---|---|---|
@@ -81,8 +81,9 @@ is.
 
 Because of that, the threshold nature is attested by artifacts **off-chain**:
 
-- the vault's key material was produced by a real Distributed Key Generation (the
-  key was never reconstituted on one machine);
+- for the application-driven transaction, the vault's key material was produced by a
+  real Distributed Key Generation (the key was never reconstituted on one machine); the
+  three later evidence transactions used a trusted-dealer 2-of-3 vault, stated plainly;
 - the signature was assembled by a FROST ceremony among the members who approved
   the proposal, coordinated through a blind relay that sees only public material;
 - the build and ceremony paths are covered by the repository's test suite.
