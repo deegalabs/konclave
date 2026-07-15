@@ -445,7 +445,7 @@ export default function NetVault() {
             />
             <button
               className="net-btn"
-              disabled={joinCode.length < 4}
+              disabled={joinCode.length < 8}
               onClick={() => { setRole('join'); void begin('join', joinCode, n, t) }}
             >
               Entrar com o código

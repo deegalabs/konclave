@@ -528,7 +528,18 @@ pub mod recovery {
         lost: Identifier,
         pubkeys: &frost::keys::PublicKeyPackage,
     ) -> Result<KeyPackage, String> {
-        repair_share_part3(sigmas, lost, pubkeys).map_err(|e| e.to_string())
+        let kp = repair_share_part3(sigmas, lost, pubkeys).map_err(|e| e.to_string())?;
+        // Validate at the boundary (§6.8): repair_share_part3 does NOT check its result, so a
+        // wrong or malicious helper set would yield a silently-wrong share. The repaired share
+        // must match the group's known public share for that member, or we refuse it.
+        let expected = pubkeys
+            .verifying_shares()
+            .get(&lost)
+            .ok_or_else(|| "recovery: unknown member for this vault".to_string())?;
+        if kp.verifying_share() != expected {
+            return Err("recovery: repaired share does not match the group's public share".into());
+        }
+        Ok(kp)
     }
 
     #[cfg(test)]
