@@ -32,7 +32,7 @@ multisig (e.g. on an EVM chain) can offer.
 - **Multi-device vault, live over the internet:** https://konclave-demo.vercel.app/#/net — open it
   in **two tabs**: one creates a vault and shows an invite code, the other joins, and together they
   run a real **Distributed Key Generation** over a hosted blind relay, then sign as a quorum.
-- **Pitch video:** on YouTube (posted with the ZecHub Discord submission).
+- **Pitch video:** [Watch on YouTube](https://youtu.be/_UyWlLRnJms)
 
 > The hosted app runs on demo data. The real proof is the mainnet transaction below — an actual
 > 2-of-3 quorum payment, signed by a FROST ceremony, broadcast to Zcash mainnet.
