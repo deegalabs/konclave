@@ -12,6 +12,7 @@ Konclave claims two real Zcash **mainnet** transactions:
 |---|---|---|
 | Application-driven 2-of-3 quorum payment (FROST-signed, broadcast through the app) | `43433a109d3f2a078c0a9269ccb156392ade7a1f7ac1532981611eda1e59a572` | mined |
 | Gate-1 CLI-driven vertical-slice payment | `f63ee64d7bc086a8286631d03936ec2ca2ca57f4e4c63712fc95c1f02c522360` | 3,396,616 |
+| 2-of-3 FROST payment from a freshly created and funded vault (reproduced end to end) | `6c898239e05fdd1ccce5d650fa25eeabb10d1645a3fdbc36ab5fd3ac8d4fd35f` | 3,413,636 |
 
 The verifier queries independent public explorers and confirms each transaction
 exists and is mined on mainnet, reporting the block height, confirmations, and
@@ -26,7 +27,7 @@ Requires Node 18 or newer (uses the built-in `fetch`, no dependencies, no
 node scripts/verify-proof.mjs
 ```
 
-The script exits `0` only if both transactions are confirmed found and mined. It
+The script exits `0` only if the transactions are confirmed found and mined. It
 exits `1` on a verification failure, and also exits `1` (with an INCONCLUSIVE
 verdict) if the network is unavailable, so a connectivity problem is never
 mistaken for a proof failure.
@@ -41,6 +42,9 @@ Verify by hand as well as by script:
 - Gate-1 slice payment `f63ee64d...c522360`
   - zcashexplorer: https://mainnet.zcashexplorer.app/transactions/f63ee64d7bc086a8286631d03936ec2ca2ca57f4e4c63712fc95c1f02c522360
   - Blockchair: https://blockchair.com/zcash/transaction/f63ee64d7bc086a8286631d03936ec2ca2ca57f4e4c63712fc95c1f02c522360
+- Fresh-vault payment `6c898239...d4fd35f`
+  - zcashexplorer: https://mainnet.zcashexplorer.app/transactions/6c898239e05fdd1ccce5d650fa25eeabb10d1645a3fdbc36ab5fd3ac8d4fd35f
+  - Blockchair: https://blockchair.com/zcash/transaction/6c898239e05fdd1ccce5d650fa25eeabb10d1645a3fdbc36ab5fd3ac8d4fd35f
 
 The script uses Blockchair's API as its primary source
 (`https://api.blockchair.com/zcash/dashboards/transaction/<txid>`) and

@@ -29,6 +29,10 @@ const TXIDS = [
     txid: "f63ee64d7bc086a8286631d03936ec2ca2ca57f4e4c63712fc95c1f02c522360",
     label: "Gate-1 CLI-driven vertical-slice payment",
   },
+  {
+    txid: "6c898239e05fdd1ccce5d650fa25eeabb10d1645a3fdbc36ab5fd3ac8d4fd35f",
+    label: "2-of-3 FROST payment from a freshly created + funded vault (reproduced end to end)",
+  },
 ];
 
 const TIMEOUT_MS = 15000;
@@ -204,7 +208,7 @@ async function main() {
   }
 
   if (allConfirmed) {
-    console.log("VERDICT: VERIFIED — both txids are real, mined Zcash mainnet transactions.");
+    console.log("VERDICT: VERIFIED — the txids are real, mined, mined Zcash mainnet transactions.");
   } else {
     console.log("VERDICT: FAILED — at least one txid was not confirmed as found+mined.");
   }
