@@ -30,6 +30,11 @@ const TXS = [
     block: 3413636,
     kind: 'fresh' as const,
   },
+  {
+    txid: 'b1e24c07fcd629e6e6ea6809ffeb5d2e311054781740c6a5db73dabc94d0e1b4',
+    block: 3413648,
+    kind: 'payroll' as const,
+  },
 ]
 
 const explorerZec = (txid: string) => `https://mainnet.zcashexplorer.app/transactions/${txid}`
@@ -43,6 +48,7 @@ const TXT = {
     labelApp: 'Pagamento por quórum 2-de-3 conduzido pelo app (assinado por FROST, transmitido)',
     labelSlice: 'Pagamento do Gate 1, fatia vertical pela CLI',
     labelFresh: 'Pagamento 2-de-3 FROST de um cofre criado e financiado do zero (reproduzido ponta a ponta)',
+    labelPayroll: 'Folha privada multi-saída (3 saídas, um memo criptografado cada), 2-de-3 FROST',
     txidLabel: 'ID da transação',
     blockLabel: 'Bloco',
     copy: 'Copiar',
@@ -71,6 +77,7 @@ const TXT = {
     labelApp: 'Application-driven 2-of-3 quorum payment (FROST-signed, broadcast)',
     labelSlice: 'Gate-1 CLI-driven vertical-slice payment',
     labelFresh: '2-of-3 FROST payment from a freshly created and funded vault (reproduced end to end)',
+    labelPayroll: 'Private multi-output payroll (3 outputs, one encrypted memo each), 2-of-3 FROST',
     txidLabel: 'Transaction ID',
     blockLabel: 'Block',
     copy: 'Copy',
@@ -131,8 +138,8 @@ export default function Proof() {
   const [checks, setChecks] = useState<Record<string, CheckState>>({})
   const [copied, setCopied] = useState<string | null>(null)
 
-  const labelFor = (kind: 'app' | 'slice' | 'fresh') =>
-    kind === 'app' ? T.labelApp : kind === 'slice' ? T.labelSlice : T.labelFresh
+  const labelFor = (kind: 'app' | 'slice' | 'fresh' | 'payroll') =>
+    kind === 'app' ? T.labelApp : kind === 'slice' ? T.labelSlice : kind === 'fresh' ? T.labelFresh : T.labelPayroll
 
   const copy = (text: string, tag: string) => {
     void navigator.clipboard?.writeText(text)

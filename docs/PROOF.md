@@ -13,6 +13,7 @@ Konclave claims two real Zcash **mainnet** transactions:
 | Application-driven 2-of-3 quorum payment (FROST-signed, broadcast through the app) | `43433a109d3f2a078c0a9269ccb156392ade7a1f7ac1532981611eda1e59a572` | mined |
 | Gate-1 CLI-driven vertical-slice payment | `f63ee64d7bc086a8286631d03936ec2ca2ca57f4e4c63712fc95c1f02c522360` | 3,396,616 |
 | 2-of-3 FROST payment from a freshly created and funded vault (reproduced end to end) | `6c898239e05fdd1ccce5d650fa25eeabb10d1645a3fdbc36ab5fd3ac8d4fd35f` | 3,413,636 |
+| Private multi-output payroll (3 outputs, one encrypted memo each), 2-of-3 FROST | `b1e24c07fcd629e6e6ea6809ffeb5d2e311054781740c6a5db73dabc94d0e1b4` | 3,413,648 |
 
 The verifier queries independent public explorers and confirms each transaction
 exists and is mined on mainnet, reporting the block height, confirmations, and
@@ -45,6 +46,9 @@ Verify by hand as well as by script:
 - Fresh-vault payment `6c898239...d4fd35f`
   - zcashexplorer: https://mainnet.zcashexplorer.app/transactions/6c898239e05fdd1ccce5d650fa25eeabb10d1645a3fdbc36ab5fd3ac8d4fd35f
   - Blockchair: https://blockchair.com/zcash/transaction/6c898239e05fdd1ccce5d650fa25eeabb10d1645a3fdbc36ab5fd3ac8d4fd35f
+- Private multi-output payroll `b1e24c07...94d0e1b4`
+  - zcashexplorer: https://mainnet.zcashexplorer.app/transactions/b1e24c07fcd629e6e6ea6809ffeb5d2e311054781740c6a5db73dabc94d0e1b4
+  - Blockchair: https://blockchair.com/zcash/transaction/b1e24c07fcd629e6e6ea6809ffeb5d2e311054781740c6a5db73dabc94d0e1b4
 
 The script uses Blockchair's API as its primary source
 (`https://api.blockchair.com/zcash/dashboards/transaction/<txid>`) and

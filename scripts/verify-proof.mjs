@@ -33,6 +33,10 @@ const TXIDS = [
     txid: "6c898239e05fdd1ccce5d650fa25eeabb10d1645a3fdbc36ab5fd3ac8d4fd35f",
     label: "2-of-3 FROST payment from a freshly created + funded vault (reproduced end to end)",
   },
+  {
+    txid: "b1e24c07fcd629e6e6ea6809ffeb5d2e311054781740c6a5db73dabc94d0e1b4",
+    label: "private multi-output payroll (3 outputs, one encrypted memo each), 2-of-3 FROST",
+  },
 ];
 
 const TIMEOUT_MS = 15000;
@@ -208,7 +212,7 @@ async function main() {
   }
 
   if (allConfirmed) {
-    console.log("VERDICT: VERIFIED — the txids are real, mined, mined Zcash mainnet transactions.");
+    console.log("VERDICT: VERIFIED — the txids are real, mined Zcash mainnet transactions.");
   } else {
     console.log("VERDICT: FAILED — at least one txid was not confirmed as found+mined.");
   }
