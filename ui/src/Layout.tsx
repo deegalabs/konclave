@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink, Link, Outlet, useNavigate } from 'react-router-dom'
-import { Mark } from './components'
+import { Mark, LangToggle } from './components'
 import { Identicon } from './avatar'
 import { useT } from './i18n'
 import { getVault, health, isVaultUnlocked, type Vault } from './api'
@@ -85,6 +85,7 @@ export default function Layout() {
             {live === false && <span className="live off"><i />{t('dashboard.demo')}</span>}
             <Link to="/" className="rail-switch">{t('nav.switchVault')} ▾</Link>
           </div>
+          <div className="rail-lang"><LangToggle /></div>
         </div>
       </aside>
 

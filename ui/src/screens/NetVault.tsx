@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
 import init, {
   DkgSession,
   DeviceKey,
@@ -12,6 +11,8 @@ import init, {
 } from '../wasm-pkg/konclave_wasm.js'
 import wasmUrl from '../wasm-pkg/konclave_wasm_bg.wasm?url'
 import { RelaySession, newRoomCode, ephemeralTag, b64, unb64, bytesEqual, type RelayMsg } from '../net'
+import { useT, useTr } from '../i18n'
+import { Letterhead } from '../components'
 import '../redesign.css'
 import '../net.css'
 
@@ -44,12 +45,10 @@ function hex(bytes: Uint8Array): string {
 }
 
 function Shell({ error, children }: { error: string; children: ReactNode }) {
+  const t = useT()
   return (
     <div className="rd net-wrap">
-      <div className="net-top">
-        <Link to="/intro" className="net-back">← Konclave</Link>
-        <span className="net-tag">rede · relay cego</span>
-      </div>
+      <Letterhead right={<span className="net-tag">{t('net.tag')}</span>} />
       {error && <div className="net-error">{error}</div>}
       {children}
     </div>
@@ -57,6 +56,8 @@ function Shell({ error, children }: { error: string; children: ReactNode }) {
 }
 
 export default function NetVault() {
+  const tt = useT()
+  const ttr = useTr()
   const [phase, setPhase] = useState<Phase>('idle')
   const [role, setRole] = useState<'create' | 'join'>('create')
   const [room, setRoom] = useState('')
@@ -118,8 +119,8 @@ export default function NetVault() {
       if (await sessionRef.current?.send(body)) return
       await new Promise((r) => setTimeout(r, 400))
     }
-    setError('Não consegui falar com o relay (a rede caiu). Recarregue as duas abas e refaça.')
-  }, [])
+    setError(tt('net.err.relayDown'))
+  }, [tt])
 
   // Seat everyone deterministically by sorting their tags — every device computes the same
   // seating with no central assigner (the invite code names the room, not the seats).
@@ -137,9 +138,9 @@ export default function NetVault() {
     }))
     mySeatRef.current = seatByTagRef.current.get(myTagRef.current) ?? 0
     if (mySeatRef.current === 0) {
-      setError('Esta sala já está cheia (o cofre tem o número de dispositivos definido). Gere um novo convite.')
+      setError(tt('net.err.roomFull'))
     }
-  }, [])
+  }, [tt])
 
   const doPart2 = useCallback(async () => {
     const dkg = dkgRef.current!
@@ -156,8 +157,8 @@ export default function NetVault() {
       const sealed = sealTo(seat.encPub, dkg.round2Package(i), aad)
       await send({ type: 'r2', to: recipSeat, box: b64(sealed) })
     }
-    addLog(`round 2: enviei ${count} pacote(s) secreto(s), cada um lacrado ao destinatário`)
-  }, [addLog, send])
+    addLog(tt('net.log.round2', { count }))
+  }, [addLog, send, tt])
 
   const doPart3 = useCallback(() => {
     const dkg = dkgRef.current!
@@ -166,8 +167,8 @@ export default function NetVault() {
     if (ceremonyTimerRef.current) clearTimeout(ceremonyTimerRef.current)
     setGroupVk(hex(dkg.groupVk()))
     setPhase('done')
-    addLog('round 3: combinei tudo — meu pedaço da chave ficou aqui, o cofre nasceu')
-  }, [addLog])
+    addLog(tt('net.log.round3'))
+  }, [addLog, tt])
 
   const applyMsg = useCallback(
     async (msg: RelayMsg): Promise<boolean> => {
@@ -201,7 +202,7 @@ export default function NetVault() {
         if (r1SeenRef.current.has(seat)) return true
         dkgRef.current!.addRound1(identifierBytes(seat), unb64(parsed.pkg))
         r1SeenRef.current.add(seat)
-        addLog(`recebi o round 1 do assento ${seat}`)
+        addLog(tt('net.log.r1From', { seat }))
         const need = (configRef.current?.n ?? 0) - 1
         if (r1SeenRef.current.size >= need && !part2DoneRef.current) await doPart2()
         return true
@@ -217,12 +218,12 @@ export default function NetVault() {
         try {
           opened = deviceKeyRef.current!.open(unb64(parsed.box), aad)
         } catch {
-          addLog(`aviso: não consegui abrir o pacote do assento ${seat}`)
+          addLog(tt('net.log.cantOpen', { seat }))
           return true
         }
         dkgRef.current!.addRound2(identifierBytes(seat), opened)
         r2SeenRef.current.add(seat)
-        addLog(`recebi e abri o pacote secreto do assento ${seat}`)
+        addLog(tt('net.log.r2From', { seat }))
         const need = (configRef.current?.n ?? 0) - 1
         if (r2SeenRef.current.size >= need && !part3DoneRef.current) doPart3()
         return true
@@ -238,7 +239,7 @@ export default function NetVault() {
           const r1 = participantRound1(dkgRef.current!.keyPackage())
           myNoncesRef.current = r1.nonces()
           await send({ type: 's1', commit: b64(r1.commitment()) })
-          addLog('assinatura: enviei meu compromisso (round 1)')
+          addLog(tt('net.log.signCommit'))
         }
         return true
       }
@@ -268,7 +269,7 @@ export default function NetVault() {
             seed: b64(seedRef.current),
             msg: b64(signMsgRef.current),
           })
-          addLog(`coordenei o pacote de assinatura (assentos ${chosen.join(', ')})`)
+          addLog(tt('net.log.signCoord', { seats: chosen.join(', ') }))
         }
         return true
       }
@@ -285,7 +286,7 @@ export default function NetVault() {
           )
           sentS2Ref.current = true
           await send({ type: 's2', share: b64(share) })
-          addLog('assinatura: assinei com o meu pedaço (round 2)')
+          addLog(tt('net.log.signShare'))
         }
         return true
       }
@@ -303,7 +304,7 @@ export default function NetVault() {
           const sig = coordRef.current.aggregate()
           const ok = coordRef.current.verify(sig)
           await send({ type: 'signed', sig: b64(sig), ok })
-          addLog('coordenei a agregação: a assinatura foi montada')
+          addLog(tt('net.log.signAggregate'))
         }
         return true
       }
@@ -320,17 +321,17 @@ export default function NetVault() {
         setSignature(hex(sig))
         setSignOk(ok)
         setSignPhase('signed')
-        addLog(ok ? 'conferi a assinatura no meu aparelho: VÁLIDA' : 'a assinatura não validou aqui')
+        addLog(ok ? tt('net.log.verifyOk') : tt('net.log.verifyFail'))
         return true
       }
       return true
       } catch {
-        addLog('aviso: uma mensagem da cerimônia falhou e foi ignorada')
-        setError('Uma etapa da cerimônia falhou. Se as abas travarem, recarregue e refaça.')
+        addLog(tt('net.log.msgFailed'))
+        setError(tt('net.err.stepFailed'))
         return true // consume so the fixpoint never re-throws the same message
       }
     },
-    [addLog, doPart2, doPart3, send],
+    [addLog, doPart2, doPart3, send, tt],
   )
 
   const startSign = useCallback(async () => {
@@ -358,7 +359,7 @@ export default function NetVault() {
               dkgRef.current = new DkgSession(identifierBytes(mySeatRef.current), cfg.n, cfg.t)
               startedDkgRef.current = true
               setPhase('dkg')
-              addLog(`sou o assento ${mySeatRef.current} de ${cfg.n} — round 1 enviado`)
+              addLog(tt('net.log.seated', { seat: mySeatRef.current, total: cfg.n }))
               await send({ type: 'r1', pkg: b64(dkgRef.current.round1Package()) })
               progressed = true
             }
@@ -377,7 +378,7 @@ export default function NetVault() {
       advancingRef.current = false
       setRosterCount(rosterRef.current.size)
     }
-  }, [addLog, applyMsg, computeSeating, send])
+  }, [addLog, applyMsg, computeSeating, send, tt])
 
   const onMessage = useCallback(
     (m: RelayMsg) => {
@@ -402,7 +403,7 @@ export default function NetVault() {
         sess.start()
         ceremonyTimerRef.current = setTimeout(() => {
           if (!part3DoneRef.current) {
-            setError('A cerimônia não completou a tempo. Confira se todos os dispositivos entraram na sala e recarregue para refazer.')
+            setError(tt('net.err.timeout'))
           }
         }, 90000)
         // The creator declares the group size/threshold; everyone announces their enc key.
@@ -413,14 +414,14 @@ export default function NetVault() {
         await sess.send(
           JSON.stringify({ type: 'hello', encPub: b64(deviceKeyRef.current.publicBytes()) } satisfies Msg),
         )
-        addLog('entrei na sala e anunciei minha chave de cifra')
+        addLog(tt('net.log.joined'))
         void advance()
       } catch (e) {
         setError(String(e))
         setPhase('error')
       }
     },
-    [addLog, advance, onMessage],
+    [addLog, advance, onMessage, tt],
   )
 
   useEffect(() => {
@@ -435,29 +436,25 @@ export default function NetVault() {
   if (phase === 'idle') {
     return (
       <Shell error={error}>
-        <h1 className="net-h1">Criar um cofre em rede</h1>
-        <p className="net-lead">
-          Duas ou mais abas (ou aparelhos) criam <b>um</b> cofre juntas, por um DKG de verdade pelo
-          relay cego. Cada uma sai com o seu pedaço da chave. A chave inteira nunca é montada, e o
-          relay só vê material público ou já cifrado.
-        </p>
+        <h1 className="net-h1">{tt('net.idle.title')}</h1>
+        <p className="net-lead">{ttr('net.idle.lead')}</p>
 
         <div className="net-cards">
           <div className="net-card">
-            <h3>Criar</h3>
-            <p>Você abre o cofre e gera um código de convite.</p>
+            <h3>{tt('net.idle.createTitle')}</h3>
+            <p>{tt('net.idle.createDesc')}</p>
             <label className="net-row">
-              Dispositivos
+              {tt('net.idle.devices')}
               <select value={n} onChange={(e) => { const v = Number(e.target.value); setN(v); if (t > v) setT(v) }}>
                 <option value={2}>2</option>
                 <option value={3}>3</option>
               </select>
             </label>
             <label className="net-row">
-              Quórum
+              {tt('net.idle.quorum')}
               <select value={t} onChange={(e) => setT(Number(e.target.value))}>
                 {Array.from({ length: n }, (_, i) => i + 1).map((v) => (
-                  <option key={v} value={v}>{v} de {n}</option>
+                  <option key={v} value={v}>{tt('net.idle.quorumOption', { v, n })}</option>
                 ))}
               </select>
             </label>
@@ -465,16 +462,16 @@ export default function NetVault() {
               className="net-btn primary"
               onClick={() => { setRole('create'); void begin('create', newRoomCode(), n, t) }}
             >
-              Gerar convite
+              {tt('net.idle.generateInvite')}
             </button>
           </div>
 
           <div className="net-card">
-            <h3>Entrar</h3>
-            <p>Você recebeu um código. Cole aqui, no seu aparelho.</p>
+            <h3>{tt('net.idle.joinTitle')}</h3>
+            <p>{tt('net.idle.joinDesc')}</p>
             <input
               className="net-input"
-              placeholder="ex.: KX7M4PQR"
+              placeholder={tt('net.idle.joinPlaceholder')}
               value={joinCode}
               onChange={(e) => setJoinCode(e.target.value.toUpperCase().trim())}
             />
@@ -483,14 +480,11 @@ export default function NetVault() {
               disabled={joinCode.length < 8}
               onClick={() => { setRole('join'); void begin('join', joinCode, n, t) }}
             >
-              Entrar com o código
+              {tt('net.idle.joinBtn')}
             </button>
           </div>
         </div>
-        <p className="net-tip">
-          Para testar agora: clique em <b>Gerar convite</b>, copie o código, abra esta mesma página em
-          outra aba e cole em <b>Entrar</b>. As duas abas farão o cofre juntas.
-        </p>
+        <p className="net-tip">{ttr('net.idle.tip')}</p>
       </Shell>
     )
   }
@@ -502,61 +496,52 @@ export default function NetVault() {
     <Shell error={error}>
       {role === 'create' && phase === 'roster' && (
         <>
-          <h1 className="net-h1">Convite gerado</h1>
-          <p className="net-lead">Passe este código para os outros. Eles entram por ele, no aparelho deles.</p>
-          <div className="net-code" onClick={() => navigator.clipboard?.writeText(room)} title="clique para copiar">
+          <h1 className="net-h1">{tt('net.invite.title')}</h1>
+          <p className="net-lead">{tt('net.invite.lead')}</p>
+          <div className="net-code" onClick={() => navigator.clipboard?.writeText(room)} title={tt('net.invite.clickCopy')}>
             {room}
           </div>
         </>
       )}
       {role === 'join' && phase === 'roster' && (
         <>
-          <h1 className="net-h1">Entrando no cofre…</h1>
+          <h1 className="net-h1">{tt('net.joining.title')}</h1>
           <div className="net-code">{room}</div>
         </>
       )}
-      {phase === 'dkg' && <h1 className="net-h1">Criando o cofre em rede…</h1>}
-      {phase === 'done' && <h1 className="net-h1">Cofre criado 🔐</h1>}
+      {phase === 'dkg' && <h1 className="net-h1">{tt('net.creating.title')}</h1>}
+      {phase === 'done' && <h1 className="net-h1">{tt('net.done.title')}</h1>}
 
       <div className="net-status">
-        <span className="net-pill">{peers} conectado(s)</span>
-        <span className="net-pill">{rosterCount} de {total} anunciados</span>
-        <span className="net-pill">quórum {quorum} de {total}</span>
+        <span className="net-pill">{tt('net.status.connected', { peers })}</span>
+        <span className="net-pill">{tt('net.status.announced', { count: rosterCount, total })}</span>
+        <span className="net-pill">{tt('net.status.quorum', { quorum, total })}</span>
       </div>
 
       {phase === 'roster' && rosterCount < total && (
-        <p className="net-lead">Esperando {total - rosterCount} aparelho(s) entrar(em) na sala…</p>
+        <p className="net-lead">{tt('net.status.waiting', { count: total - rosterCount })}</p>
       )}
 
       {phase === 'done' && (
         <div className="net-done">
-          <p className="net-lead">
-            Identidade do cofre (a chave pública do grupo). <b>As duas abas mostram exatamente este
-            valor</b> — prova de que criaram o mesmo cofre, cada uma guardando só o seu pedaço, sem o
-            relay nunca ter visto uma parte da chave.
-          </p>
+          <p className="net-lead">{ttr('net.done.lead')}</p>
           <div className="net-vk">{groupVk}</div>
-          <p className="net-tip">Confira: a outra aba tem a mesma linha. O DKG rodou pela rede, o relay ficou cego.</p>
+          <p className="net-tip">{tt('net.done.tip')}</p>
 
           <div className="net-sign">
             {signPhase === 'none' && (
               <>
-                <p className="net-lead" style={{ marginTop: 20 }}>
-                  Agora o cofre pode <b>assinar</b>. Clique abaixo para o cofre autorizar um pagamento
-                  de teste: cada aba assina com o seu pedaço, e a assinatura se monta na rede.
-                </p>
+                <p className="net-lead" style={{ marginTop: 20 }}>{ttr('net.sign.prompt')}</p>
                 <button className="net-btn primary" onClick={() => void startSign()}>
-                  Assinar um pagamento de teste
+                  {tt('net.sign.btn')}
                 </button>
               </>
             )}
-            {signPhase === 'signing' && <p className="net-lead" style={{ marginTop: 20 }}>Assinando entre os aparelhos…</p>}
+            {signPhase === 'signing' && <p className="net-lead" style={{ marginTop: 20 }}>{tt('net.sign.signing')}</p>}
             {signPhase === 'signed' && (
               <>
                 <p className="net-lead" style={{ marginTop: 20 }}>
-                  {signOk ? 'Assinatura válida ✓.' : 'A assinatura não validou.'} O cofre autorizou o
-                  pagamento de teste, cada aba assinando com o seu pedaço, sem a chave inteira nunca
-                  ser montada. <b>É uma assinatura de teste: não vai pra rede, não move fundos.</b>
+                  {signOk ? tt('net.sign.validPrefix') : tt('net.sign.invalidPrefix')} {ttr('net.sign.signedBody')}
                 </p>
                 <div className="net-vk">{signature}</div>
               </>

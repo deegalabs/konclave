@@ -63,6 +63,7 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 /* letterhead / sheet — no box: the slate gradient shows through */
 .sheet{background:transparent; position:relative; z-index:1}
 .lh{display:flex; align-items:center; justify-content:space-between; padding:16px 26px; border-bottom:1px solid var(--line)}
+.lh-right{display:flex; align-items:center; gap:16px}
 .brand{display:flex; align-items:center; gap:11px}
 .wm{font-family:var(--font-mono); font-weight:600; font-size:11px; letter-spacing:.42em; text-indent:.42em}
 .mark{width:22px;height:22px}
@@ -175,6 +176,7 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 .rail-avatars{display:flex; padding-left:2px}
 .rail-avatars .idc{border-radius:50%; box-shadow:0 0 0 2px var(--surface-0); margin-left:-7px}
 .rail-avatars .idc:first-child{margin-left:0}
+.rail-lang{padding-top:2px}
 .rail-switch{font-family:var(--font-mono); font-size:11px; color:var(--text-muted); padding:2px; text-decoration:none}
 .rail-switch:hover{color:var(--accent)}
 

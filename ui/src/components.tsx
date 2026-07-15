@@ -94,7 +94,10 @@ export function Letterhead({ right }: { right?: ReactNode }) {
         <Mark />
         <span className="wm">KONCLAVE</span>
       </Link>
-      {right}
+      <span className="lh-right">
+        {right}
+        <LangToggle />
+      </span>
     </header>
   )
 }
