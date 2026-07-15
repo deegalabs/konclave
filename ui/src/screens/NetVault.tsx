@@ -108,7 +108,14 @@ export default function NetVault() {
   const addLog = useCallback((line: string) => setLog((l) => [...l, line]), [])
 
   const send = useCallback(async (m: Msg) => {
-    await sessionRef.current?.send(JSON.stringify(m))
+    // A dropped relay POST would silently deadlock the ceremony. Retry a few times, and if the
+    // relay is truly unreachable, surface it instead of hanging forever (§8: message lost / relay down).
+    const body = JSON.stringify(m)
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (await sessionRef.current?.send(body)) return
+      await new Promise((r) => setTimeout(r, 400))
+    }
+    setError('Não consegui falar com o relay (a rede caiu). Recarregue as duas abas e refaça.')
   }, [])
 
   // Seat everyone deterministically by sorting their tags — every device computes the same
@@ -159,6 +166,10 @@ export default function NetVault() {
       } catch {
         return true // unparseable — consume and ignore
       }
+      // A throwing handler (a malformed package from a peer) must NOT poison the fixpoint: if it
+      // never marked the message consumed, advance() would re-apply and re-throw it forever. Catch,
+      // surface, and consume it (§8: corrupted/missing material stays a clear failure, not a hang).
+      try {
       if (parsed.type === 'config') {
         if (!configRef.current) {
           configRef.current = { n: parsed.n, t: parsed.t }
@@ -302,6 +313,11 @@ export default function NetVault() {
         return true
       }
       return true
+      } catch {
+        addLog('aviso: uma mensagem da cerimônia falhou e foi ignorada')
+        setError('Uma etapa da cerimônia falhou. Se as abas travarem, recarregue e refaça.')
+        return true // consume so the fixpoint never re-throws the same message
+      }
     },
     [addLog, doPart2, doPart3, send],
   )
