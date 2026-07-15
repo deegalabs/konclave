@@ -114,7 +114,7 @@ export default function Vaults() {
             return (
               <div key={v.id} className="rd-card" role="button" tabIndex={0}
                 onClick={() => enter(v)} onKeyDown={activateOnKey(() => enter(v))}>
-                <span className="rd-qtag">{t('vaults.quorumOf', { t: v.threshold, n: v.total })}{v.locked ? ' · 🔒' : ''}</span>
+                <span className="rd-qtag">{t('vaults.quorumOf', { t: v.threshold, n: v.total })}{v.locked ? ` · ${t('vaults.lockedTag')}` : ''}</span>
                 <h3>{v.name}</h3>
                 <div className="rd-avatars">
                   {avatars.slice(0, 4).map((m, i) => <Identicon key={i} seed={m.pubkey || m.name} />)}
@@ -166,7 +166,7 @@ export default function Vaults() {
             value={pass} onChange={(e) => setPass(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') void doUnlock() }}
           />
-          {unlockErr && <div className="unlock-err" role="alert">✗ {unlockErr}</div>}
+          {unlockErr && <div className="unlock-err" role="alert">{unlockErr}</div>}
           <div className="unlock-btns">
             <button className="rd-enter" onClick={() => setUnlocking(null)}>{t('common.cancel')}</button>
             <button className="rd-enter primary" onClick={() => void doUnlock()} disabled={unlockBusy || !pass}>

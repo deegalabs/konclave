@@ -54,7 +54,7 @@ nothing; keeping it scarce is what makes "this needs you / this is approved" rea
 real event. **Silver is the secondary** — numerals, key labels, mark strokes — never
 the blue.
 
-**Success is earned.** `--success` `#57d08a` (mint) is confirmation only: quorum met,
+**Success is earned.** `--success` `#5ed39a` (mint) is confirmation only: quorum met,
 sent, received, live. Never ambient, never decorative.
 
 **Cryptography is invisible.** The user sees vault, members, approval, payment — never
@@ -71,24 +71,24 @@ the role-based replacements. Full old->new table + files: `components/token-mapp
 
 | Token | Value | Role | Was |
 | --- | --- | --- | --- |
-| `--surface-0` | `#12161a` | app canvas / deepest ground | body-gradient terminal |
-| `--surface-1` | `#171c22` | panels, sheet base | `--paper` |
-| `--surface-2` | `#1e252d` | cards, inputs, chips, wells | `--paper-2` |
-| `--surface-3` | `#28313a` | raised / hover / selected fill | (line depth) |
-| `--text` | `#dfe6ee` | headings, body, lead figures | `--ink` / `--rd-text` |
-| `--text-muted` | `#8a95a3` | metadata, labels, captions | `--muted` / `--rd-muted` |
+| `--surface-0` | `#0f141a` | app canvas / deepest ground | body-gradient terminal |
+| `--surface-1` | `#151b22` | panels, sheet base | `--paper` |
+| `--surface-2` | `#1a212a` | cards, inputs, chips, wells | `--paper-2` |
+| `--surface-3` | `#202832` | raised / hover / selected fill | (line depth) |
+| `--text` | `#e7edf3` | headings, body, lead figures | `--ink` / `--rd-text` |
+| `--text-muted` | `#9aa6b2` | metadata, labels, captions | `--muted` / `--rd-muted` |
 | `--silver` | `#c6cfd9` | secondary metal: numerals, key labels, strokes | `--silver` / `--rd-silver` |
-| `--line` | `#333d47` | primary divider, letterhead rule | `--line` |
-| `--line-2` | `#28313a` | soft card border | `--line-2` |
-| `--line-soft` | `rgba(180,205,235,.10)` | translucent hairline | `--rd-line` |
+| `--line` | `#28313c` | primary divider, letterhead rule | `--line` |
+| `--line-2` | `#20272f` | soft card border | `--line-2` |
+| `--line-soft` | `rgba(180,205,235,.08)` | translucent hairline | `--rd-line` |
 | `--accent` | `#57a6ff` | focus, primary action, links, **quorum** | `--seal` (misnamed) |
 | `--accent-ink` | `#3f86e0` | hover / pressed accent fill | `--seal-ink` |
 | `--accent-soft` | `rgba(87,166,255,.10)` | wash / chip.on fill | (inline) |
-| `--accent-line` | `rgba(87,166,255,.30)` | accent border | (inline) |
-| `--on-accent` | `#08121e` | ink on an accent fill | `--paper` / rd `#08121e` |
-| `--success` | `#57d08a` | quorum-met, sent, received, live | `--pine` (misnamed) |
-| `--success-soft` | `rgba(87,208,138,.08)` | success fill | (inline) |
-| `--success-line` | `rgba(87,208,138,.40)` | success border | (inline) |
+| `--accent-line` | `rgba(87,166,255,.32)` | accent border | (inline) |
+| `--on-accent` | `#0f141a` | ink on an accent fill | `--paper` / rd |
+| `--success` | `#5ed39a` | quorum-met, sent, received, live | `--pine` (misnamed) |
+| `--success-soft` | `rgba(94,211,154,.10)` | success fill | (inline) |
+| `--success-line` | `rgba(94,211,154,.35)` | success border | (inline) |
 | `--warn` | `#ffcf87` | address warning, expiring-soon | (hardcoded) |
 | `--warn-strong` | `#ffe0a3` | emphasized warn | (hardcoded) |
 | `--danger` | `#ff6b6b` | destructive border/accent | (hardcoded) |

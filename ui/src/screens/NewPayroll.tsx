@@ -241,7 +241,7 @@ export default function NewPayroll() {
           <div className="pv-row"><span className="pv-k">{t('payroll.pvApproval')}</span><span className="pv-v">{tr('payroll.pvApprovalValue', { proposer })}</span></div>
         </div>
         {afterZat !== null && afterZat < 0 && <div className="hint warn mt-sm">{t('payroll.warnExceeds')}</div>}
-        {error && <div className="hint err mt" role="alert">✗ {error}</div>}
+        {error && <div className="hint err mt" role="alert">{error}</div>}
 
         <div className="right mt">
           <button className="btn ok" onClick={submit} disabled={!canSubmit}>{busy ? t('payroll.sending') : t('payroll.submitBtn')}</button>

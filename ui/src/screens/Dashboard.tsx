@@ -261,7 +261,7 @@ export default function Dashboard() {
                   onKeyDown={(e) => { if (e.key === 'Enter' && canDelete) void doDelete() }} autoFocus />
               </label>
             )}
-            {delErr && <div className="hint err mt" role="alert">✗ {delErr}</div>}
+            {delErr && <div className="hint err mt" role="alert">{delErr}</div>}
 
             <div className="btns right mt">
               <button className="btn ghost" onClick={() => setShowDelete(false)}>{t('common.cancel')}</button>

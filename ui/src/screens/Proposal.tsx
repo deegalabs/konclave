@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { Secret } from '../components'
+import { Secret, Dialog } from '../components'
 import { Identicon } from '../avatar'
 import { fmtZec } from '../format'
 import { useT, useTr } from '../i18n'
@@ -23,6 +23,7 @@ export default function Proposal() {
   const [error, setError] = useState<string | null>(null)
   const [sending, setSending] = useState<null | 'dry' | 'real'>(null)
   const [dryOk, setDryOk] = useState<string | null>(null)
+  const [confirmSend, setConfirmSend] = useState(false)
 
   useEffect(() => {
     let on = true
@@ -133,7 +134,7 @@ export default function Proposal() {
               {lines.map((l, i) => (
                 <tr key={i}>
                   <td>{l.label || '—'}</td>
-                  <td className={'mono' + (l.is_public ? ' seal-tx' : '')}>{shortAddr(l.address)}{l.is_public ? ' ⚠' : ''}</td>
+                  <td className={'mono' + (l.is_public ? ' seal-tx' : '')}>{shortAddr(l.address)}{l.is_public ? ` · ${t('proposal.linePublic')}` : ''}</td>
                   <td className="num"><Secret sm><span>{fmtZec(l.value_zec)}</span></Secret></td>
                   <td className="mono dim">{l.memo || '—'}</td>
                 </tr>
@@ -205,7 +206,7 @@ export default function Proposal() {
               {isPayroll ? tr('proposal.readyPayroll') : tr('proposal.readyPayment')}
             </div>
             <div className="btns mt">
-              <button className="btn ok" onClick={() => send(false)} disabled={sending !== null}>
+              <button className="btn ok" onClick={() => setConfirmSend(true)} disabled={sending !== null}>
                 {sending === 'real' ? t('proposal.signingSending') : (isPayroll ? t('proposal.signSendPayroll') : t('proposal.signSendPayment'))}
               </button>
               <button className="btn" onClick={() => send(true)} disabled={sending !== null} title={t('proposal.validateTitle')}>
@@ -230,8 +231,22 @@ export default function Proposal() {
           </>
         )}
 
-        {error && <div className="hint err mt" role="alert">✗ {error}</div>}
+        {error && <div className="hint err mt" role="alert">{error}</div>}
       </main>
+
+      {confirmSend && (
+        <Dialog className="modal-overlay" cardClassName="modal-card danger" labelledBy="send-confirm-title" onClose={() => setConfirmSend(false)}>
+          <span className="klab danger-lab">{t('proposal.confirmLabel')}</span>
+          <h2 id="send-confirm-title" className="modal-h">{t('proposal.confirmTitle')}</h2>
+          <p className="modal-p">{t('proposal.confirmBody')}</p>
+          <div className="btns right mt">
+            <button className="btn ghost" onClick={() => setConfirmSend(false)}>{t('common.cancel')}</button>
+            <button className="btn ok" onClick={() => { setConfirmSend(false); void send(false) }}>
+              {t('proposal.confirmSend')}
+            </button>
+          </div>
+        </Dialog>
+      )}
     </>
   )
 }

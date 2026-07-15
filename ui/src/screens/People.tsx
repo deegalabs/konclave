@@ -107,7 +107,7 @@ export default function People() {
             </div>
             {kind === 'transparent' && <div className="hint warn">{t('people.warnTransparent')}</div>}
             {kind === 'sapling' && <div className="hint warn">{t('people.warnSapling')}</div>}
-            {error && <div className="hint err mt" role="alert">✗ {error}</div>}
+            {error && <div className="hint err mt" role="alert">{error}</div>}
             <div className="mt-sm folha-actions">
               <button className="btn ok sm-btn" onClick={add} disabled={busy}>{busy ? t('people.saving') : (editingId ? t('people.saveChanges') : t('people.savePerson'))}</button>
               {editingId && <button className="btn ghost sm-btn" onClick={cancelForm}>{t('common.cancel')}</button>}

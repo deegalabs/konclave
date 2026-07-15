@@ -167,7 +167,7 @@ export default function Ceremony() {
               <div className="hint">{t('ceremony.quorumHint', { threshold, approvals: threshold === 1 ? t('ceremony.approvalSingular') : t('ceremony.approvalPlural') })}</div>
             </div>
 
-            {error && <div className="hint err mt" role="alert">✗ {error}</div>}
+            {error && <div className="hint err mt" role="alert">{error}</div>}
             <hr className="rule" />
             <div className="right"><button className="btn ok" onClick={goConvidar}>{t('ceremony.invitePeople')}</button></div>
           </>
@@ -195,7 +195,7 @@ export default function Ceremony() {
 
             <div className="confirm mt">{tr('ceremony.demoNote')}</div>
 
-            {error && <div className="hint err mt" role="alert">✗ {error}</div>}
+            {error && <div className="hint err mt" role="alert">{error}</div>}
             <hr className="rule" />
             <div className="row-gap center-between">
               <button className="btn ghost" onClick={() => setStep(1)}>{t('common.back')}</button>

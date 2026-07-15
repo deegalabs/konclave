@@ -148,7 +148,7 @@ export default function NewPayment() {
         </div>
         <div className="hint">{tr('payment.approvalHint', { proposer, threshold, rest: threshold > 1 ? t('payment.approvalHintMore', { n: threshold - 1 }) : t('payment.approvalHintReady'), aval: threshold === 1 ? t('payment.avalSingular') : t('payment.avalPlural') })}</div>
 
-        {error && <div className="hint err mt" role="alert">✗ {error}</div>}
+        {error && <div className="hint err mt" role="alert">{error}</div>}
 
         <div className="right mt">
           <button className="btn ok" onClick={submit} disabled={busy || memoOver || !to.trim()}>
