@@ -5,6 +5,7 @@ import wasmUrl from '../wasm-pkg/konclave_wasm_bg.wasm?url'
 import { useT, useTr } from '../i18n'
 import { Letterhead } from '../components'
 import '../redesign.css'
+import '../net.css'
 
 type Result = { ok: boolean; msg: string } | null
 
@@ -45,29 +46,23 @@ export default function WasmSigner() {
   }
 
   return (
-    <div className="rd" style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div className="rd demo-page">
       <Letterhead />
-      <div style={{ flex: 1, display: 'grid', placeItems: 'center', padding: 24 }}>
-        <div style={{ maxWidth: 540, textAlign: 'center' }}>
-          <span className="rd-eyebrow">{t('signer.eyebrow')}</span>
-          <h1 style={{ fontSize: 29, fontWeight: 800, letterSpacing: '-.02em', margin: '10px 0 0' }}>{t('signer.title')}</h1>
-          <p style={{ color: 'var(--text-muted)', marginTop: 12, lineHeight: 1.65 }}>
-            {tr('signer.lead')}
-          </p>
-          <button className="btn ok" style={{ marginTop: 24 }} onClick={() => void run()} disabled={busy}>
+      <div className="demo-main">
+        <div className="demo-col">
+          <span className="demo-eyebrow"><span className="dot" aria-hidden="true" />{t('demo.live')}</span>
+          <h1 className="demo-title">{t('signer.title')}</h1>
+          <p className="demo-caption">{t('signer.eyebrow')}</p>
+          <p className="demo-lead">{tr('signer.lead')}</p>
+          <button className="btn ok" style={{ marginTop: 22 }} onClick={() => void run()} disabled={busy}>
             {busy ? t('signer.signing') : t('signer.btn')}
           </button>
           {result && (
-            <div style={{
-              marginTop: 20, padding: '14px 16px', borderRadius: 12, fontFamily: 'var(--font-mono)', fontSize: 13, lineHeight: 1.5,
-              border: `1px solid ${result.ok ? 'var(--success-line)' : 'var(--danger-line)'}`,
-              background: result.ok ? 'var(--success-soft)' : 'var(--danger-soft)',
-              color: result.ok ? 'var(--success)' : 'var(--danger-text)',
-            }}>
+            <div className={'demo-result ' + (result.ok ? 'ok' : 'bad')}>
               {result.ok ? '✓ ' : '✗ '}{result.msg}
             </div>
           )}
-          <div style={{ marginTop: 24 }}><Link className="rd-link" to="/intro">{t('signer.back')}</Link></div>
+          <div className="demo-back"><Link className="rd-link" to="/intro">{t('signer.back')}</Link></div>
         </div>
       </div>
     </div>

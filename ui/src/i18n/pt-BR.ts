@@ -215,6 +215,8 @@ export const ptBR: Record<string, string> = {
   'demo.exit': 'Sair',
   'demo.whyLabel': 'Por que importa',
   'demo.watchCta': 'Ver demonstração',
+  'demo.live': 'Demonstração ao vivo',
+  'demo.note': 'Isto é a própria criptografia, rodando ao vivo, não as telas do dia a dia do cofre.',
   'demo.s1Name': 'Conheça o coletivo',
   'demo.s1Eyebrow': 'O cenário',
   'demo.s1Title': 'Conheça o coletivo Horizonte.',

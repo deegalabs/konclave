@@ -20,15 +20,17 @@
   font-size: 13px;
 }
 .net-back:hover { color: var(--text, #dfe6ee); }
+/* Transport label in the letterhead — a quiet mono pill, not an accent signal. */
 .net-tag {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 11px;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--accent, #57a6ff);
-  border: 1px solid var(--accent-line, rgba(87, 166, 255, 0.35));
+  color: var(--text-muted, #9aa6b2);
+  border: 1px solid var(--line-soft, rgba(180, 205, 235, 0.08));
   border-radius: 999px;
   padding: 5px 12px;
+  background: rgba(255, 255, 255, 0.03);
 }
 
 .net-h1 {
@@ -84,38 +86,52 @@
 }
 .net-input { width: 100%; box-sizing: border-box; letter-spacing: 0.14em; font-family: var(--font-mono, ui-monospace, monospace); }
 
+/* Buttons: mirror the platform .btn / .btn.ok family (font-sans 600, --radius-sm,
+   accent reserved for the single primary action). margin-top:auto keeps them
+   pinned to the bottom of the flex-column cards. */
 .net-btn {
   margin-top: auto;
-  border: 1px solid var(--line-strong, #46525e);
-  background: var(--surface-2, #222b34);
-  color: var(--text, #dfe6ee);
-  border-radius: var(--radius-sm);
-  padding: 12px 18px;
-  font-size: 14.5px;
+  font-family: var(--font-sans);
   font-weight: 600;
+  font-size: 13.5px;
+  letter-spacing: 0.005em;
+  padding: 11px 17px;
+  border: 1px solid var(--line-strong, #37424e);
+  background: var(--surface-2, #1a212a);
+  color: var(--text, #e7edf3);
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
-.net-btn:hover:not(:disabled) { background: var(--surface-3, #2a343e); border-color: var(--accent-line, rgba(87, 166, 255, 0.35)); }
-.net-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.net-btn.primary { background: var(--accent, #57a6ff); color: var(--on-accent, #06121f); border-color: var(--accent, #57a6ff); }
-.net-btn.primary:hover { background: #6cb2ff; }
+.net-btn:hover:not(:disabled) { background: var(--surface-3, #202832); border-color: var(--accent-line, rgba(87, 166, 255, 0.32)); }
+.net-btn:active:not(:disabled) { transform: translateY(1px); }
+.net-btn:disabled { opacity: 0.42; cursor: not-allowed; background: var(--surface-2, #1a212a); border-color: var(--line, #28313c); color: var(--text-muted, #9aa6b2); }
+.net-btn.primary { background: var(--accent, #57a6ff); color: var(--on-accent, #0f141a); border-color: var(--accent, #57a6ff); }
+.net-btn.primary:hover:not(:disabled) { background: #6cb2ff; border-color: #6cb2ff; }
 
+/* The invite code is a key-like record → brushed silver, not accent. The dashed
+   frame + accent-on-hover signal it is a value to copy. */
 .net-code {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: clamp(30px, 7vw, 52px);
   letter-spacing: 0.28em;
   font-weight: 700;
   text-align: center;
-  color: var(--accent, #57a6ff);
-  background: var(--surface-1, #1a2129);
-  border: 1px dashed var(--accent-line, rgba(87, 166, 255, 0.4));
+  color: var(--silver, #c6cfd9);
+  background: var(--surface-1, #151b22);
+  border: 1px dashed var(--line-strong, #37424e);
   border-radius: 14px;
   padding: 24px 16px;
   margin: 8px 0 20px;
   cursor: pointer;
   word-break: break-all;
+  transition: border-color var(--dur-fast) var(--ease-out);
 }
+.net-code:hover { border-color: var(--accent-line, rgba(87, 166, 255, 0.32)); }
 
 .net-status { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0; }
 .net-pill {
@@ -168,3 +184,67 @@
   font-size: 13.5px;
   word-break: break-word;
 }
+
+/* -------------------------------------------------------------------------
+   Shared "live demo" framing — used by BOTH the /net and /signer screens so a
+   visitor reads them as honest, live proofs of the cryptography (not the vault
+   UX). Class-scoped, so importing this file into WasmSigner leaks nothing else.
+   ------------------------------------------------------------------------- */
+.demo-frame { margin: 4px 0 22px; }
+
+/* "Live demo" eyebrow — a quiet mono pill with a static silver liveness dot
+   (matches the platform's .rd-status; no accent, no infinite pulse). */
+.demo-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted, #9aa6b2);
+  border: 1px solid var(--line-soft, rgba(180, 205, 235, 0.08));
+  border-radius: var(--radius-pill, 999px);
+  padding: 5px 12px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.demo-eyebrow .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--silver, #c6cfd9); }
+
+/* One honest line about what the surface proves. */
+.demo-note {
+  color: var(--text-muted, #9aa6b2);
+  font-size: 13.5px;
+  line-height: 1.6;
+  margin: 10px 0 0;
+  max-width: 62ch;
+}
+.demo-note b { color: var(--text, #e7edf3); font-weight: 600; }
+
+/* Centered single-action proof page (the /signer layout). */
+.demo-page { min-height: 100vh; display: flex; flex-direction: column; }
+.demo-main { flex: 1; display: grid; place-items: center; padding: clamp(24px, 5vw, 48px) 24px; }
+.demo-col { max-width: 560px; text-align: center; }
+.demo-col .demo-eyebrow { margin-bottom: 14px; }
+.demo-title { font-size: clamp(26px, 4vw, 34px); font-weight: 800; letter-spacing: -0.02em; margin: 0; }
+.demo-caption {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--text-muted, #9aa6b2);
+  margin: 10px 0 0;
+}
+.demo-lead { color: var(--text-muted, #9aa6b2); font-size: 15px; line-height: 1.65; margin: 12px 0 0; }
+.demo-lead b { color: var(--text, #e7edf3); font-weight: 600; }
+.demo-result {
+  margin-top: 20px;
+  padding: 14px 16px;
+  border-radius: var(--radius-sm, 8px);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: left;
+  word-break: break-word;
+}
+.demo-result.ok { border: 1px solid var(--success-line); background: var(--success-soft); color: var(--success); }
+.demo-result.bad { border: 1px solid var(--danger-line); background: var(--danger-soft); color: var(--danger-text); }
+.demo-back { margin-top: 24px; }
