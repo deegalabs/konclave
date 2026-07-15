@@ -446,3 +446,67 @@ full DKG + FROST signing through the public relay (same group key + verifying si
 `/#/net` works across devices at the demo URL, not just two tabs on one machine. Honest limit: the
 hosted relay is not hardened (no rate-limit, `members` map unpruned) — fine for the demo, tracked
 before real use. The browser signature is still a test digest (not a broadcast tx).
+
+---
+
+**Phase 10 — Post-submission hardening + real mainnet evidence (2026-07-15, same day).**
+Two pushes on `main`, all checks green.
+
+**A. Product and docs polish** (delivered in parallel-agent batches, then integrated and refined):
+- Diagrams: `docs/DIAGRAMS.md` (10 Mermaid flows) rewritten to render on GitHub (no self-loops, no
+  subgraph-to-subgraph edges, no orphan nodes). Dark-themed SVGs embedded in the in-app docs.
+- Shell + i18n: the PT/EN language toggle now appears on every screen; `/net` and `/signer` were
+  internationalized (were PT-only) and moved onto the shared `Letterhead`; one unified
+  `PageHeader`/`PageFooter` (`ui/src/page.tsx`) across the in-vault screens.
+- Docs cleanup: every public doc copy-edited to strip em-dashes and fix broken links (the README
+  pointed at the gitignored PT source docs).
+- In-app docs site: `ui/src/screens/Docs.tsx` (`/docs`), sidebar + article, bilingual via a local
+  `ui/src/docs/content.ts`, with an accessible diagram lightbox.
+- `/receive` screen: the vault Orchard address + QR + ZIP-321 link.
+- Rich demo mock (`ui/src/mock.ts`, gated on `import.meta.env.VITE_DEMO`, set on the Vercel project):
+  the hosted demo now populates every screen coherently (Alice/Bob/Carol), was empty before.
+- GSP design pass: an explicit send-confirm dialog before broadcast, honest indeterminate ceremony
+  progress (was a fake 62%), no emoji-as-status, accent/success scarcity, unified button/wordmark,
+  STYLE.md tokens reconciled to `lacre.css`.
+- New surfaces: `/proof` (in-browser on-chain txid verification), `/recovery` (RTS in WASM),
+  `/inheritance` (policy-engine time simulator).
+- `sdk/` (`@konclave/frost`): the `konclave-wasm` engine packaged as a reusable SDK.
+- Relay hardening: rate-limit + presence-map pruning in BOTH `relay-server/src/main.rs` and
+  `orchestrator/src/relay.rs` (13 relay tests).
+- MCP: `mcp-server/` an "AI treasurer" that reads + proposes, with deliberately NO sign/send tool
+  (single-agent-proof; even an AI cannot move funds alone).
+- On-device share persistence (`ui/src/storage.ts`, encrypted IndexedDB) wired into `/net`; restore
+  works, signing-after-restore is the honest pending piece.
+
+**B. Real mainnet evidence: 2 new broadcasts, the private payroll now proven on-chain.**
+Built the full send pipeline from scratch on THIS machine and broadcast two real 2-of-3 FROST Orchard
+transactions:
+- `6c898239e05fdd1ccce5d650fa25eeabb10d1645a3fdbc36ab5fd3ac8d4fd35f` (block 3,413,636): a payment
+  from a freshly created + funded vault, reproduced end to end.
+- `b1e24c07fcd629e6e6ea6809ffeb5d2e311054781740c6a5db73dabc94d0e1b4` (block 3,413,648): a **private
+  payroll**, one shielded Orchard tx with 3 outputs, each with its own encrypted memo. Previously
+  dry-run only, now proven on mainnet.
+- Konclave now has **4 verifiable mainnet txids** (was 1). `node scripts/verify-proof.mjs`, `/proof`,
+  and `docs/PROOF.md` list all four.
+
+Evidence vault + ceremony infra (LOCAL, deliberately NOT in git; test vault only):
+- 2-of-3 redpallas vault via `frost-client trusted-dealer`, group
+  `a25c53f7bf9a6f68b8b105503b23e6e22dd4033b00f5f9e6bb35b4bcd709a73a`, members Alice/Bob/Carol.
+  Configs (cleartext shares) in `~/konclave-evidence-vault`. Orchard address
+  `u1vmyhz5zs0uc9kuwqvfm400eh8w45u72rn4tgf0zsw4rrymk3cgc4247gzxr27txntq8lfx6nskwz5g59ext0av0us63h0hn48q42nzqe`,
+  funded with ~0.01 ZEC (self-sends, so funds stay in the vault; only fees spent).
+- View-only wallet in `~/konclave-evidence-wallet` (UFVK synced against zec.rocks via `zcash-devtool`).
+- `konclave-signer` built to `~/ktarget/debug`. `frostd` runs with a self-signed CA+leaf in
+  `~/konclave-evidence-tls`. KEY UNBLOCK: TLS trust WITHOUT sudo via `SSL_CERT_FILE=<ca.pem>`
+  (frost-client uses `rustls-native-certs` 0.8, which honors that env var). Ceremony scripts in
+  `~/konclave-evidence-work`.
+- Flow: `zcash-devtool pczt create` / `konclave-signer build-payroll` -> `pczt prove` ->
+  `konclave-signer extract` (sighash + randomizers) -> `frostd` + `frost-client coordinator` +
+  `participant`s (concurrent) -> `konclave-signer inject` (verifies) -> `pczt send`. Dry-run = stop
+  before `send`. The whole ceremony runs in one script via the Bash `run_in_background` mode (the
+  harness kills stray background processes otherwise).
+
+Honest note (§6.15): the evidence vaults are **trusted-dealer**, not DKG. The differentiator "real DKG
+vault to mainnet send" is still roadmap. The honest ladders in README / SUBMISSION / `/docs` were
+updated to move the payroll to "proven on mainnet" and keep the still-open gaps (DKG-vault send,
+browser real-tx signing, full share persistence).
