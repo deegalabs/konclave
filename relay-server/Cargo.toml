@@ -1,0 +1,18 @@
+[package]
+name = "relay-server"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0 OR MIT"
+description = "Konclave's blind mailbox relay, standalone + public (CORS) for konclave.app multi-device ceremonies. Mirrors orchestrator/src/relay.rs; carries only opaque/encrypted bytes."
+
+[[bin]]
+name = "relay-server"
+path = "src/main.rs"
+
+[dependencies]
+tiny_http = "0.12"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = 2

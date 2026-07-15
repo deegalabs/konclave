@@ -436,3 +436,13 @@ proven by tests (no JS wiring yet — core proven, like the DKG before it):
   engine (proof-of-life heartbeats → lapse → cancellable grace → the quorum may release to a
   named heir). The release reuses the FROST send path. 7 tests (skew-safe, grace, countdown).
 - Tests now: orchestrator **173**, konclave-wasm **8**, UI 23.
+
+**Phase 9 — Marco 6: hosted relay (2026-07-15).** The blind mailbox is now a standalone public
+service (`relay-server/`: tiny_http + CORS, no loopback guard, ~180 lines mirroring
+`orchestrator/src/relay.rs`), deployed on Railway at `konclave-relay-production.up.railway.app`.
+The UI build points at it via `VITE_RELAY_BASE`; the hosted demo (`konclave-demo.vercel.app`) was
+redeployed with it. **Proven LIVE over the internet:** two browser contexts on the hosted URL ran a
+full DKG + FROST signing through the public relay (same group key + verifying signature). So
+`/#/net` works across devices at the demo URL, not just two tabs on one machine. Honest limit: the
+hosted relay is not hardened (no rate-limit, `members` map unpruned) — fine for the demo, tracked
+before real use. The browser signature is still a test digest (not a broadcast tx).

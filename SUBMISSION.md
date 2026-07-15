@@ -116,8 +116,9 @@ built on the same FROST + blind-relay foundation and proven by tests:
 - ✅ **On mainnet:** a 2-of-3 quorum payment (proposed/approved in-app, FROST-signed,
   broadcast); vault by real DKG; shares sealed at rest.
 - 🔬 **By dry-run** (signs, does not yet broadcast): the private payroll (multi-output Orchard).
-- 🌐 **In the browser, proven across tabs:** multi-device DKG + FROST signing over the blind
-  relay. The signature is real; the message is a test digest, not yet a broadcast transaction.
+- 🌐 **In the browser, live over the internet:** multi-device DKG + FROST signing over a **hosted
+  blind relay** (Railway) — try it at https://konclave-demo.vercel.app/#/net in two tabs. The
+  signature is real; the message is a test digest, not yet a broadcast transaction.
 - 🗺️ **Roadmap:** hosting the relay publicly (phone-to-phone over the internet), persisting the
   share on-device (open with a passkey), real payroll broadcast, a single desktop binary.
 

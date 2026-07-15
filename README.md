@@ -127,9 +127,11 @@ we do not promise what we do not deliver:
     broadcast (txid above); the vault created by **real DKG**; shares **sealed** at rest.
   - 🔬 **By dry-run** (it *signs*, it does not yet *broadcast*): the **private payroll**
     (multi-output Orchard) and the fully-sealed signing path.
-  - 🌐 **In the browser** (proven across tabs): separate browser contexts create **one vault by a
-    real Distributed Key Generation** and then **sign together with a verifying FROST group
-    signature**, over a **blind relay**, each keeping only its own share (see below).
+  - 🌐 **In the browser, live over the internet:** separate devices create **one vault by a real
+    Distributed Key Generation** and then **sign together with a verifying FROST group signature**,
+    over a **hosted blind relay**, each keeping only its own share. Try it: open
+    [`konclave-demo.vercel.app/#/net`](https://konclave-demo.vercel.app/#/net) in two tabs (the
+    relay runs on Railway; the signed message is still a test digest, not yet a broadcast tx).
   - 🔁 **Proven by test (shared-custody safety):** **social recovery** — a quorum rebuilds a
     lost member's share via the Repairable Threshold Scheme, the group key untouched and the
     repaired share byte-identical (it then signs a verifying 2-of-3); and an **inheritance /
@@ -164,9 +166,11 @@ we do not promise what we do not deliver:
   re-derives **what it signs** with a **byte-exact ZIP-244 `sig_digest`** (pure blake2b,
   anchored to the `orchard` crate's own digest, no `secp256k1`), so a blind relay/delegate can
   never make it sign blind. The share and nonces never leave the device. To our knowledge a
-  first for Zcash. Still a proof-of-concept, not a shipped, audited client: the browser
-  signature is over a test digest (not yet a broadcast transaction), and the relay is not yet
-  hosted (runs locally; two tabs on one machine today).
+  first for Zcash. The blind relay is **hosted** ([`relay-server/`](relay-server/) on Railway), so
+  the whole flow runs **live over the internet** at
+  [`konclave-demo.vercel.app/#/net`](https://konclave-demo.vercel.app/#/net) across devices. Still
+  a proof-of-concept, not a shipped, audited client: the browser signature is over a **test digest**
+  (not yet a broadcast transaction), and the hosted relay is not yet hardened for real load.
 - Auditor / viewing-key read-only role (selective disclosure); share recovery & rotation.
 
 ## Built on the Zcash Foundation's tools
