@@ -926,6 +926,41 @@ pub mod pczt_bridge {
         Ok(out)
     }
 
+    /// One Orchard output as the device can read it from a proven PCZT, for the
+    /// "what am I signing?" check before a device joins the ceremony.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct OutputInfo {
+        /// The user-facing address the funds go to (the UA string the Constructor/Updater set),
+        /// if present. The signer must confirm this matches the approved proposal.
+        pub address: Option<String>,
+        /// The output value in zatoshis, if the PCZT exposes it (it does for our shielded sends).
+        pub value: Option<u64>,
+    }
+
+    /// Read every Orchard output of a proven PCZT as `(address, value)` — what this transaction
+    /// actually pays, in cleartext, so each device can verify it against the human-approved proposal
+    /// BEFORE contributing its signature. This is the "what am I signing?" primitive: on-device
+    /// verification is what keeps a malicious create/prove from getting a quorum to sign a different
+    /// transaction than the one that was approved. Dummy padding outputs surface as `value: Some(0)`
+    /// (or `None`) with no address, so the caller can ignore them.
+    pub fn describe_outputs(pczt_bytes: &[u8]) -> Result<Vec<OutputInfo>, String> {
+        let pczt = Pczt::parse(pczt_bytes).map_err(|e| format!("failed to parse PCZT: {:?}", e))?;
+        let mut out: Vec<OutputInfo> = vec![];
+        Signer::new(pczt)
+            .sign_orchard_with(|_pczt, bundle, _| {
+                for action in bundle.actions().iter() {
+                    let o = action.output();
+                    out.push(OutputInfo {
+                        address: o.user_address().clone(),
+                        value: o.value().map(|v| v.inner()),
+                    });
+                }
+                Ok::<(), OErr>(())
+            })
+            .map_err(|e| format!("orchard parse: {:?}", e))?;
+        Ok(out)
+    }
+
     /// Apply external redpallas signatures to the given Orchard spend action indices and return the
     /// signed PCZT bytes. `sighash` is the shielded sighash the signatures commit to; each signature
     /// is verified against it as it is applied, so a bad signature or out-of-range index is an error,
@@ -1053,6 +1088,41 @@ pub mod pczt_bridge {
         #[test]
         fn inject_rejects_wrong_signature() {
             assert!(inject_sigs(DKG_PROVEN, DKG_SIGHASH, &[(1, [0u8; 64])]).is_err());
+        }
+
+        // The vault address both real mainnet sends paid (the DKG self-send and the funding).
+        const DKG_ADDR: &str = "u10m0pn6tmvaa6e4sm6g4r7unhvgjt5s7239ya43wxrjhld0ejnznau8kyrjnp6wv7qcfjddaq8rumrjcfd0xv87du346eu08h758r3acx";
+
+        #[test]
+        fn describe_outputs_reads_recipient_and_marks_change() {
+            // DKG self-send: 0.001 ZEC to the vault (recipient), plus change with no user address.
+            let dkg = describe_outputs(DKG_PROVEN).unwrap();
+            assert_eq!(dkg.len(), 2);
+            assert_eq!(
+                dkg[0],
+                OutputInfo {
+                    address: Some(DKG_ADDR.to_string()),
+                    value: Some(100_000),
+                },
+            );
+            assert_eq!(
+                dkg[1].address, None,
+                "change output carries no user address"
+            );
+            assert_eq!(dkg[1].value, Some(390_000));
+
+            // Evidence funding: 0.005 ZEC to the DKG vault (recipient), plus change to the sender.
+            let ev = describe_outputs(EV_PROVEN).unwrap();
+            assert_eq!(ev.len(), 2);
+            let recipients: Vec<_> = ev.iter().filter(|o| o.address.is_some()).collect();
+            assert_eq!(recipients.len(), 1, "exactly one addressed recipient");
+            assert_eq!(recipients[0].address.as_deref(), Some(DKG_ADDR));
+            assert_eq!(recipients[0].value, Some(500_000));
+        }
+
+        #[test]
+        fn describe_outputs_rejects_garbage() {
+            assert!(describe_outputs(b"not a pczt").is_err());
         }
     }
 }
@@ -1582,6 +1652,35 @@ mod js_pczt {
             out.extend_from_slice(&alpha);
         }
         Ok(out)
+    }
+
+    /// Read every Orchard output of a proven PCZT as JSON: `[{"address": string|null, "value":
+    /// number|null}, ...]`. The UI shows this and confirms it against the approved proposal BEFORE
+    /// the device signs — the "what am I signing?" check. Addressed entries are real recipients;
+    /// `address: null` entries are change. Values are zatoshis.
+    #[wasm_bindgen(js_name = describeOutputs)]
+    pub fn describe_outputs(pczt: &[u8]) -> Result<String, JsValue> {
+        let outs = pczt_bridge::describe_outputs(pczt).map_err(je)?;
+        // Build JSON by hand: UAs are bech32m ([a-z0-9]) so they need no escaping, and values are
+        // integers — no serde dependency required.
+        let mut s = String::from("[");
+        for (i, o) in outs.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            let addr = match &o.address {
+                Some(a) if a.bytes().all(|b| b.is_ascii_alphanumeric()) => format!("\"{}\"", a),
+                Some(_) => "null".to_string(), // reject anything non-bech32m rather than emit unsafe JSON
+                None => "null".to_string(),
+            };
+            let val = match o.value {
+                Some(v) => v.to_string(),
+                None => "null".to_string(),
+            };
+            s.push_str(&format!("{{\"address\":{},\"value\":{}}}", addr, val));
+        }
+        s.push(']');
+        Ok(s)
     }
 
     /// Apply FROST redpallas signatures to a proven PCZT and return the signed PCZT bytes.
