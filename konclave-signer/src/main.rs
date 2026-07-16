@@ -120,43 +120,52 @@ fn shielded_sighash(pczt: &Pczt) -> Result<[u8; 32]> {
     }
 }
 
-fn extract(path: &str) -> Result<()> {
-    let pczt = read_pczt(path)?;
-    let sighash = shielded_sighash(&pczt)?;
-    println!("SIGHASH {}", hex::encode(sighash));
-
-    let mut out: Vec<(usize, String)> = vec![];
-    Signer::new(pczt)
+/// Return the `(action_index, alpha)` randomizers of the Orchard spends that need a FROST
+/// signature. Only real spends are listed; dummy spends (zero value) are signed by the wallet
+/// via the IO finalizer, and the real spend can sit at any action index (index 0 is often a
+/// dummy pad, so the caller must not assume index 0).
+fn extract_randomizers(pczt: &Pczt) -> Result<Vec<(usize, [u8; 32])>> {
+    let mut out: Vec<(usize, [u8; 32])> = vec![];
+    Signer::new(pczt.clone())
         .sign_orchard_with(|_pczt, bundle, _| {
             for (idx, action) in bundle.actions().iter().enumerate() {
-                // Only real spends need a FROST signature; dummy spends (zero value)
-                // are signed by the wallet via the IO finalizer.
                 let is_real =
                     matches!(action.spend().value(), Some(v) if *v != NoteValue::default());
                 if is_real {
                     if let Some(alpha) = action.spend().alpha() {
-                        out.push((idx, hex::encode::<&[u8]>(alpha.to_repr().as_ref())));
+                        let repr = alpha.to_repr();
+                        let slice: &[u8] = repr.as_ref();
+                        let bytes: [u8; 32] =
+                            slice.try_into().expect("redpallas scalar is 32 bytes");
+                        out.push((idx, bytes));
                     }
                 }
             }
             Ok::<(), OErr>(())
         })
         .map_err(|e| anyhow!("orchard parse: {:?}", e))?;
+    Ok(out)
+}
 
-    for (idx, alpha) in out {
-        println!("RANDOMIZER {} {}", idx, alpha);
+fn extract(path: &str) -> Result<()> {
+    let pczt = read_pczt(path)?;
+    let sighash = shielded_sighash(&pczt)?;
+    println!("SIGHASH {}", hex::encode(sighash));
+    for (idx, alpha) in extract_randomizers(&pczt)? {
+        println!("RANDOMIZER {} {}", idx, hex::encode(alpha));
     }
     Ok(())
 }
 
-fn inject(path: &str, out_path: &str, sigs: Vec<(usize, [u8; 64])>) -> Result<()> {
-    let pczt = read_pczt(path)?;
+/// Apply external redpallas signatures to the given Orchard spend action indices, returning the
+/// signed PCZT. Verifies each signature against the shielded sighash as it is applied (a bad
+/// signature or an out-of-range index is an error, never a silently-wrong tx).
+fn inject_sigs(pczt: Pczt, sigs: &[(usize, [u8; 64])]) -> Result<Pczt> {
     let sighash = shielded_sighash(&pczt)?;
-
     let signer = Signer::new(pczt)
         .sign_orchard_with(|_pczt, bundle, _| {
             let actions = bundle.actions_mut();
-            for (idx, sig) in &sigs {
+            for (idx, sig) in sigs {
                 if *idx >= actions.len() {
                     return Err(OErr::BadIndex(*idx));
                 }
@@ -168,8 +177,12 @@ fn inject(path: &str, out_path: &str, sigs: Vec<(usize, [u8; 64])>) -> Result<()
             Ok::<(), OErr>(())
         })
         .map_err(|e| anyhow!("signing failed: {:?}", e))?;
+    Ok(signer.finish())
+}
 
-    let signed = signer.finish();
+fn inject(path: &str, out_path: &str, sigs: Vec<(usize, [u8; 64])>) -> Result<()> {
+    let pczt = read_pczt(path)?;
+    let signed = inject_sigs(pczt, &sigs)?;
     std::fs::write(out_path, signed.serialize())?;
     println!("wrote signed PCZT to {}", out_path);
     Ok(())
@@ -300,5 +313,117 @@ fn main() -> Result<()> {
             spec,
             out,
         } => build_payroll(&wallet, &account, &spec, &out),
+    }
+}
+
+// Destructive tests for the fund-critical FROST<->PCZT bridge, closing security-audit item C6.
+// The fixtures under tests/vectors/ are REAL proven Orchard PCZTs from mainnet ceremonies (the
+// DKG-vault send `aab00f90...` and the funding send `7f8e59bb...`), with the FROST signatures that
+// were actually broadcast. They pin the sighash, the per-spend randomizers, and byte-for-byte
+// reproduction of the signed PCZT — so a regression in extraction or injection cannot pass silently.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const DKG_PROVEN: &[u8] = include_bytes!("../tests/vectors/dkg_single_spend.proven.pczt");
+    const DKG_SIGNED: &[u8] = include_bytes!("../tests/vectors/dkg_single_spend.signed.pczt");
+    const DKG_SIG1: &[u8] = include_bytes!("../tests/vectors/dkg_single_spend.sig1.raw");
+    const EV_PROVEN: &[u8] = include_bytes!("../tests/vectors/evidence_two_spend.proven.pczt");
+    const EV_SIGNED: &[u8] = include_bytes!("../tests/vectors/evidence_two_spend.signed.pczt");
+    const EV_SIG0: &[u8] = include_bytes!("../tests/vectors/evidence_two_spend.sig0.raw");
+    const EV_SIG1: &[u8] = include_bytes!("../tests/vectors/evidence_two_spend.sig1.raw");
+
+    fn parse(bytes: &[u8]) -> Pczt {
+        Pczt::parse(bytes).expect("fixture is a valid PCZT")
+    }
+    fn sig64(bytes: &[u8]) -> [u8; 64] {
+        bytes.try_into().expect("fixture signature is 64 bytes")
+    }
+
+    #[test]
+    fn parse_sig_accepts_index_and_hex() {
+        let (idx, sig) = parse_sig(&format!("1:{}", "ab".repeat(64))).unwrap();
+        assert_eq!(idx, 1);
+        assert_eq!(sig, [0xabu8; 64]);
+    }
+
+    #[test]
+    fn parse_sig_rejects_malformed() {
+        assert!(parse_sig("nocolon").is_err()); // missing ':'
+        assert!(parse_sig("x:abcd").is_err()); // non-numeric index
+        assert!(parse_sig("0:zz").is_err()); // non-hex signature
+        assert!(parse_sig(&format!("0:{}", "ab".repeat(10))).is_err()); // wrong length (20 != 64 bytes)
+    }
+
+    #[test]
+    fn extract_dkg_single_spend_matches_mainnet() {
+        let pczt = parse(DKG_PROVEN);
+        assert_eq!(
+            hex::encode(shielded_sighash(&pczt).unwrap()),
+            "f30f233e7736ce57368b78cd2d5cd197fc850a8217c3da1a2de3653b900fb0aa",
+        );
+        let r = extract_randomizers(&pczt).unwrap();
+        assert_eq!(r.len(), 1, "one real spend");
+        // The real Orchard spend sits at action index 1; index 0 is a dummy pad.
+        assert_eq!(r[0].0, 1);
+        assert_eq!(
+            hex::encode(r[0].1),
+            "b2ad61e8bf0de877dd01c52356526adf39b036ffed2e0217ece19407e1717624",
+        );
+    }
+
+    #[test]
+    fn extract_evidence_two_spend_matches_mainnet() {
+        let pczt = parse(EV_PROVEN);
+        assert_eq!(
+            hex::encode(shielded_sighash(&pczt).unwrap()),
+            "619ffa04d162b182f274c26d7402014065da13c8a0b62927028a23ddbb598e7f",
+        );
+        let r = extract_randomizers(&pczt).unwrap();
+        assert_eq!(r.len(), 2, "two real spends");
+        assert_eq!(r[0].0, 0);
+        assert_eq!(
+            hex::encode(r[0].1),
+            "557c4ff828ed56eb33e8ba7f508a43915338ccf3ad71d1ecedc98e6e861bfc0f",
+        );
+        assert_eq!(r[1].0, 1);
+        assert_eq!(
+            hex::encode(r[1].1),
+            "4c39a44dd1a50e5d41eb542f74d43847d33776396065c30a062077e209aa872d",
+        );
+    }
+
+    #[test]
+    fn inject_reproduces_broadcast_dkg_pczt() {
+        let signed = inject_sigs(parse(DKG_PROVEN), &[(1, sig64(DKG_SIG1))]).unwrap();
+        assert_eq!(
+            signed.serialize().as_slice(),
+            DKG_SIGNED,
+            "injecting the broadcast signature must reproduce the exact signed PCZT",
+        );
+    }
+
+    #[test]
+    fn inject_reproduces_broadcast_evidence_pczt() {
+        let signed = inject_sigs(
+            parse(EV_PROVEN),
+            &[(0, sig64(EV_SIG0)), (1, sig64(EV_SIG1))],
+        )
+        .unwrap();
+        assert_eq!(signed.serialize().as_slice(), EV_SIGNED);
+    }
+
+    #[test]
+    fn inject_rejects_out_of_range_index() {
+        let err = inject_sigs(parse(DKG_PROVEN), &[(99, sig64(DKG_SIG1))]);
+        assert!(err.is_err(), "an action index past the end must fail");
+    }
+
+    #[test]
+    fn inject_rejects_wrong_signature() {
+        // A validly-shaped but incorrect signature must be rejected as it is applied,
+        // not silently written into a broken transaction.
+        let err = inject_sigs(parse(DKG_PROVEN), &[(1, [0u8; 64])]);
+        assert!(err.is_err(), "a signature that does not verify must fail");
     }
 }
