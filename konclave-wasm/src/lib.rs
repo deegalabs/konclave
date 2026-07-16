@@ -236,6 +236,69 @@ pub mod ceremony {
             .is_ok())
     }
 
+    // ---- signing with a SPECIFIC Orchard randomizer (alpha), for real transactions ----
+    // An Orchard spend must be signed under the note's own re-randomization: the alpha carried in
+    // the PCZT (read via pczt_bridge::extract_randomizers), NOT a commitment-derived seed. These
+    // three functions take that alpha explicitly, so the FROST signature verifies under ak+alpha and
+    // can be injected into the transaction (pczt_bridge::inject_sigs) and broadcast. The seed-based
+    // functions above stay for the self-contained demo; these are the real-transaction path.
+
+    /// Participant round 2, signing with the given Orchard randomizer (alpha), 32 canonical bytes.
+    // frost-rerandomized deprecates the explicit-randomizer `sign` in favour of a seed the
+    // coordinator generates — but an Orchard spend's alpha is FIXED by the transaction (read from the
+    // PCZT), not freely chosen, so the seed path cannot express it. Signing under this exact
+    // randomizer is required and correct here.
+    #[allow(deprecated)]
+    pub fn participant_round2_with_randomizer(
+        sp_bytes: &[u8],
+        nonces: &SigningNonces,
+        kp: &KeyPackage,
+        randomizer: &[u8],
+    ) -> Result<Vec<u8>, E> {
+        let sp = SigningPackage::deserialize(sp_bytes).map_err(e)?;
+        let r = rerandomized::Randomizer::deserialize(randomizer).map_err(e)?;
+        let share = frost_rerandomized::sign(&sp, nonces, kp, r).map_err(e)?;
+        Ok(share.serialize())
+    }
+
+    /// Coordinator: aggregate the shares under the given randomizer (alpha) into a group signature.
+    pub fn coordinator_aggregate_with_randomizer(
+        sp_bytes: &[u8],
+        group_vk: &VerifyingKey,
+        randomizer: &[u8],
+        shares: &[(Vec<u8>, Vec<u8>)],
+        pubkeys: &PublicKeyPackage,
+    ) -> Result<Vec<u8>, E> {
+        let sp = SigningPackage::deserialize(sp_bytes).map_err(e)?;
+        let r = rerandomized::Randomizer::deserialize(randomizer).map_err(e)?;
+        let params = RandomizedParams::from_randomizer(group_vk, r);
+        let mut map = std::collections::BTreeMap::new();
+        for (id_b, s_b) in shares {
+            let id = Identifier::deserialize(id_b).map_err(e)?;
+            let s = SignatureShare::deserialize(s_b).map_err(e)?;
+            map.insert(id, s);
+        }
+        let sig = rerandomized::aggregate(&sp, &map, pubkeys, &params).map_err(e)?;
+        sig.serialize().map_err(e)
+    }
+
+    /// Verify the group signature under the key re-randomized by the given alpha (what an Orchard
+    /// spend commits to). This is the check `pczt_bridge::inject_sigs` will pass on-chain.
+    pub fn verify_with_randomizer(
+        group_vk: &VerifyingKey,
+        randomizer: &[u8],
+        message: &[u8],
+        sig_bytes: &[u8],
+    ) -> Result<bool, E> {
+        let r = rerandomized::Randomizer::deserialize(randomizer).map_err(e)?;
+        let params = RandomizedParams::from_randomizer(group_vk, r);
+        let sig = frost::Signature::deserialize(sig_bytes).map_err(e)?;
+        Ok(params
+            .randomized_verifying_key()
+            .verify(message, &sig)
+            .is_ok())
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;
@@ -284,6 +347,69 @@ pub mod ceremony {
             assert!(
                 verify(&group_vk, &sp_bytes, &seed, message, &sig_bytes).unwrap(),
                 "the aggregated signature must verify against the randomized group key"
+            );
+        }
+
+        #[test]
+        fn signs_with_a_real_orchard_randomizer() {
+            // The alpha of Konclave's real mainnet DKG-vault spend (aab00f90…) — a valid Orchard
+            // randomizer. This is the path a real transaction takes: sign under the PCZT's alpha,
+            // not a commitment-derived seed, so the signature can be injected and broadcast.
+            let alpha =
+                hex::decode("b2ad61e8bf0de877dd01c52356526adf39b036ffed2e0217ece19407e1717624")
+                    .unwrap();
+            let (shares, pubkeys) = frost::keys::generate_with_dealer(
+                3,
+                2,
+                frost::keys::IdentifierList::Default,
+                OsRng,
+            )
+            .unwrap();
+            let kps: std::collections::BTreeMap<_, _> = shares
+                .into_iter()
+                .map(|(id, s)| (id, KeyPackage::try_from(s).unwrap()))
+                .collect();
+            let group_vk = *pubkeys.verifying_key();
+            let message = b"konclave: a real Orchard shielded sighash";
+
+            let signers: Vec<_> = kps.iter().take(2).collect();
+            let mut local_nonces = Vec::new();
+            let mut wire_commitments = Vec::new();
+            for (id, kp) in &signers {
+                let (nonces, commit_bytes) = participant_round1(kp);
+                local_nonces.push((**id, nonces));
+                wire_commitments.push((id.serialize(), commit_bytes));
+            }
+            let sp_bytes = coordinator_signing_package(&wire_commitments, message).unwrap();
+
+            // Round 2 with the EXPLICIT Orchard alpha (no seed).
+            let mut wire_shares = Vec::new();
+            for ((id, kp), (_id2, nonces)) in signers.iter().zip(local_nonces.iter()) {
+                let share =
+                    participant_round2_with_randomizer(&sp_bytes, nonces, kp, &alpha).unwrap();
+                wire_shares.push((id.serialize(), share));
+            }
+            let sig = coordinator_aggregate_with_randomizer(
+                &sp_bytes,
+                &group_vk,
+                &alpha,
+                &wire_shares,
+                &pubkeys,
+            )
+            .unwrap();
+
+            // Verifies under ak+alpha (what an Orchard spend commits to)...
+            assert!(
+                verify_with_randomizer(&group_vk, &alpha, message, &sig).unwrap(),
+                "signature must verify under the key randomized by the Orchard alpha"
+            );
+            // ...and a DIFFERENT randomizer must NOT verify — the alpha binds the signature.
+            let other =
+                hex::decode("557c4ff828ed56eb33e8ba7f508a43915338ccf3ad71d1ecedc98e6e861bfc0f")
+                    .unwrap();
+            assert!(
+                !verify_with_randomizer(&group_vk, &other, message, &sig).unwrap(),
+                "a mismatched randomizer must fail"
             );
         }
     }
@@ -1240,6 +1366,21 @@ mod js {
         ceremony::participant_round2(sp, &nonces, &kp, seed).map_err(je)
     }
 
+    /// Participant device, round 2 (JS), REAL-TRANSACTION path: sign with the given Orchard
+    /// randomizer (the 32-byte alpha from pczt_bridge.extractRandomizers) instead of a seed, so the
+    /// signature can be injected into the PCZT and broadcast.
+    #[wasm_bindgen(js_name = participantRound2WithRandomizer)]
+    pub fn participant_round2_with_randomizer(
+        sp: &[u8],
+        nonces_bytes: &[u8],
+        kp_bytes: &[u8],
+        randomizer: &[u8],
+    ) -> Result<Vec<u8>, JsValue> {
+        let nonces = SigningNonces::deserialize(nonces_bytes).map_err(je)?;
+        let kp = KeyPackage::deserialize(kp_bytes).map_err(je)?;
+        ceremony::participant_round2_with_randomizer(sp, &nonces, &kp, randomizer).map_err(je)
+    }
+
     /// Coordinator (JS): accumulates the public wire material and produces the signature.
     #[wasm_bindgen]
     pub struct Coordinator {
@@ -1297,6 +1438,35 @@ mod js {
         pub fn verify(&self, sig: &[u8]) -> Result<bool, JsValue> {
             let vk = frost::VerifyingKey::deserialize(&self.group_vk).map_err(je)?;
             ceremony::verify(&vk, &self.sp, &self.seed, &self.message, sig).map_err(je)
+        }
+
+        /// REAL-TRANSACTION path: aggregate the accumulated shares under the given Orchard randomizer
+        /// (alpha) instead of the seed. The message must be the shielded sighash and the shares must
+        /// have been produced by `participantRound2WithRandomizer` with the SAME alpha.
+        #[wasm_bindgen(js_name = aggregateWithRandomizer)]
+        pub fn aggregate_with_randomizer(&self, randomizer: &[u8]) -> Result<Vec<u8>, JsValue> {
+            let vk = frost::VerifyingKey::deserialize(&self.group_vk).map_err(je)?;
+            let pubkeys = frost::keys::PublicKeyPackage::deserialize(&self.pubkeys).map_err(je)?;
+            ceremony::coordinator_aggregate_with_randomizer(
+                &self.sp,
+                &vk,
+                randomizer,
+                &self.shares,
+                &pubkeys,
+            )
+            .map_err(je)
+        }
+
+        /// Verify a group signature under the key re-randomized by the given alpha — the exact check
+        /// an Orchard spend passes on-chain.
+        #[wasm_bindgen(js_name = verifyWithRandomizer)]
+        pub fn verify_with_randomizer(
+            &self,
+            randomizer: &[u8],
+            sig: &[u8],
+        ) -> Result<bool, JsValue> {
+            let vk = frost::VerifyingKey::deserialize(&self.group_vk).map_err(je)?;
+            ceremony::verify_with_randomizer(&vk, randomizer, &self.message, sig).map_err(je)
         }
     }
 }
