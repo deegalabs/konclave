@@ -170,9 +170,11 @@ not promise what we do not deliver.
 - 🔬 **By dry-run** (it *signs*, it does not yet *broadcast*): the fully-sealed signing path (sealed
   configs unsealed only to ephemeral tmpfs files).
 - 🌐 **In the browser, live over the internet:** multi-device DKG and FROST signing over a **hosted
-  blind relay**. The signature is real; the message is a **test digest**, not yet a broadcast tx.
+  blind relay**, now over a **real Orchard sighash** (from mainnet tx `aab00f90…`) with each device
+  confirming what the tx pays (`describeOutputs`) before it signs. Only the broadcast remains.
 - 🔁 **Proven by test:** social recovery (RTS share repair) and the inheritance policy engine.
-- 🗺️ **Roadmap, not shipped:** real-transaction signing in the browser (still a test digest), full
+- 🗺️ **Roadmap, not shipped:** the broadcast of a real transaction from the browser (signing a real
+  Orchard sighash already works; it needs the vault funded + the operator to create/prove the PCZT), full
   on-device share persistence (restore works; signing-after-restore pending), and the single
   installable desktop binary (Tauri, see [ADR-0004](docs/adr/0004-local-http-bridge.md)).
 

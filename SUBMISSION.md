@@ -123,8 +123,10 @@ built on the same FROST + blind-relay foundation and proven by tests:
 - 🔬 **By dry-run** (signs, does not yet broadcast): the fully-sealed signing path.
 - 🌐 **In the browser, live over the internet:** multi-device DKG + FROST signing over a **hosted
   blind relay** (Railway). Try it at https://konclave-demo.vercel.app/#/net in two tabs. The
-  signature is real; the message is a test digest, not yet a broadcast transaction.
-- 🗺️ **Roadmap:** real-transaction signing in the browser, full on-device share persistence,
+  signature is real, over a **real Orchard sighash** (mainnet tx `aab00f90…`) with per-device
+  `describeOutputs` verification; only the broadcast from the browser remains.
+- 🗺️ **Roadmap:** the broadcast of a real transaction from the browser (signing a real Orchard
+  sighash already works), full on-device share persistence,
   a single desktop binary.
 
 ## Privacy & security
