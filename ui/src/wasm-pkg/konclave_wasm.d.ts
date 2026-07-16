@@ -152,10 +152,31 @@ export class TestVault {
 }
 
 /**
+ * Read every Orchard output of a proven PCZT as JSON: `[{"address": string|null, "value":
+ * number|null}, ...]`. The UI shows this and confirms it against the approved proposal BEFORE
+ * the device signs — the "what am I signing?" check. Addressed entries are real recipients;
+ * `address: null` entries are change. Values are zatoshis.
+ */
+export function describeOutputs(pczt: Uint8Array): string;
+
+/**
+ * Read the `(action_index, alpha)` randomizers of the real Orchard spends from a proven PCZT.
+ * Returns a flat buffer of 36-byte records: u32-LE index then 32-byte alpha.
+ */
+export function extractRandomizers(pczt: Uint8Array): Uint8Array;
+
+/**
  * Deterministic identifier bytes for participant number `index` (1-based), so every device
  * agrees on who is who without a central registry.
  */
 export function identifierBytes(index: number): Uint8Array;
+
+/**
+ * Apply FROST redpallas signatures to a proven PCZT and return the signed PCZT bytes.
+ * `sighash` is the 32-byte shielded sighash; `sigs` is a flat buffer of 68-byte records:
+ * u32-LE index then 64-byte signature.
+ */
+export function injectSigs(pczt: Uint8Array, sighash: Uint8Array, sigs: Uint8Array): Uint8Array;
 
 /**
  * Participant device, round 1 (JS): from the local key-package bytes.
@@ -213,7 +234,6 @@ export interface InitOutput {
     readonly identifierBytes: (a: number) => [number, number, number, number];
     readonly sealTo: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
     readonly verifyRedpallas: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
-    readonly selftest: () => [number, number];
     readonly __wbg_recoverycombiner_free: (a: number, b: number) => void;
     readonly __wbg_recoveryhelper_free: (a: number, b: number) => void;
     readonly recoverycombiner_addSigma: (a: number, b: number, c: number) => void;
@@ -227,6 +247,10 @@ export interface InitOutput {
     readonly recoveryhelper_deltaRecipient: (a: number, b: number) => [number, number];
     readonly recoveryhelper_new: (a: number, b: number, c: number, d: number) => number;
     readonly recoveryhelper_sigma: (a: number) => [number, number, number, number];
+    readonly selftest: () => [number, number];
+    readonly describeOutputs: (a: number, b: number) => [number, number, number, number];
+    readonly extractRandomizers: (a: number, b: number) => [number, number, number, number];
+    readonly injectSigs: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
     readonly __wbg_coordinator_free: (a: number, b: number) => void;
     readonly __wbg_round1_free: (a: number, b: number) => void;
     readonly __wbg_testvault_free: (a: number, b: number) => void;
