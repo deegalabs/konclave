@@ -37,6 +37,10 @@ const TXIDS = [
     txid: "b1e24c07fcd629e6e6ea6809ffeb5d2e311054781740c6a5db73dabc94d0e1b4",
     label: "private multi-output payroll (3 outputs, one encrypted memo each), 2-of-3 FROST",
   },
+  {
+    txid: "aab00f903b65e32d1adac317820a85fc97d15c2dcd788b3657ce36773e230ff3",
+    label: "2-of-3 FROST send from a real DKG-generated vault (key never reconstituted), broadcast to mainnet",
+  },
 ];
 
 const TIMEOUT_MS = 15000;

@@ -215,8 +215,8 @@ export const SECTIONS: Section[] = [
         k: 'ul',
         items: [
           {
-            'pt-BR': '**Na mainnet, 4 txids verificáveis** (`node scripts/verify-proof.mjs` ou a tela /proof): um pagamento por quórum 2-de-3 (proposto/aprovado no app, assinado por FROST, cofre por DKG real, shares lacrados); uma folha privada (uma tx Orchard blindada com 3 saídas, cada uma com memo criptografado, 2-de-3 FROST); e um pagamento reproduzido ponta a ponta de um cofre criado e financiado do zero. Nota honesta: a folha e o cofre-novo usaram trusted-dealer; o pagamento pelo app usou DKG.',
-            en: '**On mainnet, 4 verifiable txids** (`node scripts/verify-proof.mjs` or the /proof page): a 2-of-3 quorum payment (proposed/approved in the app, FROST-signed, real-DKG vault, sealed shares); a private payroll (one shielded Orchard tx with 3 outputs, each with an encrypted memo, 2-of-3 FROST); and a payment reproduced end to end from a freshly created and funded vault. Honest note: the payroll and fresh vault used trusted-dealer; the app payment used DKG.',
+            'pt-BR': '**Na mainnet, 5 txids verificáveis** (`node scripts/verify-proof.mjs` ou a tela /proof): um pagamento por quórum 2-de-3 (proposto/aprovado no app, assinado por FROST, cofre por DKG real, shares lacrados); uma folha privada (uma tx Orchard blindada com 3 saídas, cada uma com memo criptografado, 2-de-3 FROST); um pagamento reproduzido ponta a ponta de um cofre criado e financiado do zero; e um **envio a partir de um cofre gerado por DKG real** (cerimônia DKG de 3 participantes, chave nunca reconstituída), financiado e gasto por FROST. Nota honesta: a folha e o cofre-novo usaram trusted-dealer; o pagamento pelo app e o envio do cofre DKG usaram DKG.',
+            en: '**On mainnet, 5 verifiable txids** (`node scripts/verify-proof.mjs` or the /proof page): a 2-of-3 quorum payment (proposed/approved in the app, FROST-signed, real-DKG vault, sealed shares); a private payroll (one shielded Orchard tx with 3 outputs, each with an encrypted memo, 2-of-3 FROST); a payment reproduced end to end from a freshly created and funded vault; and a **send from a real DKG-generated vault** (three-participant DKG ceremony, key never reconstituted), funded and spent by FROST. Honest note: the payroll and fresh vault used trusted-dealer; the app payment and the DKG-vault send used DKG.',
           },
           {
             'pt-BR': '**Por dry-run** (assina, ainda não transmite): o caminho de assinatura totalmente lacrado (configs abertos só em tmpfs).',
@@ -231,8 +231,8 @@ export const SECTIONS: Section[] = [
             en: '**Proven by test:** social recovery (RTS share repair) and the inheritance policy engine.',
           },
           {
-            'pt-BR': '**Roadmap, não entregue:** envio a partir de um cofre DKG novo (a evidência de folha usou trusted-dealer), assinatura de transação real no navegador (ainda um digest de teste), persistência completa do share no dispositivo (restaura; assinar-após-restore pendente), e o binário desktop único instalável (Tauri).',
-            en: '**Roadmap, not shipped:** sending from a fresh DKG vault (the payroll evidence used trusted-dealer), real-transaction signing in the browser (still a test digest), full on-device share persistence (restore works; signing-after-restore pending), and the single installable desktop binary (Tauri).',
+            'pt-BR': '**Roadmap, não entregue:** assinatura de transação real no navegador (ainda um digest de teste), persistência completa do share no dispositivo (restaura; assinar-após-restore pendente), e o binário desktop único instalável (Tauri).',
+            en: '**Roadmap, not shipped:** real-transaction signing in the browser (still a test digest), full on-device share persistence (restore works; signing-after-restore pending), and the single installable desktop binary (Tauri).',
           },
         ],
       },
@@ -273,6 +273,97 @@ export const SECTIONS: Section[] = [
         t: {
           'pt-BR': 'A rede multi-dispositivo (duas abas fazem um cofre e assinam) roda contra o servidor local em `http://127.0.0.1:4762/#/net`, ou ao vivo no demo hospedado.',
           en: 'The multi-device network (two tabs make one vault, then sign) works against the local server at `http://127.0.0.1:4762/#/net`, or live at the hosted demo.',
+        },
+      },
+    ],
+  },
+  {
+    id: 'sdk',
+    nav: { 'pt-BR': 'SDK', en: 'SDK' },
+    title: { 'pt-BR': 'SDK: @konclave/frost', en: 'SDK: @konclave/frost' },
+    lead: {
+      'pt-BR':
+        'A mesma engine WASM que roda no `/net` do Konclave, empacotada como uma primitiva reutilizável de navegador para FROST na Zcash Orchard, com o share secreto **nunca saindo do dispositivo**.',
+      en:
+        'The same WASM engine that powers Konclave’s `/net`, packaged as a reusable browser primitive for FROST on Zcash Orchard, with the secret share **never leaving the device**.',
+    },
+    blocks: [
+      { k: 'h', t: { 'pt-BR': 'O que é', en: 'What it is' } },
+      {
+        k: 'p',
+        t: {
+          'pt-BR':
+            '`@konclave/frost` (pasta `sdk/`) é um wrapper fino e tipado sobre o núcleo `konclave-wasm`. Ele expõe as quatro operações que o Konclave usa por dentro, para você montar seu próprio produto de custódia compartilhada sem reimplementar criptografia: **DKG real** (geração distribuída de chave), **assinatura de grupo** (FROST redpallas rerandomizado, compatível com Orchard), **selagem ECIES** (X25519 → HKDF-SHA256 → XChaCha20-Poly1305 para os pacotes secretos da rodada 2 do DKG) e **recuperação social RTS** (Repairable Threshold Scheme).',
+          en:
+            '`@konclave/frost` (the `sdk/` folder) is a thin, typed wrapper over the `konclave-wasm` core. It exposes the four operations Konclave uses internally, so you can build your own shared-custody product without reimplementing cryptography: **real DKG** (distributed key generation), **group signing** (rerandomized FROST redpallas, Orchard-compatible), **ECIES sealing** (X25519 → HKDF-SHA256 → XChaCha20-Poly1305 for the DKG round-2 secret packages), and **RTS social recovery** (Repairable Threshold Scheme).',
+        },
+      },
+      { k: 'h', t: { 'pt-BR': 'Instalação', en: 'Install' } },
+      {
+        k: 'p',
+        t: {
+          'pt-BR': 'O binário `.wasm` (grande) **não** é embutido no pacote. Instale o núcleo `konclave-wasm` ao lado e aponte o `init()` para a URL do `.wasm`:',
+          en: 'The large `.wasm` binary is **not** bundled in the package. Install the `konclave-wasm` core alongside it and point `init()` at the `.wasm` URL:',
+        },
+      },
+      { k: 'code', t: 'npm install @konclave/frost konclave-wasm' },
+      {
+        k: 'code',
+        t:
+          "import { init, DkgSession } from '@konclave/frost'\n\n// Point at the wasm artifact you serve (from konclave-wasm / ui/src/wasm-pkg).\nawait init(new URL('konclave_wasm_bg.wasm', import.meta.url))\n\n// Drive a t-of-n DKG over any transport; the secret share stays in WASM,\n// it never crosses into JS. Move only the public/sealed bytes over your relay.\nconst session = new DkgSession(/* threshold */ 2, /* participants */ 3, myTag)",
+      },
+      {
+        k: 'note',
+        t: {
+          'pt-BR':
+            'Limite honesto: o SDK é a **camada de assinatura**, não um construtor de transações Zcash. Ele produz uma assinatura de grupo FROST que verifica; ligar isso a uma transação Orchard transmitida ainda exige a ponte PCZT (`konclave-signer`) do lado nativo. Licença Apache-2.0 / MIT.',
+          en:
+            'Honest limit: the SDK is the **signing layer**, not a Zcash transaction builder. It produces a verifying FROST group signature; wiring that to a broadcast Orchard transaction still needs the native-side PCZT bridge (`konclave-signer`). Licensed Apache-2.0 / MIT.',
+        },
+      },
+    ],
+  },
+  {
+    id: 'mcp',
+    nav: { 'pt-BR': 'MCP', en: 'MCP' },
+    title: { 'pt-BR': 'Servidor MCP: um tesoureiro de IA', en: 'MCP server: an AI treasurer' },
+    lead: {
+      'pt-BR':
+        'Um servidor Model Context Protocol que deixa um agente de IA **ler o cofre e propor** pagamentos, mas **nunca assinar nem enviar**. À prova de agente único: mesmo uma IA não move fundos sozinha.',
+      en:
+        'A Model Context Protocol server that lets an AI agent **read the vault and propose** payments, but **never sign or send**. Single-agent-proof: even an AI cannot move funds alone.',
+    },
+    blocks: [
+      { k: 'h', t: { 'pt-BR': 'A ideia', en: 'The idea' } },
+      {
+        k: 'p',
+        t: {
+          'pt-BR':
+            'A pasta `mcp-server/` expõe o cofre a um assistente de IA (Claude e outros clientes MCP) pela API do bridge local. A escolha de design é o ponto todo: as ferramentas de **leitura** (saldo, propostas, razão, membros) e de **proposta** existem; as ferramentas de **assinar** e **transmitir** foram deixadas de fora **de propósito**.',
+          en:
+            'The `mcp-server/` folder exposes the vault to an AI assistant (Claude and other MCP clients) via the local bridge API. The design choice is the whole point: **read** tools (balance, proposals, ledger, members) and a **propose** tool exist; the **sign** and **broadcast** tools were deliberately left out.',
+        },
+      },
+      { k: 'h', t: { 'pt-BR': 'Por que isso importa', en: 'Why it matters' } },
+      {
+        k: 'p',
+        t: {
+          'pt-BR':
+            'O mesmo princípio que protege o cofre de uma pessoa comprometida protege-o de um agente comprometido. Um assistente pode redigir a folha do mês e propô-la; a autoridade de gasto continua sendo **o quórum de humanos aprovando com seus próprios shares**. A IA participa da parte trabalhosa (contas, rascunhos) sem jamais tocar na autoridade que move dinheiro.',
+          en:
+            'The same principle that protects the vault from a compromised person protects it from a compromised agent. An assistant can draft the month’s payroll and propose it; the spend authority remains **the human quorum approving with their own shares**. The AI does the tedious part (accounting, drafts) without ever touching the money-moving authority.',
+        },
+      },
+      {
+        k: 'code',
+        t:
+          'tools exposed:   get_balance · list_proposals · get_ledger · list_members · propose_payment\ntools withheld:  (none for sign) · (none for send)   <-  by design',
+      },
+      {
+        k: 'note',
+        t: {
+          'pt-BR': 'Aponte seu cliente MCP para o `mcp-server/` com a URL do bridge local (`konclave serve`) rodando. É um leitor + propositor, nunca um signatário.',
+          en: 'Point your MCP client at `mcp-server/` with the local bridge (`konclave serve`) running. It is a reader + proposer, never a signer.',
         },
       },
     ],

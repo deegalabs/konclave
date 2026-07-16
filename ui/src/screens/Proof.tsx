@@ -35,6 +35,11 @@ const TXS = [
     block: 3413648,
     kind: 'payroll' as const,
   },
+  {
+    txid: 'aab00f903b65e32d1adac317820a85fc97d15c2dcd788b3657ce36773e230ff3',
+    block: 3413792,
+    kind: 'dkg' as const,
+  },
 ]
 
 const explorerZec = (txid: string) => `https://mainnet.zcashexplorer.app/transactions/${txid}`
@@ -49,6 +54,7 @@ const TXT = {
     labelSlice: 'Pagamento do Gate 1, fatia vertical pela CLI',
     labelFresh: 'Pagamento 2-de-3 FROST de um cofre criado e financiado do zero (reproduzido ponta a ponta)',
     labelPayroll: 'Folha privada multi-saída (3 saídas, um memo criptografado cada), 2-de-3 FROST',
+    labelDkg: 'Envio 2-de-3 FROST de um cofre gerado por DKG real (chave nunca reconstituída), transmitido à mainnet',
     txidLabel: 'ID da transação',
     blockLabel: 'Bloco',
     copy: 'Copiar',
@@ -78,6 +84,7 @@ const TXT = {
     labelSlice: 'Gate-1 CLI-driven vertical-slice payment',
     labelFresh: '2-of-3 FROST payment from a freshly created and funded vault (reproduced end to end)',
     labelPayroll: 'Private multi-output payroll (3 outputs, one encrypted memo each), 2-of-3 FROST',
+    labelDkg: '2-of-3 FROST send from a real DKG-generated vault (key never reconstituted), broadcast to mainnet',
     txidLabel: 'Transaction ID',
     blockLabel: 'Block',
     copy: 'Copy',
@@ -138,8 +145,12 @@ export default function Proof() {
   const [checks, setChecks] = useState<Record<string, CheckState>>({})
   const [copied, setCopied] = useState<string | null>(null)
 
-  const labelFor = (kind: 'app' | 'slice' | 'fresh' | 'payroll') =>
-    kind === 'app' ? T.labelApp : kind === 'slice' ? T.labelSlice : kind === 'fresh' ? T.labelFresh : T.labelPayroll
+  const labelFor = (kind: 'app' | 'slice' | 'fresh' | 'payroll' | 'dkg') =>
+    kind === 'app' ? T.labelApp
+    : kind === 'slice' ? T.labelSlice
+    : kind === 'fresh' ? T.labelFresh
+    : kind === 'dkg' ? T.labelDkg
+    : T.labelPayroll
 
   const copy = (text: string, tag: string) => {
     void navigator.clipboard?.writeText(text)

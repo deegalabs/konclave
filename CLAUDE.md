@@ -487,7 +487,7 @@ transactions:
   payroll**, one shielded Orchard tx with 3 outputs, each with its own encrypted memo. Previously
   dry-run only, now proven on mainnet.
 - Konclave now has **4 verifiable mainnet txids** (was 1). `node scripts/verify-proof.mjs`, `/proof`,
-  and `docs/PROOF.md` list all four.
+  and `docs/PROOF.md` list them (a 5th, the DKG-vault send, was added in Phase 11 below).
 
 Evidence vault + ceremony infra (LOCAL, deliberately NOT in git; test vault only):
 - 2-of-3 redpallas vault via `frost-client trusted-dealer`, group
@@ -506,7 +506,31 @@ Evidence vault + ceremony infra (LOCAL, deliberately NOT in git; test vault only
   before `send`. The whole ceremony runs in one script via the Bash `run_in_background` mode (the
   harness kills stray background processes otherwise).
 
-Honest note (§6.15): the evidence vaults are **trusted-dealer**, not DKG. The differentiator "real DKG
-vault to mainnet send" is still roadmap. The honest ladders in README / SUBMISSION / `/docs` were
-updated to move the payroll to "proven on mainnet" and keep the still-open gaps (DKG-vault send,
-browser real-tx signing, full share persistence).
+Honest note (§6.15): those four evidence vaults are **trusted-dealer**, not DKG. The differentiator
+"real DKG vault to mainnet send" was **closed in Phase 11 below**. The honest ladders in
+README / SUBMISSION / `/docs` were updated to move the payroll to "proven on mainnet" and keep the
+still-open gaps (browser real-tx signing, full share persistence).
+
+---
+
+**Phase 11 — DKG-vault mainnet send (the last differentiator, 2026-07-15/16).** Closed the one gap
+that stayed open across Phase 10: **a mainnet FROST send from a vault whose key was born by real DKG**
+(all four prior txids were trusted-dealer). Two real broadcasts, both money-gated (explicit "pode
+transmitir"):
+- **DKG vault created** (`~/konclave-dkg-vault`, configs `a2/b2/c2.toml`): `frost-client init` ×3 ->
+  contact export/import (⚠️ the contact string prints to **stderr** — capture with `2>&1`, not
+  `2>/dev/null`) -> concurrent `frost-client dkg -C redpallas -t 2` (creator + 2 joiners over `frostd`)
+  -> group `6b207009592233c7ab835765f35093ed357380589a4380a4d0cfd3c9d0c00c0b`, key **never
+  reconstituted** -> `zcash-sign generate --ak <group> --network main` -> Orchard address
+  `u10m0pn6tmvaa6e4…758r3acx` + UFVK. View-only wallet in `~/konclave-dkg-wallet`.
+- **Funding tx** `7f8e59bbdd238a022729b6a0c813da65400102746dc274f282b162d104fa9f61`: a 2-of-3 FROST send
+  from the trusted-dealer evidence vault -> the DKG address (0.005 ZEC). Script
+  `~/konclave-evidence-work/fund-dkg.sh` (multi-spend: 2 notes, one ceremony per randomizer index).
+- **DKG-vault send** `aab00f903b65e32d1adac317820a85fc97d15c2dcd788b3657ce36773e230ff3`
+  (block 3,413,792): the DKG vault self-sends 0.001 ZEC, signed by a 2-of-3 FROST ceremony (a2+b2).
+  Script `~/konclave-dkg-vault/send.sh`. KEY GOTCHA: the real Orchard spend can sit at **action index
+  1** (index 0 is a dummy pad) — the extractor emits `RANDOMIZER 1`, so parse **all** randomizer lines,
+  not a hardcoded index 0.
+- Konclave now has **5 verifiable mainnet txids**; `verify-proof.mjs`, `/proof`, `docs/PROOF.md`, and
+  the README/SUBMISSION/`/docs` ladders were updated (DKG-vault send moved out of roadmap). Also this
+  session: `/docs` gained **SDK** and **MCP** sections.
