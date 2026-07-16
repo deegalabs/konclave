@@ -15,6 +15,15 @@ reddsa = { version = "0.5.2", features = ["frost"] }
 orchard = { version = "0.14", default-features = false, features = ["unstable-frost"] }
 # ZIP-244 sig_digest recompute (proven wasm-clean: wasm-sighash-probe)
 blake2b_simd = "1"
+# PCZT parse + FROST signature injection (the FROST<->PCZT bridge, ported from konclave-signer).
+# ONLY the `orchard` feature: the `low_level_signer` role's `sign_orchard_with` is not gated behind
+# `signer`, so we get PCZT parse + Orchard spend signing WITHOUT pczt's `signer`/`transparent`
+# features, which would drag in secp256k1 (C) and zcash_script (C++) and break the wasm32 build.
+# The shielded sighash is passed IN (it is public data — the message the FROST quorum signs — and
+# computing it from the full tx needs zcash_primitives, which stays native/off-device).
+pczt = { version = "0.7", default-features = false, features = ["orchard"] }
+ff = "0.13"
+hex = "0.4"
 rand = "0.8"
 getrandom = { version = "0.2", features = ["js"] }
 # The confidential channel for the DKG's secret round-2 packages (Milestone 3b): seal each

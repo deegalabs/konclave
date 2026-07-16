@@ -871,6 +871,192 @@ pub mod seal {
     }
 }
 
+// ---------- the FROST<->PCZT bridge, ported from konclave-signer (browser parity) ----------
+// Slice 1 of "real-transaction browser signing": extract the per-spend randomizers from a proven
+// PCZT and inject the FROST redpallas signatures back, in wasm-clean Rust. The shielded sighash is
+// **passed in** (it is public — it is the message that gets signed — and computing it from the full
+// tx needs the heavy native tx machinery); the client only parses the PCZT and applies signatures,
+// which rides on `orchard` (already linked). Pinned to byte-for-byte parity with konclave-signer by
+// the same real mainnet golden vectors used to close audit C6.
+pub mod pczt_bridge {
+    use ff::PrimeField;
+    use orchard::primitives::redpallas::{self, SpendAuth};
+    use orchard::value::NoteValue;
+    use pczt::{roles::low_level_signer::Signer, Pczt};
+
+    // Error type for the orchard signing closure (must be `From<ParseError>`); payloads are carried
+    // for `Debug` diagnostics, not matched on.
+    #[derive(Debug)]
+    #[allow(dead_code)]
+    enum OErr {
+        Parse(orchard::pczt::ParseError),
+        Sign(orchard::pczt::SignerError),
+        BadIndex(usize),
+    }
+    impl From<orchard::pczt::ParseError> for OErr {
+        fn from(e: orchard::pczt::ParseError) -> Self {
+            OErr::Parse(e)
+        }
+    }
+
+    /// Parse a proven PCZT and return the `(action_index, alpha)` randomizers of the real Orchard
+    /// spends that need a FROST signature. Dummy (zero-value) spends are skipped, and the real spend
+    /// can sit at any action index (index 0 is often a dummy pad), so callers must not assume 0.
+    pub fn extract_randomizers(pczt_bytes: &[u8]) -> Result<Vec<(usize, [u8; 32])>, String> {
+        let pczt = Pczt::parse(pczt_bytes).map_err(|e| format!("failed to parse PCZT: {:?}", e))?;
+        let mut out: Vec<(usize, [u8; 32])> = vec![];
+        Signer::new(pczt)
+            .sign_orchard_with(|_pczt, bundle, _| {
+                for (idx, action) in bundle.actions().iter().enumerate() {
+                    let is_real =
+                        matches!(action.spend().value(), Some(v) if *v != NoteValue::default());
+                    if is_real {
+                        if let Some(alpha) = action.spend().alpha() {
+                            let repr = alpha.to_repr();
+                            let slice: &[u8] = repr.as_ref();
+                            let bytes: [u8; 32] =
+                                slice.try_into().expect("redpallas scalar is 32 bytes");
+                            out.push((idx, bytes));
+                        }
+                    }
+                }
+                Ok::<(), OErr>(())
+            })
+            .map_err(|e| format!("orchard parse: {:?}", e))?;
+        Ok(out)
+    }
+
+    /// Apply external redpallas signatures to the given Orchard spend action indices and return the
+    /// signed PCZT bytes. `sighash` is the shielded sighash the signatures commit to; each signature
+    /// is verified against it as it is applied, so a bad signature or out-of-range index is an error,
+    /// never a silently-broken transaction.
+    pub fn inject_sigs(
+        pczt_bytes: &[u8],
+        sighash: [u8; 32],
+        sigs: &[(usize, [u8; 64])],
+    ) -> Result<Vec<u8>, String> {
+        let pczt = Pczt::parse(pczt_bytes).map_err(|e| format!("failed to parse PCZT: {:?}", e))?;
+        let signer = Signer::new(pczt)
+            .sign_orchard_with(|_pczt, bundle, _| {
+                let actions = bundle.actions_mut();
+                for (idx, sig) in sigs {
+                    if *idx >= actions.len() {
+                        return Err(OErr::BadIndex(*idx));
+                    }
+                    let signature = redpallas::Signature::<SpendAuth>::from(*sig);
+                    actions[*idx]
+                        .apply_signature(sighash, signature)
+                        .map_err(OErr::Sign)?;
+                }
+                Ok::<(), OErr>(())
+            })
+            .map_err(|e| format!("signing failed: {:?}", e))?;
+        Ok(signer.finish().serialize())
+    }
+
+    // Parity tests: the WASM bridge must reproduce konclave-signer's output on the same real mainnet
+    // PCZT vectors (DKG-vault send `aab00f90…`, funding send `7f8e59bb…`). The sighashes below are the
+    // ones konclave-signer extracted (and that the broadcast signatures commit to).
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        const DKG_PROVEN: &[u8] = include_bytes!("../tests/vectors/dkg_single_spend.proven.pczt");
+        const DKG_SIGNED: &[u8] = include_bytes!("../tests/vectors/dkg_single_spend.signed.pczt");
+        const DKG_SIG1: &[u8] = include_bytes!("../tests/vectors/dkg_single_spend.sig1.raw");
+        const EV_PROVEN: &[u8] = include_bytes!("../tests/vectors/evidence_two_spend.proven.pczt");
+        const EV_SIGNED: &[u8] = include_bytes!("../tests/vectors/evidence_two_spend.signed.pczt");
+        const EV_SIG0: &[u8] = include_bytes!("../tests/vectors/evidence_two_spend.sig0.raw");
+        const EV_SIG1: &[u8] = include_bytes!("../tests/vectors/evidence_two_spend.sig1.raw");
+
+        const DKG_SIGHASH: [u8; 32] =
+            hex_literal("f30f233e7736ce57368b78cd2d5cd197fc850a8217c3da1a2de3653b900fb0aa");
+        const EV_SIGHASH: [u8; 32] =
+            hex_literal("619ffa04d162b182f274c26d7402014065da13c8a0b62927028a23ddbb598e7f");
+
+        // const-fn hex decoder so the expected sighashes read as hex in the source.
+        const fn hex_literal(s: &str) -> [u8; 32] {
+            let b = s.as_bytes();
+            let mut out = [0u8; 32];
+            let mut i = 0;
+            while i < 32 {
+                out[i] = nib(b[i * 2]) * 16 + nib(b[i * 2 + 1]);
+                i += 1;
+            }
+            out
+        }
+        const fn nib(c: u8) -> u8 {
+            match c {
+                b'0'..=b'9' => c - b'0',
+                b'a'..=b'f' => c - b'a' + 10,
+                _ => 0,
+            }
+        }
+
+        fn sig64(bytes: &[u8]) -> [u8; 64] {
+            bytes.try_into().expect("fixture signature is 64 bytes")
+        }
+
+        #[test]
+        fn extract_matches_signer_single_spend() {
+            let r = extract_randomizers(DKG_PROVEN).unwrap();
+            assert_eq!(r.len(), 1);
+            assert_eq!(r[0].0, 1); // real spend at action index 1 (index 0 is a dummy pad)
+            assert_eq!(
+                hex::encode(r[0].1),
+                "b2ad61e8bf0de877dd01c52356526adf39b036ffed2e0217ece19407e1717624",
+            );
+        }
+
+        #[test]
+        fn extract_matches_signer_two_spend() {
+            let r = extract_randomizers(EV_PROVEN).unwrap();
+            assert_eq!(r.len(), 2);
+            assert_eq!(r[0].0, 0);
+            assert_eq!(r[1].0, 1);
+            assert_eq!(
+                hex::encode(r[0].1),
+                "557c4ff828ed56eb33e8ba7f508a43915338ccf3ad71d1ecedc98e6e861bfc0f",
+            );
+            assert_eq!(
+                hex::encode(r[1].1),
+                "4c39a44dd1a50e5d41eb542f74d43847d33776396065c30a062077e209aa872d",
+            );
+        }
+
+        #[test]
+        fn inject_reproduces_broadcast_pczt_single_spend() {
+            let signed = inject_sigs(DKG_PROVEN, DKG_SIGHASH, &[(1, sig64(DKG_SIG1))]).unwrap();
+            assert_eq!(
+                signed.as_slice(),
+                DKG_SIGNED,
+                "WASM inject must reproduce the exact signed PCZT that went to mainnet",
+            );
+        }
+
+        #[test]
+        fn inject_reproduces_broadcast_pczt_two_spend() {
+            let signed = inject_sigs(
+                EV_PROVEN,
+                EV_SIGHASH,
+                &[(0, sig64(EV_SIG0)), (1, sig64(EV_SIG1))],
+            )
+            .unwrap();
+            assert_eq!(signed.as_slice(), EV_SIGNED);
+        }
+
+        #[test]
+        fn inject_rejects_out_of_range_index() {
+            assert!(inject_sigs(DKG_PROVEN, DKG_SIGHASH, &[(99, sig64(DKG_SIG1))]).is_err());
+        }
+
+        #[test]
+        fn inject_rejects_wrong_signature() {
+            assert!(inject_sigs(DKG_PROVEN, DKG_SIGHASH, &[(1, [0u8; 64])]).is_err());
+        }
+    }
+}
+
 // ---------- wasm-bindgen JS API for the split ceremony (WS1) ----------
 // Everything crosses the JS boundary as bytes (Uint8Array). This is exactly the surface the
 // React app / relay client calls: a Coordinator that accumulates public wire material, and a
@@ -1367,5 +1553,56 @@ mod js_recovery {
             let pubkeys = PublicKeyPackage::deserialize(&self.pubkeys).map_err(je)?;
             recovery::repaired_wire(&self.sigmas, lost, &pubkeys).map_err(je)
         }
+    }
+}
+
+// ---------- wasm-bindgen JS API for the FROST<->PCZT bridge ----------
+// The browser calls these to sign a real Orchard transaction: `extractRandomizers` reads the
+// per-spend alphas out of a proven PCZT (so each device knows what to sign), and `injectSigs`
+// writes the FROST signatures back into the PCZT. Bytes only, no secrets cross the boundary.
+// Wire encoding (all little-endian): a randomizer record is 4-byte u32 index then 32-byte alpha
+// (36 bytes); a signature record is 4-byte u32 index then 64-byte signature (68 bytes).
+#[cfg(target_arch = "wasm32")]
+mod js_pczt {
+    use super::pczt_bridge;
+    use wasm_bindgen::prelude::*;
+
+    fn je(e: impl core::fmt::Display) -> JsValue {
+        JsValue::from_str(&e.to_string())
+    }
+
+    /// Read the `(action_index, alpha)` randomizers of the real Orchard spends from a proven PCZT.
+    /// Returns a flat buffer of 36-byte records: u32-LE index then 32-byte alpha.
+    #[wasm_bindgen(js_name = extractRandomizers)]
+    pub fn extract_randomizers(pczt: &[u8]) -> Result<Vec<u8>, JsValue> {
+        let rs = pczt_bridge::extract_randomizers(pczt).map_err(je)?;
+        let mut out = Vec::with_capacity(rs.len() * 36);
+        for (idx, alpha) in rs {
+            out.extend_from_slice(&(idx as u32).to_le_bytes());
+            out.extend_from_slice(&alpha);
+        }
+        Ok(out)
+    }
+
+    /// Apply FROST redpallas signatures to a proven PCZT and return the signed PCZT bytes.
+    /// `sighash` is the 32-byte shielded sighash; `sigs` is a flat buffer of 68-byte records:
+    /// u32-LE index then 64-byte signature.
+    #[wasm_bindgen(js_name = injectSigs)]
+    pub fn inject_sigs(pczt: &[u8], sighash: &[u8], sigs: &[u8]) -> Result<Vec<u8>, JsValue> {
+        let sighash: [u8; 32] = sighash
+            .try_into()
+            .map_err(|_| je("sighash must be exactly 32 bytes"))?;
+        if sigs.len() % 68 != 0 {
+            return Err(je(
+                "sigs buffer must be a multiple of 68 bytes (u32 index + 64-byte sig)",
+            ));
+        }
+        let mut parsed: Vec<(usize, [u8; 64])> = Vec::with_capacity(sigs.len() / 68);
+        for rec in sigs.chunks_exact(68) {
+            let idx = u32::from_le_bytes(rec[0..4].try_into().unwrap()) as usize;
+            let sig: [u8; 64] = rec[4..68].try_into().unwrap();
+            parsed.push((idx, sig));
+        }
+        pczt_bridge::inject_sigs(pczt, sighash, &parsed).map_err(je)
     }
 }
