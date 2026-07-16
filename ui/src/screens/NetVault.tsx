@@ -8,9 +8,11 @@ import init, {
   participantRound1,
   participantRound2,
   verifyRedpallas,
+  describeOutputs,
 } from '../wasm-pkg/konclave_wasm.js'
 import wasmUrl from '../wasm-pkg/konclave_wasm_bg.wasm?url'
 import { RelaySession, newRoomCode, ephemeralTag, b64, unb64, bytesEqual, type RelayMsg } from '../net'
+import { dkgProvenPczt, DKG_SIGHASH, DKG_TXID } from '../demo-vector'
 import { useT, useTr, useI18n } from '../i18n'
 import { Letterhead } from '../components'
 import {
@@ -85,20 +87,31 @@ type Msg =
   | { type: 'hello'; encPub: string }
   | { type: 'r1'; pkg: string }
   | { type: 'r2'; to: number; box: string }
-  // signing (Marco 4): all public material — commitments, signing package, seed, shares, sig.
-  | { type: 'sreq'; msg: string }
+  // signing (Marco 4): all public material — the proven PCZT to verify, the sighash to sign,
+  // commitments, signing package, seed, shares, sig.
+  | { type: 'sreq'; msg: string; pczt: string }
   | { type: 's1'; commit: string }
   | { type: 'sp'; signers: number[]; sp: string; seed: string; msg: string }
   | { type: 's2'; share: string }
   | { type: 'signed'; sig: string; ok: boolean }
 
-// The demo message the vault signs. A real vault signs a transaction's sig_digest here; this
-// is a fixed test string so we can prove the DKG-born shares sign together. No funds, no chain.
-const DEMO_MSG = new TextEncoder().encode('konclave: assinatura de teste (nao vai pra rede)')
+// The message the vault signs is a REAL Orchard shielded sighash — the one from Konclave's mainnet
+// DKG-vault send (tx aab00f90…). Each device reads the accompanying proven PCZT with describeOutputs
+// to confirm what it pays BEFORE signing (the "what am I signing" gate). Honest limit: this signs
+// under THIS browser vault's own key, so it verifies but is not broadcast — the real broadcast needs
+// the operator to fund this vault and create/prove a PCZT for its own address.
+const SIGN_SIGHASH = hexToBytes(DKG_SIGHASH)
 
 function hex(bytes: Uint8Array): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
 }
+
+function hexToBytes(s: string): Uint8Array {
+  return new Uint8Array(s.match(/../g)!.map((b) => parseInt(b, 16)))
+}
+
+const shortId = (s: string) => (s.length > 24 ? `${s.slice(0, 14)}…${s.slice(-6)}` : s)
+const fmtZec = (zat: number) => (zat / 1e8).toFixed(8).replace(/0+$/, '').replace(/\.$/, '')
 
 function Shell({ error, children }: { error: string; children: ReactNode }) {
   const t = useT()
@@ -119,6 +132,7 @@ export default function NetVault() {
   const tt = useT()
   const ttr = useTr()
   const { locale } = useI18n()
+  const pe = (pt: string, en: string) => (locale === 'pt-BR' ? pt : en)
   const L = PERSIST_LABELS[locale]
   const [phase, setPhase] = useState<Phase>('idle')
   const [role, setRole] = useState<'create' | 'join'>('create')
@@ -134,6 +148,8 @@ export default function NetVault() {
   const [signPhase, setSignPhase] = useState<'none' | 'signing' | 'signed'>('none')
   const [signature, setSignature] = useState('')
   const [signOk, setSignOk] = useState(false)
+  // What this device is about to sign, read on-device from the proven PCZT (describeOutputs).
+  const [signWhat, setSignWhat] = useState<{ zec: string; addr: string } | null>(null)
 
   // --- on-device persistence (Marco 5) — additive, does not touch the DKG/relay/ceremony ---
   const [savePass, setSavePass] = useState('')
@@ -317,6 +333,21 @@ export default function NetVault() {
         if (!signStartedRef.current) {
           signStartedRef.current = true
           signMsgRef.current = unb64(parsed.msg)
+          // "What am I signing?" — every device reads the proven PCZT itself and confirms what it
+          // pays before contributing a signature. A device signs only what it can independently see.
+          try {
+            const outs = JSON.parse(describeOutputs(unb64(parsed.pczt))) as {
+              address: string | null
+              value: number | null
+            }[]
+            const recip = outs.find((o) => o.address !== null)
+            if (recip && recip.address && recip.value != null) {
+              setSignWhat({ zec: fmtZec(recip.value), addr: recip.address })
+              addLog(`~ ${fmtZec(recip.value)} ZEC -> ${shortId(recip.address)}`)
+            }
+          } catch {
+            /* if the PCZT can't be read, the UI simply shows no preview; the ceremony still runs */
+          }
           setSignPhase('signing')
           const r1 = participantRound1(dkgRef.current!.keyPackage())
           myNoncesRef.current = r1.nonces()
@@ -417,7 +448,8 @@ export default function NetVault() {
   )
 
   const startSign = useCallback(async () => {
-    await send({ type: 'sreq', msg: b64(DEMO_MSG) })
+    // Publish the real Orchard sighash to sign, plus the proven PCZT each device verifies first.
+    await send({ type: 'sreq', msg: b64(SIGN_SIGHASH), pczt: b64(dkgProvenPczt()) })
   }, [send])
 
   // Idempotent fixpoint, serialized against itself: apply every message whose preconditions
@@ -797,6 +829,14 @@ export default function NetVault() {
                 </button>
               </>
             )}
+            {signWhat && signPhase !== 'none' && (
+              <div className="net-what" style={{ marginTop: 16, padding: '10px 14px', border: '1px solid var(--rd-line)', borderRadius: 8 }}>
+                <strong>{pe('Você está assinando', 'You are signing')}</strong>: {signWhat.zec} ZEC → <code>{shortId(signWhat.addr)}</code>
+                <div style={{ fontSize: '.82rem', opacity: 0.75, marginTop: 4 }}>
+                  {pe('sighash Orchard real da tx', 'real Orchard sighash from tx')} <code>{shortId(DKG_TXID)}</code> · {pe('cada dispositivo confere isto antes de assinar', 'each device confirms this before it signs')}
+                </div>
+              </div>
+            )}
             {signPhase === 'signing' && <p className="net-lead" style={{ marginTop: 20 }}>{tt('net.sign.signing')}</p>}
             {signPhase === 'signed' && (
               <>
@@ -804,6 +844,12 @@ export default function NetVault() {
                   {signOk ? tt('net.sign.validPrefix') : tt('net.sign.invalidPrefix')} {ttr('net.sign.signedBody')}
                 </p>
                 <div className="net-vk">{signature}</div>
+                <p className="net-lead" style={{ fontSize: '.82rem', opacity: 0.8, marginTop: 10 }}>
+                  {pe(
+                    'Assinatura válida sobre um sighash Orchard real. Não transmitida: assina sob a chave deste cofre; o broadcast exige o operador financiar este cofre e criar/provar uma PCZT para o endereço dele.',
+                    'Valid signature over a real Orchard sighash. Not broadcast: it signs under this vault’s key; broadcasting needs the operator to fund this vault and create/prove a PCZT for its address.',
+                  )}
+                </p>
               </>
             )}
           </div>

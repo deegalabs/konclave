@@ -177,8 +177,8 @@ export const SECTIONS: Section[] = [
       {
         k: 'note',
         t: {
-          'pt-BR': 'Limite honesto: no navegador, a assinatura é real, mas a mensagem assinada é um **digest de teste**, ainda não uma transação Orchard transmitida. Ver o Roadmap.',
-          en: 'Honest limit: in the browser the signature is real, but the signed message is a **test digest**, not yet a broadcast Orchard transaction. See the Roadmap.',
+          'pt-BR': 'Limite honesto: no navegador, a assinatura é real e a mensagem é um **sighash Orchard real** (da tx de mainnet `aab00f90…`), com cada dispositivo conferindo o que a tx paga (`describeOutputs`) antes de assinar. O que falta é o **broadcast** a partir do navegador (exige financiar o cofre e o operador criar/provar uma PCZT). Ver o Roadmap.',
+          en: 'Honest limit: in the browser the signature is real and the message is a **real Orchard sighash** (from mainnet tx `aab00f90…`), with each device confirming what the tx pays (`describeOutputs`) before it signs. What remains is the **broadcast** from the browser (needs the vault funded and the operator to create/prove a PCZT). See the Roadmap.',
         },
       },
       { k: 'img', src: 'diagrams/multi-device.svg', alt: { 'pt-BR': 'Fluxo multi-dispositivo pelo relay cego: DKG e assinatura entre abas', en: 'Multi-device flow over the blind relay: DKG and signing across tabs' } },
@@ -223,16 +223,16 @@ export const SECTIONS: Section[] = [
             en: '**By dry-run** (it signs, it does not yet broadcast): the fully-sealed signing path (configs unsealed only to tmpfs).',
           },
           {
-            'pt-BR': '**No navegador, ao vivo:** DKG multi-dispositivo e assinatura FROST por um relay cego hospedado. A assinatura é real; a mensagem é um digest de teste.',
-            en: '**In the browser, live:** multi-device DKG and FROST signing over a hosted blind relay. The signature is real; the message is a test digest.',
+            'pt-BR': '**No navegador, ao vivo:** DKG multi-dispositivo e assinatura FROST por um relay cego hospedado, agora sobre um **sighash Orchard real** com verificação `describeOutputs` em cada dispositivo. Falta só o broadcast.',
+            en: '**In the browser, live:** multi-device DKG and FROST signing over a hosted blind relay, now over a **real Orchard sighash** with per-device `describeOutputs` verification. Only the broadcast remains.',
           },
           {
             'pt-BR': '**Provado por teste:** recuperação social (reparo de share RTS) e o motor de política de herança.',
             en: '**Proven by test:** social recovery (RTS share repair) and the inheritance policy engine.',
           },
           {
-            'pt-BR': '**Roadmap, não entregue:** assinatura de transação real no navegador (ainda um digest de teste), persistência completa do share no dispositivo (restaura; assinar-após-restore pendente), e o binário desktop único instalável (Tauri).',
-            en: '**Roadmap, not shipped:** real-transaction signing in the browser (still a test digest), full on-device share persistence (restore works; signing-after-restore pending), and the single installable desktop binary (Tauri).',
+            'pt-BR': '**Roadmap, não entregue:** o **broadcast** de uma transação real a partir do navegador (a assinatura de um sighash Orchard real já funciona; falta financiar o cofre + operador criar/provar a PCZT), persistência completa do share no dispositivo (restaura; assinar-após-restore pendente), e o binário desktop único instalável (Tauri).',
+            en: '**Roadmap, not shipped:** the **broadcast** of a real transaction from the browser (signing a real Orchard sighash already works; it needs the vault funded + the operator to create/prove the PCZT), full on-device share persistence (restore works; signing-after-restore pending), and the single installable desktop binary (Tauri).',
           },
         ],
       },

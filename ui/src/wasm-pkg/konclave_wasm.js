@@ -602,6 +602,53 @@ export class TestVault {
 if (Symbol.dispose) TestVault.prototype[Symbol.dispose] = TestVault.prototype.free;
 
 /**
+ * Read every Orchard output of a proven PCZT as JSON: `[{"address": string|null, "value":
+ * number|null}, ...]`. The UI shows this and confirms it against the approved proposal BEFORE
+ * the device signs — the "what am I signing?" check. Addressed entries are real recipients;
+ * `address: null` entries are change. Values are zatoshis.
+ * @param {Uint8Array} pczt
+ * @returns {string}
+ */
+export function describeOutputs(pczt) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passArray8ToWasm0(pczt, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.describeOutputs(ptr0, len0);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
+ * Read the `(action_index, alpha)` randomizers of the real Orchard spends from a proven PCZT.
+ * Returns a flat buffer of 36-byte records: u32-LE index then 32-byte alpha.
+ * @param {Uint8Array} pczt
+ * @returns {Uint8Array}
+ */
+export function extractRandomizers(pczt) {
+    const ptr0 = passArray8ToWasm0(pczt, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.extractRandomizers(ptr0, len0);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v2;
+}
+
+/**
  * Deterministic identifier bytes for participant number `index` (1-based), so every device
  * agrees on who is who without a central registry.
  * @param {number} index
@@ -615,6 +662,31 @@ export function identifierBytes(index) {
     var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
     wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
     return v1;
+}
+
+/**
+ * Apply FROST redpallas signatures to a proven PCZT and return the signed PCZT bytes.
+ * `sighash` is the 32-byte shielded sighash; `sigs` is a flat buffer of 68-byte records:
+ * u32-LE index then 64-byte signature.
+ * @param {Uint8Array} pczt
+ * @param {Uint8Array} sighash
+ * @param {Uint8Array} sigs
+ * @returns {Uint8Array}
+ */
+export function injectSigs(pczt, sighash, sigs) {
+    const ptr0 = passArray8ToWasm0(pczt, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passArray8ToWasm0(sighash, wasm.__wbindgen_malloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passArray8ToWasm0(sigs, wasm.__wbindgen_malloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ret = wasm.injectSigs(ptr0, len0, ptr1, len1, ptr2, len2);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v4 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v4;
 }
 
 /**
