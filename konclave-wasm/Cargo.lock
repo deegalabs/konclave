@@ -631,6 +631,7 @@ dependencies = [
  "blake2b_simd",
  "chacha20poly1305",
  "ff",
+ "frost-rerandomized",
  "getrandom",
  "hex",
  "hkdf",
