@@ -17,7 +17,7 @@ import init, {
   verifyRedpallas,
   describeOutputs,
 } from './wasm-pkg/konclave_wasm.js'
-import { bytesEqual } from './net'
+import { bytesEqual, b64, unb64 } from './net'
 import { dkgProvenPczt, DKG_SIGHASH } from './demo-vector'
 
 const hexToBytes = (s: string) => new Uint8Array(s.match(/../g)!.map((b) => parseInt(b, 16)))
@@ -102,6 +102,34 @@ describe('/net multi-device flow (DKG → sign → verify)', () => {
     // ...and a DIFFERENT alpha does not — the randomizer binds the signature to the spend.
     const otherAlpha = hexToBytes('557c4ff828ed56eb33e8ba7f508a43915338ccf3ad71d1ecedc98e6e861bfc0f')
     expect(coord.verifyWithRandomizer(otherAlpha, sig)).toBe(false)
+  })
+
+  it('a restored share signs a real Orchard spend (signing after restore)', () => {
+    // Persistence saves each device's material as a bundle (KeyPackage, pubkeys, group key);
+    // a reload restores it. Prove that the RESTORED bytes alone — no live DkgSession — sign a real
+    // Orchard sighash under the PCZT alpha and verify. This closes the "signing-after-restore" gap
+    // at the crypto layer: a reloaded device is a full signer again.
+    const { s0, s1, id0, id1 } = dkg2of3()
+    const save = (s: DkgSession) => JSON.stringify({ kp: b64(s.keyPackage()), pubkeys: b64(s.pubkeys()), gvk: b64(s.groupVk()) })
+    const restore = (json: string) => {
+      const b = JSON.parse(json) as { kp: string; pubkeys: string; gvk: string }
+      return { kp: unb64(b.kp), pubkeys: unb64(b.pubkeys), gvk: unb64(b.gvk) }
+    }
+    const r0 = restore(save(s0)) // device 1 after a reload
+    const r1 = restore(save(s1)) // device 2 after a reload
+
+    const msg = hexToBytes(DKG_SIGHASH)
+    const a = participantRound1(r0.kp)
+    const b = participantRound1(r1.kp)
+    const coord = new Coordinator(r0.gvk, r0.pubkeys, msg)
+    coord.addCommitment(id0, a.commitment())
+    coord.addCommitment(id1, b.commitment())
+    coord.prepare()
+    const sp = coord.signingPackage()
+    coord.addShare(id0, participantRound2WithRandomizer(sp, a.nonces(), r0.kp, DKG_ALPHA))
+    coord.addShare(id1, participantRound2WithRandomizer(sp, b.nonces(), r1.kp, DKG_ALPHA))
+    const sig = coord.aggregateWithRandomizer(DKG_ALPHA)
+    expect(coord.verifyWithRandomizer(DKG_ALPHA, sig)).toBe(true)
   })
 
   it('describeOutputs surfaces what the device is signing (recipient + value), as /net shows', () => {

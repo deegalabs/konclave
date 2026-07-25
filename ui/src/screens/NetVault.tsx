@@ -174,6 +174,17 @@ export default function NetVault() {
   // --- mutable ceremony state (refs so the poll callback always sees the latest) ---
   const sessionRef = useRef<RelaySession | null>(null)
   const dkgRef = useRef<DkgSession | null>(null)
+
+  // This device's signing material, from the live DKG session OR from a restored vault. Signing
+  // after restore reads the same bytes the DKG produced (KeyPackage, group key, pubkeys), so a
+  // reloaded device signs with no ceremony redo. Ref-only, so it is stable across renders.
+  const signingMaterial = useCallback(() => {
+    const d = dkgRef.current
+    if (d) return { keyPackage: d.keyPackage(), groupVk: d.groupVk(), pubkeys: d.pubkeys() }
+    const r = restoredRef.current
+    if (r) return { keyPackage: r.keyPackage, groupVk: r.groupVk, pubkeys: r.pubkeys }
+    throw new Error('no signing material: no live DKG session and no restored vault')
+  }, [])
   const deviceKeyRef = useRef<DeviceKey | null>(null)
   const myTagRef = useRef('')
   const configRef = useRef<{ n: number; t: number } | null>(null)
@@ -349,7 +360,7 @@ export default function NetVault() {
             /* if the PCZT can't be read, the UI simply shows no preview; the ceremony still runs */
           }
           setSignPhase('signing')
-          const r1 = participantRound1(dkgRef.current!.keyPackage())
+          const r1 = participantRound1(signingMaterial().keyPackage)
           myNoncesRef.current = r1.nonces()
           await send({ type: 's1', commit: b64(r1.commitment()) })
           addLog(tt('net.log.signCommit'))
@@ -364,11 +375,8 @@ export default function NetVault() {
         const t = configRef.current?.t ?? 0
         if (mySeatRef.current === 1 && signCommitsRef.current.size >= t && !spSentRef.current) {
           const chosen = [...signCommitsRef.current.keys()].sort((a, b) => a - b).slice(0, t)
-          const coord = new Coordinator(
-            dkgRef.current!.groupVk(),
-            dkgRef.current!.pubkeys(),
-            signMsgRef.current,
-          )
+          const mat = signingMaterial()
+          const coord = new Coordinator(mat.groupVk, mat.pubkeys, signMsgRef.current)
           for (const s of chosen) coord.addCommitment(identifierBytes(s), signCommitsRef.current.get(s)!)
           coord.prepare()
           coordRef.current = coord
@@ -394,7 +402,7 @@ export default function NetVault() {
           const share = participantRound2(
             spRef.current,
             myNoncesRef.current,
-            dkgRef.current!.keyPackage(),
+            signingMaterial().keyPackage,
             seedRef.current,
           )
           sentS2Ref.current = true
@@ -426,7 +434,7 @@ export default function NetVault() {
         let ok = parsed.ok
         try {
           if (spRef.current && seedRef.current) {
-            ok = verifyRedpallas(dkgRef.current!.groupVk(), spRef.current, seedRef.current, signMsgRef.current, sig)
+            ok = verifyRedpallas(signingMaterial().groupVk, spRef.current, seedRef.current, signMsgRef.current, sig)
           }
         } catch {
           /* keep the coordinator's result if local verify throws */
@@ -444,7 +452,7 @@ export default function NetVault() {
         return true // consume so the fixpoint never re-throws the same message
       }
     },
-    [addLog, doPart2, doPart3, send, tt],
+    [addLog, doPart2, doPart3, send, tt, signingMaterial],
   )
 
   const startSign = useCallback(async () => {
