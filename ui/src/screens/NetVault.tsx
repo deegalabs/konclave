@@ -31,7 +31,7 @@ import '../net.css'
 // sealed to their recipient, so the relay only ever carries public material or ciphertext.
 // This is the "I created / I invited / I entered the code" flow, running for real across tabs.
 
-type Phase = 'idle' | 'roster' | 'dkg' | 'done' | 'error' | 'restored'
+type Phase = 'idle' | 'roster' | 'dkg' | 'done' | 'error' | 'restored' | 'signsession'
 
 // Local, dependency-free labels for the on-device persistence UI (Marco 5). These are ADDITIVE
 // to the /net flow, so rather than touch the shared i18n dictionaries we key a small table by the
@@ -54,7 +54,7 @@ const PERSIST_LABELS = {
     restoreErr: 'Nao foi possivel abrir o cofre: ',
     restoredTitle: 'Cofre restaurado',
     restoredLead: 'A sua parte do cofre foi restaurada deste dispositivo, sem refazer a criacao.',
-    restoredNote: 'Para assinar, os membros precisam se reconectar a uma sala de assinatura (proximo passo).',
+    restoredNote: 'Para assinar, reingresse com os membros numa sessao de assinatura abaixo.',
     rosterLabel: 'Participantes registrados:',
     backBtn: 'Voltar',
   },
@@ -75,7 +75,7 @@ const PERSIST_LABELS = {
     restoreErr: 'Could not open the vault: ',
     restoredTitle: 'Vault restored',
     restoredLead: 'Your share of the vault was restored from this device, without redoing creation.',
-    restoredNote: 'To sign, the members must reconnect to a signing room (the next step).',
+    restoredNote: 'To sign, rejoin the members in a signing session below.',
     rosterLabel: 'Registered participants:',
     backBtn: 'Back',
   },
@@ -87,6 +87,9 @@ type Msg =
   | { type: 'hello'; encPub: string }
   | { type: 'r1'; pkg: string }
   | { type: 'r2'; to: number; box: string }
+  // rejoin (signing after restore): a restored device announces its ORIGINAL seat (its KeyPackage's
+  // identifier is bound to it), so a signing session re-seats by declared seat, not by fresh tags.
+  | { type: 'rejoin'; seat: number }
   // signing (Marco 4): all public material — the proven PCZT to verify, the sighash to sign,
   // commitments, signing package, seed, shares, sig.
   | { type: 'sreq'; msg: string; pczt: string }
@@ -150,6 +153,9 @@ export default function NetVault() {
   const [signOk, setSignOk] = useState(false)
   // What this device is about to sign, read on-device from the proven PCZT (describeOutputs).
   const [signWhat, setSignWhat] = useState<{ zec: string; addr: string } | null>(null)
+  // Signing-after-restore: how many devices (by declared seat) have rejoined the signing session.
+  const [signSeatCount, setSignSeatCount] = useState(0)
+  const [signRoomInput, setSignRoomInput] = useState('')
 
   // --- on-device persistence (Marco 5) — additive, does not touch the DKG/relay/ceremony ---
   const [savePass, setSavePass] = useState('')
@@ -335,6 +341,18 @@ export default function NetVault() {
         addLog(tt('net.log.r2From', { seat }))
         const need = (configRef.current?.n ?? 0) - 1
         if (r2SeenRef.current.size >= need && !part3DoneRef.current) doPart3()
+        return true
+      }
+
+      // ---- rejoin (signing after restore): re-seat by declared seat, not by fresh tags ----
+      if (parsed.type === 'rejoin') {
+        seatByTagRef.current.set(msg.from, parsed.seat)
+        seatTableRef.current = [...seatByTagRef.current.entries()].map(([tag, seat]) => ({
+          tag,
+          encPub: new Uint8Array(),
+          id: identifierBytes(seat),
+        }))
+        setSignSeatCount(seatByTagRef.current.size)
         return true
       }
 
@@ -536,6 +554,42 @@ export default function NetVault() {
         await sess.send(
           JSON.stringify({ type: 'hello', encPub: b64(deviceKeyRef.current.publicBytes()) } satisfies Msg),
         )
+        addLog(tt('net.log.joined'))
+        void advance()
+      } catch (e) {
+        setError(String(e))
+        setPhase('error')
+      }
+    },
+    [addLog, advance, onMessage, tt],
+  )
+
+  // Signing after restore: a restored device joins a SIGNING-only relay room. No DKG runs (the vault
+  // already exists); each device announces its ORIGINAL seat so the seating matches the KeyPackages.
+  const beginSign = useCallback(
+    async (code: string) => {
+      const r = restoredRef.current
+      if (!r) return
+      if (startGuardRef.current) return
+      startGuardRef.current = true
+      try {
+        await init(wasmUrl)
+        myTagRef.current = ephemeralTag()
+        configRef.current = { n: r.n, t: r.t }
+        mySeatRef.current = r.seat
+        part3DoneRef.current = true // the vault exists; never run DKG in this session
+        startedDkgRef.current = true
+        seatByTagRef.current = new Map([[myTagRef.current, r.seat]])
+        seatTableRef.current = [
+          { tag: myTagRef.current, encPub: new Uint8Array(), id: identifierBytes(r.seat) },
+        ]
+        setSignSeatCount(1)
+        setRoom(code)
+        setPhase('signsession')
+        const sess = new RelaySession(code, myTagRef.current, onMessage, (p) => setPeers(p))
+        sessionRef.current = sess
+        sess.start()
+        await sess.send(JSON.stringify({ type: 'rejoin', seat: r.seat } satisfies Msg))
         addLog(tt('net.log.joined'))
         void advance()
       } catch (e) {
@@ -756,6 +810,30 @@ export default function NetVault() {
           <p className="net-tip">{L.rosterLabel} {restoredRoster.join(', ')}</p>
         )}
         <p className="net-tip">{L.restoredNote}</p>
+
+        <div className="net-card" style={{ marginTop: 16 }}>
+          <h3>{pe('Assinar com este cofre', 'Sign with this vault')}</h3>
+          <p>{pe('Reingresse com os outros membros numa sessão de assinatura pelo relay.', 'Rejoin the other members in a signing session over the relay.')}</p>
+          <button className="net-btn primary" onClick={() => void beginSign(newRoomCode())}>
+            {pe('Iniciar sessão (criar código)', 'Start a session (create a code)')}
+          </button>
+          <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+            <input
+              className="net-input"
+              placeholder={pe('código da sessão', 'session code')}
+              value={signRoomInput}
+              onChange={(e) => setSignRoomInput(e.target.value.trim())}
+            />
+            <button
+              className="net-btn"
+              disabled={signRoomInput.length < 4}
+              onClick={() => void beginSign(signRoomInput)}
+            >
+              {pe('Entrar', 'Join')}
+            </button>
+          </div>
+        </div>
+
         <button className="net-btn" style={{ marginTop: 16 }} onClick={() => setPhase('idle')}>
           {L.backBtn}
         </button>
@@ -765,6 +843,46 @@ export default function NetVault() {
 
   const total = configRef.current?.n ?? n
   const quorum = configRef.current?.t ?? t
+
+  // Shared signing controls, used by the just-created vault ('done') and by a restored device that
+  // rejoined a signing session ('signsession'). `canStart` gates the button on quorum presence.
+  const renderSign = (canStart: boolean) => (
+    <div className="net-sign">
+      {signPhase === 'none' && (
+        <>
+          <p className="net-lead" style={{ marginTop: 20 }}>{ttr('net.sign.prompt')}</p>
+          <button className="net-btn primary" disabled={!canStart} onClick={() => void startSign()}>
+            {tt('net.sign.btn')}
+          </button>
+        </>
+      )}
+      {signWhat && signPhase !== 'none' && (
+        <div className="net-what" style={{ marginTop: 16, padding: '10px 14px', border: '1px solid var(--rd-line)', borderRadius: 8 }}>
+          <strong>{pe('Você está assinando', 'You are signing')}</strong>: {signWhat.zec} ZEC → <code>{shortId(signWhat.addr)}</code>{' '}
+          <span style={{ opacity: 0.7 }}>{pe('(exemplo)', '(example)')}</span>
+          <div style={{ fontSize: '.82rem', opacity: 0.75, marginTop: 4 }}>
+            {pe('exemplo de uma transação Orchard real (tx', 'example of a real Orchard transaction (tx')} <code>{shortId(DKG_TXID)}</code>){' '}
+            {pe('· cada dispositivo confere isto antes de assinar. Este cofre não tem saldo e nada é transmitido.', '· each device confirms this before it signs. This vault holds no funds and nothing is broadcast.')}
+          </div>
+        </div>
+      )}
+      {signPhase === 'signing' && <p className="net-lead" style={{ marginTop: 20 }}>{tt('net.sign.signing')}</p>}
+      {signPhase === 'signed' && (
+        <>
+          <p className="net-lead" style={{ marginTop: 20 }}>
+            {signOk ? tt('net.sign.validPrefix') : tt('net.sign.invalidPrefix')} {ttr('net.sign.signedBody')}
+          </p>
+          <div className="net-vk">{signature}</div>
+          <p className="net-lead" style={{ fontSize: '.82rem', opacity: 0.8, marginTop: 10 }}>
+            {pe(
+              'Assinatura válida sobre um sighash Orchard real. Não transmitida: assina sob a chave deste cofre; o broadcast exige o operador financiar este cofre e criar/provar uma PCZT para o endereço dele.',
+              'Valid signature over a real Orchard sighash. Not broadcast: it signs under this vault’s key; broadcasting needs the operator to fund this vault and create/prove a PCZT for its address.',
+            )}
+          </p>
+        </>
+      )}
+    </div>
+  )
 
   return (
     <Shell error={error}>
@@ -788,7 +906,9 @@ export default function NetVault() {
 
       <div className="net-status">
         <span className="net-pill">{tt('net.status.connected', { peers })}</span>
-        <span className="net-pill">{tt('net.status.announced', { count: rosterCount, total })}</span>
+        {phase !== 'signsession' && (
+          <span className="net-pill">{tt('net.status.announced', { count: rosterCount, total })}</span>
+        )}
         <span className="net-pill">{tt('net.status.quorum', { quorum, total })}</span>
       </div>
 
@@ -828,41 +948,27 @@ export default function NetVault() {
             )}
           </div>
 
-          <div className="net-sign">
-            {signPhase === 'none' && (
-              <>
-                <p className="net-lead" style={{ marginTop: 20 }}>{ttr('net.sign.prompt')}</p>
-                <button className="net-btn primary" onClick={() => void startSign()}>
-                  {tt('net.sign.btn')}
-                </button>
-              </>
+          {renderSign(true)}
+        </div>
+      )}
+
+      {phase === 'signsession' && (
+        <div className="net-done">
+          <h1 className="net-h1">{pe('Sessão de assinatura', 'Signing session')}</h1>
+          <p className="net-lead">
+            {pe(
+              'Cofre restaurado neste dispositivo. Reingressando com os outros membros para assinar; nenhum DKG roda de novo.',
+              'Vault restored on this device. Rejoining with the other members to sign; no DKG runs again.',
             )}
-            {signWhat && signPhase !== 'none' && (
-              <div className="net-what" style={{ marginTop: 16, padding: '10px 14px', border: '1px solid var(--rd-line)', borderRadius: 8 }}>
-                <strong>{pe('Você está assinando', 'You are signing')}</strong>: {signWhat.zec} ZEC → <code>{shortId(signWhat.addr)}</code>{' '}
-                <span style={{ opacity: 0.7 }}>{pe('(exemplo)', '(example)')}</span>
-                <div style={{ fontSize: '.82rem', opacity: 0.75, marginTop: 4 }}>
-                  {pe('exemplo de uma transação Orchard real (tx', 'example of a real Orchard transaction (tx')} <code>{shortId(DKG_TXID)}</code>){' '}
-                  {pe('· cada dispositivo confere isto antes de assinar. Este cofre não tem saldo e nada é transmitido.', '· each device confirms this before it signs. This vault holds no funds and nothing is broadcast.')}
-                </div>
-              </div>
-            )}
-            {signPhase === 'signing' && <p className="net-lead" style={{ marginTop: 20 }}>{tt('net.sign.signing')}</p>}
-            {signPhase === 'signed' && (
-              <>
-                <p className="net-lead" style={{ marginTop: 20 }}>
-                  {signOk ? tt('net.sign.validPrefix') : tt('net.sign.invalidPrefix')} {ttr('net.sign.signedBody')}
-                </p>
-                <div className="net-vk">{signature}</div>
-                <p className="net-lead" style={{ fontSize: '.82rem', opacity: 0.8, marginTop: 10 }}>
-                  {pe(
-                    'Assinatura válida sobre um sighash Orchard real. Não transmitida: assina sob a chave deste cofre; o broadcast exige o operador financiar este cofre e criar/provar uma PCZT para o endereço dele.',
-                    'Valid signature over a real Orchard sighash. Not broadcast: it signs under this vault’s key; broadcasting needs the operator to fund this vault and create/prove a PCZT for its address.',
-                  )}
-                </p>
-              </>
-            )}
-          </div>
+          </p>
+          <div className="net-vk">{groupVk}</div>
+          <p className="net-tip">{pe('Código da sessão (compartilhe com os membros)', 'Session code (share with the members)')}:</p>
+          <div className="net-code" onClick={() => navigator.clipboard?.writeText(room)} title={tt('net.invite.clickCopy')}>{room}</div>
+          <p className="net-tip" style={{ marginTop: 12 }}>{pe('Membros na sessão', 'Members in session')}: {signSeatCount} / {quorum}</p>
+          {signSeatCount < quorum && (
+            <p className="net-lead">{pe('Aguardando o quórum reingressar…', 'Waiting for the quorum to rejoin…')}</p>
+          )}
+          {renderSign(signSeatCount >= quorum)}
         </div>
       )}
 
