@@ -92,3 +92,50 @@ license); mainnet demo video; backup video; submission checklist.
 ## Slack
 Slice closed by ~day 4-5; core by ~11; days 12-15 for delivery **and buffer**. If the
 slice slips, Phase 6 is the escape valve, never the core.
+
+---
+
+# Forward roadmap (post-submission)
+
+The core crypto is proven (real FROST over Orchard, five verifiable mainnet txids incl. a
+DKG-vault send and a private multi-output payroll, and browser-side signing of a real
+Orchard spend). The work from here is **consolidation, robustness, and reach**, not new
+cryptography. Ordered by priority.
+
+## A. Consolidation
+- Keep `main` the single trunk; land verified work through PRs; keep the proof surfaces
+  consistent (see [CLAIMS.md](CLAIMS.md)).
+- Browser signing of a real Orchard spend is now on `main` (the ceremony signs under the
+  PCZT's own randomizer/alpha and verifies under `ak+alpha`). Remaining: wire it into the
+  `/net` flow end to end and close the loop with a broadcast.
+
+## B. Network robustness — NU6.3 / Ironwood
+- The upgrade replaces the Orchard circuit version (`FixedPostNu6_2` → `PostNu6_3`); the
+  FROST / RedPallas spend-authorization scheme is unchanged, so the signing core carries over.
+- Because build, prove, and broadcast are delegated to `zcash-devtool`, Konclave inherits
+  upstream Ironwood support as it ships. What we can prepare independently: derive the
+  Orchard circuit version from the **live consensus branch id at the chain tip** (never
+  hardcode a tx version), and validate sync/balance on the Ironwood testnet.
+
+## C. On-device share persistence
+- Today a device holds its share only in memory. Add encrypted at-rest persistence unlocked
+  per device (passphrase / passkey / biometric), so a member can close and reopen the app
+  without losing the vault. This is the shared prerequisite for both desktop and mobile.
+- Custody invariant: the share is stored **encrypted**, unlocked only on the device; viewing
+  keys are always derived through ZIP-32 / official tooling, never as a hash of a shared value.
+
+## D. Multi-platform delivery (one core, three shells)
+One UI (`ui/`) and one crypto core (`konclave-wasm`) behind a blind relay, packaged three ways:
+- **Web** — browser + WASM + hosted relay (done; verified across separate machines).
+- **Desktop** — a Tauri shell wrapping the `orchestrator`, producing native installers
+  (Windows / macOS / Linux).
+- **Mobile** — the same UI + WASM core (Tauri mobile / PWA); the device signs its share and
+  verifies what it signs. The heavy build/prove/broadcast stays off-device (operator or
+  service), because the mechanics are trustless and cannot move funds without the quorum.
+
+## E. Closing the loop and depth
+- Real broadcast from the browser (fund a vault, build/prove server-side, sign in-browser,
+  inject and send).
+- Multi-device reconciliation (on-chain wins when the local cache diverges) — the last open
+  item of the destructive-test suite.
+- Accounting depth (fiat valuation, cost basis, bookkeeping-software export).
