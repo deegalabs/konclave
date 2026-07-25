@@ -49,6 +49,24 @@ export class Coordinator {
         return v1;
     }
     /**
+     * REAL-TRANSACTION path: aggregate the accumulated shares under the given Orchard randomizer
+     * (alpha) instead of the seed. The message must be the shielded sighash and the shares must
+     * have been produced by `participantRound2WithRandomizer` with the SAME alpha.
+     * @param {Uint8Array} randomizer
+     * @returns {Uint8Array}
+     */
+    aggregateWithRandomizer(randomizer) {
+        const ptr0 = passArray8ToWasm0(randomizer, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.coordinator_aggregateWithRandomizer(this.__wbg_ptr, ptr0, len0);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v2;
+    }
+    /**
      * @param {Uint8Array} group_vk
      * @param {Uint8Array} pubkeys
      * @param {Uint8Array} message
@@ -100,6 +118,24 @@ export class Coordinator {
         const ptr0 = passArray8ToWasm0(sig, wasm.__wbindgen_malloc);
         const len0 = WASM_VECTOR_LEN;
         const ret = wasm.coordinator_verify(this.__wbg_ptr, ptr0, len0);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] !== 0;
+    }
+    /**
+     * Verify a group signature under the key re-randomized by the given alpha — the exact check
+     * an Orchard spend passes on-chain.
+     * @param {Uint8Array} randomizer
+     * @param {Uint8Array} sig
+     * @returns {boolean}
+     */
+    verifyWithRandomizer(randomizer, sig) {
+        const ptr0 = passArray8ToWasm0(randomizer, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArray8ToWasm0(sig, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.coordinator_verifyWithRandomizer(this.__wbg_ptr, ptr0, len0, ptr1, len1);
         if (ret[2]) {
             throw takeFromExternrefTable0(ret[1]);
         }
@@ -722,6 +758,34 @@ export function participantRound2(sp, nonces_bytes, kp_bytes, seed) {
     const ptr3 = passArray8ToWasm0(seed, wasm.__wbindgen_malloc);
     const len3 = WASM_VECTOR_LEN;
     const ret = wasm.participantRound2(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v5 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v5;
+}
+
+/**
+ * Participant device, round 2 (JS), REAL-TRANSACTION path: sign with the given Orchard
+ * randomizer (the 32-byte alpha from pczt_bridge.extractRandomizers) instead of a seed, so the
+ * signature can be injected into the PCZT and broadcast.
+ * @param {Uint8Array} sp
+ * @param {Uint8Array} nonces_bytes
+ * @param {Uint8Array} kp_bytes
+ * @param {Uint8Array} randomizer
+ * @returns {Uint8Array}
+ */
+export function participantRound2WithRandomizer(sp, nonces_bytes, kp_bytes, randomizer) {
+    const ptr0 = passArray8ToWasm0(sp, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passArray8ToWasm0(nonces_bytes, wasm.__wbindgen_malloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passArray8ToWasm0(kp_bytes, wasm.__wbindgen_malloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ptr3 = passArray8ToWasm0(randomizer, wasm.__wbindgen_malloc);
+    const len3 = WASM_VECTOR_LEN;
+    const ret = wasm.participantRound2WithRandomizer(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3);
     if (ret[3]) {
         throw takeFromExternrefTable0(ret[2]);
     }

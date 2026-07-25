@@ -11,6 +11,10 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 # FROST-redpallas signing round (proven wasm-clean: wasm-signer-spike)
 reddsa = { version = "0.5.2", features = ["frost"] }
+# The rerandomized-FROST `sign` that takes an explicit randomizer (the Orchard alpha), which reddsa's
+# curated `rerandomized` module doesn't re-export. Pinned to reddsa 0.5.2's transitive version so the
+# ciphersuite types unify.
+frost-rerandomized = "=3.0.0"
 # Orchard action verification + digest surface (proven wasm-clean: wasm-orchard-probe)
 orchard = { version = "0.14", default-features = false, features = ["unstable-frost"] }
 # ZIP-244 sig_digest recompute (proven wasm-clean: wasm-sighash-probe)
