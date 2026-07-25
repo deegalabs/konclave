@@ -128,15 +128,14 @@ mod tests {
 // vault material, not per-ceremony wire.
 //
 // TWO signing paths live here, and they are NOT interchangeable for Orchard:
-//   - SEED path (`coordinator_randomizer_seed` / `participant_round2` / `coordinator_aggregate` /
-//     `verify`): the coordinator derives its OWN randomizer from the commitments. This proves group
-//     signing over a message and is what the live `/net` and `/signer` demos use. The resulting
-//     signature is NOT a valid Orchard spend authorization, because an Orchard spend must be signed
-//     under the transaction's OWN alpha, not a freely-chosen one.
 //   - RANDOMIZER path (`participant_round2_with_randomizer` / `coordinator_aggregate_with_randomizer`
 //     / `verify_with_randomizer`): signs under an explicit alpha (the PCZT's, from
-//     `pczt_bridge::extract_randomizers`), so the signature verifies under `ak+alpha` and can be
-//     injected and broadcast. This is the REAL Orchard path. No live UI flow wires it in yet.
+//     `pczt_bridge::extract_randomizers`), so the signature verifies under `ak+alpha` and is the REAL
+//     Orchard spend-authorization mechanism. This is what the live `/net` ceremony uses.
+//   - SEED path (`coordinator_randomizer_seed` / `participant_round2` / `coordinator_aggregate` /
+//     `verify`): the coordinator derives its OWN randomizer from the commitments. This proves group
+//     signing over a message but is NOT a valid Orchard spend authorization. Used only by the
+//     `/signer` group-signing demo.
 pub mod ceremony {
     use super::*;
     use frost::keys::{KeyPackage, PublicKeyPackage};

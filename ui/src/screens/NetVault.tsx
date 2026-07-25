@@ -6,8 +6,8 @@ import init, {
   sealTo,
   identifierBytes,
   participantRound1,
-  participantRound2,
-  verifyRedpallas,
+  participantRound2WithRandomizer,
+  extractRandomizers,
   describeOutputs,
 } from '../wasm-pkg/konclave_wasm.js'
 import wasmUrl from '../wasm-pkg/konclave_wasm_bg.wasm?url'
@@ -94,7 +94,7 @@ type Msg =
   // commitments, signing package, seed, shares, sig.
   | { type: 'sreq'; msg: string; pczt: string }
   | { type: 's1'; commit: string }
-  | { type: 'sp'; signers: number[]; sp: string; seed: string; msg: string }
+  | { type: 'sp'; signers: number[]; sp: string; msg: string }
   | { type: 's2'; share: string }
   | { type: 'signed'; sig: string; ok: boolean }
 
@@ -216,7 +216,9 @@ export default function NetVault() {
   const coordRef = useRef<Coordinator | null>(null)
   const spSentRef = useRef(false)
   const spRef = useRef<Uint8Array | null>(null)
-  const seedRef = useRef<Uint8Array | null>(null)
+  // The Orchard randomizer (alpha) of the real spend, read from the PCZT each device receives.
+  // The live ceremony signs under THIS alpha (the real Orchard mechanism), not a self-derived seed.
+  const signAlphaRef = useRef<Uint8Array | null>(null)
   const sentS2Ref = useRef(false)
   const signSharesSeenRef = useRef<Set<number>>(new Set())
   const sigDoneRef = useRef(false)
@@ -362,6 +364,9 @@ export default function NetVault() {
         if (!signStartedRef.current) {
           signStartedRef.current = true
           signMsgRef.current = unb64(parsed.msg)
+          // The real Orchard randomizer (alpha) of the spend, read from the PCZT every device holds.
+          // Each device signs under this exact alpha (records are 36 bytes: u32 index + 32-byte alpha).
+          signAlphaRef.current = extractRandomizers(unb64(parsed.pczt)).slice(4, 36)
           // "What am I signing?" — every device reads the proven PCZT itself and confirms what it
           // pays before contributing a signature. A device signs only what it can independently see.
           try {
@@ -399,13 +404,11 @@ export default function NetVault() {
           coord.prepare()
           coordRef.current = coord
           spRef.current = coord.signingPackage()
-          seedRef.current = coord.seed()
           spSentRef.current = true
           await send({
             type: 'sp',
             signers: chosen,
             sp: b64(spRef.current),
-            seed: b64(seedRef.current),
             msg: b64(signMsgRef.current),
           })
           addLog(tt('net.log.signCoord', { seats: chosen.join(', ') }))
@@ -414,14 +417,18 @@ export default function NetVault() {
       }
       if (parsed.type === 'sp') {
         spRef.current = unb64(parsed.sp)
-        seedRef.current = unb64(parsed.seed)
         signMsgRef.current = unb64(parsed.msg)
-        if (parsed.signers.includes(mySeatRef.current) && !sentS2Ref.current && myNoncesRef.current) {
-          const share = participantRound2(
+        if (
+          parsed.signers.includes(mySeatRef.current) &&
+          !sentS2Ref.current &&
+          myNoncesRef.current &&
+          signAlphaRef.current
+        ) {
+          const share = participantRound2WithRandomizer(
             spRef.current,
             myNoncesRef.current,
             signingMaterial().keyPackage,
-            seedRef.current,
+            signAlphaRef.current,
           )
           sentS2Ref.current = true
           await send({ type: 's2', share: b64(share) })
@@ -438,10 +445,10 @@ export default function NetVault() {
         coordRef.current.addShare(identifierBytes(seat), unb64(parsed.share))
         signSharesSeenRef.current.add(seat)
         const t = configRef.current?.t ?? 0
-        if (signSharesSeenRef.current.size >= t && !sigDoneRef.current) {
+        if (signSharesSeenRef.current.size >= t && !sigDoneRef.current && signAlphaRef.current) {
           sigDoneRef.current = true
-          const sig = coordRef.current.aggregate()
-          const ok = coordRef.current.verify(sig)
+          const sig = coordRef.current.aggregateWithRandomizer(signAlphaRef.current)
+          const ok = coordRef.current.verifyWithRandomizer(signAlphaRef.current, sig)
           await send({ type: 'signed', sig: b64(sig), ok })
           addLog(tt('net.log.signAggregate'))
         }
@@ -451,8 +458,13 @@ export default function NetVault() {
         const sig = unb64(parsed.sig)
         let ok = parsed.ok
         try {
-          if (spRef.current && seedRef.current) {
-            ok = verifyRedpallas(signingMaterial().groupVk, spRef.current, seedRef.current, signMsgRef.current, sig)
+          if (signAlphaRef.current) {
+            // Every device re-checks under ak+alpha (a fresh Coordinator just to verify).
+            const mat = signingMaterial()
+            ok = new Coordinator(mat.groupVk, mat.pubkeys, signMsgRef.current).verifyWithRandomizer(
+              signAlphaRef.current,
+              sig,
+            )
           }
         } catch {
           /* keep the coordinator's result if local verify throws */
@@ -875,8 +887,8 @@ export default function NetVault() {
           <div className="net-vk">{signature}</div>
           <p className="net-lead" style={{ fontSize: '.82rem', opacity: 0.8, marginTop: 10 }}>
             {pe(
-              'Assinatura válida sobre um sighash Orchard real. Não transmitida: assina sob a chave deste cofre; o broadcast exige o operador financiar este cofre e criar/provar uma PCZT para o endereço dele.',
-              'Valid signature over a real Orchard sighash. Not broadcast: it signs under this vault’s key; broadcasting needs the operator to fund this vault and create/prove a PCZT for its address.',
+              'Assinatura válida sob o alpha da própria transação (o mecanismo de gasto Orchard real), verificada sob ak+alpha. Não transmitida: a PCZT de exemplo é de outro cofre, então a assinatura não é para uma tx deste cofre; um broadcast real exige o operador criar/provar uma PCZT para o endereço deste cofre.',
+              'Valid signature under the transaction’s own alpha (the real Orchard spend mechanism), verified under ak+alpha. Not broadcast: the sample PCZT belongs to another vault, so the signature is not for a tx this vault owns; a real broadcast needs the operator to create/prove a PCZT for this vault’s address.',
             )}
           </p>
         </>
