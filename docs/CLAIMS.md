@@ -44,8 +44,16 @@ Any statement of the form "the app payment used DKG" is **false**. Only `aab00f9
   but not broadcast**.
 - The threshold nature is **not** provable from chain data alone (a FROST-aggregated Orchard
   signature is indistinguishable on-chain from a single-signer one); it is attested off-chain.
-- Browser signing of a real Orchard spend is proven at the crypto layer (signs under the
-  PCZT alpha, verifies under `ak+alpha`); the browser **broadcast** is still `roadmap`.
+- Two browser signing paths exist and must not be conflated:
+  - **seed path** (`participantRound2` / `Coordinator.aggregate`) derives its OWN randomizer
+    from the commitments. This is what the **live** `/net` and `/signer` ceremonies use today.
+    It proves group signing over a message, but the signature is **not** a valid Orchard spend
+    authorization (Orchard needs the transaction's specific alpha).
+  - **randomizer path** (`participantRound2WithRandomizer` / `aggregateWithRandomizer`) signs
+    under the PCZT's own alpha and verifies under `ak+alpha` — a valid Orchard spend. This path
+    is `by test` only; **no live UI flow uses it yet**.
+- So: browser signing of a real Orchard spend is `by test` (crypto proven); wiring the
+  randomizer path into the live ceremony, and the browser **broadcast**, are both `roadmap`.
 
 ## Rules for changes
 1. When the proven-vs-pending state of anything changes, update `scripts/verify-proof.mjs`

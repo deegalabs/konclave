@@ -104,11 +104,11 @@ describe('/net multi-device flow (DKG → sign → verify)', () => {
     expect(coord.verifyWithRandomizer(otherAlpha, sig)).toBe(false)
   })
 
-  it('a restored share signs a real Orchard spend (signing after restore)', () => {
+  it('a restored share signs again (signing after restore), via the same path /net uses', () => {
     // Persistence saves each device's material as a bundle (KeyPackage, pubkeys, group key);
-    // a reload restores it. Prove that the RESTORED bytes alone — no live DkgSession — sign a real
-    // Orchard sighash under the PCZT alpha and verify. This closes the "signing-after-restore" gap
-    // at the crypto layer: a reloaded device is a full signer again.
+    // a reload restores it. Prove that the RESTORED bytes alone — no live DkgSession — run the
+    // exact ceremony /net runs today (the seed path) and verify. This closes the
+    // "signing-after-restore" gap: a reloaded device is a full signer again.
     const { s0, s1, id0, id1 } = dkg2of3()
     const save = (s: DkgSession) => JSON.stringify({ kp: b64(s.keyPackage()), pubkeys: b64(s.pubkeys()), gvk: b64(s.groupVk()) })
     const restore = (json: string) => {
@@ -126,10 +126,12 @@ describe('/net multi-device flow (DKG → sign → verify)', () => {
     coord.addCommitment(id1, b.commitment())
     coord.prepare()
     const sp = coord.signingPackage()
-    coord.addShare(id0, participantRound2WithRandomizer(sp, a.nonces(), r0.kp, DKG_ALPHA))
-    coord.addShare(id1, participantRound2WithRandomizer(sp, b.nonces(), r1.kp, DKG_ALPHA))
-    const sig = coord.aggregateWithRandomizer(DKG_ALPHA)
-    expect(coord.verifyWithRandomizer(DKG_ALPHA, sig)).toBe(true)
+    const seed = coord.seed()
+    coord.addShare(id0, participantRound2(sp, a.nonces(), r0.kp, seed))
+    coord.addShare(id1, participantRound2(sp, b.nonces(), r1.kp, seed))
+    const sig = coord.aggregate()
+    expect(coord.verify(sig)).toBe(true)
+    expect(verifyRedpallas(r0.gvk, sp, seed, msg, sig)).toBe(true)
   })
 
   it('describeOutputs surfaces what the device is signing (recipient + value), as /net shows', () => {
