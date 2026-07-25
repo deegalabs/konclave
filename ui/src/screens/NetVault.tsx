@@ -831,9 +831,11 @@ export default function NetVault() {
             )}
             {signWhat && signPhase !== 'none' && (
               <div className="net-what" style={{ marginTop: 16, padding: '10px 14px', border: '1px solid var(--rd-line)', borderRadius: 8 }}>
-                <strong>{pe('Você está assinando', 'You are signing')}</strong>: {signWhat.zec} ZEC → <code>{shortId(signWhat.addr)}</code>
+                <strong>{pe('Você está assinando', 'You are signing')}</strong>: {signWhat.zec} ZEC → <code>{shortId(signWhat.addr)}</code>{' '}
+                <span style={{ opacity: 0.7 }}>{pe('(exemplo)', '(example)')}</span>
                 <div style={{ fontSize: '.82rem', opacity: 0.75, marginTop: 4 }}>
-                  {pe('sighash Orchard real da tx', 'real Orchard sighash from tx')} <code>{shortId(DKG_TXID)}</code> · {pe('cada dispositivo confere isto antes de assinar', 'each device confirms this before it signs')}
+                  {pe('exemplo de uma transação Orchard real (tx', 'example of a real Orchard transaction (tx')} <code>{shortId(DKG_TXID)}</code>){' '}
+                  {pe('· cada dispositivo confere isto antes de assinar. Este cofre não tem saldo e nada é transmitido.', '· each device confirms this before it signs. This vault holds no funds and nothing is broadcast.')}
                 </div>
               </div>
             )}

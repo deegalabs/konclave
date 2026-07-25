@@ -114,12 +114,12 @@ built on the same FROST + blind-relay foundation and proven by tests:
 ## Honest limits (we do not promise what we do not deliver)
 
 - ✅ **On mainnet, five verifiable txids** (`node scripts/verify-proof.mjs`, or the /proof page):
-  a 2-of-3 quorum payment (proposed/approved in-app, FROST-signed, real-DKG vault, sealed shares);
+  a 2-of-3 quorum payment (proposed/approved in-app, FROST-signed, shares sealed at rest);
   a **private payroll** (one shielded Orchard tx, 3 outputs, one encrypted memo each, 2-of-3 FROST);
   a payment reproduced end to end from a freshly created + funded vault; and a **send from a real DKG
   vault** (three-participant DKG ceremony, key never reconstituted), funded and spent by FROST. The
-  payroll and fresh-vault txids used a trusted-dealer vault; the app payment and the DKG-vault send
-  used DKG.
+  quorum payment, payroll, and fresh-vault txids used a trusted-dealer vault; only the DKG-vault send
+  came from a key born by real DKG.
 - 🔬 **By dry-run** (signs, does not yet broadcast): the fully-sealed signing path.
 - 🌐 **In the browser, live over the internet:** multi-device DKG + FROST signing over a **hosted
   blind relay** (Railway). Try it at https://konclave-demo.vercel.app/#/net in two tabs. The
