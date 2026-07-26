@@ -55,7 +55,7 @@ function dkg2of3() {
 }
 
 describe('/net multi-device flow (DKG → sign → verify)', () => {
-  it('a 2-of-3 DKG-born vault signs the real Orchard sighash and every device verifies', () => {
+  it('seed-based group signing works (the /signer demo path): a 2-of-3 signs and verifies', () => {
     const { s0, s1, s2, id0, id1, groupVk, pubkeys } = dkg2of3()
 
     // Every device derived the SAME group verifying key.
@@ -80,7 +80,7 @@ describe('/net multi-device flow (DKG → sign → verify)', () => {
     expect(verifyRedpallas(groupVk, sp, seed, msg, sig)).toBe(true)
   })
 
-  it('signs under the PCZT Orchard randomizer (alpha) — the real-transaction path', () => {
+  it('the /net path: a 2-of-3 signs under the PCZT alpha and verifies under ak+alpha', () => {
     // A DKG-born vault signs the sighash under a SPECIFIC Orchard alpha (from extractRandomizers),
     // not a commitment-derived seed. This is what lets the signature be injected into the PCZT and
     // broadcast. The signature must verify under ak+alpha — the exact check an Orchard spend passes.
@@ -107,8 +107,8 @@ describe('/net multi-device flow (DKG → sign → verify)', () => {
   it('a restored share signs again (signing after restore), via the same path /net uses', () => {
     // Persistence saves each device's material as a bundle (KeyPackage, pubkeys, group key);
     // a reload restores it. Prove that the RESTORED bytes alone — no live DkgSession — run the
-    // exact ceremony /net runs today (the seed path) and verify. This closes the
-    // "signing-after-restore" gap: a reloaded device is a full signer again.
+    // exact ceremony /net runs today (the randomizer path, under the PCZT alpha) and verify. This
+    // closes the "signing-after-restore" gap: a reloaded device is a full signer again.
     const { s0, s1, id0, id1 } = dkg2of3()
     const save = (s: DkgSession) => JSON.stringify({ kp: b64(s.keyPackage()), pubkeys: b64(s.pubkeys()), gvk: b64(s.groupVk()) })
     const restore = (json: string) => {
@@ -126,12 +126,10 @@ describe('/net multi-device flow (DKG → sign → verify)', () => {
     coord.addCommitment(id1, b.commitment())
     coord.prepare()
     const sp = coord.signingPackage()
-    const seed = coord.seed()
-    coord.addShare(id0, participantRound2(sp, a.nonces(), r0.kp, seed))
-    coord.addShare(id1, participantRound2(sp, b.nonces(), r1.kp, seed))
-    const sig = coord.aggregate()
-    expect(coord.verify(sig)).toBe(true)
-    expect(verifyRedpallas(r0.gvk, sp, seed, msg, sig)).toBe(true)
+    coord.addShare(id0, participantRound2WithRandomizer(sp, a.nonces(), r0.kp, DKG_ALPHA))
+    coord.addShare(id1, participantRound2WithRandomizer(sp, b.nonces(), r1.kp, DKG_ALPHA))
+    const sig = coord.aggregateWithRandomizer(DKG_ALPHA)
+    expect(coord.verifyWithRandomizer(DKG_ALPHA, sig)).toBe(true)
   })
 
   it('describeOutputs surfaces what the device is signing (recipient + value), as /net shows', () => {

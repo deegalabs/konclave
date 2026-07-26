@@ -170,11 +170,11 @@ not promise what we do not deliver.
 - 🔬 **By dry-run** (it *signs*, it does not yet *broadcast*): the fully-sealed signing path (sealed
   configs unsealed only to ephemeral tmpfs files).
 - 🌐 **In the browser, live over the internet:** multi-device DKG and FROST signing over a **hosted
-  blind relay**, now over a **real Orchard sighash** (from mainnet tx `aab00f90…`) with each device
-  confirming what the tx pays (`describeOutputs`) before it signs. The live ceremony signs it as a
-  group-signature demonstration (self-derived rerandomization); signing under the transaction's own
-  alpha, which yields a broadcastable Orchard spend, is proven by test but not yet wired into the
-  live ceremony. That and the broadcast remain.
+  blind relay**, over a **real Orchard sighash** (from mainnet tx `aab00f90…`) **under the
+  transaction's own alpha** (the correct Orchard spend mechanism, verified under `ak+alpha`), with
+  each device confirming what the tx pays (`describeOutputs`) before it signs. Not yet broadcastable:
+  the sample PCZT belongs to another vault, so a real broadcast needs the operator to create/prove a
+  PCZT for this vault's own address, plus the browser broadcast.
 - 🔁 **Proven by test:** social recovery (RTS share repair) and the inheritance policy engine.
 - 🗺️ **Roadmap, not shipped:** the broadcast of a real transaction from the browser (signing a real
   Orchard sighash already works; it needs the vault funded + the operator to create/prove the PCZT), full

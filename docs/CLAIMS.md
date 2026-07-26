@@ -45,15 +45,18 @@ Any statement of the form "the app payment used DKG" is **false**. Only `aab00f9
 - The threshold nature is **not** provable from chain data alone (a FROST-aggregated Orchard
   signature is indistinguishable on-chain from a single-signer one); it is attested off-chain.
 - Two browser signing paths exist and must not be conflated:
-  - **seed path** (`participantRound2` / `Coordinator.aggregate`) derives its OWN randomizer
-    from the commitments. This is what the **live** `/net` and `/signer` ceremonies use today.
-    It proves group signing over a message, but the signature is **not** a valid Orchard spend
-    authorization (Orchard needs the transaction's specific alpha).
   - **randomizer path** (`participantRound2WithRandomizer` / `aggregateWithRandomizer`) signs
-    under the PCZT's own alpha and verifies under `ak+alpha` — a valid Orchard spend. This path
-    is `by test` only; **no live UI flow uses it yet**.
-- So: browser signing of a real Orchard spend is `by test` (crypto proven); wiring the
-  randomizer path into the live ceremony, and the browser **broadcast**, are both `roadmap`.
+    under the transaction's OWN alpha (read from the PCZT with `extractRandomizers`) and verifies
+    under `ak+alpha` — the real Orchard spend-authorization mechanism. This is what the **live**
+    `/net` ceremony uses today.
+  - **seed path** (`participantRound2` / `Coordinator.aggregate`) derives its own randomizer from
+    the commitments. It proves group signing over a message but is **not** a valid Orchard spend
+    authorization. Used only by the `/signer` group-signing demo.
+- So: the live `/net` ceremony signs a real Orchard sighash under the transaction's real alpha
+  (`by test` at the crypto layer). It is still **not broadcastable**: the sample PCZT belongs to a
+  different vault, so the signature verifies under `ak+alpha` but is not for a transaction this
+  vault owns. A real broadcast needs the operator to create/prove a PCZT for the `/net` vault's own
+  address, plus the browser broadcast. Both are `roadmap`.
 
 ## Rules for changes
 1. When the proven-vs-pending state of anything changes, update `scripts/verify-proof.mjs`

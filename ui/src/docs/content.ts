@@ -177,8 +177,8 @@ export const SECTIONS: Section[] = [
       {
         k: 'note',
         t: {
-          'pt-BR': 'Limite honesto: no navegador, a assinatura é real e a mensagem é um **sighash Orchard real** (da tx de mainnet `aab00f90…`), com cada dispositivo conferindo o que a tx paga (`describeOutputs`) antes de assinar. Hoje a cerimônia ao vivo assina como **demonstração de assinatura de grupo** (rerandomização própria); assinar sob o **alpha da própria tx** — o que produz um gasto Orchard transmissível — já está **provado por teste**, mas ainda não ligado à cerimônia ao vivo. Faltam isso e o **broadcast**. Ver o Roadmap.',
-          en: 'Honest limit: in the browser the signature is real and the message is a **real Orchard sighash** (from mainnet tx `aab00f90…`), with each device confirming what the tx pays (`describeOutputs`) before it signs. Today the live ceremony signs it as a **group-signature demonstration** (self-derived rerandomization); signing under the transaction’s own **alpha** — which yields a broadcastable Orchard spend — is **proven by test** but not yet wired into the live ceremony. That and the **broadcast** remain. See the Roadmap.',
+          'pt-BR': 'Limite honesto: no navegador, a cerimônia ao vivo assina um **sighash Orchard real** (da tx de mainnet `aab00f90…`) **sob o alpha da própria transação** — o mecanismo de gasto Orchard correto, verificado sob `ak+alpha` — com cada dispositivo conferindo o que a tx paga (`describeOutputs`) antes de assinar. Ainda não é transmitível: a PCZT de exemplo é de outro cofre, então a assinatura não é para uma tx deste cofre. Falta o operador criar/provar uma PCZT para o endereço deste cofre e o **broadcast**. Ver o Roadmap.',
+          en: 'Honest limit: in the browser the live ceremony signs a **real Orchard sighash** (from mainnet tx `aab00f90…`) **under the transaction’s own alpha** — the correct Orchard spend mechanism, verified under `ak+alpha` — with each device confirming what the tx pays (`describeOutputs`) before it signs. It is not yet broadcastable: the sample PCZT belongs to another vault, so the signature is not for a tx this vault owns. What remains is the operator creating/proving a PCZT for this vault’s address and the **broadcast**. See the Roadmap.',
         },
       },
       { k: 'img', src: 'diagrams/multi-device.svg', alt: { 'pt-BR': 'Fluxo multi-dispositivo pelo relay cego: DKG e assinatura entre abas', en: 'Multi-device flow over the blind relay: DKG and signing across tabs' } },
@@ -223,8 +223,8 @@ export const SECTIONS: Section[] = [
             en: '**By dry-run** (it signs, it does not yet broadcast): the fully-sealed signing path (configs unsealed only to tmpfs).',
           },
           {
-            'pt-BR': '**No navegador, ao vivo:** DKG multi-dispositivo e assinatura FROST por um relay cego hospedado, sobre um **sighash Orchard real** com verificação `describeOutputs` em cada dispositivo, como demonstração de assinatura de grupo. Assinar sob o alpha da tx (provado por teste) e o broadcast ainda faltam.',
-            en: '**In the browser, live:** multi-device DKG and FROST signing over a hosted blind relay, over a **real Orchard sighash** with per-device `describeOutputs` verification, as a group-signature demonstration. Signing under the tx alpha (proven by test) and the broadcast still remain.',
+            'pt-BR': '**No navegador, ao vivo:** DKG multi-dispositivo e assinatura FROST por um relay cego hospedado, sobre um **sighash Orchard real** **sob o alpha da própria transação** (o mecanismo Orchard correto, `ak+alpha`), com verificação `describeOutputs` em cada dispositivo. Falta uma PCZT para o endereço deste cofre e o broadcast.',
+            en: '**In the browser, live:** multi-device DKG and FROST signing over a hosted blind relay, over a **real Orchard sighash** **under the transaction’s own alpha** (the correct Orchard mechanism, `ak+alpha`), with per-device `describeOutputs` verification. A PCZT for this vault’s address and the broadcast still remain.',
           },
           {
             'pt-BR': '**Provado por teste:** recuperação social (reparo de share RTS) e o motor de política de herança.',
