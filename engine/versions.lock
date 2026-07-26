@@ -8,9 +8,18 @@
 # Built in WSL2/Ubuntu with rustc 1.96.1.
 
 format = 2
-network_target = "NU6.2"                                          # hard-fork 2026-06-03, Orchard re-enabled
+network_target = "NU6.3"                                          # Ironwood; mainnet activation 2026-07-28 (block 3,428,143)
 reference_tutorial = "https://frost.zfnd.org/zcash/ywallet-demo.html"
 ciphersuite = "redpallas"                                         # pass `-C redpallas` -> Rerandomized FROST
+
+# NU6.3 / Ironwood readiness (Option A — clean cut at mainnet activation).
+# FROST / RedPallas is UNCHANGED by the upgrade, so the frost-tools binaries below do NOT change.
+# What changes is the send path (the PCZT bridge + the wallet engine), which must be rebuilt
+# against a librustzcash that knows the Ironwood pool (V6 transactions, a new shielded pool):
+#   - librustzcash pin: 42ffd0d89ffd6c401c9669651a6123f707d5703d   (orchard 0.15, pczt v2)
+#   - konclave-signer/Cargo.toml pins this rev; zcash-devtool must be rebuilt at its Ironwood rev.
+# Validated end-to-end on testnet (which already runs Ironwood): receive -> FROST 2-of-3 spend ->
+# broadcast, mined. See temp/IRONWOOD-PRODUCTIZATION-PLAN.md. This branch is held until activation.
 
 [source.frost-tools]
 repo = "https://github.com/ZcashFoundation/frost-tools"

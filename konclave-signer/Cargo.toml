@@ -14,10 +14,10 @@ anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 hex = "0.4"
 ff = "0.13"
-orchard = { version = "0.14", default-features = false, features = ["unstable-frost"] }
+orchard = { version = "0.15", default-features = false, features = ["unstable-frost"] }
 pczt = { version = "0.7", features = ["signer"] }
-zcash_primitives = "0.28"
-zcash_protocol = "0.9"
+zcash_primitives = "0.29"
+zcash_protocol = "0.10"
 
 # Multi-output PCZT construction for payroll (5-B.2): link zcash_client_backend directly
 # (§2 "linkar zcash_client_backend para o plano"), building an N-output Orchard PCZT the
@@ -26,23 +26,23 @@ rand = "0.8"
 uuid = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-zcash_address = "0.12"
+zcash_address = "0.13"
 zip321 = "0.8"
 zcash_client_backend = { version = "0.23", features = ["orchard", "pczt", "unstable"] }
 zcash_client_sqlite = { version = "0.21", features = ["transparent-inputs", "orchard", "unstable", "serde"] }
 
 # Mirror zcash-devtool's pins so the PCZT wire format matches byte-for-byte.
 [patch.crates-io]
-equihash = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
-f4jumble = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
-zcash_address = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
-zcash_encoding = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
-zcash_protocol = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
-zip321 = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
-pczt = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
-zcash_client_backend = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
-zcash_client_sqlite = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
-zcash_keys = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
-zcash_primitives = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
-zcash_proofs = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
-zcash_transparent = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
+equihash = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
+f4jumble = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
+zcash_address = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
+zcash_encoding = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
+zcash_protocol = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
+zip321 = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
+pczt = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
+zcash_client_backend = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
+zcash_client_sqlite = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
+zcash_keys = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
+zcash_primitives = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
+zcash_proofs = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
+zcash_transparent = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
