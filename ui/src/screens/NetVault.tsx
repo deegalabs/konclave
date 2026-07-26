@@ -732,6 +732,7 @@ export default function NetVault() {
       <Shell error={error}>
         <h1 className="net-h1">{tt('net.idle.title')}</h1>
         <p className="net-lead">{ttr('net.idle.lead')}</p>
+        <p className="net-lead" style={{ fontSize: '.85rem', opacity: 0.8 }}>{ttr('net.idle.purpose')}</p>
 
         <div className="net-cards">
           <div className="net-card">
