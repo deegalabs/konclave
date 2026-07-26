@@ -43,6 +43,7 @@ pub mod inheritance;
 
 // Architecture B: the helper side of a real `/net` broadcast (relay signing-request protocol).
 pub mod net_send;
+pub mod relay_client;
 
 pub use address::{validate_recipient, validate_recipient_on, AddressError, AddressReport};
 pub use money::{MoneyError, Zatoshis};
