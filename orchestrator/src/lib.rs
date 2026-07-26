@@ -41,7 +41,7 @@ pub mod relay;
 // --- inheritance / dead-man's-switch policy engine ---
 pub mod inheritance;
 
-pub use address::{validate_recipient, AddressError, AddressReport};
+pub use address::{validate_recipient, validate_recipient_on, AddressError, AddressReport};
 pub use money::{MoneyError, Zatoshis};
 pub use payroll::PayrollLine;
 pub use payroll::{import_csv, ImportReport, ImportRowError, PayrollPlan, PayrollSummary};

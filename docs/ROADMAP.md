@@ -116,6 +116,13 @@ cryptography. Ordered by priority.
   upstream Ironwood support as it ships. What we can prepare independently: derive the
   Orchard circuit version from the **live consensus branch id at the chain tip** (never
   hardcode a tx version), and validate sync/balance on the Ironwood testnet.
+- **Done — code readiness (network selection):** the two mainnet-hardcoded points are now
+  network-parameterized behind an explicit choice, mainnet as the default so production is
+  unchanged — `konclave-signer build-payroll --network main|test`, and
+  `orchestrator::validate_recipient_on(addr, network)` alongside the mainnet
+  `validate_recipient`. Tested for both networks. This does not itself run on Ironwood: an
+  end-to-end testnet run still needs the engine rebuilt against a librustzcash with NU6.3
+  and the upstream PCZT pipeline emitting Ironwood bundles.
 
 ## C. On-device share persistence
 - Today a device holds its share only in memory. Add encrypted at-rest persistence unlocked
