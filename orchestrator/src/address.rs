@@ -112,6 +112,20 @@ impl TryFromAddress for Accept {
 /// [`AddressError::WrongNetwork`] for a valid but non-mainnet address. Otherwise returns
 /// the [`AddressReport`]; the caller applies the pool policy via [`AddressReport::is_payable`].
 pub fn validate_recipient(addr: &str) -> Result<AddressReport, AddressError> {
+    validate_recipient_on(addr, NetworkType::Main)
+}
+
+/// Decode and validate a destination for a send on a specific network.
+///
+/// [`validate_recipient`] is the mainnet default (the production path, unchanged). This
+/// network-parameterized form is the readiness hook for a testnet run (e.g. validating
+/// against Ironwood/NU6.3 on testnet): pass [`NetworkType::Test`] and a `utest…` address
+/// is accepted while a mainnet address becomes [`AddressError::WrongNetwork`]. The pool
+/// capability checks (Orchard / transparent-only / memo) are network-independent.
+pub fn validate_recipient_on(
+    addr: &str,
+    network: NetworkType,
+) -> Result<AddressReport, AddressError> {
     let parsed = ZcashAddress::from_str(addr).map_err(|_| AddressError::Malformed)?;
     // Capability checks borrow `parsed`; do them before the network probe consumes it.
     let report = AddressReport {
@@ -119,10 +133,7 @@ pub fn validate_recipient(addr: &str) -> Result<AddressReport, AddressError> {
         transparent_only: parsed.is_transparent_only(),
         memo: parsed.can_receive_memo(),
     };
-    if parsed
-        .convert_if_network::<Accept>(NetworkType::Main)
-        .is_err()
-    {
+    if parsed.convert_if_network::<Accept>(network).is_err() {
         return Err(AddressError::WrongNetwork);
     }
     Ok(report)
@@ -177,6 +188,41 @@ mod tests {
         assert_eq!(
             validate_recipient(TESTNET_UA),
             Err(AddressError::WrongNetwork)
+        );
+    }
+
+    #[test]
+    fn testnet_validation_flips_the_network_gate() {
+        // Readiness for a testnet run (Ironwood/NU6.3): the same authoritative decode,
+        // network-parameterized. The network gate is the mirror image of the mainnet default
+        // — on Test a utest… UA is accepted while a mainnet UA is the wrong network. (The pool
+        // capability checks are network-independent, proven by the mainnet cases above.)
+        assert!(
+            validate_recipient_on(TESTNET_UA, NetworkType::Test).is_ok(),
+            "a testnet UA is accepted when validating on testnet"
+        );
+        assert_eq!(
+            validate_recipient_on(ORCHARD_UA, NetworkType::Test),
+            Err(AddressError::WrongNetwork),
+            "a mainnet UA is wrong-network when validating on testnet"
+        );
+        // And the mainnet default still rejects the testnet UA — production is unchanged.
+        assert_eq!(
+            validate_recipient(TESTNET_UA),
+            Err(AddressError::WrongNetwork)
+        );
+    }
+
+    #[test]
+    fn mainnet_default_matches_explicit_main() {
+        // The production default is exactly validate_recipient_on(.., Main): unchanged behavior.
+        assert_eq!(
+            validate_recipient(ORCHARD_UA),
+            validate_recipient_on(ORCHARD_UA, NetworkType::Main)
+        );
+        assert_eq!(
+            validate_recipient(TESTNET_UA),
+            validate_recipient_on(TESTNET_UA, NetworkType::Main)
         );
     }
 

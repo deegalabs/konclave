@@ -64,6 +64,10 @@ enum Cmd {
         /// Output path for the unproven PCZT.
         #[arg(long)]
         out: String,
+        /// Consensus network: "main" (default) or "test". Testnet targets Ironwood/NU6.3
+        /// validation once the engine is rebuilt against it; production stays mainnet.
+        #[arg(long, default_value = "main")]
+        network: String,
     },
 }
 
@@ -191,7 +195,13 @@ fn inject(path: &str, out_path: &str, sigs: Vec<(usize, [u8; 64])>) -> Result<()
 /// Build an unproven Orchard PCZT paying N recipients in one transaction. Mirrors
 /// `zcash-devtool pczt create` (which only pays one), extended to a multi-payment ZIP 321
 /// request — the multi-output engine the CLI lacks (roadmap 5-B.2, §2).
-fn build_payroll(wallet: &str, account_uuid: &str, spec_path: &str, out: &str) -> Result<()> {
+fn build_payroll(
+    wallet: &str,
+    account_uuid: &str,
+    spec_path: &str,
+    out: &str,
+    network: &str,
+) -> Result<()> {
     use std::num::NonZeroUsize;
     use std::str::FromStr;
 
@@ -230,7 +240,15 @@ fn build_payroll(wallet: &str, account_uuid: &str, spec_path: &str, out: &str) -
         memo: Option<String>,
     }
 
-    let params = Network::MainNetwork;
+    let params = match network {
+        "main" | "mainnet" => Network::MainNetwork,
+        "test" | "testnet" => Network::TestNetwork,
+        other => {
+            return Err(anyhow!(
+                "unknown network {other:?} (expected \"main\" or \"test\")"
+            ))
+        }
+    };
     let db_path = format!("{}/data.sqlite", wallet.trim_end_matches('/'));
     let mut db = WalletDb::for_path(&db_path, params, SystemClock, OsRng)
         .map_err(|e| anyhow!("open wallet {db_path}: {e:?}"))?;
@@ -312,7 +330,8 @@ fn main() -> Result<()> {
             account,
             spec,
             out,
-        } => build_payroll(&wallet, &account, &spec, &out),
+            network,
+        } => build_payroll(&wallet, &account, &spec, &out, &network),
     }
 }
 
