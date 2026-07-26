@@ -105,6 +105,63 @@ impl<T: Transport> RelayClient<T> {
     }
 }
 
+/// The production transport: shell out to `curl`. The orchestrator already depends on external
+/// binaries (frostd, frost-client, zcash-devtool, konclave-signer), so `curl` is a consistent,
+/// dependency-free way to speak plain HTTP to the relay. The POST body goes over stdin so a large
+/// PCZT hex never hits an argv length limit.
+pub struct CurlTransport;
+
+impl Transport for CurlTransport {
+    fn post(&self, url: &str, body: &[u8]) -> Result<Vec<u8>, String> {
+        use std::io::Write;
+        use std::process::{Command, Stdio};
+        let mut child = Command::new("curl")
+            .args([
+                "-sS",
+                "-X",
+                "POST",
+                "-H",
+                "content-type: application/json",
+                "--data-binary",
+                "@-",
+                url,
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("curl spawn: {e}"))?;
+        {
+            let mut stdin = child.stdin.take().ok_or("curl: no stdin")?;
+            stdin
+                .write_all(body)
+                .map_err(|e| format!("curl stdin: {e}"))?;
+        } // closing stdin here lets curl finish reading the body
+        let out = child.wait_with_output().map_err(|e| format!("curl: {e}"))?;
+        if !out.status.success() {
+            return Err(format!(
+                "curl POST failed: {}",
+                String::from_utf8_lossy(&out.stderr)
+            ));
+        }
+        Ok(out.stdout)
+    }
+
+    fn get(&self, url: &str) -> Result<Vec<u8>, String> {
+        let out = std::process::Command::new("curl")
+            .args(["-sS", url])
+            .output()
+            .map_err(|e| format!("curl: {e}"))?;
+        if !out.status.success() {
+            return Err(format!(
+                "curl GET failed: {}",
+                String::from_utf8_lossy(&out.stderr)
+            ));
+        }
+        Ok(out.stdout)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
