@@ -110,19 +110,34 @@ cryptography. Ordered by priority.
   `/net` flow end to end and close the loop with a broadcast.
 
 ## B. Network robustness — NU6.3 / Ironwood
-- The upgrade replaces the Orchard circuit version (`FixedPostNu6_2` → `PostNu6_3`); the
-  FROST / RedPallas spend-authorization scheme is unchanged, so the signing core carries over.
+- Ironwood introduces a **new shielded pool** ("Ironwood", V6 transactions with their own
+  actions), distinct from Orchard. The FROST / RedPallas spend-authorization scheme is
+  **unchanged** — an Ironwood spend is Orchard-shaped — so the FROST / DKG signing core
+  carries over whole; what changes is the pool the engine and the PCZT bridge operate on.
 - Because build, prove, and broadcast are delegated to `zcash-devtool`, Konclave inherits
-  upstream Ironwood support as it ships. What we can prepare independently: derive the
-  Orchard circuit version from the **live consensus branch id at the chain tip** (never
-  hardcode a tx version), and validate sync/balance on the Ironwood testnet.
-- **Done — code readiness (network selection):** the two mainnet-hardcoded points are now
-  network-parameterized behind an explicit choice, mainnet as the default so production is
-  unchanged — `konclave-signer build-payroll --network main|test`, and
-  `orchestrator::validate_recipient_on(addr, network)` alongside the mainnet
-  `validate_recipient`. Tested for both networks. This does not itself run on Ironwood: an
-  end-to-end testnet run still needs the engine rebuilt against a librustzcash with NU6.3
-  and the upstream PCZT pipeline emitting Ironwood bundles.
+  upstream Ironwood support once the engine is rebuilt against a librustzcash with NU6.3.
+- **Code readiness — done:** the two mainnet-hardcoded network points are parameterized behind
+  an explicit choice, mainnet as the default so production is unchanged —
+  `konclave-signer build-payroll --network main|test` and
+  `orchestrator::validate_recipient_on(addr, network)`. Tested for both networks.
+- **End-to-end validated on testnet — done (out-of-repo experiment):** testnet is already past
+  the Ironwood activation height, so it runs NU6.3 now. Rebuilding `zcash-devtool` against the
+  Ironwood librustzcash pin lets the wallet **see and spend** Ironwood-pool funds that the
+  pre-Ironwood engine is blind to. With the FROST↔PCZT bridge ported to the Ironwood pool
+  (`sign_ironwood_with` / `apply_ironwood_signature`, V6 sighash), a full flow — receive → FROST
+  2-of-3 ceremony → inject (the aggregate signature verifies) → broadcast — produced a spend
+  that **NU6.3 consensus accepted** (`send` returned success). Block confirmation depends on
+  testnet miner liveness (out of our control). This ran on a throwaway testnet vault, kept
+  out-of-repo like the mainnet evidence infra; **the repo stays on the mainnet pre-Ironwood
+  pin, unchanged.**
+- **Productization decision (Option A — clean cut at activation):** mainnet activates Ironwood
+  at height 3,428,143 (~2026-07-28). At (or just after) activation, bump the engine
+  (`engine/versions.lock`) and `konclave-signer` to the Ironwood pin, port extract/inject to the
+  Ironwood pool, and migrate the C6 test vectors from the pre-Ironwood PCZT format (v1) to real
+  Ironwood vectors (v2). Rationale: the PCZT wire format changed to v2, so one binary cannot
+  parse both v1 and v2; a clean cut at activation avoids a dual-maintenance window (see
+  `temp/IRONWOOD-PRODUCTIZATION-PLAN.md` for the step list). Until activation the repo is
+  deliberately left on the mainnet-valid pin.
 
 ## C. On-device share persistence
 - Today a device holds its share only in memory. Add encrypted at-rest persistence unlocked
