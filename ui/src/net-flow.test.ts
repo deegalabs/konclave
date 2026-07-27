@@ -227,6 +227,49 @@ describe('/net multi-device flow (DKG → sign → verify)', () => {
     expect(hexToBytes(resp.sigs[0]!.sig)).toHaveLength(64)
   })
 
+  it('Architecture B multi-spend: two spends -> two ceremonies -> one response the helper accepts', () => {
+    // A multi-note PCZT carries several real Orchard spends, each with its OWN randomizer (alpha)
+    // but the SAME sighash. Each spend needs a FRESH FROST ceremony (nonces are never reused across
+    // signatures). Prove the browser produces one valid signature per spend and assembles the
+    // multi-sig response the helper's `into_sigs` count-validates and maps back by index. This is
+    // the browser crypto for the multi-spend path; the live relay sequencing in NetVault is the
+    // remaining (e2e-proven) piece, exactly like the single-spend live ceremony.
+    const { s0, s1, id0, id1, groupVk, pubkeys } = dkg2of3()
+    const msg = hexToBytes(DKG_SIGHASH)
+    const alphas = [
+      DKG_ALPHA,
+      hexToBytes('557c4ff828ed56eb33e8ba7f508a43915338ccf3ad71d1ecedc98e6e861bfc0f'),
+    ]
+
+    // One independent ceremony per spend — fresh round-1 nonces each time.
+    const sigs = alphas.map((alpha, index) => {
+      const a = participantRound1(s0.keyPackage())
+      const b = participantRound1(s1.keyPackage())
+      const coord = new Coordinator(groupVk, pubkeys, msg)
+      coord.addCommitment(id0, a.commitment())
+      coord.addCommitment(id1, b.commitment())
+      coord.prepare()
+      const sp = coord.signingPackage()
+      coord.addShare(id0, participantRound2WithRandomizer(sp, a.nonces(), s0.keyPackage(), alpha))
+      coord.addShare(id1, participantRound2WithRandomizer(sp, b.nonces(), s1.keyPackage(), alpha))
+      const sig = coord.aggregateWithRandomizer(alpha)
+      // Each spend verifies under its OWN alpha, and not the other's — the randomizer binds each
+      // signature to its specific spend.
+      expect(coord.verifyWithRandomizer(alpha, sig)).toBe(true)
+      const other = alphas[1 - index]!
+      expect(coord.verifyWithRandomizer(other, sig)).toBe(false)
+      return { index, sig: bytesToHex(sig) }
+    })
+
+    // The response carries one sig per spend, indexed — exactly what `into_sigs` maps back.
+    const responseJson = buildSignResponse(sigs)
+    const resp = JSON.parse(responseJson) as { kind: string; sigs: { index: number; sig: string }[] }
+    expect(resp.kind).toBe(RESPONSE_KIND)
+    expect(resp.sigs).toHaveLength(2)
+    expect(resp.sigs.map((sr) => sr.index)).toEqual([0, 1])
+    expect(resp.sigs.every((sr) => hexToBytes(sr.sig).length === 64)).toBe(true)
+  })
+
   it('parseSignRequest rejects a wrong-kind or malformed message', () => {
     expect(parseSignRequest('not json')).toBeNull()
     expect(parseSignRequest(JSON.stringify({ kind: 'something-else' }))).toBeNull()

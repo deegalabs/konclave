@@ -595,11 +595,16 @@ instead of always showing PT.
   over a `curl` transport) and the browser mirror (`ui/src/net-sign.ts`) are on `main` (#11).
   NetVault now **consumes** a helper's raw `net-sign-request` from the relay room: the coordinator
   drives the existing FROST ceremony over the helper's real sighash + alpha + PCZT and posts the
-  aggregate signature back RAW for the helper to inject + broadcast (slice 3). **Honest limits:**
-  single-spend only (a multi-note PCZT needs one ceremony per randomizer, like `orchestrator::send`
-  — the follow-up); and the **live broadcast** (a funded browser-DKG vault over the relay) is still
-  pending, so CLAIMS.md keeps "verified but not broadcast". Unit-tested both sides (`net_send` +
-  `net-flow`).
+  aggregate signature back RAW for the helper to inject + broadcast (slice 3). **Multi-spend
+  status:** the Rust helper pipeline is **fully multi-spend and tested** — `from_signing_input`
+  carries every spend, `into_sigs` count-validates and maps N sigs by index, and
+  `net_orchestrate_send` injects every signature (4-spend `net_send` tests). The browser crypto is
+  proven too: one FROST ceremony per spend (fresh nonces, its own alpha) yields N valid sigs and the
+  multi-sig response `into_sigs` accepts (`net-flow` multi-spend test). The one piece left is the
+  **live NetVault relay sequencing** of N ceremonies (the on-screen driver still guards to one
+  ceremony); like the single-spend live path, it needs an e2e proof to ship. **Honest limits:** the
+  **live broadcast** (a funded browser-DKG vault over the relay) is still pending, so CLAIMS.md keeps
+  "verified but not broadcast".
 - **Ironwood mainnet port — still HELD (draft PR #10), now rebased clean on `main`.** The merge is
   timed to mainnet activation (~2026-07-28, block 3,428,143): out of draft → merge → rebuild the
   engine → run the flow (money-gated, needs an explicit "pode transmitir"). Re-validated on testnet
@@ -617,5 +622,6 @@ instead of always showing PT.
 **Next (non-gated):** multi-device reconciliation is now **decision core + store wiring + fresh-sync
 trigger** (`orchestrator::reconcile` + `Store::reconcile_proposals` + `server::reconcile_vault` /
 `POST /api/vault/reconcile`, `Superseded` terminal state; 17 tests). The last honest gap is the
-`confirmed_txids` source (a wallet tx-status query for the `Sent`→`Confirmed` half). Also open:
-multi-spend for the /net Arch B path.
+`confirmed_txids` source (a wallet tx-status query for the `Sent`→`Confirmed` half). For /net
+multi-spend, the Rust helper + browser crypto are proven and tested; only the live NetVault
+N-ceremony relay sequencing remains (an e2e-gated piece, like the single-spend live proof).
