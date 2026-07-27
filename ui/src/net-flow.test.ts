@@ -19,6 +19,7 @@ import init, {
 } from './wasm-pkg/konclave_wasm.js'
 import { bytesEqual, b64, unb64 } from './net'
 import { dkgProvenPczt, DKG_SIGHASH } from './demo-vector'
+import { parseSignRequest, buildSignResponse, bytesToHex, RESPONSE_KIND } from './net-sign'
 
 const hexToBytes = (s: string) => new Uint8Array(s.match(/../g)!.map((b) => parseInt(b, 16)))
 
@@ -137,5 +138,55 @@ describe('/net multi-device flow (DKG → sign → verify)', () => {
     const recipient = outs.find((o) => o.address !== null)
     expect(recipient?.value).toBe(100000) // 0.001 ZEC — what /net renders before signing
     expect(recipient?.address).toMatch(/^u1/) // a real Orchard unified address
+  })
+
+  it('Architecture B: a device parses a helper sign-request, signs, and builds a valid response', () => {
+    // The helper (orchestrator net_send) publishes a request into the relay room, exactly this
+    // JSON shape (snake_case pczt_hex). A device parses it strictly, confirms what it pays, runs
+    // the ceremony under the request's alpha, and publishes back the response the helper's
+    // `into_sigs` consumes. This is the browser end of the demo -> real broadcast path.
+    const requestJson = JSON.stringify({
+      kind: 'net-sign-request',
+      sighash: DKG_SIGHASH,
+      spends: [{ index: 0, alpha: bytesToHex(DKG_ALPHA) }],
+      pczt_hex: bytesToHex(dkgProvenPczt()),
+    })
+
+    const req = parseSignRequest(requestJson)
+    expect(req).not.toBeNull()
+    expect(req!.spends).toHaveLength(1)
+    // The device can confirm what it is about to sign, straight from the request's PCZT.
+    const outs = JSON.parse(describeOutputs(hexToBytes(req!.pcztHex))) as { value: number | null }[]
+    expect(outs.find((o) => o.value === 100000)).toBeDefined()
+
+    // Run the 2-of-3 ceremony for the requested spend, under the request's own alpha.
+    const { s0, s1, id0, id1, groupVk, pubkeys } = dkg2of3()
+    const alpha = hexToBytes(req!.spends[0]!.alpha)
+    const msg = hexToBytes(req!.sighash)
+    const a = participantRound1(s0.keyPackage())
+    const b = participantRound1(s1.keyPackage())
+    const coord = new Coordinator(groupVk, pubkeys, msg)
+    coord.addCommitment(id0, a.commitment())
+    coord.addCommitment(id1, b.commitment())
+    coord.prepare()
+    const sp = coord.signingPackage()
+    coord.addShare(id0, participantRound2WithRandomizer(sp, a.nonces(), s0.keyPackage(), alpha))
+    coord.addShare(id1, participantRound2WithRandomizer(sp, b.nonces(), s1.keyPackage(), alpha))
+    const sig = coord.aggregateWithRandomizer(alpha)
+    expect(coord.verifyWithRandomizer(alpha, sig)).toBe(true)
+
+    // Build the response the helper consumes, and round-trip it.
+    const responseJson = buildSignResponse([{ index: req!.spends[0]!.index, sig: bytesToHex(sig) }])
+    const resp = JSON.parse(responseJson) as { kind: string; sigs: { index: number; sig: string }[] }
+    expect(resp.kind).toBe(RESPONSE_KIND)
+    expect(resp.sigs).toHaveLength(1)
+    expect(resp.sigs[0]!.index).toBe(0)
+    expect(hexToBytes(resp.sigs[0]!.sig)).toHaveLength(64)
+  })
+
+  it('parseSignRequest rejects a wrong-kind or malformed message', () => {
+    expect(parseSignRequest('not json')).toBeNull()
+    expect(parseSignRequest(JSON.stringify({ kind: 'something-else' }))).toBeNull()
+    expect(parseSignRequest(JSON.stringify({ kind: 'net-sign-request', sighash: 'x' }))).toBeNull()
   })
 })

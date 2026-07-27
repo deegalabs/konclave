@@ -12,6 +12,7 @@ import init, {
 } from '../wasm-pkg/konclave_wasm.js'
 import wasmUrl from '../wasm-pkg/konclave_wasm_bg.wasm?url'
 import { RelaySession, newRoomCode, ephemeralTag, b64, unb64, bytesEqual, type RelayMsg } from '../net'
+import { parseSignRequest, buildSignResponse, hexToBytes as hexBytes, bytesToHex, type SignRequest } from '../net-sign'
 import { dkgProvenPczt, DKG_SIGHASH, DKG_TXID } from '../demo-vector'
 import { useT, useTr, useI18n } from '../i18n'
 import { Letterhead } from '../components'
@@ -222,6 +223,10 @@ export default function NetVault() {
   const sentS2Ref = useRef(false)
   const signSharesSeenRef = useRef<Set<number>>(new Set())
   const sigDoneRef = useRef(false)
+  // Architecture B: when a helper (orchestrator net_send, blind to spending) publishes a real
+  // sign-request into the room, the coordinator drives the ceremony over ITS sighash+alpha+PCZT,
+  // and the aggregate signature is posted back RAW for the helper to inject and broadcast.
+  const helperReqRef = useRef<SignRequest | null>(null)
   // Ceremony watchdog: fires if the vault isn't created in time (a peer never joined, a
   // message was lost) — surfaces an error instead of hanging on "Criando…" forever (§8).
   const ceremonyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -299,6 +304,24 @@ export default function NetVault() {
       // never marked the message consumed, advance() would re-apply and re-throw it forever. Catch,
       // surface, and consume it (§8: corrupted/missing material stays a clear failure, not a hang).
       try {
+      // Architecture B: a helper's raw sign-request carries `kind`, not `type`. Detect it before
+      // the Msg dispatch. The coordinator (seat 1) kicks the ceremony over the helper's real PCZT;
+      // once the aggregate signature is ready (the `s2` handler below) it is posted back RAW.
+      const helperReq = parseSignRequest(msg.data)
+      if (helperReq) {
+        helperReqRef.current = helperReq
+        // Single-spend requests only for now — a multi-note PCZT needs one ceremony per randomizer
+        // (as orchestrator::send does), which is the follow-up; a single sig for many spends would
+        // be rejected by the helper's `into_sigs` count check, so don't drive it here.
+        if (mySeatRef.current === 1 && !sigDoneRef.current && helperReq.spends.length === 1) {
+          await send({
+            type: 'sreq',
+            msg: b64(hexBytes(helperReq.sighash)),
+            pczt: b64(hexBytes(helperReq.pcztHex)),
+          })
+        }
+        return true
+      }
       if (parsed.type === 'config') {
         if (!configRef.current) {
           configRef.current = { n: parsed.n, t: parsed.t }
@@ -451,6 +474,16 @@ export default function NetVault() {
           const ok = coordRef.current.verifyWithRandomizer(signAlphaRef.current, sig)
           await send({ type: 'signed', sig: b64(sig), ok })
           addLog(tt('net.log.signAggregate'))
+          // Architecture B: if a helper requested this signature, hand it back RAW (outside the Msg
+          // envelope) so the helper's `collect_response` can parse it, inject it into the PCZT, and
+          // broadcast. Single-spend only, matching what the request path drove.
+          const req = helperReqRef.current
+          if (req && ok && req.spends.length === 1) {
+            const resp = buildSignResponse([{ index: req.spends[0]!.index, sig: bytesToHex(sig) }])
+            await sessionRef.current?.send(resp)
+            addLog('-> signature handed to the helper')
+            helperReqRef.current = null
+          }
         }
         return true
       }

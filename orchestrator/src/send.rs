@@ -17,8 +17,9 @@ use serde::Deserialize;
 use zeroize::Zeroizing;
 
 use crate::ceremony::{run_coordinator, run_participant, Frostd};
+use crate::relay_client::{CurlTransport, RelayClient};
 use crate::tools::ToolError;
-use crate::{pczt, signer};
+use crate::{net_send, pczt, signer};
 
 /// A vault member as the ceremony knows them: name + comm pubkey + their frost-client
 /// config (which holds only that member's role material). Public paths, never a share.
@@ -285,6 +286,91 @@ pub fn orchestrate_send(
     signer::inject(&sc.konclave_signer, &tx2_path, &tx3_path, &signatures)?;
 
     // 7) broadcast — unless this is a dry-run.
+    let txid = if dry_run {
+        None
+    } else {
+        let tx3 = std::fs::read(&tx3_path).map_err(ToolError::Io)?;
+        Some(pczt::send(
+            &sc.devtool,
+            &sc.wallet_dir,
+            &sc.lightwalletd,
+            &tx3,
+        )?)
+    };
+
+    Ok(SendOutcome {
+        txid,
+        signed_pczt: tx3_path,
+        sighash: sighash_hex,
+    })
+}
+
+/// Architecture B — a real `/net` broadcast for a browser-DKG vault. Instead of running the
+/// native FROST ceremony, the helper builds and proves the PCZT for the vault's own address,
+/// publishes the signing request into a relay room, and waits for the browser devices to return
+/// the aggregate FROST signature; then it injects and (unless `dry_run`) broadcasts. The devices'
+/// shares never reach this process — it sees only public transaction data and the view-only
+/// wallet, consistent with "internal transparency, external privacy".
+///
+/// This is live integration glue (real HTTP via `curl`, real binaries, real broadcast); it is not
+/// exercised by CI, and is validated end to end on testnet. The pure protocol + handshake it
+/// composes ARE unit-tested (see `net_send`, `relay_client`).
+#[allow(clippy::too_many_arguments)]
+pub fn net_orchestrate_send(
+    sc: &SendConfig,
+    plan: &SpendPlan,
+    relay_base: &str,
+    room: &str,
+    dry_run: bool,
+    max_polls: u32,
+    poll_delay: Duration,
+) -> Result<SendOutcome, ToolError> {
+    std::fs::create_dir_all(&sc.work_dir).map_err(ToolError::Io)?;
+
+    // 1) build + prove the PCZT for the vault's own address.
+    let tx1 = build_unproven(sc, plan)?;
+    let tx2 = pczt::prove(&sc.devtool, &sc.wallet_dir, &tx1)?;
+    let tx2_path = format!("{}/net-tx2-proven.pczt", sc.work_dir);
+    std::fs::write(&tx2_path, &tx2).map_err(ToolError::Io)?;
+
+    // 2) extract the sighash + per-spend randomizers the devices must sign.
+    let input = signer::extract(&sc.konclave_signer, &tx2_path)?;
+    if input.randomizers.is_empty() {
+        return Err(ToolError::parse("net-send", "no real spends to sign"));
+    }
+    let sighash_hex = hex_encode(&input.sighash);
+
+    // 3) publish the signing request into the vault's relay room.
+    let client = RelayClient::new(
+        CurlTransport,
+        relay_base.trim_end_matches('/'),
+        room,
+        "helper",
+    );
+    let req = net_send::SignRequest::from_signing_input(&input, &tx2);
+    net_send::publish_request(&client, &req).map_err(|e| ToolError::parse("relay", e))?;
+
+    // 4) poll until the devices return the aggregate signatures (or we time out).
+    let mut since = 0u64;
+    let mut collected = None;
+    for _ in 0..max_polls {
+        let (found, next) = net_send::collect_response(&client, &req, since)
+            .map_err(|e| ToolError::parse("relay", e))?;
+        since = next;
+        if found.is_some() {
+            collected = found;
+            break;
+        }
+        thread::sleep(poll_delay);
+    }
+    let sigs = collected.ok_or_else(|| {
+        ToolError::parse("net-send", "timed out waiting for the devices' signatures")
+    })?;
+
+    // 5) inject every signature (inject verifies each), then broadcast unless dry-run.
+    let tx3_path = format!("{}/net-tx3-signed.pczt", sc.work_dir);
+    signer::inject(&sc.konclave_signer, &tx2_path, &tx3_path, &sigs)?;
+
     let txid = if dry_run {
         None
     } else {
