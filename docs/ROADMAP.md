@@ -174,8 +174,10 @@ One UI (`ui/`) and one crypto core (`konclave-wasm`) behind the relay:
   the same WebKitGTK wall.
 - **Mobile = the browser / PWA** — the same UI + WASM core; the device holds its share (encrypted
   IndexedDB) and signs, while build/prove/broadcast stay off-device via the helper (Architecture B),
-  trustless and unable to move funds without the quorum. **Pending:** sign-after-restore in `/net`
-  (restore works; reconnect-and-sign after a reload is the remaining piece).
+  trustless and unable to move funds without the quorum. Sign-after-restore in `/net` is **wired end
+  to end** (the saved bundle carries the KeyPackage + group key + seat; a reloaded device rejoins a
+  signing room, re-announces its original seat, and signs with the restored share — no DKG redo;
+  covered by a bundle+seat test). **Remaining:** a live two-browser proof.
 
 ## E. Closing the loop and depth
 - **Real broadcast from the browser — in progress (Architecture B, PR #11).** The design is

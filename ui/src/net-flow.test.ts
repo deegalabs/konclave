@@ -133,6 +133,49 @@ describe('/net multi-device flow (DKG → sign → verify)', () => {
     expect(coord.verifyWithRandomizer(DKG_ALPHA, sig)).toBe(true)
   })
 
+  it('sign-after-restore via the storage bundle + the seat re-announced on rejoin', () => {
+    // The exact contract NetVault + storage.ts implement: a device persists {KeyPackage, group
+    // PublicKeyPackage, SEAT} (encrypted). After a reload there is NO live DkgSession — the device
+    // rebuilds its FROST identifier FROM the seat it re-announces over the relay (`rejoin`), then
+    // signs. This test drives that path end to end from the bundle bytes alone, so the seat->id
+    // reconstruction is exercised (the existing restore test hardcodes the ids).
+    const { s0, s1, groupVk } = dkg2of3()
+
+    // What saveVault stores per device (seat 1 and seat 2 of the 2-of-3), then the sessions vanish.
+    const save = (s: DkgSession, seat: number) =>
+      JSON.stringify({ kp: b64(s.keyPackage()), pubkeys: b64(s.pubkeys()), gvk: b64(s.groupVk()), seat })
+    const bundleA = save(s0, 1)
+    const bundleB = save(s1, 2)
+    const restore = (json: string) => {
+      const b = JSON.parse(json) as { kp: string; pubkeys: string; gvk: string; seat: number }
+      return { kp: unb64(b.kp), pubkeys: unb64(b.pubkeys), gvk: unb64(b.gvk), seat: b.seat }
+    }
+    const a = restore(bundleA)
+    const b = restore(bundleB)
+
+    // The group identity survives the round-trip...
+    expect(bytesEqual(a.gvk, groupVk)).toBe(true)
+
+    // ...and each device rebuilds its identifier from the seat announced on rejoin (tag -> seat -> id).
+    const idA = identifierBytes(a.seat)
+    const idB = identifierBytes(b.seat)
+
+    const msg = hexToBytes(DKG_SIGHASH)
+    const r1a = participantRound1(a.kp)
+    const r1b = participantRound1(b.kp)
+    const coord = new Coordinator(a.gvk, a.pubkeys, msg)
+    coord.addCommitment(idA, r1a.commitment())
+    coord.addCommitment(idB, r1b.commitment())
+    coord.prepare()
+    const sp = coord.signingPackage()
+    coord.addShare(idA, participantRound2WithRandomizer(sp, r1a.nonces(), a.kp, DKG_ALPHA))
+    coord.addShare(idB, participantRound2WithRandomizer(sp, r1b.nonces(), b.kp, DKG_ALPHA))
+    const sig = coord.aggregateWithRandomizer(DKG_ALPHA)
+
+    // A verifying Orchard signature from two reloaded devices — no DKG redo.
+    expect(coord.verifyWithRandomizer(DKG_ALPHA, sig)).toBe(true)
+  })
+
   it('describeOutputs surfaces what the device is signing (recipient + value), as /net shows', () => {
     const outs = JSON.parse(describeOutputs(dkgProvenPczt())) as { address: string | null; value: number | null }[]
     const recipient = outs.find((o) => o.address !== null)
