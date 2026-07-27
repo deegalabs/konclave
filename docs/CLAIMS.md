@@ -42,6 +42,12 @@ Any statement of the form "the app payment used DKG" is **false**. Only `aab00f9
 - The five mainnet sends were signed on a **single machine** (shares co-located at signing).
 - Distributed cross-machine signing is demonstrated by `/net` over a blind relay, **verified
   but not broadcast**.
+  - The helper-assisted broadcast path (Architecture B) is now **wired end to end in code**: a
+    blind helper (`orchestrator::net_send`) publishes a sign-request into the relay room, the
+    browser (`/net`) consumes it, runs the ceremony under the request's real alpha, and posts the
+    aggregate signature back for the helper to inject and broadcast. This is **single-spend and
+    unit-tested** (`net_send` + `net-flow` suites); the **live broadcast** (a funded browser-DKG
+    vault over the relay) is still pending, so the claim above stays "verified but not broadcast".
 - The threshold nature is **not** provable from chain data alone (a FROST-aggregated Orchard
   signature is indistinguishable on-chain from a single-signer one); it is attested off-chain.
 - Two browser signing paths exist and must not be conflated:
