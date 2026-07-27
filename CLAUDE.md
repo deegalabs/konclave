@@ -479,8 +479,12 @@ Two pushes on `main`, all checks green.
   `orchestrator/src/relay.rs` (13 relay tests).
 - MCP: `mcp-server/` an "AI treasurer" that reads + proposes, with deliberately NO sign/send tool
   (single-agent-proof; even an AI cannot move funds alone).
-- On-device share persistence (`ui/src/storage.ts`, encrypted IndexedDB) wired into `/net`; restore
-  works, signing-after-restore is the honest pending piece.
+- On-device share persistence (`ui/src/storage.ts`, encrypted IndexedDB) wired into `/net`. Restore
+  works; **signing-after-restore is wired end to end in the UI** (the saved bundle carries the
+  KeyPackage + group PublicKeyPackage + the device's seat; `beginSign` opens a signing-only relay
+  room, the device re-announces its original seat via `rejoin`, and it signs with the restored share
+  with no DKG redo — covered by a bundle+seat unit test). The remaining piece is a **live
+  multi-device proof** (two reloaded browsers signing over the relay), not a code gap.
 
 **B. Real mainnet evidence: 2 new broadcasts, the private payroll now proven on-chain.**
 Built the full send pipeline from scratch on THIS machine and broadcast two real 2-of-3 FROST Orchard

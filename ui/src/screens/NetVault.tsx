@@ -168,7 +168,8 @@ export default function NetVault() {
   const [restoreErr, setRestoreErr] = useState('')
   const [restoredRoster, setRestoredRoster] = useState<string[]>([])
   // Restored secret material, kept only in memory (never surfaced to JSON logs). Present after a
-  // restore so a future signing-after-restore step has the bytes; not yet wired to the relay.
+  // restore; `beginSign` wires it into a signing-only relay session (the device re-announces its
+  // original seat via `rejoin`, then signs with these bytes — no DKG redo).
   const restoredRef = useRef<{
     keyPackage: Uint8Array
     pubkeys: Uint8Array
