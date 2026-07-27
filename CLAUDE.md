@@ -570,3 +570,34 @@ instead of always showing PT.
   `relay_client`, `send::net_orchestrate_send` with a `curl` transport) and the browser protocol
   (`ui/src/net-sign.ts`). Remaining: the live NetVault relay wiring + the end-to-end testnet proof
   (needs a funded browser-DKG vault). Design: `temp/NET-REAL-BROADCAST-SCOPING.md`.
+
+---
+
+**Phase 12 — Ironwood readiness + /net real-broadcast path wired (2026-07-27).** Landed on
+`main` through PRs #11/#13/#14/#15, all CI-green (186 orchestrator tests):
+- **/net Architecture B — protocol MERGED + browser wired (was a held draft).** The helper-side
+  signing-request protocol (`orchestrator::net_send`, `relay_client`, `send::net_orchestrate_send`
+  over a `curl` transport) and the browser mirror (`ui/src/net-sign.ts`) are on `main` (#11).
+  NetVault now **consumes** a helper's raw `net-sign-request` from the relay room: the coordinator
+  drives the existing FROST ceremony over the helper's real sighash + alpha + PCZT and posts the
+  aggregate signature back RAW for the helper to inject + broadcast (slice 3). **Honest limits:**
+  single-spend only (a multi-note PCZT needs one ceremony per randomizer, like `orchestrator::send`
+  — the follow-up); and the **live broadcast** (a funded browser-DKG vault over the relay) is still
+  pending, so CLAIMS.md keeps "verified but not broadcast". Unit-tested both sides (`net_send` +
+  `net-flow`).
+- **Ironwood mainnet port — still HELD (draft PR #10), now rebased clean on `main`.** The merge is
+  timed to mainnet activation (~2026-07-28, block 3,428,143): out of draft → merge → rebuild the
+  engine → run the flow (money-gated, needs an explicit "pode transmitir"). Re-validated on testnet
+  with the **repo** dual-pool signer (multi-spend, one ceremony per randomizer): mined at block
+  4,204,381.
+- **Docs kept truthful (§6.12/§6.15).** Roadmap refreshed to reality (#13); CLAIMS.md notes the
+  Arch B path is wired but broadcast-pending (#14); a standardization / architecture-drift cleanup
+  (#15) fixed a latent `.gitignore` bug (`motor/bin/` → `engine/bin/`, so engine binaries were not
+  being ignored) and stale READMEs (Next.js/Tauri → Vite/loopback-bridge; leftover
+  Orquestrador/Rosto/Motor names). `engine/` stays pin-not-vendor; **Tauri stays deferred**
+  (ADR-0004, the GTK/WSLg window does not render on this machine — building it here would be
+  untestable). Code debt in the implemented crates: effectively **zero** (no TODO/FIXME/unimplemented
+  in production paths; CI green).
+
+**Next (non-gated):** multi-device reconciliation (the last open item of the §8 destructive suite —
+on-chain wins when the local cache diverges) and multi-spend for the /net Arch B path.
