@@ -57,11 +57,13 @@ Any statement of the form "the app payment used DKG" is **false**. Only `aab00f9
   different vault, so the signature verifies under `ak+alpha` but is not for a transaction this
   vault owns. A real broadcast needs the operator to create/prove a PCZT for the `/net` vault's own
   address, plus the browser broadcast. Both are `roadmap`.
-- **Ironwood (NU6.3):** the Ironwood-pool spend path was validated **on testnet only** — a FROST
-  2-of-3 spend from a testnet vault that NU6.3 consensus **accepted** on broadcast. That is
-  `testnet, network-accepted`, NOT `proven on-chain` (no mined block yet; testnet miner liveness)
-  and NOT mainnet. All five `proven on-chain` mainnet txids remain pre-Ironwood Orchard. Do not
-  state or imply an Ironwood mainnet spend until a mainnet Ironwood txid exists.
+- **Ironwood (NU6.3):** the Ironwood-pool spend path was validated **on testnet** — a FROST
+  2-of-3 spend from a testnet vault, built + proved for the vault's own address, signed by the
+  quorum, broadcast, and **mined into a block** (testnet tx `069f4260…`, block 4,202,966). That
+  is `testnet, mined`, which is NOT `proven on-chain` in the mainnet sense and NOT mainnet. All
+  five `proven on-chain` mainnet txids remain pre-Ironwood Orchard. The mainnet Ironwood send
+  path is prepared but held until activation (see the ROADMAP). Do not state or imply an Ironwood
+  **mainnet** spend until a mainnet Ironwood txid exists.
 
 ## Rules for changes
 1. When the proven-vs-pending state of anything changes, update `scripts/verify-proof.mjs`

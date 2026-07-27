@@ -534,3 +534,39 @@ transmitir"):
 - Konclave now has **5 verifiable mainnet txids**; `verify-proof.mjs`, `/proof`, `docs/PROOF.md`, and
   the README/SUBMISSION/`/docs` ladders were updated (DKG-vault send moved out of roadmap). Also this
   session: `/docs` gained **SDK** and **MCP** sections.
+
+---
+
+**Phase 12 — Ironwood proven on testnet, mainnet port prepared, and the /net "demo → real" design
+(2026-07-26).** A consolidation + reach session. On `main` (merged): network parameterization
+(`--network main|test`, `validate_recipient_on`); honest Ironwood status in ROADMAP/CLAIMS; and an
+i18n fix so the hosted-demo sample data (`mock.ts`, Dashboard placeholder) follows the UI language
+instead of always showing PT.
+
+- **Ironwood — PROVEN on testnet (out-of-repo, like the mainnet evidence infra).** Testnet is past
+  the NU6.3 activation height, so it runs Ironwood now. Discovery: Ironwood is a **new shielded
+  pool** (V6 tx, `Ironwood Actions` distinct from Orchard); the NU6.2 engine is **blind** to it
+  (a payment to the vault was invisible until the engine was rebuilt). Rebuilt `zcash-devtool`
+  against the Ironwood librustzcash pin (`42ffd0d`, orchard 0.15, pczt v2) → the wallet sees +
+  spends Ironwood funds. Ported the FROST↔PCZT bridge to the Ironwood pool. Full cycle
+  receive → build+prove → FROST 2-of-3 ceremony → inject → broadcast → **MINED**: testnet tx
+  `069f42604c0f0a72a98c034e0b23b5e458ad153b85bb4693fd8dd320edde68ef`, block 4,202,966. RedPallas /
+  FROST / DKG unchanged by the upgrade. Details: `temp/FASE2b-TESTNET-SEND-WIP.md`. Gotcha:
+  `pczt create` sets expiry = synced-tip + ~40, so **sync immediately before create** or the tx is
+  born expired.
+- **Ironwood mainnet — port PREPARED, HELD (draft PR).** `konclave-signer` moved to the Ironwood
+  pin, extract/inject made **pool-aware** (Orchard pre-NU6.3, Ironwood post-NU6.3, mixed-pool
+  rejected), `build_payroll` updated to the new `zcash_client_backend` API, C6 vectors migrated
+  from the pre-Ironwood (v1) PCZT format to a real Ironwood (v2) vector, `engine/versions.lock` →
+  NU6.3. **Not merged**: the v2 wire format can't parse v1, so merging before mainnet activates
+  (~2026-07-28) would break signing pre-Ironwood mainnet txs. Option A = clean cut at activation
+  (`temp/IRONWOOD-PRODUCTIZATION-PLAN.md`).
+- **/net "demo → real broadcast" — designed + protocol built, HELD (draft PR).** Decision:
+  **Architecture B**, helper-assisted and blind to spending. Browser devices keep the shares and
+  sign over the blind relay; a helper (the native orchestrator, never sees a share) builds+proves
+  the real PCZT for the vault's OWN address, publishes a signing request, awaits the aggregate
+  signature, injects, broadcasts — fits "internal transparency, external privacy". Built + tested
+  on both sides: the wire protocol + relay client + handshake (`orchestrator::net_send`,
+  `relay_client`, `send::net_orchestrate_send` with a `curl` transport) and the browser protocol
+  (`ui/src/net-sign.ts`). Remaining: the live NetVault relay wiring + the end-to-end testnet proof
+  (needs a funded browser-DKG vault). Design: `temp/NET-REAL-BROADCAST-SCOPING.md`.

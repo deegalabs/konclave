@@ -106,8 +106,15 @@ cryptography. Ordered by priority.
 - Keep `main` the single trunk; land verified work through PRs; keep the proof surfaces
   consistent (see [CLAIMS.md](CLAIMS.md)).
 - Browser signing of a real Orchard spend is now on `main` (the ceremony signs under the
-  PCZT's own randomizer/alpha and verifies under `ak+alpha`). Remaining: wire it into the
-  `/net` flow end to end and close the loop with a broadcast.
+  PCZT's own randomizer/alpha and verifies under `ak+alpha`). The `/net` "demo → real broadcast"
+  path is **designed and partly built on a branch** (not merged): **Architecture B**, a
+  helper-assisted broadcast that is blind to spending. The browser devices keep the shares and
+  sign over the blind relay; a helper (the native orchestrator, which never sees a share) builds
+  and proves the real PCZT for the vault's own address, publishes a signing request, waits for
+  the aggregate signature, injects, and broadcasts — consistent with "internal transparency,
+  external privacy". The wire protocol and the relay handshake are implemented and unit-tested on
+  both sides (`orchestrator::net_send` / `relay_client`; `ui/net-sign`); the live NetVault relay
+  wiring and the end-to-end testnet proof remain (see `temp/NET-REAL-BROADCAST-SCOPING.md`).
 
 ## B. Network robustness — NU6.3 / Ironwood
 - Ironwood introduces a **new shielded pool** ("Ironwood", V6 transactions with their own
@@ -120,23 +127,23 @@ cryptography. Ordered by priority.
   an explicit choice, mainnet as the default so production is unchanged —
   `konclave-signer build-payroll --network main|test` and
   `orchestrator::validate_recipient_on(addr, network)`. Tested for both networks.
-- **End-to-end validated on testnet — done (out-of-repo experiment):** testnet is already past
+- **End-to-end proven on testnet — done (out-of-repo experiment):** testnet is already past
   the Ironwood activation height, so it runs NU6.3 now. Rebuilding `zcash-devtool` against the
   Ironwood librustzcash pin lets the wallet **see and spend** Ironwood-pool funds that the
   pre-Ironwood engine is blind to. With the FROST↔PCZT bridge ported to the Ironwood pool
-  (`sign_ironwood_with` / `apply_ironwood_signature`, V6 sighash), a full flow — receive → FROST
-  2-of-3 ceremony → inject (the aggregate signature verifies) → broadcast — produced a spend
-  that **NU6.3 consensus accepted** (`send` returned success). Block confirmation depends on
-  testnet miner liveness (out of our control). This ran on a throwaway testnet vault, kept
-  out-of-repo like the mainnet evidence infra; **the repo stays on the mainnet pre-Ironwood
-  pin, unchanged.**
-- **Productization decision (Option A — clean cut at activation):** mainnet activates Ironwood
-  at height 3,428,143 (~2026-07-28). At (or just after) activation, bump the engine
-  (`engine/versions.lock`) and `konclave-signer` to the Ironwood pin, port extract/inject to the
-  Ironwood pool, and migrate the C6 test vectors from the pre-Ironwood PCZT format (v1) to real
-  Ironwood vectors (v2). Rationale: the PCZT wire format changed to v2, so one binary cannot
-  parse both v1 and v2; a clean cut at activation avoids a dual-maintenance window (see
-  `temp/IRONWOOD-PRODUCTIZATION-PLAN.md` for the step list). Until activation the repo is
+  (`sign_ironwood_with` / `apply_ironwood_signature`, V6 sighash), the full cycle — receive →
+  build + prove for the vault's own address → FROST 2-of-3 ceremony → inject (the aggregate
+  signature verifies) → broadcast → **mined into a block** — completed on testnet (tx
+  `069f4260…`, block 4,202,966). This ran on a throwaway testnet vault, kept out-of-repo like the
+  mainnet evidence infra; **the repo default (`main`) stays on the mainnet pre-Ironwood pin.**
+- **Productization for mainnet (Option A — clean cut at activation) — prepared, held:** mainnet
+  activates Ironwood at height 3,428,143 (~2026-07-28). The port is **ready on a branch, not
+  merged**: the engine pin (`engine/versions.lock`) and `konclave-signer` moved to the Ironwood
+  pin, extract/inject made pool-aware (Orchard pre-NU6.3, Ironwood post-NU6.3), and the C6 test
+  vectors migrated from the pre-Ironwood PCZT format (v1) to a real Ironwood vector (v2). Held
+  because the v2 wire format cannot parse v1, so merging before activation would break signing
+  pre-Ironwood mainnet transactions; a clean cut at activation avoids a dual-maintenance window
+  (see `temp/IRONWOOD-PRODUCTIZATION-PLAN.md`). Until activation the repo is
   deliberately left on the mainnet-valid pin.
 
 ## C. On-device share persistence
