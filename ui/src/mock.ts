@@ -16,6 +16,23 @@ const inHours = (h: number): number => Math.floor(Date.now() / 1000) + Math.floo
 const ORCHARD_ADDRESS =
   'u1vjgxlvz4ewnt43rkq6fzexpl639745spx369tc4j9n9l0qnt9rufxdt2pxe3jtku7lqv4gtzfqafxtf7gal5y9gmz84nkza6z5d406dr'
 
+// The demo dataset carries human strings (names, memos, payroll labels). Make them follow the
+// UI language so the hosted showcase never shows PT copy in the EN interface (or vice versa).
+// `L` reads the persisted locale on every call, and every string below is exposed through a
+// getter, so the data re-resolves when the language toggles (the screens re-render on that).
+function demoPt(): boolean {
+  try {
+    const l = localStorage.getItem('konclave.locale')
+    if (l === 'en') return false
+    if (l === 'pt-BR') return true
+    if (typeof navigator !== 'undefined') return (navigator.language || '').toLowerCase().startsWith('pt')
+  } catch {
+    /* storage/navigator unavailable */
+  }
+  return false
+}
+const L = (pt: string, en: string): string => (demoPt() ? pt : en)
+
 // ---- members ----
 
 const MEMBERS = [
@@ -26,7 +43,7 @@ const MEMBERS = [
 
 export const vault: Vault = {
   id: 'demo',
-  name: 'Tesouraria Comum',
+  get name() { return L('Tesouraria Comum', 'Common Treasury') },
   threshold: 2,
   total: 3,
   members: 3,
@@ -58,15 +75,15 @@ export const balance: Balance = {
 export const beneficiaries: Beneficiary[] = [
   {
     id: 'ben-1',
-    name: 'Fornecedor Papelaria',
+    get name() { return L('Fornecedor Papelaria', 'Paper Supplier Co.') },
     address:
       'u1qxmz7a5c8v9b0n2m4k6j8h0g2f4d6s8a1q3w5e7r9t1y3u5i7o9p1a3s5d7f9g1h3j5k7l9z1x3c5v7b9n1m3',
-    memo: 'material de escritório',
+    get memo() { return L('material de escritório', 'office supplies') },
     is_public: false,
   },
   {
     id: 'ben-2',
-    name: 'Cooperativa Solidária',
+    get name() { return L('Cooperativa Solidária', 'Solidarity Cooperative') },
     address:
       'u1coopr8v3n5m7k9j1h3g5f7d9s1a3q5w7e9r1t3y5u7i9o1p3a5s7d9f1g3h5j7k9l1z3x5c7v9b1n3m5k7j9',
     memo: '',
@@ -74,18 +91,18 @@ export const beneficiaries: Beneficiary[] = [
   },
   {
     id: 'ben-3',
-    name: 'Contadora · Marta',
+    get name() { return L('Contadora · Marta', 'Accountant · Marta') },
     address:
       'u1cont4d0r5a6b7c8d9e0f1g2h3i4j5k6l7m8n9o0p1q2r3s4t5u6v7w8x9y0z1a2b3c4d5e6f7g8h9i0j1k2l3',
-    memo: 'honorários contábeis',
+    get memo() { return L('honorários contábeis', 'accounting fees') },
     is_public: false,
   },
   {
     id: 'ben-4',
-    name: 'Bolsa · Pesquisa',
+    get name() { return L('Bolsa · Pesquisa', 'Grant · Research') },
     address:
       'u1bolsa9z8y7x6w5v4u3t2s1r0q9p8o7n6m5l4k3j2i1h0g9f8e7d6c5b4a3z2y1x0w9v8u7t6s5r4q3p2o1n0',
-    memo: 'bolsa de pesquisa',
+    get memo() { return L('bolsa de pesquisa', 'research grant') },
     is_public: true,
   },
 ]
@@ -101,7 +118,7 @@ const propAwaitingPayment: Proposal = {
   proposer: 'Alice',
   value_zat: 50000000,
   value_zec: '0.5000',
-  memo: 'adiantamento maio',
+  get memo() { return L('adiantamento maio', 'May advance') },
   to_address: beneficiaries[0]!.address,
   is_public: false,
   expiry_unix: inHours(58),
@@ -120,7 +137,7 @@ const propReadyPayment: Proposal = {
   proposer: 'Bob',
   value_zat: 12000000,
   value_zec: '0.1200',
-  memo: 'reembolso transporte',
+  get memo() { return L('reembolso transporte', 'transport reimbursement') },
   to_address: beneficiaries[1]!.address,
   is_public: true,
   expiry_unix: inHours(41),
@@ -139,7 +156,7 @@ const propAwaitingPayroll: Proposal = {
   proposer: 'Carol',
   value_zat: 30000000,
   value_zec: '0.3000',
-  memo: 'folha de bolsas · maio',
+  get memo() { return L('folha de bolsas · maio', 'grants payroll · May') },
   is_public: false,
   expiry_unix: inHours(66),
   created_at: ago(0.3),
@@ -162,7 +179,7 @@ const propSentPayment: Proposal = {
   proposer: 'Alice',
   value_zat: 8000000,
   value_zec: '0.0800',
-  memo: 'pagamento fornecedor',
+  get memo() { return L('pagamento fornecedor', 'supplier payment') },
   to_address: beneficiaries[0]!.address,
   is_public: false,
   created_at: ago(6),
@@ -181,7 +198,7 @@ const propSentPayroll: Proposal = {
   proposer: 'Bob',
   value_zat: 21000000,
   value_zec: '0.2100',
-  memo: 'folha de bolsas · abril',
+  get memo() { return L('folha de bolsas · abril', 'grants payroll · April') },
   is_public: false,
   created_at: ago(12),
   txid: 'f63ee64d7bc086a8286631d03936ec2ca2ca57f4e4c63712fc95c1f02c522360',
@@ -199,7 +216,7 @@ const propRefused: Proposal = {
   proposer: 'Carol',
   value_zat: 60000000,
   value_zec: '0.6000',
-  memo: 'compra equipamento',
+  get memo() { return L('compra equipamento', 'equipment purchase') },
   to_address: beneficiaries[2]!.address,
   is_public: false,
   created_at: ago(9),
@@ -217,7 +234,7 @@ const propExpired: Proposal = {
   proposer: 'Alice',
   value_zat: 15000000,
   value_zec: '0.1500',
-  memo: 'doação evento',
+  get memo() { return L('doação evento', 'event donation') },
   to_address: beneficiaries[3]!.address,
   is_public: true,
   expiry_unix: ago(2),
@@ -241,15 +258,15 @@ export const ledger: Proposal[] = [
 // ---- payroll lines (per proposal, for the detail screen) ----
 
 const payrollLinesAwaiting: PayrollLine[] = [
-  { label: 'Bolsista · Ana', address: beneficiaries[3]!.address, value_zat: 10000000, value_zec: '0.1000', memo: 'bolsa maio', is_public: false },
-  { label: 'Bolsista · João', address: beneficiaries[1]!.address, value_zat: 12000000, value_zec: '0.1200', memo: 'bolsa maio', is_public: false },
-  { label: 'Bolsista · Rita', address: beneficiaries[2]!.address, value_zat: 8000000, value_zec: '0.0800', memo: 'bolsa maio', is_public: false },
+  { get label() { return L('Bolsista · Ana', 'Fellow · Ana') }, address: beneficiaries[3]!.address, value_zat: 10000000, value_zec: '0.1000', get memo() { return L('bolsa maio', 'stipend, May') }, is_public: false },
+  { get label() { return L('Bolsista · João', 'Fellow · João') }, address: beneficiaries[1]!.address, value_zat: 12000000, value_zec: '0.1200', get memo() { return L('bolsa maio', 'stipend, May') }, is_public: false },
+  { get label() { return L('Bolsista · Rita', 'Fellow · Rita') }, address: beneficiaries[2]!.address, value_zat: 8000000, value_zec: '0.0800', get memo() { return L('bolsa maio', 'stipend, May') }, is_public: false },
 ]
 
 const payrollLinesSent: PayrollLine[] = [
-  { label: 'Bolsista · Ana', address: beneficiaries[3]!.address, value_zat: 7000000, value_zec: '0.0700', memo: 'bolsa abril', is_public: false },
-  { label: 'Bolsista · João', address: beneficiaries[1]!.address, value_zat: 7000000, value_zec: '0.0700', memo: 'bolsa abril', is_public: false },
-  { label: 'Bolsista · Rita', address: beneficiaries[2]!.address, value_zat: 7000000, value_zec: '0.0700', memo: 'bolsa abril', is_public: false },
+  { get label() { return L('Bolsista · Ana', 'Fellow · Ana') }, address: beneficiaries[3]!.address, value_zat: 7000000, value_zec: '0.0700', get memo() { return L('bolsa abril', 'stipend, April') }, is_public: false },
+  { get label() { return L('Bolsista · João', 'Fellow · João') }, address: beneficiaries[1]!.address, value_zat: 7000000, value_zec: '0.0700', get memo() { return L('bolsa abril', 'stipend, April') }, is_public: false },
+  { get label() { return L('Bolsista · Rita', 'Fellow · Rita') }, address: beneficiaries[2]!.address, value_zat: 7000000, value_zec: '0.0700', get memo() { return L('bolsa abril', 'stipend, April') }, is_public: false },
 ]
 
 const byId: Record<string, Proposal> = Object.fromEntries(

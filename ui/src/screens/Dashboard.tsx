@@ -13,10 +13,37 @@ import {
 
 type Movimento = { date: string; title: string; by?: string; value: string; dir: 'out' | 'in'; status: string }
 
-// Offline placeholder (only shown in the hosted mock showcase; the live app uses the ledger).
+// Offline placeholder (only shown when there is no ledger — the demo and the live app both use
+// the real ledger). Locale-aware so it never shows PT copy in the EN interface. `dl` reads the
+// persisted locale per access; the getters re-resolve when the language toggles.
+const dpt = (): boolean => {
+  try {
+    const l = localStorage.getItem('konclave.locale')
+    if (l === 'en') return false
+    if (l === 'pt-BR') return true
+    return (navigator.language || '').toLowerCase().startsWith('pt')
+  } catch {
+    return false
+  }
+}
+const dl = (pt: string, en: string): string => (dpt() ? pt : en)
 const MOVIMENTOS_MOCK: Movimento[] = [
-  { date: '28/04', title: 'Folha de abril · 8 pagamentos', by: 'prop. Ana · aprov. Ana, Bruno', value: '−4.2000', dir: 'out', status: 'verificar' },
-  { date: '22/04', title: 'Doação recebida', by: 'de contribuinte anônimo', value: '+1.0000', dir: 'in', status: 'confirmado' },
+  {
+    date: '28/04',
+    get title() { return dl('Folha de abril · 8 pagamentos', 'April payroll · 8 payments') },
+    get by() { return dl('prop. Ana · aprov. Ana, Bruno', 'by Ana · approved Ana, Bruno') },
+    value: '−4.2000',
+    dir: 'out',
+    status: 'verificar', // stable key: the label is translated at render via t()
+  },
+  {
+    date: '22/04',
+    get title() { return dl('Doação recebida', 'Donation received') },
+    get by() { return dl('de contribuinte anônimo', 'from an anonymous contributor') },
+    value: '+1.0000',
+    dir: 'in',
+    status: 'confirmado', // stable key
+  },
 ]
 
 
@@ -59,7 +86,7 @@ export default function Dashboard() {
   const isLive = live === true
 
   // Vault header — real vault from the bridge; placeholder only in the offline showcase.
-  const name = vault?.name ?? 'Tesouraria Comum'
+  const name = vault?.name ?? dl('Tesouraria Comum', 'Common Treasury')
   const thr = vault?.threshold ?? 2
   const n = vault?.total ?? 3
   const members = vault?.members ?? n
