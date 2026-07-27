@@ -94,10 +94,13 @@ type Msg =
   // signing (Marco 4): all public material — the proven PCZT to verify, the sighash to sign,
   // commitments, signing package, seed, shares, sig.
   | { type: 'sreq'; msg: string; pczt: string }
-  | { type: 's1'; commit: string }
-  | { type: 'sp'; signers: number[]; sp: string; msg: string }
-  | { type: 's2'; share: string }
-  | { type: 'signed'; sig: string; ok: boolean }
+  // `k` = the 0-based spend position in a multi-note tx. Each real Orchard spend is its own FROST
+  // ceremony (fresh nonces, its own alpha) over the SAME sighash; devices tag every round with `k`
+  // so a message for a later spend waits and an earlier one is ignored. For a single-spend tx k=0.
+  | { type: 's1'; commit: string; k: number }
+  | { type: 'sp'; signers: number[]; sp: string; msg: string; k: number }
+  | { type: 's2'; share: string; k: number }
+  | { type: 'signed'; sig: string; ok: boolean; k: number }
 
 // The message the vault signs is a REAL Orchard shielded sighash — the one from Konclave's mainnet
 // DKG-vault send (tx aab00f90…). Each device reads the accompanying proven PCZT with describeOutputs
@@ -130,6 +133,21 @@ function Shell({ error, children }: { error: string; children: ReactNode }) {
       {children}
     </div>
   )
+}
+
+// Parse EVERY real Orchard spend the proven PCZT must sign. `extractRandomizers` returns 36-byte
+// records — a u32 little-endian action index followed by the 32-byte alpha — one per real spend.
+// A single-spend tx yields one record (its alpha === the old `.slice(4, 36)`); a multi-note tx
+// yields several, each a separate ceremony. Indices come straight from the PCZT the device signs,
+// so the response maps each signature to the exact on-chain spend the helper's `into_sigs` expects.
+function alphasFromPczt(pczt: Uint8Array): { index: number; alpha: Uint8Array }[] {
+  const rand = extractRandomizers(pczt)
+  const out: { index: number; alpha: Uint8Array }[] = []
+  for (let off = 0; off + 36 <= rand.length; off += 36) {
+    const index = rand[off]! | (rand[off + 1]! << 8) | (rand[off + 2]! << 16) | (rand[off + 3]! << 24)
+    out.push({ index: index >>> 0, alpha: rand.slice(off + 4, off + 36) })
+  }
+  return out
 }
 
 export default function NetVault() {
@@ -228,6 +246,13 @@ export default function NetVault() {
   // sign-request into the room, the coordinator drives the ceremony over ITS sighash+alpha+PCZT,
   // and the aggregate signature is posted back RAW for the helper to inject and broadcast.
   const helperReqRef = useRef<SignRequest | null>(null)
+  // Multi-spend: a real tx may consume several notes, each a separate FROST spend (own alpha, same
+  // sighash). These drive the ceremonies SEQUENTIALLY over the relay, spend by spend. For a
+  // single-spend tx there is exactly one, so the flow is identical to the previous single ceremony.
+  const signSpendsRef = useRef<{ index: number; alpha: Uint8Array }[]>([]) // all real spends, in order
+  const signCurRef = useRef(0) // 0-based position of the spend being signed right now
+  const signSigsRef = useRef<{ index: number; sig: string }[]>([]) // accumulated per-spend signatures
+  const startedSpendsRef = useRef<Set<number>>(new Set()) // beginSpend fires once per position
   // Ceremony watchdog: fires if the vault isn't created in time (a peer never joined, a
   // message was lost) — surfaces an error instead of hanging on "Criando…" forever (§8).
   const ceremonyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -293,6 +318,31 @@ export default function NetVault() {
     addLog(tt('net.log.round3'))
   }, [addLog, tt])
 
+  // Start (or advance to) the ceremony for spend position `k`: reset the per-round state, pick that
+  // spend's alpha, generate FRESH nonces (never reused across signatures), and broadcast this
+  // device's commitment tagged with `k`. Fires once per position (guarded), on every device.
+  const beginSpend = useCallback(
+    async (k: number) => {
+      if (startedSpendsRef.current.has(k)) return
+      startedSpendsRef.current.add(k)
+      signCurRef.current = k
+      signAlphaRef.current = signSpendsRef.current[k]?.alpha ?? null
+      signCommitsRef.current = new Map()
+      spSentRef.current = false
+      spRef.current = null
+      sentS2Ref.current = false
+      signSharesSeenRef.current = new Set()
+      sigDoneRef.current = false
+      coordRef.current = null
+      const r1 = participantRound1(signingMaterial().keyPackage)
+      myNoncesRef.current = r1.nonces()
+      await send({ type: 's1', commit: b64(r1.commitment()), k })
+      const n = signSpendsRef.current.length
+      addLog(n > 1 ? `~ signing spend ${k + 1}/${n}` : tt('net.log.signCommit'))
+    },
+    [send, signingMaterial, addLog, tt],
+  )
+
   const applyMsg = useCallback(
     async (msg: RelayMsg): Promise<boolean> => {
       let parsed: Msg
@@ -311,10 +361,10 @@ export default function NetVault() {
       const helperReq = parseSignRequest(msg.data)
       if (helperReq) {
         helperReqRef.current = helperReq
-        // Single-spend requests only for now — a multi-note PCZT needs one ceremony per randomizer
-        // (as orchestrator::send does), which is the follow-up; a single sig for many spends would
-        // be rejected by the helper's `into_sigs` count check, so don't drive it here.
-        if (mySeatRef.current === 1 && !sigDoneRef.current && helperReq.spends.length === 1) {
+        // The coordinator kicks off the ceremony over the helper's real PCZT. `sreq` carries the
+        // sighash + PCZT; each device reads ALL real spends' alphas from that PCZT and signs them one
+        // ceremony at a time, so single- and multi-note transactions take the same path.
+        if (mySeatRef.current === 1 && !sigDoneRef.current && helperReq.spends.length >= 1) {
           await send({
             type: 'sreq',
             msg: b64(hexBytes(helperReq.sighash)),
@@ -388,13 +438,15 @@ export default function NetVault() {
         if (!signStartedRef.current) {
           signStartedRef.current = true
           signMsgRef.current = unb64(parsed.msg)
-          // The real Orchard randomizer (alpha) of the spend, read from the PCZT every device holds.
-          // Each device signs under this exact alpha (records are 36 bytes: u32 index + 32-byte alpha).
-          signAlphaRef.current = extractRandomizers(unb64(parsed.pczt)).slice(4, 36)
-          // "What am I signing?" — every device reads the proven PCZT itself and confirms what it
-          // pays before contributing a signature. A device signs only what it can independently see.
+          const pczt = unb64(parsed.pczt)
+          // Every device reads ALL real Orchard spends (index + alpha) from the proven PCZT it holds
+          // — it signs only what it can independently see. One ceremony per spend, in order.
+          signSpendsRef.current = alphasFromPczt(pczt)
+          signSigsRef.current = []
+          startedSpendsRef.current = new Set()
+          // "What am I signing?" — confirm what the tx pays before contributing any signature.
           try {
-            const outs = JSON.parse(describeOutputs(unb64(parsed.pczt))) as {
+            const outs = JSON.parse(describeOutputs(pczt)) as {
               address: string | null
               value: number | null
             }[]
@@ -407,15 +459,15 @@ export default function NetVault() {
             /* if the PCZT can't be read, the UI simply shows no preview; the ceremony still runs */
           }
           setSignPhase('signing')
-          const r1 = participantRound1(signingMaterial().keyPackage)
-          myNoncesRef.current = r1.nonces()
-          await send({ type: 's1', commit: b64(r1.commitment()) })
-          addLog(tt('net.log.signCommit'))
+          await beginSpend(0) // the first (and, for a single-spend tx, the only) ceremony
         }
         return true
       }
       if (parsed.type === 's1') {
         if (!signStartedRef.current) return false
+        // Spend-tagged: a message for a LATER spend waits (re-applied after we advance); an EARLIER
+        // one is stale and dropped. Keeps N sequential ceremonies from crossing over the relay.
+        if (parsed.k !== signCurRef.current) return parsed.k > signCurRef.current ? false : true
         const seat = seatByTagRef.current.get(msg.from)
         if (seat === undefined) return false
         signCommitsRef.current.set(seat, unb64(parsed.commit))
@@ -434,12 +486,15 @@ export default function NetVault() {
             signers: chosen,
             sp: b64(spRef.current),
             msg: b64(signMsgRef.current),
+            k: signCurRef.current,
           })
           addLog(tt('net.log.signCoord', { seats: chosen.join(', ') }))
         }
         return true
       }
       if (parsed.type === 'sp') {
+        if (!signStartedRef.current) return false
+        if (parsed.k !== signCurRef.current) return parsed.k > signCurRef.current ? false : true
         spRef.current = unb64(parsed.sp)
         signMsgRef.current = unb64(parsed.msg)
         if (
@@ -452,16 +507,18 @@ export default function NetVault() {
             spRef.current,
             myNoncesRef.current,
             signingMaterial().keyPackage,
-            signAlphaRef.current,
+            signAlphaRef.current, // the current spend's alpha (set by beginSpend)
           )
           sentS2Ref.current = true
-          await send({ type: 's2', share: b64(share) })
+          await send({ type: 's2', share: b64(share), k: signCurRef.current })
           addLog(tt('net.log.signShare'))
         }
         return true
       }
       if (parsed.type === 's2') {
+        if (!signStartedRef.current) return false
         if (mySeatRef.current !== 1) return true // only the coordinator aggregates
+        if (parsed.k !== signCurRef.current) return parsed.k > signCurRef.current ? false : true
         if (!coordRef.current) return false
         const seat = seatByTagRef.current.get(msg.from)
         if (seat === undefined) return false
@@ -473,22 +530,17 @@ export default function NetVault() {
           sigDoneRef.current = true
           const sig = coordRef.current.aggregateWithRandomizer(signAlphaRef.current)
           const ok = coordRef.current.verifyWithRandomizer(signAlphaRef.current, sig)
-          await send({ type: 'signed', sig: b64(sig), ok })
+          // Broadcast this spend's signature tagged with `k`; every device records it and either
+          // advances to the next spend or finalizes (the `signed` handler). The Architecture B
+          // response for the WHOLE set is posted once, at the last spend.
+          await send({ type: 'signed', sig: b64(sig), ok, k: signCurRef.current })
           addLog(tt('net.log.signAggregate'))
-          // Architecture B: if a helper requested this signature, hand it back RAW (outside the Msg
-          // envelope) so the helper's `collect_response` can parse it, inject it into the PCZT, and
-          // broadcast. Single-spend only, matching what the request path drove.
-          const req = helperReqRef.current
-          if (req && ok && req.spends.length === 1) {
-            const resp = buildSignResponse([{ index: req.spends[0]!.index, sig: bytesToHex(sig) }])
-            await sessionRef.current?.send(resp)
-            addLog('-> signature handed to the helper')
-            helperReqRef.current = null
-          }
         }
         return true
       }
       if (parsed.type === 'signed') {
+        if (!signStartedRef.current) return false
+        if (parsed.k !== signCurRef.current) return parsed.k > signCurRef.current ? false : true
         const sig = unb64(parsed.sig)
         let ok = parsed.ok
         try {
@@ -503,10 +555,32 @@ export default function NetVault() {
         } catch {
           /* keep the coordinator's result if local verify throws */
         }
+        // Record this spend's signature under its on-chain index (dedup — the fixpoint may retry).
+        const spend = signSpendsRef.current[signCurRef.current]
+        if (spend && !signSigsRef.current.some((s) => s.index === spend.index)) {
+          signSigsRef.current.push({ index: spend.index, sig: bytesToHex(sig) })
+        }
+        const total = signSpendsRef.current.length
+        const isLast = signCurRef.current >= total - 1
+        if (!isLast) {
+          // More spends to sign: every device advances to the next ceremony (fresh nonces, next alpha).
+          setSignPhase('signing')
+          await beginSpend(signCurRef.current + 1)
+          return true
+        }
+        // Last spend done: show the result and (Architecture B) hand the FULL set of signatures back
+        // to the helper RAW so it can inject every one and broadcast.
         setSignature(hex(sig))
         setSignOk(ok)
         setSignPhase('signed')
         addLog(ok ? tt('net.log.verifyOk') : tt('net.log.verifyFail'))
+        const req = helperReqRef.current
+        if (req && mySeatRef.current === 1 && signSigsRef.current.length === total) {
+          const resp = buildSignResponse(signSigsRef.current)
+          await sessionRef.current?.send(resp)
+          addLog(`-> ${total} signature(s) handed to the helper`)
+          helperReqRef.current = null
+        }
         return true
       }
       return true
@@ -516,7 +590,7 @@ export default function NetVault() {
         return true // consume so the fixpoint never re-throws the same message
       }
     },
-    [addLog, doPart2, doPart3, send, tt, signingMaterial],
+    [addLog, doPart2, doPart3, send, tt, signingMaterial, beginSpend],
   )
 
   const startSign = useCallback(async () => {
