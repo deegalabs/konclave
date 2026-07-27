@@ -158,8 +158,9 @@ active copy ("Propose payment" → "Approve" → "Sent"). States always visible.
 ## 8. Destructive test suite (born in Phase 3)
 
 The code is born to pass these failure scenarios. **Honest coverage: 7 of 8 have automated
-tests; `frostd`-offline is validated live (not in unit tests); multi-device reconciliation has
-its decision core implemented + tested, with store/sync wiring the remaining follow-up.**
+tests; `frostd`-offline is validated live (not in unit tests); multi-device reconciliation has its
+decision core + store wiring implemented and tested, with only the live fresh-sync trigger (I/O)
+remaining.**
 - Insufficient quorum. — ✅ tested (proposal state machine + `409` votes)
 - Corrupted / missing share. — ✅ tested (sealed-share tamper/wrong-key + FROST share repair)
 - `frostd` offline. — ⚠️ validated **live only** (the ceremony talks to a real frostd; no unit test)
@@ -167,12 +168,14 @@ its decision core implemented + tested, with store/sync wiring the remaining fol
 - **Sapling address instead of Orchard** (risk of locked funds). — ✅ tested (authoritative `zcash_address` decode)
 - Insufficient balance. — ✅ tested (against a `WalletReader`; the test uses a mock balance, not a real sync)
 - Expired proposal. — ✅ tested
-- Multi-device reconciliation (local cache diverges from on-chain → on-chain wins). — 🟡 **decision
-  core implemented + tested** (`orchestrator::reconcile`: a pure, deterministic "on-chain wins"
-  engine — promotes a `Sent` proposal whose txid confirmed, invalidates live reservations the
-  freshly-synced spendable can no longer fund, FIFO by `created_at` so every device agrees; 10
-  destructive tests). **Store/sync wiring** (apply the report to the SQLite records + trigger a
-  fresh sync) is the remaining follow-up.
+- Multi-device reconciliation (local cache diverges from on-chain → on-chain wins). — ✅ **decision
+  core + store wiring implemented and tested** (`orchestrator::reconcile`: a pure, deterministic
+  "on-chain wins" engine — promotes a `Sent` proposal whose txid confirmed, invalidates live
+  reservations the freshly-synced spendable can no longer fund, FIFO by `created_at` so every device
+  agrees; 10 destructive tests. `Store::reconcile_proposals` maps the cached records in and persists
+  the outcomes: `Confirm`→`Confirmed`, `Invalidate`→ the new terminal `Superseded` state; 4 store
+  tests). The one remaining piece is the **fresh-sync trigger** — obtaining the `ChainSnapshot` from
+  a live wallet sync (I/O), which the pure engine deliberately never does.
 
 > Testing multi-member solo = running N `frost-client` identities against one `frostd`.
 
@@ -607,6 +610,6 @@ instead of always showing PT.
   untestable). Code debt in the implemented crates: effectively **zero** (no TODO/FIXME/unimplemented
   in production paths; CI green).
 
-**Next (non-gated):** the multi-device reconciliation **decision core landed** (`orchestrator::reconcile`,
-pure "on-chain wins" engine, 10 tests — §8 now 7 of 8 automated); remaining is its store/sync wiring
-and multi-spend for the /net Arch B path.
+**Next (non-gated):** multi-device reconciliation is now **decision core + store wiring**
+(`orchestrator::reconcile` + `Store::reconcile_proposals`, `Superseded` terminal state; 14 tests),
+with only the live fresh-sync trigger left; and multi-spend for the /net Arch B path.
