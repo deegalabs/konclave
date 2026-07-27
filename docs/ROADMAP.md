@@ -145,13 +145,21 @@ cryptography. Ordered by priority.
   pre-Ironwood mainnet transactions; a clean cut at activation avoids a dual-maintenance window
   (see `temp/IRONWOOD-PRODUCTIZATION-PLAN.md`). Until activation the repo is
   deliberately left on the mainnet-valid pin.
+- **Re-validated (2026-07-27):** the pin is confirmed identical to `zcash-devtool` `origin/main`
+  (the reference Ironwood tool), so the PCZT wire format stays byte-for-byte compatible; the
+  final librustzcash crates (zcash_primitives 0.30.0, orchard 0.15.4, pczt 0.9.1) are newer than
+  what devtool main pins, so we hold and bump when devtool does. The **repo** `konclave-signer`
+  (dual-pool) was re-run end to end on testnet — a 4-real-spend transaction, one FROST 2-of-3
+  ceremony per spend, mined — so the branch is proven ready for the activation cut.
 
-## C. On-device share persistence
-- Today a device holds its share only in memory. Add encrypted at-rest persistence unlocked
-  per device (passphrase / passkey / biometric), so a member can close and reopen the app
-  without losing the vault. This is the shared prerequisite for both desktop and mobile.
-- Custody invariant: the share is stored **encrypted**, unlocked only on the device; viewing
+## C. On-device share persistence — done (web)
+- **Done:** a device's share is persisted **encrypted at rest** (WebCrypto PBKDF2 → AES-GCM in
+  IndexedDB, `ui/src/storage.ts`), unlocked per device by a passphrase; a member can close and
+  reopen the app, restore the share, and **rejoin a signing session** without losing the vault.
+- Custody invariant held: the share is stored **encrypted**, unlocked only on the device; viewing
   keys are always derived through ZIP-32 / official tooling, never as a hash of a shared value.
+- **Next (with the shells):** desktop/mobile move the unlock to the OS keystore (Keychain /
+  Credential Manager / Secret Service) and add passkey / biometric unlock.
 
 ## D. Multi-platform delivery (one core, three shells)
 One UI (`ui/`) and one crypto core (`konclave-wasm`) behind a blind relay, packaged three ways:
@@ -163,8 +171,11 @@ One UI (`ui/`) and one crypto core (`konclave-wasm`) behind a blind relay, packa
   service), because the mechanics are trustless and cannot move funds without the quorum.
 
 ## E. Closing the loop and depth
-- Real broadcast from the browser (fund a vault, build/prove server-side, sign in-browser,
-  inject and send).
+- **Real broadcast from the browser — in progress (Architecture B, PR #11).** The design is
+  settled and the protocol built + unit-tested on both sides: devices keep the shares and sign
+  over the blind relay; a helper (never sees a share) builds/proves the PCZT for the vault's own
+  address, injects, broadcasts. Remaining: the live NetVault relay wiring + the end-to-end testnet
+  proof (a funded browser-DKG vault). See §A and `temp/NET-REAL-BROADCAST-SCOPING.md`.
 - Multi-device reconciliation (on-chain wins when the local cache diverges) — the last open
   item of the destructive-test suite.
 - Accounting depth (fiat valuation, cost basis, bookkeeping-software export).
