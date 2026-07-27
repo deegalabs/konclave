@@ -1,6 +1,6 @@
 # konclave-signer
 
-The **FROST ↔ PCZT bridge**: the seed of the Konclave Orquestrador (Layer 2).
+The **FROST ↔ PCZT bridge**: the seed of the Konclave Orchestrator (Layer 2).
 
 ## Why it exists
 
@@ -45,9 +45,9 @@ txid `f63ee64d7bc086a8286631d03936ec2ca2ca57f4e4c63712fc95c1f02c522360`
 
 ## Status
 
-Standalone helper crate for the vertical slice. It will be folded into the
-Orquestrador (`src-tauri/`) as the signing module. Build (in the Linux/WSL2 build
-environment): `cargo build --release`.
+Standalone helper crate for the vertical slice. It is now invoked by the
+`orchestrator/` crate (Layer 2) as the signing module (extract / inject /
+build-payroll). Build (in the Linux/WSL2 build environment): `cargo build --release`.
 
 ## License
 

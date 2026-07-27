@@ -7,7 +7,7 @@ Cargo.lock.bak
 src-tauri/gen/
 src-tauri/target/
 
-# Node / Next.js (Rosto)
+# Node / frontend (ui)
 node_modules/
 .next/
 out/
@@ -16,11 +16,11 @@ dist/
 .npm/
 .pnpm-store/
 
-# Binários do Motor compilados (versionamos o pin, não os binários)
-motor/bin/
+# Compiled engine binaries (we version the pin, not the binaries)
+engine/bin/
 
-# Segredos e estado local — NUNCA versionar
-# (key shares, seeds, config de cofre, dados sensíveis)
+# Secrets and local state — NEVER version
+# (key shares, seeds, vault config, sensitive data)
 *.key
 *.share
 *.seed
@@ -29,7 +29,7 @@ secrets/
 .env.*
 !.env.example
 
-# Estado local do app (SQLite, cache de sync)
+# Local app state (SQLite, sync cache)
 *.sqlite
 *.sqlite-*
 *.db
@@ -40,18 +40,18 @@ docs/UX_E_FLUXOS.md
 docs/LOGICA_E_REGRAS.md
 docs/HANDOFF.md
 
-# Pasta de trabalho local (análises, planos, necessidades) — nunca versionar
+# Local working folder (analyses, plans, notes) — never version
 /temp/
 
 # Internal security audit log — kept private until findings are fixed
 SECURITY_AUDIT.md
 
-# SO
+# OS
 .DS_Store
 Thumbs.db
 desktop.ini
 
-# Editores
+# Editors
 .vscode/
 .idea/
 *.swp

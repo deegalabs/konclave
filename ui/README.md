@@ -1,22 +1,33 @@
-# ui/: Camada 3 (interface)
+# ui/: Layer 3 (interface)
 
-A experiência humana. **Next.js/React** em static export, servido pelo Tauri. Princípio
-mestre: **esconder a criptografia, expor a confiança**. O usuário vê cofre, membros,
-aprovação, pagamento; nunca "FROST", "DKG", "SIGHASH".
+The human experience. **Vite + React + TypeScript** as a static bundle
+([ADR-0003](../docs/adr/0003-vite-over-nextjs.md) revised the originally considered
+Next.js — inapplicable to a local-first app with no server). Served locally by the
+Orchestrator's loopback HTTP bridge (`konclave serve`, [ADR-0004](../docs/adr/0004-local-http-bridge.md)),
+not by Tauri (packaging as a single desktop binary is a roadmap item). Master principle:
+**hide the cryptography, expose the trust**. The user sees vault, members, approval,
+payment; never "FROST", "DKG", "SIGHASH". The interface is **bilingual** (PT-BR default + EN,
+a dependency-free i18n with a language toggle).
 
-## Telas (a partir da Fase 4)
-Abertura · Criar/Entrar cofre (cerimônia) · Painel (saldo/pendências/histórico) ·
-Novo pagamento · Nova folha · Proposta (aprovar/recusar) · Enviado (link explorador) ·
-Saldo/Histórico · Membros · Propostas pendentes.
+## Screens
+Intro · Create/Join vault (Ceremony) · Dashboard (balance / pending / history) ·
+New Payment · New Payroll · Proposal (approve/refuse) · Sent (explorer link) ·
+Ledger · Members · Receive · Docs · plus the network surfaces (`/net`, `/signer`,
+`/proof`, `/recovery`, `/inheritance`).
 
-## Regras de interação
-- Toda ação que move fundos: **preview + confirmação explícita**. Nunca clique único.
-- Copy honesta e ativa ("Propor pagamento" → "Aprovar" → "Enviado").
-- Erros dirigem, não se desculpam. Estados sempre visíveis.
-- Privacidade como gesto: ocultar/mostrar saldo nativo.
-- Acessibilidade de piso: foco de teclado, contraste, motion reduzido.
+## Interaction rules
+- Every action that moves funds: **preview + explicit confirmation**. Never a single click.
+- Honest, active copy ("Propose payment" → "Approve" → "Sent").
+- Errors guide, they do not apologize. States always visible.
+- Privacy as a gesture: native hide/show balance.
+- Baseline accessibility: keyboard focus, contrast, reduced motion (WCAG 2.2 AA pass).
 
 ## Design
-Token system (paleta, tipografia, elemento-assinatura) derivado do mundo Zcash/Orchard,
-definido na **Fase 4A** com a skill `frontend-design`, validado antes de virar tela.
-Desenvolve contra **mock** do Orquestrador (`ui/mocks/`) até a integração (Fase 5).
+Design system **"Lacre"** (`ui/src/lacre.css`): token system (palette, typography,
+signature element) derived from the Zcash/Orchard world, consolidated through the GSP
+brand pipeline (see `.design/branding/konclave/` and `STYLE.md`).
+
+## Data
+Wired to live data through `ui/src/api.ts` (the loopback `/api/*` bridge) with a fallback
+to the mock (`ui/src/mock.ts`, gated on `VITE_DEMO` for the hosted demo). Run: `npm run dev`
+(Vite dev server, `/api` proxied to the bridge) · `npm run build` · `npm run lint`.
