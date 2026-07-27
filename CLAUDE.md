@@ -158,9 +158,10 @@ active copy ("Propose payment" → "Approve" → "Sent"). States always visible.
 ## 8. Destructive test suite (born in Phase 3)
 
 The code is born to pass these failure scenarios. **Honest coverage: 7 of 8 have automated
-tests; `frostd`-offline is validated live (not in unit tests); multi-device reconciliation has its
-decision core + store wiring implemented and tested, with only the live fresh-sync trigger (I/O)
-remaining.**
+tests (the 8th, `frostd`-offline, is validated live, not in unit tests); multi-device reconciliation
+is implemented and tested end to end (engine + store + the `POST /api/vault/reconcile` trigger), with
+only the `confirmed_txids` source (a wallet tx-status query for the `Sent`→`Confirmed` half) still
+stubbed.**
 - Insufficient quorum. — ✅ tested (proposal state machine + `409` votes)
 - Corrupted / missing share. — ✅ tested (sealed-share tamper/wrong-key + FROST share repair)
 - `frostd` offline. — ⚠️ validated **live only** (the ceremony talks to a real frostd; no unit test)
@@ -174,8 +175,11 @@ remaining.**
   reservations the freshly-synced spendable can no longer fund, FIFO by `created_at` so every device
   agrees; 10 destructive tests. `Store::reconcile_proposals` maps the cached records in and persists
   the outcomes: `Confirm`→`Confirmed`, `Invalidate`→ the new terminal `Superseded` state; 4 store
-  tests). The one remaining piece is the **fresh-sync trigger** — obtaining the `ChainSnapshot` from
-  a live wallet sync (I/O), which the pure engine deliberately never does.
+  tests. The **fresh-sync trigger** also landed: `server::reconcile_vault` + `POST /api/vault/reconcile`
+  read the on-chain Orchard spendable and run the engine; 3 server tests via a `FakeWallet`). The one
+  honest gap left is the `confirmed_txids` source for the `Confirm` half — promoting a `Sent` proposal
+  needs a wallet tx-status query the reader does not yet expose; the balance-based `Invalidate` half is
+  complete end to end.
 
 > Testing multi-member solo = running N `frost-client` identities against one `frostd`.
 
@@ -610,6 +614,8 @@ instead of always showing PT.
   untestable). Code debt in the implemented crates: effectively **zero** (no TODO/FIXME/unimplemented
   in production paths; CI green).
 
-**Next (non-gated):** multi-device reconciliation is now **decision core + store wiring**
-(`orchestrator::reconcile` + `Store::reconcile_proposals`, `Superseded` terminal state; 14 tests),
-with only the live fresh-sync trigger left; and multi-spend for the /net Arch B path.
+**Next (non-gated):** multi-device reconciliation is now **decision core + store wiring + fresh-sync
+trigger** (`orchestrator::reconcile` + `Store::reconcile_proposals` + `server::reconcile_vault` /
+`POST /api/vault/reconcile`, `Superseded` terminal state; 17 tests). The last honest gap is the
+`confirmed_txids` source (a wallet tx-status query for the `Sent`→`Confirmed` half). Also open:
+multi-spend for the /net Arch B path.

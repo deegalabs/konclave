@@ -295,6 +295,9 @@ pub fn handle(cfg: &Config, method: &str, raw_path: &str, body: &[u8]) -> Respon
         if path == "/api/vault/delete" {
             return vault_delete(cfg, body, vsel);
         }
+        if path == "/api/vault/reconcile" {
+            return reconcile_handler(cfg, vsel);
+        }
         if path == "/api/beneficiaries" {
             return beneficiary_add(cfg, body, vsel);
         }
@@ -2104,6 +2107,73 @@ pub fn serve(cfg: Config, port: u16) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Reconcile a vault's cached proposals against a FRESH on-chain balance (multi-device
+/// reconciliation, §8 — on-chain wins). Reads the Orchard spendable from a live wallet sync and
+/// applies the pure [`crate::reconcile`] decision through [`Store::reconcile_proposals`].
+///
+/// `confirmed_txids` is left empty for now: promoting a `Sent` proposal to `Confirmed` needs a
+/// wallet tx-status query the reader does not yet expose (the follow-up). The **balance half** —
+/// invalidating (`Superseded`) reservations the freshly-synced spendable can no longer fund because
+/// another device already spent — is complete and returned in the report.
+pub fn reconcile_vault(
+    store: &mut Store,
+    wallet: &dyn WalletReader,
+    vault_id: &str,
+) -> Result<crate::reconcile::ReconcileReport, String> {
+    let bal = wallet.balance()?;
+    let snapshot = crate::reconcile::ChainSnapshot {
+        spendable: bal.orchard_spendable,
+        confirmed_txids: Vec::new(),
+    };
+    store
+        .reconcile_proposals(vault_id, &snapshot)
+        .map_err(|e| e.to_string())
+}
+
+fn reconcile_report_json(report: &crate::reconcile::ReconcileReport) -> serde_json::Value {
+    use crate::reconcile::Outcome;
+    let changes: Vec<serde_json::Value> = report
+        .changes()
+        .map(|d| {
+            let (outcome, reason) = match &d.outcome {
+                Outcome::Confirm => ("confirm", None),
+                Outcome::Invalidate { reason } => ("invalidate", Some(reason.clone())),
+                Outcome::Unchanged => ("unchanged", None),
+            };
+            serde_json::json!({ "id": d.id, "outcome": outcome, "reason": reason })
+        })
+        .collect();
+    serde_json::json!({
+        "diverged": report.diverged(),
+        "reserved_live": report.reserved_live.as_u64(),
+        "over_reserved": report.over_reserved.as_u64(),
+        "changes": changes,
+    })
+}
+
+/// `POST /api/vault/reconcile` — sync the on-chain balance and reconcile this vault's proposals
+/// (§8, on-chain wins). Needs a live wallet; returns the reconciliation report so the UI can show
+/// what the chain changed (a payment another device already sent, a now-unfundable reservation).
+fn reconcile_handler(cfg: &Config, want: Option<&str>) -> Response {
+    let wallet = match cfg.wallet.as_ref() {
+        Some(w) => w,
+        None => return bad("reconciliation needs a live wallet balance", "no wallet"),
+    };
+    let mut store = match open_store(cfg) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    let vault_id = match resolve_vault_id(&store, want) {
+        Ok(Some(id)) => id,
+        Ok(None) => return bad("no vault on this device", "no vault"),
+        Err(r) => return r,
+    };
+    match reconcile_vault(&mut store, wallet.as_ref(), &vault_id) {
+        Ok(report) => Response::json(200, &reconcile_report_json(&report)),
+        Err(e) => Response::json(500, &serde_json::json!({"error": "reconcile", "detail": e})),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2137,6 +2207,105 @@ mod tests {
 
     fn body_json(r: &Response) -> serde_json::Value {
         serde_json::from_slice(&r.body).expect("json body")
+    }
+
+    // ---- multi-device reconciliation trigger (§8) ----
+
+    fn bal(orchard: u64) -> Balance {
+        Balance {
+            chain_tip_height: 1,
+            orchard_spendable: Zatoshis::from_u64(orchard).unwrap(),
+            sapling_spendable: Zatoshis::ZERO,
+            transparent_spendable: Zatoshis::ZERO,
+            total: Zatoshis::from_u64(orchard).unwrap(),
+        }
+    }
+
+    fn seed_reservation(db: &str, id: &str, value: u64) {
+        let mut store = Store::open(db).unwrap();
+        if store.list_vaults().unwrap().is_empty() {
+            store
+                .save_vault(&VaultRecord {
+                    id: "v".into(),
+                    name: "V".into(),
+                    quorum: crate::proposal::Quorum::new(2, 3).unwrap(),
+                    group_pubkey: "g".into(),
+                    orchard_address: "a".into(),
+                    ufvk: "u".into(),
+                    server_url: None,
+                })
+                .unwrap();
+        }
+        store
+            .save_proposal(&ProposalRecord {
+                id: id.into(),
+                vault_id: "v".into(),
+                kind: ProposalKind::Payment,
+                state: crate::proposal::ProposalState::Ready,
+                proposer: "alice".into(),
+                value_total: Zatoshis::from_u64(value).unwrap(),
+                memo: None,
+                to_address: Some("u1x".into()),
+                expiry_unix: None,
+                txid: None,
+                created_at: Some(1),
+                approvals: vec![],
+                refusals: vec![],
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn reconcile_vault_supersedes_a_reservation_the_chain_cannot_fund() {
+        let db = tmp_db();
+        seed_reservation(&db, "big", 80_000);
+        let mut store = Store::open(&db).unwrap();
+        let wallet = FakeWallet {
+            result: Ok(bal(50_000)),
+        };
+
+        let report = reconcile_vault(&mut store, &wallet, "v").unwrap();
+
+        assert!(report.diverged());
+        assert_eq!(report.over_reserved.as_u64(), 30_000);
+        assert_eq!(
+            store.get_proposal("big").unwrap().unwrap().state,
+            crate::proposal::ProposalState::Superseded
+        );
+    }
+
+    #[test]
+    fn reconcile_endpoint_returns_the_report_and_persists() {
+        let db = tmp_db();
+        seed_reservation(&db, "big", 80_000);
+        let cfg = cfg_with(
+            db.clone(),
+            Some(Box::new(FakeWallet {
+                result: Ok(bal(50_000)),
+            })),
+        );
+
+        let r = handle(&cfg, "POST", "/api/vault/reconcile", b"");
+        assert_eq!(r.status, 200);
+        let j = body_json(&r);
+        assert_eq!(j["diverged"], true);
+        assert_eq!(j["over_reserved"], 30_000);
+        assert_eq!(j["changes"][0]["outcome"], "invalidate");
+
+        // The divergence was persisted, not just reported.
+        let store = Store::open(&db).unwrap();
+        assert_eq!(
+            store.get_proposal("big").unwrap().unwrap().state,
+            crate::proposal::ProposalState::Superseded
+        );
+    }
+
+    #[test]
+    fn reconcile_endpoint_without_a_wallet_is_a_clear_400() {
+        let cfg = seeded_cfg(None);
+        let r = handle(&cfg, "POST", "/api/vault/reconcile", b"");
+        assert_eq!(r.status, 400);
+        assert_eq!(body_json(&r)["error"], "no wallet");
     }
 
     // ---- local-bridge security gate (anti CSRF / DNS-rebinding) ----
