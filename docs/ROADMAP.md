@@ -176,6 +176,7 @@ One UI (`ui/`) and one crypto core (`konclave-wasm`) behind a blind relay, packa
   over the blind relay; a helper (never sees a share) builds/proves the PCZT for the vault's own
   address, injects, broadcasts. Remaining: the live NetVault relay wiring + the end-to-end testnet
   proof (a funded browser-DKG vault). See §A and `temp/NET-REAL-BROADCAST-SCOPING.md`.
-- Multi-device reconciliation (on-chain wins when the local cache diverges) — the last open
-  item of the destructive-test suite.
+- Multi-device reconciliation (on-chain wins when the local cache diverges) — the decision core
+  landed (`orchestrator::reconcile`, a pure deterministic "on-chain wins" engine, 10 destructive
+  tests); the remaining work is wiring the report to the store + a fresh sync.
 - Accounting depth (fiat valuation, cost basis, bookkeeping-software export).

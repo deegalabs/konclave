@@ -157,9 +157,9 @@ active copy ("Propose payment" → "Approve" → "Sent"). States always visible.
 
 ## 8. Destructive test suite (born in Phase 3)
 
-The code is born to pass these failure scenarios. **Honest coverage: 6 of 8 have automated
-tests; `frostd`-offline is validated live (not in unit tests); multi-device reconciliation is
-not yet implemented or tested.**
+The code is born to pass these failure scenarios. **Honest coverage: 7 of 8 have automated
+tests; `frostd`-offline is validated live (not in unit tests); multi-device reconciliation has
+its decision core implemented + tested, with store/sync wiring the remaining follow-up.**
 - Insufficient quorum. — ✅ tested (proposal state machine + `409` votes)
 - Corrupted / missing share. — ✅ tested (sealed-share tamper/wrong-key + FROST share repair)
 - `frostd` offline. — ⚠️ validated **live only** (the ceremony talks to a real frostd; no unit test)
@@ -167,8 +167,12 @@ not yet implemented or tested.**
 - **Sapling address instead of Orchard** (risk of locked funds). — ✅ tested (authoritative `zcash_address` decode)
 - Insufficient balance. — ✅ tested (against a `WalletReader`; the test uses a mock balance, not a real sync)
 - Expired proposal. — ✅ tested
-- Multi-device reconciliation (local cache diverges from on-chain → on-chain wins). — 🔴 **not
-  implemented, not tested** (open debt).
+- Multi-device reconciliation (local cache diverges from on-chain → on-chain wins). — 🟡 **decision
+  core implemented + tested** (`orchestrator::reconcile`: a pure, deterministic "on-chain wins"
+  engine — promotes a `Sent` proposal whose txid confirmed, invalidates live reservations the
+  freshly-synced spendable can no longer fund, FIFO by `created_at` so every device agrees; 10
+  destructive tests). **Store/sync wiring** (apply the report to the SQLite records + trigger a
+  fresh sync) is the remaining follow-up.
 
 > Testing multi-member solo = running N `frost-client` identities against one `frostd`.
 
@@ -599,5 +603,6 @@ instead of always showing PT.
   untestable). Code debt in the implemented crates: effectively **zero** (no TODO/FIXME/unimplemented
   in production paths; CI green).
 
-**Next (non-gated):** multi-device reconciliation (the last open item of the §8 destructive suite —
-on-chain wins when the local cache diverges) and multi-spend for the /net Arch B path.
+**Next (non-gated):** the multi-device reconciliation **decision core landed** (`orchestrator::reconcile`,
+pure "on-chain wins" engine, 10 tests — §8 now 7 of 8 automated); remaining is its store/sync wiring
+and multi-spend for the /net Arch B path.

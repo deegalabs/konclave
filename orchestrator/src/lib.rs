@@ -12,6 +12,7 @@
 pub mod money;
 pub mod payroll;
 pub mod proposal;
+pub mod reconcile;
 pub mod validation;
 
 // --- authoritative Zcash address validation (audit M2; uses zcash_address) ---
