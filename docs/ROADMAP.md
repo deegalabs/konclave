@@ -161,14 +161,21 @@ cryptography. Ordered by priority.
 - **Next (with the shells):** desktop/mobile move the unlock to the OS keystore (Keychain /
   Credential Manager / Secret Service) and add passkey / biometric unlock.
 
-## D. Multi-platform delivery (one core, three shells)
-One UI (`ui/`) and one crypto core (`konclave-wasm`) behind a blind relay, packaged three ways:
-- **Web** — browser + WASM + hosted relay (done; verified across separate machines).
-- **Desktop** — a Tauri shell wrapping the `orchestrator`, producing native installers
-  (Windows / macOS / Linux).
-- **Mobile** — the same UI + WASM core (Tauri mobile / PWA); the device signs its share and
-  verifies what it signs. The heavy build/prove/broadcast stays off-device (operator or
-  service), because the mechanics are trustless and cannot move funds without the quorum.
+## D. Multi-platform delivery (web-first; native shells optional)
+**Decided: deliver web-first** — the browser + WASM + a blind relay is the universal client, so
+the whole per-distro packaging matrix is optional, not required ([ADR-0005](adr/0005-web-first-delivery.md)).
+One UI (`ui/`) and one crypto core (`konclave-wasm`) behind the relay:
+- **Web** — browser + WASM + hosted relay (done; verified across separate machines). **Now
+  installable as a PWA** (web app manifest + a network-first, update-safe service worker — the
+  `/api` and `/relay` responses are never cached; the share lives only in encrypted IndexedDB).
+- **Desktop (optional)** — a Tauri shell wrapping the `orchestrator` for native installers
+  (Windows / macOS / Linux); deferred while the dev machine's GTK/WSLg window won't render
+  ([ADR-0004](adr/0004-local-http-bridge.md)). Not Wails/Go: the backend is Rust and Wails hits
+  the same WebKitGTK wall.
+- **Mobile = the browser / PWA** — the same UI + WASM core; the device holds its share (encrypted
+  IndexedDB) and signs, while build/prove/broadcast stay off-device via the helper (Architecture B),
+  trustless and unable to move funds without the quorum. **Pending:** sign-after-restore in `/net`
+  (restore works; reconnect-and-sign after a reload is the remaining piece).
 
 ## E. Closing the loop and depth
 - **Real broadcast from the browser — in progress (Architecture B, PR #11).** The design is

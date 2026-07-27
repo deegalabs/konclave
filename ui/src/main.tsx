@@ -26,3 +26,12 @@ createRoot(document.getElementById('root')!).render(
     </I18nProvider>
   </StrictMode>,
 )
+
+// PWA: register the service worker so the app is installable and works offline (ADR-0005).
+// PROD-only so dev HMR is never intercepted by the cache. The SW is network-first and never
+// caches /api or /relay; the on-device share lives only in encrypted IndexedDB, never here.
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(() => {})
+  })
+}
