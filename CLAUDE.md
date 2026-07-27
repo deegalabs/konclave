@@ -600,11 +600,15 @@ instead of always showing PT.
   carries every spend, `into_sigs` count-validates and maps N sigs by index, and
   `net_orchestrate_send` injects every signature (4-spend `net_send` tests). The browser crypto is
   proven too: one FROST ceremony per spend (fresh nonces, its own alpha) yields N valid sigs and the
-  multi-sig response `into_sigs` accepts (`net-flow` multi-spend test). The one piece left is the
-  **live NetVault relay sequencing** of N ceremonies (the on-screen driver still guards to one
-  ceremony); like the single-spend live path, it needs an e2e proof to ship. **Honest limits:** the
-  **live broadcast** (a funded browser-DKG vault over the relay) is still pending, so CLAIMS.md keeps
-  "verified but not broadcast".
+  multi-sig response `into_sigs` accepts (`net-flow` multi-spend test). **The live NetVault driver now
+  runs N sequential ceremonies** over the relay: `sreq` reads every real spend's alpha from the PCZT,
+  a single `beginSpend(k)` resets round state + fresh nonces per spend, `s1/sp/s2/signed` are
+  spend-tagged with `k` (a later spend's messages wait via the existing deferral fixpoint, an earlier
+  one is dropped), and the coordinator posts the FULL signature set once at the last spend. N=1 takes
+  the identical path as before (35 UI tests green, no single-spend regression). **Honest limit:** the
+  **live multi-device relay proof** (two browsers signing a multi-note tx) is e2e-pending, exactly
+  like the single-spend live path; and the **live broadcast** (a funded browser-DKG vault) stays
+  pending, so CLAIMS.md keeps "verified but not broadcast".
 - **Ironwood mainnet port — still HELD (draft PR #10), now rebased clean on `main`.** The merge is
   timed to mainnet activation (~2026-07-28, block 3,428,143): out of draft → merge → rebuild the
   engine → run the flow (money-gated, needs an explicit "pode transmitir"). Re-validated on testnet
@@ -623,5 +627,6 @@ instead of always showing PT.
 trigger** (`orchestrator::reconcile` + `Store::reconcile_proposals` + `server::reconcile_vault` /
 `POST /api/vault/reconcile`, `Superseded` terminal state; 17 tests). The last honest gap is the
 `confirmed_txids` source (a wallet tx-status query for the `Sent`→`Confirmed` half). For /net
-multi-spend, the Rust helper + browser crypto are proven and tested; only the live NetVault
-N-ceremony relay sequencing remains (an e2e-gated piece, like the single-spend live proof).
+multi-spend, the Rust helper + browser crypto + the live NetVault N-ceremony driver are all
+implemented and tested; only the live multi-device relay proof (two browsers, a multi-note tx) is
+e2e-pending, exactly like the single-spend live path.
