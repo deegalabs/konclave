@@ -10,6 +10,7 @@ export const ptBR: Record<string, string> = {
   'state.rejected': 'recusada',
   'state.expired': 'expirada',
   'state.cancelled': 'cancelada',
+  'state.superseded': 'invalidada',
 
   // proposal state · capitalized stamp (proposal detail badge)
   'stamp.awaiting': 'Pendente',
@@ -19,6 +20,7 @@ export const ptBR: Record<string, string> = {
   'stamp.rejected': 'Recusada',
   'stamp.expired': 'Expirada',
   'stamp.cancelled': 'Cancelada',
+  'stamp.superseded': 'Invalidada',
 
   // proposal kind
   'kind.payment': 'Pagamento',

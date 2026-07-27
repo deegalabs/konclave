@@ -16,6 +16,8 @@ pub enum StoreError {
     Db(rusqlite::Error),
     /// A persisted value could not be mapped back to a domain type.
     Decode(String),
+    /// Reconciliation arithmetic failed (e.g. reservation totals overflowed `MAX_MONEY`).
+    Reconcile(String),
 }
 
 impl std::fmt::Display for StoreError {
@@ -23,6 +25,7 @@ impl std::fmt::Display for StoreError {
         match self {
             StoreError::Db(e) => write!(f, "database error: {e}"),
             StoreError::Decode(e) => write!(f, "could not decode stored value: {e}"),
+            StoreError::Reconcile(e) => write!(f, "reconciliation failed: {e}"),
         }
     }
 }
@@ -518,6 +521,50 @@ impl Store {
         heads.into_iter().map(|h| self.attach_votes(h)).collect()
     }
 
+    /// Reconcile this vault's cached proposals against an authoritative on-chain snapshot and
+    /// **apply** the result (multi-device reconciliation, §8 — on-chain wins):
+    ///   - a locally-`Sent` proposal whose txid the chain confirmed → `Confirmed`;
+    ///   - a live (`Awaiting`/`Ready`) reservation the freshly-synced spendable can no longer fund
+    ///     (another device already spent those notes) → `Superseded`.
+    ///
+    /// The `snapshot` must come from a **fresh wallet sync** (I/O the caller owns); this method
+    /// never touches the network. The pure decision lives in [`crate::reconcile`]; here we map the
+    /// stored records into it and persist only what changed. Returns the report so the caller can
+    /// surface each divergence to the user.
+    pub fn reconcile_proposals(
+        &mut self,
+        vault_id: &str,
+        snapshot: &crate::reconcile::ChainSnapshot,
+    ) -> Result<crate::reconcile::ReconcileReport, StoreError> {
+        let all = self.list_all_proposals(vault_id)?;
+        let locals: Vec<crate::reconcile::LocalProposal> = all
+            .iter()
+            .map(|r| crate::reconcile::LocalProposal {
+                id: r.id.clone(),
+                state: r.state,
+                reserved: r.value_total,
+                txid: r.txid.clone(),
+                created_at: r.created_at.unwrap_or(0),
+            })
+            .collect();
+
+        let report = crate::reconcile::reconcile(snapshot, &locals)
+            .map_err(|e| StoreError::Reconcile(e.to_string()))?;
+
+        for d in &report.decisions {
+            let new_state = match &d.outcome {
+                crate::reconcile::Outcome::Confirm => ProposalState::Confirmed,
+                crate::reconcile::Outcome::Invalidate { .. } => ProposalState::Superseded,
+                crate::reconcile::Outcome::Unchanged => continue,
+            };
+            if let Some(mut rec) = self.get_proposal(&d.id)? {
+                rec.state = new_state;
+                self.save_proposal(&rec)?;
+            }
+        }
+        Ok(report)
+    }
+
     fn attach_votes(&self, mut p: ProposalRecord) -> Result<ProposalRecord, StoreError> {
         let mut stmt = self
             .conn
@@ -614,6 +661,7 @@ fn state_str(s: ProposalState) -> &'static str {
         ProposalState::Rejected => "rejected",
         ProposalState::Expired => "expired",
         ProposalState::Cancelled => "cancelled",
+        ProposalState::Superseded => "superseded",
     }
 }
 fn state_from(s: &str) -> Result<ProposalState, StoreError> {
@@ -626,6 +674,7 @@ fn state_from(s: &str) -> Result<ProposalState, StoreError> {
         "rejected" => ProposalState::Rejected,
         "expired" => ProposalState::Expired,
         "cancelled" => ProposalState::Cancelled,
+        "superseded" => ProposalState::Superseded,
         other => return Err(StoreError::Decode(format!("unknown state '{other}'"))),
     })
 }
@@ -823,6 +872,131 @@ mod tests {
             Some(1_700_000_042),
             "created_at must be immutable after creation"
         );
+    }
+
+    // --- multi-device reconciliation wired into the store (§8) ---
+
+    fn recon_prop(
+        id: &str,
+        state: ProposalState,
+        value: u64,
+        txid: Option<&str>,
+        created_at: i64,
+    ) -> ProposalRecord {
+        ProposalRecord {
+            id: id.into(),
+            vault_id: "vault-1".into(),
+            kind: ProposalKind::Payment,
+            state,
+            proposer: "alice".into(),
+            value_total: zat(value),
+            memo: None,
+            to_address: Some("u1dest".into()),
+            expiry_unix: None,
+            txid: txid.map(|s| s.into()),
+            created_at: Some(created_at),
+            approvals: vec![],
+            refusals: vec![],
+        }
+    }
+
+    fn recon_snap(spendable: u64, confirmed: &[&str]) -> crate::reconcile::ChainSnapshot {
+        crate::reconcile::ChainSnapshot {
+            spendable: zat(spendable),
+            confirmed_txids: confirmed.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn reconcile_promotes_a_confirmed_send_and_supersedes_an_unfundable_reservation() {
+        let mut s = Store::open_in_memory().unwrap();
+        s.save_vault(&sample_vault()).unwrap();
+        // A Sent proposal the chain confirmed, and a live Ready proposal the fresh spendable can no
+        // longer fund (another device already spent those notes).
+        s.save_proposal(&recon_prop(
+            "sent",
+            ProposalState::Sent,
+            30_000,
+            Some("tx-ok"),
+            1,
+        ))
+        .unwrap();
+        s.save_proposal(&recon_prop("live", ProposalState::Ready, 80_000, None, 2))
+            .unwrap();
+
+        let report = s
+            .reconcile_proposals("vault-1", &recon_snap(50_000, &["tx-ok"]))
+            .unwrap();
+
+        assert!(report.diverged());
+        assert_eq!(
+            s.get_proposal("sent").unwrap().unwrap().state,
+            ProposalState::Confirmed
+        );
+        assert_eq!(
+            s.get_proposal("live").unwrap().unwrap().state,
+            ProposalState::Superseded
+        );
+    }
+
+    #[test]
+    fn reconcile_is_a_noop_when_the_cache_agrees_with_the_chain() {
+        let mut s = Store::open_in_memory().unwrap();
+        s.save_vault(&sample_vault()).unwrap();
+        s.save_proposal(&recon_prop("a", ProposalState::Ready, 20_000, None, 1))
+            .unwrap();
+        s.save_proposal(&recon_prop("b", ProposalState::Awaiting, 20_000, None, 2))
+            .unwrap();
+
+        let report = s
+            .reconcile_proposals("vault-1", &recon_snap(100_000, &[]))
+            .unwrap();
+
+        assert!(!report.diverged());
+        assert_eq!(
+            s.get_proposal("a").unwrap().unwrap().state,
+            ProposalState::Ready
+        );
+        assert_eq!(
+            s.get_proposal("b").unwrap().unwrap().state,
+            ProposalState::Awaiting
+        );
+    }
+
+    #[test]
+    fn reconcile_keeps_the_oldest_reservation_and_supersedes_the_newest() {
+        let mut s = Store::open_in_memory().unwrap();
+        s.save_vault(&sample_vault()).unwrap();
+        s.save_proposal(&recon_prop("old", ProposalState::Ready, 60_000, None, 10))
+            .unwrap();
+        s.save_proposal(&recon_prop("new", ProposalState::Ready, 60_000, None, 20))
+            .unwrap();
+
+        s.reconcile_proposals("vault-1", &recon_snap(90_000, &[]))
+            .unwrap();
+
+        // 120k reserved, 90k spendable: the older keeps priority, the newer is superseded.
+        assert_eq!(
+            s.get_proposal("old").unwrap().unwrap().state,
+            ProposalState::Ready
+        );
+        assert_eq!(
+            s.get_proposal("new").unwrap().unwrap().state,
+            ProposalState::Superseded
+        );
+    }
+
+    #[test]
+    fn superseded_state_roundtrips_through_the_store_and_is_terminal() {
+        let mut s = Store::open_in_memory().unwrap();
+        s.save_vault(&sample_vault()).unwrap();
+        s.save_proposal(&recon_prop("x", ProposalState::Superseded, 10_000, None, 1))
+            .unwrap();
+        assert_eq!(
+            s.get_proposal("x").unwrap().unwrap().state,
+            ProposalState::Superseded
+        );
+        assert!(ProposalState::Superseded.is_terminal());
     }
 
     #[test]

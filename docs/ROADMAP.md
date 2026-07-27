@@ -185,7 +185,8 @@ One UI (`ui/`) and one crypto core (`konclave-wasm`) behind the relay:
   over the blind relay; a helper (never sees a share) builds/proves the PCZT for the vault's own
   address, injects, broadcasts. Remaining: the live NetVault relay wiring + the end-to-end testnet
   proof (a funded browser-DKG vault). See §A and `temp/NET-REAL-BROADCAST-SCOPING.md`.
-- Multi-device reconciliation (on-chain wins when the local cache diverges) — the decision core
-  landed (`orchestrator::reconcile`, a pure deterministic "on-chain wins" engine, 10 destructive
-  tests); the remaining work is wiring the report to the store + a fresh sync.
+- Multi-device reconciliation (on-chain wins when the local cache diverges) — the decision core AND
+  the store wiring landed (`orchestrator::reconcile` + `Store::reconcile_proposals`, which persists
+  `Confirm`→`Confirmed` and `Invalidate`→the new terminal `Superseded` state; 14 tests). The one
+  remaining piece is the live fresh-sync trigger (obtaining the on-chain snapshot from a wallet sync).
 - Accounting depth (fiat valuation, cost basis, bookkeeping-software export).

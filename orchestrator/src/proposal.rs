@@ -27,6 +27,11 @@ pub enum ProposalState {
     Rejected,
     Expired,
     Cancelled,
+    /// Invalidated by multi-device reconciliation: the on-chain spendable can no longer fund this
+    /// proposal's reservation (another device already spent those notes). On-chain wins (§8). This
+    /// is distinct from `Cancelled` (a proposer choice) and `Expired` (a deadline) — it records
+    /// that the chain, not a person or the clock, ended the proposal.
+    Superseded,
 }
 
 impl ProposalState {
@@ -38,6 +43,7 @@ impl ProposalState {
                 | ProposalState::Rejected
                 | ProposalState::Expired
                 | ProposalState::Cancelled
+                | ProposalState::Superseded
         )
     }
 

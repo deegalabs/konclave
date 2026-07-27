@@ -16,8 +16,10 @@
 //!      (FIFO by `created_at`, `id` as the tiebreak), so **every device reaches the same decision**
 //!      regardless of the order its cache holds.
 //!
-//! Store wiring (applying the report to the SQLite records + a fresh sync trigger) is the
-//! follow-up; this closes the decision core.
+//! Store wiring has landed: [`crate::store::Store::reconcile_proposals`] maps the cached records
+//! into this engine and persists the outcomes (`Confirm` → `Confirmed`, `Invalidate` →
+//! `Superseded`). The one remaining follow-up is the **fresh-sync trigger** — obtaining the
+//! `ChainSnapshot` from a live wallet sync (I/O the caller owns), which this pure module never does.
 
 use crate::money::{MoneyError, Zatoshis};
 use crate::proposal::ProposalState;

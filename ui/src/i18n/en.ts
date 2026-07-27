@@ -10,6 +10,7 @@ export const en: Record<string, string> = {
   'state.rejected': 'rejected',
   'state.expired': 'expired',
   'state.cancelled': 'cancelled',
+  'state.superseded': 'invalidated',
 
   // proposal state · capitalized stamp (proposal detail badge)
   'stamp.awaiting': 'Pending',
@@ -19,6 +20,7 @@ export const en: Record<string, string> = {
   'stamp.rejected': 'Rejected',
   'stamp.expired': 'Expired',
   'stamp.cancelled': 'Cancelled',
+  'stamp.superseded': 'Invalidated',
 
   // proposal kind
   'kind.payment': 'Payment',
