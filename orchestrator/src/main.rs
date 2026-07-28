@@ -8,7 +8,7 @@ use std::process::ExitCode;
 
 use zeroize::Zeroizing;
 
-use orchestrator::send::{orchestrate_send, SendConfig, SpendPlan};
+use orchestrator::send::{net_orchestrate_send, orchestrate_send, SendConfig, SpendPlan};
 use orchestrator::server::{self, Config, LiveWallet};
 use orchestrator::store::Store;
 
@@ -166,6 +166,13 @@ fn main() -> ExitCode {
                 ExitCode::from(1)
             }
         },
+        Some("net-send") => match run_net_send(&args[1..]) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("net-send: {e}");
+                ExitCode::FAILURE
+            }
+        },
         Some("sign-send") => match run_sign_send(&args[1..]) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
@@ -215,7 +222,15 @@ fn print_usage() {
          \x20 --devtool <PATH>  zcash-devtool binary (enables live /api/balance)\n\
          \x20 --wallet <DIR>    zcash-devtool wallet directory\n\
          \x20 --server <URI>    lightwalletd server (e.g. https://zec.rocks:443)\n\
-         \x20 --ceremony <JSON> FROST ceremony config (enables real sends)\n"
+         \x20 --ceremony <JSON> FROST ceremony config (enables real sends)\n\
+         \n\
+         OTHER SUBCOMMANDS:\n\
+         \x20 sign-send --ceremony <JSON> --to <ADDR> --value-zat <N> [--memo <M>] [--dry-run]\n\
+         \x20   single-machine FROST send (the helper runs the ceremony locally)\n\
+         \x20 net-send  --ceremony <JSON> --to <ADDR> --value-zat <N> --relay-base <URL> --room <CODE> [--dry-run]\n\
+         \x20   Architecture B: browser devices sign over the blind relay; the helper injects + broadcasts\n\
+         \x20 create-vault --ceremony <JSON> --name <NAME> --threshold <T> --members a,b,c\n\
+         \x20 seal <INPUT> <OUTPUT> [--keychain <ID> | --key <FILE>]\n"
     );
 }
 
@@ -373,6 +388,85 @@ fn run_sign_send(args: &[String]) -> Result<(), String> {
     match outcome.txid {
         Some(txid) => println!("TXID {txid}"),
         None => println!("DRY-RUN OK (PCZT signed, no broadcast)"),
+    }
+    Ok(())
+}
+
+/// Architecture B helper: build + prove a PCZT for the vault's own spend, publish a signing request
+/// into a relay room, wait for the browser devices to return the aggregate FROST signature over the
+/// relay, inject it, and (unless `--dry-run`) broadcast. The devices hold the shares and sign in the
+/// browser; this helper never sees a share and cannot move funds without the quorum's signatures.
+fn run_net_send(args: &[String]) -> Result<(), String> {
+    let mut ceremony: Option<PathBuf> = None;
+    let mut to: Option<String> = None;
+    let mut value_zat: Option<u64> = None;
+    let mut memo: Option<String> = None;
+    let mut relay_base: Option<String> = None;
+    let mut room: Option<String> = None;
+    let mut dry_run = false;
+
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        let mut next = || it.next().ok_or_else(|| format!("missing value for {a}"));
+        match a.as_str() {
+            "--ceremony" => ceremony = Some(PathBuf::from(next()?)),
+            "--to" => to = Some(next()?.clone()),
+            "--value-zat" => {
+                value_zat = Some(
+                    next()?
+                        .parse()
+                        .map_err(|_| "invalid value-zat".to_string())?,
+                )
+            }
+            "--memo" => memo = Some(next()?.clone()),
+            "--relay-base" => relay_base = Some(next()?.clone()),
+            "--room" => room = Some(next()?.clone()),
+            "--dry-run" => dry_run = true,
+            other => return Err(format!("unknown option: {other}")),
+        }
+    }
+
+    let ceremony = ceremony.ok_or("--ceremony <json> is required")?;
+    let to = to.ok_or("--to <address> is required")?;
+    let value_zat = value_zat.ok_or("--value-zat <zatoshis> is required")?;
+    let relay_base = relay_base.ok_or("--relay-base <url> is required (the blind relay)")?;
+    let room = room.ok_or("--room <code> is required (the vault's relay room)")?;
+
+    let text = std::fs::read_to_string(&ceremony)
+        .map_err(|e| format!("reading {}: {e}", ceremony.display()))?;
+    let sc: SendConfig =
+        serde_json::from_str(&text).map_err(|e| format!("invalid ceremony config: {e}"))?;
+
+    if dry_run {
+        eprintln!("== DRY-RUN: browser devices sign, helper injects but does NOT broadcast ==");
+    } else {
+        eprintln!("== REAL SEND: browser devices sign, helper broadcasts to mainnet ==");
+    }
+    eprintln!("relay {relay_base} · room {room} · destination {to} · value {value_zat} zat");
+    eprintln!("waiting for the browser devices to sign over the relay...");
+
+    let plan = SpendPlan::Payment {
+        to: to.clone(),
+        value_zat,
+        memo: memo.clone(),
+    };
+    // Poll the relay for up to ~10 minutes (300 x 2s) while the devices run the ceremony.
+    let outcome = net_orchestrate_send(
+        &sc,
+        &plan,
+        &relay_base,
+        &room,
+        dry_run,
+        300,
+        std::time::Duration::from_secs(2),
+    )
+    .map_err(|e| format!("net-send: {e}"))?;
+
+    eprintln!("signed sighash: {}", outcome.sighash);
+    eprintln!("signed PCZT: {}", outcome.signed_pczt);
+    match outcome.txid {
+        Some(txid) => println!("TXID {txid}"),
+        None => println!("DRY-RUN OK (PCZT signed by the devices, no broadcast)"),
     }
     Ok(())
 }
