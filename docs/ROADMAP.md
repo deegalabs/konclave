@@ -144,7 +144,10 @@ robustness, and reach**, not new cryptography. Ordered by priority.
   the full cycle was **proven on mainnet** with two V6/NU6.3 FROST 2-of-3 txids: an Orchard→Ironwood
   migration (`54266f47…`, block 3,428,205) and the first Ironwood-pool spend (`36c60f1e…`, block
   3,428,246). Gotcha unblocked at activation: a single-note Orchard spend leaves an unsigned bundle
-  dummy; `create-max` (spend all notes) makes every action a real spend, so there is no dummy.
+  dummy; `create-max` (spend all notes) makes every action a real spend, so there is no dummy. This
+  is librustzcash **#2777** (derivation not stamped on wallet-controlled zero-value spends), already
+  fixed upstream by commit `51385a15`; `create-max` is our interim workaround until the engine pin is
+  bumped to include the fix.
 - **Re-validated (2026-07-27):** the pin is confirmed identical to `zcash-devtool` `origin/main`
   (the reference Ironwood tool), so the PCZT wire format stays byte-for-byte compatible; the
   final librustzcash crates (zcash_primitives 0.30.0, orchard 0.15.4, pczt 0.9.1) are newer than
