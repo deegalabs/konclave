@@ -80,7 +80,11 @@ Any statement of the form "the app payment used DKG" is **false**. Only `aab00f9
     is not signed by the FROST flow. The fix that unblocked it: **`create-max` spends ALL the vault's
     Orchard notes at once**, so every Orchard action is a real spend (no dummy to sign). The
     Ironwood-pool path signs its own dummy correctly. Both txids were verified by `verify-proof.mjs`
-    against public explorers.
+    against public explorers. **This is a known, already-fixed upstream issue — not a Konclave bug:**
+    librustzcash **#2777** (`create_pczt_from_proposal` did not stamp the ZIP32 derivation on
+    wallet-controlled zero-value spends, so external signers could not sign them), fixed on
+    librustzcash `main` by commit `51385a15` (2026-07-27). `create-max` is our interim workaround for
+    the current engine pin; the proper fix arrives with an engine pin bump.
   - The testnet Ironwood spend (`069f4260…`, block 4,202,966) remains the earlier proof-of-concept;
     mainnet is now the authoritative proof. Konclave has **7** `proven on-chain` mainnet txids.
 

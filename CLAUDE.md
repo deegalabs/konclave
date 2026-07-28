@@ -670,6 +670,14 @@ explicit "pode transmitir"; both verified by `verify-proof.mjs` against public e
   2 actions). `zcash-devtool pczt create-max` spends **all** the vault's Orchard notes at once, so
   every Orchard action is a **real** spend (no dummy to sign). Validated offline first with the
   money-free `pczt extract` oracle (extracts the finished tx without broadcasting), then broadcast.
+- **Root cause (upstream, already fixed — not a Konclave bug, not novel):** this is librustzcash
+  **#2777** — `create_pczt_from_proposal` did not stamp the ZIP32 derivation on the wallet-controlled
+  zero-value spends the builder pairs with vanilla-Orchard-pool change, so an external signer (our
+  FROST flow, like Keystone hardware signers) skips them as "not ours" and nothing else signs them →
+  `MissingSpendAuthSig`. Fixed on librustzcash `main` by commit `51385a15` (2026-07-27, the day
+  before activation). `create-max` is our **interim workaround** for the current engine pin
+  (`42ffd0d`, which predates the fix); the proper fix lands when the engine is bumped to a
+  librustzcash including `51385a15` (tracked with the `zcash-devtool` pin).
 - **`54266f478505…c2e5c494`** (block 3,428,205) — the **Orchard→Ironwood migration**: spends all 4
   legacy Orchard notes (460000 zat), lands the funds in the Ironwood pool (430000 after fee),
   **seeding** it.
