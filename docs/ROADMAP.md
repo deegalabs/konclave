@@ -97,10 +97,11 @@ slice slips, Phase 6 is the escape valve, never the core.
 
 # Forward roadmap (post-submission)
 
-The core crypto is proven (real FROST over Orchard, five verifiable mainnet txids incl. a
-DKG-vault send and a private multi-output payroll, and browser-side signing of a real
-Orchard spend). The work from here is **consolidation, robustness, and reach**, not new
-cryptography. Ordered by priority.
+The core crypto is proven (real FROST over Orchard, **seven** verifiable mainnet txids incl. a
+DKG-vault send, a private multi-output payroll, and — on NU6.3 activation day — an
+Orchard→Ironwood migration plus the first **Ironwood-pool spend** (both V6/NU6.3, FROST 2-of-3),
+and browser-side signing of a real Orchard spend). The work from here is **consolidation,
+robustness, and reach**, not new cryptography. Ordered by priority.
 
 ## A. Consolidation
 - Keep `main` the single trunk; land verified work through PRs; keep the proof surfaces
@@ -136,15 +137,14 @@ cryptography. Ordered by priority.
   signature verifies) → broadcast → **mined into a block** — completed on testnet (tx
   `069f4260…`, block 4,202,966). This ran on a throwaway testnet vault, kept out-of-repo like the
   mainnet evidence infra; **the repo default (`main`) stays on the mainnet pre-Ironwood pin.**
-- **Productization for mainnet (Option A — clean cut at activation) — prepared, held:** mainnet
-  activates Ironwood at height 3,428,143 (~2026-07-28). The port is **ready on a branch, not
-  merged**: the engine pin (`engine/versions.lock`) and `konclave-signer` moved to the Ironwood
-  pin, extract/inject made pool-aware (Orchard pre-NU6.3, Ironwood post-NU6.3), and the C6 test
-  vectors migrated from the pre-Ironwood PCZT format (v1) to a real Ironwood vector (v2). Held
-  because the v2 wire format cannot parse v1, so merging before activation would break signing
-  pre-Ironwood mainnet transactions; a clean cut at activation avoids a dual-maintenance window
-  (see `temp/IRONWOOD-PRODUCTIZATION-PLAN.md`). Until activation the repo is
-  deliberately left on the mainnet-valid pin.
+- **Productization for mainnet (Option A — clean cut at activation) — DONE + PROVEN.** Ironwood
+  activated on mainnet at height 3,428,143 (2026-07-28). The port (#10) was merged at activation:
+  the engine pin (`engine/versions.lock`) and `konclave-signer` on the Ironwood pin, extract/inject
+  pool-aware (Orchard pre-NU6.3, Ironwood post-NU6.3), C6 vectors on the Ironwood v2 format. Then
+  the full cycle was **proven on mainnet** with two V6/NU6.3 FROST 2-of-3 txids: an Orchard→Ironwood
+  migration (`54266f47…`, block 3,428,205) and the first Ironwood-pool spend (`36c60f1e…`, block
+  3,428,246). Gotcha unblocked at activation: a single-note Orchard spend leaves an unsigned bundle
+  dummy; `create-max` (spend all notes) makes every action a real spend, so there is no dummy.
 - **Re-validated (2026-07-27):** the pin is confirmed identical to `zcash-devtool` `origin/main`
   (the reference Ironwood tool), so the PCZT wire format stays byte-for-byte compatible; the
   final librustzcash crates (zcash_primitives 0.30.0, orchard 0.15.4, pczt 0.9.1) are newer than
