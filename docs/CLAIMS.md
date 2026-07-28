@@ -67,9 +67,20 @@ Any statement of the form "the app payment used DKG" is **false**. Only `aab00f9
   2-of-3 spend from a testnet vault, built + proved for the vault's own address, signed by the
   quorum, broadcast, and **mined into a block** (testnet tx `069f4260…`, block 4,202,966). That
   is `testnet, mined`, which is NOT `proven on-chain` in the mainnet sense and NOT mainnet. All
-  five `proven on-chain` mainnet txids remain pre-Ironwood Orchard. The mainnet Ironwood send
-  path is prepared but held until activation (see the ROADMAP). Do not state or imply an Ironwood
-  **mainnet** spend until a mainnet Ironwood txid exists.
+  five `proven on-chain` mainnet txids remain pre-Ironwood Orchard. Do not state or imply an
+  Ironwood **mainnet** spend until a mainnet Ironwood txid exists.
+- **Ironwood mainnet — attempted at activation (2026-07-28), NOT achieved.** After activation
+  (block 3,428,144) the #10 port was merged and the rebuilt engine was validated live (synced the
+  post-Ironwood mainnet, read both pool balances). A FROST 2-of-3 self-send from the evidence
+  vault was built, proved, signed, and locally verified — but the broadcast **failed cleanly at
+  extract-and-store (nothing hit the network, no funds moved)** with `Orchard MissingSpendAuthSig`.
+  Root cause: post-activation, spending the vault's **legacy Orchard** funds produces an
+  **Orchard→Ironwood migration** tx whose Orchard **dummy** spend (bundle padding) is not signed by
+  the FROST flow (the pre-Ironwood engine pre-signed it; the Ironwood engine does not for the
+  Orchard side of a migration; the Ironwood-pool path signs its own dummy fine, per the testnet
+  proof). The vault also holds **0 Ironwood** funds, so a direct Ironwood-pool send is not possible
+  either. So: Ironwood mainnet stays **not proven**; the gap is a real, newly-found limitation
+  (FROST-signing an Orchard→Ironwood migration), tracked as a follow-up.
 
 ## Rules for changes
 1. When the proven-vs-pending state of anything changes, update `scripts/verify-proof.mjs`

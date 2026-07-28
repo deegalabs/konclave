@@ -630,3 +630,32 @@ trigger** (`orchestrator::reconcile` + `Store::reconcile_proposals` + `server::r
 multi-spend, the Rust helper + browser crypto + the live NetVault N-ceremony driver are all
 implemented and tested; only the live multi-device relay proof (two browsers, a multi-note tx) is
 e2e-pending, exactly like the single-spend live path.
+
+---
+
+**Phase 13 — Ironwood mainnet activation day (2026-07-28): merged, engine live-validated, mainnet
+send BLOCKED by a real finding.** Ironwood activated on mainnet (block 3,428,144). Actions taken and
+the honest outcome:
+- **PR #10 merged** (`cf2cb17`): `main` now on the Ironwood pin (NU6.3), dual-pool signer.
+- **Engine validated LIVE on mainnet:** the rebuilt `zcash-devtool` (pin `42ffd0d`, out-of-repo at
+  `~/ktarget-ironwood`) + the repo signer (built from #10 at `~/ktarget-ironwood-signer`) opened the
+  upgraded evidence wallet, synced the post-Ironwood mainnet (tip 3,428,152), and read **both** pool
+  balances (`orchard_spendable` + `ironwood_spendable`). A FROST 2-of-3 self-send was built, proved,
+  signed, and locally verified (dry-run OK).
+- **Broadcast attempted (money-gated, explicit "pode transmitir") and FAILED CLEANLY** — at
+  `extract-and-store`, before anything hit the network: **no tx broadcast, no funds moved** (balance
+  intact, 460000 Orchard / 0 Ironwood). Error: `Orchard MissingSpendAuthSig`.
+- **The finding (real, newly discovered):** post-activation, spending the vault's **legacy Orchard**
+  funds produces an **Orchard→Ironwood MIGRATION** tx (Orchard spend, Ironwood change/output, via
+  the wallet's note management). Its Orchard **dummy** spend (Orchard bundles pad to ≥2 actions) is
+  **not signed** by the FROST inject, which only signs the real spend. The pre-Ironwood engine
+  pre-signed Orchard dummies (why the 5 prior mainnet Orchard sends worked); the Ironwood engine does
+  not, for the Orchard side of a migration. The **Ironwood-pool** path signs its own dummy correctly
+  (testnet-mined), so the gap is specific to **FROST-signing an Orchard→Ironwood migration**.
+- **Why it's blocked both ways:** the migration path has the dummy-sig gap; and a direct
+  Ironwood-pool send needs Ironwood funds the vault does not have (0), which the un-spendable Orchard
+  funds cannot seed. Honest lesson: the dry-run's `inject` only verifies the FROST sig it applied,
+  not the full bundle — it gave false confidence before the `send`. **Ironwood mainnet stays not
+  proven** (CLAIMS.md updated). Fix path (follow-up): make the FROST flow sign the Orchard migration
+  dummy (likely an upstream `zcash-devtool` behavior to confirm), or fund Ironwood from an external
+  wallet. `#10` stays merged (the Ironwood-pool path is correct + testnet-proven).
