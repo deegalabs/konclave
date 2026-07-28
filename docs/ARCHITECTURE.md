@@ -137,7 +137,7 @@ bundle and converge on the same on-chain transaction (guaranteed by the §7 pari
 
 - **Desktop (Tauri)** is the secure primary custody for the person operating the vault — matches the
   §2 closed decision ("local-first desktop, share in the OS secure vault"). It reuses the tested
-  `orchestrator/` (5 real mainnet txids); Tauri is an **additive** shell in `src-tauri/`, not a
+  `orchestrator/` (7 real mainnet txids); Tauri is an **additive** shell in `src-tauri/`, not a
   rewrite (it hosts the same `ui/` in the system webview and embeds `konclave serve`).
 - **Web (browser)** is the reach layer: a member approves/signs from a phone or laptop with no
   install, via the WASM core over the blind relay. Security is by **role**: the browser is for
@@ -146,7 +146,7 @@ bundle and converge on the same on-chain transaction (guaranteed by the §7 pari
 
 ## 9. Status and what we intend to build
 
-**Built and proven (5 verifiable mainnet txids; see `docs/PROOF.md`):**
+**Built and proven (7 verifiable mainnet txids incl. the Ironwood cycle; see `docs/PROOF.md`):**
 - Real DKG vaults (key never reconstituted) and trusted-dealer vaults, quorum payment + private
   payroll, all via the native path (orchestrator + konclave-signer + engine).
 - The web/WASM core: multi-device DKG + FROST signing over the hosted blind relay (the signed

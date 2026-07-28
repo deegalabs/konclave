@@ -3,7 +3,7 @@ import { Letterhead } from '../components'
 import { useI18n } from '../i18n'
 import '../proof.css'
 
-// Judge-facing proof page. Konclave claims two REAL Zcash mainnet transactions; this screen
+// Judge-facing proof page. Konclave claims seven REAL Zcash mainnet transactions; this screen
 // is the browser equivalent of scripts/verify-proof.mjs. It shows each txid with explorer links
 // anyone can open, offers a client-side "verify on-chain now" check against a public explorer
 // API, and states plainly what on-chain data can and cannot prove (mirrors docs/PROOF.md).
@@ -13,7 +13,7 @@ import '../proof.css'
 
 type Locale = 'pt-BR' | 'en'
 
-// The two mainnet transactions. Block heights are the known, on-chain heights.
+// The seven mainnet transactions. Block heights are the known, on-chain heights.
 const TXS = [
   {
     txid: '43433a109d3f2a078c0a9269ccb156392ade7a1f7ac1532981611eda1e59a572',
@@ -40,6 +40,16 @@ const TXS = [
     block: 3413792,
     kind: 'dkg' as const,
   },
+  {
+    txid: '54266f478505160adfb039c7c76f5615f1536a34059ab30e9f24781ec2e5c494',
+    block: 3428205,
+    kind: 'migrate' as const,
+  },
+  {
+    txid: '36c60f1e3f602c2ac13c9f5b0687f248522499fc5a8b69311605336457226c95',
+    block: 3428246,
+    kind: 'ironwood' as const,
+  },
 ]
 
 const explorerZec = (txid: string) => `https://mainnet.zcashexplorer.app/transactions/${txid}`
@@ -55,6 +65,8 @@ const TXT = {
     labelFresh: 'Pagamento 2-de-3 FROST de um cofre criado e financiado do zero (reproduzido ponta a ponta)',
     labelPayroll: 'Folha privada multi-saída (3 saídas, um memo criptografado cada), 2-de-3 FROST',
     labelDkg: 'Envio 2-de-3 FROST de um cofre gerado por DKG real (chave nunca reconstituída), transmitido à mainnet',
+    labelMigrate: 'Migração Orchard→Ironwood (NU6.3/V6), 2-de-3 FROST, semeia o pool Ironwood',
+    labelIronwood: 'Primeiro gasto DO pool Ironwood na mainnet (NU6.3/V6), 2-de-3 FROST',
     txidLabel: 'ID da transação',
     blockLabel: 'Bloco',
     copy: 'Copiar',
@@ -85,6 +97,8 @@ const TXT = {
     labelFresh: '2-of-3 FROST payment from a freshly created and funded vault (reproduced end to end)',
     labelPayroll: 'Private multi-output payroll (3 outputs, one encrypted memo each), 2-of-3 FROST',
     labelDkg: '2-of-3 FROST send from a real DKG-generated vault (key never reconstituted), broadcast to mainnet',
+    labelMigrate: 'Orchard→Ironwood migration (NU6.3/V6), 2-of-3 FROST, seeds the Ironwood pool',
+    labelIronwood: 'First spend FROM the Ironwood pool on mainnet (NU6.3/V6), 2-of-3 FROST',
     txidLabel: 'Transaction ID',
     blockLabel: 'Block',
     copy: 'Copy',
@@ -145,11 +159,13 @@ export default function Proof() {
   const [checks, setChecks] = useState<Record<string, CheckState>>({})
   const [copied, setCopied] = useState<string | null>(null)
 
-  const labelFor = (kind: 'app' | 'slice' | 'fresh' | 'payroll' | 'dkg') =>
+  const labelFor = (kind: 'app' | 'slice' | 'fresh' | 'payroll' | 'dkg' | 'migrate' | 'ironwood') =>
     kind === 'app' ? T.labelApp
     : kind === 'slice' ? T.labelSlice
     : kind === 'fresh' ? T.labelFresh
     : kind === 'dkg' ? T.labelDkg
+    : kind === 'migrate' ? T.labelMigrate
+    : kind === 'ironwood' ? T.labelIronwood
     : T.labelPayroll
 
   const copy = (text: string, tag: string) => {

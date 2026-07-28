@@ -26,7 +26,7 @@ all documents:
    - `trusted-dealer` — a dealer briefly held the whole key at setup, then split it.
 
 ## Mainnet transactions (authoritative attribution)
-As of this writing, five verifiable mainnet txids. Only ONE is from a real DKG vault.
+As of this writing, seven verifiable mainnet txids. Only ONE is from a real DKG vault.
 
 | Transaction | Evidence | Key origin |
 |---|---|---|
@@ -35,11 +35,13 @@ As of this writing, five verifiable mainnet txids. Only ONE is from a real DKG v
 | Fresh-vault 2-of-3 payment (`6c898239…`) | proven on-chain | trusted-dealer |
 | Private multi-output payroll, 3 outputs (`b1e24c07…`) | proven on-chain | trusted-dealer |
 | **DKG-vault send (`aab00f90…`)** | proven on-chain | **DKG** |
+| Orchard→Ironwood migration, V6/NU6.3 (`54266f47…`) | proven on-chain | trusted-dealer |
+| First Ironwood-pool spend, V6/NU6.3 (`36c60f1e…`) | proven on-chain | trusted-dealer |
 
 Any statement of the form "the app payment used DKG" is **false**. Only `aab00f90…` is DKG.
 
 ## Honest limits to keep stated (never hide)
-- The five mainnet sends were signed on a **single machine** (shares co-located at signing).
+- The seven mainnet sends were signed on a **single machine** (shares co-located at signing).
 - Distributed cross-machine signing is demonstrated by `/net` over a blind relay, **verified
   but not broadcast**.
   - The helper-assisted broadcast path (Architecture B) is now **wired end to end in code**: a

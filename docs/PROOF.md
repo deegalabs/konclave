@@ -103,7 +103,7 @@ Because of that, the threshold nature is attested by artifacts **off-chain**:
   the proposal, coordinated through a blind relay that sees only public material;
 - the build and ceremony paths are covered by the repository's test suite.
 
-Two honest limits of the current evidence, stated plainly. First, the five mainnet
+Two honest limits of the current evidence, stated plainly. First, the seven mainnet
 sends were signed on a **single machine**: the participants' shares were co-located as
 separate processes at signing time. The ceremony was real; its distribution across
 independent devices was not part of these broadcasts. Second, distributed signing across
