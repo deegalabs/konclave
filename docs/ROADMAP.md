@@ -194,3 +194,38 @@ One UI (`ui/`) and one crypto core (`konclave-wasm`) behind the relay:
   The balance-based invalidation is complete end to end; the last honest gap is the `confirmed_txids`
   source for the `Sent`→`Confirmed` half (a wallet tx-status query).
 - Accounting depth (fiat valuation, cost basis, bookkeeping-software export).
+
+## F. Fully in-browser (the trustless endgame)
+
+The direction: everything a spend needs runs **in the browser** (sync, build, prove, FROST-sign,
+broadcast), so there is **no operator and no manual step** and the model is maximally trustless and
+private. The custody core is already browser-native (real DKG, FROST-redpallas signing, encrypted
+on-device share). What is missing is the transaction machinery, deliberately kept off the WASM build
+today to stay wasm-clean (`konclave-wasm` excludes the Halo2 proving path, `zcash_primitives`, and
+secp256k1/C deps on purpose).
+
+**Three stages for the helper (each strictly more decentralized, all trustless — the helper never
+sees a share and cannot move funds without the quorum's signatures):**
+1. **Manual CLI (today):** `konclave net-send` builds + proves + broadcasts; the browser devices sign
+   over the blind relay. Simplest form; proves the loop.
+2. **Blind service / daemon:** the same helper runs as a service that watches the relay for a
+   browser-initiated spend and auto-builds/proves/broadcasts. Removes the manual step, still blind.
+3. **WASM-only:** the browser does sync + build + prove + sign + broadcast itself. No helper at all.
+
+**The four capabilities to bring into WASM, by difficulty:**
+- **Broadcast** (browser → lightwalletd) — smallest: grpc-web + CORS, or a blind raw-tx **forwarder**
+  (trustless like the relay: it only relays a fully-signed tx, cannot alter or author one).
+- **Build** the PCZT (`zcash_client_backend` construction) — medium: compile to wasm, store notes in
+  IndexedDB rather than SQLite.
+- **Prove** the Orchard action (Halo2) — **the make-or-break**: the proving key is large (tens of MB,
+  downloaded once + cached) and proving in the browser is slow. Feasibility must be spiked before
+  committing the program (compile the proving path to `wasm32`, measure key size + proving time in
+  headless Chromium).
+- **Sync** (light client in WASM) — largest: compact-block sync, trial-decryption, witness updates.
+
+**Security invariant, unchanged at every stage:** the share stays encrypted on the device, the
+vault's viewing key lives in the browser (the member already owns it), and no operator or service
+ever sees a secret. Security is in **who signs** (the devices), never in who assembles the tx.
+
+**Fallback:** if in-WASM proving is not viable yet, stage 2 (blind service) already delivers a
+no-manual-step, trustless flow while the WASM proving path matures.
