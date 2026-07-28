@@ -6,7 +6,7 @@ plainly what on-chain data can and cannot prove, so nothing here is overclaimed.
 
 ## What the proof shows
 
-Konclave claims five real Zcash **mainnet** transactions:
+Konclave claims seven real Zcash **mainnet** transactions:
 
 | Role | Transaction ID | Block |
 |---|---|---|
@@ -15,6 +15,8 @@ Konclave claims five real Zcash **mainnet** transactions:
 | 2-of-3 FROST payment from a freshly created and funded vault (reproduced end to end) | `6c898239e05fdd1ccce5d650fa25eeabb10d1645a3fdbc36ab5fd3ac8d4fd35f` | 3,413,636 |
 | Private multi-output payroll (3 outputs, one encrypted memo each), 2-of-3 FROST | `b1e24c07fcd629e6e6ea6809ffeb5d2e311054781740c6a5db73dabc94d0e1b4` | 3,413,648 |
 | 2-of-3 FROST send from a **real DKG-generated vault** (key never reconstituted) | `aab00f903b65e32d1adac317820a85fc97d15c2dcd788b3657ce36773e230ff3` | 3,413,792 |
+| Post-Ironwood (NU6.3) **V6** tx: 2-of-3 FROST **Orchard→Ironwood migration** (seeds the Ironwood pool) | `54266f478505160adfb039c7c76f5615f1536a34059ab30e9f24781ec2e5c494` | 3,428,205 |
+| First **Ironwood-pool spend** on mainnet: 2-of-3 FROST spend **from** the Ironwood pool (V6/NU6.3) | `36c60f1e3f602c2ac13c9f5b0687f248522499fc5a8b69311605336457226c95` | 3,428,246 |
 
 The verifier queries independent public explorers and confirms each transaction
 exists and is mined on mainnet, reporting the block height, confirmations, and
@@ -53,6 +55,12 @@ Verify by hand as well as by script:
 - DKG-vault FROST send `aab00f90...3e230ff3`
   - zcashexplorer: https://mainnet.zcashexplorer.app/transactions/aab00f903b65e32d1adac317820a85fc97d15c2dcd788b3657ce36773e230ff3
   - Blockchair: https://blockchair.com/zcash/transaction/aab00f903b65e32d1adac317820a85fc97d15c2dcd788b3657ce36773e230ff3
+- Orchard→Ironwood migration `54266f47...c2e5c494`
+  - zcashexplorer: https://mainnet.zcashexplorer.app/transactions/54266f478505160adfb039c7c76f5615f1536a34059ab30e9f24781ec2e5c494
+  - Blockchair: https://blockchair.com/zcash/transaction/54266f478505160adfb039c7c76f5615f1536a34059ab30e9f24781ec2e5c494
+- Ironwood-pool FROST spend `36c60f1e...57226c95`
+  - zcashexplorer: https://mainnet.zcashexplorer.app/transactions/36c60f1e3f602c2ac13c9f5b0687f248522499fc5a8b69311605336457226c95
+  - Blockchair: https://blockchair.com/zcash/transaction/36c60f1e3f602c2ac13c9f5b0687f248522499fc5a8b69311605336457226c95
 
 The script uses Blockchair's API as its primary source
 (`https://api.blockchair.com/zcash/dashboards/transaction/<txid>`) and

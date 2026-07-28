@@ -41,6 +41,14 @@ const TXIDS = [
     txid: "aab00f903b65e32d1adac317820a85fc97d15c2dcd788b3657ce36773e230ff3",
     label: "2-of-3 FROST send from a real DKG-generated vault (key never reconstituted), broadcast to mainnet",
   },
+  {
+    txid: "54266f478505160adfb039c7c76f5615f1536a34059ab30e9f24781ec2e5c494",
+    label: "post-Ironwood (NU6.3) V6 tx: 2-of-3 FROST Orchard->Ironwood migration (spends all Orchard notes, seeds the Ironwood pool)",
+  },
+  {
+    txid: "36c60f1e3f602c2ac13c9f5b0687f248522499fc5a8b69311605336457226c95",
+    label: "first Ironwood-pool spend on mainnet: 2-of-3 FROST spend FROM the Ironwood pool (V6/NU6.3)",
+  },
 ];
 
 const TIMEOUT_MS = 15000;

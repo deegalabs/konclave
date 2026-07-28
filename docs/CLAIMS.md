@@ -63,24 +63,24 @@ Any statement of the form "the app payment used DKG" is **false**. Only `aab00f9
   different vault, so the signature verifies under `ak+alpha` but is not for a transaction this
   vault owns. A real broadcast needs the operator to create/prove a PCZT for the `/net` vault's own
   address, plus the browser broadcast. Both are `roadmap`.
-- **Ironwood (NU6.3):** the Ironwood-pool spend path was validated **on testnet** — a FROST
-  2-of-3 spend from a testnet vault, built + proved for the vault's own address, signed by the
-  quorum, broadcast, and **mined into a block** (testnet tx `069f4260…`, block 4,202,966). That
-  is `testnet, mined`, which is NOT `proven on-chain` in the mainnet sense and NOT mainnet. All
-  five `proven on-chain` mainnet txids remain pre-Ironwood Orchard. Do not state or imply an
-  Ironwood **mainnet** spend until a mainnet Ironwood txid exists.
-- **Ironwood mainnet — attempted at activation (2026-07-28), NOT achieved.** After activation
-  (block 3,428,144) the #10 port was merged and the rebuilt engine was validated live (synced the
-  post-Ironwood mainnet, read both pool balances). A FROST 2-of-3 self-send from the evidence
-  vault was built, proved, signed, and locally verified — but the broadcast **failed cleanly at
-  extract-and-store (nothing hit the network, no funds moved)** with `Orchard MissingSpendAuthSig`.
-  Root cause: post-activation, spending the vault's **legacy Orchard** funds produces an
-  **Orchard→Ironwood migration** tx whose Orchard **dummy** spend (bundle padding) is not signed by
-  the FROST flow (the pre-Ironwood engine pre-signed it; the Ironwood engine does not for the
-  Orchard side of a migration; the Ironwood-pool path signs its own dummy fine, per the testnet
-  proof). The vault also holds **0 Ironwood** funds, so a direct Ironwood-pool send is not possible
-  either. So: Ironwood mainnet stays **not proven**; the gap is a real, newly-found limitation
-  (FROST-signing an Orchard→Ironwood migration), tracked as a follow-up.
+- **Ironwood (NU6.3) — PROVEN on mainnet (2026-07-28, activation day).** After activation
+  (block 3,428,144) the #10 port was merged and the rebuilt engine was validated live. Two real,
+  mined, **V6/NU6.3** mainnet transactions, each a FROST 2-of-3 ceremony:
+  - **`54266f478505160adfb039c7c76f5615f1536a34059ab30e9f24781ec2e5c494`** (block 3,428,205) — an
+    **Orchard→Ironwood migration**: it spends all of the vault's legacy Orchard notes and lands the
+    funds in the Ironwood pool, seeding it.
+  - **`36c60f1e3f602c2ac13c9f5b0687f248522499fc5a8b69311605336457226c95`** (block 3,428,246) — the
+    **first Ironwood-pool spend**: a FROST 2-of-3 spend **from** the Ironwood pool. This is the
+    headline (spending Ironwood, not just migrating into it).
+  - Earlier the same day, a naive single-note Orchard self-send failed cleanly at extract-and-store
+    (`Orchard MissingSpendAuthSig`, nothing broadcast, no funds moved): post-activation, spending a
+    single legacy Orchard note produces a migration tx whose Orchard **dummy** spend (bundle padding)
+    is not signed by the FROST flow. The fix that unblocked it: **`create-max` spends ALL the vault's
+    Orchard notes at once**, so every Orchard action is a real spend (no dummy to sign). The
+    Ironwood-pool path signs its own dummy correctly. Both txids were verified by `verify-proof.mjs`
+    against public explorers.
+  - The testnet Ironwood spend (`069f4260…`, block 4,202,966) remains the earlier proof-of-concept;
+    mainnet is now the authoritative proof. Konclave has **7** `proven on-chain` mainnet txids.
 
 ## Rules for changes
 1. When the proven-vs-pending state of anything changes, update `scripts/verify-proof.mjs`

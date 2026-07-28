@@ -659,3 +659,24 @@ the honest outcome:
   proven** (CLAIMS.md updated). Fix path (follow-up): make the FROST flow sign the Orchard migration
   dummy (likely an upstream `zcash-devtool` behavior to confirm), or fund Ironwood from an external
   wallet. `#10` stays merged (the Ironwood-pool path is correct + testnet-proven).
+
+---
+
+**Phase 14 — Ironwood PROVEN on mainnet (2026-07-28, same day, RESOLVES Phase 13).** The Phase 13
+finding (single-note Orchard spend → unsigned migration dummy) was resolved and the full Ironwood
+cycle proven on mainnet, with two real, mined, **V6/NU6.3** FROST 2-of-3 transactions (money-gated,
+explicit "pode transmitir"; both verified by `verify-proof.mjs` against public explorers):
+- **The unblock:** the Orchard **dummy** only appears when a single note is spent (bundle padding to
+  2 actions). `zcash-devtool pczt create-max` spends **all** the vault's Orchard notes at once, so
+  every Orchard action is a **real** spend (no dummy to sign). Validated offline first with the
+  money-free `pczt extract` oracle (extracts the finished tx without broadcasting), then broadcast.
+- **`54266f478505…c2e5c494`** (block 3,428,205) — the **Orchard→Ironwood migration**: spends all 4
+  legacy Orchard notes (460000 zat), lands the funds in the Ironwood pool (430000 after fee),
+  **seeding** it.
+- **`36c60f1e3f60…57226c95`** (block 3,428,246) — the **first Ironwood-pool spend on mainnet**: once
+  the migrated funds became spendable, a FROST 2-of-3 spend **from** the Ironwood pool (its own dummy
+  is signed correctly, unlike Orchard's — matching the testnet proof). This is the headline.
+- **Result:** Konclave now has **7** verifiable mainnet txids (was 5); the last two demonstrate the
+  complete Orchard→Ironwood→Ironwood-spend cycle under real NU6.3 consensus. `verify-proof.mjs`,
+  `docs/PROOF.md`, and `docs/CLAIMS.md` updated (Ironwood: `proven on mainnet`). `#10` stays merged
+  and is now mainnet-proven, not just testnet.
