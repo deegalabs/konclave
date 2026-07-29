@@ -23,6 +23,12 @@ use crate::wallet::{self, Balance, ChainInfo};
 pub trait WalletReader {
     fn info(&self) -> Result<ChainInfo, String>;
     fn balance(&self) -> Result<Balance, String>;
+    /// Txids the wallet has recorded as **mined** — the source that lets reconciliation promote a
+    /// locally-`Sent` proposal to `Confirmed` (§8). Defaults to empty so a reader without a tx
+    /// history is still valid (the balance-based invalidation half does not need it).
+    fn confirmed_txids(&self) -> Result<Vec<String>, String> {
+        Ok(Vec::new())
+    }
 }
 
 /// The live reader: drives `zcash-devtool` via the tested [`crate::wallet`] wrappers.
@@ -38,6 +44,9 @@ impl WalletReader for LiveWallet {
     }
     fn balance(&self) -> Result<Balance, String> {
         wallet::balance(&self.devtool, &self.wallet_dir).map_err(|e| e.to_string())
+    }
+    fn confirmed_txids(&self) -> Result<Vec<String>, String> {
+        wallet::list_confirmed_txids(&self.devtool, &self.wallet_dir).map_err(|e| e.to_string())
     }
 }
 
@@ -2107,14 +2116,12 @@ pub fn serve(cfg: Config, port: u16) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Reconcile a vault's cached proposals against a FRESH on-chain balance (multi-device
-/// reconciliation, §8 — on-chain wins). Reads the Orchard spendable from a live wallet sync and
-/// applies the pure [`crate::reconcile`] decision through [`Store::reconcile_proposals`].
-///
-/// `confirmed_txids` is left empty for now: promoting a `Sent` proposal to `Confirmed` needs a
-/// wallet tx-status query the reader does not yet expose (the follow-up). The **balance half** —
-/// invalidating (`Superseded`) reservations the freshly-synced spendable can no longer fund because
-/// another device already spent — is complete and returned in the report.
+/// Reconcile a vault's cached proposals against the FRESH on-chain state (multi-device
+/// reconciliation, §8 — on-chain wins). Reads the Orchard spendable **and** the wallet's mined txids
+/// (`list-tx`) from a live wallet sync, then applies the pure [`crate::reconcile`] decision through
+/// [`Store::reconcile_proposals`]: the balance half invalidates (`Superseded`) reservations the
+/// freshly-synced spendable can no longer fund, and `confirmed_txids` promotes a locally-`Sent`
+/// proposal to `Confirmed`. A fresh sync before the call makes the wallet's view current.
 pub fn reconcile_vault(
     store: &mut Store,
     wallet: &dyn WalletReader,
@@ -2123,7 +2130,7 @@ pub fn reconcile_vault(
     let bal = wallet.balance()?;
     let snapshot = crate::reconcile::ChainSnapshot {
         spendable: bal.orchard_spendable,
-        confirmed_txids: Vec::new(),
+        confirmed_txids: wallet.confirmed_txids()?,
     };
     store
         .reconcile_proposals(vault_id, &snapshot)
@@ -2187,6 +2194,23 @@ mod tests {
         }
         fn balance(&self) -> Result<Balance, String> {
             self.result.clone()
+        }
+    }
+
+    // A wallet that also reports mined txids, for the reconcile Confirm half.
+    struct FakeWalletTx {
+        balance: Balance,
+        confirmed: Vec<String>,
+    }
+    impl WalletReader for FakeWalletTx {
+        fn info(&self) -> Result<ChainInfo, String> {
+            Err("not used".into())
+        }
+        fn balance(&self) -> Result<Balance, String> {
+            Ok(self.balance.clone())
+        }
+        fn confirmed_txids(&self) -> Result<Vec<String>, String> {
+            Ok(self.confirmed.clone())
         }
     }
 
@@ -2271,6 +2295,79 @@ mod tests {
         assert_eq!(
             store.get_proposal("big").unwrap().unwrap().state,
             crate::proposal::ProposalState::Superseded
+        );
+    }
+
+    fn seed_sent(db: &str, txid: &str) {
+        let mut store = Store::open(db).unwrap();
+        if store.list_vaults().unwrap().is_empty() {
+            store
+                .save_vault(&VaultRecord {
+                    id: "v".into(),
+                    name: "V".into(),
+                    quorum: crate::proposal::Quorum::new(2, 3).unwrap(),
+                    group_pubkey: "g".into(),
+                    orchard_address: "a".into(),
+                    ufvk: "u".into(),
+                    server_url: None,
+                })
+                .unwrap();
+        }
+        store
+            .save_proposal(&ProposalRecord {
+                id: "sent".into(),
+                vault_id: "v".into(),
+                kind: ProposalKind::Payment,
+                state: crate::proposal::ProposalState::Sent,
+                proposer: "alice".into(),
+                value_total: Zatoshis::from_u64(10_000).unwrap(),
+                memo: None,
+                to_address: Some("u1x".into()),
+                expiry_unix: None,
+                txid: Some(txid.into()),
+                created_at: Some(1),
+                approvals: vec![],
+                refusals: vec![],
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn reconcile_vault_promotes_a_sent_proposal_whose_txid_is_mined() {
+        let db = tmp_db();
+        seed_sent(&db, "deadbeefcafef00d");
+        let mut store = Store::open(&db).unwrap();
+        // the wallet reports that txid as mined -> the Sent proposal is promoted to Confirmed.
+        let wallet = FakeWalletTx {
+            balance: bal(0),
+            confirmed: vec!["deadbeefcafef00d".into()],
+        };
+
+        let report = reconcile_vault(&mut store, &wallet, "v").unwrap();
+
+        assert!(report.diverged());
+        assert_eq!(
+            store.get_proposal("sent").unwrap().unwrap().state,
+            crate::proposal::ProposalState::Confirmed
+        );
+    }
+
+    #[test]
+    fn reconcile_vault_leaves_a_sent_proposal_whose_txid_is_not_yet_mined() {
+        let db = tmp_db();
+        seed_sent(&db, "deadbeefcafef00d");
+        let mut store = Store::open(&db).unwrap();
+        // wallet lists no mined txids -> the Sent proposal stays Sent (balance is ample, no supersede).
+        let wallet = FakeWalletTx {
+            balance: bal(1_000_000),
+            confirmed: vec![],
+        };
+
+        reconcile_vault(&mut store, &wallet, "v").unwrap();
+
+        assert_eq!(
+            store.get_proposal("sent").unwrap().unwrap().state,
+            crate::proposal::ProposalState::Sent
         );
     }
 

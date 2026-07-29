@@ -85,6 +85,34 @@ fn last_json_line(text: &str) -> Result<&str, ToolError> {
         .ok_or_else(|| ToolError::parse("tool output", "no JSON object found"))
 }
 
+/// The last line that looks like a JSON array (`[…]`).
+fn last_json_array_line(text: &str) -> Result<&str, ToolError> {
+    text.lines()
+        .map(str::trim)
+        .rfind(|l| l.starts_with('[') && l.ends_with(']'))
+        .ok_or_else(|| ToolError::parse("tool output", "no JSON array found"))
+}
+
+/// Parse `list-tx --json` (a `[{"txid","mined_height"}]` array) into the txids the wallet has
+/// recorded as **mined** (`mined_height` non-null). Unmined transactions are excluded. This is the
+/// `confirmed_txids` source that lets reconciliation promote a locally-`Sent` proposal to
+/// `Confirmed` (§8) — a fresh sync before this call makes the wallet's view current.
+pub fn parse_confirmed_txids(json: &str) -> Result<Vec<String>, ToolError> {
+    #[derive(serde::Deserialize)]
+    struct TxRow {
+        txid: String,
+        mined_height: Option<u64>,
+    }
+    let line = last_json_array_line(json)?;
+    let rows: Vec<TxRow> =
+        serde_json::from_str(line).map_err(|e| ToolError::parse("list-tx JSON", e.to_string()))?;
+    Ok(rows
+        .into_iter()
+        .filter(|r| r.mined_height.is_some())
+        .map(|r| r.txid)
+        .collect())
+}
+
 // ---- wrappers that actually run the tool ----
 
 /// Common server args for read commands.
@@ -107,6 +135,12 @@ pub fn balance(devtool: &Path, wallet_dir: &str) -> Result<Balance, ToolError> {
     parse_balance(&run_text(devtool, &args, None)?)
 }
 
+/// `zcash-devtool wallet -w <dir> list-tx --json` → the txids the wallet has recorded as mined.
+pub fn list_confirmed_txids(devtool: &Path, wallet_dir: &str) -> Result<Vec<String>, ToolError> {
+    let args = ["wallet", "-w", wallet_dir, "list-tx", "--json"];
+    parse_confirmed_txids(&run_text(devtool, &args, None)?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -123,6 +157,28 @@ mod tests {
         assert_eq!(info.chain_name, "main");
         assert_eq!(info.chain_tip_height, 3_396_328);
         assert_eq!(info.server_uri, "https://zec.rocks:443");
+    }
+
+    // `list-tx --json` shape (a log line may precede the array), with one unmined tx.
+    const LIST_TX: &str = r#"2026-07-28T16:00:00Z  INFO zcash_devtool::remote: Connecting
+[{"txid":"54266f478505160a","mined_height":3428205},{"txid":"36c60f1e3f602c2a","mined_height":null},{"txid":"aab00f903b65e32d","mined_height":3413792}]"#;
+
+    #[test]
+    fn confirmed_txids_keeps_only_mined() {
+        let ids = parse_confirmed_txids(LIST_TX).unwrap();
+        assert_eq!(
+            ids,
+            vec![
+                "54266f478505160a".to_string(),
+                "aab00f903b65e32d".to_string()
+            ]
+        );
+        assert!(!ids.iter().any(|t| t == "36c60f1e3f602c2a")); // the unmined one is excluded
+    }
+
+    #[test]
+    fn confirmed_txids_empty_array_is_ok() {
+        assert_eq!(parse_confirmed_txids("[]").unwrap(), Vec::<String>::new());
     }
 
     #[test]

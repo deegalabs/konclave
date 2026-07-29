@@ -190,9 +190,9 @@ One UI (`ui/`) and one crypto core (`konclave-wasm`) behind the relay:
   proof (a funded browser-DKG vault). See §A and `temp/NET-REAL-BROADCAST-SCOPING.md`.
 - Multi-device reconciliation (on-chain wins when the local cache diverges) — decision core + store
   wiring + fresh-sync trigger all landed (`orchestrator::reconcile` + `Store::reconcile_proposals` +
-  `server::reconcile_vault` / `POST /api/vault/reconcile`; `Superseded` terminal state; 17 tests).
-  The balance-based invalidation is complete end to end; the last honest gap is the `confirmed_txids`
-  source for the `Sent`→`Confirmed` half (a wallet tx-status query).
+  `server::reconcile_vault` / `POST /api/vault/reconcile`; `Superseded` terminal state; 21 tests).
+  **Complete end to end:** the balance-based invalidation AND the `Sent`→`Confirmed` promotion (the
+  `confirmed_txids` source is wired via `zcash-devtool wallet list-tx --json`).
 - Accounting depth (fiat valuation, cost basis, bookkeeping-software export).
 
 ## F. Fully in-browser (the trustless endgame)
