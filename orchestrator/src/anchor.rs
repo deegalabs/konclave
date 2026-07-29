@@ -73,6 +73,52 @@ pub fn commit(c: &ProposalContent) -> [u8; 32] {
     h.finalize().into()
 }
 
+/// Tag for the anchor memo. Bump the version if the memo layout changes.
+const ANCHOR_MEMO_PREFIX: &str = "zkanchor:v1:";
+
+/// Encode the text written into a shielded Orchard memo: a tagged, versioned hex of the commitment.
+/// Readable on explorers, well within the 512-byte memo, and `--memo`-friendly. The block that mines
+/// the carrying transaction is the timestamp. Hash-independent (any 32-byte commitment).
+pub fn encode_anchor_memo(c: &[u8; 32]) -> String {
+    let mut s = String::with_capacity(ANCHOR_MEMO_PREFIX.len() + 64);
+    s.push_str(ANCHOR_MEMO_PREFIX);
+    for b in c {
+        s.push(char::from_digit((b >> 4) as u32, 16).unwrap());
+        s.push(char::from_digit((b & 0xf) as u32, 16).unwrap());
+    }
+    s
+}
+
+fn hex_val(c: u8) -> Option<u8> {
+    match c {
+        b'0'..=b'9' => Some(c - b'0'),
+        b'a'..=b'f' => Some(c - b'a' + 10),
+        b'A'..=b'F' => Some(c - b'A' + 10),
+        _ => None,
+    }
+}
+
+/// Recover the 32-byte commitment from a memo, or `None` if it is not a Konclave anchor (wrong tag,
+/// length, or hex). A verifier reads this from the on-chain transaction and checks it against a
+/// freshly recomputed commitment of the proposal it was shown.
+pub fn decode_anchor_memo(memo: &str) -> Option<[u8; 32]> {
+    let hex = memo.strip_prefix(ANCHOR_MEMO_PREFIX)?.as_bytes();
+    if hex.len() != 64 {
+        return None;
+    }
+    let mut out = [0u8; 32];
+    for (i, byte) in out.iter_mut().enumerate() {
+        *byte = (hex_val(hex[2 * i])? << 4) | hex_val(hex[2 * i + 1])?;
+    }
+    Some(out)
+}
+
+/// The full anchor memo for a proposal: `encode_anchor_memo(commit(content))`. This is the string a
+/// device would write into the shielded output that anchors the proposal on-chain.
+pub fn anchor_memo_for(content: &ProposalContent) -> String {
+    encode_anchor_memo(&commit(content))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -175,5 +221,38 @@ mod tests {
     #[test]
     fn commitment_is_32_bytes() {
         assert_eq!(commit(&sample()).len(), 32);
+    }
+
+    #[test]
+    fn anchor_memo_round_trips() {
+        let c = commit(&sample());
+        let memo = encode_anchor_memo(&c);
+        assert!(memo.starts_with("zkanchor:v1:"));
+        assert_eq!(memo.len(), "zkanchor:v1:".len() + 64);
+        assert_eq!(decode_anchor_memo(&memo), Some(c));
+    }
+
+    #[test]
+    fn anchor_memo_for_matches_commit() {
+        let content = sample();
+        assert_eq!(
+            decode_anchor_memo(&anchor_memo_for(&content)),
+            Some(commit(&content))
+        );
+    }
+
+    #[test]
+    fn decode_rejects_non_anchor_memos() {
+        assert_eq!(decode_anchor_memo("just a normal memo"), None);
+        assert_eq!(decode_anchor_memo("zkanchor:v1:tooshort"), None);
+        assert_eq!(decode_anchor_memo("zkanchor:v1:"), None); // empty hex
+        assert_eq!(
+            decode_anchor_memo(&format!("zkanchor:v2:{}", "ab".repeat(32))),
+            None
+        ); // wrong version
+        assert_eq!(
+            decode_anchor_memo(&format!("zkanchor:v1:{}", "zz".repeat(32))),
+            None
+        ); // right length, non-hex
     }
 }
