@@ -217,10 +217,14 @@ sees a share and cannot move funds without the quorum's signatures):**
   (trustless like the relay: it only relays a fully-signed tx, cannot alter or author one).
 - **Build** the PCZT (`zcash_client_backend` construction) — medium: compile to wasm, store notes in
   IndexedDB rather than SQLite.
-- **Prove** the Orchard action (Halo2) — **the make-or-break**: the proving key is large (tens of MB,
-  downloaded once + cached) and proving in the browser is slow. Feasibility must be spiked before
-  committing the program (compile the proving path to `wasm32`, measure key size + proving time in
-  headless Chromium).
+- **Prove** the Orchard action (Halo2) — **the make-or-break. Compile risk retired (2026-07-28
+  spike):** `orchard`'s proving path (`orchard` feature `circuit` = `halo2_proofs` + `halo2_gadgets`
+  + `ProvingKey`) **compiles to `wasm32-unknown-unknown`** once Halo2's `multicore`/rayon feature is
+  turned off (`orchard = { default-features = false, features = ["circuit"] }` — `halo2_proofs`
+  hard-errors on wasm32 without atomics when `multicore` is on). A ~2.3 MB probe `.wasm` built with
+  the `ProvingKey::build` symbols present. **Open (perf, not compile):** single-threaded proving
+  time in the browser (measure a real proof in headless Chromium) and proving-key size/derivation;
+  if single-thread is too slow, the speedup path is wasm threads (atomics + COOP/COEP isolation).
 - **Sync** (light client in WASM) — largest: compact-block sync, trial-decryption, witness updates.
 
 **Security invariant, unchanged at every stage:** the share stays encrypted on the device, the
