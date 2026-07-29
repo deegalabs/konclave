@@ -159,9 +159,9 @@ active copy ("Propose payment" → "Approve" → "Sent"). States always visible.
 
 The code is born to pass these failure scenarios. **Honest coverage: 7 of 8 have automated
 tests (the 8th, `frostd`-offline, is validated live, not in unit tests); multi-device reconciliation
-is implemented and tested end to end (engine + store + the `POST /api/vault/reconcile` trigger), with
-only the `confirmed_txids` source (a wallet tx-status query for the `Sent`→`Confirmed` half) still
-stubbed.**
+is implemented and tested end to end (engine + store + the `POST /api/vault/reconcile` trigger),
+**both halves wired** — the balance-based `Superseded` invalidation and the `confirmed_txids`
+`Sent`→`Confirmed` promotion (from `zcash-devtool wallet list-tx --json`).**
 - Insufficient quorum. — ✅ tested (proposal state machine + `409` votes)
 - Corrupted / missing share. — ✅ tested (sealed-share tamper/wrong-key + FROST share repair)
 - `frostd` offline. — ⚠️ validated **live only** (the ceremony talks to a real frostd; no unit test)
@@ -176,10 +176,10 @@ stubbed.**
   agrees; 10 destructive tests. `Store::reconcile_proposals` maps the cached records in and persists
   the outcomes: `Confirm`→`Confirmed`, `Invalidate`→ the new terminal `Superseded` state; 4 store
   tests. The **fresh-sync trigger** also landed: `server::reconcile_vault` + `POST /api/vault/reconcile`
-  read the on-chain Orchard spendable and run the engine; 3 server tests via a `FakeWallet`). The one
-  honest gap left is the `confirmed_txids` source for the `Confirm` half — promoting a `Sent` proposal
-  needs a wallet tx-status query the reader does not yet expose; the balance-based `Invalidate` half is
-  complete end to end.
+  read the on-chain Orchard spendable and run the engine; 3 server tests via a `FakeWallet`). The
+  `confirmed_txids` source is now wired too: `WalletReader::confirmed_txids` reads the wallet's mined
+  txids from `zcash-devtool wallet list-tx --json` (parser + reconcile-confirm tests), so a `Sent`
+  proposal whose txid is mined is promoted to `Confirmed`. **Both halves are complete end to end.**
 
 > Testing multi-member solo = running N `frost-client` identities against one `frostd`.
 
@@ -625,8 +625,8 @@ instead of always showing PT.
 
 **Next (non-gated):** multi-device reconciliation is now **decision core + store wiring + fresh-sync
 trigger** (`orchestrator::reconcile` + `Store::reconcile_proposals` + `server::reconcile_vault` /
-`POST /api/vault/reconcile`, `Superseded` terminal state; 17 tests). The last honest gap is the
-`confirmed_txids` source (a wallet tx-status query for the `Sent`→`Confirmed` half). For /net
+`POST /api/vault/reconcile`, `Superseded` terminal state; 21 tests). Reconciliation is now complete
+end to end — the `confirmed_txids` source is wired via `list-tx --json`. For /net
 multi-spend, the Rust helper + browser crypto + the live NetVault N-ceremony driver are all
 implemented and tested; only the live multi-device relay proof (two browsers, a multi-note tx) is
 e2e-pending, exactly like the single-spend live path.
