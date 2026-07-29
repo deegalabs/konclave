@@ -222,9 +222,13 @@ sees a share and cannot move funds without the quorum's signatures):**
   + `ProvingKey`) **compiles to `wasm32-unknown-unknown`** once Halo2's `multicore`/rayon feature is
   turned off (`orchard = { default-features = false, features = ["circuit"] }` — `halo2_proofs`
   hard-errors on wasm32 without atomics when `multicore` is on). A ~2.3 MB probe `.wasm` built with
-  the `ProvingKey::build` symbols present. **Open (perf, not compile):** single-threaded proving
-  time in the browser (measure a real proof in headless Chromium) and proving-key size/derivation;
-  if single-thread is too slow, the speedup path is wasm threads (atomics + COOP/COEP isolation).
+  the `ProvingKey::build` symbols present. **First perf data point (2026-07-28):** `ProvingKey::build`
+  (keygen, the heaviest Halo2 setup op) takes **~21 s single-threaded** in wasm (Node/V8, ~= a
+  browser). That is too slow per app-load, but keygen is **deterministic and avoidable** — ship the
+  precomputed proving key (standard practice) so the browser never runs keygen; it is not a per-tx
+  cost. **Still open:** the real per-transaction `create_proof` time (needs a real Orchard circuit
+  witness to measure) — single-thread Halo2 is heavy, so wasm threads (atomics + COOP/COEP isolation)
+  is the likely speedup path.
 - **Sync** (light client in WASM) — largest: compact-block sync, trial-decryption, witness updates.
 
 **Security invariant, unchanged at every stage:** the share stays encrypted on the device, the
