@@ -564,7 +564,7 @@ export const ptBR: Record<string, string> = {
   // Members
   'members.eyebrow': 'Membros do cofre · quórum {t}-de-{n}',
   'members.title': 'Membros',
-  'members.vmeta': 'Cada membro guarda **uma parte da chave**. São precisas **{t}** assinaturas para mover fundos.',
+  'members.vmeta': 'Cada membro guarda **uma parte da chave**. São necessárias **{t}** assinaturas para mover fundos.',
   'members.demo': '○ demonstração',
   'members.you': '· você',
   'members.roleCoordinator': 'coordenador + assina',
