@@ -250,10 +250,13 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
   .rail .live{font-size:0; gap:0; padding:7px}
   .rail .live i{margin:0}
 
-  /* bottom tab bar */
+  /* bottom tab bar — its OWN compositing layer (translateZ) so mobile Safari paints it
+     immediately and keeps it pinned even with the address bar expanded (the classic
+     "fixed bottom bar only shows after scrolling" iOS bug). */
   .railnav{position:fixed; left:0; right:0; bottom:0; z-index:50; flex-direction:row; gap:0; flex-wrap:nowrap;
     overflow-x:auto; background:var(--surface-1); border-top:1px solid var(--line);
-    padding:6px 2px calc(6px + env(safe-area-inset-bottom)); box-shadow:0 -6px 20px -12px rgba(0,0,0,.7)}
+    padding:6px 2px calc(6px + env(safe-area-inset-bottom)); box-shadow:0 -6px 20px -12px rgba(0,0,0,.7);
+    transform:translateZ(0); -webkit-transform:translateZ(0); will-change:transform}
   .nav-item{flex:1 1 0; min-width:0; overflow:hidden; flex-direction:column; gap:3px; padding:7px 2px;
     border-radius:8px; font-size:9px; font-weight:600; letter-spacing:0; text-align:center}
   .nav-item span{display:block; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
