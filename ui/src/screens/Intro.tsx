@@ -13,7 +13,7 @@ const EXPLORE: Record<'pt-BR' | 'en', { eyebrow: string; title: string; items: {
     title: 'Tudo pra experimentar, num lugar só',
     items: [
       { to: '/vaults', name: 'Abrir o cofre', desc: 'Pagamento, folha, propostas, razão. O produto rodando.', tag: 'app' },
-      { to: '/proof', name: 'Prova on-chain', desc: 'Confira nossas 4 transações reais na mainnet, você mesmo.', tag: 'prova' },
+      { to: '/proof', name: 'Prova on-chain', desc: 'Confira nossas 8 transações reais na mainnet, você mesmo.', tag: 'prova' },
       { to: '/net', name: 'Rede multi-dispositivo', desc: 'Crie um cofre entre abas/dispositivos por um relay cego, ao vivo.' },
       { to: '/signer', name: 'Signer no navegador', desc: 'Uma cerimônia FROST 2-de-3 inteira em WebAssembly.' },
       { to: '/recovery', name: 'Recuperação social', desc: 'Um quórum reconstrói o share perdido de um membro (RTS).' },
@@ -26,7 +26,7 @@ const EXPLORE: Record<'pt-BR' | 'en', { eyebrow: string; title: string; items: {
     title: 'Everything to try, in one place',
     items: [
       { to: '/vaults', name: 'Open the vault', desc: 'Payment, payroll, proposals, ledger. The product running.', tag: 'app' },
-      { to: '/proof', name: 'On-chain proof', desc: 'Verify our 4 real mainnet transactions yourself.', tag: 'proof' },
+      { to: '/proof', name: 'On-chain proof', desc: 'Verify our 8 real mainnet transactions yourself.', tag: 'proof' },
       { to: '/net', name: 'Multi-device network', desc: 'Create a vault across tabs/devices over a blind relay, live.' },
       { to: '/signer', name: 'Browser signer', desc: 'A full 2-of-3 FROST ceremony entirely in WebAssembly.' },
       { to: '/recovery', name: 'Social recovery', desc: 'A quorum rebuilds a member’s lost share (RTS).' },
@@ -62,20 +62,6 @@ export default function Intro() {
     },
   ]
 
-  const cmpRows: Array<[string, string, string, string]> = [
-    [t('landing.cmpBank'), 'no', 'no', 'yes'],
-    [t('landing.cmpMultisig'), 'yes', 'no', 'mid'],
-    [t('landing.cmpCli'), 'yes', 'yes', 'no'],
-    [t('landing.cmpSheet'), 'no', 'mid', 'yes'],
-  ]
-  const mark = (s: string) => (s === 'yes' ? '✓' : s === 'no' ? '✕' : '~')
-
-  const steps = [
-    { n: 1, title: t('landing.step1Title'), desc: 'landing.step1Desc' },
-    { n: 2, title: t('landing.step2Title'), desc: 'landing.step2Desc' },
-    { n: 3, title: t('landing.step3Title'), desc: 'landing.step3Desc' },
-  ]
-
   return (
     <div className="rd lp">
       {/* top bar */}
@@ -103,10 +89,10 @@ export default function Intro() {
       <div className="lp-wrap">
         <div className="lp-hero">
           <svg className="seal" viewBox="0 0 96 96" fill="none" aria-hidden="true">
-            <circle cx="48" cy="48" r="45" stroke="#57a6ff" strokeWidth="1" />
-            <circle cx="48" cy="48" r="39" stroke="#57a6ff" strokeWidth="2.4" />
-            <circle cx="48" cy="48" r="34" stroke="#c6cfd9" strokeWidth=".6" strokeDasharray="1 3" />
-            <g stroke="#8ba7c9" strokeWidth=".7" opacity=".8"><circle cx="48" cy="48" r="30" />
+            <circle cx="48" cy="48" r="45" stroke="var(--accent)" strokeWidth="1" />
+            <circle cx="48" cy="48" r="39" stroke="var(--accent)" strokeWidth="2.4" />
+            <circle cx="48" cy="48" r="34" stroke="var(--silver)" strokeWidth=".6" strokeDasharray="1 3" />
+            <g stroke="var(--silver)" strokeWidth=".7" opacity=".55"><circle cx="48" cy="48" r="30" />
               <path d="M48 18c9 12 9 48 0 60M48 18c-9 12-9 48 0 60M18 48c12-9 48-9 60 0M18 48c12 9 48 9 60 0" /></g>
           </svg>
           <span className="eyebrow">{t('landing.eyebrow')}</span>
@@ -117,7 +103,7 @@ export default function Intro() {
               {t('demo.watchCta')}
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
             </Link>
-            <a className="lp-btn" href="#lp-como" onClick={scrollTo('lp-como')}>{t('landing.ctaHow')}</a>
+            <Link className="lp-btn" to="/docs">{t('landing.ctaHow')}</Link>
             <Link className="lp-btn" to="/vaults">{t('landing.ctaVaults')}</Link>
           </div>
           <span className="trust"><i />{t('landing.heroTrust')}</span>
@@ -160,33 +146,6 @@ export default function Intro() {
               </div>
             ))}
           </div>
-
-          <div className="lp-compare">
-            <div className="lp-cscroll">
-              <table className="lp-cmp">
-                <thead><tr>
-                  <th>{t('landing.cmpAlt')}</th>
-                  <th className="col">{t('landing.cmpCol1')}</th>
-                  <th className="col">{t('landing.cmpCol2')}</th>
-                  <th className="col">{t('landing.cmpCol3')}</th>
-                </tr></thead>
-                <tbody>
-                  {cmpRows.map(([name, a, b, c]) => (
-                    <tr key={name}>
-                      <td className="name">{name}</td>
-                      <td className={'mk ' + a}>{mark(a)}</td>
-                      <td className={'mk ' + b}>{mark(b)}</td>
-                      <td className={'mk ' + c}>{mark(c)}</td>
-                    </tr>
-                  ))}
-                  <tr className="kon">
-                    <td className="name">{t('landing.cmpKon')}</td>
-                    <td className="mk yes">✓</td><td className="mk yes">✓</td><td className="mk yes">✓</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
         </div>
       </section>
 
@@ -210,48 +169,6 @@ export default function Intro() {
         </div>
       </section>
 
-      {/* how it works */}
-      <section className="lp-section" id="lp-como">
-        <div className="lp-wrap">
-          <span className="eyebrow sec-eyebrow">{t('landing.howEyebrow')}</span>
-          <h2 className="lp-title">{t('landing.howTitle')}</h2>
-          <div className="lp-steps">
-            {steps.map((s) => (
-              <div className="lp-step" key={s.n}>
-                <span className="n">{s.n}</span>
-                <h3>{s.title}</h3>
-                <p>{tr(s.desc)}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* where it's going */}
-      <section className="lp-section" style={{ paddingTop: 0 }}>
-        <div className="lp-wrap">
-          <span className="eyebrow sec-eyebrow">{t('landing.roadEyebrow')}</span>
-          <h2 className="lp-title">{t('landing.roadTitle')}</h2>
-          <p className="lp-lead">{tr('landing.roadLead')}</p>
-          <div className="lp-road">
-            <div className="lp-phase now">
-              <div className="ptop"><span className="plabel">{t('landing.roadNowLabel')}</span><span className="pbadge ok">{t('landing.roadNowBadge')}</span></div>
-              <h3>{t('landing.roadNowTitle')}</h3>
-              <p>{tr('landing.roadNowDesc')}</p>
-            </div>
-            <span className="lp-road-arrow" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
-            </span>
-            <div className="lp-phase next">
-              <div className="ptop"><span className="plabel">{t('landing.roadNextLabel')}</span><span className="pbadge accent">{t('landing.roadNextBadge')}</span></div>
-              <h3>{t('landing.roadNextTitle')}</h3>
-              <p>{tr('landing.roadNextDesc')}</p>
-            </div>
-          </div>
-          <p className="lp-road-note">{t('landing.roadNote')}</p>
-        </div>
-      </section>
-
       {/* trust band */}
       <div className="lp-trust">
         <div className="lp-wrap">
@@ -260,7 +177,9 @@ export default function Intro() {
             <div>
               <span className="klab">{t('landing.trustEyebrow')}</span>
               <h3>{t('landing.trustTitle')}</h3>
-              <p>{tr('landing.trustDesc')}</p>
+              <p>{locale === 'pt-BR'
+                ? 'Criptografia da Zcash Foundation. Local-first, sem telemetria: seus segredos nunca saem do dispositivo.'
+                : 'Cryptography by the Zcash Foundation. Local-first, no telemetry: your secrets never leave the device.'}</p>
             </div>
           </div>
         </div>
