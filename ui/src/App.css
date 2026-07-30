@@ -427,8 +427,11 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 
 /* a soft blue glow at the top of the vault home, tying it to the landing's light */
 .page.dash{position:relative}
-.page.dash::before{content:""; position:absolute; top:-24px; left:-46px; right:-46px; height:240px; z-index:0; pointer-events:none;
-  background:radial-gradient(52% 180px at 34% 0, rgba(87,166,255,.08), transparent 72%)}
+.page.dash{position:relative}
+/* left/right kept at 0 so the glow never bleeds past the page (a -46px bleed caused a
+   phantom horizontal overflow that shifted the whole mobile layout sideways). */
+.page.dash::before{content:""; position:absolute; top:-24px; left:0; right:0; height:240px; z-index:0; pointer-events:none;
+  background:radial-gradient(60% 180px at 30% 0, rgba(87,166,255,.08), transparent 72%)}
 .page.dash > *{position:relative; z-index:1}
 
 /* the "needs you" approval card is the hero action — give it a soft accent glow */
