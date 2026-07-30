@@ -1053,8 +1053,7 @@ pub mod pczt_bridge {
                 if let Some(alpha) = action.spend().alpha() {
                     let repr = alpha.to_repr();
                     let slice: &[u8] = repr.as_ref();
-                    let bytes: [u8; 32] =
-                        slice.try_into().expect("redpallas scalar is 32 bytes");
+                    let bytes: [u8; 32] = slice.try_into().expect("redpallas scalar is 32 bytes");
                     r.push((idx, bytes));
                 }
             }
@@ -1207,8 +1206,10 @@ pub mod pczt_bridge {
         // Real Ironwood (NU6.3 / V6, pczt v2) vectors, shared byte-for-byte with konclave-signer's
         // parity suite. The WASM bridge must reproduce the canonical signer's output on the SAME
         // v2 PCZT the engine produces post-Ironwood (a 4-spend `create-max` Ironwood tx).
-        const IW_PROVEN: &[u8] = include_bytes!("../tests/vectors/ironwood_single_spend.proven.pczt");
-        const IW_SIGNED: &[u8] = include_bytes!("../tests/vectors/ironwood_single_spend.signed.pczt");
+        const IW_PROVEN: &[u8] =
+            include_bytes!("../tests/vectors/ironwood_single_spend.proven.pczt");
+        const IW_SIGNED: &[u8] =
+            include_bytes!("../tests/vectors/ironwood_single_spend.signed.pczt");
         const IW_SIG0: &[u8] = include_bytes!("../tests/vectors/ironwood_single_spend.sig0.raw");
 
         const IW_SIGHASH: [u8; 32] =
@@ -1258,8 +1259,12 @@ pub mod pczt_bridge {
         #[test]
         fn ironwood_tx_is_detected_as_ironwood_pool() {
             // Orchard-first, Ironwood-fallback: a pure-Ironwood tx yields no Orchard spends.
-            assert!(orchard_spends(&Pczt::parse(IW_PROVEN).unwrap()).unwrap().is_empty());
-            assert!(!ironwood_spends(&Pczt::parse(IW_PROVEN).unwrap()).unwrap().is_empty());
+            assert!(orchard_spends(&Pczt::parse(IW_PROVEN).unwrap())
+                .unwrap()
+                .is_empty());
+            assert!(!ironwood_spends(&Pczt::parse(IW_PROVEN).unwrap())
+                .unwrap()
+                .is_empty());
         }
 
         #[test]
