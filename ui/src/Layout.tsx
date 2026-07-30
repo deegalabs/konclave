@@ -1,17 +1,25 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { NavLink, Link, Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Link, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { Mark, LangToggle } from './components'
 import { Identicon } from './avatar'
 import { useT } from './i18n'
 import { getVault, health, isVaultUnlocked, type Vault } from './api'
+
+// How many nav items live directly in the mobile bottom bar; the rest fold into "More".
+const MOBILE_PRIMARY = 5
 
 /** Persistent left rail + routed content. Wraps the in-vault screens; the
  *  onboarding screens (vault picker, intro, ceremony) render standalone. */
 export default function Layout() {
   const t = useT()
   const nav = useNavigate()
+  const loc = useLocation()
   const [vault, setVault] = useState<Vault | null>(null)
   const [live, setLive] = useState<boolean | null>(null)
+  const [moreOpen, setMoreOpen] = useState(false)
+
+  // Close the mobile "More" sheet on any route change.
+  useEffect(() => { setMoreOpen(false) }, [loc.pathname])
 
   useEffect(() => {
     let on = true
@@ -57,12 +65,45 @@ export default function Layout() {
         </Link>
 
         <nav className="railnav" aria-label="Konclave">
-          {items.map(([to, label, icon]) => (
-            <NavLink key={to} to={to} className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')}>
+          {items.map(([to, label, icon], i) => (
+            <NavLink
+              key={to}
+              to={to}
+              className={({ isActive }) =>
+                'nav-item' + (isActive ? ' active' : '') + (i >= MOBILE_PRIMARY ? ' nav-overflow' : '')}
+            >
               {icon}<span>{label}</span>
             </NavLink>
           ))}
+          {/* Mobile-only: the overflow items fold into a "More" sheet. */}
+          <button
+            type="button"
+            className={'nav-item nav-more-btn' + (moreOpen ? ' active' : '')}
+            aria-expanded={moreOpen}
+            aria-haspopup="menu"
+            onClick={() => setMoreOpen((v) => !v)}
+          >
+            <IconMore /><span>{t('nav.more')}</span>
+          </button>
         </nav>
+
+        {moreOpen && (
+          <>
+            <div className="nav-more-scrim" onClick={() => setMoreOpen(false)} aria-hidden="true" />
+            <div className="nav-more-sheet" role="menu" aria-label={t('nav.more')}>
+              {items.slice(MOBILE_PRIMARY).map(([to, label, icon]) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  role="menuitem"
+                  className={({ isActive }) => 'nav-more-row' + (isActive ? ' active' : '')}
+                >
+                  {icon}<span>{label}</span>
+                </NavLink>
+              ))}
+            </div>
+          </>
+        )}
 
         <div className="rail-foot">
           <Link to="/members" className="rail-quorum">
@@ -105,3 +146,4 @@ function IconDoc() { return <svg viewBox="0 0 24 24" {...s}><path d="M6 3h9l4 4v
 function IconUsers() { return <svg viewBox="0 0 24 24" {...s}><circle cx="9" cy="8" r="3.2" /><path d="M3.5 19a5.5 5.5 0 0 1 11 0" /><path d="M17 8.5a3 3 0 0 1 0 5M18.5 19a5 5 0 0 0-3-4.6" /></svg> }
 function IconUser() { return <svg viewBox="0 0 24 24" {...s}><circle cx="12" cy="8" r="3.4" /><path d="M5 20a7 7 0 0 1 14 0" /></svg> }
 function IconReceive() { return <svg viewBox="0 0 24 24" {...s}><path d="M12 4v11m0 0l-4-4m4 4l4-4" /><path d="M5 20h14" /></svg> }
+function IconMore() { return <svg viewBox="0 0 24 24" {...s}><circle cx="5" cy="12" r="1.4" /><circle cx="12" cy="12" r="1.4" /><circle cx="19" cy="12" r="1.4" /></svg> }

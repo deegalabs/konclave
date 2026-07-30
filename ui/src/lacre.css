@@ -64,6 +64,16 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 .sheet{background:transparent; position:relative; z-index:1}
 .lh{display:flex; align-items:center; justify-content:space-between; padding:16px 26px; border-bottom:1px solid var(--line)}
 .lh-right{display:flex; align-items:center; gap:16px}
+/* the shared header (landing + standalone screens) must never overflow on mobile:
+   it wraps to a second line and sheds the secondary nav links. */
+@media(max-width:640px){
+  .lh{padding:13px 20px; flex-wrap:wrap; row-gap:10px; column-gap:12px}
+  .lh .wm{letter-spacing:.22em; text-indent:.22em}
+  .lh-right{gap:10px; flex-wrap:wrap; justify-content:flex-end}
+  .lh-right .doclink{display:none}
+  .net-tag{white-space:nowrap}
+  .klab.back{white-space:nowrap}
+}
 .brand{display:flex; align-items:center; gap:11px}
 .wm{font-family:var(--font-mono); font-weight:600; font-size:11px; letter-spacing:.42em; text-indent:.42em}
 .mark{width:22px;height:22px}
@@ -144,6 +154,12 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 .steps .st.on .pip{background:var(--accent); border-color:var(--accent)}
 .steps .st.on{color:var(--text)}
 .steps .seg{width:26px;height:1.5px;background:var(--line)}
+/* on mobile the 4-step stepper compacts to dots + only the active label, so it never overflows */
+@media(max-width:640px){
+  .steps{gap:6px; font-size:10px}
+  .steps .seg{width:16px}
+  .steps .st:not(.on) .st-label{display:none}
+}
 
 /* ============================================================
    App shell — persistent left rail (refined dark, Linear/Vercel)
@@ -180,6 +196,10 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 .rail-switch{font-family:var(--font-mono); font-size:11px; color:var(--text-muted); padding:2px; text-decoration:none}
 .rail-switch:hover{color:var(--accent)}
 
+/* the mobile "More" affordance + sheet are off on desktop (the rail shows every item) */
+.nav-more-btn{display:none}
+.nav-more-sheet, .nav-more-scrim{display:none}
+
 /* "ao vivo" status pill */
 .live{display:inline-flex; align-items:center; gap:7px; font-family:var(--font-mono); font-size:11px; letter-spacing:.06em;
   color:var(--success); border:1px solid var(--line); border-radius:var(--radius-pill); padding:6px 12px; background:var(--surface-1)}
@@ -205,7 +225,9 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
   .rail-switch{white-space:nowrap; font-size:0}
   .rail-switch::before{content:"⇄"; font-size:15px}
   .rail-lang{padding:0}
-  .live{padding:5px 9px}
+  /* the demo/live indicator collapses to just its dot to save the top-bar width */
+  .rail .live{font-size:0; gap:0; padding:7px}
+  .rail .live i{margin:0}
 
   /* bottom tab bar */
   .railnav{position:fixed; left:0; right:0; bottom:0; z-index:50; flex-direction:row; gap:0; flex-wrap:nowrap;
@@ -218,6 +240,20 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
   .nav-item:hover{background:transparent; color:var(--text-muted)}
   .nav-item.active{background:transparent; color:var(--accent)}
   .nav-item.active svg{opacity:1; color:var(--accent)}
+
+  /* overflow items fold into the "More" sheet; show the More button */
+  .nav-overflow{display:none}
+  .nav-more-btn{display:flex; background:transparent; border:0; cursor:pointer; font-family:inherit; color:var(--text-muted)}
+  .nav-more-btn.active{color:var(--accent)}
+  .nav-more-scrim{display:block; position:fixed; inset:0; z-index:49; background:rgba(8,11,15,.5); backdrop-filter:blur(1px)}
+  .nav-more-sheet{display:flex; flex-direction:column; gap:2px; position:fixed; left:0; right:0; z-index:51;
+    bottom:calc(60px + env(safe-area-inset-bottom)); background:var(--surface-1);
+    border-top:1px solid var(--line); box-shadow:0 -10px 30px -14px rgba(0,0,0,.8); padding:8px}
+  .nav-more-row{display:flex; align-items:center; gap:12px; padding:13px 16px; border-radius:8px;
+    color:var(--text); text-decoration:none; font-size:14px; font-weight:500}
+  .nav-more-row svg{width:20px; height:20px; opacity:.85; flex:none}
+  .nav-more-row.active{color:var(--accent); background:var(--surface-2)}
+  .nav-more-row.active svg{color:var(--accent); opacity:1}
 
   /* clear the fixed bottom bar */
   .applayout .page{padding:var(--pad) var(--pad) calc(80px + env(safe-area-inset-bottom))}

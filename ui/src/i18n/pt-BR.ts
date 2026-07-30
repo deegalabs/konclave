@@ -140,6 +140,7 @@ export const ptBR: Record<string, string> = {
   'nav.members': 'Membros',
   'nav.people': 'Pessoas',
   'nav.switchVault': 'Trocar cofre',
+  'nav.more': 'Mais',
 
   // Conector "e agora?" — o próximo passo natural no rodapé de cada tela de leitura
   'next.label': 'Próximo passo',

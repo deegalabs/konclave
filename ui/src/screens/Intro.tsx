@@ -78,7 +78,7 @@ export default function Intro() {
       {/* hero */}
       <div className="lp-wrap">
         <div className="lp-hero">
-          <span className="seal-wrap">
+          <span className="lp-emblem">
             <svg className="seal" viewBox="0 0 96 96" fill="none" aria-hidden="true">
               <circle cx="48" cy="48" r="45" stroke="var(--accent)" strokeWidth="1" />
               <circle className="seal-ring" cx="48" cy="48" r="39" stroke="var(--accent)" strokeWidth="2.4" />

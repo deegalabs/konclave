@@ -140,6 +140,7 @@ export const en: Record<string, string> = {
   'nav.members': 'Members',
   'nav.people': 'People',
   'nav.switchVault': 'Switch vault',
+  'nav.more': 'More',
 
   // "And now?" connector — the next natural step at the foot of each read/hub screen
   'next.label': 'Next step',
