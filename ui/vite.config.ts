@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
@@ -14,5 +15,10 @@ export default defineConfig({
     proxy: {
       '/api': 'http://localhost:4762',
     },
+  },
+  // Vitest owns the unit tests under src/. The Playwright e2e specs live in e2e/ and are
+  // run by `npm run e2e` — exclude them here so vitest does not try to load @playwright/test.
+  test: {
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
   },
 })
