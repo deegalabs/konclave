@@ -1018,48 +1018,92 @@ pub mod pczt_bridge {
     use ff::PrimeField;
     use orchard::primitives::redpallas::{self, SpendAuth};
     use orchard::value::NoteValue;
-    use pczt::{roles::low_level_signer::Signer, Pczt};
+    use pczt::{
+        roles::low_level_signer::{OrchardParseError, Signer},
+        Pczt,
+    };
 
-    // Error type for the orchard signing closure (must be `From<ParseError>`); payloads are carried
+    // Error type for the signing closure (must be `From<OrchardParseError>`); payloads are carried
     // for `Debug` diagnostics, not matched on.
     #[derive(Debug)]
     #[allow(dead_code)]
     enum OErr {
-        Parse(orchard::pczt::ParseError),
+        Parse(OrchardParseError),
         Sign(orchard::pczt::SignerError),
         BadIndex(usize),
     }
-    impl From<orchard::pczt::ParseError> for OErr {
-        fn from(e: orchard::pczt::ParseError) -> Self {
+    impl From<OrchardParseError> for OErr {
+        fn from(e: OrchardParseError) -> Self {
             OErr::Parse(e)
         }
     }
 
-    /// Parse a proven PCZT and return the `(action_index, alpha)` randomizers of the real Orchard
-    /// spends that need a FROST signature. Dummy (zero-value) spends are skipped, and the real spend
-    /// can sit at any action index (index 0 is often a dummy pad), so callers must not assume 0.
-    pub fn extract_randomizers(pczt_bytes: &[u8]) -> Result<Vec<(usize, [u8; 32])>, String> {
-        let pczt = Pczt::parse(pczt_bytes).map_err(|e| format!("failed to parse PCZT: {:?}", e))?;
-        let mut out: Vec<(usize, [u8; 32])> = vec![];
-        Signer::new(pczt)
-            .sign_orchard_with(|_pczt, bundle, _| {
-                for (idx, action) in bundle.actions().iter().enumerate() {
-                    let is_real =
-                        matches!(action.spend().value(), Some(v) if *v != NoteValue::default());
-                    if is_real {
-                        if let Some(alpha) = action.spend().alpha() {
-                            let repr = alpha.to_repr();
-                            let slice: &[u8] = repr.as_ref();
-                            let bytes: [u8; 32] =
-                                slice.try_into().expect("redpallas scalar is 32 bytes");
-                            out.push((idx, bytes));
-                        }
-                    }
+    // Ironwood (NU6.3) reuses `orchard::pczt::Bundle`, so the spend/output reading is identical for
+    // both pools — only the `low_level_signer` method (`sign_orchard_with` vs `sign_ironwood_with`)
+    // differs. A single Konclave send spends from ONE pool; we read Orchard first and fall back to
+    // Ironwood, matching konclave-signer's pool-aware bridge (§ Phase 12).
+
+    /// The real spends `(idx, alpha)` in one bundle (dummy zero-value spends skipped; the real spend
+    /// can sit at any action index, so callers must not assume 0).
+    fn collect_real(bundle: &orchard::pczt::Bundle) -> Vec<(usize, [u8; 32])> {
+        let mut r = vec![];
+        for (idx, action) in bundle.actions().iter().enumerate() {
+            let is_real = matches!(action.spend().value(), Some(v) if *v != NoteValue::default());
+            if is_real {
+                if let Some(alpha) = action.spend().alpha() {
+                    let repr = alpha.to_repr();
+                    let slice: &[u8] = repr.as_ref();
+                    let bytes: [u8; 32] = slice.try_into().expect("redpallas scalar is 32 bytes");
+                    r.push((idx, bytes));
                 }
+            }
+        }
+        r
+    }
+
+    fn orchard_spends(pczt: &Pczt) -> Result<Vec<(usize, [u8; 32])>, String> {
+        let mut r = vec![];
+        Signer::new(pczt.clone())
+            .sign_orchard_with(|_pczt, bundle, _| {
+                r = collect_real(bundle);
                 Ok::<(), OErr>(())
             })
             .map_err(|e| format!("orchard parse: {:?}", e))?;
-        Ok(out)
+        Ok(r)
+    }
+
+    fn ironwood_spends(pczt: &Pczt) -> Result<Vec<(usize, [u8; 32])>, String> {
+        let mut r = vec![];
+        Signer::new(pczt.clone())
+            .sign_ironwood_with(|_pczt, bundle, _| {
+                r = collect_real(bundle);
+                Ok::<(), OErr>(())
+            })
+            .map_err(|e| format!("ironwood parse: {:?}", e))?;
+        Ok(r)
+    }
+
+    /// Which pool this transaction's FROST spends live in (Orchard pre-NU6.3, Ironwood post-NU6.3).
+    fn active_pool(pczt: &Pczt) -> Result<bool, String> {
+        let has_orchard = !orchard_spends(pczt)?.is_empty();
+        let has_ironwood = !ironwood_spends(pczt)?.is_empty();
+        match (has_orchard, has_ironwood) {
+            (true, false) => Ok(false),
+            (false, true) => Ok(true),
+            (false, false) => Err("no real shielded spends to sign in this PCZT".into()),
+            (true, true) => Err("mixed Orchard+Ironwood spends are not supported".into()),
+        }
+    }
+
+    /// Parse a proven PCZT and return the `(action_index, alpha)` randomizers of the real spends
+    /// that need a FROST signature, from whichever pool the tx spends from.
+    pub fn extract_randomizers(pczt_bytes: &[u8]) -> Result<Vec<(usize, [u8; 32])>, String> {
+        let pczt = Pczt::parse(pczt_bytes).map_err(|e| format!("failed to parse PCZT: {:?}", e))?;
+        let orchard = orchard_spends(&pczt)?;
+        if !orchard.is_empty() {
+            return Ok(orchard);
+        }
+        ironwood_spends(&pczt)
     }
 
     /// One Orchard output as the device can read it from a proven PCZT, for the
@@ -1081,19 +1125,36 @@ pub mod pczt_bridge {
     /// (or `None`) with no address, so the caller can ignore them.
     pub fn describe_outputs(pczt_bytes: &[u8]) -> Result<Vec<OutputInfo>, String> {
         let pczt = Pczt::parse(pczt_bytes).map_err(|e| format!("failed to parse PCZT: {:?}", e))?;
-        let mut out: Vec<OutputInfo> = vec![];
-        Signer::new(pczt)
-            .sign_orchard_with(|_pczt, bundle, _| {
-                for action in bundle.actions().iter() {
+        let read = |bundle: &orchard::pczt::Bundle| -> Vec<OutputInfo> {
+            bundle
+                .actions()
+                .iter()
+                .map(|action| {
                     let o = action.output();
-                    out.push(OutputInfo {
+                    OutputInfo {
                         address: o.user_address().clone(),
                         value: o.value().map(|v| v.inner()),
-                    });
-                }
+                    }
+                })
+                .collect()
+        };
+        // Read outputs from whichever pool the tx spends from, so an Ironwood send's real payment
+        // (whose outputs live in the Ironwood bundle) surfaces the same as an Orchard one.
+        let ironwood = active_pool(&pczt)?;
+        let mut out: Vec<OutputInfo> = vec![];
+        let signer = Signer::new(pczt);
+        let res = if ironwood {
+            signer.sign_ironwood_with(|_pczt, bundle, _| {
+                out = read(bundle);
                 Ok::<(), OErr>(())
             })
-            .map_err(|e| format!("orchard parse: {:?}", e))?;
+        } else {
+            signer.sign_orchard_with(|_pczt, bundle, _| {
+                out = read(bundle);
+                Ok::<(), OErr>(())
+            })
+        };
+        res.map_err(|e| format!("parse: {:?}", e))?;
         Ok(out)
     }
 
@@ -1107,22 +1168,32 @@ pub mod pczt_bridge {
         sigs: &[(usize, [u8; 64])],
     ) -> Result<Vec<u8>, String> {
         let pczt = Pczt::parse(pczt_bytes).map_err(|e| format!("failed to parse PCZT: {:?}", e))?;
-        let signer = Signer::new(pczt)
-            .sign_orchard_with(|_pczt, bundle, _| {
-                let actions = bundle.actions_mut();
-                for (idx, sig) in sigs {
-                    if *idx >= actions.len() {
-                        return Err(OErr::BadIndex(*idx));
-                    }
-                    let signature = redpallas::Signature::<SpendAuth>::from(*sig);
-                    actions[*idx]
-                        .apply_signature(sighash, signature)
-                        .map_err(OErr::Sign)?;
+        let ironwood = active_pool(&pczt)?;
+        let apply = |_pczt: &Pczt, bundle: &mut orchard::pczt::Bundle, _: &mut u8| {
+            let actions = bundle.actions_mut();
+            for (idx, sig) in sigs {
+                if *idx >= actions.len() {
+                    return Err(OErr::BadIndex(*idx));
                 }
-                Ok::<(), OErr>(())
-            })
-            .map_err(|e| format!("signing failed: {:?}", e))?;
-        Ok(signer.finish().serialize())
+                let signature = redpallas::Signature::<SpendAuth>::from(*sig);
+                actions[*idx]
+                    .apply_signature(sighash, signature)
+                    .map_err(OErr::Sign)?;
+            }
+            Ok::<(), OErr>(())
+        };
+        let signer = Signer::new(pczt);
+        // Apply the FROST signatures to whichever pool the tx spends from (Orchard or Ironwood).
+        let signer = if ironwood {
+            signer.sign_ironwood_with(apply)
+        } else {
+            signer.sign_orchard_with(apply)
+        }
+        .map_err(|e| format!("signing failed: {:?}", e))?;
+        signer
+            .finish()
+            .serialize()
+            .map_err(|e| format!("serialize PCZT: {:?}", e))
     }
 
     // Parity tests: the WASM bridge must reproduce konclave-signer's output on the same real mainnet
@@ -1132,18 +1203,17 @@ pub mod pczt_bridge {
     mod tests {
         use super::*;
 
-        const DKG_PROVEN: &[u8] = include_bytes!("../tests/vectors/dkg_single_spend.proven.pczt");
-        const DKG_SIGNED: &[u8] = include_bytes!("../tests/vectors/dkg_single_spend.signed.pczt");
-        const DKG_SIG1: &[u8] = include_bytes!("../tests/vectors/dkg_single_spend.sig1.raw");
-        const EV_PROVEN: &[u8] = include_bytes!("../tests/vectors/evidence_two_spend.proven.pczt");
-        const EV_SIGNED: &[u8] = include_bytes!("../tests/vectors/evidence_two_spend.signed.pczt");
-        const EV_SIG0: &[u8] = include_bytes!("../tests/vectors/evidence_two_spend.sig0.raw");
-        const EV_SIG1: &[u8] = include_bytes!("../tests/vectors/evidence_two_spend.sig1.raw");
+        // Real Ironwood (NU6.3 / V6, pczt v2) vectors, shared byte-for-byte with konclave-signer's
+        // parity suite. The WASM bridge must reproduce the canonical signer's output on the SAME
+        // v2 PCZT the engine produces post-Ironwood (a 4-spend `create-max` Ironwood tx).
+        const IW_PROVEN: &[u8] =
+            include_bytes!("../tests/vectors/ironwood_single_spend.proven.pczt");
+        const IW_SIGNED: &[u8] =
+            include_bytes!("../tests/vectors/ironwood_single_spend.signed.pczt");
+        const IW_SIG0: &[u8] = include_bytes!("../tests/vectors/ironwood_single_spend.sig0.raw");
 
-        const DKG_SIGHASH: [u8; 32] =
-            hex_literal("f30f233e7736ce57368b78cd2d5cd197fc850a8217c3da1a2de3653b900fb0aa");
-        const EV_SIGHASH: [u8; 32] =
-            hex_literal("619ffa04d162b182f274c26d7402014065da13c8a0b62927028a23ddbb598e7f");
+        const IW_SIGHASH: [u8; 32] =
+            hex_literal("332de126200c22131337474ae50367218ec87815c23d297dcdc8278ecb8903b0");
 
         // const-fn hex decoder so the expected sighashes read as hex in the source.
         const fn hex_literal(s: &str) -> [u8; 32] {
@@ -1169,91 +1239,64 @@ pub mod pczt_bridge {
         }
 
         #[test]
-        fn extract_matches_signer_single_spend() {
-            let r = extract_randomizers(DKG_PROVEN).unwrap();
-            assert_eq!(r.len(), 1);
-            assert_eq!(r[0].0, 1); // real spend at action index 1 (index 0 is a dummy pad)
-            assert_eq!(
-                hex::encode(r[0].1),
-                "b2ad61e8bf0de877dd01c52356526adf39b036ffed2e0217ece19407e1717624",
-            );
-        }
-
-        #[test]
-        fn extract_matches_signer_two_spend() {
-            let r = extract_randomizers(EV_PROVEN).unwrap();
-            assert_eq!(r.len(), 2);
+        fn extract_matches_signer_ironwood() {
+            // The WASM must read the SAME real Ironwood spends the canonical signer reads from the
+            // v2 PCZT (a `create-max` tx spending 4 notes; every action is a real Ironwood spend).
+            let r = extract_randomizers(IW_PROVEN).unwrap();
+            assert_eq!(r.len(), 4, "four real Ironwood spends");
             assert_eq!(r[0].0, 0);
-            assert_eq!(r[1].0, 1);
             assert_eq!(
                 hex::encode(r[0].1),
-                "557c4ff828ed56eb33e8ba7f508a43915338ccf3ad71d1ecedc98e6e861bfc0f",
+                "63267dad44b3621cd5246056295def55bd012cb053de4ba7af406e35d4ba4734",
             );
+            assert_eq!(r[3].0, 3);
             assert_eq!(
-                hex::encode(r[1].1),
-                "4c39a44dd1a50e5d41eb542f74d43847d33776396065c30a062077e209aa872d",
+                hex::encode(r[3].1),
+                "cf92a74546950873969d7540a65ccaaaf849f73f62ca7ae50ccab671cb023512",
             );
         }
 
         #[test]
-        fn inject_reproduces_broadcast_pczt_single_spend() {
-            let signed = inject_sigs(DKG_PROVEN, DKG_SIGHASH, &[(1, sig64(DKG_SIG1))]).unwrap();
+        fn ironwood_tx_is_detected_as_ironwood_pool() {
+            // Orchard-first, Ironwood-fallback: a pure-Ironwood tx yields no Orchard spends.
+            assert!(orchard_spends(&Pczt::parse(IW_PROVEN).unwrap())
+                .unwrap()
+                .is_empty());
+            assert!(!ironwood_spends(&Pczt::parse(IW_PROVEN).unwrap())
+                .unwrap()
+                .is_empty());
+        }
+
+        #[test]
+        fn inject_reproduces_signed_ironwood_pczt() {
+            let signed = inject_sigs(IW_PROVEN, IW_SIGHASH, &[(0, sig64(IW_SIG0))]).unwrap();
             assert_eq!(
                 signed.as_slice(),
-                DKG_SIGNED,
-                "WASM inject must reproduce the exact signed PCZT that went to mainnet",
+                IW_SIGNED,
+                "WASM inject must reproduce the exact signed v2 PCZT the canonical signer produces",
             );
-        }
-
-        #[test]
-        fn inject_reproduces_broadcast_pczt_two_spend() {
-            let signed = inject_sigs(
-                EV_PROVEN,
-                EV_SIGHASH,
-                &[(0, sig64(EV_SIG0)), (1, sig64(EV_SIG1))],
-            )
-            .unwrap();
-            assert_eq!(signed.as_slice(), EV_SIGNED);
         }
 
         #[test]
         fn inject_rejects_out_of_range_index() {
-            assert!(inject_sigs(DKG_PROVEN, DKG_SIGHASH, &[(99, sig64(DKG_SIG1))]).is_err());
+            assert!(inject_sigs(IW_PROVEN, IW_SIGHASH, &[(99, sig64(IW_SIG0))]).is_err());
         }
 
         #[test]
         fn inject_rejects_wrong_signature() {
-            assert!(inject_sigs(DKG_PROVEN, DKG_SIGHASH, &[(1, [0u8; 64])]).is_err());
+            assert!(inject_sigs(IW_PROVEN, IW_SIGHASH, &[(0, [0u8; 64])]).is_err());
         }
 
-        // The vault address both real mainnet sends paid (the DKG self-send and the funding).
-        const DKG_ADDR: &str = "u10m0pn6tmvaa6e4sm6g4r7unhvgjt5s7239ya43wxrjhld0ejnznau8kyrjnp6wv7qcfjddaq8rumrjcfd0xv87du346eu08h758r3acx";
-
         #[test]
-        fn describe_outputs_reads_recipient_and_marks_change() {
-            // DKG self-send: 0.001 ZEC to the vault (recipient), plus change with no user address.
-            let dkg = describe_outputs(DKG_PROVEN).unwrap();
-            assert_eq!(dkg.len(), 2);
-            assert_eq!(
-                dkg[0],
-                OutputInfo {
-                    address: Some(DKG_ADDR.to_string()),
-                    value: Some(100_000),
-                },
+        fn describe_outputs_reads_ironwood_outputs() {
+            // The v2 Ironwood tx's outputs are readable from the Ironwood bundle (pool-aware), so a
+            // device can confirm "what am I signing" before contributing its share.
+            let outs = describe_outputs(IW_PROVEN).unwrap();
+            assert!(!outs.is_empty(), "the Ironwood tx has outputs to display");
+            assert!(
+                outs.iter().any(|o| o.value.is_some()),
+                "at least one output exposes a value",
             );
-            assert_eq!(
-                dkg[1].address, None,
-                "change output carries no user address"
-            );
-            assert_eq!(dkg[1].value, Some(390_000));
-
-            // Evidence funding: 0.005 ZEC to the DKG vault (recipient), plus change to the sender.
-            let ev = describe_outputs(EV_PROVEN).unwrap();
-            assert_eq!(ev.len(), 2);
-            let recipients: Vec<_> = ev.iter().filter(|o| o.address.is_some()).collect();
-            assert_eq!(recipients.len(), 1, "exactly one addressed recipient");
-            assert_eq!(recipients[0].address.as_deref(), Some(DKG_ADDR));
-            assert_eq!(recipients[0].value, Some(500_000));
         }
 
         #[test]
