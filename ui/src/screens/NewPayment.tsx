@@ -28,7 +28,7 @@ export default function NewPayment() {
   const [membersList, setMembersList] = useState<Member[]>([])
   const [proposer, setProposer] = useState('Alice')
   const [toName, setToName] = useState<string | null>(null)
-  const [live, setLive] = useState(false)
+  const [live, setLive] = useState<boolean | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -59,7 +59,9 @@ export default function NewPayment() {
   const publicDest = kind === 'transparent'
   const saplingDest = kind === 'sapling'
   const unknownDest = kind === 'unknown'
-  const shownAvailable = available ?? '2.4180'
+  // A real available balance when we have it; the demo figure only when genuinely offline
+  // (live === false); a neutral dash while still loading (live === null) — never a fake number.
+  const shownAvailable = available ?? (live === false ? '2.4180' : '—')
 
   async function submit() {
     setError(null)
@@ -127,7 +129,7 @@ export default function NewPayment() {
         <label className="field"><span>{t('payment.value')}</span>
           <input className="input mono" value={value} onChange={(e) => setValue(e.target.value)} />
         </label>
-        {!live && <div className="hint" aria-live="polite">{t('common.demoModeNoBridge')}</div>}
+        {live === false && <div className="hint" aria-live="polite">{t('common.demoModeNoBridge')}</div>}
 
         <label className="field mt"><span>
           {t('payment.memoLabel')}{' '}

@@ -35,7 +35,7 @@ export const ptBR: Record<string, string> = {
 
   // human errors (humanError)
   'error.insufficient': 'Saldo insuficiente no cofre para este valor (somando a taxa de rede).',
-  'error.ceremony': 'Não foi possível concluir a cerimônia de assinatura. Verifique se o servidor de coordenação (frostd) está no ar e tente de novo.',
+  'error.ceremony': 'Não foi possível concluir o envio. Verifique sua conexão e tente de novo em instantes; nada foi enviado.',
   'error.share': 'Uma das partes da chave falhou ao assinar. Confira se os membros do quórum estão disponíveis.',
   'error.expired': 'A proposta expirou. Crie uma nova.',
   'error.voteRejected': 'Este voto não vale agora · a proposta já mudou de estado, ou há um voto conflitante.',
