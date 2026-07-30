@@ -38,8 +38,9 @@ a real **FROST ceremony**, broadcast to **Zcash mainnet**, the key never reconst
 - App-driven tx: [`43433a109d3f2a078c0a9269ccb156392ade7a1f7ac1532981611eda1e59a572`](https://mainnet.zcashexplorer.app/transactions/43433a109d3f2a078c0a9269ccb156392ade7a1f7ac1532981611eda1e59a572)
 - First slice (CLI, Gate 1): [`f63ee64d7bc086a8286631d03936ec2ca2ca57f4e4c63712fc95c1f02c522360`](https://mainnet.zcashexplorer.app/transactions/f63ee64d7bc086a8286631d03936ec2ca2ca57f4e4c63712fc95c1f02c522360)
 
-Receives only in **Orchard** (shielded), built against **NU6.2**. The vault is created by real
-**Distributed Key Generation** (the key is never assembled, at creation or at signing).
+Receives in a **shielded** pool, built against **NU6.3 (Ironwood)** and proven across the
+Orchard → Ironwood upgrade on mainnet. The vault is created by real **Distributed Key Generation**
+(the key is never assembled, at creation or at signing).
 
 ## Built on the Zcash Foundation's tools (no crypto reimplemented)
 
