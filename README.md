@@ -302,6 +302,7 @@ accounting layer on top. Thank you to the Zcash Foundation and the wider Zcash c
 
 ## Documentation
 
+- **[docs/GUIDE.md](docs/GUIDE.md): the complete guide** — use cases, domain model, state machine, sequence diagrams, step-by-step, process explanations, and tips
 - [SUBMISSION.md](SUBMISSION.md): the hackathon submission write-up · [DEPLOY.md](DEPLOY.md): hosting and CI
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): the three layers · [docs/ROADMAP.md](docs/ROADMAP.md): build plan
 - [docs/DIAGRAMS.md](docs/DIAGRAMS.md): system flow in Mermaid · [docs/VERTICAL_SLICE.md](docs/VERTICAL_SLICE.md): the first mainnet transaction
