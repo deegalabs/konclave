@@ -270,7 +270,7 @@ exclusively by reconciliation (`Store::reconcile_proposals` mapping `Outcome::In
 ```mermaid
 stateDiagram-v2
     [*] --> Draft
-    Draft --> Awaiting : "propose (t>1); proposer = 1st approval"
+    Draft --> Awaiting : "propose (t>1), proposer is 1st approval"
     Draft --> Ready : "propose (t==1): quorum met at once"
 
     Awaiting --> Ready : "approve reaches threshold t"
