@@ -27,7 +27,7 @@
 │   zcash-sign · zcash-devtool(PCZT) │   │   (hosted on Railway)        │
 │   zcash_client_backend (linked)    │   └──────────────────────────────┘
 └────────────────────────────────────┘
-                    network: frostd · lightwalletd · Zcash mainnet (NU6.2)
+                    network: frostd · lightwalletd · Zcash mainnet (NU6.3 Ironwood)
 ```
 
 The UI (Layer 3) is **one** frontend that already talks to **two** backends depending on the
