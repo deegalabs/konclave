@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState } from 'react'
 import { Secret, RevealButton, activateOnKey } from '../components'
-import { PageHeader, PageFooter } from '../page'
+import { PageHeader, PageFooter, NextStep } from '../page'
 import { getLedger, getProposalDetail, getVault, ledgerCsvUrl, health, shortAddr, type Proposal, type PayrollLine } from '../api'
 import { fmtDate, fmtZec } from '../format'
 import { useT } from '../i18n'
@@ -163,6 +163,8 @@ export default function Ledger() {
             })}
           </tbody>
         </table>
+
+        <NextStep label={t('next.label')} cta={t('next.dashboard')} to="/dashboard" />
 
         <PageFooter>
           <span className="dim pushr">{t('ledger.foot')}</span>

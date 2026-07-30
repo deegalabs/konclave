@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import encodeQR from '@paulmillr/qr'
 import { getVault, type Vault } from '../api'
 import { useT } from '../i18n'
-import { PageHeader } from '../page'
+import { PageHeader, NextStep } from '../page'
 import '../receive.css'
 
 // "Add funds" is the easy side of a vault: receiving needs no key and no signature. The vault
@@ -92,6 +92,8 @@ export default function Receive() {
       </div>
 
       <p className="rcv-note">{t('receive.note')}</p>
+
+      <NextStep label={t('next.label')} cta={t('next.dashboard')} to="/dashboard" />
     </main>
   )
 }

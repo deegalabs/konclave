@@ -173,7 +173,7 @@ export function Stepper({ step }: { step: number }) {
           {i > 0 && <span className="seg" />}
           <span className={'st' + (i + 1 === step ? ' on' : '')}>
             <span className="pip" />
-            {label}
+            <span className="st-label">{label}</span>
           </span>
         </span>
       ))}

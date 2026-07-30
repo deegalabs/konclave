@@ -64,6 +64,17 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 .sheet{background:transparent; position:relative; z-index:1}
 .lh{display:flex; align-items:center; justify-content:space-between; padding:16px 26px; border-bottom:1px solid var(--line)}
 .lh-right{display:flex; align-items:center; gap:16px}
+/* the shared header (landing + standalone screens) must never overflow on mobile:
+   it wraps to a second line and sheds the secondary nav links. */
+@media(max-width:640px){
+  .lh{padding:13px 20px; flex-wrap:wrap; row-gap:10px; column-gap:12px}
+  .lh .wm{letter-spacing:.22em; text-indent:.22em}
+  .lh-right{gap:10px; flex-wrap:wrap; justify-content:flex-end}
+  .lh-right .doclink{display:none}
+  .lh-right .rd-status{display:none}
+  .net-tag{white-space:nowrap}
+  .klab.back{white-space:nowrap}
+}
 .brand{display:flex; align-items:center; gap:11px}
 .wm{font-family:var(--font-mono); font-weight:600; font-size:11px; letter-spacing:.42em; text-indent:.42em}
 .mark{width:22px;height:22px}
@@ -92,6 +103,7 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 /* buttons */
 .btn{font-family:var(--font-sans); font-weight:600; font-size:13.5px; padding:11px 17px; cursor:pointer; border:1px solid var(--line-strong);
   letter-spacing:.005em; background:var(--surface-2); color:var(--text); border-radius:var(--radius-sm); display:inline-flex; align-items:center; gap:8px; justify-content:center;
+  text-decoration:none; white-space:nowrap;
   transition:background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out)}
 .btn:hover{background:var(--surface-3); border-color:var(--accent-line)}
 .btn:active{transform:translateY(1px)}
@@ -135,6 +147,25 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 .tbl td.num{font-family:var(--font-mono); text-align:right; white-space:nowrap}
 .tbl .by{font-family:var(--font-mono); font-size:11px; color:var(--text-muted); margin-top:3px}
 .tbl .by b{color:var(--text); font-weight:500}
+
+/* Ledger table → stacked cards on mobile (a 4-column table is unreadable on a phone).
+   Each row: date on top, then document (left) + value (right), then who below. */
+@media(max-width:640px){
+  .tbl.razao thead{display:none}
+  .tbl.razao, .tbl.razao tbody{display:block}
+  .tbl.razao tr{display:grid; grid-template-columns:1fr auto; column-gap:14px; row-gap:3px;
+    border:1px solid var(--line); border-radius:10px; background:var(--surface-1);
+    padding:12px 14px; margin-bottom:10px}
+  .tbl.razao td{display:block; padding:0; border:0}
+  .tbl.razao td:empty{display:none}
+  .tbl.razao td:nth-child(1){grid-column:1 / -1; order:1; font-size:11px; color:var(--text-muted)}
+  .tbl.razao td:nth-child(2){grid-column:1; order:2; font-weight:600}
+  .tbl.razao td:nth-child(4){grid-column:2; order:2; text-align:right; font-size:15px}
+  .tbl.razao td:nth-child(3){grid-column:1 / -1; order:3; font-size:11.5px; color:var(--text-muted)}
+  .tbl.razao td[colspan]{grid-column:1 / -1; order:0; text-align:center; padding:6px 0}
+  .tbl.razao tr.li-sub{background:var(--surface-0); padding:9px 14px 9px 20px; margin-top:-6px; margin-bottom:10px; border-top:0; border-radius:0 0 10px 10px}
+  .tbl.razao tr.li-sub td:first-child{width:auto}
+}
 .link{color:var(--accent); text-decoration:none; border-bottom:1px solid color-mix(in srgb, var(--accent) 35%, transparent); font-family:var(--font-mono); font-size:11.5px}
 
 /* stepper */
@@ -144,6 +175,12 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 .steps .st.on .pip{background:var(--accent); border-color:var(--accent)}
 .steps .st.on{color:var(--text)}
 .steps .seg{width:26px;height:1.5px;background:var(--line)}
+/* on mobile the 4-step stepper compacts to dots + only the active label, so it never overflows */
+@media(max-width:640px){
+  .steps{gap:6px; font-size:10px}
+  .steps .seg{width:16px}
+  .steps .st:not(.on) .st-label{display:none}
+}
 
 /* ============================================================
    App shell — persistent left rail (refined dark, Linear/Vercel)
@@ -180,6 +217,10 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 .rail-switch{font-family:var(--font-mono); font-size:11px; color:var(--text-muted); padding:2px; text-decoration:none}
 .rail-switch:hover{color:var(--accent)}
 
+/* the mobile "More" affordance + sheet are off on desktop (the rail shows every item) */
+.nav-more-btn{display:none}
+.nav-more-sheet, .nav-more-scrim{display:none}
+
 /* "ao vivo" status pill */
 .live{display:inline-flex; align-items:center; gap:7px; font-family:var(--font-mono); font-size:11px; letter-spacing:.06em;
   color:var(--success); border:1px solid var(--line); border-radius:var(--radius-pill); padding:6px 12px; background:var(--surface-1)}
@@ -187,19 +228,59 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 .live i{width:6px; height:6px; border-radius:50%; background:var(--success); box-shadow:0 0 0 3px var(--success-soft)}
 .live.off i{background:var(--text-muted); box-shadow:none}
 
-/* rail collapses to a top strip on narrow */
+/* On mobile the rail splits: a slim sticky TOP bar (brand + compact utilities)
+   and a fixed BOTTOM tab bar for navigation — the native-app pattern. */
 @media(max-width:860px){
   .applayout{grid-template-columns:1fr}
-  .rail{position:static; height:auto; flex-direction:row; align-items:center; flex-wrap:wrap; gap:14px;
-    border-right:0; border-bottom:1px solid var(--line-soft); padding:14px var(--pad)}
-  .railnav{flex-direction:row; flex-wrap:wrap}
-  .nav-item span{display:none}
-  .nav-item{padding:9px}
-  .rail-foot{margin:0 0 0 auto; flex-direction:row; align-items:center}
-  .rail-bottom{flex-direction:row; align-items:center; gap:12px}
-  .rail-quorum small{display:none}
-  .rail-avatars{display:none}
-  .applayout .page{padding:var(--pad) var(--pad) 70px}
+
+  /* top bar */
+  .rail{position:sticky; top:0; z-index:40; height:auto; flex-direction:row; align-items:center;
+    flex-wrap:nowrap; gap:10px; border-right:0; border-bottom:1px solid var(--line);
+    padding:10px var(--pad); background:var(--surface-0)}
+  .rail .brand{flex:0 1 auto; min-width:0}
+  .rail .wm{letter-spacing:.24em; text-indent:.24em; font-size:11px}
+  .rail .brand-sub{display:none}
+  .rail-foot{margin:0 0 0 auto; flex-direction:row; align-items:center; gap:10px; flex:0 0 auto}
+  .rail-quorum, .rail-avatars{display:none}
+  .rail-bottom{flex-direction:row; align-items:center; gap:10px}
+  .rail-switch{white-space:nowrap; font-size:0}
+  .rail-switch::before{content:"⇄"; font-size:15px}
+  .rail-lang{padding:0}
+  /* the demo/live indicator collapses to just its dot to save the top-bar width */
+  .rail .live{font-size:0; gap:0; padding:7px}
+  .rail .live i{margin:0}
+
+  /* bottom tab bar — its OWN compositing layer (translateZ) so mobile Safari paints it
+     immediately and keeps it pinned even with the address bar expanded (the classic
+     "fixed bottom bar only shows after scrolling" iOS bug). */
+  .railnav{position:fixed; left:0; right:0; bottom:0; z-index:50; flex-direction:row; gap:0; flex-wrap:nowrap;
+    overflow-x:auto; background:var(--surface-1); border-top:1px solid var(--line);
+    padding:6px 2px calc(6px + env(safe-area-inset-bottom)); box-shadow:0 -6px 20px -12px rgba(0,0,0,.7);
+    transform:translateZ(0); -webkit-transform:translateZ(0); will-change:transform}
+  .nav-item{flex:1 1 0; min-width:0; overflow:hidden; flex-direction:column; gap:3px; padding:7px 2px;
+    border-radius:8px; font-size:9px; font-weight:600; letter-spacing:0; text-align:center}
+  .nav-item span{display:block; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .nav-item svg{width:21px; height:21px; opacity:.85}
+  .nav-item:hover{background:transparent; color:var(--text-muted)}
+  .nav-item.active{background:transparent; color:var(--accent)}
+  .nav-item.active svg{opacity:1; color:var(--accent)}
+
+  /* overflow items fold into the "More" sheet; show the More button */
+  .nav-overflow{display:none}
+  .nav-more-btn{display:flex; background:transparent; border:0; cursor:pointer; font-family:inherit; color:var(--text-muted)}
+  .nav-more-btn.active{color:var(--accent)}
+  .nav-more-scrim{display:block; position:fixed; inset:0; z-index:49; background:rgba(8,11,15,.5); backdrop-filter:blur(1px)}
+  .nav-more-sheet{display:flex; flex-direction:column; gap:2px; position:fixed; left:0; right:0; z-index:51;
+    bottom:calc(60px + env(safe-area-inset-bottom)); background:var(--surface-1);
+    border-top:1px solid var(--line); box-shadow:0 -10px 30px -14px rgba(0,0,0,.8); padding:8px}
+  .nav-more-row{display:flex; align-items:center; gap:12px; padding:13px 16px; border-radius:8px;
+    color:var(--text); text-decoration:none; font-size:14px; font-weight:500}
+  .nav-more-row svg{width:20px; height:20px; opacity:.85; flex:none}
+  .nav-more-row.active{color:var(--accent); background:var(--surface-2)}
+  .nav-more-row.active svg{color:var(--accent); opacity:1}
+
+  /* clear the fixed bottom bar */
+  .applayout .page{padding:var(--pad) var(--pad) calc(80px + env(safe-area-inset-bottom))}
 }
 
 /* refined reveal toggle — pill, not a boxed mono chip */

@@ -84,7 +84,7 @@ export default function NewPayment() {
   return (
     <>
       <main className="page narrow">
-        <PageHeader title={t('payment.title')} />
+        <PageHeader title={t('payment.title')} subtitle={t('payment.cap')} />
 
         <div className="ctx">
           <span>{tr('payment.fromVault', { name: vaultName })}</span>

@@ -12,26 +12,26 @@ const EXPLORE: Record<'pt-BR' | 'en', { eyebrow: string; title: string; items: {
     eyebrow: 'EXPLORE',
     title: 'Tudo pra experimentar, num lugar só',
     items: [
-      { to: '/vaults', name: 'Abrir o cofre', desc: 'Pagamento, folha, propostas, razão. O produto rodando.', tag: 'app' },
-      { to: '/proof', name: 'Prova on-chain', desc: 'Confira nossas 8 transações reais na mainnet, você mesmo.', tag: 'prova' },
-      { to: '/net', name: 'Rede multi-dispositivo', desc: 'Crie um cofre entre abas/dispositivos por um relay cego, ao vivo.' },
-      { to: '/signer', name: 'Signer no navegador', desc: 'Uma cerimônia FROST 2-de-3 inteira em WebAssembly.' },
-      { to: '/recovery', name: 'Recuperação social', desc: 'Um quórum reconstrói o share perdido de um membro (RTS).' },
-      { to: '/inheritance', name: 'Herança', desc: 'O dead-man’s-switch: prova de vida, lapso, liberação ao herdeiro.' },
-      { to: '/docs', name: 'Documentação', desc: 'Como funciona, a arquitetura, os diagramas.' },
+      { to: '/vaults', name: 'Abrir o cofre', desc: 'O produto rodando: pagamento, folha, aprovações e registro.', tag: 'app' },
+      { to: '/proof', name: 'Comprovação na blockchain', desc: 'Confira você mesmo, no explorador público, as transações reais do Konclave na mainnet.', tag: 'prova' },
+      { to: '/net', name: 'Cofre entre dispositivos', desc: 'Crie e opere o mesmo cofre no celular e no computador. Nenhum servidor vê um segredo.' },
+      { to: '/signer', name: 'Assinar no navegador', desc: 'Veja uma assinatura de quórum acontecer inteira dentro do navegador.', tag: 'demo' },
+      { to: '/recovery', name: 'Recuperação de membro', desc: 'Um quórum reconstrói a parte de quem perdeu acesso, sem expor a chave.' },
+      { to: '/inheritance', name: 'Herança', desc: 'Se um responsável some, o quórum libera os fundos a um herdeiro.' },
+      { to: '/docs', name: 'Documentação', desc: 'Como funciona, a arquitetura e os diagramas.' },
     ],
   },
   en: {
     eyebrow: 'EXPLORE',
     title: 'Everything to try, in one place',
     items: [
-      { to: '/vaults', name: 'Open the vault', desc: 'Payment, payroll, proposals, ledger. The product running.', tag: 'app' },
-      { to: '/proof', name: 'On-chain proof', desc: 'Verify our 8 real mainnet transactions yourself.', tag: 'proof' },
-      { to: '/net', name: 'Multi-device network', desc: 'Create a vault across tabs/devices over a blind relay, live.' },
-      { to: '/signer', name: 'Browser signer', desc: 'A full 2-of-3 FROST ceremony entirely in WebAssembly.' },
-      { to: '/recovery', name: 'Social recovery', desc: 'A quorum rebuilds a member’s lost share (RTS).' },
-      { to: '/inheritance', name: 'Inheritance', desc: 'The dead-man’s-switch: proof-of-life, lapse, release to an heir.' },
-      { to: '/docs', name: 'Documentation', desc: 'How it works, the architecture, the diagrams.' },
+      { to: '/vaults', name: 'Open the vault', desc: 'The product running: payment, payroll, approvals and ledger.', tag: 'app' },
+      { to: '/proof', name: 'Proof on the blockchain', desc: 'Check for yourself, on the public explorer, Konclave’s real mainnet transactions.', tag: 'proof' },
+      { to: '/net', name: 'Vault across devices', desc: 'Create and run one vault on your phone and your computer. No server ever sees a secret.' },
+      { to: '/signer', name: 'Sign in the browser', desc: 'Watch a quorum signature happen entirely inside the browser.', tag: 'demo' },
+      { to: '/recovery', name: 'Member recovery', desc: 'A quorum rebuilds the share of whoever lost access, without exposing the key.' },
+      { to: '/inheritance', name: 'Inheritance', desc: 'If a steward disappears, the quorum releases the funds to an heir.' },
+      { to: '/docs', name: 'Documentation', desc: 'How it works, the architecture and the diagrams.' },
     ],
   },
 }
@@ -78,13 +78,15 @@ export default function Intro() {
       {/* hero */}
       <div className="lp-wrap">
         <div className="lp-hero">
-          <svg className="seal" viewBox="0 0 96 96" fill="none" aria-hidden="true">
-            <circle cx="48" cy="48" r="45" stroke="var(--accent)" strokeWidth="1" />
-            <circle cx="48" cy="48" r="39" stroke="var(--accent)" strokeWidth="2.4" />
-            <circle cx="48" cy="48" r="34" stroke="var(--silver)" strokeWidth=".6" strokeDasharray="1 3" />
-            <g stroke="var(--silver)" strokeWidth=".7" opacity=".55"><circle cx="48" cy="48" r="30" />
-              <path d="M48 18c9 12 9 48 0 60M48 18c-9 12-9 48 0 60M18 48c12-9 48-9 60 0M18 48c12 9 48 9 60 0" /></g>
-          </svg>
+          <span className="lp-emblem">
+            <svg className="seal" viewBox="0 0 96 96" fill="none" aria-hidden="true">
+              <circle cx="48" cy="48" r="45" stroke="var(--accent)" strokeWidth="1" />
+              <circle className="seal-ring" cx="48" cy="48" r="39" stroke="var(--accent)" strokeWidth="2.4" />
+              <circle className="seal-dash" cx="48" cy="48" r="34" stroke="var(--silver)" strokeWidth=".6" strokeDasharray="1 3" />
+              <g className="seal-grid" stroke="var(--silver)" strokeWidth=".7" opacity=".55"><circle cx="48" cy="48" r="30" />
+                <path d="M48 18c9 12 9 48 0 60M48 18c-9 12-9 48 0 60M18 48c12-9 48-9 60 0M18 48c12 9 48 9 60 0" /></g>
+            </svg>
+          </span>
           <span className="eyebrow">{t('landing.eyebrow')}</span>
           <h1>{t('landing.h1')}</h1>
           <p className="sub">{tr('landing.sub')}</p>
