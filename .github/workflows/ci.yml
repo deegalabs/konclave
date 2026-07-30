@@ -85,6 +85,31 @@ jobs:
       - name: Type-check + build (tsc -b && vite build)
         run: npm run build
 
+  e2e:
+    name: UI e2e (Playwright)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - run: npm ci
+      - name: Install Playwright browser (chromium)
+        run: npx playwright install --with-deps chromium
+      - name: Run e2e (builds + serves + drives the app; API stubbed via route interception)
+        run: npm run e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: ui/playwright-report
+          retention-days: 7
+
   node-packages:
     name: Node packages (mcp-server · sdk)
     runs-on: ubuntu-latest
