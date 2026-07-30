@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Dialog } from '../components'
-import { PageHeader } from '../page'
+import { PageHeader, NextStep } from '../page'
 import { Identicon } from '../avatar'
 import { useT } from '../i18n'
 import {
@@ -114,6 +114,8 @@ export default function People() {
             </div>
           </div>
         )}
+
+        <NextStep label={t('next.label')} cta={t('next.members')} to="/members" />
       </main>
 
       {confirmDel && (

@@ -141,6 +141,15 @@ export const en: Record<string, string> = {
   'nav.people': 'People',
   'nav.switchVault': 'Switch vault',
 
+  // "And now?" connector — the next natural step at the foot of each read/hub screen
+  'next.label': 'Next step',
+  'next.pay': 'Propose a payment',
+  'next.dashboard': 'Back to the dashboard',
+  'next.ledger': 'See the ledger',
+  'next.people': 'See beneficiaries',
+  'next.members': 'See the members',
+  'next.proposals': 'Review approvals',
+
   // Landing / explainer (Intro)
   'landing.env': 'Local-first · **the key never leaves the device**',
   'landing.eyebrow': 'The vault that decides together',
@@ -148,8 +157,8 @@ export const en: Record<string, string> = {
   'landing.sub': 'A group looks after a fund **together**: create the vault, approve payments by quorum and run a private payroll. **Private outside, transparent inside.** No command line, no pasting codes, no trusting a single person.',
   'landing.ctaHow': 'See how it works',
   'landing.ctaVaults': 'My vaults',
-  'landing.navNet': 'Network',
-  'landing.navSigner': 'Signer',
+  'landing.navNet': 'Devices',
+  'landing.navSigner': 'Sign',
   'landing.navProof': 'Proof',
   'landing.heroTrust': 'Built on the official Zcash Foundation tools · no telemetry',
   'landing.whyEyebrow': 'Why Konclave',
@@ -372,6 +381,7 @@ export const en: Record<string, string> = {
   // New payment (also shared by payroll: payment.fromVault, payment.proposingAs)
   'payment.errNoAddress': 'Enter the destination address.',
   'payment.title': 'New payment',
+  'payment.cap': 'Propose a payment for the quorum to approve. Nothing leaves the vault until it is approved.',
   'payment.fromVault': 'From vault **{name}**',
   'payment.available': 'available',
   'payment.proposingAs': 'proposing as',

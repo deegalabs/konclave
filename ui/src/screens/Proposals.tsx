@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Secret, activateOnKey } from '../components'
-import { PageHeader } from '../page'
+import { PageHeader, NextStep } from '../page'
 import { Identicon } from '../avatar'
 import { getProposals, getVault, health, type Proposal } from '../api'
 import { expiryLabel, fmtZec } from '../format'
@@ -79,6 +79,8 @@ export default function Proposals() {
         {loaded && rows.length === 0 && ready.length === 0 && (
           <div className="hint mt">{t('proposals.ledgerHint')} <Link className="link" to="/ledger">{t('proposals.viewLedger')}</Link></div>
         )}
+
+        <NextStep label={t('next.label')} cta={t('next.ledger')} to="/ledger" />
       </main>
     </>
   )

@@ -141,6 +141,15 @@ export const ptBR: Record<string, string> = {
   'nav.people': 'Pessoas',
   'nav.switchVault': 'Trocar cofre',
 
+  // Conector "e agora?" — o próximo passo natural no rodapé de cada tela de leitura
+  'next.label': 'Próximo passo',
+  'next.pay': 'Propor um pagamento',
+  'next.dashboard': 'Voltar ao painel',
+  'next.ledger': 'Ver o registro',
+  'next.people': 'Ver beneficiários',
+  'next.members': 'Ver os membros',
+  'next.proposals': 'Revisar aprovações',
+
   // Landing / explainer (Intro)
   'landing.env': 'Local-first · **a chave nunca sai do aparelho**',
   'landing.eyebrow': 'O cofre que decide em conjunto',
@@ -148,8 +157,8 @@ export const ptBR: Record<string, string> = {
   'landing.sub': 'Um grupo cuida de um fundo **junto**: cria o cofre, aprova pagamentos por quórum e faz uma folha privada. **Privado por fora, transparente por dentro.** Sem terminal, sem colar códigos, sem confiar em uma pessoa só.',
   'landing.ctaHow': 'Ver como funciona',
   'landing.ctaVaults': 'Meus cofres',
-  'landing.navNet': 'Rede',
-  'landing.navSigner': 'Signer',
+  'landing.navNet': 'Dispositivos',
+  'landing.navSigner': 'Assinar',
   'landing.navProof': 'Prova',
   'landing.heroTrust': 'Sobre as ferramentas oficiais da Zcash Foundation · sem telemetria',
   'landing.whyEyebrow': 'Por que Konclave',
@@ -372,6 +381,7 @@ export const ptBR: Record<string, string> = {
   // New payment (also shared by payroll: payment.fromVault, payment.proposingAs)
   'payment.errNoAddress': 'Informe o endereço de destino.',
   'payment.title': 'Novo pagamento',
+  'payment.cap': 'Proponha um pagamento para o quórum aprovar. Nada sai do cofre enquanto não for aprovado.',
   'payment.fromVault': 'Do cofre **{name}**',
   'payment.available': 'disponível',
   'payment.proposingAs': 'propondo como',

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Seal } from '../components'
-import { PageHeader, PageFooter } from '../page'
+import { PageHeader, PageFooter, NextStep } from '../page'
 import { Identicon } from '../avatar'
 import { useT, useTr } from '../i18n'
 import { getVault, health, shortAddr, type Vault } from '../api'
@@ -67,6 +67,8 @@ export default function Members() {
 
         <div className="confirm mt">{tr('members.demoNote')}</div>
         <div className="right mt"><button className="btn ghost sm-btn" onClick={() => nav('/create')}>{t('members.createNew')}</button></div>
+
+        <NextStep label={t('next.label')} cta={t('next.people')} to="/people" />
       </main>
     </>
   )
