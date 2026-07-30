@@ -439,7 +439,9 @@ export async function sendProposal(id: string, dryRun: boolean): Promise<SendRes
     }
     return { ok: false, error: (data.error as string) ?? `HTTP ${res.status}`, detail: data.detail as string }
   } catch (e) {
-    return { ok: false, error: 'falha no envio', detail: String(e) }
+    // A network drop mid-broadcast must never dump a raw exception at the user. 'send failed'
+    // is matched by humanError -> a calm, human message; the raw cause stays in detail for logs.
+    return { ok: false, error: 'send failed', detail: String(e) }
   }
 }
 

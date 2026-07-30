@@ -239,6 +239,12 @@ export default function Proposal() {
         <Dialog className="modal-overlay" cardClassName="modal-card danger" labelledBy="send-confirm-title" onClose={() => setConfirmSend(false)}>
           <span className="klab danger-lab">{t('proposal.confirmLabel')}</span>
           <h2 id="send-confirm-title" className="modal-h">{t('proposal.confirmTitle')}</h2>
+          <div className="send-confirm-what" style={{ margin: '8px 0 6px', padding: '12px 14px', border: '1px solid var(--danger-line)', borderRadius: 'var(--radius-sm)', background: 'var(--danger-soft)' }}>
+            <strong style={{ fontFamily: 'var(--font-mono)', fontSize: '1.05rem' }}>{val} ZEC</strong>
+            {isPayroll
+              ? <span style={{ opacity: 0.85 }}> · {t('kind.payroll')}</span>
+              : <> <span aria-hidden="true">→</span> <code>{dest}</code></>}
+          </div>
           <p className="modal-p">{t('proposal.confirmBody')}</p>
           <div className="btns right mt">
             <button className="btn ghost" onClick={() => setConfirmSend(false)}>{t('common.cancel')}</button>

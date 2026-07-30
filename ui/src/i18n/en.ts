@@ -35,7 +35,7 @@ export const en: Record<string, string> = {
 
   // human errors (humanError)
   'error.insufficient': 'The vault does not have enough balance for this amount (including the network fee).',
-  'error.ceremony': 'The signing ceremony could not be completed. Check that the coordination server (frostd) is up, then try again.',
+  'error.ceremony': 'The send could not be completed. Check your connection and try again in a moment; nothing was sent.',
   'error.share': 'One of the key shares failed to sign. Make sure the quorum members are available.',
   'error.expired': 'The proposal has expired. Create a new one.',
   'error.voteRejected': 'This vote no longer applies · the proposal already changed state, or there is a conflicting vote.',
@@ -102,7 +102,7 @@ export const en: Record<string, string> = {
   'vaults.receive': 'receive',
   'vaults.enter': 'Enter',
   'vaults.createTitle': 'Create a new vault',
-  'vaults.createSub': 'the key never exists whole · the key never exists whole',
+  'vaults.createSub': 'the key never exists whole, anywhere',
   'vaults.empty': 'No vaults yet. Start by creating the first one.',
   'vaults.note': 'Your data and your share of the key stay **here only, on your device** · they never go to any server on the internet.',
   'vaults.howItWorks': 'how it works',
@@ -655,4 +655,17 @@ export const en: Record<string, string> = {
   'signer.resultFail': 'Verification failed',
   'signer.error': 'Error: {msg}',
   'signer.back': '← back',
+
+  // receive / add funds
+  'receive.title': 'Add funds to the vault',
+  'receive.lead': 'Send ZEC to the vault’s Orchard address. Receiving never touches the key: any wallet can send, and the balance appears once the vault syncs.',
+  'receive.address': 'Vault address (Orchard, shielded)',
+  'receive.copy': 'Copy address',
+  'receive.copied': 'Copied',
+  'receive.amount': 'Amount (optional, ZEC)',
+  'receive.uri': 'Payment link (ZIP-321)',
+  'receive.copyUri': 'Copy link',
+  'receive.openWallet': 'Open in wallet',
+  'receive.note': 'Orchard only. A transparent or Sapling address will not receive from this vault.',
+  'receive.noVault': 'No vault on this device.',
 }

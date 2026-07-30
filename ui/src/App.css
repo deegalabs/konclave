@@ -366,3 +366,32 @@ h1.klab,h2.klab,h3.klab{margin:0;font-weight:400}
 select{appearance:none; -webkit-appearance:none; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238a95a3' stroke-width='1.5'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 9px center; padding-right:26px}
 .demo-note{margin-top:14px; border:1px dashed var(--line); border-radius:var(--radius-sm); padding:12px 14px 14px; background:var(--surface-1)}
 .demo-tag{display:inline-block; margin-bottom:6px; font-family:var(--font-mono); font-size:9px; letter-spacing:.16em; text-transform:uppercase; color:var(--text-muted)}
+
+/* ============================================================
+   Premium uplift (matches the landing) — refined labels, depth,
+   elevation. Dark + blue kept; appended to win via the cascade.
+   ============================================================ */
+
+/* labels: tighter tracking (less "terminal"), header eyebrow branded blue */
+.klab{letter-spacing:.15em}
+.page-header-eyebrow{color:var(--accent); opacity:.92}
+
+/* a soft blue glow at the top of the vault home, tying it to the landing's light */
+.page.dash{position:relative}
+.page.dash::before{content:""; position:absolute; top:-24px; left:-46px; right:-46px; height:240px; z-index:0; pointer-events:none;
+  background:radial-gradient(52% 180px at 34% 0, rgba(87,166,255,.08), transparent 72%)}
+.page.dash > *{position:relative; z-index:1}
+
+/* the "needs you" approval card is the hero action — give it a soft accent glow */
+.needyou.act{background:linear-gradient(180deg,var(--accent-soft),transparent);
+  box-shadow:0 0 0 1px var(--accent-line), 0 20px 48px -30px rgba(87,166,255,.55)}
+
+/* action cards: layered fill, soft shadow, hover LIFT */
+.action{background:linear-gradient(180deg,var(--surface-2),var(--surface-1));
+  box-shadow:0 1px 0 rgba(255,255,255,.03), 0 10px 30px -24px rgba(0,0,0,.8)}
+.action:hover{transform:translateY(-3px);
+  box-shadow:0 20px 46px -24px rgba(0,0,0,.85), 0 0 0 1px var(--accent-line)}
+
+/* panels/cards: a touch of depth instead of flat */
+.opnav.card{background:linear-gradient(180deg,var(--surface-2),var(--surface-1));
+  box-shadow:0 14px 36px -28px rgba(0,0,0,.72)}

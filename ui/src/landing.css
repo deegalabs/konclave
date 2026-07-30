@@ -144,3 +144,62 @@ table.lp-cmp tr.kon td.name{color:var(--accent); font-weight:700}
 .lp-ex-go{position:absolute; top:16px; right:16px; color:var(--text-muted); font-size:15px;
   transition:transform var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out)}
 .lp-explore-card:hover .lp-ex-go{color:var(--accent); transform:translateX(3px)}
+
+/* ============================================================
+   Premium uplift — depth, light, refined type. Dark + blue kept,
+   but layered (glow, elevation, accented labels) instead of flat.
+   Appended so it overrides the base rules above via the cascade.
+   ============================================================ */
+
+/* soft blue glow behind the hero — the page stops being one flat gray */
+.lp::before{content:""; position:absolute; top:0; left:0; right:0; height:720px; pointer-events:none; z-index:-1;
+  background:
+    radial-gradient(46% 300px at 50% 120px, rgba(87,166,255,.16), transparent 70%),
+    radial-gradient(120% 620px at 50% -80px, rgba(87,166,255,.06), transparent 62%);}
+
+/* labels: accent-tinted, not terminal-gray — feels branded, not techy */
+.lp .eyebrow{color:var(--accent); letter-spacing:.15em; font-weight:500; opacity:.92}
+.lp .sec-eyebrow{color:var(--accent)}
+
+/* hero: a real signature moment — larger emblem with a glow, lighter headline */
+.lp-hero .seal{width:104px; height:104px; margin-bottom:28px;
+  filter:drop-shadow(0 0 30px rgba(87,166,255,.4)) drop-shadow(0 0 8px rgba(87,166,255,.5));
+  animation:lp-breathe 6s var(--ease-out) infinite}
+@keyframes lp-breathe{0%,100%{opacity:.92; transform:scale(1)} 50%{opacity:1; transform:scale(1.025)}}
+.lp-hero h1{font-weight:700; letter-spacing:-.035em; max-width:15ch}
+.lp-hero .sub{font-size:clamp(16px,1.9vw,18.5px)}
+
+/* primary button: gradient + glow + lift (a designed CTA, not a flat fill) */
+.lp-btn{border-radius:10px; transition:background var(--dur-fast), border-color var(--dur-fast), transform var(--dur-fast), box-shadow var(--dur-fast)}
+.lp-btn.primary{background:linear-gradient(180deg,var(--accent-bright),var(--accent)); border-color:transparent;
+  box-shadow:0 8px 24px -10px rgba(87,166,255,.7), inset 0 1px 0 rgba(255,255,255,.18)}
+.lp-btn.primary:hover{background:linear-gradient(180deg,#82c0ff,var(--accent-bright)); transform:translateY(-1px);
+  box-shadow:0 12px 30px -10px rgba(87,166,255,.8), inset 0 1px 0 rgba(255,255,255,.22)}
+.lp-btn:not(.primary){background:linear-gradient(180deg,var(--surface-2),var(--surface-1)); border-color:var(--line-strong)}
+.lp-btn:not(.primary):hover{background:linear-gradient(180deg,var(--surface-3),var(--surface-2)); border-color:var(--accent-line); transform:translateY(-1px)}
+
+/* explore cards: layered fill, soft shadow, hover LIFT + accent ring */
+.lp-explore-card{background:linear-gradient(180deg,var(--surface-2),var(--surface-1));
+  box-shadow:0 1px 0 rgba(255,255,255,.03), 0 10px 30px -24px rgba(0,0,0,.8);
+  transition:border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out)}
+.lp-explore-card:hover{border-color:var(--accent-line); background:linear-gradient(180deg,var(--surface-3),var(--surface-2));
+  transform:translateY(-3px); box-shadow:0 22px 46px -24px rgba(0,0,0,.85), 0 0 0 1px var(--accent-line)}
+.lp-ex-name{font-weight:650}
+
+/* pillars: accent the icon, add depth + hover lift */
+.lp-pillar{box-shadow:0 1px 0 rgba(255,255,255,.03), 0 12px 34px -26px rgba(0,0,0,.75);
+  transition:transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out)}
+.lp-pillar:hover{transform:translateY(-2px); border-color:var(--accent-line); box-shadow:0 18px 40px -26px rgba(0,0,0,.8)}
+.lp-pillar .ic{background:var(--accent-soft); color:var(--accent); border-color:var(--accent-line)}
+
+/* killer + trust: a touch more presence */
+.lp-killer{box-shadow:0 24px 60px -34px rgba(0,0,0,.9), 0 0 0 1px var(--accent-line)}
+.lp-trust{background:linear-gradient(180deg,var(--surface-1),var(--surface-0))}
+.lp-trust-inner .shield{filter:drop-shadow(0 0 18px rgba(87,166,255,.35))}
+
+/* final CTA: give the closer a soft glow slab */
+.lp-final .lp-wrap{position:relative}
+.lp-final .lp-wrap::before{content:""; position:absolute; inset:-40px 0 auto; height:260px; z-index:-1; pointer-events:none;
+  background:radial-gradient(50% 200px at 50% 60%, rgba(87,166,255,.10), transparent 70%)}
+
+@media(prefers-reduced-motion:reduce){.lp-hero .seal{animation:none}}

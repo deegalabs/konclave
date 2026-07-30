@@ -97,15 +97,19 @@ export default function Dashboard() {
   // Live but no wallet wired: show an explicit "not connected" state, never a dash veiled
   // behind the redaction tarja (the privacy gesture must never hide *nothing*).
   const walletUnwired = isLive && !hasBal
-  const amt = hasBal ? fmt4(balance!.total_zec) : (isLive ? '—' : '2.4180')
-  const confirmado = hasBal ? fmt4(balance!.spendable_zec) : (isLive ? '—' : '2.4180')
-  const pendente = hasBal ? `+${fmt4(balance!.pending_zec)}` : (isLive ? '—' : '+0.0100')
+  // Show a figure only when it is real (hasBal) or genuinely offline-demo (live === false).
+  // While still loading (live === null) show a neutral dash, never a fabricated balance.
+  const amt = hasBal ? fmt4(balance!.total_zec) : (live === false ? '2.4180' : '—')
+  const confirmado = hasBal ? fmt4(balance!.spendable_zec) : (live === false ? '2.4180' : '—')
+  const pendente = hasBal ? `+${fmt4(balance!.pending_zec)}` : (live === false ? '+0.0100' : '—')
 
   // Pending approval — first awaiting proposal. When live with none, show an empty state
   // instead of a fabricated card.
   const awaiting = proposals.filter((p) => p.state === 'awaiting')
   const pending = awaiting[0] ?? null
-  const showApprovalCard = !isLive || pending !== null
+  // Show the (mock) approval card only when genuinely offline; during load (live === null) wait
+  // for real proposals instead of flashing a fabricated one.
+  const showApprovalCard = live === false || pending !== null
   const pAmt = pending ? fmt4(pending.value_zec, '0.0003') : '0.5000'
   const pMemo = pending?.memo ?? 'adiantamento maio'
   const pProposer = pending?.proposer ?? 'Bruno'

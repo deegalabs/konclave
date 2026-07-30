@@ -11,7 +11,7 @@
   /* lines — hairlines, not heavy rules */
   --line:#28313c; --line-2:#20272f; --line-strong:#37424e; --line-soft:rgba(180,205,235,.08);
   /* accent (blue — rare, interactive + quorum) */
-  --accent:#57a6ff; --accent-ink:#3f86e0;
+  --accent:#57a6ff; --accent-ink:#3f86e0; --accent-bright:#6cb2ff;
   --accent-soft:rgba(87,166,255,.10); --accent-line:rgba(87,166,255,.32);
   --on-accent:#0f141a;
   /* success (earned) */

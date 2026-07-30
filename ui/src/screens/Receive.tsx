@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import encodeQR from '@paulmillr/qr'
 import { getVault, type Vault } from '../api'
-import { useI18n } from '../i18n'
+import { useT } from '../i18n'
+import { PageHeader } from '../page'
 import '../receive.css'
 
 // "Add funds" is the easy side of a vault: receiving needs no key and no signature. The vault
@@ -9,38 +10,8 @@ import '../receive.css'
 // it and the balance appears once the vault syncs. This screen shows the address, a QR, and a
 // ZIP-321 payment link a phone wallet can open. All client-side; nothing leaves the browser.
 
-const TXT = {
-  'pt-BR': {
-    title: 'Receber no cofre',
-    lead: 'Mande ZEC para o endereço Orchard do cofre. Receber não usa a chave: qualquer carteira pode enviar, e o saldo aparece quando o cofre sincroniza.',
-    address: 'Endereço do cofre (Orchard, blindado)',
-    copy: 'Copiar endereço',
-    copied: 'Copiado',
-    amount: 'Valor (opcional, ZEC)',
-    uri: 'Link de pagamento (ZIP-321)',
-    copyUri: 'Copiar link',
-    openWallet: 'Abrir na carteira',
-    note: 'Só Orchard. Um endereço transparente ou Sapling não recebe deste cofre.',
-    noVault: 'Nenhum cofre neste dispositivo.',
-  },
-  en: {
-    title: 'Add funds to the vault',
-    lead: 'Send ZEC to the vault’s Orchard address. Receiving never touches the key: any wallet can send, and the balance appears once the vault syncs.',
-    address: 'Vault address (Orchard, shielded)',
-    copy: 'Copy address',
-    copied: 'Copied',
-    amount: 'Amount (optional, ZEC)',
-    uri: 'Payment link (ZIP-321)',
-    copyUri: 'Copy link',
-    openWallet: 'Open in wallet',
-    note: 'Orchard only. A transparent or Sapling address will not receive from this vault.',
-    noVault: 'No vault on this device.',
-  },
-} as const
-
 export default function Receive() {
-  const { locale } = useI18n()
-  const T = TXT[locale] ?? TXT.en
+  const t = useT()
   const [vault, setVault] = useState<Vault | null>(null)
   const [amount, setAmount] = useState('')
   const [copied, setCopied] = useState<string | null>(null)
@@ -79,28 +50,28 @@ export default function Receive() {
 
   if (!vault) {
     return (
-      <div className="rcv">
-        <p className="rcv-lead">{T.noVault}</p>
-      </div>
+      <main className="page">
+        <PageHeader title={t('receive.title')} />
+        <p className="rcv-note">{t('receive.noVault')}</p>
+      </main>
     )
   }
 
   return (
-    <div className="rcv">
-      <h1 className="rcv-h1">{T.title}</h1>
-      <p className="rcv-lead">{T.lead}</p>
+    <main className="page rcv">
+      <PageHeader title={t('receive.title')} subtitle={t('receive.lead')} />
 
       <div className="rcv-grid">
         <div className="rcv-qr" dangerouslySetInnerHTML={{ __html: qrSvg }} role="img" aria-label="QR" />
 
         <div className="rcv-side">
-          <span className="rcv-label">{T.address}</span>
+          <span className="rcv-label">{t('receive.address')}</span>
           <div className="rcv-addr">{address}</div>
           <button className="rcv-btn" onClick={() => copy(address, 'a')}>
-            {copied === 'a' ? T.copied : T.copy}
+            {copied === 'a' ? t('receive.copied') : t('receive.copy')}
           </button>
 
-          <span className="rcv-label" style={{ marginTop: 18 }}>{T.amount}</span>
+          <span className="rcv-label" style={{ marginTop: 18 }}>{t('receive.amount')}</span>
           <input
             className="rcv-input"
             inputMode="decimal"
@@ -109,18 +80,18 @@ export default function Receive() {
             onChange={(e) => setAmount(e.target.value)}
           />
 
-          <span className="rcv-label" style={{ marginTop: 18 }}>{T.uri}</span>
+          <span className="rcv-label" style={{ marginTop: 18 }}>{t('receive.uri')}</span>
           <div className="rcv-uri">{uri}</div>
           <div className="rcv-actions">
             <button className="rcv-btn" onClick={() => copy(uri, 'u')}>
-              {copied === 'u' ? T.copied : T.copyUri}
+              {copied === 'u' ? t('receive.copied') : t('receive.copyUri')}
             </button>
-            <a className="rcv-btn primary" href={uri}>{T.openWallet}</a>
+            <a className="rcv-btn primary" href={uri}>{t('receive.openWallet')}</a>
           </div>
         </div>
       </div>
 
-      <p className="rcv-note">{T.note}</p>
-    </div>
+      <p className="rcv-note">{t('receive.note')}</p>
+    </main>
   )
 }
