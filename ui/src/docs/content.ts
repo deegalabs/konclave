@@ -178,6 +178,82 @@ export const SECTIONS: Section[] = [
     ],
   },
   {
+    id: 'use-cases',
+    nav: { 'pt-BR': 'Casos de uso', en: 'Use cases' },
+    title: { 'pt-BR': 'Casos de uso', en: 'Use cases' },
+    lead: {
+      'pt-BR': 'Tudo que dá para fazer, tela por tela, com a garantia de cada um.',
+      en: "Everything you can do, screen by screen, with each one's guarantee.",
+    },
+    blocks: [
+      { k: 'h', t: { 'pt-BR': 'No dia a dia', en: 'Everyday' } },
+      {
+        k: 'ul',
+        items: [
+          { 'pt-BR': '**Criar um cofre** (`/create`) — membros + quórum; a chave nasce por DKG, nunca inteira.', en: '**Create a vault** (`/create`) — members + quorum; the key is born by DKG, never whole.' },
+          { 'pt-BR': '**Receber** (`/receive`) — endereço Orchard + QR + link ZIP-321; receber não precisa de chave.', en: '**Receive** (`/receive`) — Orchard address + QR + a ZIP-321 link; receiving needs no key.' },
+          { 'pt-BR': '**Propor pagamento** (`/pay`) — valor + destino; endereço e saldo validados antes de criar.', en: '**Propose a payment** (`/pay`) — amount + recipient; address and balance validated up front.' },
+          { 'pt-BR': '**Aprovar/recusar** (`/proposals`) — quórum real; nada move sem as aprovações, e as propostas expiram. A aprovação vincula a parte que assina.', en: '**Approve/refuse** (`/proposals`) — real quorum; nothing moves without the approvals, and proposals expire. Approval binds the signing share.' },
+          { 'pt-BR': '**Assinar e enviar** — cerimônia FROST com as partes de quem aprovou; preview + confirmação; a chave nunca é remontada.', en: "**Sign & send** — a FROST ceremony with the approvers' shares; preview + confirm; the key is never reassembled." },
+          { 'pt-BR': '**Folha privada** (`/payroll`) — CSV de N beneficiários numa única transação blindada, aprovada uma vez, cada holerite num memo cifrado.', en: '**Private payroll** (`/payroll`) — a CSV of N beneficiaries in one shielded transaction, approved once, each payslip in an encrypted memo.' },
+          { 'pt-BR': '**Razão/contas** (`/ledger`) — livro interno completo + exportação CSV itemizada (folha de N vira N linhas).', en: '**Ledger/accounting** (`/ledger`) — a full internal book + itemized CSV export (payroll of N becomes N rows).' },
+        ],
+      },
+      { k: 'h', t: { 'pt-BR': 'Além do básico', en: 'Beyond the basics' } },
+      {
+        k: 'ul',
+        items: [
+          { 'pt-BR': '**Cofre entre dispositivos** (`/net`) — criar e assinar com o celular e o computador por um relay cego; nenhum servidor vê um segredo.', en: '**Vault across devices** (`/net`) — create and sign with phone and computer over a blind relay; no server sees a secret.' },
+          { 'pt-BR': '**Recuperação de membro** (`/recovery`) — um quórum reconstrói a parte de quem perdeu acesso (RTS), sem expor a chave.', en: "**Member recovery** (`/recovery`) — a quorum rebuilds a lost member's share (RTS), without exposing the key." },
+          { 'pt-BR': '**Herança** (`/inheritance`) — se o responsável some, o quórum libera ao herdeiro como um pagamento comum.', en: '**Inheritance** (`/inheritance`) — if the steward disappears, the quorum releases to an heir as an ordinary payment.' },
+          { 'pt-BR': '**Assinar no navegador** (`/signer`) — uma cerimônia FROST 2-de-3 inteira em WebAssembly.', en: '**Sign in the browser** (`/signer`) — a full 2-of-3 FROST ceremony entirely in WebAssembly.' },
+          { 'pt-BR': '**Membros** (`/members`) e **beneficiários** (`/people`) — quem assina e quem recebe.', en: '**Members** (`/members`) and **beneficiaries** (`/people`) — who signs and who gets paid.' },
+        ],
+      },
+      {
+        k: 'note',
+        t: {
+          'pt-BR': 'Catálogo detalhado (ator, pré-condição, fluxo, limites honestos) no [guia completo](https://github.com/deegalabs/konclave/blob/main/docs/GUIDE.md).',
+          en: 'The detailed catalog (actor, precondition, flow, honest limits) is in the [complete guide](https://github.com/deegalabs/konclave/blob/main/docs/GUIDE.md).',
+        },
+      },
+    ],
+  },
+  {
+    id: 'under-the-hood',
+    nav: { 'pt-BR': 'Por dentro', en: 'Under the hood' },
+    title: { 'pt-BR': 'Por dentro: estados, processos e dicas', en: 'Under the hood: states, processes & tips' },
+    lead: {
+      'pt-BR': 'A máquina de estados das propostas e os processos-chave que a sustentam.',
+      en: 'The proposal state machine and the key processes behind it.',
+    },
+    blocks: [
+      { k: 'h', t: { 'pt-BR': 'Ciclo de vida da proposta', en: 'Proposal lifecycle' } },
+      { k: 'img', src: 'diagrams/proposal-states.svg', alt: { 'pt-BR': 'Máquina de estados da proposta: rascunho, aguardando, pronta, enviada, confirmada, e os terminais', en: 'Proposal state machine: draft, awaiting, ready, sent, confirmed, and the terminal states' } },
+      { k: 'p', t: { 'pt-BR': '9 estados, cada transição guardada. `Superseded` (invalidada) é o único que não vem dos métodos da proposta — é aplicado pela reconciliação quando a cadeia não pode mais financiar a reserva.', en: "9 states, every transition guarded. `Superseded` is the only one not reachable from the proposal's own methods — reconciliation applies it when the chain can no longer fund the reservation." } },
+      { k: 'h', t: { 'pt-BR': 'Processos-chave', en: 'Key processes' } },
+      {
+        k: 'ul',
+        items: [
+          { 'pt-BR': '**Bridge FROST↔PCZT** — o FROST assina um *sighash*; o gasto vive numa *PCZT*. O `konclave-signer` extrai o sighash + randomizers e injeta as assinaturas de volta, verificando cada uma.', en: '**FROST↔PCZT bridge** — FROST signs a *sighash*; the spend lives in a *PCZT*. `konclave-signer` extracts the sighash + randomizers and injects the signatures back, verifying each.' },
+          { 'pt-BR': '**Custódia selada** — a parte nunca fica em claro no disco: selada com XChaCha20-Poly1305, aberta só num arquivo 0600 efêmero em tmpfs durante a cerimônia.', en: '**Sealed custody** — a share never sits in the clear on disk: sealed with XChaCha20-Poly1305, unsealed only into an ephemeral 0600 tmpfs file during the ceremony.' },
+          { 'pt-BR': '**Relay cego** — carrega só bytes opacos (pacotes públicos de DKG ou já cifrados); não consegue ler o que transporta.', en: '**Blind relay** — carries only opaque bytes (public DKG packages or already-encrypted ones); it cannot read what it carries.' },
+          { 'pt-BR': '**Reconciliação** — motor puro "a cadeia manda": promove Enviada para Confirmada pelos txids minerados e invalida reservas que a cadeia não financia mais.', en: '**Reconciliation** — a pure "on-chain wins" engine: promotes Sent to Confirmed by mined txids and invalidates reservations the chain can no longer fund.' },
+        ],
+      },
+      { k: 'h', t: { 'pt-BR': 'Dicas', en: 'Tips' } },
+      {
+        k: 'ul',
+        items: [
+          { 'pt-BR': '**Sapling ≠ Orchard** — um destino só-Sapling pode travar fundos; o app decodifica o endereço e bloqueia com um aviso claro.', en: '**Sapling ≠ Orchard** — a Sapling-only destination can lock funds; the app decodes the address and blocks it with a clear warning.' },
+          { 'pt-BR': '**Memo é só Orchard** — destinos transparentes (públicos) não levam memo, e o pagamento é marcado como público na cadeia.', en: '**Memos are Orchard-only** — transparent (public) destinations carry no memo, and the payment is flagged public on-chain.' },
+          { 'pt-BR': '**Faça o dry-run** — o envio tem um ensaio que roda a cerimônia inteira e para *antes* de transmitir, sem mover fundos.', en: '**Dry-run first** — the send path has a rehearsal that runs the whole ceremony and stops *before* broadcast, with no funds moved.' },
+          { 'pt-BR': '**A cerimônia leva 30–60s** — o `frostd` sobe na hora e é encerrado ao fim; deixe concluir.', en: '**The ceremony takes 30–60s** — `frostd` starts fresh and is killed on drop; let it finish.' },
+        ],
+      },
+    ],
+  },
+  {
     id: 'multi-device',
     nav: { 'pt-BR': 'Multi-dispositivo', en: 'Multi-device' },
     title: { 'pt-BR': 'FROST multi-dispositivo no navegador', en: 'Multi-device FROST in the browser' },
