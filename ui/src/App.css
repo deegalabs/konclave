@@ -24,13 +24,16 @@
 .page-header-sub b{color:var(--text); font-weight:500}
 .page-header-actions{display:flex; align-items:center; gap:14px; flex:0 0 auto; margin-left:auto}
 /* On mobile, a header whose action is the quorum globe keeps it to the RIGHT of the
-   title (text left, globe right) instead of dropping it to a new line; the globe shrinks. */
-@media(max-width:560px){
-  .page-header:has(.seal-wrap){flex-wrap:nowrap; align-items:center; gap:14px}
-  .page-header:has(.seal-wrap) .page-header-actions{margin-left:auto}
-  .page-header .seal-emb{width:62px; height:62px}
-  .page-header .seal-emb .num{font-size:15px}
-  .page-header .seal-cap{font-size:9px; letter-spacing:.1em; margin-top:2px}
+   title (text left, globe right). It TOP-aligns with the title (not floating centered)
+   and shrinks, so it reads as a compact companion to the heading. */
+@media(max-width:720px){
+  .page-header:has(.seal-wrap){flex-wrap:nowrap; align-items:flex-start; gap:16px}
+  .page-header:has(.seal-wrap) .page-header-actions{margin-left:auto; padding-top:2px}
+  .page-header .seal-wrap{display:flex; flex-direction:column; align-items:center}
+  .page-header .seal-emb{width:56px; height:56px}
+  .page-header .seal-emb svg{width:100%; height:100%}
+  .page-header .seal-emb .num{font-size:14px}
+  .page-header .seal-cap{font-size:8px; letter-spacing:.08em; margin-top:4px}
 }
 
 /* NextStep — the "and now?" connector that closes every read/hub screen so none is a dead end. */
