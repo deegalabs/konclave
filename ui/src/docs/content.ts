@@ -127,6 +127,57 @@ export const SECTIONS: Section[] = [
     ],
   },
   {
+    id: 'using-it',
+    nav: { 'pt-BR': 'Passo a passo', en: 'Step by step' },
+    title: { 'pt-BR': 'Usando: passo a passo', en: 'Using it: step by step' },
+    lead: {
+      'pt-BR': 'O fluxo inteiro, na linguagem do próprio app: esconda a criptografia, exponha a confiança.',
+      en: "The whole flow, in the app's own words: hide the cryptography, expose the trust.",
+    },
+    blocks: [
+      {
+        k: 'ul',
+        items: [
+          {
+            'pt-BR': '**1. Crie ou entre num cofre** (`/create`, ou `/net` entre dois aparelhos). Escolha os membros e o quórum (ex.: 2 de 3). A chave nasce por **DKG**, dividida entre os dispositivos, e nunca existe inteira em lugar nenhum.',
+            en: '**1. Create or join a vault** (`/create`, or `/net` across two devices). Pick the members and the quorum (e.g. 2 of 3). The key is born by a real **DKG**, split across devices, and never exists whole anywhere.',
+          },
+          {
+            'pt-BR': '**2. Financie o cofre** (`/receive`). Compartilhe o **endereço Orchard** blindado do cofre (com QR e link de cobrança ZIP-321) e receba ZEC.',
+            en: "**2. Fund it** (`/receive`). Share the vault's shielded **Orchard address** (with a QR and a ZIP-321 payment link) and receive ZEC.",
+          },
+          {
+            'pt-BR': '**3. Proponha um pagamento** (`/pay`). Informe o valor e o destinatário (escolha um beneficiário salvo ou cole um endereço). O Konclave valida o endereço e confere o saldo **antes** de criar qualquer coisa.',
+            en: '**3. Propose a payment** (`/pay`). Enter an amount and a recipient (a saved beneficiary or a pasted address). Konclave validates the address and checks the balance *before* anything is created.',
+          },
+          {
+            'pt-BR': '**4. Aprove por quórum** (`/proposals`). Cada membro revisa e aprova ou recusa. Nada se move até o número combinado de aprovações, e as propostas expiram.',
+            en: '**4. Approve to quorum** (`/proposals`). Each member reviews and approves or refuses. Nothing moves until the agreed number of approvals is in, and proposals expire.',
+          },
+          {
+            'pt-BR': '**5. Assine e envie.** No quórum, uma cerimônia FROST assina com **apenas as partes de quem aprovou** e transmite uma única transação Orchard blindada. Um preview e uma confirmação explícita protegem o envio: um clique nunca move dinheiro, e a chave nunca é remontada.',
+            en: '**5. Sign and send.** At quorum a FROST ceremony signs with **only the shares of whoever approved** and broadcasts one shielded Orchard transaction. A preview and an explicit confirmation guard the broadcast: one click never moves money, and the key is never reassembled.',
+          },
+          {
+            'pt-BR': '**6. Folha de pagamento (opcional)** (`/payroll`). Importe um CSV de beneficiários numa transação com N saídas, aprovada **uma vez**, cada contracheque num memo criptografado que só o destinatário lê.',
+            en: '**6. Payroll, optional** (`/payroll`). Import a CSV of beneficiaries into one shielded transaction with N outputs, approved **once**, each payslip in an encrypted memo only its recipient can read.',
+          },
+          {
+            'pt-BR': '**7. Contabilize** (`/ledger`). Cada ação entra no razão interno (quem propôs, quem aprovou, estados, datas), com exportação CSV itemizada para o contador.',
+            en: '**7. Account** (`/ledger`). Every action lands in the internal ledger (who proposed, who approved, states, dates), with an itemized CSV export for the accountant.',
+          },
+        ],
+      },
+      {
+        k: 'note',
+        t: {
+          'pt-BR': 'Experimente o fluxo com dados de demonstração aqui mesmo na demo hospedada, ou rode de verdade localmente (veja **Rodar localmente**).',
+          en: 'Try the flow with demo data right here on the hosted demo, or run it for real locally (see **Run it locally**).',
+        },
+      },
+    ],
+  },
+  {
     id: 'multi-device',
     nav: { 'pt-BR': 'Multi-dispositivo', en: 'Multi-device' },
     title: { 'pt-BR': 'FROST multi-dispositivo no navegador', en: 'Multi-device FROST in the browser' },
