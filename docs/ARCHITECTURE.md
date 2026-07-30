@@ -146,7 +146,7 @@ bundle and converge on the same on-chain transaction (guaranteed by the §7 pari
 
 ## 9. Status and what we intend to build
 
-**Built and proven (7 verifiable mainnet txids incl. the Ironwood cycle; see `docs/PROOF.md`):**
+**Built and proven (8 verifiable mainnet txids incl. the Ironwood cycle + the first browser-signed broadcast; see `docs/PROOF.md`):**
 - Real DKG vaults (key never reconstituted) and trusted-dealer vaults, quorum payment + private
   payroll, all via the native path (orchestrator + konclave-signer + engine).
 - The web/WASM core: multi-device DKG + FROST signing over the hosted blind relay (the signed

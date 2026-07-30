@@ -26,7 +26,8 @@ all documents:
    - `trusted-dealer` — a dealer briefly held the whole key at setup, then split it.
 
 ## Mainnet transactions (authoritative attribution)
-As of this writing, seven verifiable mainnet txids. Only ONE is from a real DKG vault.
+As of this writing, eight verifiable mainnet txids. **Two** are from real DKG vaults (the CLI
+DKG-vault send and the browser-DKG browser-signed broadcast); the rest are trusted-dealer.
 
 | Transaction | Evidence | Key origin |
 |---|---|---|
@@ -34,22 +35,30 @@ As of this writing, seven verifiable mainnet txids. Only ONE is from a real DKG 
 | Gate-1 CLI vertical-slice payment (`f63ee64d…`) | proven on-chain | trusted-dealer |
 | Fresh-vault 2-of-3 payment (`6c898239…`) | proven on-chain | trusted-dealer |
 | Private multi-output payroll, 3 outputs (`b1e24c07…`) | proven on-chain | trusted-dealer |
-| **DKG-vault send (`aab00f90…`)** | proven on-chain | **DKG** |
+| **DKG-vault send (`aab00f90…`)** | proven on-chain | **DKG** (CLI) |
 | Orchard→Ironwood migration, V6/NU6.3 (`54266f47…`) | proven on-chain | trusted-dealer |
 | First Ironwood-pool spend, V6/NU6.3 (`36c60f1e…`) | proven on-chain | trusted-dealer |
+| **Browser-signed broadcast, V6/NU6.3 (`3022420a…`)** | proven on-chain | **DKG** (browser) |
 
-Any statement of the form "the app payment used DKG" is **false**. Only `aab00f90…` is DKG.
+Any statement of the form "the app payment used DKG" is **false**. Only `aab00f90…` (CLI DKG) and
+`3022420a…` (browser DKG) came from keys born by real DKG.
 
 ## Honest limits to keep stated (never hide)
-- The seven mainnet sends were signed on a **single machine** (shares co-located at signing).
-- Distributed cross-machine signing is demonstrated by `/net` over a blind relay, **verified
-  but not broadcast**.
-  - The helper-assisted broadcast path (Architecture B) is now **wired end to end in code**: a
-    blind helper (`orchestrator::net_send`) publishes a sign-request into the relay room, the
-    browser (`/net`) consumes it, runs the ceremony under the request's real alpha, and posts the
-    aggregate signature back for the helper to inject and broadcast. This is **single-spend and
-    unit-tested** (`net_send` + `net-flow` suites); the **live broadcast** (a funded browser-DKG
-    vault over the relay) is still pending, so the claim above stays "verified but not broadcast".
+- The first seven mainnet sends were signed on a **single machine** (shares co-located at signing).
+- **Browser-signed distributed broadcast — PROVEN on mainnet (2026-07-30).** `/net` over a blind
+  relay is no longer "verified but not broadcast": a browser-DKG **2-of-2** vault (created live in
+  two browser tabs over the hosted relay, key never reconstituted) was funded, restored on-device
+  by both seats, and **signed a real Ironwood transaction IN THE BROWSER** — each device
+  contributing only its own share over the blind relay — after which the blind helper
+  (`orchestrator::net_send`, Architecture B) injected and broadcast it. Mined: txid
+  `3022420a8bcf17ffd5511163c18ee9b5996a3ba44747e4eff6794bdd3f04ccee` (block 3,429,922, V6/NU6.3).
+  - The unlock: `konclave-wasm` was ported to the Ironwood librustzcash pin (pczt v2, pool-aware
+    `extract_randomizers`/`inject_sigs` for Orchard **and** Ironwood), staying wasm-clean (0
+    secp256k1). Before this the browser WASM could not parse a V6 PCZT (`UnknownVersion(2)`).
+  - The Architecture B path (`orchestrator::net_send` publishes a sign-request; the browser runs
+    the ceremony under the request's real alpha and posts the aggregate signature back for the
+    helper to inject + broadcast) is single-spend proven live here; **multi-spend** over the live
+    relay remains unit-tested only (`net_send` + `net-flow` suites).
 - The threshold nature is **not** provable from chain data alone (a FROST-aggregated Orchard
   signature is indistinguishable on-chain from a single-signer one); it is attested off-chain.
 - Two browser signing paths exist and must not be conflated:
@@ -60,11 +69,12 @@ Any statement of the form "the app payment used DKG" is **false**. Only `aab00f9
   - **seed path** (`participantRound2` / `Coordinator.aggregate`) derives its own randomizer from
     the commitments. It proves group signing over a message but is **not** a valid Orchard spend
     authorization. Used only by the `/signer` group-signing demo.
-- So: the live `/net` ceremony signs a real Orchard sighash under the transaction's real alpha
-  (`by test` at the crypto layer). It is still **not broadcastable**: the sample PCZT belongs to a
-  different vault, so the signature verifies under `ak+alpha` but is not for a transaction this
-  vault owns. A real broadcast needs the operator to create/prove a PCZT for the `/net` vault's own
-  address, plus the browser broadcast. Both are `roadmap`.
+- So: the live `/net` ceremony signs a real Orchard/Ironwood sighash under the transaction's real
+  alpha (the randomizer path). As of 2026-07-30 this is **broadcastable and broadcast**: the helper
+  builds/proves a PCZT for the `/net` vault's **own** address, the browser signs it under that real
+  alpha, and the helper broadcasts (txid `3022420a…` above). The old "sample PCZT belongs to a
+  different vault, not broadcastable" caveat applied to the `/signer` demo vector and no longer
+  describes the live `/net` path.
 - **Ironwood (NU6.3) — PROVEN on mainnet (2026-07-28, activation day).** After activation
   (block 3,428,144) the #10 port was merged and the rebuilt engine was validated live. Two real,
   mined, **V6/NU6.3** mainnet transactions, each a FROST 2-of-3 ceremony:
@@ -86,7 +96,8 @@ Any statement of the form "the app payment used DKG" is **false**. Only `aab00f9
     librustzcash `main` by commit `51385a15` (2026-07-27). `create-max` is our interim workaround for
     the current engine pin; the proper fix arrives with an engine pin bump.
   - The testnet Ironwood spend (`069f4260…`, block 4,202,966) remains the earlier proof-of-concept;
-    mainnet is now the authoritative proof. Konclave has **7** `proven on-chain` mainnet txids.
+    mainnet is now the authoritative proof. Konclave has **8** `proven on-chain` mainnet txids
+  (the eighth, `3022420a…`, is the first browser-signed broadcast — see the honest-limits section).
 
 ## Rules for changes
 1. When the proven-vs-pending state of anything changes, update `scripts/verify-proof.mjs`

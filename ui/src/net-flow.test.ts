@@ -179,8 +179,8 @@ describe('/net multi-device flow (DKG → sign → verify)', () => {
   it('describeOutputs surfaces what the device is signing (recipient + value), as /net shows', () => {
     const outs = JSON.parse(describeOutputs(dkgProvenPczt())) as { address: string | null; value: number | null }[]
     const recipient = outs.find((o) => o.address !== null)
-    expect(recipient?.value).toBe(100000) // 0.001 ZEC — what /net renders before signing
-    expect(recipient?.address).toMatch(/^u1/) // a real Orchard unified address
+    expect(recipient?.value).toBe(100000000) // the Ironwood vector's recipient output, as /net renders it
+    expect(recipient?.address).toMatch(/^u(test)?1/) // a real unified address (this vector is testnet)
   })
 
   it('Architecture B: a device parses a helper sign-request, signs, and builds a valid response', () => {
@@ -200,7 +200,7 @@ describe('/net multi-device flow (DKG → sign → verify)', () => {
     expect(req!.spends).toHaveLength(1)
     // The device can confirm what it is about to sign, straight from the request's PCZT.
     const outs = JSON.parse(describeOutputs(hexToBytes(req!.pcztHex))) as { value: number | null }[]
-    expect(outs.find((o) => o.value === 100000)).toBeDefined()
+    expect(outs.find((o) => o.value === 100000000)).toBeDefined()
 
     // Run the 2-of-3 ceremony for the requested spend, under the request's own alpha.
     const { s0, s1, id0, id1, groupVk, pubkeys } = dkg2of3()

@@ -13,7 +13,6 @@ import init, {
 import wasmUrl from '../wasm-pkg/konclave_wasm_bg.wasm?url'
 import { RelaySession, newRoomCode, ephemeralTag, b64, unb64, bytesEqual, type RelayMsg } from '../net'
 import { parseSignRequest, buildSignResponse, hexToBytes as hexBytes, bytesToHex, type SignRequest } from '../net-sign'
-import { dkgProvenPczt, DKG_SIGHASH, DKG_TXID } from '../demo-vector'
 import { useT, useTr, useI18n } from '../i18n'
 import { Letterhead } from '../components'
 import {
@@ -102,19 +101,8 @@ type Msg =
   | { type: 's2'; share: string; k: number }
   | { type: 'signed'; sig: string; ok: boolean; k: number }
 
-// The message the vault signs is a REAL Orchard shielded sighash — the one from Konclave's mainnet
-// DKG-vault send (tx aab00f90…). Each device reads the accompanying proven PCZT with describeOutputs
-// to confirm what it pays BEFORE signing (the "what am I signing" gate). Honest limit: this signs
-// under THIS browser vault's own key, so it verifies but is not broadcast — the real broadcast needs
-// the operator to fund this vault and create/prove a PCZT for its own address.
-const SIGN_SIGHASH = hexToBytes(DKG_SIGHASH)
-
 function hex(bytes: Uint8Array): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
-}
-
-function hexToBytes(s: string): Uint8Array {
-  return new Uint8Array(s.match(/../g)!.map((b) => parseInt(b, 16)))
 }
 
 const shortId = (s: string) => (s.length > 24 ? `${s.slice(0, 14)}…${s.slice(-6)}` : s)
@@ -593,11 +581,6 @@ export default function NetVault() {
     [addLog, doPart2, doPart3, send, tt, signingMaterial, beginSpend],
   )
 
-  const startSign = useCallback(async () => {
-    // Publish the real Orchard sighash to sign, plus the proven PCZT each device verifies first.
-    await send({ type: 'sreq', msg: b64(SIGN_SIGHASH), pczt: b64(dkgProvenPczt()) })
-  }, [send])
-
   // Idempotent fixpoint, serialized against itself: apply every message whose preconditions
   // are met, starting the DKG once the roster is full, until no further progress is possible.
   const advance = useCallback(async () => {
@@ -967,23 +950,21 @@ export default function NetVault() {
 
   // Shared signing controls, used by the just-created vault ('done') and by a restored device that
   // rejoined a signing session ('signsession'). `canStart` gates the button on quorum presence.
-  const renderSign = (canStart: boolean) => (
+  const renderSign = () => (
     <div className="net-sign">
       {signPhase === 'none' && (
-        <>
-          <p className="net-lead" style={{ marginTop: 20 }}>{ttr('net.sign.prompt')}</p>
-          <button className="net-btn primary" disabled={!canStart} onClick={() => void startSign()}>
-            {tt('net.sign.btn')}
-          </button>
-        </>
+        <p className="net-lead" style={{ marginTop: 20 }}>
+          {pe(
+            'Cofre pronto para assinar. Aguardando um pedido de pagamento do operador pelo relay; quando chegar, cada dispositivo confere o destino e o valor antes de assinar.',
+            'Vault ready to sign. Waiting for a payment request from the operator over the relay; when it arrives, each device confirms the destination and amount before signing.',
+          )}
+        </p>
       )}
       {signWhat && signPhase !== 'none' && (
         <div className="net-what" style={{ marginTop: 16, padding: '10px 14px', border: '1px solid var(--rd-line)', borderRadius: 8 }}>
-          <strong>{pe('Você está assinando', 'You are signing')}</strong>: {signWhat.zec} ZEC → <code>{shortId(signWhat.addr)}</code>{' '}
-          <span style={{ opacity: 0.7 }}>{pe('(exemplo)', '(example)')}</span>
+          <strong>{pe('Você está assinando', 'You are signing')}</strong>: {signWhat.zec} ZEC → <code>{shortId(signWhat.addr)}</code>
           <div style={{ fontSize: '.82rem', opacity: 0.75, marginTop: 4 }}>
-            {pe('exemplo de uma transação Orchard real (tx', 'example of a real Orchard transaction (tx')} <code>{shortId(DKG_TXID)}</code>){' '}
-            {pe('· cada dispositivo confere isto antes de assinar. Este cofre não tem saldo e nada é transmitido.', '· each device confirms this before it signs. This vault holds no funds and nothing is broadcast.')}
+            {pe('Cada dispositivo confere o destino e o valor antes de contribuir com a sua parte da assinatura.', 'Each device confirms the destination and amount before contributing its share of the signature.')}
           </div>
         </div>
       )}
@@ -1069,7 +1050,7 @@ export default function NetVault() {
             )}
           </div>
 
-          {renderSign(true)}
+          {renderSign()}
         </div>
       )}
 
@@ -1089,7 +1070,7 @@ export default function NetVault() {
           {signSeatCount < quorum && (
             <p className="net-lead">{pe('Aguardando o quórum reingressar…', 'Waiting for the quorum to rejoin…')}</p>
           )}
-          {renderSign(signSeatCount >= quorum)}
+          {renderSign()}
         </div>
       )}
 

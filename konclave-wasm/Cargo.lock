@@ -747,9 +747,9 @@ checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
 
 [[package]]
 name = "orchard"
-version = "0.14.0"
+version = "0.15.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a54f8d29bfb1e76a9d4e868a1a08cce2e57dd2bdc66232982822ad3114b91ab3"
+checksum = "e8b67beade27dbebdbfee0819e23170b0b263dc7b4f558ee936151716baf6e1f"
 dependencies = [
  "aes",
  "bitvec",
@@ -797,8 +797,7 @@ dependencies = [
 [[package]]
 name = "pczt"
 version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4712bd8688e1d1aa0eb0e78dc5c846bc2d70dcd1de544ecf053516df174c4fcd"
+source = "git+https://github.com/zcash/librustzcash?rev=42ffd0d89ffd6c401c9669651a6123f707d5703d#42ffd0d89ffd6c401c9669651a6123f707d5703d"
 dependencies = [
  "ff",
  "getset",
@@ -808,6 +807,7 @@ dependencies = [
  "postcard",
  "serde",
  "serde_with",
+ "zcash_note_encryption",
  "zcash_protocol",
 ]
 
@@ -1299,8 +1299,7 @@ dependencies = [
 [[package]]
 name = "zcash_encoding"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1440921903cdb86133fb9e2fe800be488015db2939a30bedb413078a1acb0306"
+source = "git+https://github.com/zcash/librustzcash?rev=42ffd0d89ffd6c401c9669651a6123f707d5703d#42ffd0d89ffd6c401c9669651a6123f707d5703d"
 dependencies = [
  "corez",
  "hex",
@@ -1322,9 +1321,8 @@ dependencies = [
 
 [[package]]
 name = "zcash_protocol"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5bec496a0bd62dae98c4b26f51c5dab112d0c5350bbc2ccfdfd05bb3454f714d"
+version = "0.10.0"
+source = "git+https://github.com/zcash/librustzcash?rev=42ffd0d89ffd6c401c9669651a6123f707d5703d#42ffd0d89ffd6c401c9669651a6123f707d5703d"
 dependencies = [
  "corez",
  "hex",
@@ -1398,3 +1396,8 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
+
+[[patch.unused]]
+name = "zcash_address"
+version = "0.13.0"
+source = "git+https://github.com/zcash/librustzcash?rev=42ffd0d89ffd6c401c9669651a6123f707d5703d#42ffd0d89ffd6c401c9669651a6123f707d5703d"

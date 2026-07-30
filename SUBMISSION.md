@@ -113,7 +113,7 @@ built on the same FROST + blind-relay foundation and proven by tests:
 
 ## Honest limits (we do not promise what we do not deliver)
 
-- ✅ **On mainnet, seven verifiable txids** (`node scripts/verify-proof.mjs`, or the /proof page):
+- ✅ **On mainnet, eight verifiable txids** (incl. the first browser-signed broadcast) (`node scripts/verify-proof.mjs`, or the /proof page):
   a 2-of-3 quorum payment (proposed/approved in-app, FROST-signed, shares sealed at rest);
   a **private payroll** (one shielded Orchard tx, 3 outputs, one encrypted memo each, 2-of-3 FROST);
   a payment reproduced end to end from a freshly created + funded vault; a **send from a real DKG

@@ -49,6 +49,10 @@ const TXIDS = [
     txid: "36c60f1e3f602c2ac13c9f5b0687f248522499fc5a8b69311605336457226c95",
     label: "first Ironwood-pool spend on mainnet: 2-of-3 FROST spend FROM the Ironwood pool (V6/NU6.3)",
   },
+  {
+    txid: "3022420a8bcf17ffd5511163c18ee9b5996a3ba44747e4eff6794bdd3f04ccee",
+    label: "first browser-signed mainnet broadcast: a browser-DKG 2-of-2 vault, each device signing IN THE BROWSER with only its own share over the blind relay (Architecture B, WASM signer), Ironwood pool (V6/NU6.3)",
+  },
 ];
 
 const TIMEOUT_MS = 15000;
