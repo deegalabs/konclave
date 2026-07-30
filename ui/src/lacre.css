@@ -187,19 +187,40 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 .live i{width:6px; height:6px; border-radius:50%; background:var(--success); box-shadow:0 0 0 3px var(--success-soft)}
 .live.off i{background:var(--text-muted); box-shadow:none}
 
-/* rail collapses to a top strip on narrow */
+/* On mobile the rail splits: a slim sticky TOP bar (brand + compact utilities)
+   and a fixed BOTTOM tab bar for navigation — the native-app pattern. */
 @media(max-width:860px){
   .applayout{grid-template-columns:1fr}
-  .rail{position:static; height:auto; flex-direction:row; align-items:center; flex-wrap:wrap; gap:14px;
-    border-right:0; border-bottom:1px solid var(--line-soft); padding:14px var(--pad)}
-  .railnav{flex-direction:row; flex-wrap:wrap}
-  .nav-item span{display:none}
-  .nav-item{padding:9px}
-  .rail-foot{margin:0 0 0 auto; flex-direction:row; align-items:center}
-  .rail-bottom{flex-direction:row; align-items:center; gap:12px}
-  .rail-quorum small{display:none}
-  .rail-avatars{display:none}
-  .applayout .page{padding:var(--pad) var(--pad) 70px}
+
+  /* top bar */
+  .rail{position:sticky; top:0; z-index:40; height:auto; flex-direction:row; align-items:center;
+    flex-wrap:nowrap; gap:10px; border-right:0; border-bottom:1px solid var(--line);
+    padding:10px var(--pad); background:var(--surface-0)}
+  .rail .brand{flex:0 1 auto; min-width:0}
+  .rail .wm{letter-spacing:.24em; text-indent:.24em; font-size:11px}
+  .rail .brand-sub{display:none}
+  .rail-foot{margin:0 0 0 auto; flex-direction:row; align-items:center; gap:10px; flex:0 0 auto}
+  .rail-quorum, .rail-avatars{display:none}
+  .rail-bottom{flex-direction:row; align-items:center; gap:10px}
+  .rail-switch{white-space:nowrap; font-size:0}
+  .rail-switch::before{content:"⇄"; font-size:15px}
+  .rail-lang{padding:0}
+  .live{padding:5px 9px}
+
+  /* bottom tab bar */
+  .railnav{position:fixed; left:0; right:0; bottom:0; z-index:50; flex-direction:row; gap:0; flex-wrap:nowrap;
+    overflow-x:auto; background:var(--surface-1); border-top:1px solid var(--line);
+    padding:6px 2px calc(6px + env(safe-area-inset-bottom)); box-shadow:0 -6px 20px -12px rgba(0,0,0,.7)}
+  .nav-item{flex:1 1 0; min-width:0; overflow:hidden; flex-direction:column; gap:3px; padding:7px 2px;
+    border-radius:8px; font-size:9px; font-weight:600; letter-spacing:0; text-align:center}
+  .nav-item span{display:block; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .nav-item svg{width:21px; height:21px; opacity:.85}
+  .nav-item:hover{background:transparent; color:var(--text-muted)}
+  .nav-item.active{background:transparent; color:var(--accent)}
+  .nav-item.active svg{opacity:1; color:var(--accent)}
+
+  /* clear the fixed bottom bar */
+  .applayout .page{padding:var(--pad) var(--pad) calc(80px + env(safe-area-inset-bottom))}
 }
 
 /* refined reveal toggle — pill, not a boxed mono chip */

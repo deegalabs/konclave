@@ -157,6 +157,16 @@ table.lp-cmp tr.kon td.name{color:var(--accent); font-weight:700}
     radial-gradient(46% 300px at 50% 120px, rgba(87,166,255,.16), transparent 70%),
     radial-gradient(120% 620px at 50% -80px, rgba(87,166,255,.06), transparent 62%);}
 
+/* faint light rays falling from behind the emblem — like light leaving the vault.
+   Thin vertical beams, concentrated under the globe and fading down, gently shimmering. */
+.lp::after{content:""; position:absolute; top:0; left:0; right:0; height:860px; pointer-events:none; z-index:-1;
+  background:repeating-linear-gradient(90deg,
+    transparent 0 52px, rgba(120,186,255,.09) 52px 54px, transparent 54px 106px);
+  -webkit-mask:radial-gradient(58% 620px at 50% 170px, #000 8%, transparent 78%);
+          mask:radial-gradient(58% 620px at 50% 170px, #000 8%, transparent 78%);
+  animation:lp-rays 12s ease-in-out infinite}
+@keyframes lp-rays{0%,100%{opacity:.55} 50%{opacity:.9}}
+
 /* labels: accent-tinted, not terminal-gray — feels branded, not techy */
 .lp .eyebrow{color:var(--accent); letter-spacing:.15em; font-weight:500; opacity:.92}
 .lp .sec-eyebrow{color:var(--accent)}
@@ -221,6 +231,7 @@ table.lp-cmp tr.kon td.name{color:var(--accent); font-weight:700}
 
 @media(prefers-reduced-motion:reduce){
   .lp-hero .seal,
+  .lp::after,
   .seal-wrap::before,
   .lp-hero .seal .seal-grid,
   .lp-hero .seal .seal-dash,
