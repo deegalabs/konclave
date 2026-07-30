@@ -14,19 +14,19 @@
   margin-bottom: 28px;
 }
 .net-back {
-  color: var(--text-muted, #8a95a3);
+  color: var(--text-muted, var(--text-muted));
   text-decoration: none;
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 13px;
 }
-.net-back:hover { color: var(--text, #dfe6ee); }
+.net-back:hover { color: var(--text, var(--text)); }
 /* Transport label in the letterhead — a quiet mono pill, not an accent signal. */
 .net-tag {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--text-muted, #9aa6b2);
+  color: var(--text-muted, var(--text-muted));
   border: 1px solid var(--line-soft, rgba(180, 205, 235, 0.08));
   border-radius: 999px;
   padding: 5px 12px;
@@ -40,13 +40,13 @@
   margin: 0 0 12px;
 }
 .net-lead {
-  color: var(--text-muted, #8a95a3);
+  color: var(--text-muted, var(--text-muted));
   font-size: 15.5px;
   line-height: 1.6;
   margin: 0 0 20px;
   max-width: 62ch;
 }
-.net-lead b { color: var(--text, #dfe6ee); font-weight: 600; }
+.net-lead b { color: var(--text, var(--text)); font-weight: 600; }
 
 .net-cards {
   display: grid;
@@ -56,30 +56,30 @@
 }
 @media (max-width: 620px) { .net-cards { grid-template-columns: 1fr; } }
 .net-card {
-  border: 1px solid var(--line, #333d47);
+  border: 1px solid var(--line, var(--line));
   border-radius: 14px;
-  background: var(--surface-1, #1a2129);
+  background: var(--surface-1, var(--surface-2));
   padding: 22px;
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
 .net-card h3 { margin: 0; font-size: 18px; font-weight: 700; }
-.net-card p { margin: 0; color: var(--text-muted, #8a95a3); font-size: 14px; line-height: 1.55; }
+.net-card p { margin: 0; color: var(--text-muted, var(--text-muted)); font-size: 14px; line-height: 1.55; }
 .net-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   font-size: 14px;
-  color: var(--text-muted, #8a95a3);
+  color: var(--text-muted, var(--text-muted));
 }
 .net-row select,
 .net-input {
-  background: var(--surface-0, #0f141a);
-  border: 1px solid var(--line, #333d47);
+  background: var(--surface-0, var(--surface-0));
+  border: 1px solid var(--line, var(--line));
   border-radius: 9px;
-  color: var(--text, #dfe6ee);
+  color: var(--text, var(--text));
   padding: 9px 12px;
   font-size: 14px;
   font-family: inherit;
@@ -96,9 +96,9 @@
   font-size: 13.5px;
   letter-spacing: 0.005em;
   padding: 11px 17px;
-  border: 1px solid var(--line-strong, #37424e);
-  background: var(--surface-2, #1a212a);
-  color: var(--text, #e7edf3);
+  border: 1px solid var(--line-strong, var(--line-strong));
+  background: var(--surface-2, var(--surface-2));
+  color: var(--text, var(--text));
   border-radius: var(--radius-sm);
   display: inline-flex;
   align-items: center;
@@ -107,11 +107,11 @@
   cursor: pointer;
   transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
-.net-btn:hover:not(:disabled) { background: var(--surface-3, #202832); border-color: var(--accent-line, rgba(87, 166, 255, 0.32)); }
+.net-btn:hover:not(:disabled) { background: var(--surface-3, var(--surface-3)); border-color: var(--accent-line, rgba(87, 166, 255, 0.32)); }
 .net-btn:active:not(:disabled) { transform: translateY(1px); }
-.net-btn:disabled { opacity: 0.42; cursor: not-allowed; background: var(--surface-2, #1a212a); border-color: var(--line, #28313c); color: var(--text-muted, #9aa6b2); }
-.net-btn.primary { background: var(--accent, #57a6ff); color: var(--on-accent, #0f141a); border-color: var(--accent, #57a6ff); }
-.net-btn.primary:hover:not(:disabled) { background: #6cb2ff; border-color: #6cb2ff; }
+.net-btn:disabled { opacity: 0.42; cursor: not-allowed; background: var(--surface-2, var(--surface-2)); border-color: var(--line, var(--line)); color: var(--text-muted, var(--text-muted)); }
+.net-btn.primary { background: var(--accent, var(--accent)); color: var(--on-accent, var(--surface-0)); border-color: var(--accent, var(--accent)); }
+.net-btn.primary:hover:not(:disabled) { background: var(--accent-bright); border-color: var(--accent-bright); }
 
 /* The invite code is a key-like record → brushed silver, not accent. The dashed
    frame + accent-on-hover signal it is a value to copy. */
@@ -121,9 +121,9 @@
   letter-spacing: 0.28em;
   font-weight: 700;
   text-align: center;
-  color: var(--silver, #c6cfd9);
-  background: var(--surface-1, #151b22);
-  border: 1px dashed var(--line-strong, #37424e);
+  color: var(--silver, var(--silver));
+  background: var(--surface-1, var(--surface-1));
+  border: 1px dashed var(--line-strong, var(--line-strong));
   border-radius: 14px;
   padding: 24px 16px;
   margin: 8px 0 20px;
@@ -137,11 +137,11 @@
 .net-pill {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 12px;
-  color: var(--text-muted, #8a95a3);
-  border: 1px solid var(--line, #333d47);
+  color: var(--text-muted, var(--text-muted));
+  border: 1px solid var(--line, var(--line));
   border-radius: 999px;
   padding: 6px 12px;
-  background: var(--surface-1, #1a2129);
+  background: var(--surface-1, var(--surface-2));
 }
 
 .net-done { margin: 12px 0; }
@@ -149,19 +149,19 @@
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 13px;
   line-height: 1.5;
-  color: var(--silver, #c6cfd9);
-  background: var(--surface-0, #0f141a);
+  color: var(--silver, var(--silver));
+  background: var(--surface-0, var(--surface-0));
   border: 1px solid var(--success-line, rgba(87, 208, 138, 0.35));
   border-radius: 12px;
   padding: 16px;
   word-break: break-all;
 }
-.net-tip { color: var(--text-muted, #8a95a3); font-size: 13px; margin: 12px 0 0; }
-.net-tip b { color: var(--text, #dfe6ee); font-weight: 600; }
+.net-tip { color: var(--text-muted, var(--text-muted)); font-size: 13px; margin: 12px 0 0; }
+.net-tip b { color: var(--text, var(--text)); font-weight: 600; }
 
 .net-log {
   margin-top: 22px;
-  border-top: 1px solid var(--line-soft, #242c34);
+  border-top: 1px solid var(--line-soft, var(--surface-3));
   padding-top: 14px;
   display: flex;
   flex-direction: column;
@@ -170,14 +170,14 @@
 .net-log-row {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 12.5px;
-  color: var(--text-muted, #8a95a3);
+  color: var(--text-muted, var(--text-muted));
 }
-.net-log-row span { color: var(--text-muted, #8a95a3); margin-right: 6px; }
+.net-log-row span { color: var(--text-muted, var(--text-muted)); margin-right: 6px; }
 
 .net-error {
   background: rgba(224, 84, 76, 0.12);
   border: 1px solid rgba(224, 84, 76, 0.4);
-  color: #f0a8a2;
+  color: var(--danger-text);
   border-radius: 10px;
   padding: 12px 14px;
   margin-bottom: 16px;
@@ -202,23 +202,23 @@
   font-size: 11px;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--text-muted, #9aa6b2);
+  color: var(--text-muted, var(--text-muted));
   border: 1px solid var(--line-soft, rgba(180, 205, 235, 0.08));
   border-radius: var(--radius-pill, 999px);
   padding: 5px 12px;
   background: rgba(255, 255, 255, 0.03);
 }
-.demo-eyebrow .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--silver, #c6cfd9); }
+.demo-eyebrow .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--silver, var(--silver)); }
 
 /* One honest line about what the surface proves. */
 .demo-note {
-  color: var(--text-muted, #9aa6b2);
+  color: var(--text-muted, var(--text-muted));
   font-size: 13.5px;
   line-height: 1.6;
   margin: 10px 0 0;
   max-width: 62ch;
 }
-.demo-note b { color: var(--text, #e7edf3); font-weight: 600; }
+.demo-note b { color: var(--text, var(--text)); font-weight: 600; }
 
 /* Centered single-action proof page (the /signer layout). */
 .demo-page { min-height: 100vh; display: flex; flex-direction: column; }
@@ -230,11 +230,11 @@
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 11px;
   letter-spacing: 0.08em;
-  color: var(--text-muted, #9aa6b2);
+  color: var(--text-muted, var(--text-muted));
   margin: 10px 0 0;
 }
-.demo-lead { color: var(--text-muted, #9aa6b2); font-size: 15px; line-height: 1.65; margin: 12px 0 0; }
-.demo-lead b { color: var(--text, #e7edf3); font-weight: 600; }
+.demo-lead { color: var(--text-muted, var(--text-muted)); font-size: 15px; line-height: 1.65; margin: 12px 0 0; }
+.demo-lead b { color: var(--text, var(--text)); font-weight: 600; }
 .demo-result {
   margin-top: 20px;
   padding: 14px 16px;

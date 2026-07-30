@@ -26,7 +26,7 @@
   list-style: none;
   margin: 22px 0 0;
   padding: 18px 0 4px;
-  border-top: 1px solid var(--line-soft, #242c34);
+  border-top: 1px solid var(--line-soft, var(--surface-3));
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -37,7 +37,7 @@
   gap: 12px;
   font-size: 14px;
   line-height: 1.55;
-  color: var(--text, #dfe6ee);
+  color: var(--text, var(--text));
 }
 .rec-step-n {
   flex: none;
@@ -49,13 +49,13 @@
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 11px;
   font-weight: 700;
-  color: var(--silver, #c6cfd9);
-  border: 1px solid var(--line, #333d47);
-  background: var(--surface-1, #1a2129);
+  color: var(--silver, var(--silver));
+  border: 1px solid var(--line, var(--line));
+  background: var(--surface-1, var(--surface-2));
   margin-top: 1px;
 }
 .rec-step-text {
-  color: var(--text-muted, #aeb8c4);
+  color: var(--text-muted, var(--silver));
 }
 
 /* The receipts: the load-bearing values a reviewer wants to see for themselves. Records
@@ -70,9 +70,9 @@
   .rec-records { grid-template-columns: 1fr; }
 }
 .rec-record {
-  border: 1px solid var(--line, #333d47);
+  border: 1px solid var(--line, var(--line));
   border-radius: 12px;
-  background: var(--surface-1, #1a2129);
+  background: var(--surface-1, var(--surface-2));
   padding: 13px 15px;
   display: flex;
   flex-direction: column;
@@ -84,11 +84,11 @@
   font-size: 10.5px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--text-muted, #9aa6b2);
+  color: var(--text-muted, var(--text-muted));
 }
 .rec-record-v {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 13.5px;
-  color: var(--silver, #c6cfd9);
+  color: var(--silver, var(--silver));
   word-break: break-all;
 }
