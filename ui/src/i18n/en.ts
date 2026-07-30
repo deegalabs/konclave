@@ -655,4 +655,17 @@ export const en: Record<string, string> = {
   'signer.resultFail': 'Verification failed',
   'signer.error': 'Error: {msg}',
   'signer.back': '← back',
+
+  // receive / add funds
+  'receive.title': 'Add funds to the vault',
+  'receive.lead': 'Send ZEC to the vault’s Orchard address. Receiving never touches the key: any wallet can send, and the balance appears once the vault syncs.',
+  'receive.address': 'Vault address (Orchard, shielded)',
+  'receive.copy': 'Copy address',
+  'receive.copied': 'Copied',
+  'receive.amount': 'Amount (optional, ZEC)',
+  'receive.uri': 'Payment link (ZIP-321)',
+  'receive.copyUri': 'Copy link',
+  'receive.openWallet': 'Open in wallet',
+  'receive.note': 'Orchard only. A transparent or Sapling address will not receive from this vault.',
+  'receive.noVault': 'No vault on this device.',
 }

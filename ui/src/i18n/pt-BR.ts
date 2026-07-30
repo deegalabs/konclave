@@ -655,4 +655,17 @@ export const ptBR: Record<string, string> = {
   'signer.resultFail': 'A verificação falhou',
   'signer.error': 'Erro: {msg}',
   'signer.back': '← voltar',
+
+  // receive / adicionar fundos
+  'receive.title': 'Receber no cofre',
+  'receive.lead': 'Mande ZEC para o endereço Orchard do cofre. Receber não usa a chave: qualquer carteira pode enviar, e o saldo aparece quando o cofre sincroniza.',
+  'receive.address': 'Endereço do cofre (Orchard, blindado)',
+  'receive.copy': 'Copiar endereço',
+  'receive.copied': 'Copiado',
+  'receive.amount': 'Valor (opcional, ZEC)',
+  'receive.uri': 'Link de pagamento (ZIP-321)',
+  'receive.copyUri': 'Copiar link',
+  'receive.openWallet': 'Abrir na carteira',
+  'receive.note': 'Só Orchard. Um endereço transparente ou Sapling não recebe deste cofre.',
+  'receive.noVault': 'Nenhum cofre neste dispositivo.',
 }
