@@ -37,8 +37,8 @@
 .lp-hero .trust i{width:6px; height:6px; border-radius:50%; background:var(--success)}
 
 .lp-section{padding:clamp(40px,7vh,76px) 0}
-.lp-title{text-align:center; font-size:clamp(24px,3.4vw,34px); font-weight:700; letter-spacing:-.02em; margin:12px auto 0; text-wrap:balance; max-width:22ch}
-.lp-lead{text-align:center; color:var(--text-muted); max-width:56ch; margin:14px auto 0; font-size:15.5px}
+.lp-title{text-align:center; font-size:clamp(24px,3.4vw,34px); font-weight:700; letter-spacing:-.02em; margin:12px auto 0; text-wrap:balance; max-width:34ch}
+.lp-lead{text-align:center; color:var(--text-muted); max-width:56ch; margin:14px auto 0; font-size:15.5px; text-wrap:pretty}
 
 /* pillars */
 .lp-pillars{display:grid; grid-template-columns:repeat(3,1fr); gap:18px; margin-top:44px}
@@ -166,8 +166,20 @@ table.lp-cmp tr.kon td.name{color:var(--accent); font-weight:700}
   filter:drop-shadow(0 0 30px rgba(87,166,255,.4)) drop-shadow(0 0 8px rgba(87,166,255,.5));
   animation:lp-breathe 6s var(--ease-out) infinite}
 @keyframes lp-breathe{0%,100%{opacity:.92; transform:scale(1)} 50%{opacity:1; transform:scale(1.025)}}
-.lp-hero h1{font-weight:700; letter-spacing:-.035em; max-width:15ch}
-.lp-hero .sub{font-size:clamp(16px,1.9vw,18.5px)}
+
+/* the emblem comes alive: the wireframe globe turns, the dial ticks the other way,
+   and the accent ring glows — around the seal centre (48,48 in the 96 view-box). */
+.lp-hero .seal .seal-grid,
+.lp-hero .seal .seal-dash{transform-box:fill-box; transform-origin:center}
+.lp-hero .seal .seal-grid{animation:seal-turn 64s linear infinite}
+.lp-hero .seal .seal-dash{animation:seal-turn-rev 40s linear infinite}
+.lp-hero .seal .seal-ring{animation:seal-pulse 6s var(--ease-out) infinite}
+@keyframes seal-turn{to{transform:rotate(360deg)}}
+@keyframes seal-turn-rev{to{transform:rotate(-360deg)}}
+@keyframes seal-pulse{0%,100%{opacity:.7} 50%{opacity:1}}
+
+.lp-hero h1{font-weight:700; letter-spacing:-.035em; max-width:20ch; text-wrap:balance}
+.lp-hero .sub{font-size:clamp(16px,1.9vw,18.5px); text-wrap:pretty}
 
 /* primary button: gradient + glow + lift (a designed CTA, not a flat fill) */
 .lp-btn{border-radius:10px; transition:background var(--dur-fast), border-color var(--dur-fast), transform var(--dur-fast), box-shadow var(--dur-fast)}
@@ -202,4 +214,9 @@ table.lp-cmp tr.kon td.name{color:var(--accent); font-weight:700}
 .lp-final .lp-wrap::before{content:""; position:absolute; inset:-40px 0 auto; height:260px; z-index:-1; pointer-events:none;
   background:radial-gradient(50% 200px at 50% 60%, rgba(87,166,255,.10), transparent 70%)}
 
-@media(prefers-reduced-motion:reduce){.lp-hero .seal{animation:none}}
+@media(prefers-reduced-motion:reduce){
+  .lp-hero .seal,
+  .lp-hero .seal .seal-grid,
+  .lp-hero .seal .seal-dash,
+  .lp-hero .seal .seal-ring{animation:none}
+}

@@ -80,9 +80,9 @@ export default function Intro() {
         <div className="lp-hero">
           <svg className="seal" viewBox="0 0 96 96" fill="none" aria-hidden="true">
             <circle cx="48" cy="48" r="45" stroke="var(--accent)" strokeWidth="1" />
-            <circle cx="48" cy="48" r="39" stroke="var(--accent)" strokeWidth="2.4" />
-            <circle cx="48" cy="48" r="34" stroke="var(--silver)" strokeWidth=".6" strokeDasharray="1 3" />
-            <g stroke="var(--silver)" strokeWidth=".7" opacity=".55"><circle cx="48" cy="48" r="30" />
+            <circle className="seal-ring" cx="48" cy="48" r="39" stroke="var(--accent)" strokeWidth="2.4" />
+            <circle className="seal-dash" cx="48" cy="48" r="34" stroke="var(--silver)" strokeWidth=".6" strokeDasharray="1 3" />
+            <g className="seal-grid" stroke="var(--silver)" strokeWidth=".7" opacity=".55"><circle cx="48" cy="48" r="30" />
               <path d="M48 18c9 12 9 48 0 60M48 18c-9 12-9 48 0 60M18 48c12-9 48-9 60 0M18 48c12 9 48 9 60 0" /></g>
           </svg>
           <span className="eyebrow">{t('landing.eyebrow')}</span>
