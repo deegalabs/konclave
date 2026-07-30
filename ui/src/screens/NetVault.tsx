@@ -977,8 +977,8 @@ export default function NetVault() {
           <div className="net-vk">{signature}</div>
           <p className="net-lead" style={{ fontSize: '.82rem', opacity: 0.8, marginTop: 10 }}>
             {pe(
-              'Assinatura válida sob o alpha da própria transação (o mecanismo de gasto Orchard real), verificada sob ak+alpha. Não transmitida: a PCZT de exemplo é de outro cofre, então a assinatura não é para uma tx deste cofre; um broadcast real exige o operador criar/provar uma PCZT para o endereço deste cofre.',
-              'Valid signature under the transaction’s own alpha (the real Orchard spend mechanism), verified under ak+alpha. Not broadcast: the sample PCZT belongs to another vault, so the signature is not for a tx this vault owns; a real broadcast needs the operator to create/prove a PCZT for this vault’s address.',
+              'Assinatura válida sob o alpha da própria transação (o mecanismo de gasto Orchard real), verificada sob ak+alpha. A assinatura agregada volta ao operador pelo relay, que a injeta na PCZT e transmite — nenhum dispositivo transmite sozinho, e o operador nunca vê uma parte da chave.',
+              'Valid signature under the transaction’s own alpha (the real Orchard spend mechanism), verified under ak+alpha. The aggregate signature is returned to the operator over the relay, who injects it into the PCZT and broadcasts — no single device broadcasts alone, and the operator never sees a key share.',
             )}
           </p>
         </>

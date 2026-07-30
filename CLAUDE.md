@@ -688,3 +688,32 @@ explicit "pode transmitir"; both verified by `verify-proof.mjs` against public e
   complete Orchard→Ironwood→Ironwood-spend cycle under real NU6.3 consensus. `verify-proof.mjs`,
   `docs/PROOF.md`, and `docs/CLAIMS.md` updated (Ironwood: `proven on mainnet`). `#10` stays merged
   and is now mainnet-proven, not just testnet.
+
+---
+
+**Phase 15 — Correction: the browser-signing debt is CLOSED + docs consolidation (2026-07-30).**
+A validation pass (parallel agents auditing the code vs. the prose) found this file's "honest
+debts" had drifted. Correcting the record:
+- **Browser-signed mainnet broadcast — CLOSED.** The earlier phases above call the browser
+  signature "a **test digest**, not yet a broadcast" and list "real-transaction browser signing" as
+  open. That is **superseded**: a real 2-of-3 browser-DKG vault, each device signing **in the
+  browser** with only its own share over the blind relay (Architecture B), was broadcast to mainnet
+  — txid `3022420a8bcf17ffd5511163c18ee9b5996a3ba44747e4eff6794bdd3f04ccee` (block 3,429,922), a
+  real Ironwood tx, not a digest. Konclave now has **8** verifiable mainnet txids. See
+  `docs/PROOF.md` / `scripts/verify-proof.mjs`.
+- **On-device share persistence — coverage gap closed.** `ui/src/storage.ts` (encrypted IndexedDB:
+  PBKDF2 → AES-GCM) gained a direct unit test (`ui/src/storage.test.ts`, fake-indexeddb): save→load
+  round-trip, wrong-passphrase rejection, public-metadata-only listing, delete. The share never
+  comes back in the clear.
+- **`/net` signed-state copy fixed.** `NetVault.tsx` no longer shows the stale "not broadcast · the
+  sample PCZT belongs to another vault" caveat (that described the `/signer` demo, not the live
+  helper path); it now states the aggregate signature returns to the operator, who injects and
+  broadcasts.
+- **New: `docs/GUIDE.md`** — a complete, code-grounded guide (13 use cases, 2 class diagrams, the
+  proposal state machine, 4 sequence diagrams, process explanations, tips, and an honest status
+  ladder; all Mermaid validated with mermaid-cli).
+
+**Honest debts STILL genuinely open (§6.15):** `/net` **multi-note over the live relay** (wired +
+unit-tested; single-spend is live-proven); **RTS recovery + inheritance** wired into a live vault UI
+(cores proven by tests); the `build_payroll` multi-output builder unit test (needs a wallet-DB
+fixture); **Tauri** single-binary packaging (roadmap, ADR-0004).
