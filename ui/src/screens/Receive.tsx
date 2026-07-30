@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import encodeQR from '@paulmillr/qr'
 import { getVault, type Vault } from '../api'
 import { useI18n } from '../i18n'
+import { PageHeader } from '../page'
 import '../receive.css'
 
 // "Add funds" is the easy side of a vault: receiving needs no key and no signature. The vault
@@ -79,16 +80,16 @@ export default function Receive() {
 
   if (!vault) {
     return (
-      <div className="rcv">
-        <p className="rcv-lead">{T.noVault}</p>
-      </div>
+      <main className="page">
+        <PageHeader title={T.title} />
+        <p className="rcv-note">{T.noVault}</p>
+      </main>
     )
   }
 
   return (
-    <div className="rcv">
-      <h1 className="rcv-h1">{T.title}</h1>
-      <p className="rcv-lead">{T.lead}</p>
+    <main className="page rcv">
+      <PageHeader title={T.title} subtitle={T.lead} />
 
       <div className="rcv-grid">
         <div className="rcv-qr" dangerouslySetInnerHTML={{ __html: qrSvg }} role="img" aria-label="QR" />
@@ -121,6 +122,6 @@ export default function Receive() {
       </div>
 
       <p className="rcv-note">{T.note}</p>
-    </div>
+    </main>
   )
 }

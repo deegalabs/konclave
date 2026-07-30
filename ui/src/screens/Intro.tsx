@@ -1,6 +1,6 @@
 import { type ReactNode, type MouseEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { LangToggle } from '../components'
+import { Letterhead } from '../components'
 import { useT, useTr, useI18n } from '../i18n'
 import '../redesign.css'
 import '../landing.css'
@@ -64,25 +64,15 @@ export default function Intro() {
 
   return (
     <div className="rd lp">
-      {/* top bar */}
+      {/* top bar — shared Letterhead so the landing opens like every other screen */}
       <div className="lp-wrap">
-        <header className="lp-top">
-          <Link to="/intro" className="lp-brand">
-            <svg width="30" height="30" viewBox="0 0 44 44" fill="none" aria-hidden="true">
-              <circle cx="22" cy="22" r="20.5" stroke="var(--line-strong)" /><circle cx="22" cy="22" r="15" stroke="var(--accent)" strokeOpacity=".55" />
-              <circle cx="22" cy="22" r="6.4" fill="var(--accent)" fillOpacity=".14" stroke="var(--accent)" /><circle cx="22" cy="22" r="2" fill="var(--accent)" />
-            </svg>
-            <span className="wm">KONCLAVE</span>
-          </Link>
-          <div className="lp-top-right">
-            <Link to="/proof" className="doclink">{t('landing.navProof')}</Link>
-            <Link to="/net" className="doclink">{t('landing.navNet')}</Link>
-            <Link to="/signer" className="doclink">{t('landing.navSigner')}</Link>
-            <Link to="/docs" className="doclink">Docs</Link>
-            <LangToggle />
-            <span className="lp-env">{tr('landing.env')}</span>
-          </div>
-        </header>
+        <Letterhead right={<>
+          <Link to="/proof" className="doclink">{t('landing.navProof')}</Link>
+          <Link to="/net" className="doclink">{t('landing.navNet')}</Link>
+          <Link to="/signer" className="doclink">{t('landing.navSigner')}</Link>
+          <Link to="/docs" className="doclink">Docs</Link>
+          <span className="lp-env">{tr('landing.env')}</span>
+        </>} />
       </div>
 
       {/* hero */}

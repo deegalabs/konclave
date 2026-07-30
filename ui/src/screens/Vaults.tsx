@@ -2,44 +2,9 @@ import { useEffect, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { getVaults, health, setSelectedVault, unlockVault, markVaultUnlocked, shortAddr, type Vault } from '../api'
 import { Identicon } from '../avatar'
-import { Dialog, LangToggle, activateOnKey } from '../components'
+import { Dialog, Letterhead, activateOnKey } from '../components'
 import { useT, useTr } from '../i18n'
 import '../redesign.css'
-
-/** The radial-key emblem from the logo (silver spokes + blue keyhole glow). */
-function Emblem({ size = 26 }: { size?: number }) {
-  const spokes = Array.from({ length: 12 }, (_, i) => i * 30)
-  return (
-    <svg className="rd-emblem" width={size} height={size} viewBox="0 0 40 40">
-      <g stroke="#c6cfd9" strokeWidth="1.3" strokeLinecap="round" opacity="0.9">
-        {spokes.map((a, i) => {
-          const r = (a * Math.PI) / 180
-          return <line key={i} x1={20 + Math.cos(r) * 13} y1={20 + Math.sin(r) * 13} x2={20 + Math.cos(r) * 18} y2={20 + Math.sin(r) * 18} />
-        })}
-      </g>
-      <circle cx="20" cy="19" r="7" fill="none" stroke="#c6cfd9" strokeWidth="1.5" />
-      <circle cx="20" cy="17.6" r="2.4" fill="#57a6ff" />
-      <path d="M20 19.4 L18.7 25 L21.3 25 Z" fill="#57a6ff" />
-    </svg>
-  )
-}
-
-/** Brand: the real logo lockup (public/logo.png) if present; falls back to the
- *  SVG emblem + wordmark so the header never breaks before the asset is saved. */
-function Brand() {
-  const [failed, setFailed] = useState(false)
-  if (failed) {
-    return <span className="rd-brandwrap"><Emblem size={30} /><span className="rd-brand">Konclave</span></span>
-  }
-  return (
-    <img
-      className="rd-lockup"
-      src={`${import.meta.env.BASE_URL}logo.png`}
-      alt="Konclave"
-      onError={() => setFailed(true)}
-    />
-  )
-}
 
 const MOCK: Vault[] = [
   {
@@ -92,14 +57,10 @@ export default function Vaults() {
   return (
     <div className="rd">
       <main className="rd-shell">
-        <div className="rd-top">
-          <Brand />
-          <span className="rd-top-right">
-            <span className="rd-status"><span className="dot" /> {tr('vaults.secureEnv')}</span>
-            <Link to="/docs" className="doclink">Docs</Link>
-            <LangToggle />
-          </span>
-        </div>
+        <Letterhead right={<>
+          <span className="rd-status"><span className="dot" /> {tr('vaults.secureEnv')}</span>
+          <Link to="/docs" className="doclink">Docs</Link>
+        </>} />
 
         <div className="rd-hero">
           <span className="rd-eyebrow">{t('vaults.eyebrow')}</span>
