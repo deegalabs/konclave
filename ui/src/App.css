@@ -23,7 +23,15 @@
 .page-header-sub{margin-top:11px; font-family:var(--font-mono); font-size:12.5px; line-height:1.55; color:var(--text-muted)}
 .page-header-sub b{color:var(--text); font-weight:500}
 .page-header-actions{display:flex; align-items:center; gap:14px; flex:0 0 auto; margin-left:auto}
-@media(max-width:560px){.page-header-actions{margin-left:0}}
+/* On mobile, a header whose action is the quorum globe keeps it to the RIGHT of the
+   title (text left, globe right) instead of dropping it to a new line; the globe shrinks. */
+@media(max-width:560px){
+  .page-header:has(.seal-wrap){flex-wrap:nowrap; align-items:center; gap:14px}
+  .page-header:has(.seal-wrap) .page-header-actions{margin-left:auto}
+  .page-header .seal-emb{width:62px; height:62px}
+  .page-header .seal-emb .num{font-size:15px}
+  .page-header .seal-cap{font-size:9px; letter-spacing:.1em; margin-top:2px}
+}
 
 /* NextStep — the "and now?" connector that closes every read/hub screen so none is a dead end. */
 .next-step{display:flex; align-items:center; justify-content:space-between; gap:18px; margin-top:34px;
@@ -63,6 +71,27 @@
 .cell-warn{font-family:var(--font-mono); font-size:10.5px; color:var(--warn); margin-top:2px}
 .cell-warn.err{font-weight:600}
 .folha .row-bad td{background:rgba(255,110,110,.06)}
+
+/* Payroll editor → one card per line on mobile: the # + remove on top, then each
+   field full-width as a real input (a 6-column input table is unusable on a phone). */
+@media(max-width:640px){
+  .tbl.folha thead{display:none}
+  .tbl.folha, .tbl.folha tbody{display:block}
+  .tbl.folha tr{display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center;
+    border:1px solid var(--line); border-radius:10px; background:var(--surface-1); padding:12px; margin-bottom:12px}
+  .tbl.folha td{display:block; padding:0; border:0}
+  .tbl.folha td:nth-child(1){order:1; grid-column:1; font-family:var(--font-mono); font-size:11px; color:var(--text-muted)}
+  .tbl.folha td:nth-child(6){order:1; grid-column:2; justify-self:end}
+  .tbl.folha td:nth-child(2){order:2; grid-column:1 / -1}
+  .tbl.folha td:nth-child(3){order:3; grid-column:1 / -1}
+  .tbl.folha td:nth-child(4){order:4; grid-column:1 / -1}
+  .tbl.folha td:nth-child(5){order:5; grid-column:1 / -1}
+  .tbl.folha .cell-input{width:100%; border:1px solid var(--line); border-radius:8px;
+    background:var(--surface-0); padding:11px 12px; font-size:14px}
+  .tbl.folha .cell-input.num-input{text-align:left}
+  .tbl.folha .row-bad{border-color:var(--danger)}
+  .tbl.folha .row-bad td{background:transparent}
+}
 .row-del{border:1px solid var(--line); background:var(--surface-2); color:var(--text-muted); width:29px; height:29px; border-radius:var(--radius-sm); cursor:pointer; line-height:1; font-size:14px}
 .row-del:hover{color:var(--danger); border-color:var(--danger)}
 .row-edit{border:1px solid var(--line); background:var(--surface-2); color:var(--text-muted); width:29px; height:29px; border-radius:var(--radius-sm); cursor:pointer; line-height:1; font-size:12px}
@@ -108,6 +137,12 @@
 .prog i{width:22px; height:5px; background:var(--line); display:block}
 .prog i.on{background:var(--accent)}
 .btns{display:flex; gap:10px}
+/* on mobile action buttons stack full-width instead of squeezing side by side
+   (which forced ugly two-line labels like "Approve as / Bob") */
+@media(max-width:560px){
+  .btns{flex-direction:column; align-items:stretch}
+  .btns .btn{width:100%}
+}
 .note{font-family:var(--font-mono); font-size:11px; color:var(--text-muted); margin-top:14px; max-width:34ch}
 .opnav{padding:26px 26px; display:flex; flex-direction:column}
 .opnav .klab{margin-bottom:6px}
