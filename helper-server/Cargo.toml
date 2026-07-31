@@ -1,0 +1,19 @@
+[package]
+name = "helper-server"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0 OR MIT"
+description = "Konclave's hosted BLIND helper (ADR-0006, Rung A): registers vaults by group key, keeps a view-only wallet per vault, builds/proves/broadcasts over Architecture B while the browsers sign. Never sees a share."
+
+[[bin]]
+name = "helper-server"
+path = "src/main.rs"
+
+[dependencies]
+orchestrator = { path = "../orchestrator" }
+tiny_http = "0.12"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = 2
