@@ -222,14 +222,34 @@ pub fn load_ceremonies(vaults_dir: &Path, group_key: &str) -> Vec<CeremonyRecord
 /// FROST ceremony, which needs `threshold` REAL browser shares to produce a valid signature. A
 /// forged vote only changes the displayed approval count; it cannot move funds. The hardening
 /// follow-up is votes SIGNED by each member's device key and verified against the DKG roster.
+/// One beneficiary of a payroll proposal: a private Orchard payment inside a single tx.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PayrollLine {
+    /// Optional human label (who the line is for); display-only.
+    #[serde(default)]
+    pub label: String,
+    pub to: String,
+    pub amount_zat: u64,
+    #[serde(default)]
+    pub memo: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct HelperProposal {
     pub id: String,
     pub vault_id: String,
-    /// Destination address (authoritatively validated by the create endpoint before this is built).
+    /// `payment` (single) or `payroll` (N lines). Default keeps old records as single payments.
+    #[serde(default = "kind_payment")]
+    pub kind: String,
+    /// Destination address for a single payment (empty for payroll). Authoritatively validated by
+    /// the create endpoint before this is built.
     pub to: String,
+    /// The single-payment amount, or the payroll TOTAL (sum of the lines).
     pub amount_zat: u64,
     pub memo: Option<String>,
+    /// Payroll beneficiaries (empty for a single payment).
+    #[serde(default)]
+    pub lines: Vec<PayrollLine>,
     pub proposer: String,
     /// `pending` | `ready` | `sent` | `refused` | `expired`.
     pub state: String,
@@ -243,6 +263,10 @@ pub struct HelperProposal {
     /// `0` when no expiry is set.
     pub expiry_unix: u64,
     pub txid: Option<String>,
+}
+
+fn kind_payment() -> String {
+    "payment".into()
 }
 
 impl HelperProposal {
@@ -738,9 +762,11 @@ mod tests {
         HelperProposal {
             id: id.into(),
             vault_id: vault.into(),
+            kind: "payment".into(),
             to: "utest1dest".into(),
             amount_zat: 1000,
             memo: None,
+            lines: vec![],
             proposer: "alice".into(),
             state: "pending".into(),
             approvals: vec!["alice".into()],

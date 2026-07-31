@@ -14,6 +14,7 @@ import {
   vaultBalance as netVaultBalance,
   listProposals as netListProposals,
   createProposal as netCreateProposal,
+  createPayroll as netCreatePayroll,
   voteProposal as netVote,
   listMembers as netListMembers,
   setMembers as netSetMembers,
@@ -97,7 +98,7 @@ function mapNetProposal(p: NetProposal): Proposal {
   return {
     id: p.id,
     vault_id: p.vault_id,
-    kind: 'payment',
+    kind: p.kind === 'payroll' ? 'payroll' : 'payment',
     state: netState(p.state),
     proposer: p.proposer,
     value_zat: p.amount_zat,
@@ -433,6 +434,20 @@ export async function createPayroll(
   lines: NewPayrollLine[],
   description?: string,
 ): Promise<CreateResult> {
+  if (NET) {
+    const id = getSelectedVault()
+    if (!id) return { ok: false, error: 'no vault' }
+    const mapped: { label?: string; to: string; amount_zat: number; memo?: string }[] = []
+    for (const l of lines) {
+      const zat = parseZecToZat(l.value_zec)
+      if (zat == null || zat <= 0) return { ok: false, error: 'invalid amount' }
+      mapped.push({ label: l.label, to: l.address, amount_zat: zat, memo: l.memo })
+    }
+    const p = await netCreatePayroll({ vault: id, proposer, lines: mapped })
+    return p
+      ? { ok: true, proposal: mapNetProposal(p) }
+      : { ok: false, error: 'invalid address', detail: 'the coordinator rejected a payroll line' }
+  }
   try {
     const res = await fetch(`${BASE}${withVault('/api/payroll')}`, {
       method: 'POST',
@@ -537,6 +552,22 @@ export async function deleteBeneficiary(id: string): Promise<boolean> {
 export async function getProposalDetail(
   id: string,
 ): Promise<{ proposal: Proposal; lines: PayrollLine[] } | null> {
+  if (NET) {
+    const vid = getSelectedVault()
+    if (!vid) return null
+    const ps = await netListProposals(vid)
+    const hp = ps?.find((x) => x.id === id)
+    if (!hp) return null
+    const lines: PayrollLine[] = (hp.lines ?? []).map((l) => ({
+      label: l.label ?? null,
+      address: l.to,
+      value_zat: l.amount_zat,
+      value_zec: zatToZec(l.amount_zat),
+      memo: l.memo ?? '',
+      is_public: classifyAddress(l.to) !== 'unified',
+    }))
+    return { proposal: mapNetProposal(hp), lines }
+  }
   const r = await getJson<{ proposal: Proposal; lines: PayrollLine[] }>(`/api/proposals/${encodeURIComponent(id)}`)
   if (!r?.proposal) return DEMO ? MOCK.proposalDetail(id) : null
   return { proposal: r.proposal, lines: r.lines ?? [] }

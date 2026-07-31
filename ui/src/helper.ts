@@ -82,9 +82,11 @@ export async function registerVault(
 export type Proposal = {
   id: string
   vault_id: string
+  kind?: string // payment | payroll
   to: string
   amount_zat: number
   memo?: string | null
+  lines?: { label?: string; to: string; amount_zat: number; memo?: string | null }[]
   proposer: string
   state: string // pending | ready | sent | refused | expired
   approvals: string[]
@@ -149,6 +151,35 @@ export async function fetchLedgerCsv(groupKeyHex: string): Promise<string | null
   if (!res || !res.ok) return null
   try {
     return await res.text()
+  } catch {
+    return null
+  }
+}
+
+/** A payroll beneficiary line (one private Orchard output). */
+export type PayrollLine = { label?: string; to: string; amount_zat: number; memo?: string }
+
+/** Create a payroll proposal (N beneficiaries, one tx). The helper validates each line. */
+export async function createPayroll(args: {
+  vault: string
+  proposer: string
+  lines: PayrollLine[]
+  expiryUnix?: number
+}): Promise<Proposal | null> {
+  const res = await post('/api/vault/payroll', {
+    vault: args.vault,
+    proposer: args.proposer,
+    lines: args.lines.map((l) => ({
+      label: l.label ?? '',
+      to: l.to,
+      amount_zat: l.amount_zat,
+      memo: l.memo,
+    })),
+    expiry_unix: args.expiryUnix ?? 0,
+  })
+  if (!res || !res.ok) return null
+  try {
+    return (await res.json()) as Proposal
   } catch {
     return null
   }

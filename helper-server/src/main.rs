@@ -17,9 +17,10 @@ use std::time::Duration;
 use orchestrator::helper::{
     append_ceremony, is_valid_group_key, ledger_csv, list_proposals, load_ceremonies, load_members,
     load_proposal, payment_plan, register_vault, save_members, save_proposal, send_config_for,
-    vault_balance, CeremonyRecord, HelperConfig, HelperProposal, HelperState, VaultRegistration,
+    vault_balance, CeremonyRecord, HelperConfig, HelperProposal, HelperState, PayrollLine,
+    VaultRegistration,
 };
-use orchestrator::send::net_orchestrate_send;
+use orchestrator::send::{net_orchestrate_send, PayrollDest, SpendPlan};
 use serde::Deserialize;
 use serde_json::json;
 use tiny_http::{Header, Method, Response, Server};
@@ -191,6 +192,7 @@ fn handle(
                 Err(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
             }
         }
+        (Method::Post, "/api/vault/payroll") => handle_create_payroll(state, cfg, body),
         (Method::Post, "/api/vault/proposals") => handle_create_proposal(state, cfg, body),
         (Method::Post, vp) if vp.starts_with("/api/vault/proposals/") => {
             if vp.ends_with("/send") {
@@ -329,9 +331,26 @@ fn handle_proposal_send(state: &HelperState, cfg: &HelperConfig, path: &str, bod
             json!({ "error": "proposal is not ready to send", "state": p.state }).to_string(),
         );
     }
-    let plan = match payment_plan(&p.to, p.amount_zat, p.memo.clone(), cfg.network_type()) {
-        Ok(pl) => pl,
-        Err(e) => return resp(400, json!({ "error": e.to_string() }).to_string()),
+    // A payroll spends to N beneficiaries in one tx; a payment spends to one. Re-validate each
+    // destination + amount at execution time (defence in depth) before building the plan.
+    let plan = if p.kind == "payroll" {
+        let mut dests = Vec::with_capacity(p.lines.len());
+        for l in &p.lines {
+            if let Err(e) = payment_plan(&l.to, l.amount_zat, l.memo.clone(), cfg.network_type()) {
+                return resp(400, json!({ "error": e.to_string() }).to_string());
+            }
+            dests.push(PayrollDest {
+                address: l.to.clone(),
+                value_zat: l.amount_zat,
+                memo: l.memo.clone(),
+            });
+        }
+        SpendPlan::Payroll { lines: dests }
+    } else {
+        match payment_plan(&p.to, p.amount_zat, p.memo.clone(), cfg.network_type()) {
+            Ok(pl) => pl,
+            Err(e) => return resp(400, json!({ "error": e.to_string() }).to_string()),
+        }
     };
     let work_dir = format!("{}/{}/send-work", cfg.vaults_dir.display(), reg.vault_id);
     let sc = send_config_for(cfg, &reg, work_dir);
@@ -441,9 +460,95 @@ fn handle_create_proposal(state: &HelperState, cfg: &HelperConfig, body: &[u8]) 
     let mut p = HelperProposal {
         id: gen_proposal_id(),
         vault_id: reg.vault_id.clone(),
+        kind: "payment".into(),
         to: req.to,
         amount_zat: req.amount_zat,
         memo: req.memo,
+        lines: vec![],
+        proposer: req.proposer.clone(),
+        state: "pending".into(),
+        approvals: vec![req.proposer],
+        refusals: vec![],
+        threshold: reg.threshold,
+        total: reg.total,
+        created_at_unix: now,
+        expiry_unix: req.expiry_unix,
+        txid: None,
+    };
+    p.recompute(now);
+    match save_proposal(&cfg.vaults_dir, &p) {
+        Ok(()) => resp(200, serde_json::to_string(&p).unwrap_or_default()),
+        Err(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
+    }
+}
+
+/// Create a PAYROLL proposal: N beneficiaries paid in one private Orchard tx, approved once. Every
+/// line's destination + amount is validated authoritatively before anything is stored, so a bad
+/// line is a 400. The proposer auto-approves; the quorum comes from the vault. `amount_zat` records
+/// the total. Execution (like a payment) is one FROST ceremony per real spend, in /net.
+fn handle_create_payroll(state: &HelperState, cfg: &HelperConfig, body: &[u8]) -> Resp {
+    #[derive(Deserialize)]
+    struct Line {
+        #[serde(default)]
+        label: String,
+        to: String,
+        amount_zat: u64,
+        memo: Option<String>,
+    }
+    #[derive(Deserialize)]
+    struct Req {
+        vault: String,
+        proposer: String,
+        lines: Vec<Line>,
+        #[serde(default)]
+        expiry_unix: u64,
+    }
+    let req: Req = match serde_json::from_slice(body) {
+        Ok(r) => r,
+        Err(_) => return resp(400, json!({ "error": "invalid json" }).to_string()),
+    };
+    if req.proposer.trim().is_empty() {
+        return resp(400, json!({ "error": "proposer is required" }).to_string());
+    }
+    if req.lines.is_empty() {
+        return resp(400, json!({ "error": "payroll has no lines" }).to_string());
+    }
+    let reg = match state.get(&req.vault) {
+        Some(r) => r,
+        None => return resp(404, json!({ "error": "no such vault" }).to_string()),
+    };
+    // Validate every line (authoritative address + amount) and sum the total, with overflow guard.
+    let mut total: u64 = 0;
+    let mut lines = Vec::with_capacity(req.lines.len());
+    for l in req.lines {
+        if let Err(e) = payment_plan(&l.to, l.amount_zat, l.memo.clone(), cfg.network_type()) {
+            return resp(400, json!({ "error": e.to_string() }).to_string());
+        }
+        total = match total.checked_add(l.amount_zat) {
+            Some(t) => t,
+            None => {
+                return resp(
+                    400,
+                    json!({ "error": "payroll total overflows" }).to_string(),
+                )
+            }
+        };
+        lines.push(PayrollLine {
+            label: l.label,
+            to: l.to,
+            amount_zat: l.amount_zat,
+            memo: l.memo,
+        });
+    }
+    let now = now_unix();
+    let mut p = HelperProposal {
+        id: gen_proposal_id(),
+        vault_id: reg.vault_id.clone(),
+        kind: "payroll".into(),
+        to: String::new(),
+        amount_zat: total,
+        memo: None,
+        lines,
         proposer: req.proposer.clone(),
         state: "pending".into(),
         approvals: vec![req.proposer],
@@ -811,6 +916,69 @@ mod tests {
     }
 
     #[test]
+    fn create_payroll_validates_and_sums() {
+        let dir = std::env::temp_dir().join(format!("konclave-hs-payroll-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let cfg = cfg_at(&dir);
+        let st = HelperState::new();
+        seed(&st, "aaaa"); // 2 of 3
+
+        // bad json / unknown vault / empty lines / bad line -> all rejected before persisting
+        assert_eq!(
+            handle(&st, &cfg, &Method::Post, "/api/vault/payroll", b"x").status,
+            400
+        );
+        let unknown = format!(
+            r#"{{"vault":"zzz","proposer":"a","lines":[{{"to":"{TESTNET_ORCHARD_UA}","amount_zat":1000}}]}}"#
+        );
+        assert_eq!(
+            handle(
+                &st,
+                &cfg,
+                &Method::Post,
+                "/api/vault/payroll",
+                unknown.as_bytes()
+            )
+            .status,
+            404
+        );
+        assert_eq!(
+            handle(
+                &st,
+                &cfg,
+                &Method::Post,
+                "/api/vault/payroll",
+                br#"{"vault":"aaaa","proposer":"a","lines":[]}"#
+            )
+            .status,
+            400
+        );
+        let bad_line =
+            br#"{"vault":"aaaa","proposer":"a","lines":[{"to":"garbage","amount_zat":1000}]}"#;
+        assert_eq!(
+            handle(&st, &cfg, &Method::Post, "/api/vault/payroll", bad_line).status,
+            400
+        );
+
+        // valid 2-line payroll: kind=payroll, amount_zat = the sum
+        let ok = format!(
+            r#"{{"vault":"aaaa","proposer":"alice","lines":[{{"label":"Rent","to":"{TESTNET_ORCHARD_UA}","amount_zat":1000000}},{{"to":"{TESTNET_ORCHARD_UA}","amount_zat":2000000}}]}}"#
+        );
+        let r = handle(
+            &st,
+            &cfg,
+            &Method::Post,
+            "/api/vault/payroll",
+            ok.as_bytes(),
+        );
+        assert_eq!(r.status, 200);
+        assert!(r.body.contains("\"kind\":\"payroll\""));
+        assert!(r.body.contains("\"amount_zat\":3000000"));
+        assert!(r.body.contains("Rent"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn proposal_send_rejects_before_engine() {
         let dir = std::env::temp_dir().join(format!("konclave-hs-psend-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -940,9 +1108,11 @@ mod tests {
         let sent = HelperProposal {
             id: "s1".into(),
             vault_id: "aaaa".into(),
+            kind: "payment".into(),
             to: "utest1x".into(),
             amount_zat: 5000,
             memo: Some("hi".into()),
+            lines: vec![],
             proposer: "alice".into(),
             state: "sent".into(),
             approvals: vec!["alice".into(), "bob".into()],
