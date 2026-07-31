@@ -5,9 +5,88 @@
 //! `/net`). More of the hosted-helper surface (per-vault view-only wallets, the Architecture-B
 //! send path) lands on this module as Rung A is built.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use crate::tools::{run_text_all, ToolError};
+use crate::tools::{run, run_text_all, ToolError};
+
+/// What a hosted blind helper needs to operate vaults. All of it is public tooling and view-only
+/// material: there is no share and no seed anywhere in here, by construction.
+#[derive(Debug, Clone)]
+pub struct HelperConfig {
+    /// `zcash-sign` binary (derives address + UFVK from a group key).
+    pub zcash_sign: PathBuf,
+    /// `zcash-devtool` binary (view-only wallet init/sync, PCZT).
+    pub devtool: PathBuf,
+    /// lightwalletd endpoint, e.g. "testnet.zec.rocks:443".
+    pub lightwalletd: String,
+    /// "main" or "test".
+    pub network: String,
+    /// Base directory under which each vault's view-only wallet lives (`<vaults_dir>/<vault_id>/wallet`).
+    pub vaults_dir: PathBuf,
+}
+
+/// A vault registered with the helper: its public identity plus where its view-only wallet lives.
+/// `vault_id` equals the group verifying key hex (the same id the browser shows on `/net`).
+#[derive(Debug, Clone)]
+pub struct VaultRegistration {
+    pub vault_id: String,
+    pub address: String,
+    pub ufvk: String,
+    pub wallet_dir: String,
+}
+
+/// True for a well-formed FROST group verifying key: 64 lowercase-or-upper hex chars (32 bytes).
+pub fn is_valid_group_key(s: &str) -> bool {
+    s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// The view-only wallet directory a helper uses for a given vault.
+pub fn wallet_dir_for(vaults_dir: &Path, group_key: &str) -> String {
+    format!("{}/{}/wallet", vaults_dir.display(), group_key)
+}
+
+/// Register a vault with the helper by its FROST group key: derive its Orchard address + UFVK
+/// (public material only), then initialise a **view-only** wallet from the UFVK. The helper thus
+/// knows only what a watcher knows; it never sees or stores a share. Rejects a malformed group key
+/// before running anything.
+pub fn register_vault(
+    cfg: &HelperConfig,
+    group_key: &str,
+    name: &str,
+) -> Result<VaultRegistration, ToolError> {
+    if !is_valid_group_key(group_key) {
+        return Err(ToolError::parse(
+            "helper",
+            format!("group key must be 64 hex chars, got {} chars", group_key.len()),
+        ));
+    }
+    let (address, ufvk) = derive_identity(&cfg.zcash_sign, group_key, &cfg.network)?;
+    let wallet_dir = wallet_dir_for(&cfg.vaults_dir, group_key);
+    run(
+        &cfg.devtool,
+        &[
+            "wallet",
+            "-w",
+            wallet_dir.as_str(),
+            "init-fvk",
+            "--name",
+            name,
+            "--fvk",
+            ufvk.as_str(),
+            "-s",
+            cfg.lightwalletd.as_str(),
+            "--connection",
+            "direct",
+        ],
+        None,
+    )?;
+    Ok(VaultRegistration {
+        vault_id: group_key.to_string(),
+        address,
+        ufvk,
+        wallet_dir,
+    })
+}
 
 /// Derive a vault's Orchard-only receive address and its UFVK from the FROST group verifying key,
 /// via `zcash-sign generate --ak <group> --network <network>`. Only **public** material is used
@@ -88,5 +167,34 @@ mod tests {
         // The network guard fires before exec, so the bogus binary path is never touched.
         let e = derive_identity(Path::new("/nonexistent/zcash-sign"), "deadbeef", "regtest");
         assert!(e.is_err());
+    }
+
+    #[test]
+    fn group_key_validation() {
+        let good = "6ed62d0ba95e25668f80104425723a57d2be9ae525b28535f04850e4456edd1b";
+        assert!(is_valid_group_key(good));
+        assert_eq!(good.len(), 64);
+        assert!(!is_valid_group_key("6ed62d0b")); // too short
+        assert!(!is_valid_group_key(&"z".repeat(64))); // non-hex
+        assert!(!is_valid_group_key("")); // empty
+    }
+
+    #[test]
+    fn wallet_dir_path() {
+        let d = wallet_dir_for(Path::new("/srv/vaults"), "abcd");
+        assert_eq!(d, "/srv/vaults/abcd/wallet");
+    }
+
+    #[test]
+    fn register_vault_rejects_bad_group_key_before_exec() {
+        // A malformed group key is rejected before any binary runs, so the bogus paths are safe.
+        let cfg = HelperConfig {
+            zcash_sign: PathBuf::from("/nonexistent/zcash-sign"),
+            devtool: PathBuf::from("/nonexistent/zcash-devtool"),
+            lightwalletd: "testnet.zec.rocks:443".into(),
+            network: "test".into(),
+            vaults_dir: PathBuf::from("/tmp/konclave-helper-vaults"),
+        };
+        assert!(register_vault(&cfg, "not-a-valid-key", "demo").is_err());
     }
 }
