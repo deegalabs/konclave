@@ -29,7 +29,12 @@ import {
   vaultBalance,
   helperSend,
   vaultCeremonies,
+  createProposal,
+  listProposals,
+  voteProposal,
+  executeProposal,
   type CeremonyRecord,
+  type Proposal,
 } from '../helper'
 import { zatToZec, parseZecToZat, fmtDate } from '../format'
 import encodeQR from '@paulmillr/qr'
@@ -186,6 +191,12 @@ export default function NetVault() {
   // Ceremony trail (A3): the auditable record of every spend the helper drove for this vault.
   const [ceremonies, setCeremonies] = useState<CeremonyRecord[] | null>(null)
   const [cerBusy, setCerBusy] = useState(false)
+  // Proposals (Etapa 2): propose a payment, vote, and execute a ready one via the FROST ceremony.
+  const [proposals, setProposals] = useState<Proposal[] | null>(null)
+  const [propTo, setPropTo] = useState('')
+  const [propZec, setPropZec] = useState('')
+  const [propBusy, setPropBusy] = useState(false)
+  const [propMsg, setPropMsg] = useState('')
   const [signPhase, setSignPhase] = useState<'none' | 'signing' | 'signed'>('none')
   const [signature, setSignature] = useState('')
   const [signOk, setSignOk] = useState(false)
@@ -803,6 +814,87 @@ export default function NetVault() {
     setCerBusy(false)
   }, [groupVk])
 
+  // Proposals (Etapa 2). The member identity is this device's seat, so each tab votes distinctly.
+  const memberId = () => `member ${mySeatRef.current || '?'}`
+
+  const loadProposals = useCallback(async () => {
+    setProposals(await listProposals(groupVk))
+  }, [groupVk])
+
+  const createProp = useCallback(async () => {
+    setPropMsg('')
+    const zat = parseZecToZat(propZec)
+    if (zat == null || zat <= 0) {
+      setPropMsg(pe('Valor inválido.', 'Invalid amount.'))
+      return
+    }
+    if (!propTo.trim()) {
+      setPropMsg(pe('Informe o endereço de destino.', 'Enter a destination address.'))
+      return
+    }
+    setPropBusy(true)
+    const p = await createProposal({
+      vault: groupVk,
+      proposer: memberId(),
+      to: propTo.trim(),
+      amountZat: zat,
+    })
+    setPropBusy(false)
+    if (!p) {
+      setPropMsg(pe('O coordenador recusou (destino/valor).', 'The coordinator rejected it (destination/amount).'))
+      return
+    }
+    setPropTo('')
+    setPropZec('')
+    void loadProposals()
+  }, [propZec, propTo, groupVk, pe, loadProposals])
+
+  const voteProp = useCallback(
+    async (id: string, approve: boolean) => {
+      await voteProposal(groupVk, id, memberId(), approve)
+      void loadProposals()
+    },
+    [groupVk, loadProposals],
+  )
+
+  // Execute a ready proposal: the browsers sign over the relay and the helper broadcasts. This
+  // moves real funds, so it is gated by an explicit confirmation (a single click never sends, §7).
+  const execProp = useCallback(
+    async (id: string) => {
+      const ok = typeof window === 'undefined' || window.confirm(
+        pe(
+          'Executar este pagamento aprovado? As duas abas vão assinar e a transação vai para a rede.',
+          'Execute this approved payment? Both tabs will sign and the transaction goes to the network.',
+        ),
+      )
+      if (!ok) return
+      setPropMsg(pe('Executando: as abas assinam pelo relay…', 'Executing: the tabs sign over the relay…'))
+      const r = await executeProposal({
+        vault: groupVk,
+        proposalId: id,
+        relayBase: RELAY_BASE,
+        room,
+        dryRun: false,
+      })
+      if (!r) {
+        setPropMsg(pe('Falha ao executar (proposta não pronta ou sem assinaturas a tempo).', 'Execute failed (proposal not ready or no signatures in time).'))
+        return
+      }
+      setPropMsg(
+        r.txid
+          ? `${pe('Transmitido. txid:', 'Broadcast. txid:')} ${r.txid}`
+          : pe('Executado.', 'Executed.'),
+      )
+      void loadProposals()
+    },
+    [groupVk, room, pe, loadProposals],
+  )
+
+  // Auto-load the proposals once the vault is known (helper configured + group key set).
+  useEffect(() => {
+    if (helperConfigured() && groupVk) void loadProposals()
+  }, [groupVk, loadProposals])
+
   // ---- on-device persistence handlers (Marco 5), all additive to the flow above ----
 
   const refreshSaved = useCallback(async () => {
@@ -1167,6 +1259,87 @@ export default function NetVault() {
                     <span className="net-trail-label">{pe('assinatura', 'signature')}</span>
                     <code>{c.signatures.map((s) => shortId(s)).join(', ') || '—'}</code>
                   </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+      {helperConfigured() && groupVk && (
+        <div className="net-card" style={{ marginTop: 16 }}>
+          <h3>{pe('Propostas de pagamento', 'Payment proposals')}</h3>
+          <p className="net-tip">
+            {pe(
+              'Proponha um pagamento; os membros aprovam; ao bater o quórum, as abas assinam e o cofre transmite. Quem aprova fica registrado (coordenação); o gasto exige a assinatura FROST real.',
+              'Propose a payment; members approve; at quorum the tabs sign and the vault broadcasts. Approvals are recorded (coordination); the spend needs the real FROST signature.',
+            )}
+          </p>
+          <input
+            className="net-input"
+            placeholder={pe('Endereço de destino (u…)', 'Destination address (u…)')}
+            value={propTo}
+            onChange={(e) => setPropTo(e.target.value)}
+          />
+          <input
+            className="net-input"
+            inputMode="decimal"
+            placeholder={pe('Valor em ZEC', 'Amount in ZEC')}
+            value={propZec}
+            onChange={(e) => setPropZec(e.target.value)}
+          />
+          <button className="net-btn" disabled={propBusy} onClick={() => void createProp()}>
+            {propBusy ? pe('Criando…', 'Creating…') : pe('Propor pagamento', 'Propose payment')}
+          </button>
+          <button className="net-btn" style={{ marginLeft: 8 }} onClick={() => void loadProposals()}>
+            {pe('Atualizar', 'Refresh')}
+          </button>
+          {propMsg && (
+            <p className="net-tip" style={{ marginTop: 8, wordBreak: 'break-all' }}>{propMsg}</p>
+          )}
+          {proposals && proposals.length === 0 && (
+            <p className="net-tip" style={{ marginTop: 8 }}>
+              {pe('Nenhuma proposta ainda.', 'No proposals yet.')}
+            </p>
+          )}
+          {proposals && proposals.length > 0 && (
+            <ul className="net-trail">
+              {proposals.map((p) => (
+                <li key={p.id}>
+                  <div className="net-trail-head">
+                    <span className={p.state === 'sent' ? 'net-tag net-tag-live' : 'net-tag'}>
+                      {p.state}
+                    </span>
+                    <span className="net-trail-when">
+                      {fmtZec(p.amount_zat)} ZEC → <code>{shortId(p.to)}</code>
+                    </span>
+                  </div>
+                  <div className="net-trail-row">
+                    <span className="net-trail-label">{pe('aprovações', 'approvals')}</span>
+                    <code>
+                      {p.approvals.length}/{p.threshold || '?'}
+                    </code>
+                  </div>
+                  {p.txid && (
+                    <div className="net-trail-row">
+                      <span className="net-trail-label">txid</span>
+                      <code>{shortId(p.txid)}</code>
+                    </div>
+                  )}
+                  {(p.state === 'pending' || p.state === 'ready') && (
+                    <div className="net-trail-row" style={{ gap: 8, marginTop: 4 }}>
+                      <button className="net-btn" onClick={() => void voteProp(p.id, true)}>
+                        {pe('Aprovar', 'Approve')}
+                      </button>
+                      <button className="net-btn" onClick={() => void voteProp(p.id, false)}>
+                        {pe('Recusar', 'Refuse')}
+                      </button>
+                      {p.state === 'ready' && (
+                        <button className="net-btn primary" onClick={() => void execProp(p.id)}>
+                          {pe('Executar', 'Execute')}
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
