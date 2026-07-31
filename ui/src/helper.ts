@@ -206,6 +206,33 @@ export async function vaultCeremonies(groupKeyHex: string): Promise<CeremonyReco
   }
 }
 
+/**
+ * Execute a READY proposal: the helper builds the PCZT for the proposal's payment, the browsers in
+ * `room` sign over the relay, and (unless `dryRun`) the helper broadcasts and marks the proposal
+ * `sent` with its txid. `dryRun` defaults TRUE so a broadcast is always an explicit choice. Returns
+ * the outcome (with the proposal's new `state`), or `null` on failure (e.g. 409 if not ready).
+ */
+export async function executeProposal(args: {
+  vault: string
+  proposalId: string
+  relayBase: string
+  room: string
+  dryRun?: boolean
+}): Promise<{ txid: string | null; dry_run: boolean; state: string } | null> {
+  const res = await post(`/api/vault/proposals/${encodeURIComponent(args.proposalId)}/send`, {
+    vault: args.vault,
+    relay_base: args.relayBase,
+    room: args.room,
+    dry_run: args.dryRun ?? true,
+  })
+  if (!res || !res.ok) return null
+  try {
+    return (await res.json()) as { txid: string | null; dry_run: boolean; state: string }
+  } catch {
+    return null
+  }
+}
+
 /** The result of a helper-driven send: a broadcast txid, or `null` txid on a dry-run. */
 export type HelperSendResult = { txid: string | null; dry_run: boolean; sighash: string }
 

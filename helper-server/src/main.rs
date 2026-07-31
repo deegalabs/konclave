@@ -147,7 +147,11 @@ fn handle(
         }
         (Method::Post, "/api/vault/proposals") => handle_create_proposal(state, cfg, body),
         (Method::Post, vp) if vp.starts_with("/api/vault/proposals/") => {
-            handle_vote(state, cfg, vp, body)
+            if vp.ends_with("/send") {
+                handle_proposal_send(state, cfg, vp, body)
+            } else {
+                handle_vote(state, cfg, vp, body)
+            }
         }
         (Method::Post, "/api/vault/send") => handle_send(state, cfg, body),
         _ => resp(404, json!({ "error": "not found" }).to_string()),
@@ -225,6 +229,98 @@ fn handle_send(state: &HelperState, cfg: &HelperConfig, body: &[u8]) -> Resp {
                 200,
                 json!({ "txid": out.txid, "dry_run": req.dry_run, "sighash": out.sighash,
                         "signatures": out.signatures })
+                .to_string(),
+            )
+        }
+        Err(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
+    }
+}
+
+/// Execute a READY proposal over Architecture B: build the PCZT for the proposal's payment, run the
+/// browser ceremony over the relay, and (unless `dry_run`) broadcast. On a real broadcast the
+/// proposal is marked `sent` with its txid.
+///
+/// SECURITY (audit): `ready` is advisory (the approval votes are social, unauthenticated). The
+/// money gate is the ceremony itself, which needs the real quorum of browser shares to produce a
+/// valid signature, so a forged "ready" cannot move funds on its own. Non-ready proposals are
+/// refused (409); `dry_run` defaults true so a broadcast is always explicit.
+fn handle_proposal_send(state: &HelperState, cfg: &HelperConfig, path: &str, body: &[u8]) -> Resp {
+    let id = path
+        .trim_start_matches("/api/vault/proposals/")
+        .trim_end_matches("/send");
+    #[derive(Deserialize)]
+    struct Req {
+        vault: String,
+        relay_base: String,
+        room: String,
+        #[serde(default = "psend_dry_run")]
+        dry_run: bool,
+        #[serde(default = "psend_max_polls")]
+        max_polls: u32,
+    }
+    fn psend_dry_run() -> bool {
+        true
+    }
+    fn psend_max_polls() -> u32 {
+        300
+    }
+    let req: Req = match serde_json::from_slice(body) {
+        Ok(r) => r,
+        Err(_) => return resp(400, json!({ "error": "invalid json" }).to_string()),
+    };
+    let reg = match state.get(&req.vault) {
+        Some(r) => r,
+        None => return resp(404, json!({ "error": "no such vault" }).to_string()),
+    };
+    let now = now_unix();
+    let mut p = match load_proposal(&cfg.vaults_dir, &req.vault, id, now) {
+        Some(p) => p,
+        None => return resp(404, json!({ "error": "no such proposal" }).to_string()),
+    };
+    if p.state != "ready" {
+        return resp(
+            409,
+            json!({ "error": "proposal is not ready to send", "state": p.state }).to_string(),
+        );
+    }
+    let plan = match payment_plan(&p.to, p.amount_zat, p.memo.clone(), cfg.network_type()) {
+        Ok(pl) => pl,
+        Err(e) => return resp(400, json!({ "error": e.to_string() }).to_string()),
+    };
+    let work_dir = format!("{}/{}/send-work", cfg.vaults_dir.display(), reg.vault_id);
+    let sc = send_config_for(cfg, &reg, work_dir);
+    match net_orchestrate_send(
+        &sc,
+        &plan,
+        &req.relay_base,
+        &req.room,
+        req.dry_run,
+        req.max_polls,
+        Duration::from_secs(1),
+    ) {
+        Ok(out) => {
+            let rec = CeremonyRecord {
+                vault_id: reg.vault_id.clone(),
+                sighash: out.sighash.clone(),
+                signatures: out.signatures.clone(),
+                txid: out.txid.clone(),
+                dry_run: req.dry_run,
+                created_at_unix: now_unix(),
+            };
+            let _ = append_ceremony(&cfg.vaults_dir, &rec);
+            // A real broadcast moves the proposal to the terminal `sent` with its txid; a dry-run
+            // leaves it `ready` (it only proved the quorum can sign).
+            if !req.dry_run {
+                if let Some(txid) = &out.txid {
+                    p.state = "sent".into();
+                    p.txid = Some(txid.clone());
+                    let _ = save_proposal(&cfg.vaults_dir, &p);
+                }
+            }
+            resp(
+                200,
+                json!({ "txid": out.txid, "dry_run": req.dry_run, "sighash": out.sighash,
+                        "state": p.state })
                 .to_string(),
             )
         }
@@ -655,6 +751,66 @@ mod tests {
             vote,
         );
         assert_eq!(miss.status, 404);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn proposal_send_rejects_before_engine() {
+        let dir = std::env::temp_dir().join(format!("konclave-hs-psend-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let cfg = cfg_at(&dir);
+        let st = HelperState::new();
+        seed(&st, "aaaa"); // 2 of 3
+
+        // unknown vault -> 404
+        let body = br#"{"vault":"zzzz","relay_base":"http://x","room":"r"}"#;
+        assert_eq!(
+            handle(
+                &st,
+                &cfg,
+                &Method::Post,
+                "/api/vault/proposals/x/send",
+                body
+            )
+            .status,
+            404
+        );
+        // unknown proposal -> 404
+        let body2 = br#"{"vault":"aaaa","relay_base":"http://x","room":"r"}"#;
+        assert_eq!(
+            handle(
+                &st,
+                &cfg,
+                &Method::Post,
+                "/api/vault/proposals/nope/send",
+                body2
+            )
+            .status,
+            404
+        );
+        // a pending (not-ready) proposal -> 409, never reaching the engine
+        let create = format!(
+            r#"{{"vault":"aaaa","proposer":"alice","to":"{TESTNET_ORCHARD_UA}","amount_zat":1000000}}"#
+        );
+        let created = handle(
+            &st,
+            &cfg,
+            &Method::Post,
+            "/api/vault/proposals",
+            create.as_bytes(),
+        );
+        let id = created
+            .body
+            .split("\"id\":\"")
+            .nth(1)
+            .unwrap()
+            .split('"')
+            .next()
+            .unwrap();
+        let send_path = format!("/api/vault/proposals/{id}/send");
+        let r = handle(&st, &cfg, &Method::Post, &send_path, body2);
+        assert_eq!(r.status, 409);
+        assert!(r.body.contains("not ready"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
