@@ -111,6 +111,60 @@ pub fn derive_identity(
     parse_generate(&out)
 }
 
+/// In-memory registry of the vaults a hosted helper is operating, keyed by vault_id (the group
+/// key). Thread-safe. It holds only each vault's public / view-only `VaultRegistration`, never a
+/// share, so a dump of this state leaks nothing spendable.
+#[derive(Default)]
+pub struct HelperState {
+    vaults: std::sync::Mutex<std::collections::HashMap<String, VaultRegistration>>,
+}
+
+impl HelperState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Insert or replace a vault's registration.
+    pub fn insert(&self, reg: VaultRegistration) {
+        self.vaults
+            .lock()
+            .expect("helper state mutex")
+            .insert(reg.vault_id.clone(), reg);
+    }
+
+    /// The registration for a vault, if registered.
+    pub fn get(&self, vault_id: &str) -> Option<VaultRegistration> {
+        self.vaults
+            .lock()
+            .expect("helper state mutex")
+            .get(vault_id)
+            .cloned()
+    }
+
+    pub fn contains(&self, vault_id: &str) -> bool {
+        self.vaults
+            .lock()
+            .expect("helper state mutex")
+            .contains_key(vault_id)
+    }
+
+    /// Registered vault ids, sorted (stable for listing).
+    pub fn ids(&self) -> Vec<String> {
+        let m = self.vaults.lock().expect("helper state mutex");
+        let mut ids: Vec<String> = m.keys().cloned().collect();
+        ids.sort();
+        ids
+    }
+
+    pub fn len(&self) -> usize {
+        self.vaults.lock().expect("helper state mutex").len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.vaults.lock().expect("helper state mutex").is_empty()
+    }
+}
+
 /// Parse `zcash-sign generate`'s output into (orchard address, ufvk).
 fn parse_generate(out: &str) -> Result<(String, String), ToolError> {
     let addr = extract_quoted(out, "unified address:")?;
@@ -183,6 +237,30 @@ mod tests {
     fn wallet_dir_path() {
         let d = wallet_dir_for(Path::new("/srv/vaults"), "abcd");
         assert_eq!(d, "/srv/vaults/abcd/wallet");
+    }
+
+    fn reg(id: &str) -> VaultRegistration {
+        VaultRegistration {
+            vault_id: id.into(),
+            address: format!("u1{id}"),
+            ufvk: format!("uview1{id}"),
+            wallet_dir: format!("/tmp/{id}/wallet"),
+        }
+    }
+
+    #[test]
+    fn helper_state_registry() {
+        let st = HelperState::new();
+        assert!(st.is_empty());
+        st.insert(reg("aaaa"));
+        st.insert(reg("bbbb"));
+        st.insert(reg("aaaa")); // replace, not duplicate
+        assert_eq!(st.len(), 2);
+        assert!(st.contains("aaaa"));
+        assert!(!st.contains("cccc"));
+        assert_eq!(st.get("bbbb").unwrap().address, "u1bbbb");
+        assert!(st.get("cccc").is_none());
+        assert_eq!(st.ids(), vec!["aaaa".to_string(), "bbbb".to_string()]);
     }
 
     #[test]
