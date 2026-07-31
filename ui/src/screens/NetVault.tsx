@@ -27,17 +27,14 @@ import {
   helperConfigured,
   registerVault,
   vaultBalance,
-  helperSend,
   vaultCeremonies,
-  createProposal,
   listProposals,
-  voteProposal,
   executeProposal,
   fetchLedgerCsv,
   type CeremonyRecord,
   type Proposal,
 } from '../helper'
-import { zatToZec, parseZecToZat, fmtDate } from '../format'
+import { zatToZec, fmtDate } from '../format'
 import encodeQR from '@paulmillr/qr'
 import '../redesign.css'
 import '../net.css'
@@ -180,23 +177,12 @@ export default function NetVault() {
   const [hostedAddress, setHostedAddress] = useState('')
   const [balance, setBalance] = useState<{ spend: string; total: string } | null>(null)
   const [balanceBusy, setBalanceBusy] = useState(false)
-  // Architecture-B spend request (A2 slice 3): this device asks the helper (blind to shares) to
-  // build the tx and publish a sign-request into the current room; the members in the room sign;
-  // the helper injects + broadcasts. dry-run defaults ON, so no click alone moves funds.
-  const [sendTo, setSendTo] = useState('')
-  const [sendZec, setSendZec] = useState('')
-  const [sendDry, setSendDry] = useState(true)
-  const [sendBusy, setSendBusy] = useState(false)
-  const [sendResult, setSendResult] = useState('')
-  const [sendErr, setSendErr] = useState('')
   // Ceremony trail (A3): the auditable record of every spend the helper drove for this vault.
   const [ceremonies, setCeremonies] = useState<CeremonyRecord[] | null>(null)
   const [cerBusy, setCerBusy] = useState(false)
-  // Proposals (Etapa 2): propose a payment, vote, and execute a ready one via the FROST ceremony.
+  // Proposals: proposing/voting lives in the PWA (Dashboard). /net only lists the READY ones and
+  // signs them (the ceremony), so it keeps the list + a status message, not a create/vote form.
   const [proposals, setProposals] = useState<Proposal[] | null>(null)
-  const [propTo, setPropTo] = useState('')
-  const [propZec, setPropZec] = useState('')
-  const [propBusy, setPropBusy] = useState(false)
   const [propMsg, setPropMsg] = useState('')
   const [signPhase, setSignPhase] = useState<'none' | 'signing' | 'signed'>('none')
   const [signature, setSignature] = useState('')
@@ -763,100 +749,16 @@ export default function NetVault() {
     [addLog, advance, onMessage, tt],
   )
 
-  // Ask the helper to drive a spend over Architecture B. The helper publishes its sign-request
-  // into the CURRENT room (where the members are already connected), they sign, and the helper
-  // injects + (unless dry-run) broadcasts. This device (and the helper) never touches another
-  // member's share. Blocks while the helper builds/proves + waits for the aggregate signature.
-  const requestSpend = useCallback(async () => {
-    setSendErr('')
-    setSendResult('')
-    const zat = parseZecToZat(sendZec)
-    if (zat == null || zat <= 0) {
-      setSendErr(pe('Valor inválido.', 'Invalid amount.'))
-      return
-    }
-    if (!sendTo.trim()) {
-      setSendErr(pe('Informe o endereço de destino.', 'Enter a destination address.'))
-      return
-    }
-    setSendBusy(true)
-    const r = await helperSend({
-      vault: groupVk,
-      to: sendTo.trim(),
-      amountZat: zat,
-      relayBase: RELAY_BASE,
-      room,
-      dryRun: sendDry,
-    })
-    setSendBusy(false)
-    if (!r) {
-      setSendErr(
-        pe(
-          'O coordenador rejeitou o pedido (destino/valor/saldo) ou não respondeu a tempo.',
-          'The coordinator rejected the request (destination/amount/balance) or did not respond in time.',
-        ),
-      )
-      return
-    }
-    setSendResult(
-      r.dry_run
-        ? pe('Assinado (simulação, não transmitido).', 'Signed (dry-run, not broadcast).')
-        : r.txid
-          ? `${pe('Transmitido. txid:', 'Broadcast. txid:')} ${r.txid}`
-          : pe('Transmitido.', 'Broadcast.'),
-    )
-    // The helper just recorded this ceremony; refresh the trail so it shows immediately.
-    void vaultCeremonies(groupVk).then(setCeremonies)
-  }, [sendZec, sendTo, groupVk, room, sendDry, pe])
-
   const loadCeremonies = useCallback(async () => {
     setCerBusy(true)
     setCeremonies(await vaultCeremonies(groupVk))
     setCerBusy(false)
   }, [groupVk])
 
-  // Proposals (Etapa 2). The member identity is this device's seat, so each tab votes distinctly.
-  const memberId = () => `member ${mySeatRef.current || '?'}`
-
+  // Proposals: /net only lists them (to sign the ready ones); proposing/voting is in the PWA.
   const loadProposals = useCallback(async () => {
     setProposals(await listProposals(groupVk))
   }, [groupVk])
-
-  const createProp = useCallback(async () => {
-    setPropMsg('')
-    const zat = parseZecToZat(propZec)
-    if (zat == null || zat <= 0) {
-      setPropMsg(pe('Valor inválido.', 'Invalid amount.'))
-      return
-    }
-    if (!propTo.trim()) {
-      setPropMsg(pe('Informe o endereço de destino.', 'Enter a destination address.'))
-      return
-    }
-    setPropBusy(true)
-    const p = await createProposal({
-      vault: groupVk,
-      proposer: memberId(),
-      to: propTo.trim(),
-      amountZat: zat,
-    })
-    setPropBusy(false)
-    if (!p) {
-      setPropMsg(pe('O coordenador recusou (destino/valor).', 'The coordinator rejected it (destination/amount).'))
-      return
-    }
-    setPropTo('')
-    setPropZec('')
-    void loadProposals()
-  }, [propZec, propTo, groupVk, pe, loadProposals])
-
-  const voteProp = useCallback(
-    async (id: string, approve: boolean) => {
-      await voteProposal(groupVk, id, memberId(), approve)
-      void loadProposals()
-    },
-    [groupVk, loadProposals],
-  )
 
   // Execute a ready proposal: the browsers sign over the relay and the helper broadcasts. This
   // moves real funds, so it is gated by an explicit confirmation (a single click never sends, §7).
@@ -1165,47 +1067,6 @@ export default function NetVault() {
           )}
         </p>
       )}
-      {signPhase === 'none' && helperConfigured() && RELAY_BASE !== '' && room && groupVk && (
-        <div className="net-card" style={{ marginTop: 16 }}>
-          <h3>{pe('Solicitar um pagamento', 'Request a payment')}</h3>
-          <p className="net-tip">
-            {pe(
-              'Este dispositivo pede ao coordenador que monte a transação; os membros no room assinam pelo relay; o coordenador injeta e transmite. O coordenador nunca vê uma parte da chave.',
-              'This device asks the coordinator to build the transaction; the members in the room sign over the relay; the coordinator injects and broadcasts. The coordinator never sees a key share.',
-            )}
-          </p>
-          {sendErr && <div className="net-error">{sendErr}</div>}
-          <input
-            className="net-input"
-            placeholder={pe('Endereço de destino (u…)', 'Destination address (u…)')}
-            value={sendTo}
-            onChange={(e) => setSendTo(e.target.value)}
-          />
-          <input
-            className="net-input"
-            inputMode="decimal"
-            placeholder={pe('Valor em ZEC', 'Amount in ZEC')}
-            value={sendZec}
-            onChange={(e) => setSendZec(e.target.value)}
-          />
-          <label style={{ display: 'flex', gap: 8, alignItems: 'center', margin: '10px 0' }}>
-            <input type="checkbox" checked={sendDry} onChange={(e) => setSendDry(e.target.checked)} />
-            {pe('Simulação (assina sem transmitir)', 'Dry-run (sign without broadcasting)')}
-          </label>
-          <button
-            className="net-btn primary"
-            disabled={sendBusy}
-            onClick={() => void requestSpend()}
-          >
-            {sendBusy
-              ? pe('Coordenando…', 'Coordinating…')
-              : pe('Solicitar pagamento', 'Request payment')}
-          </button>
-          {sendResult && (
-            <p className="net-tip" style={{ marginTop: 8, wordBreak: 'break-all' }}>{sendResult}</p>
-          )}
-        </div>
-      )}
       {signWhat && signPhase !== 'none' && (
         <div className="net-what" style={{ marginTop: 16, padding: '10px 14px', border: '1px solid var(--rd-line)', borderRadius: 8 }}>
           <strong>{pe('Você está assinando', 'You are signing')}</strong>: {signWhat.zec} ZEC → <code>{shortId(signWhat.addr)}</code>
@@ -1280,30 +1141,14 @@ export default function NetVault() {
       )}
       {helperConfigured() && groupVk && (
         <div className="net-card" style={{ marginTop: 16 }}>
-          <h3>{pe('Propostas de pagamento', 'Payment proposals')}</h3>
+          <h3>{pe('Propostas prontas para assinar', 'Proposals ready to sign')}</h3>
           <p className="net-tip">
             {pe(
-              'Proponha um pagamento; os membros aprovam; ao bater o quórum, as abas assinam e o cofre transmite. Quem aprova fica registrado (coordenação); o gasto exige a assinatura FROST real.',
-              'Propose a payment; members approve; at quorum the tabs sign and the vault broadcasts. Approvals are recorded (coordination); the spend needs the real FROST signature.',
+              'Propor e aprovar pagamentos é no app (Dashboard). Quando uma proposta bate o quórum, ela aparece aqui: as abas assinam e o cofre transmite. O coordenador nunca vê uma parte da chave.',
+              'Proposing and approving payments happens in the app (Dashboard). When a proposal reaches quorum it shows here: the tabs sign and the vault broadcasts. The coordinator never sees a key share.',
             )}
           </p>
-          <input
-            className="net-input"
-            placeholder={pe('Endereço de destino (u…)', 'Destination address (u…)')}
-            value={propTo}
-            onChange={(e) => setPropTo(e.target.value)}
-          />
-          <input
-            className="net-input"
-            inputMode="decimal"
-            placeholder={pe('Valor em ZEC', 'Amount in ZEC')}
-            value={propZec}
-            onChange={(e) => setPropZec(e.target.value)}
-          />
-          <button className="net-btn" disabled={propBusy} onClick={() => void createProp()}>
-            {propBusy ? pe('Criando…', 'Creating…') : pe('Propor pagamento', 'Propose payment')}
-          </button>
-          <button className="net-btn" style={{ marginLeft: 8 }} onClick={() => void loadProposals()}>
+          <button className="net-btn" onClick={() => void loadProposals()}>
             {pe('Atualizar', 'Refresh')}
           </button>
           <button className="net-btn" style={{ marginLeft: 8 }} onClick={() => void exportLedger()}>
@@ -1312,54 +1157,47 @@ export default function NetVault() {
           {propMsg && (
             <p className="net-tip" style={{ marginTop: 8, wordBreak: 'break-all' }}>{propMsg}</p>
           )}
-          {proposals && proposals.length === 0 && (
-            <p className="net-tip" style={{ marginTop: 8 }}>
-              {pe('Nenhuma proposta ainda.', 'No proposals yet.')}
-            </p>
-          )}
-          {proposals && proposals.length > 0 && (
-            <ul className="net-trail">
-              {proposals.map((p) => (
-                <li key={p.id}>
-                  <div className="net-trail-head">
-                    <span className={p.state === 'sent' ? 'net-tag net-tag-live' : 'net-tag'}>
-                      {p.state}
-                    </span>
-                    <span className="net-trail-when">
-                      {fmtZec(p.amount_zat)} ZEC → <code>{shortId(p.to)}</code>
-                    </span>
-                  </div>
-                  <div className="net-trail-row">
-                    <span className="net-trail-label">{pe('aprovações', 'approvals')}</span>
-                    <code>
-                      {p.approvals.length}/{p.threshold || '?'}
-                    </code>
-                  </div>
-                  {p.txid && (
+          {(() => {
+            const ready = (proposals ?? []).filter((p) => p.state === 'ready')
+            if (proposals && ready.length === 0) {
+              return (
+                <p className="net-tip" style={{ marginTop: 8 }}>
+                  {pe('Nenhuma proposta pronta para assinar.', 'No proposals ready to sign.')}
+                </p>
+              )
+            }
+            return (
+              <ul className="net-trail">
+                {ready.map((p) => (
+                  <li key={p.id}>
+                    <div className="net-trail-head">
+                      <span className="net-tag">{pe('pronta', 'ready')}</span>
+                      <span className="net-trail-when">
+                        {fmtZec(p.amount_zat)} ZEC → <code>{shortId(p.to)}</code>
+                      </span>
+                    </div>
                     <div className="net-trail-row">
-                      <span className="net-trail-label">txid</span>
-                      <code>{shortId(p.txid)}</code>
+                      <span className="net-trail-label">{pe('aprovações', 'approvals')}</span>
+                      <code>
+                        {p.approvals.length}/{p.threshold || '?'}
+                      </code>
                     </div>
-                  )}
-                  {(p.state === 'pending' || p.state === 'ready') && (
-                    <div className="net-trail-row" style={{ gap: 8, marginTop: 4 }}>
-                      <button className="net-btn" onClick={() => void voteProp(p.id, true)}>
-                        {pe('Aprovar', 'Approve')}
+                    <div className="net-trail-row" style={{ marginTop: 4 }}>
+                      <button
+                        className="net-btn primary"
+                        disabled={!room}
+                        onClick={() => void execProp(p.id)}
+                      >
+                        {room
+                          ? pe('Assinar e enviar', 'Sign & send')
+                          : pe('Inicie uma sessão de assinatura', 'Start a signing session')}
                       </button>
-                      <button className="net-btn" onClick={() => void voteProp(p.id, false)}>
-                        {pe('Recusar', 'Refuse')}
-                      </button>
-                      {p.state === 'ready' && (
-                        <button className="net-btn primary" onClick={() => void execProp(p.id)}>
-                          {pe('Executar', 'Execute')}
-                        </button>
-                      )}
                     </div>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
+                  </li>
+                ))}
+              </ul>
+            )
+          })()}
         </div>
       )}
     </div>
