@@ -7,6 +7,15 @@
 
 import type { TFn } from './i18n'
 import { MOCK } from './mock'
+import {
+  helperConfigured,
+  helperHealth,
+  getVault as netGetVault,
+  vaultBalance as netVaultBalance,
+  listProposals as netListProposals,
+  type Proposal as NetProposal,
+} from './helper'
+import { zatToZec } from './format'
 
 export type Member = { name: string; pubkey: string }
 
@@ -65,6 +74,39 @@ const DEMO = ENV.VITE_DEMO === '1'
  *  the coherent mock) even though `health()` is false. */
 export const IS_DEMO = DEMO
 
+// Browser-native mode (Etapa 3 convergence): when a hosted blind helper is configured, the PWA
+// screens (Dashboard / Proposals / Ledger) read the SELECTED /net vault from the helper instead of
+// the local bridge, so the same polished app operates the browser-born vault. Gated on
+// `helperConfigured()`, so the local-first path and the submission demo (no helper) are unchanged.
+const NET = helperConfigured()
+
+/** Map a helper proposal state to the lowercase states the PWA screens expect. */
+function netState(s: string): string {
+  return s === 'pending' ? 'awaiting' : s === 'refused' ? 'rejected' : s
+}
+
+/** Adapt a helper `Proposal` into the PWA's `Proposal` shape. */
+function mapNetProposal(p: NetProposal): Proposal {
+  return {
+    id: p.id,
+    vault_id: p.vault_id,
+    kind: 'payment',
+    state: netState(p.state),
+    proposer: p.proposer,
+    value_zat: p.amount_zat,
+    value_zec: zatToZec(p.amount_zat),
+    memo: p.memo ?? undefined,
+    to_address: p.to,
+    is_public: classifyAddress(p.to) !== 'unified',
+    expiry_unix: p.expiry_unix || undefined,
+    created_at: p.created_at_unix,
+    txid: p.txid ?? undefined,
+    approvals: p.approvals,
+    refusals: p.refusals,
+    approvals_count: p.approvals.length,
+  }
+}
+
 // Per-session CSRF token, injected into index.html by the local bridge (window.__KONCLAVE_SESSION__).
 // Sent back on state-changing requests so a cross-site page cannot drive the vault. Reads are
 // protected by the bridge's Host gate + the browser same-origin policy, so they don't carry it.
@@ -115,21 +157,58 @@ async function getJson<T>(path: string, timeoutMs = 4000): Promise<T | null> {
 
 /** True when the bridge answers `/api/health`. Lets the UI show a live/offline badge. */
 export async function health(): Promise<boolean> {
+  if (NET) return (await helperHealth()) !== null
   const h = await getJson<{ status?: string }>('/api/health')
   return h?.status === 'ok'
 }
 
 export async function getVault(): Promise<Vault | null> {
+  if (NET) {
+    const id = getSelectedVault()
+    if (!id) return null
+    const v = await netGetVault(id)
+    if (!v) return null
+    const total = v.total ?? 0
+    return {
+      id: v.vault_id,
+      name: 'Networked vault',
+      threshold: v.threshold ?? 0,
+      total,
+      members: total,
+      member_list: [],
+      group_pubkey: v.vault_id,
+      orchard_address: v.address,
+    }
+  }
   const r = await getJson<{ vault: Vault | null }>(withVault('/api/vault'))
   return r?.vault ?? (DEMO ? MOCK.vault : null)
 }
 
 export async function getProposals(): Promise<Proposal[] | null> {
+  if (NET) {
+    const id = getSelectedVault()
+    if (!id) return null
+    const ps = await netListProposals(id)
+    return ps ? ps.map(mapNetProposal) : null
+  }
   const r = await getJson<{ proposals: Proposal[] }>(withVault('/api/proposals'))
   return r?.proposals ?? (DEMO ? MOCK.proposals : null)
 }
 
 export async function getBalance(): Promise<Balance | null> {
+  if (NET) {
+    const id = getSelectedVault()
+    if (!id) return null
+    const b = await netVaultBalance(id)
+    if (!b) return null
+    return {
+      configured: true,
+      total_zat: b.total_zat,
+      total_zec: zatToZec(b.total_zat),
+      spendable_zat: b.orchard_spendable_zat,
+      spendable_zec: zatToZec(b.orchard_spendable_zat),
+    }
+  }
   return (await getJson<Balance>(withVault('/api/balance'))) ?? (DEMO ? MOCK.balance : null)
 }
 
@@ -239,6 +318,12 @@ export async function getVaults(): Promise<Vault[] | null> {
 
 /** The full ledger (all proposals, terminal states included) for the Razão screen. */
 export async function getLedger(): Promise<Proposal[] | null> {
+  if (NET) {
+    const id = getSelectedVault()
+    if (!id) return null
+    const ps = await netListProposals(id)
+    return ps ? ps.map(mapNetProposal) : null
+  }
   const r = await getJson<{ ledger: Proposal[] }>(withVault('/api/ledger'))
   return r?.ledger ?? (DEMO ? MOCK.ledger : null)
 }
@@ -250,6 +335,13 @@ export function ledgerCsvUrl(): string {
 
 /** A single proposal by id (proposal detail screen). */
 export async function getProposal(id: string): Promise<Proposal | null> {
+  if (NET) {
+    const vid = getSelectedVault()
+    if (!vid) return null
+    const ps = await netListProposals(vid)
+    const p = ps?.find((x) => x.id === id)
+    return p ? mapNetProposal(p) : null
+  }
   const r = await getJson<{ proposal: Proposal }>(`/api/proposals/${encodeURIComponent(id)}`)
   return r?.proposal ?? (DEMO ? MOCK.proposalById(id) : null)
 }

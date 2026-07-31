@@ -20,7 +20,7 @@ export function helperConfigured(): boolean {
 }
 
 /** A vault's PUBLIC view as the helper returns it (never the UFVK or account). */
-export type HelperVault = { vault_id: string; address: string }
+export type HelperVault = { vault_id: string; address: string; threshold?: number; total?: number }
 
 async function post(path: string, body: unknown): Promise<Response | null> {
   if (!HELPER_BASE) return null

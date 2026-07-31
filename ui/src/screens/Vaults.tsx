@@ -35,9 +35,10 @@ export default function Vaults() {
   const [unlockBusy, setUnlockBusy] = useState(false)
 
   function enter(v: Vault) {
-    // Browser-native: operate the vault in /net (restore its share on-device, then receive/sign).
-    if (netMode) { nav('/net'); return }
     setSelectedVault(v.id)
+    // Browser-native: the Dashboard reads this vault from the helper (balance / proposals / ledger).
+    // Signing (executing a payment) still happens in /net, where the share lives.
+    if (netMode) { nav('/dashboard'); return }
     if (v.locked) { setUnlocking(v); setPass(''); setUnlockErr(null) }
     else nav('/dashboard')
   }

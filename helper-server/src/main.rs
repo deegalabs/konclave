@@ -42,7 +42,8 @@ fn resp(status: u16, body: impl Into<String>) -> Resp {
 /// UFVK decrypts the whole tx graph and the browser does not need it (the helper holds it). The
 /// browser only needs the address (to receive) and the id.
 fn vault_value(r: &VaultRegistration) -> serde_json::Value {
-    json!({ "vault_id": r.vault_id, "address": r.address })
+    // Quorum (threshold/total) is public and drives the UI; the UFVK + account stay omitted (M1).
+    json!({ "vault_id": r.vault_id, "address": r.address, "threshold": r.threshold, "total": r.total })
 }
 
 /// One value from a `k=v&k2=v2` query string (no percent-decoding needed for our ids/hex).
