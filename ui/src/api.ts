@@ -13,9 +13,11 @@ import {
   getVault as netGetVault,
   vaultBalance as netVaultBalance,
   listProposals as netListProposals,
+  createProposal as netCreateProposal,
+  voteProposal as netVote,
   type Proposal as NetProposal,
 } from './helper'
-import { zatToZec } from './format'
+import { zatToZec, parseZecToZat } from './format'
 
 export type Member = { name: string; pubkey: string }
 
@@ -175,7 +177,13 @@ export async function getVault(): Promise<Vault | null> {
       threshold: v.threshold ?? 0,
       total,
       members: total,
-      member_list: [],
+      // The /net vault's members are its DKG seats; name them "member N" so the vote UI has
+      // options and a vote from the PWA matches a vote from /net (same member id). Real names are
+      // the Members convergence (future).
+      member_list: Array.from({ length: total }, (_, i) => ({
+        name: `member ${i + 1}`,
+        pubkey: String(i + 1),
+      })),
       group_pubkey: v.vault_id,
       orchard_address: v.address,
     }
@@ -233,6 +241,22 @@ export type CreateResult =
 
 /** POST a new payment proposal. Returns a typed success or a readable error. */
 export async function createProposal(input: NewProposal): Promise<CreateResult> {
+  if (NET) {
+    const id = getSelectedVault()
+    if (!id) return { ok: false, error: 'no vault' }
+    const zat = parseZecToZat(input.value_zec)
+    if (zat == null || zat <= 0) return { ok: false, error: 'invalid amount' }
+    const p = await netCreateProposal({
+      vault: id,
+      proposer: input.proposer,
+      to: input.to_address,
+      amountZat: zat,
+      memo: input.memo,
+    })
+    return p
+      ? { ok: true, proposal: mapNetProposal(p) }
+      : { ok: false, error: 'invalid address', detail: 'the coordinator rejected the destination or amount' }
+  }
   if (DEMO) {
     const proposal: Proposal = {
       id: `demo-${Date.now()}`,
@@ -513,6 +537,16 @@ export type SendResult =
  * No client timeout: the ceremony (create→prove→sign→broadcast) can take 30–60s.
  */
 export async function sendProposal(id: string, dryRun: boolean): Promise<SendResult> {
+  if (NET) {
+    // Executing a /net proposal needs the FROST ceremony (the share + a signing session over the
+    // relay), which lives on the /net screen. From the PWA we cannot sign, so point the operator
+    // there. (Bringing the ceremony into the Dashboard is the next slice.)
+    return {
+      ok: false,
+      error: 'sign in /net',
+      detail: 'To send this approved payment, open the vault in /net and sign there with your share.',
+    }
+  }
   try {
     const res = await fetch(`${BASE}/api/proposals/${encodeURIComponent(id)}/send`, {
       method: 'POST',
@@ -543,6 +577,12 @@ export async function voteProposal(
   member: string,
   approve: boolean,
 ): Promise<CreateResult> {
+  if (NET) {
+    const vid = getSelectedVault()
+    if (!vid) return { ok: false, error: 'no vault' }
+    const p = await netVote(vid, id, member, approve)
+    return p ? { ok: true, proposal: mapNetProposal(p) } : { ok: false, error: 'vote rejected' }
+  }
   if (DEMO) {
     const base = MOCK.proposalById(id)
     if (!base) return { ok: false, error: 'not found' }
