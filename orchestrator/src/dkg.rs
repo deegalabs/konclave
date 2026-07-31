@@ -181,19 +181,9 @@ pub fn create_vault_dkg(
         None,
     )?)?;
 
-    // 7) Orchard address + UFVK.
-    let gen = run_text_all(
-        zcash_sign,
-        &[
-            "generate",
-            "--ak",
-            group_pubkey.as_str(),
-            "--network",
-            "main",
-        ],
-        None,
-    )?;
-    let (orchard_address, ufvk) = parse_generate(&gen)?;
+    // 7) Orchard address + UFVK (derived from the group key, public material only).
+    let (orchard_address, ufvk) =
+        crate::helper::derive_identity(zcash_sign, group_pubkey.as_str(), "main")?;
 
     // 8) view-only wallet.
     let wallet_dir = format!("{vdir}/wallet");
@@ -364,26 +354,6 @@ fn parse_group_pubkey(out: &str) -> Result<String, ToolError> {
         .ok_or_else(|| err("dkg", "groups output missing 'Public key'"))
 }
 
-fn parse_generate(out: &str) -> Result<(String, String), ToolError> {
-    let addr = extract_quoted(out, "unified address:")?;
-    let ufvk = extract_quoted(out, "Viewing Key:")?;
-    Ok((addr, ufvk))
-}
-
-fn extract_quoted(out: &str, after: &str) -> Result<String, ToolError> {
-    for line in out.lines() {
-        if let Some(idx) = line.find(after) {
-            let rest = &line[idx + after.len()..];
-            if let (Some(a), Some(b)) = (rest.find('"'), rest.rfind('"')) {
-                if b > a {
-                    return Ok(rest[a + 1..b].to_string());
-                }
-            }
-        }
-    }
-    Err(err("dkg", format!("no quoted value found after '{after}'")))
-}
-
 fn short_id() -> String {
     let mut b = [0u8; 4];
     let _ = getrandom::getrandom(&mut b);
@@ -401,14 +371,6 @@ mod tests {
             parse_group_pubkey(out).unwrap(),
             "0ab93649e62dd68858ed57af1e7f7743cc2a4912110d7fb547d35c8c8494ee34"
         );
-    }
-
-    #[test]
-    fn parses_generate_address_and_ufvk() {
-        let out = "Orchard-only unified address: \"u14g48z7mn\"\nUnified Full Viewing Key: \"uview1x2w3\"\n";
-        let (a, u) = parse_generate(out).unwrap();
-        assert_eq!(a, "u14g48z7mn");
-        assert_eq!(u, "uview1x2w3");
     }
 
     #[test]
