@@ -9,8 +9,10 @@
 # to ubuntu:24.04. The helper is BLIND: it never receives, derives, or stores a share.
 FROM ubuntu:24.04
 
+# curl is required at runtime: the Architecture-B send (net_orchestrate_send) shells out to
+# curl as its relay transport (RelayClient/CurlTransport) to publish the sign-request.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates \
+ && apt-get install -y --no-install-recommends ca-certificates curl \
  && rm -rf /var/lib/apt/lists/*
 
 COPY bin/helper-server bin/zcash-sign bin/zcash-devtool bin/konclave-signer /usr/local/bin/
