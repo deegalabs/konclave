@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { getVaults, health, setSelectedVault, unlockVault, markVaultUnlocked, shortAddr, type Vault } from '../api'
+import { helperConfigured } from '../helper'
+import { listVaults } from '../storage'
 import { Identicon } from '../avatar'
 import { Dialog, Letterhead, activateOnKey } from '../components'
-import { useT, useTr } from '../i18n'
+import { useT, useTr, useI18n } from '../i18n'
 import '../redesign.css'
 
 const MOCK: Vault[] = [
@@ -17,7 +19,13 @@ const MOCK: Vault[] = [
 export default function Vaults() {
   const t = useT()
   const tr = useTr()
+  const { locale } = useI18n()
+  const pe = (pt: string, en: string) => (locale === 'pt-BR' ? pt : en)
   const nav = useNavigate()
+  // Browser-native mode (a hosted blind helper is configured): the /vaults screen lists the vaults
+  // THIS DEVICE holds a share for (from encrypted IndexedDB), never a global helper list, so one
+  // device cannot enumerate another's vaults. Create/Enter route to the /net (Architecture B) flow.
+  const netMode = helperConfigured()
   const [vaults, setVaults] = useState<Vault[]>([])
   const [loaded, setLoaded] = useState(false)
   const [live, setLive] = useState(false)
@@ -27,6 +35,8 @@ export default function Vaults() {
   const [unlockBusy, setUnlockBusy] = useState(false)
 
   function enter(v: Vault) {
+    // Browser-native: operate the vault in /net (restore its share on-device, then receive/sign).
+    if (netMode) { nav('/net'); return }
     setSelectedVault(v.id)
     if (v.locked) { setUnlocking(v); setPass(''); setUnlockErr(null) }
     else nav('/dashboard')
@@ -43,6 +53,29 @@ export default function Vaults() {
   useEffect(() => {
     let on = true
     void (async () => {
+      // Browser-native: list the vaults this device holds a share for (encrypted IndexedDB).
+      // Public metadata only (id, address, roster); the share never leaves storage here. No mock,
+      // and no global helper enumeration.
+      if (netMode) {
+        let saved: Awaited<ReturnType<typeof listVaults>> = []
+        try { saved = await listVaults() } catch { saved = [] }
+        if (!on) return
+        setLive(true)
+        setVaults(saved.map((s) => ({
+          id: s.id,
+          name: pe('Cofre em rede', 'Networked vault'),
+          // roster length is the participant count; the threshold is not stored on-device, so the
+          // card shows a neutral "networked" tag instead of a possibly-wrong quorum (threshold: 0).
+          threshold: 0,
+          total: s.roster.length,
+          members: s.roster.length,
+          member_list: s.roster.map((name) => ({ name, pubkey: name })),
+          group_pubkey: s.groupKey,
+          orchard_address: s.address,
+        })))
+        setLoaded(true)
+        return
+      }
       const ok = await health()
       if (!on) return
       setLive(ok)
@@ -52,6 +85,7 @@ export default function Vaults() {
       setLoaded(true)
     })()
     return () => { on = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   return (
@@ -75,7 +109,7 @@ export default function Vaults() {
             return (
               <div key={v.id} className="rd-card" role="button" tabIndex={0}
                 onClick={() => enter(v)} onKeyDown={activateOnKey(() => enter(v))}>
-                <span className="rd-qtag">{t('vaults.quorumOf', { t: v.threshold, n: v.total })}{v.locked ? ` · ${t('vaults.lockedTag')}` : ''}</span>
+                <span className="rd-qtag">{v.threshold > 0 ? t('vaults.quorumOf', { t: v.threshold, n: v.total }) : pe('Em rede', 'Networked')}{v.locked ? ` · ${t('vaults.lockedTag')}` : ''}</span>
                 <h3>{v.name}</h3>
                 <div className="rd-avatars">
                   {avatars.slice(0, 4).map((m, i) => <Identicon key={i} seed={m.pubkey || m.name} />)}
@@ -90,7 +124,7 @@ export default function Vaults() {
           })}
 
           <div className="rd-card rd-create" role="button" tabIndex={0}
-            onClick={() => nav('/create')} onKeyDown={activateOnKey(() => nav('/create'))}>
+            onClick={() => nav(netMode ? '/net' : '/create')} onKeyDown={activateOnKey(() => nav(netMode ? '/net' : '/create'))}>
             <div>
               <div className="ic">
                 <svg width="34" height="34" viewBox="0 0 34 34" fill="none" stroke="currentColor" strokeWidth="1.6">
