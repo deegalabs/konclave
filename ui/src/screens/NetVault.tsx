@@ -341,7 +341,9 @@ export default function NetVault() {
     // the vault local-only. Idempotent, so every device registering the same group key is fine.
     if (helperConfigured()) {
       setHostedState('registering')
-      void registerVault(vk, `net-${vk.slice(0, 8)}`).then((v) => {
+      // Pass the vault's quorum (t of n) so proposals inherit it (see helper::VaultRegistration).
+      const cfg = configRef.current
+      void registerVault(vk, `net-${vk.slice(0, 8)}`, cfg?.t ?? 0, cfg?.n ?? 0).then((v) => {
         if (v) {
           setHostedAddress(v.address)
           setHostedState('registered')

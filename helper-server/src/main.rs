@@ -15,8 +15,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use orchestrator::helper::{
-    append_ceremony, is_valid_group_key, load_ceremonies, payment_plan, register_vault,
-    send_config_for, vault_balance, CeremonyRecord, HelperConfig, HelperState, VaultRegistration,
+    append_ceremony, is_valid_group_key, list_proposals, load_ceremonies, load_proposal,
+    payment_plan, register_vault, save_proposal, send_config_for, vault_balance, CeremonyRecord,
+    HelperConfig, HelperProposal, HelperState, VaultRegistration,
 };
 use orchestrator::send::net_orchestrate_send;
 use serde::Deserialize;
@@ -79,6 +80,12 @@ fn handle(
             struct Req {
                 group_key: String,
                 name: Option<String>,
+                // The vault's approval quorum, which the browser knows from the DKG. Optional so an
+                // older client still registers (0/0 = unknown, proposals then can't reach `ready`).
+                #[serde(default)]
+                threshold: u16,
+                #[serde(default)]
+                total: u16,
             }
             let req: Req = match serde_json::from_slice(body) {
                 Ok(r) => r,
@@ -95,7 +102,7 @@ fn handle(
                 return resp(200, vault_value(&r).to_string());
             }
             let name = req.name.as_deref().unwrap_or("vault");
-            match register_vault(cfg, &req.group_key, name) {
+            match register_vault(cfg, &req.group_key, name, req.threshold, req.total) {
                 Ok(r) => {
                     let out = vault_value(&r).to_string();
                     state.insert(r);
@@ -128,6 +135,19 @@ fn handle(
                     resp(200, json!({ "ceremonies": recs }).to_string())
                 }
             }
+        }
+        (Method::Get, "/api/vault/proposals") => {
+            match query_param(query, "vault").and_then(|v| state.get(v)) {
+                None => resp(404, json!({ "error": "no such vault" }).to_string()),
+                Some(reg) => {
+                    let ps = list_proposals(&cfg.vaults_dir, &reg.vault_id, now_unix());
+                    resp(200, json!({ "proposals": ps }).to_string())
+                }
+            }
+        }
+        (Method::Post, "/api/vault/proposals") => handle_create_proposal(state, cfg, body),
+        (Method::Post, vp) if vp.starts_with("/api/vault/proposals/") => {
+            handle_vote(state, cfg, vp, body)
         }
         (Method::Post, "/api/vault/send") => handle_send(state, cfg, body),
         _ => resp(404, json!({ "error": "not found" }).to_string()),
@@ -220,6 +240,118 @@ fn now_unix() -> u64 {
         .unwrap_or(0)
 }
 
+/// A unique proposal id from the wall clock (nanosecond precision). Not attacker-controlled.
+fn gen_proposal_id() -> String {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!("p{nanos:x}")
+}
+
+/// Create a payment proposal on a browser-native vault. The destination + amount are validated
+/// AUTHORITATIVELY (zcash_address decode + Orchard-pool + network, plus amount > 0) before anything
+/// is stored, so a bad proposal is a 400. The proposer auto-approves (proposing implies approval).
+/// The quorum comes from the VAULT (not the request), so it cannot be spoofed per-proposal.
+fn handle_create_proposal(state: &HelperState, cfg: &HelperConfig, body: &[u8]) -> Resp {
+    #[derive(Deserialize)]
+    struct Req {
+        vault: String,
+        proposer: String,
+        to: String,
+        amount_zat: u64,
+        memo: Option<String>,
+        #[serde(default)]
+        expiry_unix: u64,
+    }
+    let req: Req = match serde_json::from_slice(body) {
+        Ok(r) => r,
+        Err(_) => return resp(400, json!({ "error": "invalid json" }).to_string()),
+    };
+    if req.proposer.trim().is_empty() {
+        return resp(400, json!({ "error": "proposer is required" }).to_string());
+    }
+    let reg = match state.get(&req.vault) {
+        Some(r) => r,
+        None => return resp(404, json!({ "error": "no such vault" }).to_string()),
+    };
+    // Reuse the send-path validation (authoritative address + amount) so a proposal can only name a
+    // destination the vault could actually pay.
+    if let Err(e) = payment_plan(
+        &req.to,
+        req.amount_zat,
+        req.memo.clone(),
+        cfg.network_type(),
+    ) {
+        return resp(400, json!({ "error": e.to_string() }).to_string());
+    }
+    let now = now_unix();
+    let mut p = HelperProposal {
+        id: gen_proposal_id(),
+        vault_id: reg.vault_id.clone(),
+        to: req.to,
+        amount_zat: req.amount_zat,
+        memo: req.memo,
+        proposer: req.proposer.clone(),
+        state: "pending".into(),
+        approvals: vec![req.proposer],
+        refusals: vec![],
+        threshold: reg.threshold,
+        total: reg.total,
+        created_at_unix: now,
+        expiry_unix: req.expiry_unix,
+        txid: None,
+    };
+    p.recompute(now);
+    match save_proposal(&cfg.vaults_dir, &p) {
+        Ok(()) => resp(200, serde_json::to_string(&p).unwrap_or_default()),
+        Err(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
+    }
+}
+
+/// Record an approve/refuse vote on a proposal. Path: `/api/vault/proposals/{id}/(approve|refuse)`.
+/// SECURITY: unauthenticated in this iteration (see `HelperProposal` note) — the money gate is the
+/// FROST ceremony, not this vote. A vote on a terminal proposal is a 409.
+fn handle_vote(state: &HelperState, cfg: &HelperConfig, path: &str, body: &[u8]) -> Resp {
+    let rest = path.trim_start_matches("/api/vault/proposals/");
+    let (id, action) = match rest.rsplit_once('/') {
+        Some(v) => v,
+        None => return resp(404, json!({ "error": "not found" }).to_string()),
+    };
+    let approve = match action {
+        "approve" => true,
+        "refuse" => false,
+        _ => return resp(404, json!({ "error": "not found" }).to_string()),
+    };
+    #[derive(Deserialize)]
+    struct Req {
+        vault: String,
+        member: String,
+    }
+    let req: Req = match serde_json::from_slice(body) {
+        Ok(r) => r,
+        Err(_) => return resp(400, json!({ "error": "invalid json" }).to_string()),
+    };
+    if state.get(&req.vault).is_none() {
+        return resp(404, json!({ "error": "no such vault" }).to_string());
+    }
+    let now = now_unix();
+    let mut p = match load_proposal(&cfg.vaults_dir, &req.vault, id, now) {
+        Some(p) => p,
+        None => return resp(404, json!({ "error": "no such proposal" }).to_string()),
+    };
+    if !p.vote(&req.member, approve, now) {
+        return resp(
+            409,
+            json!({ "error": "proposal is no longer open", "state": p.state }).to_string(),
+        );
+    }
+    match save_proposal(&cfg.vaults_dir, &p) {
+        Ok(()) => resp(200, serde_json::to_string(&p).unwrap_or_default()),
+        Err(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
+    }
+}
+
 fn header(name: &str, value: &str) -> Header {
     Header::from_bytes(name.as_bytes(), value.as_bytes()).expect("valid header")
 }
@@ -302,6 +434,8 @@ mod tests {
             ufvk: format!("uviewtest1{id}"),
             wallet_dir: format!("/tmp/{id}/wallet"),
             account: format!("acct-{id}"),
+            threshold: 2,
+            total: 3,
         });
     }
 
@@ -408,6 +542,120 @@ mod tests {
         let r = handle(&st, &cfg(), &Method::Post, "/api/vault/send", body);
         assert_eq!(r.status, 400);
         assert!(r.body.contains("greater than zero"));
+    }
+
+    // A real testnet Orchard-capable unified address (payment_plan accepts it on "test").
+    const TESTNET_ORCHARD_UA: &str = "utest1snsykvxrx7csenfxks3g7w865hhkmhxpdkfu3t4wrmes697vac86vw3a3nu3eylqdmp3l9svg65s86tu0djwcdfxa65fkvgz4qpnlqkr";
+
+    fn cfg_at(dir: &std::path::Path) -> HelperConfig {
+        let mut c = cfg();
+        c.vaults_dir = dir.to_path_buf();
+        c
+    }
+
+    #[test]
+    fn create_proposal_rejects_before_persisting() {
+        let st = HelperState::new();
+        // bad json
+        assert_eq!(
+            handle(&st, &cfg(), &Method::Post, "/api/vault/proposals", b"x").status,
+            400
+        );
+        // unknown vault
+        let body = format!(
+            r#"{{"vault":"zzzz","proposer":"a","to":"{TESTNET_ORCHARD_UA}","amount_zat":1000}}"#
+        );
+        assert_eq!(
+            handle(
+                &st,
+                &cfg(),
+                &Method::Post,
+                "/api/vault/proposals",
+                body.as_bytes()
+            )
+            .status,
+            404
+        );
+        // known vault but empty proposer, then bad address (both 400, nothing written)
+        seed(&st, "aaaa");
+        let no_proposer = br#"{"vault":"aaaa","proposer":"","to":"utest1x","amount_zat":1000}"#;
+        assert_eq!(
+            handle(
+                &st,
+                &cfg(),
+                &Method::Post,
+                "/api/vault/proposals",
+                no_proposer
+            )
+            .status,
+            400
+        );
+        let bad_addr = br#"{"vault":"aaaa","proposer":"alice","to":"garbage","amount_zat":1000}"#;
+        assert_eq!(
+            handle(&st, &cfg(), &Method::Post, "/api/vault/proposals", bad_addr).status,
+            400
+        );
+    }
+
+    #[test]
+    fn proposals_create_list_vote_flow() {
+        let dir = std::env::temp_dir().join(format!("konclave-hs-prop-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let cfg = cfg_at(&dir);
+        let st = HelperState::new();
+        seed(&st, "aaaa"); // threshold 2 of 3
+
+        // create (proposer alice auto-approves -> 1 of 2 -> pending)
+        let body = format!(
+            r#"{{"vault":"aaaa","proposer":"alice","to":"{TESTNET_ORCHARD_UA}","amount_zat":1000000}}"#
+        );
+        let created = handle(
+            &st,
+            &cfg,
+            &Method::Post,
+            "/api/vault/proposals",
+            body.as_bytes(),
+        );
+        assert_eq!(created.status, 200);
+        assert!(created.body.contains("\"state\":\"pending\""));
+        let id = created
+            .body
+            .split("\"id\":\"")
+            .nth(1)
+            .unwrap()
+            .split('"')
+            .next()
+            .unwrap()
+            .to_string();
+
+        // list shows it
+        let listed = handle(
+            &st,
+            &cfg,
+            &Method::Get,
+            "/api/vault/proposals?vault=aaaa",
+            b"",
+        );
+        assert_eq!(listed.status, 200);
+        assert!(listed.body.contains(&id));
+
+        // bob approves -> 2 of 2 -> ready
+        let vote = br#"{"vault":"aaaa","member":"bob"}"#;
+        let path = format!("/api/vault/proposals/{id}/approve");
+        let voted = handle(&st, &cfg, &Method::Post, &path, vote);
+        assert_eq!(voted.status, 200);
+        assert!(voted.body.contains("\"state\":\"ready\""));
+
+        // voting on a nonexistent proposal is 404
+        let miss = handle(
+            &st,
+            &cfg,
+            &Method::Post,
+            "/api/vault/proposals/nope/approve",
+            vote,
+        );
+        assert_eq!(miss.status, 404);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

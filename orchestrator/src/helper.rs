@@ -212,6 +212,137 @@ pub fn load_ceremonies(vaults_dir: &Path, group_key: &str) -> Vec<CeremonyRecord
         .collect()
 }
 
+/// A payment proposal on a browser-native vault. It is PUBLIC coordination data (internal
+/// transparency): a member proposes a spend, members vote, and at quorum the browsers run the FROST
+/// ceremony (Architecture B) which the helper broadcasts.
+///
+/// SECURITY MODEL (audit): the helper is a public service, so these vote endpoints are
+/// **unauthenticated** in this iteration — anyone who knows the vault_id could POST a proposal or a
+/// vote. That is a coordination/spam surface, NOT a fund-safety hole: the real money gate is the
+/// FROST ceremony, which needs `threshold` REAL browser shares to produce a valid signature. A
+/// forged vote only changes the displayed approval count; it cannot move funds. The hardening
+/// follow-up is votes SIGNED by each member's device key and verified against the DKG roster.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct HelperProposal {
+    pub id: String,
+    pub vault_id: String,
+    /// Destination address (authoritatively validated by the create endpoint before this is built).
+    pub to: String,
+    pub amount_zat: u64,
+    pub memo: Option<String>,
+    pub proposer: String,
+    /// `pending` | `ready` | `sent` | `refused` | `expired`.
+    pub state: String,
+    pub approvals: Vec<String>,
+    pub refusals: Vec<String>,
+    /// Quorum inherited from the vault at creation (not spoofable per-proposal). See the money-gate
+    /// note above: this only drives the `ready` display; the ceremony enforces the real threshold.
+    pub threshold: u16,
+    pub total: u16,
+    pub created_at_unix: u64,
+    /// `0` when no expiry is set.
+    pub expiry_unix: u64,
+    pub txid: Option<String>,
+}
+
+impl HelperProposal {
+    /// Recompute the state from the votes / clock. Terminal states (`sent`, `refused`, `expired`)
+    /// stick. `ready` once approvals reach the threshold; `refused` once refusals make the quorum
+    /// unreachable (`total - refusals < threshold`); `expired` past the deadline.
+    pub fn recompute(&mut self, now: u64) {
+        if self.state == "sent" {
+            return;
+        }
+        if self.expiry_unix != 0 && now >= self.expiry_unix {
+            self.state = "expired".into();
+            return;
+        }
+        if self.total > 0
+            && self.threshold > 0
+            && (self.total as usize).saturating_sub(self.refusals.len()) < self.threshold as usize
+        {
+            self.state = "refused".into();
+            return;
+        }
+        self.state = if self.threshold > 0 && self.approvals.len() >= self.threshold as usize {
+            "ready".into()
+        } else {
+            "pending".into()
+        };
+    }
+
+    /// Record a vote (dedup across both lists), then recompute. Returns false if the proposal is
+    /// already terminal (`sent`/`refused`/`expired`) and cannot take votes.
+    pub fn vote(&mut self, member: &str, approve: bool, now: u64) -> bool {
+        if self.state == "sent" || self.state == "refused" || self.state == "expired" {
+            return false;
+        }
+        self.approvals.retain(|m| m != member);
+        self.refusals.retain(|m| m != member);
+        if approve {
+            self.approvals.push(member.to_string());
+        } else {
+            self.refusals.push(member.to_string());
+        }
+        self.recompute(now);
+        true
+    }
+}
+
+/// The directory holding a vault's proposals: `<vaults_dir>/<vault>/proposals/`.
+pub fn proposals_dir(vaults_dir: &Path, vault: &str) -> PathBuf {
+    vaults_dir.join(vault).join("proposals")
+}
+
+fn proposal_path(vaults_dir: &Path, vault: &str, id: &str) -> PathBuf {
+    // `id` is helper-generated (hex/dash), never attacker-controlled path input; still, keep only
+    // the file name so a crafted id can never traverse out of the proposals dir.
+    let safe: String = id
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .collect();
+    proposals_dir(vaults_dir, vault).join(format!("{safe}.json"))
+}
+
+/// Persist (create or update) a proposal.
+pub fn save_proposal(vaults_dir: &Path, p: &HelperProposal) -> Result<(), ToolError> {
+    let path = proposal_path(vaults_dir, &p.vault_id, &p.id);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(ToolError::Io)?;
+    }
+    let json = serde_json::to_string(p).map_err(|e| ToolError::parse("proposal", e.to_string()))?;
+    std::fs::write(&path, json).map_err(ToolError::Io)?;
+    Ok(())
+}
+
+/// Load one proposal by id (with its state recomputed against `now`, so a lapsed deadline reads as
+/// `expired` even if it was persisted `pending`). `None` if absent/unreadable.
+pub fn load_proposal(vaults_dir: &Path, vault: &str, id: &str, now: u64) -> Option<HelperProposal> {
+    let json = std::fs::read_to_string(proposal_path(vaults_dir, vault, id)).ok()?;
+    let mut p: HelperProposal = serde_json::from_str(&json).ok()?;
+    p.recompute(now);
+    Some(p)
+}
+
+/// List a vault's proposals, newest first, each with its state recomputed against `now`.
+pub fn list_proposals(vaults_dir: &Path, vault: &str, now: u64) -> Vec<HelperProposal> {
+    let dir = proposals_dir(vaults_dir, vault);
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Vec::new();
+    };
+    let mut out: Vec<HelperProposal> = entries
+        .flatten()
+        .filter_map(|e| std::fs::read_to_string(e.path()).ok())
+        .filter_map(|j| serde_json::from_str::<HelperProposal>(&j).ok())
+        .map(|mut p| {
+            p.recompute(now);
+            p
+        })
+        .collect();
+    out.sort_by_key(|p| std::cmp::Reverse(p.created_at_unix));
+    out
+}
+
 /// A vault registered with the helper: its public identity plus where its view-only wallet lives.
 /// `vault_id` equals the group verifying key hex (the same id the browser shows on `/net`).
 /// Serializable so it can be persisted to disk (see [`save_registration`]) — the FS is a redeploy-
@@ -224,6 +355,15 @@ pub struct VaultRegistration {
     pub wallet_dir: String,
     /// The wallet account uuid the view-only wallet created (the PCZT spends from it).
     pub account: String,
+    /// The vault's approval quorum (`threshold`-of-`total`), passed by the browser at register time
+    /// (it knows `t`/`n` from the DKG). Proposals inherit this quorum, so it is a vault property, not
+    /// per-proposal (which a proposer could spoof). `0` means unknown (a legacy or minimal register).
+    /// NOTE: this is the PRODUCT quorum for showing "Ready"; the real money gate is the FROST
+    /// ceremony, which needs `threshold` real browser shares regardless of the recorded approvals.
+    #[serde(default)]
+    pub threshold: u16,
+    #[serde(default)]
+    pub total: u16,
 }
 
 /// Where a vault's persisted registration lives: `<vaults_dir>/<vault_id>/registration.json`.
@@ -290,6 +430,8 @@ pub fn register_vault(
     cfg: &HelperConfig,
     group_key: &str,
     name: &str,
+    threshold: u16,
+    total: u16,
 ) -> Result<VaultRegistration, ToolError> {
     if !is_valid_group_key(group_key) {
         return Err(ToolError::parse(
@@ -338,6 +480,8 @@ pub fn register_vault(
         ufvk,
         wallet_dir,
         account,
+        threshold,
+        total,
     };
     // Persist so a restart keeps the vault + its now-fixed address. Best-effort: a write failure
     // (e.g. read-only FS) must not fail the registration — the in-memory state still serves it.
@@ -521,7 +665,78 @@ mod tests {
             ufvk: format!("uview1{id}"),
             wallet_dir: format!("/tmp/{id}/wallet"),
             account: format!("acct-{id}"),
+            threshold: 2,
+            total: 3,
         }
+    }
+
+    fn mk_prop(vault: &str, id: &str) -> HelperProposal {
+        HelperProposal {
+            id: id.into(),
+            vault_id: vault.into(),
+            to: "utest1dest".into(),
+            amount_zat: 1000,
+            memo: None,
+            proposer: "alice".into(),
+            state: "pending".into(),
+            approvals: vec!["alice".into()],
+            refusals: vec![],
+            threshold: 2,
+            total: 3,
+            created_at_unix: 100,
+            expiry_unix: 0,
+            txid: None,
+        }
+    }
+
+    #[test]
+    fn proposal_state_machine() {
+        let mut p = mk_prop("v", "p1");
+        p.recompute(200);
+        assert_eq!(p.state, "pending"); // 1 of 2 approvals
+        assert!(p.vote("bob", true, 200)); // 2 of 2
+        assert_eq!(p.state, "ready");
+        // Idempotent re-vote does not double-count.
+        assert!(p.vote("bob", true, 200));
+        assert_eq!(p.approvals.len(), 2);
+        // Expiry wins over ready.
+        p.expiry_unix = 300;
+        p.recompute(301);
+        assert_eq!(p.state, "expired");
+    }
+
+    #[test]
+    fn proposal_refusal_makes_quorum_unreachable() {
+        // 2-of-3: two refusals leave only 1 possible approver, below the threshold -> refused.
+        let mut p = mk_prop("v", "p2");
+        p.approvals.clear();
+        assert!(p.vote("bob", false, 100));
+        assert_eq!(p.state, "pending");
+        assert!(p.vote("carol", false, 100));
+        assert_eq!(p.state, "refused");
+        // A terminal proposal rejects further votes.
+        assert!(!p.vote("alice", true, 100));
+    }
+
+    #[test]
+    fn proposals_persist_list_and_reload() {
+        let dir = std::env::temp_dir().join(format!("konclave-prop-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(list_proposals(&dir, "v", 100).is_empty());
+        save_proposal(&dir, &mk_prop("v", "p1")).unwrap();
+        let mut later = mk_prop("v", "p2");
+        later.created_at_unix = 200;
+        save_proposal(&dir, &later).unwrap();
+        let all = list_proposals(&dir, "v", 250);
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].id, "p2"); // newest first
+        assert_eq!(
+            load_proposal(&dir, "v", "p1", 250).unwrap().amount_zat,
+            1000
+        );
+        // A path-traversal id can never escape the proposals dir.
+        assert!(load_proposal(&dir, "v", "../../etc/passwd", 250).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -560,7 +775,7 @@ mod tests {
             konclave_signer: PathBuf::from("/nonexistent/konclave-signer"),
             vaults_dir: PathBuf::from("/tmp/konclave-helper-vaults"),
         };
-        assert!(register_vault(&cfg, "not-a-valid-key", "demo").is_err());
+        assert!(register_vault(&cfg, "not-a-valid-key", "demo", 2, 3).is_err());
     }
 
     fn send_cfg(network: &str) -> HelperConfig {

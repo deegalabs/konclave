@@ -61,11 +61,96 @@ export async function helperHealth(): Promise<{ vaults: number } | null> {
  * known group key returns the same vault without re-running the tooling. Returns the vault's
  * public view, or `null` if no helper is configured or the call fails.
  */
-export async function registerVault(groupKeyHex: string, name: string): Promise<HelperVault | null> {
-  const res = await post('/api/vault', { group_key: groupKeyHex, name })
+export async function registerVault(
+  groupKeyHex: string,
+  name: string,
+  threshold = 0,
+  total = 0,
+): Promise<HelperVault | null> {
+  // threshold/total come from the DKG (the browser knows t/n); the helper stores them as the
+  // vault's approval quorum so proposals inherit it (a proposer cannot spoof a lower quorum).
+  const res = await post('/api/vault', { group_key: groupKeyHex, name, threshold, total })
   if (!res || !res.ok) return null
   try {
     return (await res.json()) as HelperVault
+  } catch {
+    return null
+  }
+}
+
+/** A payment proposal on a browser-native vault, as the helper stores it. All public. */
+export type Proposal = {
+  id: string
+  vault_id: string
+  to: string
+  amount_zat: number
+  memo?: string | null
+  proposer: string
+  state: string // pending | ready | sent | refused | expired
+  approvals: string[]
+  refusals: string[]
+  threshold: number
+  total: number
+  created_at_unix: number
+  expiry_unix: number
+  txid?: string | null
+}
+
+/** Create a payment proposal. The helper validates the destination + amount authoritatively. */
+export async function createProposal(args: {
+  vault: string
+  proposer: string
+  to: string
+  amountZat: number
+  memo?: string
+  expiryUnix?: number
+}): Promise<Proposal | null> {
+  const res = await post('/api/vault/proposals', {
+    vault: args.vault,
+    proposer: args.proposer,
+    to: args.to,
+    amount_zat: args.amountZat,
+    memo: args.memo,
+    expiry_unix: args.expiryUnix ?? 0,
+  })
+  if (!res || !res.ok) return null
+  try {
+    return (await res.json()) as Proposal
+  } catch {
+    return null
+  }
+}
+
+/** List a vault's proposals (newest first), or `null` if no helper / unknown vault. */
+export async function listProposals(groupKeyHex: string): Promise<Proposal[] | null> {
+  const res = await get(`/api/vault/proposals?vault=${encodeURIComponent(groupKeyHex)}`)
+  if (!res || !res.ok) return null
+  try {
+    return ((await res.json()) as { proposals: Proposal[] }).proposals
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Record an approve/refuse vote. This is SOCIAL coordination on the public helper (unauthenticated
+ * in this iteration); the real money gate stays the FROST ceremony, which needs `threshold` real
+ * browser shares. Returns the updated proposal, or `null` on failure (e.g. 409 if already terminal).
+ */
+export async function voteProposal(
+  groupKeyHex: string,
+  proposalId: string,
+  member: string,
+  approve: boolean,
+): Promise<Proposal | null> {
+  const action = approve ? 'approve' : 'refuse'
+  const res = await post(`/api/vault/proposals/${encodeURIComponent(proposalId)}/${action}`, {
+    vault: groupKeyHex,
+    member,
+  })
+  if (!res || !res.ok) return null
+  try {
+    return (await res.json()) as Proposal
   } catch {
     return null
   }
