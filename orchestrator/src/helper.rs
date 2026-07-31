@@ -343,6 +343,44 @@ pub fn list_proposals(vaults_dir: &Path, vault: &str, now: u64) -> Vec<HelperPro
     out
 }
 
+/// One RFC-4180 CSV field: wrap in quotes and double any embedded quote when it contains a comma,
+/// quote, or newline. Prevents CSV injection of stray columns from a memo/address.
+fn csv_field(s: &str) -> String {
+    if s.contains([',', '"', '\n', '\r']) {
+        format!("\"{}\"", s.replace('"', "\"\""))
+    } else {
+        s.to_string()
+    }
+}
+
+/// Render sent proposals as an accounting ledger CSV (the vault's confirmed, governed payments).
+/// One row per proposal: date, amount (zat and ZEC), destination, memo, proposer, approvers, txid.
+/// Direct (non-proposal) sends are not here; they live in the ceremony trail.
+pub fn ledger_csv(sent: &[HelperProposal]) -> String {
+    let mut out =
+        String::from("created_at_unix,amount_zat,amount_zec,to,memo,proposer,approvals,txid\n");
+    for p in sent {
+        let zec = format!(
+            "{}.{:08}",
+            p.amount_zat / 100_000_000,
+            p.amount_zat % 100_000_000
+        );
+        let row = [
+            p.created_at_unix.to_string(),
+            p.amount_zat.to_string(),
+            zec,
+            csv_field(&p.to),
+            csv_field(p.memo.as_deref().unwrap_or("")),
+            csv_field(&p.proposer),
+            csv_field(&p.approvals.join(" ")),
+            csv_field(p.txid.as_deref().unwrap_or("")),
+        ];
+        out.push_str(&row.join(","));
+        out.push('\n');
+    }
+    out
+}
+
 /// A vault registered with the helper: its public identity plus where its view-only wallet lives.
 /// `vault_id` equals the group verifying key hex (the same id the browser shows on `/net`).
 /// Serializable so it can be persisted to disk (see [`save_registration`]) — the FS is a redeploy-
@@ -925,6 +963,28 @@ mod tests {
         assert_eq!(recs[1].txid.as_deref(), Some("txid-1"));
         assert!(!recs[1].dry_run);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn ledger_csv_escapes_and_formats() {
+        let mut p = mk_prop("v", "p1");
+        p.amount_zat = 150_000_000; // 1.5 ZEC
+        p.to = "utest1abc".into();
+        p.memo = Some("rent, may".into()); // comma -> must be quoted
+        p.proposer = "alice".into();
+        p.approvals = vec!["alice".into(), "bob".into()];
+        p.txid = Some("deadbeef".into());
+        let csv = ledger_csv(std::slice::from_ref(&p));
+        let lines: Vec<&str> = csv.lines().collect();
+        assert!(lines[0].starts_with("created_at_unix,amount_zat,amount_zec"));
+        assert!(lines[1].contains(",150000000,1.50000000,"));
+        assert!(lines[1].contains("\"rent, may\"")); // comma-bearing memo is quoted
+        assert!(lines[1].contains("alice bob")); // approvers space-joined
+        assert!(lines[1].ends_with("deadbeef"));
+        // A memo trying to inject a quote is doubled, not broken out.
+        let mut q = mk_prop("v", "p2");
+        q.memo = Some("a\"b".into());
+        assert!(ledger_csv(std::slice::from_ref(&q)).contains("\"a\"\"b\""));
     }
 
     #[test]

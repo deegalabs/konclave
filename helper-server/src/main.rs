@@ -15,9 +15,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use orchestrator::helper::{
-    append_ceremony, is_valid_group_key, list_proposals, load_ceremonies, load_proposal,
-    payment_plan, register_vault, save_proposal, send_config_for, vault_balance, CeremonyRecord,
-    HelperConfig, HelperProposal, HelperState, VaultRegistration,
+    append_ceremony, is_valid_group_key, ledger_csv, list_proposals, load_ceremonies,
+    load_proposal, payment_plan, register_vault, save_proposal, send_config_for, vault_balance,
+    CeremonyRecord, HelperConfig, HelperProposal, HelperState, VaultRegistration,
 };
 use orchestrator::send::net_orchestrate_send;
 use serde::Deserialize;
@@ -143,6 +143,23 @@ fn handle(
                     let ps = list_proposals(&cfg.vaults_dir, &reg.vault_id, now_unix());
                     resp(200, json!({ "proposals": ps }).to_string())
                 }
+            }
+        }
+        (Method::Get, "/api/vault/ledger") => {
+            match query_param(query, "vault").and_then(|v| state.get(v)) {
+                None => resp(404, json!({ "error": "no such vault" }).to_string()),
+                Some(reg) => {
+                    let entries = sent_proposals(cfg, &reg.vault_id);
+                    resp(200, json!({ "entries": entries }).to_string())
+                }
+            }
+        }
+        (Method::Get, "/api/vault/ledger.csv") => {
+            match query_param(query, "vault").and_then(|v| state.get(v)) {
+                None => resp(404, json!({ "error": "no such vault" }).to_string()),
+                // The body is CSV; it is served with the default JSON content-type, so the browser
+                // client downloads it as a blob (it sets the filename/type). Keeps the router simple.
+                Some(reg) => resp(200, ledger_csv(&sent_proposals(cfg, &reg.vault_id))),
             }
         }
         (Method::Post, "/api/vault/proposals") => handle_create_proposal(state, cfg, body),
@@ -326,6 +343,16 @@ fn handle_proposal_send(state: &HelperState, cfg: &HelperConfig, path: &str, bod
         }
         Err(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
     }
+}
+
+/// The vault's confirmed, governed payments: proposals that reached the terminal `sent` state (each
+/// carries its on-chain txid). This is the accounting ledger. Direct (non-proposal) sends are not
+/// here; they live in the ceremony trail.
+fn sent_proposals(cfg: &HelperConfig, vault: &str) -> Vec<HelperProposal> {
+    list_proposals(&cfg.vaults_dir, vault, now_unix())
+        .into_iter()
+        .filter(|p| p.state == "sent")
+        .collect()
 }
 
 /// Unix seconds now (0 if the clock is before the epoch, which never happens on a real host).
@@ -811,6 +838,71 @@ mod tests {
         let r = handle(&st, &cfg, &Method::Post, &send_path, body2);
         assert_eq!(r.status, 409);
         assert!(r.body.contains("not ready"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn ledger_lists_only_sent_and_csv() {
+        let dir = std::env::temp_dir().join(format!("konclave-hs-ledger-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let cfg = cfg_at(&dir);
+        let st = HelperState::new();
+        seed(&st, "aaaa");
+        // unknown vault -> 404 on both
+        assert_eq!(
+            handle(&st, &cfg, &Method::Get, "/api/vault/ledger?vault=zzz", b"").status,
+            404
+        );
+        assert_eq!(
+            handle(
+                &st,
+                &cfg,
+                &Method::Get,
+                "/api/vault/ledger.csv?vault=zzz",
+                b""
+            )
+            .status,
+            404
+        );
+        // a sent proposal (governed payment) + a non-sent one that must NOT appear
+        let sent = HelperProposal {
+            id: "s1".into(),
+            vault_id: "aaaa".into(),
+            to: "utest1x".into(),
+            amount_zat: 5000,
+            memo: Some("hi".into()),
+            proposer: "alice".into(),
+            state: "sent".into(),
+            approvals: vec!["alice".into(), "bob".into()],
+            refusals: vec![],
+            threshold: 2,
+            total: 3,
+            created_at_unix: 100,
+            expiry_unix: 0,
+            txid: Some("abc123txid".into()),
+        };
+        save_proposal(&cfg.vaults_dir, &sent).unwrap();
+        let mut pending = sent.clone();
+        pending.id = "pend".into();
+        pending.state = "pending".into();
+        pending.approvals = vec!["alice".into()];
+        pending.txid = None;
+        save_proposal(&cfg.vaults_dir, &pending).unwrap();
+
+        let led = handle(&st, &cfg, &Method::Get, "/api/vault/ledger?vault=aaaa", b"");
+        assert_eq!(led.status, 200);
+        assert!(led.body.contains("abc123txid"));
+        assert!(!led.body.contains("\"id\":\"pend\""));
+        let csv = handle(
+            &st,
+            &cfg,
+            &Method::Get,
+            "/api/vault/ledger.csv?vault=aaaa",
+            b"",
+        );
+        assert_eq!(csv.status, 200);
+        assert!(csv.body.starts_with("created_at_unix,amount_zat"));
+        assert!(csv.body.contains("abc123txid"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
