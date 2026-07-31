@@ -273,9 +273,9 @@ export const SECTIONS: Section[] = [
         k: 'p',
         t: {
           'pt-BR':
-            'O crate `konclave-wasm` compila FROST rerandomized-redpallas (Orchard) para WebAssembly. Dois dispositivos separados **criam um cofre por DKG real** e depois **produzem juntos uma assinatura de grupo FROST que verifica**, cada um guardando só o próprio share, através de um **relay cego hospedado** (`relay-server`, na Railway) que carrega apenas material público ou já criptografado.',
+            'O crate `konclave-wasm` compila FROST rerandomized-redpallas (Orchard) para WebAssembly. Duas abas de navegador **criam um cofre por DKG real** e depois **assinam juntas** uma transação real, cada uma guardando só o próprio share, através de um **relay cego hospedado** (`relay-server`, na Railway) que carrega apenas material público ou já criptografado. Limite honesto: até agora foram **duas abas numa máquina só** — o broadcast entre **dispositivos separados** é o marco em aberto.',
           en:
-            'The `konclave-wasm` crate compiles rerandomized-redpallas (Orchard) FROST to WebAssembly. Two separate devices **create one vault by a real DKG** and then **produce a verifying FROST group signature together**, each keeping only its own share, through a **hosted blind relay** (`relay-server`, on Railway) that carries only public or already-encrypted bytes.',
+            'The `konclave-wasm` crate compiles rerandomized-redpallas (Orchard) FROST to WebAssembly. Two browser tabs **create one vault by a real DKG** and then **sign a real transaction together**, each keeping only its own share, through a **hosted blind relay** (`relay-server`, on Railway) that carries only public or already-encrypted bytes. Honest limit: so far this has been **two tabs on one machine** — a broadcast across **separate devices** is the open milestone.',
         },
       },
       {
@@ -304,8 +304,8 @@ export const SECTIONS: Section[] = [
       {
         k: 'note',
         t: {
-          'pt-BR': 'Limite honesto: no navegador, a cerimônia ao vivo assina um **sighash Orchard real** (da tx de mainnet `aab00f90…`) **sob o alpha da própria transação** — o mecanismo de gasto Orchard correto, verificado sob `ak+alpha` — com cada dispositivo conferindo o que a tx paga (`describeOutputs`) antes de assinar. Ainda não é transmitível: a PCZT de exemplo é de outro cofre, então a assinatura não é para uma tx deste cofre. Falta o operador criar/provar uma PCZT para o endereço deste cofre e o **broadcast**. Ver o Roadmap.',
-          en: 'Honest limit: in the browser the live ceremony signs a **real Orchard sighash** (from mainnet tx `aab00f90…`) **under the transaction’s own alpha** — the correct Orchard spend mechanism, verified under `ak+alpha` — with each device confirming what the tx pays (`describeOutputs`) before it signs. It is not yet broadcastable: the sample PCZT belongs to another vault, so the signature is not for a tx this vault owns. What remains is the operator creating/proving a PCZT for this vault’s address and the **broadcast**. See the Roadmap.',
+          'pt-BR': 'Dois caminhos, não confundir. O **`/net`** assina a PCZT real do **próprio cofre** (sob o alpha da transação) e **foi transmitido na mainnet** — txid `3022420a…`, porém com **duas abas numa máquina só**; o broadcast entre **dispositivos separados** é o marco em aberto, e o **multi-nota ao vivo** ainda é só testado em unidade. O **`/signer`** é uma **demonstração**: assina o sighash real de uma tx de exemplo (`aab00f90…`) para mostrar a mecânica, mas essa PCZT é de outro cofre, então **não é transmitível**.',
+          en: 'Two paths, not to be conflated. **`/net`** signs the real PCZT of the **vault’s own** address (under the transaction’s alpha) and **was broadcast on mainnet** — txid `3022420a…`, but with **two tabs on one machine**; a broadcast across **separate devices** is the open milestone, and **live multi-note** is still only unit-tested. **`/signer`** is a **demo**: it signs the real sighash of a sample tx (`aab00f90…`) to show the mechanics, but that PCZT belongs to another vault, so it is **not broadcastable**.',
         },
       },
       { k: 'img', src: 'diagrams/multi-device.svg', alt: { 'pt-BR': 'Fluxo multi-dispositivo pelo relay cego: DKG e assinatura entre abas', en: 'Multi-device flow over the blind relay: DKG and signing across tabs' } },

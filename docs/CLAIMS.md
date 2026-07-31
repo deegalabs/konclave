@@ -44,14 +44,21 @@ Any statement of the form "the app payment used DKG" is **false**. Only `aab00f9
 `3022420a…` (browser DKG) came from keys born by real DKG.
 
 ## Honest limits to keep stated (never hide)
-- The first seven mainnet sends were signed on a **single machine** (shares co-located at signing).
-- **Browser-signed distributed broadcast — PROVEN on mainnet (2026-07-30).** `/net` over a blind
-  relay is no longer "verified but not broadcast": a browser-DKG **2-of-2** vault (created live in
-  two browser tabs over the hosted relay, key never reconstituted) was funded, restored on-device
-  by both seats, and **signed a real Ironwood transaction IN THE BROWSER** — each device
-  contributing only its own share over the blind relay — after which the blind helper
-  (`orchestrator::net_send`, Architecture B) injected and broadcast it. Mined: txid
+- **All eight mainnet sends so far were signed on a single machine.** The first seven used
+  co-located CLI shares; the eighth (`3022420a…`) used **two browser tabs on one machine**. So the
+  distributed browser-signing *protocol* is proven (separate shares, a blind relay, the key never
+  reconstituted), but a broadcast across **separate, independently-controlled physical devices**,
+  carried to a confirmed txid, is **still the open milestone** — the exact next step an independent
+  review of the ZecHub FROST projects (2026-07-29) named as the meaningful one, and which none of the
+  six had reached at that cutoff.
+- **Browser-signed broadcast (two tabs, one machine) — PROVEN on mainnet (2026-07-30).** `/net` over
+  a blind relay is no longer "verified but not broadcast": a browser-DKG **2-of-2** vault (created
+  live in two browser tabs — both on one machine — over the hosted relay, key never reconstituted)
+  was funded, restored on-device by both seats, and **signed a real Ironwood transaction IN THE
+  BROWSER** — each **tab** contributing only its own share over the blind relay — after which the
+  blind helper (`orchestrator::net_send`, Architecture B) injected and broadcast it. Mined: txid
   `3022420a8bcf17ffd5511163c18ee9b5996a3ba44747e4eff6794bdd3f04ccee` (block 3,429,922, V6/NU6.3).
+  What it does **not** yet show: those two tabs on **separate devices** (see the open milestone above).
   - The unlock: `konclave-wasm` was ported to the Ironwood librustzcash pin (pczt v2, pool-aware
     `extract_randomizers`/`inject_sigs` for Orchard **and** Ironwood), staying wasm-clean (0
     secp256k1). Before this the browser WASM could not parse a V6 PCZT (`UnknownVersion(2)`).
