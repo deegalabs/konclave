@@ -33,6 +33,8 @@ pub struct VaultRegistration {
     pub address: String,
     pub ufvk: String,
     pub wallet_dir: String,
+    /// The wallet account uuid the view-only wallet created (the PCZT spends from it).
+    pub account: String,
 }
 
 /// True for a well-formed FROST group verifying key: 64 lowercase-or-upper hex chars (32 bytes).
@@ -80,12 +82,37 @@ pub fn register_vault(
         ],
         None,
     )?;
+    let listed = run_text_all(
+        &cfg.devtool,
+        &["wallet", "-w", wallet_dir.as_str(), "list-addresses"],
+        None,
+    )?;
+    let account = parse_account_uuid(&listed)?;
     Ok(VaultRegistration {
         vault_id: group_key.to_string(),
         address,
         ufvk,
         wallet_dir,
+        account,
     })
+}
+
+/// Pull the wallet account uuid from `zcash-devtool wallet list-addresses` output
+/// (the line `Account AccountUuid(<uuid>)`).
+fn parse_account_uuid(out: &str) -> Result<String, ToolError> {
+    const MARK: &str = "AccountUuid(";
+    for line in out.lines() {
+        if let Some(i) = line.find(MARK) {
+            let rest = &line[i + MARK.len()..];
+            if let Some(j) = rest.find(')') {
+                return Ok(rest[..j].to_string());
+            }
+        }
+    }
+    Err(ToolError::parse(
+        "zcash-devtool",
+        "no AccountUuid in list-addresses output",
+    ))
 }
 
 /// Derive a vault's Orchard-only receive address and its UFVK from the FROST group verifying key,
@@ -245,7 +272,18 @@ mod tests {
             address: format!("u1{id}"),
             ufvk: format!("uview1{id}"),
             wallet_dir: format!("/tmp/{id}/wallet"),
+            account: format!("acct-{id}"),
         }
+    }
+
+    #[test]
+    fn account_uuid_parse() {
+        let out = "Account AccountUuid(2d11d2b2-3e15-49f2-9178-3f856af5050b)\n     Default Address: utest1r6jhrp5\n";
+        assert_eq!(
+            parse_account_uuid(out).unwrap(),
+            "2d11d2b2-3e15-49f2-9178-3f856af5050b"
+        );
+        assert!(parse_account_uuid("no account here").is_err());
     }
 
     #[test]
