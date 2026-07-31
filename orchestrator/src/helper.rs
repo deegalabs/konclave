@@ -7,6 +7,10 @@
 
 use std::path::{Path, PathBuf};
 
+use zcash_protocol::consensus::NetworkType;
+
+use crate::address::{validate_recipient_on, AddressError};
+use crate::send::{SendConfig, SpendPlan};
 use crate::tools::{run, run_text_all, ToolError};
 
 /// What a hosted blind helper needs to operate vaults. All of it is public tooling and view-only
@@ -21,8 +25,108 @@ pub struct HelperConfig {
     pub lightwalletd: String,
     /// "main" or "test".
     pub network: String,
+    /// `konclave-signer` binary (extracts the sighash the devices sign; injects their
+    /// aggregate FROST signatures back into the PCZT). Needed for the Architecture-B send.
+    pub konclave_signer: PathBuf,
     /// Base directory under which each vault's view-only wallet lives (`<vaults_dir>/<vault_id>/wallet`).
     pub vaults_dir: PathBuf,
+}
+
+impl HelperConfig {
+    /// The `NetworkType` for `network` (defaults to mainnet for any non-"test" value; the
+    /// send/register paths reject a truly bad network at the `zcash-sign` boundary).
+    pub fn network_type(&self) -> NetworkType {
+        if self.network == "test" {
+            NetworkType::Test
+        } else {
+            NetworkType::Main
+        }
+    }
+}
+
+/// Why a send request was rejected before any engine ran. Maps to a `400` at the boundary:
+/// these are all caller-fixable (bad destination, zero amount), not helper faults.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SendReject {
+    /// The destination failed authoritative decode / pool / network validation.
+    Address(AddressError),
+    /// The destination decoded but cannot receive shielded Orchard funds (Sapling-only /
+    /// transparent-only) — Konclave is shielded-first and refuses to lock funds (§8).
+    NotOrchard,
+    /// The amount was zero (nothing to send).
+    ZeroAmount,
+}
+
+impl std::fmt::Display for SendReject {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SendReject::Address(e) => write!(f, "{e}"),
+            SendReject::NotOrchard => {
+                write!(f, "this address cannot receive shielded Orchard funds")
+            }
+            SendReject::ZeroAmount => write!(f, "amount must be greater than zero"),
+        }
+    }
+}
+
+/// Validate a single-payment destination + amount and build the `SpendPlan` the helper spends.
+/// Authoritative: the recipient is decoded with `zcash_address` on the helper's network and must
+/// be able to receive Orchard (shielded-first, §8 — a Sapling/transparent-only address would lock
+/// funds). Rejections are caller-fixable (`SendReject`) and happen before any engine runs.
+pub fn payment_plan(
+    to: &str,
+    amount_zat: u64,
+    memo: Option<String>,
+    network: NetworkType,
+) -> Result<SpendPlan, SendReject> {
+    if amount_zat == 0 {
+        return Err(SendReject::ZeroAmount);
+    }
+    let report = validate_recipient_on(to, network).map_err(SendReject::Address)?;
+    if !report.orchard {
+        return Err(SendReject::NotOrchard);
+    }
+    Ok(SpendPlan::Payment {
+        to: to.to_string(),
+        value_zat: amount_zat,
+        memo,
+    })
+}
+
+/// Build the `SendConfig` for an Architecture-B send from a registered vault. Only the
+/// build/prove/extract/inject/broadcast fields are populated — the ceremony fields (members,
+/// frostd, certs, threshold) are left empty on purpose: in Architecture B the **browsers** run
+/// the FROST ceremony over the relay, and `send::net_orchestrate_send` never touches those
+/// fields. The helper is blind to shares; it only assembles the PCZT and broadcasts the
+/// signature the devices return. `work_dir` is a scratch directory for the intermediate PCZTs.
+pub fn send_config_for(
+    cfg: &HelperConfig,
+    reg: &VaultRegistration,
+    work_dir: String,
+) -> SendConfig {
+    SendConfig {
+        devtool: cfg.devtool.clone(),
+        wallet_dir: reg.wallet_dir.clone(),
+        lightwalletd: cfg.lightwalletd.clone(),
+        account: reg.account.clone(),
+        konclave_signer: cfg.konclave_signer.clone(),
+        // Ceremony fields: unused on the Architecture-B path (browsers sign). Kept empty.
+        frostd: PathBuf::new(),
+        frost_client: PathBuf::new(),
+        members: Vec::new(),
+        threshold: 0,
+        group: reg.vault_id.clone(),
+        frostd_cert: String::new(),
+        frostd_key: String::new(),
+        frostd_ip: "127.0.0.1".into(),
+        frostd_port: 2744,
+        server_url: String::new(),
+        work_dir,
+        sealing_key_file: None,
+        sealing_keychain_id: None,
+        zcash_sign: Some(cfg.zcash_sign.clone()),
+        vaults_dir: Some(cfg.vaults_dir.display().to_string()),
+    }
 }
 
 /// A vault registered with the helper: its public identity plus where its view-only wallet lives.
@@ -59,7 +163,10 @@ pub fn register_vault(
     if !is_valid_group_key(group_key) {
         return Err(ToolError::parse(
             "helper",
-            format!("group key must be 64 hex chars, got {} chars", group_key.len()),
+            format!(
+                "group key must be 64 hex chars, got {} chars",
+                group_key.len()
+            ),
         ));
     }
     let (address, ufvk) = derive_identity(&cfg.zcash_sign, group_key, &cfg.network)?;
@@ -309,8 +416,103 @@ mod tests {
             devtool: PathBuf::from("/nonexistent/zcash-devtool"),
             lightwalletd: "testnet.zec.rocks:443".into(),
             network: "test".into(),
+            konclave_signer: PathBuf::from("/nonexistent/konclave-signer"),
             vaults_dir: PathBuf::from("/tmp/konclave-helper-vaults"),
         };
         assert!(register_vault(&cfg, "not-a-valid-key", "demo").is_err());
+    }
+
+    fn send_cfg(network: &str) -> HelperConfig {
+        HelperConfig {
+            zcash_sign: PathBuf::from("/bin/zcash-sign"),
+            devtool: PathBuf::from("/bin/zcash-devtool"),
+            lightwalletd: "zec.rocks:443".into(),
+            network: network.into(),
+            konclave_signer: PathBuf::from("/bin/konclave-signer"),
+            vaults_dir: PathBuf::from("/srv/vaults"),
+        }
+    }
+
+    // A real mainnet Orchard-capable unified address (from the slice vault).
+    const MAIN_ORCHARD_UA: &str = "u1vjgxlvz4ewnt43rkq6fzexpl639745spx369tc4j9n9l0qnt9rufxdt2pxe3jtku7lqv4gtzfqafxtf7gal5y9gmz84nkza6z5d406dr";
+    // A mainnet transparent-only address (cannot receive Orchard).
+    const MAIN_TRANSPARENT: &str = "t1Hsc1LR8yKnbbe3twRp88p6vFfC5t7DLbs";
+
+    #[test]
+    fn payment_plan_accepts_orchard_and_carries_memo() {
+        let plan = payment_plan(
+            MAIN_ORCHARD_UA,
+            100_000,
+            Some("hi".into()),
+            NetworkType::Main,
+        )
+        .unwrap();
+        match plan {
+            SpendPlan::Payment {
+                to,
+                value_zat,
+                memo,
+            } => {
+                assert_eq!(to, MAIN_ORCHARD_UA);
+                assert_eq!(value_zat, 100_000);
+                assert_eq!(memo.as_deref(), Some("hi"));
+            }
+            _ => panic!("expected a payment plan"),
+        }
+    }
+
+    #[test]
+    fn payment_plan_rejects_zero_amount_before_decode() {
+        // Zero is caught first, so even a garbage address never reaches the decoder.
+        assert_eq!(
+            payment_plan("garbage", 0, None, NetworkType::Main).err(),
+            Some(SendReject::ZeroAmount)
+        );
+    }
+
+    #[test]
+    fn payment_plan_rejects_transparent_only_and_wrong_network() {
+        // Shielded-first: a transparent-only destination is refused (would not land in Orchard).
+        assert_eq!(
+            payment_plan(MAIN_TRANSPARENT, 50_000, None, NetworkType::Main).err(),
+            Some(SendReject::NotOrchard)
+        );
+        // A mainnet address on a testnet helper is a network mismatch, not accepted.
+        assert!(matches!(
+            payment_plan(MAIN_ORCHARD_UA, 50_000, None, NetworkType::Test),
+            Err(SendReject::Address(_))
+        ));
+        // Outright garbage is a malformed-address rejection.
+        assert!(matches!(
+            payment_plan("not-an-address", 50_000, None, NetworkType::Main),
+            Err(SendReject::Address(_))
+        ));
+    }
+
+    #[test]
+    fn send_config_maps_public_fields_and_leaves_ceremony_empty() {
+        let cfg = send_cfg("main");
+        let r = reg("abcd");
+        let sc = send_config_for(&cfg, &r, "/tmp/work-abcd".into());
+        // Send-path fields come from the vault + helper tooling.
+        assert_eq!(sc.wallet_dir, r.wallet_dir);
+        assert_eq!(sc.account, r.account);
+        assert_eq!(sc.group, r.vault_id);
+        assert_eq!(sc.lightwalletd, "zec.rocks:443");
+        assert_eq!(sc.konclave_signer, PathBuf::from("/bin/konclave-signer"));
+        assert_eq!(sc.work_dir, "/tmp/work-abcd");
+        // Architecture B: the browsers sign, so the helper carries no ceremony material.
+        assert!(sc.members.is_empty());
+        assert_eq!(sc.threshold, 0);
+        assert!(sc.frostd_cert.is_empty());
+        assert!(sc.server_url.is_empty());
+    }
+
+    #[test]
+    fn network_type_maps_main_and_test() {
+        assert_eq!(send_cfg("test").network_type(), NetworkType::Test);
+        assert_eq!(send_cfg("main").network_type(), NetworkType::Main);
+        // Anything unexpected defaults to mainnet (the safe, production default).
+        assert_eq!(send_cfg("regtest").network_type(), NetworkType::Main);
     }
 }

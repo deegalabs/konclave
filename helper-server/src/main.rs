@@ -12,9 +12,13 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use std::time::Duration;
+
 use orchestrator::helper::{
-    is_valid_group_key, register_vault, HelperConfig, HelperState, VaultRegistration,
+    is_valid_group_key, payment_plan, register_vault, send_config_for, HelperConfig, HelperState,
+    VaultRegistration,
 };
+use orchestrator::send::net_orchestrate_send;
 use serde::Deserialize;
 use serde_json::json;
 use tiny_http::{Header, Method, Response, Server};
@@ -100,7 +104,67 @@ fn handle(
                 Err(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
             }
         }
+        (Method::Post, "/api/vault/send") => handle_send(state, cfg, body),
         _ => resp(404, json!({ "error": "not found" }).to_string()),
+    }
+}
+
+/// Architecture-B send: the helper builds/proves the PCZT for the vault's own spend, publishes a
+/// signing request into the vault's relay room, waits for the **browsers'** aggregate FROST
+/// signature, injects it, and (unless `dry_run`) broadcasts. It never sees a share. Every
+/// caller-fixable rejection (bad json, unknown vault, bad destination/amount) is decided BEFORE
+/// the engine runs, so those branches are unit-testable; only the happy path touches the tooling
+/// and the relay. `dry_run` defaults to **true** (safe): the caller must pass `"dry_run": false`
+/// to actually broadcast, so a single call never fires funds by accident.
+fn handle_send(state: &HelperState, cfg: &HelperConfig, body: &[u8]) -> Resp {
+    #[derive(Deserialize)]
+    struct Req {
+        vault: String,
+        to: String,
+        amount_zat: u64,
+        memo: Option<String>,
+        #[serde(default = "default_dry_run")]
+        dry_run: bool,
+        relay_base: String,
+        room: String,
+        #[serde(default = "default_max_polls")]
+        max_polls: u32,
+    }
+    fn default_dry_run() -> bool {
+        true
+    }
+    fn default_max_polls() -> u32 {
+        120
+    }
+    let req: Req = match serde_json::from_slice(body) {
+        Ok(r) => r,
+        Err(_) => return resp(400, json!({ "error": "invalid json" }).to_string()),
+    };
+    let reg = match state.get(&req.vault) {
+        Some(r) => r,
+        None => return resp(404, json!({ "error": "no such vault" }).to_string()),
+    };
+    let plan = match payment_plan(&req.to, req.amount_zat, req.memo, cfg.network_type()) {
+        Ok(p) => p,
+        Err(e) => return resp(400, json!({ "error": e.to_string() }).to_string()),
+    };
+    // Per-send scratch dir under the vault's own tree (intermediate PCZTs, never a share).
+    let work_dir = format!("{}/{}/send-work", cfg.vaults_dir.display(), reg.vault_id);
+    let sc = send_config_for(cfg, &reg, work_dir);
+    match net_orchestrate_send(
+        &sc,
+        &plan,
+        &req.relay_base,
+        &req.room,
+        req.dry_run,
+        req.max_polls,
+        Duration::from_secs(1),
+    ) {
+        Ok(out) => resp(
+            200,
+            json!({ "txid": out.txid, "dry_run": req.dry_run, "sighash": out.sighash }).to_string(),
+        ),
+        Err(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
     }
 }
 
@@ -127,6 +191,7 @@ fn config_from_env() -> HelperConfig {
         devtool: PathBuf::from(env("KONCLAVE_DEVTOOL", "zcash-devtool")),
         lightwalletd: env("KONCLAVE_LIGHTWALLETD", "testnet.zec.rocks:443"),
         network: env("KONCLAVE_NETWORK", "test"),
+        konclave_signer: PathBuf::from(env("KONCLAVE_SIGNER", "konclave-signer")),
         vaults_dir: PathBuf::from(env("KONCLAVE_VAULTS_DIR", "./helper-vaults")),
     }
 }
@@ -166,6 +231,7 @@ mod tests {
             devtool: PathBuf::from("/nonexistent/zcash-devtool"),
             lightwalletd: "testnet.zec.rocks:443".into(),
             network: "test".into(),
+            konclave_signer: PathBuf::from("/nonexistent/konclave-signer"),
             vaults_dir: PathBuf::from("/tmp/helper-vaults"),
         }
     }
@@ -254,5 +320,44 @@ mod tests {
         let st = HelperState::new();
         let r = handle(&st, &cfg(), &Method::Get, "/api/nope", b"");
         assert_eq!(r.status, 404);
+    }
+
+    // All send rejections below fire BEFORE the engine/relay run, so no tooling is touched.
+
+    #[test]
+    fn send_rejects_bad_json_before_anything() {
+        let st = HelperState::new();
+        let r = handle(&st, &cfg(), &Method::Post, "/api/vault/send", b"not json");
+        assert_eq!(r.status, 400);
+    }
+
+    #[test]
+    fn send_unknown_vault_is_404() {
+        let st = HelperState::new();
+        // Well-formed request, but the vault is not registered: rejected before the engine.
+        let body = br#"{"vault":"zzzz","to":"utest1xyz","amount_zat":1000,"relay_base":"http://x","room":"r"}"#;
+        let r = handle(&st, &cfg(), &Method::Post, "/api/vault/send", body);
+        assert_eq!(r.status, 404);
+    }
+
+    #[test]
+    fn send_rejects_zero_amount_for_known_vault() {
+        let st = HelperState::new();
+        seed(&st, "aaaa");
+        // Zero amount is caught by payment_plan before any PCZT is built.
+        let body = br#"{"vault":"aaaa","to":"utest1xyz","amount_zat":0,"relay_base":"http://x","room":"r"}"#;
+        let r = handle(&st, &cfg(), &Method::Post, "/api/vault/send", body);
+        assert_eq!(r.status, 400);
+        assert!(r.body.contains("greater than zero"));
+    }
+
+    #[test]
+    fn send_rejects_bad_destination_for_known_vault() {
+        let st = HelperState::new();
+        seed(&st, "aaaa");
+        // A malformed destination is rejected by authoritative decode before the engine runs.
+        let body = br#"{"vault":"aaaa","to":"not-an-address","amount_zat":1000,"relay_base":"http://x","room":"r"}"#;
+        let r = handle(&st, &cfg(), &Method::Post, "/api/vault/send", body);
+        assert_eq!(r.status, 400);
     }
 }
