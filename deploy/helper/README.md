@@ -59,10 +59,17 @@ docker rm -f h
 ```sh
 cd ~/konclave-helper-deploy
 railway link -p konclave-relay
-railway add --service konclave-helper     # once
+railway add --service konclave-helper                       # once
+railway volume -s <serviceId> -e <envId> add -m /data       # once: durable KONCLAVE_VAULTS_DIR
 railway up --ci -s konclave-helper
-railway domain -s konclave-helper         # mint the public URL
+railway domain -s konclave-helper                           # mint the public URL
 ```
+
+The volume mounted at `/data` (= `KONCLAVE_VAULTS_DIR=/data/vaults`) makes registrations survive a
+redeploy: `helper-server` reseeds its registry from `<vaults_dir>/<id>/registration.json` at startup,
+and a re-register returns the STORED address instead of re-deriving a fresh diversified one. The
+image runs as root so the (root-owned) volume is writable — acceptable for this blind demo helper
+(no secret in the container); dropping to non-root + chowning the volume is a hardening follow-up.
 
 ## Configuration (env vars)
 

@@ -13,21 +13,23 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
-RUN useradd -m -u 10001 helper
 COPY bin/helper-server bin/zcash-sign bin/zcash-devtool bin/konclave-signer /usr/local/bin/
 RUN chmod +x /usr/local/bin/helper-server /usr/local/bin/zcash-sign \
              /usr/local/bin/zcash-devtool /usr/local/bin/konclave-signer
 
-USER helper
-WORKDIR /home/helper
-RUN mkdir -p /home/helper/vaults
+# NOTE: runs as root so the Railway VOLUME mounted at KONCLAVE_VAULTS_DIR (root-owned) is
+# writable. Acceptable for this demo helper — it is a single isolated container that holds NO
+# secret (blind to shares by construction). Dropping to a non-root user is a hardening follow-up
+# (chown the volume in an entrypoint).
+WORKDIR /data
+RUN mkdir -p /data
 
 ENV KONCLAVE_ZCASH_SIGN=/usr/local/bin/zcash-sign \
     KONCLAVE_DEVTOOL=/usr/local/bin/zcash-devtool \
     KONCLAVE_SIGNER=/usr/local/bin/konclave-signer \
     KONCLAVE_NETWORK=test \
     KONCLAVE_LIGHTWALLETD=testnet.zec.rocks:443 \
-    KONCLAVE_VAULTS_DIR=/home/helper/vaults
+    KONCLAVE_VAULTS_DIR=/data/vaults
 
 # Railway injects PORT; the helper binds KONCLAVE_HELPER_ADDR. Bind 0.0.0.0 so the public
 # edge can reach it (blind-by-design, like the relay — no loopback guard here).
