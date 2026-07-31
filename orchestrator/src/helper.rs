@@ -129,6 +129,30 @@ pub fn send_config_for(
     }
 }
 
+/// A vault's Orchard balance as the helper reports it to the browsers. Orchard-only and minimal:
+/// spendable (confirmed, ready to send) plus total (including notes still confirming). Internal
+/// transparency for the members — the helper reads it from its view-only wallet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct VaultBalance {
+    pub orchard_spendable_zat: u64,
+    pub total_zat: u64,
+}
+
+/// Sync a registered vault's view-only wallet against lightwalletd and read its Orchard balance.
+/// The helper owns the UFVK (view-only), so this is a watcher's read — no share involved. Network
+/// + engine I/O, so it is exercised live, not in unit tests.
+pub fn vault_balance(
+    cfg: &HelperConfig,
+    reg: &VaultRegistration,
+) -> Result<VaultBalance, ToolError> {
+    crate::wallet::sync(&cfg.devtool, &reg.wallet_dir, &cfg.lightwalletd)?;
+    let b = crate::wallet::balance(&cfg.devtool, &reg.wallet_dir)?;
+    Ok(VaultBalance {
+        orchard_spendable_zat: b.orchard_spendable.as_u64(),
+        total_zat: b.total.as_u64(),
+    })
+}
+
 /// A vault registered with the helper: its public identity plus where its view-only wallet lives.
 /// `vault_id` equals the group verifying key hex (the same id the browser shows on `/net`).
 #[derive(Debug, Clone)]

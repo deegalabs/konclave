@@ -15,8 +15,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use orchestrator::helper::{
-    is_valid_group_key, payment_plan, register_vault, send_config_for, HelperConfig, HelperState,
-    VaultRegistration,
+    is_valid_group_key, payment_plan, register_vault, send_config_for, vault_balance, HelperConfig,
+    HelperState, VaultRegistration,
 };
 use orchestrator::send::net_orchestrate_send;
 use serde::Deserialize;
@@ -102,6 +102,22 @@ fn handle(
                     resp(200, out)
                 }
                 Err(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
+            }
+        }
+        (Method::Get, "/api/vault/balance") => {
+            match query_param(query, "vault").and_then(|v| state.get(v)) {
+                None => resp(404, json!({ "error": "no such vault" }).to_string()),
+                Some(reg) => match vault_balance(cfg, &reg) {
+                    Ok(b) => resp(
+                        200,
+                        json!({
+                            "orchard_spendable_zat": b.orchard_spendable_zat,
+                            "total_zat": b.total_zat
+                        })
+                        .to_string(),
+                    ),
+                    Err(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
+                },
             }
         }
         (Method::Post, "/api/vault/send") => handle_send(state, cfg, body),
@@ -349,6 +365,20 @@ mod tests {
         let r = handle(&st, &cfg(), &Method::Post, "/api/vault/send", body);
         assert_eq!(r.status, 400);
         assert!(r.body.contains("greater than zero"));
+    }
+
+    #[test]
+    fn balance_unknown_vault_is_404() {
+        // The unknown-vault branch is decided before any sync/engine runs, so it is testable.
+        let st = HelperState::new();
+        let r = handle(
+            &st,
+            &cfg(),
+            &Method::Get,
+            "/api/vault/balance?vault=zzzz",
+            b"",
+        );
+        assert_eq!(r.status, 404);
     }
 
     #[test]

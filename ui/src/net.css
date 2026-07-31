@@ -248,3 +248,17 @@
 .demo-result.ok { border: 1px solid var(--success-line); background: var(--success-soft); color: var(--success); }
 .demo-result.bad { border: 1px solid var(--danger-line); background: var(--danger-soft); color: var(--danger-text); }
 .demo-back { margin-top: 24px; }
+
+/* Receive QR for a hosted-helper vault (mirrors .rcv-qr on the /receive screen). */
+.net-qr {
+  width: 200px;
+  height: 200px;
+  margin: 14px 0;
+  background: #fff;
+  border-radius: 14px;
+  padding: 12px;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+}
+.net-qr svg { width: 100%; height: 100%; display: block; }

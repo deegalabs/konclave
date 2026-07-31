@@ -82,6 +82,24 @@ export async function getVault(groupKeyHex: string): Promise<HelperVault | null>
   }
 }
 
+/** A vault's Orchard balance (zatoshis) as the helper reports it from its view-only wallet. */
+export type HelperBalance = { orchard_spendable_zat: number; total_zat: number }
+
+/**
+ * Sync + read a registered vault's Orchard balance from the helper's view-only wallet. It is a
+ * watcher's read (the helper holds the UFVK, never a share). Slow (the helper syncs against
+ * lightwalletd first). Returns `null` if no helper is configured or the vault is unknown.
+ */
+export async function vaultBalance(groupKeyHex: string): Promise<HelperBalance | null> {
+  const res = await get(`/api/vault/balance?vault=${encodeURIComponent(groupKeyHex)}`)
+  if (!res || !res.ok) return null
+  try {
+    return (await res.json()) as HelperBalance
+  } catch {
+    return null
+  }
+}
+
 /** The result of a helper-driven send: a broadcast txid, or `null` txid on a dry-run. */
 export type HelperSendResult = { txid: string | null; dry_run: boolean; sighash: string }
 

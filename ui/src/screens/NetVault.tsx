@@ -23,7 +23,9 @@ import {
   storageAvailable,
   type VaultPublic,
 } from '../storage'
-import { helperConfigured, registerVault } from '../helper'
+import { helperConfigured, registerVault, vaultBalance } from '../helper'
+import { zatToZec } from '../format'
+import encodeQR from '@paulmillr/qr'
 import '../redesign.css'
 import '../net.css'
 
@@ -163,6 +165,8 @@ export default function NetVault() {
     'idle',
   )
   const [hostedAddress, setHostedAddress] = useState('')
+  const [balance, setBalance] = useState<{ spend: string; total: string } | null>(null)
+  const [balanceBusy, setBalanceBusy] = useState(false)
   const [signPhase, setSignPhase] = useState<'none' | 'signing' | 'signed'>('none')
   const [signature, setSignature] = useState('')
   const [signOk, setSignOk] = useState(false)
@@ -1066,7 +1070,48 @@ export default function NetVault() {
                       'The coordinator derived this vault’s Orchard address from the group key (public material only — no share left the device). Receive funds here:',
                     )}
                   </p>
+                  <div
+                    className="net-qr"
+                    role="img"
+                    aria-label={pe('QR do endereço do cofre', 'Vault address QR')}
+                    dangerouslySetInnerHTML={{ __html: encodeQR(`zcash:${hostedAddress}`, 'svg') }}
+                  />
                   <div className="net-vk">{hostedAddress}</div>
+                  <button
+                    className="net-btn"
+                    onClick={() => void navigator.clipboard?.writeText(hostedAddress)}
+                  >
+                    {pe('Copiar endereço', 'Copy address')}
+                  </button>
+
+                  <div style={{ marginTop: 16 }}>
+                    <button
+                      className="net-btn"
+                      disabled={balanceBusy}
+                      onClick={() => {
+                        setBalanceBusy(true)
+                        void vaultBalance(groupVk).then((b) => {
+                          setBalance(
+                            b
+                              ? { spend: zatToZec(b.orchard_spendable_zat), total: zatToZec(b.total_zat) }
+                              : null,
+                          )
+                          setBalanceBusy(false)
+                        })
+                      }}
+                    >
+                      {balanceBusy
+                        ? pe('Sincronizando…', 'Syncing…')
+                        : pe('Ver saldo', 'Check balance')}
+                    </button>
+                    {balance && (
+                      <p className="net-tip" style={{ marginTop: 8 }}>
+                        {pe('Recebido', 'Received')}: <strong>{balance.total} ZEC</strong>
+                        {' · '}
+                        {pe('disponível', 'spendable')}: <strong>{balance.spend} ZEC</strong>
+                      </p>
+                    )}
+                  </div>
                 </>
               )}
               {hostedState === 'failed' && (
