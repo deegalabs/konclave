@@ -23,6 +23,7 @@ import {
   storageAvailable,
   type VaultPublic,
 } from '../storage'
+import { helperConfigured, registerVault } from '../helper'
 import '../redesign.css'
 import '../net.css'
 
@@ -155,6 +156,13 @@ export default function NetVault() {
   const [log, setLog] = useState<string[]>([])
   const [groupVk, setGroupVk] = useState('')
   const [error, setError] = useState('')
+  // Hosted-helper registration (ADR-0006 Rung A): after DKG, register the vault with the blind
+  // helper so it derives the vault's real Orchard address (view-only). Only runs when a helper is
+  // configured; otherwise `/net` stays a pure two-device ceremony.
+  const [hostedState, setHostedState] = useState<'idle' | 'registering' | 'registered' | 'failed'>(
+    'idle',
+  )
+  const [hostedAddress, setHostedAddress] = useState('')
   const [signPhase, setSignPhase] = useState<'none' | 'signing' | 'signed'>('none')
   const [signature, setSignature] = useState('')
   const [signOk, setSignOk] = useState(false)
@@ -301,9 +309,24 @@ export default function NetVault() {
     dkg.part3()
     part3DoneRef.current = true
     if (ceremonyTimerRef.current) clearTimeout(ceremonyTimerRef.current)
-    setGroupVk(hex(dkg.groupVk()))
+    const vk = hex(dkg.groupVk())
+    setGroupVk(vk)
     setPhase('done')
     addLog(tt('net.log.round3'))
+    // Register the finished vault with the hosted blind helper (public group key only — no share
+    // crosses). Fire-and-forget: `/net` works with or without a helper, so a failure just leaves
+    // the vault local-only. Idempotent, so every device registering the same group key is fine.
+    if (helperConfigured()) {
+      setHostedState('registering')
+      void registerVault(vk, `net-${vk.slice(0, 8)}`).then((v) => {
+        if (v) {
+          setHostedAddress(v.address)
+          setHostedState('registered')
+        } else {
+          setHostedState('failed')
+        }
+      })
+    }
   }, [addLog, tt])
 
   // Start (or advance to) the ceremony for spend position `k`: reset the per-round state, pick that
@@ -1023,6 +1046,39 @@ export default function NetVault() {
           <p className="net-lead">{ttr('net.done.lead')}</p>
           <div className="net-vk">{groupVk}</div>
           <p className="net-tip">{tt('net.done.tip')}</p>
+
+          {hostedState !== 'idle' && (
+            <div className="net-card" style={{ marginTop: 16 }}>
+              <h3>{pe('Endereço do cofre', 'Vault address')}</h3>
+              {hostedState === 'registering' && (
+                <p className="net-tip">
+                  {pe(
+                    'Registrando o cofre no coordenador (cego às partes)…',
+                    'Registering the vault with the coordinator (blind to shares)…',
+                  )}
+                </p>
+              )}
+              {hostedState === 'registered' && (
+                <>
+                  <p>
+                    {pe(
+                      'O coordenador derivou o endereço Orchard deste cofre a partir da chave do grupo (só material público — nenhuma parte saiu do dispositivo). Receba fundos aqui:',
+                      'The coordinator derived this vault’s Orchard address from the group key (public material only — no share left the device). Receive funds here:',
+                    )}
+                  </p>
+                  <div className="net-vk">{hostedAddress}</div>
+                </>
+              )}
+              {hostedState === 'failed' && (
+                <p className="net-tip">
+                  {pe(
+                    'O cofre foi criado neste dispositivo, mas o coordenador não respondeu. O cofre segue válido e local; tente registrar mais tarde para receber e enviar.',
+                    'The vault was created on this device, but the coordinator did not respond. The vault is still valid and local; try registering later to receive and send.',
+                  )}
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="net-card" style={{ marginTop: 16 }}>
             <h3>{L.saveTitle}</h3>
