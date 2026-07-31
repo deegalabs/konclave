@@ -689,7 +689,8 @@ What is shipped, dry-run-only, or roadmap — validated against the code (not ju
 | Quorum payment (propose → approve → sign → broadcast) via the UI | **Proven on mainnet** (txid `43433a10…`) |
 | Private payroll (one shielded tx, N memos) | **Proven on mainnet** (txid `b1e24c07…`) |
 | Send from a **real DKG** vault | **Proven on mainnet** (txid `aab00f90…`) |
-| **Browser-signed** broadcast (each device signs in-browser over the relay) | **Proven on mainnet** (txid `3022420a…`) |
+| **Browser-signed** broadcast (each tab signs in-browser over the relay) | **Proven on mainnet** (txid `3022420a…`) — *two tabs on one machine* |
+| Broadcast across **separate physical devices** (carried to a confirmed txid) | **Open milestone** (the distributed protocol is proven; separate-device hardware is not yet) |
 | **Ironwood / NU6.3** (Orchard→Ironwood migration + first Ironwood-pool spend) | **Proven on mainnet** (`54266f47…`, `36c60f1e…`) |
 | C6 signer tests (extract/inject vectors) | **Closed** (real Ironwood PCZT vectors, tests green) |
 | `/net` multi-device — single-spend live | **Done** (part of the browser-signed broadcast) |

@@ -82,9 +82,10 @@ and approved in the app, signed by a FROST ceremony, broadcast to mainnet:
 
 The eight also prove, on-chain: a **private payroll** (one shielded Orchard transaction, N encrypted
 memos), a send from a **real DKG vault** (the key born distributed, never assembled), a
-**browser-signed** broadcast (each device signing in the browser with only its own share), and the
-full **Orchard → Ironwood** cycle under **NU6.3** (the migration that seeds the Ironwood pool, then
-the first Ironwood-pool FROST spend on mainnet).
+**browser-signed** broadcast (each browser tab signing with only its own share over the blind relay —
+*two tabs on one machine so far; the cross-device broadcast is the open milestone*), and the full
+**Orchard → Ironwood** cycle under **NU6.3** (the migration that seeds the Ironwood pool, then the
+first Ironwood-pool FROST spend on mainnet).
 
 You don't have to trust us: run `node scripts/verify-proof.mjs` — it checks every txid against public
 block explorers — or open any of them from [docs/PROOF.md](docs/PROOF.md).
