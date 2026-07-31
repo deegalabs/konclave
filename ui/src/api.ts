@@ -15,6 +15,8 @@ import {
   listProposals as netListProposals,
   createProposal as netCreateProposal,
   voteProposal as netVote,
+  listMembers as netListMembers,
+  setMembers as netSetMembers,
   type Proposal as NetProposal,
 } from './helper'
 import { zatToZec, parseZecToZat } from './format'
@@ -81,6 +83,9 @@ export const IS_DEMO = DEMO
 // the local bridge, so the same polished app operates the browser-born vault. Gated on
 // `helperConfigured()`, so the local-first path and the submission demo (no helper) are unchanged.
 const NET = helperConfigured()
+/** True when the app operates a browser-native (/net) vault via the hosted helper. Screens use it
+ *  to route signing to /net (where the share lives) instead of a server-side ceremony. */
+export const IS_NET = NET
 
 /** Map a helper proposal state to the lowercase states the PWA screens expect. */
 function netState(s: string): string {
@@ -171,19 +176,20 @@ export async function getVault(): Promise<Vault | null> {
     const v = await netGetVault(id)
     if (!v) return null
     const total = v.total ?? 0
+    // Members: use the stored names (Members screen) when set; otherwise "member N" seats, so the
+    // vote UI always has options and a vote from the PWA matches one from /net (same member id).
+    const names = (await netListMembers(id)) ?? []
+    const member_list = Array.from({ length: total }, (_, i) => {
+      const name = names[i] && names[i].trim() ? names[i] : `member ${i + 1}`
+      return { name, pubkey: name }
+    })
     return {
       id: v.vault_id,
       name: 'Networked vault',
       threshold: v.threshold ?? 0,
       total,
       members: total,
-      // The /net vault's members are its DKG seats; name them "member N" so the vote UI has
-      // options and a vote from the PWA matches a vote from /net (same member id). Real names are
-      // the Members convergence (future).
-      member_list: Array.from({ length: total }, (_, i) => ({
-        name: `member ${i + 1}`,
-        pubkey: String(i + 1),
-      })),
+      member_list,
       group_pubkey: v.vault_id,
       orchard_address: v.address,
     }
@@ -332,6 +338,14 @@ export function humanError(t: TFn, error?: string, detail?: string): string {
   // Fallback: a short detail is probably already readable; otherwise a generic message.
   if (detail && detail.length > 0 && detail.length < 140) return detail
   return error && error.length < 140 ? error : t('error.unexpected')
+}
+
+/** Set the member names of the selected /net vault (seat order). Only in browser-native mode. */
+export async function setVaultMembers(names: string[]): Promise<string[] | null> {
+  if (!NET) return null
+  const id = getSelectedVault()
+  if (!id) return null
+  return netSetMembers(id, names)
 }
 
 /** Every vault known to this device (for the "Meus cofres" home). */

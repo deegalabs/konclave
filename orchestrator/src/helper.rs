@@ -343,6 +343,32 @@ pub fn list_proposals(vaults_dir: &Path, vault: &str, now: u64) -> Vec<HelperPro
     out
 }
 
+/// Where a vault's member names live: `<vaults_dir>/<vault>/members.json` (a JSON array of names,
+/// seat order). PUBLIC coordination data (who the members are), never a share.
+fn members_path(vaults_dir: &Path, vault: &str) -> PathBuf {
+    vaults_dir.join(vault).join("members.json")
+}
+
+/// Persist the vault's member names (seat order). Overwrites the whole list.
+pub fn save_members(vaults_dir: &Path, vault: &str, names: &[String]) -> Result<(), ToolError> {
+    let path = members_path(vaults_dir, vault);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(ToolError::Io)?;
+    }
+    let json =
+        serde_json::to_string(names).map_err(|e| ToolError::parse("members", e.to_string()))?;
+    std::fs::write(&path, json).map_err(ToolError::Io)?;
+    Ok(())
+}
+
+/// Load the vault's member names (empty when none were set yet).
+pub fn load_members(vaults_dir: &Path, vault: &str) -> Vec<String> {
+    std::fs::read_to_string(members_path(vaults_dir, vault))
+        .ok()
+        .and_then(|j| serde_json::from_str(&j).ok())
+        .unwrap_or_default()
+}
+
 /// One RFC-4180 CSV field: wrap in quotes and double any embedded quote when it contains a comma,
 /// quote, or newline. Prevents CSV injection of stray columns from a memo/address.
 fn csv_field(s: &str) -> String {
@@ -962,6 +988,21 @@ mod tests {
         assert!(recs[0].dry_run);
         assert_eq!(recs[1].txid.as_deref(), Some("txid-1"));
         assert!(!recs[1].dry_run);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn members_persist_and_reload() {
+        let dir =
+            std::env::temp_dir().join(format!("konclave-members-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(load_members(&dir, "v").is_empty());
+        let names = vec!["Alice".to_string(), "Bob".to_string(), "Carol".to_string()];
+        save_members(&dir, "v", &names).unwrap();
+        assert_eq!(load_members(&dir, "v"), names);
+        // Overwrites, not appends.
+        save_members(&dir, "v", &["Dave".to_string()]).unwrap();
+        assert_eq!(load_members(&dir, "v"), vec!["Dave".to_string()]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

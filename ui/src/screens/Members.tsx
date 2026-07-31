@@ -3,17 +3,23 @@ import { useNavigate } from 'react-router-dom'
 import { Seal } from '../components'
 import { PageHeader, PageFooter, NextStep } from '../page'
 import { Identicon } from '../avatar'
-import { useT, useTr } from '../i18n'
-import { getVault, health, shortAddr, type Vault } from '../api'
+import { useT, useTr, useI18n } from '../i18n'
+import { getVault, health, shortAddr, IS_NET, setVaultMembers, type Vault } from '../api'
 
 const ME = 'Alice' // this device acts as the coordinator member (single-device demo)
 
 export default function Members() {
   const t = useT()
   const tr = useTr()
+  const { locale } = useI18n()
+  const pe = (ptxt: string, en: string) => (locale === 'pt-BR' ? ptxt : en)
   const nav = useNavigate()
   const [vault, setVault] = useState<Vault | null>(null)
   const [live, setLive] = useState<boolean | null>(null)
+  // Browser-native: the members are the DKG seats; the operator can name them (Alice/Bob) instead
+  // of "member N". Names are public coordination data on the helper, never a share.
+  const [names, setNames] = useState<string[]>([])
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     let on = true
@@ -21,10 +27,24 @@ export default function Members() {
       const ok = await health()
       if (!on) return
       setLive(ok)
-      if (ok) { const v = await getVault(); if (on && v) setVault(v) }
+      if (ok) {
+        const v = await getVault()
+        if (on && v) {
+          setVault(v)
+          setNames(v.member_list.map((m) => m.name))
+        }
+      }
     })()
     return () => { on = false }
   }, [])
+
+  async function saveNames() {
+    setSaving(true)
+    await setVaultMembers(names.map((s) => s.trim()))
+    const v = await getVault()
+    if (v) { setVault(v); setNames(v.member_list.map((m) => m.name)) }
+    setSaving(false)
+  }
 
   const thr = vault?.threshold ?? 2
   const n = vault?.total ?? 3
@@ -59,6 +79,29 @@ export default function Members() {
             </div>
           ))}
         </div>
+
+        {IS_NET && vault && (
+          <div className="confirm mt">
+            <div className="who-name mb-sm">{pe('Nomeie os membros', 'Name the members')}</div>
+            {Array.from({ length: n }, (_, i) => (
+              <input
+                key={i}
+                className="field-input mono"
+                style={{ display: 'block', width: '100%', margin: '6px 0' }}
+                placeholder={`member ${i + 1}`}
+                value={names[i] ?? ''}
+                onChange={(e) => {
+                  const next = [...names]
+                  next[i] = e.target.value
+                  setNames(next)
+                }}
+              />
+            ))}
+            <button className="btn ok sm-btn mt-sm" disabled={saving} onClick={() => void saveNames()}>
+              {saving ? '…' : pe('Salvar', 'Save')}
+            </button>
+          </div>
+        )}
 
         <PageFooter>
           <span>{t('members.footCount', { count: members.length, t: thr, n })}</span>

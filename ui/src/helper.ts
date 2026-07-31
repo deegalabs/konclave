@@ -121,6 +121,28 @@ export async function createProposal(args: {
   }
 }
 
+/** The vault's member names (seat order), or `null` if no helper / unknown vault. */
+export async function listMembers(groupKeyHex: string): Promise<string[] | null> {
+  const res = await get(`/api/vault/members?vault=${encodeURIComponent(groupKeyHex)}`)
+  if (!res || !res.ok) return null
+  try {
+    return ((await res.json()) as { members: string[] }).members
+  } catch {
+    return null
+  }
+}
+
+/** Set the vault's member names (seat order); overwrites the list. Returns the saved names or null. */
+export async function setMembers(groupKeyHex: string, names: string[]): Promise<string[] | null> {
+  const res = await post('/api/vault/members', { vault: groupKeyHex, names })
+  if (!res || !res.ok) return null
+  try {
+    return ((await res.json()) as { members: string[] }).members
+  } catch {
+    return null
+  }
+}
+
 /** Fetch the vault's ledger (its confirmed, governed payments) as a CSV string, or `null`. */
 export async function fetchLedgerCsv(groupKeyHex: string): Promise<string | null> {
   const res = await get(`/api/vault/ledger.csv?vault=${encodeURIComponent(groupKeyHex)}`)

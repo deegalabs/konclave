@@ -15,9 +15,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use orchestrator::helper::{
-    append_ceremony, is_valid_group_key, ledger_csv, list_proposals, load_ceremonies,
-    load_proposal, payment_plan, register_vault, save_proposal, send_config_for, vault_balance,
-    CeremonyRecord, HelperConfig, HelperProposal, HelperState, VaultRegistration,
+    append_ceremony, is_valid_group_key, ledger_csv, list_proposals, load_ceremonies, load_members,
+    load_proposal, payment_plan, register_vault, save_members, save_proposal, send_config_for,
+    vault_balance, CeremonyRecord, HelperConfig, HelperProposal, HelperState, VaultRegistration,
 };
 use orchestrator::send::net_orchestrate_send;
 use serde::Deserialize;
@@ -161,6 +161,34 @@ fn handle(
                 // The body is CSV; it is served with the default JSON content-type, so the browser
                 // client downloads it as a blob (it sets the filename/type). Keeps the router simple.
                 Some(reg) => resp(200, ledger_csv(&sent_proposals(cfg, &reg.vault_id))),
+            }
+        }
+        (Method::Get, "/api/vault/members") => {
+            match query_param(query, "vault").and_then(|v| state.get(v)) {
+                None => resp(404, json!({ "error": "no such vault" }).to_string()),
+                Some(reg) => {
+                    let members = load_members(&cfg.vaults_dir, &reg.vault_id);
+                    resp(200, json!({ "members": members }).to_string())
+                }
+            }
+        }
+        (Method::Post, "/api/vault/members") => {
+            #[derive(Deserialize)]
+            struct Req {
+                vault: String,
+                names: Vec<String>,
+            }
+            let req: Req = match serde_json::from_slice(body) {
+                Ok(r) => r,
+                Err(_) => return resp(400, json!({ "error": "invalid json" }).to_string()),
+            };
+            let reg = match state.get(&req.vault) {
+                Some(r) => r,
+                None => return resp(404, json!({ "error": "no such vault" }).to_string()),
+            };
+            match save_members(&cfg.vaults_dir, &reg.vault_id, &req.names) {
+                Ok(()) => resp(200, json!({ "members": req.names }).to_string()),
+                Err(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
             }
         }
         (Method::Post, "/api/vault/proposals") => handle_create_proposal(state, cfg, body),
@@ -839,6 +867,49 @@ mod tests {
         let r = handle(&st, &cfg, &Method::Post, &send_path, body2);
         assert_eq!(r.status, 409);
         assert!(r.body.contains("not ready"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn members_set_and_get() {
+        let dir = std::env::temp_dir().join(format!("konclave-hs-members-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let cfg = cfg_at(&dir);
+        let st = HelperState::new();
+        seed(&st, "aaaa");
+        // unknown vault -> 404 on both
+        assert_eq!(
+            handle(&st, &cfg, &Method::Get, "/api/vault/members?vault=zzz", b"").status,
+            404
+        );
+        let bad = br#"{"vault":"zzz","names":["Alice"]}"#;
+        assert_eq!(
+            handle(&st, &cfg, &Method::Post, "/api/vault/members", bad).status,
+            404
+        );
+        // empty by default
+        let empty = handle(
+            &st,
+            &cfg,
+            &Method::Get,
+            "/api/vault/members?vault=aaaa",
+            b"",
+        );
+        assert!(empty.body.contains("\"members\":[]"));
+        // set then get
+        let set = br#"{"vault":"aaaa","names":["Alice","Bob","Carol"]}"#;
+        assert_eq!(
+            handle(&st, &cfg, &Method::Post, "/api/vault/members", set).status,
+            200
+        );
+        let got = handle(
+            &st,
+            &cfg,
+            &Method::Get,
+            "/api/vault/members?vault=aaaa",
+            b"",
+        );
+        assert!(got.body.contains("Alice") && got.body.contains("Carol"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

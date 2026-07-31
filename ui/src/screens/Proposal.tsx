@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Secret, Dialog } from '../components'
 import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
@@ -7,13 +7,14 @@ import { fmtZec } from '../format'
 import { useT, useTr } from '../i18n'
 import {
   getProposalDetail, getProposals, getVault, voteProposal, sendProposal, shortAddr, humanError,
-  type Proposal, type PayrollLine,
+  IS_NET, type Proposal, type PayrollLine,
 } from '../api'
 
 export default function Proposal() {
   const t = useT()
   const tr = useTr()
   const loc = useLocation() as { state?: { id?: string } }
+  const nav = useNavigate()
   const [p, setP] = useState<Proposal | null>(null)
   const [lines, setLines] = useState<PayrollLine[]>([])
   const [threshold, setThreshold] = useState(2)
@@ -60,6 +61,10 @@ export default function Proposal() {
 
   async function send(dryRun: boolean) {
     if (!p) return
+    // Browser-native vault: signing happens in /net, where this device's share lives. Instead of a
+    // server-side ceremony, take the operator to the signing screen (the approved proposal shows up
+    // there under "Proposals ready to sign").
+    if (IS_NET) { nav('/net'); return }
     setError(null); setDryOk(null); setSending(dryRun ? 'dry' : 'real')
     const res = await sendProposal(p.id, dryRun)
     setSending(null)
