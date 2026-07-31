@@ -786,7 +786,7 @@ export default function NetVault() {
     }
     setSendResult(
       r.dry_run
-        ? pe('Assinado (simulação — não transmitido).', 'Signed (dry-run — not broadcast).')
+        ? pe('Assinado (simulação, não transmitido).', 'Signed (dry-run, not broadcast).')
         : r.txid
           ? `${pe('Transmitido. txid:', 'Broadcast. txid:')} ${r.txid}`
           : pe('Transmitido.', 'Broadcast.'),
@@ -1127,8 +1127,8 @@ export default function NetVault() {
           <h3>{pe('Registro de cerimônias', 'Ceremony record')}</h3>
           <p className="net-tip">
             {pe(
-              'Evidência reproduzível de cada pagamento assinado por este cofre: o sighash, a assinatura agregada do quórum e o txid. Público e verificável — o txid confirma na cadeia; a assinatura confere sob a chave do grupo, sem confiar no operador.',
-              'Reproducible evidence of every payment this vault signed: the sighash, the quorum’s aggregate signature, and the txid. Public and checkable — the txid confirms on-chain; the signature verifies under the group key, without trusting the operator.',
+              'Evidência reproduzível de cada pagamento assinado por este cofre: o sighash, a assinatura agregada do quórum e o txid. Público e verificável: o txid confirma na cadeia; a assinatura confere sob a chave do grupo, sem confiar no operador.',
+              'Reproducible evidence of every payment this vault signed: the sighash, the quorum’s aggregate signature, and the txid. Public and checkable: the txid confirms on-chain; the signature verifies under the group key, without trusting the operator.',
             )}
           </p>
           <button className="net-btn" disabled={cerBusy} onClick={() => void loadCeremonies()}>
@@ -1227,8 +1227,8 @@ export default function NetVault() {
                 <>
                   <p>
                     {pe(
-                      'O coordenador derivou o endereço Orchard deste cofre a partir da chave do grupo (só material público — nenhuma parte saiu do dispositivo). Receba fundos aqui:',
-                      'The coordinator derived this vault’s Orchard address from the group key (public material only — no share left the device). Receive funds here:',
+                      'O coordenador derivou o endereço Orchard deste cofre a partir da chave do grupo (só material público, nenhuma parte saiu do dispositivo). Receba fundos aqui:',
+                      'The coordinator derived this vault’s Orchard address from the group key (public material only, no share left the device). Receive funds here:',
                     )}
                   </p>
                   <div
