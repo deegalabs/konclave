@@ -216,9 +216,16 @@ fn main() {
     let addr = std::env::var("KONCLAVE_HELPER_ADDR").unwrap_or_else(|_| "0.0.0.0:4780".to_string());
     let cfg = Arc::new(config_from_env());
     let state = Arc::new(HelperState::new());
+    // Reseed the registry from disk (a restart / redeploy keeps every vault when vaults_dir is on a
+    // persistent volume). Only public / view-only material is loaded — never a share.
+    let restored = orchestrator::helper::load_registrations(&cfg.vaults_dir);
+    let restored_n = restored.len();
+    for reg in restored {
+        state.insert(reg);
+    }
     let server = Server::http(&addr).expect("bind");
     eprintln!(
-        "konclave-helper listening on {addr} (network={})",
+        "konclave-helper listening on {addr} (network={}, {restored_n} vault(s) restored)",
         cfg.network
     );
 

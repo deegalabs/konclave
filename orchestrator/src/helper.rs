@@ -7,6 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
 use zcash_protocol::consensus::NetworkType;
 
 use crate::address::{validate_recipient_on, AddressError};
@@ -155,7 +156,9 @@ pub fn vault_balance(
 
 /// A vault registered with the helper: its public identity plus where its view-only wallet lives.
 /// `vault_id` equals the group verifying key hex (the same id the browser shows on `/net`).
-#[derive(Debug, Clone)]
+/// Serializable so it can be persisted to disk (see [`save_registration`]) — the FS is a redeploy-
+/// durable cache of PUBLIC / view-only material (address + UFVK + wallet dir), never a share.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VaultRegistration {
     pub vault_id: String,
     pub address: String,
@@ -163,6 +166,52 @@ pub struct VaultRegistration {
     pub wallet_dir: String,
     /// The wallet account uuid the view-only wallet created (the PCZT spends from it).
     pub account: String,
+}
+
+/// Where a vault's persisted registration lives: `<vaults_dir>/<vault_id>/registration.json`.
+pub fn registration_path(vaults_dir: &Path, group_key: &str) -> PathBuf {
+    vaults_dir.join(group_key).join("registration.json")
+}
+
+/// Persist a registration next to its view-only wallet, so a helper restart / redeploy keeps the
+/// vault (and its ALREADY-derived address — no re-derivation, so the address stays stable). Writes
+/// only public / view-only fields.
+pub fn save_registration(vaults_dir: &Path, reg: &VaultRegistration) -> Result<(), ToolError> {
+    let path = registration_path(vaults_dir, &reg.vault_id);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(ToolError::Io)?;
+    }
+    let json =
+        serde_json::to_string(reg).map_err(|e| ToolError::parse("registration", e.to_string()))?;
+    std::fs::write(&path, json).map_err(ToolError::Io)?;
+    Ok(())
+}
+
+/// Load a single persisted registration if present (used to make [`register_vault`] idempotent and
+/// its address stable across restarts). Returns `None` when the file is absent or unreadable.
+pub fn load_registration(vaults_dir: &Path, group_key: &str) -> Option<VaultRegistration> {
+    let path = registration_path(vaults_dir, group_key);
+    let json = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str(&json).ok()
+}
+
+/// Load every persisted registration under `vaults_dir` (one `<id>/registration.json` each), so a
+/// restarting helper reseeds its in-memory registry from disk. Skips anything unreadable.
+pub fn load_registrations(vaults_dir: &Path) -> Vec<VaultRegistration> {
+    let mut out = Vec::new();
+    let Ok(entries) = std::fs::read_dir(vaults_dir) else {
+        return out;
+    };
+    for entry in entries.flatten() {
+        if let Some(name) = entry.file_name().to_str() {
+            if is_valid_group_key(name) {
+                if let Some(reg) = load_registration(vaults_dir, name) {
+                    out.push(reg);
+                }
+            }
+        }
+    }
+    out
 }
 
 /// True for a well-formed FROST group verifying key: 64 lowercase-or-upper hex chars (32 bytes).
@@ -193,6 +242,12 @@ pub fn register_vault(
             ),
         ));
     }
+    // Persisted-registration shortcut: if this vault was registered before (surviving a restart),
+    // return the STORED registration — no re-derivation, so the address stays stable and the
+    // heavy wallet init is not repeated.
+    if let Some(reg) = load_registration(&cfg.vaults_dir, group_key) {
+        return Ok(reg);
+    }
     let (address, ufvk) = derive_identity(&cfg.zcash_sign, group_key, &cfg.network)?;
     let wallet_dir = wallet_dir_for(&cfg.vaults_dir, group_key);
     run(
@@ -219,13 +274,17 @@ pub fn register_vault(
         None,
     )?;
     let account = parse_account_uuid(&listed)?;
-    Ok(VaultRegistration {
+    let reg = VaultRegistration {
         vault_id: group_key.to_string(),
         address,
         ufvk,
         wallet_dir,
         account,
-    })
+    };
+    // Persist so a restart keeps the vault + its now-fixed address. Best-effort: a write failure
+    // (e.g. read-only FS) must not fail the registration — the in-memory state still serves it.
+    let _ = save_registration(&cfg.vaults_dir, &reg);
+    Ok(reg)
 }
 
 /// Pull the wallet account uuid from `zcash-devtool wallet list-addresses` output
@@ -530,6 +589,41 @@ mod tests {
         assert_eq!(sc.threshold, 0);
         assert!(sc.frostd_cert.is_empty());
         assert!(sc.server_url.is_empty());
+    }
+
+    #[test]
+    fn registration_persists_and_reloads_round_trip() {
+        // A unique temp dir per run (pid-based) so parallel test runs don't collide.
+        let dir = std::env::temp_dir().join(format!("konclave-helper-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let a = reg("1111111111111111111111111111111111111111111111111111111111111111");
+        let b = reg("2222222222222222222222222222222222222222222222222222222222222222");
+        save_registration(&dir, &a).unwrap();
+        save_registration(&dir, &b).unwrap();
+
+        // Single reload returns the same public fields.
+        let back = load_registration(&dir, &a.vault_id).unwrap();
+        assert_eq!(back.address, a.address);
+        assert_eq!(back.account, a.account);
+        assert_eq!(back.ufvk, a.ufvk);
+
+        // Bulk load finds both; a non-vault dir name is ignored.
+        std::fs::create_dir_all(dir.join("not-a-group-key")).unwrap();
+        let mut ids: Vec<String> = load_registrations(&dir)
+            .into_iter()
+            .map(|r| r.vault_id)
+            .collect();
+        ids.sort();
+        assert_eq!(ids, vec![a.vault_id.clone(), b.vault_id.clone()]);
+
+        // Missing / empty dirs degrade to empty, never panic.
+        assert!(load_registration(
+            &dir,
+            "3333333333333333333333333333333333333333333333333333333333333333"
+        )
+        .is_none());
+        assert!(load_registrations(&dir.join("nope")).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
