@@ -15,8 +15,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use orchestrator::helper::{
-    is_valid_group_key, payment_plan, register_vault, send_config_for, vault_balance, HelperConfig,
-    HelperState, VaultRegistration,
+    append_ceremony, is_valid_group_key, load_ceremonies, payment_plan, register_vault,
+    send_config_for, vault_balance, CeremonyRecord, HelperConfig, HelperState, VaultRegistration,
 };
 use orchestrator::send::net_orchestrate_send;
 use serde::Deserialize;
@@ -120,6 +120,15 @@ fn handle(
                 },
             }
         }
+        (Method::Get, "/api/vault/ceremonies") => {
+            match query_param(query, "vault").and_then(|v| state.get(v)) {
+                None => resp(404, json!({ "error": "no such vault" }).to_string()),
+                Some(reg) => {
+                    let recs = load_ceremonies(&cfg.vaults_dir, &reg.vault_id);
+                    resp(200, json!({ "ceremonies": recs }).to_string())
+                }
+            }
+        }
         (Method::Post, "/api/vault/send") => handle_send(state, cfg, body),
         _ => resp(404, json!({ "error": "not found" }).to_string()),
     }
@@ -176,12 +185,36 @@ fn handle_send(state: &HelperState, cfg: &HelperConfig, body: &[u8]) -> Resp {
         req.max_polls,
         Duration::from_secs(1),
     ) {
-        Ok(out) => resp(
-            200,
-            json!({ "txid": out.txid, "dry_run": req.dry_run, "sighash": out.sighash }).to_string(),
-        ),
+        Ok(out) => {
+            // Record the ceremony (ZecSafe-inspired reproducible evidence): sighash + aggregate
+            // signature(s) + txid, all public + independently verifiable. Best-effort — a
+            // persistence failure must not undo a completed send.
+            let rec = CeremonyRecord {
+                vault_id: reg.vault_id.clone(),
+                sighash: out.sighash.clone(),
+                signatures: out.signatures.clone(),
+                txid: out.txid.clone(),
+                dry_run: req.dry_run,
+                created_at_unix: now_unix(),
+            };
+            let _ = append_ceremony(&cfg.vaults_dir, &rec);
+            resp(
+                200,
+                json!({ "txid": out.txid, "dry_run": req.dry_run, "sighash": out.sighash,
+                        "signatures": out.signatures })
+                .to_string(),
+            )
+        }
         Err(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
     }
+}
+
+/// Unix seconds now (0 if the clock is before the epoch, which never happens on a real host).
+fn now_unix() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 fn header(name: &str, value: &str) -> Header {
@@ -372,6 +405,35 @@ mod tests {
         let r = handle(&st, &cfg(), &Method::Post, "/api/vault/send", body);
         assert_eq!(r.status, 400);
         assert!(r.body.contains("greater than zero"));
+    }
+
+    #[test]
+    fn ceremonies_unknown_vault_is_404() {
+        let st = HelperState::new();
+        let r = handle(
+            &st,
+            &cfg(),
+            &Method::Get,
+            "/api/vault/ceremonies?vault=zzzz",
+            b"",
+        );
+        assert_eq!(r.status, 404);
+    }
+
+    #[test]
+    fn ceremonies_known_vault_returns_a_list() {
+        // A registered vault with no trail yet returns an empty list (no engine needed).
+        let st = HelperState::new();
+        seed(&st, "aaaa");
+        let r = handle(
+            &st,
+            &cfg(),
+            &Method::Get,
+            "/api/vault/ceremonies?vault=aaaa",
+            b"",
+        );
+        assert_eq!(r.status, 200);
+        assert!(r.body.contains("\"ceremonies\":[]"));
     }
 
     #[test]

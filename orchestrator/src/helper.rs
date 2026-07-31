@@ -154,6 +154,64 @@ pub fn vault_balance(
     })
 }
 
+/// A record of one signing ceremony the helper drove for a vault (ZecSafe-inspired reproducible
+/// evidence): what was signed, by whom cryptographically (the aggregate FROST signature), and the
+/// resulting on-chain txid. Every field is PUBLIC and independently checkable — anyone can verify
+/// each `signatures` entry under the vault's group verifying key for `sighash` (off-chain), and
+/// confirm `txid` on a block explorer (on-chain). Persisted per vault so the trail is auditable
+/// and survives restarts. Contains no share and no secret.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CeremonyRecord {
+    pub vault_id: String,
+    /// The shielded sighash the quorum signed (hex).
+    pub sighash: String,
+    /// The aggregate FROST signature(s), one hex per real spend (64 bytes each).
+    pub signatures: Vec<String>,
+    /// The broadcast txid, or `None` on a dry-run (signed, not broadcast).
+    pub txid: Option<String>,
+    pub dry_run: bool,
+    /// Unix seconds when the helper recorded the ceremony.
+    pub created_at_unix: u64,
+}
+
+/// Where a vault's ceremony trail lives: `<vaults_dir>/<vault_id>/ceremonies.jsonl` (one JSON
+/// record per line, append-only).
+pub fn ceremonies_path(vaults_dir: &Path, group_key: &str) -> PathBuf {
+    vaults_dir.join(group_key).join("ceremonies.jsonl")
+}
+
+/// Append a ceremony record to the vault's trail (creating the dir/file as needed). Best-effort at
+/// the call site: a persistence failure must not undo a completed send.
+pub fn append_ceremony(vaults_dir: &Path, rec: &CeremonyRecord) -> Result<(), ToolError> {
+    use std::io::Write;
+    let path = ceremonies_path(vaults_dir, &rec.vault_id);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(ToolError::Io)?;
+    }
+    let line =
+        serde_json::to_string(rec).map_err(|e| ToolError::parse("ceremony", e.to_string()))?;
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(ToolError::Io)?;
+    writeln!(f, "{line}").map_err(ToolError::Io)?;
+    Ok(())
+}
+
+/// Load a vault's ceremony trail (newest last), skipping any unparseable line. Empty when there
+/// is no trail yet.
+pub fn load_ceremonies(vaults_dir: &Path, group_key: &str) -> Vec<CeremonyRecord> {
+    let path = ceremonies_path(vaults_dir, group_key);
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    text.lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .collect()
+}
+
 /// A vault registered with the helper: its public identity plus where its view-only wallet lives.
 /// `vault_id` equals the group verifying key hex (the same id the browser shows on `/net`).
 /// Serializable so it can be persisted to disk (see [`save_registration`]) — the FS is a redeploy-
@@ -623,6 +681,34 @@ mod tests {
         )
         .is_none());
         assert!(load_registrations(&dir.join("nope")).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn ceremony_trail_appends_and_loads_in_order() {
+        let dir =
+            std::env::temp_dir().join(format!("konclave-ceremony-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let id = "4444444444444444444444444444444444444444444444444444444444444444";
+        let mk = |txid: Option<&str>, ts: u64| CeremonyRecord {
+            vault_id: id.into(),
+            sighash: "aa".into(),
+            signatures: vec!["bb".into()],
+            txid: txid.map(String::from),
+            dry_run: txid.is_none(),
+            created_at_unix: ts,
+        };
+        // Empty trail loads as empty (no file yet).
+        assert!(load_ceremonies(&dir, id).is_empty());
+        append_ceremony(&dir, &mk(None, 100)).unwrap();
+        append_ceremony(&dir, &mk(Some("txid-1"), 200)).unwrap();
+        let recs = load_ceremonies(&dir, id);
+        assert_eq!(recs.len(), 2);
+        // Append order preserved (newest last).
+        assert_eq!(recs[0].created_at_unix, 100);
+        assert!(recs[0].dry_run);
+        assert_eq!(recs[1].txid.as_deref(), Some("txid-1"));
+        assert!(!recs[1].dry_run);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

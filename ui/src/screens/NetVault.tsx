@@ -23,8 +23,15 @@ import {
   storageAvailable,
   type VaultPublic,
 } from '../storage'
-import { helperConfigured, registerVault, vaultBalance, helperSend } from '../helper'
-import { zatToZec, parseZecToZat } from '../format'
+import {
+  helperConfigured,
+  registerVault,
+  vaultBalance,
+  helperSend,
+  vaultCeremonies,
+  type CeremonyRecord,
+} from '../helper'
+import { zatToZec, parseZecToZat, fmtDate } from '../format'
 import encodeQR from '@paulmillr/qr'
 import '../redesign.css'
 import '../net.css'
@@ -176,6 +183,9 @@ export default function NetVault() {
   const [sendBusy, setSendBusy] = useState(false)
   const [sendResult, setSendResult] = useState('')
   const [sendErr, setSendErr] = useState('')
+  // Ceremony trail (A3): the auditable record of every spend the helper drove for this vault.
+  const [ceremonies, setCeremonies] = useState<CeremonyRecord[] | null>(null)
+  const [cerBusy, setCerBusy] = useState(false)
   const [signPhase, setSignPhase] = useState<'none' | 'signing' | 'signed'>('none')
   const [signature, setSignature] = useState('')
   const [signOk, setSignOk] = useState(false)
@@ -781,7 +791,15 @@ export default function NetVault() {
           ? `${pe('Transmitido. txid:', 'Broadcast. txid:')} ${r.txid}`
           : pe('Transmitido.', 'Broadcast.'),
     )
+    // The helper just recorded this ceremony; refresh the trail so it shows immediately.
+    void vaultCeremonies(groupVk).then(setCeremonies)
   }, [sendZec, sendTo, groupVk, room, sendDry, pe])
+
+  const loadCeremonies = useCallback(async () => {
+    setCerBusy(true)
+    setCeremonies(await vaultCeremonies(groupVk))
+    setCerBusy(false)
+  }, [groupVk])
 
   // ---- on-device persistence handlers (Marco 5), all additive to the flow above ----
 
@@ -1103,6 +1121,55 @@ export default function NetVault() {
             )}
           </p>
         </>
+      )}
+      {helperConfigured() && groupVk && (
+        <div className="net-card" style={{ marginTop: 16 }}>
+          <h3>{pe('Registro de cerimônias', 'Ceremony record')}</h3>
+          <p className="net-tip">
+            {pe(
+              'Evidência reproduzível de cada pagamento assinado por este cofre: o sighash, a assinatura agregada do quórum e o txid. Público e verificável — o txid confirma na cadeia; a assinatura confere sob a chave do grupo, sem confiar no operador.',
+              'Reproducible evidence of every payment this vault signed: the sighash, the quorum’s aggregate signature, and the txid. Public and checkable — the txid confirms on-chain; the signature verifies under the group key, without trusting the operator.',
+            )}
+          </p>
+          <button className="net-btn" disabled={cerBusy} onClick={() => void loadCeremonies()}>
+            {cerBusy ? pe('Carregando…', 'Loading…') : pe('Ver registro', 'Show record')}
+          </button>
+          {ceremonies && ceremonies.length === 0 && (
+            <p className="net-tip" style={{ marginTop: 8 }}>
+              {pe('Nenhuma cerimônia registrada ainda.', 'No ceremonies recorded yet.')}
+            </p>
+          )}
+          {ceremonies && ceremonies.length > 0 && (
+            <ul className="net-trail">
+              {ceremonies.map((c, i) => (
+                <li key={i}>
+                  <div className="net-trail-head">
+                    <span className={c.dry_run ? 'net-tag' : 'net-tag net-tag-live'}>
+                      {c.dry_run
+                        ? pe('simulação', 'dry-run')
+                        : pe('transmitido', 'broadcast')}
+                    </span>
+                    <span className="net-trail-when">{fmtDate(c.created_at_unix)}</span>
+                  </div>
+                  {c.txid && (
+                    <div className="net-trail-row">
+                      <span className="net-trail-label">txid</span>
+                      <code>{c.txid}</code>
+                    </div>
+                  )}
+                  <div className="net-trail-row">
+                    <span className="net-trail-label">sighash</span>
+                    <code>{shortId(c.sighash)}</code>
+                  </div>
+                  <div className="net-trail-row">
+                    <span className="net-trail-label">{pe('assinatura', 'signature')}</span>
+                    <code>{c.signatures.map((s) => shortId(s)).join(', ') || '—'}</code>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
     </div>
   )

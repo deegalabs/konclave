@@ -100,6 +100,27 @@ export async function vaultBalance(groupKeyHex: string): Promise<HelperBalance |
   }
 }
 
+/** One recorded signing ceremony (ZecSafe-inspired reproducible evidence). All public. */
+export type CeremonyRecord = {
+  vault_id: string
+  sighash: string
+  signatures: string[]
+  txid: string | null
+  dry_run: boolean
+  created_at_unix: number
+}
+
+/** The vault's ceremony trail (oldest first), or `null` if no helper / unknown vault. */
+export async function vaultCeremonies(groupKeyHex: string): Promise<CeremonyRecord[] | null> {
+  const res = await get(`/api/vault/ceremonies?vault=${encodeURIComponent(groupKeyHex)}`)
+  if (!res || !res.ok) return null
+  try {
+    return ((await res.json()) as { ceremonies: CeremonyRecord[] }).ceremonies
+  } catch {
+    return null
+  }
+}
+
 /** The result of a helper-driven send: a broadcast txid, or `null` txid on a dry-run. */
 export type HelperSendResult = { txid: string | null; dry_run: boolean; sighash: string }
 
