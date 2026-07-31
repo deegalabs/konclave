@@ -11,7 +11,7 @@ import init, {
   describeOutputs,
 } from '../wasm-pkg/konclave_wasm.js'
 import wasmUrl from '../wasm-pkg/konclave_wasm_bg.wasm?url'
-import { RelaySession, newRoomCode, ephemeralTag, b64, unb64, bytesEqual, type RelayMsg } from '../net'
+import { RelaySession, newRoomCode, ephemeralTag, b64, unb64, bytesEqual, RELAY_BASE, type RelayMsg } from '../net'
 import { parseSignRequest, buildSignResponse, hexToBytes as hexBytes, bytesToHex, type SignRequest } from '../net-sign'
 import { useT, useTr, useI18n } from '../i18n'
 import { Letterhead } from '../components'
@@ -23,8 +23,8 @@ import {
   storageAvailable,
   type VaultPublic,
 } from '../storage'
-import { helperConfigured, registerVault, vaultBalance } from '../helper'
-import { zatToZec } from '../format'
+import { helperConfigured, registerVault, vaultBalance, helperSend } from '../helper'
+import { zatToZec, parseZecToZat } from '../format'
 import encodeQR from '@paulmillr/qr'
 import '../redesign.css'
 import '../net.css'
@@ -167,6 +167,15 @@ export default function NetVault() {
   const [hostedAddress, setHostedAddress] = useState('')
   const [balance, setBalance] = useState<{ spend: string; total: string } | null>(null)
   const [balanceBusy, setBalanceBusy] = useState(false)
+  // Architecture-B spend request (A2 slice 3): this device asks the helper (blind to shares) to
+  // build the tx and publish a sign-request into the current room; the members in the room sign;
+  // the helper injects + broadcasts. dry-run defaults ON, so no click alone moves funds.
+  const [sendTo, setSendTo] = useState('')
+  const [sendZec, setSendZec] = useState('')
+  const [sendDry, setSendDry] = useState(true)
+  const [sendBusy, setSendBusy] = useState(false)
+  const [sendResult, setSendResult] = useState('')
+  const [sendErr, setSendErr] = useState('')
   const [signPhase, setSignPhase] = useState<'none' | 'signing' | 'signed'>('none')
   const [signature, setSignature] = useState('')
   const [signOk, setSignOk] = useState(false)
@@ -730,6 +739,50 @@ export default function NetVault() {
     [addLog, advance, onMessage, tt],
   )
 
+  // Ask the helper to drive a spend over Architecture B. The helper publishes its sign-request
+  // into the CURRENT room (where the members are already connected), they sign, and the helper
+  // injects + (unless dry-run) broadcasts. This device (and the helper) never touches another
+  // member's share. Blocks while the helper builds/proves + waits for the aggregate signature.
+  const requestSpend = useCallback(async () => {
+    setSendErr('')
+    setSendResult('')
+    const zat = parseZecToZat(sendZec)
+    if (zat == null || zat <= 0) {
+      setSendErr(pe('Valor inválido.', 'Invalid amount.'))
+      return
+    }
+    if (!sendTo.trim()) {
+      setSendErr(pe('Informe o endereço de destino.', 'Enter a destination address.'))
+      return
+    }
+    setSendBusy(true)
+    const r = await helperSend({
+      vault: groupVk,
+      to: sendTo.trim(),
+      amountZat: zat,
+      relayBase: RELAY_BASE,
+      room,
+      dryRun: sendDry,
+    })
+    setSendBusy(false)
+    if (!r) {
+      setSendErr(
+        pe(
+          'O coordenador rejeitou o pedido (destino/valor/saldo) ou não respondeu a tempo.',
+          'The coordinator rejected the request (destination/amount/balance) or did not respond in time.',
+        ),
+      )
+      return
+    }
+    setSendResult(
+      r.dry_run
+        ? pe('Assinado (simulação — não transmitido).', 'Signed (dry-run — not broadcast).')
+        : r.txid
+          ? `${pe('Transmitido. txid:', 'Broadcast. txid:')} ${r.txid}`
+          : pe('Transmitido.', 'Broadcast.'),
+    )
+  }, [sendZec, sendTo, groupVk, room, sendDry, pe])
+
   // ---- on-device persistence handlers (Marco 5), all additive to the flow above ----
 
   const refreshSaved = useCallback(async () => {
@@ -986,6 +1039,47 @@ export default function NetVault() {
             'Vault ready to sign. Waiting for a payment request from the operator over the relay; when it arrives, each device confirms the destination and amount before signing.',
           )}
         </p>
+      )}
+      {signPhase === 'none' && helperConfigured() && RELAY_BASE !== '' && room && groupVk && (
+        <div className="net-card" style={{ marginTop: 16 }}>
+          <h3>{pe('Solicitar um pagamento', 'Request a payment')}</h3>
+          <p className="net-tip">
+            {pe(
+              'Este dispositivo pede ao coordenador que monte a transação; os membros no room assinam pelo relay; o coordenador injeta e transmite. O coordenador nunca vê uma parte da chave.',
+              'This device asks the coordinator to build the transaction; the members in the room sign over the relay; the coordinator injects and broadcasts. The coordinator never sees a key share.',
+            )}
+          </p>
+          {sendErr && <div className="net-error">{sendErr}</div>}
+          <input
+            className="net-input"
+            placeholder={pe('Endereço de destino (u…)', 'Destination address (u…)')}
+            value={sendTo}
+            onChange={(e) => setSendTo(e.target.value)}
+          />
+          <input
+            className="net-input"
+            inputMode="decimal"
+            placeholder={pe('Valor em ZEC', 'Amount in ZEC')}
+            value={sendZec}
+            onChange={(e) => setSendZec(e.target.value)}
+          />
+          <label style={{ display: 'flex', gap: 8, alignItems: 'center', margin: '10px 0' }}>
+            <input type="checkbox" checked={sendDry} onChange={(e) => setSendDry(e.target.checked)} />
+            {pe('Simulação (assina sem transmitir)', 'Dry-run (sign without broadcasting)')}
+          </label>
+          <button
+            className="net-btn primary"
+            disabled={sendBusy}
+            onClick={() => void requestSpend()}
+          >
+            {sendBusy
+              ? pe('Coordenando…', 'Coordinating…')
+              : pe('Solicitar pagamento', 'Request payment')}
+          </button>
+          {sendResult && (
+            <p className="net-tip" style={{ marginTop: 8, wordBreak: 'break-all' }}>{sendResult}</p>
+          )}
+        </div>
       )}
       {signWhat && signPhase !== 'none' && (
         <div className="net-what" style={{ marginTop: 16, padding: '10px 14px', border: '1px solid var(--rd-line)', borderRadius: 8 }}>

@@ -10,8 +10,11 @@
 
 const ENV = import.meta.env as Record<string, string | undefined>
 const BASE: string = ENV.VITE_API_BASE ?? ''
-// A hosted relay overrides the base; empty = the local bridge (same origin).
-const RELAY_BASE: string = ENV.VITE_RELAY_BASE ?? BASE
+// A hosted relay overrides the base; empty = the local bridge (same origin). Exported so the
+// Architecture-B send can tell the (server-side) helper WHICH relay the browsers are on — the
+// helper must publish its sign-request into the same room, so this must be a URL it can reach
+// (a hosted relay, not the local bridge).
+export const RELAY_BASE: string = ENV.VITE_RELAY_BASE ?? BASE
 
 // The bridge's CSRF token (window.__KONCLAVE_SESSION__), needed on POST to the LOCAL relay.
 // A hosted public relay ignores it; sending it anyway is harmless.
