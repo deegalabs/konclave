@@ -159,7 +159,10 @@ fn handle_send(state: &HelperState, cfg: &HelperConfig, body: &[u8]) -> Resp {
         true
     }
     fn default_max_polls() -> u32 {
-        120
+        // The browser FROST ceremony over the blind relay (short-poll, several round-trips per
+        // spend) can exceed 2 minutes, so give the helper a generous window to collect the
+        // devices' aggregate signature before giving up. Each poll is `poll_delay` (1s).
+        300
     }
     let req: Req = match serde_json::from_slice(body) {
         Ok(r) => r,
