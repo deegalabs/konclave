@@ -2,6 +2,7 @@ import { type ReactNode, type MouseEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { Letterhead } from '../components'
 import { useT, useTr, useI18n } from '../i18n'
+import { IS_NET } from '../api'
 import '../redesign.css'
 import '../landing.css'
 
@@ -179,7 +180,7 @@ export default function Intro() {
           <h2>{t('landing.finalTitle')}</h2>
           <p>{t('landing.finalDesc')}</p>
           <div className="lp-ctas">
-            <Link className="lp-btn primary" to="/create">
+            <Link className="lp-btn primary" to={IS_NET ? '/net' : '/create'}>
               {t('landing.finalCtaCreate')}
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
             </Link>

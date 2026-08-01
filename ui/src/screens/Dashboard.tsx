@@ -1,13 +1,12 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Dialog, Seal, Secret, RevealButton } from '../components'
+import { Seal, Secret, RevealButton } from '../components'
 import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
 import { fmtZec as fmt4, expiryLabel, fmtDate } from '../format'
 import { useT, useTr } from '../i18n'
 import {
-  getVault, getProposals, getBalance, getLedger, health, shortAddr, isVaultUnlocked,
-  deleteVault, clearSelectedVault, IS_DEMO,
+  getVault, getProposals, getBalance, getLedger, health, shortAddr, isVaultUnlocked, IS_DEMO,
   type Vault, type Proposal, type Balance,
 } from '../api'
 
@@ -56,11 +55,6 @@ export default function Dashboard() {
   const [ledger, setLedger] = useState<Proposal[] | null>(null)
   const [balance, setBalance] = useState<Balance | null>(null)
   const [live, setLive] = useState<boolean | null>(null)
-  const [showDelete, setShowDelete] = useState(false)
-  const [delPass, setDelPass] = useState('')
-  const [delName, setDelName] = useState('')
-  const [delErr, setDelErr] = useState<string | null>(null)
-  const [delBusy, setDelBusy] = useState(false)
 
   useEffect(() => {
     let on = true
@@ -131,18 +125,6 @@ export default function Dashboard() {
   // with an empty ledger (e.g. a fresh /net vault, no proposals yet) shows no movements, not mock.
   const movimentos: Movimento[] = movs ?? (live === false || IS_DEMO ? MOVIMENTOS_MOCK : [])
 
-  // Delete flow (local only). Locked vaults require the word; unlocked ones require
-  // typing the vault name. If this device sees a spendable balance, warn hard.
-  const locked = vault?.locked === true
-  const seesFunds = hasBal && Number(balance?.total_zat ?? 0) > 0
-  const canDelete = locked ? delPass.length > 0 : delName.trim() === name
-  async function doDelete() {
-    setDelBusy(true); setDelErr(null)
-    const r = await deleteVault(locked ? delPass : undefined, locked ? undefined : delName.trim())
-    setDelBusy(false)
-    if (r.ok) { clearSelectedVault(); nav('/vaults') }
-    else setDelErr(r.wrong ? t('dashboard.delWrong') : t('dashboard.delFail'))
-  }
 
   return (
     <>
@@ -257,52 +239,8 @@ export default function Dashboard() {
           ))}
         </section>
 
-        {/* Zona de perigo */}
-        <section className="danger-zone">
-          <h2 className="klab danger-lab">{t('dashboard.dangerZone')}</h2>
-          <div className="danger-body">
-            <div>
-              <div className="danger-t">{t('dashboard.deleteThisVault')}</div>
-              <div className="danger-d">{t('dashboard.deleteThisVaultDesc')}</div>
-            </div>
-            <button className="btn danger-btn" onClick={() => { setShowDelete(true); setDelErr(null); setDelPass(''); setDelName('') }}>{t('dashboard.deleteVault')}</button>
-          </div>
-        </section>
       </main>
 
-      {showDelete && (
-        <Dialog className="modal-overlay" cardClassName="modal-card danger" labelledBy="delete-title" onClose={() => setShowDelete(false)}>
-            <span className="klab danger-lab">{t('dashboard.deleteVault')}</span>
-            <h2 id="delete-title" className="modal-h">{tr('dashboard.deleteConfirmTitle', { name })}</h2>
-            <p className="modal-p">{tr('dashboard.deleteConfirmBody')}</p>
-
-            <div className="danger-funds">
-              {tr('dashboard.deleteFundsWarn')}
-              {seesFunds && <div className="mt-xs">{tr('dashboard.deleteSeesFunds', { amt: fmt4(balance?.total_zec) })}</div>}
-            </div>
-            <div className="hint">{t('dashboard.deleteLocalHint')}</div>
-
-            {locked ? (
-              <label className="field mt"><span>{t('dashboard.deleteTypeWord')}</span>
-                <input className="input" type="password" value={delPass} onChange={(e) => setDelPass(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && canDelete) void doDelete() }} autoFocus />
-              </label>
-            ) : (
-              <label className="field mt"><span>{tr('dashboard.deleteTypeName', { name })}</span>
-                <input className="input" value={delName} onChange={(e) => setDelName(e.target.value)} placeholder={name}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && canDelete) void doDelete() }} autoFocus />
-              </label>
-            )}
-            {delErr && <div className="hint err mt" role="alert">{delErr}</div>}
-
-            <div className="btns right mt">
-              <button className="btn ghost" onClick={() => setShowDelete(false)}>{t('common.cancel')}</button>
-              <button className="btn danger-btn" onClick={() => void doDelete()} disabled={delBusy || !canDelete}>
-                {delBusy ? t('dashboard.deleting') : t('dashboard.deletePermanently')}
-              </button>
-            </div>
-        </Dialog>
-      )}
     </>
   )
 }

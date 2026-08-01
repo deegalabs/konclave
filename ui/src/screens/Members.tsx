@@ -109,7 +109,7 @@ export default function Members() {
         </PageFooter>
 
         <div className="confirm mt">{tr('members.demoNote')}</div>
-        <div className="right mt"><button className="btn ghost sm-btn" onClick={() => nav('/create')}>{t('members.createNew')}</button></div>
+        <div className="right mt"><button className="btn ghost sm-btn" onClick={() => nav(IS_NET ? '/net' : '/create')}>{t('members.createNew')}</button></div>
 
         <NextStep label={t('next.label')} cta={t('next.people')} to="/people" />
       </main>
