@@ -7,15 +7,12 @@ import { IS_DEMO } from './api'
 /** A thin, always-visible strip on the hosted demo build (VITE_DEMO=1) so a visitor never
  *  mistakes the sample data for a real vault. Renders nothing outside the demo build. */
 export function DemoBanner() {
-  const { locale } = useI18n()
+  const t = useT()
   if (!IS_DEMO) return null
-  const pt = locale === 'pt-BR'
   return (
     <div className="demo-banner" role="note">
       <span className="demo-banner-tag">DEMO</span>
-      {pt
-        ? 'Demonstração com dados de exemplo. Nenhum fundo real, nenhuma transação de verdade.'
-        : 'Demonstration with sample data. No real funds, no real transactions.'}
+      {t('demo.bannerNote')}
     </div>
   )
 }

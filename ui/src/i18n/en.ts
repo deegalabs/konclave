@@ -231,6 +231,7 @@ export const en: Record<string, string> = {
   'demo.watchCta': 'Watch the demo',
   'demo.live': 'Live demo',
   'demo.note': 'This is the cryptography itself, running live, not the everyday vault screens.',
+  'demo.bannerNote': 'Demonstration with sample data. No real funds, no real transactions.',
   'demo.s1Name': 'Meet the collective',
   'demo.s1Eyebrow': 'The scenario',
   'demo.s1Title': 'Meet the Horizonte collective.',

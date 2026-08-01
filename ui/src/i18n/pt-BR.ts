@@ -231,6 +231,7 @@ export const ptBR: Record<string, string> = {
   'demo.watchCta': 'Ver demonstração',
   'demo.live': 'Demonstração ao vivo',
   'demo.note': 'Isto é a própria criptografia, rodando ao vivo, não as telas do dia a dia do cofre.',
+  'demo.bannerNote': 'Demonstração com dados de exemplo. Nenhum fundo real, nenhuma transação de verdade.',
   'demo.s1Name': 'Conheça o coletivo',
   'demo.s1Eyebrow': 'O cenário',
   'demo.s1Title': 'Conheça o coletivo Horizonte.',
