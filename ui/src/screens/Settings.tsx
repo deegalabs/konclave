@@ -2,18 +2,17 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Seal } from '../components'
 import { PageHeader, PageFooter } from '../page'
-import { useI18n } from '../i18n'
+import { useT } from '../i18n'
 import { getVault, health, shortAddr, deleteVault, type Vault } from '../api'
 
 /**
  * Per-vault settings (redesign Fase 0). Shows the vault's public identity (quorum, group,
  * address, members) and the local-device controls: the unlock method and "remove from this
  * device". Network is shown only once the vault carries it (Fase 2 wires per-vault network);
- * until then we do not invent one. Copy is inline-bilingual, matching the other new screens.
+ * until then we do not invent one.
  */
 export default function Settings() {
-  const { locale } = useI18n()
-  const pe = (pt: string, en: string) => (locale === 'pt-BR' ? pt : en)
+  const t = useT()
   const nav = useNavigate()
   const [vault, setVault] = useState<Vault | null>(null)
   const [live, setLive] = useState<boolean | null>(null)
@@ -47,19 +46,17 @@ export default function Settings() {
     const res = await deleteVault(undefined, confirmName.trim())
     setBusy(false)
     if (res.ok) { nav('/vaults'); return }
-    setErr(res.wrong
-      ? pe('Nome não confere.', 'Name does not match.')
-      : pe('Não foi possível remover agora.', 'Could not remove right now.'))
+    setErr(res.wrong ? t('settings.nameMismatch') : t('settings.removeFail'))
   }
 
   return (
     <main className="page">
       <PageHeader
-        eyebrow={pe('AJUSTES', 'SETTINGS')}
-        title={pe('Ajustes', 'Settings')}
+        eyebrow={t('settings.eyebrow')}
+        title={t('settings.title')}
         subtitle={<>
-          {vault?.name ?? pe('Cofre', 'Vault')} · {pe('quórum', 'quorum')} {thr}/{n}
-          {live === false && <span className="livetag off"> {pe('demo', 'demo')}</span>}
+          {vault?.name ?? t('settings.vault')} · {t('settings.quorumWord')} {thr}/{n}
+          {live === false && <span className="livetag off"> {t('settings.demoTag')}</span>}
         </>}
         actions={<Seal t={thr} n={n} />}
       />
@@ -67,48 +64,43 @@ export default function Settings() {
       <div className="set-list mt">
         {network && (
           <div className="set-row">
-            <span className="set-k">{pe('Rede', 'Network')}</span>
+            <span className="set-k">{t('settings.network')}</span>
             <span className="set-v"><span className="set-badge">{network === 'test' ? 'testnet' : 'mainnet'}</span></span>
           </div>
         )}
         <div className="set-row">
-          <span className="set-k">{pe('Quórum', 'Quorum')}</span>
-          <span className="set-v">{thr} {pe('de', 'of')} {n}</span>
+          <span className="set-k">{t('settings.quorum')}</span>
+          <span className="set-v">{thr} {t('settings.of')} {n}</span>
         </div>
         <div className="set-row">
-          <span className="set-k">{pe('Membros', 'Members')}</span>
+          <span className="set-k">{t('settings.members')}</span>
           <span className="set-v">{vault?.member_list?.length ?? n}</span>
         </div>
         <div className="set-row">
-          <span className="set-k">{pe('Endereço', 'Address')}</span>
+          <span className="set-k">{t('settings.address')}</span>
           <span className="set-v mono">{vault ? shortAddr(vault.orchard_address) : '—'}</span>
         </div>
         <div className="set-row">
-          <span className="set-k">{pe('Grupo (DKG)', 'Group (DKG)')}</span>
+          <span className="set-k">{t('settings.group')}</span>
           <span className="set-v mono">{vault ? vault.group_pubkey.slice(0, 10) + '…' : '—'}</span>
         </div>
         <div className="set-row">
-          <span className="set-k">{pe('Desbloqueio', 'Unlock')}</span>
-          <span className="set-v">{pe('senha neste aparelho', 'passphrase on this device')}</span>
+          <span className="set-k">{t('settings.unlock')}</span>
+          <span className="set-v">{t('settings.unlockValue')}</span>
         </div>
       </div>
 
       <section className="set-danger mt">
-        <h2 className="set-danger-title">{pe('Zona sensível', 'Danger zone')}</h2>
-        <p className="set-danger-note">
-          {pe(
-            'Remove o cofre só deste aparelho. Os outros membros continuam com os seus pedaços; nada é apagado da rede.',
-            'Removes the vault from this device only. The other members keep their shares; nothing is deleted from the network.',
-          )}
-        </p>
+        <h2 className="set-danger-title">{t('settings.danger')}</h2>
+        <p className="set-danger-note">{t('settings.dangerNote')}</p>
         {!confirming ? (
           <button type="button" className="btn danger-btn" onClick={() => setConfirming(true)}>
-            {pe('Remover deste aparelho', 'Remove from this device')}
+            {t('settings.remove')}
           </button>
         ) : (
           <div className="set-confirm">
             <label className="set-confirm-label">
-              {pe('Digite o nome do cofre para confirmar:', 'Type the vault name to confirm:')}
+              {t('settings.confirmPrompt')}
               <input
                 className="set-input"
                 value={confirmName}
@@ -125,17 +117,17 @@ export default function Settings() {
                 disabled={busy || confirmName.trim() !== vault?.name}
                 onClick={removeFromDevice}
               >
-                {busy ? pe('Removendo…', 'Removing…') : pe('Confirmar remoção', 'Confirm removal')}
+                {busy ? t('settings.removing') : t('settings.confirmRemove')}
               </button>
               <button type="button" className="btn ghost" onClick={() => { setConfirming(false); setConfirmName(''); setErr(null) }}>
-                {pe('Cancelar', 'Cancel')}
+                {t('common.cancel')}
               </button>
             </div>
           </div>
         )}
       </section>
 
-      <PageFooter>{pe('Konclave · ajustes do cofre', 'Konclave · vault settings')}</PageFooter>
+      <PageFooter>{t('settings.footer')}</PageFooter>
     </main>
   )
 }
