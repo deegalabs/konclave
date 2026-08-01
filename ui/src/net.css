@@ -294,7 +294,7 @@
 /* Embedded NetVault (inside the /vaults create modal): no full-page wrap, fits the Dialog.
    Override .rd { min-height:100vh } so the card hugs its content, and drop the .rd archival
    texture inside the modal. */
-.net-embedded{padding:0; min-height:0}
+.net-embedded{padding:0; min-height:0; background:none}
 .net-embedded::before{display:none}
 .net-embedded .net-h1{font-size:clamp(22px,3.5vw,30px)}
 .net-embedded .net-cards{margin-top:6px}
