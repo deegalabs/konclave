@@ -31,13 +31,11 @@ import {
   helperConfigured,
   registerVault,
   vaultBalance,
-  vaultCeremonies,
   listProposals,
   executeProposal,
-  type CeremonyRecord,
   type Proposal,
 } from '../helper'
-import { zatToZec, fmtDate } from '../format'
+import { zatToZec } from '../format'
 import encodeQR from '@paulmillr/qr'
 import '../redesign.css'
 import '../net.css'
@@ -195,8 +193,6 @@ export default function NetVault() {
   const [balance, setBalance] = useState<{ spend: string; total: string } | null>(null)
   const [balanceBusy, setBalanceBusy] = useState(false)
   // Ceremony trail (A3): the auditable record of every spend the helper drove for this vault.
-  const [ceremonies, setCeremonies] = useState<CeremonyRecord[] | null>(null)
-  const [cerBusy, setCerBusy] = useState(false)
   // Proposals: proposing/voting lives in the PWA (Dashboard). /net only lists the READY ones and
   // signs them (the ceremony), so it keeps the list + a status message, not a create/vote form.
   const [proposals, setProposals] = useState<Proposal[] | null>(null)
@@ -772,11 +768,6 @@ export default function NetVault() {
     [addLog, advance, onMessage, tt],
   )
 
-  const loadCeremonies = useCallback(async () => {
-    setCerBusy(true)
-    setCeremonies(await vaultCeremonies(groupVk))
-    setCerBusy(false)
-  }, [groupVk])
 
   // Proposals: /net only lists them (to sign the ready ones); proposing/voting is in the PWA.
   const loadProposals = useCallback(async () => {
@@ -1121,55 +1112,6 @@ export default function NetVault() {
             )}
           </p>
         </>
-      )}
-      {helperConfigured() && groupVk && (
-        <div className="net-card" style={{ marginTop: 16 }}>
-          <h3>{pe('Registro de cerimônias', 'Ceremony record')}</h3>
-          <p className="net-tip">
-            {pe(
-              'Evidência reproduzível de cada pagamento assinado por este cofre: o sighash, a assinatura agregada do quórum e o txid. Público e verificável: o txid confirma na cadeia; a assinatura confere sob a chave do grupo, sem confiar no operador.',
-              'Reproducible evidence of every payment this vault signed: the sighash, the quorum’s aggregate signature, and the txid. Public and checkable: the txid confirms on-chain; the signature verifies under the group key, without trusting the operator.',
-            )}
-          </p>
-          <button className="net-btn" disabled={cerBusy} onClick={() => void loadCeremonies()}>
-            {cerBusy ? pe('Carregando…', 'Loading…') : pe('Ver registro', 'Show record')}
-          </button>
-          {ceremonies && ceremonies.length === 0 && (
-            <p className="net-tip" style={{ marginTop: 8 }}>
-              {pe('Nenhuma cerimônia registrada ainda.', 'No ceremonies recorded yet.')}
-            </p>
-          )}
-          {ceremonies && ceremonies.length > 0 && (
-            <ul className="net-trail">
-              {ceremonies.map((c, i) => (
-                <li key={i}>
-                  <div className="net-trail-head">
-                    <span className={c.dry_run ? 'net-tag' : 'net-tag net-tag-live'}>
-                      {c.dry_run
-                        ? pe('simulação', 'dry-run')
-                        : pe('transmitido', 'broadcast')}
-                    </span>
-                    <span className="net-trail-when">{fmtDate(c.created_at_unix)}</span>
-                  </div>
-                  {c.txid && (
-                    <div className="net-trail-row">
-                      <span className="net-trail-label">txid</span>
-                      <code>{c.txid}</code>
-                    </div>
-                  )}
-                  <div className="net-trail-row">
-                    <span className="net-trail-label">sighash</span>
-                    <code>{shortId(c.sighash)}</code>
-                  </div>
-                  <div className="net-trail-row">
-                    <span className="net-trail-label">{pe('assinatura', 'signature')}</span>
-                    <code>{c.signatures.map((s) => shortId(s)).join(', ') || '—'}</code>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
       )}
       {helperConfigured() && groupVk && (
         <div className="net-card" style={{ marginTop: 16 }}>

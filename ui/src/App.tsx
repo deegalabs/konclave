@@ -22,6 +22,7 @@ import Proof from './screens/Proof'
 import Recovery from './screens/Recovery'
 import Inheritance from './screens/Inheritance'
 import Settings from './screens/Settings'
+import Ceremonies from './screens/Ceremonies'
 import Lab from './screens/Lab'
 import './App.css'
 
@@ -54,6 +55,7 @@ export default function App() {
           <Route path="/proposal" element={<Proposal />} />
           <Route path="/proposals" element={<Proposals />} />
           <Route path="/ledger" element={<Ledger />} />
+          <Route path="/ceremonies" element={<Ceremonies />} />
           <Route path="/members" element={<Members />} />
           <Route path="/people" element={<People />} />
           <Route path="/settings" element={<Settings />} />

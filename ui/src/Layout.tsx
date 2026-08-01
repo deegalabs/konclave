@@ -49,6 +49,7 @@ export default function Layout() {
     ['/proposals', t('nav.proposals'), <IconInbox key="i" />],
     ['/payroll', t('nav.payroll'), <IconRows key="i" />],
     ['/ledger', t('nav.ledger'), <IconDoc key="i" />],
+    ['/ceremonies', t('nav.ceremonies'), <IconShield key="i" />],
     ['/members', t('nav.members'), <IconUsers key="i" />],
     ['/people', t('nav.people'), <IconUser key="i" />],
     ['/settings', t('nav.settings'), <IconGear key="i" />],
@@ -149,3 +150,4 @@ function IconUser() { return <svg viewBox="0 0 24 24" {...s}><circle cx="12" cy=
 function IconReceive() { return <svg viewBox="0 0 24 24" {...s}><path d="M12 4v11m0 0l-4-4m4 4l4-4" /><path d="M5 20h14" /></svg> }
 function IconMore() { return <svg viewBox="0 0 24 24" {...s}><circle cx="5" cy="12" r="1.4" /><circle cx="12" cy="12" r="1.4" /><circle cx="19" cy="12" r="1.4" /></svg> }
 function IconGear() { return <svg viewBox="0 0 24 24" {...s}><circle cx="12" cy="12" r="3.2" /><path d="M12 2.5v3M12 18.5v3M4.2 7l2.6 1.5M17.2 15.5l2.6 1.5M4.2 17l2.6-1.5M17.2 8.5l2.6-1.5" /></svg> }
+function IconShield() { return <svg viewBox="0 0 24 24" {...s}><path d="M12 3l7 2.5v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9v-6z" /><path d="M9 12l2 2 4-4" /></svg> }
