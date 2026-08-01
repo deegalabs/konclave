@@ -89,12 +89,12 @@ const NET = helperConfigured()
 export const IS_NET = NET
 
 /** Map a helper proposal state to the lowercase states the PWA screens expect. */
-function netState(s: string): string {
+export function netState(s: string): string {
   return s === 'pending' ? 'awaiting' : s === 'refused' ? 'rejected' : s
 }
 
 /** Adapt a helper `Proposal` into the PWA's `Proposal` shape. */
-function mapNetProposal(p: NetProposal): Proposal {
+export function mapNetProposal(p: NetProposal): Proposal {
   return {
     id: p.id,
     vault_id: p.vault_id,
