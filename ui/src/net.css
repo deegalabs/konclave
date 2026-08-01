@@ -284,3 +284,9 @@
 .net-trail-row code { word-break: break-all; }
 .net-tag { font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; padding: 2px 8px; border-radius: 999px; background: var(--surface-3, rgba(120,130,145,0.18)); }
 .net-tag-live { background: var(--accent, #57a6ff); color: var(--surface-0, #0b0e12); }
+
+/* Persistent "back to the vault" door in the ceremony letterhead (redesign Fase 0.4b):
+   from any /net phase with an active vault there is always a way back to the app. */
+.net-back-btn{background:none; border:none; cursor:pointer; color:var(--text-muted, #93a0af);
+  font-family:var(--font-mono, ui-monospace, monospace); font-size:13px; padding:0; margin-right:14px}
+.net-back-btn:hover{color:var(--accent, #57a6ff)}

@@ -123,11 +123,16 @@ function hex(bytes: Uint8Array): string {
 const shortId = (s: string) => (s.length > 24 ? `${s.slice(0, 14)}…${s.slice(-6)}` : s)
 const fmtZec = (zat: number) => (zat / 1e8).toFixed(8).replace(/0+$/, '').replace(/\.$/, '')
 
-function Shell({ error, children }: { error: string; children: ReactNode }) {
+function Shell({ error, children, onDashboard }: { error: string; children: ReactNode; onDashboard?: () => void }) {
   const t = useT()
   return (
     <div className="rd net-wrap">
-      <Letterhead right={<span className="net-tag">{t('net.tag')}</span>} />
+      <Letterhead right={<>
+        {onDashboard && (
+          <button type="button" className="net-back-btn" onClick={onDashboard}>← {t('nav.dashboard')}</button>
+        )}
+        <span className="net-tag">{t('net.tag')}</span>
+      </>} />
       <div className="demo-frame">
         <span className="demo-eyebrow"><span className="dot" aria-hidden="true" />{t('net.frame.tag')}</span>
         <p className="demo-note">{t('net.frame.note')}</p>
@@ -944,7 +949,7 @@ export default function NetVault() {
 
   if (phase === 'idle') {
     return (
-      <Shell error={error}>
+      <Shell error={error} onDashboard={groupVk ? openDashboard : undefined}>
         <h1 className="net-h1">{tt('net.idle.title')}</h1>
         <p className="net-lead">{ttr('net.idle.lead')}</p>
         <p className="net-lead" style={{ fontSize: '.85rem', opacity: 0.8 }}>{ttr('net.idle.purpose')}</p>
@@ -1030,7 +1035,7 @@ export default function NetVault() {
 
   if (phase === 'restored') {
     return (
-      <Shell error={error}>
+      <Shell error={error} onDashboard={groupVk ? openDashboard : undefined}>
         <h1 className="net-h1">{L.restoredTitle}</h1>
         <p className="net-lead">{L.restoredLead}</p>
         <div className="net-vk">{groupVk}</div>
@@ -1225,7 +1230,7 @@ export default function NetVault() {
   )
 
   return (
-    <Shell error={error}>
+    <Shell error={error} onDashboard={groupVk ? openDashboard : undefined}>
       {role === 'create' && phase === 'roster' && (
         <>
           <h1 className="net-h1">{tt('net.invite.title')}</h1>
