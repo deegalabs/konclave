@@ -188,6 +188,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
   const [joinCode, setJoinCode] = useState('')
   const [n, setN] = useState(2)
   const [t, setT] = useState(2)
+  const [showJoin, setShowJoin] = useState(false) // embedded create modal: Join is a secondary reveal
   const [peers, setPeers] = useState(0)
   const [rosterCount, setRosterCount] = useState(0)
   const [log, setLog] = useState<string[]>([])
@@ -953,6 +954,67 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
   }, [])
 
   // ---- render ----
+
+  if (phase === 'idle' && embedded) {
+    // Clean, purpose-built create modal (redesign): device/quorum steppers, Create as the focus,
+    // Join as a secondary reveal, no restore clutter. Matches the app's rd-* modal design. The DKG
+    // logic (begin/setN/setT) is unchanged.
+    return (
+      <Shell error={error} embedded>
+        <span className="rd-eyebrow">{pe('CRIAR COFRE EM REDE', 'CREATE A NETWORKED VAULT')}</span>
+        <h2 className="cv-title">{pe('Novo cofre', 'New vault')}</h2>
+        <p className="cv-lead">
+          {pe(
+            'Dois ou mais aparelhos criam um cofre juntos, por DKG real. Cada um sai com o seu pedaço da chave; a chave inteira nunca é montada.',
+            'Two or more devices create one vault together, by a real DKG. Each leaves with its own share; the whole key is never assembled.',
+          )}
+        </p>
+
+        <div className="cv-controls">
+          <div className="cv-field">
+            <span className="cv-k">{pe('Dispositivos', 'Devices')}</span>
+            <div className="cv-stepper">
+              <button type="button" className="cv-step" disabled={n <= 2} aria-label={pe('menos', 'fewer')}
+                onClick={() => { const v = n - 1; setN(v); if (t > v) setT(v) }}>−</button>
+              <span className="cv-num">{n}</span>
+              <button type="button" className="cv-step" disabled={n >= 5} aria-label={pe('mais', 'more')}
+                onClick={() => setN(n + 1)}>+</button>
+            </div>
+          </div>
+          <div className="cv-field">
+            <span className="cv-k">{pe('Quórum para assinar', 'Signing quorum')}</span>
+            <div className="cv-stepper">
+              <button type="button" className="cv-step" disabled={t <= 1} aria-label={pe('menos', 'fewer')}
+                onClick={() => setT(t - 1)}>−</button>
+              <span className="cv-num">{t} <em>{pe('de', 'of')} {n}</em></span>
+              <button type="button" className="cv-step" disabled={t >= n} aria-label={pe('mais', 'more')}
+                onClick={() => setT(t + 1)}>+</button>
+            </div>
+          </div>
+        </div>
+
+        <button className="rd-enter primary cv-primary"
+          onClick={() => { setRole('create'); void begin('create', newRoomCode(), n, t) }}>
+          {pe('Gerar convite', 'Generate invite')}
+        </button>
+
+        {!showJoin ? (
+          <button type="button" className="cv-linkbtn" onClick={() => setShowJoin(true)}>
+            {pe('Tenho um convite — entrar', 'Have an invite? Join')}
+          </button>
+        ) : (
+          <div className="cv-join">
+            <input className="cv-input" placeholder={pe('Código do convite (ex.: KX7M4PQR)', 'Invite code (e.g. KX7M4PQR)')}
+              value={joinCode} onChange={(e) => setJoinCode(e.target.value.toUpperCase().trim())} autoFocus />
+            <button className="rd-enter" disabled={joinCode.length < 8}
+              onClick={() => { setRole('join'); void begin('join', joinCode, n, t) }}>
+              {pe('Entrar com o código', 'Join with the code')}
+            </button>
+          </div>
+        )}
+      </Shell>
+    )
+  }
 
   if (phase === 'idle') {
     return (
