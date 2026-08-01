@@ -604,6 +604,8 @@ export const ptBR: Record<string, string> = {
 
   // Networked vault (NetVault · /net · multi-device DKG over the blind relay)
   'net.tag': 'rede · relay cego',
+  'net.frame.tag': 'Ao vivo · rede',
+  'net.frame.note': 'A criptografia da rede rodando de verdade: o cofre nasce por DKG e cada aparelho assina com o seu pedaço. Nenhum servidor vê um segredo.',
   'net.idle.title': 'Criar um cofre em rede',
   'net.idle.lead': 'Duas ou mais abas (ou aparelhos) criam **um** cofre juntas, por um DKG de verdade pelo relay cego. Cada uma sai com o seu pedaço da chave. A chave inteira nunca é montada, e o relay só vê material público ou já cifrado.',
   'net.idle.purpose': 'Este é o caminho para onde o Konclave vai: operar um cofre real de **qualquer aparelho** por um relay cego. Hoje ele roda como **demonstração ao vivo**: o DKG e as assinaturas são criptografia real, mas o cofre não guarda fundos e nada é transmitido ainda. O que o transforma num cofre em operação de verdade é uma transação feita para o **endereço do próprio cofre**, mais o broadcast.',

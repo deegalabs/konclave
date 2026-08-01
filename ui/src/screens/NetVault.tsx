@@ -129,8 +129,8 @@ function Shell({ error, children }: { error: string; children: ReactNode }) {
     <div className="rd net-wrap">
       <Letterhead right={<span className="net-tag">{t('net.tag')}</span>} />
       <div className="demo-frame">
-        <span className="demo-eyebrow"><span className="dot" aria-hidden="true" />{t('demo.live')}</span>
-        <p className="demo-note">{t('demo.note')}</p>
+        <span className="demo-eyebrow"><span className="dot" aria-hidden="true" />{t('net.frame.tag')}</span>
+        <p className="demo-note">{t('net.frame.note')}</p>
       </div>
       {error && <div className="net-error">{error}</div>}
       {children}
