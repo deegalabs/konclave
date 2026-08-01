@@ -20,6 +20,7 @@ import Docs from './screens/Docs'
 import Proof from './screens/Proof'
 import Recovery from './screens/Recovery'
 import Inheritance from './screens/Inheritance'
+import Settings from './screens/Settings'
 import './App.css'
 
 export default function App() {
@@ -51,6 +52,7 @@ export default function App() {
           <Route path="/ledger" element={<Ledger />} />
           <Route path="/members" element={<Members />} />
           <Route path="/people" element={<People />} />
+          <Route path="/settings" element={<Settings />} />
         </Route>
       </Routes>
     </div>

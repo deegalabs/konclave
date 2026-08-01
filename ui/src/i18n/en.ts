@@ -139,6 +139,7 @@ export const en: Record<string, string> = {
   'nav.ledger': 'Ledger',
   'nav.members': 'Members',
   'nav.people': 'People',
+  'nav.settings': 'Settings',
   'nav.switchVault': 'Switch vault',
   'nav.more': 'More',
 

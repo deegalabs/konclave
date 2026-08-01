@@ -447,3 +447,25 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 /* panels/cards: a touch of depth instead of flat */
 .opnav.card{background:linear-gradient(180deg,var(--surface-2),var(--surface-1));
   box-shadow:0 14px 36px -28px rgba(0,0,0,.72)}
+
+/* — /settings (redesign Fase 0): per-vault info list + danger zone — */
+.set-list{border:1px solid var(--line-soft); border-radius:var(--radius); overflow:hidden}
+.set-row{display:flex; align-items:center; justify-content:space-between; gap:16px;
+  padding:13px 16px; border-bottom:1px solid var(--line-soft); font-size:14px}
+.set-row:last-child{border-bottom:none}
+.set-k{color:var(--text-muted)}
+.set-v{color:var(--text); font-weight:600; text-align:right}
+.set-v.mono{font-family:var(--font-mono); font-weight:500; letter-spacing:.01em}
+.set-badge{font-family:var(--font-mono); font-size:11px; letter-spacing:.05em; text-transform:uppercase;
+  color:var(--accent); background:var(--accent-soft); border-radius:var(--radius-pill); padding:3px 10px}
+.set-danger{border:1px solid var(--danger-line); border-radius:var(--radius); padding:18px 18px 20px;
+  background:var(--danger-soft)}
+.set-danger-title{margin:0 0 4px; font-size:15px; color:var(--danger-text)}
+.set-danger-note{margin:0 0 14px; font-size:13.5px; color:var(--text-muted); max-width:62ch; line-height:1.55}
+.set-confirm{display:flex; flex-direction:column; gap:12px}
+.set-confirm-label{display:flex; flex-direction:column; gap:7px; font-size:13px; color:var(--text-muted)}
+.set-input{background:var(--surface-1); border:1px solid var(--line); border-radius:var(--radius-sm);
+  color:var(--text); padding:9px 12px; font-size:14px; font-family:var(--font-mono); max-width:320px}
+.set-input:focus{outline:none; border-color:var(--accent-line)}
+.set-confirm-actions{display:flex; gap:10px; flex-wrap:wrap}
+.set-err{margin:0; font-size:13px; color:var(--danger-text)}

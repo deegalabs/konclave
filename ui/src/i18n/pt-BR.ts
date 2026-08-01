@@ -139,6 +139,7 @@ export const ptBR: Record<string, string> = {
   'nav.ledger': 'Registro',
   'nav.members': 'Membros',
   'nav.people': 'Pessoas',
+  'nav.settings': 'Ajustes',
   'nav.switchVault': 'Trocar cofre',
   'nav.more': 'Mais',
 
