@@ -467,13 +467,19 @@ export default function NetVault() {
 
       // ---- rejoin (signing after restore): re-seat by declared seat, not by fresh tags ----
       if (parsed.type === 'rejoin') {
+        // A device that reloads rejoins with a FRESH ephemeral tag but the SAME seat. Drop any
+        // stale tag for that seat first, so each seat has exactly one presence: the count is
+        // distinct SEATS (never > n), and the seat table has no duplicate seats to break signing.
+        for (const [tag, seat] of seatByTagRef.current.entries()) {
+          if (seat === parsed.seat && tag !== msg.from) seatByTagRef.current.delete(tag)
+        }
         seatByTagRef.current.set(msg.from, parsed.seat)
         seatTableRef.current = [...seatByTagRef.current.entries()].map(([tag, seat]) => ({
           tag,
           encPub: new Uint8Array(),
           id: identifierBytes(seat),
         }))
-        setSignSeatCount(seatByTagRef.current.size)
+        setSignSeatCount(new Set(seatByTagRef.current.values()).size)
         return true
       }
 
