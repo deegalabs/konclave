@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { getVaults, health, setSelectedVault, unlockVault, markVaultUnlocked, shortAddr, type Vault } from '../api'
+import { getVaults, health, setSelectedVault, unlockVault, markVaultUnlocked, isVaultUnlocked, shortAddr, type Vault } from '../api'
 import { helperConfigured } from '../helper'
 import { listVaults } from '../storage'
 import { Identicon } from '../avatar'
@@ -36,9 +36,10 @@ export default function Vaults() {
 
   function enter(v: Vault) {
     setSelectedVault(v.id)
-    // Browser-native: the Dashboard reads this vault from the helper (balance / proposals / ledger).
-    // Signing (executing a payment) still happens in /net, where the share lives.
-    if (netMode) { nav('/dashboard'); return }
+    // Browser-native: entering a vault requires unlocking YOUR share on this device (the access
+    // gate). The /unlock screen decrypts it into the session store; the Dashboard then opens and the
+    // signing ceremony reuses the same unlocked share. Already unlocked this session -> straight in.
+    if (netMode) { nav(isVaultUnlocked(v.id) ? '/dashboard' : '/unlock'); return }
     if (v.locked) { setUnlocking(v); setPass(''); setUnlockErr(null) }
     else nav('/dashboard')
   }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { setSelectedVault } from '../api'
+import { setSelectedVault, getSelectedVault } from '../api'
+import { getUnlockedShare } from '../session'
 import init, {
   DkgSession,
   DeviceKey,
@@ -24,6 +25,7 @@ import {
   deleteVault,
   storageAvailable,
   type VaultPublic,
+  type VaultLoaded,
 } from '../storage'
 import {
   helperConfigured,
@@ -883,6 +885,31 @@ export default function NetVault() {
   // Restore a saved vault: unlock with the passphrase, bring the vault identity back into view
   // WITHOUT redoing the DKG. The secret material is held in memory (restoredRef) for a future
   // signing-after-restore step; the live relay/ceremony refs are left untouched.
+  // Bring a decrypted vault into the 'restored' phase (no DKG redo). Shared by the passphrase path
+  // (doRestore) and the access-gate path (a share already unlocked at /unlock, held in session.ts).
+  const applyLoaded = useCallback((v: VaultLoaded) => {
+    const bundle = JSON.parse(new TextDecoder().decode(v.sealedShare)) as {
+      kp: string
+      pubkeys: string
+      seat: number
+      n: number
+      t: number
+    }
+    restoredRef.current = {
+      keyPackage: unb64(bundle.kp),
+      pubkeys: unb64(bundle.pubkeys),
+      groupVk: v.groupKey,
+      seat: bundle.seat,
+      n: bundle.n,
+      t: bundle.t,
+    }
+    setGroupVk(hex(v.groupKey))
+    setRestoredRoster(v.roster)
+    if (bundle.n) setN(bundle.n)
+    if (bundle.t) setT(bundle.t)
+    setPhase('restored')
+  }, [])
+
   const doRestore = useCallback(
     async (id: string) => {
       const pass = restorePass[id] ?? ''
@@ -890,36 +917,26 @@ export default function NetVault() {
       setRestoreBusy(id)
       setRestoreErr('')
       try {
-        const v = await loadVault(id, pass)
-        const bundle = JSON.parse(new TextDecoder().decode(v.sealedShare)) as {
-          kp: string
-          pubkeys: string
-          seat: number
-          n: number
-          t: number
-        }
-        restoredRef.current = {
-          keyPackage: unb64(bundle.kp),
-          pubkeys: unb64(bundle.pubkeys),
-          groupVk: v.groupKey,
-          seat: bundle.seat,
-          n: bundle.n,
-          t: bundle.t,
-        }
-        setGroupVk(hex(v.groupKey))
-        setRestoredRoster(v.roster)
-        if (bundle.n) setN(bundle.n)
-        if (bundle.t) setT(bundle.t)
+        applyLoaded(await loadVault(id, pass))
         setRestorePass((m) => ({ ...m, [id]: '' }))
-        setPhase('restored')
       } catch (e) {
         setRestoreErr(L.restoreErr + String(e))
       } finally {
         setRestoreBusy('')
       }
     },
-    [restorePass, L],
+    [restorePass, L, applyLoaded],
   )
+
+  // Access gate: if this device's share was already unlocked at /unlock (session store), restore
+  // straight into the signing-ready state, no second passphrase prompt.
+  useEffect(() => {
+    if (phase !== 'idle') return
+    const id = getSelectedVault()
+    if (!id) return
+    const v = getUnlockedShare(id)
+    if (v) applyLoaded(v)
+  }, [phase, applyLoaded])
 
   const doDelete = useCallback(
     async (id: string) => {

@@ -23,6 +23,7 @@ import Recovery from './screens/Recovery'
 import Inheritance from './screens/Inheritance'
 import Settings from './screens/Settings'
 import Lab from './screens/Lab'
+import Unlock from './screens/Unlock'
 import './App.css'
 
 export default function App() {
@@ -34,6 +35,7 @@ export default function App() {
         {/* Onboarding — standalone, no rail */}
         <Route path="/" element={<Intro />} />
         <Route path="/vaults" element={<Vaults />} />
+        <Route path="/unlock" element={<Unlock />} />
         <Route path="/intro" element={<Intro />} />
         <Route path="/demo" element={<Demo />} />
         <Route path="/signer" element={<WasmSigner />} />
