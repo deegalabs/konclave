@@ -4,7 +4,7 @@ import { Secret, Dialog } from '../components'
 import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
 import { fmtZec } from '../format'
-import { useT, useTr } from '../i18n'
+import { useT, useTr, useI18n } from '../i18n'
 import {
   getProposalDetail, getProposals, getVault, voteProposal, sendProposal, shortAddr, humanError,
   IS_NET, type Proposal, type PayrollLine,
@@ -13,6 +13,8 @@ import {
 export default function Proposal() {
   const t = useT()
   const tr = useTr()
+  const { locale } = useI18n()
+  const pe = (ptxt: string, en: string) => (locale === 'pt-BR' ? ptxt : en)
   const loc = useLocation() as { state?: { id?: string } }
   const nav = useNavigate()
   const [p, setP] = useState<Proposal | null>(null)
@@ -211,15 +213,33 @@ export default function Proposal() {
             <div className="confirm mt ready">
               {isPayroll ? tr('proposal.readyPayroll') : tr('proposal.readyPayment')}
             </div>
-            <div className="btns mt">
-              <button className="btn ok" onClick={() => setConfirmSend(true)} disabled={sending !== null}>
-                {sending === 'real' ? t('proposal.signingSending') : (isPayroll ? t('proposal.signSendPayroll') : t('proposal.signSendPayment'))}
-              </button>
-              <button className="btn" onClick={() => send(true)} disabled={sending !== null} title={t('proposal.validateTitle')}>
-                {sending === 'dry' ? t('proposal.validating') : t('proposal.validateBtn')}
-              </button>
-            </div>
-            {dryOk && <div className="hint mt-sm ready">{t('proposal.dryOkPre')}</div>}
+            {IS_NET ? (
+              <>
+                <div className="btns mt">
+                  <button className="btn ok" onClick={() => nav('/net')}>
+                    {pe('Ir para a cerimônia de assinatura →', 'Go to the signing ceremony →')}
+                  </button>
+                </div>
+                <div className="hint mt-sm">
+                  {pe(
+                    'Você assina lá, no seu aparelho, com o seu pedaço da chave. Quando o quórum assina, a proposta volta como Enviada.',
+                    'You sign there, on your device, with your own share of the key. Once the quorum signs, the proposal returns as Sent.',
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="btns mt">
+                  <button className="btn ok" onClick={() => setConfirmSend(true)} disabled={sending !== null}>
+                    {sending === 'real' ? t('proposal.signingSending') : (isPayroll ? t('proposal.signSendPayroll') : t('proposal.signSendPayment'))}
+                  </button>
+                  <button className="btn" onClick={() => send(true)} disabled={sending !== null} title={t('proposal.validateTitle')}>
+                    {sending === 'dry' ? t('proposal.validating') : t('proposal.validateBtn')}
+                  </button>
+                </div>
+                {dryOk && <div className="hint mt-sm ready">{t('proposal.dryOkPre')}</div>}
+              </>
+            )}
             <div className="hint mt-sm">{t('proposal.signNeverReassembles')}</div>
           </>
         )}
