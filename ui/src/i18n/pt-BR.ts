@@ -605,7 +605,7 @@ export const ptBR: Record<string, string> = {
   'net.tag': 'rede · relay cego',
   'net.idle.title': 'Criar um cofre em rede',
   'net.idle.lead': 'Duas ou mais abas (ou aparelhos) criam **um** cofre juntas, por um DKG de verdade pelo relay cego. Cada uma sai com o seu pedaço da chave. A chave inteira nunca é montada, e o relay só vê material público ou já cifrado.',
-  'net.idle.purpose': 'Este é o caminho para onde o Konclave vai: operar um cofre real de **qualquer aparelho** por um relay cego. Hoje ele roda como **demonstração ao vivo** — o DKG e as assinaturas são criptografia real, mas o cofre não guarda fundos e nada é transmitido ainda. O que o transforma num cofre em operação de verdade é uma transação feita para o **endereço do próprio cofre**, mais o broadcast.',
+  'net.idle.purpose': 'Este é o caminho para onde o Konclave vai: operar um cofre real de **qualquer aparelho** por um relay cego. Hoje ele roda como **demonstração ao vivo**: o DKG e as assinaturas são criptografia real, mas o cofre não guarda fundos e nada é transmitido ainda. O que o transforma num cofre em operação de verdade é uma transação feita para o **endereço do próprio cofre**, mais o broadcast.',
   'net.idle.createTitle': 'Criar',
   'net.idle.createDesc': 'Você abre o cofre e gera um código de convite.',
   'net.idle.devices': 'Dispositivos',
