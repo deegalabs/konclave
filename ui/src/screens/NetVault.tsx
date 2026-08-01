@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { setSelectedVault } from '../api'
 import init, {
   DkgSession,
   DeviceKey,
@@ -156,6 +158,15 @@ export default function NetVault() {
   const ttr = useTr()
   const { locale } = useI18n()
   const pe = (pt: string, en: string) => (locale === 'pt-BR' ? pt : en)
+  const nav = useNavigate()
+  // Open the vault in the app: select it (so api.ts reads it from the helper) and go to the
+  // Dashboard, the everyday vault interface. This is the bridge from the /net ceremony screen to
+  // the operating UI (create/restore here, operate there).
+  const openDashboard = () => {
+    if (!groupVk) return
+    setSelectedVault(groupVk)
+    nav('/dashboard')
+  }
   const L = PERSIST_LABELS[locale]
   const [phase, setPhase] = useState<Phase>('idle')
   const [role, setRole] = useState<'create' | 'join'>('create')
@@ -1022,6 +1033,10 @@ export default function NetVault() {
         )}
         <p className="net-tip">{L.restoredNote}</p>
 
+        <button className="net-btn primary" style={{ marginTop: 8 }} onClick={openDashboard}>
+          {pe('Abrir o cofre (Dashboard) →', 'Open the vault (Dashboard) →')}
+        </button>
+
         <div className="net-card" style={{ marginTop: 16 }}>
           <h3>{pe('Assinar com este cofre', 'Sign with this vault')}</h3>
           <p>{pe('Reingresse com os outros membros numa sessão de assinatura pelo relay.', 'Rejoin the other members in a signing session over the relay.')}</p>
@@ -1240,6 +1255,12 @@ export default function NetVault() {
           <p className="net-lead">{ttr('net.done.lead')}</p>
           <div className="net-vk">{groupVk}</div>
           <p className="net-tip">{tt('net.done.tip')}</p>
+
+          {hostedState === 'registered' && (
+            <button className="net-btn primary" style={{ marginTop: 12 }} onClick={openDashboard}>
+              {pe('Abrir o cofre (Dashboard) →', 'Open the vault (Dashboard) →')}
+            </button>
+          )}
 
           {hostedState !== 'idle' && (
             <div className="net-card" style={{ marginTop: 16 }}>
