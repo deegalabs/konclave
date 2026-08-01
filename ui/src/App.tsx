@@ -1,5 +1,6 @@
 import { Routes, Route } from 'react-router-dom'
 import { useReveal } from './reveal'
+import { DemoBanner } from './components'
 import Layout from './Layout'
 import Demo from './screens/Demo'
 import WasmSigner from './screens/WasmSigner'
@@ -28,6 +29,7 @@ export default function App() {
   const { revealed } = useReveal()
   return (
     <div className={'root' + (revealed ? ' revealed' : '')}>
+      <DemoBanner />
       <Routes>
         {/* Onboarding — standalone, no rail */}
         <Route path="/" element={<Intro />} />

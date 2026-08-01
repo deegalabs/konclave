@@ -2,6 +2,23 @@ import { useEffect, useRef, type ReactNode, type KeyboardEvent as ReactKeyboardE
 import { Link } from 'react-router-dom'
 import { useReveal } from './reveal'
 import { useI18n, useT } from './i18n'
+import { IS_DEMO } from './api'
+
+/** A thin, always-visible strip on the hosted demo build (VITE_DEMO=1) so a visitor never
+ *  mistakes the sample data for a real vault. Renders nothing outside the demo build. */
+export function DemoBanner() {
+  const { locale } = useI18n()
+  if (!IS_DEMO) return null
+  const pt = locale === 'pt-BR'
+  return (
+    <div className="demo-banner" role="note">
+      <span className="demo-banner-tag">DEMO</span>
+      {pt
+        ? 'Demonstração com dados de exemplo. Nenhum fundo real, nenhuma transação de verdade.'
+        : 'Demonstration with sample data. No real funds, no real transactions.'}
+    </div>
+  )
+}
 
 /** Enter/Space handler for elements given `role="button"` + `tabIndex`.
  *  Ignores events bubbling up from nested controls so a row doesn't fire when

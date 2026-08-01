@@ -469,3 +469,10 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 .set-input:focus{outline:none; border-color:var(--accent-line)}
 .set-confirm-actions{display:flex; gap:10px; flex-wrap:wrap}
 .set-err{margin:0; font-size:13px; color:var(--danger-text)}
+
+/* — DEMO build banner (VITE_DEMO=1): unmistakable, so sample data is never taken for a real vault — */
+.demo-banner{position:sticky; top:0; z-index:60; display:flex; align-items:center; justify-content:center;
+  gap:10px; padding:7px 14px; font-size:12.5px; color:var(--tarja-ink,#0f141a);
+  background:var(--accent); font-family:var(--font-sans); text-align:center; line-height:1.3}
+.demo-banner-tag{font-family:var(--font-mono); font-size:10px; font-weight:700; letter-spacing:.12em;
+  border:1px solid rgba(15,20,26,.35); border-radius:999px; padding:2px 8px}
