@@ -127,7 +127,9 @@ export default function Dashboard() {
         status: p.state === 'sent' || p.state === 'confirmed' ? 'confirmado' : 'verificar',
       }))
     : null
-  const movimentos = movs ?? MOVIMENTOS_MOCK
+  // Real ledger when there is one; the mock showcase ONLY when genuinely offline/demo. A LIVE vault
+  // with an empty ledger (e.g. a fresh /net vault, no proposals yet) shows no movements, not mock.
+  const movimentos: Movimento[] = movs ?? (live === false || IS_DEMO ? MOVIMENTOS_MOCK : [])
 
   // Delete flow (local only). Locked vaults require the word; unlocked ones require
   // typing the vault name. If this device sees a spendable balance, warn hard.
