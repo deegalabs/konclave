@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { getVaults, health, setSelectedVault, unlockVault, markVaultUnlocked, isVaultUnlocked, shortAddr, type Vault } from '../api'
 import { helperConfigured } from '../helper'
-import { listVaults } from '../storage'
+import { listVaults, loadVault } from '../storage'
+import { setUnlockedShare } from '../session'
 import { Identicon } from '../avatar'
 import { Dialog, Letterhead, activateOnKey } from '../components'
 import { useT, useTr, useI18n } from '../i18n'
@@ -36,20 +37,33 @@ export default function Vaults() {
 
   function enter(v: Vault) {
     setSelectedVault(v.id)
-    // Browser-native: entering a vault requires unlocking YOUR share on this device (the access
-    // gate). The /unlock screen decrypts it into the session store; the Dashboard then opens and the
-    // signing ceremony reuses the same unlocked share. Already unlocked this session -> straight in.
-    if (netMode) { nav(isVaultUnlocked(v.id) ? '/dashboard' : '/unlock'); return }
-    if (v.locked) { setUnlocking(v); setPass(''); setUnlockErr(null) }
+    // The access gate is the SAME inline unlock dialog for both worlds: entering a vault decrypts
+    // YOUR share on this device first. Already unlocked this session -> straight in. Browser-native
+    // vaults always hold a device share, so they always unlock; local-bridge vaults only when locked.
+    if (isVaultUnlocked(v.id)) { nav('/dashboard'); return }
+    if (netMode || v.locked) { setUnlocking(v); setPass(''); setUnlockErr(null) }
     else nav('/dashboard')
   }
   async function doUnlock() {
     if (!unlocking || !pass) return
     setUnlockBusy(true); setUnlockErr(null)
-    const r = await unlockVault(pass)
-    setUnlockBusy(false)
-    if (r.ok) { markVaultUnlocked(unlocking.id); nav('/dashboard') }
-    else setUnlockErr(r.wrong ? t('vaults.unlockWrong') : t('vaults.unlockFail'))
+    try {
+      if (netMode) {
+        // Browser-native: decrypt this device's share into the session store, then open.
+        const v = await loadVault(unlocking.id, pass)
+        setUnlockedShare(unlocking.id, v)
+        markVaultUnlocked(unlocking.id)
+        nav('/dashboard')
+        return
+      }
+      const r = await unlockVault(pass)
+      if (r.ok) { markVaultUnlocked(unlocking.id); nav('/dashboard') }
+      else setUnlockErr(r.wrong ? t('vaults.unlockWrong') : t('vaults.unlockFail'))
+    } catch {
+      setUnlockErr(t('vaults.unlockWrong'))
+    } finally {
+      setUnlockBusy(false)
+    }
   }
 
   useEffect(() => {
@@ -157,9 +171,12 @@ export default function Vaults() {
         <Dialog className="unlock-overlay" cardClassName="unlock-card" labelledBy="unlock-title" onClose={() => setUnlocking(null)}>
           <div className="rd-eyebrow">{t('vaults.protectedVault')}</div>
           <h2 id="unlock-title">{unlocking.name}</h2>
-          <p>{tr('vaults.unlockPrompt')}</p>
+          <p>{netMode
+            ? pe('Digite a sua frase-senha deste aparelho para abrir o seu pedaço da chave. A chave é decifrada só na memória.',
+                 'Type your passphrase for this device to open your share of the key. The key is decrypted only in memory.')
+            : tr('vaults.unlockPrompt')}</p>
           <input
-            className="unlock-input mono" type="password" placeholder={t('vaults.wordPlaceholder')}
+            className="unlock-input mono" type="password" placeholder={netMode ? pe('Frase-senha', 'Passphrase') : t('vaults.wordPlaceholder')}
             value={pass} onChange={(e) => setPass(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') void doUnlock() }}
           />
