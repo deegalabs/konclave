@@ -6,7 +6,7 @@ import { listVaults, loadVault } from '../storage'
 import { setUnlockedShare } from '../session'
 import { Identicon } from '../avatar'
 import { Dialog, Letterhead, activateOnKey } from '../components'
-import { useT, useTr, useI18n } from '../i18n'
+import { useT, useTr } from '../i18n'
 import '../redesign.css'
 
 const MOCK: Vault[] = [
@@ -20,8 +20,6 @@ const MOCK: Vault[] = [
 export default function Vaults() {
   const t = useT()
   const tr = useTr()
-  const { locale } = useI18n()
-  const pe = (pt: string, en: string) => (locale === 'pt-BR' ? pt : en)
   const nav = useNavigate()
   // Browser-native mode (a hosted blind helper is configured): the /vaults screen lists the vaults
   // THIS DEVICE holds a share for (from encrypted IndexedDB), never a global helper list, so one
@@ -79,7 +77,7 @@ export default function Vaults() {
         setLive(true)
         setVaults(saved.map((s) => ({
           id: s.id,
-          name: pe('Cofre em rede', 'Networked vault'),
+          name: t('vaults.networkedVault'),
           // roster length is the participant count; the threshold is not stored on-device, so the
           // card shows a neutral "networked" tag instead of a possibly-wrong quorum (threshold: 0).
           threshold: 0,
@@ -125,7 +123,7 @@ export default function Vaults() {
             return (
               <div key={v.id} className="rd-card" role="button" tabIndex={0}
                 onClick={() => enter(v)} onKeyDown={activateOnKey(() => enter(v))}>
-                <span className="rd-qtag">{v.threshold > 0 ? t('vaults.quorumOf', { t: v.threshold, n: v.total }) : pe('Em rede', 'Networked')}{v.locked ? ` · ${t('vaults.lockedTag')}` : ''}</span>
+                <span className="rd-qtag">{v.threshold > 0 ? t('vaults.quorumOf', { t: v.threshold, n: v.total }) : t('vaults.networkedTag')}{v.locked ? ` · ${t('vaults.lockedTag')}` : ''}</span>
                 <h3>{v.name}</h3>
                 <div className="rd-avatars">
                   {avatars.slice(0, 4).map((m, i) => <Identicon key={i} seed={m.pubkey || m.name} />)}
@@ -172,11 +170,10 @@ export default function Vaults() {
           <div className="rd-eyebrow">{t('vaults.protectedVault')}</div>
           <h2 id="unlock-title">{unlocking.name}</h2>
           <p>{netMode
-            ? pe('Digite a sua frase-senha deste aparelho para abrir o seu pedaço da chave. A chave é decifrada só na memória.',
-                 'Type your passphrase for this device to open your share of the key. The key is decrypted only in memory.')
+            ? t('vaults.netUnlockPrompt')
             : tr('vaults.unlockPrompt')}</p>
           <input
-            className="unlock-input mono" type="password" placeholder={netMode ? pe('Frase-senha', 'Passphrase') : t('vaults.wordPlaceholder')}
+            className="unlock-input mono" type="password" placeholder={netMode ? t('vaults.passphrase') : t('vaults.wordPlaceholder')}
             value={pass} onChange={(e) => setPass(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') void doUnlock() }}
           />

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Seal } from '../components'
 import { PageHeader, PageFooter, NextStep } from '../page'
 import { Identicon } from '../avatar'
-import { useT, useTr, useI18n } from '../i18n'
+import { useT, useTr } from '../i18n'
 import { getVault, health, shortAddr, IS_NET, setVaultMembers, type Vault } from '../api'
 
 const ME = 'Alice' // this device acts as the coordinator member (single-device demo)
@@ -11,8 +11,6 @@ const ME = 'Alice' // this device acts as the coordinator member (single-device 
 export default function Members() {
   const t = useT()
   const tr = useTr()
-  const { locale } = useI18n()
-  const pe = (ptxt: string, en: string) => (locale === 'pt-BR' ? ptxt : en)
   const nav = useNavigate()
   const [vault, setVault] = useState<Vault | null>(null)
   const [live, setLive] = useState<boolean | null>(null)
@@ -82,7 +80,7 @@ export default function Members() {
 
         {IS_NET && vault && (
           <div className="confirm mt">
-            <div className="who-name mb-sm">{pe('Nomeie os membros', 'Name the members')}</div>
+            <div className="who-name mb-sm">{t('members.nameThem')}</div>
             {Array.from({ length: n }, (_, i) => (
               <input
                 key={i}
@@ -98,7 +96,7 @@ export default function Members() {
               />
             ))}
             <button className="btn ok sm-btn mt-sm" disabled={saving} onClick={() => void saveNames()}>
-              {saving ? '…' : pe('Salvar', 'Save')}
+              {saving ? '…' : t('members.save')}
             </button>
           </div>
         )}
