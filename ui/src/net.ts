@@ -149,20 +149,8 @@ export function ephemeralTag(): string {
   return 'p-' + Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
 }
 
-/** Encode bytes as base64 for the opaque `data` string the relay carries. */
-export function b64(bytes: Uint8Array): string {
-  let s = ''
-  for (const byte of bytes) s += String.fromCharCode(byte)
-  return btoa(s)
-}
-
-/** Decode a base64 wire string back to bytes. */
-export function unb64(s: string): Uint8Array {
-  const bin = atob(s)
-  const out = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i)
-  return out
-}
+// base64 codecs for the opaque `data` string the relay carries (canonical home: bytes.ts).
+export { b64, unb64 } from './bytes'
 
 /** Compare two byte arrays for equality (identifier matching). */
 export function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {

@@ -228,10 +228,9 @@ export async function getBalance(): Promise<Balance | null> {
 }
 
 /** Shorten an address for display: `u1vjgx…d406dr`. */
-export function shortAddr(addr: string, head = 6, tail = 6): string {
-  if (addr.length <= head + tail + 1) return addr
-  return `${addr.slice(0, head)}…${addr.slice(-tail)}`
-}
+// shortAddr moved to format.ts (display formatting belongs there, not in the transport client);
+// re-exported so existing `import { shortAddr } from '../api'` call sites keep working.
+export { shortAddr } from './format'
 
 // ---- writes ----
 

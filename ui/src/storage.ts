@@ -9,6 +9,8 @@
 // No dependencies: raw IndexedDB + crypto.subtle, with feature detection and explicit errors so a
 // missing/blocked API surfaces a clear failure instead of a silent loss (a boundary, §6.8).
 
+import { bytesToHex as hex, hexToBytes as unhex } from './bytes'
+
 const DB_NAME = 'konclave'
 const STORE = 'vaults'
 const DB_VERSION = 1
@@ -52,16 +54,6 @@ interface VaultRecord {
   cipher: Uint8Array
 }
 
-function hex(bytes: Uint8Array): string {
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
-}
-
-function unhex(s: string): Uint8Array {
-  const clean = s.trim().toLowerCase()
-  const out = new Uint8Array(clean.length / 2)
-  for (let i = 0; i < out.length; i++) out[i] = parseInt(clean.slice(i * 2, i * 2 + 2), 16)
-  return out
-}
 
 /** True when this browser has both IndexedDB and WebCrypto (AES-GCM/PBKDF2 live under subtle). */
 export function storageAvailable(): boolean {
