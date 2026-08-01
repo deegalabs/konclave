@@ -290,3 +290,8 @@
 .net-back-btn{background:none; border:none; cursor:pointer; color:var(--text-muted, #93a0af);
   font-family:var(--font-mono, ui-monospace, monospace); font-size:13px; padding:0; margin-right:14px}
 .net-back-btn:hover{color:var(--accent, #57a6ff)}
+
+/* Embedded NetVault (inside the /vaults create modal): no full-page wrap, fits the Dialog. */
+.net-embedded{padding:0}
+.net-embedded .net-h1{font-size:clamp(22px,3.5vw,30px)}
+.net-embedded .net-cards{margin-top:6px}

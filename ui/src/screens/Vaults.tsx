@@ -6,6 +6,7 @@ import { listVaults, loadVault } from '../storage'
 import { setUnlockedShare } from '../session'
 import { Identicon } from '../avatar'
 import { Dialog, Letterhead, activateOnKey } from '../components'
+import NetVault from './NetVault'
 import { useT, useTr } from '../i18n'
 import '../redesign.css'
 
@@ -29,6 +30,7 @@ export default function Vaults() {
   const [loaded, setLoaded] = useState(false)
   const [live, setLive] = useState(false)
   const [unlocking, setUnlocking] = useState<Vault | null>(null)
+  const [creating, setCreating] = useState(false)
   const [pass, setPass] = useState('')
   const [unlockErr, setUnlockErr] = useState<string | null>(null)
   const [unlockBusy, setUnlockBusy] = useState(false)
@@ -138,7 +140,7 @@ export default function Vaults() {
           })}
 
           <div className="rd-card rd-create" role="button" tabIndex={0}
-            onClick={() => nav(netMode ? '/net' : '/create')} onKeyDown={activateOnKey(() => nav(netMode ? '/net' : '/create'))}>
+            onClick={() => (netMode ? setCreating(true) : nav('/create'))} onKeyDown={activateOnKey(() => (netMode ? setCreating(true) : nav('/create')))}>
             <div>
               <div className="ic">
                 <svg width="34" height="34" viewBox="0 0 34 34" fill="none" stroke="currentColor" strokeWidth="1.6">
@@ -184,6 +186,12 @@ export default function Vaults() {
               {unlockBusy ? t('vaults.verifying') : t('vaults.enterArrow')}
             </button>
           </div>
+        </Dialog>
+      )}
+
+      {creating && (
+        <Dialog className="create-overlay" cardClassName="create-card" labelledBy="create-title" onClose={() => setCreating(false)}>
+          <NetVault embedded />
         </Dialog>
       )}
     </div>

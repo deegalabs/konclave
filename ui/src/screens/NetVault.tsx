@@ -122,8 +122,18 @@ function hex(bytes: Uint8Array): string {
 const shortId = (s: string) => (s.length > 24 ? `${s.slice(0, 14)}…${s.slice(-6)}` : s)
 const fmtZec = (zat: number) => (zat / 1e8).toFixed(8).replace(/0+$/, '').replace(/\.$/, '')
 
-function Shell({ error, children, onDashboard }: { error: string; children: ReactNode; onDashboard?: () => void }) {
+function Shell({ error, children, onDashboard, embedded }: { error: string; children: ReactNode; onDashboard?: () => void; embedded?: boolean }) {
   const t = useT()
+  // Embedded (inside the /vaults create modal): render just the content, no full-page wrap /
+  // letterhead / frame — the Dialog is the chrome. Same DKG flow, different container.
+  if (embedded) {
+    return (
+      <div className="rd net-embedded">
+        {error && <div className="net-error">{error}</div>}
+        {children}
+      </div>
+    )
+  }
   return (
     <div className="rd net-wrap">
       <Letterhead right={<>
@@ -157,7 +167,7 @@ function alphasFromPczt(pczt: Uint8Array): { index: number; alpha: Uint8Array }[
   return out
 }
 
-export default function NetVault() {
+export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
   const tt = useT()
   const ttr = useTr()
   const { locale } = useI18n()
@@ -946,7 +956,7 @@ export default function NetVault() {
 
   if (phase === 'idle') {
     return (
-      <Shell error={error} onDashboard={groupVk ? openDashboard : undefined}>
+      <Shell error={error} embedded={embedded} onDashboard={groupVk ? openDashboard : undefined}>
         <h1 className="net-h1">{tt('net.idle.title')}</h1>
         <p className="net-lead">{ttr('net.idle.lead')}</p>
         <p className="net-lead" style={{ fontSize: '.85rem', opacity: 0.8 }}>{ttr('net.idle.purpose')}</p>
@@ -1032,7 +1042,7 @@ export default function NetVault() {
 
   if (phase === 'restored') {
     return (
-      <Shell error={error} onDashboard={groupVk ? openDashboard : undefined}>
+      <Shell error={error} embedded={embedded} onDashboard={groupVk ? openDashboard : undefined}>
         <h1 className="net-h1">{L.restoredTitle}</h1>
         <p className="net-lead">{L.restoredLead}</p>
         <div className="net-vk">{groupVk}</div>
@@ -1175,7 +1185,7 @@ export default function NetVault() {
   )
 
   return (
-    <Shell error={error} onDashboard={groupVk ? openDashboard : undefined}>
+    <Shell error={error} embedded={embedded} onDashboard={groupVk ? openDashboard : undefined}>
       {role === 'create' && phase === 'roster' && (
         <>
           <h1 className="net-h1">{tt('net.invite.title')}</h1>
