@@ -2,10 +2,18 @@
    consolidated tokens with hard fallbacks so it renders even before global CSS loads. */
 
 .net-wrap {
-  max-width: 760px;
+  max-width: 900px;
   margin-inline: auto;
   padding: clamp(20px, 4vw, 40px);
   min-height: 100vh;
+}
+/* The honest "what this screen proves" line: a quiet lead, NOT the dashed box the global
+   .demo-note carries elsewhere (that boxy frame read as raw/unpolished on /net). */
+.net-wrap .demo-note {
+  border: none;
+  background: none;
+  padding: 0;
+  margin-top: 10px;
 }
 .net-top {
   display: flex;
@@ -34,9 +42,11 @@
 }
 
 .net-h1 {
-  font-size: clamp(26px, 4vw, 38px);
+  /* Match the polished hero (.rd-hero h1). */
+  font-size: clamp(30px, 5vw, 46px);
   font-weight: 800;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.025em;
+  line-height: 1.04;
   margin: 0 0 12px;
 }
 .net-lead {
@@ -56,15 +66,16 @@
 }
 @media (max-width: 620px) { .net-cards { grid-template-columns: 1fr; } }
 .net-card {
-  border: 1px solid var(--line, var(--line));
-  border-radius: 14px;
-  background: var(--surface-1, var(--surface-2));
+  border: 1px solid var(--line-soft, rgba(180, 205, 235, 0.08));
+  border-radius: var(--radius, 14px);
+  /* Match the polished vault cards (.rd-card): a layered slate surface, hairline border. */
+  background: linear-gradient(180deg, rgba(200, 220, 245, 0.055), rgba(200, 220, 245, 0.015));
   padding: 22px;
   display: flex;
   flex-direction: column;
   gap: 12px;
 }
-.net-card h3 { margin: 0; font-size: 18px; font-weight: 700; }
+.net-card h3 { margin: 0; font-size: 21px; letter-spacing: -0.01em; font-weight: 700; }
 .net-card p { margin: 0; color: var(--text-muted, var(--text-muted)); font-size: 14px; line-height: 1.55; }
 .net-row {
   display: flex;
