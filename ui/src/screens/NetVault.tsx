@@ -34,7 +34,6 @@ import {
   vaultCeremonies,
   listProposals,
   executeProposal,
-  fetchLedgerCsv,
   type CeremonyRecord,
   type Proposal,
 } from '../helper'
@@ -823,17 +822,6 @@ export default function NetVault() {
   }, [groupVk, loadProposals])
 
   // Export the accounting ledger (the vault's confirmed governed payments) as a CSV download.
-  const exportLedger = useCallback(async () => {
-    const csv = await fetchLedgerCsv(groupVk)
-    if (csv == null || typeof document === 'undefined') return
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `konclave-ledger-${groupVk.slice(0, 8)}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
-  }, [groupVk])
-
   // ---- on-device persistence handlers (Marco 5), all additive to the flow above ----
 
   const refreshSaved = useCallback(async () => {
@@ -1194,9 +1182,6 @@ export default function NetVault() {
           </p>
           <button className="net-btn" onClick={() => void loadProposals()}>
             {pe('Atualizar', 'Refresh')}
-          </button>
-          <button className="net-btn" style={{ marginLeft: 8 }} onClick={() => void exportLedger()}>
-            {pe('Exportar razão (CSV)', 'Export ledger (CSV)')}
           </button>
           {propMsg && (
             <p className="net-tip" style={{ marginTop: 8, wordBreak: 'break-all' }}>{propMsg}</p>
