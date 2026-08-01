@@ -305,9 +305,6 @@ export function classifyAddress(addr: string): AddressKind {
   if (addr.startsWith('t1') || addr.startsWith('t3')) return 'transparent'
   return 'unknown'
 }
-export function isTransparent(addr: string): boolean {
-  return classifyAddress(addr) === 'transparent'
-}
 
 /**
  * Turn a backend error (code + technical detail) into a clear, actionable message via i18n
@@ -370,19 +367,6 @@ export async function getLedger(): Promise<Proposal[] | null> {
 /** URL of the CSV export the browser downloads (handed to the accountant). */
 export function ledgerCsvUrl(): string {
   return `${BASE}${withVault('/api/ledger.csv')}`
-}
-
-/** A single proposal by id (proposal detail screen). */
-export async function getProposal(id: string): Promise<Proposal | null> {
-  if (NET) {
-    const vid = getSelectedVault()
-    if (!vid) return null
-    const ps = await netListProposals(vid)
-    const p = ps?.find((x) => x.id === id)
-    return p ? mapNetProposal(p) : null
-  }
-  const r = await getJson<{ proposal: Proposal }>(`/api/proposals/${encodeURIComponent(id)}`)
-  return r?.proposal ?? (DEMO ? MOCK.proposalById(id) : null)
 }
 
 // ---- payroll ----

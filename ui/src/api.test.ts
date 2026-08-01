@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { shortAddr, classifyAddress, isTransparent, humanError } from './api'
+import { shortAddr, classifyAddress, humanError } from './api'
 import type { TFn } from './i18n'
 
 // Fake translator: returns the key so we can assert which message humanError picked.
@@ -15,17 +15,13 @@ describe('shortAddr', () => {
   })
 })
 
-describe('classifyAddress / isTransparent (mirrors the backend prefix heuristic)', () => {
+describe('classifyAddress (mirrors the backend prefix heuristic)', () => {
   it('classifies by prefix', () => {
     expect(classifyAddress('u1abc')).toBe('unified')
     expect(classifyAddress('zs1abc')).toBe('sapling')
     expect(classifyAddress('t1abc')).toBe('transparent')
     expect(classifyAddress('t3abc')).toBe('transparent')
     expect(classifyAddress('nope')).toBe('unknown')
-  })
-  it('flags transparent (public) destinations', () => {
-    expect(isTransparent('t1abc')).toBe(true)
-    expect(isTransparent('u1abc')).toBe(false)
   })
 })
 

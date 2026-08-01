@@ -20,11 +20,6 @@ export function getUnlockedShare(id: string): VaultLoaded | undefined {
   return unlocked.get(id)
 }
 
-/** True when `id`'s share is unlocked and available in memory this session. */
-export function hasUnlockedShare(id: string): boolean {
-  return unlocked.has(id)
-}
-
 /** Drop the in-memory share (on lock, remove, or switch away). */
 export function clearUnlockedShare(id: string): void {
   unlocked.delete(id)

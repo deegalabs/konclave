@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { setSelectedVault, getSelectedVault } from '../api'
-import { getUnlockedShare } from '../session'
+import { getUnlockedShare, clearUnlockedShare } from '../session'
 import init, {
   DkgSession,
   DeviceKey,
@@ -942,6 +942,7 @@ export default function NetVault() {
     async (id: string) => {
       try {
         await deleteVault(id)
+        clearUnlockedShare(id) // drop the in-memory share when the vault leaves this device
         await refreshSaved()
       } catch {
         /* deletion failure is non-fatal */

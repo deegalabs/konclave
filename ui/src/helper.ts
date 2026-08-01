@@ -297,39 +297,3 @@ export async function executeProposal(args: {
   }
 }
 
-/** The result of a helper-driven send: a broadcast txid, or `null` txid on a dry-run. */
-export type HelperSendResult = { txid: string | null; dry_run: boolean; sighash: string }
-
-/**
- * Ask the helper to drive a spend for `vault`. The helper builds + proves the PCZT and publishes
- * a signing request into `room`; the browsers in that room sign over the relay; the helper injects
- * the aggregate signature and (unless `dryRun`) broadcasts. `dryRun` defaults to TRUE — the caller
- * must pass `false` to actually broadcast, so a single call never fires funds. Returns the outcome,
- * or `null` if no helper is configured or the request is rejected (the helper validates the
- * destination + amount authoritatively before anything runs).
- */
-export async function helperSend(args: {
-  vault: string
-  to: string
-  amountZat: number
-  memo?: string
-  relayBase: string
-  room: string
-  dryRun?: boolean
-}): Promise<HelperSendResult | null> {
-  const res = await post('/api/vault/send', {
-    vault: args.vault,
-    to: args.to,
-    amount_zat: args.amountZat,
-    memo: args.memo,
-    relay_base: args.relayBase,
-    room: args.room,
-    dry_run: args.dryRun ?? true,
-  })
-  if (!res || !res.ok) return null
-  try {
-    return (await res.json()) as HelperSendResult
-  } catch {
-    return null
-  }
-}
