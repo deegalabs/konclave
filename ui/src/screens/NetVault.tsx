@@ -10,12 +10,12 @@ import init, {
   identifierBytes,
   participantRound1,
   participantRound2WithRandomizer,
-  extractRandomizers,
   describeOutputs,
 } from '../wasm-pkg/konclave_wasm.js'
 import wasmUrl from '../wasm-pkg/konclave_wasm_bg.wasm?url'
 import { RelaySession, newRoomCode, ephemeralTag, b64, unb64, bytesEqual, RELAY_BASE, type RelayMsg } from '../net'
 import { parseSignRequest, buildSignResponse, hexToBytes as hexBytes, bytesToHex, type SignRequest } from '../net-sign'
+import { parseAlphas, decodeBundle } from '../signing'
 import { useT, useTr, useI18n } from '../i18n'
 import { Letterhead } from '../components'
 import {
@@ -154,20 +154,6 @@ function Shell({ error, children, onDashboard, embedded }: { error: string; chil
   )
 }
 
-// Parse EVERY real Orchard spend the proven PCZT must sign. `extractRandomizers` returns 36-byte
-// records — a u32 little-endian action index followed by the 32-byte alpha — one per real spend.
-// A single-spend tx yields one record (its alpha === the old `.slice(4, 36)`); a multi-note tx
-// yields several, each a separate ceremony. Indices come straight from the PCZT the device signs,
-// so the response maps each signature to the exact on-chain spend the helper's `into_sigs` expects.
-function alphasFromPczt(pczt: Uint8Array): { index: number; alpha: Uint8Array }[] {
-  const rand = extractRandomizers(pczt)
-  const out: { index: number; alpha: Uint8Array }[] = []
-  for (let off = 0; off + 36 <= rand.length; off += 36) {
-    const index = rand[off]! | (rand[off + 1]! << 8) | (rand[off + 2]! << 16) | (rand[off + 3]! << 24)
-    out.push({ index: index >>> 0, alpha: rand.slice(off + 4, off + 36) })
-  }
-  return out
-}
 
 export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
   const tt = useT()
@@ -526,7 +512,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
           const pczt = unb64(parsed.pczt)
           // Every device reads ALL real Orchard spends (index + alpha) from the proven PCZT it holds
           // — it signs only what it can independently see. One ceremony per spend, in order.
-          signSpendsRef.current = alphasFromPczt(pczt)
+          signSpendsRef.current = parseAlphas(pczt)
           signSigsRef.current = []
           startedSpendsRef.current = new Set()
           // "What am I signing?" — confirm what the tx pays before contributing any signature.
@@ -908,25 +894,12 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
   // Bring a decrypted vault into the 'restored' phase (no DKG redo). Shared by the passphrase path
   // (doRestore) and the access-gate path (a share already unlocked at /unlock, held in session.ts).
   const applyLoaded = useCallback((v: VaultLoaded) => {
-    const bundle = JSON.parse(new TextDecoder().decode(v.sealedShare)) as {
-      kp: string
-      pubkeys: string
-      seat: number
-      n: number
-      t: number
-    }
-    restoredRef.current = {
-      keyPackage: unb64(bundle.kp),
-      pubkeys: unb64(bundle.pubkeys),
-      groupVk: v.groupKey,
-      seat: bundle.seat,
-      n: bundle.n,
-      t: bundle.t,
-    }
+    const share = decodeBundle(v)
+    restoredRef.current = share
     setGroupVk(hex(v.groupKey))
     setRestoredRoster(v.roster)
-    if (bundle.n) setN(bundle.n)
-    if (bundle.t) setT(bundle.t)
+    if (share.n) setN(share.n)
+    if (share.t) setT(share.t)
     setPhase('restored')
   }, [])
 
