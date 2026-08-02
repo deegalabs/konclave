@@ -125,7 +125,7 @@ export const en: Record<string, string> = {
   'dashboard.actProposalsDesc': '{n} awaiting',
   'dashboard.actLedgerTitle': 'Ledger / accounts',
   'dashboard.actLedgerDesc': 'hand to the accountant',
-  'dashboard.actPeopleTitle': 'People',
+  'dashboard.actPeopleTitle': 'Beneficiaries',
   'dashboard.actPeopleDesc': 'registry of who gets paid',
   'dashboard.delWrong': 'Wrong vault word.',
   'dashboard.delFail': 'Could not delete (local vault offline?).',
@@ -138,8 +138,8 @@ export const en: Record<string, string> = {
   'nav.proposals': 'Proposals',
   'nav.payroll': 'Payroll',
   'nav.ledger': 'Ledger',
-  'nav.members': 'Members',
-  'nav.people': 'People',
+  'nav.members': 'Signers',
+  'nav.people': 'Beneficiaries',
   'nav.settings': 'Settings',
   'nav.switchVault': 'Switch vault',
   'nav.more': 'More',
@@ -150,7 +150,7 @@ export const en: Record<string, string> = {
   'next.dashboard': 'Back to the dashboard',
   'next.ledger': 'See the ledger',
   'next.people': 'See beneficiaries',
-  'next.members': 'See the members',
+  'next.members': 'See the signers',
   'next.proposals': 'Review approvals',
 
   // Landing / explainer (Intro)
@@ -620,8 +620,8 @@ export const en: Record<string, string> = {
   'ledger.foot': 'internal transparency · the public blockchain reveals nothing',
 
   // Members
-  'members.eyebrow': 'Vault members · quorum {t}-of-{n}',
-  'members.title': 'Members',
+  'members.eyebrow': 'Vault signers · quorum {t}-of-{n}',
+  'members.title': 'Signers',
   'members.vmeta': 'Each member holds **a share of the key**. It takes **{t}** signatures to move funds.',
   'members.demo': '○ demo',
   'members.you': '· you',
@@ -635,7 +635,7 @@ export const en: Record<string, string> = {
 
   // People
   'people.errFillNameAddr': 'Fill in name and address.',
-  'people.title': 'People',
+  'people.title': 'Beneficiaries',
   'people.cap': 'The registry of who gets paid. Save once and choose by name when paying or building the payroll · instead of pasting addresses every time.',
   'people.empty': 'No one registered yet. Register who gets paid to pay them by name.',
   'people.publicSuffix': ' · public',

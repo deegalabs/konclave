@@ -125,7 +125,7 @@ export const ptBR: Record<string, string> = {
   'dashboard.actProposalsDesc': '{n} aguardando',
   'dashboard.actLedgerTitle': 'Razão / contas',
   'dashboard.actLedgerDesc': 'entregar ao contador',
-  'dashboard.actPeopleTitle': 'Pessoas',
+  'dashboard.actPeopleTitle': 'Beneficiários',
   'dashboard.actPeopleDesc': 'cadastro de quem recebe',
   'dashboard.delWrong': 'Palavra do cofre incorreta.',
   'dashboard.delFail': 'Não foi possível excluir (cofre local offline?).',
@@ -138,8 +138,8 @@ export const ptBR: Record<string, string> = {
   'nav.proposals': 'Propostas',
   'nav.payroll': 'Folha',
   'nav.ledger': 'Registro',
-  'nav.members': 'Membros',
-  'nav.people': 'Pessoas',
+  'nav.members': 'Signatários',
+  'nav.people': 'Beneficiários',
   'nav.settings': 'Ajustes',
   'nav.switchVault': 'Trocar cofre',
   'nav.more': 'Mais',
@@ -150,7 +150,7 @@ export const ptBR: Record<string, string> = {
   'next.dashboard': 'Voltar ao painel',
   'next.ledger': 'Ver o registro',
   'next.people': 'Ver beneficiários',
-  'next.members': 'Ver os membros',
+  'next.members': 'Ver os signatários',
   'next.proposals': 'Revisar aprovações',
 
   // Landing / explainer (Intro)
@@ -620,8 +620,8 @@ export const ptBR: Record<string, string> = {
   'ledger.foot': 'transparência interna · a blockchain pública nada revela',
 
   // Members
-  'members.eyebrow': 'Membros do cofre · quórum {t}-de-{n}',
-  'members.title': 'Membros',
+  'members.eyebrow': 'Signatários do cofre · quórum {t}-de-{n}',
+  'members.title': 'Signatários',
   'members.vmeta': 'Cada membro guarda **uma parte da chave**. São necessárias **{t}** assinaturas para mover fundos.',
   'members.demo': '○ demonstração',
   'members.you': '· você',
@@ -635,7 +635,7 @@ export const ptBR: Record<string, string> = {
 
   // People
   'people.errFillNameAddr': 'Preencha nome e endereço.',
-  'people.title': 'Pessoas',
+  'people.title': 'Beneficiários',
   'people.cap': 'O cadastro de quem recebe. Guarde uma vez e escolha por nome ao pagar ou montar a folha · em vez de colar endereços toda vez.',
   'people.empty': 'Ninguém cadastrado ainda. Cadastre quem recebe para pagar pelo nome.',
   'people.publicSuffix': ' · público',
