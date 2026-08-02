@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fmtZec, parseZecToZat, zatToZec, expiryLabel, fmtDate } from './format'
+import { fmtZec, parseZecToZat, zatToZec, expiryLabel, fmtDate, fingerprintCode, vaultFingerprint } from './format'
 import type { TFn } from './i18n'
 
 // A fake translator: echoes the key with its vars, so we can assert which label was chosen.
@@ -76,5 +76,40 @@ describe('fmtDate', () => {
     expect(fmtDate(undefined)).toBe('—')
     expect(fmtDate(0)).toBe('—')
     expect(fmtDate(Number.MAX_SAFE_INTEGER)).toBe('—')
+  })
+})
+
+describe('fingerprintCode (pure — vault fingerprint encoding, #65 I4)', () => {
+  it('is deterministic and formatted as three groups of three Crockford chars', () => {
+    const d = new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7])
+    const code = fingerprintCode(d)
+    expect(code).toMatch(/^[0-9A-HJKMNP-TV-Z]{3}-[0-9A-HJKMNP-TV-Z]{3}-[0-9A-HJKMNP-TV-Z]{3}$/)
+    expect(fingerprintCode(d)).toBe(code) // same bytes -> same code
+  })
+  it('excludes the ambiguous letters I, L, O, U', () => {
+    // exercise many byte patterns; none of the ambiguous glyphs may appear
+    for (let i = 0; i < 64; i++) {
+      const code = fingerprintCode(new Uint8Array([i, i * 3, i * 7, i * 11, i * 13, i * 17]))
+      expect(code).not.toMatch(/[ILOU]/)
+    }
+  })
+  it('different digests yield different codes (uses the top 45 bits)', () => {
+    const a = fingerprintCode(new Uint8Array([9, 9, 9, 9, 9, 9]))
+    const b = fingerprintCode(new Uint8Array([8, 9, 9, 9, 9, 9]))
+    expect(a).not.toBe(b)
+  })
+})
+
+describe('vaultFingerprint (SHA-256 of the public group identity)', () => {
+  it('same group key -> same code; case/whitespace-insensitive', async () => {
+    const gk = 'a25c53f7bf9a6f68b8b105503b23e6e22dd4033b00f5f9e6bb35b4bcd709a73a'
+    const a = await vaultFingerprint(gk)
+    expect(a).toMatch(/^[0-9A-Z]{3}-[0-9A-Z]{3}-[0-9A-Z]{3}$/)
+    expect(await vaultFingerprint('  ' + gk.toUpperCase() + '  ')).toBe(a)
+  })
+  it('a different group (impostor/separate DKG) -> a different code', async () => {
+    const a = await vaultFingerprint('a25c53f7bf9a6f68b8b105503b23e6e22dd4033b00f5f9e6bb35b4bcd709a73a')
+    const b = await vaultFingerprint('6b207009592233c7ab835765f35093ed357380589a4380a4d0cfd3c9d0c00c0b')
+    expect(a).not.toBe(b)
   })
 })

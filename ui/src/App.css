@@ -436,6 +436,16 @@ h1.klab,h2.klab,h3.klab{margin:0;font-weight:400}
   background:linear-gradient(180deg,rgba(200,220,245,.03),rgba(200,220,245,.008))}
 .who-row{display:flex; align-items:center; gap:12px; padding:11px 0; border-bottom:1px solid var(--line)}
 .who-row:last-child{border-bottom:0}
+
+/* Vault fingerprint (#65 I4) — the shared group identity members compare out of band. */
+.xs-btn{padding:5px 10px; font-size:11.5px}
+.fp-card{border:1px solid var(--accent-line); border-radius:var(--radius);
+  background:var(--accent-soft); padding:14px 16px}
+.fp-head{display:flex; align-items:center; justify-content:space-between; gap:12px}
+.fp-code{font-size:26px; letter-spacing:.16em; color:var(--text); margin:8px 0 6px;
+  font-variant-numeric:tabular-nums; word-break:break-all}
+.fp-help{font-size:12.5px; line-height:1.5}
+.fp-help b{color:var(--silver); font-weight:600}
 .who-name{font-weight:600; font-size:14.5px}
 .who-st{margin-left:auto; font-family:var(--font-mono); font-size:10.5px; text-transform:uppercase; letter-spacing:.06em;
   border:1px solid var(--line); border-radius:var(--radius-pill); padding:3px 11px; color:var(--text-muted)}
