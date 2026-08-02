@@ -86,9 +86,41 @@ export class SigningMachine {
   private cur = 0 // 0-based position of the spend being signed right now
   private sigs: { index: number; sig: string }[] = [] // accumulated per-spend signatures
   private startedSpends = new Set<number>() // beginSpend fires once per position
+  private done = false // the whole ceremony (every spend) finished
 
   constructor(deps: SigningDeps) {
     this.d = deps
+  }
+
+  /** True once the current ceremony has fully finished (every spend signed). A long-lived signer
+   *  (the background service, Stage 3) polls this to know when it may `rearm()` for a next payment. */
+  isDone(): boolean {
+    return this.done
+  }
+
+  /** Reset all ceremony state so this SAME machine can sign a NEXT payment (issue #49 re-arm). NOT
+   *  called by /net (which signs once per session, so its behavior is unchanged); the background
+   *  signer calls it between payments, each in its OWN fresh signing room — never re-armed inside a
+   *  room whose relay history still holds the previous ceremony's `k`-tagged messages, which would
+   *  cross-contaminate. Fresh session per payment is the contract. */
+  rearm(): void {
+    this.started = false
+    this.done = false
+    this.msg = new Uint8Array()
+    this.nonces = null
+    this.commits = new Map()
+    this.coord = null
+    this.spSent = false
+    this.sp = null
+    this.alpha = null
+    this.sentS2 = false
+    this.sharesSeen = new Set()
+    this.sigDone = false
+    this.helperReq = null
+    this.spends = []
+    this.cur = 0
+    this.sigs = []
+    this.startedSpends = new Set()
   }
 
   /** Architecture B: detect a helper's raw sign-request BEFORE the typed dispatch. Returns true if
@@ -283,6 +315,7 @@ export class SigningMachine {
     }
     // Last spend done: show the result and (Architecture B) hand the FULL set of signatures back
     // to the helper RAW so it can inject every one and broadcast.
+    this.done = true // the whole ceremony finished; a re-armable signer may now take a next payment
     this.d.onSignature(hex(sig), ok)
     this.d.onPhase('signed')
     this.d.onLog(ok ? this.d.tt('net.log.verifyOk') : this.d.tt('net.log.verifyFail'))
