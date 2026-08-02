@@ -59,20 +59,21 @@ interface Device {
   consumed: Set<number>
   sig: { hex: string; ok: boolean } | null
   errors: string[]
+  bus: Bus // the CURRENT signing room (a re-armed device moves to a fresh one per payment)
 }
 
 const SEATS: Record<string, number> = { A: 1, B: 2 }
 
 function makeDevice(tag: string, bus: Bus, mat: () => { keyPackage: Uint8Array; groupVk: Uint8Array; pubkeys: Uint8Array }): Device {
-  const dev: Device = { tag, machine: null as unknown as SigningMachine, consumed: new Set(), sig: null, errors: [] }
+  const dev: Device = { tag, machine: null as unknown as SigningMachine, consumed: new Set(), sig: null, errors: [], bus }
   const deps: SigningDeps = {
     signingMaterial: mat,
     seatOf: (t) => SEATS[t],
     mySeat: () => SEATS[tag]!,
     threshold: () => 2,
     hasVault: () => true,
-    send: async (m) => { bus.post(tag, JSON.stringify(m)) },
-    rawSend: async (data) => { bus.post(tag, data); return true },
+    send: async (m) => { dev.bus.post(tag, JSON.stringify(m)) },
+    rawSend: async (data) => { dev.bus.post(tag, data); return true },
     onLog: () => {},
     onError: (msg) => dev.errors.push(msg),
     onPhase: () => {},
@@ -82,6 +83,16 @@ function makeDevice(tag: string, bus: Bus, mat: () => { keyPackage: Uint8Array; 
   }
   dev.machine = new SigningMachine(deps)
   return dev
+}
+
+// A helper's Architecture-B sign-request over the vault's proven PCZT (sighash = the PCZT's real
+// sighash, so each device's on-device H1 check passes by construction).
+function signRequestFor(pczt: Uint8Array): { json: string; spendCount: number } {
+  const spends = parseAlphas(pczt).map((s) => ({ index: s.index, alpha: bytesToHex(s.alpha) }))
+  return {
+    json: JSON.stringify({ kind: 'net-sign-request', sighash: bytesToHex(pcztSighash(pczt)), spends, pczt_hex: bytesToHex(pczt) }),
+    spendCount: spends.length,
+  }
 }
 
 // One device drains the bus to a fixpoint: apply every not-yet-consumed message; a `false` return
@@ -171,5 +182,48 @@ describe('SigningMachine — relay orchestration (the /net ceremony state machin
     expect(A.sig).toBeNull()
     expect(B.sig).toBeNull()
     expect(B.errors.length).toBeGreaterThan(0)
+  })
+
+  it('re-arm: the SAME machines sign a SECOND payment (fresh room) to a new verifying signature', async () => {
+    // The background signer (Stage 3) reuses one machine across payments. Prove a machine signs
+    // payment 1, `rearm()`s, and signs payment 2 in its OWN fresh room to another verifying sig,
+    // with fresh nonces (so even the same tx yields a different, valid signature). /net never calls
+    // rearm(), so its once-per-session behavior is unchanged.
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus1 = new Bus()
+    const A = makeDevice('A', bus1, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus1, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+
+    // Payment 1.
+    const pczt = dkgProvenPczt()
+    bus1.post('helper', signRequestFor(pczt).json)
+    await runCeremony(A, B, bus1)
+    expect(A.machine.isDone()).toBe(true)
+    expect(B.machine.isDone()).toBe(true)
+    expect(A.sig?.ok).toBe(true)
+    expect(B.sig?.ok).toBe(true)
+    const sig1 = A.sig!.hex
+
+    // Re-arm both devices into a NEW room (the provider's contract: never re-arm inside a used room).
+    const bus2 = new Bus()
+    for (const dev of [A, B]) {
+      dev.machine.rearm()
+      dev.bus = bus2
+      dev.consumed = new Set()
+      dev.sig = null
+      dev.errors = []
+      expect(dev.machine.isDone()).toBe(false) // rearm cleared the finished flag
+    }
+
+    // Payment 2 (same tx here; fresh nonces make the signature different but still valid).
+    bus2.post('helper', signRequestFor(pczt).json)
+    await runCeremony(A, B, bus2)
+    expect(A.errors).toEqual([])
+    expect(B.errors).toEqual([])
+    expect(A.machine.isDone()).toBe(true)
+    expect(A.sig?.ok).toBe(true)
+    expect(B.sig?.ok).toBe(true)
+    expect(A.sig?.hex).toBe(B.sig?.hex) // the two devices agree on payment 2's signature
+    expect(A.sig!.hex).not.toBe(sig1) // fresh nonces -> a genuinely new ceremony, not a replay
   })
 })
