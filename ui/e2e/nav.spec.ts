@@ -12,6 +12,6 @@ test('the rail navigates between vault screens', async ({ page }) => {
   await page.goto('/#/dashboard')
   await page.getByRole('link', { name: /^(Ledger|Registro)$/ }).click()
   await expect(page).toHaveURL(/#\/ledger/)
-  await page.getByRole('link', { name: /^(People|Pessoas)$/ }).click()
+  await page.getByRole('link', { name: /^(Beneficiaries|Beneficiários)$/ }).click()
   await expect(page).toHaveURL(/#\/people/)
 })
