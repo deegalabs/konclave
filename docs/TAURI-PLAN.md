@@ -77,59 +77,37 @@ Web-first stays primary. A native shell earns its place only for what a browser 
 - **A path to bundling the orchestrator/helper** locally, so a single desktop install is a
   self-contained node (bridge + helper + UI), matching the original local-first vision.
 
-## 3. The share-persistence swap (design, not yet wired)
+## 3. The share-persistence swap (Rust wired + logic-tested; JS swap specified)
 
 The goal: the SAME UI code persists its share through either the browser IndexedDB path
 (`ui/src/storage.ts`) or a Tauri keychain command, chosen at runtime, with no screen rewrite.
 
-### 3.1 The abstraction
+### 3.1 What is now implemented (the native side)
 
-Introduce a narrow interface that both backends satisfy. `ui/src/storage.ts` already has the
-right shape (`saveVault` / `loadVault` / `listVaults` / `deleteVault`); the abstraction is a
-thin `ShareStore` over it plus a Tauri implementation.
+- **`src-tauri/src/share_store.rs`** -- a `ShareStore` trait and an OS-keychain-backed
+  `KeychainShareStore`, plus a `StoreError` with explicit variants (`Backend` / `NotFound` /
+  `InvalidId`). It has NO `tauri` dependency, so its logic is covered by a REAL headless test run
+  (12 tests, green) against `keyring`'s in-memory mock -- the same technique
+  `orchestrator::secrets::KeychainStore` uses. Because `keyring` has no portable enumeration API,
+  `list` is served from a public-id index entry the store maintains (see `NATIVE-STORAGE-BRIDGE.md`
+  §6). The `keyring` pin (`3`, no backend feature) mirrors the orchestrator exactly.
+- **`src-tauri/src/lib.rs`** -- four thin `#[tauri::command]`s over that store:
+  `secure_store` / `secure_load` / `secure_delete` / `secure_list`. These marshal base64 at the JS
+  boundary and never see plaintext key material. This wiring is SCAFFOLD (the `tauri` crate needs a
+  system webview absent here, so the crate is not compiled), but the store it delegates to is
+  proven.
 
-```ts
-// SKETCH for ui/src/share-store.ts, NOT added to the repo yet.
-// Reason it is not added: a live .ts that imports '@tauri-apps/api' would break `npm --prefix
-// ui run build` and CI, because that dependency is not installed. It lands with the Tauri work.
-export interface ShareStore {
-  save(id: string, data: VaultData, passphrase: string): Promise<void>
-  load(id: string, passphrase: string): Promise<VaultLoaded>
-  list(): Promise<VaultPublic[]>
-  remove(id: string): Promise<void>
-}
+### 3.2 The JS side (specified, not yet added)
 
-// Runtime pick: Tauri injects a global, so the same bundle works in a browser and in the shell.
-export function isTauri(): boolean {
-  return typeof (globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ !== 'undefined'
-}
+A narrow `StorageBackend` interface both backends satisfy: `ui/src/storage.ts` verbatim for web,
+and an `invoke`-based native backend. Runtime selection via `isTauri()`. The exact interface, the
+`invoke` argument shapes (matching the Rust command signatures above), the sealing path, and the
+one-line `NetVault.tsx` consumer change are specified in
+[`NATIVE-STORAGE-BRIDGE.md`](NATIVE-STORAGE-BRIDGE.md).
 
-// Browser backend: the existing, tested module verbatim (ui/src/storage.ts, storage.test.ts).
-export const indexedDbStore: ShareStore = { save: saveVault, load: loadVault, list: listVaults, remove: deleteVault }
-
-// Native backend: the UI still derives the key and seals the share (WebCrypto works in the
-// webview), then hands only CIPHERTEXT to the keychain command. The keychain is durable at-rest
-// storage, NOT the encryptor. This keeps one sealing path and one threat model across backends.
-export const tauriKeychainStore: ShareStore = {
-  async save(id, data, passphrase) {
-    const cipher = await sealShare(data.sealedShare, passphrase) // same PBKDF2/AES-GCM as storage.ts
-    await invoke('keychain_set_share', { id, shareB64: b64(cipher) })
-    await putPublicMeta(id, data)                                // public metadata can stay in IndexedDB
-  },
-  async load(id, passphrase) {
-    const shareB64 = await invoke<string>('keychain_get_share', { id })
-    const plain = await openShare(unb64(shareB64), passphrase)
-    return { ...(await getPublicMeta(id)), sealedShare: plain }
-  },
-  list: listPublicMeta,
-  async remove(id) { await invoke('keychain_delete_share', { id }); await delPublicMeta(id) },
-}
-
-export const shareStore: ShareStore = isTauri() ? tauriKeychainStore : indexedDbStore
-```
-
-`NetVault.tsx` would import `shareStore` instead of the four functions directly. That is a
-small, mechanical, non-breaking change, deferred until the Tauri deps exist so CI stays green.
+It is deliberately NOT added to `ui/` yet: a live `.ts` importing `@tauri-apps/api` would break
+`npm --prefix ui run build` and CI until the Tauri dependency is installed. It lands with the Tauri
+work; the change is mechanical and non-breaking, and the web path stays the tested default.
 
 ### 3.2 Where encryption happens (deliberate)
 
@@ -186,7 +164,32 @@ flowchart LR
   desktop -->|"build, prove, broadcast PCZT"| chain["Zcash network"]
 ```
 
-## 6. Security notes
+## 6. Platform choice: Tauri 2.0 vs React Native vs Flutter
+
+The native shell must reuse Konclave's two biggest assets -- the existing React UI (`ui/`) and the
+Rust crypto core (`konclave-wasm` for in-browser FROST/DKG, `orchestrator` for the helper/bridge)
+-- while giving OS-keychain custody and staying blind and local-first (no server holds a share).
+Measured against exactly those needs:
+
+| Need | Tauri 2.0 | React Native | Flutter |
+|---|---|---|---|
+| Reuse the React UI (`ui/`) | **As-is.** The webview loads `ui/dist` unchanged; every screen and the whole `/net` flow run verbatim. | Rewrite. RN is not the DOM; React components using web APIs/CSS do not port. | Rewrite in Dart/Flutter widgets. |
+| Reuse the Rust crypto (`konclave-wasm`, `orchestrator`) | **Directly.** WASM runs in the webview as today; native Rust can be linked/sidecar'd (desktop) or invoked via commands. Rust is Tauri's native language. | Re-bridge. Rust reachable only via a custom native module (JSI/turbo-module) or re-run the WASM in a JS engine; extra FFI surface. | Re-bridge via Dart FFI (`dart:ffi`) or platform channels; the WASM path is awkward. |
+| OS keychain (desktop + mobile) | Native Rust command over `keyring` (this scaffold) or a plugin; the same crate the orchestrator already uses. | `react-native-keychain` (mature) -- but a different code path per platform, not the Rust one. | `flutter_secure_storage` -- again a separate, non-Rust path. |
+| Blind, local-first, no-server | Natural: a native binary with a bundled UI + optional local orchestrator/helper; nothing phones home. | Achievable, but the ecosystem assumes a JS backend; more to strip out. | Achievable; same caveat. |
+| Single codebase desktop + mobile | Yes (desktop mature; **mobile is younger**, 2.0-era, smaller track record). | Mobile-first and very mature; desktop support is secondary/less polished. | Both mature; strong mobile, decent desktop. |
+| Bundle size / footprint | Small (system webview, no bundled Chromium). | Medium. | Medium/large (bundled engine). |
+
+**Recommendation: Tauri 2.0.** It is the only option that reuses BOTH the existing React UI and the
+Rust crypto core with essentially zero rewrite -- for a solo project that is the difference between
+a shippable shell and a second full front end. The honest tradeoff is that Tauri's **mobile** story
+(iOS/Android under 2.0) is younger and less battle-tested than React Native's or Flutter's, and the
+Linux desktop webview does not render on this dev machine (ADR-0004), so validation waits on real
+hardware. React Native or Flutter would buy a more mature mobile runtime at the cost of rewriting
+the UI in a non-DOM framework AND re-bridging the Rust crypto over FFI -- re-implementing, and
+re-auditing, the exact parts that are already proven. That cost is not justified for this app.
+
+## 7. Security notes
 
 - **The share never leaves the device.** In both backends the plaintext share stays local. Over
   the wire, only public or encrypted material moves (unchanged from the browser path, §6.3/§6.4
@@ -209,16 +212,36 @@ flowchart LR
 - **No new trust in the packager.** Distribution (code signing, notarization, store review) adds
   supply-chain responsibilities but does not change the on-device custody guarantee.
 
-## 7. Honest open items before any "native app" claim
+## 8. Honest status ladder
 
-- Compile the shell on each desktop host (none available here).
-- Render a real window (blocked on this machine by WSLg/GTK, ADR-0004).
-- Wire `ui/src/share-store.ts` and switch `NetVault.tsx` to `shareStore` (deferred so CI stays
-  green until the Tauri deps are installed).
-- Prove the keychain round-trip on each OS (the base64 helper has an offline test; the keychain
-  itself is untested).
-- Mobile: init + build + sign on real Mac/Android toolchains.
-- Optional: build the orchestrator per target for the bundled-helper desktop variant.
+**Code-complete + logic-tested here (headless, no Tauri build needed):**
+- `src-tauri/src/share_store.rs`: the `ShareStore` trait, `KeychainShareStore`, the public-id
+  index behind `list`, the id guard, error mapping, and the base64 boundary codec. **12 unit tests
+  pass** against `keyring`'s in-memory mock (run in an isolated crate, since the enclosing
+  `src-tauri` crate cannot compile here). Clippy `-D warnings` clean, rustfmt conformant.
 
-Until those are done, Konclave's honest delivery statement stays: **web-first, proven in the
-browser; native shell scaffolded and planned, not built.**
+**Code-complete but UNBUILT here (needs a desktop/mobile host to compile and run):**
+- `src-tauri/src/lib.rs`: the four `#[tauri::command]`s (`secure_store/load/delete/list`) and the
+  Tauri app builder. Correct-in-principle wiring, but the `tauri` crate needs a system webview
+  (webkit2gtk/glib) absent on this machine, so it is not compiled. No green signal on the wiring.
+- `tauri.conf.json`, `Cargo.toml`, `build.rs`, `capabilities/default.json`, `main.rs`: schema-valid
+  Tauri 2.0 scaffold, mobile-shaped crate types, not compiled here.
+
+**Design-only (specified, no code committed):**
+- `ui/src/share-store.ts` + the `NetVault.tsx` swap: fully specified in `NATIVE-STORAGE-BRIDGE.md`
+  with exact `invoke` shapes, deliberately not added so `npm run build`/CI stay green until the
+  Tauri deps are installed.
+- Bundling the `orchestrator`/helper as a desktop sidecar (§5).
+
+**Needs real hardware to VALIDATE (cannot be attempted here):**
+- Compile the shell on each desktop host; render a real window (blocked by WSLg/GTK, ADR-0004).
+- Prove the keychain round-trip on each OS (the mock is per-`Entry`; true cross-call persistence
+  only exercises on a real backend -- Windows Credential Manager / macOS + iOS Keychain / Linux
+  Secret Service).
+- Mobile: `tauri ios/android init` + build + sign on real Mac / Android SDK toolchains.
+- Tighten CSP (the scaffold ships `csp: null`); code-sign / notarize per store.
+
+Until the desktop/mobile builds and the keychain round-trip are proven on hardware, Konclave's
+honest delivery statement stays: **web-first, proven in the browser; native shell scaffolded and
+planned, with the keychain share-store logic implemented and unit-tested but not yet built into a
+running app.**

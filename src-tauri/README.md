@@ -17,9 +17,11 @@ A thin Tauri 2.0 wrapper that loads the **already-built** Vite/React UI (`../ui/
 native OS webview. The entire browser-proven app carries over unchanged: the `/net` DKG +
 FROST flow, the relay/helper protocol, and the `konclave-wasm` crypto all run inside the
 webview exactly as they do in a browser tab. The shell adds only one native capability today:
-three `invoke` commands (`keychain_set_share` / `keychain_get_share` / `keychain_delete_share`
-in `src/lib.rs`) that let the UI persist its already-encrypted per-device share in the **OS
-keychain** instead of browser IndexedDB. Plaintext key material never crosses that boundary.
+four `invoke` commands (`secure_store` / `secure_load` / `secure_delete` / `secure_list` in
+`src/lib.rs`, over the `share_store` module) that let the UI persist its already-encrypted
+per-device share in the **OS keychain** instead of browser IndexedDB. Plaintext key material
+never crosses that boundary. The exact JS contract is in
+[`../docs/NATIVE-STORAGE-BRIDGE.md`](../docs/NATIVE-STORAGE-BRIDGE.md).
 
 ## Files
 
@@ -27,7 +29,8 @@ keychain** instead of browser IndexedDB. Plaintext key material never crosses th
 |---|---|
 | `Cargo.toml` | Crate + Tauri 2.x deps; `lib` crate-type set for mobile targets. |
 | `build.rs` | Standard `tauri_build::build()`. |
-| `src/lib.rs` | App builder + the three keychain commands. Has one offline unit test (base64 round-trip). |
+| `src/share_store.rs` | `ShareStore` trait + OS-keychain `KeychainShareStore` (no `tauri` dep). 12 unit tests pass headlessly against `keyring`'s mock. |
+| `src/lib.rs` | App builder + the four `secure_*` commands delegating to `share_store`. Scaffold wiring (not compiled here). |
 | `src/main.rs` | Desktop entry point that calls `run()`. |
 | `tauri.conf.json` | `frontendDist` -> `../ui/dist`; window; CSP is `null` in the scaffold (must be tightened). |
 | `capabilities/default.json` | Core default permissions only. |
