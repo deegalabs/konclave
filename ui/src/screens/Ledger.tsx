@@ -3,6 +3,7 @@ import { Secret, RevealButton, activateOnKey, Loading } from '../components'
 import { PageHeader, PageFooter, NextStep } from '../page'
 import { getLedger, getProposalDetail, getVault, ledgerCsvUrl, health, shortAddr, type Proposal, type PayrollLine } from '../api'
 import { fmtDate, fmtZec } from '../format'
+import { exportLedgerXlsx, type LedgerXlsxItem } from '../ledgerXlsx'
 import { useT } from '../i18n'
 
 const SETTLED = (s: string) => s === 'sent' || s === 'confirmed'
@@ -17,6 +18,7 @@ export default function Ledger() {
   const [linesById, setLinesById] = useState<Record<string, PayrollLine[]>>({})
   const [fState, setFState] = useState<'all' | 'settled' | 'openp'>('all')
   const [fKind, setFKind] = useState<'all' | 'payment' | 'payroll'>('all')
+  const [xlsxBusy, setXlsxBusy] = useState(false)
 
   useEffect(() => {
     let on = true
@@ -43,6 +45,56 @@ export default function Ledger() {
     }
   }
 
+  async function exportXlsx() {
+    if (xlsxBusy) return
+    setXlsxBusy(true)
+    try {
+      const iso = (ts?: number) => (ts ? new Date(ts * 1000).toISOString().slice(0, 10) : '')
+      const items: LedgerXlsxItem[] = []
+      // Itemize: a payment = one row; a payroll = one row per beneficiary (fetch its lines if not
+      // already open), mirroring the CSV export. Runs from the ledger data already in memory.
+      for (const p of (rows ?? [])) {
+        const stLabel = t('state.' + p.state)
+        const isSettled = SETTLED(p.state)
+        const doc = p.memo || (p.kind === 'payroll' ? t('kind.payroll') : t('kind.payment'))
+        if (p.kind === 'payroll') {
+          let lines = linesById[p.id]
+          if (!lines) {
+            const detail = await getProposalDetail(p.id)
+            lines = detail?.lines ?? []
+            setLinesById((m) => ({ ...m, [p.id]: lines! }))
+          }
+          if (lines.length === 0) {
+            items.push({ dateISO: iso(p.created_at), document: doc, kind: t('kind.payroll'), beneficiary: '', address: '', state: stLabel, settled: isSettled, zec: Number(p.value_zec) })
+          } else {
+            for (const l of lines) {
+              items.push({ dateISO: iso(p.created_at), document: doc, kind: t('kind.payroll'), beneficiary: l.label || '', address: l.address, state: stLabel, settled: isSettled, zec: Number(l.value_zec) })
+            }
+          }
+        } else {
+          items.push({ dateISO: iso(p.created_at), document: doc, kind: t('kind.payment'), beneficiary: '', address: p.to_address ?? '', state: stLabel, settled: isSettled, zec: Number(p.value_zec) })
+        }
+      }
+      await exportLedgerXlsx({
+        vaultName: vaultName ?? 'Konclave',
+        period,
+        generatedISO: new Date().toISOString().slice(0, 16).replace('T', ' '),
+        items,
+        labels: {
+          summary: t('ledger.xlsxSummary'), movements: t('ledger.xlsxMovements'),
+          vault: t('ledger.vault'), period: t('ledger.period'), generated: t('ledger.xlsxGenerated'),
+          entries: t('ledger.entries'), settledOut: t('ledger.settledOut'), open: t('ledger.open'),
+          colDate: t('ledger.colDate'), colDocument: t('ledger.colDocument'), colKind: t('ledger.colKind'),
+          colBeneficiary: t('ledger.colBeneficiary'), colAddress: t('ledger.colAddress'), colState: t('ledger.colState'),
+          colSettled: t('ledger.colSettled'), colValue: t('ledger.colValue'), total: t('ledger.total'),
+          yes: t('ledger.yes'), no: t('ledger.no'),
+        },
+      })
+    } finally {
+      setXlsxBusy(false)
+    }
+  }
+
   const ledger = rows ?? []
   const settled = ledger.filter((p) => SETTLED(p.state))
   const pending = ledger.filter((p) => p.state === 'awaiting' || p.state === 'ready')
@@ -66,6 +118,7 @@ export default function Ledger() {
           title={t('ledger.title')}
           actions={<>
             <a className="btn ghost sm-btn" href={ledgerCsvUrl()} download="konclave-razao.csv">{t('ledger.exportCsv')}</a>
+            <button className="btn ghost sm-btn" disabled={xlsxBusy} onClick={() => void exportXlsx()}>{xlsxBusy ? t('ledger.exporting') : t('ledger.exportXlsx')}</button>
             <button className="btn ghost sm-btn" onClick={() => window.print()}>{t('ledger.pdf')}</button>
           </>}
         />
