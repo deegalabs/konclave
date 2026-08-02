@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { setSelectedVault, getSelectedVault } from '../api'
-import { getUnlockedShare, clearUnlockedShare } from '../session'
+import { getUnlockedShare, clearUnlockedShare, setUnlockedShare } from '../session'
 import init, {
   DkgSession,
   DeviceKey,
@@ -863,6 +863,9 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
       )
       const roster = seatTableRef.current.map((s) => s.tag)
       await saveVault(hex(gvk), { groupKey: gvk, address: '', roster, sealedShare: bundle }, savePass)
+      // Also keep the just-created share unlocked in memory for this session, so the operator can
+      // sign from the app immediately without re-entering the passphrase (the access model).
+      setUnlockedShare(hex(gvk), { groupKey: gvk, address: '', roster, sealedShare: bundle, createdAt: 0 })
       setSaveState('saved')
       setSavePass('')
       await refreshSaved()
@@ -927,6 +930,12 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
     const v = getUnlockedShare(id)
     if (v) applyLoaded(v)
   }, [phase, applyLoaded])
+
+  // Embedded create modal: once the just-created share is protected (saved), open the app.
+  useEffect(() => {
+    if (embedded && saveState === 'saved') openDashboard()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [embedded, saveState])
 
   const doDelete = useCallback(
     async (id: string) => {
@@ -1245,6 +1254,63 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
       )}
     </div>
   )
+
+  // Embedded (create modal): clean, purpose-built rendering for the gathering / running / done
+  // phases — seats filling, a running indicator, and a done step that just protects the device and
+  // opens the Dashboard (the address/QR/proposals/ceremony all live in the app now).
+  if (embedded && (phase === 'roster' || phase === 'dkg' || phase === 'done')) {
+    return (
+      <Shell error={error} embedded>
+        {phase === 'roster' && (
+          <>
+            <span className="rd-eyebrow">{pe('REUNINDO OS APARELHOS', 'GATHERING DEVICES')}</span>
+            <h2 className="cv-title">{role === 'create' ? pe('Compartilhe o convite', 'Share the invite') : pe('Entrando no cofre', 'Joining the vault')}</h2>
+            {role === 'create' && (
+              <p className="cv-lead">{pe('Envie este código para os outros aparelhos. O cofre nasce quando todos entrarem.', 'Send this code to the other devices. The vault is born once they all join.')}</p>
+            )}
+            <div className="net-code" onClick={() => navigator.clipboard?.writeText(room)} title={tt('net.invite.clickCopy')}>{room}</div>
+            <div className="cv-seats">
+              {Array.from({ length: total }, (_, i) => (
+                <span key={i} className={'cv-seat' + (i < rosterCount ? ' on' : '')} />
+              ))}
+            </div>
+            <p className="cv-seatlabel">{rosterCount} {pe('de', 'of')} {total} {pe('conectados', 'connected')}</p>
+          </>
+        )}
+        {phase === 'dkg' && (
+          <div className="cv-loading">
+            <div className="cv-spinner" aria-hidden="true" />
+            <h2 className="cv-title">{pe('Criando a chave em conjunto', 'Creating the key together')}</h2>
+            <p className="cv-lead">{pe('Cada aparelho gera o seu pedaço por DKG. A chave inteira nunca é montada. Não feche esta janela.', 'Each device generates its share by DKG. The whole key is never assembled. Do not close this window.')}</p>
+          </div>
+        )}
+        {phase === 'done' && (
+          <>
+            <span className="rd-eyebrow">{pe('COFRE CRIADO', 'VAULT CREATED')}</span>
+            <h2 className="cv-title">{pe('Pronto', 'Done')}</h2>
+            <p className="cv-lead">{pe('O cofre nasceu. Cada aparelho guardou o seu pedaço; a chave inteira nunca foi montada. Proteja este aparelho com uma frase-senha para não perder o cofre ao recarregar.', 'The vault is born. Each device kept its share; the whole key was never assembled. Protect this device with a passphrase so a reload does not lose it.')}</p>
+            <div className="cv-join">
+              <input className="cv-input" type="password" style={{ letterSpacing: 'normal', textAlign: 'left' }}
+                placeholder={pe('Frase-senha (mínimo 8 caracteres)', 'Passphrase (at least 8 characters)')}
+                value={savePass} onChange={(e) => setSavePass(e.target.value)} autoFocus />
+              {saveErr && <p className="set-err">{saveErr}</p>}
+              <button className="rd-enter primary cv-primary" disabled={savePass.length < 8 || saveState === 'saving' || hostedState !== 'registered'}
+                onClick={() => void doSave()}>
+                {saveState === 'saving' ? pe('Guardando…', 'Saving…')
+                  : hostedState !== 'registered' ? pe('Registrando o cofre…', 'Registering the vault…')
+                  : pe('Proteger e abrir o cofre →', 'Protect and open the vault →')}
+              </button>
+              {hostedState === 'registered' && (
+                <button type="button" className="cv-linkbtn" onClick={openDashboard}>
+                  {pe('Abrir sem guardar (some ao recarregar)', 'Open without saving (lost on reload)')}
+                </button>
+              )}
+            </div>
+          </>
+        )}
+      </Shell>
+    )
+  }
 
   return (
     <Shell error={error} embedded={embedded} onDashboard={groupVk ? openDashboard : undefined}>
