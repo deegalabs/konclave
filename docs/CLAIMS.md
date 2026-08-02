@@ -52,6 +52,13 @@ Any statement of the form "the app payment used DKG" is **false**. Only `aab00f9
   on-device sighash binding lands ([ADR-0007](adr/0007-ceremony-security-invariants.md) I2, issue
   #62) it is **not** blind to *transaction substitution*. **No real-money `/net` broadcast until I2
   ships.** (Zkool ships this defense; we deferred it — surfaced by our own relay audit.)
+- **Signing-request metadata leak (H2, being fixed).** The `/net` signing request (`sighash`,
+  `alpha`, `pczt_hex`) is currently posted to the relay in **plaintext**; the PCZT decodes to the
+  recipient address and amount. Unlike the DKG round-2 packages (ECIES-sealed), it is not yet sealed,
+  so a curious relay operator or room-code holder can read who a shielded vault pays and how much.
+  Sealing it requires distributing the seated devices' X25519 keys to the (blind) helper — a
+  handshake change, not a one-liner ([ADR-0007](adr/0007-ceremony-security-invariants.md) I3, issue
+  #63). Until then, do not claim `/net` hides send metadata from the relay.
 - **All eight mainnet sends so far were signed on a single machine.** The first seven used
   co-located CLI shares; the eighth (`3022420a…`) used **two browser tabs on one machine**. So the
   distributed browser-signing *protocol* is proven (separate shares, a blind relay, the key never
