@@ -63,6 +63,7 @@ export const en: Record<string, string> = {
   'common.backVaults': '← My vaults',
   'common.backProposals': '← Proposals',
   'common.remove': 'remove',
+  'common.loading': 'Loading…',
   'common.demoModeNoBridge': 'demo mode · the local vault isn’t running',
 
   // accessible names (screen-reader only)

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Dialog } from '../components'
+import { Dialog, Loading } from '../components'
 import { PageHeader, NextStep } from '../page'
 import { Identicon } from '../avatar'
 import { useT } from '../i18n'
@@ -64,7 +64,9 @@ export default function People() {
         <PageHeader title={t('people.title')} subtitle={t('people.cap')} />
 
         {/* Lista primeiro — é o que se consulta */}
-        {loaded && list.length === 0 ? (
+        {!loaded ? (
+          <Loading />
+        ) : list.length === 0 ? (
           <div className="empty-note mt">{t('people.empty')}</div>
         ) : (
           <div className="people mt">
@@ -120,12 +122,12 @@ export default function People() {
 
       {confirmDel && (
         <Dialog className="unlock-overlay" cardClassName="unlock-card" labelledBy="del-title" onClose={() => setConfirmDel(null)}>
-          <div className="rd-eyebrow">{t('people.confirmDeleteEyebrow')}</div>
+          <div className="klab">{t('people.confirmDeleteEyebrow')}</div>
           <h2 id="del-title">{confirmDel.name}</h2>
           <p>{t('people.confirmDeleteBody')}</p>
           <div className="unlock-btns">
-            <button className="rd-enter" onClick={() => setConfirmDel(null)}>{t('common.cancel')}</button>
-            <button className="rd-enter primary" onClick={() => void doRemove()}>{t('people.confirmDeleteAction')}</button>
+            <button className="btn ghost" onClick={() => setConfirmDel(null)}>{t('common.cancel')}</button>
+            <button className="btn danger" onClick={() => void doRemove()}>{t('people.confirmDeleteAction')}</button>
           </div>
         </Dialog>
       )}

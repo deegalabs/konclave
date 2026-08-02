@@ -17,6 +17,14 @@ export function DemoBanner() {
   )
 }
 
+/** The quiet loading affordance — a single `.hint` line, announced via `role="status"`.
+ *  No spinner, no looping motion (strict motion budget): while an initial fetch is in flight
+ *  a screen shows this instead of flashing empty-state or mock data. */
+export function Loading() {
+  const t = useT()
+  return <p className="hint" role="status">{t('common.loading')}</p>
+}
+
 /** Enter/Space handler for elements given `role="button"` + `tabIndex`.
  *  Ignores events bubbling up from nested controls so a row doesn't fire when
  *  an inner link/button is activated. */

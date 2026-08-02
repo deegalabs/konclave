@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from 'react'
-import { Secret, RevealButton, activateOnKey } from '../components'
+import { Secret, RevealButton, activateOnKey, Loading } from '../components'
 import { PageHeader, PageFooter, NextStep } from '../page'
 import { getLedger, getProposalDetail, getVault, ledgerCsvUrl, health, shortAddr, type Proposal, type PayrollLine } from '../api'
 import { fmtDate, fmtZec } from '../format'
@@ -104,7 +104,10 @@ export default function Ledger() {
         <table className="tbl razao mt">
           <thead><tr><th>{t('ledger.colDate')}</th><th>{t('ledger.colDocument')}</th><th>{t('ledger.colWho')}</th><th>{t('ledger.colValue')}</th></tr></thead>
           <tbody>
-            {ledger.length === 0 && (
+            {rows === null && (
+              <tr><td colSpan={4}><Loading /></td></tr>
+            )}
+            {rows !== null && ledger.length === 0 && (
               <tr><td colSpan={4} className="by">{t('ledger.emptyNone')}</td></tr>
             )}
             {ledger.length > 0 && filtered.length === 0 && (

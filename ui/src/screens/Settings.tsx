@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Seal } from '../components'
+import { Seal, Loading } from '../components'
 import { PageHeader, PageFooter } from '../page'
 import { useT } from '../i18n'
 import { getVault, health, shortAddr, deleteVault, type Vault } from '../api'
@@ -61,6 +61,9 @@ export default function Settings() {
         actions={<Seal t={thr} n={n} />}
       />
 
+      {live === null && <Loading />}
+
+      {live !== null && <>
       <div className="set-list mt">
         {network && (
           <div className="set-row">
@@ -94,15 +97,15 @@ export default function Settings() {
         <h2 className="set-danger-title">{t('settings.danger')}</h2>
         <p className="set-danger-note">{t('settings.dangerNote')}</p>
         {!confirming ? (
-          <button type="button" className="btn danger-btn" onClick={() => setConfirming(true)}>
+          <button type="button" className="btn danger" onClick={() => setConfirming(true)}>
             {t('settings.remove')}
           </button>
         ) : (
           <div className="set-confirm">
-            <label className="set-confirm-label">
-              {t('settings.confirmPrompt')}
+            <label className="field">
+              <span>{t('settings.confirmPrompt')}</span>
               <input
-                className="set-input"
+                className="input mono"
                 value={confirmName}
                 onChange={(e) => setConfirmName(e.target.value)}
                 placeholder={vault?.name ?? ''}
@@ -113,7 +116,7 @@ export default function Settings() {
             <div className="set-confirm-actions">
               <button
                 type="button"
-                className="btn danger-btn"
+                className="btn danger"
                 disabled={busy || confirmName.trim() !== vault?.name}
                 onClick={removeFromDevice}
               >
@@ -126,6 +129,7 @@ export default function Settings() {
           </div>
         )}
       </section>
+      </>}
 
       <PageFooter>{t('settings.footer')}</PageFooter>
     </main>

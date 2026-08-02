@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Seal, Secret, RevealButton } from '../components'
+import { Seal, Secret, RevealButton, Loading } from '../components'
 import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
 import { fmtZec as fmt4, expiryLabel, fmtDate } from '../format'
@@ -78,6 +78,7 @@ export default function Dashboard() {
   }, [])
 
   const isLive = live === true
+  const loading = live === null // initial fetch still in flight
 
   // Vault header — real vault from the bridge; placeholder only in the offline showcase.
   const name = vault?.name ?? dl('Tesouraria Comum', 'Common Treasury')
@@ -141,7 +142,9 @@ export default function Dashboard() {
         />
 
         {/* 1 · O que precisa de você — a ação primeiro */}
-        {showApprovalCard ? (
+        {loading ? (
+          <section className="needyou calm"><Loading /></section>
+        ) : showApprovalCard ? (
           <section className="needyou act">
             <div className="req"><span className="stamp">{t('stamp.awaiting')}</span> {t('dashboard.needsYou')}{isLive && awaiting.length > 1 ? t('dashboard.awaitingSuffix', { n: awaiting.length }) : ''}</div>
             <div className="ny-body">
@@ -221,10 +224,11 @@ export default function Dashboard() {
         <section className="ledger">
           <h2 className="klab">{t('dashboard.movements')}</h2>
           <div className="cap">{t('dashboard.movementsCap')}</div>
-          {movimentos.length === 0 && (
+          {loading && <Loading />}
+          {!loading && movimentos.length === 0 && (
             <div className="cap">{t('dashboard.noMovements')}</div>
           )}
-          {movimentos.map((m, i) => (
+          {!loading && movimentos.map((m, i) => (
             <div className="lrow" key={i}>
               <div className="ldate">{m.date}</div>
               <div className="ldesc">

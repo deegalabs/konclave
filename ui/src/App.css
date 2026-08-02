@@ -347,10 +347,6 @@ h1.klab,h2.klab,h3.klab{margin:0;font-weight:400}
 .danger-body{display:flex; align-items:center; justify-content:space-between; gap:16px; margin-top:8px}
 .danger-t{font-weight:700; font-size:15px}
 .danger-d{font-family:var(--font-mono); font-size:12px; color:var(--text-muted); margin-top:3px}
-.btn.danger-btn{border-color:var(--danger); color:var(--danger-text)}
-.btn.danger-btn:hover{background:var(--danger); color:var(--tarja-ink)}
-.btn.danger-btn:disabled{opacity:.5; cursor:default}
-.btn.danger-btn:disabled:hover{background:transparent; color:var(--danger-text)}
 .modal-overlay{position:fixed; inset:0; z-index:30; display:grid; place-items:center; padding:24px; background:rgba(8,11,15,.66); backdrop-filter:blur(4px)}
 .modal-card{width:100%; max-width:440px; padding:26px; border-radius:var(--radius-lg); background:linear-gradient(180deg,var(--surface-2),var(--surface-1)); border:1px solid var(--line-2); box-shadow:var(--shadow-overlay)}
 .modal-card.danger{border-color:var(--danger-line)}
@@ -463,10 +459,7 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 .set-danger-title{margin:0 0 4px; font-size:15px; color:var(--danger-text)}
 .set-danger-note{margin:0 0 14px; font-size:13.5px; color:var(--text-muted); max-width:62ch; line-height:1.55}
 .set-confirm{display:flex; flex-direction:column; gap:12px}
-.set-confirm-label{display:flex; flex-direction:column; gap:7px; font-size:13px; color:var(--text-muted)}
-.set-input{background:var(--surface-1); border:1px solid var(--line); border-radius:var(--radius-sm);
-  color:var(--text); padding:9px 12px; font-size:14px; font-family:var(--font-mono); max-width:320px}
-.set-input:focus{outline:none; border-color:var(--accent-line)}
+.set-confirm .field{margin:0; max-width:320px}
 .set-confirm-actions{display:flex; gap:10px; flex-wrap:wrap}
 .set-err{margin:0; font-size:13px; color:var(--danger-text)}
 

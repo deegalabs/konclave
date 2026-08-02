@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Seal } from '../components'
+import { Seal, Loading } from '../components'
 import { PageHeader, PageFooter, NextStep } from '../page'
 import { Identicon } from '../avatar'
 import { useT, useTr } from '../i18n'
@@ -65,6 +65,7 @@ export default function Members() {
           actions={<Seal t={thr} n={n} />}
         />
 
+        {live === null ? <Loading /> : (
         <div className="people mt">
           {members.map((m, i) => (
             <div className="who-row" key={i}>
@@ -77,23 +78,24 @@ export default function Members() {
             </div>
           ))}
         </div>
+        )}
 
         {IS_NET && vault && (
           <div className="confirm mt">
             <div className="who-name mb-sm">{t('members.nameThem')}</div>
             {Array.from({ length: n }, (_, i) => (
-              <input
-                key={i}
-                className="field-input mono"
-                style={{ display: 'block', width: '100%', margin: '6px 0' }}
-                placeholder={`member ${i + 1}`}
-                value={names[i] ?? ''}
-                onChange={(e) => {
-                  const next = [...names]
-                  next[i] = e.target.value
-                  setNames(next)
-                }}
-              />
+              <div className="field" key={i}>
+                <input
+                  className="input mono"
+                  placeholder={`member ${i + 1}`}
+                  value={names[i] ?? ''}
+                  onChange={(e) => {
+                    const next = [...names]
+                    next[i] = e.target.value
+                    setNames(next)
+                  }}
+                />
+              </div>
             ))}
             <button className="btn ok sm-btn mt-sm" disabled={saving} onClick={() => void saveNames()}>
               {saving ? '…' : t('members.save')}

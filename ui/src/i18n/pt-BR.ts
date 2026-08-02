@@ -63,6 +63,7 @@ export const ptBR: Record<string, string> = {
   'common.backVaults': '← Meus cofres',
   'common.backProposals': '← Propostas',
   'common.remove': 'remover',
+  'common.loading': 'Carregando…',
   'common.demoModeNoBridge': 'modo demonstração · sem o cofre local rodando',
 
   // accessible names (screen-reader only)

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Secret, activateOnKey } from '../components'
+import { Secret, activateOnKey, Loading } from '../components'
 import { PageHeader } from '../page'
 import { fmtZec, parseZecToZat, zatToZec } from '../format'
 import { useT, useTr } from '../i18n'
@@ -45,6 +45,7 @@ export default function NewPayroll() {
   const [vaultName, setVaultName] = useState('Tesouraria Comum')
   const [membersList, setMembersList] = useState<Member[]>([])
   const [proposer, setProposer] = useState('Alice')
+  const [loaded, setLoaded] = useState(false)
 
   // Restore the local draft.
   useEffect(() => {
@@ -80,6 +81,7 @@ export default function NewPayroll() {
           if (first0) { setMembersList(v.member_list!); setProposer(first0.name) }
         }
       }
+      if (on) setLoaded(true)
     })()
     return () => { on = false }
   }, [])
@@ -138,7 +140,9 @@ export default function NewPayroll() {
           subtitle={<>{t('payroll.cap')} {saved && <span className="draft-note" title={t('payroll.draftSavedTitle')} aria-live="polite">{t('payroll.draftSaved')}</span>}</>}
         />
 
-        <div className="ctx">
+        {!loaded && <Loading />}
+
+        {loaded && <div className="ctx">
           <span>{tr('payment.fromVault', { name: vaultName })}</span>
           {membersList.length > 0 && (
             <label className="ctx-as">
@@ -148,7 +152,7 @@ export default function NewPayroll() {
               </select>
             </label>
           )}
-        </div>
+        </div>}
 
         {pastFolhas.length > 0 && (
           <div className="past-folhas">
