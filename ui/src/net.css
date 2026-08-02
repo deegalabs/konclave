@@ -336,3 +336,8 @@
 .cv-nameinput{width:100%; box-sizing:border-box; background:var(--surface-0); border:1px solid var(--line);
   border-radius:9px; color:var(--text); padding:11px 13px; font-size:15px; font-family:var(--font-sans)}
 .cv-nameinput:focus{outline:none; border-color:var(--accent-line)}
+
+/* Invite copy hint (create modal) + the strong "don't lose your share" warning. */
+.cv-copyhint{font-family:var(--font-mono); font-size:11.5px; color:var(--text-muted); text-align:center; margin:-8px 0 4px}
+.cv-danger{color:var(--danger-text); font-size:11.5px; line-height:1.5; padding:0 8px}
+.cv-danger:hover{color:var(--danger)}

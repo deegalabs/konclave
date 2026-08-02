@@ -191,6 +191,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
   const [showJoin, setShowJoin] = useState(false) // embedded create modal: Join is a secondary reveal
   const [vaultName, setVaultName] = useState('') // user-given vault name (create modal)
   const vaultNameRef = useRef('') // read at register time (after DKG), avoids a stale closure
+  const [codeCopied, setCodeCopied] = useState(false) // invite-copied feedback
   const [peers, setPeers] = useState(0)
   const [rosterCount, setRosterCount] = useState(0)
   const [log, setLog] = useState<string[]>([])
@@ -1280,7 +1281,10 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
             {role === 'create' && (
               <p className="cv-lead">{pe('Envie este código para os outros aparelhos. O cofre nasce quando todos entrarem.', 'Send this code to the other devices. The vault is born once they all join.')}</p>
             )}
-            <div className="net-code" onClick={() => navigator.clipboard?.writeText(room)} title={tt('net.invite.clickCopy')}>{room}</div>
+            <div className="net-code" role="button" tabIndex={0}
+              onClick={() => { void navigator.clipboard?.writeText(room); setCodeCopied(true); window.setTimeout(() => setCodeCopied(false), 1800) }}
+              title={tt('net.invite.clickCopy')}>{room}</div>
+            <p className="cv-copyhint">{codeCopied ? pe('Copiado ✓', 'Copied ✓') : pe('Toque para copiar', 'Tap to copy')}</p>
             <div className="cv-seats">
               {Array.from({ length: total }, (_, i) => (
                 <span key={i} className={'cv-seat' + (i < rosterCount ? ' on' : '')} />
@@ -1313,8 +1317,8 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
                   : pe('Proteger e abrir o cofre →', 'Protect and open the vault →')}
               </button>
               {hostedState === 'registered' && (
-                <button type="button" className="cv-linkbtn" onClick={openDashboard}>
-                  {pe('Abrir sem guardar (some ao recarregar)', 'Open without saving (lost on reload)')}
+                <button type="button" className="cv-linkbtn cv-danger" onClick={openDashboard}>
+                  {pe('Abrir sem guardar — você perde o seu pedaço ao recarregar (só a recuperação social traz de volta)', 'Open without saving — you lose your share on reload (only social recovery brings it back)')}
                 </button>
               )}
             </div>
