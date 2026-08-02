@@ -651,6 +651,10 @@ export const ptBR: Record<string, string> = {
   'members.footNote': 'a chave nunca é remontada · cada parte assina no seu lugar',
   'members.demoNote': 'Nesta demonstração as três partes rodam nesta máquina. No produto, cada membro aprova **do seu próprio dispositivo** com a sua parte · é o passo de multi-dispositivo do roadmap.',
   'members.createNew': '+ Criar um novo cofre ',
+  'members.fpTitle': 'Impressão do cofre',
+  'members.fpHelp': 'Leia este código em voz alta para os outros membros. Se todos veem **o mesmo código**, vocês estão no mesmo cofre com os mesmos signatários. Nenhum impostor entrou na cerimônia.',
+  'members.fpCopy': 'Copiar',
+  'members.fpCopied': 'Copiado',
 
   // People
   'people.errFillNameAddr': 'Preencha nome e endereço.',

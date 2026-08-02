@@ -68,3 +68,34 @@ export function shortAddr(addr: string, head = 6, tail = 6): string {
   if (addr.length <= head + tail + 1) return addr
   return `${addr.slice(0, head)}…${addr.slice(-tail)}`
 }
+
+// Crockford base32 (no I/L/O/U) — unambiguous when read aloud or copied by hand.
+const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
+
+/** Pure: encode the first bytes of a digest as a 9-char code grouped 3-3-3 (≈45 bits).
+ *  Deterministic and side-effect free so it can be unit-tested without WebCrypto. */
+export function fingerprintCode(digest: Uint8Array): string {
+  let bits = 0
+  let value = 0
+  let out = ''
+  for (let i = 0; i < digest.length && out.length < 9; i++) {
+    value = (value << 8) | (digest[i] ?? 0)
+    bits += 8
+    while (bits >= 5 && out.length < 9) {
+      bits -= 5
+      out += CROCKFORD[(value >>> bits) & 31]
+    }
+  }
+  return `${out.slice(0, 3)}-${out.slice(3, 6)}-${out.slice(6, 9)}`
+}
+
+/** A short, human-comparable fingerprint of a vault's PUBLIC group identity (its group verifying
+ *  key hex). In FROST DKG the group key is a function of every participant's contribution, so every
+ *  device that ran the SAME ceremony derives the SAME code, and a separate/impostor DKG derives a
+ *  DIFFERENT one. Members read it aloud out of band to confirm one shared vault + roster — the
+ *  detection half of authenticated admission (#65 / ADR-0007 I4; the PIN is the prevention half). */
+export async function vaultFingerprint(identity: string): Promise<string> {
+  const data = new TextEncoder().encode(identity.trim().toLowerCase())
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', data))
+  return fingerprintCode(digest)
+}
