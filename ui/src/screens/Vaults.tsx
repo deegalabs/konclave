@@ -79,7 +79,7 @@ export default function Vaults() {
         setLive(true)
         setVaults(saved.map((s) => ({
           id: s.id,
-          name: t('vaults.networkedVault'),
+          name: s.name || t('vaults.networkedVault'),
           // roster length is the participant count; the threshold is not stored on-device, so the
           // card shows a neutral "networked" tag instead of a possibly-wrong quorum (threshold: 0).
           threshold: 0,

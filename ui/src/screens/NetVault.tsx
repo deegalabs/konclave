@@ -189,6 +189,8 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
   const [n, setN] = useState(2)
   const [t, setT] = useState(2)
   const [showJoin, setShowJoin] = useState(false) // embedded create modal: Join is a secondary reveal
+  const [vaultName, setVaultName] = useState('') // user-given vault name (create modal)
+  const vaultNameRef = useRef('') // read at register time (after DKG), avoids a stale closure
   const [peers, setPeers] = useState(0)
   const [rosterCount, setRosterCount] = useState(0)
   const [log, setLog] = useState<string[]>([])
@@ -365,7 +367,8 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
       setHostedState('registering')
       // Pass the vault's quorum (t of n) so proposals inherit it (see helper::VaultRegistration).
       const cfg = configRef.current
-      void registerVault(vk, `net-${vk.slice(0, 8)}`, cfg?.t ?? 0, cfg?.n ?? 0).then((v) => {
+      const chosenName = vaultNameRef.current.trim() || `net-${vk.slice(0, 8)}`
+      void registerVault(vk, chosenName, cfg?.t ?? 0, cfg?.n ?? 0).then((v) => {
         if (v) {
           setHostedAddress(v.address)
           setHostedState('registered')
@@ -862,10 +865,11 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
         }),
       )
       const roster = seatTableRef.current.map((s) => s.tag)
-      await saveVault(hex(gvk), { groupKey: gvk, address: '', roster, sealedShare: bundle }, savePass)
+      const nm = vaultNameRef.current.trim() || undefined
+      await saveVault(hex(gvk), { name: nm, groupKey: gvk, address: '', roster, sealedShare: bundle }, savePass)
       // Also keep the just-created share unlocked in memory for this session, so the operator can
       // sign from the app immediately without re-entering the passphrase (the access model).
-      setUnlockedShare(hex(gvk), { groupKey: gvk, address: '', roster, sealedShare: bundle, createdAt: 0 })
+      setUnlockedShare(hex(gvk), { name: nm, groupKey: gvk, address: '', roster, sealedShare: bundle, createdAt: 0 })
       setSaveState('saved')
       setSavePass('')
       await refreshSaved()
@@ -978,6 +982,14 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
             'Two or more devices create one vault together, by a real DKG. Each leaves with its own share; the whole key is never assembled.',
           )}
         </p>
+
+        <div className="cv-field cv-name">
+          <span className="cv-k">{pe('Nome do cofre', 'Vault name')}</span>
+          <input className="cv-nameinput" type="text" maxLength={40}
+            placeholder={pe('ex.: Tesouraria do coletivo', 'e.g. Collective treasury')}
+            value={vaultName}
+            onChange={(e) => { setVaultName(e.target.value); vaultNameRef.current = e.target.value }} />
+        </div>
 
         <div className="cv-controls">
           <div className="cv-field">

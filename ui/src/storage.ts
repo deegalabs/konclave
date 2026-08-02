@@ -19,6 +19,7 @@ const PBKDF2_ITERS = 210_000 // OWASP 2023 floor for PBKDF2-HMAC-SHA256
 /** Public, cleartext metadata kept for listing/unlock. Contains no secret material. */
 export interface VaultPublic {
   id: string
+  name?: string // user-given vault name (public metadata); falls back to a generated one in the UI
   groupKey: string // hex of the 32-byte group verifying key (the vault's public identity)
   address: string
   roster: string[]
@@ -27,6 +28,7 @@ export interface VaultPublic {
 
 /** Plaintext payload handed to saveVault; `sealedShare` is the secret to be encrypted at rest. */
 export interface VaultData {
+  name?: string
   groupKey: Uint8Array
   address: string
   roster: string[]
@@ -35,6 +37,7 @@ export interface VaultData {
 
 /** What loadVault returns after decrypting: the same shape, group key back as bytes. */
 export interface VaultLoaded {
+  name?: string
   groupKey: Uint8Array
   address: string
   roster: string[]
@@ -45,6 +48,7 @@ export interface VaultLoaded {
 // Internal on-disk record. `cipher`/`salt`/`iv` protect `sealedShare`; the rest is public.
 interface VaultRecord {
   id: string
+  name?: string
   groupKey: string
   address: string
   roster: string[]
@@ -147,6 +151,7 @@ export async function saveVault(id: string, data: VaultData, passphrase: string)
 
   const record: VaultRecord = {
     id,
+    name: data.name,
     groupKey: hex(data.groupKey),
     address: data.address,
     roster: data.roster,
@@ -193,6 +198,7 @@ export async function loadVault(id: string, passphrase: string): Promise<VaultLo
   }
 
   return {
+    name: record.name,
     groupKey: unhex(record.groupKey),
     address: record.address,
     roster: record.roster,
@@ -215,7 +221,7 @@ export async function listVaults(): Promise<VaultPublic[]> {
     const records = await reqDone(tx.objectStore(STORE).getAll() as IDBRequest<VaultRecord[]>)
     await txDone(tx)
     return records
-      .map((r) => ({ id: r.id, groupKey: r.groupKey, address: r.address, roster: r.roster, createdAt: r.createdAt }))
+      .map((r) => ({ id: r.id, name: r.name, groupKey: r.groupKey, address: r.address, roster: r.roster, createdAt: r.createdAt }))
       .sort((a, b) => b.createdAt - a.createdAt)
   } finally {
     db.close()

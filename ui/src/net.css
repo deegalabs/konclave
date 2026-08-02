@@ -330,3 +330,9 @@
 .cv-spinner{width:38px; height:38px; border-radius:50%; border:3px solid var(--line); border-top-color:var(--accent); animation:cv-spin 0.9s linear infinite}
 @keyframes cv-spin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion: reduce){ .cv-spinner{animation:none} }
+
+/* Vault-name field in the create modal. */
+.cv-name{margin-bottom:12px}
+.cv-nameinput{width:100%; box-sizing:border-box; background:var(--surface-0); border:1px solid var(--line);
+  border-radius:9px; color:var(--text); padding:11px 13px; font-size:15px; font-family:var(--font-sans)}
+.cv-nameinput:focus{outline:none; border-color:var(--accent-line)}

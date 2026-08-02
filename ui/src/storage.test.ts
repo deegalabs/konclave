@@ -9,7 +9,7 @@ import { saveVault, loadVault, listVaults, deleteVault, storageAvailable, type V
 
 const share = new Uint8Array(Array.from({ length: 32 }, (_, i) => i + 1))
 const groupKey = new Uint8Array(32).fill(7)
-const data: VaultData = { groupKey, address: 'u1examplevaultaddress', roster: ['Alice', 'Bob', 'Carol'], sealedShare: share }
+const data: VaultData = { name: 'Test vault', groupKey, address: 'u1examplevaultaddress', roster: ['Alice', 'Bob', 'Carol'], sealedShare: share }
 
 describe('storage — encrypted IndexedDB persistence', () => {
   it('is available in the test environment (IndexedDB + WebCrypto)', () => {
@@ -36,7 +36,8 @@ describe('storage — encrypted IndexedDB persistence', () => {
     const v = list.find((x) => x.id === 'v1')
     expect(v).toBeTruthy()
     expect(v).not.toHaveProperty('sealedShare')
-    expect(Object.keys(v!).sort()).toEqual(['address', 'createdAt', 'groupKey', 'id', 'roster'])
+    expect(Object.keys(v!).sort()).toEqual(['address', 'createdAt', 'groupKey', 'id', 'name', 'roster'])
+    expect(v!.name).toBe('Test vault')
     // The 1..32 share bytes must not leak through the public metadata.
     expect(JSON.stringify(v)).not.toContain(JSON.stringify(Array.from(share)))
   })
