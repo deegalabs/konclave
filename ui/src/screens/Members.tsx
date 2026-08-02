@@ -5,6 +5,7 @@ import { PageHeader, PageFooter, NextStep } from '../page'
 import { Identicon } from '../avatar'
 import { useT, useTr } from '../i18n'
 import { getVault, health, shortAddr, IS_NET, setVaultMembers, type Vault } from '../api'
+import { listVaults, type Governance } from '../storage'
 
 const ME = 'Alice' // this device acts as the coordinator member (single-device demo)
 
@@ -18,6 +19,7 @@ export default function Members() {
   // of "member N". Names are public coordination data on the helper, never a share.
   const [names, setNames] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
+  const [gov, setGov] = useState<Governance | null>(null)
 
   useEffect(() => {
     let on = true
@@ -30,6 +32,10 @@ export default function Members() {
         if (on && v) {
           setVault(v)
           setNames(v.member_list.map((m) => m.name))
+          try {
+            const saved = await listVaults()
+            if (on) setGov(saved.find((s) => s.id === v.id)?.governance ?? 'open')
+          } catch { /* local-bridge mode — no on-device record */ }
         }
       }
     })()
@@ -78,6 +84,10 @@ export default function Members() {
             </div>
           ))}
         </div>
+        )}
+
+        {IS_NET && vault && gov === 'quorum' && (
+          <div className="gov-nudge mt" role="note">{t('gov.nudgeSigners')}</div>
         )}
 
         {IS_NET && vault && (

@@ -247,6 +247,8 @@ export const ptBR: Record<string, string> = {
   'settings.govQuorum': 'Sob quórum',
   'settings.govOpen': 'Aberto',
   'settings.govNote': 'Mover fundos sempre exige o quórum (criptográfico). Esta política cobre mudanças de nomes e beneficiários (um acordo do grupo).',
+  'gov.nudgeSigners': 'Cofre sob quórum: renomear signatários é uma decisão do grupo. Combinem com os membros antes de salvar.',
+  'gov.nudgeBeneficiaries': 'Cofre sob quórum: mudar beneficiários é uma decisão do grupo. Combinem com os membros antes de salvar.',
   'settings.unlock': 'Desbloqueio',
   'settings.unlockValue': 'senha neste aparelho',
   'settings.danger': 'Zona sensível',

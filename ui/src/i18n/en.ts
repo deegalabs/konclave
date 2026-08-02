@@ -247,6 +247,8 @@ export const en: Record<string, string> = {
   'settings.govQuorum': 'Quorum-gated',
   'settings.govOpen': 'Open',
   'settings.govNote': 'Moving funds always needs the quorum (cryptographic). This policy covers name and beneficiary changes (a group agreement).',
+  'gov.nudgeSigners': 'Quorum-gated vault: renaming signers is a group decision. Agree with the members before saving.',
+  'gov.nudgeBeneficiaries': 'Quorum-gated vault: changing beneficiaries is a group decision. Agree with the members before saving.',
   'settings.unlock': 'Unlock',
   'settings.unlockValue': 'passphrase on this device',
   'settings.danger': 'Danger zone',

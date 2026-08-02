@@ -5,8 +5,9 @@ import { Identicon } from '../avatar'
 import { useT } from '../i18n'
 import {
   getBeneficiaries, addBeneficiary, deleteBeneficiary, classifyAddress, shortAddr, humanError,
-  type Beneficiary,
+  getVault, type Beneficiary,
 } from '../api'
+import { listVaults, type Governance } from '../storage'
 
 export default function People() {
   const t = useT()
@@ -20,6 +21,7 @@ export default function People() {
   const [loaded, setLoaded] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [confirmDel, setConfirmDel] = useState<Beneficiary | null>(null)
+  const [gov, setGov] = useState<Governance | null>(null)
 
   async function reload() {
     const b = await getBeneficiaries()
@@ -28,7 +30,18 @@ export default function People() {
     // First time / empty registry: open the form so there's an obvious next step.
     if (b && b.length === 0) setShowForm(true)
   }
-  useEffect(() => { void reload() }, [])
+  useEffect(() => {
+    void reload()
+    // Governance policy (public vault metadata, on-device). Undefined reads as 'open'.
+    void (async () => {
+      try {
+        const v = await getVault()
+        if (!v) return
+        const saved = await listVaults()
+        setGov(saved.find((s) => s.id === v.id)?.governance ?? 'open')
+      } catch { /* local-bridge mode — no on-device record */ }
+    })()
+  }, [])
 
   const kind = address.trim().length > 1 ? classifyAddress(address.trim()) : null
 
@@ -87,6 +100,10 @@ export default function People() {
           </div>
         )}
 
+        {gov === 'quorum' && (
+          <div className="gov-nudge mt" role="note">{t('gov.nudgeBeneficiaries')}</div>
+        )}
+
         <div className="mt">
           <button className="btn ghost sm-btn" onClick={() => (showForm ? cancelForm() : setShowForm(true))}>
             {showForm ? t('people.close') : t('people.register')}
@@ -125,6 +142,7 @@ export default function People() {
           <div className="klab">{t('people.confirmDeleteEyebrow')}</div>
           <h2 id="del-title">{confirmDel.name}</h2>
           <p>{t('people.confirmDeleteBody')}</p>
+          {gov === 'quorum' && <p className="hint">{t('gov.nudgeBeneficiaries')}</p>}
           <div className="unlock-btns">
             <button className="btn ghost" onClick={() => setConfirmDel(null)}>{t('common.cancel')}</button>
             <button className="btn danger" onClick={() => void doRemove()}>{t('people.confirmDeleteAction')}</button>
