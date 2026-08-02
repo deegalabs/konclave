@@ -26,6 +26,7 @@ import {
   storageAvailable,
   type VaultPublic,
   type VaultLoaded,
+  type Governance,
 } from '../storage'
 import {
   helperConfigured,
@@ -98,7 +99,7 @@ const PERSIST_LABELS = {
 
 // Wire messages (JSON inside the relay's opaque `data`; the relay never parses them).
 type Msg =
-  | { type: 'config'; n: number; t: number }
+  | { type: 'config'; n: number; t: number; g?: Governance }
   | { type: 'hello'; encPub: string; name?: string }
   | { type: 'r1'; pkg: string }
   | { type: 'r2'; to: number; box: string }
@@ -261,7 +262,11 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
   }, [])
   const deviceKeyRef = useRef<DeviceKey | null>(null)
   const myTagRef = useRef('')
-  const configRef = useRef<{ n: number; t: number } | null>(null)
+  const configRef = useRef<{ n: number; t: number; g?: Governance } | null>(null)
+  // Governance policy the creator picks; propagated to every device in the `config` broadcast so
+  // the whole vault agrees. Default `quorum` (safer for a shared fund); `open` for small trusted groups.
+  const [governance, setGovernance] = useState<Governance>('quorum')
+  const governanceRef = useRef<Governance>('quorum')
   const rosterRef = useRef<Map<string, Uint8Array>>(new Map()) // tag -> encPub
   const seatByTagRef = useRef<Map<string, number>>(new Map()) // tag -> 1-based seat
   const seatTableRef = useRef<{ tag: string; encPub: Uint8Array; id: Uint8Array }[]>([])
@@ -447,9 +452,10 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
       }
       if (parsed.type === 'config') {
         if (!configRef.current) {
-          configRef.current = { n: parsed.n, t: parsed.t }
+          configRef.current = { n: parsed.n, t: parsed.t, g: parsed.g }
           setN(parsed.n)
           setT(parsed.t)
+          if (parsed.g) { setGovernance(parsed.g); governanceRef.current = parsed.g }
         }
         return true
       }
@@ -742,8 +748,8 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
         }, 90000)
         // The creator declares the group size/threshold; everyone announces their enc key.
         if (asRole === 'create') {
-          configRef.current = { n: total, t: threshold }
-          await sess.send(JSON.stringify({ type: 'config', n: total, t: threshold } satisfies Msg))
+          configRef.current = { n: total, t: threshold, g: governanceRef.current }
+          await sess.send(JSON.stringify({ type: 'config', n: total, t: threshold, g: governanceRef.current } satisfies Msg))
         }
         await sess.send(
           JSON.stringify({ type: 'hello', encPub: b64(deviceKeyRef.current.publicBytes()), name: myNameRef.current.trim() || undefined } satisfies Msg),
@@ -878,10 +884,11 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
       )
       const roster = seatTableRef.current.map((s) => s.tag)
       const nm = vaultNameRef.current.trim() || undefined
-      await saveVault(hex(gvk), { name: nm, groupKey: gvk, address: '', roster, sealedShare: bundle }, savePass)
+      const gov: Governance = cfg?.g ?? governanceRef.current
+      await saveVault(hex(gvk), { name: nm, governance: gov, groupKey: gvk, address: '', roster, sealedShare: bundle }, savePass)
       // Also keep the just-created share unlocked in memory for this session, so the operator can
       // sign from the app immediately without re-entering the passphrase (the access model).
-      setUnlockedShare(hex(gvk), { name: nm, groupKey: gvk, address: '', roster, sealedShare: bundle, createdAt: 0 })
+      setUnlockedShare(hex(gvk), { name: nm, governance: gov, groupKey: gvk, address: '', roster, sealedShare: bundle, createdAt: 0 })
       setSaveState('saved')
       setSavePass('')
       await refreshSaved()
@@ -1057,6 +1064,27 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
                 onClick={() => setT(t + 1)}>+</button>
             </div>
           </div>
+        </div>
+
+        <div className="cv-field cv-gov">
+          <span className="cv-k">{pe('Governança', 'Governance')}</span>
+          <div className="cv-seg" role="radiogroup" aria-label={pe('Governança', 'Governance')}>
+            <button type="button" role="radio" aria-checked={governance === 'quorum'}
+              className={'cv-segbtn' + (governance === 'quorum' ? ' on' : '')}
+              onClick={() => { setGovernance('quorum'); governanceRef.current = 'quorum' }}>
+              {pe('Sob quórum', 'Quorum-gated')}
+            </button>
+            <button type="button" role="radio" aria-checked={governance === 'open'}
+              className={'cv-segbtn' + (governance === 'open' ? ' on' : '')}
+              onClick={() => { setGovernance('open'); governanceRef.current = 'open' }}>
+              {pe('Aberto', 'Open')}
+            </button>
+          </div>
+          <span className="cv-govnote">{governance === 'quorum'
+            ? pe('Mudar nomes e beneficiários é decisão do grupo. Mover fundos sempre exige o quórum.',
+                 'Changing names and beneficiaries is a group decision. Moving funds always needs the quorum.')
+            : pe('Qualquer membro edita nomes e beneficiários. Mover fundos sempre exige o quórum.',
+                 'Any member edits names and beneficiaries. Moving funds always needs the quorum.')}</span>
         </div>
 
         <button className="rd-enter primary cv-primary"

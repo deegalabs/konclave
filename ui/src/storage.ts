@@ -16,10 +16,20 @@ const STORE = 'vaults'
 const DB_VERSION = 1
 const PBKDF2_ITERS = 210_000 // OWASP 2023 floor for PBKDF2-HMAC-SHA256
 
+/**
+ * Vault governance policy, set at creation and propagated to every device (public metadata).
+ * `quorum` = sensitive metadata changes (signer names, beneficiaries) are group decisions;
+ * `open` = any member edits directly. This is a PRODUCT rule the app helps a group honor, NOT a
+ * cryptographic lock: moving funds always needs the FROST quorum regardless of this setting.
+ * Undefined on older records is treated as `open` (the historical behavior) by the UI.
+ */
+export type Governance = 'open' | 'quorum'
+
 /** Public, cleartext metadata kept for listing/unlock. Contains no secret material. */
 export interface VaultPublic {
   id: string
   name?: string // user-given vault name (public metadata); falls back to a generated one in the UI
+  governance?: Governance
   groupKey: string // hex of the 32-byte group verifying key (the vault's public identity)
   address: string
   roster: string[]
@@ -29,6 +39,7 @@ export interface VaultPublic {
 /** Plaintext payload handed to saveVault; `sealedShare` is the secret to be encrypted at rest. */
 export interface VaultData {
   name?: string
+  governance?: Governance
   groupKey: Uint8Array
   address: string
   roster: string[]
@@ -38,6 +49,7 @@ export interface VaultData {
 /** What loadVault returns after decrypting: the same shape, group key back as bytes. */
 export interface VaultLoaded {
   name?: string
+  governance?: Governance
   groupKey: Uint8Array
   address: string
   roster: string[]
@@ -49,6 +61,7 @@ export interface VaultLoaded {
 interface VaultRecord {
   id: string
   name?: string
+  governance?: Governance
   groupKey: string
   address: string
   roster: string[]
@@ -170,6 +183,7 @@ export async function saveVault(id: string, data: VaultData, passphrase: string)
   const record: VaultRecord = {
     id,
     name: data.name,
+    governance: data.governance,
     groupKey: hex(data.groupKey),
     address: data.address,
     roster: data.roster,
@@ -221,6 +235,7 @@ export async function loadVault(id: string, passphrase: string): Promise<VaultLo
 
   return {
     name: record.name,
+    governance: record.governance,
     groupKey: unhex(record.groupKey),
     address: record.address,
     roster: record.roster,
@@ -243,7 +258,7 @@ export async function listVaults(): Promise<VaultPublic[]> {
     const records = await reqDone(tx.objectStore(STORE).getAll() as IDBRequest<VaultRecord[]>)
     await txDone(tx)
     return records
-      .map((r) => ({ id: r.id, name: r.name, groupKey: r.groupKey, address: r.address, roster: r.roster, createdAt: r.createdAt }))
+      .map((r) => ({ id: r.id, name: r.name, governance: r.governance, groupKey: r.groupKey, address: r.address, roster: r.roster, createdAt: r.createdAt }))
       .sort((a, b) => b.createdAt - a.createdAt)
   } finally {
     db.close()

@@ -484,6 +484,7 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 .set-row:last-child{border-bottom:none}
 .set-k{color:var(--text-muted)}
 .set-v{color:var(--text); font-weight:600; text-align:right}
+.set-hint{margin:14px 0 0; font-family:var(--font-mono); font-size:11.5px; color:var(--text-muted); max-width:62ch; line-height:1.55}
 .set-v.mono{font-family:var(--font-mono); font-weight:500; letter-spacing:.01em}
 .set-badge{font-family:var(--font-mono); font-size:11px; letter-spacing:.05em; text-transform:uppercase;
   color:var(--accent); background:var(--accent-soft); border-radius:var(--radius-pill); padding:3px 10px}

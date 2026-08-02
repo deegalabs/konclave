@@ -4,6 +4,7 @@ import { Seal, Loading } from '../components'
 import { PageHeader, PageFooter } from '../page'
 import { useT } from '../i18n'
 import { getVault, health, shortAddr, deleteVault, type Vault } from '../api'
+import { listVaults, type Governance } from '../storage'
 
 /**
  * Per-vault settings (redesign Fase 0). Shows the vault's public identity (quorum, group,
@@ -15,6 +16,7 @@ export default function Settings() {
   const t = useT()
   const nav = useNavigate()
   const [vault, setVault] = useState<Vault | null>(null)
+  const [gov, setGov] = useState<Governance | null>(null)
   const [live, setLive] = useState<boolean | null>(null)
   const [confirming, setConfirming] = useState(false)
   const [confirmName, setConfirmName] = useState('')
@@ -30,6 +32,15 @@ export default function Settings() {
       if (ok) {
         const v = await getVault()
         if (on && v) setVault(v)
+        // Governance is public vault metadata kept on-device (browser-native). Match by id; older
+        // vaults without the field read as 'open' (the historical behavior).
+        if (v) {
+          try {
+            const saved = await listVaults()
+            const found = saved.find((s) => s.id === v.id)
+            if (on) setGov(found?.governance ?? 'open')
+          } catch { /* no local record (local-bridge mode) — leave governance unshown */ }
+        }
       }
     })()
     return () => { on = false }
@@ -87,11 +98,18 @@ export default function Settings() {
           <span className="set-k">{t('settings.group')}</span>
           <span className="set-v mono">{vault ? vault.group_pubkey.slice(0, 10) + '…' : '—'}</span>
         </div>
+        {gov && (
+          <div className="set-row">
+            <span className="set-k">{t('settings.governance')}</span>
+            <span className="set-v">{gov === 'quorum' ? t('settings.govQuorum') : t('settings.govOpen')}</span>
+          </div>
+        )}
         <div className="set-row">
           <span className="set-k">{t('settings.unlock')}</span>
           <span className="set-v">{t('settings.unlockValue')}</span>
         </div>
       </div>
+      {gov && <p className="set-hint">{t('settings.govNote')}</p>}
 
       <section className="set-danger mt">
         <h2 className="set-danger-title">{t('settings.danger')}</h2>
