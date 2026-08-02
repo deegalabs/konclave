@@ -20,6 +20,9 @@ export default function Members() {
   const [names, setNames] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const [gov, setGov] = useState<Governance | null>(null)
+  // The name THIS device chose at create/join, so "you" marks the right seat (was hardcoded to
+  // 'Alice', which mislabeled every other device). Falls back to ME for the offline demo.
+  const [me, setMe] = useState<string | null>(null)
 
   useEffect(() => {
     let on = true
@@ -34,7 +37,8 @@ export default function Members() {
           setNames(v.member_list.map((m) => m.name))
           try {
             const saved = await listVaults()
-            if (on) setGov(saved.find((s) => s.id === v.id)?.governance ?? 'open')
+            const rec = saved.find((s) => s.id === v.id)
+            if (on) { setGov(rec?.governance ?? 'open'); setMe(rec?.myName ?? null) }
           } catch { /* local-bridge mode — no on-device record */ }
         }
       }
@@ -77,7 +81,7 @@ export default function Members() {
             <div className="who-row" key={i}>
               <Identicon seed={m.pubkey || m.name} size={38} />
               <div className="person-main">
-                <div className="who-name">{m.name}{m.name === ME && <span className="klab"> {t('members.you')}</span>}</div>
+                <div className="who-name">{m.name}{m.name === (me ?? ME) && <span className="klab"> {t('members.you')}</span>}</div>
                 <div className="person-sub mono">{i === 0 ? t('members.roleCoordinator') : t('members.roleSigns')} · id {shortAddr(m.pubkey, 8, 6)}</div>
               </div>
               <span className="who-st cap">{t('members.signs')}</span>

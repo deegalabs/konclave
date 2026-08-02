@@ -885,10 +885,11 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
       const roster = seatTableRef.current.map((s) => s.tag)
       const nm = vaultNameRef.current.trim() || undefined
       const gov: Governance = cfg?.g ?? governanceRef.current
-      await saveVault(hex(gvk), { name: nm, governance: gov, groupKey: gvk, address: '', roster, sealedShare: bundle }, savePass)
+      const mine = myNameRef.current.trim() || undefined
+      await saveVault(hex(gvk), { name: nm, governance: gov, myName: mine, groupKey: gvk, address: '', roster, sealedShare: bundle }, savePass)
       // Also keep the just-created share unlocked in memory for this session, so the operator can
       // sign from the app immediately without re-entering the passphrase (the access model).
-      setUnlockedShare(hex(gvk), { name: nm, governance: gov, groupKey: gvk, address: '', roster, sealedShare: bundle, createdAt: 0 })
+      setUnlockedShare(hex(gvk), { name: nm, governance: gov, myName: mine, groupKey: gvk, address: '', roster, sealedShare: bundle, createdAt: 0 })
       setSaveState('saved')
       setSavePass('')
       await refreshSaved()
