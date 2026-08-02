@@ -59,6 +59,24 @@ interface VaultRecord {
 }
 
 
+/**
+ * Ask the browser to mark this origin's storage as persistent, so the encrypted share is NOT
+ * evicted under storage pressure or the ~7-day inactivity clear (Safari ITP is the worst case).
+ * Best-effort: Chromium/Firefox grant it based on engagement/PWA-install; iOS Safari usually
+ * declines (there the safety net is social recovery, not persistence). Returns the granted state.
+ * Never throws — a browser without the API just reports false. Call it from a user gesture
+ * (e.g. right after the user protects a vault) for the best chance of a grant.
+ */
+export async function requestPersistentStorage(): Promise<boolean> {
+  try {
+    if (typeof navigator === 'undefined' || !navigator.storage?.persist) return false
+    if (await navigator.storage.persisted()) return true
+    return await navigator.storage.persist()
+  } catch {
+    return false
+  }
+}
+
 /** True when this browser has both IndexedDB and WebCrypto (AES-GCM/PBKDF2 live under subtle). */
 export function storageAvailable(): boolean {
   try {
@@ -169,6 +187,10 @@ export async function saveVault(id: string, data: VaultData, passphrase: string)
   } finally {
     db.close()
   }
+
+  // The user just committed a share to this device: the strongest moment to ask the browser to
+  // keep it. Fire-and-forget — a decline never blocks the save (recovery covers a lost share).
+  void requestPersistentStorage()
 }
 
 /**

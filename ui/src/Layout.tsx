@@ -126,7 +126,7 @@ export default function Layout() {
           <div className="rail-bottom">
             {live === true && <span className="live"><i />{t('dashboard.live')}</span>}
             {live === false && <span className="live off"><i />{t('dashboard.demo')}</span>}
-            <Link to="/" className="rail-switch">{t('nav.switchVault')} ▾</Link>
+            <Link to="/vaults" className="rail-switch">{t('nav.switchVault')} ▾</Link>
           </div>
           <div className="rail-lang"><LangToggle /></div>
         </div>
