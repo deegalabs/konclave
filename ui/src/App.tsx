@@ -24,6 +24,7 @@ import Inheritance from './screens/Inheritance'
 import Settings from './screens/Settings'
 import Ceremonies from './screens/Ceremonies'
 import Lab from './screens/Lab'
+import BackgroundSignerLab from './screens/BackgroundSignerLab'
 import './App.css'
 
 export default function App() {
@@ -43,6 +44,7 @@ export default function App() {
         <Route path="/docs/:section" element={<Docs />} />
         <Route path="/proof" element={<Proof />} />
         <Route path="/lab" element={<Lab />} />
+        <Route path="/lab/background-signer" element={<BackgroundSignerLab />} />
         <Route path="/recovery" element={<Recovery />} />
         <Route path="/inheritance" element={<Inheritance />} />
         <Route path="/create" element={<Ceremony />} />
