@@ -62,3 +62,6 @@ desktop.ini
 logs/
 .vercel
 .env*
+
+# Claude Code worktrees/scratch
+.claude/
