@@ -81,6 +81,12 @@ export class BackgroundSession {
     await this.signer.feed(from, data)
   }
 
+  /** Re-drive the signer without new input — e.g. after the owner arms a manual-mode payment, so a
+   *  request that was pending on the governance gate now proceeds. */
+  async retry(): Promise<void> {
+    await this.signer.retry()
+  }
+
   /** True once the current payment's ceremony finished (every spend). */
   isDone(): boolean {
     return this.signer.isDone()
