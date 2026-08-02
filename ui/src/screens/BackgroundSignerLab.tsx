@@ -14,6 +14,7 @@ import { parseAlphas } from '../signing'
 import { bytesToHex } from '../net-sign'
 import { dkgProvenPczt } from '../demo-vector'
 import { useBackgroundSigner } from '../useBackgroundSigner'
+import { makeSigningGate, type SigningMode } from '../signing-gate'
 import { shortAddr } from '../format'
 
 function testRequest(): string {
@@ -28,10 +29,12 @@ export default function BackgroundSignerLab() {
   const [pass, setPass] = useState('')
   const [unlocked, setUnlocked] = useState<{ id: string } | null>(null)
   const [msg, setMsg] = useState('')
-
-  // The lab auto-signs (gate open): this is a test digest, no funds. In the product the gate is the
-  // per-vault governance policy (auto/manual + approval).
-  const bg = useBackgroundSigner(unlocked, () => true)
+  // Governance policy, demonstrated live: the lab treats the demo request as quorum-approved
+  // (isApproved: true), so `auto` signs on inject and `manual` waits until you arm it.
+  const [mode, setMode] = useState<SigningMode>('manual')
+  const [armed, setArmed] = useState(false)
+  const gate = makeSigningGate({ mode: () => mode, isApproved: () => true, isArmed: () => armed })
+  const bg = useBackgroundSigner(unlocked, gate)
 
   useEffect(() => {
     void (async () => {
@@ -109,9 +112,32 @@ export default function BackgroundSignerLab() {
               </p>
             )}
             {bg.error && <p className="dim" style={{ color: 'var(--danger-text)' }}>{bg.error}</p>}
-            <button className="btn ghost sm-btn mt-sm" disabled={!bg.ready} onClick={() => void bg.inject(testRequest())}>
-              Inject a test sign-request
-            </button>
+
+            <div className="mt-sm" style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+              <span className="klab">Signing mode</span>
+              {(['auto', 'manual'] as SigningMode[]).map((m) => (
+                <label key={m} style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+                  <input type="radio" name="mode" checked={mode === m} onChange={() => { setMode(m); setArmed(false) }} />
+                  <span className="mono">{m}</span>
+                </label>
+              ))}
+            </div>
+            <p className="dim" style={{ fontSize: 12.5, marginTop: 4 }}>
+              {mode === 'auto'
+                ? 'auto: an approved payment signs on its own.'
+                : 'manual: an approved payment waits until you arm it (a single click never fires money).'}
+            </p>
+
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              <button className="btn ghost sm-btn" disabled={!bg.ready} onClick={() => { setArmed(false); void bg.inject(testRequest()) }}>
+                Inject a test sign-request
+              </button>
+              {mode === 'manual' && (
+                <button className="btn ok sm-btn" disabled={!bg.ready || armed} onClick={() => { setArmed(true); void bg.retry() }}>
+                  Approve &amp; sign
+                </button>
+              )}
+            </div>
           </div>
         )}
       </main>

@@ -23,6 +23,8 @@ export interface BackgroundSignerState {
   signature: { hex: string; ok: boolean } | null
   what: { zec: string; addr: string } | null
   error: string
+  /** Re-drive after arming a manual-mode payment (a gate-pending request then proceeds). */
+  retry: () => Promise<void>
   /** DEV/validation: publish a raw sign-request into the room (the helper does this in production). */
   inject: (requestJson: string) => Promise<void>
 }
@@ -44,6 +46,7 @@ export function useBackgroundSigner(
   const [what, setWhat] = useState<{ zec: string; addr: string } | null>(null)
   const [error, setError] = useState('')
   const relayRef = useRef<RelaySession | null>(null)
+  const sessionRef = useRef<BackgroundSession | null>(null)
   const roomRef = useRef('')
   const gateRef = useRef(gate)
   gateRef.current = gate
@@ -82,6 +85,7 @@ export function useBackgroundSigner(
           onSignature: (h, ok) => setSignature({ hex: h, ok }),
           onError: setError,
         })
+        sessionRef.current = session
         const relay = new RelaySession(r, myTag, (m) => void session.onMessage(m.from, m.data))
         relayRef.current = relay
         relay.start()
@@ -95,6 +99,7 @@ export function useBackgroundSigner(
       stopped = true
       relayRef.current?.stop()
       relayRef.current = null
+      sessionRef.current = null
       if (acquired) releaseSigner(id)
       setReady(false)
     }
@@ -108,6 +113,7 @@ export function useBackgroundSigner(
     signature,
     what,
     error,
+    retry: async () => { await sessionRef.current?.retry() },
     inject: async (requestJson: string) => {
       if (roomRef.current) await relayPost(roomRef.current, 'lab-helper', requestJson)
     },
