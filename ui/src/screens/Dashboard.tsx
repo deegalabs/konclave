@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Dialog, Seal, Secret, RevealButton } from '../components'
+import { Seal, Secret, RevealButton, Loading } from '../components'
+import { SpendBars, type SpendPoint } from '../charts'
 import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
 import { fmtZec as fmt4, expiryLabel, fmtDate } from '../format'
+import { usdEnabled, setUsdEnabled, cachedRate, rateIsStale, fetchRate, zecToUsd, type Rate } from '../price'
 import { useT, useTr } from '../i18n'
 import {
-  getVault, getProposals, getBalance, getLedger, health, shortAddr, isVaultUnlocked,
-  deleteVault, clearSelectedVault, IS_DEMO,
+  getVault, getProposals, getBalance, getLedger, health, shortAddr, isVaultUnlocked, IS_DEMO,
   type Vault, type Proposal, type Balance,
 } from '../api'
 
@@ -56,11 +57,28 @@ export default function Dashboard() {
   const [ledger, setLedger] = useState<Proposal[] | null>(null)
   const [balance, setBalance] = useState<Balance | null>(null)
   const [live, setLive] = useState<boolean | null>(null)
-  const [showDelete, setShowDelete] = useState(false)
-  const [delPass, setDelPass] = useState('')
-  const [delName, setDelName] = useState('')
-  const [delErr, setDelErr] = useState<string | null>(null)
-  const [delBusy, setDelBusy] = useState(false)
+  const [rate, setRate] = useState<Rate | null>(cachedRate())
+  const [usdOn, setUsdOn] = useState<boolean>(usdEnabled())
+  const [rateBusy, setRateBusy] = useState(false)
+
+  async function refreshRate() {
+    setRateBusy(true)
+    const r = await fetchRate()
+    if (r) setRate(r)
+    setRateBusy(false)
+  }
+  function enableUsd() {
+    setUsdEnabled(true)
+    setUsdOn(true)
+    void refreshRate()
+  }
+
+  // Fetch a fresh rate on mount only if the user has opted in and the cache is stale (privacy:
+  // no outbound price call otherwise).
+  useEffect(() => {
+    if (usdOn && rateIsStale(cachedRate())) void refreshRate()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     let on = true
@@ -84,6 +102,7 @@ export default function Dashboard() {
   }, [])
 
   const isLive = live === true
+  const loading = live === null // initial fetch still in flight
 
   // Vault header — real vault from the bridge; placeholder only in the offline showcase.
   const name = vault?.name ?? dl('Tesouraria Comum', 'Common Treasury')
@@ -127,20 +146,46 @@ export default function Dashboard() {
         status: p.state === 'sent' || p.state === 'confirmed' ? 'confirmado' : 'verificar',
       }))
     : null
-  const movimentos = movs ?? MOVIMENTOS_MOCK
+  // Real ledger when there is one; the mock showcase ONLY when genuinely offline/demo. A LIVE vault
+  // with an empty ledger (e.g. a fresh /net vault, no proposals yet) shows no movements, not mock.
+  const movimentos: Movimento[] = movs ?? (live === false || IS_DEMO ? MOVIMENTOS_MOCK : [])
 
-  // Delete flow (local only). Locked vaults require the word; unlocked ones require
-  // typing the vault name. If this device sees a spendable balance, warn hard.
-  const locked = vault?.locked === true
-  const seesFunds = hasBal && Number(balance?.total_zat ?? 0) > 0
-  const canDelete = locked ? delPass.length > 0 : delName.trim() === name
-  async function doDelete() {
-    setDelBusy(true); setDelErr(null)
-    const r = await deleteVault(locked ? delPass : undefined, locked ? undefined : delName.trim())
-    setDelBusy(false)
-    if (r.ok) { clearSelectedVault(); nav('/vaults') }
-    else setDelErr(r.wrong ? t('dashboard.delWrong') : t('dashboard.delFail'))
+  // KPIs — all derived from real data (no fabrication). Reserved = funds committed by open
+  // proposals (a product rule, not a protocol lock); Paid = settled outflow across the ledger.
+  const parseZ = (s?: string) => { const n = parseFloat(s || ''); return isFinite(n) ? n : 0 }
+  const settled = (ledger ?? []).filter((p) => p.state === 'sent' || p.state === 'confirmed')
+  const reservedZec = awaiting.reduce((a, p) => a + parseZ(p.value_zec), 0)
+  const paidZec = settled.reduce((a, p) => a + parseZ(p.value_zec), 0)
+
+  // Settled spend grouped by month (ascending, last 6). SpendBars self-hides below two periods.
+  const byMonth = new Map<string, SpendPoint>()
+  for (const p of settled) {
+    if (!p.created_at) continue
+    const d = new Date(p.created_at * 1000)
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+    const label = d.toLocaleDateString(undefined, { month: 'short' })
+    const cur = byMonth.get(key) ?? { label, zec: 0 }
+    cur.zec += parseZ(p.value_zec)
+    byMonth.set(key, cur)
   }
+  const spendSeries: SpendPoint[] = Array.from(byMonth.entries())
+    .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+    .slice(-6)
+    .map(([, v]) => v)
+
+  // USD estimate (opt-in). Only priceable when there is a real or offline-demo ZEC figure.
+  const balZecNum = hasBal ? parseZ(balance!.total_zec) : (live === false ? 2.418 : undefined)
+  const usdBal = usdOn ? zecToUsd(balZecNum, rate) : null
+  const usdPaid = usdOn ? zecToUsd(paidZec, rate) : null
+  // "how fresh is the rate" label
+  const rateAgo = (): string => {
+    if (!rate) return ''
+    const min = Math.floor((Date.now() - rate.at) / 60000)
+    if (min < 1) return t('dashboard.agoNow')
+    if (min < 60) return t('dashboard.agoMin', { n: min })
+    return t('dashboard.agoHours', { n: Math.floor(min / 60) })
+  }
+
 
   return (
     <>
@@ -157,7 +202,9 @@ export default function Dashboard() {
         />
 
         {/* 1 · O que precisa de você — a ação primeiro */}
-        {showApprovalCard ? (
+        {loading ? (
+          <section className="needyou calm"><Loading /></section>
+        ) : showApprovalCard ? (
           <section className="needyou act">
             <div className="req"><span className="stamp">{t('stamp.awaiting')}</span> {t('dashboard.needsYou')}{isLive && awaiting.length > 1 ? t('dashboard.awaitingSuffix', { n: awaiting.length }) : ''}</div>
             <div className="ny-body">
@@ -206,6 +253,23 @@ export default function Dashboard() {
                 <span>{t('dashboard.confirmedLower')} <Secret sm><b>{confirmado}</b></Secret></span>
                 <span className="pd">{t('dashboard.pendingLower')} <Secret sm><b>{pendente}</b></Secret></span>
               </div>
+              <div className="usd">
+                {usdOn ? (
+                  <>
+                    <span className="usd-v">≈ <Secret sm><b>{usdBal ?? '—'}</b></Secret></span>
+                    <span className="usd-src">{rate
+                      ? `${rate.source} · ${rateAgo()}${rateIsStale(rate) ? ` · ${t('dashboard.rateStale')}` : ''}`
+                      : t('dashboard.rateNone')}</span>
+                    <button type="button" className="linkbtn" onClick={() => void refreshRate()} disabled={rateBusy}>
+                      {rateBusy ? t('dashboard.updating') : t('dashboard.refresh')}
+                    </button>
+                  </>
+                ) : (
+                  <button type="button" className="linkbtn" onClick={enableUsd} title={t('dashboard.usdDisclosure')}>
+                    {t('dashboard.showUsd')}
+                  </button>
+                )}
+              </div>
             </>
           )}
           {walletUnwired && <div className="breakdown"><span className="dim small">{t('dashboard.walletNotConnectedNote')}</span></div>}
@@ -218,6 +282,25 @@ export default function Dashboard() {
             </span>
           </div>
         </section>
+
+        {/* 2b · KPIs — números do cofre, todos derivados de dados reais */}
+        {!loading && (
+          <section className="kpis">
+            <div className="kpi">
+              <span className="kpi-k klab">{t('dashboard.kpiOpen')}</span>
+              <span className="kpi-v mono">{awaiting.length}</span>
+            </div>
+            <div className="kpi">
+              <span className="kpi-k klab">{t('dashboard.kpiReserved')}</span>
+              <span className="kpi-v mono"><Secret sm><b>{fmt4(String(reservedZec))}</b></Secret> <span className="kpi-u">ZEC</span></span>
+            </div>
+            <div className="kpi">
+              <span className="kpi-k klab">{t('dashboard.kpiPaid')}</span>
+              <span className="kpi-v mono"><Secret sm><b>{fmt4(String(paidZec))}</b></Secret> <span className="kpi-u">ZEC</span></span>
+              {usdPaid && <span className="kpi-sub">≈ {usdPaid}</span>}
+            </div>
+          </section>
+        )}
 
         {/* 3 · Ações primárias (a navegação de seções vive no rail) */}
         <section className="actions">
@@ -237,10 +320,17 @@ export default function Dashboard() {
         <section className="ledger">
           <h2 className="klab">{t('dashboard.movements')}</h2>
           <div className="cap">{t('dashboard.movementsCap')}</div>
-          {movimentos.length === 0 && (
+          {!loading && spendSeries.length >= 2 && (
+            <div className="spendwrap">
+              <div className="klab plain">{t('dashboard.spendByMonth')}</div>
+              <SpendBars data={spendSeries} />
+            </div>
+          )}
+          {loading && <Loading />}
+          {!loading && movimentos.length === 0 && (
             <div className="cap">{t('dashboard.noMovements')}</div>
           )}
-          {movimentos.map((m, i) => (
+          {!loading && movimentos.map((m, i) => (
             <div className="lrow" key={i}>
               <div className="ldate">{m.date}</div>
               <div className="ldesc">
@@ -255,52 +345,8 @@ export default function Dashboard() {
           ))}
         </section>
 
-        {/* Zona de perigo */}
-        <section className="danger-zone">
-          <h2 className="klab danger-lab">{t('dashboard.dangerZone')}</h2>
-          <div className="danger-body">
-            <div>
-              <div className="danger-t">{t('dashboard.deleteThisVault')}</div>
-              <div className="danger-d">{t('dashboard.deleteThisVaultDesc')}</div>
-            </div>
-            <button className="btn danger-btn" onClick={() => { setShowDelete(true); setDelErr(null); setDelPass(''); setDelName('') }}>{t('dashboard.deleteVault')}</button>
-          </div>
-        </section>
       </main>
 
-      {showDelete && (
-        <Dialog className="modal-overlay" cardClassName="modal-card danger" labelledBy="delete-title" onClose={() => setShowDelete(false)}>
-            <span className="klab danger-lab">{t('dashboard.deleteVault')}</span>
-            <h2 id="delete-title" className="modal-h">{tr('dashboard.deleteConfirmTitle', { name })}</h2>
-            <p className="modal-p">{tr('dashboard.deleteConfirmBody')}</p>
-
-            <div className="danger-funds">
-              {tr('dashboard.deleteFundsWarn')}
-              {seesFunds && <div className="mt-xs">{tr('dashboard.deleteSeesFunds', { amt: fmt4(balance?.total_zec) })}</div>}
-            </div>
-            <div className="hint">{t('dashboard.deleteLocalHint')}</div>
-
-            {locked ? (
-              <label className="field mt"><span>{t('dashboard.deleteTypeWord')}</span>
-                <input className="input" type="password" value={delPass} onChange={(e) => setDelPass(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && canDelete) void doDelete() }} autoFocus />
-              </label>
-            ) : (
-              <label className="field mt"><span>{tr('dashboard.deleteTypeName', { name })}</span>
-                <input className="input" value={delName} onChange={(e) => setDelName(e.target.value)} placeholder={name}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && canDelete) void doDelete() }} autoFocus />
-              </label>
-            )}
-            {delErr && <div className="hint err mt" role="alert">{delErr}</div>}
-
-            <div className="btns right mt">
-              <button className="btn ghost" onClick={() => setShowDelete(false)}>{t('common.cancel')}</button>
-              <button className="btn danger-btn" onClick={() => void doDelete()} disabled={delBusy || !canDelete}>
-                {delBusy ? t('dashboard.deleting') : t('dashboard.deletePermanently')}
-              </button>
-            </div>
-        </Dialog>
-      )}
     </>
   )
 }

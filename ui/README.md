@@ -31,3 +31,12 @@ brand pipeline (see `.design/branding/konclave/` and `STYLE.md`).
 Wired to live data through `ui/src/api.ts` (the loopback `/api/*` bridge) with a fallback
 to the mock (`ui/src/mock.ts`, gated on `VITE_DEMO` for the hosted demo). Run: `npm run dev`
 (Vite dev server, `/api` proxied to the bridge) · `npm run build` · `npm run lint`.
+
+## Environment (build-time `VITE_*`)
+- `VITE_RELAY_BASE` — hosted blind relay for `/net` (empty = the local bridge, same origin).
+- `VITE_HELPER_BASE` — hosted **blind helper** (ADR-0006 Rung A) for `/net`. When set, a
+  finished browser-DKG vault is registered with the helper, which derives its real Orchard
+  address (view-only) and can later drive sends over Architecture B. Empty = `/net` stays a
+  pure device-to-device ceremony with no hosted vault (`ui/src/helper.ts` degrades to `null`).
+  The demo points it at the Railway helper (`konclave-helper-production.up.railway.app`).
+- `VITE_DEMO` — hosted-demo mode (reads fall back to `ui/src/mock.ts`).

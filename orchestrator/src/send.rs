@@ -96,6 +96,11 @@ pub struct SendOutcome {
     pub signed_pczt: String,
     /// The shielded sighash the ceremony signed (hex) — useful for the receipt.
     pub sighash: String,
+    /// The aggregate FROST signature(s) the quorum produced, one hex string per real spend, in
+    /// spend order (64 bytes each). These make the ceremony INDEPENDENTLY verifiable off-chain:
+    /// anyone can check each signature under the group's verifying key + the spend's alpha for the
+    /// sighash, without trusting the operator (the basis of the ceremony record).
+    pub signatures: Vec<String>,
 }
 
 /// One payroll beneficiary, fed to the multi-output PCZT builder.
@@ -302,6 +307,7 @@ pub fn orchestrate_send(
         txid,
         signed_pczt: tx3_path,
         sighash: sighash_hex,
+        signatures: signatures.iter().map(|(_, s)| hex_encode(s)).collect(),
     })
 }
 
@@ -387,6 +393,7 @@ pub fn net_orchestrate_send(
         txid,
         signed_pczt: tx3_path,
         sighash: sighash_hex,
+        signatures: sigs.iter().map(|(_, s)| hex_encode(s)).collect(),
     })
 }
 

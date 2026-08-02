@@ -795,6 +795,26 @@ export function participantRound2WithRandomizer(sp, nonces_bytes, kp_bytes, rand
 }
 
 /**
+ * Recompute the ZIP-244 shielded sig_digest from THIS device's own proven PCZT, returning the
+ * 32-byte sighash. The signing driver signs this value, never a sighash handed over the relay —
+ * the on-device defence against the transaction-swap attack (issue #62 / ADR-0007 I2). Errors
+ * if the PCZT is not a shielded-only v5/v6 transaction.
+ * @param {Uint8Array} pczt
+ * @returns {Uint8Array}
+ */
+export function pcztSighash(pczt) {
+    const ptr0 = passArray8ToWasm0(pczt, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.pcztSighash(ptr0, len0);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v2;
+}
+
+/**
  * Seal `plaintext` to a recipient's 32-byte public key (used on each round-2 package so the
  * relay only ever carries ciphertext). `aad` binds context (sender+recipient) into the tag.
  * @param {Uint8Array} recipient_pub

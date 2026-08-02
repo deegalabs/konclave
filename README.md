@@ -157,8 +157,10 @@ bytes and holds no key. The one secret piece of the DKG (the round-2 packages) i
 end-to-end** (X25519 → HKDF-SHA256 → XChaCha20-Poly1305), so the relay stays blind. Try it at
 [`konclave-demo.vercel.app/#/net`](https://konclave-demo.vercel.app/#/net) in two tabs.
 
-To our knowledge, a first for Zcash: a full DKG-and-signing FROST ceremony driven entirely from the
-browser. This is the path to *your key lives on your phone, the platform never has access*.
+We are not aware of another Zcash FROST DKG-and-signing ceremony driven entirely from the
+**browser** — an ecosystem scan (Aug 2026) found no comparable. (Zkool ships FROST shielded multisig
+on Zcash, but as a native app; the in-browser ceremony is the distinction, not the multisig
+primitive.) This is the path to *your key lives on your phone, the platform never has access*.
 
 ## Shared-custody safety: recovery + inheritance
 

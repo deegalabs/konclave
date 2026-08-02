@@ -1,0 +1,121 @@
+// The thin React layer for Stage 3 (issue #49): pipe a RelaySession on the vault's signing room
+// into the tested BackgroundSession, so an unlocked vault SIGNS IN THE BACKGROUND. All the logic
+// lives in the tested core (SigningMachine/BackgroundSigner/SigningSeats/BackgroundSession); this
+// hook is only lifecycle glue — open the room on mount, seat, stop on unmount, and hold the
+// singleton lock so two tabs never double-sign. The Dashboard will consume this; /lab validates it.
+
+import { useEffect, useRef, useState } from 'react'
+import init from './wasm-pkg/konclave_wasm.js'
+import wasmUrl from './wasm-pkg/konclave_wasm_bg.wasm?url'
+import { RelaySession, relayPost, ephemeralTag } from './net'
+import { getUnlockedShare } from './session'
+import { decodeBundle } from './signing'
+import { BackgroundSession } from './background-session'
+import { signingRoom, acquireSigner, releaseSigner, type GovernanceGate } from './background-signer'
+
+const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('')
+
+export interface BackgroundSignerState {
+  ready: boolean // the session is seated and listening on the signing room
+  room: string
+  seatCount: number
+  phase: 'idle' | 'signing' | 'signed'
+  signature: { hex: string; ok: boolean } | null
+  what: { zec: string; addr: string } | null
+  error: string
+  /** Re-drive after arming a manual-mode payment (a gate-pending request then proceeds). */
+  retry: () => Promise<void>
+  /** DEV/validation: publish a raw sign-request into the room (the helper does this in production). */
+  inject: (requestJson: string) => Promise<void>
+}
+
+/**
+ * Run a background signer for an UNLOCKED vault. `gate` is the governance policy (default: never
+ * sign — the safe default; the caller supplies the real per-vault auto/manual + approval logic).
+ * Returns null-ish state until the vault's share is unlocked in this session.
+ */
+export function useBackgroundSigner(
+  vault: { id: string } | null,
+  gate: GovernanceGate = () => false,
+): BackgroundSignerState {
+  const [room, setRoom] = useState('')
+  const [ready, setReady] = useState(false)
+  const [seatCount, setSeatCount] = useState(0)
+  const [phase, setPhase] = useState<'idle' | 'signing' | 'signed'>('idle')
+  const [signature, setSignature] = useState<{ hex: string; ok: boolean } | null>(null)
+  const [what, setWhat] = useState<{ zec: string; addr: string } | null>(null)
+  const [error, setError] = useState('')
+  const relayRef = useRef<RelaySession | null>(null)
+  const sessionRef = useRef<BackgroundSession | null>(null)
+  const roomRef = useRef('')
+  const gateRef = useRef(gate)
+  gateRef.current = gate
+
+  const id = vault?.id ?? null
+  useEffect(() => {
+    if (!id) return
+    const loaded = getUnlockedShare(id)
+    if (!loaded) return // not unlocked in this session
+    let stopped = false
+    let acquired = false
+    void (async () => {
+      try {
+        await init(wasmUrl)
+        const b = decodeBundle(loaded)
+        if (!acquireSigner(id)) {
+          setError('another signer is already active for this vault on this device')
+          return
+        }
+        acquired = true
+        const r = await signingRoom(hex(loaded.groupKey))
+        if (stopped) return
+        roomRef.current = r
+        setRoom(r)
+        const myTag = ephemeralTag()
+        const session = new BackgroundSession({
+          myTag,
+          mySeat: b.seat,
+          signingMaterial: () => ({ keyPackage: b.keyPackage, groupVk: b.groupVk, pubkeys: b.pubkeys }),
+          threshold: () => b.t,
+          send: (data) => relayRef.current?.send(data) ?? Promise.resolve(false),
+          gate: (ctx) => gateRef.current(ctx), // live gate, so a policy change takes effect
+          onSeatCount: setSeatCount,
+          onPhase: setPhase,
+          onWhat: setWhat,
+          onSignature: (h, ok) => setSignature({ hex: h, ok }),
+          onError: setError,
+        })
+        sessionRef.current = session
+        const relay = new RelaySession(r, myTag, (m) => void session.onMessage(m.from, m.data))
+        relayRef.current = relay
+        relay.start()
+        await session.start() // announce this device's seat
+        if (!stopped) setReady(true)
+      } catch (e) {
+        setError(String(e))
+      }
+    })()
+    return () => {
+      stopped = true
+      relayRef.current?.stop()
+      relayRef.current = null
+      sessionRef.current = null
+      if (acquired) releaseSigner(id)
+      setReady(false)
+    }
+  }, [id])
+
+  return {
+    ready,
+    room,
+    seatCount,
+    phase,
+    signature,
+    what,
+    error,
+    retry: async () => { await sessionRef.current?.retry() },
+    inject: async (requestJson: string) => {
+      if (roomRef.current) await relayPost(roomRef.current, 'lab-helper', requestJson)
+    },
+  }
+}

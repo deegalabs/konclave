@@ -3,6 +3,7 @@ import encodeQR from '@paulmillr/qr'
 import { getVault, type Vault } from '../api'
 import { useT } from '../i18n'
 import { PageHeader, NextStep } from '../page'
+import { Loading } from '../components'
 import '../receive.css'
 
 // "Add funds" is the easy side of a vault: receiving needs no key and no signature. The vault
@@ -13,13 +14,16 @@ import '../receive.css'
 export default function Receive() {
   const t = useT()
   const [vault, setVault] = useState<Vault | null>(null)
+  const [loaded, setLoaded] = useState(false)
   const [amount, setAmount] = useState('')
   const [copied, setCopied] = useState<string | null>(null)
 
   useEffect(() => {
     let on = true
     void getVault().then((v) => {
-      if (on && v) setVault(v)
+      if (!on) return
+      if (v) setVault(v)
+      setLoaded(true)
     })
     return () => {
       on = false
@@ -52,7 +56,7 @@ export default function Receive() {
     return (
       <main className="page">
         <PageHeader title={t('receive.title')} />
-        <p className="rcv-note">{t('receive.noVault')}</p>
+        {loaded ? <p className="rcv-note">{t('receive.noVault')}</p> : <Loading />}
       </main>
     )
   }
@@ -65,28 +69,31 @@ export default function Receive() {
         <div className="rcv-qr" dangerouslySetInnerHTML={{ __html: qrSvg }} role="img" aria-label="QR" />
 
         <div className="rcv-side">
-          <span className="rcv-label">{t('receive.address')}</span>
+          <span className="klab">{t('receive.address')}</span>
           <div className="rcv-addr">{address}</div>
-          <button className="rcv-btn" onClick={() => copy(address, 'a')}>
-            {copied === 'a' ? t('receive.copied') : t('receive.copy')}
-          </button>
+          <div className="rcv-actions">
+            <button className="btn" onClick={() => copy(address, 'a')}>
+              {copied === 'a' ? t('receive.copied') : t('receive.copy')}
+            </button>
+          </div>
 
-          <span className="rcv-label" style={{ marginTop: 18 }}>{t('receive.amount')}</span>
-          <input
-            className="rcv-input"
-            inputMode="decimal"
-            placeholder="0.00"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-          />
+          <label className="field"><span>{t('receive.amount')}</span>
+            <input
+              className="input mono"
+              inputMode="decimal"
+              placeholder="0.00"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+            />
+          </label>
 
-          <span className="rcv-label" style={{ marginTop: 18 }}>{t('receive.uri')}</span>
+          <span className="klab" style={{ marginTop: 4 }}>{t('receive.uri')}</span>
           <div className="rcv-uri">{uri}</div>
           <div className="rcv-actions">
-            <button className="rcv-btn" onClick={() => copy(uri, 'u')}>
+            <button className="btn" onClick={() => copy(uri, 'u')}>
               {copied === 'u' ? t('receive.copied') : t('receive.copyUri')}
             </button>
-            <a className="rcv-btn primary" href={uri}>{t('receive.openWallet')}</a>
+            <a className="btn ok" href={uri}>{t('receive.openWallet')}</a>
           </div>
         </div>
       </div>

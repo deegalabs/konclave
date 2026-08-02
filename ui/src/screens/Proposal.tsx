@@ -1,19 +1,20 @@
 import { useEffect, useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
-import { Secret, Dialog } from '../components'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { Secret, Dialog, Loading } from '../components'
 import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
 import { fmtZec } from '../format'
 import { useT, useTr } from '../i18n'
 import {
   getProposalDetail, getProposals, getVault, voteProposal, sendProposal, shortAddr, humanError,
-  type Proposal, type PayrollLine,
+  IS_NET, type Proposal, type PayrollLine,
 } from '../api'
 
 export default function Proposal() {
   const t = useT()
   const tr = useTr()
   const loc = useLocation() as { state?: { id?: string } }
+  const nav = useNavigate()
   const [p, setP] = useState<Proposal | null>(null)
   const [lines, setLines] = useState<PayrollLine[]>([])
   const [threshold, setThreshold] = useState(2)
@@ -60,6 +61,10 @@ export default function Proposal() {
 
   async function send(dryRun: boolean) {
     if (!p) return
+    // Browser-native vault: signing happens in /net, where this device's share lives. Instead of a
+    // server-side ceremony, take the operator to the signing screen (the approved proposal shows up
+    // there under "Proposals ready to sign").
+    if (IS_NET) { nav('/net'); return }
     setError(null); setDryOk(null); setSending(dryRun ? 'dry' : 'real')
     const res = await sendProposal(p.id, dryRun)
     setSending(null)
@@ -72,7 +77,7 @@ export default function Proposal() {
   }
 
   if (loading) {
-    return (<><main className="page narrow"><div className="hint">{t('proposal.loading')}</div></main></>)
+    return (<><main className="page narrow"><Loading /></main></>)
   }
   if (!p) {
     return (<><main className="page narrow"><PageHeader title={t('proposal.noneTitle')} />
@@ -129,7 +134,7 @@ export default function Proposal() {
 
         <div className="p-amt mt"><Secret><span>{val}</span></Secret> <span className="dim small">ZEC</span></div>
         {isPayroll && (
-          <table className="tbl folha mt">
+          <table className="tbl folha-read mt">
             <thead><tr><th>{t('proposal.colLabel')}</th><th>{t('proposal.colDest')}</th><th>{t('proposal.colValue')}</th><th>{t('proposal.colMemo')}</th></tr></thead>
             <tbody>
               {lines.map((l, i) => (
@@ -206,15 +211,28 @@ export default function Proposal() {
             <div className="confirm mt ready">
               {isPayroll ? tr('proposal.readyPayroll') : tr('proposal.readyPayment')}
             </div>
-            <div className="btns mt">
-              <button className="btn ok" onClick={() => setConfirmSend(true)} disabled={sending !== null}>
-                {sending === 'real' ? t('proposal.signingSending') : (isPayroll ? t('proposal.signSendPayroll') : t('proposal.signSendPayment'))}
-              </button>
-              <button className="btn" onClick={() => send(true)} disabled={sending !== null} title={t('proposal.validateTitle')}>
-                {sending === 'dry' ? t('proposal.validating') : t('proposal.validateBtn')}
-              </button>
-            </div>
-            {dryOk && <div className="hint mt-sm ready">{t('proposal.dryOkPre')}</div>}
+            {IS_NET ? (
+              <>
+                <div className="btns mt">
+                  <button className="btn ok" onClick={() => nav('/net')}>
+                    {t('proposal.goToCeremony')}
+                  </button>
+                </div>
+                <div className="hint mt-sm">{t('proposal.ceremonyNote')}</div>
+              </>
+            ) : (
+              <>
+                <div className="btns mt">
+                  <button className="btn ok" onClick={() => setConfirmSend(true)} disabled={sending !== null}>
+                    {sending === 'real' ? t('proposal.signingSending') : (isPayroll ? t('proposal.signSendPayroll') : t('proposal.signSendPayment'))}
+                  </button>
+                  <button className="btn" onClick={() => send(true)} disabled={sending !== null} title={t('proposal.validateTitle')}>
+                    {sending === 'dry' ? t('proposal.validating') : t('proposal.validateBtn')}
+                  </button>
+                </div>
+                {dryOk && <div className="hint mt-sm ready">{t('proposal.dryOkPre')}</div>}
+              </>
+            )}
             <div className="hint mt-sm">{t('proposal.signNeverReassembles')}</div>
           </>
         )}
@@ -239,10 +257,10 @@ export default function Proposal() {
         <Dialog className="modal-overlay" cardClassName="modal-card danger" labelledBy="send-confirm-title" onClose={() => setConfirmSend(false)}>
           <span className="klab danger-lab">{t('proposal.confirmLabel')}</span>
           <h2 id="send-confirm-title" className="modal-h">{t('proposal.confirmTitle')}</h2>
-          <div className="send-confirm-what" style={{ margin: '8px 0 6px', padding: '12px 14px', border: '1px solid var(--danger-line)', borderRadius: 'var(--radius-sm)', background: 'var(--danger-soft)' }}>
-            <strong style={{ fontFamily: 'var(--font-mono)', fontSize: '1.05rem' }}>{val} ZEC</strong>
+          <div className="send-confirm-what">
+            <strong className="scw-amt">{val} ZEC</strong>
             {isPayroll
-              ? <span style={{ opacity: 0.85 }}> · {t('kind.payroll')}</span>
+              ? <span className="scw-kind"> · {t('kind.payroll')}</span>
               : <> <span aria-hidden="true">→</span> <code>{dest}</code></>}
           </div>
           <p className="modal-p">{t('proposal.confirmBody')}</p>

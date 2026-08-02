@@ -97,7 +97,23 @@ slice slips, Phase 6 is the escape valve, never the core.
 
 # Forward roadmap (post-submission)
 
-The core crypto is proven (real FROST over Orchard, **seven** verifiable mainnet txids incl. a
+> **Current focus (2026-08-02) — the live tracker is GitHub Issues** (this file is the strategic
+> shape, the issues are the work items). Active thread: **the signing convergence** (EPIC #49) so a
+> payment sends **from the Dashboard**, not from `/net`.
+> - **Stage 1 (#69, done):** the FROST ceremony extracted from `NetVault` into a reusable
+>   `SigningMachine` (+ an orchestration test).
+> - **Stage 2 (#70, done):** `rearm()` so one machine signs successive payments.
+> - **Stage 3 core (#72, done):** an app-level `BackgroundSigner` + a per-vault signing room +
+>   a singleton guard + an injected **governance gate** (sign-async/sync is configurable per vault
+>   and changeable by a governance proposal; mechanism vs policy).
+> - **Next:** Stage 3 live wiring (a background relay session on the signing room + the Dashboard
+>   "Send" trigger + the governance UI), then **Stage 4** (the Dashboard-triggered broadcast), which
+>   stays **money-gated** behind a live dry-run.
+>
+> Ceremony security landed alongside: H1 transaction-swap defense + PIN-gated admission + vault
+> fingerprint (#67/#68, ADR-0007). Open security follow-up: H2 (seal the SignRequest, #63).
+
+The core crypto is proven (real FROST over Orchard, **eight** verifiable mainnet txids incl. a
 DKG-vault send, a private multi-output payroll, and — on NU6.3 activation day — an
 Orchard→Ironwood migration plus the first **Ironwood-pool spend** (both V6/NU6.3, FROST 2-of-3),
 and browser-side signing of a real Orchard spend). The work from here is **consolidation,
@@ -203,6 +219,16 @@ private. The custody core is already browser-native (real DKG, FROST-redpallas s
 on-device share). What is missing is the transaction machinery, deliberately kept off the WASM build
 today to stay wasm-clean (`konclave-wasm` excludes the Halo2 proving path, `zcash_primitives`, and
 secp256k1/C deps on purpose).
+
+> **Decision recorded:** [ADR-0006](adr/0006-browser-native-vault.md) formalizes this as the
+> **browser-native vault** (the `/vault` operating inside `/net`), on a staircase whose rungs map
+> onto the three helper stages below: **A** = the blind **hosted** helper turning `/net` into a
+> self-service web vault (stage 2), **B** = the light logic and PCZT build moving into the browser,
+> **C** = fully in-WASM (stage 3). The immediate milestone **M1** is Rung A plus a **cross-device**
+> broadcast (two separate devices, each holding only its share) carried to a **confirmed mainnet
+> txid**, with a verifiable ceremony record. That is the milestone an independent review of the
+> ZecHub FROST projects (2026-07-29) named as the meaningful one, and which none of the six had
+> reached.
 
 **Three stages for the helper (each strictly more decentralized, all trustless — the helper never
 sees a share and cannot move funds without the quorum's signatures):**

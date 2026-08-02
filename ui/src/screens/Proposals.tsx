@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Secret, activateOnKey } from '../components'
+import { Secret, activateOnKey, Loading } from '../components'
 import { PageHeader, NextStep } from '../page'
 import { Identicon } from '../avatar'
 import { getProposals, getVault, health, type Proposal } from '../api'
@@ -62,18 +62,24 @@ export default function Proposals() {
       <main className="page narrow">
         <PageHeader title={t('proposals.title')} subtitle={<>{t('proposals.cap')} {live ? '' : t('proposals.demoMode')}</>} />
 
-        {ready.length > 0 && (
+        {!loaded && <Loading />}
+
+        {loaded && ready.length > 0 && (
           <>
             <div className="plist-head"><span className="klab">{t('proposals.readyToSign')}</span><span className="plist-count ready">{ready.length}</span></div>
             <div className="plist">{ready.map((p) => <Row key={p.id} p={p} />)}</div>
           </>
         )}
 
-        <div className="plist-head mt"><span className="klab">{t('proposals.awaitingApproval')}</span><span className="plist-count">{awaiting.length}</span></div>
-        {awaiting.length > 0 ? (
-          <div className="plist">{awaiting.map((p) => <Row key={p.id} p={p} />)}</div>
-        ) : (
-          <div className="empty-note">{t('proposals.nothingAwaiting')} <Link className="link" to="/pay">{t('proposal.proposePaymentLink')}</Link></div>
+        {loaded && (
+          <>
+            <div className="plist-head mt"><span className="klab">{t('proposals.awaitingApproval')}</span><span className="plist-count">{awaiting.length}</span></div>
+            {awaiting.length > 0 ? (
+              <div className="plist">{awaiting.map((p) => <Row key={p.id} p={p} />)}</div>
+            ) : (
+              <div className="empty-note">{t('proposals.nothingAwaiting')} <Link className="link" to="/pay">{t('proposal.proposePaymentLink')}</Link></div>
+            )}
+          </>
         )}
 
         {loaded && rows.length === 0 && ready.length === 0 && (

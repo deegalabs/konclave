@@ -129,6 +129,16 @@ pub fn get_info(devtool: &Path, wallet_dir: &str, server: &str) -> Result<ChainI
     parse_chain_info(&run_text(devtool, &args, None)?)
 }
 
+/// `zcash-devtool wallet -w <dir> sync -s <server> --connection direct` — bring the wallet's
+/// view current against lightwalletd so a following `balance` / `list-tx` is up to date. The
+/// stdout is progress noise (not JSON); only success/failure matters here.
+pub fn sync(devtool: &Path, wallet_dir: &str, server: &str) -> Result<(), ToolError> {
+    let s = server_args(server);
+    let args = ["wallet", "-w", wallet_dir, "sync", s[0], s[1], s[2], s[3]];
+    crate::tools::run(devtool, &args, None)?;
+    Ok(())
+}
+
 /// `zcash-devtool wallet -w <dir> balance --json`
 pub fn balance(devtool: &Path, wallet_dir: &str) -> Result<Balance, ToolError> {
     let args = ["wallet", "-w", wallet_dir, "balance", "--json"];
