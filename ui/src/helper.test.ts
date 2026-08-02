@@ -4,7 +4,6 @@ import {
   helperHealth,
   registerVault,
   getVault,
-  helperSend,
   HELPER_BASE,
 } from './helper'
 
@@ -27,15 +26,6 @@ describe('local-first degradation (no VITE_HELPER_BASE)', () => {
     expect(await helperHealth()).toBeNull()
     expect(await registerVault('deadbeef', 'v')).toBeNull()
     expect(await getVault('deadbeef')).toBeNull()
-    expect(
-      await helperSend({
-        vault: 'deadbeef',
-        to: 'utest1abc',
-        amountZat: 1000,
-        relayBase: 'http://x',
-        room: 'r',
-      }),
-    ).toBeNull()
     // The whole point: no network egress when the helper is not configured.
     expect(spy).not.toHaveBeenCalled()
   })

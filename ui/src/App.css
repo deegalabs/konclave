@@ -91,10 +91,25 @@
   .tbl.folha td:nth-child(5){order:5; grid-column:1 / -1}
   .tbl.folha .cell-input{width:100%; border:1px solid var(--line); border-radius:8px;
     background:var(--surface-0); padding:11px 12px; font-size:14px}
-  .tbl.folha .cell-input.num-input{text-align:left}
+  .tbl.folha .cell-input.num-input{text-align:right}
   .tbl.folha .row-bad{border-color:var(--danger)}
   .tbl.folha .row-bad td{background:transparent}
 }
+/* Read-only payroll table (Proposal detail) — 4 cols; its own mobile stacking so it does not
+   inherit the 6-col editable folha rules (which mis-styled the beneficiary name as a "#"). */
+@media(max-width:640px){
+  .tbl.folha-read thead{display:none}
+  .tbl.folha-read, .tbl.folha-read tbody{display:block}
+  .tbl.folha-read tr{display:block; border:1px solid var(--line); border-radius:10px;
+    background:var(--surface-1); padding:12px 14px; margin-bottom:10px}
+  .tbl.folha-read td{display:block; padding:2px 0; border:0}
+  .tbl.folha-read td.num{text-align:left; font-weight:600; color:var(--text)}
+}
+/* Send-confirm restated amount (Proposal detail dialog) */
+.send-confirm-what{margin:8px 0 6px; padding:12px 14px; border:1px solid var(--danger-line);
+  border-radius:var(--radius-sm); background:var(--danger-soft)}
+.scw-amt{font-family:var(--font-mono); font-size:1.05rem}
+.scw-kind{opacity:.85}
 .row-del{border:1px solid var(--line); background:var(--surface-2); color:var(--text-muted); width:29px; height:29px; border-radius:var(--radius-sm); cursor:pointer; line-height:1; font-size:14px}
 .row-del:hover{color:var(--danger); border-color:var(--danger)}
 .row-edit{border:1px solid var(--line); background:var(--surface-2); color:var(--text-muted); width:29px; height:29px; border-radius:var(--radius-sm); cursor:pointer; line-height:1; font-size:12px}
@@ -120,6 +135,38 @@
 .breakdown{display:flex; gap:34px; font-family:var(--font-mono); font-size:12.5px; color:var(--text-muted)}
 .breakdown b{color:var(--text); font-weight:500}
 .breakdown .pd b{color:var(--silver)}
+
+/* USD estimate (opt-in) */
+.usd{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-top:12px;
+  font-family:var(--font-mono); font-size:12.5px; color:var(--text-muted)}
+.usd-v b{color:var(--silver); font-weight:500}
+.usd-src{font-size:11px; letter-spacing:.02em}
+.linkbtn{background:none; border:0; padding:0; cursor:pointer; font-family:var(--font-mono);
+  font-size:12px; color:var(--accent); border-bottom:1px solid transparent}
+.linkbtn:hover{border-bottom-color:var(--accent)}
+.linkbtn:disabled{color:var(--text-muted); cursor:default; border-bottom-color:transparent}
+
+/* KPI strip — treasury figures, all from real data */
+.kpis{display:grid; grid-template-columns:repeat(3,1fr); gap:14px}
+.kpi{display:flex; flex-direction:column; gap:7px; padding:15px 17px; border-radius:var(--radius);
+  background:var(--surface-2); border:1px solid var(--line-2)}
+.kpi-k{color:var(--text-muted)}
+.kpi-v{font-family:var(--font-mono); font-size:23px; font-weight:500; color:var(--text); letter-spacing:-.01em}
+.kpi-u{font-size:12px; color:var(--text-muted); letter-spacing:.12em}
+.kpi-sub{font-family:var(--font-mono); font-size:11.5px; color:var(--text-muted)}
+
+/* Spend-by-month bars (charts.tsx) */
+.spendwrap{margin:2px 0 20px}
+.spendwrap .klab{margin-bottom:14px}
+.spend-bars{display:flex; align-items:flex-end; gap:10px; justify-content:flex-start}
+.spend-col{flex:0 0 auto; width:52px; display:flex; flex-direction:column; align-items:center; justify-content:flex-end}
+.spend-bar{width:100%; max-width:34px; background:var(--silver); border-radius:4px 4px 0 0;
+  box-shadow:0 0 0 2px var(--surface-0)}
+.spend-bar.peak{background:var(--text)}
+.spend-lab{margin-top:7px; font-size:10.5px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.06em}
+
+.visually-hidden{position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden;
+  clip:rect(0 0 0 0); white-space:nowrap; border:0}
 .receive{display:flex; align-items:center; gap:14px; margin-top:22px; padding-top:18px; border-top:1px solid var(--line)}
 .receive code{font-family:var(--font-mono); font-size:12.5px; background:var(--surface-2); border:1px solid var(--line); padding:6px 10px}
 .orchard{margin-left:auto; font-family:var(--font-mono); font-size:11px; letter-spacing:.06em; color:var(--accent); display:flex; align-items:center; gap:7px}
@@ -175,6 +222,7 @@
 /* Painel · primary action cards (section nav lives in the rail now) */
 .actions{display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:24px}
 @media(max-width:560px){.actions{grid-template-columns:1fr}}
+@media(max-width:560px){.kpis{grid-template-columns:1fr}}
 .action{display:flex; align-items:center; gap:15px; text-decoration:none; color:inherit;
   border:1px solid var(--line-2); border-radius:var(--radius); background:var(--surface-1); padding:18px 20px;
   transition:border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out)}
@@ -296,6 +344,8 @@ h1.klab,h2.klab,h3.klab{margin:0;font-weight:400}
 .pv-row{display:flex; gap:14px; align-items:baseline}
 .pv-k{flex:0 0 96px; color:var(--text-muted); text-transform:uppercase; font-size:10.5px; letter-spacing:.1em}
 .pv-v{flex:1; color:var(--text)}
+/* Figures in a preview are the record: mono (STYLE.md). Surrounding prose stays sans. */
+.pv-v b{font-family:var(--font-mono); font-weight:500}
 
 /* ---- Cerimônia · palavra do cofre ---- */
 .word-box{padding:18px 20px; border-radius:var(--radius); border:1px solid var(--accent-line);
@@ -347,10 +397,6 @@ h1.klab,h2.klab,h3.klab{margin:0;font-weight:400}
 .danger-body{display:flex; align-items:center; justify-content:space-between; gap:16px; margin-top:8px}
 .danger-t{font-weight:700; font-size:15px}
 .danger-d{font-family:var(--font-mono); font-size:12px; color:var(--text-muted); margin-top:3px}
-.btn.danger-btn{border-color:var(--danger); color:var(--danger-text)}
-.btn.danger-btn:hover{background:var(--danger); color:var(--tarja-ink)}
-.btn.danger-btn:disabled{opacity:.5; cursor:default}
-.btn.danger-btn:disabled:hover{background:transparent; color:var(--danger-text)}
 .modal-overlay{position:fixed; inset:0; z-index:30; display:grid; place-items:center; padding:24px; background:rgba(8,11,15,.66); backdrop-filter:blur(4px)}
 .modal-card{width:100%; max-width:440px; padding:26px; border-radius:var(--radius-lg); background:linear-gradient(180deg,var(--surface-2),var(--surface-1)); border:1px solid var(--line-2); box-shadow:var(--shadow-overlay)}
 .modal-card.danger{border-color:var(--danger-line)}
@@ -447,3 +493,45 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 /* panels/cards: a touch of depth instead of flat */
 .opnav.card{background:linear-gradient(180deg,var(--surface-2),var(--surface-1));
   box-shadow:0 14px 36px -28px rgba(0,0,0,.72)}
+
+/* — /settings (redesign Fase 0): per-vault info list + danger zone — */
+.set-list{border:1px solid var(--line-soft); border-radius:var(--radius); overflow:hidden}
+.set-row{display:flex; align-items:center; justify-content:space-between; gap:16px;
+  padding:13px 16px; border-bottom:1px solid var(--line-soft); font-size:14px}
+.set-row:last-child{border-bottom:none}
+.set-k{color:var(--text-muted)}
+.set-v{color:var(--text); font-weight:600; text-align:right}
+.set-hint{margin:14px 0 0; font-family:var(--font-mono); font-size:11.5px; color:var(--text-muted); max-width:62ch; line-height:1.55}
+.gov-nudge{border-left:3px solid var(--accent-line); background:var(--accent-soft); padding:11px 14px;
+  border-radius:0 var(--radius-sm) var(--radius-sm) 0; font-family:var(--font-mono); font-size:12px;
+  color:var(--text-muted); line-height:1.5; max-width:70ch}
+.set-v.mono{font-family:var(--font-mono); font-weight:500; letter-spacing:.01em}
+.set-badge{font-family:var(--font-mono); font-size:11px; letter-spacing:.05em; text-transform:uppercase;
+  color:var(--accent); background:var(--accent-soft); border-radius:var(--radius-pill); padding:3px 10px}
+.set-danger{border:1px solid var(--danger-line); border-radius:var(--radius); padding:18px 18px 20px;
+  background:var(--danger-soft)}
+.set-danger-title{margin:0 0 4px; font-size:15px; color:var(--danger-text)}
+.set-danger-note{margin:0 0 14px; font-size:13.5px; color:var(--text-muted); max-width:62ch; line-height:1.55}
+.set-confirm{display:flex; flex-direction:column; gap:12px}
+.set-confirm .field{margin:0; max-width:320px}
+.set-confirm-actions{display:flex; gap:10px; flex-wrap:wrap}
+.set-err{margin:0; font-size:13px; color:var(--danger-text)}
+
+/* — DEMO build banner (VITE_DEMO=1): unmistakable, so sample data is never taken for a real vault — */
+.demo-banner{position:sticky; top:0; z-index:60; display:flex; align-items:center; justify-content:center;
+  gap:10px; padding:7px 14px; font-size:12.5px; color:var(--tarja-ink,#0f141a);
+  background:var(--accent); font-family:var(--font-sans); text-align:center; line-height:1.3}
+.demo-banner-tag{font-family:var(--font-mono); font-size:10px; font-weight:700; letter-spacing:.12em;
+  border:1px solid rgba(15,20,26,.35); border-radius:999px; padding:2px 8px}
+
+/* — /ceremonies (redesign #6.4): the signing-evidence trail, moved from /net into the vault shell — */
+.cer-list{display:flex; flex-direction:column; gap:10px}
+.cer-row{border:1px solid var(--line-soft); border-radius:var(--radius-sm); padding:11px 14px}
+.cer-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:6px}
+.cer-tag{font-family:var(--font-mono); font-size:10px; letter-spacing:.05em; text-transform:uppercase;
+  padding:2px 8px; border-radius:var(--radius-pill); background:var(--surface-3); color:var(--text-muted)}
+.cer-tag.live{background:var(--accent); color:var(--on-accent,var(--surface-0))}
+.cer-when{font-size:11.5px; color:var(--text-muted); font-family:var(--font-mono)}
+.cer-kv{display:flex; gap:10px; align-items:baseline; font-size:12px; margin-top:3px}
+.cer-k{min-width:70px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.04em; font-size:10px; font-family:var(--font-mono)}
+.cer-kv code{font-family:var(--font-mono); font-size:11.5px; color:var(--silver); word-break:break-all}

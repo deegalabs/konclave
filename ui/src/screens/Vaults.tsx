@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { getVaults, health, setSelectedVault, unlockVault, markVaultUnlocked, shortAddr, type Vault } from '../api'
+import { getVaults, health, setSelectedVault, unlockVault, markVaultUnlocked, isVaultUnlocked, shortAddr, type Vault } from '../api'
 import { helperConfigured } from '../helper'
-import { listVaults } from '../storage'
+import { listVaults, loadVault } from '../storage'
+import { setUnlockedShare } from '../session'
 import { Identicon } from '../avatar'
 import { Dialog, Letterhead, activateOnKey } from '../components'
-import { useT, useTr, useI18n } from '../i18n'
+import NetVault from './NetVault'
+import { useT, useTr } from '../i18n'
 import '../redesign.css'
 
 const MOCK: Vault[] = [
@@ -19,8 +21,6 @@ const MOCK: Vault[] = [
 export default function Vaults() {
   const t = useT()
   const tr = useTr()
-  const { locale } = useI18n()
-  const pe = (pt: string, en: string) => (locale === 'pt-BR' ? pt : en)
   const nav = useNavigate()
   // Browser-native mode (a hosted blind helper is configured): the /vaults screen lists the vaults
   // THIS DEVICE holds a share for (from encrypted IndexedDB), never a global helper list, so one
@@ -30,25 +30,40 @@ export default function Vaults() {
   const [loaded, setLoaded] = useState(false)
   const [live, setLive] = useState(false)
   const [unlocking, setUnlocking] = useState<Vault | null>(null)
+  const [creating, setCreating] = useState(false)
   const [pass, setPass] = useState('')
   const [unlockErr, setUnlockErr] = useState<string | null>(null)
   const [unlockBusy, setUnlockBusy] = useState(false)
 
   function enter(v: Vault) {
     setSelectedVault(v.id)
-    // Browser-native: the Dashboard reads this vault from the helper (balance / proposals / ledger).
-    // Signing (executing a payment) still happens in /net, where the share lives.
-    if (netMode) { nav('/dashboard'); return }
-    if (v.locked) { setUnlocking(v); setPass(''); setUnlockErr(null) }
+    // The access gate is the SAME inline unlock dialog for both worlds: entering a vault decrypts
+    // YOUR share on this device first. Already unlocked this session -> straight in. Browser-native
+    // vaults always hold a device share, so they always unlock; local-bridge vaults only when locked.
+    if (isVaultUnlocked(v.id)) { nav('/dashboard'); return }
+    if (netMode || v.locked) { setUnlocking(v); setPass(''); setUnlockErr(null) }
     else nav('/dashboard')
   }
   async function doUnlock() {
     if (!unlocking || !pass) return
     setUnlockBusy(true); setUnlockErr(null)
-    const r = await unlockVault(pass)
-    setUnlockBusy(false)
-    if (r.ok) { markVaultUnlocked(unlocking.id); nav('/dashboard') }
-    else setUnlockErr(r.wrong ? t('vaults.unlockWrong') : t('vaults.unlockFail'))
+    try {
+      if (netMode) {
+        // Browser-native: decrypt this device's share into the session store, then open.
+        const v = await loadVault(unlocking.id, pass)
+        setUnlockedShare(unlocking.id, v)
+        markVaultUnlocked(unlocking.id)
+        nav('/dashboard')
+        return
+      }
+      const r = await unlockVault(pass)
+      if (r.ok) { markVaultUnlocked(unlocking.id); nav('/dashboard') }
+      else setUnlockErr(r.wrong ? t('vaults.unlockWrong') : t('vaults.unlockFail'))
+    } catch {
+      setUnlockErr(t('vaults.unlockWrong'))
+    } finally {
+      setUnlockBusy(false)
+    }
   }
 
   useEffect(() => {
@@ -64,7 +79,7 @@ export default function Vaults() {
         setLive(true)
         setVaults(saved.map((s) => ({
           id: s.id,
-          name: pe('Cofre em rede', 'Networked vault'),
+          name: s.name || t('vaults.networkedVault'),
           // roster length is the participant count; the threshold is not stored on-device, so the
           // card shows a neutral "networked" tag instead of a possibly-wrong quorum (threshold: 0).
           threshold: 0,
@@ -110,7 +125,7 @@ export default function Vaults() {
             return (
               <div key={v.id} className="rd-card" role="button" tabIndex={0}
                 onClick={() => enter(v)} onKeyDown={activateOnKey(() => enter(v))}>
-                <span className="rd-qtag">{v.threshold > 0 ? t('vaults.quorumOf', { t: v.threshold, n: v.total }) : pe('Em rede', 'Networked')}{v.locked ? ` · ${t('vaults.lockedTag')}` : ''}</span>
+                <span className="rd-qtag">{v.threshold > 0 ? t('vaults.quorumOf', { t: v.threshold, n: v.total }) : t('vaults.networkedTag')}{v.locked ? ` · ${t('vaults.lockedTag')}` : ''}</span>
                 <h3>{v.name}</h3>
                 <div className="rd-avatars">
                   {avatars.slice(0, 4).map((m, i) => <Identicon key={i} seed={m.pubkey || m.name} />)}
@@ -125,7 +140,7 @@ export default function Vaults() {
           })}
 
           <div className="rd-card rd-create" role="button" tabIndex={0}
-            onClick={() => nav(netMode ? '/net' : '/create')} onKeyDown={activateOnKey(() => nav(netMode ? '/net' : '/create'))}>
+            onClick={() => (netMode ? setCreating(true) : nav('/create'))} onKeyDown={activateOnKey(() => (netMode ? setCreating(true) : nav('/create')))}>
             <div>
               <div className="ic">
                 <svg width="34" height="34" viewBox="0 0 34 34" fill="none" stroke="currentColor" strokeWidth="1.6">
@@ -156,9 +171,11 @@ export default function Vaults() {
         <Dialog className="unlock-overlay" cardClassName="unlock-card" labelledBy="unlock-title" onClose={() => setUnlocking(null)}>
           <div className="rd-eyebrow">{t('vaults.protectedVault')}</div>
           <h2 id="unlock-title">{unlocking.name}</h2>
-          <p>{tr('vaults.unlockPrompt')}</p>
+          <p>{netMode
+            ? t('vaults.netUnlockPrompt')
+            : tr('vaults.unlockPrompt')}</p>
           <input
-            className="unlock-input mono" type="password" placeholder={t('vaults.wordPlaceholder')}
+            className="unlock-input mono" type="password" placeholder={netMode ? t('vaults.passphrase') : t('vaults.wordPlaceholder')}
             value={pass} onChange={(e) => setPass(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') void doUnlock() }}
           />
@@ -169,6 +186,12 @@ export default function Vaults() {
               {unlockBusy ? t('vaults.verifying') : t('vaults.enterArrow')}
             </button>
           </div>
+        </Dialog>
+      )}
+
+      {creating && (
+        <Dialog className="create-overlay" cardClassName="create-card" labelledBy="create-title" onClose={() => setCreating(false)}>
+          <NetVault embedded />
         </Dialog>
       )}
     </div>

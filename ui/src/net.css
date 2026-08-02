@@ -284,3 +284,66 @@
 .net-trail-row code { word-break: break-all; }
 .net-tag { font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; padding: 2px 8px; border-radius: 999px; background: var(--surface-3, rgba(120,130,145,0.18)); }
 .net-tag-live { background: var(--accent, #57a6ff); color: var(--surface-0, #0b0e12); }
+
+/* Persistent "back to the vault" door in the ceremony letterhead (redesign Fase 0.4b):
+   from any /net phase with an active vault there is always a way back to the app. */
+.net-back-btn{background:none; border:none; cursor:pointer; color:var(--text-muted, #93a0af);
+  font-family:var(--font-mono, ui-monospace, monospace); font-size:13px; padding:0; margin-right:14px}
+.net-back-btn:hover{color:var(--accent, #57a6ff)}
+
+/* Embedded NetVault (inside the /vaults create modal): no full-page wrap, fits the Dialog.
+   Override .rd { min-height:100vh } so the card hugs its content, and drop the .rd archival
+   texture inside the modal. */
+.net-embedded{padding:0; min-height:0; background:none}
+.net-embedded::before{display:none}
+.net-embedded .net-h1{font-size:clamp(22px,3.5vw,30px)}
+.net-embedded .net-cards{margin-top:6px}
+
+/* Create-vault modal content (redesign): clean, decoupled from the /net full screen. Uses the app
+   tokens + the rd-enter buttons of the unlock modal, so both modals share one design language. */
+.cv-title{font-size:clamp(22px,3.5vw,28px); font-weight:800; letter-spacing:-.02em; margin:6px 0 8px}
+.cv-lead{color:var(--text-muted); font-size:14px; line-height:1.55; margin:0 0 20px; max-width:52ch}
+.cv-controls{display:flex; gap:12px; flex-wrap:wrap; margin-bottom:18px}
+.cv-field{flex:1 1 220px; border:1px solid var(--line-soft); border-radius:var(--radius); padding:14px 16px; background:var(--surface-2)}
+.cv-k{display:block; font-size:12px; color:var(--text-muted); margin-bottom:10px; letter-spacing:.02em}
+.cv-gov{flex:1 1 auto; margin-bottom:18px}
+.cv-seg{display:flex; gap:8px}
+.cv-segbtn{flex:1; font-family:var(--font-mono); font-size:12.5px; padding:9px 12px; cursor:pointer; background:var(--surface-1); border:1px solid var(--line); border-radius:var(--radius-sm); color:var(--text-muted)}
+.cv-segbtn:hover{border-color:var(--accent-line)}
+.cv-segbtn.on{border-color:var(--accent); color:var(--text); background:var(--accent-soft)}
+.cv-govnote{display:block; margin-top:9px; font-family:var(--font-mono); font-size:11px; color:var(--text-muted); line-height:1.5}
+.cv-stepper{display:flex; align-items:center; justify-content:space-between; gap:12px}
+.cv-step{width:34px; height:34px; border-radius:9px; border:1px solid var(--line); background:var(--surface-1); color:var(--text); font-size:18px; cursor:pointer; display:grid; place-items:center; line-height:1}
+.cv-step:hover:not(:disabled){border-color:var(--accent-line); color:var(--accent)}
+.cv-step:disabled{opacity:.35; cursor:not-allowed}
+.cv-num{font-family:var(--font-mono); font-size:22px; font-weight:700; color:var(--silver); text-align:center}
+.cv-num em{font-style:normal; font-size:13px; color:var(--text-muted); font-weight:400}
+.cv-primary{width:100%; margin-top:2px}
+.cv-linkbtn{display:block; width:100%; margin-top:14px; background:none; border:none; color:var(--text-muted); font-family:var(--font-mono); font-size:12.5px; cursor:pointer; text-align:center}
+.cv-linkbtn:hover{color:var(--accent)}
+.cv-join{margin-top:14px; display:flex; flex-direction:column; gap:10px}
+.cv-input{background:var(--surface-0); border:1px solid var(--line); border-radius:9px; color:var(--text); padding:11px 13px; font-family:var(--font-mono); letter-spacing:.14em; text-align:center; font-size:15px; box-sizing:border-box}
+.cv-input:focus{outline:none; border-color:var(--accent-line)}
+
+/* Create-modal phases: seats filling (gathering), a running spinner (DKG). */
+.cv-seats{display:flex; gap:8px; margin:16px 0 6px}
+.cv-seat{flex:1; height:34px; border-radius:9px; border:1px solid var(--line-soft); background:var(--surface-2)}
+.cv-seat.on{background:var(--accent-soft); border-color:var(--accent-line)}
+.cv-seatlabel{font-family:var(--font-mono); font-size:12px; color:var(--text-muted); margin:0}
+.cv-loading{display:flex; flex-direction:column; align-items:center; text-align:center; padding:14px 0}
+.cv-loading .cv-title{margin-top:14px}
+.cv-loading .cv-lead{max-width:44ch}
+.cv-spinner{width:38px; height:38px; border-radius:50%; border:3px solid var(--line); border-top-color:var(--accent); animation:cv-spin 0.9s linear infinite}
+@keyframes cv-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion: reduce){ .cv-spinner{animation:none} }
+
+/* Vault-name field in the create modal. */
+.cv-name{margin-bottom:12px}
+.cv-nameinput{width:100%; box-sizing:border-box; background:var(--surface-0); border:1px solid var(--line);
+  border-radius:9px; color:var(--text); padding:11px 13px; font-size:15px; font-family:var(--font-sans)}
+.cv-nameinput:focus{outline:none; border-color:var(--accent-line)}
+
+/* Invite copy hint (create modal) + the strong "don't lose your share" warning. */
+.cv-copyhint{font-family:var(--font-mono); font-size:11.5px; color:var(--text-muted); text-align:center; margin:-8px 0 4px}
+.cv-danger{color:var(--danger-text); font-size:11.5px; line-height:1.5; padding:0 8px}
+.cv-danger:hover{color:var(--danger)}

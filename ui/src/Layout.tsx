@@ -49,8 +49,10 @@ export default function Layout() {
     ['/proposals', t('nav.proposals'), <IconInbox key="i" />],
     ['/payroll', t('nav.payroll'), <IconRows key="i" />],
     ['/ledger', t('nav.ledger'), <IconDoc key="i" />],
+    ['/ceremonies', t('nav.ceremonies'), <IconShield key="i" />],
     ['/members', t('nav.members'), <IconUsers key="i" />],
     ['/people', t('nav.people'), <IconUser key="i" />],
+    ['/settings', t('nav.settings'), <IconGear key="i" />],
   ]
 
   return (
@@ -124,7 +126,7 @@ export default function Layout() {
           <div className="rail-bottom">
             {live === true && <span className="live"><i />{t('dashboard.live')}</span>}
             {live === false && <span className="live off"><i />{t('dashboard.demo')}</span>}
-            <Link to="/" className="rail-switch">{t('nav.switchVault')} ▾</Link>
+            <Link to="/vaults" className="rail-switch">{t('nav.switchVault')} ▾</Link>
           </div>
           <div className="rail-lang"><LangToggle /></div>
         </div>
@@ -147,3 +149,5 @@ function IconUsers() { return <svg viewBox="0 0 24 24" {...s}><circle cx="9" cy=
 function IconUser() { return <svg viewBox="0 0 24 24" {...s}><circle cx="12" cy="8" r="3.4" /><path d="M5 20a7 7 0 0 1 14 0" /></svg> }
 function IconReceive() { return <svg viewBox="0 0 24 24" {...s}><path d="M12 4v11m0 0l-4-4m4 4l4-4" /><path d="M5 20h14" /></svg> }
 function IconMore() { return <svg viewBox="0 0 24 24" {...s}><circle cx="5" cy="12" r="1.4" /><circle cx="12" cy="12" r="1.4" /><circle cx="19" cy="12" r="1.4" /></svg> }
+function IconGear() { return <svg viewBox="0 0 24 24" {...s}><circle cx="12" cy="12" r="3.2" /><path d="M12 2.5v3M12 18.5v3M4.2 7l2.6 1.5M17.2 15.5l2.6 1.5M4.2 17l2.6-1.5M17.2 8.5l2.6-1.5" /></svg> }
+function IconShield() { return <svg viewBox="0 0 24 24" {...s}><path d="M12 3l7 2.5v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9v-6z" /><path d="M9 12l2 2 4-4" /></svg> }

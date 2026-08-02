@@ -19,47 +19,61 @@ export function helperConfigured(): boolean {
   return HELPER_BASE !== ''
 }
 
-/** A vault's PUBLIC view as the helper returns it (never the UFVK or account). */
-export type HelperVault = { vault_id: string; address: string; threshold?: number; total?: number }
+// ---- request helpers (one place for fetch + ok-check + parse, degrading to null) ----
 
-async function post(path: string, body: unknown): Promise<Response | null> {
+async function getJson<T>(path: string): Promise<T | null> {
   if (!HELPER_BASE) return null
   try {
-    return await fetch(`${HELPER_BASE}${path}`, {
+    const res = await fetch(`${HELPER_BASE}${path}`)
+    if (!res.ok) return null
+    return (await res.json()) as T
+  } catch {
+    return null
+  }
+}
+
+async function postJson<T>(path: string, body: unknown): Promise<T | null> {
+  if (!HELPER_BASE) return null
+  try {
+    const res = await fetch(`${HELPER_BASE}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })
+    if (!res.ok) return null
+    return (await res.json()) as T
   } catch {
     return null
   }
 }
 
-async function get(path: string): Promise<Response | null> {
+async function getText(path: string): Promise<string | null> {
   if (!HELPER_BASE) return null
   try {
-    return await fetch(`${HELPER_BASE}${path}`)
+    const res = await fetch(`${HELPER_BASE}${path}`)
+    if (!res.ok) return null
+    return await res.text()
   } catch {
     return null
   }
 }
+
+const q = (v: string) => encodeURIComponent(v)
+
+/** A vault's PUBLIC view as the helper returns it (never the UFVK or account). */
+export type HelperVault = { vault_id: string; address: string; threshold?: number; total?: number }
 
 /** Helper liveness: the registered-vault count, or `null` if no/unreachable helper. */
 export async function helperHealth(): Promise<{ vaults: number } | null> {
-  const res = await get('/api/health')
-  if (!res || !res.ok) return null
-  try {
-    return (await res.json()) as { vaults: number }
-  } catch {
-    return null
-  }
+  return getJson<{ vaults: number }>('/api/health')
 }
 
 /**
  * Register the just-created browser-DKG vault with the helper by its group key. The helper
  * derives the Orchard address + a view-only wallet; it gets NO share. Idempotent: registering a
  * known group key returns the same vault without re-running the tooling. Returns the vault's
- * public view, or `null` if no helper is configured or the call fails.
+ * public view, or `null` if no helper is configured or the call fails. threshold/total come from
+ * the DKG so proposals inherit the quorum (a proposer cannot spoof a lower one).
  */
 export async function registerVault(
   groupKeyHex: string,
@@ -67,15 +81,7 @@ export async function registerVault(
   threshold = 0,
   total = 0,
 ): Promise<HelperVault | null> {
-  // threshold/total come from the DKG (the browser knows t/n); the helper stores them as the
-  // vault's approval quorum so proposals inherit it (a proposer cannot spoof a lower quorum).
-  const res = await post('/api/vault', { group_key: groupKeyHex, name, threshold, total })
-  if (!res || !res.ok) return null
-  try {
-    return (await res.json()) as HelperVault
-  } catch {
-    return null
-  }
+  return postJson<HelperVault>('/api/vault', { group_key: groupKeyHex, name, threshold, total })
 }
 
 /** A payment proposal on a browser-native vault, as the helper stores it. All public. */
@@ -107,7 +113,7 @@ export async function createProposal(args: {
   memo?: string
   expiryUnix?: number
 }): Promise<Proposal | null> {
-  const res = await post('/api/vault/proposals', {
+  return postJson<Proposal>('/api/vault/proposals', {
     vault: args.vault,
     proposer: args.proposer,
     to: args.to,
@@ -115,45 +121,21 @@ export async function createProposal(args: {
     memo: args.memo,
     expiry_unix: args.expiryUnix ?? 0,
   })
-  if (!res || !res.ok) return null
-  try {
-    return (await res.json()) as Proposal
-  } catch {
-    return null
-  }
 }
 
 /** The vault's member names (seat order), or `null` if no helper / unknown vault. */
 export async function listMembers(groupKeyHex: string): Promise<string[] | null> {
-  const res = await get(`/api/vault/members?vault=${encodeURIComponent(groupKeyHex)}`)
-  if (!res || !res.ok) return null
-  try {
-    return ((await res.json()) as { members: string[] }).members
-  } catch {
-    return null
-  }
+  return (await getJson<{ members: string[] }>(`/api/vault/members?vault=${q(groupKeyHex)}`))?.members ?? null
 }
 
 /** Set the vault's member names (seat order); overwrites the list. Returns the saved names or null. */
 export async function setMembers(groupKeyHex: string, names: string[]): Promise<string[] | null> {
-  const res = await post('/api/vault/members', { vault: groupKeyHex, names })
-  if (!res || !res.ok) return null
-  try {
-    return ((await res.json()) as { members: string[] }).members
-  } catch {
-    return null
-  }
+  return (await postJson<{ members: string[] }>('/api/vault/members', { vault: groupKeyHex, names }))?.members ?? null
 }
 
 /** Fetch the vault's ledger (its confirmed, governed payments) as a CSV string, or `null`. */
 export async function fetchLedgerCsv(groupKeyHex: string): Promise<string | null> {
-  const res = await get(`/api/vault/ledger.csv?vault=${encodeURIComponent(groupKeyHex)}`)
-  if (!res || !res.ok) return null
-  try {
-    return await res.text()
-  } catch {
-    return null
-  }
+  return getText(`/api/vault/ledger.csv?vault=${q(groupKeyHex)}`)
 }
 
 /** A payroll beneficiary line (one private Orchard output). */
@@ -166,34 +148,17 @@ export async function createPayroll(args: {
   lines: PayrollLine[]
   expiryUnix?: number
 }): Promise<Proposal | null> {
-  const res = await post('/api/vault/payroll', {
+  return postJson<Proposal>('/api/vault/payroll', {
     vault: args.vault,
     proposer: args.proposer,
-    lines: args.lines.map((l) => ({
-      label: l.label ?? '',
-      to: l.to,
-      amount_zat: l.amount_zat,
-      memo: l.memo,
-    })),
+    lines: args.lines.map((l) => ({ label: l.label ?? '', to: l.to, amount_zat: l.amount_zat, memo: l.memo })),
     expiry_unix: args.expiryUnix ?? 0,
   })
-  if (!res || !res.ok) return null
-  try {
-    return (await res.json()) as Proposal
-  } catch {
-    return null
-  }
 }
 
 /** List a vault's proposals (newest first), or `null` if no helper / unknown vault. */
 export async function listProposals(groupKeyHex: string): Promise<Proposal[] | null> {
-  const res = await get(`/api/vault/proposals?vault=${encodeURIComponent(groupKeyHex)}`)
-  if (!res || !res.ok) return null
-  try {
-    return ((await res.json()) as { proposals: Proposal[] }).proposals
-  } catch {
-    return null
-  }
+  return (await getJson<{ proposals: Proposal[] }>(`/api/vault/proposals?vault=${q(groupKeyHex)}`))?.proposals ?? null
 }
 
 /**
@@ -208,27 +173,12 @@ export async function voteProposal(
   approve: boolean,
 ): Promise<Proposal | null> {
   const action = approve ? 'approve' : 'refuse'
-  const res = await post(`/api/vault/proposals/${encodeURIComponent(proposalId)}/${action}`, {
-    vault: groupKeyHex,
-    member,
-  })
-  if (!res || !res.ok) return null
-  try {
-    return (await res.json()) as Proposal
-  } catch {
-    return null
-  }
+  return postJson<Proposal>(`/api/vault/proposals/${q(proposalId)}/${action}`, { vault: groupKeyHex, member })
 }
 
 /** Fetch a registered vault's public view (address + id), or `null`. */
 export async function getVault(groupKeyHex: string): Promise<HelperVault | null> {
-  const res = await get(`/api/vault?vault=${encodeURIComponent(groupKeyHex)}`)
-  if (!res || !res.ok) return null
-  try {
-    return ((await res.json()) as { vault: HelperVault }).vault
-  } catch {
-    return null
-  }
+  return (await getJson<{ vault: HelperVault }>(`/api/vault?vault=${q(groupKeyHex)}`))?.vault ?? null
 }
 
 /** A vault's Orchard balance (zatoshis) as the helper reports it from its view-only wallet. */
@@ -240,13 +190,7 @@ export type HelperBalance = { orchard_spendable_zat: number; total_zat: number }
  * lightwalletd first). Returns `null` if no helper is configured or the vault is unknown.
  */
 export async function vaultBalance(groupKeyHex: string): Promise<HelperBalance | null> {
-  const res = await get(`/api/vault/balance?vault=${encodeURIComponent(groupKeyHex)}`)
-  if (!res || !res.ok) return null
-  try {
-    return (await res.json()) as HelperBalance
-  } catch {
-    return null
-  }
+  return getJson<HelperBalance>(`/api/vault/balance?vault=${q(groupKeyHex)}`)
 }
 
 /** One recorded signing ceremony (ZecSafe-inspired reproducible evidence). All public. */
@@ -261,13 +205,7 @@ export type CeremonyRecord = {
 
 /** The vault's ceremony trail (oldest first), or `null` if no helper / unknown vault. */
 export async function vaultCeremonies(groupKeyHex: string): Promise<CeremonyRecord[] | null> {
-  const res = await get(`/api/vault/ceremonies?vault=${encodeURIComponent(groupKeyHex)}`)
-  if (!res || !res.ok) return null
-  try {
-    return ((await res.json()) as { ceremonies: CeremonyRecord[] }).ceremonies
-  } catch {
-    return null
-  }
+  return (await getJson<{ ceremonies: CeremonyRecord[] }>(`/api/vault/ceremonies?vault=${q(groupKeyHex)}`))?.ceremonies ?? null
 }
 
 /**
@@ -283,53 +221,8 @@ export async function executeProposal(args: {
   room: string
   dryRun?: boolean
 }): Promise<{ txid: string | null; dry_run: boolean; state: string } | null> {
-  const res = await post(`/api/vault/proposals/${encodeURIComponent(args.proposalId)}/send`, {
-    vault: args.vault,
-    relay_base: args.relayBase,
-    room: args.room,
-    dry_run: args.dryRun ?? true,
-  })
-  if (!res || !res.ok) return null
-  try {
-    return (await res.json()) as { txid: string | null; dry_run: boolean; state: string }
-  } catch {
-    return null
-  }
-}
-
-/** The result of a helper-driven send: a broadcast txid, or `null` txid on a dry-run. */
-export type HelperSendResult = { txid: string | null; dry_run: boolean; sighash: string }
-
-/**
- * Ask the helper to drive a spend for `vault`. The helper builds + proves the PCZT and publishes
- * a signing request into `room`; the browsers in that room sign over the relay; the helper injects
- * the aggregate signature and (unless `dryRun`) broadcasts. `dryRun` defaults to TRUE — the caller
- * must pass `false` to actually broadcast, so a single call never fires funds. Returns the outcome,
- * or `null` if no helper is configured or the request is rejected (the helper validates the
- * destination + amount authoritatively before anything runs).
- */
-export async function helperSend(args: {
-  vault: string
-  to: string
-  amountZat: number
-  memo?: string
-  relayBase: string
-  room: string
-  dryRun?: boolean
-}): Promise<HelperSendResult | null> {
-  const res = await post('/api/vault/send', {
-    vault: args.vault,
-    to: args.to,
-    amount_zat: args.amountZat,
-    memo: args.memo,
-    relay_base: args.relayBase,
-    room: args.room,
-    dry_run: args.dryRun ?? true,
-  })
-  if (!res || !res.ok) return null
-  try {
-    return (await res.json()) as HelperSendResult
-  } catch {
-    return null
-  }
+  return postJson<{ txid: string | null; dry_run: boolean; state: string }>(
+    `/api/vault/proposals/${q(args.proposalId)}/send`,
+    { vault: args.vault, relay_base: args.relayBase, room: args.room, dry_run: args.dryRun ?? true },
+  )
 }

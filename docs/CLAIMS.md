@@ -44,6 +44,14 @@ Any statement of the form "the app payment used DKG" is **false**. Only `aab00f9
 `3022420a…` (browser DKG) came from keys born by real DKG.
 
 ## Honest limits to keep stated (never hide)
+- **Known signing-path gap — transaction-swap (H1, being fixed).** The `/net` signing does not yet
+  recompute the ZIP-244 sighash **on-device** from its own PCZT (the recompute is a stub). A
+  compromised **helper** or **coordinator device** could therefore display a benign PCZT while the
+  signed sighash targets an attacker output, redirecting funds. So do **not** claim "the helper is
+  blind and cannot steal": the helper is blind to *secrets* (round-2 is sealed), but until the
+  on-device sighash binding lands ([ADR-0007](adr/0007-ceremony-security-invariants.md) I2, issue
+  #62) it is **not** blind to *transaction substitution*. **No real-money `/net` broadcast until I2
+  ships.** (Zkool ships this defense; we deferred it — surfaced by our own relay audit.)
 - **All eight mainnet sends so far were signed on a single machine.** The first seven used
   co-located CLI shares; the eighth (`3022420a…`) used **two browser tabs on one machine**. So the
   distributed browser-signing *protocol* is proven (separate shares, a blind relay, the key never

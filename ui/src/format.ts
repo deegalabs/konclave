@@ -62,3 +62,9 @@ export function fmtDate(unix?: number): string {
   const mm = String(d.getMonth() + 1).padStart(2, '0')
   return `${dd}/${mm}/${d.getFullYear()}`
 }
+
+/** Abbreviate a long address/hex for display: head…tail. */
+export function shortAddr(addr: string, head = 6, tail = 6): string {
+  if (addr.length <= head + tail + 1) return addr
+  return `${addr.slice(0, head)}…${addr.slice(-tail)}`
+}

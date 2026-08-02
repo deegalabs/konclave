@@ -65,9 +65,11 @@ relay, with no server ever seeing a secret.**
 - Those DKG-born shares then **produce a verifying FROST group signature together**, each
   device signing with only its own piece, proven live across tabs.
 
-To our knowledge, a first for Zcash: a full rerandomized-redpallas (Orchard) FROST ceremony,
-including DKG, driven entirely from the browser. This is the path to "your key lives on your
-phone, the platform never has access", a shared-custody wallet you open on any device.
+We found no comparable: a full rerandomized-redpallas (Orchard) FROST ceremony, including DKG,
+driven entirely from the browser (ecosystem scan, Aug 2026). Zkool ships FROST shielded multisig on
+Zcash, but as a native app — the **in-browser** ceremony is our distinction, not the multisig
+primitive. This is the path to "your key lives on your phone, the platform never has access", a
+shared-custody wallet you open on any device.
 
 ## Try it
 

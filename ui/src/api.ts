@@ -89,12 +89,12 @@ const NET = helperConfigured()
 export const IS_NET = NET
 
 /** Map a helper proposal state to the lowercase states the PWA screens expect. */
-function netState(s: string): string {
+export function netState(s: string): string {
   return s === 'pending' ? 'awaiting' : s === 'refused' ? 'rejected' : s
 }
 
 /** Adapt a helper `Proposal` into the PWA's `Proposal` shape. */
-function mapNetProposal(p: NetProposal): Proposal {
+export function mapNetProposal(p: NetProposal): Proposal {
   return {
     id: p.id,
     vault_id: p.vault_id,
@@ -228,10 +228,9 @@ export async function getBalance(): Promise<Balance | null> {
 }
 
 /** Shorten an address for display: `u1vjgx…d406dr`. */
-export function shortAddr(addr: string, head = 6, tail = 6): string {
-  if (addr.length <= head + tail + 1) return addr
-  return `${addr.slice(0, head)}…${addr.slice(-tail)}`
-}
+// shortAddr moved to format.ts (display formatting belongs there, not in the transport client);
+// re-exported so existing `import { shortAddr } from '../api'` call sites keep working.
+export { shortAddr } from './format'
 
 // ---- writes ----
 
@@ -305,9 +304,6 @@ export function classifyAddress(addr: string): AddressKind {
   if (addr.startsWith('t1') || addr.startsWith('t3')) return 'transparent'
   return 'unknown'
 }
-export function isTransparent(addr: string): boolean {
-  return classifyAddress(addr) === 'transparent'
-}
 
 /**
  * Turn a backend error (code + technical detail) into a clear, actionable message via i18n
@@ -370,19 +366,6 @@ export async function getLedger(): Promise<Proposal[] | null> {
 /** URL of the CSV export the browser downloads (handed to the accountant). */
 export function ledgerCsvUrl(): string {
   return `${BASE}${withVault('/api/ledger.csv')}`
-}
-
-/** A single proposal by id (proposal detail screen). */
-export async function getProposal(id: string): Promise<Proposal | null> {
-  if (NET) {
-    const vid = getSelectedVault()
-    if (!vid) return null
-    const ps = await netListProposals(vid)
-    const p = ps?.find((x) => x.id === id)
-    return p ? mapNetProposal(p) : null
-  }
-  const r = await getJson<{ proposal: Proposal }>(`/api/proposals/${encodeURIComponent(id)}`)
-  return r?.proposal ?? (DEMO ? MOCK.proposalById(id) : null)
 }
 
 // ---- payroll ----

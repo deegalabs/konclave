@@ -1,18 +1,17 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Seal } from '../components'
+import { Seal, Loading } from '../components'
 import { PageHeader, PageFooter, NextStep } from '../page'
 import { Identicon } from '../avatar'
-import { useT, useTr, useI18n } from '../i18n'
+import { useT, useTr } from '../i18n'
 import { getVault, health, shortAddr, IS_NET, setVaultMembers, type Vault } from '../api'
+import { listVaults, type Governance } from '../storage'
 
 const ME = 'Alice' // this device acts as the coordinator member (single-device demo)
 
 export default function Members() {
   const t = useT()
   const tr = useTr()
-  const { locale } = useI18n()
-  const pe = (ptxt: string, en: string) => (locale === 'pt-BR' ? ptxt : en)
   const nav = useNavigate()
   const [vault, setVault] = useState<Vault | null>(null)
   const [live, setLive] = useState<boolean | null>(null)
@@ -20,6 +19,13 @@ export default function Members() {
   // of "member N". Names are public coordination data on the helper, never a share.
   const [names, setNames] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
+  const [gov, setGov] = useState<Governance | null>(null)
+  // The name THIS device chose at create/join, so "you" marks the right seat (was hardcoded to
+  // 'Alice', which mislabeled every other device). Falls back to ME for the offline demo.
+  const [me, setMe] = useState<string | null>(null)
+  // Who set up the vault (propagated). Marks the creator — a real fixed fact — rather than the
+  // per-ceremony FROST "coordinator" role, which used to be pinned to seat 0 (the wrong member).
+  const [creator, setCreator] = useState<string | null>(null)
 
   useEffect(() => {
     let on = true
@@ -32,6 +38,11 @@ export default function Members() {
         if (on && v) {
           setVault(v)
           setNames(v.member_list.map((m) => m.name))
+          try {
+            const saved = await listVaults()
+            const rec = saved.find((s) => s.id === v.id)
+            if (on) { setGov(rec?.governance ?? 'open'); setMe(rec?.myName ?? null); setCreator(rec?.creatorName ?? null) }
+          } catch { /* local-bridge mode — no on-device record */ }
         }
       }
     })()
@@ -53,6 +64,8 @@ export default function Members() {
     { name: 'Bob', pubkey: '2ca6d736' },
     { name: 'Carol', pubkey: '2fd84a5c' },
   ]
+  // Mark the actual creator; in the offline demo (no propagated creator) fall back to the first seat.
+  const creatorLabel = creator ?? (live === false ? members[0]?.name ?? null : null)
 
   return (
     <>
@@ -67,38 +80,44 @@ export default function Members() {
           actions={<Seal t={thr} n={n} />}
         />
 
+        {live === null ? <Loading /> : (
         <div className="people mt">
           {members.map((m, i) => (
             <div className="who-row" key={i}>
               <Identicon seed={m.pubkey || m.name} size={38} />
               <div className="person-main">
-                <div className="who-name">{m.name}{m.name === ME && <span className="klab"> {t('members.you')}</span>}</div>
-                <div className="person-sub mono">{i === 0 ? t('members.roleCoordinator') : t('members.roleSigns')} · id {shortAddr(m.pubkey, 8, 6)}</div>
+                <div className="who-name">{m.name}{m.name === (me ?? ME) && <span className="klab"> {t('members.you')}</span>}</div>
+                <div className="person-sub mono">{m.name === creatorLabel ? t('members.roleCreator') : t('members.roleSigns')} · id {shortAddr(m.pubkey, 8, 6)}</div>
               </div>
               <span className="who-st cap">{t('members.signs')}</span>
             </div>
           ))}
         </div>
+        )}
+
+        {IS_NET && vault && gov === 'quorum' && (
+          <div className="gov-nudge mt" role="note">{t('gov.nudgeSigners')}</div>
+        )}
 
         {IS_NET && vault && (
           <div className="confirm mt">
-            <div className="who-name mb-sm">{pe('Nomeie os membros', 'Name the members')}</div>
+            <div className="who-name mb-sm">{t('members.nameThem')}</div>
             {Array.from({ length: n }, (_, i) => (
-              <input
-                key={i}
-                className="field-input mono"
-                style={{ display: 'block', width: '100%', margin: '6px 0' }}
-                placeholder={`member ${i + 1}`}
-                value={names[i] ?? ''}
-                onChange={(e) => {
-                  const next = [...names]
-                  next[i] = e.target.value
-                  setNames(next)
-                }}
-              />
+              <div className="field" key={i}>
+                <input
+                  className="input mono"
+                  placeholder={`member ${i + 1}`}
+                  value={names[i] ?? ''}
+                  onChange={(e) => {
+                    const next = [...names]
+                    next[i] = e.target.value
+                    setNames(next)
+                  }}
+                />
+              </div>
             ))}
             <button className="btn ok sm-btn mt-sm" disabled={saving} onClick={() => void saveNames()}>
-              {saving ? '…' : pe('Salvar', 'Save')}
+              {saving ? '…' : t('members.save')}
             </button>
           </div>
         )}
@@ -109,7 +128,7 @@ export default function Members() {
         </PageFooter>
 
         <div className="confirm mt">{tr('members.demoNote')}</div>
-        <div className="right mt"><button className="btn ghost sm-btn" onClick={() => nav('/create')}>{t('members.createNew')}</button></div>
+        <div className="right mt"><button className="btn ghost sm-btn" onClick={() => nav(IS_NET ? '/net' : '/create')}>{t('members.createNew')}</button></div>
 
         <NextStep label={t('next.label')} cta={t('next.people')} to="/people" />
       </main>

@@ -2,6 +2,7 @@ import { type ReactNode, type MouseEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { Letterhead } from '../components'
 import { useT, useTr, useI18n } from '../i18n'
+import { IS_NET } from '../api'
 import '../redesign.css'
 import '../landing.css'
 
@@ -15,9 +16,7 @@ const EXPLORE: Record<'pt-BR' | 'en', { eyebrow: string; title: string; items: {
       { to: '/vaults', name: 'Abrir o cofre', desc: 'O produto rodando: pagamento, folha, aprovações e registro.', tag: 'app' },
       { to: '/proof', name: 'Comprovação na blockchain', desc: 'Confira você mesmo, no explorador público, as transações reais do Konclave na mainnet.', tag: 'prova' },
       { to: '/net', name: 'Cofre entre dispositivos', desc: 'Crie e opere o mesmo cofre no celular e no computador. Nenhum servidor vê um segredo.' },
-      { to: '/signer', name: 'Assinar no navegador', desc: 'Veja uma assinatura de quórum acontecer inteira dentro do navegador.', tag: 'demo' },
-      { to: '/recovery', name: 'Recuperação de membro', desc: 'Um quórum reconstrói a parte de quem perdeu acesso, sem expor a chave.' },
-      { to: '/inheritance', name: 'Herança', desc: 'Se um responsável some, o quórum libera os fundos a um herdeiro.' },
+      { to: '/lab', name: 'Laboratório', desc: 'Veja a criptografia acontecer: assinatura no navegador, recuperação e herança, ao vivo.', tag: 'demo' },
       { to: '/docs', name: 'Documentação', desc: 'Como funciona, a arquitetura e os diagramas.' },
     ],
   },
@@ -28,9 +27,7 @@ const EXPLORE: Record<'pt-BR' | 'en', { eyebrow: string; title: string; items: {
       { to: '/vaults', name: 'Open the vault', desc: 'The product running: payment, payroll, approvals and ledger.', tag: 'app' },
       { to: '/proof', name: 'Proof on the blockchain', desc: 'Check for yourself, on the public explorer, Konclave’s real mainnet transactions.', tag: 'proof' },
       { to: '/net', name: 'Vault across devices', desc: 'Create and run one vault on your phone and your computer. No server ever sees a secret.' },
-      { to: '/signer', name: 'Sign in the browser', desc: 'Watch a quorum signature happen entirely inside the browser.', tag: 'demo' },
-      { to: '/recovery', name: 'Member recovery', desc: 'A quorum rebuilds the share of whoever lost access, without exposing the key.' },
-      { to: '/inheritance', name: 'Inheritance', desc: 'If a steward disappears, the quorum releases the funds to an heir.' },
+      { to: '/lab', name: 'Laboratory', desc: 'Watch the cryptography happen: browser signing, recovery and inheritance, live.', tag: 'demo' },
       { to: '/docs', name: 'Documentation', desc: 'How it works, the architecture and the diagrams.' },
     ],
   },
@@ -183,7 +180,7 @@ export default function Intro() {
           <h2>{t('landing.finalTitle')}</h2>
           <p>{t('landing.finalDesc')}</p>
           <div className="lp-ctas">
-            <Link className="lp-btn primary" to="/create">
+            <Link className="lp-btn primary" to={IS_NET ? '/net' : '/create'}>
               {t('landing.finalCtaCreate')}
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
             </Link>
