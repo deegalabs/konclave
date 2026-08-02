@@ -91,10 +91,25 @@
   .tbl.folha td:nth-child(5){order:5; grid-column:1 / -1}
   .tbl.folha .cell-input{width:100%; border:1px solid var(--line); border-radius:8px;
     background:var(--surface-0); padding:11px 12px; font-size:14px}
-  .tbl.folha .cell-input.num-input{text-align:left}
+  .tbl.folha .cell-input.num-input{text-align:right}
   .tbl.folha .row-bad{border-color:var(--danger)}
   .tbl.folha .row-bad td{background:transparent}
 }
+/* Read-only payroll table (Proposal detail) — 4 cols; its own mobile stacking so it does not
+   inherit the 6-col editable folha rules (which mis-styled the beneficiary name as a "#"). */
+@media(max-width:640px){
+  .tbl.folha-read thead{display:none}
+  .tbl.folha-read, .tbl.folha-read tbody{display:block}
+  .tbl.folha-read tr{display:block; border:1px solid var(--line); border-radius:10px;
+    background:var(--surface-1); padding:12px 14px; margin-bottom:10px}
+  .tbl.folha-read td{display:block; padding:2px 0; border:0}
+  .tbl.folha-read td.num{text-align:left; font-weight:600; color:var(--text)}
+}
+/* Send-confirm restated amount (Proposal detail dialog) */
+.send-confirm-what{margin:8px 0 6px; padding:12px 14px; border:1px solid var(--danger-line);
+  border-radius:var(--radius-sm); background:var(--danger-soft)}
+.scw-amt{font-family:var(--font-mono); font-size:1.05rem}
+.scw-kind{opacity:.85}
 .row-del{border:1px solid var(--line); background:var(--surface-2); color:var(--text-muted); width:29px; height:29px; border-radius:var(--radius-sm); cursor:pointer; line-height:1; font-size:14px}
 .row-del:hover{color:var(--danger); border-color:var(--danger)}
 .row-edit{border:1px solid var(--line); background:var(--surface-2); color:var(--text-muted); width:29px; height:29px; border-radius:var(--radius-sm); cursor:pointer; line-height:1; font-size:12px}
@@ -329,6 +344,8 @@ h1.klab,h2.klab,h3.klab{margin:0;font-weight:400}
 .pv-row{display:flex; gap:14px; align-items:baseline}
 .pv-k{flex:0 0 96px; color:var(--text-muted); text-transform:uppercase; font-size:10.5px; letter-spacing:.1em}
 .pv-v{flex:1; color:var(--text)}
+/* Figures in a preview are the record: mono (STYLE.md). Surrounding prose stays sans. */
+.pv-v b{font-family:var(--font-mono); font-weight:500}
 
 /* ---- Cerimônia · palavra do cofre ---- */
 .word-box{padding:18px 20px; border-radius:var(--radius); border:1px solid var(--accent-line);

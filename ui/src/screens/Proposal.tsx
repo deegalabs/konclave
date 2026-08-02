@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { Secret, Dialog } from '../components'
+import { Secret, Dialog, Loading } from '../components'
 import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
 import { fmtZec } from '../format'
@@ -77,7 +77,7 @@ export default function Proposal() {
   }
 
   if (loading) {
-    return (<><main className="page narrow"><div className="hint">{t('proposal.loading')}</div></main></>)
+    return (<><main className="page narrow"><Loading /></main></>)
   }
   if (!p) {
     return (<><main className="page narrow"><PageHeader title={t('proposal.noneTitle')} />
@@ -134,7 +134,7 @@ export default function Proposal() {
 
         <div className="p-amt mt"><Secret><span>{val}</span></Secret> <span className="dim small">ZEC</span></div>
         {isPayroll && (
-          <table className="tbl folha mt">
+          <table className="tbl folha-read mt">
             <thead><tr><th>{t('proposal.colLabel')}</th><th>{t('proposal.colDest')}</th><th>{t('proposal.colValue')}</th><th>{t('proposal.colMemo')}</th></tr></thead>
             <tbody>
               {lines.map((l, i) => (
@@ -257,10 +257,10 @@ export default function Proposal() {
         <Dialog className="modal-overlay" cardClassName="modal-card danger" labelledBy="send-confirm-title" onClose={() => setConfirmSend(false)}>
           <span className="klab danger-lab">{t('proposal.confirmLabel')}</span>
           <h2 id="send-confirm-title" className="modal-h">{t('proposal.confirmTitle')}</h2>
-          <div className="send-confirm-what" style={{ margin: '8px 0 6px', padding: '12px 14px', border: '1px solid var(--danger-line)', borderRadius: 'var(--radius-sm)', background: 'var(--danger-soft)' }}>
-            <strong style={{ fontFamily: 'var(--font-mono)', fontSize: '1.05rem' }}>{val} ZEC</strong>
+          <div className="send-confirm-what">
+            <strong className="scw-amt">{val} ZEC</strong>
             {isPayroll
-              ? <span style={{ opacity: 0.85 }}> · {t('kind.payroll')}</span>
+              ? <span className="scw-kind"> · {t('kind.payroll')}</span>
               : <> <span aria-hidden="true">→</span> <code>{dest}</code></>}
           </div>
           <p className="modal-p">{t('proposal.confirmBody')}</p>
