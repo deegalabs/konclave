@@ -11,6 +11,7 @@ import init, {
   participantRound1,
   participantRound2WithRandomizer,
   describeOutputs,
+  pcztSighash,
 } from '../wasm-pkg/konclave_wasm.js'
 import wasmUrl from '../wasm-pkg/konclave_wasm_bg.wasm?url'
 import { RelaySession, newRoomCode, ephemeralTag, b64, unb64, bytesEqual, RELAY_BASE, type RelayMsg } from '../net'
@@ -507,9 +508,24 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
       if (parsed.type === 'sreq') {
         if (!part3DoneRef.current) return false // no vault yet
         if (!signStartedRef.current) {
-          signStartedRef.current = true
-          signMsgRef.current = unb64(parsed.msg)
           const pczt = unb64(parsed.pczt)
+          // H1 / ADR-0007 I2 (transaction-swap defense): recompute the ZIP-244 sighash from OUR OWN
+          // PCZT and sign THAT, refusing if it disagrees with the requested one. A hostile helper or
+          // coordinator can otherwise display a benign PCZT while the wire `sighash` targets an
+          // attacker output; binding the signed message to the local PCZT makes that impossible.
+          let localSighash: Uint8Array
+          try {
+            localSighash = pcztSighash(pczt)
+          } catch (e) {
+            setError(tt('net.err.sighashMismatch') + ' ' + String(e))
+            return true
+          }
+          if (!bytesEqual(localSighash, unb64(parsed.msg))) {
+            setError(tt('net.err.sighashMismatch'))
+            return true
+          }
+          signStartedRef.current = true
+          signMsgRef.current = localSighash // sign what our own PCZT commits to, never the wire value
           // Every device reads ALL real Orchard spends (index + alpha) from the proven PCZT it holds
           // — it signs only what it can independently see. One ceremony per spend, in order.
           signSpendsRef.current = parseAlphas(pczt)
