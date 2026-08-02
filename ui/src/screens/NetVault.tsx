@@ -11,9 +11,10 @@ import init, {
   participantRound1,
   participantRound2WithRandomizer,
   describeOutputs,
+  pcztSighash,
 } from '../wasm-pkg/konclave_wasm.js'
 import wasmUrl from '../wasm-pkg/konclave_wasm_bg.wasm?url'
-import { RelaySession, newRoomCode, ephemeralTag, b64, unb64, bytesEqual, RELAY_BASE, type RelayMsg } from '../net'
+import { RelaySession, newRoomCode, deriveRoom, ephemeralTag, b64, unb64, bytesEqual, RELAY_BASE, type RelayMsg } from '../net'
 import { parseSignRequest, buildSignResponse, hexToBytes as hexBytes, bytesToHex, type SignRequest } from '../net-sign'
 import { parseAlphas, decodeBundle } from '../signing'
 import { useT, useTr, useI18n } from '../i18n'
@@ -181,6 +182,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
   const vaultNameRef = useRef('') // read at register time (after DKG), avoids a stale closure
   const [codeCopied, setCodeCopied] = useState(false) // invite-copied feedback
   const [myName, setMyName] = useState('') // this participant's own name (create/join)
+  const [pin, setPin] = useState('') // optional admission PIN (#65): shared out of band, gates the room
   const myNameRef = useRef('')
   const nameByTagRef = useRef<Map<string, string>>(new Map()) // tag -> announced name
   const [peers, setPeers] = useState(0)
@@ -507,9 +509,24 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
       if (parsed.type === 'sreq') {
         if (!part3DoneRef.current) return false // no vault yet
         if (!signStartedRef.current) {
-          signStartedRef.current = true
-          signMsgRef.current = unb64(parsed.msg)
           const pczt = unb64(parsed.pczt)
+          // H1 / ADR-0007 I2 (transaction-swap defense): recompute the ZIP-244 sighash from OUR OWN
+          // PCZT and sign THAT, refusing if it disagrees with the requested one. A hostile helper or
+          // coordinator can otherwise display a benign PCZT while the wire `sighash` targets an
+          // attacker output; binding the signed message to the local PCZT makes that impossible.
+          let localSighash: Uint8Array
+          try {
+            localSighash = pcztSighash(pczt)
+          } catch (e) {
+            setError(tt('net.err.sighashMismatch') + ' ' + String(e))
+            return true
+          }
+          if (!bytesEqual(localSighash, unb64(parsed.msg))) {
+            setError(tt('net.err.sighashMismatch'))
+            return true
+          }
+          signStartedRef.current = true
+          signMsgRef.current = localSighash // sign what our own PCZT commits to, never the wire value
           // Every device reads ALL real Orchard spends (index + alpha) from the proven PCZT it holds
           // — it signs only what it can independently see. One ceremony per spend, in order.
           signSpendsRef.current = parseAlphas(pczt)
@@ -715,16 +732,19 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
   )
 
   const begin = useCallback(
-    async (asRole: 'create' | 'join', code: string, total: number, threshold: number) => {
+    async (asRole: 'create' | 'join', code: string, total: number, threshold: number, pin: string) => {
       if (startGuardRef.current) return
       startGuardRef.current = true
       try {
         await init(wasmUrl)
         deviceKeyRef.current = new DeviceKey()
         myTagRef.current = ephemeralTag()
+        // The code is the human-readable invite (shown/copied); the ACTUAL relay room is derived
+        // from code + optional PIN (#65). Without a PIN the room is the code (unchanged behavior).
+        const roomId = await deriveRoom(code, pin)
         setRoom(code)
         setPhase('roster')
-        const sess = new RelaySession(code, myTagRef.current, onMessage, (p) => setPeers(p))
+        const sess = new RelaySession(roomId, myTagRef.current, onMessage, (p) => setPeers(p))
         sessionRef.current = sess
         sess.start()
         ceremonyTimerRef.current = setTimeout(() => {
@@ -983,8 +1003,13 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
           <input className="cv-nameinput" style={{ fontFamily: 'var(--font-mono)', letterSpacing: '.14em', textAlign: 'center' }}
             placeholder="KX7M4PQR" value={joinCode} onChange={(e) => setJoinCode(e.target.value.toUpperCase().trim())} />
         </div>
+        <div className="cv-field cv-name">
+          <span className="cv-k">{pe('PIN (se combinaram um)', 'PIN (if one was agreed)')}</span>
+          <input className="cv-nameinput" type="text" maxLength={20} placeholder={pe('opcional', 'optional')}
+            value={pin} onChange={(e) => setPin(e.target.value)} />
+        </div>
         <button className="rd-enter primary cv-primary" disabled={joinCode.length < 8}
-          onClick={() => { setRole('join'); void begin('join', joinCode, n, t) }}>
+          onClick={() => { setRole('join'); void begin('join', joinCode, n, t, pin) }}>
           {pe('Entrar no cofre', 'Join the vault')}
         </button>
         <button type="button" className="cv-linkbtn" onClick={() => setShowJoin(false)}>
@@ -1064,8 +1089,17 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
                  'Any member edits names and beneficiaries. Moving funds always needs the quorum.')}</span>
         </div>
 
+        <div className="cv-field cv-gov">
+          <span className="cv-k">{pe('PIN de admissão (recomendado)', 'Admission PIN (recommended)')}</span>
+          <input className="cv-nameinput" type="text" maxLength={20} placeholder={pe('opcional, mas mais seguro', 'optional, but safer')}
+            value={pin} onChange={(e) => setPin(e.target.value)} />
+          <span className="cv-govnote">{pe(
+            'Combine um PIN pelos membros e passe SEPARADO do convite. Sem o PIN, quem só tem o convite não acha a sala.',
+            'Agree a PIN and share it SEPARATELY from the invite. Without the PIN, whoever only has the invite cannot find the room.')}</span>
+        </div>
+
         <button className="rd-enter primary cv-primary"
-          onClick={() => { setRole('create'); void begin('create', newRoomCode(), n, t) }}>
+          onClick={() => { setRole('create'); void begin('create', newRoomCode(), n, t, pin) }}>
           {pe('Gerar convite', 'Generate invite')}
         </button>
         <button type="button" className="cv-linkbtn" onClick={() => setShowJoin(true)}>
@@ -1103,7 +1137,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
             </label>
             <button
               className="net-btn primary"
-              onClick={() => { setRole('create'); void begin('create', newRoomCode(), n, t) }}
+              onClick={() => { setRole('create'); void begin('create', newRoomCode(), n, t, pin) }}
             >
               {tt('net.idle.generateInvite')}
             </button>
@@ -1121,7 +1155,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
             <button
               className="net-btn"
               disabled={joinCode.length < 8}
-              onClick={() => { setRole('join'); void begin('join', joinCode, n, t) }}
+              onClick={() => { setRole('join'); void begin('join', joinCode, n, t, pin) }}
             >
               {tt('net.idle.joinBtn')}
             </button>

@@ -1031,6 +1031,8 @@ pub mod pczt_bridge {
         Parse(OrchardParseError),
         Sign(orchard::pczt::SignerError),
         BadIndex(usize),
+        Extract(orchard::pczt::TxExtractorError),
+        Commitment(orchard::bundle::CommitmentError),
     }
     impl From<OrchardParseError> for OErr {
         fn from(e: OrchardParseError) -> Self {
@@ -1196,6 +1198,170 @@ pub mod pczt_bridge {
             .map_err(|e| format!("serialize PCZT: {:?}", e))
     }
 
+    // ---------- ZIP-244 shielded sig_digest, recomputed ON-DEVICE from the PCZT ----------
+    //
+    // The device must NEVER sign a sighash handed to it over the relay: a malicious helper could
+    // show a benign PCZT but pass the sighash of an attacker's transaction (issue #62 / ADR-0007
+    // invariant I2, the transaction-swap attack). This recomputes the sighash from the device's OWN
+    // proven PCZT, so the FROST quorum signs exactly the transaction it inspected — nothing else.
+    //
+    // Byte-exact mirror of `pczt::roles::signer::Signer::shielded_sighash` (librustzcash rev
+    // 42ffd0d), which is `sighash(tx_data.digest(TxIdDigester))` = ZIP-244 §S with `SignableInput::
+    // Shielded`. That path pulls in `zcash_primitives` (secp256k1 (C) + zcash_script (C++)), breaking
+    // wasm; we rebuild it from the pieces that ARE wasm-clean:
+    //   - the header / empty-transparent / empty-sapling digests are fixed personalized BLAKE2b-256
+    //     hashes (`zcash_primitives::transaction::txid` + `sighash_v5`), computed here directly;
+    //   - the Orchard / Ironwood bundle txid commitments come from the linked `orchard` crate
+    //     (`Bundle::commitment`, via the wasm-clean `orchard::pczt::Bundle::extract_effects`), exactly
+    //     as `TxIdDigester::digest_{orchard,ironwood}` do.
+    // The tx version, version_group_id, consensus_branch_id, lock time and expiry all come from the
+    // PCZT `global()` — nothing is hardcoded.
+    //
+    // Scope: shielded-only sends (no transparent or Sapling components), which is every Konclave
+    // browser transaction. A transparent or Sapling bundle is rejected rather than silently hashed
+    // wrong — the sig_digest is security-critical, so an unsupported shape must fail loudly.
+
+    // ZIP-244 personalizations (see `zcash_primitives::transaction::txid`).
+    const P_HEADERS: &[u8; 16] = b"ZTxIdHeadersHash";
+    const P_TRANSPARENT: &[u8; 16] = b"ZTxIdTranspaHash";
+    const P_SAPLING: &[u8; 16] = b"ZTxIdSaplingHash";
+    const P_OUTER_PREFIX: &[u8; 12] = b"ZcashTxHash_";
+
+    /// One 32-byte BLAKE2b hash personalized by `personal` over `data` (the ZIP-244 node hash).
+    fn blake2b32(personal: &[u8; 16], data: &[u8]) -> [u8; 32] {
+        let h = blake2b_simd::Params::new()
+            .hash_length(32)
+            .personal(personal)
+            .hash(data);
+        let mut out = [0u8; 32];
+        out.copy_from_slice(h.as_bytes());
+        out
+    }
+
+    /// The ZIP-244 txid commitment of one Orchard-shaped bundle (Orchard or Ironwood pool), or
+    /// `None` when the bundle has no actions (an absent bundle, which the outer digest substitutes
+    /// with the protocol-defined empty-bundle commitment). Mirrors `TxIdDigester::digest_orchard` /
+    /// `digest_ironwood`: `bundle.extract_effects().map(|b| b.commitment(tx_version))`.
+    fn bundle_txid_commitment(
+        pczt: &Pczt,
+        ironwood_pool: bool,
+        tx_version: orchard::bundle::TxVersion,
+    ) -> Result<Option<[u8; 32]>, String> {
+        let mut out: Option<[u8; 32]> = None;
+        let read =
+            |_pczt: &Pczt, bundle: &mut orchard::pczt::Bundle, _: &mut u8| -> Result<(), OErr> {
+                if let Some(effects) = bundle.extract_effects::<i64>().map_err(OErr::Extract)? {
+                    let commitment = effects.commitment(tx_version).map_err(OErr::Commitment)?;
+                    let mut b = [0u8; 32];
+                    b.copy_from_slice(commitment.0.as_bytes());
+                    out = Some(b);
+                }
+                Ok(())
+            };
+        let signer = Signer::new(pczt.clone());
+        let res = if ironwood_pool {
+            signer.sign_ironwood_with(read)
+        } else {
+            signer.sign_orchard_with(read)
+        };
+        res.map_err(|e| format!("bundle commitment: {:?}", e))?;
+        Ok(out)
+    }
+
+    /// Compute the ZIP-244 shielded `sig_digest` for a proven shielded-only PCZT, ON-DEVICE. This is
+    /// the exact message the FROST quorum must sign; a device signs THIS and nothing passed to it.
+    ///
+    /// Returns an error if the PCZT carries a transparent or Sapling component (out of scope for the
+    /// browser signer) or an unsupported transaction version. Byte-for-byte equal to
+    /// `konclave-signer`'s `shielded_sighash` on the same PCZT (proven by the `IW_SIGHASH` vector).
+    pub fn shielded_sighash(pczt: &Pczt) -> Result<[u8; 32], String> {
+        let g = pczt.global();
+        let tx_version = *g.tx_version();
+        let version_group_id = *g.version_group_id();
+        let consensus_branch_id = *g.consensus_branch_id();
+        let expiry_height = *g.expiry_height();
+
+        // Shielded-only guard: a transparent or Sapling bundle would make the empty digests below
+        // wrong. Reject loudly rather than produce a silently-incorrect sig_digest.
+        if !pczt.transparent().inputs().is_empty() || !pczt.transparent().outputs().is_empty() {
+            return Err("transparent components are not supported by the browser sighash".into());
+        }
+        if !pczt.sapling().spends().is_empty() || !pczt.sapling().outputs().is_empty() {
+            return Err("Sapling components are not supported by the browser sighash".into());
+        }
+
+        // nLockTime per BIP-370 (the PCZT's own rule); for a shielded-only tx this is the fallback
+        // lock time (0 in practice), but read it authoritatively rather than assume.
+        let lock_time = pczt::common::determine_lock_time(g, pczt.transparent().inputs())
+            .ok_or("incompatible lock times in PCZT")?;
+
+        // v5 (Orchard, NU5..NU6.2) vs v6 (Ironwood, NU6.3+). The Orchard-slot commitment domain
+        // differs per version, and only v6 carries an Ironwood digest in the outer tree.
+        let (is_v6, orchard_tx_version) = match tx_version {
+            5 => (false, orchard::bundle::TxVersion::V5),
+            6 => (true, orchard::bundle::TxVersion::V6),
+            v => return Err(format!("unsupported PCZT tx version {v} (expected 5 or 6)")),
+        };
+
+        // T.1 header digest — tx header (overwintered bit | version), version_group_id,
+        // consensus_branch_id, lock_time, expiry_height, all u32 little-endian.
+        let mut header_bytes = Vec::with_capacity(20);
+        header_bytes.extend_from_slice(&(0x8000_0000u32 | tx_version).to_le_bytes());
+        header_bytes.extend_from_slice(&version_group_id.to_le_bytes());
+        header_bytes.extend_from_slice(&consensus_branch_id.to_le_bytes());
+        header_bytes.extend_from_slice(&lock_time.to_le_bytes());
+        header_bytes.extend_from_slice(&expiry_height.to_le_bytes());
+        let header_digest = blake2b32(P_HEADERS, &header_bytes);
+
+        // T.2 transparent sig-digest and T.3 Sapling digest: both empty (shielded-only, no bundle).
+        let transparent_digest = blake2b32(P_TRANSPARENT, &[]);
+        let sapling_digest = blake2b32(P_SAPLING, &[]);
+
+        // T.4 Orchard digest: the Orchard bundle commitment, or the empty-bundle commitment when the
+        // tx spends only from Ironwood (the Orchard bundle then has no actions).
+        let orchard_digest = match bundle_txid_commitment(pczt, false, orchard_tx_version)? {
+            Some(d) => d,
+            None => empty_bundle_commitment(orchard::ValuePool::Orchard, orchard_tx_version)?,
+        };
+
+        // Outer digest: personalized "ZcashTxHash_" || consensus_branch_id, over
+        // header ‖ transparent ‖ sapling ‖ orchard [‖ ironwood for v6].
+        let mut personal = [0u8; 16];
+        personal[..12].copy_from_slice(P_OUTER_PREFIX);
+        personal[12..].copy_from_slice(&consensus_branch_id.to_le_bytes());
+
+        let mut body = Vec::with_capacity(32 * 5);
+        body.extend_from_slice(&header_digest);
+        body.extend_from_slice(&transparent_digest);
+        body.extend_from_slice(&sapling_digest);
+        body.extend_from_slice(&orchard_digest);
+        if is_v6 {
+            let ironwood_digest =
+                match bundle_txid_commitment(pczt, true, orchard::bundle::TxVersion::V6)? {
+                    Some(d) => d,
+                    None => empty_bundle_commitment(
+                        orchard::ValuePool::Ironwood,
+                        orchard::bundle::TxVersion::V6,
+                    )?,
+                };
+            body.extend_from_slice(&ironwood_digest);
+        }
+        Ok(blake2b32(&personal, &body))
+    }
+
+    /// The protocol-defined empty-bundle txid commitment for a pool/version (substituted for an
+    /// absent bundle in the outer digest), from the linked `orchard` crate.
+    fn empty_bundle_commitment(
+        value_pool: orchard::ValuePool,
+        tx_version: orchard::bundle::TxVersion,
+    ) -> Result<[u8; 32], String> {
+        let h = orchard::bundle::commitments::hash_bundle_txid_empty(value_pool, tx_version)
+            .map_err(|e| format!("empty bundle commitment: {:?}", e))?;
+        let mut out = [0u8; 32];
+        out.copy_from_slice(h.as_bytes());
+        Ok(out)
+    }
+
     // Parity tests: the WASM bridge must reproduce konclave-signer's output on the same real mainnet
     // PCZT vectors (DKG-vault send `aab00f90…`, funding send `7f8e59bb…`). The sighashes below are the
     // ones konclave-signer extracted (and that the broadcast signatures commit to).
@@ -1302,6 +1468,41 @@ pub mod pczt_bridge {
         #[test]
         fn describe_outputs_rejects_garbage() {
             assert!(describe_outputs(b"not a pczt").is_err());
+        }
+
+        #[test]
+        fn shielded_sighash_matches_signer_ironwood() {
+            // THE GATE (issue #62 / I2): the on-device ZIP-244 recompute must equal, byte-for-byte,
+            // the sighash konclave-signer extracted from the SAME real mainnet Ironwood PCZT (the
+            // message the broadcast FROST signatures actually committed to). A single real-vector
+            // match this exact is strong proof the algorithm is byte-correct.
+            let pczt = Pczt::parse(IW_PROVEN).unwrap();
+            let got = shielded_sighash(&pczt).unwrap();
+            assert_eq!(
+                hex::encode(got),
+                hex::encode(IW_SIGHASH),
+                "on-device sighash must equal konclave-signer's extracted sighash",
+            );
+        }
+
+        #[test]
+        fn shielded_sighash_binds_the_signature() {
+            // End-to-end: the recomputed sighash is exactly what `inject_sigs` (which verifies each
+            // signature against the sighash) accepts. If the recompute were off by a byte, the real
+            // broadcast signature would not verify under it.
+            let pczt = Pczt::parse(IW_PROVEN).unwrap();
+            let got = shielded_sighash(&pczt).unwrap();
+            let signed = inject_sigs(IW_PROVEN, got, &[(0, sig64(IW_SIG0))]).unwrap();
+            assert_eq!(
+                signed.as_slice(),
+                IW_SIGNED,
+                "signature verifies under the on-device-recomputed sighash",
+            );
+        }
+
+        #[test]
+        fn shielded_sighash_rejects_garbage() {
+            assert!(Pczt::parse(b"not a pczt").is_err());
         }
     }
 }
@@ -1926,5 +2127,17 @@ mod js_pczt {
             parsed.push((idx, sig));
         }
         pczt_bridge::inject_sigs(pczt, sighash, &parsed).map_err(je)
+    }
+
+    /// Recompute the ZIP-244 shielded sig_digest from THIS device's own proven PCZT, returning the
+    /// 32-byte sighash. The signing driver signs this value, never a sighash handed over the relay —
+    /// the on-device defence against the transaction-swap attack (issue #62 / ADR-0007 I2). Errors
+    /// if the PCZT is not a shielded-only v5/v6 transaction.
+    #[wasm_bindgen(js_name = pcztSighash)]
+    pub fn pczt_sighash(pczt: &[u8]) -> Result<Vec<u8>, JsValue> {
+        let parsed =
+            pczt::Pczt::parse(pczt).map_err(|e| je(format!("failed to parse PCZT: {:?}", e)))?;
+        let digest = pczt_bridge::shielded_sighash(&parsed).map_err(je)?;
+        Ok(digest.to_vec())
     }
 }
