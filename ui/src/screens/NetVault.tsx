@@ -30,6 +30,7 @@ import {
 import {
   helperConfigured,
   registerVault,
+  setMembers,
   vaultBalance,
   listProposals,
   executeProposal,
@@ -98,7 +99,7 @@ const PERSIST_LABELS = {
 // Wire messages (JSON inside the relay's opaque `data`; the relay never parses them).
 type Msg =
   | { type: 'config'; n: number; t: number }
-  | { type: 'hello'; encPub: string }
+  | { type: 'hello'; encPub: string; name?: string }
   | { type: 'r1'; pkg: string }
   | { type: 'r2'; to: number; box: string }
   // rejoin (signing after restore): a restored device announces its ORIGINAL seat (its KeyPackage's
@@ -192,6 +193,9 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
   const [vaultName, setVaultName] = useState('') // user-given vault name (create modal)
   const vaultNameRef = useRef('') // read at register time (after DKG), avoids a stale closure
   const [codeCopied, setCodeCopied] = useState(false) // invite-copied feedback
+  const [myName, setMyName] = useState('') // this participant's own name (create/join)
+  const myNameRef = useRef('')
+  const nameByTagRef = useRef<Map<string, string>>(new Map()) // tag -> announced name
   const [peers, setPeers] = useState(0)
   const [rosterCount, setRosterCount] = useState(0)
   const [log, setLog] = useState<string[]>([])
@@ -373,6 +377,12 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
         if (v) {
           setHostedAddress(v.address)
           setHostedState('registered')
+          // Record each member's own announced name (seat order). Every device produces the same
+          // list (own name from myNameRef, others from the hellos), so the call is idempotent.
+          const names = seatTableRef.current.map((s) =>
+            (s.tag === myTagRef.current ? myNameRef.current.trim() : nameByTagRef.current.get(s.tag)) || s.tag,
+          )
+          if (names.length) void setMembers(vk, names)
         } else {
           setHostedState('failed')
         }
@@ -445,6 +455,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
       }
       if (parsed.type === 'hello') {
         rosterRef.current.set(msg.from, unb64(parsed.encPub))
+        if (parsed.name) nameByTagRef.current.set(msg.from, parsed.name)
         return true
       }
       if (parsed.type === 'r1') {
@@ -735,7 +746,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
           await sess.send(JSON.stringify({ type: 'config', n: total, t: threshold } satisfies Msg))
         }
         await sess.send(
-          JSON.stringify({ type: 'hello', encPub: b64(deviceKeyRef.current.publicBytes()) } satisfies Msg),
+          JSON.stringify({ type: 'hello', encPub: b64(deviceKeyRef.current.publicBytes()), name: myNameRef.current.trim() || undefined } satisfies Msg),
         )
         addLog(tt('net.log.joined'))
         void advance()
@@ -969,10 +980,36 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
 
   // ---- render ----
 
+  // Create modal (embedded), idle: two separate views — CREATE or JOIN — toggled, never both at
+  // once, each purpose-built and on brand. Each participant gives their OWN name (travels in the
+  // relay hello, so everyone's member list shows real names). DKG logic unchanged.
+  if (phase === 'idle' && embedded && showJoin) {
+    return (
+      <Shell error={error} embedded>
+        <span className="rd-eyebrow">{pe('ENTRAR NUM COFRE', 'JOIN A VAULT')}</span>
+        <h2 className="cv-title">{pe('Entrar com um convite', 'Join with an invite')}</h2>
+        <p className="cv-lead">{pe('Você recebeu um código. Diga o seu nome e cole o código para entrar no cofre com os outros aparelhos.', 'You received a code. Enter your name and paste the code to join the vault with the other devices.')}</p>
+        <div className="cv-field cv-name">
+          <span className="cv-k">{pe('Seu nome (aparece pros membros)', 'Your name (shown to the members)')}</span>
+          <input className="cv-nameinput" type="text" maxLength={30} placeholder={pe('ex.: Bob', 'e.g. Bob')}
+            value={myName} onChange={(e) => { setMyName(e.target.value); myNameRef.current = e.target.value }} autoFocus />
+        </div>
+        <div className="cv-field cv-name">
+          <span className="cv-k">{pe('Código do convite', 'Invite code')}</span>
+          <input className="cv-nameinput" style={{ fontFamily: 'var(--font-mono)', letterSpacing: '.14em', textAlign: 'center' }}
+            placeholder="KX7M4PQR" value={joinCode} onChange={(e) => setJoinCode(e.target.value.toUpperCase().trim())} />
+        </div>
+        <button className="rd-enter primary cv-primary" disabled={joinCode.length < 8}
+          onClick={() => { setRole('join'); void begin('join', joinCode, n, t) }}>
+          {pe('Entrar no cofre', 'Join the vault')}
+        </button>
+        <button type="button" className="cv-linkbtn" onClick={() => setShowJoin(false)}>
+          ← {pe('Criar um cofre novo', 'Create a new vault')}
+        </button>
+      </Shell>
+    )
+  }
   if (phase === 'idle' && embedded) {
-    // Clean, purpose-built create modal (redesign): device/quorum steppers, Create as the focus,
-    // Join as a secondary reveal, no restore clutter. Matches the app's rd-* modal design. The DKG
-    // logic (begin/setN/setT) is unchanged.
     return (
       <Shell error={error} embedded>
         <span className="rd-eyebrow">{pe('CRIAR COFRE EM REDE', 'CREATE A NETWORKED VAULT')}</span>
@@ -990,6 +1027,13 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
             placeholder={pe('ex.: Tesouraria do coletivo', 'e.g. Collective treasury')}
             value={vaultName}
             onChange={(e) => { setVaultName(e.target.value); vaultNameRef.current = e.target.value }} />
+        </div>
+        <div className="cv-field cv-name">
+          <span className="cv-k">{pe('Seu nome (aparece pros membros)', 'Your name (shown to the members)')}</span>
+          <input className="cv-nameinput" type="text" maxLength={30}
+            placeholder={pe('ex.: Alice', 'e.g. Alice')}
+            value={myName}
+            onChange={(e) => { setMyName(e.target.value); myNameRef.current = e.target.value }} />
         </div>
 
         <div className="cv-controls">
@@ -1019,21 +1063,9 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
           onClick={() => { setRole('create'); void begin('create', newRoomCode(), n, t) }}>
           {pe('Gerar convite', 'Generate invite')}
         </button>
-
-        {!showJoin ? (
-          <button type="button" className="cv-linkbtn" onClick={() => setShowJoin(true)}>
-            {pe('Tenho um convite — entrar', 'Have an invite? Join')}
-          </button>
-        ) : (
-          <div className="cv-join">
-            <input className="cv-input" placeholder={pe('Código do convite (ex.: KX7M4PQR)', 'Invite code (e.g. KX7M4PQR)')}
-              value={joinCode} onChange={(e) => setJoinCode(e.target.value.toUpperCase().trim())} autoFocus />
-            <button className="rd-enter" disabled={joinCode.length < 8}
-              onClick={() => { setRole('join'); void begin('join', joinCode, n, t) }}>
-              {pe('Entrar com o código', 'Join with the code')}
-            </button>
-          </div>
-        )}
+        <button type="button" className="cv-linkbtn" onClick={() => setShowJoin(true)}>
+          {pe('Tenho um convite — entrar', 'Have an invite? Join')}
+        </button>
       </Shell>
     )
   }
