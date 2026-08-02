@@ -200,7 +200,7 @@ const propSentPayroll: Proposal = {
   value_zec: '0.2100',
   get memo() { return L('folha de bolsas · abril', 'grants payroll · April') },
   is_public: false,
-  created_at: ago(12),
+  created_at: ago(105),
   txid: 'f63ee64d7bc086a8286631d03936ec2ca2ca57f4e4c63712fc95c1f02c522360',
   approvals: ['Bob', 'Carol'],
   refusals: [],

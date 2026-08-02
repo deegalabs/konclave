@@ -120,6 +120,38 @@
 .breakdown{display:flex; gap:34px; font-family:var(--font-mono); font-size:12.5px; color:var(--text-muted)}
 .breakdown b{color:var(--text); font-weight:500}
 .breakdown .pd b{color:var(--silver)}
+
+/* USD estimate (opt-in) */
+.usd{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-top:12px;
+  font-family:var(--font-mono); font-size:12.5px; color:var(--text-muted)}
+.usd-v b{color:var(--silver); font-weight:500}
+.usd-src{font-size:11px; letter-spacing:.02em}
+.linkbtn{background:none; border:0; padding:0; cursor:pointer; font-family:var(--font-mono);
+  font-size:12px; color:var(--accent); border-bottom:1px solid transparent}
+.linkbtn:hover{border-bottom-color:var(--accent)}
+.linkbtn:disabled{color:var(--text-muted); cursor:default; border-bottom-color:transparent}
+
+/* KPI strip — treasury figures, all from real data */
+.kpis{display:grid; grid-template-columns:repeat(3,1fr); gap:14px}
+.kpi{display:flex; flex-direction:column; gap:7px; padding:15px 17px; border-radius:var(--radius);
+  background:var(--surface-2); border:1px solid var(--line-2)}
+.kpi-k{color:var(--text-muted)}
+.kpi-v{font-family:var(--font-mono); font-size:23px; font-weight:500; color:var(--text); letter-spacing:-.01em}
+.kpi-u{font-size:12px; color:var(--text-muted); letter-spacing:.12em}
+.kpi-sub{font-family:var(--font-mono); font-size:11.5px; color:var(--text-muted)}
+
+/* Spend-by-month bars (charts.tsx) */
+.spendwrap{margin:2px 0 20px}
+.spendwrap .klab{margin-bottom:14px}
+.spend-bars{display:flex; align-items:flex-end; gap:10px; justify-content:flex-start}
+.spend-col{flex:0 0 auto; width:52px; display:flex; flex-direction:column; align-items:center; justify-content:flex-end}
+.spend-bar{width:100%; max-width:34px; background:var(--silver); border-radius:4px 4px 0 0;
+  box-shadow:0 0 0 2px var(--surface-0)}
+.spend-bar.peak{background:var(--text)}
+.spend-lab{margin-top:7px; font-size:10.5px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.06em}
+
+.visually-hidden{position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden;
+  clip:rect(0 0 0 0); white-space:nowrap; border:0}
 .receive{display:flex; align-items:center; gap:14px; margin-top:22px; padding-top:18px; border-top:1px solid var(--line)}
 .receive code{font-family:var(--font-mono); font-size:12.5px; background:var(--surface-2); border:1px solid var(--line); padding:6px 10px}
 .orchard{margin-left:auto; font-family:var(--font-mono); font-size:11px; letter-spacing:.06em; color:var(--accent); display:flex; align-items:center; gap:7px}
@@ -175,6 +207,7 @@
 /* Painel · primary action cards (section nav lives in the rail now) */
 .actions{display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:24px}
 @media(max-width:560px){.actions{grid-template-columns:1fr}}
+@media(max-width:560px){.kpis{grid-template-columns:1fr}}
 .action{display:flex; align-items:center; gap:15px; text-decoration:none; color:inherit;
   border:1px solid var(--line-2); border-radius:var(--radius); background:var(--surface-1); padding:18px 20px;
   transition:border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out)}

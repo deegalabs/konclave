@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Seal, Secret, RevealButton, Loading } from '../components'
+import { SpendBars, type SpendPoint } from '../charts'
 import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
 import { fmtZec as fmt4, expiryLabel, fmtDate } from '../format'
+import { usdEnabled, setUsdEnabled, cachedRate, rateIsStale, fetchRate, zecToUsd, type Rate } from '../price'
 import { useT, useTr } from '../i18n'
 import {
   getVault, getProposals, getBalance, getLedger, health, shortAddr, isVaultUnlocked, IS_DEMO,
@@ -55,6 +57,28 @@ export default function Dashboard() {
   const [ledger, setLedger] = useState<Proposal[] | null>(null)
   const [balance, setBalance] = useState<Balance | null>(null)
   const [live, setLive] = useState<boolean | null>(null)
+  const [rate, setRate] = useState<Rate | null>(cachedRate())
+  const [usdOn, setUsdOn] = useState<boolean>(usdEnabled())
+  const [rateBusy, setRateBusy] = useState(false)
+
+  async function refreshRate() {
+    setRateBusy(true)
+    const r = await fetchRate()
+    if (r) setRate(r)
+    setRateBusy(false)
+  }
+  function enableUsd() {
+    setUsdEnabled(true)
+    setUsdOn(true)
+    void refreshRate()
+  }
+
+  // Fetch a fresh rate on mount only if the user has opted in and the cache is stale (privacy:
+  // no outbound price call otherwise).
+  useEffect(() => {
+    if (usdOn && rateIsStale(cachedRate())) void refreshRate()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     let on = true
@@ -126,6 +150,42 @@ export default function Dashboard() {
   // with an empty ledger (e.g. a fresh /net vault, no proposals yet) shows no movements, not mock.
   const movimentos: Movimento[] = movs ?? (live === false || IS_DEMO ? MOVIMENTOS_MOCK : [])
 
+  // KPIs — all derived from real data (no fabrication). Reserved = funds committed by open
+  // proposals (a product rule, not a protocol lock); Paid = settled outflow across the ledger.
+  const parseZ = (s?: string) => { const n = parseFloat(s || ''); return isFinite(n) ? n : 0 }
+  const settled = (ledger ?? []).filter((p) => p.state === 'sent' || p.state === 'confirmed')
+  const reservedZec = awaiting.reduce((a, p) => a + parseZ(p.value_zec), 0)
+  const paidZec = settled.reduce((a, p) => a + parseZ(p.value_zec), 0)
+
+  // Settled spend grouped by month (ascending, last 6). SpendBars self-hides below two periods.
+  const byMonth = new Map<string, SpendPoint>()
+  for (const p of settled) {
+    if (!p.created_at) continue
+    const d = new Date(p.created_at * 1000)
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+    const label = d.toLocaleDateString(undefined, { month: 'short' })
+    const cur = byMonth.get(key) ?? { label, zec: 0 }
+    cur.zec += parseZ(p.value_zec)
+    byMonth.set(key, cur)
+  }
+  const spendSeries: SpendPoint[] = Array.from(byMonth.entries())
+    .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+    .slice(-6)
+    .map(([, v]) => v)
+
+  // USD estimate (opt-in). Only priceable when there is a real or offline-demo ZEC figure.
+  const balZecNum = hasBal ? parseZ(balance!.total_zec) : (live === false ? 2.418 : undefined)
+  const usdBal = usdOn ? zecToUsd(balZecNum, rate) : null
+  const usdPaid = usdOn ? zecToUsd(paidZec, rate) : null
+  // "how fresh is the rate" label
+  const rateAgo = (): string => {
+    if (!rate) return ''
+    const min = Math.floor((Date.now() - rate.at) / 60000)
+    if (min < 1) return t('dashboard.agoNow')
+    if (min < 60) return t('dashboard.agoMin', { n: min })
+    return t('dashboard.agoHours', { n: Math.floor(min / 60) })
+  }
+
 
   return (
     <>
@@ -193,6 +253,23 @@ export default function Dashboard() {
                 <span>{t('dashboard.confirmedLower')} <Secret sm><b>{confirmado}</b></Secret></span>
                 <span className="pd">{t('dashboard.pendingLower')} <Secret sm><b>{pendente}</b></Secret></span>
               </div>
+              <div className="usd">
+                {usdOn ? (
+                  <>
+                    <span className="usd-v">≈ <Secret sm><b>{usdBal ?? '—'}</b></Secret></span>
+                    <span className="usd-src">{rate
+                      ? `${rate.source} · ${rateAgo()}${rateIsStale(rate) ? ` · ${t('dashboard.rateStale')}` : ''}`
+                      : t('dashboard.rateNone')}</span>
+                    <button type="button" className="linkbtn" onClick={() => void refreshRate()} disabled={rateBusy}>
+                      {rateBusy ? t('dashboard.updating') : t('dashboard.refresh')}
+                    </button>
+                  </>
+                ) : (
+                  <button type="button" className="linkbtn" onClick={enableUsd} title={t('dashboard.usdDisclosure')}>
+                    {t('dashboard.showUsd')}
+                  </button>
+                )}
+              </div>
             </>
           )}
           {walletUnwired && <div className="breakdown"><span className="dim small">{t('dashboard.walletNotConnectedNote')}</span></div>}
@@ -205,6 +282,25 @@ export default function Dashboard() {
             </span>
           </div>
         </section>
+
+        {/* 2b · KPIs — números do cofre, todos derivados de dados reais */}
+        {!loading && (
+          <section className="kpis">
+            <div className="kpi">
+              <span className="kpi-k klab">{t('dashboard.kpiOpen')}</span>
+              <span className="kpi-v mono">{awaiting.length}</span>
+            </div>
+            <div className="kpi">
+              <span className="kpi-k klab">{t('dashboard.kpiReserved')}</span>
+              <span className="kpi-v mono"><Secret sm><b>{fmt4(String(reservedZec))}</b></Secret> <span className="kpi-u">ZEC</span></span>
+            </div>
+            <div className="kpi">
+              <span className="kpi-k klab">{t('dashboard.kpiPaid')}</span>
+              <span className="kpi-v mono"><Secret sm><b>{fmt4(String(paidZec))}</b></Secret> <span className="kpi-u">ZEC</span></span>
+              {usdPaid && <span className="kpi-sub">≈ {usdPaid}</span>}
+            </div>
+          </section>
+        )}
 
         {/* 3 · Ações primárias (a navegação de seções vive no rail) */}
         <section className="actions">
@@ -224,6 +320,12 @@ export default function Dashboard() {
         <section className="ledger">
           <h2 className="klab">{t('dashboard.movements')}</h2>
           <div className="cap">{t('dashboard.movementsCap')}</div>
+          {!loading && spendSeries.length >= 2 && (
+            <div className="spendwrap">
+              <div className="klab plain">{t('dashboard.spendByMonth')}</div>
+              <SpendBars data={spendSeries} />
+            </div>
+          )}
           {loading && <Loading />}
           {!loading && movimentos.length === 0 && (
             <div className="cap">{t('dashboard.noMovements')}</div>
