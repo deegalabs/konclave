@@ -30,18 +30,7 @@ export type SigResp = { index: number; sig: string }
 /** What the devices publish back: exactly one signature per requested spend. */
 export type SignResponse = { kind: string; sigs: SigResp[] }
 
-export function hexToBytes(s: string): Uint8Array {
-  if (s.length % 2 !== 0) throw new Error('odd-length hex')
-  const out = new Uint8Array(s.length / 2)
-  for (let i = 0; i < out.length; i++) out[i] = parseInt(s.slice(i * 2, i * 2 + 2), 16)
-  return out
-}
-
-export function bytesToHex(b: Uint8Array): string {
-  let s = ''
-  for (const x of b) s += x.toString(16).padStart(2, '0')
-  return s
-}
+export { hexToBytes, bytesToHex } from './bytes'
 
 /**
  * The orchestrator serializes the request with a `pczt_hex` field (Rust snake_case). Parse it

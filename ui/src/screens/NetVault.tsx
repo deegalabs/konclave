@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { setSelectedVault, getSelectedVault } from '../api'
+import { getUnlockedShare, clearUnlockedShare, setUnlockedShare } from '../session'
 import init, {
   DkgSession,
   DeviceKey,
@@ -7,12 +10,12 @@ import init, {
   identifierBytes,
   participantRound1,
   participantRound2WithRandomizer,
-  extractRandomizers,
   describeOutputs,
 } from '../wasm-pkg/konclave_wasm.js'
 import wasmUrl from '../wasm-pkg/konclave_wasm_bg.wasm?url'
-import { RelaySession, newRoomCode, ephemeralTag, b64, unb64, bytesEqual, type RelayMsg } from '../net'
+import { RelaySession, newRoomCode, ephemeralTag, b64, unb64, bytesEqual, RELAY_BASE, type RelayMsg } from '../net'
 import { parseSignRequest, buildSignResponse, hexToBytes as hexBytes, bytesToHex, type SignRequest } from '../net-sign'
+import { parseAlphas, decodeBundle } from '../signing'
 import { useT, useTr, useI18n } from '../i18n'
 import { Letterhead } from '../components'
 import {
@@ -22,7 +25,20 @@ import {
   deleteVault,
   storageAvailable,
   type VaultPublic,
+  type VaultLoaded,
+  type Governance,
 } from '../storage'
+import {
+  helperConfigured,
+  registerVault,
+  setMembers,
+  vaultBalance,
+  listProposals,
+  executeProposal,
+  type Proposal,
+} from '../helper'
+import { zatToZec } from '../format'
+import encodeQR from '@paulmillr/qr'
 import '../redesign.css'
 import '../net.css'
 
@@ -83,8 +99,8 @@ const PERSIST_LABELS = {
 
 // Wire messages (JSON inside the relay's opaque `data`; the relay never parses them).
 type Msg =
-  | { type: 'config'; n: number; t: number }
-  | { type: 'hello'; encPub: string }
+  | { type: 'config'; n: number; t: number; g?: Governance; cn?: string }
+  | { type: 'hello'; encPub: string; name?: string }
   | { type: 'r1'; pkg: string }
   | { type: 'r2'; to: number; box: string }
   // rejoin (signing after restore): a restored device announces its ORIGINAL seat (its KeyPackage's
@@ -108,14 +124,29 @@ function hex(bytes: Uint8Array): string {
 const shortId = (s: string) => (s.length > 24 ? `${s.slice(0, 14)}…${s.slice(-6)}` : s)
 const fmtZec = (zat: number) => (zat / 1e8).toFixed(8).replace(/0+$/, '').replace(/\.$/, '')
 
-function Shell({ error, children }: { error: string; children: ReactNode }) {
+function Shell({ error, children, onDashboard, embedded }: { error: string; children: ReactNode; onDashboard?: () => void; embedded?: boolean }) {
   const t = useT()
+  // Embedded (inside the /vaults create modal): render just the content, no full-page wrap /
+  // letterhead / frame — the Dialog is the chrome. Same DKG flow, different container.
+  if (embedded) {
+    return (
+      <div className="rd net-embedded">
+        {error && <div className="net-error">{error}</div>}
+        {children}
+      </div>
+    )
+  }
   return (
     <div className="rd net-wrap">
-      <Letterhead right={<span className="net-tag">{t('net.tag')}</span>} />
+      <Letterhead right={<>
+        {onDashboard && (
+          <button type="button" className="net-back-btn" onClick={onDashboard}>← {t('nav.dashboard')}</button>
+        )}
+        <span className="net-tag">{t('net.tag')}</span>
+      </>} />
       <div className="demo-frame">
-        <span className="demo-eyebrow"><span className="dot" aria-hidden="true" />{t('demo.live')}</span>
-        <p className="demo-note">{t('demo.note')}</p>
+        <span className="demo-eyebrow"><span className="dot" aria-hidden="true" />{t('net.frame.tag')}</span>
+        <p className="demo-note">{t('net.frame.note')}</p>
       </div>
       {error && <div className="net-error">{error}</div>}
       {children}
@@ -123,26 +154,21 @@ function Shell({ error, children }: { error: string; children: ReactNode }) {
   )
 }
 
-// Parse EVERY real Orchard spend the proven PCZT must sign. `extractRandomizers` returns 36-byte
-// records — a u32 little-endian action index followed by the 32-byte alpha — one per real spend.
-// A single-spend tx yields one record (its alpha === the old `.slice(4, 36)`); a multi-note tx
-// yields several, each a separate ceremony. Indices come straight from the PCZT the device signs,
-// so the response maps each signature to the exact on-chain spend the helper's `into_sigs` expects.
-function alphasFromPczt(pczt: Uint8Array): { index: number; alpha: Uint8Array }[] {
-  const rand = extractRandomizers(pczt)
-  const out: { index: number; alpha: Uint8Array }[] = []
-  for (let off = 0; off + 36 <= rand.length; off += 36) {
-    const index = rand[off]! | (rand[off + 1]! << 8) | (rand[off + 2]! << 16) | (rand[off + 3]! << 24)
-    out.push({ index: index >>> 0, alpha: rand.slice(off + 4, off + 36) })
-  }
-  return out
-}
 
-export default function NetVault() {
+export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
   const tt = useT()
   const ttr = useTr()
   const { locale } = useI18n()
   const pe = (pt: string, en: string) => (locale === 'pt-BR' ? pt : en)
+  const nav = useNavigate()
+  // Open the vault in the app: select it (so api.ts reads it from the helper) and go to the
+  // Dashboard, the everyday vault interface. This is the bridge from the /net ceremony screen to
+  // the operating UI (create/restore here, operate there).
+  const openDashboard = () => {
+    if (!groupVk) return
+    setSelectedVault(groupVk)
+    nav('/dashboard')
+  }
   const L = PERSIST_LABELS[locale]
   const [phase, setPhase] = useState<Phase>('idle')
   const [role, setRole] = useState<'create' | 'join'>('create')
@@ -150,11 +176,32 @@ export default function NetVault() {
   const [joinCode, setJoinCode] = useState('')
   const [n, setN] = useState(2)
   const [t, setT] = useState(2)
+  const [showJoin, setShowJoin] = useState(false) // embedded create modal: Join is a secondary reveal
+  const [vaultName, setVaultName] = useState('') // user-given vault name (create modal)
+  const vaultNameRef = useRef('') // read at register time (after DKG), avoids a stale closure
+  const [codeCopied, setCodeCopied] = useState(false) // invite-copied feedback
+  const [myName, setMyName] = useState('') // this participant's own name (create/join)
+  const myNameRef = useRef('')
+  const nameByTagRef = useRef<Map<string, string>>(new Map()) // tag -> announced name
   const [peers, setPeers] = useState(0)
   const [rosterCount, setRosterCount] = useState(0)
   const [log, setLog] = useState<string[]>([])
   const [groupVk, setGroupVk] = useState('')
   const [error, setError] = useState('')
+  // Hosted-helper registration (ADR-0006 Rung A): after DKG, register the vault with the blind
+  // helper so it derives the vault's real Orchard address (view-only). Only runs when a helper is
+  // configured; otherwise `/net` stays a pure two-device ceremony.
+  const [hostedState, setHostedState] = useState<'idle' | 'registering' | 'registered' | 'failed'>(
+    'idle',
+  )
+  const [hostedAddress, setHostedAddress] = useState('')
+  const [balance, setBalance] = useState<{ spend: string; total: string } | null>(null)
+  const [balanceBusy, setBalanceBusy] = useState(false)
+  // Ceremony trail (A3): the auditable record of every spend the helper drove for this vault.
+  // Proposals: proposing/voting lives in the PWA (Dashboard). /net only lists the READY ones and
+  // signs them (the ceremony), so it keeps the list + a status message, not a create/vote form.
+  const [proposals, setProposals] = useState<Proposal[] | null>(null)
+  const [propMsg, setPropMsg] = useState('')
   const [signPhase, setSignPhase] = useState<'none' | 'signing' | 'signed'>('none')
   const [signature, setSignature] = useState('')
   const [signOk, setSignOk] = useState(false)
@@ -201,7 +248,11 @@ export default function NetVault() {
   }, [])
   const deviceKeyRef = useRef<DeviceKey | null>(null)
   const myTagRef = useRef('')
-  const configRef = useRef<{ n: number; t: number } | null>(null)
+  const configRef = useRef<{ n: number; t: number; g?: Governance; cn?: string } | null>(null)
+  // Governance policy the creator picks; propagated to every device in the `config` broadcast so
+  // the whole vault agrees. Default `quorum` (safer for a shared fund); `open` for small trusted groups.
+  const [governance, setGovernance] = useState<Governance>('quorum')
+  const governanceRef = useRef<Governance>('quorum')
   const rosterRef = useRef<Map<string, Uint8Array>>(new Map()) // tag -> encPub
   const seatByTagRef = useRef<Map<string, number>>(new Map()) // tag -> 1-based seat
   const seatTableRef = useRef<{ tag: string; encPub: Uint8Array; id: Uint8Array }[]>([])
@@ -301,9 +352,33 @@ export default function NetVault() {
     dkg.part3()
     part3DoneRef.current = true
     if (ceremonyTimerRef.current) clearTimeout(ceremonyTimerRef.current)
-    setGroupVk(hex(dkg.groupVk()))
+    const vk = hex(dkg.groupVk())
+    setGroupVk(vk)
     setPhase('done')
     addLog(tt('net.log.round3'))
+    // Register the finished vault with the hosted blind helper (public group key only — no share
+    // crosses). Fire-and-forget: `/net` works with or without a helper, so a failure just leaves
+    // the vault local-only. Idempotent, so every device registering the same group key is fine.
+    if (helperConfigured()) {
+      setHostedState('registering')
+      // Pass the vault's quorum (t of n) so proposals inherit it (see helper::VaultRegistration).
+      const cfg = configRef.current
+      const chosenName = vaultNameRef.current.trim() || `net-${vk.slice(0, 8)}`
+      void registerVault(vk, chosenName, cfg?.t ?? 0, cfg?.n ?? 0).then((v) => {
+        if (v) {
+          setHostedAddress(v.address)
+          setHostedState('registered')
+          // Record each member's own announced name (seat order). Every device produces the same
+          // list (own name from myNameRef, others from the hellos), so the call is idempotent.
+          const names = seatTableRef.current.map((s) =>
+            (s.tag === myTagRef.current ? myNameRef.current.trim() : nameByTagRef.current.get(s.tag)) || s.tag,
+          )
+          if (names.length) void setMembers(vk, names)
+        } else {
+          setHostedState('failed')
+        }
+      })
+    }
   }, [addLog, tt])
 
   // Start (or advance to) the ceremony for spend position `k`: reset the per-round state, pick that
@@ -363,14 +438,16 @@ export default function NetVault() {
       }
       if (parsed.type === 'config') {
         if (!configRef.current) {
-          configRef.current = { n: parsed.n, t: parsed.t }
+          configRef.current = { n: parsed.n, t: parsed.t, g: parsed.g, cn: parsed.cn }
           setN(parsed.n)
           setT(parsed.t)
+          if (parsed.g) { setGovernance(parsed.g); governanceRef.current = parsed.g }
         }
         return true
       }
       if (parsed.type === 'hello') {
         rosterRef.current.set(msg.from, unb64(parsed.encPub))
+        if (parsed.name) nameByTagRef.current.set(msg.from, parsed.name)
         return true
       }
       if (parsed.type === 'r1') {
@@ -410,13 +487,19 @@ export default function NetVault() {
 
       // ---- rejoin (signing after restore): re-seat by declared seat, not by fresh tags ----
       if (parsed.type === 'rejoin') {
+        // A device that reloads rejoins with a FRESH ephemeral tag but the SAME seat. Drop any
+        // stale tag for that seat first, so each seat has exactly one presence: the count is
+        // distinct SEATS (never > n), and the seat table has no duplicate seats to break signing.
+        for (const [tag, seat] of seatByTagRef.current.entries()) {
+          if (seat === parsed.seat && tag !== msg.from) seatByTagRef.current.delete(tag)
+        }
         seatByTagRef.current.set(msg.from, parsed.seat)
         seatTableRef.current = [...seatByTagRef.current.entries()].map(([tag, seat]) => ({
           tag,
           encPub: new Uint8Array(),
           id: identifierBytes(seat),
         }))
-        setSignSeatCount(seatByTagRef.current.size)
+        setSignSeatCount(new Set(seatByTagRef.current.values()).size)
         return true
       }
 
@@ -429,7 +512,7 @@ export default function NetVault() {
           const pczt = unb64(parsed.pczt)
           // Every device reads ALL real Orchard spends (index + alpha) from the proven PCZT it holds
           // — it signs only what it can independently see. One ceremony per spend, in order.
-          signSpendsRef.current = alphasFromPczt(pczt)
+          signSpendsRef.current = parseAlphas(pczt)
           signSigsRef.current = []
           startedSpendsRef.current = new Set()
           // "What am I signing?" — confirm what the tx pays before contributing any signature.
@@ -651,11 +734,11 @@ export default function NetVault() {
         }, 90000)
         // The creator declares the group size/threshold; everyone announces their enc key.
         if (asRole === 'create') {
-          configRef.current = { n: total, t: threshold }
-          await sess.send(JSON.stringify({ type: 'config', n: total, t: threshold } satisfies Msg))
+          configRef.current = { n: total, t: threshold, g: governanceRef.current, cn: myNameRef.current.trim() || undefined }
+          await sess.send(JSON.stringify({ type: 'config', n: total, t: threshold, g: governanceRef.current, cn: myNameRef.current.trim() || undefined } satisfies Msg))
         }
         await sess.send(
-          JSON.stringify({ type: 'hello', encPub: b64(deviceKeyRef.current.publicBytes()) } satisfies Msg),
+          JSON.stringify({ type: 'hello', encPub: b64(deviceKeyRef.current.publicBytes()), name: myNameRef.current.trim() || undefined } satisfies Msg),
         )
         addLog(tt('net.log.joined'))
         void advance()
@@ -703,6 +786,51 @@ export default function NetVault() {
     [addLog, advance, onMessage, tt],
   )
 
+
+  // Proposals: /net only lists them (to sign the ready ones); proposing/voting is in the PWA.
+  const loadProposals = useCallback(async () => {
+    setProposals(await listProposals(groupVk))
+  }, [groupVk])
+
+  // Execute a ready proposal: the browsers sign over the relay and the helper broadcasts. This
+  // moves real funds, so it is gated by an explicit confirmation (a single click never sends, §7).
+  const execProp = useCallback(
+    async (id: string) => {
+      const ok = typeof window === 'undefined' || window.confirm(
+        pe(
+          'Executar este pagamento aprovado? As duas abas vão assinar e a transação vai para a rede.',
+          'Execute this approved payment? Both tabs will sign and the transaction goes to the network.',
+        ),
+      )
+      if (!ok) return
+      setPropMsg(pe('Executando: as abas assinam pelo relay…', 'Executing: the tabs sign over the relay…'))
+      const r = await executeProposal({
+        vault: groupVk,
+        proposalId: id,
+        relayBase: RELAY_BASE,
+        room,
+        dryRun: false,
+      })
+      if (!r) {
+        setPropMsg(pe('Falha ao executar (proposta não pronta ou sem assinaturas a tempo).', 'Execute failed (proposal not ready or no signatures in time).'))
+        return
+      }
+      setPropMsg(
+        r.txid
+          ? `${pe('Transmitido. txid:', 'Broadcast. txid:')} ${r.txid}`
+          : pe('Executado.', 'Executed.'),
+      )
+      void loadProposals()
+    },
+    [groupVk, room, pe, loadProposals],
+  )
+
+  // Auto-load the proposals once the vault is known (helper configured + group key set).
+  useEffect(() => {
+    if (helperConfigured() && groupVk) void loadProposals()
+  }, [groupVk, loadProposals])
+
+  // Export the accounting ledger (the vault's confirmed governed payments) as a CSV download.
   // ---- on-device persistence handlers (Marco 5), all additive to the flow above ----
 
   const refreshSaved = useCallback(async () => {
@@ -741,7 +869,16 @@ export default function NetVault() {
         }),
       )
       const roster = seatTableRef.current.map((s) => s.tag)
-      await saveVault(hex(gvk), { groupKey: gvk, address: '', roster, sealedShare: bundle }, savePass)
+      const nm = vaultNameRef.current.trim() || undefined
+      const gov: Governance = cfg?.g ?? governanceRef.current
+      const mine = myNameRef.current.trim() || undefined
+      // Who set up the vault (the device that generated the invite); rides the config broadcast so
+      // every device agrees. A real fixed fact, unlike the per-ceremony FROST coordinator role.
+      const creator = cfg?.cn || undefined
+      await saveVault(hex(gvk), { name: nm, governance: gov, myName: mine, creatorName: creator, groupKey: gvk, address: '', roster, sealedShare: bundle }, savePass)
+      // Also keep the just-created share unlocked in memory for this session, so the operator can
+      // sign from the app immediately without re-entering the passphrase (the access model).
+      setUnlockedShare(hex(gvk), { name: nm, governance: gov, myName: mine, creatorName: creator, groupKey: gvk, address: '', roster, sealedShare: bundle, createdAt: 0 })
       setSaveState('saved')
       setSavePass('')
       await refreshSaved()
@@ -754,6 +891,18 @@ export default function NetVault() {
   // Restore a saved vault: unlock with the passphrase, bring the vault identity back into view
   // WITHOUT redoing the DKG. The secret material is held in memory (restoredRef) for a future
   // signing-after-restore step; the live relay/ceremony refs are left untouched.
+  // Bring a decrypted vault into the 'restored' phase (no DKG redo). Shared by the passphrase path
+  // (doRestore) and the access-gate path (a share already unlocked at /unlock, held in session.ts).
+  const applyLoaded = useCallback((v: VaultLoaded) => {
+    const share = decodeBundle(v)
+    restoredRef.current = share
+    setGroupVk(hex(v.groupKey))
+    setRestoredRoster(v.roster)
+    if (share.n) setN(share.n)
+    if (share.t) setT(share.t)
+    setPhase('restored')
+  }, [])
+
   const doRestore = useCallback(
     async (id: string) => {
       const pass = restorePass[id] ?? ''
@@ -761,41 +910,38 @@ export default function NetVault() {
       setRestoreBusy(id)
       setRestoreErr('')
       try {
-        const v = await loadVault(id, pass)
-        const bundle = JSON.parse(new TextDecoder().decode(v.sealedShare)) as {
-          kp: string
-          pubkeys: string
-          seat: number
-          n: number
-          t: number
-        }
-        restoredRef.current = {
-          keyPackage: unb64(bundle.kp),
-          pubkeys: unb64(bundle.pubkeys),
-          groupVk: v.groupKey,
-          seat: bundle.seat,
-          n: bundle.n,
-          t: bundle.t,
-        }
-        setGroupVk(hex(v.groupKey))
-        setRestoredRoster(v.roster)
-        if (bundle.n) setN(bundle.n)
-        if (bundle.t) setT(bundle.t)
+        applyLoaded(await loadVault(id, pass))
         setRestorePass((m) => ({ ...m, [id]: '' }))
-        setPhase('restored')
       } catch (e) {
         setRestoreErr(L.restoreErr + String(e))
       } finally {
         setRestoreBusy('')
       }
     },
-    [restorePass, L],
+    [restorePass, L, applyLoaded],
   )
+
+  // Access gate: if this device's share was already unlocked at /unlock (session store), restore
+  // straight into the signing-ready state, no second passphrase prompt.
+  useEffect(() => {
+    if (phase !== 'idle') return
+    const id = getSelectedVault()
+    if (!id) return
+    const v = getUnlockedShare(id)
+    if (v) applyLoaded(v)
+  }, [phase, applyLoaded])
+
+  // Embedded create modal: once the just-created share is protected (saved), open the app.
+  useEffect(() => {
+    if (embedded && saveState === 'saved') openDashboard()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [embedded, saveState])
 
   const doDelete = useCallback(
     async (id: string) => {
       try {
         await deleteVault(id)
+        clearUnlockedShare(id) // drop the in-memory share when the vault leaves this device
         await refreshSaved()
       } catch {
         /* deletion failure is non-fatal */
@@ -818,9 +964,120 @@ export default function NetVault() {
 
   // ---- render ----
 
+  // Create modal (embedded), idle: two separate views — CREATE or JOIN — toggled, never both at
+  // once, each purpose-built and on brand. Each participant gives their OWN name (travels in the
+  // relay hello, so everyone's member list shows real names). DKG logic unchanged.
+  if (phase === 'idle' && embedded && showJoin) {
+    return (
+      <Shell error={error} embedded>
+        <span className="rd-eyebrow">{pe('ENTRAR NUM COFRE', 'JOIN A VAULT')}</span>
+        <h2 className="cv-title">{pe('Entrar com um convite', 'Join with an invite')}</h2>
+        <p className="cv-lead">{pe('Você recebeu um código. Diga o seu nome e cole o código para entrar no cofre com os outros aparelhos.', 'You received a code. Enter your name and paste the code to join the vault with the other devices.')}</p>
+        <div className="cv-field cv-name">
+          <span className="cv-k">{pe('Seu nome (aparece pros membros)', 'Your name (shown to the members)')}</span>
+          <input className="cv-nameinput" type="text" maxLength={30} placeholder={pe('ex.: Bob', 'e.g. Bob')}
+            value={myName} onChange={(e) => { setMyName(e.target.value); myNameRef.current = e.target.value }} autoFocus />
+        </div>
+        <div className="cv-field cv-name">
+          <span className="cv-k">{pe('Código do convite', 'Invite code')}</span>
+          <input className="cv-nameinput" style={{ fontFamily: 'var(--font-mono)', letterSpacing: '.14em', textAlign: 'center' }}
+            placeholder="KX7M4PQR" value={joinCode} onChange={(e) => setJoinCode(e.target.value.toUpperCase().trim())} />
+        </div>
+        <button className="rd-enter primary cv-primary" disabled={joinCode.length < 8}
+          onClick={() => { setRole('join'); void begin('join', joinCode, n, t) }}>
+          {pe('Entrar no cofre', 'Join the vault')}
+        </button>
+        <button type="button" className="cv-linkbtn" onClick={() => setShowJoin(false)}>
+          ← {pe('Criar um cofre novo', 'Create a new vault')}
+        </button>
+      </Shell>
+    )
+  }
+  if (phase === 'idle' && embedded) {
+    return (
+      <Shell error={error} embedded>
+        <span className="rd-eyebrow">{pe('CRIAR COFRE EM REDE', 'CREATE A NETWORKED VAULT')}</span>
+        <h2 className="cv-title">{pe('Novo cofre', 'New vault')}</h2>
+        <p className="cv-lead">
+          {pe(
+            'Dois ou mais aparelhos criam um cofre juntos, por DKG real. Cada um sai com o seu pedaço da chave; a chave inteira nunca é montada.',
+            'Two or more devices create one vault together, by a real DKG. Each leaves with its own share; the whole key is never assembled.',
+          )}
+        </p>
+
+        <div className="cv-field cv-name">
+          <span className="cv-k">{pe('Nome do cofre', 'Vault name')}</span>
+          <input className="cv-nameinput" type="text" maxLength={40}
+            placeholder={pe('ex.: Tesouraria do coletivo', 'e.g. Collective treasury')}
+            value={vaultName}
+            onChange={(e) => { setVaultName(e.target.value); vaultNameRef.current = e.target.value }} />
+        </div>
+        <div className="cv-field cv-name">
+          <span className="cv-k">{pe('Seu nome (aparece pros membros)', 'Your name (shown to the members)')}</span>
+          <input className="cv-nameinput" type="text" maxLength={30}
+            placeholder={pe('ex.: Alice', 'e.g. Alice')}
+            value={myName}
+            onChange={(e) => { setMyName(e.target.value); myNameRef.current = e.target.value }} />
+        </div>
+
+        <div className="cv-controls">
+          <div className="cv-field">
+            <span className="cv-k">{pe('Dispositivos', 'Devices')}</span>
+            <div className="cv-stepper">
+              <button type="button" className="cv-step" disabled={n <= 2} aria-label={pe('menos', 'fewer')}
+                onClick={() => { const v = n - 1; setN(v); if (t > v) setT(v) }}>−</button>
+              <span className="cv-num">{n}</span>
+              <button type="button" className="cv-step" disabled={n >= 5} aria-label={pe('mais', 'more')}
+                onClick={() => setN(n + 1)}>+</button>
+            </div>
+          </div>
+          <div className="cv-field">
+            <span className="cv-k">{pe('Quórum para assinar', 'Signing quorum')}</span>
+            <div className="cv-stepper">
+              <button type="button" className="cv-step" disabled={t <= 1} aria-label={pe('menos', 'fewer')}
+                onClick={() => setT(t - 1)}>−</button>
+              <span className="cv-num">{t} <em>{pe('de', 'of')} {n}</em></span>
+              <button type="button" className="cv-step" disabled={t >= n} aria-label={pe('mais', 'more')}
+                onClick={() => setT(t + 1)}>+</button>
+            </div>
+          </div>
+        </div>
+
+        <div className="cv-field cv-gov">
+          <span className="cv-k">{pe('Governança', 'Governance')}</span>
+          <div className="cv-seg" role="radiogroup" aria-label={pe('Governança', 'Governance')}>
+            <button type="button" role="radio" aria-checked={governance === 'quorum'}
+              className={'cv-segbtn' + (governance === 'quorum' ? ' on' : '')}
+              onClick={() => { setGovernance('quorum'); governanceRef.current = 'quorum' }}>
+              {pe('Sob quórum', 'Quorum-gated')}
+            </button>
+            <button type="button" role="radio" aria-checked={governance === 'open'}
+              className={'cv-segbtn' + (governance === 'open' ? ' on' : '')}
+              onClick={() => { setGovernance('open'); governanceRef.current = 'open' }}>
+              {pe('Aberto', 'Open')}
+            </button>
+          </div>
+          <span className="cv-govnote">{governance === 'quorum'
+            ? pe('Mudar nomes e beneficiários é decisão do grupo. Mover fundos sempre exige o quórum.',
+                 'Changing names and beneficiaries is a group decision. Moving funds always needs the quorum.')
+            : pe('Qualquer membro edita nomes e beneficiários. Mover fundos sempre exige o quórum.',
+                 'Any member edits names and beneficiaries. Moving funds always needs the quorum.')}</span>
+        </div>
+
+        <button className="rd-enter primary cv-primary"
+          onClick={() => { setRole('create'); void begin('create', newRoomCode(), n, t) }}>
+          {pe('Gerar convite', 'Generate invite')}
+        </button>
+        <button type="button" className="cv-linkbtn" onClick={() => setShowJoin(true)}>
+          {pe('Tenho um convite — entrar', 'Have an invite? Join')}
+        </button>
+      </Shell>
+    )
+  }
+
   if (phase === 'idle') {
     return (
-      <Shell error={error}>
+      <Shell error={error} embedded={embedded} onDashboard={groupVk ? openDashboard : undefined}>
         <h1 className="net-h1">{tt('net.idle.title')}</h1>
         <p className="net-lead">{ttr('net.idle.lead')}</p>
         <p className="net-lead" style={{ fontSize: '.85rem', opacity: 0.8 }}>{ttr('net.idle.purpose')}</p>
@@ -906,7 +1163,7 @@ export default function NetVault() {
 
   if (phase === 'restored') {
     return (
-      <Shell error={error}>
+      <Shell error={error} embedded={embedded} onDashboard={groupVk ? openDashboard : undefined}>
         <h1 className="net-h1">{L.restoredTitle}</h1>
         <p className="net-lead">{L.restoredLead}</p>
         <div className="net-vk">{groupVk}</div>
@@ -914,6 +1171,10 @@ export default function NetVault() {
           <p className="net-tip">{L.rosterLabel} {restoredRoster.join(', ')}</p>
         )}
         <p className="net-tip">{L.restoredNote}</p>
+
+        <button className="net-btn primary" style={{ marginTop: 8 }} onClick={openDashboard}>
+          {pe('Abrir o cofre (Dashboard) →', 'Open the vault (Dashboard) →')}
+        </button>
 
         <div className="net-card" style={{ marginTop: 16 }}>
           <h3>{pe('Assinar com este cofre', 'Sign with this vault')}</h3>
@@ -983,11 +1244,129 @@ export default function NetVault() {
           </p>
         </>
       )}
+      {helperConfigured() && groupVk && (
+        <div className="net-card" style={{ marginTop: 16 }}>
+          <h3>{pe('Propostas prontas para assinar', 'Proposals ready to sign')}</h3>
+          <p className="net-tip">
+            {pe(
+              'Propor e aprovar pagamentos é no app (Dashboard). Quando uma proposta bate o quórum, ela aparece aqui: as abas assinam e o cofre transmite. O coordenador nunca vê uma parte da chave.',
+              'Proposing and approving payments happens in the app (Dashboard). When a proposal reaches quorum it shows here: the tabs sign and the vault broadcasts. The coordinator never sees a key share.',
+            )}
+          </p>
+          <button className="net-btn" onClick={() => void loadProposals()}>
+            {pe('Atualizar', 'Refresh')}
+          </button>
+          {propMsg && (
+            <p className="net-tip" style={{ marginTop: 8, wordBreak: 'break-all' }}>{propMsg}</p>
+          )}
+          {(() => {
+            const ready = (proposals ?? []).filter((p) => p.state === 'ready')
+            if (proposals && ready.length === 0) {
+              return (
+                <p className="net-tip" style={{ marginTop: 8 }}>
+                  {pe('Nenhuma proposta pronta para assinar.', 'No proposals ready to sign.')}
+                </p>
+              )
+            }
+            return (
+              <ul className="net-trail">
+                {ready.map((p) => (
+                  <li key={p.id}>
+                    <div className="net-trail-head">
+                      <span className="net-tag">{pe('pronta', 'ready')}</span>
+                      <span className="net-trail-when">
+                        {fmtZec(p.amount_zat)} ZEC → <code>{shortId(p.to)}</code>
+                      </span>
+                    </div>
+                    <div className="net-trail-row">
+                      <span className="net-trail-label">{pe('aprovações', 'approvals')}</span>
+                      <code>
+                        {p.approvals.length}/{p.threshold || '?'}
+                      </code>
+                    </div>
+                    <div className="net-trail-row" style={{ marginTop: 4 }}>
+                      <button
+                        className="net-btn primary"
+                        disabled={!room}
+                        onClick={() => void execProp(p.id)}
+                      >
+                        {room
+                          ? pe('Assinar e enviar', 'Sign & send')
+                          : pe('Inicie uma sessão de assinatura', 'Start a signing session')}
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )
+          })()}
+        </div>
+      )}
     </div>
   )
 
+  // Embedded (create modal): clean, purpose-built rendering for the gathering / running / done
+  // phases — seats filling, a running indicator, and a done step that just protects the device and
+  // opens the Dashboard (the address/QR/proposals/ceremony all live in the app now).
+  if (embedded && (phase === 'roster' || phase === 'dkg' || phase === 'done')) {
+    return (
+      <Shell error={error} embedded>
+        {phase === 'roster' && (
+          <>
+            <span className="rd-eyebrow">{pe('REUNINDO OS APARELHOS', 'GATHERING DEVICES')}</span>
+            <h2 className="cv-title">{role === 'create' ? pe('Compartilhe o convite', 'Share the invite') : pe('Entrando no cofre', 'Joining the vault')}</h2>
+            {role === 'create' && (
+              <p className="cv-lead">{pe('Envie este código para os outros aparelhos. O cofre nasce quando todos entrarem.', 'Send this code to the other devices. The vault is born once they all join.')}</p>
+            )}
+            <div className="net-code" role="button" tabIndex={0}
+              onClick={() => { void navigator.clipboard?.writeText(room); setCodeCopied(true); window.setTimeout(() => setCodeCopied(false), 1800) }}
+              title={tt('net.invite.clickCopy')}>{room}</div>
+            <p className="cv-copyhint">{codeCopied ? pe('Copiado ✓', 'Copied ✓') : pe('Toque para copiar', 'Tap to copy')}</p>
+            <div className="cv-seats">
+              {Array.from({ length: total }, (_, i) => (
+                <span key={i} className={'cv-seat' + (i < rosterCount ? ' on' : '')} />
+              ))}
+            </div>
+            <p className="cv-seatlabel">{rosterCount} {pe('de', 'of')} {total} {pe('conectados', 'connected')}</p>
+          </>
+        )}
+        {phase === 'dkg' && (
+          <div className="cv-loading">
+            <div className="cv-spinner" aria-hidden="true" />
+            <h2 className="cv-title">{pe('Criando a chave em conjunto', 'Creating the key together')}</h2>
+            <p className="cv-lead">{pe('Cada aparelho gera o seu pedaço por DKG. A chave inteira nunca é montada. Não feche esta janela.', 'Each device generates its share by DKG. The whole key is never assembled. Do not close this window.')}</p>
+          </div>
+        )}
+        {phase === 'done' && (
+          <>
+            <span className="rd-eyebrow">{pe('COFRE CRIADO', 'VAULT CREATED')}</span>
+            <h2 className="cv-title">{pe('Pronto', 'Done')}</h2>
+            <p className="cv-lead">{pe('O cofre nasceu. Cada aparelho guardou o seu pedaço; a chave inteira nunca foi montada. Proteja este aparelho com uma frase-senha para não perder o cofre ao recarregar.', 'The vault is born. Each device kept its share; the whole key was never assembled. Protect this device with a passphrase so a reload does not lose it.')}</p>
+            <div className="cv-join">
+              <input className="cv-input" type="password" style={{ letterSpacing: 'normal', textAlign: 'left' }}
+                placeholder={pe('Frase-senha (mínimo 8 caracteres)', 'Passphrase (at least 8 characters)')}
+                value={savePass} onChange={(e) => setSavePass(e.target.value)} autoFocus />
+              {saveErr && <p className="set-err">{saveErr}</p>}
+              <button className="rd-enter primary cv-primary" disabled={savePass.length < 8 || saveState === 'saving' || hostedState !== 'registered'}
+                onClick={() => void doSave()}>
+                {saveState === 'saving' ? pe('Guardando…', 'Saving…')
+                  : hostedState !== 'registered' ? pe('Registrando o cofre…', 'Registering the vault…')
+                  : pe('Proteger e abrir o cofre →', 'Protect and open the vault →')}
+              </button>
+              {hostedState === 'registered' && (
+                <button type="button" className="cv-linkbtn cv-danger" onClick={openDashboard}>
+                  {pe('Abrir sem guardar — você perde o seu pedaço ao recarregar (só a recuperação social traz de volta)', 'Open without saving — you lose your share on reload (only social recovery brings it back)')}
+                </button>
+              )}
+            </div>
+          </>
+        )}
+      </Shell>
+    )
+  }
+
   return (
-    <Shell error={error}>
+    <Shell error={error} embedded={embedded} onDashboard={groupVk ? openDashboard : undefined}>
       {role === 'create' && phase === 'roster' && (
         <>
           <h1 className="net-h1">{tt('net.invite.title')}</h1>
@@ -1023,6 +1402,86 @@ export default function NetVault() {
           <p className="net-lead">{ttr('net.done.lead')}</p>
           <div className="net-vk">{groupVk}</div>
           <p className="net-tip">{tt('net.done.tip')}</p>
+
+          {hostedState === 'registered' && (
+            <button className="net-btn primary" style={{ marginTop: 12 }} onClick={openDashboard}>
+              {pe('Abrir o cofre (Dashboard) →', 'Open the vault (Dashboard) →')}
+            </button>
+          )}
+
+          {hostedState !== 'idle' && (
+            <div className="net-card" style={{ marginTop: 16 }}>
+              <h3>{pe('Endereço do cofre', 'Vault address')}</h3>
+              {hostedState === 'registering' && (
+                <p className="net-tip">
+                  {pe(
+                    'Registrando o cofre no coordenador (cego às partes)…',
+                    'Registering the vault with the coordinator (blind to shares)…',
+                  )}
+                </p>
+              )}
+              {hostedState === 'registered' && (
+                <>
+                  <p>
+                    {pe(
+                      'O coordenador derivou o endereço Orchard deste cofre a partir da chave do grupo (só material público, nenhuma parte saiu do dispositivo). Receba fundos aqui:',
+                      'The coordinator derived this vault’s Orchard address from the group key (public material only, no share left the device). Receive funds here:',
+                    )}
+                  </p>
+                  <div
+                    className="net-qr"
+                    role="img"
+                    aria-label={pe('QR do endereço do cofre', 'Vault address QR')}
+                    dangerouslySetInnerHTML={{ __html: encodeQR(`zcash:${hostedAddress}`, 'svg') }}
+                  />
+                  <div className="net-vk">{hostedAddress}</div>
+                  <button
+                    className="net-btn"
+                    onClick={() => void navigator.clipboard?.writeText(hostedAddress)}
+                  >
+                    {pe('Copiar endereço', 'Copy address')}
+                  </button>
+
+                  <div style={{ marginTop: 16 }}>
+                    <button
+                      className="net-btn"
+                      disabled={balanceBusy}
+                      onClick={() => {
+                        setBalanceBusy(true)
+                        void vaultBalance(groupVk).then((b) => {
+                          setBalance(
+                            b
+                              ? { spend: zatToZec(b.orchard_spendable_zat), total: zatToZec(b.total_zat) }
+                              : null,
+                          )
+                          setBalanceBusy(false)
+                        })
+                      }}
+                    >
+                      {balanceBusy
+                        ? pe('Sincronizando…', 'Syncing…')
+                        : pe('Ver saldo', 'Check balance')}
+                    </button>
+                    {balance && (
+                      <p className="net-tip" style={{ marginTop: 8 }}>
+                        {pe('Recebido', 'Received')}: <strong>{balance.total} ZEC</strong>
+                        {' · '}
+                        {pe('disponível', 'spendable')}: <strong>{balance.spend} ZEC</strong>
+                      </p>
+                    )}
+                  </div>
+                </>
+              )}
+              {hostedState === 'failed' && (
+                <p className="net-tip">
+                  {pe(
+                    'O cofre foi criado neste dispositivo, mas o coordenador não respondeu. O cofre segue válido e local; tente registrar mais tarde para receber e enviar.',
+                    'The vault was created on this device, but the coordinator did not respond. The vault is still valid and local; try registering later to receive and send.',
+                  )}
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="net-card" style={{ marginTop: 16 }}>
             <h3>{L.saveTitle}</h3>

@@ -717,3 +717,40 @@ debts" had drifted. Correcting the record:
 unit-tested; single-spend is live-proven); **RTS recovery + inheritance** wired into a live vault UI
 (cores proven by tests); the `build_payroll` multi-output builder unit test (needs a wallet-DB
 fixture); **Tauri** single-binary packaging (roadmap, ADR-0004).
+
+---
+
+**Phase 16 — Browser-native vault over a HOSTED blind helper (ADR-0006 Rung A), proven on testnet
+(2026-07-31). Branch `feat/browser-native-vault` (PR #45, not merged).** The `/net` browser vault
+became a self-service hosted product: a public share-blind helper (`helper-server/`, a new crate on
+Railway at `konclave-helper-production.up.railway.app`) turns a browser-DKG group key into an
+operable vault (register, receive, balance, send, ceremony record), while the browsers keep the
+shares and sign over the blind relay (Architecture B). It never sees a share.
+
+- **Backend (helper-server + orchestrator::helper):** `register_vault` (derive Orchard address +
+  UFVK, init a view-only wallet), multi-vault registry, `GET /api/vault/balance` (sync + Orchard
+  balance), `POST /api/vault/send` (Architecture-B send, `dry_run` default true), `GET
+  /api/vault/ceremonies` (ZecSafe-style reproducible evidence: sighash + aggregate signature + txid).
+  Registrations persist to disk (`registration.json`) on a Railway volume, so a redeploy keeps the
+  vault and a re-register returns the same address. 236+ tests across the two crates. CI-gated
+  (fmt/clippy/test).
+- **UI (`ui/src/helper.ts` + NetVault):** `/net` registers the vault post-DKG and shows the real
+  address + QR + balance + a "Request a payment" form + the ceremony trail. Local-first contract
+  preserved: without `VITE_HELPER_BASE`, `/net` is a pure device-to-device ceremony with zero egress.
+- **Preview:** a SEPARATE Vercel project `konclave-net-preview.vercel.app` (the submission demo
+  `konclave-demo` is untouched), wired to the live helper + relay.
+- **PROVEN on testnet (via real browser automation against the public preview + helper + relay):**
+  a browser-DKG 2-of-2 vault (group `15ba3b91…`) created cross-tab over the PUBLIC relay, registered,
+  funded (0.1 TAZ), then a self-send **signed in the two browser tabs** and **broadcast by the blind
+  helper**: testnet txid `88128d56f60f2c9c661c2a821a8562e28452a92a4c92650300016ccdee80dce1`, verified
+  by the ceremony record (dry_run:false + fresh sighash + aggregate sig + txid) AND the view-only
+  balance dropping by exactly the ZIP-317 fee. Two hosted-helper bugs found + fixed on the way: `curl`
+  missing in the image (relay transport), and the signing window too short (120s→300s).
+- **Honest limits (§6.15):** still **testnet, not mainnet**, and still **two tabs on one machine**,
+  not separate physical devices (that cross-device broadcast is the open milestone). Findings noted:
+  the restore-then-sign path can deadlock live (fresh-DKG signs cleanly); `zcash-sign generate`
+  derives a non-deterministic UFVK (persisted registration is authoritative). Next UX: converge the
+  local-first Dashboard/proposals/ledger onto the hosted helper so the main app shows the real
+  browser-native vault (today the Dashboard is the local-bridge path, mock in the hosted demo). Also
+  parallel-tracked: a Tauri 2.0 desktop scaffold + plan on branch `feat/tauri-shell` (unvalidated
+  groundwork; needs real hardware / a Mac / Android SDK to build per platform).

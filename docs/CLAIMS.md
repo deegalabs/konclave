@@ -44,6 +44,14 @@ Any statement of the form "the app payment used DKG" is **false**. Only `aab00f9
 `3022420a…` (browser DKG) came from keys born by real DKG.
 
 ## Honest limits to keep stated (never hide)
+- **Known signing-path gap — transaction-swap (H1, being fixed).** The `/net` signing does not yet
+  recompute the ZIP-244 sighash **on-device** from its own PCZT (the recompute is a stub). A
+  compromised **helper** or **coordinator device** could therefore display a benign PCZT while the
+  signed sighash targets an attacker output, redirecting funds. So do **not** claim "the helper is
+  blind and cannot steal": the helper is blind to *secrets* (round-2 is sealed), but until the
+  on-device sighash binding lands ([ADR-0007](adr/0007-ceremony-security-invariants.md) I2, issue
+  #62) it is **not** blind to *transaction substitution*. **No real-money `/net` broadcast until I2
+  ships.** (Zkool ships this defense; we deferred it — surfaced by our own relay audit.)
 - **All eight mainnet sends so far were signed on a single machine.** The first seven used
   co-located CLI shares; the eighth (`3022420a…`) used **two browser tabs on one machine**. So the
   distributed browser-signing *protocol* is proven (separate shares, a blind relay, the key never
@@ -82,6 +90,32 @@ Any statement of the form "the app payment used DKG" is **false**. Only `aab00f9
   alpha, and the helper broadcasts (txid `3022420a…` above). The old "sample PCZT belongs to a
   different vault, not broadcastable" caveat applied to the `/signer` demo vector and no longer
   describes the live `/net` path.
+- **Hosted browser-native vault (self-service blind helper) — PROVEN on TESTNET (2026-07-31).**
+  The `3022420a…` proof above used the *local* orchestrator bridge as the helper. This milestone
+  proves the same Architecture B over the **hosted, public, share-blind helper** (`helper-server`,
+  deployed on Railway, ADR-0006 Rung A) plus the hosted blind relay. A browser-DKG **2-of-2** vault,
+  created live in two browser tabs over the PUBLIC relay, was **registered** with the helper (which
+  derived its Orchard view-only address + wallet from the group key), **funded** with real testnet
+  TAZ, and then **signed a real testnet Ironwood self-send IN THE BROWSER** (each tab contributing
+  only its own share over the blind relay), which the helper injected and **broadcast**. Confirmed:
+  txid `88128d56f60f2c9c661c2a821a8562e28452a92a4c92650300016ccdee80dce1` (testnet), verified two
+  ways: the helper's ceremony record (`dry_run:false`, a fresh sighash + the 64-byte aggregate
+  signature + the txid, which the helper writes only after `pczt send` returns) AND the vault's
+  view-only balance dropping by exactly the ZIP-317 fee (10000 zat) after an independent sync. This
+  is the full self-service pipeline (register, receive, balance, sign, broadcast, ceremony record) a
+  real user anywhere would drive, over public infrastructure, proven end to end.
+  - Still **testnet, not mainnet**, and still **two browser tabs on one machine**, not separate
+    physical devices (the open milestone at the top of this section stands unchanged).
+  - Two hosted-helper bugs were found and fixed in the process: the helper image shipped without
+    `curl` (its relay transport shells out to curl, so the publish step failed at "curl spawn"); and
+    the helper's signing-collection window (`max_polls`) was too short for the browser ceremony over
+    the public relay (120s, now 300s). Both redeployed.
+  - Two findings noted (not blockers): the **restore then sign** path can deadlock live (a fresh-DKG
+    session signs cleanly; restoring both seats then signing sometimes hangs, which matches the
+    "signing-after-restore is unit-tested, live multi-device proof pending" caveat). And
+    `zcash-sign generate` derives a **non-deterministic UFVK** for a given group key (re-deriving
+    gives a different viewing key), so the persisted registration's stored UFVK is authoritative and
+    a freshly re-derived view-only wallet sees nothing.
 - **Ironwood (NU6.3) — PROVEN on mainnet (2026-07-28, activation day).** After activation
   (block 3,428,144) the #10 port was merged and the rebuilt engine was validated live. Two real,
   mined, **V6/NU6.3** mainnet transactions, each a FROST 2-of-3 ceremony:

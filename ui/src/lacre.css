@@ -115,6 +115,10 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 .btn.ok:disabled, .btn.ok:disabled:hover{background:var(--surface-2); border-color:var(--line); color:var(--text-muted)}
 .btn.ghost{border-color:var(--line); color:var(--text-muted)}
 .btn.ghost:hover{background:transparent; border-color:var(--text); color:var(--text)}
+/* the single canonical destructive treatment — bordered, warmed, filled on hover (never accent) */
+.btn.danger{border-color:var(--danger-line); color:var(--danger-text); background:transparent}
+.btn.danger:hover{background:var(--danger-soft); border-color:var(--danger)}
+.btn.danger:disabled, .btn.danger:disabled:hover{opacity:.42; cursor:not-allowed; background:var(--surface-2); border-color:var(--line); color:var(--text-muted)}
 .btn.block{width:100%; text-align:center}
 
 /* the redaction / tarja — a keyboard-operable button, not a bare div */

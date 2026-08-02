@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Secret } from '../components'
+import { Secret, Loading } from '../components'
 import { PageHeader } from '../page'
 import { useT, useTr } from '../i18n'
 import {
@@ -86,6 +86,7 @@ export default function NewPayment() {
       <main className="page narrow">
         <PageHeader title={t('payment.title')} subtitle={t('payment.cap')} />
 
+        {live === null ? <Loading /> : (
         <div className="ctx">
           <span>{tr('payment.fromVault', { name: vaultName })}</span>
           <span className="ctx-sep">·</span>
@@ -99,6 +100,7 @@ export default function NewPayment() {
             </label>
           )}
         </div>
+        )}
 
         {benefs.length > 0 && (
           <label className="field"><span>{t('payment.personFromRegistry')}</span>

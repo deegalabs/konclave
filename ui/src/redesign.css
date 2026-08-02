@@ -155,3 +155,16 @@
 .lang-btn { background: transparent; color: var(--silver); border: none; padding: 3px 9px; font: inherit; font-size: 11px; letter-spacing: .04em; cursor: pointer; }
 .lang-btn.on { background: var(--accent); color: var(--on-accent); font-weight: 700; }
 .lang-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* Create-vault modal (redesign #6.2): the DKG creation flow hosted in a Dialog on /vaults,
+   so "create new vault" opens inline instead of navigating to /net. Wider than unlock, scrolls. */
+.create-overlay {
+  position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 20px;
+  background: rgba(8, 11, 15, 0.66); backdrop-filter: blur(4px);
+}
+.create-card {
+  width: 100%; max-width: 720px; max-height: 88vh; overflow-y: auto;
+  padding: 24px 26px; border-radius: var(--radius-lg);
+  background: linear-gradient(180deg, var(--surface-2), var(--surface-1)); border: 1px solid var(--accent-line);
+  box-shadow: var(--shadow-overlay);
+}

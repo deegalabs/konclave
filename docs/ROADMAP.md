@@ -204,6 +204,16 @@ on-device share). What is missing is the transaction machinery, deliberately kep
 today to stay wasm-clean (`konclave-wasm` excludes the Halo2 proving path, `zcash_primitives`, and
 secp256k1/C deps on purpose).
 
+> **Decision recorded:** [ADR-0006](adr/0006-browser-native-vault.md) formalizes this as the
+> **browser-native vault** (the `/vault` operating inside `/net`), on a staircase whose rungs map
+> onto the three helper stages below: **A** = the blind **hosted** helper turning `/net` into a
+> self-service web vault (stage 2), **B** = the light logic and PCZT build moving into the browser,
+> **C** = fully in-WASM (stage 3). The immediate milestone **M1** is Rung A plus a **cross-device**
+> broadcast (two separate devices, each holding only its share) carried to a **confirmed mainnet
+> txid**, with a verifiable ceremony record. That is the milestone an independent review of the
+> ZecHub FROST projects (2026-07-29) named as the meaningful one, and which none of the six had
+> reached.
+
 **Three stages for the helper (each strictly more decentralized, all trustless — the helper never
 sees a share and cannot move funds without the quorum's signatures):**
 1. **Manual CLI (today):** `konclave net-send` builds + proves + broadcasts; the browser devices sign

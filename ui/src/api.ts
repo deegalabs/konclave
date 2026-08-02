@@ -7,6 +7,20 @@
 
 import type { TFn } from './i18n'
 import { MOCK } from './mock'
+import {
+  helperConfigured,
+  helperHealth,
+  getVault as netGetVault,
+  vaultBalance as netVaultBalance,
+  listProposals as netListProposals,
+  createProposal as netCreateProposal,
+  createPayroll as netCreatePayroll,
+  voteProposal as netVote,
+  listMembers as netListMembers,
+  setMembers as netSetMembers,
+  type Proposal as NetProposal,
+} from './helper'
+import { zatToZec, parseZecToZat } from './format'
 
 export type Member = { name: string; pubkey: string }
 
@@ -65,6 +79,42 @@ const DEMO = ENV.VITE_DEMO === '1'
  *  the coherent mock) even though `health()` is false. */
 export const IS_DEMO = DEMO
 
+// Browser-native mode (Etapa 3 convergence): when a hosted blind helper is configured, the PWA
+// screens (Dashboard / Proposals / Ledger) read the SELECTED /net vault from the helper instead of
+// the local bridge, so the same polished app operates the browser-born vault. Gated on
+// `helperConfigured()`, so the local-first path and the submission demo (no helper) are unchanged.
+const NET = helperConfigured()
+/** True when the app operates a browser-native (/net) vault via the hosted helper. Screens use it
+ *  to route signing to /net (where the share lives) instead of a server-side ceremony. */
+export const IS_NET = NET
+
+/** Map a helper proposal state to the lowercase states the PWA screens expect. */
+export function netState(s: string): string {
+  return s === 'pending' ? 'awaiting' : s === 'refused' ? 'rejected' : s
+}
+
+/** Adapt a helper `Proposal` into the PWA's `Proposal` shape. */
+export function mapNetProposal(p: NetProposal): Proposal {
+  return {
+    id: p.id,
+    vault_id: p.vault_id,
+    kind: p.kind === 'payroll' ? 'payroll' : 'payment',
+    state: netState(p.state),
+    proposer: p.proposer,
+    value_zat: p.amount_zat,
+    value_zec: zatToZec(p.amount_zat),
+    memo: p.memo ?? undefined,
+    to_address: p.to,
+    is_public: classifyAddress(p.to) !== 'unified',
+    expiry_unix: p.expiry_unix || undefined,
+    created_at: p.created_at_unix,
+    txid: p.txid ?? undefined,
+    approvals: p.approvals,
+    refusals: p.refusals,
+    approvals_count: p.approvals.length,
+  }
+}
+
 // Per-session CSRF token, injected into index.html by the local bridge (window.__KONCLAVE_SESSION__).
 // Sent back on state-changing requests so a cross-site page cannot drive the vault. Reads are
 // protected by the bridge's Host gate + the browser same-origin policy, so they don't carry it.
@@ -115,29 +165,72 @@ async function getJson<T>(path: string, timeoutMs = 4000): Promise<T | null> {
 
 /** True when the bridge answers `/api/health`. Lets the UI show a live/offline badge. */
 export async function health(): Promise<boolean> {
+  if (NET) return (await helperHealth()) !== null
   const h = await getJson<{ status?: string }>('/api/health')
   return h?.status === 'ok'
 }
 
 export async function getVault(): Promise<Vault | null> {
+  if (NET) {
+    const id = getSelectedVault()
+    if (!id) return null
+    const v = await netGetVault(id)
+    if (!v) return null
+    const total = v.total ?? 0
+    // Members: use the stored names (Members screen) when set; otherwise "member N" seats, so the
+    // vote UI always has options and a vote from the PWA matches one from /net (same member id).
+    const names = (await netListMembers(id)) ?? []
+    const member_list = Array.from({ length: total }, (_, i) => {
+      const name = names[i] && names[i].trim() ? names[i] : `member ${i + 1}`
+      return { name, pubkey: name }
+    })
+    return {
+      id: v.vault_id,
+      name: 'Networked vault',
+      threshold: v.threshold ?? 0,
+      total,
+      members: total,
+      member_list,
+      group_pubkey: v.vault_id,
+      orchard_address: v.address,
+    }
+  }
   const r = await getJson<{ vault: Vault | null }>(withVault('/api/vault'))
   return r?.vault ?? (DEMO ? MOCK.vault : null)
 }
 
 export async function getProposals(): Promise<Proposal[] | null> {
+  if (NET) {
+    const id = getSelectedVault()
+    if (!id) return null
+    const ps = await netListProposals(id)
+    return ps ? ps.map(mapNetProposal) : null
+  }
   const r = await getJson<{ proposals: Proposal[] }>(withVault('/api/proposals'))
   return r?.proposals ?? (DEMO ? MOCK.proposals : null)
 }
 
 export async function getBalance(): Promise<Balance | null> {
+  if (NET) {
+    const id = getSelectedVault()
+    if (!id) return null
+    const b = await netVaultBalance(id)
+    if (!b) return null
+    return {
+      configured: true,
+      total_zat: b.total_zat,
+      total_zec: zatToZec(b.total_zat),
+      spendable_zat: b.orchard_spendable_zat,
+      spendable_zec: zatToZec(b.orchard_spendable_zat),
+    }
+  }
   return (await getJson<Balance>(withVault('/api/balance'))) ?? (DEMO ? MOCK.balance : null)
 }
 
 /** Shorten an address for display: `u1vjgx…d406dr`. */
-export function shortAddr(addr: string, head = 6, tail = 6): string {
-  if (addr.length <= head + tail + 1) return addr
-  return `${addr.slice(0, head)}…${addr.slice(-tail)}`
-}
+// shortAddr moved to format.ts (display formatting belongs there, not in the transport client);
+// re-exported so existing `import { shortAddr } from '../api'` call sites keep working.
+export { shortAddr } from './format'
 
 // ---- writes ----
 
@@ -154,6 +247,22 @@ export type CreateResult =
 
 /** POST a new payment proposal. Returns a typed success or a readable error. */
 export async function createProposal(input: NewProposal): Promise<CreateResult> {
+  if (NET) {
+    const id = getSelectedVault()
+    if (!id) return { ok: false, error: 'no vault' }
+    const zat = parseZecToZat(input.value_zec)
+    if (zat == null || zat <= 0) return { ok: false, error: 'invalid amount' }
+    const p = await netCreateProposal({
+      vault: id,
+      proposer: input.proposer,
+      to: input.to_address,
+      amountZat: zat,
+      memo: input.memo,
+    })
+    return p
+      ? { ok: true, proposal: mapNetProposal(p) }
+      : { ok: false, error: 'invalid address', detail: 'the coordinator rejected the destination or amount' }
+  }
   if (DEMO) {
     const proposal: Proposal = {
       id: `demo-${Date.now()}`,
@@ -195,9 +304,6 @@ export function classifyAddress(addr: string): AddressKind {
   if (addr.startsWith('t1') || addr.startsWith('t3')) return 'transparent'
   return 'unknown'
 }
-export function isTransparent(addr: string): boolean {
-  return classifyAddress(addr) === 'transparent'
-}
 
 /**
  * Turn a backend error (code + technical detail) into a clear, actionable message via i18n
@@ -231,6 +337,14 @@ export function humanError(t: TFn, error?: string, detail?: string): string {
   return error && error.length < 140 ? error : t('error.unexpected')
 }
 
+/** Set the member names of the selected /net vault (seat order). Only in browser-native mode. */
+export async function setVaultMembers(names: string[]): Promise<string[] | null> {
+  if (!NET) return null
+  const id = getSelectedVault()
+  if (!id) return null
+  return netSetMembers(id, names)
+}
+
 /** Every vault known to this device (for the "Meus cofres" home). */
 export async function getVaults(): Promise<Vault[] | null> {
   const r = await getJson<{ vaults: Vault[] }>('/api/vaults')
@@ -239,6 +353,12 @@ export async function getVaults(): Promise<Vault[] | null> {
 
 /** The full ledger (all proposals, terminal states included) for the Razão screen. */
 export async function getLedger(): Promise<Proposal[] | null> {
+  if (NET) {
+    const id = getSelectedVault()
+    if (!id) return null
+    const ps = await netListProposals(id)
+    return ps ? ps.map(mapNetProposal) : null
+  }
   const r = await getJson<{ ledger: Proposal[] }>(withVault('/api/ledger'))
   return r?.ledger ?? (DEMO ? MOCK.ledger : null)
 }
@@ -246,12 +366,6 @@ export async function getLedger(): Promise<Proposal[] | null> {
 /** URL of the CSV export the browser downloads (handed to the accountant). */
 export function ledgerCsvUrl(): string {
   return `${BASE}${withVault('/api/ledger.csv')}`
-}
-
-/** A single proposal by id (proposal detail screen). */
-export async function getProposal(id: string): Promise<Proposal | null> {
-  const r = await getJson<{ proposal: Proposal }>(`/api/proposals/${encodeURIComponent(id)}`)
-  return r?.proposal ?? (DEMO ? MOCK.proposalById(id) : null)
 }
 
 // ---- payroll ----
@@ -303,6 +417,20 @@ export async function createPayroll(
   lines: NewPayrollLine[],
   description?: string,
 ): Promise<CreateResult> {
+  if (NET) {
+    const id = getSelectedVault()
+    if (!id) return { ok: false, error: 'no vault' }
+    const mapped: { label?: string; to: string; amount_zat: number; memo?: string }[] = []
+    for (const l of lines) {
+      const zat = parseZecToZat(l.value_zec)
+      if (zat == null || zat <= 0) return { ok: false, error: 'invalid amount' }
+      mapped.push({ label: l.label, to: l.address, amount_zat: zat, memo: l.memo })
+    }
+    const p = await netCreatePayroll({ vault: id, proposer, lines: mapped })
+    return p
+      ? { ok: true, proposal: mapNetProposal(p) }
+      : { ok: false, error: 'invalid address', detail: 'the coordinator rejected a payroll line' }
+  }
   try {
     const res = await fetch(`${BASE}${withVault('/api/payroll')}`, {
       method: 'POST',
@@ -407,6 +535,22 @@ export async function deleteBeneficiary(id: string): Promise<boolean> {
 export async function getProposalDetail(
   id: string,
 ): Promise<{ proposal: Proposal; lines: PayrollLine[] } | null> {
+  if (NET) {
+    const vid = getSelectedVault()
+    if (!vid) return null
+    const ps = await netListProposals(vid)
+    const hp = ps?.find((x) => x.id === id)
+    if (!hp) return null
+    const lines: PayrollLine[] = (hp.lines ?? []).map((l) => ({
+      label: l.label ?? null,
+      address: l.to,
+      value_zat: l.amount_zat,
+      value_zec: zatToZec(l.amount_zat),
+      memo: l.memo ?? '',
+      is_public: classifyAddress(l.to) !== 'unified',
+    }))
+    return { proposal: mapNetProposal(hp), lines }
+  }
   const r = await getJson<{ proposal: Proposal; lines: PayrollLine[] }>(`/api/proposals/${encodeURIComponent(id)}`)
   if (!r?.proposal) return DEMO ? MOCK.proposalDetail(id) : null
   return { proposal: r.proposal, lines: r.lines ?? [] }
@@ -421,6 +565,16 @@ export type SendResult =
  * No client timeout: the ceremony (create→prove→sign→broadcast) can take 30–60s.
  */
 export async function sendProposal(id: string, dryRun: boolean): Promise<SendResult> {
+  if (NET) {
+    // Executing a /net proposal needs the FROST ceremony (the share + a signing session over the
+    // relay), which lives on the /net screen. From the PWA we cannot sign, so point the operator
+    // there. (Bringing the ceremony into the Dashboard is the next slice.)
+    return {
+      ok: false,
+      error: 'sign in /net',
+      detail: 'To send this approved payment, open the vault in /net and sign there with your share.',
+    }
+  }
   try {
     const res = await fetch(`${BASE}/api/proposals/${encodeURIComponent(id)}/send`, {
       method: 'POST',
@@ -451,6 +605,12 @@ export async function voteProposal(
   member: string,
   approve: boolean,
 ): Promise<CreateResult> {
+  if (NET) {
+    const vid = getSelectedVault()
+    if (!vid) return { ok: false, error: 'no vault' }
+    const p = await netVote(vid, id, member, approve)
+    return p ? { ok: true, proposal: mapNetProposal(p) } : { ok: false, error: 'vote rejected' }
+  }
   if (DEMO) {
     const base = MOCK.proposalById(id)
     if (!base) return { ok: false, error: 'not found' }
