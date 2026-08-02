@@ -5,18 +5,13 @@ import { getUnlockedShare, clearUnlockedShare, setUnlockedShare } from '../sessi
 import init, {
   DkgSession,
   DeviceKey,
-  Coordinator,
   sealTo,
   identifierBytes,
-  participantRound1,
-  participantRound2WithRandomizer,
-  describeOutputs,
-  pcztSighash,
 } from '../wasm-pkg/konclave_wasm.js'
 import wasmUrl from '../wasm-pkg/konclave_wasm_bg.wasm?url'
 import { RelaySession, newRoomCode, deriveRoom, ephemeralTag, b64, unb64, bytesEqual, RELAY_BASE, type RelayMsg } from '../net'
-import { parseSignRequest, buildSignResponse, hexToBytes as hexBytes, bytesToHex, type SignRequest } from '../net-sign'
-import { parseAlphas, decodeBundle } from '../signing'
+import { decodeBundle } from '../signing'
+import { SigningMachine } from '../signing-machine'
 import { useT, useTr, useI18n } from '../i18n'
 import { Letterhead } from '../components'
 import {
@@ -269,31 +264,8 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
   const startGuardRef = useRef(false)
   const advancingRef = useRef(false)
   const rerunRef = useRef(false)
-  // --- signing (Marco 4) ---
-  const signStartedRef = useRef(false)
-  const signMsgRef = useRef<Uint8Array>(new Uint8Array())
-  const myNoncesRef = useRef<Uint8Array | null>(null)
-  const signCommitsRef = useRef<Map<number, Uint8Array>>(new Map())
-  const coordRef = useRef<Coordinator | null>(null)
-  const spSentRef = useRef(false)
-  const spRef = useRef<Uint8Array | null>(null)
-  // The Orchard randomizer (alpha) of the real spend, read from the PCZT each device receives.
-  // The live ceremony signs under THIS alpha (the real Orchard mechanism), not a self-derived seed.
-  const signAlphaRef = useRef<Uint8Array | null>(null)
-  const sentS2Ref = useRef(false)
-  const signSharesSeenRef = useRef<Set<number>>(new Set())
-  const sigDoneRef = useRef(false)
-  // Architecture B: when a helper (orchestrator net_send, blind to spending) publishes a real
-  // sign-request into the room, the coordinator drives the ceremony over ITS sighash+alpha+PCZT,
-  // and the aggregate signature is posted back RAW for the helper to inject and broadcast.
-  const helperReqRef = useRef<SignRequest | null>(null)
-  // Multi-spend: a real tx may consume several notes, each a separate FROST spend (own alpha, same
-  // sighash). These drive the ceremonies SEQUENTIALLY over the relay, spend by spend. For a
-  // single-spend tx there is exactly one, so the flow is identical to the previous single ceremony.
-  const signSpendsRef = useRef<{ index: number; alpha: Uint8Array }[]>([]) // all real spends, in order
-  const signCurRef = useRef(0) // 0-based position of the spend being signed right now
-  const signSigsRef = useRef<{ index: number; sig: string }[]>([]) // accumulated per-spend signatures
-  const startedSpendsRef = useRef<Set<number>>(new Set()) // beginSpend fires once per position
+  // The per-ceremony signing state (started/nonces/commits/coord/shares/spends/…) now lives inside
+  // the shared SigningMachine (issue #50), constructed below.
   // Ceremony watchdog: fires if the vault isn't created in time (a peer never joined, a
   // message was lost) — surfaces an error instead of hanging on "Criando…" forever (§8).
   const ceremonyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -383,30 +355,38 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
     }
   }, [addLog, tt])
 
-  // Start (or advance to) the ceremony for spend position `k`: reset the per-round state, pick that
-  // spend's alpha, generate FRESH nonces (never reused across signatures), and broadcast this
-  // device's commitment tagged with `k`. Fires once per position (guarded), on every device.
-  const beginSpend = useCallback(
-    async (k: number) => {
-      if (startedSpendsRef.current.has(k)) return
-      startedSpendsRef.current.add(k)
-      signCurRef.current = k
-      signAlphaRef.current = signSpendsRef.current[k]?.alpha ?? null
-      signCommitsRef.current = new Map()
-      spSentRef.current = false
-      spRef.current = null
-      sentS2Ref.current = false
-      signSharesSeenRef.current = new Set()
-      sigDoneRef.current = false
-      coordRef.current = null
-      const r1 = participantRound1(signingMaterial().keyPackage)
-      myNoncesRef.current = r1.nonces()
-      await send({ type: 's1', commit: b64(r1.commitment()), k })
-      const n = signSpendsRef.current.length
-      addLog(n > 1 ? `~ signing spend ${k + 1}/${n}` : tt('net.log.signCommit'))
-    },
-    [send, signingMaterial, addLog, tt],
-  )
+  // `send`/`tt` change identity (tt on a locale switch); route the machine through refs kept fresh
+  // each render so a mid-ceremony change never leaves it calling a stale closure.
+  const sendRef = useRef(send)
+  sendRef.current = send
+  const ttRef = useRef(tt)
+  ttRef.current = tt
+
+  // The FROST signing ceremony, lifted into a shared state machine (issue #50). It owns the signing
+  // state and the `sreq|s1|sp|s2|signed` handlers; the DKG, roster and transport stay here and are
+  // reached through these injected deps. Constructed once (it holds state across renders/messages).
+  const machineRef = useRef<SigningMachine | null>(null)
+  if (!machineRef.current) {
+    machineRef.current = new SigningMachine({
+      signingMaterial,
+      seatOf: (tag) => seatByTagRef.current.get(tag),
+      mySeat: () => mySeatRef.current,
+      threshold: () => configRef.current?.t ?? 0,
+      hasVault: () => part3DoneRef.current,
+      send: (m) => sendRef.current(m),
+      rawSend: async (data) => (await sessionRef.current?.send(data)) ?? false,
+      onLog: addLog,
+      onError: setError,
+      onPhase: setSignPhase,
+      onWhat: setSignWhat,
+      onSignature: (h, ok) => {
+        setSignature(h)
+        setSignOk(ok)
+      },
+      tt: (k, p) => ttRef.current(k, p),
+    })
+  }
+  const machine = machineRef.current
 
   const applyMsg = useCallback(
     async (msg: RelayMsg): Promise<boolean> => {
@@ -420,24 +400,9 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
       // never marked the message consumed, advance() would re-apply and re-throw it forever. Catch,
       // surface, and consume it (§8: corrupted/missing material stays a clear failure, not a hang).
       try {
-      // Architecture B: a helper's raw sign-request carries `kind`, not `type`. Detect it before
-      // the Msg dispatch. The coordinator (seat 1) kicks the ceremony over the helper's real PCZT;
-      // once the aggregate signature is ready (the `s2` handler below) it is posted back RAW.
-      const helperReq = parseSignRequest(msg.data)
-      if (helperReq) {
-        helperReqRef.current = helperReq
-        // The coordinator kicks off the ceremony over the helper's real PCZT. `sreq` carries the
-        // sighash + PCZT; each device reads ALL real spends' alphas from that PCZT and signs them one
-        // ceremony at a time, so single- and multi-note transactions take the same path.
-        if (mySeatRef.current === 1 && !sigDoneRef.current && helperReq.spends.length >= 1) {
-          await send({
-            type: 'sreq',
-            msg: b64(hexBytes(helperReq.sighash)),
-            pczt: b64(hexBytes(helperReq.pcztHex)),
-          })
-        }
-        return true
-      }
+      // Architecture B: a helper's raw sign-request is detected before the typed dispatch and drives
+      // the ceremony over its real PCZT (the machine posts the aggregate signature back RAW).
+      if (await machine.tryHelperRequest(msg.data)) return true
       if (parsed.type === 'config') {
         if (!configRef.current) {
           configRef.current = { n: parsed.n, t: parsed.t, g: parsed.g, cn: parsed.cn }
@@ -505,171 +470,16 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
         return true
       }
 
-      // ---- signing over the relay (Marco 4): all bytes below are public ----
-      if (parsed.type === 'sreq') {
-        if (!part3DoneRef.current) return false // no vault yet
-        if (!signStartedRef.current) {
-          const pczt = unb64(parsed.pczt)
-          // H1 / ADR-0007 I2 (transaction-swap defense): recompute the ZIP-244 sighash from OUR OWN
-          // PCZT and sign THAT, refusing if it disagrees with the requested one. A hostile helper or
-          // coordinator can otherwise display a benign PCZT while the wire `sighash` targets an
-          // attacker output; binding the signed message to the local PCZT makes that impossible.
-          let localSighash: Uint8Array
-          try {
-            localSighash = pcztSighash(pczt)
-          } catch (e) {
-            setError(tt('net.err.sighashMismatch') + ' ' + String(e))
-            return true
-          }
-          if (!bytesEqual(localSighash, unb64(parsed.msg))) {
-            setError(tt('net.err.sighashMismatch'))
-            return true
-          }
-          signStartedRef.current = true
-          signMsgRef.current = localSighash // sign what our own PCZT commits to, never the wire value
-          // Every device reads ALL real Orchard spends (index + alpha) from the proven PCZT it holds
-          // — it signs only what it can independently see. One ceremony per spend, in order.
-          signSpendsRef.current = parseAlphas(pczt)
-          signSigsRef.current = []
-          startedSpendsRef.current = new Set()
-          // "What am I signing?" — confirm what the tx pays before contributing any signature.
-          try {
-            const outs = JSON.parse(describeOutputs(pczt)) as {
-              address: string | null
-              value: number | null
-            }[]
-            const recip = outs.find((o) => o.address !== null)
-            if (recip && recip.address && recip.value != null) {
-              setSignWhat({ zec: fmtZec(recip.value), addr: recip.address })
-              addLog(`~ ${fmtZec(recip.value)} ZEC -> ${shortId(recip.address)}`)
-            }
-          } catch {
-            /* if the PCZT can't be read, the UI simply shows no preview; the ceremony still runs */
-          }
-          setSignPhase('signing')
-          await beginSpend(0) // the first (and, for a single-spend tx, the only) ceremony
-        }
-        return true
-      }
-      if (parsed.type === 's1') {
-        if (!signStartedRef.current) return false
-        // Spend-tagged: a message for a LATER spend waits (re-applied after we advance); an EARLIER
-        // one is stale and dropped. Keeps N sequential ceremonies from crossing over the relay.
-        if (parsed.k !== signCurRef.current) return parsed.k > signCurRef.current ? false : true
-        const seat = seatByTagRef.current.get(msg.from)
-        if (seat === undefined) return false
-        signCommitsRef.current.set(seat, unb64(parsed.commit))
-        const t = configRef.current?.t ?? 0
-        if (mySeatRef.current === 1 && signCommitsRef.current.size >= t && !spSentRef.current) {
-          const chosen = [...signCommitsRef.current.keys()].sort((a, b) => a - b).slice(0, t)
-          const mat = signingMaterial()
-          const coord = new Coordinator(mat.groupVk, mat.pubkeys, signMsgRef.current)
-          for (const s of chosen) coord.addCommitment(identifierBytes(s), signCommitsRef.current.get(s)!)
-          coord.prepare()
-          coordRef.current = coord
-          spRef.current = coord.signingPackage()
-          spSentRef.current = true
-          await send({
-            type: 'sp',
-            signers: chosen,
-            sp: b64(spRef.current),
-            msg: b64(signMsgRef.current),
-            k: signCurRef.current,
-          })
-          addLog(tt('net.log.signCoord', { seats: chosen.join(', ') }))
-        }
-        return true
-      }
-      if (parsed.type === 'sp') {
-        if (!signStartedRef.current) return false
-        if (parsed.k !== signCurRef.current) return parsed.k > signCurRef.current ? false : true
-        spRef.current = unb64(parsed.sp)
-        signMsgRef.current = unb64(parsed.msg)
-        if (
-          parsed.signers.includes(mySeatRef.current) &&
-          !sentS2Ref.current &&
-          myNoncesRef.current &&
-          signAlphaRef.current
-        ) {
-          const share = participantRound2WithRandomizer(
-            spRef.current,
-            myNoncesRef.current,
-            signingMaterial().keyPackage,
-            signAlphaRef.current, // the current spend's alpha (set by beginSpend)
-          )
-          sentS2Ref.current = true
-          await send({ type: 's2', share: b64(share), k: signCurRef.current })
-          addLog(tt('net.log.signShare'))
-        }
-        return true
-      }
-      if (parsed.type === 's2') {
-        if (!signStartedRef.current) return false
-        if (mySeatRef.current !== 1) return true // only the coordinator aggregates
-        if (parsed.k !== signCurRef.current) return parsed.k > signCurRef.current ? false : true
-        if (!coordRef.current) return false
-        const seat = seatByTagRef.current.get(msg.from)
-        if (seat === undefined) return false
-        if (signSharesSeenRef.current.has(seat)) return true
-        coordRef.current.addShare(identifierBytes(seat), unb64(parsed.share))
-        signSharesSeenRef.current.add(seat)
-        const t = configRef.current?.t ?? 0
-        if (signSharesSeenRef.current.size >= t && !sigDoneRef.current && signAlphaRef.current) {
-          sigDoneRef.current = true
-          const sig = coordRef.current.aggregateWithRandomizer(signAlphaRef.current)
-          const ok = coordRef.current.verifyWithRandomizer(signAlphaRef.current, sig)
-          // Broadcast this spend's signature tagged with `k`; every device records it and either
-          // advances to the next spend or finalizes (the `signed` handler). The Architecture B
-          // response for the WHOLE set is posted once, at the last spend.
-          await send({ type: 'signed', sig: b64(sig), ok, k: signCurRef.current })
-          addLog(tt('net.log.signAggregate'))
-        }
-        return true
-      }
-      if (parsed.type === 'signed') {
-        if (!signStartedRef.current) return false
-        if (parsed.k !== signCurRef.current) return parsed.k > signCurRef.current ? false : true
-        const sig = unb64(parsed.sig)
-        let ok = parsed.ok
-        try {
-          if (signAlphaRef.current) {
-            // Every device re-checks under ak+alpha (a fresh Coordinator just to verify).
-            const mat = signingMaterial()
-            ok = new Coordinator(mat.groupVk, mat.pubkeys, signMsgRef.current).verifyWithRandomizer(
-              signAlphaRef.current,
-              sig,
-            )
-          }
-        } catch {
-          /* keep the coordinator's result if local verify throws */
-        }
-        // Record this spend's signature under its on-chain index (dedup — the fixpoint may retry).
-        const spend = signSpendsRef.current[signCurRef.current]
-        if (spend && !signSigsRef.current.some((s) => s.index === spend.index)) {
-          signSigsRef.current.push({ index: spend.index, sig: bytesToHex(sig) })
-        }
-        const total = signSpendsRef.current.length
-        const isLast = signCurRef.current >= total - 1
-        if (!isLast) {
-          // More spends to sign: every device advances to the next ceremony (fresh nonces, next alpha).
-          setSignPhase('signing')
-          await beginSpend(signCurRef.current + 1)
-          return true
-        }
-        // Last spend done: show the result and (Architecture B) hand the FULL set of signatures back
-        // to the helper RAW so it can inject every one and broadcast.
-        setSignature(hex(sig))
-        setSignOk(ok)
-        setSignPhase('signed')
-        addLog(ok ? tt('net.log.verifyOk') : tt('net.log.verifyFail'))
-        const req = helperReqRef.current
-        if (req && mySeatRef.current === 1 && signSigsRef.current.length === total) {
-          const resp = buildSignResponse(signSigsRef.current)
-          await sessionRef.current?.send(resp)
-          addLog(`-> ${total} signature(s) handed to the helper`)
-          helperReqRef.current = null
-        }
-        return true
+      // ---- signing over the relay (Marco 4): all bytes below are public. The ceremony state and
+      // its sreq|s1|sp|s2|signed handlers live in the shared SigningMachine (issue #50). ----
+      if (
+        parsed.type === 'sreq' ||
+        parsed.type === 's1' ||
+        parsed.type === 'sp' ||
+        parsed.type === 's2' ||
+        parsed.type === 'signed'
+      ) {
+        return machine.handle(parsed, msg.from)
       }
       return true
       } catch {
@@ -678,7 +488,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
         return true // consume so the fixpoint never re-throws the same message
       }
     },
-    [addLog, doPart2, doPart3, send, tt, signingMaterial, beginSpend],
+    [addLog, doPart2, doPart3, tt, machine],
   )
 
   // Idempotent fixpoint, serialized against itself: apply every message whose preconditions
