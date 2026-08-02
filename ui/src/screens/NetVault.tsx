@@ -99,7 +99,7 @@ const PERSIST_LABELS = {
 
 // Wire messages (JSON inside the relay's opaque `data`; the relay never parses them).
 type Msg =
-  | { type: 'config'; n: number; t: number; g?: Governance }
+  | { type: 'config'; n: number; t: number; g?: Governance; cn?: string }
   | { type: 'hello'; encPub: string; name?: string }
   | { type: 'r1'; pkg: string }
   | { type: 'r2'; to: number; box: string }
@@ -262,7 +262,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
   }, [])
   const deviceKeyRef = useRef<DeviceKey | null>(null)
   const myTagRef = useRef('')
-  const configRef = useRef<{ n: number; t: number; g?: Governance } | null>(null)
+  const configRef = useRef<{ n: number; t: number; g?: Governance; cn?: string } | null>(null)
   // Governance policy the creator picks; propagated to every device in the `config` broadcast so
   // the whole vault agrees. Default `quorum` (safer for a shared fund); `open` for small trusted groups.
   const [governance, setGovernance] = useState<Governance>('quorum')
@@ -452,7 +452,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
       }
       if (parsed.type === 'config') {
         if (!configRef.current) {
-          configRef.current = { n: parsed.n, t: parsed.t, g: parsed.g }
+          configRef.current = { n: parsed.n, t: parsed.t, g: parsed.g, cn: parsed.cn }
           setN(parsed.n)
           setT(parsed.t)
           if (parsed.g) { setGovernance(parsed.g); governanceRef.current = parsed.g }
@@ -748,8 +748,8 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
         }, 90000)
         // The creator declares the group size/threshold; everyone announces their enc key.
         if (asRole === 'create') {
-          configRef.current = { n: total, t: threshold, g: governanceRef.current }
-          await sess.send(JSON.stringify({ type: 'config', n: total, t: threshold, g: governanceRef.current } satisfies Msg))
+          configRef.current = { n: total, t: threshold, g: governanceRef.current, cn: myNameRef.current.trim() || undefined }
+          await sess.send(JSON.stringify({ type: 'config', n: total, t: threshold, g: governanceRef.current, cn: myNameRef.current.trim() || undefined } satisfies Msg))
         }
         await sess.send(
           JSON.stringify({ type: 'hello', encPub: b64(deviceKeyRef.current.publicBytes()), name: myNameRef.current.trim() || undefined } satisfies Msg),
@@ -886,10 +886,13 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
       const nm = vaultNameRef.current.trim() || undefined
       const gov: Governance = cfg?.g ?? governanceRef.current
       const mine = myNameRef.current.trim() || undefined
-      await saveVault(hex(gvk), { name: nm, governance: gov, myName: mine, groupKey: gvk, address: '', roster, sealedShare: bundle }, savePass)
+      // Who set up the vault (the device that generated the invite); rides the config broadcast so
+      // every device agrees. A real fixed fact, unlike the per-ceremony FROST coordinator role.
+      const creator = cfg?.cn || undefined
+      await saveVault(hex(gvk), { name: nm, governance: gov, myName: mine, creatorName: creator, groupKey: gvk, address: '', roster, sealedShare: bundle }, savePass)
       // Also keep the just-created share unlocked in memory for this session, so the operator can
       // sign from the app immediately without re-entering the passphrase (the access model).
-      setUnlockedShare(hex(gvk), { name: nm, governance: gov, myName: mine, groupKey: gvk, address: '', roster, sealedShare: bundle, createdAt: 0 })
+      setUnlockedShare(hex(gvk), { name: nm, governance: gov, myName: mine, creatorName: creator, groupKey: gvk, address: '', roster, sealedShare: bundle, createdAt: 0 })
       setSaveState('saved')
       setSavePass('')
       await refreshSaved()

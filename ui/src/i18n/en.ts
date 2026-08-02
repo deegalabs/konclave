@@ -644,7 +644,7 @@ export const en: Record<string, string> = {
   'members.vmeta': 'Each member holds **a share of the key**. It takes **{t}** signatures to move funds.',
   'members.demo': '○ demo',
   'members.you': '· you',
-  'members.roleCoordinator': 'coordinator + signs',
+  'members.roleCreator': 'set up the vault · signs',
   'members.roleSigns': 'signs',
   'members.signs': 'signs',
   'members.footCount': '{count} members · quorum {t}-of-{n}',

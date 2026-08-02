@@ -23,6 +23,9 @@ export default function Members() {
   // The name THIS device chose at create/join, so "you" marks the right seat (was hardcoded to
   // 'Alice', which mislabeled every other device). Falls back to ME for the offline demo.
   const [me, setMe] = useState<string | null>(null)
+  // Who set up the vault (propagated). Marks the creator — a real fixed fact — rather than the
+  // per-ceremony FROST "coordinator" role, which used to be pinned to seat 0 (the wrong member).
+  const [creator, setCreator] = useState<string | null>(null)
 
   useEffect(() => {
     let on = true
@@ -38,7 +41,7 @@ export default function Members() {
           try {
             const saved = await listVaults()
             const rec = saved.find((s) => s.id === v.id)
-            if (on) { setGov(rec?.governance ?? 'open'); setMe(rec?.myName ?? null) }
+            if (on) { setGov(rec?.governance ?? 'open'); setMe(rec?.myName ?? null); setCreator(rec?.creatorName ?? null) }
           } catch { /* local-bridge mode — no on-device record */ }
         }
       }
@@ -61,6 +64,8 @@ export default function Members() {
     { name: 'Bob', pubkey: '2ca6d736' },
     { name: 'Carol', pubkey: '2fd84a5c' },
   ]
+  // Mark the actual creator; in the offline demo (no propagated creator) fall back to the first seat.
+  const creatorLabel = creator ?? (live === false ? members[0]?.name ?? null : null)
 
   return (
     <>
@@ -82,7 +87,7 @@ export default function Members() {
               <Identicon seed={m.pubkey || m.name} size={38} />
               <div className="person-main">
                 <div className="who-name">{m.name}{m.name === (me ?? ME) && <span className="klab"> {t('members.you')}</span>}</div>
-                <div className="person-sub mono">{i === 0 ? t('members.roleCoordinator') : t('members.roleSigns')} · id {shortAddr(m.pubkey, 8, 6)}</div>
+                <div className="person-sub mono">{m.name === creatorLabel ? t('members.roleCreator') : t('members.roleSigns')} · id {shortAddr(m.pubkey, 8, 6)}</div>
               </div>
               <span className="who-st cap">{t('members.signs')}</span>
             </div>

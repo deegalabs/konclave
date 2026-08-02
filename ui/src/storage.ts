@@ -31,6 +31,7 @@ export interface VaultPublic {
   name?: string // user-given vault name (public metadata); falls back to a generated one in the UI
   governance?: Governance
   myName?: string // the name THIS device chose at create/join — lets the UI mark "you" correctly
+  creatorName?: string // who set up the vault (propagated) — marks the creator, not a rotating coordinator
   groupKey: string // hex of the 32-byte group verifying key (the vault's public identity)
   address: string
   roster: string[]
@@ -42,6 +43,7 @@ export interface VaultData {
   name?: string
   governance?: Governance
   myName?: string
+  creatorName?: string
   groupKey: Uint8Array
   address: string
   roster: string[]
@@ -53,6 +55,7 @@ export interface VaultLoaded {
   name?: string
   governance?: Governance
   myName?: string
+  creatorName?: string
   groupKey: Uint8Array
   address: string
   roster: string[]
@@ -66,6 +69,7 @@ interface VaultRecord {
   name?: string
   governance?: Governance
   myName?: string
+  creatorName?: string
   groupKey: string
   address: string
   roster: string[]
@@ -189,6 +193,7 @@ export async function saveVault(id: string, data: VaultData, passphrase: string)
     name: data.name,
     governance: data.governance,
     myName: data.myName,
+    creatorName: data.creatorName,
     groupKey: hex(data.groupKey),
     address: data.address,
     roster: data.roster,
@@ -242,6 +247,7 @@ export async function loadVault(id: string, passphrase: string): Promise<VaultLo
     name: record.name,
     governance: record.governance,
     myName: record.myName,
+    creatorName: record.creatorName,
     groupKey: unhex(record.groupKey),
     address: record.address,
     roster: record.roster,
@@ -264,7 +270,7 @@ export async function listVaults(): Promise<VaultPublic[]> {
     const records = await reqDone(tx.objectStore(STORE).getAll() as IDBRequest<VaultRecord[]>)
     await txDone(tx)
     return records
-      .map((r) => ({ id: r.id, name: r.name, governance: r.governance, myName: r.myName, groupKey: r.groupKey, address: r.address, roster: r.roster, createdAt: r.createdAt }))
+      .map((r) => ({ id: r.id, name: r.name, governance: r.governance, myName: r.myName, creatorName: r.creatorName, groupKey: r.groupKey, address: r.address, roster: r.roster, createdAt: r.createdAt }))
       .sort((a, b) => b.createdAt - a.createdAt)
   } finally {
     db.close()
