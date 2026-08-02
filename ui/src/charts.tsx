@@ -17,7 +17,9 @@ export interface SpendPoint {
 export function SpendBars({ data, unit = 'ZEC', height = 52 }: { data: SpendPoint[]; unit?: string; height?: number }) {
   if (!data || data.length < 2) return null
   const max = Math.max(...data.map((d) => d.zec), 0)
-  const peak = data.reduce((a, b) => (b.zec > a.zec ? b : a), data[0])
+  // data has >= 2 items here (guarded above), so reduce with no initial is safe and stays typed
+  // as SpendPoint (never undefined) — unlike passing data[0] under noUncheckedIndexedAccess.
+  const peak = data.reduce((a, b) => (b.zec > a.zec ? b : a))
   const fmt = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })
 
   return (
