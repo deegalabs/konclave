@@ -80,8 +80,16 @@ const DEMO = (() => {
   if (typeof window === 'undefined') return ENV.VITE_DEMO === '1'
   try {
     const q = new URLSearchParams(window.location.search)
-    if (q.get('demo') === '1') { localStorage.setItem('konclave.demo', '1'); return true }
-    if (q.get('demo') === '0') { localStorage.removeItem('konclave.demo'); return false }
+    const flag = q.get('demo')
+    if (flag === '1' || flag === '0') {
+      if (flag === '1') localStorage.setItem('konclave.demo', '1')
+      else localStorage.removeItem('konclave.demo')
+      // Strip `?demo` from the address bar so the path stays clean; the mode persists via localStorage.
+      q.delete('demo')
+      const qs = q.toString()
+      window.history.replaceState(null, '', window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash)
+      return flag === '1'
+    }
     if (localStorage.getItem('konclave.demo') === '1') return true
   } catch { /* storage unavailable — fall through to the build flag */ }
   return ENV.VITE_DEMO === '1'

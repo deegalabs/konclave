@@ -3,12 +3,11 @@ import { Link } from 'react-router-dom'
 import { useReveal } from './reveal'
 import { useI18n, useT } from './i18n'
 import { IS_DEMO } from './api'
-import { helperConfigured } from './helper'
 
 /** A thin, always-visible strip in demo mode (runtime `?demo=1` or the VITE_DEMO fallback) so a
- *  visitor never mistakes the sample data for a real vault. Offers "Exit demo" (`?demo=0`) ONLY when
- *  a real mode exists to exit to (a helper is configured) — a pure demo deploy has nowhere to go, so
- *  the exit would land on an empty backend. Renders nothing outside demo mode. */
+ *  visitor never mistakes the sample data for a real vault. Always offers a way back to the landing
+ *  (which leaves demo mode via `?demo=0`), from where a visitor re-enters the demo or the real vault.
+ *  Renders nothing outside demo mode. */
 export function DemoBanner() {
   const t = useT()
   if (!IS_DEMO) return null
@@ -16,7 +15,7 @@ export function DemoBanner() {
     <div className="demo-banner" role="note">
       <span className="demo-banner-tag">DEMO</span>
       {t('demo.bannerNote')}
-      {helperConfigured() && <a className="demo-banner-exit" href="?demo=0">{t('demo.bannerExit')}</a>}
+      <a className="demo-banner-exit" href="?demo=0">{t('demo.bannerExit')}</a>
     </div>
   )
 }
