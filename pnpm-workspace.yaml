@@ -1,0 +1,4 @@
+packages:
+  - ui
+  - mcp-server
+  - sdk
