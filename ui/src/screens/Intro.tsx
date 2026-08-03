@@ -94,6 +94,10 @@ export default function Intro() {
             </Link>
             <Link className="lp-btn" to="/docs">{t('landing.ctaHow')}</Link>
             <Link className="lp-btn" to="/vaults">{t('landing.ctaVaults')}</Link>
+            <a className="lp-btn" href="https://github.com/deegalabs/konclave/releases/latest" target="_blank" rel="noreferrer">
+              {t('landing.ctaDownload')}
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
+            </a>
           </div>
           <span className="trust"><i />{t('landing.heroTrust')}</span>
         </div>

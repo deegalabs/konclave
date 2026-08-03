@@ -160,6 +160,7 @@ export const ptBR: Record<string, string> = {
   'landing.sub': 'Um grupo cuida de um fundo **junto**: cria o cofre, aprova pagamentos por quórum e faz uma folha privada. **Privado por fora, transparente por dentro.** Sem terminal, sem colar códigos, sem confiar em uma pessoa só.',
   'landing.ctaHow': 'Ver como funciona',
   'landing.ctaVaults': 'Meus cofres',
+  'landing.ctaDownload': 'Baixar app desktop',
   'landing.navNet': 'Dispositivos',
   'landing.navSigner': 'Assinar',
   'landing.navProof': 'Prova',

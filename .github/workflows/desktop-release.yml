@@ -1,0 +1,62 @@
+# Builds the Tauri desktop installers on each platform and attaches them to a (draft) release.
+# Triggered by a version tag (v*) or manually. The draft lets a human review before publishing.
+name: Desktop release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build and attach the installers to (e.g. v0.2.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest   # .msi + .exe (NSIS)
+          - platform: ubuntu-22.04      # .deb + .AppImage
+          - platform: macos-latest      # .dmg (Apple Silicon)
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Linux deps (webkit for the Tauri webview)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Frontend deps
+        run: npm --prefix ui ci
+
+      - name: Build + attach installers
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: .
+          tagName: ${{ inputs.tag || github.ref_name }}
+          releaseName: Konclave ${{ inputs.tag || github.ref_name }}
+          releaseBody: 'Desktop installers (Windows / macOS / Linux). See the notes below.'
+          releaseDraft: true
+          prerelease: true
