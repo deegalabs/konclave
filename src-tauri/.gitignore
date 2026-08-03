@@ -1,0 +1,6 @@
+# Rust build output
+/target
+
+# Tauri-generated code (schemas, mobile projects) is produced by `tauri android/ios init`
+# and the build script; regenerate it per host rather than committing it.
+/gen

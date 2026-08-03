@@ -1,0 +1,50 @@
+# Konclave Tauri shell (Layer 3 delivery wrapper).
+#
+# UNVALIDATED SCAFFOLD. This crate has NOT been compiled or run in this environment
+# (the dev machine's WSLg/GTK webview does not render, see docs/adr/0004-local-http-bridge.md).
+# It is laid down as honest groundwork per docs/TAURI-PLAN.md. Versions are chosen to be
+# coherent with Tauri 2.x and the rest of the repo, not verified by a successful build here.
+
+[package]
+name = "konclave-tauri"
+version = "0.1.0"
+edition = "2021"
+description = "Konclave native shell (Tauri 2.0): wraps the Vite/React UI in an OS webview and adds OS-keychain share persistence"
+license = "MIT OR Apache-2.0"
+# Keep the shell out of any future cargo workspace by default; it builds standalone.
+publish = false
+
+# staticlib + cdylib are required by Tauri 2's mobile targets (iOS/Android link the app
+# as a library); rlib keeps the crate usable from a normal `cargo build` on desktop.
+[lib]
+name = "konclave_tauri_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# The webview shell. `features` are intentionally empty here; a real build enables what a
+# given target needs (for example a tray or a custom protocol) once validated on hardware.
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# OS keychain for durable, on-device share persistence, replacing the browser's IndexedDB
+# when running inside the native shell. Same crate the orchestrator already uses for the
+# sealing key (audit C2): Windows Credential Manager / macOS + iOS Keychain / Linux Secret
+# Service. Pinned with NO backend feature so this scaffold resolves anywhere; a real build
+# turns on the platform-native backend per target (see the commented block below).
+keyring = "3"
+
+# Per-target keychain backends (uncomment on the matching build host, once validated):
+# [target.'cfg(target_os = "windows")'.dependencies]
+# keyring = { version = "3", features = ["windows-native"] }
+# [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+# keyring = { version = "3", features = ["apple-native"] }
+# [target.'cfg(target_os = "linux")'.dependencies]
+# keyring = { version = "3", features = ["sync-secret-service"] }
+
+[features]
+# `custom-protocol` is the Tauri convention for a production (non-dev-server) build.
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

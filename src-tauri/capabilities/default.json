@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "SCAFFOLD capability set: core defaults only. The four share-store commands (secure_store / secure_load / secure_delete / secure_list) are custom app commands wired via invoke_handler, so they need no plugin permission here. Widen this only when a plugin (for example a stronghold or a real keychain plugin) is added, and only for the windows/webviews that need it.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
