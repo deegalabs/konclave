@@ -160,6 +160,7 @@ export const en: Record<string, string> = {
   'landing.sub': 'A group looks after a fund **together**: create the vault, approve payments by quorum and run a private payroll. **Private outside, transparent inside.** No command line, no pasting codes, no trusting a single person.',
   'landing.ctaHow': 'See how it works',
   'landing.ctaVaults': 'My vaults',
+  'landing.ctaDownload': 'Download desktop app',
   'landing.navNet': 'Devices',
   'landing.navSigner': 'Sign',
   'landing.navProof': 'Proof',
