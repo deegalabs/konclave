@@ -71,19 +71,30 @@ export type Balance = {
 const ENV = import.meta.env as Record<string, string | undefined>
 const BASE: string = ENV.VITE_API_BASE ?? ''
 
-// Hosted-demo mode (Vercel, no backend). When set, reads that fail (they all do without a
-// bridge) fall back to a coherent mock dataset so every screen renders fully populated.
-// `health()` is deliberately NOT affected, so the "demo/offline" pill still shows.
-const DEMO = ENV.VITE_DEMO === '1'
-/** True in the hosted demo build: screens should load api data (which falls back to
- *  the coherent mock) even though `health()` is false. */
+// Demo mode, decided at RUNTIME (issue #60) so ONE build serves both the demo (mock data) and the
+// real app — no build-time VITE_DEMO / separate deploy needed. `?demo=1` enters demo mode and
+// persists it (localStorage); `?demo=0` exits. VITE_DEMO stays as a build-time fallback so the
+// existing demo project keeps working. When set, reads that fail fall back to a coherent mock
+// dataset so every screen renders fully populated; `health()` is NOT affected, so the demo pill shows.
+const DEMO = (() => {
+  if (typeof window === 'undefined') return ENV.VITE_DEMO === '1'
+  try {
+    const q = new URLSearchParams(window.location.search)
+    if (q.get('demo') === '1') { localStorage.setItem('konclave.demo', '1'); return true }
+    if (q.get('demo') === '0') { localStorage.removeItem('konclave.demo'); return false }
+    if (localStorage.getItem('konclave.demo') === '1') return true
+  } catch { /* storage unavailable — fall through to the build flag */ }
+  return ENV.VITE_DEMO === '1'
+})()
+/** True in demo mode (runtime `?demo=1` or the VITE_DEMO fallback): screens load api data (which
+ *  falls back to the coherent mock) even though `health()` is false. */
 export const IS_DEMO = DEMO
 
 // Browser-native mode (Etapa 3 convergence): when a hosted blind helper is configured, the PWA
 // screens (Dashboard / Proposals / Ledger) read the SELECTED /net vault from the helper instead of
-// the local bridge, so the same polished app operates the browser-born vault. Gated on
-// `helperConfigured()`, so the local-first path and the submission demo (no helper) are unchanged.
-const NET = helperConfigured()
+// the local bridge, so the same polished app operates the browser-born vault. Never in demo mode —
+// demo always uses mock, so the same canonical build can point at a helper AND still show the demo.
+const NET = helperConfigured() && !DEMO
 /** True when the app operates a browser-native (/net) vault via the hosted helper. Screens use it
  *  to route signing to /net (where the share lives) instead of a server-side ceremony. */
 export const IS_NET = NET

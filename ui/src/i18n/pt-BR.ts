@@ -234,6 +234,7 @@ export const ptBR: Record<string, string> = {
   'demo.live': 'Demonstração ao vivo',
   'demo.note': 'Isto é a própria criptografia, rodando ao vivo, não as telas do dia a dia do cofre.',
   'demo.bannerNote': 'Demonstração com dados de exemplo. Nenhum fundo real, nenhuma transação de verdade.',
+  'demo.bannerExit': 'Sair da demo',
   'settings.eyebrow': 'AJUSTES',
   'settings.title': 'Ajustes',
   'settings.vault': 'Cofre',
