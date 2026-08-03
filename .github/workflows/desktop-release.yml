@@ -49,6 +49,13 @@ jobs:
       - name: Frontend deps
         run: npm --prefix ui ci
 
+      # Build the UI explicitly here (into ui/dist) rather than via tauri.conf's
+      # beforeBuildCommand: tauri-action runs before-commands from a different cwd than a local
+      # `tauri build`, and no single relative --prefix works for both. So beforeBuildCommand is
+      # empty and the frontend is built here, cwd-unambiguously, from the repo root.
+      - name: Build UI
+        run: npm --prefix ui run build
+
       - name: Build + attach installers
         uses: tauri-apps/tauri-action@v0
         env:
