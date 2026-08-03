@@ -88,10 +88,11 @@ export default function Intro() {
           <h1>{t('landing.h1')}</h1>
           <p className="sub">{tr('landing.sub')}</p>
           <div className="lp-ctas">
-            <Link className="lp-btn primary" to="/demo">
+            {/* Enter demo MODE (mock data everywhere) at runtime — one build, no VITE_DEMO (#60). */}
+            <a className="lp-btn primary" href="?demo=1#/vaults">
               {t('demo.watchCta')}
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
-            </Link>
+            </a>
             <Link className="lp-btn" to="/docs">{t('landing.ctaHow')}</Link>
             <Link className="lp-btn" to="/vaults">{t('landing.ctaVaults')}</Link>
             <a className="lp-btn" href="https://github.com/deegalabs/konclave/releases" target="_blank" rel="noreferrer">

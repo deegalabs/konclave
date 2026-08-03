@@ -545,3 +545,7 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 .cer-kv{display:flex; gap:10px; align-items:baseline; font-size:12px; margin-top:3px}
 .cer-k{min-width:70px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.04em; font-size:10px; font-family:var(--font-mono)}
 .cer-kv code{font-family:var(--font-mono); font-size:11.5px; color:var(--silver); word-break:break-all}
+
+/* Exit link on the demo banner (#60 runtime demo) */
+.demo-banner-exit{margin-left:12px; text-decoration:underline; color:inherit; opacity:.85; font-weight:600}
+.demo-banner-exit:hover{opacity:1}
