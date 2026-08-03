@@ -38,6 +38,33 @@ pub fn create(
     run(devtool, &args, None)
 }
 
+/// `zcash-devtool pczt -w <dir> create-max --address <addr> <account>` — build a PCZT that spends
+/// EVERY note in the account to `address`, with NO change and NO wallet-controlled dummy spend.
+///
+/// This is the Orchard→Ironwood migration path (#86): the pinned engine (`42ffd0d`) leaves the
+/// zero-value migration dummy of a normal `create` unsigned → `MissingSpendAuthSig` at extract.
+/// `create-max` has no dummy, so a one-time self-send migrates the vault's Orchard funds into the
+/// Ironwood pool; afterwards normal `create` payments work (the Ironwood pool signs its own dummy).
+/// INTERIM — remove once the engine bumps to librustzcash ≥ `51385a15` (the proper fix, see #86).
+#[allow(dead_code)] // the migration wiring in send.rs is the remaining step (#86); primitive ready
+pub fn create_max(
+    devtool: &Path,
+    wallet_dir: &str,
+    address: &str,
+    account: &str,
+) -> Result<Vec<u8>, ToolError> {
+    let args: Vec<&str> = vec![
+        "pczt",
+        "-w",
+        wallet_dir,
+        "create-max",
+        "--address",
+        address,
+        account,
+    ];
+    run(devtool, &args, None)
+}
+
 /// `zcash-devtool pczt -w <dir> prove` — reads a PCZT on stdin, returns the proven PCZT.
 pub fn prove(devtool: &Path, wallet_dir: &str, pczt: &[u8]) -> Result<Vec<u8>, ToolError> {
     run(devtool, &["pczt", "-w", wallet_dir, "prove"], Some(pczt))
