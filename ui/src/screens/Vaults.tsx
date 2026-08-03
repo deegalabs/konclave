@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { getVaults, health, setSelectedVault, unlockVault, markVaultUnlocked, isVaultUnlocked, shortAddr, type Vault } from '../api'
+import { getVaults, health, setSelectedVault, unlockVault, markVaultUnlocked, isVaultUnlocked, shortAddr, IS_DEMO, type Vault } from '../api'
 import { helperConfigured } from '../helper'
 import { listVaults, loadVault } from '../storage'
 import { setUnlockedShare } from '../session'
@@ -25,7 +25,9 @@ export default function Vaults() {
   // Browser-native mode (a hosted blind helper is configured): the /vaults screen lists the vaults
   // THIS DEVICE holds a share for (from encrypted IndexedDB), never a global helper list, so one
   // device cannot enumerate another's vaults. Create/Enter route to the /net (Architecture B) flow.
-  const netMode = helperConfigured()
+  // Gated by `!IS_DEMO` so the SAME single build serves both worlds on one origin (issue #60): with a
+  // helper wired, `?demo=1` still shows the mock demo vault, while the real entry lists your /net vaults.
+  const netMode = helperConfigured() && !IS_DEMO
   const [vaults, setVaults] = useState<Vault[]>([])
   const [loaded, setLoaded] = useState(false)
   const [live, setLive] = useState(false)
