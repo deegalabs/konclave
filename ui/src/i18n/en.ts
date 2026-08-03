@@ -234,7 +234,7 @@ export const en: Record<string, string> = {
   'demo.live': 'Live demo',
   'demo.note': 'This is the cryptography itself, running live, not the everyday vault screens.',
   'demo.bannerNote': 'Demonstration with sample data. No real funds, no real transactions.',
-  'demo.bannerExit': 'Exit demo',
+  'demo.bannerExit': '← Back to landing',
   'settings.eyebrow': 'SETTINGS',
   'settings.title': 'Settings',
   'settings.vault': 'Vault',
