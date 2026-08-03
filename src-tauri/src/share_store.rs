@@ -87,6 +87,7 @@ impl Default for KeychainShareStore {
 
 impl KeychainShareStore {
     /// Construct a store under a specific keychain service namespace (tests isolate with this).
+    #[allow(dead_code)] // used by tests + the future keychain wiring; not on the default build path yet
     pub fn new(service: impl Into<String>) -> Self {
         Self {
             service: service.into(),
