@@ -27,10 +27,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: pnpm
+        uses: pnpm/action-setup@v4
+
       - name: Node
         uses: actions/setup-node@v4
         with:
           node-version: 24
+          cache: pnpm
 
       - name: Rust
         uses: dtolnay/rust-toolchain@stable
@@ -47,14 +51,14 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
       - name: Frontend deps
-        run: npm --prefix ui ci
+        run: pnpm install --frozen-lockfile
 
       # Build the UI explicitly here (into ui/dist) rather than via tauri.conf's
       # beforeBuildCommand: tauri-action runs before-commands from a different cwd than a local
       # `tauri build`, and no single relative --prefix works for both. So beforeBuildCommand is
       # empty and the frontend is built here, cwd-unambiguously, from the repo root.
       - name: Build UI
-        run: npm --prefix ui run build
+        run: pnpm -C ui run build
 
       - name: Build + attach installers
         uses: tauri-apps/tauri-action@v0

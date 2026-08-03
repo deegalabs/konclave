@@ -71,42 +71,36 @@ jobs:
   ui:
     name: UI (Vite/React frontend)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ui
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
-          cache: npm
-          cache-dependency-path: ui/package-lock.json
-      - run: npm ci
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       - name: Lint (oxlint)
-        run: npm run lint
+        run: pnpm -C ui run lint
       - name: Unit tests (vitest)
-        run: npm run test
+        run: pnpm -C ui run test
       - name: Type-check + build (tsc -b && vite build)
-        run: npm run build
+        run: pnpm -C ui run build
 
   e2e:
     name: UI e2e (Playwright)
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ui
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
-          cache: npm
-          cache-dependency-path: ui/package-lock.json
-      - run: npm ci
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
       - name: Install Playwright browser (chromium)
-        run: npx playwright install --with-deps chromium
+        run: pnpm -C ui exec playwright install --with-deps chromium
       - name: Run e2e (builds + serves + drives the app; API stubbed via route interception)
-        run: npm run e2e
+        run: pnpm -C ui run e2e
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -119,12 +113,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
-      - name: mcp-server (install + type-check)
-        working-directory: mcp-server
-        run: npm ci && npx tsc --noEmit
-      - name: sdk (install + type-check)
-        working-directory: sdk
-        run: npm ci && npx tsc --noEmit
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: mcp-server (type-check)
+        run: pnpm -C mcp-server exec tsc --noEmit
+      - name: sdk (type-check)
+        run: pnpm -C sdk exec tsc --noEmit

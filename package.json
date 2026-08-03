@@ -1,0 +1,6 @@
+{
+  "name": "konclave-workspace",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "engines": { "node": ">=24" }
+}
