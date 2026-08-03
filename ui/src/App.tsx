@@ -1,4 +1,5 @@
-import { Routes, Route } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
+import { isDesktop } from './platform'
 import { useReveal } from './reveal'
 import { DemoBanner } from './components'
 import Layout from './Layout'
@@ -34,7 +35,9 @@ export default function App() {
       <DemoBanner />
       <Routes>
         {/* Onboarding — standalone, no rail */}
-        <Route path="/" element={<Intro />} />
+        {/* The desktop app opens straight on the product (the vaults), not the marketing landing;
+            the web keeps the landing at `/`. */}
+        <Route path="/" element={isDesktop ? <Navigate to="/vaults" replace /> : <Intro />} />
         <Route path="/vaults" element={<Vaults />} />
         <Route path="/intro" element={<Intro />} />
         <Route path="/demo" element={<Demo />} />
