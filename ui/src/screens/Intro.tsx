@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Letterhead, Dialog } from '../components'
 import { useI18n } from '../i18n'
-import { IS_NET } from '../api'
 import { getTheme, setTheme, type Theme } from '../theme'
 import '../redesign.css'
 import '../landing-vault.css'
@@ -28,7 +27,6 @@ export default function Intro() {
   }, [])
 
   const toggleTheme = () => { const n: Theme = theme === 'dark' ? 'light' : 'dark'; setTheme(n); setTh(n) }
-  const createTo = IS_NET ? '/net' : '/create'
 
   // Auto-detect the visitor's OS so the desktop row leads with the right build.
   const os = useMemo(() => {
@@ -84,7 +82,7 @@ export default function Intro() {
             : <>The key is born split across your members and never assembled. Every payment leaves only when your quorum approves it. <b>Private outside, transparent inside.</b></>}</p>
 
           <div className="lv-ctas">
-            <Link className="lv-btn pri" to={createTo}>
+            <Link className="lv-btn pri" to="/vaults">
               {pt ? 'Criar um cofre' : 'Create a vault'}
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
             </Link>
