@@ -76,7 +76,7 @@ export default function People() {
       <main className="page">
         <PageHeader title={t('people.title')} subtitle={t('people.cap')} />
 
-        {/* Lista primeiro - é o que se consulta */}
+        {/* List first - it is what gets consulted */}
         {!loaded ? (
           <Loading />
         ) : list.length === 0 ? (

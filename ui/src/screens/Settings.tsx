@@ -114,7 +114,7 @@ export default function Settings() {
             </div>
             {coord === 'custom' && (
               <div className="set-row" style={{ gap: 8 }}>
-                <input className="unlock-input mono" style={{ flex: 1 }} inputMode="url" placeholder="https://seu-helper.exemplo.com" value={helperUrl} onChange={(e) => setHelperUrl(e.target.value)} />
+                <input className="unlock-input mono" style={{ flex: 1 }} inputMode="url" placeholder={pt ? 'https://seu-helper.exemplo.com' : 'https://your-helper.example.com'} value={helperUrl} onChange={(e) => setHelperUrl(e.target.value)} />
                 <button type="button" className="btn ok" disabled={!helperUrl.trim()} onClick={() => applyCoord('custom', helperUrl)}>{pt ? 'Salvar' : 'Save'}</button>
               </div>
             )}

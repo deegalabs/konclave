@@ -124,7 +124,7 @@ export default function Ledger() {
           </>}
         />
 
-        {/* Banda de documento - o livro do cofre para entregar ao contador */}
+        {/* Document band - the vault's book to hand to the accountant */}
         <div className="doc-band">
           <div className="db-meta">
             <div><span className="klab">{t('ledger.vault')}</span><b>{vaultName ?? 'Tesouraria Comum'}</b></div>

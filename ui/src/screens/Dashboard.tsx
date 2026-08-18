@@ -202,7 +202,7 @@ export default function Dashboard() {
           actions={<Seal t={thr} n={n} />}
         />
 
-        {/* 1 · O que precisa de você - a ação primeiro */}
+        {/* 1 · What needs you - the action first */}
         {loading ? (
           <section className="needyou calm"><Loading /></section>
         ) : showApprovalCard ? (
@@ -286,7 +286,7 @@ export default function Dashboard() {
           </div>
         </section>
 
-        {/* 2b · KPIs - números do cofre, todos derivados de dados reais */}
+        {/* 2b · KPIs - vault figures, all derived from real data */}
         {!loading && (
           <section className="kpis">
             <div className="kpi">
@@ -305,7 +305,7 @@ export default function Dashboard() {
           </section>
         )}
 
-        {/* 3 · Ações primárias (a navegação de seções vive no rail) */}
+        {/* 3 · Primary actions (section nav lives in the rail) */}
         <section className="actions">
           <Link className="action" to="/pay">
             <span className="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M12 5v14M5 12h14" /></svg></span>
@@ -319,7 +319,7 @@ export default function Dashboard() {
           </Link>
         </section>
 
-        {/* 4 · Histórico */}
+        {/* 4 · History */}
         <section className="ledger">
           <h2 className="klab">{t('dashboard.movements')}</h2>
           <div className="cap">{t('dashboard.movementsCap')}</div>

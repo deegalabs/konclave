@@ -238,7 +238,7 @@ export default function Vaults() {
             </div>
           ) : (
             <>
-              <input className="unlock-input mono" inputMode="url" placeholder="https://seu-helper.exemplo.com"
+              <input className="unlock-input mono" inputMode="url" placeholder={pt ? 'https://seu-helper.exemplo.com' : 'https://your-helper.example.com'}
                 value={chooseUrl} onChange={(e) => setChooseUrl(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter' && chooseUrl.trim()) { setCoordMode('custom', chooseUrl); setChoosing(false); setCustomStep(false); setCreating(true) } }} />
               <div className="unlock-btns">

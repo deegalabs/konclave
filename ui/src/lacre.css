@@ -26,7 +26,7 @@
   /* danger */
   --danger:#B42318; --danger-text:#B42318;
   --danger-soft:rgba(180,35,24,.08); --danger-line:rgba(180,35,24,.30);
-  /* signature devices - the tarja stays a solid dark ink bar (pops harder on white) */
+  /* signature devices - the redaction bar stays a solid dark ink bar (pops harder on white) */
   --tarja-ink:#101828; --tarja-text:rgba(255,255,255,.72);
   /* type */
   --font-sans:"Archivo",system-ui,sans-serif;
@@ -142,7 +142,7 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 .btn.danger:disabled, .btn.danger:disabled:hover{opacity:.42; cursor:not-allowed; background:var(--surface-2); border-color:var(--line); color:var(--text-muted)}
 .btn.block{width:100%; text-align:center}
 
-/* the redaction / tarja - a keyboard-operable button, not a bare div */
+/* the redaction bar - a keyboard-operable button, not a bare div */
 .secret{position:relative; display:inline-block}
 .secret .bar{position:absolute; inset:-2px -6px; background:var(--tarja-ink); cursor:pointer;
   border:0; padding:0; margin:0; font:inherit; appearance:none; -webkit-appearance:none;
@@ -246,7 +246,7 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 .nav-more-btn{display:none}
 .nav-more-sheet, .nav-more-scrim{display:none}
 
-/* "ao vivo" status pill */
+/* "live" status pill */
 .live{display:inline-flex; align-items:center; gap:7px; font-family:var(--font-mono); font-size:11px; letter-spacing:.06em;
   color:var(--success); border:1px solid var(--line); border-radius:var(--radius-pill); padding:6px 12px; background:var(--surface-1)}
 .live.off{color:var(--text-muted)}

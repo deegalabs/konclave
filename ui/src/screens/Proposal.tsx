@@ -101,7 +101,7 @@ export default function Proposal() {
   const title = p.memo?.trim() || (isPayroll ? t('kind.payroll') : t('proposal.paymentTo', { dest }))
   const subtitle = isPayroll ? t('proposal.payrollSubtitle', { n: lines.length }) : t('proposal.paymentSubtitle', { dest })
 
-  // State trail: Aprovação → Assinatura → Enviado (null while terminal-negative).
+  // State trail: Approval → Signature → Sent (null while terminal-negative).
   const trailIdx = isAwaiting ? 0 : isReady ? 1 : isSent ? 2 : null
 
   // Everyone involved, with their stance - people, not a mono string.
