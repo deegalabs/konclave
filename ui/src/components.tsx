@@ -98,15 +98,18 @@ export function Mark() {
   const spokes = Array.from({ length: 12 }, (_, i) => i * 30)
   return (
     <svg className="mark" viewBox="0 0 40 40" fill="none" aria-hidden="true">
-      <g stroke="#c6cfd9" strokeWidth="1.3" strokeLinecap="round" opacity="0.9">
+      <g stroke="#7E93B0" strokeWidth="1.5" strokeLinecap="round">
         {spokes.map((a, i) => {
           const r = (a * Math.PI) / 180
-          return <line key={i} x1={20 + Math.cos(r) * 13} y1={20 + Math.sin(r) * 13} x2={20 + Math.cos(r) * 18} y2={20 + Math.sin(r) * 18} />
+          // alternate the ray length for a radiant "seal" burst
+          const inner = i % 2 === 0 ? 12.4 : 13.4
+          const outer = i % 2 === 0 ? 18.8 : 17.2
+          return <line key={i} x1={20 + Math.cos(r) * inner} y1={20 + Math.sin(r) * inner} x2={20 + Math.cos(r) * outer} y2={20 + Math.sin(r) * outer} />
         })}
       </g>
-      <circle cx="20" cy="19" r="7" stroke="#c6cfd9" strokeWidth="1.5" />
-      <circle cx="20" cy="17.6" r="2.4" fill="#57a6ff" />
-      <path d="M20 19.4 L18.7 25 L21.3 25 Z" fill="#57a6ff" />
+      <circle cx="20" cy="19" r="7.2" stroke="#5C6F8B" strokeWidth="1.7" />
+      <circle cx="20" cy="17.5" r="2.7" fill="var(--accent, #2F6FE0)" />
+      <path d="M20 19.6 L18.6 25.3 L21.4 25.3 Z" fill="var(--accent, #2F6FE0)" />
     </svg>
   )
 }

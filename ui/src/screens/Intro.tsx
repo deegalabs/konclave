@@ -1,206 +1,187 @@
-import { type ReactNode, type MouseEvent } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Letterhead } from '../components'
-import { useT, useTr, useI18n } from '../i18n'
-import { IS_NET } from '../api'
+import { Letterhead, Dialog } from '../components'
+import { useI18n } from '../i18n'
+import { getTheme, setTheme, type Theme } from '../theme'
 import '../redesign.css'
-import '../landing.css'
+import '../landing-vault.css'
 
-// A single directory of every live surface, so a first-time visitor (or a judge) finds
-// them all in one place instead of dispersed across the app. Bilingual inline.
-const EXPLORE: Record<'pt-BR' | 'en', { eyebrow: string; title: string; items: { to: string; name: string; desc: string; tag?: string }[] }> = {
-  'pt-BR': {
-    eyebrow: 'EXPLORE',
-    title: 'Tudo pra experimentar, num lugar só',
-    items: [
-      { to: '/vaults', name: 'Abrir o cofre', desc: 'O produto rodando: pagamento, folha, aprovações e registro.', tag: 'app' },
-      { to: '/proof', name: 'Comprovação na blockchain', desc: 'Confira você mesmo, no explorador público, as transações reais do Konclave na mainnet.', tag: 'prova' },
-      { to: '/net', name: 'Cofre entre dispositivos', desc: 'Crie e opere o mesmo cofre no celular e no computador. Nenhum servidor vê um segredo.' },
-      { to: '/lab', name: 'Laboratório', desc: 'Veja a criptografia acontecer: assinatura no navegador, recuperação e herança, ao vivo.', tag: 'demo' },
-      { to: '/docs', name: 'Documentação', desc: 'Como funciona, a arquitetura e os diagramas.' },
-    ],
-  },
-  en: {
-    eyebrow: 'EXPLORE',
-    title: 'Everything to try, in one place',
-    items: [
-      { to: '/vaults', name: 'Open the vault', desc: 'The product running: payment, payroll, approvals and ledger.', tag: 'app' },
-      { to: '/proof', name: 'Proof on the blockchain', desc: 'Check for yourself, on the public explorer, Konclave’s real mainnet transactions.', tag: 'proof' },
-      { to: '/net', name: 'Vault across devices', desc: 'Create and run one vault on your phone and your computer. No server ever sees a secret.' },
-      { to: '/lab', name: 'Laboratory', desc: 'Watch the cryptography happen: browser signing, recovery and inheritance, live.', tag: 'demo' },
-      { to: '/docs', name: 'Documentation', desc: 'How it works, the architecture and the diagrams.' },
-    ],
-  },
+const REPO = 'https://github.com/deegalabs/konclave'
+const RELEASES = `${REPO}/releases`
+const VER = '0.2.0'
+const dl = (file: string) => `${REPO}/releases/download/v${VER}/${file}`
+// One-click installers → the real v0.2.0 assets (GitHub serves them as attachments, so the
+// click downloads directly). macOS ships Apple-Silicon; Intel / .deb / .rpm live under RELEASES.
+const BUILDS = {
+  Windows: { ext: '.msi', file: `Konclave_${VER}_x64_en-US.msi` },
+  macOS: { ext: '.dmg (Apple Silicon)', file: `Konclave_${VER}_aarch64.dmg` },
+  Linux: { ext: '.AppImage', file: `Konclave_${VER}_amd64.AppImage` },
 }
+type OS = keyof typeof BUILDS
 
-/** Landing / explainer — the "why" surface and the app's front door. */
+/** Landing — one objective: the vault, opened together. A photorealistic vault clip fills the
+ *  right as a seamless loop; the pitch sits on the left. Header carries theme + download; the
+ *  install modal lists every platform. Everything else lives in Docs. */
 export default function Intro() {
-  const t = useT()
-  const tr = useTr()
   const { locale } = useI18n()
-  const ex = EXPLORE[locale === 'pt-BR' ? 'pt-BR' : 'en']
-  const scrollTo = (id: string) => (e: MouseEvent) => {
-    e.preventDefault()
-    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' })
-  }
+  const pt = locale === 'pt-BR'
+  const vid = useRef<HTMLVideoElement>(null)
+  const [theme, setTh] = useState<Theme>(getTheme())
+  const [install, setInstall] = useState(false)
+  const [showAll, setShowAll] = useState(false)
 
-  const pillars: Array<{ icon: ReactNode; title: string; desc: string }> = [
-    {
-      icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M12 2 4 5v6c0 5 3.4 8.5 8 11 4.6-2.5 8-6 8-11V5z" /><path d="M9 12l2 2 4-4" /></svg>,
-      title: t('landing.pillar1Title'), desc: 'landing.pillar1Desc',
-    },
-    {
-      icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="4" y="10" width="16" height="11" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></svg>,
-      title: t('landing.pillar2Title'), desc: 'landing.pillar2Desc',
-    },
-    {
-      icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 6h16M4 12h16M4 18h10" /></svg>,
-      title: t('landing.pillar3Title'), desc: 'landing.pillar3Desc',
-    },
-  ]
+  // Honor reduced-motion: hold the poster frame instead of looping the clip.
+  useEffect(() => {
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) vid.current?.pause()
+  }, [])
+
+  const toggleTheme = () => { const n: Theme = theme === 'dark' ? 'light' : 'dark'; setTheme(n); setTh(n) }
+
+  // Auto-detect the visitor's OS so the desktop row leads with the right build.
+  const os = useMemo<OS>(() => {
+    const ua = navigator.userAgent
+    if (/Win/i.test(ua)) return 'Windows'
+    if (/Mac/i.test(ua)) return 'macOS'
+    return 'Linux'
+  }, [])
+  const others = (Object.keys(BUILDS) as OS[]).filter((p) => p !== os)
 
   return (
-    <div className="rd lp">
-      {/* top bar — shared Letterhead so the landing opens like every other screen */}
-      <div className="lp-wrap">
-        {/* Proof / Vault-across-devices / Sign folded into Docs + the EXPLORE directory below
-            (GSP critique): the header is one clear destination, not four jargon links. */}
+    <div className="lv">
+      <video
+        ref={vid}
+        className="lv-bg"
+        autoPlay
+        loop
+        muted
+        playsInline
+        poster="/videos/konclave-hero-poster.jpg"
+        aria-hidden="true"
+      >
+        <source src="/videos/konclave-hero-loop.mp4" type="video/mp4" />
+      </video>
+      <div className="lv-scrim" aria-hidden="true" />
+
+      <div className="lv-head">
         <Letterhead right={<>
           <Link to="/docs" className="doclink">Docs</Link>
-          <span className="lp-env">{tr('landing.env')}</span>
+          <a className="doclink" href={REPO} target="_blank" rel="noreferrer">GitHub</a>
+          <button className="lv-icon" onClick={toggleTheme} aria-pressed={theme === 'dark'} aria-label={pt ? 'Alternar tema' : 'Toggle theme'}>
+            {theme === 'dark'
+              ? <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" /></svg>
+              : <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M19 5l-1.5 1.5M6.5 17.5 5 19" /></svg>}
+          </button>
+          <button className="lv-dl" onClick={() => setInstall(true)}>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
+            {pt ? 'Baixar' : 'Download'}
+          </button>
         </>} />
       </div>
 
-      {/* hero */}
-      <div className="lp-wrap">
-        <div className="lp-hero">
-          <span className="lp-emblem">
-            <svg className="seal" viewBox="0 0 96 96" fill="none" aria-hidden="true">
-              <circle cx="48" cy="48" r="45" stroke="var(--accent)" strokeWidth="1" />
-              <circle className="seal-ring" cx="48" cy="48" r="39" stroke="var(--accent)" strokeWidth="2.4" />
-              <circle className="seal-dash" cx="48" cy="48" r="34" stroke="var(--silver)" strokeWidth=".6" strokeDasharray="1 3" />
-              <g className="seal-grid" stroke="var(--silver)" strokeWidth=".7" opacity=".55"><circle cx="48" cy="48" r="30" />
-                <path d="M48 18c9 12 9 48 0 60M48 18c-9 12-9 48 0 60M18 48c12-9 48-9 60 0M18 48c12 9 48 9 60 0" /></g>
-            </svg>
-          </span>
-          <span className="eyebrow">{t('landing.eyebrow')}</span>
-          <h1>{t('landing.h1')}</h1>
-          <p className="sub">{tr('landing.sub')}</p>
-          <div className="lp-ctas">
-            {/* Enter demo MODE (mock data everywhere) at runtime — one build, no VITE_DEMO (#60). */}
-            <a className="lp-btn primary" href="?demo=1#/vaults">
-              {t('demo.watchCta')}
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
-            </a>
-            {/* One primary (Watch the demo) + one quiet secondary. "My vaults" and "Download"
-                moved out of the hero (GSP critique): the demo is the single first action, and the
-                same destinations live in the EXPLORE directory / final CTA below. */}
-            <Link className="lp-btn" to="/docs">{t('landing.ctaHow')}</Link>
-          </div>
-          <span className="trust"><i />{t('landing.heroTrust')}</span>
-        </div>
-      </div>
+      <main className="lv-hero">
+        <div className="lv-in">
+          <span className="lv-eyebrow"><span className="dot" />{pt ? 'Tesouraria Zcash coletiva · FROST' : 'Collective Zcash treasury · FROST'}</span>
 
-      {/* explore — one directory of every live surface */}
-      <section className="lp-section lp-explore" id="lp-explore" style={{ paddingTop: 8 }}>
-        <div className="lp-wrap">
-          <span className="eyebrow sec-eyebrow">{ex.eyebrow}</span>
-          <h2 className="lp-title">{ex.title}</h2>
-          <div className="lp-explore-grid">
-            {ex.items.map((it) => (
-              <Link key={it.to} to={it.to} className="lp-explore-card">
-                <span className="lp-ex-head">
-                  <span className="lp-ex-name">{it.name}</span>
-                  {it.tag && <span className="lp-ex-tag">{it.tag}</span>}
-                </span>
-                <span className="lp-ex-desc">{it.desc}</span>
-                <span className="lp-ex-go" aria-hidden="true">→</span>
-              </Link>
-            ))}
-          </div>
-        </div>
-      </section>
+          <h1>{pt
+            ? <>O cofre que seu grupo <span className="em">abre junto.</span></>
+            : <>The vault your group <span className="em">opens together.</span></>}</h1>
 
-      {/* why */}
-      <section className="lp-section" id="lp-porque">
-        <div className="lp-wrap">
-          <span className="eyebrow sec-eyebrow">{t('landing.whyEyebrow')}</span>
-          <h2 className="lp-title">{t('landing.whyTitle')}</h2>
-          <p className="lp-lead">{t('landing.whyLead')}</p>
+          <p className="lv-sub">{pt
+            ? <>A chave nasce dividida entre os membros e nunca é remontada. Todo pagamento só sai quando o quórum aprova. <b>Privado por fora, transparente por dentro.</b></>
+            : <>The key is born split across your members and never assembled. Every payment leaves only when your quorum approves it. <b>Private outside, transparent inside.</b></>}</p>
 
-          <div className="lp-pillars">
-            {pillars.map((p) => (
-              <div className="lp-pillar" key={p.title}>
-                <span className="ic">{p.icon}</span>
-                <h3>{p.title}</h3>
-                <p>{tr(p.desc)}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* killer use case */}
-      <section className="lp-section" style={{ paddingTop: 0 }}>
-        <div className="lp-wrap">
-          <div className="lp-killer">
-            <div>
-              <span className="eyebrow">{t('landing.killerEyebrow')}</span>
-              <h3>{t('landing.killerTitle')}</h3>
-              <p>{tr('landing.killerDesc')}</p>
-            </div>
-            <div className="lp-slip" aria-hidden="true">
-              <div className="ph"><span>{t('landing.killerSlipTitle')}</span><span>{t('landing.killerSlipCount')}</span></div>
-              {['Ana R.', 'Bruno S.', 'Carla N.', 'Diego F.', 'Elis P.'].map((who) => (
-                <div className="prow" key={who}><span>{who}</span><span className="amt">0.0600</span></div>
-              ))}
-              <div className="tot"><span>{t('landing.killerSlipFoot')}</span><b>{t('landing.killerSlipApproved')}</b></div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* trust band */}
-      <div className="lp-trust">
-        <div className="lp-wrap">
-          <div className="lp-trust-inner">
-            <svg className="shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true"><path d="M12 2 4 5v6c0 5 3.4 8.5 8 11 4.6-2.5 8-6 8-11V5z" /><path d="M9 12l2 2 4-4" /></svg>
-            <div>
-              <span className="klab">{t('landing.trustEyebrow')}</span>
-              <h3>{t('landing.trustTitle')}</h3>
-              <p>{locale === 'pt-BR'
-                ? 'Criptografia da Zcash Foundation. Local-first, sem telemetria: seus segredos nunca saem do dispositivo.'
-                : 'Cryptography by the Zcash Foundation. Local-first, no telemetry: your secrets never leave the device.'}</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* final cta */}
-      <section className="lp-section lp-final">
-        <div className="lp-wrap">
-          <h2>{t('landing.finalTitle')}</h2>
-          <p>{t('landing.finalDesc')}</p>
-          <div className="lp-ctas">
-            <Link className="lp-btn primary" to={IS_NET ? '/net' : '/create'}>
-              {t('landing.finalCtaCreate')}
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+          <div className="lv-ctas">
+            <Link className="lv-btn pri" to="/vaults">
+              {pt ? 'Criar um cofre' : 'Create a vault'}
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
             </Link>
-            <a className="lp-btn" href="#lp-porque" onClick={scrollTo('lp-porque')}>{t('landing.finalCtaWhy')}</a>
-            {/* Desktop download lives here (GSP critique) — where a convinced visitor wants it, not in the hero. */}
-            <a className="lp-btn" href="https://github.com/deegalabs/konclave/releases" target="_blank" rel="noreferrer">
-              {t('landing.ctaDownload')}
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
+            <button className="lv-btn dl" onClick={() => setInstall(true)}>
+              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
+              {pt ? 'Baixar o app' : 'Download the app'}
+            </button>
+            <a className="lv-demo" href="?demo=1#/vaults">
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M6 4l14 8-14 8z" /></svg>
+              {pt ? 'Ver a demo' : 'Watch the demo'}
             </a>
           </div>
-        </div>
-      </section>
 
-      <footer className="lp-footer">
-        <div className="lp-wrap">
-          <div>{tr('landing.footer1')}<br />{t('landing.footer2')}</div>
+          <div className="lv-trust">
+            <span><b>Local-first</b> · {pt ? 'sua chave nunca sai do aparelho' : 'your key never leaves the device'}</span><i />
+            <span><b>{pt ? 'Sem telemetria' : 'No telemetry'}</b> · {pt ? 'nada rastreado ou enviado' : 'nothing tracked or uploaded'}</span><i />
+            <span><b>{pt ? 'ZEC real' : 'Real ZEC'}</b> · {pt ? 'provado na mainnet, txids verificáveis' : 'proven on mainnet, verifiable txids'}</span><i />
+            <span><b>{pt ? 'Código aberto' : 'Open source'}</b> · Apache-2.0 / MIT</span>
+          </div>
+
+          <p className="lv-docs">{pt
+            ? <>Veja por dentro: a arquitetura, a cerimônia de aprovação e cada prova on-chain — tudo nas </>
+            : <>See under the hood: the architecture, the approval ceremony, and every on-chain proof — all in </>}
+            <Link to="/docs">Docs →</Link></p>
         </div>
-      </footer>
+      </main>
+
+      {install && (
+        <Dialog labelledBy="lv-install-t" onClose={() => setInstall(false)} className="lv-ov" cardClassName="lv-card">
+          <button className="lv-x" onClick={() => setInstall(false)}>✕ {pt ? 'fechar' : 'close'}</button>
+          <h2 id="lv-install-t">{pt ? 'Baixe o Konclave' : 'Get Konclave'}</h2>
+          <p className="lv-msub">{pt ? 'Sua parte da chave nunca sai do aparelho — em qualquer plataforma.' : 'Your key share never leaves your device — on every platform.'}</p>
+
+          <div className="lv-plat hi">
+            <span className="lv-pic"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7"><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18" /></svg></span>
+            <div className="lv-mm">
+              <div className="lv-t">{pt ? 'App web' : 'Web app'} <span className="lv-chip live">{pt ? 'no ar' : 'live'}</span></div>
+              <div className="lv-d">{pt ? 'Roda no navegador. Nada pra instalar.' : 'Runs in your browser. Nothing to install.'}</div>
+            </div>
+            <Link className="lv-btn pri sm" to="/vaults" onClick={() => setInstall(false)}>{pt ? 'Abrir' : 'Open'}</Link>
+          </div>
+
+          <div className="lv-plat">
+            <span className="lv-pic"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="3" y="4" width="18" height="13" rx="1.5" /><path d="M8 20h8M12 17v3" /></svg></span>
+            <div className="lv-mm">
+              <div className="lv-t">{os}</div>
+              <div className="lv-d">{pt ? 'Um app de janela única; nada roda na nuvem.' : 'A single-window app; nothing runs in the cloud.'}</div>
+              <div className="lv-ver">v{VER} · {BUILDS[os].ext}</div>
+            </div>
+            <a className="lv-btn dl sm" href={dl(BUILDS[os].file)} rel="noreferrer">{pt ? 'Baixar' : 'Download'}</a>
+          </div>
+
+          <button className="lv-more" onClick={() => setShowAll((s) => !s)}>{pt ? 'Outras plataformas' : 'Other platforms'} {showAll ? '▴' : '▾'}</button>
+          {showAll && (
+            <>
+              {others.map((p) => (
+                <div className="lv-plat" key={p} style={{ marginTop: 10 }}>
+                  <span className="lv-pic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="4" width="18" height="16" rx="2" /></svg></span>
+                  <div className="lv-mm">
+                    <div className="lv-t">{p}</div>
+                    <div className="lv-ver">v{VER} · {BUILDS[p].ext}</div>
+                  </div>
+                  <a className="lv-btn dl sm" href={dl(BUILDS[p].file)} rel="noreferrer">{pt ? 'Baixar' : 'Download'}</a>
+                </div>
+              ))}
+              <a className="lv-more" href={RELEASES} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: 4 }}>
+                {pt ? 'Todas as versões (.deb · .rpm · Mac Intel · .exe) →' : 'All builds (.deb · .rpm · Intel Mac · .exe) →'}
+              </a>
+            </>
+          )}
+
+          <div className="lv-plat" style={{ marginTop: 10 }}>
+            <span className="lv-pic"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="7" y="3" width="10" height="18" rx="2" /><path d="M11 18h2" /></svg></span>
+            <div className="lv-mm">
+              <div className="lv-t">{pt ? 'Celular — instale como PWA' : 'Mobile — install as PWA'}</div>
+              <div className="lv-d">{pt ? 'Adicione à tela inicial. Abre como um app.' : 'Add to home screen. Opens as an app.'}</div>
+            </div>
+            <Link className="lv-btn dl sm" to="/docs" onClick={() => setInstall(false)}>{pt ? 'Como' : 'How'}</Link>
+          </div>
+
+          <div className="lv-plat road">
+            <span className="lv-pic"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M10 4v4a2 2 0 0 1-2 2H4M14 4v4a2 2 0 0 0 2 2h4" /><rect x="4" y="10" width="16" height="10" rx="2" /></svg></span>
+            <div className="lv-mm">
+              <div className="lv-t">{pt ? 'Extensão de navegador' : 'Browser extension'} <span className="lv-chip">roadmap</span></div>
+              <div className="lv-d">{pt ? 'Um assinador no navegador, em andamento — ainda sem instalação.' : 'A browser signer, in progress — no install yet.'}</div>
+            </div>
+            <a className="lv-more" href={REPO} target="_blank" rel="noreferrer">{pt ? 'Acompanhe no GitHub →' : 'Follow on GitHub →'}</a>
+          </div>
+        </Dialog>
+      )}
     </div>
   )
 }

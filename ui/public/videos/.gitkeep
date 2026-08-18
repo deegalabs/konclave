@@ -1,0 +1,2 @@
+# The rendered Konclave hero loop lands here (../video -> render:loop).
+Generate the Veo clip in the AI Studio/Flow UI, drop it into ../video/public/, run render:loop.
