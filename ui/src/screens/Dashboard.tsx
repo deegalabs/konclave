@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Seal, Secret, RevealButton, Loading } from '../components'
+import { SkeletonStat, SkeletonRows } from '../skeleton'
 import { SpendBars, type SpendPoint } from '../charts'
 import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
@@ -237,7 +238,9 @@ export default function Dashboard() {
             <h2 className="klab">{t('dashboard.vaultBalance')}</h2>
             <RevealButton />
           </div>
-          {walletUnwired ? (
+          {loading ? (
+            <SkeletonStat />
+          ) : walletUnwired ? (
             <div className="fig">
               <span className="amt" style={{ fontSize: '17px', letterSpacing: '.02em', color: 'var(--text-muted)' }}>
                 {t('dashboard.walletNotConnected')}
@@ -326,7 +329,7 @@ export default function Dashboard() {
               <SpendBars data={spendSeries} />
             </div>
           )}
-          {loading && <Loading />}
+          {loading && <SkeletonRows n={4} />}
           {!loading && movimentos.length === 0 && (
             <div className="cap">{t('dashboard.noMovements')}</div>
           )}

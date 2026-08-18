@@ -14,14 +14,17 @@ import './lacre.css'
 import App from './App.tsx'
 import { RevealProvider } from './reveal'
 import { I18nProvider } from './i18n'
+import { ToastProvider } from './toast'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <I18nProvider>
       <RevealProvider>
-        <HashRouter>
-          <App />
-        </HashRouter>
+        <ToastProvider>
+          <HashRouter>
+            <App />
+          </HashRouter>
+        </ToastProvider>
       </RevealProvider>
     </I18nProvider>
   </StrictMode>,

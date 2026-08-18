@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Secret, activateOnKey, Loading } from '../components'
+import { Secret, activateOnKey } from '../components'
+import { SkeletonRows } from '../skeleton'
 import { PageHeader, NextStep } from '../page'
 import { Identicon } from '../avatar'
 import { getProposals, getVault, health, type Proposal } from '../api'
@@ -62,7 +63,7 @@ export default function Proposals() {
       <main className="page narrow">
         <PageHeader title={t('proposals.title')} subtitle={<>{t('proposals.cap')} {live ? '' : t('proposals.demoMode')}</>} />
 
-        {!loaded && <Loading />}
+        {!loaded && <SkeletonRows n={4} />}
 
         {loaded && ready.length > 0 && (
           <>

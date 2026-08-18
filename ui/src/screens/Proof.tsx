@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Letterhead } from '../components'
 import { useI18n } from '../i18n'
+import { useToast } from '../toast'
 import '../proof.css'
 
 // Judge-facing proof page. Konclave claims eight REAL Zcash mainnet transactions; this screen
@@ -160,11 +161,11 @@ async function checkBlockchair(txid: string): Promise<{ found: boolean; confirma
 
 export default function Proof() {
   const { locale } = useI18n()
+  const toast = useToast()
   const loc = (locale as Locale) in TXT ? (locale as Locale) : 'en'
   const T = TXT[loc]
 
   const [checks, setChecks] = useState<Record<string, CheckState>>({})
-  const [copied, setCopied] = useState<string | null>(null)
 
   const labelFor = (
     kind: 'app' | 'slice' | 'fresh' | 'payroll' | 'dkg' | 'migrate' | 'ironwood' | 'browser',
@@ -178,10 +179,9 @@ export default function Proof() {
     : kind === 'browser' ? T.labelBrowser
     : T.labelPayroll
 
-  const copy = (text: string, tag: string) => {
+  const copy = (text: string) => {
     void navigator.clipboard?.writeText(text)
-    setCopied(tag)
-    setTimeout(() => setCopied((c) => (c === tag ? null : c)), 1600)
+    toast.ok(T.copied)
   }
 
   // Verify every txid at once. On ANY error (CORS is the common one in a browser), the check
@@ -235,10 +235,10 @@ export default function Proof() {
                     <button
                       type="button"
                       className="proof-copy"
-                      onClick={() => copy(t.txid, t.txid)}
+                      onClick={() => copy(t.txid)}
                       aria-label={T.copy}
                     >
-                      {copied === t.txid ? T.copied : T.copy}
+                      {T.copy}
                     </button>
                   </div>
 
