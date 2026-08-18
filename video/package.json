@@ -1,0 +1,15 @@
+{
+  "name": "konclave-hero-video",
+  "private": true,
+  "description": "Remotion assembly for the Konclave landing background: Nano Banana keyframe -> Veo loop clip -> this timeline -> ui/public/videos/. Mirrors deegalabs/lizzy/tokeneconomy/video.",
+  "scripts": {
+    "studio": "remotion studio",
+    "render:loop": "remotion render HeroLoop ../ui/public/videos/konclave-hero-loop.mp4"
+  },
+  "dependencies": {
+    "@remotion/cli": "^4.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "remotion": "^4.0.0"
+  }
+}
