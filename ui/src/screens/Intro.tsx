@@ -99,15 +99,15 @@ export default function Intro() {
           </div>
 
           <div className="lv-trust">
-            <span><b>Local-first</b> · {pt ? 'a chave nunca sai do aparelho' : 'the key never leaves the device'}</span><i />
-            <span>{pt ? 'Sem telemetria' : 'No telemetry'}</span><i />
-            <span>{pt ? 'Provado na mainnet' : 'Proven on mainnet'}</span><i />
-            <span>Apache-2.0 / MIT</span>
+            <span><b>Local-first</b> · {pt ? 'sua chave nunca sai do aparelho' : 'your key never leaves the device'}</span><i />
+            <span><b>{pt ? 'Sem telemetria' : 'No telemetry'}</b> · {pt ? 'nada rastreado ou enviado' : 'nothing tracked or uploaded'}</span><i />
+            <span><b>{pt ? 'ZEC real' : 'Real ZEC'}</b> · {pt ? 'provado na mainnet, txids verificáveis' : 'proven on mainnet, verifiable txids'}</span><i />
+            <span><b>{pt ? 'Código aberto' : 'Open source'}</b> · Apache-2.0 / MIT</span>
           </div>
 
           <p className="lv-docs">{pt
-            ? <>Como funciona, a arquitetura e a prova on-chain — tudo em </>
-            : <>How it works, the architecture, and the on-chain proof — all in </>}
+            ? <>Veja por dentro: a arquitetura, a cerimônia de aprovação e cada prova on-chain — tudo nas </>
+            : <>See under the hood: the architecture, the approval ceremony, and every on-chain proof — all in </>}
             <Link to="/docs">Docs →</Link></p>
         </div>
       </main>
