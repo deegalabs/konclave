@@ -77,6 +77,40 @@ export const SECTIONS: Section[] = [
     ],
   },
   {
+    id: 'explore',
+    nav: { 'pt-BR': 'Explorar', en: 'Explore' },
+    title: { 'pt-BR': 'Explorar as superfícies vivas', en: 'Explore the live surfaces' },
+    lead: {
+      'pt-BR':
+        'Tudo pra experimentar, num lugar só — o produto rodando, a prova na blockchain, o cofre entre dispositivos e o laboratório da criptografia.',
+      en:
+        'Everything to try, in one place — the product running, the on-chain proof, the cross-device vault, and the cryptography lab.',
+    },
+    blocks: [
+      {
+        k: 'ul',
+        items: [
+          {
+            'pt-BR': '[Abrir o cofre](#/vaults) — o produto rodando: pagamento, folha, aprovações e registro.',
+            en: '[Open the vault](#/vaults) — the product running: payment, payroll, approvals and ledger.',
+          },
+          {
+            'pt-BR': '[Comprovação na blockchain](#/proof) — confira você mesmo, no explorador público, as transações reais do Konclave na mainnet.',
+            en: '[Proof on the blockchain](#/proof) — check for yourself, on the public explorer, Konclave’s real mainnet transactions.',
+          },
+          {
+            'pt-BR': '[Cofre entre dispositivos](#/net) — crie e opere o mesmo cofre no celular e no computador. Nenhum servidor vê um segredo.',
+            en: '[Vault across devices](#/net) — create and run one vault on your phone and your computer. No server ever sees a secret.',
+          },
+          {
+            'pt-BR': '[Laboratório](#/lab) — veja a criptografia acontecer: assinatura no navegador, recuperação e herança, ao vivo.',
+            en: '[Laboratory](#/lab) — watch the cryptography happen: browser signing, recovery and inheritance, live.',
+          },
+        ],
+      },
+    ],
+  },
+  {
     id: 'how-it-works',
     nav: { 'pt-BR': 'Como funciona', en: 'How it works' },
     title: { 'pt-BR': 'Como funciona', en: 'How it works' },
