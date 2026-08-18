@@ -26,6 +26,8 @@ import Settings from './screens/Settings'
 import Ceremonies from './screens/Ceremonies'
 import Lab from './screens/Lab'
 import BackgroundSignerLab from './screens/BackgroundSignerLab'
+import NotFound from './screens/NotFound'
+import ErrorBoundary from './ErrorBoundary'
 import './App.css'
 
 export default function App() {
@@ -33,6 +35,7 @@ export default function App() {
   return (
     <div className={'root' + (revealed ? ' revealed' : '')}>
       <DemoBanner />
+      <ErrorBoundary>
       <Routes>
         {/* Onboarding — standalone, no rail */}
         {/* The desktop app opens straight on the product (the vaults), not the marketing landing;
@@ -65,7 +68,10 @@ export default function App() {
           <Route path="/people" element={<People />} />
           <Route path="/settings" element={<Settings />} />
         </Route>
+        {/* Catch-all — a real 404 instead of silently falling back to a default screen. */}
+        <Route path="*" element={<NotFound />} />
       </Routes>
+      </ErrorBoundary>
     </div>
   )
 }
