@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { getVaults, health, setSelectedVault, unlockVault, markVaultUnlocked, isVaultUnlocked, shortAddr, IS_DEMO, type Vault } from '../api'
-import { helperConfigured } from '../helper'
+import { helperConfigured, getCustomHelper, setCoordMode, HELPER_BASE } from '../helper'
+import { isDesktop } from '../platform'
 import { listVaults, loadVault } from '../storage'
 import { setUnlockedShare } from '../session'
 import { Identicon } from '../avatar'
 import { Dialog, Letterhead, activateOnKey } from '../components'
 import NetVault from './NetVault'
-import { useT, useTr } from '../i18n'
+import { useT, useTr, useI18n } from '../i18n'
 import '../redesign.css'
 
 const MOCK: Vault[] = [
@@ -27,6 +28,8 @@ type Row = { v: Vault; src: Src }
 export default function Vaults() {
   const t = useT()
   const tr = useTr()
+  const { locale } = useI18n()
+  const pt = locale === 'pt-BR'
   const nav = useNavigate()
   // netMode still decides how a NEW vault is created (a hosted helper configured -> browser DKG
   // dialog; otherwise the local /create ceremony). It no longer gates the LIST — that's unified.
@@ -39,6 +42,14 @@ export default function Vaults() {
   const [pass, setPass] = useState('')
   const [unlockErr, setUnlockErr] = useState<string | null>(null)
   const [unlockBusy, setUnlockBusy] = useState(false)
+  // Ask-before-create (desktop): pick WHERE the ceremony is coordinated for this new vault.
+  const [choosing, setChoosing] = useState(false)
+  const [customStep, setCustomStep] = useState(false)
+  const [chooseUrl, setChooseUrl] = useState(getCustomHelper())
+
+  // Route the create card: on desktop, ask the coordination mode first; on the web the helper is
+  // fixed, so go straight (helper -> browser DKG dialog, else the local /create ceremony).
+  const startCreate = () => (isDesktop ? setChoosing(true) : netMode ? setCreating(true) : nav('/create'))
 
   function enter(row: Row) {
     const { v, src } = row
@@ -161,7 +172,7 @@ export default function Vaults() {
           })}
 
           <div className="rd-card rd-create" role="button" tabIndex={0}
-            onClick={() => (netMode ? setCreating(true) : nav('/create'))} onKeyDown={activateOnKey(() => (netMode ? setCreating(true) : nav('/create')))}>
+            onClick={startCreate} onKeyDown={activateOnKey(startCreate)}>
             <div>
               <div className="ic">
                 <svg width="34" height="34" viewBox="0 0 34 34" fill="none" stroke="currentColor" strokeWidth="1.6">
@@ -207,6 +218,36 @@ export default function Vaults() {
               {unlockBusy ? t('vaults.verifying') : t('vaults.enterArrow')}
             </button>
           </div>
+        </Dialog>
+      )}
+
+      {choosing && (
+        <Dialog className="unlock-overlay" cardClassName="unlock-card" labelledBy="choose-title" onClose={() => { setChoosing(false); setCustomStep(false) }}>
+          <div className="rd-eyebrow">{pt ? 'Criar cofre' : 'Create a vault'}</div>
+          <h2 id="choose-title">{pt ? 'Como coordenar a cerimônia?' : 'How to coordinate the ceremony?'}</h2>
+          <p>{pt
+            ? 'Onde a cerimônia de aprovação é coordenada. O helper nunca vê um share em nenhuma opção.'
+            : 'Where the approval ceremony is coordinated. The helper never sees a share in any option.'}</p>
+          {!customStep ? (
+            <div className="unlock-btns" style={{ flexDirection: 'column', gap: 8, alignItems: 'stretch' }}>
+              {HELPER_BASE && (
+                <button className="rd-enter primary" onClick={() => { setCoordMode('ours'); setChoosing(false); setCreating(true) }}>{pt ? 'Nosso helper hospedado' : 'Our hosted helper'}</button>
+              )}
+              <button className="rd-enter" onClick={() => setCustomStep(true)}>{pt ? 'Seu próprio helper' : 'Your own helper'}</button>
+              <button className="rd-enter" onClick={() => { setCoordMode('local'); setChoosing(false); nav('/create') }}>{pt ? 'Local, sem helper' : 'Local, no helper'}</button>
+            </div>
+          ) : (
+            <>
+              <input className="unlock-input mono" inputMode="url" placeholder="https://seu-helper.exemplo.com"
+                value={chooseUrl} onChange={(e) => setChooseUrl(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && chooseUrl.trim()) { setCoordMode('custom', chooseUrl); setChoosing(false); setCustomStep(false); setCreating(true) } }} />
+              <div className="unlock-btns">
+                <button className="rd-enter" onClick={() => setCustomStep(false)}>{t('common.cancel')}</button>
+                <button className="rd-enter primary" disabled={!chooseUrl.trim()}
+                  onClick={() => { setCoordMode('custom', chooseUrl); setChoosing(false); setCustomStep(false); setCreating(true) }}>{pt ? 'Continuar' : 'Continue'}</button>
+              </div>
+            </>
+          )}
         </Dialog>
       )}
 
