@@ -11,20 +11,63 @@
 
 const ENV = import.meta.env as Record<string, string | undefined>
 
-/** The hosted helper's base URL, or '' when no helper is configured. */
+/** The BUILT-IN hosted helper's base URL ("our helper"), or '' when none is baked in. */
 export const HELPER_BASE: string = ENV.VITE_HELPER_BASE ?? ''
 
-/** True when a hosted helper is configured (so `/net` can offer the full-vault path). */
+// Coordination mode — the user's runtime choice of WHERE the blind helper lives (desktop):
+//   'ours'   → the built-in HELPER_BASE (default when one is baked in)
+//   'custom' → a self-hosted helper URL the user provides
+//   'local'  → no helper at all (pure local orchestrator/bridge)
+// Persisted per device. The helper stays BLIND in every mode — it never sees a share; switching
+// modes only changes which blind coordinator (or none) the browser talks to.
+export type CoordMode = 'ours' | 'custom' | 'local'
+const MODE_KEY = 'konclave.coord.mode'
+const URL_KEY = 'konclave.coord.url'
+
+function ls(key: string): string | null {
+  try { return localStorage.getItem(key) } catch { return null }
+}
+
+/** The chosen coordination mode; defaults to 'ours' when a helper is baked in, else 'local'. */
+export function getCoordMode(): CoordMode {
+  const m = ls(MODE_KEY)
+  if (m === 'ours' || m === 'custom' || m === 'local') return m
+  return HELPER_BASE ? 'ours' : 'local'
+}
+
+/** The user-provided self-hosted helper URL (for 'custom' mode), trailing slash trimmed. */
+export function getCustomHelper(): string {
+  return (ls(URL_KEY) ?? '').trim().replace(/\/+$/, '')
+}
+
+/** Persist the coordination choice. Callers reload so `netMode` recomputes app-wide. */
+export function setCoordMode(mode: CoordMode, url?: string): void {
+  try {
+    localStorage.setItem(MODE_KEY, mode)
+    if (url !== undefined) localStorage.setItem(URL_KEY, url.trim().replace(/\/+$/, ''))
+  } catch { /* storage unavailable — the choice won't persist, but applies this session */ }
+}
+
+/** The EFFECTIVE helper base for the current mode, or '' when local / unset. */
+export function helperBase(): string {
+  const mode = getCoordMode()
+  if (mode === 'local') return ''
+  if (mode === 'custom') return getCustomHelper()
+  return HELPER_BASE
+}
+
+/** True when a hosted helper is in effect (so `/net` can offer the full-vault path). */
 export function helperConfigured(): boolean {
-  return HELPER_BASE !== ''
+  return helperBase() !== ''
 }
 
 // ---- request helpers (one place for fetch + ok-check + parse, degrading to null) ----
 
 async function getJson<T>(path: string): Promise<T | null> {
-  if (!HELPER_BASE) return null
+  const base = helperBase()
+  if (!base) return null
   try {
-    const res = await fetch(`${HELPER_BASE}${path}`)
+    const res = await fetch(`${base}${path}`)
     if (!res.ok) return null
     return (await res.json()) as T
   } catch {
@@ -33,9 +76,10 @@ async function getJson<T>(path: string): Promise<T | null> {
 }
 
 async function postJson<T>(path: string, body: unknown): Promise<T | null> {
-  if (!HELPER_BASE) return null
+  const base = helperBase()
+  if (!base) return null
   try {
-    const res = await fetch(`${HELPER_BASE}${path}`, {
+    const res = await fetch(`${base}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -48,9 +92,10 @@ async function postJson<T>(path: string, body: unknown): Promise<T | null> {
 }
 
 async function getText(path: string): Promise<string | null> {
-  if (!HELPER_BASE) return null
+  const base = helperBase()
+  if (!base) return null
   try {
-    const res = await fetch(`${HELPER_BASE}${path}`)
+    const res = await fetch(`${base}${path}`)
     if (!res.ok) return null
     return await res.text()
   } catch {
