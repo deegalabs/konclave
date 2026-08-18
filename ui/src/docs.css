@@ -59,7 +59,7 @@
   border-left: 2px solid transparent;
   transition: background .15s, color .15s;
 }
-.docs-navlink:hover { background: rgba(255, 255, 255, .03); color: var(--text); }
+.docs-navlink:hover { background: var(--surface-2); color: var(--text); }
 .docs-navlink.active {
   background: var(--accent-soft);
   color: var(--accent);
@@ -301,7 +301,7 @@
   min-width: 150px;
   transition: border-color .15s, background .15s;
 }
-.docs-pager-link:hover { border-color: var(--accent-line); background: rgba(255, 255, 255, .02); }
+.docs-pager-link:hover { border-color: var(--accent-line); background: var(--surface-2); }
 .docs-pager-link.next { text-align: right; align-items: flex-end; margin-left: auto; }
 .docs-pager-link small {
   font-family: var(--font-mono);

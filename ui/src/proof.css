@@ -177,8 +177,8 @@
 }
 .proof-status.found {
   color: var(--success);
-  background: rgba(126, 224, 169, 0.08);
-  border-color: rgba(126, 224, 169, 0.32);
+  background: var(--success-soft);
+  border-color: var(--success-line);
 }
 
 .proof-links {
