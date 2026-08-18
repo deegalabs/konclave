@@ -47,15 +47,15 @@ function FxMark({ size = 40 }: { size?: number }) {
   const spokes = Array.from({ length: 12 }, (_, i) => i * 30)
   return (
     <svg className="fx-mark" width={size} height={size} viewBox="0 0 40 40" fill="none" aria-hidden="true">
-      <g stroke="var(--silver)" strokeWidth="2.3" strokeLinecap="round" opacity="0.95">
+      <g stroke="var(--silver)" strokeWidth="1.4" strokeLinecap="round" opacity="0.9">
         {spokes.map((a, i) => {
           const r = (a * Math.PI) / 180
-          return <line key={i} x1={20 + Math.cos(r) * 12} y1={20 + Math.sin(r) * 12} x2={20 + Math.cos(r) * 18} y2={20 + Math.sin(r) * 18} />
+          return <line key={i} x1={20 + Math.cos(r) * 13} y1={20 + Math.sin(r) * 13} x2={20 + Math.cos(r) * 18.6} y2={20 + Math.sin(r) * 18.6} />
         })}
       </g>
-      <circle cx="20" cy="19" r="7.6" stroke="var(--silver)" strokeWidth="2.6" />
-      <circle cx="20" cy="17.3" r="3" fill="var(--accent)" />
-      <path d="M20 19.6 L18.3 25.6 L21.7 25.6 Z" fill="var(--accent)" />
+      <circle cx="20" cy="19" r="7.2" stroke="var(--silver)" strokeWidth="1.6" />
+      <circle cx="20" cy="17.4" r="2.6" fill="var(--accent)" />
+      <path d="M20 19.4 L18.6 25.3 L21.4 25.3 Z" fill="var(--accent)" />
     </svg>
   )
 }

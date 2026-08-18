@@ -90,9 +90,9 @@
   color:var(--accent-ink);display:inline-flex;align-items:center;gap:9px}
 .fx-eyebrow .fx-dot{width:6px;height:6px;border-radius:50%;background:var(--accent-bright);
   box-shadow:0 0 10px rgba(var(--accent-glow),.9)}
-.fx-hero h1{font-size:clamp(2.6rem,5.6vw,4.4rem);line-height:1.03;letter-spacing:-.03em;
-  color:var(--text);font-weight:770;margin:20px 0 0;text-wrap:balance;max-width:16ch}
-.fx-sub{color:var(--silver);font-size:clamp(1.05rem,1.6vw,1.22rem);line-height:1.55;margin:22px 0 0;max-width:48ch}
+.fx-hero h1{font-size:clamp(2.5rem,5.2vw,4.2rem);line-height:1.1;letter-spacing:-.02em;
+  color:var(--text);font-weight:720;margin:20px 0 0;text-wrap:balance;max-width:16ch}
+.fx-sub{color:var(--text-muted);font-size:clamp(1.05rem,1.6vw,1.2rem);line-height:1.6;margin:22px 0 0;max-width:48ch}
 .fx-sub b{color:var(--text);font-weight:640}
 .fx-ctas{display:flex;gap:12px;margin-top:32px;flex-wrap:wrap;align-items:center}
 .fx-ctas .fx-btn{font-size:15px;padding:14px 24px}
