@@ -15,6 +15,10 @@ import App from './App.tsx'
 import { RevealProvider } from './reveal'
 import { I18nProvider } from './i18n'
 import { ToastProvider } from './toast'
+import { applyTheme, getTheme } from './theme'
+
+// Apply the saved theme before first paint (white-first; dark is opt-in via Settings).
+applyTheme(getTheme())
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
