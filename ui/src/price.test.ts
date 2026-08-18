@@ -3,7 +3,7 @@ import { zecToUsd, rateIsStale, type Rate } from './price'
 
 const rate: Rate = { usd: 40, at: Date.now(), source: 'Test' }
 
-describe('price — pure conversion + staleness', () => {
+describe('price - pure conversion + staleness', () => {
   it('converts a ZEC string to a USD currency string at the given rate', () => {
     expect(zecToUsd('2.5', rate)).toBe('$100.00')
     expect(zecToUsd(0, rate)).toBe('$0.00')

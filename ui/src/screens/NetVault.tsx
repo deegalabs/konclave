@@ -102,7 +102,7 @@ type Msg =
   // rejoin (signing after restore): a restored device announces its ORIGINAL seat (its KeyPackage's
   // identifier is bound to it), so a signing session re-seats by declared seat, not by fresh tags.
   | { type: 'rejoin'; seat: number }
-  // signing (Marco 4): all public material — the proven PCZT to verify, the sighash to sign,
+  // signing (Marco 4): all public material - the proven PCZT to verify, the sighash to sign,
   // commitments, signing package, seed, shares, sig.
   | { type: 'sreq'; msg: string; pczt: string }
   // `k` = the 0-based spend position in a multi-note tx. Each real Orchard spend is its own FROST
@@ -123,7 +123,7 @@ const fmtZec = (zat: number) => (zat / 1e8).toFixed(8).replace(/0+$/, '').replac
 function Shell({ error, children, onDashboard, embedded }: { error: string; children: ReactNode; onDashboard?: () => void; embedded?: boolean }) {
   const t = useT()
   // Embedded (inside the /vaults create modal): render just the content, no full-page wrap /
-  // letterhead / frame — the Dialog is the chrome. Same DKG flow, different container.
+  // letterhead / frame - the Dialog is the chrome. Same DKG flow, different container.
   if (embedded) {
     return (
       <div className="rd net-embedded">
@@ -208,7 +208,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
   const [signSeatCount, setSignSeatCount] = useState(0)
   const [signRoomInput, setSignRoomInput] = useState('')
 
-  // --- on-device persistence (Marco 5) — additive, does not touch the DKG/relay/ceremony ---
+  // --- on-device persistence (Marco 5) - additive, does not touch the DKG/relay/ceremony ---
   const [savePass, setSavePass] = useState('')
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle')
   const [saveErr, setSaveErr] = useState('')
@@ -219,7 +219,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
   const [restoredRoster, setRestoredRoster] = useState<string[]>([])
   // Restored secret material, kept only in memory (never surfaced to JSON logs). Present after a
   // restore; `beginSign` wires it into a signing-only relay session (the device re-announces its
-  // original seat via `rejoin`, then signs with these bytes — no DKG redo).
+  // original seat via `rejoin`, then signs with these bytes - no DKG redo).
   const restoredRef = useRef<{
     keyPackage: Uint8Array
     pubkeys: Uint8Array
@@ -267,7 +267,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
   // The per-ceremony signing state (started/nonces/commits/coord/shares/spends/…) now lives inside
   // the shared SigningMachine (issue #50), constructed below.
   // Ceremony watchdog: fires if the vault isn't created in time (a peer never joined, a
-  // message was lost) — surfaces an error instead of hanging on "Criando…" forever (§8).
+  // message was lost) - surfaces an error instead of hanging on "Criando…" forever (§8).
   const ceremonyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const addLog = useCallback((line: string) => setLog((l) => [...l, line]), [])
@@ -283,7 +283,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
     setError(tt('net.err.relayDown'))
   }, [tt])
 
-  // Seat everyone deterministically by sorting their tags — every device computes the same
+  // Seat everyone deterministically by sorting their tags - every device computes the same
   // seating with no central assigner (the invite code names the room, not the seats).
   const computeSeating = useCallback(() => {
     // Admission control: cap the roster at n by sorted tag, so a late/extra peer can never
@@ -330,7 +330,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
     setGroupVk(vk)
     setPhase('done')
     addLog(tt('net.log.round3'))
-    // Register the finished vault with the hosted blind helper (public group key only — no share
+    // Register the finished vault with the hosted blind helper (public group key only - no share
     // crosses). Fire-and-forget: `/net` works with or without a helper, so a failure just leaves
     // the vault local-only. Idempotent, so every device registering the same group key is fine.
     if (helperConfigured()) {
@@ -394,7 +394,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
       try {
         parsed = JSON.parse(msg.data) as Msg
       } catch {
-        return true // unparseable — consume and ignore
+        return true // unparseable - consume and ignore
       }
       // A throwing handler (a malformed package from a peer) must NOT poison the fixpoint: if it
       // never marked the message consumed, advance() would re-apply and re-throw it forever. Catch,
@@ -421,7 +421,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
         if (!startedDkgRef.current) return false // wait until seated
         const seat = seatByTagRef.current.get(msg.from)
         if (seat === undefined) return false
-        if (seat === mySeatRef.current) return true // my own — ignore
+        if (seat === mySeatRef.current) return true // my own - ignore
         if (r1SeenRef.current.has(seat)) return true
         dkgRef.current!.addRound1(identifierBytes(seat), unb64(parsed.pkg))
         r1SeenRef.current.add(seat)
@@ -667,7 +667,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
     try {
       setSavedVaults(await listVaults())
     } catch {
-      /* listing failure is non-fatal — just show no saved vaults */
+      /* listing failure is non-fatal - just show no saved vaults */
     }
   }, [])
 
@@ -794,7 +794,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
 
   // ---- render ----
 
-  // Create modal (embedded), idle: two separate views — CREATE or JOIN — toggled, never both at
+  // Create modal (embedded), idle: two separate views - CREATE or JOIN - toggled, never both at
   // once, each purpose-built and on brand. Each participant gives their OWN name (travels in the
   // relay hello, so everyone's member list shows real names). DKG logic unchanged.
   if (phase === 'idle' && embedded && showJoin) {
@@ -913,7 +913,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
           {pe('Gerar convite', 'Generate invite')}
         </button>
         <button type="button" className="cv-linkbtn" onClick={() => setShowJoin(true)}>
-          {pe('Tenho um convite — entrar', 'Have an invite? Join')}
+          {pe('Tenho um convite - entrar', 'Have an invite? Join')}
         </button>
       </Shell>
     )
@@ -1082,8 +1082,8 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
           <div className="net-vk">{signature}</div>
           <p className="net-lead" style={{ fontSize: '.82rem', opacity: 0.8, marginTop: 10 }}>
             {pe(
-              'Assinatura válida sob o alpha da própria transação (o mecanismo de gasto Orchard real), verificada sob ak+alpha. A assinatura agregada volta ao operador pelo relay, que a injeta na PCZT e transmite — nenhum dispositivo transmite sozinho, e o operador nunca vê uma parte da chave.',
-              'Valid signature under the transaction’s own alpha (the real Orchard spend mechanism), verified under ak+alpha. The aggregate signature is returned to the operator over the relay, who injects it into the PCZT and broadcasts — no single device broadcasts alone, and the operator never sees a key share.',
+              'Assinatura válida sob o alpha da própria transação (o mecanismo de gasto Orchard real), verificada sob ak+alpha. A assinatura agregada volta ao operador pelo relay, que a injeta na PCZT e transmite - nenhum dispositivo transmite sozinho, e o operador nunca vê uma parte da chave.',
+              'Valid signature under the transaction’s own alpha (the real Orchard spend mechanism), verified under ak+alpha. The aggregate signature is returned to the operator over the relay, who injects it into the PCZT and broadcasts - no single device broadcasts alone, and the operator never sees a key share.',
             )}
           </p>
         </>
@@ -1150,7 +1150,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
   )
 
   // Embedded (create modal): clean, purpose-built rendering for the gathering / running / done
-  // phases — seats filling, a running indicator, and a done step that just protects the device and
+  // phases - seats filling, a running indicator, and a done step that just protects the device and
   // opens the Dashboard (the address/QR/proposals/ceremony all live in the app now).
   if (embedded && (phase === 'roster' || phase === 'dkg' || phase === 'done')) {
     return (
@@ -1199,7 +1199,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
               </button>
               {hostedState === 'registered' && (
                 <button type="button" className="cv-linkbtn cv-danger" onClick={openDashboard}>
-                  {pe('Abrir sem guardar — você perde o seu pedaço ao recarregar (só a recuperação social traz de volta)', 'Open without saving — you lose your share on reload (only social recovery brings it back)')}
+                  {pe('Abrir sem guardar - você perde o seu pedaço ao recarregar (só a recuperação social traz de volta)', 'Open without saving - you lose your share on reload (only social recovery brings it back)')}
                 </button>
               )}
             </div>

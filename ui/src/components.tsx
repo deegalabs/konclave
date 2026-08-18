@@ -20,7 +20,7 @@ export function DemoBanner() {
   )
 }
 
-/** The quiet loading affordance — a single `.hint` line, announced via `role="status"`.
+/** The quiet loading affordance - a single `.hint` line, announced via `role="status"`.
  *  No spinner, no looping motion (strict motion budget): while an initial fetch is in flight
  *  a screen shows this instead of flashing empty-state or mock data. */
 export function Loading() {
@@ -93,7 +93,7 @@ export function LangToggle() {
   )
 }
 
-/** Konclave mark — the radial-key emblem (silver spokes + blue keyhole), matching the logo. */
+/** Konclave mark - the radial-key emblem (silver spokes + blue keyhole), matching the logo. */
 export function Mark() {
   const spokes = Array.from({ length: 12 }, (_, i) => i * 30)
   return (

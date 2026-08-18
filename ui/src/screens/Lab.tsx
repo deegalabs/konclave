@@ -5,7 +5,7 @@ import '../redesign.css'
 import '../landing.css'
 
 /**
- * /lab — the laboratory hub (redesign Fase 0). Groups the live cryptographic proofs that used
+ * /lab - the laboratory hub (redesign Fase 0). Groups the live cryptographic proofs that used
  * to be scattered top-level routes (signer, recovery, inheritance) plus the on-chain proof, so
  * they read as one "see the cryptography" surface instead of disconnected pages. Standalone
  * (no rail), reuses the landing's explore-grid styling. Bilingual inline.

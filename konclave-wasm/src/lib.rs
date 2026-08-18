@@ -7,7 +7,7 @@
 //! 3. ZIP-244 sig_digest recompute (wasm-sighash-probe)
 //!
 //! The point of this crate is that they **compile together** to wasm32 as a single
-//! wasm-bindgen module — the "package the core as WASM" milestone. The full stateful API
+//! wasm-bindgen module - the "package the core as WASM" milestone. The full stateful API
 //! (session handles, per-participant rounds over the wire) lands on top of this.
 
 use std::collections::BTreeMap;
@@ -65,7 +65,7 @@ pub fn frost_selftest() -> Result<String, String> {
 
 // ---------- 3. ZIP-244 sig_digest surface (blake2b, Orchard-only) ----------
 
-/// The ZIP-244 digest of an EMPTY transparent bundle — a fixed blake2b personalized hash,
+/// The ZIP-244 digest of an EMPTY transparent bundle - a fixed blake2b personalized hash,
 /// computable with NO secp256k1 (the whole reason the Orchard-only path is wasm-clean). The
 /// full sig_digest (header ‖ transparent ‖ sapling ‖ orchard) is built from this + the orchard
 /// bundle digest; byte-exact validation vs konclave-signer is the next WS1 step.
@@ -175,7 +175,7 @@ pub mod ceremony {
     }
 
     /// Coordinator: derive the Orchard randomizer SEED (public) from the commitments in the
-    /// package. Signers regenerate the randomizer from this seed — no need to trust the RNG.
+    /// package. Signers regenerate the randomizer from this seed - no need to trust the RNG.
     pub fn coordinator_randomizer_seed(
         group_vk: &VerifyingKey,
         sp_bytes: &[u8],
@@ -255,7 +255,7 @@ pub mod ceremony {
 
     /// Participant round 2, signing with the given Orchard randomizer (alpha), 32 canonical bytes.
     // frost-rerandomized deprecates the explicit-randomizer `sign` in favour of a seed the
-    // coordinator generates — but an Orchard spend's alpha is FIXED by the transaction (read from the
+    // coordinator generates - but an Orchard spend's alpha is FIXED by the transaction (read from the
     // PCZT), not freely chosen, so the seed path cannot express it. Signing under this exact
     // randomizer is required and correct here.
     #[allow(deprecated)]
@@ -330,7 +330,7 @@ pub mod ceremony {
             let group_vk = *pubkeys.verifying_key();
             let message = b"konclave: a real Orchard sighash would go here";
 
-            // Two devices (the quorum) round 1 — each keeps nonces LOCAL, sends commitment bytes.
+            // Two devices (the quorum) round 1 - each keeps nonces LOCAL, sends commitment bytes.
             let signers: Vec<_> = kps.iter().take(2).collect();
             let mut local_nonces = Vec::new();
             let mut wire_commitments = Vec::new();
@@ -344,14 +344,14 @@ pub mod ceremony {
             let sp_bytes = coordinator_signing_package(&wire_commitments, message).unwrap();
             let seed = coordinator_randomizer_seed(&group_vk, &sp_bytes).unwrap();
 
-            // Each device round 2 — sign with local nonces + seed, send share bytes.
+            // Each device round 2 - sign with local nonces + seed, send share bytes.
             let mut wire_shares = Vec::new();
             for ((id, kp), (_id2, nonces)) in signers.iter().zip(local_nonces.iter()) {
                 let share_bytes = participant_round2(&sp_bytes, nonces, kp, &seed).unwrap();
                 wire_shares.push((id.serialize(), share_bytes));
             }
 
-            // Coordinator aggregates + everyone can verify — all from serialized wire data.
+            // Coordinator aggregates + everyone can verify - all from serialized wire data.
             let sig_bytes =
                 coordinator_aggregate(&sp_bytes, &group_vk, &seed, &wire_shares, &pubkeys).unwrap();
             assert!(
@@ -362,7 +362,7 @@ pub mod ceremony {
 
         #[test]
         fn signs_with_a_real_orchard_randomizer() {
-            // The alpha of Konclave's real mainnet DKG-vault spend (aab00f90…) — a valid Orchard
+            // The alpha of Konclave's real mainnet DKG-vault spend (aab00f90…) - a valid Orchard
             // randomizer. This is the path a real transaction takes: sign under the PCZT's alpha,
             // not a commitment-derived seed, so the signature can be injected and broadcast.
             let alpha =
@@ -413,7 +413,7 @@ pub mod ceremony {
                 verify_with_randomizer(&group_vk, &alpha, message, &sig).unwrap(),
                 "signature must verify under the key randomized by the Orchard alpha"
             );
-            // ...and a DIFFERENT randomizer must NOT verify — the alpha binds the signature.
+            // ...and a DIFFERENT randomizer must NOT verify - the alpha binds the signature.
             let other =
                 hex::decode("557c4ff828ed56eb33e8ba7f508a43915338ccf3ad71d1ecedc98e6e861bfc0f")
                     .unwrap();
@@ -432,7 +432,7 @@ pub mod ceremony {
 //
 //   part1 → a round1 SecretPackage (STAYS on the device) + a round1 Package (PUBLIC, broadcast)
 //   part2 → a round2 SecretPackage (STAYS on the device) + one round2 Package PER OTHER member
-//           — each is a SECRET share-piece for ONE recipient, and MUST be sealed to that
+//           - each is a SECRET share-piece for ONE recipient, and MUST be sealed to that
 //           recipient before it touches the relay (that is the confidential channel, below)
 //   part3 → combine everything received → this device's KeyPackage (its share) + the shared
 //           PublicKeyPackage (the group). Every honest device derives the SAME group key.
@@ -492,7 +492,7 @@ pub mod dkg {
     }
 
     /// Round 3: combine the OTHER members' round1 packages `(sender_id, bytes)` and the round2
-    /// packages addressed TO this device `(sender_id, bytes)` — sender-keyed, opened locally.
+    /// packages addressed TO this device `(sender_id, bytes)` - sender-keyed, opened locally.
     /// Returns this device's serialized KeyPackage (its share) and the group PublicKeyPackage.
     pub fn part3_wire(
         round2_secret: &round2::SecretPackage,
@@ -523,7 +523,7 @@ pub mod dkg {
         use frost::keys::{KeyPackage, PublicKeyPackage};
 
         /// A full 3-party DKG driven entirely over serialized wire bytes (what the relay
-        /// carries), then a 2-of-3 signing with the resulting shares — proving the vault the
+        /// carries), then a 2-of-3 signing with the resulting shares - proving the vault the
         /// DKG produced is real and usable, and that the group key is agreed by all.
         #[test]
         fn three_party_dkg_over_the_wire_then_signs() {
@@ -631,7 +631,7 @@ pub mod dkg {
 // ---------- Social recovery: repair a lost share (Repairable Threshold Scheme) ----------
 //
 // Steward has this; now so do we. When a member loses their device, a QUORUM of the others
-// helps rebuild that member's share — the group key is never touched, no share is revealed to
+// helps rebuild that member's share - the group key is never touched, no share is revealed to
 // anyone, and the repaired share is byte-identical to the lost one (repair in place). This is
 // the RTS of <https://eprint.iacr.org/2017/1155>, which frost-core ships as `repair_share_*`.
 // Only "delta"/"sigma" scalars cross between helpers (blindable public material), so this rides
@@ -649,7 +649,7 @@ pub mod recovery {
 
     /// A helper's round-1 output for repairing `lost`'s share: one Delta per helper (keyed by
     /// recipient). Takes the helper's own KeyPackage (what the DKG produced). Over the relay each
-    /// Delta serializes to 32 bytes and is sealed to its recipient — the same blind path as DKG.
+    /// Delta serializes to 32 bytes and is sealed to its recipient - the same blind path as DKG.
     pub fn helper_deltas(
         helpers: &[Identifier],
         helper_kp: &KeyPackage,
@@ -867,7 +867,7 @@ pub mod seal {
     const EPH_LEN: usize = 32;
     const NONCE_LEN: usize = 24;
 
-    /// A device's long-term encryption keypair — separate from its FROST share. The public
+    /// A device's long-term encryption keypair - separate from its FROST share. The public
     /// half rides in the invite/contacts; the secret half never leaves the device.
     pub struct DeviceKey {
         secret: StaticSecret,
@@ -1010,7 +1010,7 @@ pub mod seal {
 // ---------- the FROST<->PCZT bridge, ported from konclave-signer (browser parity) ----------
 // Slice 1 of "real-transaction browser signing": extract the per-spend randomizers from a proven
 // PCZT and inject the FROST redpallas signatures back, in wasm-clean Rust. The shielded sighash is
-// **passed in** (it is public — it is the message that gets signed — and computing it from the full
+// **passed in** (it is public - it is the message that gets signed - and computing it from the full
 // tx needs the heavy native tx machinery); the client only parses the PCZT and applies signatures,
 // which rides on `orchard` (already linked). Pinned to byte-for-byte parity with konclave-signer by
 // the same real mainnet golden vectors used to close audit C6.
@@ -1041,7 +1041,7 @@ pub mod pczt_bridge {
     }
 
     // Ironwood (NU6.3) reuses `orchard::pczt::Bundle`, so the spend/output reading is identical for
-    // both pools — only the `low_level_signer` method (`sign_orchard_with` vs `sign_ironwood_with`)
+    // both pools - only the `low_level_signer` method (`sign_orchard_with` vs `sign_ironwood_with`)
     // differs. A single Konclave send spends from ONE pool; we read Orchard first and fall back to
     // Ironwood, matching konclave-signer's pool-aware bridge (§ Phase 12).
 
@@ -1119,7 +1119,7 @@ pub mod pczt_bridge {
         pub value: Option<u64>,
     }
 
-    /// Read every Orchard output of a proven PCZT as `(address, value)` — what this transaction
+    /// Read every Orchard output of a proven PCZT as `(address, value)` - what this transaction
     /// actually pays, in cleartext, so each device can verify it against the human-approved proposal
     /// BEFORE contributing its signature. This is the "what am I signing?" primitive: on-device
     /// verification is what keeps a malicious create/prove from getting a quorum to sign a different
@@ -1203,7 +1203,7 @@ pub mod pczt_bridge {
     // The device must NEVER sign a sighash handed to it over the relay: a malicious helper could
     // show a benign PCZT but pass the sighash of an attacker's transaction (issue #62 / ADR-0007
     // invariant I2, the transaction-swap attack). This recomputes the sighash from the device's OWN
-    // proven PCZT, so the FROST quorum signs exactly the transaction it inspected — nothing else.
+    // proven PCZT, so the FROST quorum signs exactly the transaction it inspected - nothing else.
     //
     // Byte-exact mirror of `pczt::roles::signer::Signer::shielded_sighash` (librustzcash rev
     // 42ffd0d), which is `sighash(tx_data.digest(TxIdDigester))` = ZIP-244 §S with `SignableInput::
@@ -1215,11 +1215,11 @@ pub mod pczt_bridge {
     //     (`Bundle::commitment`, via the wasm-clean `orchard::pczt::Bundle::extract_effects`), exactly
     //     as `TxIdDigester::digest_{orchard,ironwood}` do.
     // The tx version, version_group_id, consensus_branch_id, lock time and expiry all come from the
-    // PCZT `global()` — nothing is hardcoded.
+    // PCZT `global()` - nothing is hardcoded.
     //
     // Scope: shielded-only sends (no transparent or Sapling components), which is every Konclave
     // browser transaction. A transparent or Sapling bundle is rejected rather than silently hashed
-    // wrong — the sig_digest is security-critical, so an unsupported shape must fail loudly.
+    // wrong - the sig_digest is security-critical, so an unsupported shape must fail loudly.
 
     // ZIP-244 personalizations (see `zcash_primitives::transaction::txid`).
     const P_HEADERS: &[u8; 16] = b"ZTxIdHeadersHash";
@@ -1303,7 +1303,7 @@ pub mod pczt_bridge {
             v => return Err(format!("unsupported PCZT tx version {v} (expected 5 or 6)")),
         };
 
-        // T.1 header digest — tx header (overwintered bit | version), version_group_id,
+        // T.1 header digest - tx header (overwintered bit | version), version_group_id,
         // consensus_branch_id, lock_time, expiry_height, all u32 little-endian.
         let mut header_bytes = Vec::with_capacity(20);
         header_bytes.extend_from_slice(&(0x8000_0000u32 | tx_version).to_le_bytes());
@@ -1711,7 +1711,7 @@ mod js {
             .map_err(je)
         }
 
-        /// Verify a group signature under the key re-randomized by the given alpha — the exact check
+        /// Verify a group signature under the key re-randomized by the given alpha - the exact check
         /// an Orchard spend passes on-chain.
         #[wasm_bindgen(js_name = verifyWithRandomizer)]
         pub fn verify_with_randomizer(
@@ -1753,7 +1753,7 @@ mod js_dkg {
         r1_in: Vec<WireItem>,  // (sender_id, round-1 package) from the OTHERS
         r2_in: Vec<WireItem>,  // (sender_id, round-2 package) addressed to me, already opened
         r1_pkg: Vec<u8>,       // my round-1 package (public, to broadcast)
-        r2_out: Vec<WireItem>, // (recipient_id, round-2 package) — SECRET, seal each before send
+        r2_out: Vec<WireItem>, // (recipient_id, round-2 package) - SECRET, seal each before send
         key_package: Vec<u8>,
         pubkeys: Vec<u8>,
         group_vk: Vec<u8>,
@@ -1857,7 +1857,7 @@ mod js_dkg {
             self.pubkeys.clone()
         }
         /// The vault's identity: the 32-byte group verifying key. Every honest device derives
-        /// the SAME value — the UI shows it so both tabs can confirm they built one vault.
+        /// the SAME value - the UI shows it so both tabs can confirm they built one vault.
         #[wasm_bindgen(js_name = groupVk)]
         pub fn group_vk(&self) -> Vec<u8> {
             self.group_vk.clone()
@@ -1920,7 +1920,7 @@ mod js_dkg {
         dkg::identifier_bytes(index).map_err(je)
     }
 
-    /// Verify a group signature against the vault's key — so EVERY device confirms the result
+    /// Verify a group signature against the vault's key - so EVERY device confirms the result
     /// for itself, not on the coordinator's word. All inputs are public (signing package, seed,
     /// message, signature); the share never enters.
     #[wasm_bindgen(js_name = verifyRedpallas)]
@@ -1938,7 +1938,7 @@ mod js_dkg {
 
 // ---------- wasm-bindgen JS API for social recovery (RTS over the relay) ----------
 // Two roles: helpers (who still have their shares) rebuild a lost member's share; the
-// recovering member combines the result. Deltas are secret — JS seals each to its recipient
+// recovering member combines the result. Deltas are secret - JS seals each to its recipient
 // with sealTo (same confidential path as the DKG's round-2), so the relay stays blind.
 #[cfg(target_arch = "wasm32")]
 mod js_recovery {
@@ -1976,7 +1976,7 @@ mod js_recovery {
                 incoming: vec![],
             }
         }
-        /// Register a helper's identifier — call once per helper seat, INCLUDING this one.
+        /// Register a helper's identifier - call once per helper seat, INCLUDING this one.
         #[wasm_bindgen(js_name = addHelper)]
         pub fn add_helper(&mut self, id: &[u8]) {
             self.helper_ids.push(id.into());
@@ -2080,13 +2080,13 @@ mod js_pczt {
 
     /// Read every Orchard output of a proven PCZT as JSON: `[{"address": string|null, "value":
     /// number|null}, ...]`. The UI shows this and confirms it against the approved proposal BEFORE
-    /// the device signs — the "what am I signing?" check. Addressed entries are real recipients;
+    /// the device signs - the "what am I signing?" check. Addressed entries are real recipients;
     /// `address: null` entries are change. Values are zatoshis.
     #[wasm_bindgen(js_name = describeOutputs)]
     pub fn describe_outputs(pczt: &[u8]) -> Result<String, JsValue> {
         let outs = pczt_bridge::describe_outputs(pczt).map_err(je)?;
         // Build JSON by hand: UAs are bech32m ([a-z0-9]) so they need no escaping, and values are
-        // integers — no serde dependency required.
+        // integers - no serde dependency required.
         let mut s = String::from("[");
         for (i, o) in outs.iter().enumerate() {
             if i > 0 {
@@ -2130,7 +2130,7 @@ mod js_pczt {
     }
 
     /// Recompute the ZIP-244 shielded sig_digest from THIS device's own proven PCZT, returning the
-    /// 32-byte sighash. The signing driver signs this value, never a sighash handed over the relay —
+    /// 32-byte sighash. The signing driver signs this value, never a sighash handed over the relay -
     /// the on-device defence against the transaction-swap attack (issue #62 / ADR-0007 I2). Errors
     /// if the PCZT is not a shielded-only v5/v6 transaction.
     #[wasm_bindgen(js_name = pcztSighash)]

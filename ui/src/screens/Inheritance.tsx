@@ -6,7 +6,7 @@ import '../net.css'
 import '../inheritance.css'
 
 // -------------------------------------------------------------------------------------------
-// TS mirror of orchestrator/src/inheritance.rs — the pure dead-man's-switch policy engine.
+// TS mirror of orchestrator/src/inheritance.rs - the pure dead-man's-switch policy engine.
 // Reproduced faithfully so this screen is a live, client-side visualization of the SAME logic
 // the Rust core runs (no backend call). All times are in seconds, mirroring the unix timestamps
 // the Rust functions take. Kept as small pure functions so the mapping stays one-to-one.
@@ -18,7 +18,7 @@ type SwitchState = 'Active' | 'Pending' | 'Released'
 /** The policy attached to a vault to arm the switch (mirrors Rust `InheritancePolicy`). */
 type InheritancePolicy = { lapseSecs: number; graceSecs: number; heirAddress: string }
 
-/** Mirrors `InheritancePolicy::new` — rejects nonsensical values so a misconfigured switch can
+/** Mirrors `InheritancePolicy::new` - rejects nonsensical values so a misconfigured switch can
  *  never arm. Returns the policy or an error KEY (resolved to copy by the caller). */
 function newPolicy(
   lapseSecs: number,
@@ -32,7 +32,7 @@ function newPolicy(
 }
 
 /** Mirrors `evaluate`. A `lastHeartbeat` in the future (clock skew) reads as "just now"
- *  (Active) because the silence is clamped at zero — never a reason to arm early. */
+ *  (Active) because the silence is clamped at zero - never a reason to arm early. */
 function evaluate(policy: InheritancePolicy, lastHeartbeat: number, now: number): SwitchState {
   const silent = Math.max(0, now - lastHeartbeat) // saturating_sub
   if (silent < policy.lapseSecs) return 'Active'
@@ -40,13 +40,13 @@ function evaluate(policy: InheritancePolicy, lastHeartbeat: number, now: number)
   return 'Released'
 }
 
-/** Mirrors `release_authorized` — only in the Released state; a lapse still in grace is not
+/** Mirrors `release_authorized` - only in the Released state; a lapse still in grace is not
  *  enough, so a brief outage never leaks the vault. */
 function releaseAuthorized(policy: InheritancePolicy, lastHeartbeat: number, now: number): boolean {
   return evaluate(policy, lastHeartbeat, now) === 'Released'
 }
 
-/** Mirrors `secs_until_release` — seconds until the switch would move to Released (0 if already
+/** Mirrors `secs_until_release` - seconds until the switch would move to Released (0 if already
  *  there). Lets the UI show a live countdown. */
 function secsUntilRelease(policy: InheritancePolicy, lastHeartbeat: number, now: number): number {
   const deadline = lastHeartbeat + policy.lapseSecs + policy.graceSecs
@@ -56,7 +56,7 @@ function secsUntilRelease(policy: InheritancePolicy, lastHeartbeat: number, now:
 const DAY = 86_400
 
 // -------------------------------------------------------------------------------------------
-// Local, locale-aware copy (PT-BR + EN). No shared i18n keys touched — same house pattern as
+// Local, locale-aware copy (PT-BR + EN). No shared i18n keys touched - same house pattern as
 // Receive.tsx / WasmSigner's neighbours.
 // -------------------------------------------------------------------------------------------
 

@@ -1,24 +1,24 @@
 // Client for the hosted BLIND helper (orchestrator/src/helper.rs + helper-server, ADR-0006
 // Rung A). The helper turns a browser-DKG group key into an operable vault: it derives the
 // vault's Orchard address + UFVK (public material only), keeps a view-only wallet per vault,
-// and — over Architecture B — builds/proves/broadcasts a spend while the browsers sign over the
+// and - over Architecture B - builds/proves/broadcasts a spend while the browsers sign over the
 // blind relay. It NEVER receives, derives, or stores a share. So this client only ever sends the
 // PUBLIC group key (already shown on `/net`) and public send parameters; no secret crosses it.
 //
 // `VITE_HELPER_BASE` points at the hosted helper (e.g. https://konclave-helper-production.up.
 // railway.app). When unset, every call degrades to `null` and `/net` stays a pure two-device
-// ceremony with no hosted vault — the local-first path is unchanged.
+// ceremony with no hosted vault - the local-first path is unchanged.
 
 const ENV = import.meta.env as Record<string, string | undefined>
 
 /** The BUILT-IN hosted helper's base URL ("our helper"), or '' when none is baked in. */
 export const HELPER_BASE: string = ENV.VITE_HELPER_BASE ?? ''
 
-// Coordination mode — the user's runtime choice of WHERE the blind helper lives (desktop):
+// Coordination mode - the user's runtime choice of WHERE the blind helper lives (desktop):
 //   'ours'   → the built-in HELPER_BASE (default when one is baked in)
 //   'custom' → a self-hosted helper URL the user provides
 //   'local'  → no helper at all (pure local orchestrator/bridge)
-// Persisted per device. The helper stays BLIND in every mode — it never sees a share; switching
+// Persisted per device. The helper stays BLIND in every mode - it never sees a share; switching
 // modes only changes which blind coordinator (or none) the browser talks to.
 export type CoordMode = 'ours' | 'custom' | 'local'
 const MODE_KEY = 'konclave.coord.mode'
@@ -45,7 +45,7 @@ export function setCoordMode(mode: CoordMode, url?: string): void {
   try {
     localStorage.setItem(MODE_KEY, mode)
     if (url !== undefined) localStorage.setItem(URL_KEY, url.trim().replace(/\/+$/, ''))
-  } catch { /* storage unavailable — the choice won't persist, but applies this session */ }
+  } catch { /* storage unavailable - the choice won't persist, but applies this session */ }
 }
 
 /** The EFFECTIVE helper base for the current mode, or '' when local / unset. */

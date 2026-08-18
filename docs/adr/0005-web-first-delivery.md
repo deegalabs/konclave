@@ -1,10 +1,10 @@
-# ADR-0005: Web-first delivery — the browser is the universal distribution
+# ADR-0005: Web-first delivery - the browser is the universal distribution
 
 **Status:** Accepted (2026-07-27)
 
 ## Context
 
-Konclave must reach ordinary treasurers on whatever device they already have —
+Konclave must reach ordinary treasurers on whatever device they already have -
 Windows, macOS, Linux (many distros), Android, iOS. The naive path is a native app per
 platform, which drags in the whole packaging matrix: `.msi` / `.dmg` / `.deb` / `.rpm` /
 AppImage / Flatpak / Snap, plus two mobile app-store pipelines. For a solo project that is
@@ -32,7 +32,7 @@ native shells are optional wrappers, not requirements.**
 - **Web (primary):** the static `ui/` bundle + `konclave-wasm`, talking to a hosted blind
   relay. One artifact serves every OS and both mobile platforms. No per-distro packaging.
 - **Installable (PWA):** a web app manifest + a minimal, update-safe service worker make it
-  installable to a home screen / desktop and give an offline app shell — without any store.
+  installable to a home screen / desktop and give an offline app shell - without any store.
 - **Mobile = the browser / PWA.** The phone holds its share (encrypted IndexedDB), signs
   in-browser via WASM over the relay; build/prove/broadcast stay off-device (helper).
 - **Desktop native (optional, deferred):** a Tauri shell wrapping the `orchestrator` for a
@@ -40,7 +40,7 @@ native shells are optional wrappers, not requirements.**
   never the trust model. Deferred while the dev machine's GTK/WSLg window will not render.
 - **Not Wails / a Go shell.** The backend is Rust (`orchestrator`, `konclave-signer`); a Go
   desktop framework would mean porting Layer 2, and it uses the same WebKitGTK that blocks
-  us on WSLg — so it solves nothing here. Tauri stays the native path when we package one.
+  us on WSLg - so it solves nothing here. Tauri stays the native path when we package one.
 
 ## Consequences
 
@@ -49,7 +49,7 @@ native shells are optional wrappers, not requirements.**
 - **The custody invariant is unchanged across shells:** the share stays on-device and
   encrypted; only a wrapper (Tauri) or a tab (PWA) differs.
 - **Honest gaps that remain before "mobile = browser" is fully closed:**
-  - **sign-after-restore** in `/net` — restoring a share from IndexedDB works; reconnecting
+  - **sign-after-restore** in `/net` - restoring a share from IndexedDB works; reconnecting
     to the relay and signing again after a reload is the pending piece.
   - a real broadcast Orchard transaction from the browser (today `/net` signs a real Orchard
     sighash and verifies; the broadcast loop is Architecture B, wired but not yet live).

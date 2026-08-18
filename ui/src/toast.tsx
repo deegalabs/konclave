@@ -13,7 +13,7 @@ import {
 // exposes `useToast()` with `ok/err/info`, and a single <Toaster/> renders the live stack
 // (bottom-right on desktop, bottom-center on mobile). Each toast auto-dismisses after ~3.5s,
 // can be closed manually (× or Escape), and is announced politely to assistive tech.
-// Styling uses the existing design tokens only (see lacre.css) — no new colors.
+// Styling uses the existing design tokens only (see lacre.css) - no new colors.
 
 type ToastKind = 'ok' | 'err' | 'info'
 

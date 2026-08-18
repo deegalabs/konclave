@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// verify-proof.mjs — independent, judge-runnable proof that Konclave's claimed
+// verify-proof.mjs - independent, judge-runnable proof that Konclave's claimed
 // mainnet transactions are real, mined Zcash transactions.
 //
 // This script talks ONLY to public block explorers. It has no dependencies and
@@ -13,7 +13,7 @@
 //   reveals nothing about amounts or parties. It does NOT, by itself, prove the
 //   2-of-3 threshold/FROST nature of the signature. A FROST-aggregated Orchard
 //   signature is designed to be indistinguishable on-chain from an ordinary
-//   single-signer Orchard signature — that indistinguishability is precisely the
+//   single-signer Orchard signature - that indistinguishability is precisely the
 //   privacy property. The threshold nature is attested by the build and the
 //   ceremony logs, not by the chain. This script deliberately does not overclaim.
 //
@@ -200,7 +200,7 @@ async function verifyOne(entry) {
 }
 
 async function main() {
-  console.log("Konclave — independent on-chain proof of mainnet transactions");
+  console.log("Konclave - independent on-chain proof of mainnet transactions");
   console.log("Explorers: Blockchair (primary), zcashexplorer.app (fallback)");
   console.log("Node:", process.version);
 
@@ -221,23 +221,23 @@ async function main() {
   const allConfirmed = results.every((r) => r.ok);
 
   if (anyNetworkFailure) {
-    console.log("VERDICT: INCONCLUSIVE — a public explorer could not be reached.");
+    console.log("VERDICT: INCONCLUSIVE - a public explorer could not be reached.");
     console.log("The network appears unavailable. Re-run when online; this is not a");
     console.log("statement about the transactions, only about connectivity.");
     process.exit(1);
   }
 
   if (allConfirmed) {
-    console.log("VERDICT: VERIFIED — the txids are real, mined Zcash mainnet transactions.");
+    console.log("VERDICT: VERIFIED - the txids are real, mined Zcash mainnet transactions.");
   } else {
-    console.log("VERDICT: FAILED — at least one txid was not confirmed as found+mined.");
+    console.log("VERDICT: FAILED - at least one txid was not confirmed as found+mined.");
   }
 
   console.log("\nHonest scope: this proves existence + mined state on mainnet. Being");
   console.log("shielded, these transactions reveal nothing on-chain about amounts or");
   console.log("parties. On-chain data does NOT by itself prove the 2-of-3 FROST nature:");
   console.log("a FROST-aggregated Orchard signature is indistinguishable from a normal");
-  console.log("single-signer one — that indistinguishability is the privacy property.");
+  console.log("single-signer one - that indistinguishability is the privacy property.");
   console.log("The threshold nature is attested by the build and ceremony, not the chain.");
 
   process.exit(allConfirmed ? 0 : 1);

@@ -41,9 +41,9 @@ describe('fmtZec', () => {
     expect(fmtZec('12')).toBe('12.0000')
   })
   it('falls back on empty / non-finite', () => {
-    expect(fmtZec('')).toBe('—')
-    expect(fmtZec(undefined)).toBe('—')
-    expect(fmtZec('abc')).toBe('—')
+    expect(fmtZec('')).toBe('-')
+    expect(fmtZec(undefined)).toBe('-')
+    expect(fmtZec('abc')).toBe('-')
     expect(fmtZec('', 'n/a')).toBe('n/a')
   })
 })
@@ -72,14 +72,14 @@ describe('fmtDate', () => {
     const unix = Math.floor(new Date(2026, 4, 4, 12, 0, 0).getTime() / 1000) // 2026-05-04
     expect(fmtDate(unix)).toBe('04/05/2026')
   })
-  it('returns — for absent/invalid, never NaN', () => {
-    expect(fmtDate(undefined)).toBe('—')
-    expect(fmtDate(0)).toBe('—')
-    expect(fmtDate(Number.MAX_SAFE_INTEGER)).toBe('—')
+  it('returns - for absent/invalid, never NaN', () => {
+    expect(fmtDate(undefined)).toBe('-')
+    expect(fmtDate(0)).toBe('-')
+    expect(fmtDate(Number.MAX_SAFE_INTEGER)).toBe('-')
   })
 })
 
-describe('fingerprintCode (pure — vault fingerprint encoding, #65 I4)', () => {
+describe('fingerprintCode (pure - vault fingerprint encoding, #65 I4)', () => {
   it('is deterministic and formatted as three groups of three Crockford chars', () => {
     const d = new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7])
     const code = fingerprintCode(d)

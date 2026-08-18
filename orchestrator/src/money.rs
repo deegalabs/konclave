@@ -1,4 +1,4 @@
-//! Money as zatoshis — the only unit the domain trusts.
+//! Money as zatoshis - the only unit the domain trusts.
 //!
 //! ZEC amounts are always integers of zatoshis (1 ZEC = 100_000_000 zat). Floating
 //! point never touches value math. All arithmetic is checked; overflow and amounts

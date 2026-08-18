@@ -1,7 +1,7 @@
 //! In-process console simulation of Konclave's core use cases.
 //!
 //! Drives the **real** request handlers (`server::handle`) against a throwaway SQLite DB
-//! and prints a readable trace of each use case — no HTTP server, no network, no FROST
+//! and prints a readable trace of each use case - no HTTP server, no network, no FROST
 //! engine binaries. It runs anywhere `cargo` does and doubles as living documentation of
 //! the propose → approve → account flow.
 //!
@@ -10,20 +10,20 @@
 //! Covered: list the vault · authoritative address safety (M2) · propose a payment ·
 //! approve to quorum (Awaiting → Ready) · refuse path · accounting ledger + itemized CSV.
 //! The signing/broadcast step needs the FROST engine (`--ceremony`) and is out of scope
-//! here — it is printed as an honest note, not faked.
+//! here - it is printed as an honest note, not faked.
 
 use orchestrator::address::validate_recipient;
 use orchestrator::proposal::Quorum;
 use orchestrator::server::{self, Config, SLICE_ADDRESS};
 use orchestrator::store::{Member, Store, VaultRecord};
 
-/// A real mainnet Sapling address — an Orchard vault cannot pay it (funds would lock, §8).
+/// A real mainnet Sapling address - an Orchard vault cannot pay it (funds would lock, §8).
 const SAPLING_ADDR: &str =
     "zs1qqqqqqqqqqqqqqqqqqcguyvaw2vjk4sdyeg0lc970u659lvhqq7t0np6hlup5lusxle75c8v35z";
 
 fn main() {
     println!("\n╔══════════════════════════════════════════════════════════════╗");
-    println!("║  Konclave — in-process simulation of the core use cases        ║");
+    println!("║  Konclave - in-process simulation of the core use cases        ║");
     println!("║  (real handlers, throwaway DB, no server / no engine)          ║");
     println!("╚══════════════════════════════════════════════════════════════╝");
 
@@ -44,7 +44,7 @@ fn main() {
     signing_note(ready_id);
 
     let _ = std::fs::remove_file(&db);
-    println!("\n✓ simulation complete — every step above ran through the real core.\n");
+    println!("\n✓ simulation complete - every step above ran through the real core.\n");
 }
 
 /// Seed a clean 2-of-3 vault (no example proposals) so the trace shows only what we do.
@@ -114,9 +114,9 @@ fn list_vault(cfg: &Config) {
     }
 }
 
-/// Use case: authoritative address validation (M2) — the fund-lock guard, in console.
+/// Use case: authoritative address validation (M2) - the fund-lock guard, in console.
 fn address_safety() {
-    section("Address safety (M2 — the fund-lock guard)");
+    section("Address safety (M2 - the fund-lock guard)");
     for (label, addr) in [
         ("real Orchard UA", SLICE_ADDRESS),
         ("mainnet Sapling", SAPLING_ADDR),
@@ -143,7 +143,7 @@ fn address_safety() {
 
 /// Use case: propose a payment, then approve until the quorum is met (Awaiting → Ready).
 fn propose_and_approve(cfg: &Config) -> String {
-    section("Use case 1 — propose a payment, approve to quorum");
+    section("Use case 1 - propose a payment, approve to quorum");
     let body = format!(
         r#"{{"proposer":"Alice","to_address":"{SLICE_ADDRESS}","value_zec":"0.0005","memo":"reembolso maio"}}"#
     );
@@ -174,7 +174,7 @@ fn propose_and_approve(cfg: &Config) -> String {
 
 /// Use case: a refusal on a fresh proposal, showing the state machine reacts.
 fn refuse_path(cfg: &Config) {
-    section("Use case 2 — a member refuses");
+    section("Use case 2 - a member refuses");
     let body = format!(
         r#"{{"proposer":"Alice","to_address":"{SLICE_ADDRESS}","value_zec":"0.0003","memo":"material"}}"#
     );
@@ -192,9 +192,9 @@ fn refuse_path(cfg: &Config) {
     );
 }
 
-/// Use case: private payroll — one Orchard transaction paying N beneficiaries, approved once.
+/// Use case: private payroll - one Orchard transaction paying N beneficiaries, approved once.
 fn payroll_path(cfg: &Config) {
-    section("Use case 3 — private payroll (N beneficiaries, one envelope)");
+    section("Use case 3 - private payroll (N beneficiaries, one envelope)");
     let body = format!(
         r#"{{"proposer":"Alice","description":"Folha · maio/2026","lines":[
             {{"label":"Infra","address":"{SLICE_ADDRESS}","value_zec":"0.0002","memo":"servidores"}},
@@ -220,12 +220,12 @@ fn payroll_path(cfg: &Config) {
         "   → Carol approves  ·  state = {}",
         approved["proposal"]["state"].as_str().unwrap_or("?"),
     );
-    println!("   ✓ one shielded transaction, N outputs — itemized as N ledger rows below.");
+    println!("   ✓ one shielded transaction, N outputs - itemized as N ledger rows below.");
 }
 
-/// Use case: the accounting trail — JSON ledger + itemized CSV export.
+/// Use case: the accounting trail - JSON ledger + itemized CSV export.
 fn accounting(cfg: &Config) {
-    section("Accounting — ledger + itemized CSV");
+    section("Accounting - ledger + itemized CSV");
     let ledger = call(cfg, "GET", "/api/ledger", "");
     let n = ledger["ledger"].as_array().map(|a| a.len()).unwrap_or(0);
     println!(

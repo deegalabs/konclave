@@ -1,12 +1,12 @@
 import { AbsoluteFill, OffthreadVideo, staticFile } from "remotion";
 
-/** seconds — match the Veo source clip so the loop cuts clean */
+/** seconds - match the Veo source clip so the loop cuts clean */
 export const LOOP_DURATION = 8;
 export const FPS = 30;
 
 /**
  * The Konclave landing background loop: one continuous WHITE futuristic vault take
- * (the Veo image-to-video clip — see README). Keep motion slow and constant so the
+ * (the Veo image-to-video clip - see README). Keep motion slow and constant so the
  * loop point disappears. A very light white wash keeps hero text readable if this
  * is ever used raw; the landing also lays its own scrim on top.
  */

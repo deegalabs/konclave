@@ -1,9 +1,9 @@
-# Konclave — Token Mapping (the migration map)
+# Konclave - Token Mapping (the migration map)
 
 > Phase: guidelines | Brand: konclave | Generated: 2026-07-08
 
 The mechanical old->new migration so the CSS consolidation is a find-and-replace, not
-a redesign. Strategy: **EXTEND / CONSOLIDATE** — keep every current value (blue accent
+a redesign. Strategy: **EXTEND / CONSOLIDATE** - keep every current value (blue accent
 `#57a6ff` locked); fix the names; merge `lacre.css` + `redesign.css` + `App.css` into
 one token layer; delete the stray oxblood literals.
 
@@ -16,7 +16,7 @@ Apply order (safe, no mid-flight breakage):
 
 ---
 
-## 1. Renamed `:root` tokens — `lacre.css`
+## 1. Renamed `:root` tokens - `lacre.css`
 
 | Old | New | Value | Files that reference it |
 | --- | --- | --- | --- |
@@ -37,7 +37,7 @@ Apply order (safe, no mid-flight breakage):
 > blue (not wax), `--pine` had become mint (not archival green). Renaming to role
 > (`--accent`, `--success`) is the core of this migration.
 
-## 2. Scoped `.rd-*` tokens — `redesign.css` (fold into the shared set)
+## 2. Scoped `.rd-*` tokens - `redesign.css` (fold into the shared set)
 
 | Old | New | Value | Note |
 | --- | --- | --- | --- |
@@ -46,7 +46,7 @@ Apply order (safe, no mid-flight breakage):
 | `--rd-accent` | `--accent` | `#57a6ff` | identical |
 | `--rd-silver` | `--silver` | `#c6cfd9` | identical |
 | `--rd-line` | `--line-soft` | `rgba(180,205,235,.10)` | translucent hairline for the lighter cards |
-| `var(--mono, monospace)` | `var(--font-mono)` | — | ~15 call-sites in redesign.css use the fallback form |
+| `var(--mono, monospace)` | `var(--font-mono)` | - | ~15 call-sites in redesign.css use the fallback form |
 
 After this, `.rd` stops being a private dialect: the `.rd-*` **layout** classes stay
 (they are just class names on Intro/Vaults), but they consume the **shared** tokens.
@@ -60,14 +60,14 @@ feels like a different app."
 | `--surface-0` | `#12161a` | body gradient terminal (lacre.css), redesign.css `#12161a`, unlock-input bg, modal gradient (App.css) |
 | `--surface-3` | `#28313a` | raised/hover fill (new role; shares the line-2 tone) |
 | `--accent-soft` | `rgba(87,166,255,.10)` | `.chip.on`, `.rd-qtag`, `.word-box`, `.needyou.act` (App.css) |
-| `--accent-line` | `rgba(87,166,255,.30)` | `.needyou.act`, `.word-box`, `.unlock-card`, hover borders (App.css, redesign.css) — code uses .28/.30/.40; normalize to .30 |
+| `--accent-line` | `rgba(87,166,255,.30)` | `.needyou.act`, `.word-box`, `.unlock-card`, hover borders (App.css, redesign.css) - code uses .28/.30/.40; normalize to .30 |
 | `--on-accent` | `#08121e` | `.rd-enter` hover, `.rd-enter.primary`, `.lang-btn.on` (`#06121f`) (redesign.css) |
 | `--success-soft` | `rgba(87,208,138,.08)` | `.confirm.ready` (App.css) |
 | `--success-line` | `rgba(87,208,138,.40)` | `.pf-st.sent`, `.who-st.ok`, `.plist-count.ready`, `.tag.ok` (App.css) |
 | `--warn` | `#ffcf87` | `.hint.warn`, `.word-warn` (App.css) |
 | `--warn-strong` | `#ffe0a3` | `.word-warn b` (App.css) |
 | `--danger` | `#ff6b6b` | `.hint.err`, `.danger-btn`, `.modal-card.danger`, `.danger-funds` (App.css) |
-| `--danger-text` | `#ff9d9d` | `.danger-btn`, `.hint.err` (`#ffb4b4`), `.ns.over` (`#ff8f8f`) (App.css) — normalize the tints to `--danger-text` |
+| `--danger-text` | `#ff9d9d` | `.danger-btn`, `.hint.err` (`#ffb4b4`), `.ns.over` (`#ff8f8f`) (App.css) - normalize the tints to `--danger-text` |
 | `--danger-soft` | `rgba(255,90,90,.09)` | `.hint.err`, `.danger-zone`, `.danger-funds` (App.css) |
 | `--danger-line` | `rgba(255,110,110,.28)` | `.danger-zone`, `.danger-btn`, `.who-st.no` (App.css) |
 | `--tarja-ink` | `#0c1014` | `.secret .bar` bg (lacre.css); also `.btn.danger-btn:hover` ink |
@@ -86,7 +86,7 @@ feels like a different app."
 > deliberate brighter heading tier is wanted; if kept, add one `--text-bright` token
 > rather than three literals.
 
-## 4. Delete on sight — oxblood / off-palette literals (dead light theme)
+## 4. Delete on sight - oxblood / off-palette literals (dead light theme)
 
 | Literal | Where | Replace with |
 | --- | --- | --- |
@@ -112,7 +112,7 @@ re-declaring surfaces and status literals.
 
 1. **Create the token layer.** Put the full `:root { … }` (below) at the top of
    `lacre.css` (or a new `ui/src/tokens.css` imported first in `main.tsx`). Because
-   this is plain CSS, tokens are just custom properties — no config, no build step.
+   this is plain CSS, tokens are just custom properties - no config, no build step.
 2. **Alias, then sweep.** Add `--paper: var(--surface-1)` etc. as temporary aliases;
    run the §1/§2 renames across `lacre.css`, `App.css`, `redesign.css`; delete aliases.
 3. **Promote literals (§3).** Replace inline hex/rgba with the new tokens.
@@ -141,7 +141,7 @@ Once done, `redesign.css` is either empty of tokens (layout-only) or folded into
   --text:#dfe6ee; --text-muted:#8a95a3; --silver:#c6cfd9;
   /* lines */
   --line:#333d47; --line-2:#28313a; --line-soft:rgba(180,205,235,.10);
-  /* accent (blue — rare, interactive + quorum) */
+  /* accent (blue - rare, interactive + quorum) */
   --accent:#57a6ff; --accent-ink:#3f86e0;
   --accent-soft:rgba(87,166,255,.10); --accent-line:rgba(87,166,255,.30);
   --on-accent:#08121e;
@@ -159,7 +159,7 @@ Once done, `redesign.css` is either empty of tokens (layout-only) or folded into
   --font-mono:"Spline Sans Mono",ui-monospace,monospace;
   /* shape */
   --radius:12px; --radius-sm:8px; --radius-lg:16px; --radius-pill:999px;
-  /* elevation — overlays only */
+  /* elevation - overlays only */
   --shadow-overlay:0 30px 60px -24px rgba(0,0,0,.8);
   /* motion */
   --dur-fast:140ms; --dur-base:240ms; --dur-reveal:280ms;
@@ -169,5 +169,5 @@ Once done, `redesign.css` is either empty of tokens (layout-only) or folded into
 :root[data-theme="light"]{ --surface-1:#…; --text:#…; … } */
 ```
 
-Buttons, inputs, the tarja, the stamp, and table rules stay **squared** (radius 0) —
+Buttons, inputs, the tarja, the stamp, and table rules stay **squared** (radius 0) -
 the instrument edge. Cards, modals, and pills use the radius tokens.

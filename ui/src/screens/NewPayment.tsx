@@ -60,8 +60,8 @@ export default function NewPayment() {
   const saplingDest = kind === 'sapling'
   const unknownDest = kind === 'unknown'
   // A real available balance when we have it; the demo figure only when genuinely offline
-  // (live === false); a neutral dash while still loading (live === null) — never a fake number.
-  const shownAvailable = available ?? (live === false ? '2.4180' : '—')
+  // (live === false); a neutral dash while still loading (live === null) - never a fake number.
+  const shownAvailable = available ?? (live === false ? '2.4180' : '-')
 
   async function submit() {
     setError(null)
@@ -146,7 +146,7 @@ export default function NewPayment() {
 
         <div className="confirm mt preview">
           <div className="pv-row"><span className="pv-k">{t('payment.pvProposes')}</span><span className="pv-v"><b>{proposer}</b></span></div>
-          <div className="pv-row"><span className="pv-k">{t('payment.pvPays')}</span><span className="pv-v"><b>{value || '—'} ZEC</b></span></div>
+          <div className="pv-row"><span className="pv-k">{t('payment.pvPays')}</span><span className="pv-v"><b>{value || '-'} ZEC</b></span></div>
           <div className="pv-row"><span className="pv-k">{t('payment.pvTo')}</span><span className="pv-v">{toName ? <><b>{toName}</b> · {to ? shortAddr(to) : '…'}</> : (to ? shortAddr(to) : '…')}</span></div>
           {memo.trim() && !publicDest && <div className="pv-row"><span className="pv-k">{t('payment.pvMemo')}</span><span className="pv-v">“{memo.trim()}”</span></div>}
           <div className="pv-row"><span className="pv-k">{t('payment.pvApprovals')}</span><span className="pv-v"><b>{threshold}</b> {t('payment.includingYours')}</span></div>

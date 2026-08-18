@@ -21,7 +21,7 @@ export default function Ceremony() {
   const t = useT()
   const tr = useTr()
   const nav = useNavigate()
-  const [step, setStep] = useState(1) // 1 Definir · 2 Convidar · 3 Criar
+  const [step, setStep] = useState(1) // 1 Define · 2 Invite · 3 Create
   const [name, setName] = useState('Tesouraria da comunidade')
   const [members, setMembers] = useState<string[]>(['Alice', 'Bob', 'Carol'])
   const [threshold, setThreshold] = useState(2)
@@ -132,7 +132,7 @@ export default function Ceremony() {
     )
   }
 
-  // --- form: step 1 Definir · step 2 Convidar ---
+  // --- form: step 1 Define · step 2 Invite ---
   return (
     <>
       <Letterhead right={<Link className="klab back" to="/">{t('common.backVaults')}</Link>} />

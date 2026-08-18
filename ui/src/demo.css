@@ -1,4 +1,4 @@
-/* Guided demo (Horizonte) — a standalone step player. Consumes the shared tokens. */
+/* Guided demo (Horizonte) - a standalone step player. Consumes the shared tokens. */
 .dm{min-height:100vh; position:relative; z-index:1}
 .dm-shell{max-width:960px; margin-inline:auto; padding:clamp(20px,4vw,40px) clamp(18px,4vw,40px) 40px; min-height:100vh; display:flex; flex-direction:column}
 .dm-top{display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap}

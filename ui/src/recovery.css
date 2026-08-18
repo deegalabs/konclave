@@ -1,4 +1,4 @@
-/* /recovery — social recovery (Repairable Threshold Scheme) run live in the browser.
+/* /recovery - social recovery (Repairable Threshold Scheme) run live in the browser.
    Dark, on the consolidated tokens with hard fallbacks so it renders before global CSS.
    The "live demo" framing (.demo-eyebrow / .demo-title / .demo-caption / .demo-lead /
    .demo-note / .demo-result) is shared with /signer and comes from net.css. Accent is
@@ -21,7 +21,7 @@
 }
 
 /* The narrative: what actually happened, in order, as the ceremony ran. A quiet mono list
-   with a numbered silver seat marker — a record of the proof, not a decorated stepper. */
+   with a numbered silver seat marker - a record of the proof, not a decorated stepper. */
 .rec-steps {
   list-style: none;
   margin: 22px 0 0;

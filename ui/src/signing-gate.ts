@@ -3,14 +3,14 @@
 // and changeable by a proposal" layer: the vault carries a signing MODE, and a device only ever
 // contributes its share to a payment its owner's quorum APPROVED.
 //
-//   • auto   — once the proposal is approved by quorum, this device signs automatically (no per-
+//   • auto   - once the proposal is approved by quorum, this device signs automatically (no per-
 //              payment click). Good for small, trusted, high-throughput vaults.
-//   • manual — even after quorum approval, this device signs only when its owner EXPLICITLY arms
+//   • manual - even after quorum approval, this device signs only when its owner EXPLICITLY arms
 //              this specific payment. A single click never fires money; the owner confirms each one.
 //
 // The mode is a per-vault setting a governance proposal can change; the gate reads it live, so a
 // change takes effect on the next payment. Approval and arming are looked up by the payment's
-// sighash (the on-device binding — see H1), never by a mutable proposal label.
+// sighash (the on-device binding - see H1), never by a mutable proposal label.
 
 import type { GovernanceGate } from './background-signer'
 
@@ -29,7 +29,7 @@ export interface SigningGateInput {
  * Build the governance gate. A device NEVER signs an unapproved payment. Beyond that, `auto` signs
  * approved payments on its own; `manual` also requires the owner to arm the specific payment.
  * Returning false leaves the request PENDING (not rejected), so arming (or a later approval) plus a
- * retry proceeds — exactly the manual-approval path the BackgroundSigner supports.
+ * retry proceeds - exactly the manual-approval path the BackgroundSigner supports.
  */
 export function makeSigningGate(input: SigningGateInput): GovernanceGate {
   return ({ sighash }) => {

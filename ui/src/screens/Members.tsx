@@ -24,7 +24,7 @@ export default function Members() {
   // The name THIS device chose at create/join, so "you" marks the right seat (was hardcoded to
   // 'Alice', which mislabeled every other device). Falls back to ME for the offline demo.
   const [me, setMe] = useState<string | null>(null)
-  // Who set up the vault (propagated). Marks the creator — a real fixed fact — rather than the
+  // Who set up the vault (propagated). Marks the creator - a real fixed fact - rather than the
   // per-ceremony FROST "coordinator" role, which used to be pinned to seat 0 (the wrong member).
   const [creator, setCreator] = useState<string | null>(null)
   // The vault's public group identity, hashed to a short code members compare out of band (#65 I4).
@@ -51,13 +51,13 @@ export default function Members() {
             const rec = saved.find((s) => s.id === v.id)
             if (on) { setGov(rec?.governance ?? 'open'); setMe(rec?.myName ?? null); setCreator(rec?.creatorName ?? null) }
             if (rec?.groupKey) identity = rec.groupKey
-          } catch { /* local-bridge mode — no on-device record */ }
+          } catch { /* local-bridge mode - no on-device record */ }
         }
       }
       try {
         const code = await vaultFingerprint(identity)
         if (on) setFp(code)
-      } catch { /* WebCrypto unavailable — skip the fingerprint callout */ }
+      } catch { /* WebCrypto unavailable - skip the fingerprint callout */ }
     })()
     return () => { on = false }
   }, [])
@@ -68,7 +68,7 @@ export default function Members() {
       await navigator.clipboard.writeText(fp)
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
-    } catch { /* clipboard blocked — the code is visible to read aloud anyway */ }
+    } catch { /* clipboard blocked - the code is visible to read aloud anyway */ }
   }
 
   async function saveNames() {

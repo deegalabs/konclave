@@ -1,7 +1,7 @@
 {
   "name": "Konclave",
   "short_name": "Konclave",
-  "description": "The vault that decides together — private, single-person-proof FROST custody on Zcash.",
+  "description": "The vault that decides together - private, single-person-proof FROST custody on Zcash.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

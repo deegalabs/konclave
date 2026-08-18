@@ -20,7 +20,7 @@ zcash_primitives = "0.29"
 zcash_protocol = "0.10"
 
 # Multi-output PCZT construction for payroll (5-B.2): link zcash_client_backend directly
-# (§2 "linkar zcash_client_backend para o plano"), building an N-output Orchard PCZT the
+# (§2 "link zcash_client_backend for the plan"), building an N-output Orchard PCZT the
 # CLI can't. Same librustzcash rev as the bridge (patched below) so the wire format matches.
 rand = "0.8"
 uuid = "1"

@@ -38,7 +38,7 @@ export default function Layout() {
   }, [])
 
   // Proactive liveness signal: poll the bridge/helper so a daemon that stops (or
-  // comes back) is reflected without a reload — plus an immediate re-check when the
+  // comes back) is reflected without a reload - plus an immediate re-check when the
   // tab regains focus or the browser reports it's back online. Lightweight (a single
   // /api/health ping) and self-clearing on unmount. Skipped in demo mode, where
   // health() is intentionally false and the pill reads "demo", not "offline".
@@ -156,7 +156,7 @@ export default function Layout() {
                 <span className="live"><i />{t('dashboard.live')}</span>
               ) : live === false ? (
                 <span className="live offline" role="status">
-                  <i />{locale === 'pt-BR' ? 'Offline — sem conexão com o cofre' : "Offline — can't reach your vault"}
+                  <i />{locale === 'pt-BR' ? 'Offline - sem conexão com o cofre' : "Offline - can't reach your vault"}
                 </span>
               ) : null}
             </span>
@@ -173,7 +173,7 @@ export default function Layout() {
   )
 }
 
-/* — inline nav icons (stroked, 24-grid) — */
+/* - inline nav icons (stroked, 24-grid) - */
 const s = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.7 } as const
 function IconGrid() { return <svg viewBox="0 0 24 24" {...s}><rect x="3" y="3" width="7" height="9" rx="1.5" /><rect x="14" y="3" width="7" height="5" rx="1.5" /><rect x="14" y="12" width="7" height="9" rx="1.5" /><rect x="3" y="16" width="7" height="5" rx="1.5" /></svg> }
 function IconInbox() { return <svg viewBox="0 0 24 24" {...s}><path d="M3 12h5l2 3h4l2-3h5" /><path d="M5 5h14l2 7v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-6z" /></svg> }

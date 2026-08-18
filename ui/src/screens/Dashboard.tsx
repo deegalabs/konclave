@@ -15,7 +15,7 @@ import {
 
 type Movimento = { date: string; title: string; by?: string; value: string; dir: 'out' | 'in'; status: string }
 
-// Offline placeholder (only shown when there is no ledger — the demo and the live app both use
+// Offline placeholder (only shown when there is no ledger - the demo and the live app both use
 // the real ledger). Locale-aware so it never shows PT copy in the EN interface. `dl` reads the
 // persisted locale per access; the getters re-resolve when the language toggles.
 const dpt = (): boolean => {
@@ -105,25 +105,25 @@ export default function Dashboard() {
   const isLive = live === true
   const loading = live === null // initial fetch still in flight
 
-  // Vault header — real vault from the bridge; placeholder only in the offline showcase.
+  // Vault header - real vault from the bridge; placeholder only in the offline showcase.
   const name = vault?.name ?? dl('Tesouraria Comum', 'Common Treasury')
   const thr = vault?.threshold ?? 2
   const n = vault?.total ?? 3
   const members = vault?.members ?? n
   const addr = vault ? shortAddr(vault.orchard_address) : 'u1vjgx…d406dr'
 
-  // Balance — real when the wallet is wired; "—" when live-but-unwired; mock when offline.
+  // Balance - real when the wallet is wired; "-" when live-but-unwired; mock when offline.
   const hasBal = balance?.configured === true
   // Live but no wallet wired: show an explicit "not connected" state, never a dash veiled
   // behind the redaction tarja (the privacy gesture must never hide *nothing*).
   const walletUnwired = isLive && !hasBal
   // Show a figure only when it is real (hasBal) or genuinely offline-demo (live === false).
   // While still loading (live === null) show a neutral dash, never a fabricated balance.
-  const amt = hasBal ? fmt4(balance!.total_zec) : (live === false ? '2.4180' : '—')
-  const confirmado = hasBal ? fmt4(balance!.spendable_zec) : (live === false ? '2.4180' : '—')
-  const pendente = hasBal ? `+${fmt4(balance!.pending_zec)}` : (live === false ? '+0.0100' : '—')
+  const amt = hasBal ? fmt4(balance!.total_zec) : (live === false ? '2.4180' : '-')
+  const confirmado = hasBal ? fmt4(balance!.spendable_zec) : (live === false ? '2.4180' : '-')
+  const pendente = hasBal ? `+${fmt4(balance!.pending_zec)}` : (live === false ? '+0.0100' : '-')
 
-  // Pending approval — first awaiting proposal. When live with none, show an empty state
+  // Pending approval - first awaiting proposal. When live with none, show an empty state
   // instead of a fabricated card.
   const awaiting = proposals.filter((p) => p.state === 'awaiting')
   const pending = awaiting[0] ?? null
@@ -136,7 +136,7 @@ export default function Dashboard() {
   const pApprovals = pending?.approvals_count ?? 1
   const pExpiry = pending ? expiryLabel(pending.expiry_unix, t) : t('expiry.hours', { h: 71 })
 
-  // Movements — the real ledger when live; the mock only in the offline showcase.
+  // Movements - the real ledger when live; the mock only in the offline showcase.
   const movs: Movimento[] | null = ledger && ledger.length
     ? ledger.slice(0, 6).map((p) => ({
         date: fmtDate(p.created_at),
@@ -151,7 +151,7 @@ export default function Dashboard() {
   // with an empty ledger (e.g. a fresh /net vault, no proposals yet) shows no movements, not mock.
   const movimentos: Movimento[] = movs ?? (live === false || IS_DEMO ? MOVIMENTOS_MOCK : [])
 
-  // KPIs — all derived from real data (no fabrication). Reserved = funds committed by open
+  // KPIs - all derived from real data (no fabrication). Reserved = funds committed by open
   // proposals (a product rule, not a protocol lock); Paid = settled outflow across the ledger.
   const parseZ = (s?: string) => { const n = parseFloat(s || ''); return isFinite(n) ? n : 0 }
   const settled = (ledger ?? []).filter((p) => p.state === 'sent' || p.state === 'confirmed')
@@ -202,7 +202,7 @@ export default function Dashboard() {
           actions={<Seal t={thr} n={n} />}
         />
 
-        {/* 1 · O que precisa de você — a ação primeiro */}
+        {/* 1 · What needs you - the action first */}
         {loading ? (
           <section className="needyou calm"><Loading /></section>
         ) : showApprovalCard ? (
@@ -226,7 +226,7 @@ export default function Dashboard() {
           </section>
         ) : (
           <section className="needyou calm">
-            <div className="req"><span className="stamp">—</span> {t('dashboard.nothingWaiting')}</div>
+            <div className="req"><span className="stamp">-</span> {t('dashboard.nothingWaiting')}</div>
             <div className="note">{t('dashboard.nothingWaitingNote')}</div>
             <div className="btns"><Link className="btn ok" to="/pay">{t('dashboard.proposePayment')}</Link></div>
           </section>
@@ -259,7 +259,7 @@ export default function Dashboard() {
               <div className="usd">
                 {usdOn ? (
                   <>
-                    <span className="usd-v">≈ <Secret sm><b>{usdBal ?? '—'}</b></Secret></span>
+                    <span className="usd-v">≈ <Secret sm><b>{usdBal ?? '-'}</b></Secret></span>
                     <span className="usd-src">{rate
                       ? `${rate.source} · ${rateAgo()}${rateIsStale(rate) ? ` · ${t('dashboard.rateStale')}` : ''}`
                       : t('dashboard.rateNone')}</span>
@@ -286,7 +286,7 @@ export default function Dashboard() {
           </div>
         </section>
 
-        {/* 2b · KPIs — números do cofre, todos derivados de dados reais */}
+        {/* 2b · KPIs - vault figures, all derived from real data */}
         {!loading && (
           <section className="kpis">
             <div className="kpi">
@@ -305,7 +305,7 @@ export default function Dashboard() {
           </section>
         )}
 
-        {/* 3 · Ações primárias (a navegação de seções vive no rail) */}
+        {/* 3 · Primary actions (section nav lives in the rail) */}
         <section className="actions">
           <Link className="action" to="/pay">
             <span className="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M12 5v14M5 12h14" /></svg></span>
@@ -319,7 +319,7 @@ export default function Dashboard() {
           </Link>
         </section>
 
-        {/* 4 · Histórico */}
+        {/* 4 · History */}
         <section className="ledger">
           <h2 className="klab">{t('dashboard.movements')}</h2>
           <div className="cap">{t('dashboard.movementsCap')}</div>

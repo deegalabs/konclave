@@ -1,10 +1,10 @@
-/** Deterministic geometric identicon (symmetric grid) — steel-blue palette, so a
+/** Deterministic geometric identicon (symmetric grid) - steel-blue palette, so a
  *  member/person reads as a face instead of a hex key. Shared across screens. */
 export function Identicon({ seed, size = 26 }: { seed: string; size?: number }) {
   let h = 2166136261
   for (let i = 0; i < seed.length; i++) { h ^= seed.charCodeAt(i); h = Math.imul(h, 16777619) }
   h = h >>> 0
-  const hue = 200 + (h % 18) // steel-blue only (200–217); never drift into the banned purple
+  const hue = 200 + (h % 18) // steel-blue only (200-217); never drift into the banned purple
   const bg = `hsl(${hue} 30% 22%)`
   const fg = `hsl(${hue} 46% 62%)`
   const c = size / 5

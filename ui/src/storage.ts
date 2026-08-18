@@ -30,8 +30,8 @@ export interface VaultPublic {
   id: string
   name?: string // user-given vault name (public metadata); falls back to a generated one in the UI
   governance?: Governance
-  myName?: string // the name THIS device chose at create/join — lets the UI mark "you" correctly
-  creatorName?: string // who set up the vault (propagated) — marks the creator, not a rotating coordinator
+  myName?: string // the name THIS device chose at create/join - lets the UI mark "you" correctly
+  creatorName?: string // who set up the vault (propagated) - marks the creator, not a rotating coordinator
   groupKey: string // hex of the 32-byte group verifying key (the vault's public identity)
   address: string
   roster: string[]
@@ -85,7 +85,7 @@ interface VaultRecord {
  * evicted under storage pressure or the ~7-day inactivity clear (Safari ITP is the worst case).
  * Best-effort: Chromium/Firefox grant it based on engagement/PWA-install; iOS Safari usually
  * declines (there the safety net is social recovery, not persistence). Returns the granted state.
- * Never throws — a browser without the API just reports false. Call it from a user gesture
+ * Never throws - a browser without the API just reports false. Call it from a user gesture
  * (e.g. right after the user protects a vault) for the best chance of a grant.
  */
 export async function requestPersistentStorage(): Promise<boolean> {
@@ -213,7 +213,7 @@ export async function saveVault(id: string, data: VaultData, passphrase: string)
   }
 
   // The user just committed a share to this device: the strongest moment to ask the browser to
-  // keep it. Fire-and-forget — a decline never blocks the save (recovery covers a lost share).
+  // keep it. Fire-and-forget - a decline never blocks the save (recovery covers a lost share).
   void requestPersistentStorage()
 }
 

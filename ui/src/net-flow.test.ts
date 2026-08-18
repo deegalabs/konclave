@@ -1,7 +1,7 @@
 /// <reference types="node" />
 // Integration test of the /net multi-device flow, in one process, driving the exact WASM API the
 // NetVault screen calls over the relay: a real 3-party DKG (2-of-3), then a signing ceremony over
-// the REAL Orchard sighash NetVault signs, with the on-device describeOutputs check — and the
+// the REAL Orchard sighash NetVault signs, with the on-device describeOutputs check - and the
 // real-transaction path that signs under the PCZT's Orchard randomizer (alpha), the piece a real
 // broadcast needs. Closes the automated-test gap for the live /net ceremony (only the relay
 // transport + React rendering are not exercised here; the cryptography is end-to-end).
@@ -23,7 +23,7 @@ import { parseSignRequest, buildSignResponse, bytesToHex, RESPONSE_KIND } from '
 
 const hexToBytes = (s: string) => new Uint8Array(s.match(/../g)!.map((b) => parseInt(b, 16)))
 
-// The alpha of Konclave's real mainnet DKG-vault spend (aab00f90…) — a valid Orchard randomizer.
+// The alpha of Konclave's real mainnet DKG-vault spend (aab00f90…) - a valid Orchard randomizer.
 const DKG_ALPHA = hexToBytes('b2ad61e8bf0de877dd01c52356526adf39b036ffed2e0217ece19407e1717624')
 
 beforeAll(async () => {
@@ -84,7 +84,7 @@ describe('/net multi-device flow (DKG → sign → verify)', () => {
   it('the /net path: a 2-of-3 signs under the PCZT alpha and verifies under ak+alpha', () => {
     // A DKG-born vault signs the sighash under a SPECIFIC Orchard alpha (from extractRandomizers),
     // not a commitment-derived seed. This is what lets the signature be injected into the PCZT and
-    // broadcast. The signature must verify under ak+alpha — the exact check an Orchard spend passes.
+    // broadcast. The signature must verify under ak+alpha - the exact check an Orchard spend passes.
     const { s0, s1, id0, id1, groupVk, pubkeys } = dkg2of3()
     const msg = hexToBytes(DKG_SIGHASH)
     const a = participantRound1(s0.keyPackage())
@@ -100,14 +100,14 @@ describe('/net multi-device flow (DKG → sign → verify)', () => {
 
     // Verifies under the key randomized by this alpha...
     expect(coord.verifyWithRandomizer(DKG_ALPHA, sig)).toBe(true)
-    // ...and a DIFFERENT alpha does not — the randomizer binds the signature to the spend.
+    // ...and a DIFFERENT alpha does not - the randomizer binds the signature to the spend.
     const otherAlpha = hexToBytes('557c4ff828ed56eb33e8ba7f508a43915338ccf3ad71d1ecedc98e6e861bfc0f')
     expect(coord.verifyWithRandomizer(otherAlpha, sig)).toBe(false)
   })
 
   it('a restored share signs again (signing after restore), via the same path /net uses', () => {
     // Persistence saves each device's material as a bundle (KeyPackage, pubkeys, group key);
-    // a reload restores it. Prove that the RESTORED bytes alone — no live DkgSession — run the
+    // a reload restores it. Prove that the RESTORED bytes alone - no live DkgSession - run the
     // exact ceremony /net runs today (the randomizer path, under the PCZT alpha) and verify. This
     // closes the "signing-after-restore" gap: a reloaded device is a full signer again.
     const { s0, s1, id0, id1 } = dkg2of3()
@@ -135,7 +135,7 @@ describe('/net multi-device flow (DKG → sign → verify)', () => {
 
   it('sign-after-restore via the storage bundle + the seat re-announced on rejoin', () => {
     // The exact contract NetVault + storage.ts implement: a device persists {KeyPackage, group
-    // PublicKeyPackage, SEAT} (encrypted). After a reload there is NO live DkgSession — the device
+    // PublicKeyPackage, SEAT} (encrypted). After a reload there is NO live DkgSession - the device
     // rebuilds its FROST identifier FROM the seat it re-announces over the relay (`rejoin`), then
     // signs. This test drives that path end to end from the bundle bytes alone, so the seat->id
     // reconstruction is exercised (the existing restore test hardcodes the ids).
@@ -172,7 +172,7 @@ describe('/net multi-device flow (DKG → sign → verify)', () => {
     coord.addShare(idB, participantRound2WithRandomizer(sp, r1b.nonces(), b.kp, DKG_ALPHA))
     const sig = coord.aggregateWithRandomizer(DKG_ALPHA)
 
-    // A verifying Orchard signature from two reloaded devices — no DKG redo.
+    // A verifying Orchard signature from two reloaded devices - no DKG redo.
     expect(coord.verifyWithRandomizer(DKG_ALPHA, sig)).toBe(true)
   })
 
@@ -241,7 +241,7 @@ describe('/net multi-device flow (DKG → sign → verify)', () => {
       hexToBytes('557c4ff828ed56eb33e8ba7f508a43915338ccf3ad71d1ecedc98e6e861bfc0f'),
     ]
 
-    // One independent ceremony per spend — fresh round-1 nonces each time.
+    // One independent ceremony per spend - fresh round-1 nonces each time.
     const sigs = alphas.map((alpha, index) => {
       const a = participantRound1(s0.keyPackage())
       const b = participantRound1(s1.keyPackage())
@@ -253,7 +253,7 @@ describe('/net multi-device flow (DKG → sign → verify)', () => {
       coord.addShare(id0, participantRound2WithRandomizer(sp, a.nonces(), s0.keyPackage(), alpha))
       coord.addShare(id1, participantRound2WithRandomizer(sp, b.nonces(), s1.keyPackage(), alpha))
       const sig = coord.aggregateWithRandomizer(alpha)
-      // Each spend verifies under its OWN alpha, and not the other's — the randomizer binds each
+      // Each spend verifies under its OWN alpha, and not the other's - the randomizer binds each
       // signature to its specific spend.
       expect(coord.verifyWithRandomizer(alpha, sig)).toBe(true)
       const other = alphas[1 - index]!
@@ -261,7 +261,7 @@ describe('/net multi-device flow (DKG → sign → verify)', () => {
       return { index, sig: bytesToHex(sig) }
     })
 
-    // The response carries one sig per spend, indexed — exactly what `into_sigs` maps back.
+    // The response carries one sig per spend, indexed - exactly what `into_sigs` maps back.
     const responseJson = buildSignResponse(sigs)
     const resp = JSON.parse(responseJson) as { kind: string; sigs: { index: number; sig: string }[] }
     expect(resp.kind).toBe(RESPONSE_KIND)

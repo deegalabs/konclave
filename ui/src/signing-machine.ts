@@ -100,7 +100,7 @@ export class SigningMachine {
 
   /** Reset all ceremony state so this SAME machine can sign a NEXT payment (issue #49 re-arm). NOT
    *  called by /net (which signs once per session, so its behavior is unchanged); the background
-   *  signer calls it between payments, each in its OWN fresh signing room — never re-armed inside a
+   *  signer calls it between payments, each in its OWN fresh signing room - never re-armed inside a
    *  room whose relay history still holds the previous ceremony's `k`-tagged messages, which would
    *  cross-contaminate. Fresh session per payment is the contract. */
   rearm(): void {
@@ -143,7 +143,7 @@ export class SigningMachine {
   }
 
   /** Dispatch one signing message. Preserves NetVault's exact boolean contract for the fixpoint.
-   *  May throw on a malformed peer package — the caller keeps its try/catch around this call. */
+   *  May throw on a malformed peer package - the caller keeps its try/catch around this call. */
   async handle(parsed: SignWireMsg, fromTag: string): Promise<boolean> {
     switch (parsed.type) {
       case 'sreq': return this.onSreq(parsed)
@@ -198,11 +198,11 @@ export class SigningMachine {
       this.started = true
       this.msg = localSighash // sign what our own PCZT commits to, never the wire value
       // Every device reads ALL real Orchard spends (index + alpha) from the proven PCZT it holds
-      // — it signs only what it can independently see. One ceremony per spend, in order.
+      // - it signs only what it can independently see. One ceremony per spend, in order.
       this.spends = parseAlphas(pczt)
       this.sigs = []
       this.startedSpends = new Set()
-      // "What am I signing?" — confirm what the tx pays before contributing any signature.
+      // "What am I signing?" - confirm what the tx pays before contributing any signature.
       try {
         const outs = JSON.parse(describeOutputs(pczt)) as { address: string | null; value: number | null }[]
         const recip = outs.find((o) => o.address !== null)
@@ -300,7 +300,7 @@ export class SigningMachine {
     } catch {
       /* keep the coordinator's result if local verify throws */
     }
-    // Record this spend's signature under its on-chain index (dedup — the fixpoint may retry).
+    // Record this spend's signature under its on-chain index (dedup - the fixpoint may retry).
     const spend = this.spends[this.cur]
     if (spend && !this.sigs.some((s) => s.index === spend.index)) {
       this.sigs.push({ index: spend.index, sig: bytesToHex(sig) })

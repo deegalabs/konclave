@@ -1,4 +1,4 @@
-// /lab/background-signer — a laboratory surface to watch Stage 3 (issue #49) run live: unlock a
+// /lab/background-signer - a laboratory surface to watch Stage 3 (issue #49) run live: unlock a
 // saved vault, and its share signs a payment IN THE BACKGROUND (no /net screen). Two browser tabs
 // on the same saved vault seat each other over the vault's signing room, and an injected test
 // sign-request (standing in for the helper) is signed by both. Isolated from the product, like the

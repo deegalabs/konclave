@@ -33,7 +33,7 @@ const toHex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2,
 const short = (s: string) => (s.length > 24 ? `${s.slice(0, 14)}…${s.slice(-6)}` : s)
 
 /** konclave.app proof: a full 2-of-3 rerandomized redpallas FROST ceremony run entirely in
- *  WebAssembly, in the browser — the secret share never leaves, only public material moves.
+ *  WebAssembly, in the browser - the secret share never leaves, only public material moves.
  *  Plus the FROST↔PCZT bridge operating on a real mainnet transaction. */
 export default function WasmSigner() {
   const t = useT()
@@ -52,7 +52,7 @@ export default function WasmSigner() {
       await init(wasmUrl)
       const message = new TextEncoder().encode('konclave: an Orchard sighash would go here (demo)')
       const v = new TestVault() // trusted-dealer 2-of-3, standing in for the unlocked device shares
-      // two devices, round 1 — nonces stay local, commitments go to the coordinator
+      // two devices, round 1 - nonces stay local, commitments go to the coordinator
       const a = participantRound1(v.key_package(0))
       const b = participantRound1(v.key_package(1))
       const coord = new Coordinator(v.groupVk(), v.pubkeys(), message)
@@ -60,7 +60,7 @@ export default function WasmSigner() {
       coord.addCommitment(v.id(1), b.commitment())
       coord.prepare()
       const sp = coord.signingPackage(); const seed = coord.seed()
-      // round 2 — each device signs with ITS local nonces
+      // round 2 - each device signs with ITS local nonces
       coord.addShare(v.id(0), participantRound2(sp, a.nonces(), v.key_package(0), seed))
       coord.addShare(v.id(1), participantRound2(sp, b.nonces(), v.key_package(1), seed))
       const sig = coord.aggregate()
@@ -75,7 +75,7 @@ export default function WasmSigner() {
 
   // The FROST↔PCZT bridge on a REAL mainnet transaction: read what it pays, extract the randomizer,
   // and reconstruct the exact signed PCZT that was broadcast. (The signature was produced by the
-  // vault's real ceremony; here the browser reads and reconstructs it — it does not re-sign.)
+  // vault's real ceremony; here the browser reads and reconstructs it - it does not re-sign.)
   async function runReal() {
     setRealBusy(true); setReal(null)
     try {
@@ -130,8 +130,8 @@ export default function WasmSigner() {
           </h2>
           <p className="demo-lead">
             {L(
-              'O mesmo bridge FROST↔PCZT, em WebAssembly, lê a transação real do envio de cofre DKG (o quê ela paga), extrai o randomizer e reconstrói a PCZT assinada — a mesma que foi transmitida à mainnet. O navegador lê e reconstrói; a assinatura veio da cerimônia real do cofre.',
-              'The same FROST↔PCZT bridge, in WebAssembly, reads the real DKG-vault send (what it pays), extracts the randomizer, and reconstructs the signed PCZT — the very one broadcast to mainnet. The browser reads and reconstructs; the signature came from the vault’s real ceremony.',
+              'O mesmo bridge FROST↔PCZT, em WebAssembly, lê a transação real do envio de cofre DKG (o quê ela paga), extrai o randomizer e reconstrói a PCZT assinada - a mesma que foi transmitida à mainnet. O navegador lê e reconstrói; a assinatura veio da cerimônia real do cofre.',
+              'The same FROST↔PCZT bridge, in WebAssembly, reads the real DKG-vault send (what it pays), extracts the randomizer, and reconstructs the signed PCZT - the very one broadcast to mainnet. The browser reads and reconstructs; the signature came from the vault’s real ceremony.',
             )}
           </p>
           <button className="btn" style={{ marginTop: 18 }} onClick={() => void runReal()} disabled={realBusy}>

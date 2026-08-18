@@ -1,14 +1,14 @@
 // The app-level background signer (issue #49, Stage 3). It lets a send run FROM THE DASHBOARD:
 // the device stays unlocked, a BackgroundSigner listens on the vault's own signing room, and when
 // an (approved) payment's sign-request arrives it drives the shared SigningMachine to a signature
-// — no "go to /net", no re-login. /net keeps its own once-per-session flow unchanged.
+// - no "go to /net", no re-login. /net keeps its own once-per-session flow unchanged.
 //
 // Separation of concerns, on purpose:
 //   • SigningMachine  = the FROST ceremony (mechanism).
 //   • BackgroundSigner = drives it over the relay + a GOVERNANCE GATE (mechanism + policy hook).
 //   • `gate`          = the policy itself, injected by the caller: whether THIS device contributes
 //                       its share to THIS payment. A vault can be "auto-sign" or "sign only after I
-//                       approve", and a governance proposal can change that — all of it lives in the
+//                       approve", and a governance proposal can change that - all of it lives in the
 //                       caller's `gate`, so the signer never has to know the governance model.
 
 import { SigningMachine, type SigningDeps, type SignWireMsg } from './signing-machine'
@@ -34,7 +34,7 @@ export async function signingRoom(groupKeyHex: string): Promise<string> {
 const activeVaults = new Set<string>()
 
 /** Try to become THE background signer for `vaultId` in this context. Returns false if one is
- *  already active (the caller should not start a second) — release() when the signer stops. */
+ *  already active (the caller should not start a second) - release() when the signer stops. */
 export function acquireSigner(vaultId: string): boolean {
   if (activeVaults.has(vaultId)) return false
   activeVaults.add(vaultId)
@@ -50,7 +50,7 @@ export function isSignerActive(vaultId: string): boolean {
 /** Governance gate: return true to let THIS device contribute its share to the payment identified
  *  by `sighash`. The policy (per-vault auto/manual, per-proposal approval, changeable by a
  *  governance proposal) lives in the caller. Returning false leaves the request PENDING (not
- *  rejected) so a later approval + retry() can proceed — that is the manual-approval path. */
+ *  rejected) so a later approval + retry() can proceed - that is the manual-approval path. */
 export type GovernanceGate = (ctx: { sighash: string }) => boolean | Promise<boolean>
 
 export interface BackgroundSignerDeps extends SigningDeps {
@@ -79,7 +79,7 @@ export class BackgroundSigner {
     await this.pump()
   }
 
-  /** Re-drive without new input — e.g. after the owner approves a proposal, so a previously
+  /** Re-drive without new input - e.g. after the owner approves a proposal, so a previously
    *  gate-pending request now proceeds (the manual-approval path). */
   async retry(): Promise<void> {
     await this.pump()
@@ -143,7 +143,7 @@ export class BackgroundSigner {
                 progressed = true
               }
             } else {
-              this.consumed.add(m.seq) // not a signing message (e.g. DKG chatter) — ignore
+              this.consumed.add(m.seq) // not a signing message (e.g. DKG chatter) - ignore
             }
           }
         }

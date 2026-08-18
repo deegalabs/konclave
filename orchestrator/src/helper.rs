@@ -52,7 +52,7 @@ pub enum SendReject {
     /// The destination failed authoritative decode / pool / network validation.
     Address(AddressError),
     /// The destination decoded but cannot receive shielded Orchard funds (Sapling-only /
-    /// transparent-only) — Konclave is shielded-first and refuses to lock funds (§8).
+    /// transparent-only) - Konclave is shielded-first and refuses to lock funds (§8).
     NotOrchard,
     /// The amount was zero (nothing to send).
     ZeroAmount,
@@ -72,7 +72,7 @@ impl std::fmt::Display for SendReject {
 
 /// Validate a single-payment destination + amount and build the `SpendPlan` the helper spends.
 /// Authoritative: the recipient is decoded with `zcash_address` on the helper's network and must
-/// be able to receive Orchard (shielded-first, §8 — a Sapling/transparent-only address would lock
+/// be able to receive Orchard (shielded-first, §8 - a Sapling/transparent-only address would lock
 /// funds). Rejections are caller-fixable (`SendReject`) and happen before any engine runs.
 pub fn payment_plan(
     to: &str,
@@ -95,7 +95,7 @@ pub fn payment_plan(
 }
 
 /// Build the `SendConfig` for an Architecture-B send from a registered vault. Only the
-/// build/prove/extract/inject/broadcast fields are populated — the ceremony fields (members,
+/// build/prove/extract/inject/broadcast fields are populated - the ceremony fields (members,
 /// frostd, certs, threshold) are left empty on purpose: in Architecture B the **browsers** run
 /// the FROST ceremony over the relay, and `send::net_orchestrate_send` never touches those
 /// fields. The helper is blind to shares; it only assembles the PCZT and broadcasts the
@@ -132,7 +132,7 @@ pub fn send_config_for(
 
 /// A vault's Orchard balance as the helper reports it to the browsers. Orchard-only and minimal:
 /// spendable (confirmed, ready to send) plus total (including notes still confirming). Internal
-/// transparency for the members — the helper reads it from its view-only wallet.
+/// transparency for the members - the helper reads it from its view-only wallet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VaultBalance {
     pub orchard_spendable_zat: u64,
@@ -140,7 +140,7 @@ pub struct VaultBalance {
 }
 
 /// Sync a registered vault's view-only wallet against lightwalletd and read its Orchard balance.
-/// The helper owns the UFVK (view-only), so this is a watcher's read — no share involved. Network
+/// The helper owns the UFVK (view-only), so this is a watcher's read - no share involved. Network
 /// + engine I/O, so it is exercised live, not in unit tests.
 pub fn vault_balance(
     cfg: &HelperConfig,
@@ -156,7 +156,7 @@ pub fn vault_balance(
 
 /// A record of one signing ceremony the helper drove for a vault (ZecSafe-inspired reproducible
 /// evidence): what was signed, by whom cryptographically (the aggregate FROST signature), and the
-/// resulting on-chain txid. Every field is PUBLIC and independently checkable — anyone can verify
+/// resulting on-chain txid. Every field is PUBLIC and independently checkable - anyone can verify
 /// each `signatures` entry under the vault's group verifying key for `sighash` (off-chain), and
 /// confirm `txid` on a block explorer (on-chain). Persisted per vault so the trail is auditable
 /// and survives restarts. Contains no share and no secret.
@@ -217,7 +217,7 @@ pub fn load_ceremonies(vaults_dir: &Path, group_key: &str) -> Vec<CeremonyRecord
 /// ceremony (Architecture B) which the helper broadcasts.
 ///
 /// SECURITY MODEL (audit): the helper is a public service, so these vote endpoints are
-/// **unauthenticated** in this iteration — anyone who knows the vault_id could POST a proposal or a
+/// **unauthenticated** in this iteration - anyone who knows the vault_id could POST a proposal or a
 /// vote. That is a coordination/spam surface, NOT a fund-safety hole: the real money gate is the
 /// FROST ceremony, which needs `threshold` REAL browser shares to produce a valid signature. A
 /// forged vote only changes the displayed approval count; it cannot move funds. The hardening
@@ -433,7 +433,7 @@ pub fn ledger_csv(sent: &[HelperProposal]) -> String {
 
 /// A vault registered with the helper: its public identity plus where its view-only wallet lives.
 /// `vault_id` equals the group verifying key hex (the same id the browser shows on `/net`).
-/// Serializable so it can be persisted to disk (see [`save_registration`]) — the FS is a redeploy-
+/// Serializable so it can be persisted to disk (see [`save_registration`]) - the FS is a redeploy-
 /// durable cache of PUBLIC / view-only material (address + UFVK + wallet dir), never a share.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VaultRegistration {
@@ -460,7 +460,7 @@ pub fn registration_path(vaults_dir: &Path, group_key: &str) -> PathBuf {
 }
 
 /// Persist a registration next to its view-only wallet, so a helper restart / redeploy keeps the
-/// vault (and its ALREADY-derived address — no re-derivation, so the address stays stable). Writes
+/// vault (and its ALREADY-derived address - no re-derivation, so the address stays stable). Writes
 /// only public / view-only fields.
 pub fn save_registration(vaults_dir: &Path, reg: &VaultRegistration) -> Result<(), ToolError> {
     let path = registration_path(vaults_dir, &reg.vault_id);
@@ -531,7 +531,7 @@ pub fn register_vault(
         ));
     }
     // Persisted-registration shortcut: if this vault was registered before (surviving a restart),
-    // return the STORED registration — no re-derivation, so the address stays stable and the
+    // return the STORED registration - no re-derivation, so the address stays stable and the
     // heavy wallet init is not repeated.
     if let Some(reg) = load_registration(&cfg.vaults_dir, group_key) {
         return Ok(reg);
@@ -572,7 +572,7 @@ pub fn register_vault(
         total,
     };
     // Persist so a restart keeps the vault + its now-fixed address. Best-effort: a write failure
-    // (e.g. read-only FS) must not fail the registration — the in-memory state still serves it.
+    // (e.g. read-only FS) must not fail the registration - the in-memory state still serves it.
     let _ = save_registration(&cfg.vaults_dir, &reg);
     Ok(reg)
 }

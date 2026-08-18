@@ -1,4 +1,4 @@
-# Konclave — hero background loop (Remotion)
+# Konclave - hero background loop (Remotion)
 
 Same pipeline as `deegalabs/lizzy/tokeneconomy/video`:
 
@@ -6,12 +6,12 @@ Same pipeline as `deegalabs/lizzy/tokeneconomy/video`:
 `ui/public/videos/` → the landing picks it up.
 
 You generate the material in the **Google AI Studio / Flow UI** (that's where your prepaid
-credit works — not the raw API, which hit the free-tier quota). Then drop the clip here and
+credit works - not the raw API, which hit the free-tier quota). Then drop the clip here and
 Remotion renders the loop.
 
 ## 1. Generate the material (in the AI Studio / Flow UI)
 
-**Keyframe — Nano Banana (image):**
+**Keyframe - Nano Banana (image):**
 > Ultra-clean **WHITE** futuristic scene, Apple-keynote aesthetic. A floating circular
 > bank-vault door of brushed steel and frosted glass, concentric rings, a softly glowing
 > **blue keyhole** at the center, on a bright white studio background with a faint perspective
@@ -19,7 +19,7 @@ Remotion renders the loop.
 
 Pick the best frame.
 
-**Animate it — Veo (image-to-video, ~8s):**
+**Animate it - Veo (image-to-video, ~8s):**
 > Slowly rotate the vault's concentric rings; a soft **blue** light pulse ripples outward from
 > the keyhole as the vault is "approved together". Very slow, calm, constant motion; a gentle
 > dolly-in. **Seamless loop, no text, no logos.** Bright white palette. 16:9.

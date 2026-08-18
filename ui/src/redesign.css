@@ -1,4 +1,4 @@
-/* Vault-list / intro layout — brushed silver + one blue signal over dark slate.
+/* Vault-list / intro layout - brushed silver + one blue signal over dark slate.
    Flat by default: cards separate by border + tone, not float. The .rd-* classes are
    now just layout names that consume the SHARED token vocabulary (see lacre.css);
    there is no private .rd dialect anymore. */
@@ -11,7 +11,7 @@
   color: var(--text);
   font-family: var(--font-sans);
 }
-.rd::before { /* faint archival tooth — matte, never glow (opacity <= .05) */
+.rd::before { /* faint archival tooth - matte, never glow (opacity <= .05) */
   content: ''; position: fixed; inset: 0; pointer-events: none; opacity: 0.05;
   background-image: radial-gradient(rgba(16, 24, 40, 0.5) 0.5px, transparent 0.5px);
   background-size: 3px 3px;
@@ -22,7 +22,7 @@
 .rd-top { display: flex; justify-content: space-between; align-items: center; }
 .rd-brandwrap { display: inline-flex; align-items: center; gap: 11px; }
 .rd-lockup { height: 64px; width: auto; display: block; }
-/* plain tracked-mono wordmark — NOT a metallic-bevel / background-clip web3 wordmark */
+/* plain tracked-mono wordmark - NOT a metallic-bevel / background-clip web3 wordmark */
 .rd-brand {
   font-family: var(--font-mono); font-weight: 600; letter-spacing: 0.42em;
   text-transform: uppercase; font-size: 13px; color: var(--text);
@@ -33,7 +33,7 @@
   border: 1px solid var(--line-soft); border-radius: var(--radius-pill); padding: 6px 13px; background: var(--surface-1);
 }
 .rd-status b { color: var(--text); font-weight: 600; }
-/* live-ness is a static success dot + label — no infinite pulse */
+/* live-ness is a static success dot + label - no infinite pulse */
 .rd-status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--silver); }
 
 .rd-hero { margin: 48px 0 30px; }
@@ -44,7 +44,7 @@
 
 .rd-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
 
-/* Vault card — layered slate surface, hairline border; flat (no float, no hover-lift) */
+/* Vault card - layered slate surface, hairline border; flat (no float, no hover-lift) */
 .rd-card {
   position: relative; cursor: pointer;
   background: var(--surface-1); box-shadow: var(--shadow-sm);
@@ -80,7 +80,7 @@
 .rd-enter .arw { transition: transform var(--dur-fast) var(--ease-out); }
 .rd-card:hover .rd-enter .arw { transform: translateX(3px); }
 
-/* Create card — dashed glass with the joining-rings emblem (DKG). Flat. */
+/* Create card - dashed glass with the joining-rings emblem (DKG). Flat. */
 .rd-create {
   background: var(--surface-1); backdrop-filter: blur(3px);
   border: 1.5px dashed var(--line-strong); box-shadow: none;
@@ -88,7 +88,7 @@
   transition: border-color var(--dur-fast) var(--ease-out);
 }
 .rd-create:hover { border-color: var(--accent-line); }
-/* matte emblem — no glow / drop-shadow on the mark */
+/* matte emblem - no glow / drop-shadow on the mark */
 .rd-create .ic { color: var(--silver); margin-bottom: 10px; }
 .rd-create:hover .ic { color: var(--accent); }
 .rd-create .t { font-size: 15px; color: var(--text); }
@@ -124,7 +124,7 @@
 .intro-cta { text-align: center; margin: 34px 0 6px; }
 .intro-cta .rd-enter { font-size: 14px; padding: 12px 22px; }
 
-/* Unlock protected vault (vault word) — overlay, so shadow is allowed here */
+/* Unlock protected vault (vault word) - overlay, so shadow is allowed here */
 .unlock-overlay {
   position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 24px;
   background: rgba(8, 11, 15, 0.66); backdrop-filter: blur(4px);

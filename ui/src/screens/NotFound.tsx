@@ -1,6 +1,6 @@
 import { Mark } from '../components'
 
-/** 404 — the catch-all route. A real "page not found" instead of silently falling back to a
+/** 404 - the catch-all route. A real "page not found" instead of silently falling back to a
  *  default screen, with a clear way back to the vaults. Standalone (no rail). */
 export default function NotFound() {
   return (

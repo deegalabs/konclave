@@ -105,7 +105,7 @@ export default function Ledger() {
   const dates = ledger.map((p) => p.created_at).filter(Boolean) as number[]
   const lo = dates.length ? Math.min(...dates) : 0
   const hi = dates.length ? Math.max(...dates) : 0
-  const period = !dates.length ? '—' : lo === hi ? fmtDate(lo) : `${fmtDate(lo)} - ${fmtDate(hi)}`
+  const period = !dates.length ? '-' : lo === hi ? fmtDate(lo) : `${fmtDate(lo)} - ${fmtDate(hi)}`
   const filtered = ledger.filter((p) => {
     const stOk = fState === 'all' || (fState === 'settled' ? SETTLED(p.state) : p.state === 'awaiting' || p.state === 'ready')
     const knOk = fKind === 'all' || p.kind === fKind
@@ -124,7 +124,7 @@ export default function Ledger() {
           </>}
         />
 
-        {/* Banda de documento — o livro do cofre para entregar ao contador */}
+        {/* Document band - the vault's book to hand to the accountant */}
         <div className="doc-band">
           <div className="db-meta">
             <div><span className="klab">{t('ledger.vault')}</span><b>{vaultName ?? 'Tesouraria Comum'}</b></div>

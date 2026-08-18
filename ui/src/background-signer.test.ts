@@ -1,6 +1,6 @@
 /// <reference types="node" />
 // Tests for the app-level BackgroundSigner (issue #49, Stage 3): the per-vault signing room, the
-// singleton guard, and — the point of Stage 3 — that a device signs FROM THE BACKGROUND only when
+// singleton guard, and - the point of Stage 3 - that a device signs FROM THE BACKGROUND only when
 // the injected governance gate approves. Two signers exchange messages over an in-memory relay with
 // the same fixpoint the live signer uses.
 import { readFileSync } from 'node:fs'
@@ -82,7 +82,7 @@ function requestFor(pczt: Uint8Array): string {
   return JSON.stringify({ kind: 'net-sign-request', sighash: bytesToHex(pcztSighash(pczt)), spends, pczt_hex: bytesToHex(pczt) })
 }
 
-// Deliver every bus message to every device's feed() (own included — the mailbox echoes) until the
+// Deliver every bus message to every device's feed() (own included - the mailbox echoes) until the
 // bus stops growing (the ceremony quiesces).
 async function run(devs: Dev[], bus: Bus) {
   let prev = -1
@@ -148,7 +148,7 @@ describe('BackgroundSigner (Dashboard-driven signing, governance-gated)', () => 
     bus.post('helper', requestFor(dkgProvenPczt()))
     await run([A], bus)
 
-    expect(bus.has('sreq')).toBe(false) // the coordinator never kicked off — a gate is not a signature
+    expect(bus.has('sreq')).toBe(false) // the coordinator never kicked off - a gate is not a signature
     expect(A.signer.isDone()).toBe(false)
     expect(A.sig).toBeNull()
   })
@@ -163,7 +163,7 @@ describe('BackgroundSigner (Dashboard-driven signing, governance-gated)', () => 
 
     bus.post('helper', requestFor(dkgProvenPczt()))
     await run([A, B], bus)
-    expect(bus.has('sreq')).toBe(false) // still pending — nobody approved yet
+    expect(bus.has('sreq')).toBe(false) // still pending - nobody approved yet
 
     approved = true
     await A.signer.retry()

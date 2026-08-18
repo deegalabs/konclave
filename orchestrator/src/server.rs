@@ -1,9 +1,9 @@
 //! The local HTTP bridge (ADR-0004): serves the UI bundle and a small JSON API,
-//! bound to **`127.0.0.1` only**. This is not a network service — it is a local daemon
+//! bound to **`127.0.0.1` only**. This is not a network service - it is a local daemon
 //! that a same-machine UI (browser today, a packaged webview tomorrow) talks to.
 //!
-//! Design for testability: [`handle`] is a pure dispatch — `(method, path, deps) →
-//! Response` — with no socket. The socket loop in [`serve`] is a thin wrapper. Wallet
+//! Design for testability: [`handle`] is a pure dispatch - `(method, path, deps) →
+//! Response` - with no socket. The socket loop in [`serve`] is a thin wrapper. Wallet
 //! reads sit behind [`WalletReader`] so handlers can be tested (and failure-tested)
 //! without spawning any external tool.
 //!
@@ -23,7 +23,7 @@ use crate::wallet::{self, Balance, ChainInfo};
 pub trait WalletReader {
     fn info(&self) -> Result<ChainInfo, String>;
     fn balance(&self) -> Result<Balance, String>;
-    /// Txids the wallet has recorded as **mined** — the source that lets reconciliation promote a
+    /// Txids the wallet has recorded as **mined** - the source that lets reconciliation promote a
     /// locally-`Sent` proposal to `Confirmed` (§8). Defaults to empty so a reader without a tx
     /// history is still valid (the balance-based invalidation half does not need it).
     fn confirmed_txids(&self) -> Result<Vec<String>, String> {
@@ -66,7 +66,7 @@ pub struct Config {
     /// L2: when set, the DB is opened with SQLCipher under this key (from the OS keychain),
     /// so vault metadata + the UFVK are encrypted at rest. `None` = plaintext (legacy/default).
     pub db_key: Option<zeroize::Zeroizing<[u8; 32]>>,
-    /// The blind mailbox (konclave.app network transport). In-memory, opaque messages only —
+    /// The blind mailbox (konclave.app network transport). In-memory, opaque messages only -
     /// it moves ciphertext/public FROST material between devices and cannot read either.
     pub relay: crate::relay::RelayState,
 }
@@ -143,7 +143,7 @@ struct VaultDto {
     orchard_address: String,
     /// The Unified Full Viewing Key decrypts the vault's entire transaction graph and every
     /// incoming memo (the payslips). The UI never needs the raw key, so it is NEVER served
-    /// over the bridge (SECURITY_AUDIT M1) — kept in the struct only for internal use.
+    /// over the bridge (SECURITY_AUDIT M1) - kept in the struct only for internal use.
     #[serde(skip)]
     #[allow(dead_code)]
     ufvk: String,
@@ -181,11 +181,11 @@ struct ProposalDto {
     value_zec: String,
     memo: Option<String>,
     to_address: Option<String>,
-    /// Whether the destination is transparent (public) — drives the UI warning.
+    /// Whether the destination is transparent (public) - drives the UI warning.
     is_public: bool,
     expiry_unix: Option<i64>,
     txid: Option<String>,
-    /// Unix seconds when the proposal was created — the real date the UI renders.
+    /// Unix seconds when the proposal was created - the real date the UI renders.
     created_at: Option<i64>,
     approvals: Vec<String>,
     refusals: Vec<String>,
@@ -404,7 +404,7 @@ fn resolve_vault_id(store: &Store, want: Option<&str>) -> Result<Option<String>,
     if let Some(w) = want {
         return match vaults.iter().find(|v| v.id == w) {
             Some(v) => Ok(Some(v.id.clone())),
-            // An explicit ?vault=<id> that doesn't exist is a 404 — never silently fall back
+            // An explicit ?vault=<id> that doesn't exist is a 404 - never silently fall back
             // to the first vault (SECURITY_AUDIT L3), which could land a write on the wrong one.
             None => Err(Response::json(
                 404,
@@ -523,7 +523,7 @@ fn api_ledger(cfg: &Config, want: Option<&str>) -> Response {
     }
 }
 
-/// `GET /api/ledger.csv` — the accountant's export, ITEMIZED: **one row per payment**.
+/// `GET /api/ledger.csv` - the accountant's export, ITEMIZED: **one row per payment**.
 /// A single payment is one row; a payroll of N is **N rows** (one per beneficiary),
 /// sharing the document id/state/txid. This is the accounting "entries" (lançamentos) view
 /// (temp/REDESENHO_FOLHA.md), not one aggregate line per proposal.
@@ -626,7 +626,7 @@ fn push_csv_row(csv: &mut String, fields: &[&str]) {
     csv.push('\n');
 }
 
-/// Unix seconds → ISO `YYYY-MM-DD` (UTC) for the accounting export — an auditable ledger
+/// Unix seconds → ISO `YYYY-MM-DD` (UTC) for the accounting export - an auditable ledger
 /// must be year-qualified. Civil-from-days (Howard Hinnant's algorithm), no chrono dep.
 fn iso_date(unix: i64) -> String {
     let days = unix.div_euclid(86_400);
@@ -676,7 +676,7 @@ struct NewVaultDkg {
     members: Vec<String>,
 }
 
-/// `POST /api/vault/dkg` — create a vault by Distributed Key Generation. Runs the full
+/// `POST /api/vault/dkg` - create a vault by Distributed Key Generation. Runs the full
 /// DKG (key never reconstituted), derives the Orchard address, creates the view-only
 /// wallet, seals the shares, and saves the vault + members. Takes several seconds.
 fn create_vault_dkg_handler(cfg: &Config, body: &[u8]) -> Response {
@@ -760,7 +760,7 @@ fn create_vault_dkg_handler(cfg: &Config, body: &[u8]) -> Response {
         );
     }
     // Persist the passphrase lock (salt + verifier). The passphrase itself is NOT stored
-    // — it is returned once below for the user to write down.
+    // - it is returned once below for the user to write down.
     if let Err(e) = store.set_vault_lock(&id, &v.salt, &v.verifier) {
         return Response::json(
             500,
@@ -786,7 +786,7 @@ fn create_vault_dkg_handler(cfg: &Config, body: &[u8]) -> Response {
     )
 }
 
-// ---- vault passphrase unlock ("palavra do cofre") ----
+// ---- vault passphrase unlock ----
 
 #[derive(serde::Deserialize)]
 struct UnlockReq {
@@ -844,7 +844,7 @@ fn record_unlock(cfg: &Config, vault_id: &str, success: bool) {
     }
 }
 
-/// `POST /api/vault/unlock` — verify a vault's passphrase against its stored verifier.
+/// `POST /api/vault/unlock` - verify a vault's passphrase against its stored verifier.
 /// 200 `{ok:true, locked:true}` on the right word; 401 on the wrong one; `{ok:true,
 /// locked:false}` when the vault has no passphrase (legacy/slice). Never returns the key.
 /// Repeated wrong words are throttled per vault (L1). Never returns the key.
@@ -874,7 +874,7 @@ fn vault_unlock(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
             )
         }
     };
-    // L1: refuse (429) while locked out — before spending the KDF on another guess.
+    // L1: refuse (429) while locked out - before spending the KDF on another guess.
     if let Some(resp) = unlock_locked_out(cfg, &vault_id) {
         return resp;
     }
@@ -906,12 +906,12 @@ struct DeleteReq {
     #[serde(default)]
     passphrase: Option<String>,
     /// For an unlocked/legacy vault (no passphrase), the exact vault name typed back as a
-    /// destructive-action confirmation — verified server-side, not just in the UI.
+    /// destructive-action confirmation - verified server-side, not just in the UI.
     #[serde(default)]
     confirm_name: Option<String>,
 }
 
-/// `POST /api/vault/delete` — remove a vault from THIS device (records, proposals,
+/// `POST /api/vault/delete` - remove a vault from THIS device (records, proposals,
 /// people, members, lock). Passphrase-protected vaults require the correct word. This
 /// is local only: it cannot touch the chain or other members' devices, and if the vault
 /// still holds funds they become unreachable from here (the UI warns before calling this).
@@ -1086,7 +1086,7 @@ fn csv_field(s: &str) -> String {
 }
 
 /// Live balance. `{ "configured": false }` when no wallet tool is wired; `502` when the
-/// tool is wired but the call fails (offline node, etc.) — the UI degrades gracefully.
+/// tool is wired but the call fails (offline node, etc.) - the UI degrades gracefully.
 fn api_balance(cfg: &Config) -> Response {
     let Some(reader) = cfg.wallet.as_ref() else {
         return Response::json(200, &serde_json::json!({ "configured": false }));
@@ -1122,7 +1122,7 @@ fn bad(detail: impl Into<String>, what: &str) -> Response {
     )
 }
 
-/// `POST /api/proposals` — validate at the boundary, then persist an Awaiting (or, for a
+/// `POST /api/proposals` - validate at the boundary, then persist an Awaiting (or, for a
 /// 1-of-n vault, Ready) proposal with the proposer as first approval. No funds move here;
 /// spendability is authoritative at broadcast time (step 2c).
 fn create_proposal(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
@@ -1155,7 +1155,7 @@ fn create_proposal(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
             Ok(rep) if rep.is_payable() => {}
             Ok(_) => {
                 return bad(
-                    "this address can't receive from an Orchard vault — the funds would be locked",
+                    "this address can't receive from an Orchard vault - the funds would be locked",
                     "unpayable address",
                 )
             }
@@ -1163,7 +1163,7 @@ fn create_proposal(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
         }
     }
 
-    // Amount (no floating point) — must be > 0.
+    // Amount (no floating point) - must be > 0.
     let value = match Zatoshis::from_zec_str(&input.value_zec) {
         Ok(v) => v,
         Err(e) => return bad(e.to_string(), "invalid amount"),
@@ -1321,7 +1321,7 @@ fn payroll_summary_json(plan: &crate::payroll::PayrollPlan) -> serde_json::Value
     })
 }
 
-/// `POST /api/payroll/preview` — parse CSV or structured lines and report accepted lines,
+/// `POST /api/payroll/preview` - parse CSV or structured lines and report accepted lines,
 /// per-row errors, and the aggregate summary. No state change (local parse, spec §4.3).
 fn payroll_preview(body: &[u8]) -> Response {
     use crate::payroll::{import_csv, PayrollPlan};
@@ -1360,7 +1360,7 @@ fn payroll_preview(body: &[u8]) -> Response {
     )
 }
 
-/// `POST /api/payroll` — create a Payroll proposal (N outputs, one envelope). Every line
+/// `POST /api/payroll` - create a Payroll proposal (N outputs, one envelope). Every line
 /// is validated; the aggregate is checked against the balance when a wallet is wired.
 fn payroll_create(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
     use crate::money::MAX_MONEY;
@@ -1443,7 +1443,7 @@ fn payroll_create(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string)
-        .unwrap_or_else(|| format!("Folha — {} pagamentos", summary.count));
+        .unwrap_or_else(|| format!("Folha - {} pagamentos", summary.count));
 
     let proposal = Proposal::propose(req.proposer.clone(), vault.quorum);
     let rec = ProposalRecord {
@@ -1484,7 +1484,7 @@ fn payroll_create(cfg: &Config, body: &[u8], want: Option<&str>) -> Response {
     )
 }
 
-/// `GET /api/proposals/{id}` — a single proposal (for the proposal detail screen). Payroll
+/// `GET /api/proposals/{id}` - a single proposal (for the proposal detail screen). Payroll
 /// proposals also carry their output lines.
 fn api_proposal_one(cfg: &Config, id: &str) -> Response {
     let store = match open_store(cfg) {
@@ -1523,7 +1523,7 @@ struct Vote {
     member: String,
 }
 
-/// `POST /api/proposals/{id}/approve|refuse` — record a vote through the state machine.
+/// `POST /api/proposals/{id}/approve|refuse` - record a vote through the state machine.
 /// The domain is authoritative: reaching the quorum flips to Ready; refusals that make
 /// the quorum unreachable auto-Reject. Conflicting/late votes are 409, never silent.
 fn vote_proposal(cfg: &Config, id: &str, body: &[u8], approve: bool) -> Response {
@@ -1621,7 +1621,7 @@ struct SendReq {
     dry_run: bool,
 }
 
-/// `POST /api/proposals/{id}/send` — run the FROST ceremony for a Ready proposal and,
+/// `POST /api/proposals/{id}/send` - run the FROST ceremony for a Ready proposal and,
 /// unless `dry_run`, broadcast. On a real send the proposal transitions Ready→Sent with
 /// the txid recorded. This moves real funds; the caller (UI) confirms explicitly first.
 fn send_proposal(cfg: &Config, id: &str, body: &[u8]) -> Response {
@@ -1670,7 +1670,7 @@ fn send_proposal(cfg: &Config, id: &str, body: &[u8]) -> Response {
     }
     // Vault-binding guard: this server drives ONE ceremony, configured for a single vault
     // (sc.group). A proposal from a DIFFERENT vault must never be signed from the configured
-    // wallet — refuse explicitly instead of silently spending the wrong vault's funds. This
+    // wallet - refuse explicitly instead of silently spending the wrong vault's funds. This
     // turns the "sending from a fresh DKG vault is not wired" debt into a clear error rather
     // than a dangerous silent mis-send.
     match store.get_vault(&rec.vault_id) {
@@ -1866,13 +1866,13 @@ fn content_type(path: &Path) -> &'static str {
 
 /// Group public key of the real slice vault (2-of-3 trusted-dealer, RedPallas).
 pub const SLICE_GROUP: &str = "1539b0ec3bc70a98d5c0e436da0b103552544d77d6b199efc444cdbab9b6ac24";
-/// The real vault's Orchard receive address — public material (you hand it out to be paid).
+/// The real vault's Orchard receive address - public material (you hand it out to be paid).
 pub const SLICE_ADDRESS: &str = "u1vjgxlvz4ewnt43rkq6fzexpl639745spx369tc4j9n9l0qnt9rufxdt2pxe3jtku7lqv4gtzfqafxtf7gal5y9gmz84nkza6z5d406dr";
 
 /// Seed the **real** slice vault so a fresh DB renders a Painel coherent with the live
 /// balance and the ceremony (same address/group). Only PUBLIC material is committed here:
 /// the Orchard address and the group pubkey are public; the UFVK (view key) is not put in
-/// git — it is loaded from the wallet at runtime. Skips if a vault already exists.
+/// git - it is loaded from the wallet at runtime. Skips if a vault already exists.
 pub fn seed_demo(store: &mut Store) -> Result<(), crate::store::StoreError> {
     use crate::proposal::{ProposalState, Quorum};
     if !store.list_vaults()?.is_empty() {
@@ -1910,7 +1910,7 @@ pub fn seed_demo(store: &mut Store) -> Result<(), crate::store::StoreError> {
     )?;
 
     // One example pending proposal, with a value that FITS the real vault balance
-    // (~0.0009 ZEC) — so nothing on screen contradicts the on-chain reality.
+    // (~0.0009 ZEC) - so nothing on screen contradicts the on-chain reality.
     let example = ProposalRecord {
         id: "prop-exemplo-1".into(),
         vault_id: "vault-slice".into(),
@@ -1955,7 +1955,7 @@ fn new_session_token() -> String {
 }
 
 /// Does the `Host` (or an `Origin`'s host) point at our loopback? Accepts `localhost` /
-/// `127.0.0.1`, with or without a port. A foreign/absent host is rejected — this is what
+/// `127.0.0.1`, with or without a port. A foreign/absent host is rejected - this is what
 /// defeats DNS-rebinding (an attacker domain resolving to 127.0.0.1 still sends its own Host).
 fn host_is_local(host: Option<&str>) -> bool {
     match host {
@@ -2009,7 +2009,7 @@ fn inject_session(html: Vec<u8>, token: &str) -> Vec<u8> {
 /// into the served index.html. `handle` itself stays a pure router (kept directly testable).
 ///
 /// Reads are protected by the Host gate + the browser same-origin policy (no CORS headers are ever
-/// emitted), so only writes (POST) need the token — which also keeps the `<a download>` CSV export,
+/// emitted), so only writes (POST) need the token - which also keeps the `<a download>` CSV export,
 /// a plain GET, working.
 #[allow(clippy::too_many_arguments)]
 pub fn handle_secured(
@@ -2028,7 +2028,7 @@ pub fn handle_secured(
     let path = raw_path.split(['?', '#']).next().unwrap_or(raw_path);
     // The blind mailbox is public-by-design: it carries only opaque/encrypted bytes between
     // devices and is meant to be reached cross-origin (a hosted relay has no session at all).
-    // So it is exempt from the per-session CSRF token — the Host gate below still applies. It
+    // So it is exempt from the per-session CSRF token - the Host gate below still applies. It
     // changes no vault state; the worst a forged POST can do is add bounded noise to a room
     // whose random code it does not know.
     let is_relay = path.starts_with("/api/relay/");
@@ -2083,7 +2083,7 @@ pub fn serve(cfg: Config, port: u16) -> std::io::Result<()> {
                 token = Some(h.value.as_str().to_string());
             }
         }
-        // Bounded body (L4): reject an over-large payload up front by Content-Length — a local
+        // Bounded body (L4): reject an over-large payload up front by Content-Length - a local
         // daemon must not buffer an unbounded Vec. 2 MiB is generous for a payroll. Over → 413.
         const MAX_BODY: usize = 2 * 1024 * 1024;
         let too_large = req.body_length().map(|n| n > MAX_BODY).unwrap_or(false);
@@ -2117,7 +2117,7 @@ pub fn serve(cfg: Config, port: u16) -> std::io::Result<()> {
 }
 
 /// Reconcile a vault's cached proposals against the FRESH on-chain state (multi-device
-/// reconciliation, §8 — on-chain wins). Reads the Orchard spendable **and** the wallet's mined txids
+/// reconciliation, §8 - on-chain wins). Reads the Orchard spendable **and** the wallet's mined txids
 /// (`list-tx`) from a live wallet sync, then applies the pure [`crate::reconcile`] decision through
 /// [`Store::reconcile_proposals`]: the balance half invalidates (`Superseded`) reservations the
 /// freshly-synced spendable can no longer fund, and `confirmed_txids` promotes a locally-`Sent`
@@ -2158,7 +2158,7 @@ fn reconcile_report_json(report: &crate::reconcile::ReconcileReport) -> serde_js
     })
 }
 
-/// `POST /api/vault/reconcile` — sync the on-chain balance and reconcile this vault's proposals
+/// `POST /api/vault/reconcile` - sync the on-chain balance and reconcile this vault's proposals
 /// (§8, on-chain wins). Needs a live wallet; returns the reconciliation report so the UI can show
 /// what the chain changed (a payment another device already sent, a now-unfundable reservation).
 fn reconcile_handler(cfg: &Config, want: Option<&str>) -> Response {
@@ -2215,7 +2215,7 @@ mod tests {
     }
 
     fn tmp_db() -> String {
-        // A unique temp path per test — a process-wide counter is collision-free even
+        // A unique temp path per test - a process-wide counter is collision-free even
         // under cargo's parallel test threads.
         use std::sync::atomic::{AtomicU64, Ordering};
         static N: AtomicU64 = AtomicU64::new(0);
@@ -2570,7 +2570,7 @@ mod tests {
     #[test]
     fn delete_unlocked_vault_requires_the_typed_name() {
         // The seeded demo vault has no passphrase; deletion must still be confirmed by typing
-        // its exact name, enforced server-side (M3) — not only in the UI.
+        // its exact name, enforced server-side (M3) - not only in the UI.
         let cfg = seeded_cfg(None);
         let none = handle(&cfg, "POST", "/api/vault/delete", b"{}");
         assert_eq!(none.status, 401);
@@ -2651,7 +2651,7 @@ mod tests {
         }
         let cfg = cfg_with(db, None);
 
-        // Each vault sees only its own people — no cross-vault leakage.
+        // Each vault sees only its own people - no cross-vault leakage.
         let b = handle(&cfg, "GET", "/api/beneficiaries?vault=vault-b", b"");
         let list = body_json(&b)["beneficiaries"].as_array().unwrap().clone();
         assert_eq!(list.len(), 1);
@@ -2663,7 +2663,7 @@ mod tests {
         let v = handle(&cfg, "GET", "/api/vault?vault=vault-b", b"");
         assert_eq!(body_json(&v)["vault"]["name"], "Cofre B");
 
-        // An explicit unknown ?vault=<id> is a 404 — it must NOT fall back to the first
+        // An explicit unknown ?vault=<id> is a 404 - it must NOT fall back to the first
         // vault (L3), so a stale/guessed id can't land a request on the wrong vault.
         let f = handle(&cfg, "GET", "/api/vault?vault=nope", b"");
         assert_eq!(f.status, 404);
@@ -2750,7 +2750,7 @@ mod tests {
             );
             assert_eq!(r.status, 401);
         }
-        // Now locked out: even the RIGHT word is refused (429) — no key check happens.
+        // Now locked out: even the RIGHT word is refused (429) - no key check happens.
         let r = handle(
             &cfg,
             "POST",
@@ -2858,7 +2858,7 @@ mod tests {
         assert_eq!(v["threshold"], 2);
         assert_eq!(v["total"], 3);
         assert!(v["orchard_address"].as_str().unwrap().starts_with("u1"));
-        // The UFVK is NEVER served over the bridge (M1) — it decrypts the whole tx graph + memos.
+        // The UFVK is NEVER served over the bridge (M1) - it decrypts the whole tx graph + memos.
         assert!(v.get("ufvk").is_none());
     }
 
@@ -3122,7 +3122,7 @@ mod tests {
 
     #[test]
     fn create_proposal_rejects_malformed_unified_with_live_wallet() {
-        // `u1recipient…` passes the prefix heuristic but is not a real address — the exact
+        // `u1recipient…` passes the prefix heuristic but is not a real address - the exact
         // gap the authoritative decode closes on the fund-moving path.
         let cfg = live_cfg();
         let body =

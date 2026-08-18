@@ -51,7 +51,7 @@ export default function Settings() {
             const saved = await listVaults()
             const found = saved.find((s) => s.id === v.id)
             if (on) setGov(found?.governance ?? 'open')
-          } catch { /* no local record (local-bridge mode) — leave governance unshown */ }
+          } catch { /* no local record (local-bridge mode) - leave governance unshown */ }
         }
       }
     })()
@@ -84,7 +84,7 @@ export default function Settings() {
         actions={<Seal t={thr} n={n} />}
       />
 
-      {/* Appearance — a per-device theme choice (white-first; dark opt-in). Not per-vault, so it
+      {/* Appearance - a per-device theme choice (white-first; dark opt-in). Not per-vault, so it
           renders regardless of vault/live state. */}
       <section className="set-list mt">
         <div className="set-row">
@@ -97,7 +97,7 @@ export default function Settings() {
       </section>
       <p className="set-hint">{pt ? 'Preferência deste dispositivo · o branco é o padrão, o escuro é opcional.' : 'A per-device preference · white is the default, dark is optional.'}</p>
 
-      {/* Coordination — WHERE the blind ceremony helper lives (desktop). Our hosted helper, your
+      {/* Coordination - WHERE the blind ceremony helper lives (desktop). Our hosted helper, your
           own, or fully local (no helper). The helper never sees a share in any mode. */}
       {isDesktop && (
         <>
@@ -114,14 +114,14 @@ export default function Settings() {
             </div>
             {coord === 'custom' && (
               <div className="set-row" style={{ gap: 8 }}>
-                <input className="unlock-input mono" style={{ flex: 1 }} inputMode="url" placeholder="https://seu-helper.exemplo.com" value={helperUrl} onChange={(e) => setHelperUrl(e.target.value)} />
+                <input className="unlock-input mono" style={{ flex: 1 }} inputMode="url" placeholder={pt ? 'https://seu-helper.exemplo.com' : 'https://your-helper.example.com'} value={helperUrl} onChange={(e) => setHelperUrl(e.target.value)} />
                 <button type="button" className="btn ok" disabled={!helperUrl.trim()} onClick={() => applyCoord('custom', helperUrl)}>{pt ? 'Salvar' : 'Save'}</button>
               </div>
             )}
           </section>
           <p className="set-hint">{pt
-            ? 'Quem coordena a cerimônia — o helper nunca vê um share. Nosso helper hospedado, o seu próprio, ou totalmente local. Aplica ao trocar.'
-            : 'Who coordinates the ceremony — the helper never sees a share. Our hosted helper, your own, or fully local. Applies on change.'}</p>
+            ? 'Quem coordena a cerimônia - o helper nunca vê um share. Nosso helper hospedado, o seu próprio, ou totalmente local. Aplica ao trocar.'
+            : 'Who coordinates the ceremony - the helper never sees a share. Our hosted helper, your own, or fully local. Applies on change.'}</p>
         </>
       )}
 
@@ -145,11 +145,11 @@ export default function Settings() {
         </div>
         <div className="set-row">
           <span className="set-k">{t('settings.address')}</span>
-          <span className="set-v mono">{vault ? shortAddr(vault.orchard_address) : '—'}</span>
+          <span className="set-v mono">{vault ? shortAddr(vault.orchard_address) : '-'}</span>
         </div>
         <div className="set-row">
           <span className="set-k">{t('settings.group')}</span>
-          <span className="set-v mono">{vault ? vault.group_pubkey.slice(0, 10) + '…' : '—'}</span>
+          <span className="set-v mono">{vault ? vault.group_pubkey.slice(0, 10) + '…' : '-'}</span>
         </div>
         {gov && (
           <div className="set-row">

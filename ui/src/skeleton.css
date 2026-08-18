@@ -1,4 +1,4 @@
-/* Skeleton loading placeholders — token-colored, subtle shimmer.
+/* Skeleton loading placeholders - token-colored, subtle shimmer.
  * White-themed (tokens auto-swap in dark). The shimmer is a gradient sweep that
  * DEGRADES TO A STATIC BLOCK under prefers-reduced-motion (strict motion budget). */
 
@@ -50,7 +50,7 @@
 .skel-row .skel-r-sub { height: 11px; width: 38%; }
 .skel-row .skel-r-val { width: 72px; height: 13px; flex: 0 0 auto; }
 
-/* Strict motion budget: no looping sweep — settle to a flat token block. */
+/* Strict motion budget: no looping sweep - settle to a flat token block. */
 @media (prefers-reduced-motion: reduce) {
   .skel {
     animation: none;

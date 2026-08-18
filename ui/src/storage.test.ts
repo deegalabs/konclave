@@ -14,7 +14,7 @@ const data: VaultData = {
   groupKey, address: 'u1examplevaultaddress', roster: ['Alice', 'Bob', 'Carol'], sealedShare: share,
 }
 
-describe('storage — encrypted IndexedDB persistence', () => {
+describe('storage - encrypted IndexedDB persistence', () => {
   it('is available in the test environment (IndexedDB + WebCrypto)', () => {
     expect(storageAvailable()).toBe(true)
   })
@@ -34,7 +34,7 @@ describe('storage — encrypted IndexedDB persistence', () => {
     await expect(loadVault('v2', 'wrong-passphrase')).rejects.toThrow(/wrong passphrase|tampered/i)
   })
 
-  it('listVaults exposes only public metadata — never the secret share', async () => {
+  it('listVaults exposes only public metadata - never the secret share', async () => {
     const list = await listVaults()
     const v = list.find((x) => x.id === 'v1')
     expect(v).toBeTruthy()

@@ -144,7 +144,7 @@ export const ptBR: Record<string, string> = {
   'nav.switchVault': 'Trocar cofre',
   'nav.more': 'Mais',
 
-  // Conector "e agora?" — o próximo passo natural no rodapé de cada tela de leitura
+  // Conector "e agora?" - o próximo passo natural no rodapé de cada tela de leitura
   'next.label': 'Próximo passo',
   'next.pay': 'Propor um pagamento',
   'next.dashboard': 'Voltar ao painel',
@@ -736,7 +736,7 @@ export const ptBR: Record<string, string> = {
   'net.log.msgFailed': 'aviso: uma mensagem da cerimônia falhou e foi ignorada',
   // ceremony errors
   'net.err.relayDown': 'Não consegui falar com o relay (a rede caiu). Recarregue as duas abas e refaça.',
-  'net.err.sighashMismatch': 'Recusei assinar: a transação que este dispositivo recomputou não bate com a pedida. Nada foi assinado. Pode ser um pedido adulterado — não repita com o mesmo pedido.',
+  'net.err.sighashMismatch': 'Recusei assinar: a transação que este dispositivo recomputou não bate com a pedida. Nada foi assinado. Pode ser um pedido adulterado - não repita com o mesmo pedido.',
   'net.err.roomFull': 'Esta sala já está cheia (o cofre tem o número de dispositivos definido). Gere um novo convite.',
   'net.err.stepFailed': 'Uma etapa da cerimônia falhou. Se as abas travarem, recarregue e refaça.',
   'net.err.timeout': 'A cerimônia não completou a tempo. Confira se todos os dispositivos entraram na sala e recarregue para refazer.',

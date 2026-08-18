@@ -8,7 +8,7 @@ const CAST: Array<[string, string]> = [
   ['A', '#57a6ff'], ['B', '#5ed39a'], ['C', '#e3ad52'], ['D', '#c58bf0'], ['E', '#e77f74'],
 ]
 
-/** Guided demo — the "coletivo Horizonte" scenario as a 7-step player. */
+/** Guided demo - the "coletivo Horizonte" scenario as a 7-step player. */
 export default function Demo() {
   const t = useT()
   const tr = useTr()

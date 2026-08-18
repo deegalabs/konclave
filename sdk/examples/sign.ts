@@ -5,9 +5,9 @@
  * clean surface. It uses a test trusted-dealer vault so the whole ceremony runs in ONE process
  * and you can see every step. In a real deployment each `participant*` call runs on a DIFFERENT
  * device and the byte blobs (commitment, signing package, seed, share) travel over your chosen
- * transport (a blind relay, WebRTC, QR codes) — the SECRET share and nonces never move.
+ * transport (a blind relay, WebRTC, QR codes) - the SECRET share and nonces never move.
  *
- * Run (after `npm install` and providing the wasm binary — see the README):
+ * Run (after `npm install` and providing the wasm binary - see the README):
  *   npx tsx examples/sign.ts
  *
  * You must point `init()` at the `.wasm` file that ships with `konclave-wasm`. The line below
@@ -43,13 +43,13 @@ async function main(): Promise<void> {
   //    identical either way.
   const vault = new TestVault()
 
-  // 4) Round 1 — two devices each produce a nonce/commitment pair. NONCES STAY LOCAL; only the
+  // 4) Round 1 - two devices each produce a nonce/commitment pair. NONCES STAY LOCAL; only the
   //    commitment is public and goes to the coordinator.
   const deviceA = participantRound1(vault.key_package(0))
   const deviceB = participantRound1(vault.key_package(1))
 
   // 5) The coordinator (any participant, holds no secret) gathers the public commitments and
-  //    builds the signing package + rerandomizer seed — both public.
+  //    builds the signing package + rerandomizer seed - both public.
   const coord = new Coordinator(vault.groupVk(), vault.pubkeys(), message)
   coord.addCommitment(vault.id(0), deviceA.commitment())
   coord.addCommitment(vault.id(1), deviceB.commitment())
@@ -57,14 +57,14 @@ async function main(): Promise<void> {
   const signingPackage = coord.signingPackage()
   const seed = coord.seed()
 
-  // 6) Round 2 — each device signs with ITS OWN nonces. Only the resulting share crosses the wire.
+  // 6) Round 2 - each device signs with ITS OWN nonces. Only the resulting share crosses the wire.
   coord.addShare(vault.id(0), participantRound2(signingPackage, deviceA.nonces(), vault.key_package(0), seed))
   coord.addShare(vault.id(1), participantRound2(signingPackage, deviceB.nonces(), vault.key_package(1), seed))
 
   // 7) Aggregate the two shares into one group signature.
   const signature = coord.aggregate()
 
-  // 8) Verify — independently. Every device can confirm the signature against the group key
+  // 8) Verify - independently. Every device can confirm the signature against the group key
   //    without trusting the coordinator's word. All inputs here are public.
   const ok = verifyRedpallas(vault.groupVk(), signingPackage, seed, message, signature)
 

@@ -1,7 +1,7 @@
 # Spec: Konclave ceremony protocol (DKG + signing over the blind relay)
 
 Status: draft (2026-08-02). Companion to [ADR-0007](../adr/0007-ceremony-security-invariants.md),
-which records the decision and the security invariants **I1–I4** this spec realizes. This document
+which records the decision and the security invariants **I1-I4** this spec realizes. This document
 defines the wire so the security fixes (issues #62/#63/#65) are implemented against a precise target,
 not by guesswork.
 
@@ -27,7 +27,7 @@ device re-announces its seat) · `sreq`/`s1`/`sp`/`s2`/`signed` (signing ceremon
 helper `net-sign-request`/`net-sign-response` (Architecture B).
 
 ## 3. DKG + admission (fixes #65 → invariant I4)
-Seating today is "first n by sorted tag" — a **bearer** model (any code-holder can seat). The spec
+Seating today is "first n by sorted tag" - a **bearer** model (any code-holder can seat). The spec
 REQUIRES **authenticated admission**:
 1. **Shared secret (PIN).** The creator sets a PIN alongside the invite code. Each joiner proves
    knowledge of the PIN in the handshake (e.g. the `hello`/round-1 material is bound to
@@ -57,11 +57,11 @@ REQUIRES **authenticated admission**:
   helper to inject + broadcast. The helper never holds a share.
 
 ## 5. Invariants checklist (must all hold before real-money `/net` broadcast)
-- [ ] **I1** relay blind — no secret/address/amount in cleartext on the wire.
+- [ ] **I1** relay blind - no secret/address/amount in cleartext on the wire.
 - [ ] **I2** on-device sighash recompute + refuse-on-mismatch (#62).
 - [ ] **I3** SignRequest ECIES-sealed (#63).
 - [ ] **I4** authenticated admission: PIN + creator admission + OOB fingerprint + ≥128-bit code (#65, #64).
-- Gate: [#51](../../temp/PLANO-MESTRE-EXECUCAO.md) (mainnet validation) stays blocked until I2–I4 land.
+- Gate: [#51](../../temp/PLANO-MESTRE-EXECUCAO.md) (mainnet validation) stays blocked until I2-I4 land.
 
 ## 6. Non-goals (for now)
 Non-interactive DKG (Golden, roadmap) · on-chain memo transport as a fallback (Zkool-style, roadmap)

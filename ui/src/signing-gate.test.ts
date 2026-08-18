@@ -3,7 +3,7 @@ import { makeSigningGate, type SigningMode } from './signing-gate'
 
 // The governance policy for background signing (#49): a device never signs an unapproved payment;
 // beyond that, auto signs approved ones on its own, manual also needs the owner to arm the payment.
-describe('makeSigningGate — auto/manual signing policy', () => {
+describe('makeSigningGate - auto/manual signing policy', () => {
   const SH = 'deadbeef'
 
   it('never signs an unapproved payment, in either mode', async () => {

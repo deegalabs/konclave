@@ -1,11 +1,11 @@
-//! Architecture B — the helper side of a real `/net` broadcast.
+//! Architecture B - the helper side of a real `/net` broadcast.
 //!
 //! In `/net`, the browser devices hold the FROST shares and run the signing ceremony among
 //! themselves over the blind relay. This helper (which NEVER sees a share) does the public,
 //! non-secret work: it builds and proves the real PCZT for the vault's own address, publishes a
 //! **signing request** into a relay room, waits for the aggregate FROST signature the devices
 //! produce, injects it, and broadcasts. The share never leaves the browser; the helper sees only
-//! public transaction data (and the view-only UFVK) — consistent with Konclave's principle of
+//! public transaction data (and the view-only UFVK) - consistent with Konclave's principle of
 //! "internal transparency, external privacy": whoever operates the vault already sees its ledger,
 //! while the network and the relay stay blind, and no single device can spend on its own.
 //!
@@ -102,8 +102,8 @@ impl SignRequest {
 }
 
 impl SignResponse {
-    /// Validate that the devices signed EXACTLY the requested spends — no missing, extra, or
-    /// duplicate index — and decode each signature into the `(action_index, 64-byte sig)` form
+    /// Validate that the devices signed EXACTLY the requested spends - no missing, extra, or
+    /// duplicate index - and decode each signature into the `(action_index, 64-byte sig)` form
     /// `konclave-signer inject` consumes. Any mismatch is an error, so a partially-signed or
     /// tampered response can never be injected into a broadcast (a boundary, §6.8).
     pub fn into_sigs(&self, req: &SignRequest) -> Result<SpendSigs, String> {
@@ -156,7 +156,7 @@ pub fn publish_request<T: Transport>(
 }
 
 /// Look for the devices' signing response after `since`. Returns `(Some(sigs), next)` once a
-/// valid response has arrived — decoded into the inject-ready `(action_index, sig)` pairs — or
+/// valid response has arrived - decoded into the inject-ready `(action_index, sig)` pairs - or
 /// `(None, next)` while still waiting. A response that does not cover the request exactly is an
 /// error, never a silent wait, so a partial or tampered reply can't slip through to a broadcast.
 /// The caller owns the retry loop and its delay, keeping this synchronous and testable.
@@ -266,7 +266,7 @@ mod tests {
         wrong.sigs[0].index = 99;
         assert!(wrong.into_sigs(&req).is_err());
 
-        // A duplicate for one index (and none for another) — same count, still rejected.
+        // A duplicate for one index (and none for another) - same count, still rejected.
         let mut dup = response_for(&req);
         dup.sigs[1].index = 0;
         assert!(dup.into_sigs(&req).is_err());
