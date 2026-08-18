@@ -58,6 +58,16 @@
 .vmeta b{color:var(--text); font-weight:500}
 .livetag{margin-left:10px; font-size:11px; letter-spacing:.04em; color:var(--success)}
 .livetag.off{color:var(--text-muted)}
+
+/* Wrapper is a passive aria-live region only — it must not add layout. */
+.live-status{display:contents}
+/* Offline status pill (base .live lives in lacre.css). A real user whose local
+   bridge / hosted helper is unreachable must see THIS — visibly distinct from the
+   neutral "demo" tag — not a misleading "demo". Warn/danger palette, and it may
+   wrap since the copy is a short sentence rather than a one-word tag. */
+.live.offline{color:var(--warn-strong); border-color:var(--warn);
+  background:var(--danger-soft); text-align:left; line-height:1.35; align-items:flex-start}
+.live.offline i{background:var(--danger); box-shadow:0 0 0 3px var(--danger-soft); margin-top:4px; flex:0 0 auto}
 .hint.warn{color:var(--warn)}
 .hint.err{color:var(--danger-text); font-family:var(--font-mono); font-size:12.5px;
   background:var(--danger-soft); border-left:3px solid var(--danger); border-radius:var(--radius-sm); padding:11px 14px}

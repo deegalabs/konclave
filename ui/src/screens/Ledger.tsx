@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useState } from 'react'
-import { Secret, RevealButton, activateOnKey, Loading } from '../components'
+import { Secret, RevealButton, activateOnKey } from '../components'
+import { SkeletonRows } from '../skeleton'
 import { PageHeader, PageFooter, NextStep } from '../page'
 import { getLedger, getProposalDetail, getVault, ledgerCsvUrl, health, shortAddr, type Proposal, type PayrollLine } from '../api'
 import { fmtDate, fmtZec } from '../format'
@@ -158,7 +159,7 @@ export default function Ledger() {
           <thead><tr><th>{t('ledger.colDate')}</th><th>{t('ledger.colDocument')}</th><th>{t('ledger.colWho')}</th><th>{t('ledger.colValue')}</th></tr></thead>
           <tbody>
             {rows === null && (
-              <tr><td colSpan={4}><Loading /></td></tr>
+              <tr><td colSpan={4}><SkeletonRows n={5} /></td></tr>
             )}
             {rows !== null && ledger.length === 0 && (
               <tr><td colSpan={4} className="by">{t('ledger.emptyNone')}</td></tr>

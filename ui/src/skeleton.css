@@ -1,0 +1,60 @@
+/* Skeleton loading placeholders — token-colored, subtle shimmer.
+ * White-themed (tokens auto-swap in dark). The shimmer is a gradient sweep that
+ * DEGRADES TO A STATIC BLOCK under prefers-reduced-motion (strict motion budget). */
+
+.skel {
+  display: block;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  /* Sweep: a lighter band travels across the placeholder. */
+  background-image: linear-gradient(
+    90deg,
+    var(--surface-2) 0%,
+    var(--surface-3) 50%,
+    var(--surface-2) 100%
+  );
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  background-position: 200% 0;
+  animation: skel-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes skel-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Variants */
+.skel-line  { height: 12px; }
+.skel-block { height: 44px; border-radius: var(--radius); }
+.skel-pill  { height: 20px; border-radius: var(--radius-pill); }
+
+/* Composed: a big-number placeholder for the balance figure. */
+.skel-stat { display: flex; flex-direction: column; gap: 12px; }
+.skel-stat .skel-amt { height: 40px; width: 42%; border-radius: var(--radius); }
+.skel-stat .skel-sub { height: 12px; width: 62%; }
+
+/* Composed: repeated rows for a list / table body. */
+.skel-rows { display: flex; flex-direction: column; }
+.skel-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 15px 0;
+  border-bottom: 1px solid var(--line);
+}
+.skel-row:last-child { border-bottom: 0; }
+.skel-row .skel-r-date { width: 64px; flex: 0 0 auto; }
+.skel-row .skel-r-main { flex: 1 1 auto; display: flex; flex-direction: column; gap: 8px; }
+.skel-row .skel-r-t   { height: 13px; width: 58%; }
+.skel-row .skel-r-sub { height: 11px; width: 38%; }
+.skel-row .skel-r-val { width: 72px; height: 13px; flex: 0 0 auto; }
+
+/* Strict motion budget: no looping sweep — settle to a flat token block. */
+@media (prefers-reduced-motion: reduce) {
+  .skel {
+    animation: none;
+    background-image: none;
+    background: var(--surface-2);
+  }
+}

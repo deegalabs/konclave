@@ -2,8 +2,8 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink, Link, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { Mark, LangToggle } from './components'
 import { Identicon } from './avatar'
-import { useT } from './i18n'
-import { getVault, health, isVaultUnlocked, type Vault } from './api'
+import { useT, useI18n } from './i18n'
+import { getVault, health, isVaultUnlocked, IS_DEMO, type Vault } from './api'
 
 // How many nav items live directly in the mobile bottom bar; the rest fold into "More".
 const MOBILE_PRIMARY = 5
@@ -12,6 +12,7 @@ const MOBILE_PRIMARY = 5
  *  onboarding screens (vault picker, intro, ceremony) render standalone. */
 export default function Layout() {
   const t = useT()
+  const { locale } = useI18n()
   const nav = useNavigate()
   const loc = useLocation()
   const [vault, setVault] = useState<Vault | null>(null)
@@ -21,13 +22,12 @@ export default function Layout() {
   // Close the mobile "More" sheet on any route change.
   useEffect(() => { setMoreOpen(false) }, [loc.pathname])
 
+  // One-time bootstrap: decide whether the vault is reachable/unlocked and route.
   useEffect(() => {
     let on = true
     void (async () => {
       const ok = await health()
-      if (!on) return
-      setLive(ok)
-      if (!ok) return
+      if (!on || !ok) return
       const v = await getVault()
       if (!on) return
       // A locked vault not unlocked this session → back to the unlock/picker.
@@ -35,6 +35,27 @@ export default function Layout() {
       if (v) setVault(v)
     })()
     return () => { on = false }
+  }, [])
+
+  // Proactive liveness signal: poll the bridge/helper so a daemon that stops (or
+  // comes back) is reflected without a reload — plus an immediate re-check when the
+  // tab regains focus or the browser reports it's back online. Lightweight (a single
+  // /api/health ping) and self-clearing on unmount. Skipped in demo mode, where
+  // health() is intentionally false and the pill reads "demo", not "offline".
+  useEffect(() => {
+    if (IS_DEMO) return
+    let on = true
+    const check = () => { void health().then((ok) => { if (on) setLive(ok) }) }
+    check()
+    const id = window.setInterval(check, 20_000)
+    window.addEventListener('focus', check)
+    window.addEventListener('online', check)
+    return () => {
+      on = false
+      window.clearInterval(id)
+      window.removeEventListener('focus', check)
+      window.removeEventListener('online', check)
+    }
   }, [])
 
   const thr = vault?.threshold ?? 2
@@ -124,8 +145,21 @@ export default function Layout() {
             {seeds.map((s, i) => <Identicon key={i} seed={s} size={24} />)}
           </div>
           <div className="rail-bottom">
-            {live === true && <span className="live"><i />{t('dashboard.live')}</span>}
-            {live === false && <span className="live off"><i />{t('dashboard.demo')}</span>}
+            {/* Three distinct states, one persistent live region:
+                • demo  → neutral "demo" tag (health() is intentionally false here)
+                • live  → green pill, bridge/helper answered
+                • offline → warn/danger pill, a real vault we can't reach right now */}
+            <span className="live-status" aria-live="polite">
+              {IS_DEMO ? (
+                <span className="live off"><i />{t('dashboard.demo')}</span>
+              ) : live === true ? (
+                <span className="live"><i />{t('dashboard.live')}</span>
+              ) : live === false ? (
+                <span className="live offline" role="status">
+                  <i />{locale === 'pt-BR' ? 'Offline — sem conexão com o cofre' : "Offline — can't reach your vault"}
+                </span>
+              ) : null}
+            </span>
             <Link to="/vaults" className="rail-switch">{t('nav.switchVault')} ▾</Link>
           </div>
           <div className="rail-lang"><LangToggle /></div>
