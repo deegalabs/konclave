@@ -6,9 +6,18 @@ import { getTheme, setTheme, type Theme } from '../theme'
 import '../redesign.css'
 import '../landing-vault.css'
 
-const RELEASES = 'https://github.com/deegalabs/konclave/releases'
 const REPO = 'https://github.com/deegalabs/konclave'
-const PLAT_META: Record<string, string> = { Windows: '.msi', macOS: '.dmg', Linux: '.deb / .AppImage' }
+const RELEASES = `${REPO}/releases`
+const VER = '0.2.0'
+const dl = (file: string) => `${REPO}/releases/download/v${VER}/${file}`
+// One-click installers → the real v0.2.0 assets (GitHub serves them as attachments, so the
+// click downloads directly). macOS ships Apple-Silicon; Intel / .deb / .rpm live under RELEASES.
+const BUILDS = {
+  Windows: { ext: '.msi', file: `Konclave_${VER}_x64_en-US.msi` },
+  macOS: { ext: '.dmg (Apple Silicon)', file: `Konclave_${VER}_aarch64.dmg` },
+  Linux: { ext: '.AppImage', file: `Konclave_${VER}_amd64.AppImage` },
+}
+type OS = keyof typeof BUILDS
 
 /** Landing — one objective: the vault, opened together. A photorealistic vault clip fills the
  *  right as a seamless loop; the pitch sits on the left. Header carries theme + download; the
@@ -29,13 +38,13 @@ export default function Intro() {
   const toggleTheme = () => { const n: Theme = theme === 'dark' ? 'light' : 'dark'; setTheme(n); setTh(n) }
 
   // Auto-detect the visitor's OS so the desktop row leads with the right build.
-  const os = useMemo(() => {
+  const os = useMemo<OS>(() => {
     const ua = navigator.userAgent
     if (/Win/i.test(ua)) return 'Windows'
     if (/Mac/i.test(ua)) return 'macOS'
     return 'Linux'
   }, [])
-  const others = (['Windows', 'macOS', 'Linux'] as const).filter((p) => p !== os)
+  const others = (Object.keys(BUILDS) as OS[]).filter((p) => p !== os)
 
   return (
     <div className="lv">
@@ -130,22 +139,29 @@ export default function Intro() {
             <div className="lv-mm">
               <div className="lv-t">{os}</div>
               <div className="lv-d">{pt ? 'Um app de janela única; nada roda na nuvem.' : 'A single-window app; nothing runs in the cloud.'}</div>
-              <div className="lv-ver">v0.2.0 · {PLAT_META[os]}</div>
+              <div className="lv-ver">v{VER} · {BUILDS[os].ext}</div>
             </div>
-            <a className="lv-btn dl sm" href={RELEASES} target="_blank" rel="noreferrer">{pt ? 'Baixar' : 'Download'}</a>
+            <a className="lv-btn dl sm" href={dl(BUILDS[os].file)} rel="noreferrer">{pt ? 'Baixar' : 'Download'}</a>
           </div>
 
           <button className="lv-more" onClick={() => setShowAll((s) => !s)}>{pt ? 'Outras plataformas' : 'Other platforms'} {showAll ? '▴' : '▾'}</button>
-          {showAll && others.map((p) => (
-            <div className="lv-plat" key={p} style={{ marginTop: 10 }}>
-              <span className="lv-pic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="4" width="18" height="16" rx="2" /></svg></span>
-              <div className="lv-mm">
-                <div className="lv-t">{p}</div>
-                <div className="lv-ver">v0.2.0 · {PLAT_META[p]}</div>
-              </div>
-              <a className="lv-btn dl sm" href={RELEASES} target="_blank" rel="noreferrer">{pt ? 'Baixar' : 'Download'}</a>
-            </div>
-          ))}
+          {showAll && (
+            <>
+              {others.map((p) => (
+                <div className="lv-plat" key={p} style={{ marginTop: 10 }}>
+                  <span className="lv-pic"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="3" y="4" width="18" height="16" rx="2" /></svg></span>
+                  <div className="lv-mm">
+                    <div className="lv-t">{p}</div>
+                    <div className="lv-ver">v{VER} · {BUILDS[p].ext}</div>
+                  </div>
+                  <a className="lv-btn dl sm" href={dl(BUILDS[p].file)} rel="noreferrer">{pt ? 'Baixar' : 'Download'}</a>
+                </div>
+              ))}
+              <a className="lv-more" href={RELEASES} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: 4 }}>
+                {pt ? 'Todas as versões (.deb · .rpm · Mac Intel · .exe) →' : 'All builds (.deb · .rpm · Intel Mac · .exe) →'}
+              </a>
+            </>
+          )}
 
           <div className="lv-plat" style={{ marginTop: 10 }}>
             <span className="lv-pic"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="7" y="3" width="10" height="18" rx="2" /><path d="M11 18h2" /></svg></span>
