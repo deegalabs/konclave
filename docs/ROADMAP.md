@@ -266,9 +266,12 @@ no-manual-step, trustless flow while the WASM proving path matures.
 
 ---
 
-## Planned next — desktop coordination-mode picker + unified vault list
+## Desktop coordination-mode picker + unified vault list — SHIPPED 2026-08-18
 
-> Captured 2026-08-18 (after the landing-video work). Tackle **after** the landing PR review.
+> Captured and shipped 2026-08-18 (after the landing-video work): #100 (runtime mode + Settings
+> control), #101 (unified vault list), #102 (ask-before-create chooser). **Still open:** a live
+> **desktop** validation of all three modes end to end (the Tauri window doesn't render in CI/WSL).
+> The design below is what landed.
 
 On desktop (Tauri) the coordination backend is decided at **build time** today
 (`helperConfigured()` reads `VITE_HELPER_BASE`). Make it the **user's runtime choice** — all three
