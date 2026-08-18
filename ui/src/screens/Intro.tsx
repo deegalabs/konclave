@@ -63,10 +63,9 @@ export default function Intro() {
     <div className="rd lp">
       {/* top bar — shared Letterhead so the landing opens like every other screen */}
       <div className="lp-wrap">
+        {/* Proof / Vault-across-devices / Sign folded into Docs + the EXPLORE directory below
+            (GSP critique): the header is one clear destination, not four jargon links. */}
         <Letterhead right={<>
-          <Link to="/proof" className="doclink">{t('landing.navProof')}</Link>
-          <Link to="/net" className="doclink">{t('landing.navNet')}</Link>
-          <Link to="/signer" className="doclink">{t('landing.navSigner')}</Link>
           <Link to="/docs" className="doclink">Docs</Link>
           <span className="lp-env">{tr('landing.env')}</span>
         </>} />
@@ -93,12 +92,10 @@ export default function Intro() {
               {t('demo.watchCta')}
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
             </a>
+            {/* One primary (Watch the demo) + one quiet secondary. "My vaults" and "Download"
+                moved out of the hero (GSP critique): the demo is the single first action, and the
+                same destinations live in the EXPLORE directory / final CTA below. */}
             <Link className="lp-btn" to="/docs">{t('landing.ctaHow')}</Link>
-            <Link className="lp-btn" to="/vaults">{t('landing.ctaVaults')}</Link>
-            <a className="lp-btn" href="https://github.com/deegalabs/konclave/releases" target="_blank" rel="noreferrer">
-              {t('landing.ctaDownload')}
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
-            </a>
           </div>
           <span className="trust"><i />{t('landing.heroTrust')}</span>
         </div>
@@ -190,6 +187,11 @@ export default function Intro() {
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
             </Link>
             <a className="lp-btn" href="#lp-porque" onClick={scrollTo('lp-porque')}>{t('landing.finalCtaWhy')}</a>
+            {/* Desktop download lives here (GSP critique) — where a convinced visitor wants it, not in the hero. */}
+            <a className="lp-btn" href="https://github.com/deegalabs/konclave/releases" target="_blank" rel="noreferrer">
+              {t('landing.ctaDownload')}
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
+            </a>
           </div>
         </div>
       </section>

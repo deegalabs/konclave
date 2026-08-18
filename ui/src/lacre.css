@@ -17,6 +17,8 @@
   --accent:#2F6FE0; --accent-ink:#2559BE; --accent-bright:#2559BE;
   --accent-soft:rgba(47,111,208,.09); --accent-line:rgba(47,111,208,.30);
   --on-accent:#FFFFFF;
+  /* rgba parts for theme-correct halos/glows — use as rgba(var(--accent-glow),.x) */
+  --accent-glow:47,111,208;
   /* success (deepened for AA on white) */
   --success:#12805C; --success-soft:rgba(18,128,92,.10); --success-line:rgba(18,128,92,.34);
   /* warn */
@@ -46,6 +48,7 @@
   --accent:#57a6ff; --accent-ink:#3f86e0; --accent-bright:#6cb2ff;
   --accent-soft:rgba(87,166,255,.10); --accent-line:rgba(87,166,255,.32);
   --on-accent:#0f141a;
+  --accent-glow:87,166,255;
   --success:#5ed39a; --success-soft:rgba(94,211,154,.10); --success-line:rgba(94,211,154,.35);
   --warn:#e3ad52; --warn-strong:#f0c574;
   --danger:#e77f74; --danger-text:#ef9a92;
