@@ -6,6 +6,8 @@ import { useT, useI18n } from '../i18n'
 import { getVault, health, shortAddr, deleteVault, type Vault } from '../api'
 import { listVaults, type Governance } from '../storage'
 import { getTheme, setTheme, type Theme } from '../theme'
+import { getCoordMode, setCoordMode, getCustomHelper, HELPER_BASE, type CoordMode } from '../helper'
+import { isDesktop } from '../platform'
 
 /**
  * Per-vault settings (redesign Fase 0). Shows the vault's public identity (quorum, group,
@@ -20,6 +22,11 @@ export default function Settings() {
   const nav = useNavigate()
   const [theme, setThemeState] = useState<Theme>(getTheme())
   const pickTheme = (v: Theme) => { setTheme(v); setThemeState(v) }
+  // Coordination mode (desktop): our helper / your own / local. Persist + reload so netMode
+  // recomputes app-wide. The helper stays blind in every mode.
+  const [coord, setCoord] = useState<CoordMode>(getCoordMode())
+  const [helperUrl, setHelperUrl] = useState(getCustomHelper())
+  const applyCoord = (mode: CoordMode, url?: string) => { setCoordMode(mode, url); location.reload() }
   const [vault, setVault] = useState<Vault | null>(null)
   const [gov, setGov] = useState<Governance | null>(null)
   const [live, setLive] = useState<boolean | null>(null)
@@ -89,6 +96,34 @@ export default function Settings() {
         </div>
       </section>
       <p className="set-hint">{pt ? 'Preferência deste dispositivo · o branco é o padrão, o escuro é opcional.' : 'A per-device preference · white is the default, dark is optional.'}</p>
+
+      {/* Coordination — WHERE the blind ceremony helper lives (desktop). Our hosted helper, your
+          own, or fully local (no helper). The helper never sees a share in any mode. */}
+      {isDesktop && (
+        <>
+          <section className="set-list mt">
+            <div className="set-row">
+              <span className="set-k">{pt ? 'Coordenação' : 'Coordination'}</span>
+              <span className="set-v" style={{ display: 'inline-flex', gap: 8, flexWrap: 'wrap' }}>
+                {HELPER_BASE && (
+                  <button type="button" className={'btn' + (coord === 'ours' ? ' ok' : ' ghost')} onClick={() => applyCoord('ours')}>{pt ? 'Nosso helper' : 'Our helper'}</button>
+                )}
+                <button type="button" className={'btn' + (coord === 'custom' ? ' ok' : ' ghost')} onClick={() => setCoord('custom')}>{pt ? 'Seu helper' : 'Your helper'}</button>
+                <button type="button" className={'btn' + (coord === 'local' ? ' ok' : ' ghost')} onClick={() => applyCoord('local')}>{pt ? 'Local (sem helper)' : 'Local (no helper)'}</button>
+              </span>
+            </div>
+            {coord === 'custom' && (
+              <div className="set-row" style={{ gap: 8 }}>
+                <input className="unlock-input mono" style={{ flex: 1 }} inputMode="url" placeholder="https://seu-helper.exemplo.com" value={helperUrl} onChange={(e) => setHelperUrl(e.target.value)} />
+                <button type="button" className="btn ok" disabled={!helperUrl.trim()} onClick={() => applyCoord('custom', helperUrl)}>{pt ? 'Salvar' : 'Save'}</button>
+              </div>
+            )}
+          </section>
+          <p className="set-hint">{pt
+            ? 'Quem coordena a cerimônia — o helper nunca vê um share. Nosso helper hospedado, o seu próprio, ou totalmente local. Aplica ao trocar.'
+            : 'Who coordinates the ceremony — the helper never sees a share. Our hosted helper, your own, or fully local. Applies on change.'}</p>
+        </>
+      )}
 
       {live === null && <Loading />}
 
