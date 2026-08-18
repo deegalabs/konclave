@@ -263,3 +263,28 @@ ever sees a secret. Security is in **who signs** (the devices), never in who ass
 
 **Fallback:** if in-WASM proving is not viable yet, stage 2 (blind service) already delivers a
 no-manual-step, trustless flow while the WASM proving path matures.
+
+---
+
+## Planned next — desktop coordination-mode picker + unified vault list
+
+> Captured 2026-08-18 (after the landing-video work). Tackle **after** the landing PR review.
+
+On desktop (Tauri) the coordination backend is decided at **build time** today
+(`helperConfigured()` reads `VITE_HELPER_BASE`). Make it the **user's runtime choice** — all three
+trustless (the helper never sees a share, never moves funds without the quorum):
+
+1. **Our hosted helper** (default) — the blind Architecture-B helper.
+2. **Your own helper** — a self-hosted helper URL (Settings field + localStorage override, so
+   `helperConfigured()` becomes runtime, not build-time).
+3. **Local, no helper** — the local orchestrator/bridge (`/create` → `POST {BASE}/api/vault/dkg`),
+   no third party at all.
+
+- **Ask before creating** — the create flow surfaces the mode choice up front.
+- **Unified vault list** — `/vaults` branches on `netMode` (one source) today; show **local +
+  helper vaults together** so a person sees every vault regardless of how it was created.
+- **Works in all three** — helper (Architecture B) and local/bridge already exist; "your helper" is
+  the URL field; the rest is wiring + the merged list.
+
+Touches `api` / `helper` / `Settings` / `Vaults`. Its own branch/PR, not bundled with the landing.
+Aligns with the decentralization ladder above (blind helper → your helper → local).
