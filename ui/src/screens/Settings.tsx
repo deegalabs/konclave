@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Seal, Loading } from '../components'
 import { PageHeader, PageFooter } from '../page'
-import { useT } from '../i18n'
+import { useT, useI18n } from '../i18n'
 import { getVault, health, shortAddr, deleteVault, type Vault } from '../api'
 import { listVaults, type Governance } from '../storage'
+import { getTheme, setTheme, type Theme } from '../theme'
 
 /**
  * Per-vault settings (redesign Fase 0). Shows the vault's public identity (quorum, group,
@@ -14,7 +15,11 @@ import { listVaults, type Governance } from '../storage'
  */
 export default function Settings() {
   const t = useT()
+  const { locale } = useI18n()
+  const pt = locale === 'pt-BR'
   const nav = useNavigate()
+  const [theme, setThemeState] = useState<Theme>(getTheme())
+  const pickTheme = (v: Theme) => { setTheme(v); setThemeState(v) }
   const [vault, setVault] = useState<Vault | null>(null)
   const [gov, setGov] = useState<Governance | null>(null)
   const [live, setLive] = useState<boolean | null>(null)
@@ -71,6 +76,19 @@ export default function Settings() {
         </>}
         actions={<Seal t={thr} n={n} />}
       />
+
+      {/* Appearance — a per-device theme choice (white-first; dark opt-in). Not per-vault, so it
+          renders regardless of vault/live state. */}
+      <section className="set-list mt">
+        <div className="set-row">
+          <span className="set-k">{pt ? 'Aparência' : 'Appearance'}</span>
+          <span className="set-v" style={{ display: 'inline-flex', gap: 8 }}>
+            <button type="button" className={'btn' + (theme === 'light' ? ' ok' : ' ghost')} onClick={() => pickTheme('light')}>{pt ? 'Claro' : 'Light'}</button>
+            <button type="button" className={'btn' + (theme === 'dark' ? ' ok' : ' ghost')} onClick={() => pickTheme('dark')}>{pt ? 'Escuro' : 'Dark'}</button>
+          </span>
+        </div>
+      </section>
+      <p className="set-hint">{pt ? 'Preferência deste dispositivo · o branco é o padrão, o escuro é opcional.' : 'A per-device preference · white is the default, dark is optional.'}</p>
 
       {live === null && <Loading />}
 
