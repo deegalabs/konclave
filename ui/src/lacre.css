@@ -4,38 +4,56 @@
    override under [data-theme="light"] — no renames, no component edits. */
 
 :root{
-  /* surfaces — cooler, blue-biased ground (Linear/Vercel-refined dark) */
-  --surface-0:#0f141a; --surface-1:#151b22; --surface-2:#1a212a; --surface-3:#202832;
-  /* text */
-  --text:#e7edf3; --text-muted:#9aa6b2; --silver:#c6cfd9;
-  /* lines — hairlines, not heavy rules */
-  --line:#28313c; --line-2:#20272f; --line-strong:#37424e; --line-soft:rgba(180,205,235,.08);
-  /* accent (blue — rare, interactive + quorum) */
-  --accent:#57a6ff; --accent-ink:#3f86e0; --accent-bright:#6cb2ff;
-  --accent-soft:rgba(87,166,255,.10); --accent-line:rgba(87,166,255,.32);
-  --on-accent:#0f141a;
-  /* success (earned) */
-  --success:#5ed39a; --success-soft:rgba(94,211,154,.10); --success-line:rgba(94,211,154,.35);
+  /* WHITE v2 — light default (research: 1Password/Bitwarden/Stripe/Ramp). Dark is an
+     explicit opt-in under [data-theme="dark"] below; token NAMES are unchanged so no
+     component or screen edits are needed — this values-only swap repaints the app. */
+  /* surfaces — cool off-white canvas + pure-white cards */
+  --surface-0:#F5F7FA; --surface-1:#FFFFFF; --surface-2:#EEF2F8; --surface-3:#E4E9F2;
+  /* text — near-black ink, never pure #000 */
+  --text:#101828; --text-muted:#667085; --silver:#475467;
+  /* lines — hairlines */
+  --line:#E4E8EF; --line-2:#EEF1F5; --line-strong:#D3DAE3; --line-soft:rgba(16,24,40,.06);
+  /* accent (blue — must pass AA on white, so darker than the dark-theme sky blue) */
+  --accent:#2F6FE0; --accent-ink:#2559BE; --accent-bright:#2559BE;
+  --accent-soft:rgba(47,111,208,.09); --accent-line:rgba(47,111,208,.30);
+  --on-accent:#FFFFFF;
+  /* success (deepened for AA on white) */
+  --success:#12805C; --success-soft:rgba(18,128,92,.10); --success-line:rgba(18,128,92,.34);
   /* warn */
-  --warn:#e3ad52; --warn-strong:#f0c574;
+  --warn:#B54708; --warn-strong:#92370A;
   /* danger */
-  --danger:#e77f74; --danger-text:#ef9a92;
-  --danger-soft:rgba(231,127,116,.10); --danger-line:rgba(231,127,116,.30);
-  /* signature devices */
-  --tarja-ink:#0c1014; --tarja-text:rgba(230,227,219,.60);
+  --danger:#B42318; --danger-text:#B42318;
+  --danger-soft:rgba(180,35,24,.08); --danger-line:rgba(180,35,24,.30);
+  /* signature devices — the tarja stays a solid dark ink bar (pops harder on white) */
+  --tarja-ink:#101828; --tarja-text:rgba(255,255,255,.72);
   /* type */
   --font-sans:"Archivo",system-ui,sans-serif;
   --font-mono:"Spline Sans Mono",ui-monospace,monospace;
   /* shape */
   --radius:12px; --radius-sm:8px; --radius-lg:16px; --radius-pill:999px;
-  /* elevation — overlays only */
-  --shadow-overlay:0 30px 60px -24px rgba(0,0,0,.8);
+  /* elevation — soft, cool (white v2 uses shadow, not just borders) */
+  --shadow-overlay:0 22px 52px -20px rgba(16,24,40,.22);
+  --shadow-sm:0 1px 2px rgba(16,24,40,.04), 0 4px 12px rgba(16,24,40,.05);
   /* motion */
   --dur-fast:140ms; --dur-base:240ms; --dur-reveal:280ms;
   --ease-out:cubic-bezier(.3,.8,.3,1);
 }
-/* light-ready: a future theme is a values-only override, no renames
-:root[data-theme="light"]{ --surface-1:#…; --text:#…; … } */
+/* DARK — explicit opt-in (the previous dark identity, preserved for a theme toggle). */
+:root[data-theme="dark"]{
+  --surface-0:#0f141a; --surface-1:#151b22; --surface-2:#1a212a; --surface-3:#202832;
+  --text:#e7edf3; --text-muted:#9aa6b2; --silver:#c6cfd9;
+  --line:#28313c; --line-2:#20272f; --line-strong:#37424e; --line-soft:rgba(180,205,235,.08);
+  --accent:#57a6ff; --accent-ink:#3f86e0; --accent-bright:#6cb2ff;
+  --accent-soft:rgba(87,166,255,.10); --accent-line:rgba(87,166,255,.32);
+  --on-accent:#0f141a;
+  --success:#5ed39a; --success-soft:rgba(94,211,154,.10); --success-line:rgba(94,211,154,.35);
+  --warn:#e3ad52; --warn-strong:#f0c574;
+  --danger:#e77f74; --danger-text:#ef9a92;
+  --danger-soft:rgba(231,127,116,.10); --danger-line:rgba(231,127,116,.30);
+  --tarja-ink:#0c1014; --tarja-text:rgba(230,227,219,.60);
+  --shadow-overlay:0 30px 60px -24px rgba(0,0,0,.8);
+  --shadow-sm:0 1px 2px rgba(0,0,0,.3), 0 8px 26px rgba(0,0,0,.34);
+}
 
 *{box-sizing:border-box}
 
@@ -53,12 +71,12 @@ html{scrollbar-width:thin; scrollbar-color:rgba(150,170,195,.28) transparent; sc
 
 body{margin:0; color:var(--text); font-family:var(--font-sans); line-height:1.5; -webkit-font-smoothing:antialiased;
   background:
-    radial-gradient(1100px 520px at 78% -8%, rgba(87,166,255,.025), transparent 60%),
+    radial-gradient(1100px 520px at 82% -8%, var(--accent-soft), transparent 60%),
     var(--surface-0) fixed;
   min-height:100vh}
-/* faint archival paper grain — matte, never atmospheric glow (opacity <= .04) */
-body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0; opacity:.035;
-  background-image:radial-gradient(rgba(200,220,245,.7) .5px, transparent .5px); background-size:3px 3px}
+/* faint paper grain — matte, near-invisible (opacity <= .02); tuned for the white base */
+body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0; opacity:.02;
+  background-image:radial-gradient(rgba(16,24,40,.55) .5px, transparent .5px); background-size:3px 3px}
 
 /* letterhead / sheet — no box: the slate gradient shows through */
 .sheet{background:transparent; position:relative; z-index:1}
@@ -108,7 +126,7 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 .btn:hover{background:var(--surface-3); border-color:var(--accent-line)}
 .btn:active{transform:translateY(1px)}
 .btn.ok{background:var(--accent); border-color:var(--accent); color:var(--on-accent)}
-.btn.ok:hover{background:#6cb2ff; border-color:#6cb2ff}
+.btn.ok:hover{background:var(--accent-bright); border-color:var(--accent-bright)}
 /* A disabled action must LOOK disabled (T6): no accent pull, no hover, not-allowed. */
 .btn:disabled, .btn:disabled:hover{opacity:.42; cursor:not-allowed; background:var(--surface-2);
   border-color:var(--line); color:var(--text-muted)}
