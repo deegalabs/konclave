@@ -468,6 +468,26 @@ export async function createPayroll(
 export async function createVaultDkg(
   name: string, threshold: number, members: string[],
 ): Promise<{ ok: true; vault: Vault; passphrase?: string } | { ok: false; error: string; detail?: string }> {
+  // Demo mode (#88): the DKG bridge/helper isn't reachable on the static deploy, so a real POST
+  // 404s. Return a coherent fake vault so the demo walks the whole create flow (word-box + address)
+  // with sample data instead of a dead end.
+  if (DEMO) {
+    const total = members.length
+    return {
+      ok: true,
+      vault: {
+        id: `demo-${Date.now()}`,
+        name,
+        threshold,
+        total,
+        members: total,
+        member_list: members.map((n) => ({ name: n, pubkey: n })),
+        group_pubkey: 'demo-group',
+        orchard_address: MOCK.vault.orchard_address,
+      },
+      passphrase: 'horizon-common-2026',
+    }
+  }
   try {
     const res = await fetch(`${BASE}/api/vault/dkg`, {
       method: 'POST',
@@ -593,6 +613,16 @@ export async function sendProposal(id: string, dryRun: boolean): Promise<SendRes
       error: 'sign in /net',
       detail: 'To send this approved payment, open the vault in /net and sign there with your share.',
     }
+  }
+  // Demo mode (#88): no bridge to broadcast against. A dry-run "verifies"; a real send walks the
+  // Sent state carrying a REAL, verifiable mainnet txid, so the explorer link actually resolves —
+  // sample data, but honest about what "confirmed on-chain" looks like.
+  if (DEMO) {
+    if (dryRun) return { ok: true, dryRun: true, sighash: 'demo-sighash-verifies' }
+    const base = MOCK.proposalById(id)
+    const txid = 'f63ee64d7bc086a8286631d03936ec2ca2ca57f4e4c63712fc95c1f02c522360'
+    const proposal = base ? ({ ...base, state: 'sent', txid } as Proposal) : undefined
+    return { ok: true, dryRun: false, txid, proposal }
   }
   try {
     const res = await fetch(`${BASE}/api/proposals/${encodeURIComponent(id)}/send`, {
