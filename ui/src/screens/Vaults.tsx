@@ -32,7 +32,7 @@ export default function Vaults() {
   const pt = locale === 'pt-BR'
   const nav = useNavigate()
   // netMode still decides how a NEW vault is created (a hosted helper configured -> browser DKG
-  // dialog; otherwise the local /create ceremony). It no longer gates the LIST — that's unified.
+  // dialog; otherwise the local /create ceremony). It no longer gates the LIST - that's unified.
   const netMode = helperConfigured() && !IS_DEMO
   const [rows, setRows] = useState<Row[]>([])
   const [loaded, setLoaded] = useState(false)

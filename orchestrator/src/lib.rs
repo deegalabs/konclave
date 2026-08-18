@@ -1,7 +1,7 @@
-//! Konclave Orchestrator — Layer 2.
+//! Konclave Orchestrator - Layer 2.
 //!
 //! The backend Konclave owns: the explicit proposal state machine, boundary
-//! validation (ZIP 317 fees, memo/value rules), and — added incrementally — the
+//! validation (ZIP 317 fees, memo/value rules), and - added incrementally - the
 //! orchestration of the official FROST/Zcash tools with structured I/O.
 //!
 //! This module is the dependency-free domain core (std only): explicit states and

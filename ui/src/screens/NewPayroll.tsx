@@ -217,14 +217,14 @@ export default function NewPayroll() {
         <div className="confirm mt preview">
           <div className="pv-row"><span className="pv-k">{t('payroll.pvDocument')}</span><span className="pv-v"><b>{competencia ? `${t('payroll.docPrefix')} · ${competencia}` : t('payroll.docPrefix')}</b></span></div>
           <div className="pv-row"><span className="pv-k">{t('payroll.pvPayments')}</span><span className="pv-v"><b>{count}</b> {t('payroll.pvPaymentsSuffix')}</span></div>
-          {/* Redact only when there's a real figure — hiding a zero behind the tarja is theatre. */}
+          {/* Redact only when there's a real figure - hiding a zero behind the tarja is theatre. */}
           <div className="pv-row"><span className="pv-k">{t('payroll.pvTotal')}</span><span className="pv-v">
             {count > 0
               ? <><Secret sm><b>{fmtZec(zatToZec(totalZat))} ZEC</b></Secret> {t('payroll.pvPlusFee', { fee: fmtZec(zatToZec(feeZat)) })}</>
               : <b className="dim">{fmtZec(zatToZec(totalZat))} ZEC</b>}
           </span></div>
           <div className="pv-row"><span className="pv-k">{t('payroll.pvAfter')}</span><span className="pv-v">
-            {afterZat === null ? <b className="dim">—</b>
+            {afterZat === null ? <b className="dim">-</b>
               : count > 0 ? <Secret sm><b>{fmtZec(zatToZec(afterZat))}</b></Secret> : <b className="dim">{fmtZec(zatToZec(afterZat))}</b>}
           </span></div>
           <div className="pv-row"><span className="pv-k">{t('payroll.pvApproval')}</span><span className="pv-v">{tr('payroll.pvApprovalValue', { proposer })}</span></div>

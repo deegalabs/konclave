@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 
-// The vault home identifies the vault, and the left rail navigates — the everyday path.
+// The vault home identifies the vault, and the left rail navigates - the everyday path.
 test('vault dashboard shows the vault identity', async ({ page }) => {
   await page.goto('/#/dashboard')
   await expect(

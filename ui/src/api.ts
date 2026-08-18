@@ -72,7 +72,7 @@ const ENV = import.meta.env as Record<string, string | undefined>
 const BASE: string = ENV.VITE_API_BASE ?? ''
 
 // Demo mode, decided at RUNTIME (issue #60) so ONE build serves both the demo (mock data) and the
-// real app — no build-time VITE_DEMO / separate deploy needed. `?demo=1` enters demo mode and
+// real app - no build-time VITE_DEMO / separate deploy needed. `?demo=1` enters demo mode and
 // persists it (localStorage); `?demo=0` exits. VITE_DEMO stays as a build-time fallback so the
 // existing demo project keeps working. When set, reads that fail fall back to a coherent mock
 // dataset so every screen renders fully populated; `health()` is NOT affected, so the demo pill shows.
@@ -91,7 +91,7 @@ const DEMO = (() => {
       return flag === '1'
     }
     if (localStorage.getItem('konclave.demo') === '1') return true
-  } catch { /* storage unavailable — fall through to the build flag */ }
+  } catch { /* storage unavailable - fall through to the build flag */ }
   return ENV.VITE_DEMO === '1'
 })()
 /** True in demo mode (runtime `?demo=1` or the VITE_DEMO fallback): screens load api data (which
@@ -100,7 +100,7 @@ export const IS_DEMO = DEMO
 
 // Browser-native mode (Etapa 3 convergence): when a hosted blind helper is configured, the PWA
 // screens (Dashboard / Proposals / Ledger) read the SELECTED /net vault from the helper instead of
-// the local bridge, so the same polished app operates the browser-born vault. Never in demo mode —
+// the local bridge, so the same polished app operates the browser-born vault. Never in demo mode -
 // demo always uses mock, so the same canonical build can point at a helper AND still show the demo.
 const NET = helperConfigured() && !DEMO
 /** True when the app operates a browser-native (/net) vault via the hosted helper. Screens use it
@@ -163,7 +163,7 @@ function withVault(path: string): string {
 }
 
 // Vaults unlocked in THIS browser session (in-memory: a reload re-locks, so the
-// passphrase is asked again on every fresh entry — that is the intended behaviour).
+// passphrase is asked again on every fresh entry - that is the intended behaviour).
 const unlockedSession = new Set<string>()
 export function markVaultUnlocked(id: string): void { unlockedSession.add(id) }
 export function isVaultUnlocked(id: string): boolean { return unlockedSession.has(id) }
@@ -335,7 +335,7 @@ export function humanError(t: TFn, error?: string, detail?: string): string {
   const has = (s: string) => e.includes(s) || d.includes(s)
 
   if (has('insufficient') || has('saldo')) return t('error.insufficient')
-  // A client-side fetch failure surfaces as 'no connection' — match it BEFORE the ceremony
+  // A client-side fetch failure surfaces as 'no connection' - match it BEFORE the ceremony
   // rule below, whose bare 'connection' substring would otherwise swallow it.
   if (has('no connection') || has('failed to fetch')) return t('error.noConnection')
   if (e === 'send failed' || has('connection') || has('frostd') || has('transport') || has('refused') || has('timed out'))
@@ -601,7 +601,7 @@ export type SendResult =
 
 /**
  * Run the FROST ceremony for a Ready proposal. `dryRun` signs without broadcasting.
- * No client timeout: the ceremony (create→prove→sign→broadcast) can take 30–60s.
+ * No client timeout: the ceremony (create→prove→sign→broadcast) can take 30-60s.
  */
 export async function sendProposal(id: string, dryRun: boolean): Promise<SendResult> {
   if (NET) {
@@ -615,7 +615,7 @@ export async function sendProposal(id: string, dryRun: boolean): Promise<SendRes
     }
   }
   // Demo mode (#88): no bridge to broadcast against. A dry-run "verifies"; a real send walks the
-  // Sent state carrying a REAL, verifiable mainnet txid, so the explorer link actually resolves —
+  // Sent state carrying a REAL, verifiable mainnet txid, so the explorer link actually resolves -
   // sample data, but honest about what "confirmed on-chain" looks like.
   if (DEMO) {
     if (dryRun) return { ok: true, dryRun: true, sighash: 'demo-sighash-verifies' }

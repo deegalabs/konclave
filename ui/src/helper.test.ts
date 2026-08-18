@@ -9,7 +9,7 @@ import {
 
 // These tests run with VITE_HELPER_BASE unset (the default), so HELPER_BASE is ''. That is the
 // local-first contract: with no hosted helper configured, `/net` stays a pure device-to-device
-// ceremony — every helper call must degrade to null WITHOUT ever touching the network.
+// ceremony - every helper call must degrade to null WITHOUT ever touching the network.
 
 afterEach(() => {
   vi.restoreAllMocks()

@@ -3,7 +3,7 @@
  * Konclave MCP server
  * =====================
  *
- * Konclave is a collective FROST vault on Zcash: no single party can move funds —
+ * Konclave is a collective FROST vault on Zcash: no single party can move funds -
  * a quorum of humans must approve every spend. This MCP server lets an AI assistant
  * act as a "treasurer's assistant" over that vault.
  *
@@ -313,7 +313,7 @@ server.registerTool(
     description:
       "DRAFT a payment proposal in the vault. This is the ONLY write this server " +
       "can perform, and it is intentionally not a spend. It creates a proposal in " +
-      "the 'awaiting approval' state — nothing moves. The AI CANNOT approve, sign, " +
+      "the 'awaiting approval' state - nothing moves. The AI CANNOT approve, sign, " +
       "or broadcast it: there is no such tool in this server, by design. A human " +
       "quorum must open the Konclave app and approve the proposal before any funds " +
       "move; every member signs with their own FROST key share. Prefer a shielded " +
@@ -378,7 +378,7 @@ server.registerTool(
       const note =
         `Drafted a payment proposal (id: ${id}) for ${value_zec} ZEC to ${to_address}. ` +
         `It is now AWAITING human approval and has moved NO funds. ` +
-        `The AI cannot approve or send it — a quorum of members must approve it in the ` +
+        `The AI cannot approve or send it - a quorum of members must approve it in the ` +
         `Konclave app, where each signs with their own FROST key share.\n\n` +
         jsonBlock(proposal);
 
@@ -400,7 +400,7 @@ async function main() {
   console.error(
     `konclave-mcp ready. Backend: ${API_BASE}. ` +
       `Tools: get_vault, get_balance, list_proposals, get_ledger, propose_payment ` +
-      `(read + draft only — no sign/send by design).`,
+      `(read + draft only - no sign/send by design).`,
   );
 }
 

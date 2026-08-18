@@ -144,7 +144,7 @@ export const en: Record<string, string> = {
   'nav.switchVault': 'Switch vault',
   'nav.more': 'More',
 
-  // "And now?" connector — the next natural step at the foot of each read/hub screen
+  // "And now?" connector - the next natural step at the foot of each read/hub screen
   'next.label': 'Next step',
   'next.pay': 'Propose a payment',
   'next.dashboard': 'Back to the dashboard',
@@ -736,7 +736,7 @@ export const en: Record<string, string> = {
   'net.log.msgFailed': 'warning: a ceremony message failed and was ignored',
   // ceremony errors
   'net.err.relayDown': 'Could not reach the relay (the network went down). Reload both tabs and try again.',
-  'net.err.sighashMismatch': 'Refused to sign: the transaction this device recomputed does not match the requested one. Nothing was signed. This can mean a tampered request — do not retry with the same request.',
+  'net.err.sighashMismatch': 'Refused to sign: the transaction this device recomputed does not match the requested one. Nothing was signed. This can mean a tampered request - do not retry with the same request.',
   'net.err.roomFull': 'This room is already full (the vault has its number of devices set). Generate a new invite.',
   'net.err.stepFailed': 'A ceremony step failed. If the tabs freeze, reload and try again.',
   'net.err.timeout': 'The ceremony did not complete in time. Check that all devices joined the room and reload to try again.',

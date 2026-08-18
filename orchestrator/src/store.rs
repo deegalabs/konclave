@@ -2,7 +2,7 @@
 //! the proposals in flight. On-chain is always the final truth about funds; this store
 //! is a cache + the record of "who proposed / who approved" that the chain can't hold.
 //!
-//! Backed by bundled SQLite (no system dependency). Shares are NEVER stored here — they
+//! Backed by bundled SQLite (no system dependency). Shares are NEVER stored here - they
 //! live sealed via [`crate::secrets`] and in `frost-client`'s config; this store keeps
 //! only public material and local bookkeeping.
 
@@ -43,7 +43,7 @@ pub enum ProposalKind {
     Payroll,
 }
 
-/// A saved payee (spec: beneficiary as an entity). Public material — an address book
+/// A saved payee (spec: beneficiary as an entity). Public material - an address book
 /// so the treasurer picks a name instead of pasting an address.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Beneficiary {
@@ -256,7 +256,7 @@ impl Store {
 
     /// Delete a vault and everything scoped to it on THIS device: its proposals
     /// (votes + payroll lines cascade), beneficiaries, members and passphrase lock.
-    /// Local only — this cannot touch the chain or other members' devices.
+    /// Local only - this cannot touch the chain or other members' devices.
     pub fn delete_vault(&mut self, vault_id: &str) -> Result<(), StoreError> {
         let tx = self.conn.transaction()?;
         // proposal_votes and payroll_lines cascade from proposals (ON DELETE CASCADE).
@@ -351,7 +351,7 @@ impl Store {
         Ok(Some(self.attach_votes(head)?))
     }
 
-    /// Open proposals (awaiting/ready/sent) for a vault — the "pending" list (spec §6.7).
+    /// Open proposals (awaiting/ready/sent) for a vault - the "pending" list (spec §6.7).
     pub fn list_open_proposals(&self, vault_id: &str) -> Result<Vec<ProposalRecord>, StoreError> {
         let mut stmt = self.conn.prepare(
             "SELECT id, vault_id, kind, state, proposer, value_total, memo, expiry_unix, txid, to_address, created_at
@@ -507,7 +507,7 @@ impl Store {
         Ok(n)
     }
 
-    /// Every proposal for a vault, newest first — the full ledger (spec §6.7), including
+    /// Every proposal for a vault, newest first - the full ledger (spec §6.7), including
     /// terminal states (sent/confirmed/rejected/expired) for the accounting export.
     pub fn list_all_proposals(&self, vault_id: &str) -> Result<Vec<ProposalRecord>, StoreError> {
         let mut stmt = self.conn.prepare(
@@ -522,7 +522,7 @@ impl Store {
     }
 
     /// Reconcile this vault's cached proposals against an authoritative on-chain snapshot and
-    /// **apply** the result (multi-device reconciliation, §8 — on-chain wins):
+    /// **apply** the result (multi-device reconciliation, §8 - on-chain wins):
     ///   - a locally-`Sent` proposal whose txid the chain confirmed → `Confirmed`;
     ///   - a live (`Awaiting`/`Ready`) reservation the freshly-synced spendable can no longer fund
     ///     (another device already spent those notes) → `Superseded`.

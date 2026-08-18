@@ -1,4 +1,4 @@
-/* /net — the network vault (DKG across devices over the blind relay). Dark, uses the
+/* /net - the network vault (DKG across devices over the blind relay). Dark, uses the
    consolidated tokens with hard fallbacks so it renders even before global CSS loads. */
 
 .net-wrap {
@@ -28,7 +28,7 @@
   font-size: 13px;
 }
 .net-back:hover { color: var(--text, var(--text)); }
-/* Transport label in the letterhead — a quiet mono pill, not an accent signal. */
+/* Transport label in the letterhead - a quiet mono pill, not an accent signal. */
 .net-tag {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 11px;
@@ -197,13 +197,13 @@
 }
 
 /* -------------------------------------------------------------------------
-   Shared "live demo" framing — used by BOTH the /net and /signer screens so a
+   Shared "live demo" framing - used by BOTH the /net and /signer screens so a
    visitor reads them as honest, live proofs of the cryptography (not the vault
    UX). Class-scoped, so importing this file into WasmSigner leaks nothing else.
    ------------------------------------------------------------------------- */
 .demo-frame { margin: 4px 0 22px; }
 
-/* "Live demo" eyebrow — a quiet mono pill with a static silver liveness dot
+/* "Live demo" eyebrow - a quiet mono pill with a static silver liveness dot
    (matches the platform's .rd-status; no accent, no infinite pulse). */
 .demo-eyebrow {
   display: inline-flex;

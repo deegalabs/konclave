@@ -1,7 +1,7 @@
 // Seating for a SIGNING session (issue #49, Stage 3 wiring). In a signing room the seats are FIXED
 // (they were assigned by the DKG); a device that (re)joins announces its OWN, already-known seat and
 // every device rebuilds the tag->seat table from those announcements. This is the `rejoin` handshake
-// NetVault's beginSign runs — lifted here so the app-level background signer can seat devices on the
+// NetVault's beginSign runs - lifted here so the app-level background signer can seat devices on the
 // vault's signing room without being the /net screen.
 //
 // It is deliberately tiny and pure: it maps relay tags to 1-based FROST seats and provides the
@@ -27,7 +27,7 @@ export class SigningSeats {
     onCount?.(1)
   }
 
-  /** The `rejoin` this device sends on joining — its OWN seat, bound to its KeyPackage identifier. */
+  /** The `rejoin` this device sends on joining - its OWN seat, bound to its KeyPackage identifier. */
   announcement(): RejoinMsg {
     return { type: 'rejoin', seat: this.mySeatNum }
   }
@@ -35,7 +35,7 @@ export class SigningSeats {
   /**
    * Apply a peer's `rejoin`: re-seat by the DECLARED seat, dropping any stale tag that used to hold
    * that seat (a reloaded device rejoins with a fresh tag but the same seat), so each seat has
-   * exactly one presence — the count is distinct SEATS (never > n) and the table has no duplicate
+   * exactly one presence - the count is distinct SEATS (never > n) and the table has no duplicate
    * seat that would break signing. Returns the distinct-seat count.
    */
   handleRejoin(fromTag: string, seat: number): number {

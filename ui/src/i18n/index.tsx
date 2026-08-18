@@ -1,6 +1,6 @@
 // Minimal, dependency-free i18n for the UI. English keys; per-locale value dictionaries.
 // Portuguese-first (the target treasurer audience), English available via the toggle.
-// Local-first friendly: no network, no telemetry — just two static dictionaries.
+// Local-first friendly: no network, no telemetry - just two static dictionaries.
 
 import { createContext, Fragment, useCallback, useContext, useState, type ReactNode } from 'react'
 import { en } from './en'

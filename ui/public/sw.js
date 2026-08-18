@@ -1,9 +1,9 @@
-// Konclave PWA service worker — minimal and update-safe.
+// Konclave PWA service worker - minimal and update-safe.
 //
 // Network-first by design: an ONLINE device always fetches fresh JS/WASM, so it never runs
 // a stale cryptographic core; the cache is only an OFFLINE fallback for the app shell. The
 // /api bridge and the /relay mailbox are LIVE and sensitive and are never cached. The share
-// itself never touches this cache — it lives only in encrypted IndexedDB.
+// itself never touches this cache - it lives only in encrypted IndexedDB.
 
 const CACHE = 'konclave-shell-v1'
 const SHELL = ['./', './index.html', './favicon.svg', './manifest.webmanifest']

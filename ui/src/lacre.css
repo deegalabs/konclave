@@ -1,23 +1,23 @@
-/* Konclave — design system (the ONE token layer + components).
-   Fonts are self-hosted (see main.tsx) — no external CDN, per local-first / no-telemetry.
+/* Konclave - design system (the ONE token layer + components).
+   Fonts are self-hosted (see main.tsx) - no external CDN, per local-first / no-telemetry.
    Dark-first, light-ready: tokens are role-based so a future theme is a values-only
-   override under [data-theme="light"] — no renames, no component edits. */
+   override under [data-theme="light"] - no renames, no component edits. */
 
 :root{
-  /* WHITE v2 — light default (research: 1Password/Bitwarden/Stripe/Ramp). Dark is an
+  /* WHITE v2 - light default (research: 1Password/Bitwarden/Stripe/Ramp). Dark is an
      explicit opt-in under [data-theme="dark"] below; token NAMES are unchanged so no
-     component or screen edits are needed — this values-only swap repaints the app. */
-  /* surfaces — cool off-white canvas + pure-white cards */
+     component or screen edits are needed - this values-only swap repaints the app. */
+  /* surfaces - cool off-white canvas + pure-white cards */
   --surface-0:#F5F7FA; --surface-1:#FFFFFF; --surface-2:#EEF2F8; --surface-3:#E4E9F2;
-  /* text — near-black ink, never pure #000 */
+  /* text - near-black ink, never pure #000 */
   --text:#101828; --text-muted:#667085; --silver:#475467;
-  /* lines — hairlines */
+  /* lines - hairlines */
   --line:#E4E8EF; --line-2:#EEF1F5; --line-strong:#D3DAE3; --line-soft:rgba(16,24,40,.06);
-  /* accent (blue — must pass AA on white, so darker than the dark-theme sky blue) */
+  /* accent (blue - must pass AA on white, so darker than the dark-theme sky blue) */
   --accent:#2F6FE0; --accent-ink:#2559BE; --accent-bright:#2559BE;
   --accent-soft:rgba(47,111,208,.09); --accent-line:rgba(47,111,208,.30);
   --on-accent:#FFFFFF;
-  /* rgba parts for theme-correct halos/glows — use as rgba(var(--accent-glow),.x) */
+  /* rgba parts for theme-correct halos/glows - use as rgba(var(--accent-glow),.x) */
   --accent-glow:47,111,208;
   /* success (deepened for AA on white) */
   --success:#12805C; --success-soft:rgba(18,128,92,.10); --success-line:rgba(18,128,92,.34);
@@ -26,21 +26,21 @@
   /* danger */
   --danger:#B42318; --danger-text:#B42318;
   --danger-soft:rgba(180,35,24,.08); --danger-line:rgba(180,35,24,.30);
-  /* signature devices — the tarja stays a solid dark ink bar (pops harder on white) */
+  /* signature devices - the tarja stays a solid dark ink bar (pops harder on white) */
   --tarja-ink:#101828; --tarja-text:rgba(255,255,255,.72);
   /* type */
   --font-sans:"Archivo",system-ui,sans-serif;
   --font-mono:"Spline Sans Mono",ui-monospace,monospace;
   /* shape */
   --radius:12px; --radius-sm:8px; --radius-lg:16px; --radius-pill:999px;
-  /* elevation — soft, cool (white v2 uses shadow, not just borders) */
+  /* elevation - soft, cool (white v2 uses shadow, not just borders) */
   --shadow-overlay:0 22px 52px -20px rgba(16,24,40,.22);
   --shadow-sm:0 1px 2px rgba(16,24,40,.04), 0 4px 12px rgba(16,24,40,.05);
   /* motion */
   --dur-fast:140ms; --dur-base:240ms; --dur-reveal:280ms;
   --ease-out:cubic-bezier(.3,.8,.3,1);
 }
-/* DARK — explicit opt-in (the previous dark identity, preserved for a theme toggle). */
+/* DARK - explicit opt-in (the previous dark identity, preserved for a theme toggle). */
 :root[data-theme="dark"]{
   --surface-0:#0f141a; --surface-1:#151b22; --surface-2:#1a212a; --surface-3:#202832;
   --text:#e7edf3; --text-muted:#9aa6b2; --silver:#c6cfd9;
@@ -77,11 +77,11 @@ body{margin:0; color:var(--text); font-family:var(--font-sans); line-height:1.5;
     radial-gradient(1100px 520px at 82% -8%, var(--accent-soft), transparent 60%),
     var(--surface-0) fixed;
   min-height:100vh}
-/* faint paper grain — matte, near-invisible (opacity <= .02); tuned for the white base */
+/* faint paper grain - matte, near-invisible (opacity <= .02); tuned for the white base */
 body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0; opacity:.02;
   background-image:radial-gradient(rgba(16,24,40,.55) .5px, transparent .5px); background-size:3px 3px}
 
-/* letterhead / sheet — no box: the slate gradient shows through */
+/* letterhead / sheet - no box: the slate gradient shows through */
 .sheet{background:transparent; position:relative; z-index:1}
 .lh{display:flex; align-items:center; justify-content:space-between; padding:16px 26px; border-bottom:1px solid var(--line)}
 .lh-right{display:flex; align-items:center; gap:16px}
@@ -116,7 +116,7 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
   transition:border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out)}
 .input:hover{border-color:var(--surface-3)}
 .input::placeholder{color:var(--text-muted); opacity:.6}
-/* focus keeps a visible ring — never strip the outline without a replacement */
+/* focus keeps a visible ring - never strip the outline without a replacement */
 .input:focus{border-color:var(--accent); background:var(--surface-1); outline:2px solid var(--accent-line); outline-offset:1px}
 .hint{font-family:var(--font-mono); font-size:11.5px; color:var(--text-muted); margin-top:6px}
 .hint.warn{color:var(--warn)}
@@ -136,13 +136,13 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 .btn.ok:disabled, .btn.ok:disabled:hover{background:var(--surface-2); border-color:var(--line); color:var(--text-muted)}
 .btn.ghost{border-color:var(--line); color:var(--text-muted)}
 .btn.ghost:hover{background:transparent; border-color:var(--text); color:var(--text)}
-/* the single canonical destructive treatment — bordered, warmed, filled on hover (never accent) */
+/* the single canonical destructive treatment - bordered, warmed, filled on hover (never accent) */
 .btn.danger{border-color:var(--danger-line); color:var(--danger-text); background:transparent}
 .btn.danger:hover{background:var(--danger-soft); border-color:var(--danger)}
 .btn.danger:disabled, .btn.danger:disabled:hover{opacity:.42; cursor:not-allowed; background:var(--surface-2); border-color:var(--line); color:var(--text-muted)}
 .btn.block{width:100%; text-align:center}
 
-/* the redaction / tarja — a keyboard-operable button, not a bare div */
+/* the redaction / tarja - a keyboard-operable button, not a bare div */
 .secret{position:relative; display:inline-block}
 .secret .bar{position:absolute; inset:-2px -6px; background:var(--tarja-ink); cursor:pointer;
   border:0; padding:0; margin:0; font:inherit; appearance:none; -webkit-appearance:none;
@@ -208,7 +208,7 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 }
 
 /* ============================================================
-   App shell — persistent left rail (refined dark, Linear/Vercel)
+   App shell - persistent left rail (refined dark, Linear/Vercel)
    ============================================================ */
 :root{ --pad:clamp(20px,3vw,40px); --rail-w:248px }
 .applayout{display:grid; grid-template-columns:var(--rail-w) minmax(0,1fr); min-height:100vh; max-width:1320px; margin-inline:auto}
@@ -254,7 +254,7 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 .live.off i{background:var(--text-muted); box-shadow:none}
 
 /* On mobile the rail splits: a slim sticky TOP bar (brand + compact utilities)
-   and a fixed BOTTOM tab bar for navigation — the native-app pattern. */
+   and a fixed BOTTOM tab bar for navigation - the native-app pattern. */
 @media(max-width:860px){
   .applayout{grid-template-columns:1fr}
 
@@ -275,7 +275,7 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
   .rail .live{font-size:0; gap:0; padding:7px}
   .rail .live i{margin:0}
 
-  /* bottom tab bar — its OWN compositing layer (translateZ) so mobile Safari paints it
+  /* bottom tab bar - its OWN compositing layer (translateZ) so mobile Safari paints it
      immediately and keeps it pinned even with the address bar expanded (the classic
      "fixed bottom bar only shows after scrolling" iOS bug). */
   .railnav{position:fixed; left:0; right:0; bottom:0; z-index:50; flex-direction:row; gap:0; flex-wrap:nowrap;
@@ -308,14 +308,14 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
   .applayout .page{padding:var(--pad) var(--pad) calc(80px + env(safe-area-inset-bottom))}
 }
 
-/* refined reveal toggle — pill, not a boxed mono chip */
+/* refined reveal toggle - pill, not a boxed mono chip */
 .reveal-btn{display:inline-flex; align-items:center; gap:8px; font-family:var(--font-mono); font-size:11px;
   letter-spacing:.06em; text-transform:uppercase; color:var(--text-muted); background:transparent;
   border:1px solid var(--line); border-radius:var(--radius-pill); padding:7px 13px; cursor:pointer;
   transition:border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out)}
 .reveal-btn:hover{border-color:var(--line-strong); color:var(--text)}
 
-/* motion is confirm/reveal only — honor reduced-motion everywhere */
+/* motion is confirm/reveal only - honor reduced-motion everywhere */
 @media (prefers-reduced-motion: reduce){
   *,*::before,*::after{animation-duration:.001ms !important; animation-iteration-count:1 !important;
     transition-duration:.001ms !important; scroll-behavior:auto !important}

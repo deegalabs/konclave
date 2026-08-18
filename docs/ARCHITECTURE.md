@@ -42,11 +42,11 @@ into the browser. See §8 for how those become the two delivery shells.
 | `orchestrator/` | Native Rust backend: proposal state machine, validation, wallet/sync, ceremony, store, sealing, and the `konclave serve` loopback HTTP bridge (bin `konclave`). | 2a |
 | `konclave-signer/` | Native FROST↔PCZT bridge: `extract` (sighash + randomizers), `inject` (apply FROST sigs), `build-payroll`. | 2a |
 | `konclave-wasm/` | Browser crypto core compiled to WASM → committed to `ui/src/wasm-pkg/`: FROST ceremony, DKG, recovery (RTS), seal (ECIES), and `pczt_bridge` (extract/inject in the browser). | 2b |
-| `relay-server/` | Standalone public **blind relay** (room mailbox of opaque bytes), hosted on Railway. | — |
+| `relay-server/` | Standalone public **blind relay** (room mailbox of opaque bytes), hosted on Railway. | - |
 | `engine/` | Official Zcash Foundation binaries, pinned by SHA in `engine/versions.lock`. Not reimplemented. | 1 |
-| `sdk/` | `@konclave/frost` — the WASM core packaged as a reusable browser SDK. | — |
-| `mcp-server/` | MCP "AI treasurer": reads + proposes, deliberately **no** sign/send tool (single-agent-proof). | — |
-| `src-tauri/` | **Placeholder** for the desktop shell (§8, roadmap). Today just a README. | — |
+| `sdk/` | `@konclave/frost` - the WASM core packaged as a reusable browser SDK. | - |
+| `mcp-server/` | MCP "AI treasurer": reads + proposes, deliberately **no** sign/send tool (single-agent-proof). | - |
+| `src-tauri/` | **Placeholder** for the desktop shell (§8, roadmap). Today just a README. | - |
 
 ## 3. What travels vs. what stays (trust model)
 
@@ -63,7 +63,7 @@ it disrupts coordination (hence the QR/copy-paste fallback on the roadmap).
 ## 4. Sources of truth
 
 - **On-chain (mainnet):** final truth about funds. **On-chain always wins.** (Multi-device
-  reconciliation — local cache diverging from on-chain — is an open debt, see §9.)
+  reconciliation - local cache diverging from on-chain - is an open debt, see §9.)
 - **Local state (per device):** share, vaults, labels, cache, in-progress proposals.
 - **`frostd` / relay:** ephemeral transport of **public** material; not a source of truth.
 
@@ -112,8 +112,8 @@ pczt create ─> prove (Halo2) ─> EXTRACT ─> FROST ceremony ─> INJECT ─>
 
 EXTRACT and INJECT exist in **two** places, proven byte-for-byte equal by shared real-mainnet golden
 vectors (`konclave-signer/tests/vectors/`, `konclave-wasm/tests/vectors/`):
-- **native** — `konclave-signer` (audit C6 tests), used by the desktop/orchestrator path;
-- **WASM** — `konclave-wasm::pczt_bridge` (parity tests), used by the browser path.
+- **native** - `konclave-signer` (audit C6 tests), used by the desktop/orchestrator path;
+- **WASM** - `konclave-wasm::pczt_bridge` (parity tests), used by the browser path.
 
 ## 8. Two shells, one core (delivery)
 
@@ -135,7 +135,7 @@ bundle and converge on the same on-chain transaction (guaranteed by the §7 pari
                                                 (participate / approve / demo)
 ```
 
-- **Desktop (Tauri)** is the secure primary custody for the person operating the vault — matches the
+- **Desktop (Tauri)** is the secure primary custody for the person operating the vault - matches the
   §2 closed decision ("local-first desktop, share in the OS secure vault"). It reuses the tested
   `orchestrator/` (7 real mainnet txids); Tauri is an **additive** shell in `src-tauri/`, not a
   rewrite (it hosts the same `ui/` in the system webview and embeds `konclave serve`).
@@ -157,7 +157,7 @@ bundle and converge on the same on-chain transaction (guaranteed by the §7 pari
 **Intend to build (roadmap; details in `temp/PROXIMOS-PASSOS.md`):**
 1. **Real browser transaction (slice 2):** on-device "what am I signing" verification + the
    create/prove boundary, then wire `pczt_bridge` into the `/net` ceremony and close with a real
-   `pczt send` — a broadcast Orchard tx from the browser.
+   `pczt send` - a broadcast Orchard tx from the browser.
 2. **Desktop shell (Tauri):** turn `src-tauri/` from placeholder into a two-click app that embeds
    `orchestrator/` and moves share custody to the OS keychain.
 3. **On-device share persistence:** encrypted IndexedDB + WebAuthn (sign-after-restore).

@@ -12,7 +12,7 @@ import { Link } from 'react-router-dom'
  * Left column = eyebrow (klab) / title (h1) / subtitle; right column = actions
  * (export buttons, the quorum seal, a status stamp…). `eyebrow` is optional and
  * only rendered when a screen has one (Dashboard, Members, Proposal). All copy
- * is passed in by the caller — this component never hardcodes user-facing text.
+ * is passed in by the caller - this component never hardcodes user-facing text.
  */
 export function PageHeader({
   eyebrow,

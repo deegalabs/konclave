@@ -1,4 +1,4 @@
-# Konclave hosted BLIND helper (ADR-0006, Rung A) — testnet demo image.
+# Konclave hosted BLIND helper (ADR-0006, Rung A) - testnet demo image.
 #
 # DELIBERATE TRADEOFF: this image bundles the engine binaries built from source on the
 # maintainer's machine at the pins in engine/versions.lock (frost-tools 3d2985c for
@@ -20,7 +20,7 @@ RUN chmod +x /usr/local/bin/helper-server /usr/local/bin/zcash-sign \
              /usr/local/bin/zcash-devtool /usr/local/bin/konclave-signer
 
 # NOTE: runs as root so the Railway VOLUME mounted at KONCLAVE_VAULTS_DIR (root-owned) is
-# writable. Acceptable for this demo helper — it is a single isolated container that holds NO
+# writable. Acceptable for this demo helper - it is a single isolated container that holds NO
 # secret (blind to shares by construction). Dropping to a non-root user is a hardening follow-up
 # (chown the volume in an entrypoint).
 WORKDIR /data
@@ -34,5 +34,5 @@ ENV KONCLAVE_ZCASH_SIGN=/usr/local/bin/zcash-sign \
     KONCLAVE_VAULTS_DIR=/data/vaults
 
 # Railway injects PORT; the helper binds KONCLAVE_HELPER_ADDR. Bind 0.0.0.0 so the public
-# edge can reach it (blind-by-design, like the relay — no loopback guard here).
+# edge can reach it (blind-by-design, like the relay - no loopback guard here).
 CMD ["sh", "-c", "KONCLAVE_HELPER_ADDR=0.0.0.0:${PORT:-4780} helper-server"]

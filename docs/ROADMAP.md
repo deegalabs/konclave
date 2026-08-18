@@ -97,7 +97,7 @@ slice slips, Phase 6 is the escape valve, never the core.
 
 # Forward roadmap (post-submission)
 
-> **Current focus (2026-08-02) — the live tracker is GitHub Issues** (this file is the strategic
+> **Current focus (2026-08-02) - the live tracker is GitHub Issues** (this file is the strategic
 > shape, the issues are the work items). Active thread: **the signing convergence** (EPIC #49) so a
 > payment sends **from the Dashboard**, not from `/net`.
 > - **Stage 1 (#69, done):** the FROST ceremony extracted from `NetVault` into a reusable
@@ -114,7 +114,7 @@ slice slips, Phase 6 is the escape valve, never the core.
 > fingerprint (#67/#68, ADR-0007). Open security follow-up: H2 (seal the SignRequest, #63).
 
 The core crypto is proven (real FROST over Orchard, **eight** verifiable mainnet txids incl. a
-DKG-vault send, a private multi-output payroll, and — on NU6.3 activation day — an
+DKG-vault send, a private multi-output payroll, and - on NU6.3 activation day - an
 Orchard→Ironwood migration plus the first **Ironwood-pool spend** (both V6/NU6.3, FROST 2-of-3),
 and browser-side signing of a real Orchard spend). The work from here is **consolidation,
 robustness, and reach**, not new cryptography. Ordered by priority.
@@ -128,32 +128,32 @@ robustness, and reach**, not new cryptography. Ordered by priority.
   helper-assisted broadcast that is blind to spending. The browser devices keep the shares and
   sign over the blind relay; a helper (the native orchestrator, which never sees a share) builds
   and proves the real PCZT for the vault's own address, publishes a signing request, waits for
-  the aggregate signature, injects, and broadcasts — consistent with "internal transparency,
+  the aggregate signature, injects, and broadcasts - consistent with "internal transparency,
   external privacy". The wire protocol and the relay handshake are implemented and unit-tested on
   both sides (`orchestrator::net_send` / `relay_client`; `ui/net-sign`); the live NetVault relay
   wiring and the end-to-end testnet proof remain (see `temp/NET-REAL-BROADCAST-SCOPING.md`).
 
-## B. Network robustness — NU6.3 / Ironwood
+## B. Network robustness - NU6.3 / Ironwood
 - Ironwood introduces a **new shielded pool** ("Ironwood", V6 transactions with their own
   actions), distinct from Orchard. The FROST / RedPallas spend-authorization scheme is
-  **unchanged** — an Ironwood spend is Orchard-shaped — so the FROST / DKG signing core
+  **unchanged** - an Ironwood spend is Orchard-shaped - so the FROST / DKG signing core
   carries over whole; what changes is the pool the engine and the PCZT bridge operate on.
 - Because build, prove, and broadcast are delegated to `zcash-devtool`, Konclave inherits
   upstream Ironwood support once the engine is rebuilt against a librustzcash with NU6.3.
-- **Code readiness — done:** the two mainnet-hardcoded network points are parameterized behind
-  an explicit choice, mainnet as the default so production is unchanged —
+- **Code readiness - done:** the two mainnet-hardcoded network points are parameterized behind
+  an explicit choice, mainnet as the default so production is unchanged -
   `konclave-signer build-payroll --network main|test` and
   `orchestrator::validate_recipient_on(addr, network)`. Tested for both networks.
-- **End-to-end proven on testnet — done (out-of-repo experiment):** testnet is already past
+- **End-to-end proven on testnet - done (out-of-repo experiment):** testnet is already past
   the Ironwood activation height, so it runs NU6.3 now. Rebuilding `zcash-devtool` against the
   Ironwood librustzcash pin lets the wallet **see and spend** Ironwood-pool funds that the
   pre-Ironwood engine is blind to. With the FROST↔PCZT bridge ported to the Ironwood pool
-  (`sign_ironwood_with` / `apply_ironwood_signature`, V6 sighash), the full cycle — receive →
+  (`sign_ironwood_with` / `apply_ironwood_signature`, V6 sighash), the full cycle - receive →
   build + prove for the vault's own address → FROST 2-of-3 ceremony → inject (the aggregate
-  signature verifies) → broadcast → **mined into a block** — completed on testnet (tx
+  signature verifies) → broadcast → **mined into a block** - completed on testnet (tx
   `069f4260…`, block 4,202,966). This ran on a throwaway testnet vault, kept out-of-repo like the
   mainnet evidence infra; **the repo default (`main`) stays on the mainnet pre-Ironwood pin.**
-- **Productization for mainnet (Option A — clean cut at activation) — DONE + PROVEN.** Ironwood
+- **Productization for mainnet (Option A - clean cut at activation) - DONE + PROVEN.** Ironwood
   activated on mainnet at height 3,428,143 (2026-07-28). The port (#10) was merged at activation:
   the engine pin (`engine/versions.lock`) and `konclave-signer` on the Ironwood pin, extract/inject
   pool-aware (Orchard pre-NU6.3, Ironwood post-NU6.3), C6 vectors on the Ironwood v2 format. Then
@@ -168,10 +168,10 @@ robustness, and reach**, not new cryptography. Ordered by priority.
   (the reference Ironwood tool), so the PCZT wire format stays byte-for-byte compatible; the
   final librustzcash crates (zcash_primitives 0.30.0, orchard 0.15.4, pczt 0.9.1) are newer than
   what devtool main pins, so we hold and bump when devtool does. The **repo** `konclave-signer`
-  (dual-pool) was re-run end to end on testnet — a 4-real-spend transaction, one FROST 2-of-3
-  ceremony per spend, mined — so the branch is proven ready for the activation cut.
+  (dual-pool) was re-run end to end on testnet - a 4-real-spend transaction, one FROST 2-of-3
+  ceremony per spend, mined - so the branch is proven ready for the activation cut.
 
-## C. On-device share persistence — done (web)
+## C. On-device share persistence - done (web)
 - **Done:** a device's share is persisted **encrypted at rest** (WebCrypto PBKDF2 → AES-GCM in
   IndexedDB, `ui/src/storage.ts`), unlocked per device by a passphrase; a member can close and
   reopen the app, restore the share, and **rejoin a signing session** without losing the vault.
@@ -181,30 +181,30 @@ robustness, and reach**, not new cryptography. Ordered by priority.
   Credential Manager / Secret Service) and add passkey / biometric unlock.
 
 ## D. Multi-platform delivery (web-first; native shells optional)
-**Decided: deliver web-first** — the browser + WASM + a blind relay is the universal client, so
+**Decided: deliver web-first** - the browser + WASM + a blind relay is the universal client, so
 the whole per-distro packaging matrix is optional, not required ([ADR-0005](adr/0005-web-first-delivery.md)).
 One UI (`ui/`) and one crypto core (`konclave-wasm`) behind the relay:
-- **Web** — browser + WASM + hosted relay (done; verified across separate machines). **Now
-  installable as a PWA** (web app manifest + a network-first, update-safe service worker — the
+- **Web** - browser + WASM + hosted relay (done; verified across separate machines). **Now
+  installable as a PWA** (web app manifest + a network-first, update-safe service worker - the
   `/api` and `/relay` responses are never cached; the share lives only in encrypted IndexedDB).
-- **Desktop (optional)** — a Tauri shell wrapping the `orchestrator` for native installers
+- **Desktop (optional)** - a Tauri shell wrapping the `orchestrator` for native installers
   (Windows / macOS / Linux); deferred while the dev machine's GTK/WSLg window won't render
   ([ADR-0004](adr/0004-local-http-bridge.md)). Not Wails/Go: the backend is Rust and Wails hits
   the same WebKitGTK wall.
-- **Mobile = the browser / PWA** — the same UI + WASM core; the device holds its share (encrypted
+- **Mobile = the browser / PWA** - the same UI + WASM core; the device holds its share (encrypted
   IndexedDB) and signs, while build/prove/broadcast stay off-device via the helper (Architecture B),
   trustless and unable to move funds without the quorum. Sign-after-restore in `/net` is **wired end
   to end** (the saved bundle carries the KeyPackage + group key + seat; a reloaded device rejoins a
-  signing room, re-announces its original seat, and signs with the restored share — no DKG redo;
+  signing room, re-announces its original seat, and signs with the restored share - no DKG redo;
   covered by a bundle+seat test). **Remaining:** a live two-browser proof.
 
 ## E. Closing the loop and depth
-- **Real broadcast from the browser — in progress (Architecture B, PR #11).** The design is
+- **Real broadcast from the browser - in progress (Architecture B, PR #11).** The design is
   settled and the protocol built + unit-tested on both sides: devices keep the shares and sign
   over the blind relay; a helper (never sees a share) builds/proves the PCZT for the vault's own
   address, injects, broadcasts. Remaining: the live NetVault relay wiring + the end-to-end testnet
   proof (a funded browser-DKG vault). See §A and `temp/NET-REAL-BROADCAST-SCOPING.md`.
-- Multi-device reconciliation (on-chain wins when the local cache diverges) — decision core + store
+- Multi-device reconciliation (on-chain wins when the local cache diverges) - decision core + store
   wiring + fresh-sync trigger all landed (`orchestrator::reconcile` + `Store::reconcile_proposals` +
   `server::reconcile_vault` / `POST /api/vault/reconcile`; `Superseded` terminal state; 21 tests).
   **Complete end to end:** the balance-based invalidation AND the `Sent`→`Confirmed` promotion (the
@@ -230,7 +230,7 @@ secp256k1/C deps on purpose).
 > ZecHub FROST projects (2026-07-29) named as the meaningful one, and which none of the six had
 > reached.
 
-**Three stages for the helper (each strictly more decentralized, all trustless — the helper never
+**Three stages for the helper (each strictly more decentralized, all trustless - the helper never
 sees a share and cannot move funds without the quorum's signatures):**
 1. **Manual CLI (today):** `konclave net-send` builds + proves + broadcasts; the browser devices sign
    over the blind relay. Simplest form; proves the loop.
@@ -239,23 +239,23 @@ sees a share and cannot move funds without the quorum's signatures):**
 3. **WASM-only:** the browser does sync + build + prove + sign + broadcast itself. No helper at all.
 
 **The four capabilities to bring into WASM, by difficulty:**
-- **Broadcast** (browser → lightwalletd) — smallest: grpc-web + CORS, or a blind raw-tx **forwarder**
+- **Broadcast** (browser → lightwalletd) - smallest: grpc-web + CORS, or a blind raw-tx **forwarder**
   (trustless like the relay: it only relays a fully-signed tx, cannot alter or author one).
-- **Build** the PCZT (`zcash_client_backend` construction) — medium: compile to wasm, store notes in
+- **Build** the PCZT (`zcash_client_backend` construction) - medium: compile to wasm, store notes in
   IndexedDB rather than SQLite.
-- **Prove** the Orchard action (Halo2) — **the make-or-break. Compile risk retired (2026-07-28
+- **Prove** the Orchard action (Halo2) - **the make-or-break. Compile risk retired (2026-07-28
   spike):** `orchard`'s proving path (`orchard` feature `circuit` = `halo2_proofs` + `halo2_gadgets`
   + `ProvingKey`) **compiles to `wasm32-unknown-unknown`** once Halo2's `multicore`/rayon feature is
-  turned off (`orchard = { default-features = false, features = ["circuit"] }` — `halo2_proofs`
+  turned off (`orchard = { default-features = false, features = ["circuit"] }` - `halo2_proofs`
   hard-errors on wasm32 without atomics when `multicore` is on). A ~2.3 MB probe `.wasm` built with
   the `ProvingKey::build` symbols present. **First perf data point (2026-07-28):** `ProvingKey::build`
   (keygen, the heaviest Halo2 setup op) takes **~21 s single-threaded** in wasm (Node/V8, ~= a
-  browser). That is too slow per app-load, but keygen is **deterministic and avoidable** — ship the
+  browser). That is too slow per app-load, but keygen is **deterministic and avoidable** - ship the
   precomputed proving key (standard practice) so the browser never runs keygen; it is not a per-tx
   cost. **Still open:** the real per-transaction `create_proof` time (needs a real Orchard circuit
-  witness to measure) — single-thread Halo2 is heavy, so wasm threads (atomics + COOP/COEP isolation)
+  witness to measure) - single-thread Halo2 is heavy, so wasm threads (atomics + COOP/COEP isolation)
   is the likely speedup path.
-- **Sync** (light client in WASM) — largest: compact-block sync, trial-decryption, witness updates.
+- **Sync** (light client in WASM) - largest: compact-block sync, trial-decryption, witness updates.
 
 **Security invariant, unchanged at every stage:** the share stays encrypted on the device, the
 vault's viewing key lives in the browser (the member already owns it), and no operator or service
@@ -266,7 +266,7 @@ no-manual-step, trustless flow while the WASM proving path matures.
 
 ---
 
-## Desktop coordination-mode picker + unified vault list — SHIPPED 2026-08-18
+## Desktop coordination-mode picker + unified vault list - SHIPPED 2026-08-18
 
 > Captured and shipped 2026-08-18 (after the landing-video work): #100 (runtime mode + Settings
 > control), #101 (unified vault list), #102 (ask-before-create chooser). **Still open:** a live
@@ -274,19 +274,19 @@ no-manual-step, trustless flow while the WASM proving path matures.
 > The design below is what landed.
 
 On desktop (Tauri) the coordination backend is decided at **build time** today
-(`helperConfigured()` reads `VITE_HELPER_BASE`). Make it the **user's runtime choice** — all three
+(`helperConfigured()` reads `VITE_HELPER_BASE`). Make it the **user's runtime choice** - all three
 trustless (the helper never sees a share, never moves funds without the quorum):
 
-1. **Our hosted helper** (default) — the blind Architecture-B helper.
-2. **Your own helper** — a self-hosted helper URL (Settings field + localStorage override, so
+1. **Our hosted helper** (default) - the blind Architecture-B helper.
+2. **Your own helper** - a self-hosted helper URL (Settings field + localStorage override, so
    `helperConfigured()` becomes runtime, not build-time).
-3. **Local, no helper** — the local orchestrator/bridge (`/create` → `POST {BASE}/api/vault/dkg`),
+3. **Local, no helper** - the local orchestrator/bridge (`/create` → `POST {BASE}/api/vault/dkg`),
    no third party at all.
 
-- **Ask before creating** — the create flow surfaces the mode choice up front.
-- **Unified vault list** — `/vaults` branches on `netMode` (one source) today; show **local +
+- **Ask before creating** - the create flow surfaces the mode choice up front.
+- **Unified vault list** - `/vaults` branches on `netMode` (one source) today; show **local +
   helper vaults together** so a person sees every vault regardless of how it was created.
-- **Works in all three** — helper (Architecture B) and local/bridge already exist; "your helper" is
+- **Works in all three** - helper (Architecture B) and local/bridge already exist; "your helper" is
   the URL field; the rest is wiring + the merged list.
 
 Touches `api` / `helper` / `Settings` / `Vaults`. Its own branch/PR, not bundled with the landing.

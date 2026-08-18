@@ -1,8 +1,8 @@
 // The app-level signing session (issue #49, Stage 3 wiring): what runs in the BACKGROUND while a
 // member uses the Dashboard, so a send never sends them to /net. It composes the two extracted,
 // tested pieces over ONE relay room (the vault's signing room):
-//   • SigningSeats     — the rejoin/seating handshake (fixed seats from the DKG).
-//   • BackgroundSigner — the FROST ceremony, gated by governance.
+//   • SigningSeats     - the rejoin/seating handshake (fixed seats from the DKG).
+//   • BackgroundSigner - the FROST ceremony, gated by governance.
 // This module is the transport-agnostic core; the thin React layer only pipes a RelaySession's
 // messages into `onMessage` and calls `start()`/`stop()`. Unit-tested end to end over an in-memory
 // relay, so the live layer is glue, not logic.
@@ -71,7 +71,7 @@ export class BackgroundSession {
     try {
       parsed = JSON.parse(data) as { type?: string; seat?: number }
     } catch {
-      /* not JSON — hand to the signer, which ignores unparseable input */
+      /* not JSON - hand to the signer, which ignores unparseable input */
     }
     if (parsed?.type === 'rejoin' && typeof parsed.seat === 'number') {
       this.seats.handleRejoin(from, parsed.seat)
@@ -81,7 +81,7 @@ export class BackgroundSession {
     await this.signer.feed(from, data)
   }
 
-  /** Re-drive the signer without new input — e.g. after the owner arms a manual-mode payment, so a
+  /** Re-drive the signer without new input - e.g. after the owner arms a manual-mode payment, so a
    *  request that was pending on the governance gate now proceeds. */
   async retry(): Promise<void> {
     await this.signer.retry()

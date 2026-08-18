@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 
 // The single most valuable trust spec (CLAUDE §7 "preview + explicit confirmation"): before real
-// ZEC moves, the send-confirm dialog must RESTATE what is being sent — the amount and recipient.
+// ZEC moves, the send-confirm dialog must RESTATE what is being sent - the amount and recipient.
 // The API is stubbed via route interception, so this drives a READY proposal end to end with no
 // backend and no build-mode dependency.
 
@@ -68,7 +68,7 @@ test('the send confirmation restates the amount and recipient before broadcastin
   // Trigger the money-moving action.
   await page.getByRole('button', { name: /sign and send/i }).click()
 
-  // The confirmation restates the amount AND recipient — not a generic warning.
+  // The confirmation restates the amount AND recipient - not a generic warning.
   const dialog = page.getByRole('dialog')
   await expect(dialog).toBeVisible()
   await expect(dialog.locator('.send-confirm-what')).toBeVisible()

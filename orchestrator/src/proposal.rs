@@ -1,4 +1,4 @@
-//! The Proposal state machine (spec LOGICA_E_REGRAS §6) — modeled explicitly and
+//! The Proposal state machine (spec LOGICA_E_REGRAS §6) - modeled explicitly and
 //! auditable, never implicit. Applies to both single payments and payroll.
 //!
 //! ```text
@@ -29,7 +29,7 @@ pub enum ProposalState {
     Cancelled,
     /// Invalidated by multi-device reconciliation: the on-chain spendable can no longer fund this
     /// proposal's reservation (another device already spent those notes). On-chain wins (§8). This
-    /// is distinct from `Cancelled` (a proposer choice) and `Expired` (a deadline) — it records
+    /// is distinct from `Cancelled` (a proposer choice) and `Expired` (a deadline) - it records
     /// that the chain, not a person or the clock, ended the proposal.
     Superseded,
 }
@@ -227,7 +227,7 @@ impl Proposal {
         self.transition(ProposalState::Awaiting, ProposalState::Expired)
     }
 
-    /// Cancel — only the proposer, only while awaiting.
+    /// Cancel - only the proposer, only while awaiting.
     pub fn cancel(&mut self, by: &str) -> Result<(), ProposalError> {
         if by != self.proposer {
             return Err(ProposalError::NotProposer);
@@ -336,7 +336,7 @@ mod tests {
     #[test]
     fn from_parts_rehydrates_and_transitions() {
         // Rebuild an Awaiting 2-of-3 with the proposer's approval, then a 2nd approval
-        // reaches quorum — proving stored state feeds back into the state machine.
+        // reaches quorum - proving stored state feeds back into the state machine.
         let mut approvals = BTreeSet::new();
         approvals.insert("alice".to_string());
         let mut p = Proposal::from_parts(

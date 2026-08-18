@@ -37,7 +37,7 @@ export default function App() {
       <DemoBanner />
       <ErrorBoundary>
       <Routes>
-        {/* Onboarding — standalone, no rail */}
+        {/* Onboarding - standalone, no rail */}
         {/* The desktop app opens straight on the product (the vaults), not the marketing landing;
             the web keeps the landing at `/`. */}
         <Route path="/" element={isDesktop ? <Navigate to="/vaults" replace /> : <Intro />} />
@@ -54,7 +54,7 @@ export default function App() {
         <Route path="/recovery" element={<Recovery />} />
         <Route path="/inheritance" element={<Inheritance />} />
         <Route path="/create" element={<Ceremony />} />
-        {/* In-vault — persistent left rail */}
+        {/* In-vault - persistent left rail */}
         <Route element={<Layout />}>
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/receive" element={<Receive />} />
@@ -68,7 +68,7 @@ export default function App() {
           <Route path="/people" element={<People />} />
           <Route path="/settings" element={<Settings />} />
         </Route>
-        {/* Catch-all — a real 404 instead of silently falling back to a default screen. */}
+        {/* Catch-all - a real 404 instead of silently falling back to a default screen. */}
         <Route path="*" element={<NotFound />} />
       </Routes>
       </ErrorBoundary>

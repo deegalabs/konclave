@@ -6,7 +6,7 @@ import { vaultCeremonies, type CeremonyRecord } from '../helper'
 import { fmtDate, shortAddr } from '../format'
 
 /**
- * /ceremonies — the vault's signing evidence trail, inside the vault shell (redesign #6.4). This
+ * /ceremonies - the vault's signing evidence trail, inside the vault shell (redesign #6.4). This
  * moved out of /net: the ceremony record is auditable, read-only governance data, so it belongs in
  * the app (next to the ledger), not on the ceremony screen. Reproducible evidence of every payment
  * the vault signed: the sighash, the quorum's aggregate signature, and the on-chain txid.
@@ -54,7 +54,7 @@ export default function Ceremonies() {
             <div className="cer-kv"><span className="cer-k">sighash</span><code>{shortAddr(c.sighash, 10, 8)}</code></div>
             <div className="cer-kv">
               <span className="cer-k">{t('ceremonies.signature')}</span>
-              <code>{c.signatures.map((s) => shortAddr(s, 8, 6)).join(', ') || '—'}</code>
+              <code>{c.signatures.map((s) => shortAddr(s, 8, 6)).join(', ') || '-'}</code>
             </div>
           </div>
         ))}

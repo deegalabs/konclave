@@ -19,7 +19,7 @@ dist/
 # Compiled engine binaries (we version the pin, not the binaries)
 engine/bin/
 
-# Secrets and local state — NEVER version
+# Secrets and local state - NEVER version
 # (key shares, seeds, vault config, sensitive data)
 *.key
 *.share
@@ -34,16 +34,16 @@ secrets/
 *.sqlite-*
 *.db
 
-# Internal product/planning docs — kept on disk, not published
+# Internal product/planning docs - kept on disk, not published
 docs/CONCEITO_INICIAL.md
 docs/UX_E_FLUXOS.md
 docs/LOGICA_E_REGRAS.md
 docs/HANDOFF.md
 
-# Local working folder (analyses, plans, notes) — never version
+# Local working folder (analyses, plans, notes) - never version
 /temp/
 
-# Internal security audit log — kept private until findings are fixed
+# Internal security audit log - kept private until findings are fixed
 SECURITY_AUDIT.md
 
 # OS

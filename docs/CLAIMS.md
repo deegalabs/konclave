@@ -16,14 +16,14 @@ document ever asserts something another contradicts.
 Every stated capability must carry two orthogonal labels, and the labels must match across
 all documents:
 
-1. **Evidence level** — one of:
-   - `proven on-chain` — a verifiable mainnet txid exists.
-   - `dry-run` — signs and verifies locally, does not broadcast.
-   - `by test` — covered by an automated test, no network artifact.
-   - `roadmap` — not yet built.
-2. **Key origin** (for anything about a vault) — one of:
-   - `DKG` — key born by real Distributed Key Generation, never reconstituted anywhere.
-   - `trusted-dealer` — a dealer briefly held the whole key at setup, then split it.
+1. **Evidence level** - one of:
+   - `proven on-chain` - a verifiable mainnet txid exists.
+   - `dry-run` - signs and verifies locally, does not broadcast.
+   - `by test` - covered by an automated test, no network artifact.
+   - `roadmap` - not yet built.
+2. **Key origin** (for anything about a vault) - one of:
+   - `DKG` - key born by real Distributed Key Generation, never reconstituted anywhere.
+   - `trusted-dealer` - a dealer briefly held the whole key at setup, then split it.
 
 ## Mainnet transactions (authoritative attribution)
 As of this writing, eight verifiable mainnet txids. **Two** are from real DKG vaults (the CLI
@@ -44,33 +44,33 @@ Any statement of the form "the app payment used DKG" is **false**. Only `aab00f9
 `3022420a…` (browser DKG) came from keys born by real DKG.
 
 ## Honest limits to keep stated (never hide)
-- **Known signing-path gap — transaction-swap (H1, being fixed).** The `/net` signing does not yet
+- **Known signing-path gap - transaction-swap (H1, being fixed).** The `/net` signing does not yet
   recompute the ZIP-244 sighash **on-device** from its own PCZT (the recompute is a stub). A
   compromised **helper** or **coordinator device** could therefore display a benign PCZT while the
   signed sighash targets an attacker output, redirecting funds. So do **not** claim "the helper is
   blind and cannot steal": the helper is blind to *secrets* (round-2 is sealed), but until the
   on-device sighash binding lands ([ADR-0007](adr/0007-ceremony-security-invariants.md) I2, issue
   #62) it is **not** blind to *transaction substitution*. **No real-money `/net` broadcast until I2
-  ships.** (Zkool ships this defense; we deferred it — surfaced by our own relay audit.)
+  ships.** (Zkool ships this defense; we deferred it - surfaced by our own relay audit.)
 - **Signing-request metadata leak (H2, being fixed).** The `/net` signing request (`sighash`,
   `alpha`, `pczt_hex`) is currently posted to the relay in **plaintext**; the PCZT decodes to the
   recipient address and amount. Unlike the DKG round-2 packages (ECIES-sealed), it is not yet sealed,
   so a curious relay operator or room-code holder can read who a shielded vault pays and how much.
-  Sealing it requires distributing the seated devices' X25519 keys to the (blind) helper — a
+  Sealing it requires distributing the seated devices' X25519 keys to the (blind) helper - a
   handshake change, not a one-liner ([ADR-0007](adr/0007-ceremony-security-invariants.md) I3, issue
   #63). Until then, do not claim `/net` hides send metadata from the relay.
 - **All eight mainnet sends so far were signed on a single machine.** The first seven used
   co-located CLI shares; the eighth (`3022420a…`) used **two browser tabs on one machine**. So the
   distributed browser-signing *protocol* is proven (separate shares, a blind relay, the key never
   reconstituted), but a broadcast across **separate, independently-controlled physical devices**,
-  carried to a confirmed txid, is **still the open milestone** — the exact next step an independent
+  carried to a confirmed txid, is **still the open milestone** - the exact next step an independent
   review of the ZecHub FROST projects (2026-07-29) named as the meaningful one, and which none of the
   six had reached at that cutoff.
-- **Browser-signed broadcast (two tabs, one machine) — PROVEN on mainnet (2026-07-30).** `/net` over
+- **Browser-signed broadcast (two tabs, one machine) - PROVEN on mainnet (2026-07-30).** `/net` over
   a blind relay is no longer "verified but not broadcast": a browser-DKG **2-of-2** vault (created
-  live in two browser tabs — both on one machine — over the hosted relay, key never reconstituted)
+  live in two browser tabs - both on one machine - over the hosted relay, key never reconstituted)
   was funded, restored on-device by both seats, and **signed a real Ironwood transaction IN THE
-  BROWSER** — each **tab** contributing only its own share over the blind relay — after which the
+  BROWSER** - each **tab** contributing only its own share over the blind relay - after which the
   blind helper (`orchestrator::net_send`, Architecture B) injected and broadcast it. Mined: txid
   `3022420a8bcf17ffd5511163c18ee9b5996a3ba44747e4eff6794bdd3f04ccee` (block 3,429,922, V6/NU6.3).
   What it does **not** yet show: those two tabs on **separate devices** (see the open milestone above).
@@ -86,7 +86,7 @@ Any statement of the form "the app payment used DKG" is **false**. Only `aab00f9
 - Two browser signing paths exist and must not be conflated:
   - **randomizer path** (`participantRound2WithRandomizer` / `aggregateWithRandomizer`) signs
     under the transaction's OWN alpha (read from the PCZT with `extractRandomizers`) and verifies
-    under `ak+alpha` — the real Orchard spend-authorization mechanism. This is what the **live**
+    under `ak+alpha` - the real Orchard spend-authorization mechanism. This is what the **live**
     `/net` ceremony uses today.
   - **seed path** (`participantRound2` / `Coordinator.aggregate`) derives its own randomizer from
     the commitments. It proves group signing over a message but is **not** a valid Orchard spend
@@ -97,7 +97,7 @@ Any statement of the form "the app payment used DKG" is **false**. Only `aab00f9
   alpha, and the helper broadcasts (txid `3022420a…` above). The old "sample PCZT belongs to a
   different vault, not broadcastable" caveat applied to the `/signer` demo vector and no longer
   describes the live `/net` path.
-- **Hosted browser-native vault (self-service blind helper) — PROVEN on TESTNET (2026-07-31).**
+- **Hosted browser-native vault (self-service blind helper) - PROVEN on TESTNET (2026-07-31).**
   The `3022420a…` proof above used the *local* orchestrator bridge as the helper. This milestone
   proves the same Architecture B over the **hosted, public, share-blind helper** (`helper-server`,
   deployed on Railway, ADR-0006 Rung A) plus the hosted blind relay. A browser-DKG **2-of-2** vault,
@@ -123,13 +123,13 @@ Any statement of the form "the app payment used DKG" is **false**. Only `aab00f9
     `zcash-sign generate` derives a **non-deterministic UFVK** for a given group key (re-deriving
     gives a different viewing key), so the persisted registration's stored UFVK is authoritative and
     a freshly re-derived view-only wallet sees nothing.
-- **Ironwood (NU6.3) — PROVEN on mainnet (2026-07-28, activation day).** After activation
+- **Ironwood (NU6.3) - PROVEN on mainnet (2026-07-28, activation day).** After activation
   (block 3,428,144) the #10 port was merged and the rebuilt engine was validated live. Two real,
   mined, **V6/NU6.3** mainnet transactions, each a FROST 2-of-3 ceremony:
-  - **`54266f478505160adfb039c7c76f5615f1536a34059ab30e9f24781ec2e5c494`** (block 3,428,205) — an
+  - **`54266f478505160adfb039c7c76f5615f1536a34059ab30e9f24781ec2e5c494`** (block 3,428,205) - an
     **Orchard→Ironwood migration**: it spends all of the vault's legacy Orchard notes and lands the
     funds in the Ironwood pool, seeding it.
-  - **`36c60f1e3f602c2ac13c9f5b0687f248522499fc5a8b69311605336457226c95`** (block 3,428,246) — the
+  - **`36c60f1e3f602c2ac13c9f5b0687f248522499fc5a8b69311605336457226c95`** (block 3,428,246) - the
     **first Ironwood-pool spend**: a FROST 2-of-3 spend **from** the Ironwood pool. This is the
     headline (spending Ironwood, not just migrating into it).
   - Earlier the same day, a naive single-note Orchard self-send failed cleanly at extract-and-store
@@ -138,14 +138,14 @@ Any statement of the form "the app payment used DKG" is **false**. Only `aab00f9
     is not signed by the FROST flow. The fix that unblocked it: **`create-max` spends ALL the vault's
     Orchard notes at once**, so every Orchard action is a real spend (no dummy to sign). The
     Ironwood-pool path signs its own dummy correctly. Both txids were verified by `verify-proof.mjs`
-    against public explorers. **This is a known, already-fixed upstream issue — not a Konclave bug:**
+    against public explorers. **This is a known, already-fixed upstream issue - not a Konclave bug:**
     librustzcash **#2777** (`create_pczt_from_proposal` did not stamp the ZIP32 derivation on
     wallet-controlled zero-value spends, so external signers could not sign them), fixed on
     librustzcash `main` by commit `51385a15` (2026-07-27). `create-max` is our interim workaround for
     the current engine pin; the proper fix arrives with an engine pin bump.
   - The testnet Ironwood spend (`069f4260…`, block 4,202,966) remains the earlier proof-of-concept;
     mainnet is now the authoritative proof. Konclave has **8** `proven on-chain` mainnet txids
-  (the eighth, `3022420a…`, is the first browser-signed broadcast — see the honest-limits section).
+  (the eighth, `3022420a…`, is the first browser-signed broadcast - see the honest-limits section).
 
 ## Rules for changes
 1. When the proven-vs-pending state of anything changes, update `scripts/verify-proof.mjs`

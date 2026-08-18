@@ -1,6 +1,6 @@
 //! Wallet orchestration (read side): drives `zcash-devtool wallet` and parses its
 //! JSON into typed values. Sync/balance/get-info are the structured, JSON-emitting
-//! commands — exactly the "structured output, never read the screen" discipline.
+//! commands - exactly the "structured output, never read the screen" discipline.
 
 use std::path::Path;
 
@@ -25,7 +25,7 @@ struct ChainInfoRaw {
 }
 
 /// Vault balance (from `wallet balance --json`). Confirmed vs. spendable are kept
-/// separate — never merged into one unlabeled number (spec §2.3).
+/// separate - never merged into one unlabeled number (spec §2.3).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Balance {
     pub chain_tip_height: u64,
@@ -96,7 +96,7 @@ fn last_json_array_line(text: &str) -> Result<&str, ToolError> {
 /// Parse `list-tx --json` (a `[{"txid","mined_height"}]` array) into the txids the wallet has
 /// recorded as **mined** (`mined_height` non-null). Unmined transactions are excluded. This is the
 /// `confirmed_txids` source that lets reconciliation promote a locally-`Sent` proposal to
-/// `Confirmed` (§8) — a fresh sync before this call makes the wallet's view current.
+/// `Confirmed` (§8) - a fresh sync before this call makes the wallet's view current.
 pub fn parse_confirmed_txids(json: &str) -> Result<Vec<String>, ToolError> {
     #[derive(serde::Deserialize)]
     struct TxRow {
@@ -129,7 +129,7 @@ pub fn get_info(devtool: &Path, wallet_dir: &str, server: &str) -> Result<ChainI
     parse_chain_info(&run_text(devtool, &args, None)?)
 }
 
-/// `zcash-devtool wallet -w <dir> sync -s <server> --connection direct` — bring the wallet's
+/// `zcash-devtool wallet -w <dir> sync -s <server> --connection direct` - bring the wallet's
 /// view current against lightwalletd so a following `balance` / `list-tx` is up to date. The
 /// stdout is progress noise (not JSON); only success/failure matters here.
 pub fn sync(devtool: &Path, wallet_dir: &str, server: &str) -> Result<(), ToolError> {

@@ -1,6 +1,6 @@
 // Restrained in-app charts. The brand is an "instrument, not a dashboard" (STYLE.md: Variance 2,
 // Motion 2, the tarja is the one ornament), so these are matte, single-series, unanimated, and use
-// text/silver ink for the marks — the blue accent stays reserved for interactive + quorum.
+// text/silver ink for the marks - the blue accent stays reserved for interactive + quorum.
 
 export interface SpendPoint {
   label: string // period label, e.g. "abr" / "Apr" or "04/26"
@@ -18,7 +18,7 @@ export function SpendBars({ data, unit = 'ZEC', height = 52 }: { data: SpendPoin
   if (!data || data.length < 2) return null
   const max = Math.max(...data.map((d) => d.zec), 0)
   // data has >= 2 items here (guarded above), so reduce with no initial is safe and stays typed
-  // as SpendPoint (never undefined) — unlike passing data[0] under noUncheckedIndexedAccess.
+  // as SpendPoint (never undefined) - unlike passing data[0] under noUncheckedIndexedAccess.
   const peak = data.reduce((a, b) => (b.zec > a.zec ? b : a))
   const fmt = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })
 
@@ -36,7 +36,7 @@ export function SpendBars({ data, unit = 'ZEC', height = 52 }: { data: SpendPoin
           )
         })}
       </div>
-      {/* Offscreen table fallback — identity/value never color-alone. */}
+      {/* Offscreen table fallback - identity/value never color-alone. */}
       <table className="visually-hidden">
         <caption>Spend by period</caption>
         <tbody>

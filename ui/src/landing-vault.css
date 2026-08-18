@@ -1,4 +1,4 @@
-/* Landing hero — the vault video as a right-anchored background, hero copy on the left.
+/* Landing hero - the vault video as a right-anchored background, hero copy on the left.
    Palette is scoped to .lv (light default + dark override) so it never fights the app tokens. */
 .lv{
   --bg:#F4F7FC; --bg2:#EAF0F9; --surface:#FFFFFF;

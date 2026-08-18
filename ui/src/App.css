@@ -1,9 +1,9 @@
-/* Painel (home) — screen-specific layout on top of the lacre.css design system.
+/* Painel (home) - screen-specific layout on top of the lacre.css design system.
    Consumes the shared token layer; flat by default (shadow only on overlays). */
 
 .sheet{max-width:1080px; margin:0 auto; min-height:100vh}
 .root{min-height:100vh}
-/* Painel — one uniform vertical rhythm between cards (overrides the per-section
+/* Painel - one uniform vertical rhythm between cards (overrides the per-section
    margins so the stack is evenly spaced, not visually uneven) */
 .page.dash{display:flex; flex-direction:column; gap:22px}
 .page.dash > *{margin-top:0}
@@ -11,7 +11,7 @@
 .page.dash .ledger{margin-top:16px}
 .page.dash .danger-zone{margin-top:22px}
 /* ============================================================
-   Unified page header + footer — ONE opening/closing language
+   Unified page header + footer - ONE opening/closing language
    for every in-vault screen (eyebrow / title / subtitle · actions).
    Rendered by ./page.tsx (PageHeader / PageFooter).
    ============================================================ */
@@ -36,7 +36,7 @@
   .page-header .seal-cap{font-size:8px; letter-spacing:.08em; margin-top:4px}
 }
 
-/* NextStep — the "and now?" connector that closes every read/hub screen so none is a dead end. */
+/* NextStep - the "and now?" connector that closes every read/hub screen so none is a dead end. */
 .next-step{display:flex; align-items:center; justify-content:space-between; gap:18px; margin-top:34px;
   padding:16px 20px; border:1px solid var(--line); border-radius:var(--radius); background:var(--surface-1);
   text-decoration:none; transition:border-color .16s ease, background .16s ease, transform .16s ease}
@@ -59,11 +59,11 @@
 .livetag{margin-left:10px; font-size:11px; letter-spacing:.04em; color:var(--success)}
 .livetag.off{color:var(--text-muted)}
 
-/* Wrapper is a passive aria-live region only — it must not add layout. */
+/* Wrapper is a passive aria-live region only - it must not add layout. */
 .live-status{display:contents}
 /* Offline status pill (base .live lives in lacre.css). A real user whose local
-   bridge / hosted helper is unreachable must see THIS — visibly distinct from the
-   neutral "demo" tag — not a misleading "demo". Warn/danger palette, and it may
+   bridge / hosted helper is unreachable must see THIS - visibly distinct from the
+   neutral "demo" tag - not a misleading "demo". Warn/danger palette, and it may
    wrap since the copy is a short sentence rather than a one-word tag. */
 .live.offline{color:var(--warn-strong); border-color:var(--warn);
   background:var(--danger-soft); text-align:left; line-height:1.35; align-items:flex-start}
@@ -74,7 +74,7 @@
 .ns.over{color:var(--danger-text); font-weight:600}
 .confirm.ready{border-left-color:var(--success); color:var(--success); background:var(--success-soft)}
 .csv-area{width:100%; resize:vertical; line-height:1.5; padding:12px 14px; font-size:12.5px}
-/* Nova Folha — documento editável */
+/* Nova Folha - documento editável */
 .doc-head{display:flex; gap:22px; flex-wrap:wrap; margin-top:14px}
 .field.inline{flex:1 1 220px}
 .field.inline span{display:block; font-family:var(--font-mono); font-size:11px; color:var(--text-muted); margin-bottom:5px; text-transform:uppercase; letter-spacing:.04em}
@@ -105,7 +105,7 @@
   .tbl.folha .row-bad{border-color:var(--danger)}
   .tbl.folha .row-bad td{background:transparent}
 }
-/* Read-only payroll table (Proposal detail) — 4 cols; its own mobile stacking so it does not
+/* Read-only payroll table (Proposal detail) - 4 cols; its own mobile stacking so it does not
    inherit the 6-col editable folha rules (which mis-styled the beneficiary name as a "#"). */
 @media(max-width:640px){
   .tbl.folha-read thead{display:none}
@@ -130,7 +130,7 @@
 .seal-emb .num{font-weight:800; font-size:22px}
 .seal-cap{font-family:var(--font-mono); font-size:10.5px; letter-spacing:.16em; text-transform:uppercase; color:var(--accent); margin-top:4px}
 
-/* cards are flat: border + tone, one subtle inset sheen — no float, no hover-lift */
+/* cards are flat: border + tone, one subtle inset sheen - no float, no hover-lift */
 .entry{margin-top:34px; padding:24px 28px 22px; border-radius:var(--radius-lg);
   background:linear-gradient(180deg,rgba(200,220,245,.045),rgba(200,220,245,.012));
   border:1px solid var(--line-2); box-shadow:0 1px 0 rgba(210,228,250,.05) inset}
@@ -156,7 +156,7 @@
 .linkbtn:hover{border-bottom-color:var(--accent)}
 .linkbtn:disabled{color:var(--text-muted); cursor:default; border-bottom-color:transparent}
 
-/* KPI strip — treasury figures, all from real data */
+/* KPI strip - treasury figures, all from real data */
 .kpis{display:grid; grid-template-columns:repeat(3,1fr); gap:14px}
 .kpi{display:flex; flex-direction:column; gap:7px; padding:15px 17px; border-radius:var(--radius);
   background:var(--surface-2); border:1px solid var(--line-2)}
@@ -210,7 +210,7 @@
 .op:hover{background:linear-gradient(90deg,var(--accent-soft),transparent)}
 .op:last-child{border-bottom:0}
 
-/* Painel · "precisa de você" (a ação primeiro) + ações como painel — flat */
+/* Painel · "precisa de você" (a ação primeiro) + ações como painel - flat */
 .needyou{margin-top:28px; padding:22px 26px; border-radius:var(--radius-lg)}
 .needyou.act{border:1px solid var(--accent-line);
   background:linear-gradient(180deg,rgba(var(--accent-glow),.08),rgba(var(--accent-glow),.02))}
@@ -259,7 +259,7 @@
 .lval.out{color:var(--text)} .lval.in{color:var(--success)}
 .lval .st{font-size:10.5px; color:var(--text-muted); margin-top:3px}
 
-/* reveal behavior — the tarja collapses to the left */
+/* reveal behavior - the tarja collapses to the left */
 .secret .bar{transition:transform var(--dur-reveal) var(--ease-out), opacity var(--dur-reveal) var(--ease-out)}
 .revealed .secret .bar{transform:scaleX(0); transform-origin:left; opacity:0; pointer-events:none}
 
@@ -279,7 +279,7 @@
 .back{cursor:pointer}
 .back:hover{color:var(--accent)}
 
-/* a11y: text-styled controls rendered as <a>/<button> instead of <span> —
+/* a11y: text-styled controls rendered as <a>/<button> instead of <span> -
    strip the native chrome so they look identical to the spans they replaced */
 a.klab.back{text-decoration:none}
 button.link{appearance:none;-webkit-appearance:none;background:transparent;
@@ -447,7 +447,7 @@ h1.klab,h2.klab,h3.klab{margin:0;font-weight:400}
 .who-row{display:flex; align-items:center; gap:12px; padding:11px 0; border-bottom:1px solid var(--line)}
 .who-row:last-child{border-bottom:0}
 
-/* Vault fingerprint (#65 I4) — the shared group identity members compare out of band. */
+/* Vault fingerprint (#65 I4) - the shared group identity members compare out of band. */
 .xs-btn{padding:5px 10px; font-size:11.5px}
 .fp-card{border:1px solid var(--accent-line); border-radius:var(--radius);
   background:var(--accent-soft); padding:14px 16px}
@@ -475,7 +475,7 @@ h1.klab,h2.klab,h3.klab{margin:0;font-weight:400}
 .tbl .num.out{color:var(--text)}
 .tbl .num.in{color:var(--success)}
 
-/* Draft-saved is not an earned success — neutral, not green (T5). */
+/* Draft-saved is not an earned success - neutral, not green (T5). */
 .draft-note{margin-left:10px; font-size:11px; letter-spacing:.04em; color:var(--silver)}
 /* Selects: drop the OS chrome so they match the squared mono inputs (custom chevron). */
 select{appearance:none; -webkit-appearance:none; background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%238a95a3' stroke-width='1.5'/%3E%3C/svg%3E"); background-repeat:no-repeat; background-position:right 9px center; padding-right:26px}
@@ -483,7 +483,7 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 .demo-tag{display:inline-block; margin-bottom:6px; font-family:var(--font-mono); font-size:9px; letter-spacing:.16em; text-transform:uppercase; color:var(--text-muted)}
 
 /* ============================================================
-   Premium uplift (matches the landing) — refined labels, depth,
+   Premium uplift (matches the landing) - refined labels, depth,
    elevation. Dark + blue kept; appended to win via the cascade.
    ============================================================ */
 
@@ -500,7 +500,7 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
   background:radial-gradient(60% 180px at 30% 0, rgba(var(--accent-glow),.08), transparent 72%)}
 .page.dash > *{position:relative; z-index:1}
 
-/* the "needs you" approval card is the hero action — give it a soft accent glow */
+/* the "needs you" approval card is the hero action - give it a soft accent glow */
 .needyou.act{background:linear-gradient(180deg,var(--accent-soft),transparent);
   box-shadow:0 0 0 1px var(--accent-line), 0 20px 48px -30px rgba(var(--accent-glow),.55)}
 
@@ -514,7 +514,7 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 .opnav.card{background:linear-gradient(180deg,var(--surface-2),var(--surface-1));
   box-shadow:0 14px 36px -28px rgba(16,24,40,.20)}
 
-/* — /settings (redesign Fase 0): per-vault info list + danger zone — */
+/* - /settings (redesign Fase 0): per-vault info list + danger zone - */
 .set-list{border:1px solid var(--line-soft); border-radius:var(--radius); overflow:hidden}
 .set-row{display:flex; align-items:center; justify-content:space-between; gap:16px;
   padding:13px 16px; border-bottom:1px solid var(--line-soft); font-size:14px}
@@ -537,14 +537,14 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 .set-confirm-actions{display:flex; gap:10px; flex-wrap:wrap}
 .set-err{margin:0; font-size:13px; color:var(--danger-text)}
 
-/* — DEMO build banner (VITE_DEMO=1): unmistakable, so sample data is never taken for a real vault — */
+/* - DEMO build banner (VITE_DEMO=1): unmistakable, so sample data is never taken for a real vault - */
 .demo-banner{position:sticky; top:0; z-index:60; display:flex; align-items:center; justify-content:center;
   gap:10px; padding:7px 14px; font-size:12.5px; color:var(--tarja-ink,#0f141a);
   background:var(--accent); font-family:var(--font-sans); text-align:center; line-height:1.3}
 .demo-banner-tag{font-family:var(--font-mono); font-size:10px; font-weight:700; letter-spacing:.12em;
   border:1px solid rgba(15,20,26,.35); border-radius:999px; padding:2px 8px}
 
-/* — /ceremonies (redesign #6.4): the signing-evidence trail, moved from /net into the vault shell — */
+/* - /ceremonies (redesign #6.4): the signing-evidence trail, moved from /net into the vault shell - */
 .cer-list{display:flex; flex-direction:column; gap:10px}
 .cer-row{border:1px solid var(--line-soft); border-radius:var(--radius-sm); padding:11px 14px}
 .cer-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:6px}

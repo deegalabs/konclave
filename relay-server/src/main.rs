@@ -1,9 +1,9 @@
-//! Konclave — the blind mailbox relay, standalone and PUBLIC.
+//! Konclave - the blind mailbox relay, standalone and PUBLIC.
 //!
 //! This is the hosted counterpart of `orchestrator/src/relay.rs`: the same in-memory,
 //! opaque-message room mailbox, but bound on `0.0.0.0` with permissive CORS so browsers on
 //! `konclave.app` (any origin) can reach it for multi-device DKG/signing ceremonies. It is
-//! blind by construction — it forwards public/encrypted bytes it cannot read and holds no key.
+//! blind by construction - it forwards public/encrypted bytes it cannot read and holds no key.
 //!
 //! Public by design, so there is NO Host gate and NO session token here (unlike the loopback
 //! bridge). Hardening in place for a public relay: rooms/messages are capped and TTL-evicted,
@@ -30,8 +30,8 @@ const PEER_WINDOW: i64 = 45;
 // just reclaims the memory once it is long gone.
 const PRESENCE_TTL: i64 = 300;
 // Fixed-window rate limit: at most RATE_MAX requests per RATE_WINDOW seconds per source key
-// (a `from` tag, or the room id when a poll carries none). Generous — a real short-poll
-// ceremony sends a couple of requests per second, well under this — it only refuses floods.
+// (a `from` tag, or the room id when a poll carries none). Generous - a real short-poll
+// ceremony sends a couple of requests per second, well under this - it only refuses floods.
 const RATE_WINDOW: i64 = 10;
 const RATE_MAX: u32 = 150;
 // Cap on distinct rate-limit keys tracked at once (stale windows are reclaimed past this).

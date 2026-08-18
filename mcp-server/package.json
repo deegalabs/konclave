@@ -1,7 +1,7 @@
 {
   "name": "konclave-mcp",
   "version": "0.1.0",
-  "description": "MCP server for Konclave — an AI treasurer's assistant that can READ the vault and DRAFT payment proposals, but can never sign or send. Only the human quorum approves.",
+  "description": "MCP server for Konclave - an AI treasurer's assistant that can READ the vault and DRAFT payment proposals, but can never sign or send. Only the human quorum approves.",
   "license": "(Apache-2.0 OR MIT)",
   "type": "module",
   "bin": {

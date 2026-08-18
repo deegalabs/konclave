@@ -1,7 +1,7 @@
 //! PCZT orchestration: drives `zcash-devtool pczt` (create → prove → send). PCZT
 //! bytes are piped between steps; the final `send` returns the broadcast txid.
 //!
-//! `parse_txid` validates the tool's output rather than trusting the exit code — a
+//! `parse_txid` validates the tool's output rather than trusting the exit code - a
 //! rejected broadcast (e.g. an expired tx) is turned into an explicit error even if
 //! the process exits zero.
 
@@ -38,12 +38,12 @@ pub fn create(
     run(devtool, &args, None)
 }
 
-/// `zcash-devtool pczt -w <dir> prove` — reads a PCZT on stdin, returns the proven PCZT.
+/// `zcash-devtool pczt -w <dir> prove` - reads a PCZT on stdin, returns the proven PCZT.
 pub fn prove(devtool: &Path, wallet_dir: &str, pczt: &[u8]) -> Result<Vec<u8>, ToolError> {
     run(devtool, &["pczt", "-w", wallet_dir, "prove"], Some(pczt))
 }
 
-/// `zcash-devtool pczt -w <dir> send -s <server> --connection direct` — broadcasts and
+/// `zcash-devtool pczt -w <dir> send -s <server> --connection direct` - broadcasts and
 /// returns the txid.
 pub fn send(
     devtool: &Path,

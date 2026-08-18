@@ -1,4 +1,4 @@
-/* /inheritance — a live, client-side visualization of the dead-man's-switch policy engine
+/* /inheritance - a live, client-side visualization of the dead-man's-switch policy engine
    (orchestrator/src/inheritance.rs). Dark, on-brand: role-based tokens with hard fallbacks so
    it renders even before the global CSS loads. Accent stays scarce; mono carries the figures
    and countdowns. Reuses the shared .demo-* / .net-* framing (net.css) for buttons/inputs. */
@@ -123,7 +123,7 @@
   white-space: nowrap;
   padding: 0 6px;
 }
-/* The "now" marker — a bright vertical rule tinted by the current phase. */
+/* The "now" marker - a bright vertical rule tinted by the current phase. */
 .inh-marker {
   position: absolute;
   top: -4px;

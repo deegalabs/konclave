@@ -1,4 +1,4 @@
-//! At-rest protection for FROST shares — the security debt from the slice.
+//! At-rest protection for FROST shares - the security debt from the slice.
 //!
 //! `frost-client` writes the config (which contains the private share) in clear. We
 //! never leave that on disk: the config is **sealed** with XChaCha20-Poly1305 under a
@@ -24,7 +24,7 @@ pub enum SecretError {
     Rng,
     /// Encryption failed.
     Seal,
-    /// Decryption/authentication failed — wrong key or tampered ciphertext.
+    /// Decryption/authentication failed - wrong key or tampered ciphertext.
     Unseal,
     /// The sealed blob is too short to contain a nonce.
     Malformed,
@@ -136,7 +136,7 @@ impl KeyStore for KeychainStore {
 // ---- vault passphrase ("palavra do cofre") ----
 //
 // The passphrase derives the sealing key (Argon2id, memory-hard) with a per-vault salt.
-// Without the word, the sealed shares do not open — no sealing key sits on disk. This is
+// Without the word, the sealed shares do not open - no sealing key sits on disk. This is
 // a product access-lock strengthened by a real KDF, distinct from the FROST quorum
 // guarantee (§14): losing the word means the sealed share on this device is unrecoverable.
 
@@ -190,7 +190,7 @@ pub fn verify(key: &[u8; 32], verifier: &[u8]) -> bool {
     matches!(unseal(verifier, key), Ok(m) if m == VERIFY_MAGIC)
 }
 
-/// 128 simple, accent-free Portuguese words — enough to be memorable; the memory-hard
+/// 128 simple, accent-free Portuguese words - enough to be memorable; the memory-hard
 /// KDF does the heavy lifting against guessing. (Product lock, not the FROST guarantee.)
 const WORDLIST: &[&str] = &[
     "cedro",
@@ -396,7 +396,7 @@ pub fn with_unsealed_file<T>(
 
 /// An unsealed secret materialized as a short-lived 0600 file, removed when dropped.
 /// Use this when several unsealed files must live at once (e.g. one config per FROST
-/// signer for the whole ceremony) — hold the guards, use their paths, let them drop.
+/// signer for the whole ceremony) - hold the guards, use their paths, let them drop.
 pub struct UnsealedFile {
     file: EphemeralFile,
 }
@@ -615,7 +615,7 @@ mod tests {
             unseal(&sealed, &right).unwrap(),
             b"credentials.toml (private share)"
         );
-        // Wrong passphrase derives a different key — the share stays closed.
+        // Wrong passphrase derives a different key - the share stays closed.
         let wrong = derive_key("cedro-barco-pedra-monte", &salt).unwrap();
         assert_eq!(unseal(&sealed, &wrong), Err(SecretError::Unseal));
     }

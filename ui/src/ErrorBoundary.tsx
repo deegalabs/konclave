@@ -5,7 +5,7 @@ type Props = { children: ReactNode }
 type State = { error: Error | null }
 
 /** Global error boundary: an uncaught render/throw in any screen is caught here and shown as a
- *  calm, actionable fallback instead of a white screen. No telemetry (§6.2) — the error is logged
+ *  calm, actionable fallback instead of a white screen. No telemetry (§6.2) - the error is logged
  *  to the local console only, never phoned home. The app stays recoverable (reload / back to vaults). */
 export default class ErrorBoundary extends Component<Props, State> {
   state: State = { error: null }
@@ -15,7 +15,7 @@ export default class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error) {
-    // Local log only — never transmit (data minimization).
+    // Local log only - never transmit (data minimization).
     console.error('Konclave hit an unexpected error:', error)
   }
 
@@ -31,7 +31,7 @@ export default class ErrorBoundary extends Component<Props, State> {
           <div className="klab">Something broke</div>
           <h1 className="h1" style={{ marginTop: 6 }}>The screen hit an unexpected error.</h1>
           <p className="dim" style={{ marginTop: 8 }}>
-            Your vault and your share are safe on this device — nothing was sent. Reload to continue.
+            Your vault and your share are safe on this device - nothing was sent. Reload to continue.
           </p>
           <div style={{ display: 'flex', gap: 10, justifyContent: 'center', marginTop: 22 }}>
             <button className="btn ok" onClick={() => window.location.reload()}>Reload</button>

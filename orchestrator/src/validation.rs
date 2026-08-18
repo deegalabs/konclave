@@ -1,4 +1,4 @@
-//! Validation at the boundary — every user input is checked before use, and every
+//! Validation at the boundary - every user input is checked before use, and every
 //! failure is explicit (never silent). Covers ZIP 317 fee estimation, memo/value
 //! rules, and payroll aggregation.
 //!
@@ -59,11 +59,11 @@ impl From<MoneyError> for ValidationError {
 /// orchestration layer via `zcash_address`.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum AddressKind {
-    /// Unified address (`u1…`) — the shielded default; may carry an Orchard receiver.
+    /// Unified address (`u1…`) - the shielded default; may carry an Orchard receiver.
     Unified,
     /// Legacy Sapling (`zs…`).
     Sapling,
-    /// Transparent (`t1…`/`t3…`) — PUBLIC; requires explicit confirmation.
+    /// Transparent (`t1…`/`t3…`) - PUBLIC; requires explicit confirmation.
     Transparent,
     /// Unrecognized prefix.
     Unknown,

@@ -1,4 +1,4 @@
-// Shared FROST signing primitives — the reusable core of the /net signing ceremony, factored out
+// Shared FROST signing primitives - the reusable core of the /net signing ceremony, factored out
 // of NetVault so the same implementation can also run as an app-level background signer (one source
 // of truth, never a fork of the proven money path). Stage 0 of ADR-0006 Rung B: pure helpers only,
 // no behavior change; the stateful SigningMachine follows in a later stage.
@@ -29,7 +29,7 @@ export function parseAlphas(pczt: Uint8Array): SpendAlpha[] {
   return out
 }
 
-/** The per-device signing material recovered from an unlocked vault — everything a ceremony needs. */
+/** The per-device signing material recovered from an unlocked vault - everything a ceremony needs. */
 export interface RestoredShare {
   keyPackage: Uint8Array
   pubkeys: Uint8Array

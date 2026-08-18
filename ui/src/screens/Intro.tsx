@@ -19,7 +19,7 @@ const BUILDS = {
 }
 type OS = keyof typeof BUILDS
 
-/** Landing — one objective: the vault, opened together. A photorealistic vault clip fills the
+/** Landing - one objective: the vault, opened together. A photorealistic vault clip fills the
  *  right as a seamless loop; the pitch sits on the left. Header carries theme + download; the
  *  install modal lists every platform. Everything else lives in Docs. */
 export default function Intro() {
@@ -113,8 +113,8 @@ export default function Intro() {
           </div>
 
           <p className="lv-docs">{pt
-            ? <>Veja por dentro: a arquitetura, a cerimônia de aprovação e cada prova on-chain — tudo nas </>
-            : <>See under the hood: the architecture, the approval ceremony, and every on-chain proof — all in </>}
+            ? <>Veja por dentro: a arquitetura, a cerimônia de aprovação e cada prova on-chain - tudo nas </>
+            : <>See under the hood: the architecture, the approval ceremony, and every on-chain proof - all in </>}
             <Link to="/docs">Docs →</Link></p>
         </div>
       </main>
@@ -123,7 +123,7 @@ export default function Intro() {
         <Dialog labelledBy="lv-install-t" onClose={() => setInstall(false)} className="lv-ov" cardClassName="lv-card">
           <button className="lv-x" onClick={() => setInstall(false)}>✕ {pt ? 'fechar' : 'close'}</button>
           <h2 id="lv-install-t">{pt ? 'Baixe o Konclave' : 'Get Konclave'}</h2>
-          <p className="lv-msub">{pt ? 'Sua parte da chave nunca sai do aparelho — em qualquer plataforma.' : 'Your key share never leaves your device — on every platform.'}</p>
+          <p className="lv-msub">{pt ? 'Sua parte da chave nunca sai do aparelho - em qualquer plataforma.' : 'Your key share never leaves your device - on every platform.'}</p>
 
           <div className="lv-plat hi">
             <span className="lv-pic"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7"><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18" /></svg></span>
@@ -166,7 +166,7 @@ export default function Intro() {
           <div className="lv-plat" style={{ marginTop: 10 }}>
             <span className="lv-pic"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="7" y="3" width="10" height="18" rx="2" /><path d="M11 18h2" /></svg></span>
             <div className="lv-mm">
-              <div className="lv-t">{pt ? 'Celular — instale como PWA' : 'Mobile — install as PWA'}</div>
+              <div className="lv-t">{pt ? 'Celular - instale como PWA' : 'Mobile - install as PWA'}</div>
               <div className="lv-d">{pt ? 'Adicione à tela inicial. Abre como um app.' : 'Add to home screen. Opens as an app.'}</div>
             </div>
             <Link className="lv-btn dl sm" to="/docs" onClick={() => setInstall(false)}>{pt ? 'Como' : 'How'}</Link>
@@ -176,7 +176,7 @@ export default function Intro() {
             <span className="lv-pic"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M10 4v4a2 2 0 0 1-2 2H4M14 4v4a2 2 0 0 0 2 2h4" /><rect x="4" y="10" width="16" height="10" rx="2" /></svg></span>
             <div className="lv-mm">
               <div className="lv-t">{pt ? 'Extensão de navegador' : 'Browser extension'} <span className="lv-chip">roadmap</span></div>
-              <div className="lv-d">{pt ? 'Um assinador no navegador, em andamento — ainda sem instalação.' : 'A browser signer, in progress — no install yet.'}</div>
+              <div className="lv-d">{pt ? 'Um assinador no navegador, em andamento - ainda sem instalação.' : 'A browser signer, in progress - no install yet.'}</div>
             </div>
             <a className="lv-more" href={REPO} target="_blank" rel="noreferrer">{pt ? 'Acompanhe no GitHub →' : 'Follow on GitHub →'}</a>
           </div>

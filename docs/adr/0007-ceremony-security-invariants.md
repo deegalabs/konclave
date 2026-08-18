@@ -35,16 +35,16 @@ Adopt these as the **enforced** ceremony security invariants. The protocol is sp
 [docs/spec/ceremony-protocol.md](../spec/ceremony-protocol.md); this ADR records the decision and
 the *why*.
 
-- **I1 — Relay is blind.** The relay sees only opaque bytes plus unavoidable envelope metadata
+- **I1 - Relay is blind.** The relay sees only opaque bytes plus unavoidable envelope metadata
   (room id, ephemeral tags, sizes, timing). It never sees a secret, an address, or an amount. Any
   payload that would reveal spending detail MUST be sealed before it reaches the relay.
-- **I2 — On-device sighash binding (fixes H1).** Every signer recomputes the ZIP-244 sig_digest from
+- **I2 - On-device sighash binding (fixes H1).** Every signer recomputes the ZIP-244 sig_digest from
   **its own** PCZT and **refuses to sign** unless it equals the requested `sighash`. The signed
   bytes are derived locally, never trusted from the wire. *No real-money `/net` broadcast until this
   lands.*
-- **I3 — Sealed coordination payloads (fixes H2).** The `SignRequest` is ECIES-sealed to the
+- **I3 - Sealed coordination payloads (fixes H2).** The `SignRequest` is ECIES-sealed to the
   devices' DKG keys (reusing the round-2 `sealTo` machinery), so I1 covers spending metadata too.
-- **I4 — Authenticated admission (fixes #65).** The invite authenticates the *joiner*, not just the
+- **I4 - Authenticated admission (fixes #65).** The invite authenticates the *joiner*, not just the
   room: a creator-set shared secret (PIN) is mixed into the handshake so a code-only attacker cannot
   seat; the creator explicitly admits each joiner; and every member verifies the final roster's
   pubkey fingerprints **out of band** (safety-number style) before the DKG is trusted. Room codes

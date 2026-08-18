@@ -262,7 +262,7 @@ fn handle_send(state: &HelperState, cfg: &HelperConfig, body: &[u8]) -> Resp {
     ) {
         Ok(out) => {
             // Record the ceremony (ZecSafe-inspired reproducible evidence): sighash + aggregate
-            // signature(s) + txid, all public + independently verifiable. Best-effort — a
+            // signature(s) + txid, all public + independently verifiable. Best-effort - a
             // persistence failure must not undo a completed send.
             let rec = CeremonyRecord {
                 vault_id: reg.vault_id.clone(),
@@ -567,7 +567,7 @@ fn handle_create_payroll(state: &HelperState, cfg: &HelperConfig, body: &[u8]) -
 }
 
 /// Record an approve/refuse vote on a proposal. Path: `/api/vault/proposals/{id}/(approve|refuse)`.
-/// SECURITY: unauthenticated in this iteration (see `HelperProposal` note) — the money gate is the
+/// SECURITY: unauthenticated in this iteration (see `HelperProposal` note) - the money gate is the
 /// FROST ceremony, not this vote. A vote on a terminal proposal is a 409.
 fn handle_vote(state: &HelperState, cfg: &HelperConfig, path: &str, body: &[u8]) -> Resp {
     let rest = path.trim_start_matches("/api/vault/proposals/");
@@ -642,7 +642,7 @@ fn main() {
     let cfg = Arc::new(config_from_env());
     let state = Arc::new(HelperState::new());
     // Reseed the registry from disk (a restart / redeploy keeps every vault when vaults_dir is on a
-    // persistent volume). Only public / view-only material is loaded — never a share.
+    // persistent volume). Only public / view-only material is loaded - never a share.
     let restored = orchestrator::helper::load_registrations(&cfg.vaults_dir);
     let restored_n = restored.len();
     for reg in restored {

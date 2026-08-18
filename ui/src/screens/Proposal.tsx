@@ -86,7 +86,7 @@ export default function Proposal() {
   }
 
   const val = fmtZec(p.value_zec)
-  const dest = p.to_address ? shortAddr(p.to_address) : '—'
+  const dest = p.to_address ? shortAddr(p.to_address) : '-'
   const isPayroll = p.kind === 'payroll'
   const isAwaiting = p.state === 'awaiting'
   const isReady = p.state === 'ready'
@@ -104,7 +104,7 @@ export default function Proposal() {
   // State trail: Aprovação → Assinatura → Enviado (null while terminal-negative).
   const trailIdx = isAwaiting ? 0 : isReady ? 1 : isSent ? 2 : null
 
-  // Everyone involved, with their stance — people, not a mono string.
+  // Everyone involved, with their stance - people, not a mono string.
   const everyone = Array.from(new Set([p.proposer, ...members, ...p.approvals, ...p.refusals]))
   const stance = (m: string) => {
     const approved = p.approvals.includes(m)
@@ -139,10 +139,10 @@ export default function Proposal() {
             <tbody>
               {lines.map((l, i) => (
                 <tr key={i}>
-                  <td>{l.label || '—'}</td>
+                  <td>{l.label || '-'}</td>
                   <td className={'mono' + (l.is_public ? ' seal-tx' : '')}>{shortAddr(l.address)}{l.is_public ? ` · ${t('proposal.linePublic')}` : ''}</td>
                   <td className="num"><Secret sm><span>{fmtZec(l.value_zec)}</span></Secret></td>
-                  <td className="mono dim">{l.memo || '—'}</td>
+                  <td className="mono dim">{l.memo || '-'}</td>
                 </tr>
               ))}
             </tbody>

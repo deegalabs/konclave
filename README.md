@@ -75,20 +75,20 @@ upgrade on mainnet.
 ## Proven on Zcash mainnet
 
 This is not a mock. **8 verifiable mainnet transactions**, every one a real 2-of-3 FROST ceremony
-with the key never reconstituted. The flagship is an application-driven **quorum payment** — proposed
+with the key never reconstituted. The flagship is an application-driven **quorum payment** - proposed
 and approved in the app, signed by a FROST ceremony, broadcast to mainnet:
 
 > **txid** [`43433a109d3f2a078c0a9269ccb156392ade7a1f7ac1532981611eda1e59a572`](https://mainnet.zcashexplorer.app/transactions/43433a109d3f2a078c0a9269ccb156392ade7a1f7ac1532981611eda1e59a572)
 
 The eight also prove, on-chain: a **private payroll** (one shielded Orchard transaction, N encrypted
 memos), a send from a **real DKG vault** (the key born distributed, never assembled), a
-**browser-signed** broadcast (each browser tab signing with only its own share over the blind relay —
+**browser-signed** broadcast (each browser tab signing with only its own share over the blind relay -
 *two tabs on one machine so far; the cross-device broadcast is the open milestone*), and the full
 **Orchard → Ironwood** cycle under **NU6.3** (the migration that seeds the Ironwood pool, then the
 first Ironwood-pool FROST spend on mainnet).
 
-You don't have to trust us: run `node scripts/verify-proof.mjs` — it checks every txid against public
-block explorers — or open any of them from [docs/PROOF.md](docs/PROOF.md).
+You don't have to trust us: run `node scripts/verify-proof.mjs` - it checks every txid against public
+block explorers - or open any of them from [docs/PROOF.md](docs/PROOF.md).
 
 ## What you can do
 
@@ -158,7 +158,7 @@ end-to-end** (X25519 → HKDF-SHA256 → XChaCha20-Poly1305), so the relay stays
 [`konclave-demo.vercel.app/#/net`](https://konclave-demo.vercel.app/#/net) in two tabs.
 
 We are not aware of another Zcash FROST DKG-and-signing ceremony driven entirely from the
-**browser** — an ecosystem scan (Aug 2026) found no comparable. (Zkool ships FROST shielded multisig
+**browser** - an ecosystem scan (Aug 2026) found no comparable. (Zkool ships FROST shielded multisig
 on Zcash, but as a native app; the in-browser ceremony is the distinction, not the multisig
 primitive.) This is the path to *your key lives on your phone, the platform never has access*.
 
@@ -219,8 +219,8 @@ not promise what we do not deliver.
 
 On the June 2026 Orchard episode: the earlier soundness bug (fixed by the **NU6.2** hard-fork that
 re-enabled Orchard with a corrected circuit) was a *forgery* risk, **not** a privacy loss, with
-**no evidence of exploitation**. Konclave now targets current mainnet consensus — **NU6.3
-(Ironwood)** — and is a trust-restoring tool built right after that confidence shock; we state this
+**no evidence of exploitation**. Konclave now targets current mainnet consensus - **NU6.3
+(Ironwood)** - and is a trust-restoring tool built right after that confidence shock; we state this
 without overstatement.
 
 ## How it compares
@@ -305,7 +305,7 @@ accounting layer on top. Thank you to the Zcash Foundation and the wider Zcash c
 
 ## Documentation
 
-- **[docs/GUIDE.md](docs/GUIDE.md): the complete guide** — use cases, domain model, state machine, sequence diagrams, step-by-step, process explanations, and tips
+- **[docs/GUIDE.md](docs/GUIDE.md): the complete guide** - use cases, domain model, state machine, sequence diagrams, step-by-step, process explanations, and tips
 - [SUBMISSION.md](SUBMISSION.md): the hackathon submission write-up · [DEPLOY.md](DEPLOY.md): hosting and CI
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): the three layers · [docs/ROADMAP.md](docs/ROADMAP.md): build plan
 - [docs/DIAGRAMS.md](docs/DIAGRAMS.md): system flow in Mermaid · [docs/VERTICAL_SLICE.md](docs/VERTICAL_SLICE.md): the first mainnet transaction

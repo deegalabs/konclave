@@ -1,7 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { HashRouter } from 'react-router-dom'
-// Self-hosted fonts — local-first, no external font CDN (weights used by lacre.css).
+// Self-hosted fonts - local-first, no external font CDN (weights used by lacre.css).
 import '@fontsource/archivo/400.css'
 import '@fontsource/archivo/500.css'
 import '@fontsource/archivo/600.css'

@@ -1,8 +1,8 @@
-//! Inheritance / dead-man's-switch — the second human-layer feature that matches Steward.
+//! Inheritance / dead-man's-switch - the second human-layer feature that matches Steward.
 //!
 //! The owner sends signed "proof-of-life" heartbeats. If they ever lapse for longer than the
 //! configured window, the vault's quorum is authorized to **release** the funds to a named heir
-//! — the release itself is an ordinary quorum-signed payment (it reuses the FROST send path;
+//! - the release itself is an ordinary quorum-signed payment (it reuses the FROST send path;
 //! nothing new cryptographically). The novelty, and the whole safety of it, is this policy: who
 //! decides the owner is gone, and when.
 //!
@@ -14,7 +14,7 @@
 pub struct InheritancePolicy {
     /// How long the owner may be silent before the switch arms, in seconds.
     pub lapse_secs: i64,
-    /// A grace period AFTER the lapse before a release can actually be proposed — a last window
+    /// A grace period AFTER the lapse before a release can actually be proposed - a last window
     /// for the owner to come back and cancel. Zero disables the grace.
     pub grace_secs: i64,
     /// The heir's Zcash address the release pays to.
@@ -49,12 +49,12 @@ impl InheritancePolicy {
 /// Where the switch stands right now.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SwitchState {
-    /// The owner is present (a recent heartbeat) — funds are locked to the normal quorum.
+    /// The owner is present (a recent heartbeat) - funds are locked to the normal quorum.
     Active,
-    /// The owner has gone silent past the lapse, but the grace period is still running — the
+    /// The owner has gone silent past the lapse, but the grace period is still running - the
     /// release is pending; the owner can still return and reset it.
     Pending,
-    /// The lapse and the grace have both passed — the quorum may now propose the release.
+    /// The lapse and the grace have both passed - the quorum may now propose the release.
     Released,
 }
 
@@ -76,7 +76,7 @@ pub fn evaluate(
     }
 }
 
-/// Whether the quorum may now propose the release to the heir. Only in the `Released` state —
+/// Whether the quorum may now propose the release to the heir. Only in the `Released` state -
 /// a lapse alone (still in grace) is not enough, so a brief outage never leaks the vault.
 pub fn release_authorized(
     policy: &InheritancePolicy,

@@ -1,7 +1,7 @@
 //! Running the external tools with structured error handling.
 //!
 //! Every invocation captures stdout/stderr and turns a non-zero exit into an
-//! explicit `ToolError` carrying the tool's stderr — failures are never silent.
+//! explicit `ToolError` carrying the tool's stderr - failures are never silent.
 //! Output *parsing* lives in the per-tool modules (`wallet`, `signer`, …) so it can
 //! be unit-tested against captured real output without spawning anything.
 
@@ -122,7 +122,7 @@ pub fn run_text(
     String::from_utf8(out).map_err(|e| ToolError::parse("utf-8 output", e.to_string()))
 }
 
-/// Run and return stdout **and** stderr combined (some tools — e.g. `frost-client` —
+/// Run and return stdout **and** stderr combined (some tools - e.g. `frost-client` -
 /// write their human output to stderr). A non-zero exit is still an error.
 pub fn run_text_all(
     program: &Path,
@@ -178,7 +178,7 @@ mod tests {
 
     #[test]
     fn run_passes_stdin_to_child() {
-        // `cat` with no args echoes stdin — proves the pipe is wired and closed (EOF).
+        // `cat` with no args echoes stdin - proves the pipe is wired and closed (EOF).
         let out = run(Path::new("/bin/cat"), &[], Some(b"piped-in")).unwrap();
         assert_eq!(out, b"piped-in");
     }
@@ -208,7 +208,7 @@ mod tests {
 
     #[test]
     fn run_text_all_merges_stdout_and_stderr() {
-        // Some tools (frost-client) write human output to stderr — run_text_all must keep both.
+        // Some tools (frost-client) write human output to stderr - run_text_all must keep both.
         let s = run_text_all(
             Path::new("/bin/sh"),
             &["-c", "echo on-stdout; echo on-stderr 1>&2"],

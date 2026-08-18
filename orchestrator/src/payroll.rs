@@ -1,4 +1,4 @@
-//! Payroll — the product's second face (spec §5.2, LOGICA §4): many payments in one
+//! Payroll - the product's second face (spec §5.2, LOGICA §4): many payments in one
 //! Orchard transaction (N outputs), approved once as a single envelope.
 //!
 //! Pure domain logic: build a plan from lines or a CSV, validate each line and the

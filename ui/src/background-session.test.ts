@@ -1,7 +1,7 @@
 /// <reference types="node" />
 // End-to-end test of the Stage-3 background session (#49): SigningSeats + BackgroundSigner composed
 // over ONE in-memory relay room. Two devices, each with only its own share, ANNOUNCE their seats
-// (rejoin) and then sign an (approved) payment entirely in the background — the full "send from the
+// (rejoin) and then sign an (approved) payment entirely in the background - the full "send from the
 // Dashboard" mechanism minus the React/RelaySession glue and the live broadcast.
 import { readFileSync } from 'node:fs'
 import { beforeAll, describe, expect, it } from 'vitest'
@@ -79,7 +79,7 @@ async function run(devs: Dev[], bus: Bus) {
   }
 }
 
-describe('BackgroundSession — seated background signing (Stage 3 core, end to end)', () => {
+describe('BackgroundSession - seated background signing (Stage 3 core, end to end)', () => {
   it('two devices announce seats, then sign an approved payment to a verifying signature', async () => {
     const { s0, s1, groupVk, pubkeys } = dkg2of3()
     const bus = new Bus()
