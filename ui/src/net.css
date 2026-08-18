@@ -118,7 +118,7 @@
   cursor: pointer;
   transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
 }
-.net-btn:hover:not(:disabled) { background: var(--surface-3, var(--surface-3)); border-color: var(--accent-line, rgba(87, 166, 255, 0.32)); }
+.net-btn:hover:not(:disabled) { background: var(--surface-3, var(--surface-3)); border-color: var(--accent-line, rgba(var(--accent-glow), 0.32)); }
 .net-btn:active:not(:disabled) { transform: translateY(1px); }
 .net-btn:disabled { opacity: 0.42; cursor: not-allowed; background: var(--surface-2, var(--surface-2)); border-color: var(--line, var(--line)); color: var(--text-muted, var(--text-muted)); }
 .net-btn.primary { background: var(--accent, var(--accent)); color: var(--on-accent, var(--surface-0)); border-color: var(--accent, var(--accent)); }
@@ -142,7 +142,7 @@
   word-break: break-all;
   transition: border-color var(--dur-fast) var(--ease-out);
 }
-.net-code:hover { border-color: var(--accent-line, rgba(87, 166, 255, 0.32)); }
+.net-code:hover { border-color: var(--accent-line, rgba(var(--accent-glow), 0.32)); }
 
 .net-status { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0; }
 .net-pill {
