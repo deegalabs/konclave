@@ -133,7 +133,7 @@ impl KeyStore for KeychainStore {
     }
 }
 
-// ---- vault passphrase ("palavra do cofre") ----
+// ---- vault passphrase ----
 //
 // The passphrase derives the sealing key (Argon2id, memory-hard) with a per-vault salt.
 // Without the word, the sealed shares do not open - no sealing key sits on disk. This is

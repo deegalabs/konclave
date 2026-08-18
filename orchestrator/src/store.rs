@@ -201,7 +201,7 @@ impl Store {
         Ok(Store { conn })
     }
 
-    // ---- vault passphrase lock (salt + verifier for the "palavra do cofre") ----
+    // ---- vault passphrase lock (salt + verifier) ----
 
     /// Store (or replace) a vault's passphrase lock: the KDF salt and the sealed
     /// verifier used to check the word on unlock.

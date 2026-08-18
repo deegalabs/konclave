@@ -786,7 +786,7 @@ fn create_vault_dkg_handler(cfg: &Config, body: &[u8]) -> Response {
     )
 }
 
-// ---- vault passphrase unlock ("palavra do cofre") ----
+// ---- vault passphrase unlock ----
 
 #[derive(serde::Deserialize)]
 struct UnlockReq {

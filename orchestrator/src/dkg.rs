@@ -23,7 +23,7 @@ pub struct DkgVault {
     pub wallet_dir: String,
     /// (name, comm pubkey, sealed config path) per member.
     pub members: Vec<(String, String, String)>,
-    /// The vault passphrase ("palavra do cofre"), generated here and shown ONCE. The
+    /// The vault passphrase, generated here and shown ONCE. The
     /// shares are sealed under a key derived from it - without it they do not open.
     pub passphrase: String,
     /// KDF salt for the passphrase (persist with the vault; not a secret).
@@ -207,7 +207,7 @@ pub fn create_vault_dkg(
     )?;
 
     // 9) generate the vault passphrase, derive the sealing key from it, seal each config
-    //    under it (5-E + "palavra do cofre"), remove plaintext. Without the word, the
+    //    under it (5-E + the vault passphrase), remove plaintext. Without the word, the
     //    sealed shares do not open - no sealing key sits on disk.
     let passphrase = secrets::generate_passphrase().map_err(|e| err("secrets", e.to_string()))?;
     let salt = secrets::generate_salt().map_err(|e| err("secrets", e.to_string()))?;
