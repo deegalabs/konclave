@@ -28,8 +28,8 @@
 .lv-head{position:relative;z-index:5}
 
 .lv-hero{position:relative;z-index:2;min-height:calc(100vh - 72px);display:flex;align-items:center;
-  max-width:1340px;margin:0 auto;padding:10px clamp(18px,4vw,60px) 40px}
-.lv-in{max-width:530px}
+  max-width:1340px;margin:0 auto;padding:10px clamp(18px,4vw,54px) 40px}
+.lv-in{max-width:600px}
 .lv-eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--accent-ink);display:inline-flex;align-items:center;gap:9px}
 .lv-eyebrow .dot{width:6px;height:6px;border-radius:50%;background:var(--accent2);box-shadow:0 0 10px rgba(var(--glow2),.9)}
 .lv-hero h1{font-size:clamp(2.4rem,5.2vw,4.2rem);line-height:1.05;letter-spacing:-.03em;color:var(--ink);font-weight:740;margin:20px 0 0;text-wrap:balance;max-width:15ch}
