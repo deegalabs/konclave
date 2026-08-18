@@ -496,13 +496,13 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 
 /* action cards: layered fill, soft shadow, hover LIFT */
 .action{background:linear-gradient(180deg,var(--surface-2),var(--surface-1));
-  box-shadow:0 1px 0 rgba(255,255,255,.03), 0 10px 30px -24px rgba(0,0,0,.8)}
+  box-shadow:var(--shadow-sm)}
 .action:hover{transform:translateY(-3px);
-  box-shadow:0 20px 46px -24px rgba(0,0,0,.85), 0 0 0 1px var(--accent-line)}
+  box-shadow:0 20px 46px -24px rgba(16,24,40,.22), 0 0 0 1px var(--accent-line)}
 
 /* panels/cards: a touch of depth instead of flat */
 .opnav.card{background:linear-gradient(180deg,var(--surface-2),var(--surface-1));
-  box-shadow:0 14px 36px -28px rgba(0,0,0,.72)}
+  box-shadow:0 14px 36px -28px rgba(16,24,40,.20)}
 
 /* — /settings (redesign Fase 0): per-vault info list + danger zone — */
 .set-list{border:1px solid var(--line-soft); border-radius:var(--radius); overflow:hidden}

@@ -44,7 +44,7 @@
 .dm-big{font-family:var(--font-mono); font-weight:500; font-size:clamp(30px,5vw,44px); letter-spacing:-.02em}
 .dm-unit{font-family:var(--font-mono); color:var(--text-muted); font-size:14px; letter-spacing:.12em}
 .dm-hide{position:relative; color:transparent}
-.dm-hide::after{content:""; position:absolute; inset:14% -4px; border-radius:3px; background:repeating-linear-gradient(135deg,#222b34 0 8px,#1a222b 8px 16px)}
+.dm-hide::after{content:""; position:absolute; inset:14% -4px; border-radius:3px; background:repeating-linear-gradient(135deg,var(--surface-3) 0 8px,var(--surface-2) 8px 16px)}
 
 .dm-klab{font-family:var(--font-mono); font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:var(--text-muted)}
 .dm-pips{display:inline-flex; gap:5px; align-items:center}

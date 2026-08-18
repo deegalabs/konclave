@@ -38,7 +38,7 @@
   border: 1px solid var(--line-soft, rgba(180, 205, 235, 0.08));
   border-radius: 999px;
   padding: 5px 12px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--surface-2);
 }
 
 .net-h1 {
@@ -68,8 +68,8 @@
 .net-card {
   border: 1px solid var(--line-soft, rgba(180, 205, 235, 0.08));
   border-radius: var(--radius, 14px);
-  /* Match the polished vault cards (.rd-card): a layered slate surface, hairline border. */
-  background: linear-gradient(180deg, rgba(200, 220, 245, 0.055), rgba(200, 220, 245, 0.015));
+  /* Match the polished vault cards (.rd-card): a clean card surface, hairline border. */
+  background: var(--surface-1);
   padding: 22px;
   display: flex;
   flex-direction: column;
@@ -186,8 +186,8 @@
 .net-log-row span { color: var(--text-muted, var(--text-muted)); margin-right: 6px; }
 
 .net-error {
-  background: rgba(224, 84, 76, 0.12);
-  border: 1px solid rgba(224, 84, 76, 0.4);
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-line);
   color: var(--danger-text);
   border-radius: 10px;
   padding: 12px 14px;
@@ -217,7 +217,7 @@
   border: 1px solid var(--line-soft, rgba(180, 205, 235, 0.08));
   border-radius: var(--radius-pill, 999px);
   padding: 5px 12px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--surface-2);
 }
 .demo-eyebrow .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--silver, var(--silver)); }
 
@@ -283,13 +283,13 @@
 .net-trail-label { min-width: 74px; opacity: 0.65; text-transform: uppercase; letter-spacing: .04em; font-size: .7rem; }
 .net-trail-row code { word-break: break-all; }
 .net-tag { font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; padding: 2px 8px; border-radius: 999px; background: var(--surface-3, rgba(120,130,145,0.18)); }
-.net-tag-live { background: var(--accent, #57a6ff); color: var(--surface-0, #0b0e12); }
+.net-tag-live { background: var(--accent, #2F6FE0); color: var(--on-accent, #fff); }
 
 /* Persistent "back to the vault" door in the ceremony letterhead (redesign Fase 0.4b):
    from any /net phase with an active vault there is always a way back to the app. */
-.net-back-btn{background:none; border:none; cursor:pointer; color:var(--text-muted, #93a0af);
+.net-back-btn{background:none; border:none; cursor:pointer; color:var(--text-muted, #667085);
   font-family:var(--font-mono, ui-monospace, monospace); font-size:13px; padding:0; margin-right:14px}
-.net-back-btn:hover{color:var(--accent, #57a6ff)}
+.net-back-btn:hover{color:var(--accent, #2F6FE0)}
 
 /* Embedded NetVault (inside the /vaults create modal): no full-page wrap, fits the Dialog.
    Override .rd { min-height:100vh } so the card hugs its content, and drop the .rd archival
