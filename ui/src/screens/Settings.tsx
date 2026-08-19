@@ -27,6 +27,7 @@ export default function Settings() {
   const [coord, setCoord] = useState<CoordMode>(getCoordMode())
   const [helperUrl, setHelperUrl] = useState(getCustomHelper())
   const applyCoord = (mode: CoordMode, url?: string) => { setCoordMode(mode, url); location.reload() }
+  const validHelperUrl = (u: string) => /^https:\/\/\S+\.\S+/.test(u.trim())
   const [vault, setVault] = useState<Vault | null>(null)
   const [gov, setGov] = useState<Governance | null>(null)
   const [live, setLive] = useState<boolean | null>(null)
@@ -106,22 +107,22 @@ export default function Settings() {
               <span className="set-k">{pt ? 'Coordenação' : 'Coordination'}</span>
               <span className="set-v" style={{ display: 'inline-flex', gap: 8, flexWrap: 'wrap' }}>
                 {HELPER_BASE && (
-                  <button type="button" className={'btn' + (coord === 'ours' ? ' ok' : ' ghost')} onClick={() => applyCoord('ours')}>{pt ? 'Nosso helper' : 'Our helper'}</button>
+                  <button type="button" className={'btn' + (coord === 'ours' ? ' ok' : ' ghost')} onClick={() => applyCoord('ours')}>{pt ? 'Hospedado pela Konclave' : 'Konclave-hosted'}</button>
                 )}
-                <button type="button" className={'btn' + (coord === 'custom' ? ' ok' : ' ghost')} onClick={() => setCoord('custom')}>{pt ? 'Seu helper' : 'Your helper'}</button>
-                <button type="button" className={'btn' + (coord === 'local' ? ' ok' : ' ghost')} onClick={() => applyCoord('local')}>{pt ? 'Local (sem helper)' : 'Local (no helper)'}</button>
+                <button type="button" className={'btn' + (coord === 'custom' ? ' ok' : ' ghost')} onClick={() => setCoord('custom')}>{pt ? 'Seu servidor' : 'Your server'}</button>
+                <button type="button" className={'btn' + (coord === 'local' ? ' ok' : ' ghost')} onClick={() => applyCoord('local')}>{pt ? 'Só neste dispositivo' : 'This device only'}</button>
               </span>
             </div>
             {coord === 'custom' && (
               <div className="set-row" style={{ gap: 8 }}>
-                <input className="unlock-input mono" style={{ flex: 1 }} inputMode="url" placeholder={pt ? 'https://seu-helper.exemplo.com' : 'https://your-helper.example.com'} value={helperUrl} onChange={(e) => setHelperUrl(e.target.value)} />
-                <button type="button" className="btn ok" disabled={!helperUrl.trim()} onClick={() => applyCoord('custom', helperUrl)}>{pt ? 'Salvar' : 'Save'}</button>
+                <input className="unlock-input mono" style={{ flex: 1 }} inputMode="url" placeholder={pt ? 'https://seu-servidor.exemplo.com' : 'https://your-server.example.com'} value={helperUrl} onChange={(e) => setHelperUrl(e.target.value)} />
+                <button type="button" className="btn ok" disabled={!validHelperUrl(helperUrl)} onClick={() => applyCoord('custom', helperUrl)}>{pt ? 'Salvar' : 'Save'}</button>
               </div>
             )}
           </section>
           <p className="set-hint">{pt
-            ? 'Quem coordena a cerimônia - o helper nunca vê um share. Nosso helper hospedado, o seu próprio, ou totalmente local. Aplica ao trocar.'
-            : 'Who coordinates the ceremony - the helper never sees a share. Our hosted helper, your own, or fully local. Applies on change.'}</p>
+            ? 'Quem coordena as aprovações. Ninguém vê sua chave; só o grupo assina. Use uma URL https. Aplica ao trocar.'
+            : 'Who coordinates approvals. No one sees your key; only the group signs. Use an https URL. Applies on change.'}</p>
         </>
       )}
 
