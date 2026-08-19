@@ -86,6 +86,8 @@ const TXT = {
     found: 'Encontrada e minerada',
     confirmations: 'confirmações',
     confsUnknown: 'minerada (confirmações não informadas)',
+    blockedShort: 'bloqueada',
+    blockedHint: 'Verificação automática bloqueada - use os links do explorador abaixo',
     fallbackTitle: 'Verificação automática indisponível',
     fallback:
       'O navegador pode bloquear a chamada ao explorador (CORS). Isso não é uma falha da transação. Abra os links de explorador acima, ou rode `node scripts/verify-proof.mjs` para uma verificação independente.',
@@ -93,7 +95,7 @@ const TXT = {
     scopeCan:
       'Os dados on-chain provam que a transação existe, foi minerada em um bloco e é blindada (Orchard). Não revela valores nem partes, e essa ausência de detalhe é a privacidade funcionando.',
     scopeCannot:
-      'Os dados on-chain NÃO provam, sozinhos, a natureza 2-de-3 (FROST). Uma assinatura Orchard agregada por FROST é indistinguível de uma assinatura de signatário único na cadeia, e essa indistinguibilidade é justamente a propriedade de privacidade. A natureza de limiar é atestada pelo código e pela cerimônia, fora da cadeia.',
+      'Os dados on-chain NÃO provam, sozinhos, a natureza de limiar (t-de-n) do FROST. Uma assinatura Orchard agregada por FROST é indistinguível de uma assinatura de signatário único na cadeia, e essa indistinguibilidade é justamente a propriedade de privacidade. A natureza de limiar é atestada pelo código e pela cerimônia, fora da cadeia.',
   },
   en: {
     eyebrow: 'Konclave · Proof',
@@ -119,6 +121,8 @@ const TXT = {
     found: 'Found and mined',
     confirmations: 'confirmations',
     confsUnknown: 'mined (confirmations not reported)',
+    blockedShort: 'blocked',
+    blockedHint: 'Automatic check blocked - use the explorer links below',
     fallbackTitle: 'Automatic check unavailable',
     fallback:
       'The browser may block the explorer call (CORS). That is not a failure of the transaction. Open the explorer links above, or run `node scripts/verify-proof.mjs` for an independent check.',
@@ -126,7 +130,7 @@ const TXT = {
     scopeCan:
       'On-chain data proves the transaction exists, is mined in a block, and is shielded (Orchard). It reveals nothing about amounts or parties, and that absence of detail is the privacy working as intended.',
     scopeCannot:
-      'On-chain data does NOT, by itself, prove the 2-of-3 FROST nature. A FROST-aggregated Orchard signature is indistinguishable on-chain from a single-signer one, and that indistinguishability is precisely the privacy property. The threshold nature is attested by the code and the ceremony, off-chain.',
+      'On-chain data does NOT, by itself, prove the threshold (t-of-n) FROST nature. A FROST-aggregated Orchard signature is indistinguishable on-chain from a single-signer one, and that indistinguishability is precisely the privacy property. The threshold nature is attested by the code and the ceremony, off-chain.',
   },
 }
 
@@ -288,7 +292,7 @@ export default function Proof() {
 function ProofStatus({ st, T }: { st: CheckState; T: (typeof TXT)['en'] }) {
   if (st.s === 'idle') return null
   if (st.s === 'checking') return <span className="proof-status checking">{T.verifying}</span>
-  if (st.s === 'blocked') return <span className="proof-status blocked">…</span>
+  if (st.s === 'blocked') return <span className="proof-status blocked" title={T.blockedHint} aria-label={T.blockedHint}>{T.blockedShort}</span>
   // found
   return (
     <span className="proof-status found">

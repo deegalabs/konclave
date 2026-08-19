@@ -654,6 +654,7 @@ export const en: Record<string, string> = {
   'members.footCount': '{count} members · quorum {t}-of-{n}',
   'members.footNote': 'the key is never reassembled · each part signs in place',
   'members.demoNote': 'In this demo the three shares run on this machine. In the product, each member approves **from their own device** with their share · that’s the multi-device step on the roadmap.',
+  'members.netNote': 'Each member holds their part of the key on their own device; approvals happen from each device.',
   'members.createNew': '+ Create a new vault ',
   'members.fpTitle': 'Vault fingerprint',
   'members.fpHelp': 'Read this code aloud to the other members. If everyone sees **the same code**, you are all in the same vault with the same signers. No impostor slipped into the ceremony.',

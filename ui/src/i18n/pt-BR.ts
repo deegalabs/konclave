@@ -654,6 +654,7 @@ export const ptBR: Record<string, string> = {
   'members.footCount': '{count} membros · quórum {t}-de-{n}',
   'members.footNote': 'a chave nunca é remontada · cada parte assina no seu lugar',
   'members.demoNote': 'Nesta demonstração as três partes rodam nesta máquina. No produto, cada membro aprova **do seu próprio dispositivo** com a sua parte · é o passo de multi-dispositivo do roadmap.',
+  'members.netNote': 'Cada membro guarda sua parte da chave no próprio dispositivo; as aprovações acontecem de cada dispositivo.',
   'members.createNew': '+ Criar um novo cofre ',
   'members.fpTitle': 'Impressão do cofre',
   'members.fpHelp': 'Leia este código em voz alta para os outros membros. Se todos veem **o mesmo código**, vocês estão no mesmo cofre com os mesmos signatários. Nenhum impostor entrou na cerimônia.',

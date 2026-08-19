@@ -141,7 +141,7 @@ export default function Members() {
               <div className="field" key={i}>
                 <input
                   className="input mono"
-                  placeholder={`member ${i + 1}`}
+                  placeholder={t('vaults.memberN', { n: i + 1 })}
                   value={names[i] ?? ''}
                   onChange={(e) => {
                     const next = [...names]
@@ -151,7 +151,7 @@ export default function Members() {
                 />
               </div>
             ))}
-            <button className="btn ok sm-btn mt-sm" disabled={saving} onClick={() => void saveNames()}>
+            <button className="btn ok sm-btn mt-sm" disabled={saving} aria-busy={saving} onClick={() => void saveNames()}>
               {saving ? '…' : t('members.save')}
             </button>
           </div>
@@ -162,7 +162,7 @@ export default function Members() {
           <span className="dim pushr">{t('members.footNote')}</span>
         </PageFooter>
 
-        <div className="confirm mt">{tr('members.demoNote')}</div>
+        <div className="confirm mt">{IS_NET ? tr('members.netNote') : tr('members.demoNote')}</div>
         <div className="right mt"><button className="btn ghost sm-btn" onClick={() => nav(IS_NET ? '/net' : '/create')}>{t('members.createNew')}</button></div>
 
         <NextStep label={t('next.label')} cta={t('next.people')} to="/people" />
