@@ -5,12 +5,13 @@ import { PageHeader, PageFooter, NextStep } from '../page'
 import { getLedger, getProposalDetail, getVault, ledgerCsvUrl, health, shortAddr, type Proposal, type PayrollLine } from '../api'
 import { fmtDate, fmtZec } from '../format'
 import { exportLedgerXlsx, type LedgerXlsxItem } from '../ledgerXlsx'
-import { useT } from '../i18n'
+import { useT, useI18n } from '../i18n'
 
 const SETTLED = (s: string) => s === 'sent' || s === 'confirmed'
 
 export default function Ledger() {
   const t = useT()
+  const { locale } = useI18n()
   const [rows, setRows] = useState<Proposal[] | null>(null)
   const [live, setLive] = useState(false)
   const [vaultName, setVaultName] = useState<string | null>(null)
@@ -105,7 +106,7 @@ export default function Ledger() {
   const dates = ledger.map((p) => p.created_at).filter(Boolean) as number[]
   const lo = dates.length ? Math.min(...dates) : 0
   const hi = dates.length ? Math.max(...dates) : 0
-  const period = !dates.length ? '-' : lo === hi ? fmtDate(lo) : `${fmtDate(lo)} - ${fmtDate(hi)}`
+  const period = !dates.length ? '-' : lo === hi ? fmtDate(lo, locale) : `${fmtDate(lo, locale)} - ${fmtDate(hi, locale)}`
   const filtered = ledger.filter((p) => {
     const stOk = fState === 'all' || (fState === 'settled' ? SETTLED(p.state) : p.state === 'awaiting' || p.state === 'ready')
     const knOk = fKind === 'all' || p.kind === fKind
@@ -185,7 +186,7 @@ export default function Ledger() {
                     style={isPayroll ? { cursor: 'pointer' } : undefined}
                     {...(isPayroll ? { role: 'button' as const, tabIndex: 0, 'aria-expanded': isOpen, onKeyDown: activateOnKey(() => toggle(p)) } : {})}
                   >
-                    <td className="mono">{fmtDate(p.created_at)}</td>
+                    <td className="mono">{fmtDate(p.created_at, locale)}</td>
                     <td>
                       {isPayroll && <span className="caret">{isOpen ? '▾' : '▸'} </span>}
                       {p.memo || (isPayroll ? t('kind.payroll') : t('kind.payment'))}

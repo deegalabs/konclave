@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { PageHeader, PageFooter, NextStep } from '../page'
-import { useT } from '../i18n'
+import { useT, useI18n } from '../i18n'
 import { getSelectedVault } from '../api'
 import { vaultCeremonies, type CeremonyRecord } from '../helper'
 import { fmtDate, shortAddr } from '../format'
@@ -13,6 +13,7 @@ import { fmtDate, shortAddr } from '../format'
  */
 export default function Ceremonies() {
   const t = useT()
+  const { locale } = useI18n()
   const [records, setRecords] = useState<CeremonyRecord[] | null>(null)
   const [busy, setBusy] = useState(true)
 
@@ -46,7 +47,7 @@ export default function Ceremonies() {
               <span className={c.dry_run ? 'cer-tag' : 'cer-tag live'}>
                 {c.dry_run ? t('ceremonies.dryRun') : t('ceremonies.broadcast')}
               </span>
-              <span className="cer-when">{fmtDate(c.created_at_unix)}</span>
+              <span className="cer-when">{fmtDate(c.created_at_unix, locale)}</span>
             </div>
             {c.txid && (
               <div className="cer-kv"><span className="cer-k">txid</span><code>{c.txid}</code></div>
