@@ -99,7 +99,7 @@ export default function Intro() {
               <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
               {pt ? 'Baixar o app' : 'Download the app'}
             </button>
-            <a className="lv-demo" href="?demo=1#/vaults">
+            <a className="lv-demo" href="#/demo">
               <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M6 4l14 8-14 8z" /></svg>
               {pt ? 'Ver a demo' : 'Watch the demo'}
             </a>

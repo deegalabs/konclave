@@ -50,6 +50,7 @@ export default function Vaults() {
   // Route the create card: on desktop, ask the coordination mode first; on the web the helper is
   // fixed, so go straight (helper -> browser DKG dialog, else the local /create ceremony).
   const startCreate = () => (isDesktop ? setChoosing(true) : netMode ? setCreating(true) : nav('/create'))
+  const validHelperUrl = (u: string) => /^https:\/\/\S+\.\S+/.test(u.trim())
 
   function enter(row: Row) {
     const { v, src } = row
@@ -224,26 +225,26 @@ export default function Vaults() {
       {choosing && (
         <Dialog className="unlock-overlay" cardClassName="unlock-card" labelledBy="choose-title" onClose={() => { setChoosing(false); setCustomStep(false) }}>
           <div className="rd-eyebrow">{pt ? 'Criar cofre' : 'Create a vault'}</div>
-          <h2 id="choose-title">{pt ? 'Como coordenar a cerimônia?' : 'How to coordinate the ceremony?'}</h2>
+          <h2 id="choose-title">{pt ? 'Onde coordenar as aprovações?' : 'Where to coordinate approvals?'}</h2>
           <p>{pt
-            ? 'Onde a cerimônia de aprovação é coordenada. O helper nunca vê um share em nenhuma opção.'
-            : 'Where the approval ceremony is coordinated. The helper never sees a share in any option.'}</p>
+            ? 'Onde as aprovações do grupo são coordenadas. Ninguém vê sua chave; só o grupo assina.'
+            : 'Where the group approvals are coordinated. No one sees your key; only the group signs.'}</p>
           {!customStep ? (
             <div className="unlock-btns" style={{ flexDirection: 'column', gap: 8, alignItems: 'stretch' }}>
               {HELPER_BASE && (
-                <button className="rd-enter primary" onClick={() => { setCoordMode('ours'); setChoosing(false); setCreating(true) }}>{pt ? 'Nosso helper hospedado' : 'Our hosted helper'}</button>
+                <button className="rd-enter primary" onClick={() => { setCoordMode('ours'); setChoosing(false); setCreating(true) }}>{pt ? 'Hospedado pela Konclave' : 'Konclave-hosted'}</button>
               )}
-              <button className="rd-enter" onClick={() => setCustomStep(true)}>{pt ? 'Seu próprio helper' : 'Your own helper'}</button>
-              <button className="rd-enter" onClick={() => { setCoordMode('local'); setChoosing(false); nav('/create') }}>{pt ? 'Local, sem helper' : 'Local, no helper'}</button>
+              <button className="rd-enter" onClick={() => setCustomStep(true)}>{pt ? 'Seu servidor' : 'Your server'}</button>
+              <button className="rd-enter" onClick={() => { setCoordMode('local'); setChoosing(false); nav('/create') }}>{pt ? 'Só neste dispositivo' : 'This device only'}</button>
             </div>
           ) : (
             <>
-              <input className="unlock-input mono" inputMode="url" placeholder={pt ? 'https://seu-helper.exemplo.com' : 'https://your-helper.example.com'}
+              <input className="unlock-input mono" inputMode="url" placeholder={pt ? 'https://seu-servidor.exemplo.com' : 'https://your-server.example.com'}
                 value={chooseUrl} onChange={(e) => setChooseUrl(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && chooseUrl.trim()) { setCoordMode('custom', chooseUrl); setChoosing(false); setCustomStep(false); setCreating(true) } }} />
+                onKeyDown={(e) => { if (e.key === 'Enter' && validHelperUrl(chooseUrl)) { setCoordMode('custom', chooseUrl); setChoosing(false); setCustomStep(false); setCreating(true) } }} />
               <div className="unlock-btns">
                 <button className="rd-enter" onClick={() => setCustomStep(false)}>{t('common.cancel')}</button>
-                <button className="rd-enter primary" disabled={!chooseUrl.trim()}
+                <button className="rd-enter primary" disabled={!validHelperUrl(chooseUrl)}
                   onClick={() => { setCoordMode('custom', chooseUrl); setChoosing(false); setCustomStep(false); setCreating(true) }}>{pt ? 'Continuar' : 'Continue'}</button>
               </div>
             </>

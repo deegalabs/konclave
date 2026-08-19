@@ -429,8 +429,8 @@ export const SECTIONS: Section[] = [
             en: '**Proven by test:** social recovery (RTS share repair) and the inheritance policy engine.',
           },
           {
-            'pt-BR': '**Roadmap, não entregue:** o **broadcast** de uma transação real a partir do navegador (a assinatura de um sighash Orchard real já funciona; falta financiar o cofre + operador criar/provar a PCZT), persistência completa do share no dispositivo (restaura; assinar-após-restore pendente), e o binário desktop único instalável (Tauri).',
-            en: '**Roadmap, not shipped:** the **broadcast** of a real transaction from the browser (signing a real Orchard sighash already works; it needs the vault funded + the operator to create/prove the PCZT), full on-device share persistence (restore works; signing-after-restore pending), and the single installable desktop binary (Tauri).',
+            'pt-BR': '**Roadmap, não entregue:** o **broadcast** de uma transação real a partir do navegador (a assinatura de um sighash Orchard real já funciona; falta financiar o cofre + operador criar/provar a PCZT), e a persistência completa do share no dispositivo (restaura; assinar-após-restore pendente). O app desktop (Tauri) já tem binários publicados no v0.2.0, ainda em amadurecimento por plataforma.',
+            en: '**Roadmap, not shipped:** the **broadcast** of a real transaction from the browser (signing a real Orchard sighash already works; it needs the vault funded + the operator to create/prove the PCZT), and full on-device share persistence (restore works; signing-after-restore pending). The desktop app (Tauri) already ships v0.2.0 binaries, still maturing per platform.',
           },
         ],
       },
