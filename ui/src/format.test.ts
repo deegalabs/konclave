@@ -70,7 +70,9 @@ describe('fmtDate', () => {
   it('renders DD/MM/YYYY from a real unix timestamp', () => {
     // Build in LOCAL time so format (which reads local getDate/getMonth) is tz-independent.
     const unix = Math.floor(new Date(2026, 4, 4, 12, 0, 0).getTime() / 1000) // 2026-05-04
-    expect(fmtDate(unix)).toBe('04/05/2026')
+    expect(fmtDate(unix)).toBe('04/05/2026') // default (pt-BR)
+    expect(fmtDate(unix, 'pt-BR')).toBe('04/05/2026')
+    expect(fmtDate(unix, 'en')).toBe('05/04/2026') // en -> MM/DD/YYYY
   })
   it('returns - for absent/invalid, never NaN', () => {
     expect(fmtDate(undefined)).toBe('-')

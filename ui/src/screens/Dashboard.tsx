@@ -139,7 +139,7 @@ export default function Dashboard() {
   // Movements - the real ledger when live; the mock only in the offline showcase.
   const movs: Movimento[] | null = ledger && ledger.length
     ? ledger.slice(0, 6).map((p) => ({
-        date: fmtDate(p.created_at),
+        date: fmtDate(p.created_at, dpt() ? 'pt-BR' : 'en'),
         title: p.memo || (p.kind === 'payroll' ? t('kind.payroll') : t('kind.payment')),
         by: t('dashboard.movBy', { proposer: p.proposer }) + (p.approvals.length ? t('dashboard.movApprovedBy', { who: p.approvals.join(', ') }) : ''),
         value: `−${fmt4(p.value_zec)}`,
