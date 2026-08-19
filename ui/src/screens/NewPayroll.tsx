@@ -42,7 +42,7 @@ export default function NewPayroll() {
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [pastFolhas, setPastFolhas] = useState<Proposal[]>([])
-  const [vaultName, setVaultName] = useState('Tesouraria Comum')
+  const [vaultName, setVaultName] = useState(t('common.sampleVault'))
   const [membersList, setMembersList] = useState<Member[]>([])
   const [proposer, setProposer] = useState('Alice')
   const [loaded, setLoaded] = useState(false)

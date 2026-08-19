@@ -64,6 +64,8 @@ export const ptBR: Record<string, string> = {
   'common.backProposals': '← Propostas',
   'common.remove': 'remover',
   'common.loading': 'Carregando…',
+  'common.sampleVault': 'Tesouraria Comum',
+  'receive.qrAlt': 'QR do endereço de recebimento do cofre',
   'common.demoModeNoBridge': 'modo demonstração · sem o cofre local rodando',
 
   // accessible names (screen-reader only)
@@ -575,7 +577,7 @@ export const ptBR: Record<string, string> = {
   'proposal.validating': 'Validando…',
   'proposal.validateBtn': 'Validar (sem enviar)',
   'proposal.dryOkPre': 'Assinatura válida. Pronta para enviar.',
-  'proposal.dryOkPost': '). Nada foi transmitido.',
+  'proposal.dryOkPost': ' Nada foi transmitido.',
   'proposal.signNeverReassembles': 'A assinatura nunca remonta a chave: cada parte assina no seu lugar e só o resultado combinado vai à rede.',
   'proposal.sentConfirm': '**Enviada à mainnet.** Pagamento transmitido e assinado por quórum.',
   'proposal.txid': 'txid',

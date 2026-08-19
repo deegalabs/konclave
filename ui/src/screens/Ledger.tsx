@@ -118,7 +118,7 @@ export default function Ledger() {
         <PageHeader
           title={t('ledger.title')}
           actions={<>
-            <a className="btn ghost sm-btn" href={ledgerCsvUrl()} download="konclave-razao.csv">{t('ledger.exportCsv')}</a>
+            <a className="btn ghost sm-btn" href={ledgerCsvUrl()} download="konclave-ledger.csv">{t('ledger.exportCsv')}</a>
             <button className="btn ghost sm-btn" disabled={xlsxBusy} onClick={() => void exportXlsx()}>{xlsxBusy ? t('ledger.exporting') : t('ledger.exportXlsx')}</button>
             <button className="btn ghost sm-btn" onClick={() => window.print()}>{t('ledger.pdf')}</button>
           </>}
@@ -127,7 +127,7 @@ export default function Ledger() {
         {/* Document band - the vault's book to hand to the accountant */}
         <div className="doc-band">
           <div className="db-meta">
-            <div><span className="klab">{t('ledger.vault')}</span><b>{vaultName ?? 'Tesouraria Comum'}</b></div>
+            <div><span className="klab">{t('ledger.vault')}</span><b>{vaultName ?? t('common.sampleVault')}</b></div>
             <div><span className="klab">{t('ledger.period')}</span><b className="mono">{period}</b></div>
             <div><span className="klab">{t('ledger.entries')}</span><b>{ledger.length}</b></div>
           </div>

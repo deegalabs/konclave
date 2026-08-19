@@ -131,7 +131,7 @@ export default function Dashboard() {
   // for real proposals instead of flashing a fabricated one.
   const showApprovalCard = live === false || pending !== null
   const pAmt = pending ? fmt4(pending.value_zec, '0.0003') : '0.5000'
-  const pMemo = pending?.memo ?? 'adiantamento maio'
+  const pMemo = pending?.memo ?? dl('adiantamento de maio', 'May advance')
   const pProposer = pending?.proposer ?? 'Bruno'
   const pApprovals = pending?.approvals_count ?? 1
   const pExpiry = pending ? expiryLabel(pending.expiry_unix, t) : t('expiry.hours', { h: 71 })
@@ -226,7 +226,7 @@ export default function Dashboard() {
           </section>
         ) : (
           <section className="needyou calm">
-            <div className="req"><span className="stamp">-</span> {t('dashboard.nothingWaiting')}</div>
+            <div className="req"><span className="stamp" aria-hidden="true">·</span> {t('dashboard.nothingWaiting')}</div>
             <div className="note">{t('dashboard.nothingWaitingNote')}</div>
             <div className="btns"><Link className="btn ok" to="/pay">{t('dashboard.proposePayment')}</Link></div>
           </section>
