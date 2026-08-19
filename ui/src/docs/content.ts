@@ -346,6 +346,43 @@ export const SECTIONS: Section[] = [
     ],
   },
   {
+    id: 'coordination',
+    nav: { 'pt-BR': 'Coordenação', en: 'Coordination' },
+    title: { 'pt-BR': 'Modos de coordenação', en: 'Coordination modes' },
+    lead: {
+      'pt-BR':
+        'Onde a cerimônia de aprovação é coordenada é escolha sua. Em qualquer modo o coordenador é **cego**: nunca vê um share e não move fundos sem as assinaturas do quórum.',
+      en:
+        'Where the approval ceremony is coordinated is your choice. In every mode the coordinator is **blind**: it never sees a share and cannot move funds without the quorum’s signatures.',
+    },
+    blocks: [
+      {
+        k: 'ul',
+        items: [
+          {
+            'pt-BR': '**Nosso helper hospedado** - o padrão. Um helper cego constrói, prova e transmite a transação enquanto os dispositivos assinam pela retransmissão cega.',
+            en: '**Our hosted helper** - the default. A blind helper builds, proves and broadcasts the transaction while the devices sign over the blind relay.',
+          },
+          {
+            'pt-BR': '**Seu próprio helper** - aponte para um helper que você mesmo hospeda (uma URL nas Configurações). Mesma garantia, sob o seu controle.',
+            en: '**Your own helper** - point at a helper you self-host (a URL in Settings). Same guarantee, under your control.',
+          },
+          {
+            'pt-BR': '**Local, sem helper** - nenhum terceiro. O orquestrador local (desktop/ponte) faz tudo.',
+            en: '**Local, no helper** - no third party at all. The local orchestrator (desktop/bridge) does everything.',
+          },
+        ],
+      },
+      {
+        k: 'note',
+        t: {
+          'pt-BR': 'No desktop você escolhe o modo antes de criar um cofre, e troca quando quiser nas Configurações. A segurança está em **quem assina** (os dispositivos), nunca em quem monta a transação.',
+          en: 'On desktop you pick the mode before creating a vault, and switch it any time in Settings. Security is in **who signs** (the devices), never in who assembles the transaction.',
+        },
+      },
+    ],
+  },
+  {
     id: 'security',
     nav: { 'pt-BR': 'Segurança e confiança', en: 'Security and trust' },
     title: { 'pt-BR': 'Modelo de confiança e limites honestos', en: 'Trust model and honest limits' },
