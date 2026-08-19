@@ -3,6 +3,44 @@
 > Approved phase plan. Calibrated for **solo, ~15 days** (start 2026-06-30 →
 > deadline 2026-07-15 UTC), **vertical slice first**, scope locked to the core.
 
+---
+
+## Status - 2026-08-19 (post-hackathon)
+
+The core runs end to end (payment + payroll: propose -> validate -> approve/refuse -> sign with
+FROST -> account) and is **proven on mainnet** (8 verifiable txids, see `docs/PROOF.md`). This
+cycle's work:
+
+**Shipped**
+- **Web landing** rebuilt around one objective: a photorealistic vault video, with a platform
+  **install modal** (real v0.2.0 desktop binaries, one-click direct downloads) and the pitch left
+  of it. The rest of the old landing moved into `/docs`.
+- **Desktop coordination-mode picker** - our helper / your own helper / local, chosen at runtime
+  (Settings + an ask-before-create chooser), with a **unified vault list** (local + browser-DKG
+  vaults together). Tested (helper unit tests) and documented (Docs "Coordination modes").
+- **Repo hygiene:** all typographic dashes (`-` `-` `-`) removed repo-wide; Portuguese code
+  comments translated to English (the UI stays bilingual via i18n).
+- **Five GSP critique loops -> fixes** across every surface (landing, coordination UI, the six
+  money screens, and Members/Ceremonies/Proof/Lab): WCAG AA contrast on the primary CTA,
+  hide-the-crypto copy, honesty reconciliations (the desktop-download claim vs docs; the Members
+  multi-device note), PT/EN leaks, input validation on money/URL fields, and locale-aware dates.
+  The **preview + explicit-confirm money contract was audited and is honored** - a single click
+  never moves funds.
+
+**Gated - needs the owner's machine / explicit authorization (cannot run from CI)**
+- A real **Dashboard-triggered broadcast** on mainnet (money-gated; needs a funded vault + a live
+  dry-run; the final click is the owner's).
+- **Live desktop (Tauri) validation** of all three coordination modes end to end.
+- A **live multi-device** (not two-tab) broadcast.
+
+**Open honest debts (§6.15, unchanged)**
+- **H2:** seal the SignRequest (device-key handshake, #63).
+- `/net` **multi-note** over the live relay (unit-tested; single-spend is live-proven).
+- **Tauri** single-binary hardening per platform; **Cargo workspace** (deferred: rusqlite version
+  conflict).
+
+---
+
 ## Schedule principles
 - **The risk is in Phase 1** (crypto → broadcast). It comes first and is the existential gate.
 - **Solo = scope discipline.** The core is a firm commitment; extras only if the core closes.
