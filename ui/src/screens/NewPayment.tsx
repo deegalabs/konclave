@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Secret, Loading } from '../components'
 import { PageHeader } from '../page'
 import { useT, useTr } from '../i18n'
+import { fmtZec, parseZecToZat, zatToZec } from '../format'
 import {
   createProposal, getBalance, getVault, getBeneficiaries, health, shortAddr, classifyAddress, humanError,
   type Beneficiary, type Member,
@@ -62,6 +63,12 @@ export default function NewPayment() {
   // A real available balance when we have it; the demo figure only when genuinely offline
   // (live === false); a neutral dash while still loading (live === null) - never a fake number.
   const shownAvailable = available ?? (live === false ? '2.4180' : '-')
+  // Preview the balance after this payment (like the payroll screen). Display only - the backend
+  // stays authoritative on the real fee; ~0.0001 ZEC is a reasonable single-payment estimate.
+  const amountZat = parseZecToZat(value)
+  const availableZat = parseZecToZat(shownAvailable)
+  const feeZat = 10000
+  const afterZat = availableZat == null || amountZat == null ? null : availableZat - amountZat - feeZat
 
   async function submit() {
     setError(null)
@@ -150,7 +157,9 @@ export default function NewPayment() {
           <div className="pv-row"><span className="pv-k">{t('payment.pvTo')}</span><span className="pv-v">{toName ? <><b>{toName}</b> · {to ? shortAddr(to) : '…'}</> : (to ? shortAddr(to) : '…')}</span></div>
           {memo.trim() && !publicDest && <div className="pv-row"><span className="pv-k">{t('payment.pvMemo')}</span><span className="pv-v">“{memo.trim()}”</span></div>}
           <div className="pv-row"><span className="pv-k">{t('payment.pvApprovals')}</span><span className="pv-v"><b>{threshold}</b> {t('payment.includingYours')}</span></div>
+          <div className="pv-row"><span className="pv-k">{t('payroll.pvAfter')}</span><span className="pv-v">{afterZat === null ? <b className="dim">-</b> : <Secret sm><b>{fmtZec(zatToZec(afterZat))}</b></Secret>}</span></div>
         </div>
+        {afterZat !== null && afterZat < 0 && <div className="hint warn mt-sm">{t('payroll.warnExceeds')}</div>}
         <div className="hint">{tr('payment.approvalHint', { proposer, threshold, rest: threshold > 1 ? t('payment.approvalHintMore', { n: threshold - 1 }) : t('payment.approvalHintReady'), aval: threshold === 1 ? t('payment.avalSingular') : t('payment.avalPlural') })}</div>
 
         {error && <div className="hint err mt" role="alert">{error}</div>}
