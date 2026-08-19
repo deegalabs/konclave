@@ -10,6 +10,9 @@
 
 // --- domain core (dependency-free) ---
 pub mod money;
+// --- exploratory (branch explore/proposal-anchor): proposal commitment for a Zcash-anchored
+//     timestamp + a future zkTimestamp proof. NOT wired into the app; see temp/ANCHOR-DESIGN.md. ---
+pub mod anchor;
 pub mod payroll;
 pub mod proposal;
 pub mod reconcile;
