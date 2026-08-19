@@ -33,7 +33,10 @@ export default function Receive() {
   const address = vault?.orchard_address ?? ''
   const uri = useMemo(() => {
     if (!address) return ''
-    const amt = amount.trim()
+    const raw = amount.trim().replace(',', '.')
+    // Only a well-formed positive number becomes a ZIP-321 amount; anything else is ignored so the
+    // URI/QR never carries a malformed value.
+    const amt = /^\d+(\.\d+)?$/.test(raw) && Number(raw) > 0 ? raw : ''
     return `zcash:${address}${amt ? `?amount=${encodeURIComponent(amt)}` : ''}`
   }, [address, amount])
 
@@ -66,7 +69,7 @@ export default function Receive() {
       <PageHeader title={t('receive.title')} subtitle={t('receive.lead')} />
 
       <div className="rcv-grid">
-        <div className="rcv-qr" dangerouslySetInnerHTML={{ __html: qrSvg }} role="img" aria-label="QR" />
+        <div className="rcv-qr" dangerouslySetInnerHTML={{ __html: qrSvg }} role="img" aria-label={t('receive.qrAlt')} />
 
         <div className="rcv-side">
           <span className="klab">{t('receive.address')}</span>

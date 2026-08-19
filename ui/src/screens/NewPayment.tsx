@@ -24,7 +24,7 @@ export default function NewPayment() {
   const [threshold, setThreshold] = useState(2)
   const [available, setAvailable] = useState<string | null>(null)
   const [benefs, setBenefs] = useState<Beneficiary[]>([])
-  const [vaultName, setVaultName] = useState('Tesouraria Comum')
+  const [vaultName, setVaultName] = useState(t('common.sampleVault'))
   const [membersList, setMembersList] = useState<Member[]>([])
   const [proposer, setProposer] = useState('Alice')
   const [toName, setToName] = useState<string | null>(null)
@@ -156,7 +156,7 @@ export default function NewPayment() {
         {error && <div className="hint err mt" role="alert">{error}</div>}
 
         <div className="right mt">
-          <button className="btn ok" onClick={submit} disabled={busy || memoOver || !to.trim()}>
+          <button className="btn ok" onClick={submit} disabled={busy || memoOver || !to.trim() || !(parseFloat(String(value).replace(',', '.')) > 0)}>
             {busy ? t('payment.proposing') : t('payment.proposeBtn')}
           </button>
         </div>

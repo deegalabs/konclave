@@ -230,7 +230,7 @@ export default function Proposal() {
                     {sending === 'dry' ? t('proposal.validating') : t('proposal.validateBtn')}
                   </button>
                 </div>
-                {dryOk && <div className="hint mt-sm ready">{t('proposal.dryOkPre')}</div>}
+                {dryOk && <div className="hint mt-sm ready">{t('proposal.dryOkPre')}{t('proposal.dryOkPost')}</div>}
               </>
             )}
             <div className="hint mt-sm">{t('proposal.signNeverReassembles')}</div>
