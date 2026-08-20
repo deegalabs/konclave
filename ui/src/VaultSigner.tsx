@@ -20,6 +20,8 @@ interface VaultSignerCtx {
   active: Proposal | null
   open: (p: Proposal) => void
   close: () => void
+  /** Re-run the background signer after the share is unlocked in-session (the panel unlock form). */
+  reseat: () => void
 }
 
 const Ctx = createContext<VaultSignerCtx | null>(null)
@@ -34,6 +36,8 @@ export function useVaultSigner(): VaultSignerCtx {
 export function VaultSignerProvider({ children }: { children: ReactNode }) {
   const [vault, setVault] = useState<Vault | null>(null)
   const [active, setActive] = useState<Proposal | null>(null)
+  // Bumped after the panel unlocks the share in-session, so useBackgroundSigner re-runs and seats.
+  const [nonce, setNonce] = useState(0)
 
   useEffect(() => {
     let on = true
@@ -48,7 +52,7 @@ export function VaultSignerProvider({ children }: { children: ReactNode }) {
   // screen: an app-wide relay session on every navigation was churny and destabilized the vault
   // session. Scoped to the panel, both members open "Sign this payment" to seat + sign together.
   // Requires a browser-native (/net) vault, unlocked in this session; otherwise inert.
-  const unlocked = active && IS_NET && vault && isVaultUnlocked(vault.id) ? { id: vault.id } : null
+  const unlocked = active && IS_NET && vault && isVaultUnlocked(vault.id) ? { id: vault.id, nonce } : null
 
   // A ready proposal is quorum-approved, so the gate approves it; `auto` means a present device
   // contributes its share on its own (the approval was the consent). Per-vault manual mode is a
@@ -66,6 +70,7 @@ export function VaultSignerProvider({ children }: { children: ReactNode }) {
     active,
     open: setActive,
     close: () => setActive(null),
+    reseat: () => setNonce((n) => n + 1),
   }
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

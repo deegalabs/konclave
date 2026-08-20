@@ -35,7 +35,9 @@ export interface BackgroundSignerState {
  * Returns null-ish state until the vault's share is unlocked in this session.
  */
 export function useBackgroundSigner(
-  vault: { id: string } | null,
+  // `nonce` lets the caller force a re-seat (e.g. after unlocking the share in-session) without
+  // changing the vault id.
+  vault: { id: string; nonce?: number } | null,
   gate: GovernanceGate = () => false,
 ): BackgroundSignerState {
   const [room, setRoom] = useState('')
@@ -52,6 +54,7 @@ export function useBackgroundSigner(
   gateRef.current = gate
 
   const id = vault?.id ?? null
+  const nonce = vault?.nonce
   useEffect(() => {
     if (!id) return
     const loaded = getUnlockedShare(id)
@@ -103,7 +106,7 @@ export function useBackgroundSigner(
       if (acquired) releaseSigner(id)
       setReady(false)
     }
-  }, [id])
+  }, [id, nonce])
 
   return {
     ready,
