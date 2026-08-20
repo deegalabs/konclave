@@ -159,6 +159,12 @@ export default function Dashboard() {
   // instead of a fabricated card.
   const awaiting = proposals.filter((p) => p.state === 'awaiting')
   const pending = awaiting[0] ?? null
+  // Approved-and-waiting-to-sign proposals. They are still OPEN (funds committed) and need an
+  // action (signing), so they must be counted as open, reserve funds, and be surfaced - not read
+  // as "nothing waiting" with 0 reserved.
+  const ready = proposals.filter((p) => p.state === 'ready')
+  const open = awaiting.concat(ready)
+  const firstReady = !IS_DEMO && !pending ? (ready[0] ?? null) : null
   // Show the (mock) approval card only when genuinely offline; during load (live === null) wait
   // for real proposals instead of flashing a fabricated one.
   const showApprovalCard = IS_DEMO || pending !== null
@@ -195,7 +201,10 @@ export default function Dashboard() {
         : Math.max(0, parseZ(balance!.total_zec) - parseZ(balance!.spendable_zec)))
     : (IS_DEMO ? 0.01 : 0)
   const settled = (ledger ?? []).filter((p) => p.state === 'sent' || p.state === 'confirmed')
-  const reservedZec = awaiting.reduce((a, p) => a + parseZ(p.value_zec), 0)
+  // Reserved = funds committed by every OPEN proposal (awaiting approval OR approved and awaiting
+  // signing). An approved-not-yet-sent proposal still holds its funds; counting only `awaiting`
+  // made the reservation vanish the moment quorum was reached.
+  const reservedZec = open.reduce((a, p) => a + parseZ(p.value_zec), 0)
   const paidZec = settled.reduce((a, p) => a + parseZ(p.value_zec), 0)
 
   // Settled spend grouped by month (ascending, last 6). SpendBars self-hides below two periods.
@@ -281,6 +290,25 @@ export default function Dashboard() {
             </div>
             <div className="note">{t('dashboard.chooseWhoNote')}</div>
           </section>
+        ) : firstReady ? (
+          <section className="needyou act">
+            <div className="req"><span className="stamp st-ready">{t('stamp.ready')}</span> {t('dashboard.readyToSign', { count: ready.length })}</div>
+            <div className="ny-body">
+              <Identicon seed={firstReady.proposer} size={38} />
+              <div className="ny-main">
+                <div className="ny-amt">{fmt4(firstReady.value_zec)} <span className="dim small">ZEC</span></div>
+                <div className="a-to">{firstReady.memo?.trim() || (firstReady.kind === 'payroll' ? t('kind.payroll') : t('kind.payment'))}</div>
+                <div className="a-meta">
+                  <span className="prog">{Array.from({ length: thr }, (_, i) => <i key={i} className="on" />)}</span>
+                  <span>{t('dashboard.ofApprovals', { count: firstReady.approvals_count, total: thr })}</span>
+                </div>
+              </div>
+            </div>
+            <div className="btns">
+              <Link className="btn ok" to="/proposal" state={{ id: firstReady.id }}>{t('dashboard.goSign')}</Link>
+            </div>
+            <div className="note">{t('dashboard.readyToSignNote')}</div>
+          </section>
         ) : (
           <section className="needyou calm">
             <div className="req"><span className="stamp" aria-hidden="true">·</span> {t('dashboard.nothingWaiting')}</div>
@@ -349,7 +377,7 @@ export default function Dashboard() {
           <section className="kpis">
             <div className="kpi">
               <span className="kpi-k klab">{t('dashboard.kpiOpen')}</span>
-              <span className="kpi-v mono">{awaiting.length}</span>
+              <span className="kpi-v mono">{open.length}</span>
             </div>
             <div className="kpi">
               <span className="kpi-k klab">{t('dashboard.kpiReserved')}</span>
