@@ -117,6 +117,7 @@ export default function Proposal() {
     <>
       <main className="page narrow">
         <PageHeader
+          back={{ to: '/proposals', label: t('proposals.title') }}
           eyebrow={eyebrow}
           title={title}
           subtitle={<>{subtitle}{p.is_public && !isPayroll && <span className="hint warn"> {t('proposal.publicDestSuffix')}</span>}</>}
