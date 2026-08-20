@@ -6,7 +6,7 @@ import { fmtZec, parseZecToZat, zatToZec } from '../format'
 import { useT, useTr } from '../i18n'
 import {
   previewPayroll, createPayroll, getBalance, getBeneficiaries, getLedger, getVault, health, classifyAddress, humanError,
-  type Beneficiary, type Proposal, type Member,
+  IS_DEMO, type Beneficiary, type Proposal, type Member,
 } from '../api'
 
 const DRAFT_KEY = 'konclave.folha.rascunho'
@@ -42,7 +42,8 @@ export default function NewPayroll() {
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [pastFolhas, setPastFolhas] = useState<Proposal[]>([])
-  const [vaultName, setVaultName] = useState(t('common.sampleVault'))
+  // Neutral placeholder while the real vault name loads; sample only in demo (never a fake name).
+  const [vaultName, setVaultName] = useState(IS_DEMO ? t('common.sampleVault') : '…')
   const [membersList, setMembersList] = useState<Member[]>([])
   const [proposer, setProposer] = useState('Alice')
   const [loaded, setLoaded] = useState(false)
