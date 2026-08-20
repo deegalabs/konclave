@@ -2,9 +2,11 @@
 //! JSON into typed values. Sync/balance/get-info are the structured, JSON-emitting
 //! commands - exactly the "structured output, never read the screen" discipline.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde::Deserialize;
+use serde_json::Value;
 
 use crate::money::Zatoshis;
 use crate::tools::{run_text, ToolError};
@@ -30,19 +32,54 @@ struct ChainInfoRaw {
 pub struct Balance {
     pub chain_tip_height: u64,
     pub orchard_spendable: Zatoshis,
+    /// Ironwood pool (NU6.3, V6). Post-activation every new shielded deposit lands here, not in
+    /// Orchard (Orchard is withdrawal-only), and it carries its OWN value balance (ZIP-318). The
+    /// pre-Ironwood reader ignored this field, so an Ironwood-funded vault reported 0 spendable.
+    pub ironwood_spendable: Zatoshis,
     pub sapling_spendable: Zatoshis,
     pub transparent_spendable: Zatoshis,
     /// Total including notes not yet spendable (e.g. awaiting confirmations).
     pub total: Zatoshis,
 }
 
+impl Balance {
+    /// What the FROST/Orchard-family vault can actually spend: the Orchard pool plus the Ironwood
+    /// pool (both are RedPallas/Orchard-shaped and this vault holds no Sapling/transparent spend
+    /// key). This is the number the send path and the UI mean by "spendable".
+    pub fn shielded_spendable(&self) -> Zatoshis {
+        Zatoshis::from_u64(self.orchard_spendable.as_u64() + self.ironwood_spendable.as_u64())
+            .unwrap_or(self.orchard_spendable)
+    }
+}
+
 #[derive(Deserialize)]
 struct BalanceRaw {
     chain_tip_height: u64,
     orchard_spendable: u64,
+    #[serde(default)]
+    ironwood_spendable: u64,
     sapling_spendable: u64,
     transparent_spendable: u64,
     total: u64,
+    // Any field the pinned devtool emits that we do not name explicitly (e.g. a differently-named
+    // Ironwood balance in a future engine bump) lands here, so we can still find the Ironwood
+    // spendable by shape instead of guessing the exact key.
+    #[serde(flatten)]
+    extra: BTreeMap<String, Value>,
+}
+
+/// Find an Ironwood spendable amount among fields we did not name explicitly, by shape: any key
+/// containing both "ironwood" and "spendable" whose value is a number. Zero if none. This makes the
+/// reader robust to the exact JSON key the Ironwood-pinned `zcash-devtool` uses.
+fn ironwood_from_extra(extra: &BTreeMap<String, Value>) -> u64 {
+    extra
+        .iter()
+        .filter(|(k, _)| {
+            let k = k.to_ascii_lowercase();
+            k.contains("ironwood") && k.contains("spendable")
+        })
+        .filter_map(|(_, v)| v.as_u64())
+        .sum()
 }
 
 /// Parse the JSON from `wallet get-info`.
@@ -68,9 +105,17 @@ pub fn parse_balance(json: &str) -> Result<Balance, ToolError> {
         Zatoshis::from_u64(v)
             .map_err(|e| ToolError::parse(format!("balance.{field}"), e.to_string()))
     };
+    // Prefer the explicitly-named field; fall back to shape-matching the extras so a renamed
+    // Ironwood balance in a later engine still counts.
+    let ironwood = if raw.ironwood_spendable != 0 {
+        raw.ironwood_spendable
+    } else {
+        ironwood_from_extra(&raw.extra)
+    };
     Ok(Balance {
         chain_tip_height: raw.chain_tip_height,
         orchard_spendable: z(raw.orchard_spendable, "orchard_spendable")?,
+        ironwood_spendable: z(ironwood, "ironwood_spendable")?,
         sapling_spendable: z(raw.sapling_spendable, "sapling_spendable")?,
         transparent_spendable: z(raw.transparent_spendable, "transparent_spendable")?,
         total: z(raw.total, "total")?,
@@ -197,8 +242,44 @@ mod tests {
         assert_eq!(b.chain_tip_height, 3_396_338);
         assert_eq!(b.total, Zatoshis::from_u64(100_000).unwrap());
         assert_eq!(b.orchard_spendable, Zatoshis::ZERO);
+        // A pre-Ironwood balance JSON has no ironwood field: it defaults to zero, not an error.
+        assert_eq!(b.ironwood_spendable, Zatoshis::ZERO);
+        assert_eq!(b.shielded_spendable(), Zatoshis::ZERO);
         // total is 0.001 ZEC (the funding amount), not yet spendable.
         assert_eq!(b.total.to_zec_string(), "0.00100000");
+    }
+
+    // Post-NU6.3: the deposit lands in the Ironwood pool. `total` counts it; `orchard_spendable` is
+    // zero; the spendable lives under an ironwood field. The pre-Ironwood reader dropped it and
+    // reported 0 spendable (the bug this test locks down).
+    const BALANCE_IRONWOOD: &str = r#"{"chain_tip_height":3428300,"orchard_spendable":0,"ironwood_spendable":1213291,"sapling_spendable":0,"transparent_spendable":0,"total":1213291}"#;
+
+    #[test]
+    fn parses_ironwood_spendable_as_shielded() {
+        let b = parse_balance(BALANCE_IRONWOOD).unwrap();
+        assert_eq!(b.orchard_spendable, Zatoshis::ZERO);
+        assert_eq!(b.ironwood_spendable, Zatoshis::from_u64(1_213_291).unwrap());
+        // The number the send path / UI mean by "spendable" now includes the Ironwood pool.
+        assert_eq!(b.shielded_spendable(), Zatoshis::from_u64(1_213_291).unwrap());
+        assert_eq!(b.total, Zatoshis::from_u64(1_213_291).unwrap());
+    }
+
+    #[test]
+    fn ironwood_spendable_found_by_shape_when_key_differs() {
+        // A future engine could name the field differently; we still find it by shape (contains
+        // "ironwood" + "spendable"), instead of silently reporting 0.
+        let j = r#"{"chain_tip_height":3428300,"orchard_spendable":0,"sapling_spendable":0,"transparent_spendable":0,"total":500000,"ironwoodPoolSpendable":500000}"#;
+        let b = parse_balance(j).unwrap();
+        assert_eq!(b.ironwood_spendable, Zatoshis::from_u64(500_000).unwrap());
+        assert_eq!(b.shielded_spendable(), Zatoshis::from_u64(500_000).unwrap());
+    }
+
+    #[test]
+    fn shielded_spendable_sums_orchard_and_ironwood() {
+        // Mid-migration a vault can hold both pools; spendable is the sum.
+        let j = r#"{"chain_tip_height":3428300,"orchard_spendable":300000,"ironwood_spendable":700000,"sapling_spendable":0,"transparent_spendable":0,"total":1000000}"#;
+        let b = parse_balance(j).unwrap();
+        assert_eq!(b.shielded_spendable(), Zatoshis::from_u64(1_000_000).unwrap());
     }
 
     #[test]
