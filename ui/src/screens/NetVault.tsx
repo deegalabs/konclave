@@ -199,6 +199,12 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
   // signs them (the ceremony), so it keeps the list + a status message, not a create/vote form.
   const [proposals, setProposals] = useState<Proposal[] | null>(null)
   const [propMsg, setPropMsg] = useState('')
+  // Single-flight guard: one send at a time from this device. Two concurrent sends (a double-click,
+  // or the same tab firing twice) would publish two competing sign-requests into the relay room and
+  // neither would gather quorum. The cross-DEVICE lock (two tabs pressing) is the per-vault signing
+  // room + singleton in issue #49; this stops the same device from colliding with itself.
+  const [sendingId, setSendingId] = useState<string | null>(null)
+  const sendingRef = useRef(false)
   const [signPhase, setSignPhase] = useState<'none' | 'signing' | 'signed'>('none')
   const [signature, setSignature] = useState('')
   const [signOk, setSignOk] = useState(false)
@@ -626,6 +632,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
   // moves real funds, so it is gated by an explicit confirmation (a single click never sends, §7).
   const execProp = useCallback(
     async (id: string) => {
+      if (sendingRef.current) return // a send is already in flight from this device; ignore re-entry
       const ok = typeof window === 'undefined' || window.confirm(
         pe(
           'Executar este pagamento aprovado? As duas abas vão assinar e a transação vai para a rede.',
@@ -633,24 +640,37 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
         ),
       )
       if (!ok) return
+      sendingRef.current = true
+      setSendingId(id)
       setPropMsg(pe('Executando: as abas assinam pelo relay…', 'Executing: the tabs sign over the relay…'))
-      const r = await executeProposal({
-        vault: groupVk,
-        proposalId: id,
-        relayBase: RELAY_BASE,
-        room,
-        dryRun: false,
-      })
-      if (!r) {
-        setPropMsg(pe('Falha ao executar (proposta não pronta ou sem assinaturas a tempo).', 'Execute failed (proposal not ready or no signatures in time).'))
-        return
+      try {
+        const r = await executeProposal({
+          vault: groupVk,
+          proposalId: id,
+          relayBase: RELAY_BASE,
+          room,
+          dryRun: false,
+        })
+        if (!r) {
+          setPropMsg(pe('Falha ao executar: não foi possível falar com o coordenador.', 'Execute failed: could not reach the coordinator.'))
+          return
+        }
+        if ('error' in r) {
+          // The helper's real reason (funds not spendable, timed out waiting for a device to sign,
+          // signature rejected, broadcast refused, ...) instead of a generic guess.
+          setPropMsg(pe(`Falha ao executar: ${r.error}`, `Execute failed: ${r.error}`))
+          return
+        }
+        setPropMsg(
+          r.txid
+            ? `${pe('Transmitido. txid:', 'Broadcast. txid:')} ${r.txid}`
+            : pe('Executado.', 'Executed.'),
+        )
+        void loadProposals()
+      } finally {
+        sendingRef.current = false
+        setSendingId(null)
       }
-      setPropMsg(
-        r.txid
-          ? `${pe('Transmitido. txid:', 'Broadcast. txid:')} ${r.txid}`
-          : pe('Executado.', 'Executed.'),
-      )
-      void loadProposals()
     },
     [groupVk, room, pe, loadProposals],
   )
@@ -1131,10 +1151,13 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
                     <div className="net-trail-row" style={{ marginTop: 4 }}>
                       <button
                         className="net-btn primary"
-                        disabled={!room}
+                        disabled={!room || sendingId !== null}
+                        aria-busy={sendingId === p.id}
                         onClick={() => void execProp(p.id)}
                       >
-                        {room
+                        {sendingId === p.id
+                          ? pe('Enviando…', 'Sending…')
+                          : room
                           ? pe('Assinar e enviar', 'Sign & send')
                           : pe('Inicie uma sessão de assinatura', 'Start a signing session')}
                       </button>

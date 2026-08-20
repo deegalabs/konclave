@@ -227,7 +227,15 @@ export async function getVault(groupKeyHex: string): Promise<HelperVault | null>
 }
 
 /** A vault's Orchard balance (zatoshis) as the helper reports it from its view-only wallet. */
-export type HelperBalance = { orchard_spendable_zat: number; total_zat: number }
+export type HelperBalance = {
+  orchard_spendable_zat: number
+  // Since NU6.3 the spendable funds live in the Ironwood pool; the helper reports both and the
+  // combined shielded_spendable_zat. Optional so an older helper (orchard + total only) still parses.
+  ironwood_spendable_zat?: number
+  shielded_spendable_zat?: number
+  chain_tip_height?: number
+  total_zat: number
+}
 
 /**
  * Sync + read a registered vault's Orchard balance from the helper's view-only wallet. It is a
@@ -265,9 +273,38 @@ export async function executeProposal(args: {
   relayBase: string
   room: string
   dryRun?: boolean
-}): Promise<{ txid: string | null; dry_run: boolean; state: string } | null> {
-  return postJson<{ txid: string | null; dry_run: boolean; state: string }>(
-    `/api/vault/proposals/${q(args.proposalId)}/send`,
-    { vault: args.vault, relay_base: args.relayBase, room: args.room, dry_run: args.dryRun ?? true },
-  )
+}): Promise<
+  | { txid: string | null; dry_run: boolean; state: string }
+  | { error: string }
+  | null
+> {
+  // A send can fail at any of ~7 stages (build/prove/sign/inject/broadcast); the helper returns a
+  // precise `{error}` with an accurate status. We read that body instead of collapsing every
+  // failure to null, so the UI can show WHY (CLAUDE.md §6.11, §11) instead of a generic guess.
+  const base = helperBase()
+  if (!base) return null
+  try {
+    const res = await fetch(`${base}/api/vault/proposals/${q(args.proposalId)}/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        vault: args.vault,
+        relay_base: args.relayBase,
+        room: args.room,
+        dry_run: args.dryRun ?? true,
+      }),
+    })
+    const data = (await res.json().catch(() => null)) as
+      | { txid: string | null; dry_run: boolean; state: string }
+      | { error?: string }
+      | null
+    if (!res.ok) {
+      const msg =
+        data && 'error' in data && typeof data.error === 'string' ? data.error : `HTTP ${res.status}`
+      return { error: msg }
+    }
+    return data as { txid: string | null; dry_run: boolean; state: string }
+  } catch {
+    return null // could not reach the coordinator at all
+  }
 }

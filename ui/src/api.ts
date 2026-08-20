@@ -235,12 +235,15 @@ export async function getBalance(): Promise<Balance | null> {
     if (!id) return null
     const b = await netVaultBalance(id)
     if (!b) return null
+    // Since NU6.3 the spendable funds live in the Ironwood pool. Use the helper's combined
+    // shielded_spendable_zat (Orchard + Ironwood); fall back to orchard-only for an older helper.
+    const spendable = b.shielded_spendable_zat ?? b.orchard_spendable_zat
     return {
       configured: true,
       total_zat: b.total_zat,
       total_zec: zatToZec(b.total_zat),
-      spendable_zat: b.orchard_spendable_zat,
-      spendable_zec: zatToZec(b.orchard_spendable_zat),
+      spendable_zat: spendable,
+      spendable_zec: zatToZec(spendable),
     }
   }
   return (await getJson<Balance>(withVault('/api/balance'))) ?? (DEMO ? MOCK.balance : null)
