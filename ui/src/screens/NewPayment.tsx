@@ -50,7 +50,10 @@ export default function NewPayment() {
         const first0 = v.member_list?.[0]
         if (first0) { setMembersList(v.member_list!); setProposer(first0.name) }
       }
-      if (b?.configured) setAvailable(b.total_zec ?? null)
+      // Spendable (not total): the send can only draw on confirmed, spendable funds, so the
+      // "available" and the balance-after preview must be against spendable to catch amount+fee
+      // overspend BEFORE a proposal is created (the helper rejected 0.0120 on a 0.01213 spendable).
+      if (b?.configured) setAvailable(b.spendable_zec ?? b.total_zec ?? null)
       if (bs) setBenefs(bs)
     })()
     return () => { on = false }
@@ -69,8 +72,14 @@ export default function NewPayment() {
   // stays authoritative on the real fee; ~0.0001 ZEC is a reasonable single-payment estimate.
   const amountZat = parseZecToZat(value)
   const availableZat = parseZecToZat(shownAvailable)
-  const feeZat = 10000
+  // ZIP-317 conservative estimate covering the change output (the real single-payment fee observed
+  // on mainnet was 15000). Better to slightly over-estimate so we never let an unsendable amount
+  // through to a dead-end proposal.
+  const feeZat = 15000
   const afterZat = availableZat == null || amountZat == null ? null : availableZat - amountZat - feeZat
+  // Amount + fee exceeds the spendable balance: block proposing, so a member never approves a
+  // payment that the vault cannot actually send (the dead-end the helper rejected at build time).
+  const overBalance = afterZat !== null && afterZat < 0
 
   async function submit() {
     setError(null)
@@ -161,13 +170,13 @@ export default function NewPayment() {
           <div className="pv-row"><span className="pv-k">{t('payment.pvApprovals')}</span><span className="pv-v"><b>{threshold}</b> {t('payment.includingYours')}</span></div>
           <div className="pv-row"><span className="pv-k">{t('payroll.pvAfter')}</span><span className="pv-v">{afterZat === null ? <b className="dim">-</b> : <Secret sm><b>{fmtZec(zatToZec(afterZat))}</b></Secret>}</span></div>
         </div>
-        {afterZat !== null && afterZat < 0 && <div className="hint warn mt-sm">{t('payroll.warnExceeds')}</div>}
+        {overBalance && <div className="hint warn mt-sm">{t('payment.warnOverBalance')}</div>}
         <div className="hint">{tr('payment.approvalHint', { proposer, threshold, rest: threshold > 1 ? t('payment.approvalHintMore', { n: threshold - 1 }) : t('payment.approvalHintReady'), aval: threshold === 1 ? t('payment.avalSingular') : t('payment.avalPlural') })}</div>
 
         {error && <div className="hint err mt" role="alert">{error}</div>}
 
         <div className="right mt">
-          <button className="btn ok" onClick={submit} disabled={busy || memoOver || !to.trim() || !(parseFloat(String(value).replace(',', '.')) > 0)}>
+          <button className="btn ok" onClick={submit} disabled={busy || memoOver || overBalance || !to.trim() || !(parseFloat(String(value).replace(',', '.')) > 0)}>
             {busy ? t('payment.proposing') : t('payment.proposeBtn')}
           </button>
         </div>

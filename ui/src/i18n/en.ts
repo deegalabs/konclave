@@ -483,6 +483,7 @@ export const en: Record<string, string> = {
   'payment.avalPlural': 'approvals',
   'payment.proposing': 'Proposing…',
   'payment.proposeBtn': 'Propose payment',
+  'payment.warnOverBalance': 'Amount plus the network fee is more than the vault can spend right now. Lower the amount.',
 
   // New payroll
   'payroll.issueEmpty': 'empty address',
