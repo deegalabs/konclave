@@ -4,22 +4,26 @@
 // automatically (their approval was the consent). Echoes the members-popover visual language.
 
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
 import { Dialog } from '../components'
 import { Identicon } from '../avatar'
 import { useT } from '../i18n'
 import { fmtZec, shortAddr } from '../format'
 import { useVaultSigner } from '../VaultSigner'
 import { executeProposal } from '../helper'
+import { markVaultUnlocked } from '../api'
 import { RELAY_BASE } from '../net'
-import { getUnlockedShare } from '../session'
+import { getUnlockedShare, setUnlockedShare } from '../session'
+import { loadVault } from '../storage'
 
 export default function SigningPanel() {
   const t = useT()
-  const { bg, vault, threshold, active, close } = useVaultSigner()
+  const { bg, vault, threshold, active, close, reseat } = useVaultSigner()
   const [confirming, setConfirming] = useState(false)
   const [sending, setSending] = useState(false)
   const [result, setResult] = useState<{ txid: string | null } | { error: string } | null>(null)
+  const [pass, setPass] = useState('')
+  const [unlocking, setUnlocking] = useState(false)
+  const [unlockErr, setUnlockErr] = useState('')
 
   if (!active) return null
 
@@ -53,6 +57,24 @@ export default function SigningPanel() {
     if (!r) setResult({ error: t('signing.errUnreachable') })
     else if ('error' in r) setResult({ error: r.error })
     else setResult({ txid: r.txid })
+  }
+
+  // Unlock this device's share right here in the panel (no trip to the vault picker), then re-seat.
+  async function doUnlock() {
+    if (!vault || pass.length < 1) return
+    setUnlocking(true)
+    setUnlockErr('')
+    try {
+      const share = await loadVault(vault.id, pass)
+      setUnlockedShare(vault.id, share)
+      markVaultUnlocked(vault.id)
+      setPass('')
+      reseat() // the signer re-runs now that the share is in session
+    } catch {
+      setUnlockErr(t('vaults.unlockWrong'))
+    } finally {
+      setUnlocking(false)
+    }
   }
 
   function onClose() {
@@ -116,9 +138,21 @@ export default function SigningPanel() {
               {bg.what && <div className="hint mt-sm mono">→ {shortAddr(bg.what.addr)} · {bg.what.zec} ZEC</div>}
             </div>
           ) : !hasShare ? (
-            <div className="sign-err">
-              <div className="hint warn">{t('signing.needUnlock')}</div>
-              <Link className="btn ok sm-btn mt-sm" to="/vaults" onClick={onClose}>{t('signing.needUnlockCta')}</Link>
+            <div className="sign-unlock">
+              <div className="hint">{t('signing.needUnlock')}</div>
+              <input
+                className="input mono mt-sm"
+                type="password"
+                autoFocus
+                placeholder={t('vaults.wordPlaceholder')}
+                value={pass}
+                onChange={(e) => setPass(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') void doUnlock() }}
+              />
+              {unlockErr && <div className="hint err mt-sm" role="alert">{unlockErr}</div>}
+              <button className="btn ok mt-sm" disabled={unlocking || pass.length < 1} onClick={() => void doUnlock()}>
+                {unlocking ? t('vaults.verifying') : t('signing.needUnlockCta')}
+              </button>
             </div>
           ) : !bg.ready ? (
             <div className="confirm">{t('signing.opening')}</div>

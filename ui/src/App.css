@@ -107,6 +107,8 @@
 .sign-seat{display:flex; align-items:center; gap:9px; font-size:13px; color:var(--text-muted); opacity:.5}
 .sign-seat.on{opacity:1; color:var(--text)}
 .sign-state{display:flex; flex-direction:column; gap:4px}
+.sign-unlock{display:flex; flex-direction:column; gap:4px}
+.sign-unlock .input{width:100%}
 .sign-reassure{font-size:12px; line-height:1.5; margin-top:auto; border-top:1px solid var(--line); padding-top:14px}
 @media(max-width:560px){
   .sign-sheet{width:100vw; top:auto; height:90vh; border-radius:16px 16px 0 0; border-left:0; border-top:1px solid var(--line);
