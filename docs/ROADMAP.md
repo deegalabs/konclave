@@ -26,6 +26,10 @@ cycle's work:
   multi-device note), PT/EN leaks, input validation on money/URL fields, and locale-aware dates.
   The **preview + explicit-confirm money contract was audited and is honored** - a single click
   never moves funds.
+- **Cargo workspace:** the Rust crates are unified under one workspace - orchestrator aligned on
+  `rusqlite 0.37` to resolve the long-deferred `links="sqlite3"` conflict (vs konclave-signer's
+  `zcash_client_sqlite`); every crate compiles and orchestrator's **227 tests pass** (the
+  SQLCipher store included). The 0.31 -> 0.37 bump needed no code changes.
 
 **Gated - needs the owner's machine / explicit authorization (cannot run from CI)**
 - A real **Dashboard-triggered broadcast** on mainnet (money-gated; needs a funded vault + a live
@@ -36,8 +40,7 @@ cycle's work:
 **Open honest debts (§6.15, unchanged)**
 - **H2:** seal the SignRequest (device-key handshake, #63).
 - `/net` **multi-note** over the live relay (unit-tested; single-spend is live-proven).
-- **Tauri** single-binary hardening per platform; **Cargo workspace** (deferred: rusqlite version
-  conflict).
+- **Tauri** single-binary hardening per platform (needs real per-platform hardware).
 
 ---
 
