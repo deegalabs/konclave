@@ -29,8 +29,8 @@ RUN mkdir -p /data
 ENV KONCLAVE_ZCASH_SIGN=/usr/local/bin/zcash-sign \
     KONCLAVE_DEVTOOL=/usr/local/bin/zcash-devtool \
     KONCLAVE_SIGNER=/usr/local/bin/konclave-signer \
-    KONCLAVE_NETWORK=test \
-    KONCLAVE_LIGHTWALLETD=testnet.zec.rocks:443 \
+    KONCLAVE_NETWORK=main \
+    KONCLAVE_LIGHTWALLETD=zec.rocks:443 \
     KONCLAVE_VAULTS_DIR=/data/vaults
 
 # Railway injects PORT; the helper binds KONCLAVE_HELPER_ADDR. Bind 0.0.0.0 so the public

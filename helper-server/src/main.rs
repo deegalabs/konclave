@@ -630,8 +630,10 @@ fn config_from_env() -> HelperConfig {
     HelperConfig {
         zcash_sign: PathBuf::from(env("KONCLAVE_ZCASH_SIGN", "zcash-sign")),
         devtool: PathBuf::from(env("KONCLAVE_DEVTOOL", "zcash-devtool")),
-        lightwalletd: env("KONCLAVE_LIGHTWALLETD", "testnet.zec.rocks:443"),
-        network: env("KONCLAVE_NETWORK", "test"),
+        // Default to MAINNET: this is a mainnet product, and a testnet default silently mints
+        // `utest1…` vault addresses that would lose real funds. A testnet dev deploy sets these.
+        lightwalletd: env("KONCLAVE_LIGHTWALLETD", "zec.rocks:443"),
+        network: env("KONCLAVE_NETWORK", "main"),
         konclave_signer: PathBuf::from(env("KONCLAVE_SIGNER", "konclave-signer")),
         vaults_dir: PathBuf::from(env("KONCLAVE_VAULTS_DIR", "./helper-vaults")),
     }

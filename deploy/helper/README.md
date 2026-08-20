@@ -78,8 +78,8 @@ All are public tooling paths / endpoints - nothing secret. Defaults suit the tes
 | var | default | meaning |
 |---|---|---|
 | `KONCLAVE_HELPER_ADDR` | `0.0.0.0:4780` | bind address (the CMD wires Railway's `$PORT` in) |
-| `KONCLAVE_NETWORK` | `test` | `main` or `test` (drives address validation + derivation) |
-| `KONCLAVE_LIGHTWALLETD` | `testnet.zec.rocks:443` | lightwalletd for the view-only wallets |
+| `KONCLAVE_NETWORK` | `main` | `main` or `test` (drives address validation + derivation) |
+| `KONCLAVE_LIGHTWALLETD` | `zec.rocks:443` | lightwalletd for the view-only wallets (mainnet default; `testnet.zec.rocks:443` for testnet) |
 | `KONCLAVE_ZCASH_SIGN` / `KONCLAVE_DEVTOOL` / `KONCLAVE_SIGNER` | `/usr/local/bin/...` | engine binary paths |
 | `KONCLAVE_VAULTS_DIR` | `/home/helper/vaults` | per-vault view-only wallets + send scratch |
 
