@@ -143,8 +143,18 @@ export const en: Record<string, string> = {
   'nav.members': 'Signers',
   'nav.people': 'Beneficiaries',
   'nav.settings': 'Settings',
+  'nav.pay': 'Pay',
+  'nav.activity': 'Activity',
   'nav.switchVault': 'Switch vault',
   'nav.more': 'More',
+
+  // Activity (merged Proposals + Ledger + Evidence)
+  'activity.eyebrow': 'The proposal lifecycle',
+  'activity.title': 'Activity',
+  'activity.subtitle': 'Proposals, the ledger, and the signing evidence, all in one place.',
+  'activity.tab.proposals': 'Proposals',
+  'activity.tab.ledger': 'Ledger',
+  'activity.tab.evidence': 'Evidence',
 
   // "And now?" connector - the next natural step at the foot of each read/hub screen
   'next.label': 'Next step',

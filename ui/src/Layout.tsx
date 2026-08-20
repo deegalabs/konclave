@@ -66,13 +66,14 @@ export default function Layout() {
     ? vault.member_list.slice(0, 3).map((m) => m.name)
     : ['A', 'B', 'C']
 
+  // Rail grouped by intent (ADR-0009): Overview, Add funds, the two compose actions (Pay/Payroll),
+  // ONE Activity destination (merges the old Proposals + Ledger + Ceremonies), then People + Settings.
   const items: [string, string, ReactNode][] = [
     ['/dashboard', t('nav.dashboard'), <IconGrid key="i" />],
     ['/receive', t('nav.receive'), <IconReceive key="i" />],
-    ['/proposals', t('nav.proposals'), <IconInbox key="i" />],
+    ['/pay', t('nav.pay'), <IconSend key="i" />],
     ['/payroll', t('nav.payroll'), <IconRows key="i" />],
-    ['/ledger', t('nav.ledger'), <IconDoc key="i" />],
-    ['/ceremonies', t('nav.ceremonies'), <IconShield key="i" />],
+    ['/activity', t('nav.activity'), <IconInbox key="i" />],
     ['/members', t('nav.members'), <IconUsers key="i" />],
     ['/people', t('nav.people'), <IconUser key="i" />],
     ['/settings', t('nav.settings'), <IconGear key="i" />],
@@ -183,10 +184,9 @@ const s = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.7 } as const
 function IconGrid() { return <svg viewBox="0 0 24 24" {...s}><rect x="3" y="3" width="7" height="9" rx="1.5" /><rect x="14" y="3" width="7" height="5" rx="1.5" /><rect x="14" y="12" width="7" height="9" rx="1.5" /><rect x="3" y="16" width="7" height="5" rx="1.5" /></svg> }
 function IconInbox() { return <svg viewBox="0 0 24 24" {...s}><path d="M3 12h5l2 3h4l2-3h5" /><path d="M5 5h14l2 7v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-6z" /></svg> }
 function IconRows() { return <svg viewBox="0 0 24 24" {...s}><path d="M4 6h16M4 12h16M4 18h10" /></svg> }
-function IconDoc() { return <svg viewBox="0 0 24 24" {...s}><path d="M6 3h9l4 4v14H6z" /><path d="M14 3v4h4M9 13h6M9 17h6" /></svg> }
+function IconSend() { return <svg viewBox="0 0 24 24" {...s}><path d="M12 20V4m0 0l-5 5m5-5l5 5" /></svg> }
 function IconUsers() { return <svg viewBox="0 0 24 24" {...s}><circle cx="9" cy="8" r="3.2" /><path d="M3.5 19a5.5 5.5 0 0 1 11 0" /><path d="M17 8.5a3 3 0 0 1 0 5M18.5 19a5 5 0 0 0-3-4.6" /></svg> }
 function IconUser() { return <svg viewBox="0 0 24 24" {...s}><circle cx="12" cy="8" r="3.4" /><path d="M5 20a7 7 0 0 1 14 0" /></svg> }
 function IconReceive() { return <svg viewBox="0 0 24 24" {...s}><path d="M12 4v11m0 0l-4-4m4 4l4-4" /><path d="M5 20h14" /></svg> }
 function IconMore() { return <svg viewBox="0 0 24 24" {...s}><circle cx="5" cy="12" r="1.4" /><circle cx="12" cy="12" r="1.4" /><circle cx="19" cy="12" r="1.4" /></svg> }
 function IconGear() { return <svg viewBox="0 0 24 24" {...s}><circle cx="12" cy="12" r="3.2" /><path d="M12 2.5v3M12 18.5v3M4.2 7l2.6 1.5M17.2 15.5l2.6 1.5M4.2 17l2.6-1.5M17.2 8.5l2.6-1.5" /></svg> }
-function IconShield() { return <svg viewBox="0 0 24 24" {...s}><path d="M12 3l7 2.5v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9v-6z" /><path d="M9 12l2 2 4-4" /></svg> }

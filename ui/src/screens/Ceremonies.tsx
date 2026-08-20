@@ -11,7 +11,7 @@ import { fmtDate, shortAddr } from '../format'
  * the app (next to the ledger), not on the ceremony screen. Reproducible evidence of every payment
  * the vault signed: the sighash, the quorum's aggregate signature, and the on-chain txid.
  */
-export default function Ceremonies() {
+export default function Ceremonies({ embedded = false }: { embedded?: boolean }) {
   const t = useT()
   const { locale } = useI18n()
   const [records, setRecords] = useState<CeremonyRecord[] | null>(null)
@@ -28,14 +28,7 @@ export default function Ceremonies() {
     return () => { on = false }
   }, [])
 
-  return (
-    <main className="page">
-      <PageHeader
-        eyebrow={t('ceremonies.eyebrow')}
-        title={t('ceremonies.title')}
-        subtitle={t('ceremonies.subtitle')}
-      />
-
+  const list = (
       <div className="cer-list mt">
         {busy && <p className="hint">{t('ceremonies.loading')}</p>}
         {!busy && (!records || records.length === 0) && (
@@ -60,7 +53,18 @@ export default function Ceremonies() {
           </div>
         ))}
       </div>
+  )
 
+  if (embedded) return list
+
+  return (
+    <main className="page">
+      <PageHeader
+        eyebrow={t('ceremonies.eyebrow')}
+        title={t('ceremonies.title')}
+        subtitle={t('ceremonies.subtitle')}
+      />
+      {list}
       <NextStep label={t('next.label')} cta={t('ceremonies.next')} to="/ledger" />
       <PageFooter>{t('ceremonies.footer')}</PageFooter>
     </main>

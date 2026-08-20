@@ -9,7 +9,7 @@ import { useT, useI18n } from '../i18n'
 
 const SETTLED = (s: string) => s === 'sent' || s === 'confirmed'
 
-export default function Ledger() {
+export default function Ledger({ embedded = false }: { embedded?: boolean }) {
   const t = useT()
   const { locale } = useI18n()
   const [rows, setRows] = useState<Proposal[] | null>(null)
@@ -113,18 +113,17 @@ export default function Ledger() {
     return stOk && knOk
   })
 
-  return (
+  const exportActions = (
     <>
-      <main className="page">
-        <PageHeader
-          title={t('ledger.title')}
-          actions={<>
-            <a className="btn ghost sm-btn" href={ledgerCsvUrl()} download="konclave-ledger.csv">{t('ledger.exportCsv')}</a>
-            <button className="btn ghost sm-btn" disabled={xlsxBusy} onClick={() => void exportXlsx()}>{xlsxBusy ? t('ledger.exporting') : t('ledger.exportXlsx')}</button>
-            <button className="btn ghost sm-btn" onClick={() => window.print()}>{t('ledger.pdf')}</button>
-          </>}
-        />
+      <a className="btn ghost sm-btn" href={ledgerCsvUrl()} download="konclave-ledger.csv">{t('ledger.exportCsv')}</a>
+      <button className="btn ghost sm-btn" disabled={xlsxBusy} onClick={() => void exportXlsx()}>{xlsxBusy ? t('ledger.exporting') : t('ledger.exportXlsx')}</button>
+      <button className="btn ghost sm-btn" onClick={() => window.print()}>{t('ledger.pdf')}</button>
+    </>
+  )
 
+  const body = (
+    <>
+        {embedded && <div className="lg-actions">{exportActions}</div>}
         {/* Document band - the vault's book to hand to the accountant */}
         <div className="doc-band">
           <div className="db-meta">
@@ -222,8 +221,17 @@ export default function Ledger() {
           </tbody>
         </table>
 
-        <NextStep label={t('next.label')} cta={t('next.dashboard')} to="/dashboard" />
+    </>
+  )
 
+  if (embedded) return body
+
+  return (
+    <>
+      <main className="page">
+        <PageHeader title={t('ledger.title')} actions={exportActions} />
+        {body}
+        <NextStep label={t('next.label')} cta={t('next.dashboard')} to="/dashboard" />
         <PageFooter>
           <span className="dim pushr">{t('ledger.foot')}</span>
         </PageFooter>

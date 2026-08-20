@@ -143,8 +143,18 @@ export const ptBR: Record<string, string> = {
   'nav.members': 'Signatários',
   'nav.people': 'Beneficiários',
   'nav.settings': 'Ajustes',
+  'nav.pay': 'Pagar',
+  'nav.activity': 'Atividade',
   'nav.switchVault': 'Trocar cofre',
   'nav.more': 'Mais',
+
+  // Atividade (Propostas + Razão + Evidências fundidas)
+  'activity.eyebrow': 'O ciclo das propostas',
+  'activity.title': 'Atividade',
+  'activity.subtitle': 'Propostas, a razão e as evidências de assinatura, tudo num só lugar.',
+  'activity.tab.proposals': 'Propostas',
+  'activity.tab.ledger': 'Razão',
+  'activity.tab.evidence': 'Evidências',
 
   // Conector "e agora?" - o próximo passo natural no rodapé de cada tela de leitura
   'next.label': 'Próximo passo',
