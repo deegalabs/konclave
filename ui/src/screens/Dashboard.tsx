@@ -12,6 +12,7 @@ import {
   getVault, getProposals, getBalance, getLedger, health, shortAddr, isVaultUnlocked, IS_DEMO,
   type Vault, type Proposal, type Balance,
 } from '../api'
+import { listVaults } from '../storage'
 
 type Movimento = { date: string; title: string; by?: string; value: string; dir: 'out' | 'in'; status: string }
 
@@ -58,6 +59,10 @@ export default function Dashboard() {
   const [ledger, setLedger] = useState<Proposal[] | null>(null)
   const [balance, setBalance] = useState<Balance | null>(null)
   const [live, setLive] = useState<boolean | null>(null)
+  // For the members peek: this device's seat and the vault creator (on-device record). Loaded once
+  // per vault id, not on every poll.
+  const [me, setMe] = useState<string | null>(null)
+  const [creator, setCreator] = useState<string | null>(null)
   const [rate, setRate] = useState<Rate | null>(cachedRate())
   const [usdOn, setUsdOn] = useState<boolean>(usdEnabled())
   const [rateBusy, setRateBusy] = useState(false)
@@ -114,6 +119,20 @@ export default function Dashboard() {
     return () => { on = false; clearInterval(id) }
   }, [])
 
+  // Load "you" + creator for the members peek, once per vault (not on the 12s poll).
+  useEffect(() => {
+    if (!vault) return
+    let on = true
+    void (async () => {
+      try {
+        const saved = await listVaults()
+        const rec = saved.find((s) => s.id === vault.id)
+        if (on && rec) { setMe(rec.myName ?? null); setCreator(rec.creatorName ?? null) }
+      } catch { /* local-bridge mode: no on-device record - the peek just omits the you/creator marks */ }
+    })()
+    return () => { on = false }
+  }, [vault?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const isLive = live === true
   const loading = live === null // initial fetch still in flight
 
@@ -123,6 +142,7 @@ export default function Dashboard() {
   const thr = vault?.threshold ?? 2
   const n = vault?.total ?? 3
   const members = vault?.members ?? n
+  const roster = vault?.member_list ?? []
   const addr = vault ? shortAddr(vault.orchard_address) : (IS_DEMO ? 'u1vjgx…d406dr' : '…')
 
   // Balance - real when the wallet is wired; "-" when live-but-unwired; mock when offline.
@@ -215,7 +235,24 @@ export default function Dashboard() {
           eyebrow={t('dashboard.collectiveVault')}
           title={name}
           subtitle={<>
-            {tr('dashboard.vmetaPre')} · <Link className="link" to="/members">{t('dashboard.membersCount', { n: members })}</Link>
+            {tr('dashboard.vmetaPre')} · <span className="members-peek">
+              <Link className="link" to="/members" aria-describedby={roster.length > 0 ? 'members-pop' : undefined}>{t('dashboard.membersCount', { n: members })}</Link>
+              {roster.length > 0 && (
+                <span className="members-pop" role="tooltip" id="members-pop">
+                  <span className="members-pop-head">{t('dashboard.membersQuorum', { t: thr, n })}</span>
+                  <span className="members-pop-list">
+                    {roster.map((m) => (
+                      <span className="members-pop-row" key={m.pubkey || m.name}>
+                        <Identicon seed={m.pubkey || m.name} size={22} />
+                        <span className="members-pop-name">{m.name}</span>
+                        {m.name === creator && <span className="klab members-pop-tag creator">{t('members.creatorShort')}</span>}
+                        {m.name === me && <span className="klab members-pop-tag">{t('members.youShort')}</span>}
+                      </span>
+                    ))}
+                  </span>
+                </span>
+              )}
+            </span>
             {live === true && <span className="livetag" title={t('dashboard.liveTitle')} aria-live="polite">{t('dashboard.live')}</span>}
             {IS_DEMO && <span className="livetag off" title={t('dashboard.demoTitle')} aria-live="polite">{t('dashboard.demo')}</span>}
           </>}
