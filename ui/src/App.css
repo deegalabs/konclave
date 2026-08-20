@@ -64,6 +64,27 @@
 .livetag{margin-left:10px; font-size:11px; letter-spacing:.04em; color:var(--success)}
 .livetag.off{color:var(--text-muted)}
 
+/* Members peek - a hover/focus popover off the "N members" link, so the roster (creator + you) is
+   a glance, not a page jump (K14). Signs-vs-approves per member needs the governance model (ADR-0009). */
+.members-peek{position:relative; display:inline-block}
+.members-pop{position:absolute; top:calc(100% + 8px); left:0; z-index:30; min-width:210px;
+  display:flex; flex-direction:column; gap:9px; padding:12px 14px;
+  background:var(--surface-1); border:1px solid var(--line); border-radius:10px;
+  box-shadow:0 10px 30px rgba(0,0,0,.18);
+  opacity:0; visibility:hidden; transform:translateY(-4px);
+  transition:opacity .14s ease, transform .14s ease, visibility .14s}
+.members-peek:hover .members-pop, .members-peek:focus-within .members-pop{opacity:1; visibility:visible; transform:translateY(0)}
+.members-pop-head{font-family:var(--font-mono); font-size:10px; letter-spacing:.09em; text-transform:uppercase; color:var(--text-muted)}
+.members-pop-list{display:flex; flex-direction:column; gap:8px}
+.members-pop-row{display:flex; align-items:center; gap:9px; font-size:13px; color:var(--text)}
+.members-pop-name{font-weight:500}
+.members-pop-tag{margin-left:auto; font-size:9px; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--text-muted); border:1px solid var(--line); border-radius:4px; padding:1px 6px}
+.members-pop-tag.creator{margin-left:auto; color:var(--accent-bright); border-color:var(--accent-line)}
+.members-pop-tag.creator + .members-pop-tag{margin-left:6px}
+@media(max-width:560px){.members-pop{left:auto; right:0}}
+@media(prefers-reduced-motion:reduce){.members-pop{transition:none}}
+
 /* Wrapper is a passive aria-live region only - it must not add layout. */
 .live-status{display:contents}
 /* Offline status pill (base .live lives in lacre.css). A real user whose local
