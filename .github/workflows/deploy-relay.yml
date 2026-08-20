@@ -1,0 +1,44 @@
+# Deploy the blind relay (relay-server) to Railway on push to main.
+#
+# The relay is a standalone Rust crate with a self-contained Dockerfile (its build context is
+# relay-server/ only, no workspace), so a source build on Railway is cheap, unlike the helper,
+# which ships prebuilt engine binaries (see issue #141).
+#
+# SETUP (one-time): add a repository secret RAILWAY_TOKEN = a Railway *project token* scoped to the
+# konclave-relay project + production environment (Railway dashboard -> project -> Settings ->
+# Tokens). With a project token the CLI targets that project without `railway link`.
+
+name: Deploy relay
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'relay-server/**'
+      - '.github/workflows/deploy-relay.yml'
+  workflow_dispatch: {}
+
+# Never run two relay deploys at once; a newer push supersedes an in-flight one.
+concurrency:
+  group: deploy-relay
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+
+      - name: Deploy relay-server
+        working-directory: relay-server
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ]; then
+            echo "::error::RAILWAY_TOKEN secret is not set. Add a Railway project token for konclave-relay."
+            exit 1
+          fi
+          railway up --service konclave-relay --ci
