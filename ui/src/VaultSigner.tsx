@@ -44,9 +44,11 @@ export function VaultSignerProvider({ children }: { children: ReactNode }) {
     return () => { on = false }
   }, [])
 
-  // The signer only runs for a browser-native (/net) vault whose share is unlocked in this session;
-  // otherwise `unlocked` is null and useBackgroundSigner stays inert.
-  const unlocked = IS_NET && vault && isVaultUnlocked(vault.id) ? { id: vault.id } : null
+  // The signer runs only while the ceremony panel is OPEN (active != null), not always-on on every
+  // screen: an app-wide relay session on every navigation was churny and destabilized the vault
+  // session. Scoped to the panel, both members open "Sign this payment" to seat + sign together.
+  // Requires a browser-native (/net) vault, unlocked in this session; otherwise inert.
+  const unlocked = active && IS_NET && vault && isVaultUnlocked(vault.id) ? { id: vault.id } : null
 
   // A ready proposal is quorum-approved, so the gate approves it; `auto` means a present device
   // contributes its share on its own (the approval was the consent). Per-vault manual mode is a
