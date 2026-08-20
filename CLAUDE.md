@@ -248,5 +248,6 @@ invite-as-bearer concern (#67 prevention / #68 detection, both live-validated 2-
 SignRequest - needs a device-key handshake, #63); `/net` **multi-note over the live relay**
 (unit-tested; single-spend is live-proven); a **live multi-device** (not two-tab) broadcast; **Tauri**
 single-binary packaging (branch `feat/tauri-shell` on GitHub - groundwork, needs real per-platform
-hardware; the GTK/WSLg window does not render here, ADR-0004); **Cargo workspace** (deferred: rusqlite
-version conflict).
+hardware; the GTK/WSLg window does not render here, ADR-0004). **Cargo workspace** is now closed - the
+crates are unified under one workspace (orchestrator aligned on `rusqlite 0.37`, resolving the
+`links="sqlite3"` conflict; 227 orchestrator tests pass).
