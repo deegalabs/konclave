@@ -81,11 +81,13 @@ export default function Members() {
 
   const thr = vault?.threshold ?? 2
   const n = vault?.total ?? 3
-  const members = vault?.member_list ?? [
+  // Sample roster ONLY in demo; a real vault still loading shows nothing (the Loading guard above
+  // covers live===null), never a fabricated Alice/Bob/Carol.
+  const members = vault?.member_list ?? (IS_DEMO ? [
     { name: 'Alice', pubkey: '317db593' },
     { name: 'Bob', pubkey: '2ca6d736' },
     { name: 'Carol', pubkey: '2fd84a5c' },
-  ]
+  ] : [])
   // Mark the actual creator; in the offline demo (no propagated creator) fall back to the first seat.
   const creatorLabel = creator ?? (IS_DEMO ? members[0]?.name ?? null : null)
 
