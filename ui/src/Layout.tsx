@@ -4,6 +4,8 @@ import { Mark, LangToggle } from './components'
 import { Identicon } from './avatar'
 import { useT, useI18n } from './i18n'
 import { getVault, health, isVaultUnlocked, IS_DEMO, type Vault } from './api'
+import { VaultSignerProvider } from './VaultSigner'
+import SigningPanel from './screens/SigningPanel'
 
 // How many nav items live directly in the mobile bottom bar; the rest fold into "More".
 const MOBILE_PRIMARY = 5
@@ -77,6 +79,7 @@ export default function Layout() {
   ]
 
   return (
+    <VaultSignerProvider>
     <div className="applayout">
       <aside className="rail">
         <Link to="/" className="brand">
@@ -170,6 +173,8 @@ export default function Layout() {
         <Outlet />
       </div>
     </div>
+    <SigningPanel />
+    </VaultSignerProvider>
   )
 }
 

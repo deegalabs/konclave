@@ -13,6 +13,7 @@ import {
   type Vault, type Proposal, type Balance,
 } from '../api'
 import { listVaults } from '../storage'
+import { useVaultSigner } from '../VaultSigner'
 
 type Movimento = { date: string; title: string; by?: string; value: string; dir: 'out' | 'in'; status: string }
 
@@ -54,6 +55,7 @@ export default function Dashboard() {
   const t = useT()
   const tr = useTr()
   const nav = useNavigate()
+  const { open: openSigning } = useVaultSigner()
   const [vault, setVault] = useState<Vault | null>(null)
   const [proposals, setProposals] = useState<Proposal[]>([])
   const [ledger, setLedger] = useState<Proposal[] | null>(null)
@@ -305,7 +307,8 @@ export default function Dashboard() {
               </div>
             </div>
             <div className="btns">
-              <Link className="btn ok" to="/proposal" state={{ id: firstReady.id }}>{t('dashboard.goSign')}</Link>
+              <button className="btn ok" onClick={() => openSigning(firstReady)}>{t('dashboard.goSign')}</button>
+              <Link className="btn ghost" to="/proposal" state={{ id: firstReady.id }}>{t('dashboard.reviewVote')}</Link>
             </div>
             <div className="note">{t('dashboard.readyToSignNote')}</div>
           </section>

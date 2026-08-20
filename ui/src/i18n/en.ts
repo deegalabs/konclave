@@ -592,6 +592,25 @@ export const en: Record<string, string> = {
   'proposal.txid': 'txid',
   'proposal.viewExplorer': 'view in explorer ↗',
 
+  // In-vault signing ceremony panel (K11)
+  'signing.title': 'Sign this payment',
+  'signing.presence': 'Signers present',
+  'signing.opening': 'Opening a secure session in your vault…',
+  'signing.waiting': 'Waiting for the other signers to be present.',
+  'signing.readyToSend': 'Everyone needed is here.',
+  'signing.send': 'Send this payment',
+  'signing.signing': 'Signing… gathering the approvers shares.',
+  'signing.sending': 'Signed. Sending to the network…',
+  'signing.sentTitle': 'Sent. This payment is on the network.',
+  'signing.reassure': 'Your key share never leaves this device. The vault broadcasts; no one signs alone.',
+  'signing.confirmTitle': 'Send this payment?',
+  'signing.confirmBody': 'This moves real funds and cannot be undone.',
+  'signing.confirmSend': 'Send {amt} ZEC',
+  'signing.close': 'Close',
+  'signing.failed': 'Could not send: {reason}',
+  'signing.tryAgain': 'Try again',
+  'signing.errUnreachable': 'could not reach the coordinator',
+
   // Proposals list
   'proposals.subProposedBy': '{kind} · proposed by **{proposer}**',
   'proposals.title': 'Proposals',
