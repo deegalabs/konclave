@@ -17,19 +17,31 @@ export default function Proposals() {
   const [live, setLive] = useState(false)
   const [loaded, setLoaded] = useState(false)
 
+  // Auto-refresh: a new proposal or an incoming approval shows up without a manual reload. Poll on
+  // the same 12s cadence as the Dashboard, guarded so calls never overlap.
   useEffect(() => {
     let on = true
-    void (async () => {
-      const ok = await health()
-      if (!on) return
-      setLive(ok)
-      const [ps, v] = await Promise.all([getProposals(), getVault()])
-      if (!on) return
-      if (v) setThreshold(v.threshold)
-      setRows(ps ?? [])
-      setLoaded(true)
-    })()
-    return () => { on = false }
+    let inFlight = false
+    const load = async (first: boolean) => {
+      if (inFlight) return
+      inFlight = true
+      try {
+        if (first) {
+          const ok = await health()
+          if (on) setLive(ok)
+        }
+        const [ps, v] = await Promise.all([getProposals(), getVault()])
+        if (!on) return
+        if (v) setThreshold(v.threshold)
+        setRows(ps ?? [])
+        setLoaded(true)
+      } finally {
+        inFlight = false
+      }
+    }
+    void load(true)
+    const id = setInterval(() => void load(false), 12_000)
+    return () => { on = false; clearInterval(id) }
   }, [])
 
   const awaiting = rows.filter((p) => p.state === 'awaiting')

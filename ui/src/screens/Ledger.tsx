@@ -2,7 +2,7 @@ import { Fragment, useEffect, useState } from 'react'
 import { Secret, RevealButton, activateOnKey } from '../components'
 import { SkeletonRows } from '../skeleton'
 import { PageHeader, PageFooter, NextStep } from '../page'
-import { getLedger, getProposalDetail, getVault, ledgerCsvUrl, health, shortAddr, type Proposal, type PayrollLine } from '../api'
+import { getLedger, getProposalDetail, getVault, ledgerCsvUrl, health, shortAddr, IS_DEMO, type Proposal, type PayrollLine } from '../api'
 import { fmtDate, fmtZec } from '../format'
 import { exportLedgerXlsx, type LedgerXlsxItem } from '../ledgerXlsx'
 import { useT, useI18n } from '../i18n'
@@ -128,7 +128,7 @@ export default function Ledger() {
         {/* Document band - the vault's book to hand to the accountant */}
         <div className="doc-band">
           <div className="db-meta">
-            <div><span className="klab">{t('ledger.vault')}</span><b>{vaultName ?? t('common.sampleVault')}</b></div>
+            <div><span className="klab">{t('ledger.vault')}</span><b>{vaultName ?? (IS_DEMO ? t('common.sampleVault') : '…')}</b></div>
             <div><span className="klab">{t('ledger.period')}</span><b className="mono">{period}</b></div>
             <div><span className="klab">{t('ledger.entries')}</span><b>{ledger.length}</b></div>
           </div>
