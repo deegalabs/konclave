@@ -592,6 +592,25 @@ export const ptBR: Record<string, string> = {
   'proposal.txid': 'txid',
   'proposal.viewExplorer': 'ver no explorador ↗',
 
+  // Painel de cerimônia de assinatura no cofre (K11)
+  'signing.title': 'Assinar este pagamento',
+  'signing.presence': 'Signatários presentes',
+  'signing.opening': 'Abrindo uma sessão segura no seu cofre…',
+  'signing.waiting': 'Aguardando os outros signatários ficarem presentes.',
+  'signing.readyToSend': 'Todos os necessários estão aqui.',
+  'signing.send': 'Enviar este pagamento',
+  'signing.signing': 'Assinando… reunindo as partes dos aprovadores.',
+  'signing.sending': 'Assinado. Enviando para a rede…',
+  'signing.sentTitle': 'Enviado. Este pagamento está na rede.',
+  'signing.reassure': 'Sua parte da chave nunca sai deste aparelho. O cofre transmite; ninguém assina sozinho.',
+  'signing.confirmTitle': 'Enviar este pagamento?',
+  'signing.confirmBody': 'Isto move fundos reais e não pode ser desfeito.',
+  'signing.confirmSend': 'Enviar {amt} ZEC',
+  'signing.close': 'Fechar',
+  'signing.failed': 'Não foi possível enviar: {reason}',
+  'signing.tryAgain': 'Tentar de novo',
+  'signing.errUnreachable': 'não foi possível falar com o coordenador',
+
   // Proposals list
   'proposals.subProposedBy': '{kind} · proposto por **{proposer}**',
   'proposals.title': 'Propostas',

@@ -85,6 +85,35 @@
 @media(max-width:560px){.members-pop{left:auto; right:0}}
 @media(prefers-reduced-motion:reduce){.members-pop{transition:none}}
 
+/* In-vault signing ceremony panel (K11) - a right-side session Sheet; echoes the members-popover
+   language (surface-1, line, mono klab headers, Identicon roster). */
+.sign-scrim{position:fixed; inset:0; z-index:40; background:rgba(0,0,0,.42)}
+.sign-sheet{position:fixed; top:0; right:0; bottom:0; z-index:41; width:min(420px,92vw);
+  display:flex; flex-direction:column; gap:16px; padding:24px 24px 28px; overflow-y:auto;
+  background:var(--surface-1); border-left:1px solid var(--line); box-shadow:-12px 0 40px rgba(0,0,0,.25);
+  animation:signSlide .18s ease}
+@keyframes signSlide{from{transform:translateX(16px); opacity:.5}to{transform:none; opacity:1}}
+@media(prefers-reduced-motion:reduce){.sign-sheet{animation:none}}
+.sign-head{display:flex; align-items:center; justify-content:space-between}
+.sign-x{background:none; border:0; color:var(--text-muted); font-size:22px; line-height:1; cursor:pointer; padding:2px 6px}
+.sign-x:hover{color:var(--text)}
+.sign-x:focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:4px}
+.sign-title{font-size:1.35rem; margin:0}
+.sign-what{display:flex; flex-direction:column; gap:3px; padding-bottom:14px; border-bottom:1px solid var(--line)}
+.sign-amt{font-size:1.55rem; font-weight:600; letter-spacing:-.01em}
+.sign-to{color:var(--text-muted); font-size:13px}
+.sign-presence-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:9px}
+.sign-roster{display:flex; flex-direction:column; gap:8px}
+.sign-seat{display:flex; align-items:center; gap:9px; font-size:13px; color:var(--text-muted); opacity:.5}
+.sign-seat.on{opacity:1; color:var(--text)}
+.sign-state{display:flex; flex-direction:column; gap:4px}
+.sign-reassure{font-size:12px; line-height:1.5; margin-top:auto; border-top:1px solid var(--line); padding-top:14px}
+@media(max-width:560px){
+  .sign-sheet{width:100vw; top:auto; height:90vh; border-radius:16px 16px 0 0; border-left:0; border-top:1px solid var(--line);
+    box-shadow:0 -12px 40px rgba(0,0,0,.3); animation:signUp .2s ease}
+  @keyframes signUp{from{transform:translateY(20px); opacity:.5}to{transform:none; opacity:1}}
+}
+
 /* Wrapper is a passive aria-live region only - it must not add layout. */
 .live-status{display:contents}
 /* Offline status pill (base .live lives in lacre.css). A real user whose local

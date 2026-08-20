@@ -10,12 +10,14 @@ import {
   IS_NET, IS_DEMO, type Proposal, type PayrollLine,
 } from '../api'
 import { listVaults } from '../storage'
+import { useVaultSigner } from '../VaultSigner'
 
 export default function Proposal() {
   const t = useT()
   const tr = useTr()
   const loc = useLocation() as { state?: { id?: string } }
   const nav = useNavigate()
+  const { open: openSigning } = useVaultSigner()
   const [p, setP] = useState<Proposal | null>(null)
   const [lines, setLines] = useState<PayrollLine[]>([])
   const [threshold, setThreshold] = useState(2)
@@ -245,8 +247,8 @@ export default function Proposal() {
             {IS_NET ? (
               <>
                 <div className="btns mt">
-                  <button className="btn ok" onClick={() => nav('/net')}>
-                    {t('proposal.goToCeremony')}
+                  <button className="btn ok" onClick={() => openSigning(p)}>
+                    {t('signing.title')}
                   </button>
                 </div>
                 <div className="hint mt-sm">{t('proposal.ceremonyNote')}</div>
