@@ -4,7 +4,7 @@ import { Seal, Loading } from '../components'
 import { PageHeader, PageFooter, NextStep } from '../page'
 import { Identicon } from '../avatar'
 import { useT, useTr } from '../i18n'
-import { getVault, health, shortAddr, IS_NET, setVaultMembers, type Vault } from '../api'
+import { getVault, health, shortAddr, IS_NET, setVaultMembers, IS_DEMO, type Vault } from '../api'
 import { listVaults, type Governance } from '../storage'
 import { vaultFingerprint } from '../format'
 
@@ -87,7 +87,7 @@ export default function Members() {
     { name: 'Carol', pubkey: '2fd84a5c' },
   ]
   // Mark the actual creator; in the offline demo (no propagated creator) fall back to the first seat.
-  const creatorLabel = creator ?? (live === false ? members[0]?.name ?? null : null)
+  const creatorLabel = creator ?? (IS_DEMO ? members[0]?.name ?? null : null)
 
   return (
     <>
@@ -97,7 +97,7 @@ export default function Members() {
           title={t('members.title')}
           subtitle={<>
             {tr('members.vmeta', { t: thr })}
-            {live === false && <span className="livetag off"> {t('members.demo')}</span>}
+            {IS_DEMO && <span className="livetag off"> {t('members.demo')}</span>}
           </>}
           actions={<Seal t={thr} n={n} />}
         />

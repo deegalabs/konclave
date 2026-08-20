@@ -6,7 +6,7 @@ import { useT, useTr } from '../i18n'
 import { fmtZec, parseZecToZat, zatToZec } from '../format'
 import {
   createProposal, getBalance, getVault, getBeneficiaries, health, shortAddr, classifyAddress, humanError,
-  type Beneficiary, type Member,
+  IS_DEMO, type Beneficiary, type Member,
 } from '../api'
 
 const MEMO_MAX = 512
@@ -62,7 +62,7 @@ export default function NewPayment() {
   const unknownDest = kind === 'unknown'
   // A real available balance when we have it; the demo figure only when genuinely offline
   // (live === false); a neutral dash while still loading (live === null) - never a fake number.
-  const shownAvailable = available ?? (live === false ? '2.4180' : '-')
+  const shownAvailable = available ?? (IS_DEMO ? '2.4180' : '-')
   // Preview the balance after this payment (like the payroll screen). Display only - the backend
   // stays authoritative on the real fee; ~0.0001 ZEC is a reasonable single-payment estimate.
   const amountZat = parseZecToZat(value)
@@ -138,7 +138,7 @@ export default function NewPayment() {
         <label className="field"><span>{t('payment.value')}</span>
           <input className="input mono" value={value} onChange={(e) => setValue(e.target.value)} />
         </label>
-        {live === false && <div className="hint" aria-live="polite">{t('common.demoModeNoBridge')}</div>}
+        {IS_DEMO && <div className="hint" aria-live="polite">{t('common.demoModeNoBridge')}</div>}
 
         <label className="field mt"><span>
           {t('payment.memoLabel')}{' '}
