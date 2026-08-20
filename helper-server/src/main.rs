@@ -121,6 +121,9 @@ fn handle(
                         200,
                         json!({
                             "orchard_spendable_zat": b.orchard_spendable_zat,
+                            "ironwood_spendable_zat": b.ironwood_spendable_zat,
+                            "shielded_spendable_zat": b.shielded_spendable_zat,
+                            "chain_tip_height": b.chain_tip_height,
                             "total_zat": b.total_zat
                         })
                         .to_string(),
