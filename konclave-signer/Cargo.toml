@@ -31,18 +31,5 @@ zip321 = "0.8"
 zcash_client_backend = { version = "0.23", features = ["orchard", "pczt", "unstable"] }
 zcash_client_sqlite = { version = "0.21", features = ["transparent-inputs", "orchard", "unstable", "serde"] }
 
-# Mirror zcash-devtool's pins so the PCZT wire format matches byte-for-byte.
-[patch.crates-io]
-equihash = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
-f4jumble = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
-zcash_address = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
-zcash_encoding = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
-zcash_protocol = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
-zip321 = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
-pczt = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
-zcash_client_backend = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
-zcash_client_sqlite = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
-zcash_keys = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
-zcash_primitives = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
-zcash_proofs = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
-zcash_transparent = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
+# The librustzcash git pins that keep the PCZT wire format byte-exact now live at the
+# workspace root ([patch.crates-io] in the top-level Cargo.toml), shared by every crate.
