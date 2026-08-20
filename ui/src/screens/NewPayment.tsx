@@ -25,7 +25,9 @@ export default function NewPayment() {
   const [threshold, setThreshold] = useState(2)
   const [available, setAvailable] = useState<string | null>(null)
   const [benefs, setBenefs] = useState<Beneficiary[]>([])
-  const [vaultName, setVaultName] = useState(t('common.sampleVault'))
+  // Neutral placeholder while the real vault name loads; the sample name only in demo, never a
+  // fake name flashed to a real user (the real name replaces this as soon as getVault resolves).
+  const [vaultName, setVaultName] = useState(IS_DEMO ? t('common.sampleVault') : '…')
   const [membersList, setMembersList] = useState<Member[]>([])
   const [proposer, setProposer] = useState('Alice')
   const [toName, setToName] = useState<string | null>(null)

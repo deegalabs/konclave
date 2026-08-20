@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 
 /**
  * Shared page chrome for the in-vault screens, so every screen opens and
@@ -19,15 +19,27 @@ export function PageHeader({
   title,
   subtitle,
   actions,
+  back,
 }: {
   eyebrow?: ReactNode
   title: ReactNode
   subtitle?: ReactNode
   actions?: ReactNode
+  // A breadcrumb/back affordance for drill-in screens (e.g. a proposal detail reached from several
+  // origins). With `to` it links there; without, it steps back to where the user came from.
+  back?: { to?: string; label: ReactNode }
 }) {
+  const nav = useNavigate()
   return (
     <header className="page-header">
       <div className="page-header-main">
+        {back != null && (
+          back.to != null ? (
+            <Link to={back.to} className="page-back klab">‹ {back.label}</Link>
+          ) : (
+            <button type="button" className="page-back klab" onClick={() => nav(-1)}>‹ {back.label}</button>
+          )
+        )}
         {eyebrow != null && <span className="klab page-header-eyebrow">{eyebrow}</span>}
         <h1 className="h1">{title}</h1>
         {subtitle != null && <div className="page-header-sub">{subtitle}</div>}

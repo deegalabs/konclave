@@ -234,13 +234,17 @@ struct BalanceDto {
     pending_zat: u64,
     pending_zec: String,
     orchard_spendable_zat: u64,
+    ironwood_spendable_zat: u64,
     sapling_spendable_zat: u64,
     transparent_spendable_zat: u64,
 }
 
 impl From<Balance> for BalanceDto {
     fn from(b: Balance) -> Self {
-        let spendable = b.orchard_spendable.as_u64()
+        // Post-NU6.3 the spendable shielded balance includes the Ironwood pool (see
+        // Balance::shielded_spendable); leaving Ironwood out reported 0 spendable for every vault
+        // funded after the upgrade.
+        let spendable = b.shielded_spendable().as_u64()
             + b.sapling_spendable.as_u64()
             + b.transparent_spendable.as_u64();
         // total includes notes not yet spendable (awaiting confirmations).
@@ -259,6 +263,7 @@ impl From<Balance> for BalanceDto {
             pending_zat: pending,
             pending_zec: zec(pending),
             orchard_spendable_zat: b.orchard_spendable.as_u64(),
+            ironwood_spendable_zat: b.ironwood_spendable.as_u64(),
             sapling_spendable_zat: b.sapling_spendable.as_u64(),
             transparent_spendable_zat: b.transparent_spendable.as_u64(),
         }
@@ -2129,7 +2134,9 @@ pub fn reconcile_vault(
 ) -> Result<crate::reconcile::ReconcileReport, String> {
     let bal = wallet.balance()?;
     let snapshot = crate::reconcile::ChainSnapshot {
-        spendable: bal.orchard_spendable,
+        // Include the Ironwood pool: post-NU6.3 a vault's spendable lives there, and reconciling
+        // against Orchard-only would read 0 and wrongly supersede live reservations.
+        spendable: bal.shielded_spendable(),
         confirmed_txids: wallet.confirmed_txids()?,
     };
     store
@@ -2239,6 +2246,7 @@ mod tests {
         Balance {
             chain_tip_height: 1,
             orchard_spendable: Zatoshis::from_u64(orchard).unwrap(),
+            ironwood_spendable: Zatoshis::ZERO,
             sapling_spendable: Zatoshis::ZERO,
             transparent_spendable: Zatoshis::ZERO,
             total: Zatoshis::from_u64(orchard).unwrap(),
@@ -2963,6 +2971,7 @@ mod tests {
         let bal = Balance {
             chain_tip_height: 3_396_338,
             orchard_spendable: Zatoshis::from_u64(0).unwrap(),
+            ironwood_spendable: Zatoshis::ZERO,
             sapling_spendable: Zatoshis::ZERO,
             transparent_spendable: Zatoshis::ZERO,
             total: Zatoshis::from_u64(100_000).unwrap(),
@@ -3079,6 +3088,7 @@ mod tests {
         let bal = Balance {
             chain_tip_height: 1,
             orchard_spendable: Zatoshis::from_u64(100_000).unwrap(),
+            ironwood_spendable: Zatoshis::ZERO,
             sapling_spendable: Zatoshis::ZERO,
             transparent_spendable: Zatoshis::ZERO,
             total: Zatoshis::from_u64(100_000).unwrap(),
@@ -3102,6 +3112,7 @@ mod tests {
         let bal = Balance {
             chain_tip_height: 1,
             orchard_spendable: Zatoshis::from_u64(100_000_000).unwrap(),
+            ironwood_spendable: Zatoshis::ZERO,
             sapling_spendable: Zatoshis::ZERO,
             transparent_spendable: Zatoshis::ZERO,
             total: Zatoshis::from_u64(100_000_000).unwrap(),
@@ -3376,6 +3387,7 @@ mod tests {
         let bal = Balance {
             chain_tip_height: 1,
             orchard_spendable: Zatoshis::from_u64(100_000).unwrap(),
+            ironwood_spendable: Zatoshis::ZERO,
             sapling_spendable: Zatoshis::ZERO,
             transparent_spendable: Zatoshis::ZERO,
             total: Zatoshis::from_u64(100_000).unwrap(),

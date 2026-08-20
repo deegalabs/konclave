@@ -21,6 +21,7 @@ import {
   type Proposal as NetProposal,
 } from './helper'
 import { zatToZec, parseZecToZat } from './format'
+import { listVaults } from './storage'
 
 export type Member = { name: string; pubkey: string }
 
@@ -203,9 +204,17 @@ export async function getVault(): Promise<Vault | null> {
       const name = names[i] && names[i].trim() ? names[i] : `member ${i + 1}`
       return { name, pubkey: name }
     })
+    // The vault's real name is the one the operator chose at create/join, kept on this device.
+    // Use it instead of a generic 'Networked vault' label; fall back only when there is no record.
+    let vaultName = 'Vault'
+    try {
+      const saved = await listVaults()
+      const rec = saved.find((s) => s.id === id)
+      if (rec?.name && rec.name.trim()) vaultName = rec.name
+    } catch { /* local-bridge mode / no on-device record - keep the neutral fallback */ }
     return {
       id: v.vault_id,
-      name: 'Networked vault',
+      name: vaultName,
       threshold: v.threshold ?? 0,
       total,
       members: total,
@@ -235,12 +244,15 @@ export async function getBalance(): Promise<Balance | null> {
     if (!id) return null
     const b = await netVaultBalance(id)
     if (!b) return null
+    // Since NU6.3 the spendable funds live in the Ironwood pool. Use the helper's combined
+    // shielded_spendable_zat (Orchard + Ironwood); fall back to orchard-only for an older helper.
+    const spendable = b.shielded_spendable_zat ?? b.orchard_spendable_zat
     return {
       configured: true,
       total_zat: b.total_zat,
       total_zec: zatToZec(b.total_zat),
-      spendable_zat: b.orchard_spendable_zat,
-      spendable_zec: zatToZec(b.orchard_spendable_zat),
+      spendable_zat: spendable,
+      spendable_zec: zatToZec(spendable),
     }
   }
   return (await getJson<Balance>(withVault('/api/balance'))) ?? (DEMO ? MOCK.balance : null)
