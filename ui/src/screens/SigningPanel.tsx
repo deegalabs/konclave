@@ -4,6 +4,7 @@
 // automatically (their approval was the consent). Echoes the members-popover visual language.
 
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Dialog } from '../components'
 import { Identicon } from '../avatar'
 import { useT } from '../i18n'
@@ -11,6 +12,7 @@ import { fmtZec, shortAddr } from '../format'
 import { useVaultSigner } from '../VaultSigner'
 import { executeProposal } from '../helper'
 import { RELAY_BASE } from '../net'
+import { getUnlockedShare } from '../session'
 
 export default function SigningPanel() {
   const t = useT()
@@ -21,6 +23,9 @@ export default function SigningPanel() {
 
   if (!active) return null
 
+  // This device can only sign if its share is unlocked in this session. If not, the ceremony can
+  // never seat (0/N forever) - show a clear "unlock" path instead of hanging on "Opening…".
+  const hasShare = vault ? !!getUnlockedShare(vault.id) : false
   const present = bg.seatCount
   const quorumHere = present >= threshold && threshold > 0
   const started = sending || bg.phase !== 'idle'
@@ -109,6 +114,11 @@ export default function SigningPanel() {
             <div className="sign-run">
               <div className="confirm">{sending || bg.phase === 'signed' ? t('signing.sending') : t('signing.signing')}</div>
               {bg.what && <div className="hint mt-sm mono">→ {shortAddr(bg.what.addr)} · {bg.what.zec} ZEC</div>}
+            </div>
+          ) : !hasShare ? (
+            <div className="sign-err">
+              <div className="hint warn">{t('signing.needUnlock')}</div>
+              <Link className="btn ok sm-btn mt-sm" to="/vaults" onClick={onClose}>{t('signing.needUnlockCta')}</Link>
             </div>
           ) : !bg.ready ? (
             <div className="confirm">{t('signing.opening')}</div>
