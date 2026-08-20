@@ -368,6 +368,7 @@ export const ptBR: Record<string, string> = {
   'dashboard.walletNotConnectedNote': 'O saldo aparece quando o cofre sincroniza com a rede.',
   'dashboard.confirmedLower': 'confirmado',
   'dashboard.pendingLower': 'pendente',
+  'dashboard.confirming': '{amt} confirmando - gastável em ~10 blocos',
   'dashboard.receiveIn': 'Receber em',
   'dashboard.orchardOnly': 'SÓ ENDEREÇO ORCHARD',
   'dashboard.whatToDo': 'O que fazer',

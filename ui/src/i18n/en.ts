@@ -368,6 +368,7 @@ export const en: Record<string, string> = {
   'dashboard.walletNotConnectedNote': 'The balance appears once the vault syncs with the network.',
   'dashboard.confirmedLower': 'confirmed',
   'dashboard.pendingLower': 'pending',
+  'dashboard.confirming': '{amt} confirming - spendable in ~10 blocks',
   'dashboard.receiveIn': 'Receive at',
   'dashboard.orchardOnly': 'ORCHARD ADDRESS ONLY',
   'dashboard.whatToDo': 'What to do',

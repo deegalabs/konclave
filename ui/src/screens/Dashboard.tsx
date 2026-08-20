@@ -83,45 +83,57 @@ export default function Dashboard() {
 
   useEffect(() => {
     let on = true
-    void (async () => {
-      const ok = await health()
-      if (!on) return
-      setLive(ok)
-      if (!ok && !IS_DEMO) return
-      const v = await getVault()
-      if (!on) return
-      // Locked vault not unlocked this session → send back to unlock (§ passphrase).
-      if (v?.locked && !isVaultUnlocked(v.id)) { nav('/vaults'); return }
-      if (v) setVault(v)
-      const [ps, b, l] = await Promise.all([getProposals(), getBalance(), getLedger()])
-      if (!on) return
-      if (ps) setProposals(ps)
-      if (b) setBalance(b)
-      if (l) setLedger(l)
-    })()
-    return () => { on = false }
+    let inFlight = false
+    const load = async (first: boolean) => {
+      if (inFlight) return // never overlap polls (the helper's wallet sync can be slow)
+      inFlight = true
+      try {
+        const ok = await health()
+        if (!on) return
+        setLive(ok)
+        if (!ok && !IS_DEMO) return
+        const v = await getVault()
+        if (!on) return
+        // Locked vault not unlocked this session → send back to unlock. Only on first load, so a
+        // background poll never yanks the user off the dashboard.
+        if (first && v?.locked && !isVaultUnlocked(v.id)) { nav('/vaults'); return }
+        if (v) setVault(v)
+        const [ps, b, l] = await Promise.all([getProposals(), getBalance(), getLedger()])
+        if (!on) return
+        if (ps) setProposals(ps)
+        if (b) setBalance(b)
+        if (l) setLedger(l)
+      } finally {
+        inFlight = false
+      }
+    }
+    void load(true)
+    // Auto-refresh: a freshly-funded vault (and its confirming balance / new proposals) updates on
+    // its own, so a user watching for funds to land never has to hit reload. Polls every 12s.
+    const id = setInterval(() => void load(false), 12_000)
+    return () => { on = false; clearInterval(id) }
   }, [])
 
   const isLive = live === true
   const loading = live === null // initial fetch still in flight
 
-  // Vault header - real vault from the bridge; placeholder only in the offline showcase.
-  const name = vault?.name ?? dl('Tesouraria Comum', 'Common Treasury')
+  // Vault header - real vault from the bridge; a sample name/address only in DEMO, a neutral
+  // ellipsis while a real vault is still loading (never flash a fabricated name to a real user).
+  const name = vault?.name ?? (IS_DEMO ? dl('Tesouraria Comum', 'Common Treasury') : '…')
   const thr = vault?.threshold ?? 2
   const n = vault?.total ?? 3
   const members = vault?.members ?? n
-  const addr = vault ? shortAddr(vault.orchard_address) : 'u1vjgx…d406dr'
+  const addr = vault ? shortAddr(vault.orchard_address) : (IS_DEMO ? 'u1vjgx…d406dr' : '…')
 
   // Balance - real when the wallet is wired; "-" when live-but-unwired; mock when offline.
   const hasBal = balance?.configured === true
   // Live but no wallet wired: show an explicit "not connected" state, never a dash veiled
   // behind the redaction tarja (the privacy gesture must never hide *nothing*).
   const walletUnwired = isLive && !hasBal
-  // Show a figure only when it is real (hasBal) or genuinely offline-demo (live === false).
-  // While still loading (live === null) show a neutral dash, never a fabricated balance.
-  const amt = hasBal ? fmt4(balance!.total_zec) : (live === false ? '2.4180' : '-')
-  const confirmado = hasBal ? fmt4(balance!.spendable_zec) : (live === false ? '2.4180' : '-')
-  const pendente = hasBal ? `+${fmt4(balance!.pending_zec)}` : (live === false ? '+0.0100' : '-')
+  // Show a figure only when it is real (hasBal) or in actual DEMO mode. Never fabricate a balance
+  // just because health() is momentarily false (a real offline blip is not the demo) - while
+  // loading or offline-but-real we show a neutral dash, never mock data.
+  const amt = hasBal ? fmt4(balance!.total_zec) : (IS_DEMO ? '2.4180' : '-')
 
   // Pending approval - first awaiting proposal. When live with none, show an empty state
   // instead of a fabricated card.
@@ -129,7 +141,7 @@ export default function Dashboard() {
   const pending = awaiting[0] ?? null
   // Show the (mock) approval card only when genuinely offline; during load (live === null) wait
   // for real proposals instead of flashing a fabricated one.
-  const showApprovalCard = live === false || pending !== null
+  const showApprovalCard = IS_DEMO || pending !== null
   const pAmt = pending ? fmt4(pending.value_zec, '0.0003') : '0.5000'
   const pMemo = pending?.memo ?? dl('adiantamento de maio', 'May advance')
   const pProposer = pending?.proposer ?? 'Bruno'
@@ -149,11 +161,19 @@ export default function Dashboard() {
     : null
   // Real ledger when there is one; the mock showcase ONLY when genuinely offline/demo. A LIVE vault
   // with an empty ledger (e.g. a fresh /net vault, no proposals yet) shows no movements, not mock.
-  const movimentos: Movimento[] = movs ?? (live === false || IS_DEMO ? MOVIMENTOS_MOCK : [])
+  const movimentos: Movimento[] = movs ?? (IS_DEMO ? MOVIMENTOS_MOCK : [])
 
   // KPIs - all derived from real data (no fabrication). Reserved = funds committed by open
   // proposals (a product rule, not a protocol lock); Paid = settled outflow across the ledger.
   const parseZ = (s?: string) => { const n = parseFloat(s || ''); return isFinite(n) ? n : 0 }
+  // Confirming = not-yet-spendable funds (still gathering the ~10 confirmations). Use the helper's
+  // pending figure when present; otherwise derive it as total - spendable so the card never shows a
+  // stray "+-". Only in DEMO do we invent a figure.
+  const pendNum = hasBal
+    ? (balance!.pending_zec != null
+        ? parseZ(balance!.pending_zec)
+        : Math.max(0, parseZ(balance!.total_zec) - parseZ(balance!.spendable_zec)))
+    : (IS_DEMO ? 0.01 : 0)
   const settled = (ledger ?? []).filter((p) => p.state === 'sent' || p.state === 'confirmed')
   const reservedZec = awaiting.reduce((a, p) => a + parseZ(p.value_zec), 0)
   const paidZec = settled.reduce((a, p) => a + parseZ(p.value_zec), 0)
@@ -175,7 +195,7 @@ export default function Dashboard() {
     .map(([, v]) => v)
 
   // USD estimate (opt-in). Only priceable when there is a real or offline-demo ZEC figure.
-  const balZecNum = hasBal ? parseZ(balance!.total_zec) : (live === false ? 2.418 : undefined)
+  const balZecNum = hasBal ? parseZ(balance!.total_zec) : (IS_DEMO ? 2.418 : undefined)
   const usdBal = usdOn ? zecToUsd(balZecNum, rate) : null
   const usdPaid = usdOn ? zecToUsd(paidZec, rate) : null
   // "how fresh is the rate" label
@@ -197,7 +217,7 @@ export default function Dashboard() {
           subtitle={<>
             {tr('dashboard.vmetaPre')} · <Link className="link" to="/members">{t('dashboard.membersCount', { n: members })}</Link>
             {live === true && <span className="livetag" title={t('dashboard.liveTitle')} aria-live="polite">{t('dashboard.live')}</span>}
-            {live === false && <span className="livetag off" title={t('dashboard.demoTitle')} aria-live="polite">{t('dashboard.demo')}</span>}
+            {IS_DEMO && <span className="livetag off" title={t('dashboard.demoTitle')} aria-live="polite">{t('dashboard.demo')}</span>}
           </>}
           actions={<Seal t={thr} n={n} />}
         />
@@ -249,13 +269,14 @@ export default function Dashboard() {
           ) : (
             <>
               <div className="fig">
-                <Secret><span className="amt">{amt}</span></Secret>
+                <Secret><span className="amt" style={{ fontFeatureSettings: '"zero" 0' }}>{amt}</span></Secret>
                 <span className="unit">ZEC</span>
               </div>
-              <div className="breakdown">
-                <span>{t('dashboard.confirmedLower')} <Secret sm><b>{confirmado}</b></Secret></span>
-                <span className="pd">{t('dashboard.pendingLower')} <Secret sm><b>{pendente}</b></Secret></span>
-              </div>
+              {pendNum > 0 && (
+                <div className="breakdown">
+                  <span className="pd">{t('dashboard.confirming', { amt: `+${fmt4(String(pendNum))}` })}</span>
+                </div>
+              )}
               <div className="usd">
                 {usdOn ? (
                   <>

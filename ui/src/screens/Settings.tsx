@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Seal, Loading } from '../components'
 import { PageHeader, PageFooter } from '../page'
 import { useT, useI18n } from '../i18n'
-import { getVault, health, shortAddr, deleteVault, type Vault } from '../api'
+import { getVault, health, shortAddr, deleteVault, IS_DEMO, type Vault } from '../api'
 import { listVaults, type Governance } from '../storage'
 import { getTheme, setTheme, type Theme } from '../theme'
 import { getCoordMode, setCoordMode, getCustomHelper, HELPER_BASE, type CoordMode } from '../helper'
@@ -80,7 +80,7 @@ export default function Settings() {
         title={t('settings.title')}
         subtitle={<>
           {vault?.name ?? t('settings.vault')} · {t('settings.quorumWord')} {thr}/{n}
-          {live === false && <span className="livetag off"> {t('settings.demoTag')}</span>}
+          {IS_DEMO && <span className="livetag off"> {t('settings.demoTag')}</span>}
         </>}
         actions={<Seal t={thr} n={n} />}
       />
