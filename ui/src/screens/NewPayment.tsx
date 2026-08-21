@@ -144,7 +144,7 @@ export default function NewPayment() {
     <main className="page pay">
       <PageHeader title={t('payment.title')} subtitle={t('payment.cap')} />
 
-      {live === null ? <Loading /> : (
+      {live === null ? <Loading /> : (<>
       <div className="ctx">
         <span>{tr('payment.fromVault', { name: vaultName })}</span>
         <span className="ctx-sep">·</span>
@@ -162,7 +162,6 @@ export default function NewPayment() {
           )
         )}
       </div>
-      )}
 
       <div className="pay-cols">
         {/* LEFT: the form you fill in. */}
@@ -232,6 +231,7 @@ export default function NewPayment() {
           </button>
         </aside>
       </div>
+      </>)}
     </main>
   )
 }

@@ -171,9 +171,8 @@ export default function NewPayroll() {
           subtitle={<>{t('payroll.cap')} {saved && <span className="draft-note" title={t('payroll.draftSavedTitle')} aria-live="polite">{t('payroll.draftSaved')}</span>}</>}
         />
 
-        {!loaded && <Loading />}
-
-        {loaded && <div className="ctx">
+        {!loaded ? <Loading /> : (<>
+        <div className="ctx">
           <span>{tr('payment.fromVault', { name: vaultName })}</span>
           {membersList.length > 0 && (
             IS_DEMO ? (
@@ -188,7 +187,7 @@ export default function NewPayroll() {
               <span className="ctx-as">{t('payment.proposingAs')} <b>{proposer}</b></span>
             )
           )}
-        </div>}
+        </div>
 
         <div className="pay-cols">
           {/* LEFT: the payroll document you fill in — heading + one line per payment. */}
@@ -303,6 +302,7 @@ export default function NewPayroll() {
             ))}
           </div>
         )}
+        </>)}
       </main>
     </>
   )
