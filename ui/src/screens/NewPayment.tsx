@@ -10,6 +10,7 @@ import {
 } from '../api'
 import { listVaults } from '../storage'
 import { RecipientCombobox } from '../RecipientCombobox'
+import { usdEnabled, setUsdEnabled, cachedRate, rateIsStale, fetchRate, zecToUsd, type Rate } from '../price'
 
 const MEMO_MAX = 512
 
@@ -73,6 +74,29 @@ export default function NewPayment() {
 
   // Refresh the payee list after one is added inline from the recipient field.
   const reloadBenefs = () => { void getBeneficiaries().then((b) => { if (b) setBenefs(b) }) }
+
+  // Live ZEC->USD estimate on the amount (opt-in + disclosed, mirrors the Dashboard). Off until the
+  // user turns it on; the source is named; at most one call per TTL. Never sends the amount.
+  const [usdOn, setUsdOn] = useState<boolean>(usdEnabled())
+  const [rate, setRate] = useState<Rate | null>(cachedRate())
+  const [rateBusy, setRateBusy] = useState(false)
+  async function refreshRate() {
+    setRateBusy(true)
+    const r = await fetchRate()
+    setRateBusy(false)
+    if (r) setRate(r)
+  }
+  function enableUsd() { setUsdEnabled(true); setUsdOn(true); void refreshRate() }
+  useEffect(() => { if (usdOn && rateIsStale(cachedRate())) void refreshRate() }, [usdOn])
+  const rateAgo = (r: Rate) => {
+    const m = Math.max(0, Math.round((Date.now() - r.at) / 60000))
+    return m < 1 ? tr('payment.rateNow') : tr('payment.rateAgo', { m })
+  }
+  function setMax() {
+    if (availableZat == null) return
+    const max = availableZat - feeZat
+    if (max > 0) setValue(zatToZec(max))
+  }
 
   const memoLen = memoBytes(memo)
   const memoOver = memoLen > MEMO_MAX
@@ -152,7 +176,25 @@ export default function NewPayment() {
         </label>
 
         <label className="field"><span>{t('payment.value')}</span>
-          <input className="input mono" value={value} onChange={(e) => setValue(e.target.value)} />
+          <div className="payamt">
+            <input className="payamt-in mono" inputMode="decimal" value={value} placeholder="0.00" onChange={(e) => setValue(e.target.value)} />
+            <span className="payamt-unit">ZEC</span>
+          </div>
+          <div className="payamt-meta">
+            {usdOn ? (
+              <>
+                <span className="payamt-echo">{zecToUsd(value, rate) ? `≈ ${zecToUsd(value, rate)}` : '≈ $-'}</span>
+                <span className="payamt-rate">
+                  <span className="payamt-live" aria-hidden="true" />
+                  {rate ? `${rate.source} · ${rateAgo(rate)}${rateIsStale(rate) ? ` · ${t('dashboard.rateStale')}` : ''}` : t('dashboard.rateNone')}
+                  {' · '}<button type="button" className="linkbtn" onClick={() => void refreshRate()} disabled={rateBusy}>{rateBusy ? t('dashboard.updating') : t('dashboard.refresh')}</button>
+                </span>
+              </>
+            ) : (
+              <button type="button" className="linkbtn" onClick={enableUsd} title={t('dashboard.usdDisclosure')}>{t('dashboard.showUsd')} ≈</button>
+            )}
+            <button type="button" className="payamt-max" onClick={setMax}>{t('payment.max')}</button>
+          </div>
         </label>
         {IS_DEMO && <div className="hint" aria-live="polite">{t('common.demoModeNoBridge')}</div>}
 

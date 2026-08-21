@@ -714,3 +714,18 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 .rcb.compact .rcb-input{font-size:13px; padding:8px 0}
 .rcb.compact .rcb-picked{padding:6px 0}
 .rcb.compact .rcb-picked .rcb-nm{font-size:13px}
+
+/* Pay amount with a live USD echo (opt-in). ZEC is the authoritative figure; $ is a muted echo. */
+.payamt{display:flex; align-items:baseline; gap:10px; background:var(--surface-2); border:1.5px solid var(--line); border-radius:var(--radius-sm); padding:10px 13px}
+.payamt:focus-within{border-color:var(--accent); background:var(--surface-1); box-shadow:0 0 0 3px var(--accent-soft)}
+.payamt-in{flex:1; min-width:0; border:0; background:transparent; outline:none; font-family:var(--font-mono); font-weight:600; font-size:24px; letter-spacing:-.01em; color:var(--text)}
+.payamt-in::placeholder{color:var(--text-muted); opacity:.7}
+.payamt-unit{flex:none; font-family:var(--font-mono); font-weight:600; font-size:13px; color:var(--text-muted)}
+.payamt-meta{display:flex; align-items:center; gap:10px; margin-top:8px; flex-wrap:wrap; font-family:var(--font-mono); font-size:11.5px; color:var(--text-muted)}
+.payamt-echo{color:var(--silver)}
+.payamt-rate{display:inline-flex; align-items:center; gap:7px}
+.payamt-live{width:6px; height:6px; border-radius:50%; background:var(--success); box-shadow:0 0 0 3px var(--success-soft)}
+.payamt-max{margin-left:auto; background:transparent; border:1px solid var(--line); border-radius:var(--radius-pill); color:var(--text-muted); font:inherit; font-size:11px; padding:3px 10px; cursor:pointer}
+.payamt-max:hover{border-color:var(--accent-line); color:var(--accent)}
+.linkbtn{background:transparent; border:0; color:var(--accent); font:inherit; font-size:11.5px; cursor:pointer; padding:0}
+.linkbtn:disabled{color:var(--text-muted); cursor:default}
