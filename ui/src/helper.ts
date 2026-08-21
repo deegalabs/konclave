@@ -173,9 +173,37 @@ export async function listMembers(groupKeyHex: string): Promise<string[] | null>
   return (await getJson<{ members: string[] }>(`/api/vault/members?vault=${q(groupKeyHex)}`))?.members ?? null
 }
 
-/** Set the vault's member names (seat order); overwrites the list. Returns the saved names or null. */
+/** Set the vault's member names (seat order); overwrites the list. Returns the saved names or null.
+ *  Used once at DKG completion, where every device writes the same self-declared roster. For later
+ *  edits use {@link renameMember}, which changes only one seat and migrates that member's votes. */
 export async function setMembers(groupKeyHex: string, names: string[]): Promise<string[] | null> {
   return (await postJson<{ members: string[] }>('/api/vault/members', { vault: groupKeyHex, names }))?.members ?? null
+}
+
+/** Rename ONE seat (`old` -> `new`) and migrate that member's votes across every proposal, so a
+ *  rename never leaves an orphaned "ghost" approver under the old name. Returns the updated roster,
+ *  or a `{ error }` reason (unknown seat / name already taken / empty) the UI can surface. */
+export async function renameMember(
+  groupKeyHex: string,
+  old: string,
+  next: string,
+): Promise<{ members: string[] } | { error: string }> {
+  const base = helperBase()
+  if (!base) return { error: 'no helper' }
+  try {
+    // Read the body even on a 400 (postJson drops it) so the specific reason - name taken / unknown
+    // seat / empty - reaches the UI instead of a generic failure.
+    const res = await fetch(`${base}/api/vault/members/rename`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ vault: groupKeyHex, old, new: next }),
+    })
+    const data = (await res.json().catch(() => null)) as { members?: string[]; error?: string } | null
+    if (res.ok && data?.members) return { members: data.members }
+    return { error: data?.error ?? 'rename failed' }
+  } catch {
+    return { error: 'rename failed' }
+  }
 }
 
 /** Fetch the vault's ledger (its confirmed, governed payments) as a CSV string, or `null`. */

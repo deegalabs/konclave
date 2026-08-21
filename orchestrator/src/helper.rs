@@ -401,6 +401,71 @@ pub fn load_members(vaults_dir: &Path, vault: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Rename ONE member seat (`old` -> `new`) and MIGRATE every proposal's votes so the rename never
+/// orphans an approval into a "ghost" member. Because votes are recorded by member NAME (the seat's
+/// public label), a bulk overwrite of the roster used to leave the old name attached to past
+/// approvals while the new name showed as still-awaiting - the same person counted twice. This walks
+/// every proposal and rewrites the name in `proposer`/`approvals`/`refusals` in lockstep with the
+/// roster, so identity stays consistent across a rename.
+///
+/// Guards: the `old` name must be an existing seat, and `new` must be non-empty and not already
+/// taken by a DIFFERENT seat (renaming a seat to its own current name is a no-op, allowed). Returns
+/// the updated roster.
+pub fn rename_member(
+    vaults_dir: &Path,
+    vault: &str,
+    old: &str,
+    new: &str,
+    now: u64,
+) -> Result<Vec<String>, ToolError> {
+    let new = new.trim();
+    if new.is_empty() {
+        return Err(ToolError::parse("members", "a member name cannot be empty"));
+    }
+    let mut names = load_members(vaults_dir, vault);
+    if !names.iter().any(|n| n == old) {
+        return Err(ToolError::parse("members", "no such member to rename"));
+    }
+    if names.iter().any(|n| n == new && n != old) {
+        return Err(ToolError::parse("members", "that name is already taken"));
+    }
+    if old == new {
+        return Ok(names); // no-op rename
+    }
+    for n in names.iter_mut() {
+        if n == old {
+            *n = new.to_string();
+        }
+    }
+    save_members(vaults_dir, vault, &names)?;
+
+    // Migrate the name everywhere a vote references it, so quorum counting and the approvals list
+    // stay coherent (no orphaned approval under the old name, no duplicate row for the new one).
+    for mut p in list_proposals(vaults_dir, vault, now) {
+        let mut changed = false;
+        if p.proposer == old {
+            p.proposer = new.to_string();
+            changed = true;
+        }
+        for a in p.approvals.iter_mut() {
+            if a == old {
+                *a = new.to_string();
+                changed = true;
+            }
+        }
+        for r in p.refusals.iter_mut() {
+            if r == old {
+                *r = new.to_string();
+                changed = true;
+            }
+        }
+        if changed {
+            save_proposal(vaults_dir, &p)?;
+        }
+    }
+    Ok(names)
+}
+
 /// One RFC-4180 CSV field: wrap in quotes and double any embedded quote when it contains a comma,
 /// quote, or newline. Prevents CSV injection of stray columns from a memo/address.
 fn csv_field(s: &str) -> String {
@@ -1037,6 +1102,52 @@ mod tests {
         // Overwrites, not appends.
         save_members(&dir, "v", &["Dave".to_string()]).unwrap();
         assert_eq!(load_members(&dir, "v"), vec!["Dave".to_string()]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rename_member_migrates_votes_no_ghost() {
+        // The reported bug: renaming a member left their past approval attached to the OLD name while
+        // the roster showed the NEW name still awaiting - one person shown as two rows in a 2-of-2.
+        let dir = std::env::temp_dir().join(format!("konclave-rename-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        save_members(&dir, "v", &["Michael".into(), "zcashbrazil".into()]).unwrap();
+        let mut p = mk_prop("v", "p1");
+        p.proposer = "Michael".into();
+        p.approvals = vec!["Michael".into(), "zcashbrazil".into()]; // both approved
+        save_proposal(&dir, &p).unwrap();
+
+        let roster = rename_member(&dir, "v", "zcashbrazil", "Daniel", 200).unwrap();
+        assert_eq!(roster, vec!["Michael".to_string(), "Daniel".to_string()]);
+
+        // The proposal's approval moved with the rename: still exactly 2 approvers, now Daniel not
+        // zcashbrazil - no orphan, no ghost row.
+        let got = load_proposal(&dir, "v", "p1", 200).unwrap();
+        assert_eq!(got.approvals, vec!["Michael".to_string(), "Daniel".to_string()]);
+        assert!(!got.approvals.iter().any(|a| a == "zcashbrazil"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rename_member_guards() {
+        let dir = std::env::temp_dir().join(format!("konclave-rename-guard-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        save_members(&dir, "v", &["Alice".into(), "Bob".into()]).unwrap();
+        // Unknown seat.
+        assert!(rename_member(&dir, "v", "Nobody", "X", 0).is_err());
+        // Collision with a different seat.
+        assert!(rename_member(&dir, "v", "Alice", "Bob", 0).is_err());
+        // Empty new name.
+        assert!(rename_member(&dir, "v", "Alice", "  ", 0).is_err());
+        // No-op (rename to self) is allowed and leaves the roster intact.
+        assert_eq!(
+            rename_member(&dir, "v", "Alice", "Alice", 0).unwrap(),
+            vec!["Alice".to_string(), "Bob".to_string()]
+        );
+        // A real rename trims and persists.
+        let roster = rename_member(&dir, "v", "Alice", " Alicia ", 0).unwrap();
+        assert_eq!(roster, vec!["Alicia".to_string(), "Bob".to_string()]);
+        assert_eq!(load_members(&dir, "v"), roster);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
