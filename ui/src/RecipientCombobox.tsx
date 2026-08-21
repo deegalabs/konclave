@@ -44,6 +44,12 @@ export function RecipientCombobox({
   const [newMemo, setNewMemo] = useState('')
   const [saving, setSaving] = useState(false)
   const [saveErr, setSaveErr] = useState<string | null>(null)
+  // Inline "save this pasted address as a payee" prompt (a raw address carries no name on-chain,
+  // so the user names it; we never fabricate one).
+  const [savePrompt, setSavePrompt] = useState(false)
+  const [saveName, setSaveName] = useState('')
+  const [savingRaw, setSavingRaw] = useState(false)
+  const [saveRawErr, setSaveRawErr] = useState<string | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -85,6 +91,7 @@ export function RecipientCombobox({
     pushRecent(r.address)
     onChange(r)
     setQ(''); setOpen(false); setAdding(false)
+    setSavePrompt(false); setSaveName(''); setSaveRawErr(null)
   }
   function pickBenef(b: Beneficiary) {
     pick({ address: b.address, name: b.name, memo: b.memo || undefined })
@@ -111,10 +118,35 @@ export function RecipientCombobox({
     }
   }
 
+  // Save the already-entered raw address under a name the user gives it, then select it.
+  async function saveRaw() {
+    const nm = saveName.trim(); const ad = address.trim()
+    setSaveRawErr(null)
+    if (!nm) { setSaveRawErr(t('rec.errName')); return }
+    if (classifyAddress(ad) === 'unknown') { setSaveRawErr(t('rec.errAddr')); return }
+    setSavingRaw(true)
+    const res = await addBeneficiary(nm, ad, undefined)
+    setSavingRaw(false)
+    if (res.ok) {
+      onReloadBenefs?.()
+      pick({ address: res.beneficiary.address, name: res.beneficiary.name, memo: res.beneficiary.memo || undefined })
+    } else {
+      setSaveRawErr(t('rec.errSave'))
+    }
+  }
+
   function onInput(v: string) {
     setQ(v); setOpen(true); setAdding(false)
-    const k = classifyAddress(v.trim())
-    if (k !== 'unknown' && v.trim().length > 6) onChange({ address: v.trim(), name: null })
+    setSavePrompt(false); setSaveRawErr(null)
+    const tv = v.trim()
+    const k = classifyAddress(tv)
+    if (k !== 'unknown' && tv.length > 6) {
+      // A pasted address that's already in the registry resolves to that payee (name + memo),
+      // instead of staying an anonymous raw address the user would re-save.
+      const known = benefs.find((b) => b.address === tv)
+      if (known) { pickBenef(known); return }
+      onChange({ address: tv, name: null })
+    }
     else if (address && !name) onChange({ address: '', name: null }) // typing a name clears a raw address
   }
 
@@ -242,6 +274,26 @@ export function RecipientCombobox({
             : kind === 'sapling' ? t('rec.saplingWarn')
             : t('rec.unknownWarn')}
         </div>
+      )}
+
+      {/* Offer to save a valid, unsaved pasted address as a reusable payee (the user names it). */}
+      {!open && !picked && kind && kind !== 'unknown' && kind !== 'sapling' && !benefs.some((b) => b.address === address.trim()) && (
+        savePrompt ? (
+          <div className="rcb-savebox">
+            <input className="input" placeholder={t('rec.saveNamePlaceholder')} value={saveName} autoFocus
+              onChange={(e) => { setSaveName(e.target.value); setSaveRawErr(null) }}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void saveRaw() } }} />
+            {saveRawErr && <div className="hint err mt-xs">{saveRawErr}</div>}
+            <div className="rcb-addacts">
+              <button type="button" className="btn ghost sm-btn" onClick={() => { setSavePrompt(false); setSaveName('') }}>{t('common.cancel')}</button>
+              <button type="button" className="btn ok sm-btn" disabled={savingRaw} onClick={() => void saveRaw()}>{savingRaw ? '…' : t('rec.saveUse')}</button>
+            </div>
+          </div>
+        ) : (
+          <button type="button" className="rcb-savesuggest" onClick={() => setSavePrompt(true)}>
+            + {t('rec.saveSuggest')}
+          </button>
+        )
       )}
     </div>
   )
