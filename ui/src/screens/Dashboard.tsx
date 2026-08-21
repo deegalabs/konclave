@@ -14,6 +14,7 @@ import {
 } from '../api'
 import { listVaults } from '../storage'
 import { useVaultSigner } from '../VaultSigner'
+import { useLoading } from '../loading'
 
 type Movimento = { date: string; title: string; by?: string; value: string; dir: 'out' | 'in'; status: string }
 
@@ -56,6 +57,9 @@ export default function Dashboard() {
   const tr = useTr()
   const nav = useNavigate()
   const { open: openSigning } = useVaultSigner()
+  const { begin, end } = useLoading()
+  // The page renders nothing real until the first full fetch is in (no placeholder flash).
+  const [firstLoaded, setFirstLoaded] = useState(false)
   const [vault, setVault] = useState<Vault | null>(null)
   const [proposals, setProposals] = useState<Proposal[]>([])
   const [ledger, setLedger] = useState<Proposal[] | null>(null)
@@ -94,6 +98,7 @@ export default function Dashboard() {
     const load = async (first: boolean) => {
       if (inFlight) return // never overlap polls (the helper's wallet sync can be slow)
       inFlight = true
+      if (first) begin()
       try {
         const ok = await health()
         if (!on) return
@@ -112,6 +117,7 @@ export default function Dashboard() {
         if (l) setLedger(l)
       } finally {
         inFlight = false
+        if (first) { end(); if (on) setFirstLoaded(true) }
       }
     }
     void load(true)
@@ -238,6 +244,11 @@ export default function Dashboard() {
     return t('dashboard.agoHours', { n: Math.floor(min / 60) })
   }
 
+
+  // Nothing renders until the first full fetch is in - no half-built page with placeholders.
+  if (!firstLoaded) {
+    return <main className="page dash"><Loading /></main>
+  }
 
   return (
     <>
