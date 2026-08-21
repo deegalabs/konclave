@@ -3,7 +3,8 @@
 // UX) is that a page never renders half-built with placeholders - it shows the bar, and each screen
 // gates its real content on a `ready` flag until its data has arrived.
 
-import { createContext, useCallback, useContext, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
+import { useLocation } from 'react-router-dom'
 
 interface LoadingCtx {
   /** Mark one load in-flight (increments the counter; the top bar shows while > 0). */
@@ -27,9 +28,19 @@ export function LoadingProvider({ children }: { children: ReactNode }) {
   return <Ctx.Provider value={{ begin, end, active: count > 0 }}>{children}</Ctx.Provider>
 }
 
-/** The top-of-page progress line; shows an indeterminate sweep while any load is in-flight. */
+/** The top-of-page progress line; shows an indeterminate sweep while any load is in-flight.
+ *  Also fires on every route change so EVERY page shows the bar as it loads, even screens that do
+ *  not call begin/end themselves; screens that do call them keep the bar up until their data lands. */
 export function TopProgress() {
-  const { active } = useLoading()
+  const { active, begin, end } = useLoading()
+  const loc = useLocation()
+  useEffect(() => {
+    begin()
+    let ended = false
+    const finish = () => { if (!ended) { ended = true; end() } }
+    const t = setTimeout(finish, 600)
+    return () => { clearTimeout(t); finish() }
+  }, [loc.pathname, begin, end])
   if (!active) return null
   return (
     <div className="top-progress" aria-hidden="true">

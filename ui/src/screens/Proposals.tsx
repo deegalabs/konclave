@@ -6,6 +6,7 @@ import { PageHeader, NextStep } from '../page'
 import { Identicon } from '../avatar'
 import { getProposals, getVault, health, type Proposal } from '../api'
 import { expiryLabel, fmtZec } from '../format'
+import { useLoading } from '../loading'
 import { useT, useTr } from '../i18n'
 
 export default function Proposals({ embedded = false }: { embedded?: boolean }) {
@@ -16,6 +17,7 @@ export default function Proposals({ embedded = false }: { embedded?: boolean }) 
   const [threshold, setThreshold] = useState(2)
   const [live, setLive] = useState(false)
   const [loaded, setLoaded] = useState(false)
+  const { begin, end } = useLoading()
 
   // Auto-refresh: a new proposal or an incoming approval shows up without a manual reload. Poll on
   // the same 12s cadence as the Dashboard, guarded so calls never overlap.
@@ -25,6 +27,7 @@ export default function Proposals({ embedded = false }: { embedded?: boolean }) 
     const load = async (first: boolean) => {
       if (inFlight) return
       inFlight = true
+      if (first) begin()
       try {
         if (first) {
           const ok = await health()
@@ -37,6 +40,7 @@ export default function Proposals({ embedded = false }: { embedded?: boolean }) 
         setLoaded(true)
       } finally {
         inFlight = false
+        if (first) end()
       }
     }
     void load(true)
