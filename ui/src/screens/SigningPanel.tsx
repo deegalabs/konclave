@@ -35,14 +35,20 @@ export default function SigningPanel() {
   const present = bg.seatCount
   const quorumHere = present >= threshold && threshold > 0
 
-  // Presence by name: THIS device's own seat is definitely present once the signer is seated; the
-  // remaining present count fills the OTHER seats in order (we only have a count, not per-seat ids
-  // yet, so this is a best-effort - but it never mislabels the local device's own seat).
+  // Presence by name: THIS device's own seat is the ONLY one we can attribute with certainty (by
+  // name, once the signer is seated). The remaining present count fills the OTHER seats in roster
+  // order. Crucially, we fill others ONLY once we've identified our own seat (`me` known) - otherwise
+  // (e.g. right after a rename, before the session name syncs, or before the share resolves) we would
+  // light the WRONG seat (the first in the list) instead of leaving presence to the "N / threshold"
+  // count. Never guess a specific seat we cannot attribute.
   const roster = vault?.member_list ?? []
-  let othersLeft = Math.max(0, present - (bg.ready && me ? 1 : 0))
+  // The signer is still coming up: has a share but hasn't seated yet. Show a loading line instead of
+  // a roster that could momentarily light the wrong seat.
+  const connecting = hasShare && !bg.ready && present === 0 && !started && !result
+  let othersLeft = me ? Math.max(0, present - (bg.ready ? 1 : 0)) : 0
   const presentFlags = roster.map((m) => {
     if (me && m.name === me) return bg.ready
-    if (othersLeft > 0) { othersLeft -= 1; return true }
+    if (me && othersLeft > 0) { othersLeft -= 1; return true }
     return false
   })
   const started = sending || bg.phase !== 'idle'
@@ -118,14 +124,21 @@ export default function SigningPanel() {
             <span className="klab">{t('signing.presence')}</span>
             <span className="mono"><b>{present}</b> / {threshold}</span>
           </div>
-          <div className="sign-roster">
-            {roster.map((m, i) => (
-              <span className={'sign-seat' + (presentFlags[i] ? ' on' : '')} key={m.pubkey || m.name}>
-                <Identicon seed={m.pubkey || m.name} size={22} />
-                <span className="sign-seat-name">{m.name}{me && m.name === me && <span className="klab"> {t('members.youShort')}</span>}</span>
-              </span>
-            ))}
-          </div>
+          {connecting ? (
+            <div className="sign-roster-loading">
+              <span className="loader-ring sm" aria-hidden="true" />
+              <span>{t('signing.connecting')}</span>
+            </div>
+          ) : (
+            <div className="sign-roster">
+              {roster.map((m, i) => (
+                <span className={'sign-seat' + (presentFlags[i] ? ' on' : '')} key={m.pubkey || m.name}>
+                  <Identicon seed={m.pubkey || m.name} size={22} />
+                  <span className="sign-seat-name">{m.name}{me && m.name === me && <span className="klab"> {t('members.youShort')}</span>}</span>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* State */}

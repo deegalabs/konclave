@@ -132,6 +132,11 @@
 .sign-roster{display:flex; flex-direction:column; gap:8px}
 .sign-seat{display:flex; align-items:center; gap:9px; font-size:13px; color:var(--text-muted); opacity:.5}
 .sign-seat.on{opacity:1; color:var(--text)}
+/* while the signer is coming up, show a loading line instead of a roster that could momentarily
+   light the wrong seat (presence is resolved from a live count + the local seat's own name). */
+.sign-roster-loading{display:flex; align-items:center; gap:9px; font-family:var(--font-mono);
+  font-size:12px; color:var(--text-muted); padding:2px 0}
+.loader-ring.sm{width:15px; height:15px; border-width:2px}
 .sign-state{display:flex; flex-direction:column; gap:4px}
 .sign-unlock{display:flex; flex-direction:column; gap:4px}
 .sign-unlock .input{width:100%}

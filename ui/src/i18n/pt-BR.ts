@@ -613,6 +613,7 @@ export const ptBR: Record<string, string> = {
   'signing.title': 'Assinar este pagamento',
   'signing.presence': 'Signatários presentes',
   'signing.opening': 'Abrindo uma sessão segura no seu cofre…',
+  'signing.connecting': 'Conectando à sala de assinatura…',
   'signing.waiting': 'Aguardando os outros signatários abrirem este pagamento no aparelho deles.',
   'signing.needUnlock': 'Digite a palavra do cofre para destrancar sua parte e assinar, aqui mesmo.',
   'signing.needUnlockCta': 'Destrancar e assinar',

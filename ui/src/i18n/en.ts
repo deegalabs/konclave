@@ -613,6 +613,7 @@ export const en: Record<string, string> = {
   'signing.title': 'Sign this payment',
   'signing.presence': 'Signers present',
   'signing.opening': 'Opening a secure session in your vault…',
+  'signing.connecting': 'Connecting to the signing room…',
   'signing.waiting': 'Waiting for the other signers to open this payment on their device.',
   'signing.needUnlock': 'Type your vault word to unlock your share and sign, right here.',
   'signing.needUnlockCta': 'Unlock & sign',
