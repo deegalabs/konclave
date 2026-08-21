@@ -148,8 +148,8 @@ export const ptBR: Record<string, string> = {
   'nav.switchVault': 'Trocar cofre',
   'nav.more': 'Mais',
   'nav.bandVault': 'Cofre',
+  'nav.bandMoney': 'Movimentos',
   'nav.bandGovernance': 'Governança',
-  'nav.bandDo': 'Ações',
 
   // Aprovações (hub de governança: propostas + evidências; a Razão agora é item de topo)
   'activity.eyebrow': 'O ciclo das propostas',

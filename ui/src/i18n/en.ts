@@ -148,8 +148,8 @@ export const en: Record<string, string> = {
   'nav.switchVault': 'Switch vault',
   'nav.more': 'More',
   'nav.bandVault': 'Vault',
+  'nav.bandMoney': 'Money',
   'nav.bandGovernance': 'Governance',
-  'nav.bandDo': 'Actions',
 
   // Approvals (governance hub: proposals + signing evidence; the Ledger is now a top-level item)
   'activity.eyebrow': 'The proposal lifecycle',
