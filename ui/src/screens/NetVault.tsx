@@ -45,53 +45,6 @@ import '../net.css'
 
 type Phase = 'idle' | 'roster' | 'dkg' | 'done' | 'error' | 'restored' | 'signsession'
 
-// Local, dependency-free labels for the on-device persistence UI (Marco 5). These are ADDITIVE
-// to the /net flow, so rather than touch the shared i18n dictionaries we key a small table by the
-// active locale. No em dashes in copy.
-const PERSIST_LABELS = {
-  'pt-BR': {
-    saveTitle: 'Guardar neste dispositivo',
-    saveHint: 'Cifra a sua parte do cofre com uma frase-senha, para não perder o cofre ao recarregar a página.',
-    savePlaceholder: 'Frase-senha (mínimo 8 caracteres)',
-    saveBtn: 'Guardar cofre',
-    saving: 'Guardando...',
-    saved: 'Cofre guardado neste dispositivo, cifrado.',
-    saveErr: 'Não foi possível guardar o cofre: ',
-    unavailable: 'Este navegador não permite guardar o cofre (sem IndexedDB/WebCrypto).',
-    restoreTitle: 'Cofres guardados neste dispositivo',
-    restorePlaceholder: 'Frase-senha',
-    unlockBtn: 'Abrir',
-    deleteBtn: 'Apagar',
-    unlocking: 'Abrindo...',
-    restoreErr: 'Não foi possível abrir o cofre: ',
-    restoredTitle: 'Cofre restaurado',
-    restoredLead: 'A sua parte do cofre foi restaurada deste dispositivo, sem refazer a criação.',
-    restoredNote: 'Para assinar, reingresse com os membros numa sessão de assinatura abaixo.',
-    rosterLabel: 'Participantes registrados:',
-    backBtn: 'Voltar',
-  },
-  en: {
-    saveTitle: 'Save on this device',
-    saveHint: 'Encrypts your share of the vault with a passphrase, so a page reload does not lose the vault.',
-    savePlaceholder: 'Passphrase (at least 8 characters)',
-    saveBtn: 'Save vault',
-    saving: 'Saving...',
-    saved: 'Vault saved on this device, encrypted.',
-    saveErr: 'Could not save the vault: ',
-    unavailable: 'This browser cannot save the vault (no IndexedDB/WebCrypto).',
-    restoreTitle: 'Vaults saved on this device',
-    restorePlaceholder: 'Passphrase',
-    unlockBtn: 'Open',
-    deleteBtn: 'Delete',
-    unlocking: 'Opening...',
-    restoreErr: 'Could not open the vault: ',
-    restoredTitle: 'Vault restored',
-    restoredLead: 'Your share of the vault was restored from this device, without redoing creation.',
-    restoredNote: 'To sign, rejoin the members in a signing session below.',
-    rosterLabel: 'Registered participants:',
-    backBtn: 'Back',
-  },
-} as const
 
 // Wire messages (JSON inside the relay's opaque `data`; the relay never parses them).
 type Msg =
@@ -165,7 +118,20 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
     setSelectedVault(groupVk)
     nav('/dashboard')
   }
-  const L = PERSIST_LABELS[locale]
+  // Persistence UI copy, now sourced from the central i18n dictionary (#173) instead of a local
+  // PT/EN table. Keyed the same, so every `L.xxx` usage is unchanged.
+  const L = {
+    saveTitle: tt('net.persist.saveTitle'), saveHint: tt('net.persist.saveHint'),
+    savePlaceholder: tt('net.persist.savePlaceholder'), saveBtn: tt('net.persist.saveBtn'),
+    saving: tt('net.persist.saving'), saved: tt('net.persist.saved'),
+    saveErr: tt('net.persist.saveErr'), unavailable: tt('net.persist.unavailable'),
+    restoreTitle: tt('net.persist.restoreTitle'), restorePlaceholder: tt('net.persist.restorePlaceholder'),
+    unlockBtn: tt('net.persist.unlockBtn'), deleteBtn: tt('net.persist.deleteBtn'),
+    unlocking: tt('net.persist.unlocking'), restoreErr: tt('net.persist.restoreErr'),
+    restoredTitle: tt('net.persist.restoredTitle'), restoredLead: tt('net.persist.restoredLead'),
+    restoredNote: tt('net.persist.restoredNote'), rosterLabel: tt('net.persist.rosterLabel'),
+    backBtn: tt('net.persist.backBtn'),
+  }
   const [phase, setPhase] = useState<Phase>('idle')
   const [role, setRole] = useState<'create' | 'join'>('create')
   const [room, setRoom] = useState('')
