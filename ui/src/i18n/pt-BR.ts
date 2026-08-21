@@ -454,6 +454,7 @@ export const ptBR: Record<string, string> = {
   'ceremony.receiveAddress': 'Endereço para receber ZEC',
   'ceremony.orchardOnlyWarn': 'Receba apenas em endereço blindado (u1…).',
   'ceremony.groupKey': 'Chave do grupo',
+  'ceremony.fpHelp': 'Compare este código com os demais **agora**: todo mundo que entrou deve ver a mesma impressão, idêntica. Se a de alguém for diferente, essa pessoa não está neste cofre. Você reencontra o código nas Configurações.',
   'ceremony.members': 'Membros',
   'ceremony.confirmSavedWord': 'Confirme que guardou a palavra',
   'ceremony.goToVault': 'Ir para o cofre',
