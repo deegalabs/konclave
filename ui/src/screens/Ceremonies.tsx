@@ -50,14 +50,24 @@ export default function Ceremonies({ embedded = false }: { embedded?: boolean })
               </span>
               <span className="cer-when">{fmtDate(c.created_at_unix, locale)}</span>
             </div>
-            {c.txid && (
-              <div className="cer-kv"><span className="cer-k">txid</span><code>{c.txid}</code></div>
+            {/* The receipt: what a member cares about - was it sent, and where to see it on-chain. */}
+            {c.txid ? (
+              <div className="cer-receipt">
+                <code className="cer-txid">{shortAddr(c.txid, 10, 8)}</code>
+                <a className="link" href={`https://mainnet.zcashexplorer.app/transactions/${c.txid}`} target="_blank" rel="noreferrer">{t('ceremonies.viewOnChain')} ↗</a>
+              </div>
+            ) : (
+              <div className="hint dim">{t('ceremonies.dryRunNote')}</div>
             )}
-            <div className="cer-kv"><span className="cer-k">sighash</span><code>{shortAddr(c.sighash, 10, 8)}</code></div>
-            <div className="cer-kv">
-              <span className="cer-k">{t('ceremonies.signature')}</span>
-              <code>{c.signatures.map((s) => shortAddr(s, 8, 6)).join(', ') || '-'}</code>
-            </div>
+            {/* The cryptographic proof is kept for the auditor, behind a disclosure (§7). */}
+            <details className="cer-tech">
+              <summary>{t('ceremonies.techDetails')}</summary>
+              <div className="cer-kv"><span className="cer-k">sighash</span><code>{shortAddr(c.sighash, 10, 8)}</code></div>
+              <div className="cer-kv">
+                <span className="cer-k">{t('ceremonies.signature')}</span>
+                <code>{c.signatures.map((s) => shortAddr(s, 8, 6)).join(', ') || '-'}</code>
+              </div>
+            </details>
           </div>
         ))}
       </div>
