@@ -454,6 +454,7 @@ export const en: Record<string, string> = {
   'ceremony.receiveAddress': 'Address to receive ZEC',
   'ceremony.orchardOnlyWarn': 'Receive only at a shielded address (u1…).',
   'ceremony.groupKey': 'Group key',
+  'ceremony.fpHelp': 'Compare this code with the others **now**: everyone who joined should see the exact same fingerprint. If one differs, they are not in this vault. You can always find it again in Settings.',
   'ceremony.members': 'Members',
   'ceremony.confirmSavedWord': 'Confirm you saved the word',
   'ceremony.goToVault': 'Go to the vault',

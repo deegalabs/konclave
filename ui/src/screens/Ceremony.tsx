@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Letterhead, Stepper } from '../components'
 import { useT, useTr } from '../i18n'
 import { createVaultDkg, setSelectedVault, markVaultUnlocked, shortAddr, humanError, type Vault } from '../api'
+import { vaultFingerprint } from '../format'
 
 /** Illustrative invite code for the demo. In the product each member generates
  *  their own from their own device (frost-client contact token, zffrost1…). */
@@ -34,6 +35,23 @@ export default function Ceremony() {
   const [wordCopied, setWordCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState<number | null>(null)
+  // The vault fingerprint: the PUBLIC anti-impostor code members compare out of band. Surfaced here
+  // at creation - the moment it matters most (confirm everyone joined the SAME vault) - and again in
+  // Settings (#160). Fingerprints the group verifying key, matching the identity Settings uses.
+  const [fp, setFp] = useState<string | null>(null)
+  const [fpCopied, setFpCopied] = useState(false)
+
+  useEffect(() => {
+    if (!vault) return
+    let on = true
+    void vaultFingerprint(vault.group_pubkey).then((c) => { if (on) setFp(c) }).catch(() => { /* WebCrypto unavailable */ })
+    return () => { on = false }
+  }, [vault])
+
+  async function copyFp() {
+    if (!fp) return
+    try { await navigator.clipboard.writeText(fp); setFpCopied(true); setTimeout(() => setFpCopied(false), 1500) } catch { /* clipboard blocked - readable aloud anyway */ }
+  }
 
   const names = members.map((m) => m.trim()).filter(Boolean)
   const n = members.length
@@ -115,6 +133,19 @@ export default function Ceremony() {
 
           <span className="klab mt">{t('ceremony.groupKey')}</span>
           <div className="mono dim">{shortAddr(vault.group_pubkey, 10, 8)}</div>
+
+          {fp && (
+            <div className="fp-card mt" role="note" aria-label={t('members.fpTitle')}>
+              <div className="fp-head">
+                <span className="klab">{t('members.fpTitle')}</span>
+                <button className="btn ghost xs-btn" onClick={() => void copyFp()}>
+                  {fpCopied ? t('members.fpCopied') : t('members.fpCopy')}
+                </button>
+              </div>
+              <div className="fp-code mono">{fp}</div>
+              <div className="fp-help dim">{tr('ceremony.fpHelp')}</div>
+            </div>
+          )}
 
           <span className="klab mt">{t('ceremony.members')}</span>
           <table className="tbl razao">
