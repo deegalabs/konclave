@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { Seal, Loading } from '../components'
 import { PageHeader, PageFooter } from '../page'
 import { Identicon } from '../avatar'
@@ -12,7 +11,6 @@ const ME = 'Alice' // this device acts as the coordinator member (single-device 
 export default function Members() {
   const t = useT()
   const tr = useTr()
-  const nav = useNavigate()
   const [vault, setVault] = useState<Vault | null>(null)
   const [live, setLive] = useState<boolean | null>(null)
   // Browser-native: the members are the DKG seats, each named at creation from that member's own
@@ -156,7 +154,6 @@ export default function Members() {
         </PageFooter>
 
         <div className="confirm mt">{IS_NET ? tr('members.netNote') : tr('members.demoNote')}</div>
-        <div className="right mt"><button className="btn ghost sm-btn" onClick={() => nav(IS_NET ? '/net' : '/create')}>{t('members.createNew')}</button></div>
 
       </main>
     </>
