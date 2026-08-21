@@ -1,16 +1,16 @@
-// Activity (K10, ADR-0009): one in-vault destination for the whole proposal lifecycle, replacing
-// three separate rail items (Proposals + Ledger + Ceremonies). Each is embedded as a tab, reusing
-// its existing screen unchanged (via the `embedded` prop, which drops the per-screen chrome).
+// Approvals (K10, ADR-0009, GSP IA #159): the vault's GOVERNANCE hub - proposals and the signing
+// evidence that back them. The Ledger is NOT here: it is the accountant's book, a destination in its
+// own right, promoted to a top-level VAULT rail item. Each tab embeds its existing screen unchanged
+// (via the `embedded` prop, which drops the per-screen chrome).
 
 import { useState } from 'react'
-import { PageHeader, NextStep } from '../page'
+import { PageHeader } from '../page'
 import { useT } from '../i18n'
 import Proposals from './Proposals'
-import Ledger from './Ledger'
 import Ceremonies from './Ceremonies'
 
-type Tab = 'proposals' | 'ledger' | 'evidence'
-const TABS: Tab[] = ['proposals', 'ledger', 'evidence']
+type Tab = 'proposals' | 'evidence'
+const TABS: Tab[] = ['proposals', 'evidence']
 
 export default function Activity() {
   const t = useT()
@@ -36,11 +36,8 @@ export default function Activity() {
 
       <div className="act-body">
         {tab === 'proposals' && <Proposals embedded />}
-        {tab === 'ledger' && <Ledger embedded />}
         {tab === 'evidence' && <Ceremonies embedded />}
       </div>
-
-      <NextStep label={t('next.label')} cta={t('next.dashboard')} to="/dashboard" />
     </main>
   )
 }
