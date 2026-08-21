@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Seal, Loading, LangToggle } from '../components'
 import { PageHeader, PageFooter } from '../page'
-import { useT, useTr, useI18n } from '../i18n'
+import { useT, useTr } from '../i18n'
 import { getVault, health, shortAddr, deleteVault, IS_DEMO, type Vault } from '../api'
 import { listVaults, type Governance } from '../storage'
 import { vaultFingerprint } from '../format'
@@ -19,8 +19,6 @@ import { isDesktop } from '../platform'
 export default function Settings() {
   const t = useT()
   const tr = useTr()
-  const { locale } = useI18n()
-  const pt = locale === 'pt-BR'
   const nav = useNavigate()
   const [theme, setThemeState] = useState<Theme>(getTheme())
   const pickTheme = (v: Theme) => { setTheme(v); setThemeState(v) }
@@ -113,18 +111,18 @@ export default function Settings() {
           renders regardless of vault/live state. */}
       <section className="set-list mt">
         <div className="set-row">
-          <span className="set-k">{pt ? 'Aparência' : 'Appearance'}</span>
+          <span className="set-k">{t('settings.appearance')}</span>
           <span className="set-v" style={{ display: 'inline-flex', gap: 8 }}>
-            <button type="button" className={'btn' + (theme === 'light' ? ' ok' : ' ghost')} onClick={() => pickTheme('light')}>{pt ? 'Claro' : 'Light'}</button>
-            <button type="button" className={'btn' + (theme === 'dark' ? ' ok' : ' ghost')} onClick={() => pickTheme('dark')}>{pt ? 'Escuro' : 'Dark'}</button>
+            <button type="button" className={'btn' + (theme === 'light' ? ' ok' : ' ghost')} onClick={() => pickTheme('light')}>{t('settings.light')}</button>
+            <button type="button" className={'btn' + (theme === 'dark' ? ' ok' : ' ghost')} onClick={() => pickTheme('dark')}>{t('settings.dark')}</button>
           </span>
         </div>
         <div className="set-row">
-          <span className="set-k">{pt ? 'Idioma' : 'Language'}</span>
+          <span className="set-k">{t('settings.language')}</span>
           <span className="set-v"><LangToggle /></span>
         </div>
       </section>
-      <p className="set-hint">{pt ? 'Preferência deste dispositivo · o branco é o padrão, o escuro é opcional.' : 'A per-device preference · white is the default, dark is optional.'}</p>
+      <p className="set-hint">{t('settings.appearanceHint')}</p>
 
       {/* Coordination - WHERE the blind ceremony helper lives (desktop). Our hosted helper, your
           own, or fully local (no helper). The helper never sees a share in any mode. */}
@@ -132,25 +130,23 @@ export default function Settings() {
         <>
           <section className="set-list mt">
             <div className="set-row">
-              <span className="set-k">{pt ? 'Coordenação' : 'Coordination'}</span>
+              <span className="set-k">{t('settings.coordination')}</span>
               <span className="set-v" style={{ display: 'inline-flex', gap: 8, flexWrap: 'wrap' }}>
                 {HELPER_BASE && (
-                  <button type="button" className={'btn' + (coord === 'ours' ? ' ok' : ' ghost')} onClick={() => applyCoord('ours')}>{pt ? 'Hospedado pela Konclave' : 'Konclave-hosted'}</button>
+                  <button type="button" className={'btn' + (coord === 'ours' ? ' ok' : ' ghost')} onClick={() => applyCoord('ours')}>{t('settings.coordHosted')}</button>
                 )}
-                <button type="button" className={'btn' + (coord === 'custom' ? ' ok' : ' ghost')} onClick={() => setCoord('custom')}>{pt ? 'Seu servidor' : 'Your server'}</button>
-                <button type="button" className={'btn' + (coord === 'local' ? ' ok' : ' ghost')} onClick={() => applyCoord('local')}>{pt ? 'Só neste dispositivo' : 'This device only'}</button>
+                <button type="button" className={'btn' + (coord === 'custom' ? ' ok' : ' ghost')} onClick={() => setCoord('custom')}>{t('settings.coordCustom')}</button>
+                <button type="button" className={'btn' + (coord === 'local' ? ' ok' : ' ghost')} onClick={() => applyCoord('local')}>{t('settings.coordLocal')}</button>
               </span>
             </div>
             {coord === 'custom' && (
               <div className="set-row" style={{ gap: 8 }}>
-                <input className="unlock-input mono" style={{ flex: 1 }} inputMode="url" placeholder={pt ? 'https://seu-servidor.exemplo.com' : 'https://your-server.example.com'} value={helperUrl} onChange={(e) => setHelperUrl(e.target.value)} />
-                <button type="button" className="btn ok" disabled={!validHelperUrl(helperUrl)} onClick={() => applyCoord('custom', helperUrl)}>{pt ? 'Salvar' : 'Save'}</button>
+                <input className="unlock-input mono" style={{ flex: 1 }} inputMode="url" placeholder={t('settings.coordUrlPlaceholder')} value={helperUrl} onChange={(e) => setHelperUrl(e.target.value)} />
+                <button type="button" className="btn ok" disabled={!validHelperUrl(helperUrl)} onClick={() => applyCoord('custom', helperUrl)}>{t('settings.coordSave')}</button>
               </div>
             )}
           </section>
-          <p className="set-hint">{pt
-            ? 'Quem coordena as aprovações. Ninguém vê sua chave; só o grupo assina. Use uma URL https. Aplica ao trocar.'
-            : 'Who coordinates approvals. No one sees your key; only the group signs. Use an https URL. Applies on change.'}</p>
+          <p className="set-hint">{t('settings.coordHint')}</p>
         </>
       )}
 
