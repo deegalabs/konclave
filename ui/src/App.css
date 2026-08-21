@@ -41,16 +41,6 @@
   .page-header .seal-cap{font-size:8px; letter-spacing:.08em; margin-top:4px}
 }
 
-/* NextStep - the "and now?" connector that closes every read/hub screen so none is a dead end. */
-.next-step{display:flex; align-items:center; justify-content:space-between; gap:18px; margin-top:34px;
-  padding:16px 20px; border:1px solid var(--line); border-radius:var(--radius); background:var(--surface-1);
-  text-decoration:none; transition:border-color .16s ease, background .16s ease, transform .16s ease}
-.next-step:hover{border-color:var(--accent-line); background:var(--surface-2); transform:translateY(-1px)}
-.next-step-label{color:var(--text-muted); flex:0 1 auto}
-.next-step-cta{display:inline-flex; align-items:center; gap:9px; font-weight:600; color:var(--accent-bright); flex:0 0 auto}
-.next-step-cta svg{width:16px; height:16px; transition:transform .16s ease}
-.next-step:hover .next-step-cta svg{transform:translateX(3px)}
-@media(max-width:560px){.next-step{flex-direction:column; align-items:flex-start; gap:8px}}
 
 .switch{font-family:var(--font-mono); font-size:12px; color:var(--text-muted); border:1px solid var(--line); background:var(--surface-2); padding:7px 12px; cursor:pointer}
 .switch b{color:var(--text); font-weight:600}

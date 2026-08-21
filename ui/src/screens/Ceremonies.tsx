@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { PageHeader, PageFooter, NextStep } from '../page'
+import { PageHeader, PageFooter } from '../page'
 import { Loading } from '../components'
 import { useT, useI18n } from '../i18n'
 import { getSelectedVault } from '../api'
@@ -73,7 +73,6 @@ export default function Ceremonies({ embedded = false }: { embedded?: boolean })
         subtitle={t('ceremonies.subtitle')}
       />
       {list}
-      <NextStep label={t('next.label')} cta={t('ceremonies.next')} to="/ledger" />
       <PageFooter>{t('ceremonies.footer')}</PageFooter>
     </main>
   )

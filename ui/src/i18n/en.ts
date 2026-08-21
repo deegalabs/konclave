@@ -159,14 +159,6 @@ export const en: Record<string, string> = {
   'activity.tab.ledger': 'Ledger',
   'activity.tab.evidence': 'Signing evidence',
 
-  // "And now?" connector - the next natural step at the foot of each read/hub screen
-  'next.label': 'Next step',
-  'next.pay': 'Propose a payment',
-  'next.dashboard': 'Back to the dashboard',
-  'next.ledger': 'See the ledger',
-  'next.people': 'See beneficiaries',
-  'next.members': 'See the signers',
-  'next.proposals': 'Review approvals',
 
   // Landing / explainer (Intro)
   'landing.env': 'Local-first · **the key never leaves the device**',
@@ -299,7 +291,6 @@ export const en: Record<string, string> = {
   'ceremonies.dryRun': 'dry-run',
   'ceremonies.broadcast': 'broadcast',
   'ceremonies.signature': 'signature',
-  'ceremonies.next': 'See the ledger',
   'ceremonies.footer': 'Konclave · signing evidence',
   'nav.ceremonies': 'Ceremonies',
   'demo.s1Name': 'Meet the collective',
