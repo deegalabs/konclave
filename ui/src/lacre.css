@@ -221,6 +221,11 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 .rail .wm{font-family:var(--font-mono); font-weight:600; font-size:12px; letter-spacing:.42em; text-indent:.42em}
 .rail .brand-sub{font-family:var(--font-mono); font-size:9px; letter-spacing:.2em; color:var(--text-muted); text-transform:uppercase; margin-top:2px}
 .railnav{display:flex; flex-direction:column; gap:2px}
+/* intent bands (desktop): a small uppercase label over each group, with breathing room between. */
+.rail-band{display:flex; flex-direction:column; gap:2px}
+.rail-band + .rail-band, .rail-band-tail{margin-top:16px}
+.rail-band-label{font-family:var(--font-mono); font-size:9.5px; letter-spacing:.16em; text-transform:uppercase;
+  color:var(--text-muted); opacity:.75; padding:0 11px 5px}
 .nav-item{display:flex; align-items:center; gap:11px; padding:9px 11px; border-radius:var(--radius-sm);
   color:var(--text-muted); font-size:14px; font-weight:500; text-decoration:none;
   transition:background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out)}
@@ -282,6 +287,10 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
     overflow-x:auto; background:var(--surface-1); border-top:1px solid var(--line);
     padding:6px 2px calc(6px + env(safe-area-inset-bottom)); box-shadow:0 -6px 20px -12px rgba(0,0,0,.7);
     transform:translateZ(0); -webkit-transform:translateZ(0); will-change:transform}
+  /* the desktop bands collapse on mobile: the wrappers become transparent (their nav-items flow
+     straight into the tab bar) and the band labels + spacing disappear */
+  .rail-band{display:contents}
+  .rail-band-label{display:none}
   .nav-item{flex:1 1 0; min-width:0; overflow:hidden; flex-direction:column; gap:3px; padding:7px 2px;
     border-radius:8px; font-size:9px; font-weight:600; letter-spacing:0; text-align:center}
   .nav-item span{display:block; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}

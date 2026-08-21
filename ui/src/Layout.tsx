@@ -8,8 +8,9 @@ import { VaultSignerProvider } from './VaultSigner'
 import { LoadingProvider, TopProgress } from './loading'
 import SigningPanel from './screens/SigningPanel'
 
-// How many nav items live directly in the mobile bottom bar; the rest fold into "More".
-const MOBILE_PRIMARY = 5
+// The money + governance spine shown directly in the mobile bottom bar; everything else folds into
+// "More". (On mobile the rail is a flat tab bar, so the desktop bands collapse away.)
+const MOBILE_PRIMARY = new Set(['/dashboard', '/pay', '/payroll', '/activity', '/members'])
 
 /** Persistent left rail + routed content. Wraps the in-vault screens; the
  *  onboarding screens (vault picker, intro, ceremony) render standalone. */
@@ -67,19 +68,33 @@ export default function Layout() {
     ? vault.member_list.slice(0, 3).map((m) => m.name)
     : ['A', 'B', 'C']
 
-  // Rail grouped by intent (ADR-0009): Overview, Add funds, the two compose actions (Pay/Payroll),
-  // ONE Activity destination (merges the old Proposals + Ledger + Ceremonies), Signers, Settings.
-  // Beneficiaries is NOT a rail peer: it is a payee address-book that only feeds Pay/Payroll, so it
-  // is reached contextually from those compose screens ("Manage payees"), never as a destination.
-  const items: [string, string, ReactNode][] = [
-    ['/dashboard', t('nav.dashboard'), <IconGrid key="i" />],
-    ['/receive', t('nav.receive'), <IconReceive key="i" />],
-    ['/pay', t('nav.pay'), <IconSend key="i" />],
-    ['/payroll', t('nav.payroll'), <IconRows key="i" />],
-    ['/activity', t('nav.activity'), <IconInbox key="i" />],
-    ['/members', t('nav.members'), <IconUsers key="i" />],
-    ['/settings', t('nav.settings'), <IconGear key="i" />],
+  // Rail grouped into three intent bands (ADR-0009, GSP IA #156) so a governance vault reads as
+  // VAULT / GOVERNANCE / ACTIONS, not a flat wallet with sibling tabs:
+  //  · VAULT      - the vault itself: overview + receiving.
+  //  · GOVERNANCE - what needs the quorum: approvals + the signers who hold shares and vote.
+  //  · ACTIONS    - the two compose faces that START a governance flow (Pay/Payroll).
+  // Settings sits below the bands. Beneficiaries is NOT a rail peer: it is a payee address-book that
+  // only feeds Pay/Payroll, reached contextually there ("Manage payees"), never a destination.
+  type NavItem = [string, string, ReactNode]
+  const bands: { label: string; items: NavItem[] }[] = [
+    { label: t('nav.bandVault'), items: [
+      ['/dashboard', t('nav.dashboard'), <IconGrid key="i" />],
+      ['/receive', t('nav.receive'), <IconReceive key="i" />],
+    ] },
+    { label: t('nav.bandGovernance'), items: [
+      ['/activity', t('nav.activity'), <IconInbox key="i" />],
+      ['/members', t('nav.members'), <IconUsers key="i" />],
+    ] },
+    { label: t('nav.bandDo'), items: [
+      ['/pay', t('nav.pay'), <IconSend key="i" />],
+      ['/payroll', t('nav.payroll'), <IconRows key="i" />],
+    ] },
   ]
+  const tail: NavItem[] = [['/settings', t('nav.settings'), <IconGear key="i" />]]
+  const allItems: NavItem[] = [...bands.flatMap((b) => b.items), ...tail]
+  const overflow = allItems.filter(([to]) => !MOBILE_PRIMARY.has(to))
+  const navClass = (to: string) => ({ isActive }: { isActive: boolean }) =>
+    'nav-item' + (isActive ? ' active' : '') + (MOBILE_PRIMARY.has(to) ? '' : ' nav-overflow')
 
   return (
     <LoadingProvider>
@@ -96,16 +111,21 @@ export default function Layout() {
         </Link>
 
         <nav className="railnav" aria-label="Konclave">
-          {items.map(([to, label, icon], i) => (
-            <NavLink
-              key={to}
-              to={to}
-              className={({ isActive }) =>
-                'nav-item' + (isActive ? ' active' : '') + (i >= MOBILE_PRIMARY ? ' nav-overflow' : '')}
-            >
-              {icon}<span>{label}</span>
-            </NavLink>
+          {/* Desktop: three labelled bands. Mobile: `.rail-band` becomes display:contents and the
+              labels hide, so these flatten into the tab bar (primary items) + a "More" sheet. */}
+          {bands.map((band) => (
+            <div className="rail-band" key={band.label}>
+              <span className="rail-band-label">{band.label}</span>
+              {band.items.map(([to, label, icon]) => (
+                <NavLink key={to} to={to} className={navClass(to)}>{icon}<span>{label}</span></NavLink>
+              ))}
+            </div>
           ))}
+          <div className="rail-band rail-band-tail">
+            {tail.map(([to, label, icon]) => (
+              <NavLink key={to} to={to} className={navClass(to)}>{icon}<span>{label}</span></NavLink>
+            ))}
+          </div>
           {/* Mobile-only: the overflow items fold into a "More" sheet. */}
           <button
             type="button"
@@ -122,7 +142,7 @@ export default function Layout() {
           <>
             <div className="nav-more-scrim" onClick={() => setMoreOpen(false)} aria-hidden="true" />
             <div className="nav-more-sheet" role="menu" aria-label={t('nav.more')}>
-              {items.slice(MOBILE_PRIMARY).map(([to, label, icon]) => (
+              {overflow.map(([to, label, icon]) => (
                 <NavLink
                   key={to}
                   to={to}

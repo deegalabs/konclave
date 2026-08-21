@@ -147,6 +147,9 @@ export const en: Record<string, string> = {
   'nav.activity': 'Activity',
   'nav.switchVault': 'Switch vault',
   'nav.more': 'More',
+  'nav.bandVault': 'Vault',
+  'nav.bandGovernance': 'Governance',
+  'nav.bandDo': 'Actions',
 
   // Activity (merged Proposals + Ledger + Evidence)
   'activity.eyebrow': 'The proposal lifecycle',
