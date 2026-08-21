@@ -20,12 +20,17 @@ export function DemoBanner() {
   )
 }
 
-/** The quiet loading affordance - a single `.hint` line, announced via `role="status"`.
- *  No spinner, no looping motion (strict motion budget): while an initial fetch is in flight
- *  a screen shows this instead of flashing empty-state or mock data. */
+/** The loading affordance: a centered spinning ring (the accent on a faint track) with the label
+ *  below, announced via `role="status"`. Shown while an initial fetch is in flight instead of
+ *  flashing empty-state or mock data. Honors prefers-reduced-motion (the ring slows, never stops). */
 export function Loading() {
   const t = useT()
-  return <p className="hint" role="status">{t('common.loading')}</p>
+  return (
+    <div className="loader" role="status">
+      <span className="loader-ring" aria-hidden="true" />
+      <span className="loader-text">{t('common.loading')}</span>
+    </div>
+  )
 }
 
 /** Enter/Space handler for elements given `role="button"` + `tabIndex`.
