@@ -417,6 +417,25 @@ export async function renameSelf(
   return res
 }
 
+/** Self-heal for a stale on-device name: adopt an EXISTING roster name as this device's own, WITHOUT
+ *  a server rename. Used when a prior rename synced the helper (the roster shows the new name) but not
+ *  this device (its record kept the old name) - so the device is "stuck" (the server rejects renaming
+ *  a name it no longer has). Just points the on-device record + session share at the name that is
+ *  already in the roster. No network call, no vote migration (the server side already happened). */
+export async function adoptSelfName(name: string): Promise<{ ok: true } | { error: string }> {
+  if (!NET) return { error: 'not available' }
+  const id = getSelectedVault()
+  if (!id) return { error: 'no vault selected' }
+  const nm = name.trim()
+  if (!nm) return { error: 'empty name' }
+  try { await updateVaultMeta(id, { myName: nm }) } catch { /* record absent */ }
+  try {
+    const share = getUnlockedShare(id)
+    if (share && share.myName !== nm) setUnlockedShare(id, { ...share, myName: nm })
+  } catch { /* nothing unlocked */ }
+  return { ok: true }
+}
+
 /** Every vault known to this device (for the "Meus cofres" home). In browser-native (/net) mode the
  *  vault list comes from the on-device records (listVaults in storage), NOT the blind helper, so we
  *  do not call the helper's /api/vaults here (it returns bare ids, not vaults, and 404'd on older

@@ -3,7 +3,7 @@ import { Seal, Loading } from '../components'
 import { PageHeader, PageFooter } from '../page'
 import { Identicon } from '../avatar'
 import { useT, useTr } from '../i18n'
-import { getVault, health, shortAddr, IS_NET, renameSelf, IS_DEMO, type Vault } from '../api'
+import { getVault, health, shortAddr, IS_NET, renameSelf, adoptSelfName, IS_DEMO, type Vault } from '../api'
 import { listVaults, type Governance } from '../storage'
 
 const ME = 'Alice' // this device acts as the coordinator member (single-device demo)
@@ -50,9 +50,23 @@ export default function Members() {
   }, [])
 
   async function saveMyName() {
-    if (!me) return
     const next = myNewName.trim()
-    if (!next || next === me) return
+    if (!next) return
+    const rosterNames = (vault?.member_list ?? []).map((m) => m.name)
+    const meInRoster = !!me && rosterNames.includes(me)
+    // Self-heal for a stale on-device name: a prior rename synced the helper (the roster already
+    // shows the new name) but not this device (its record kept the OLD name). The server would reject
+    // renaming a name it no longer has ("no such member to rename"). If the name you want is ALREADY
+    // in the roster and your stored name is not, just ADOPT it locally - no server rename.
+    if (!meInRoster && rosterNames.includes(next)) {
+      setSaving(true); setRenameErr(null); setRenamed(false)
+      const res = await adoptSelfName(next)
+      if ('ok' in res) { setMe(next); setRenamed(true); setTimeout(() => setRenamed(false), 1800) }
+      else setRenameErr(res.error)
+      setSaving(false)
+      return
+    }
+    if (!me || next === me) return
     setSaving(true); setRenameErr(null); setRenamed(false)
     const res = await renameSelf(me, next)
     if ('members' in res) {
@@ -77,6 +91,9 @@ export default function Members() {
   ] : [])
   // Mark the actual creator; in the offline demo (no propagated creator) fall back to the first seat.
   const creatorLabel = creator ?? (IS_DEMO ? members[0]?.name ?? null : null)
+  // This device's stored name is NOT in the current roster: a prior rename synced the helper but not
+  // this device, so it is "stuck". The editor self-heals (adopt an existing roster name); flag it.
+  const meOutOfSync = !!me && members.length > 0 && !members.some((m) => m.name === me)
 
   return (
     <>
@@ -125,6 +142,7 @@ export default function Members() {
         {IS_NET && vault && me && (
           <div className="confirm mt">
             <div className="who-name mb-sm">{t('members.yourNameTitle')}</div>
+            {meOutOfSync && <div className="hint warn mt-sm">{t('members.yourNameOutOfSync')}</div>}
             <div className="field">
               <input
                 className="input"

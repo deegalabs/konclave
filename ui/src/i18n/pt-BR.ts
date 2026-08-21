@@ -295,6 +295,7 @@ export const ptBR: Record<string, string> = {
   'members.yourNameSave': 'Salvar meu nome',
   'members.yourNameSaved': 'Nome atualizado',
   'members.renameErr': 'Não foi possível renomear',
+  'members.yourNameOutOfSync': 'Seu nome guardado não está no roster atual (uma renomeação anterior não sincronizou por completo neste dispositivo). Digite o seu nome atual para corrigir.',
   'ceremonies.eyebrow': 'EVIDÊNCIA DE ASSINATURA',
   'ceremonies.title': 'Registro de cerimônias',
   'ceremonies.subtitle': 'Evidência reproduzível de cada pagamento que este cofre assinou: o sighash, a assinatura agregada do quórum e o txid na cadeia. Público e verificável, sem confiar no operador.',
