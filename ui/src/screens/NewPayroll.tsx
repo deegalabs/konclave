@@ -73,7 +73,9 @@ export default function NewPayroll() {
       if (await health()) {
         const [b, bs, led, v] = await Promise.all([getBalance(), getBeneficiaries(), getLedger(), getVault()])
         if (!on) return
-        if (b?.configured) setBalanceZat(b.total_zat ?? null)
+        // Spendable, not total: only confirmed spendable funds can be sent, so the balance-after
+        // and the over-balance block are against spendable (catches amount+fee overspend at propose).
+        if (b?.configured) setBalanceZat(b.spendable_zat ?? b.total_zat ?? null)
         if (bs) setBenefs(bs)
         if (led) setPastFolhas(led.filter((x) => x.kind === 'payroll'))
         if (v) {
@@ -112,8 +114,9 @@ export default function NewPayroll() {
   const totalZat = validRows.reduce((acc, r) => acc + (parseZecToZat(r.value) ?? 0), 0)
   const feeZat = count > 0 ? 5000 * Math.max(2, count + 1) : 0
   const afterZat = balanceZat === null ? null : balanceZat - totalZat - feeZat
+  const overBalance = afterZat !== null && afterZat < 0
   const anyBadTouched = rows.some((r) => rowTouched(r) && rowIssue(r) !== null)
-  const canSubmit = count > 0 && !anyBadTouched && !busy
+  const canSubmit = count > 0 && !anyBadTouched && !busy && !overBalance
 
   async function submit() {
     setError(null)

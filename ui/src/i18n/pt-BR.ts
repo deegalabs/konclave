@@ -483,6 +483,7 @@ export const ptBR: Record<string, string> = {
   'payment.avalPlural': 'avais',
   'payment.proposing': 'Propondo…',
   'payment.proposeBtn': 'Propor pagamento',
+  'payment.warnOverBalance': 'O valor mais a taxa de rede passa do que o cofre pode gastar agora. Reduza o valor.',
 
   // New payroll
   'payroll.issueEmpty': 'endereço vazio',
