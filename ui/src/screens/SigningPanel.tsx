@@ -45,9 +45,6 @@ export default function SigningPanel() {
   // light the WRONG seat (the first in the list) instead of leaving presence to the "N / threshold"
   // count. Never guess a specific seat we cannot attribute.
   const roster = vault?.member_list ?? []
-  // The signer is still coming up: has a share but hasn't seated yet. Show a loading line instead of
-  // a roster that could momentarily light the wrong seat.
-  const connecting = hasShare && !bg.ready && present === 0 && !started && !result
   let othersLeft = me ? Math.max(0, present - (bg.ready ? 1 : 0)) : 0
   const presentFlags = roster.map((m) => {
     if (me && m.name === me) return bg.ready
@@ -58,6 +55,9 @@ export default function SigningPanel() {
   const sent = result && 'txid' in result && result.txid
   const errMsg = (result && 'error' in result && result.error) || bg.error || ''
   const canSend = bg.ready && quorumHere && !started && !result
+  // The signer is still coming up: has a share but hasn't seated yet. Show a loading line instead of
+  // a roster that could momentarily light the wrong seat. (Declared after `started`/`result`.)
+  const connecting = hasShare && !bg.ready && present === 0 && !started && !result
 
   const dest = active.to_address ? shortAddr(active.to_address) : '-'
   const amt = fmtZec(active.value_zec)
