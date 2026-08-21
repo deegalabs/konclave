@@ -33,7 +33,7 @@ import {
   executeProposal,
   type Proposal,
 } from '../helper'
-import { zatToZec } from '../format'
+import { zatToZec, vaultFingerprint } from '../format'
 import encodeQR from '@paulmillr/qr'
 import '../redesign.css'
 import '../net.css'
@@ -150,6 +150,11 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
   const [rosterCount, setRosterCount] = useState(0)
   const [log, setLog] = useState<string[]>([])
   const [groupVk, setGroupVk] = useState('')
+  // The vault fingerprint: the PUBLIC anti-impostor code members compare out of band (short,
+  // human-comparable code of the group verifying key). Shown on the create-done step - the moment
+  // it matters most across devices - and again in Settings (#160). Same identity Settings uses.
+  const [fp, setFp] = useState<string | null>(null)
+  const [fpCopied, setFpCopied] = useState(false)
   const [error, setError] = useState('')
   // Hosted-helper registration (ADR-0006 Rung A): after DKG, register the vault with the blind
   // helper so it derives the vault's real Orchard address (view-only). Only runs when a helper is
@@ -778,6 +783,20 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
     }
   }, [])
 
+  // Derive the vault fingerprint from the group verifying key once the vault exists (same identity
+  // Settings fingerprints, so the codes line up across devices and screens).
+  useEffect(() => {
+    if (!groupVk) { setFp(null); return }
+    let on = true
+    void vaultFingerprint(groupVk).then((c) => { if (on) setFp(c) }).catch(() => { /* WebCrypto unavailable */ })
+    return () => { on = false }
+  }, [groupVk])
+
+  const copyFp = useCallback(async () => {
+    if (!fp) return
+    try { await navigator.clipboard.writeText(fp); setFpCopied(true); setTimeout(() => setFpCopied(false), 1500) } catch { /* clipboard blocked - readable aloud anyway */ }
+  }, [fp])
+
   // ---- render ----
 
   // Create modal (embedded), idle: two separate views - CREATE or JOIN - toggled, never both at
@@ -1175,6 +1194,18 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
             <span className="rd-eyebrow">{pe('COFRE CRIADO', 'VAULT CREATED')}</span>
             <h2 className="cv-title">{pe('Pronto', 'Done')}</h2>
             <p className="cv-lead">{pe('O cofre nasceu. Cada aparelho guardou o seu pedaço; a chave inteira nunca foi montada. Proteja este aparelho com uma frase-senha para não perder o cofre ao recarregar.', 'The vault is born. Each device kept its share; the whole key was never assembled. Protect this device with a passphrase so a reload does not lose it.')}</p>
+            {fp && (
+              <div className="fp-card" role="note" aria-label={tt('members.fpTitle')} style={{ marginBottom: 16 }}>
+                <div className="fp-head">
+                  <span className="klab">{tt('members.fpTitle')}</span>
+                  <button className="btn ghost xs-btn" onClick={() => void copyFp()}>
+                    {fpCopied ? tt('members.fpCopied') : tt('members.fpCopy')}
+                  </button>
+                </div>
+                <div className="fp-code mono">{fp}</div>
+                <div className="fp-help dim">{ttr('ceremony.fpHelp')}</div>
+              </div>
+            )}
             <div className="cv-join">
               <input className="cv-input" type="password" style={{ letterSpacing: 'normal', textAlign: 'left' }}
                 placeholder={pe('Frase-senha (mínimo 8 caracteres)', 'Passphrase (at least 8 characters)')}
