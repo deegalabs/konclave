@@ -29,9 +29,22 @@ export default function SigningPanel() {
 
   // This device can only sign if its share is unlocked in this session. If not, the ceremony can
   // never seat (0/N forever) - show a clear "unlock" path instead of hanging on "Opening…".
-  const hasShare = vault ? !!getUnlockedShare(vault.id) : false
+  const loaded = vault ? getUnlockedShare(vault.id) : undefined
+  const hasShare = !!loaded
+  const me = loaded?.myName ?? null
   const present = bg.seatCount
   const quorumHere = present >= threshold && threshold > 0
+
+  // Presence by name: THIS device's own seat is definitely present once the signer is seated; the
+  // remaining present count fills the OTHER seats in order (we only have a count, not per-seat ids
+  // yet, so this is a best-effort - but it never mislabels the local device's own seat).
+  const roster = vault?.member_list ?? []
+  let othersLeft = Math.max(0, present - (bg.ready && me ? 1 : 0))
+  const presentFlags = roster.map((m) => {
+    if (me && m.name === me) return bg.ready
+    if (othersLeft > 0) { othersLeft -= 1; return true }
+    return false
+  })
   const started = sending || bg.phase !== 'idle'
   const sent = result && 'txid' in result && result.txid
   const errMsg = (result && 'error' in result && result.error) || bg.error || ''
@@ -106,10 +119,10 @@ export default function SigningPanel() {
             <span className="mono"><b>{present}</b> / {threshold}</span>
           </div>
           <div className="sign-roster">
-            {(vault?.member_list ?? []).map((m, i) => (
-              <span className={'sign-seat' + (i < present ? ' on' : '')} key={m.pubkey || m.name}>
+            {roster.map((m, i) => (
+              <span className={'sign-seat' + (presentFlags[i] ? ' on' : '')} key={m.pubkey || m.name}>
                 <Identicon seed={m.pubkey || m.name} size={22} />
-                <span className="sign-seat-name">{m.name}</span>
+                <span className="sign-seat-name">{m.name}{me && m.name === me && <span className="klab"> {t('members.youShort')}</span>}</span>
               </span>
             ))}
           </div>
