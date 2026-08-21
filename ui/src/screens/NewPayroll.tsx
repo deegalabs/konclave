@@ -206,6 +206,8 @@ export default function NewPayroll() {
             </select>
           )}
           <button className="btn ghost sm-btn" onClick={() => setShowImport((v) => !v)}>{t('payroll.importCsv')}</button>
+          {/* Payee registry, reached from inside the compose flow (not a rail peer). */}
+          <button className="btn ghost sm-btn" onClick={() => nav('/people')}>{t('people.manage')}</button>
         </div>
         {count === 0 && !showImport && (
           <div className="hint mt-sm">{tr('payroll.startHint')}</div>

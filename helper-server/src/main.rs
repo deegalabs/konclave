@@ -16,7 +16,8 @@ use std::time::Duration;
 
 use orchestrator::helper::{
     append_ceremony, is_valid_group_key, ledger_csv, list_proposals, load_ceremonies, load_members,
-    load_proposal, payment_plan, register_vault, save_members, save_proposal, send_config_for,
+    load_proposal, payment_plan, register_vault, rename_member, save_members, save_proposal,
+    send_config_for,
     vault_balance, CeremonyRecord, HelperConfig, HelperProposal, HelperState, PayrollLine,
     VaultRegistration,
 };
@@ -193,6 +194,29 @@ fn handle(
             match save_members(&cfg.vaults_dir, &reg.vault_id, &req.names) {
                 Ok(()) => resp(200, json!({ "members": req.names }).to_string()),
                 Err(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
+            }
+        }
+        (Method::Post, "/api/vault/members/rename") => {
+            // Rename ONE seat (the caller's own), migrating the name across every proposal's votes so
+            // a rename never leaves a "ghost" approver under the old name. A 400 carries the reason
+            // (unknown seat / name taken / empty) so the UI can show it.
+            #[derive(Deserialize)]
+            struct Req {
+                vault: String,
+                old: String,
+                new: String,
+            }
+            let req: Req = match serde_json::from_slice(body) {
+                Ok(r) => r,
+                Err(_) => return resp(400, json!({ "error": "invalid json" }).to_string()),
+            };
+            let reg = match state.get(&req.vault) {
+                Some(r) => r,
+                None => return resp(404, json!({ "error": "no such vault" }).to_string()),
+            };
+            match rename_member(&cfg.vaults_dir, &reg.vault_id, &req.old, &req.new, now_unix()) {
+                Ok(members) => resp(200, json!({ "members": members }).to_string()),
+                Err(e) => resp(400, json!({ "error": e.to_string() }).to_string()),
             }
         }
         (Method::Post, "/api/vault/payroll") => handle_create_payroll(state, cfg, body),

@@ -18,10 +18,11 @@ import {
   voteProposal as netVote,
   listMembers as netListMembers,
   setMembers as netSetMembers,
+  renameMember as netRenameMember,
   type Proposal as NetProposal,
 } from './helper'
 import { zatToZec, parseZecToZat } from './format'
-import { listVaults } from './storage'
+import { listVaults, updateVaultMeta } from './storage'
 
 export type Member = { name: string; pubkey: string }
 
@@ -374,6 +375,24 @@ export async function setVaultMembers(names: string[]): Promise<string[] | null>
   const id = getSelectedVault()
   if (!id) return null
   return netSetMembers(id, names)
+}
+
+/** Rename THIS device's own seat (`old` -> `next`) on the selected /net vault. The helper migrates
+ *  the name across every proposal's votes (no ghost approver), and we mirror the change into the
+ *  on-device record so "you" keeps pointing at the right seat. Returns the new roster or an error
+ *  reason. A device may only rename the seat it holds - never another member's. */
+export async function renameSelf(
+  old: string,
+  next: string,
+): Promise<{ members: string[] } | { error: string }> {
+  if (!NET) return { error: 'not available' }
+  const id = getSelectedVault()
+  if (!id) return { error: 'no vault selected' }
+  const res = await netRenameMember(id, old, next)
+  if ('members' in res) {
+    try { await updateVaultMeta(id, { myName: next.trim() }) } catch { /* record absent - roster still renamed */ }
+  }
+  return res
 }
 
 /** Every vault known to this device (for the "Meus cofres" home). */

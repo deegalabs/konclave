@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { PageHeader, PageFooter, NextStep } from '../page'
+import { Loading } from '../components'
 import { useT, useI18n } from '../i18n'
 import { getSelectedVault } from '../api'
 import { vaultCeremonies, type CeremonyRecord } from '../helper'
@@ -37,7 +38,7 @@ export default function Ceremonies({ embedded = false }: { embedded?: boolean })
 
   const list = (
       <div className="cer-list mt">
-        {busy && <p className="hint">{t('ceremonies.loading')}</p>}
+        {busy && <Loading />}
         {!busy && (!records || records.length === 0) && (
           <p className="hint">{t('ceremonies.empty')}</p>
         )}

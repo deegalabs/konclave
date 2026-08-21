@@ -68,7 +68,9 @@ export default function Layout() {
     : ['A', 'B', 'C']
 
   // Rail grouped by intent (ADR-0009): Overview, Add funds, the two compose actions (Pay/Payroll),
-  // ONE Activity destination (merges the old Proposals + Ledger + Ceremonies), then People + Settings.
+  // ONE Activity destination (merges the old Proposals + Ledger + Ceremonies), Signers, Settings.
+  // Beneficiaries is NOT a rail peer: it is a payee address-book that only feeds Pay/Payroll, so it
+  // is reached contextually from those compose screens ("Manage payees"), never as a destination.
   const items: [string, string, ReactNode][] = [
     ['/dashboard', t('nav.dashboard'), <IconGrid key="i" />],
     ['/receive', t('nav.receive'), <IconReceive key="i" />],
@@ -76,7 +78,6 @@ export default function Layout() {
     ['/payroll', t('nav.payroll'), <IconRows key="i" />],
     ['/activity', t('nav.activity'), <IconInbox key="i" />],
     ['/members', t('nav.members'), <IconUsers key="i" />],
-    ['/people', t('nav.people'), <IconUser key="i" />],
     ['/settings', t('nav.settings'), <IconGear key="i" />],
   ]
 
@@ -190,7 +191,6 @@ function IconInbox() { return <svg viewBox="0 0 24 24" {...s}><path d="M3 12h5l2
 function IconRows() { return <svg viewBox="0 0 24 24" {...s}><path d="M4 6h16M4 12h16M4 18h10" /></svg> }
 function IconSend() { return <svg viewBox="0 0 24 24" {...s}><path d="M12 20V4m0 0l-5 5m5-5l5 5" /></svg> }
 function IconUsers() { return <svg viewBox="0 0 24 24" {...s}><circle cx="9" cy="8" r="3.2" /><path d="M3.5 19a5.5 5.5 0 0 1 11 0" /><path d="M17 8.5a3 3 0 0 1 0 5M18.5 19a5 5 0 0 0-3-4.6" /></svg> }
-function IconUser() { return <svg viewBox="0 0 24 24" {...s}><circle cx="12" cy="8" r="3.4" /><path d="M5 20a7 7 0 0 1 14 0" /></svg> }
 function IconReceive() { return <svg viewBox="0 0 24 24" {...s}><path d="M12 4v11m0 0l-4-4m4 4l4-4" /><path d="M5 20h14" /></svg> }
 function IconMore() { return <svg viewBox="0 0 24 24" {...s}><circle cx="5" cy="12" r="1.4" /><circle cx="12" cy="12" r="1.4" /><circle cx="19" cy="12" r="1.4" /></svg> }
 function IconGear() { return <svg viewBox="0 0 24 24" {...s}><circle cx="12" cy="12" r="3.2" /><path d="M12 2.5v3M12 18.5v3M4.2 7l2.6 1.5M17.2 15.5l2.6 1.5M4.2 17l2.6-1.5M17.2 8.5l2.6-1.5" /></svg> }

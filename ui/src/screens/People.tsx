@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Dialog, Loading } from '../components'
-import { PageHeader, NextStep } from '../page'
+import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
 import { useT } from '../i18n'
 import {
@@ -74,7 +74,7 @@ export default function People() {
   return (
     <>
       <main className="page">
-        <PageHeader title={t('people.title')} subtitle={t('people.cap')} />
+        <PageHeader back={{ to: '/pay', label: t('nav.pay') }} title={t('people.title')} subtitle={t('people.cap')} />
 
         {/* List first - it is what gets consulted */}
         {!loaded ? (
@@ -134,7 +134,6 @@ export default function People() {
           </div>
         )}
 
-        <NextStep label={t('next.label')} cta={t('next.members')} to="/members" />
       </main>
 
       {confirmDel && (

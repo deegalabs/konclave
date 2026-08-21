@@ -277,6 +277,26 @@ export async function listVaults(): Promise<VaultPublic[]> {
   }
 }
 
+/** Patch a saved vault's PUBLIC metadata (never touches the sealed share, so no passphrase needed).
+ *  Used when this device renames its own seat: the on-device `myName` must follow the roster so the
+ *  UI keeps recognizing which member "you" are. A no-op if the vault or IndexedDB is unavailable. */
+export async function updateVaultMeta(
+  id: string,
+  patch: Partial<Pick<VaultRecord, 'name' | 'myName' | 'creatorName'>>,
+): Promise<void> {
+  if (!storageAvailable()) return
+  const db = await openDb()
+  try {
+    const tx = db.transaction(STORE, 'readwrite')
+    const store = tx.objectStore(STORE)
+    const rec = await reqDone(store.get(id) as IDBRequest<VaultRecord | undefined>)
+    if (rec) store.put({ ...rec, ...patch })
+    await txDone(tx)
+  } finally {
+    db.close()
+  }
+}
+
 /** Remove a saved vault (and its encrypted share) from this device. */
 export async function deleteVault(id: string): Promise<void> {
   if (!storageAvailable()) return
