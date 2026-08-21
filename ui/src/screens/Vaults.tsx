@@ -193,9 +193,9 @@ export default function Vaults() {
         <div className="rd-note">
           {tr('vaults.note')}
           {' · '}<span className="rd-link" onClick={() => nav('/intro')} role="link" tabIndex={0}
-            onKeyDown={(e) => { if (e.key === 'Enter') nav('/intro') }}>{t('vaults.howItWorks')}</span>
+            onKeyDown={activateOnKey(() => nav('/intro'))}>{t('vaults.howItWorks')}</span>
           {' · '}<span className="rd-link" onClick={() => nav('/demo')} role="link" tabIndex={0}
-            onKeyDown={(e) => { if (e.key === 'Enter') nav('/demo') }}>{t('demo.watchCta')}</span>
+            onKeyDown={activateOnKey(() => nav('/demo'))}>{t('demo.watchCta')}</span>
           {!live && <> · <i>{t('vaults.demoMode')}</i></>}
         </div>
       </main>
