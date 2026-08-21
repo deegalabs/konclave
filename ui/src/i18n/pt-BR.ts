@@ -838,4 +838,6 @@ export const ptBR: Record<string, string> = {
   'receive.txConfirmed': 'bloco {h}',
   'receive.txPending': 'pendente',
   'receive.viewTx': 'Ver',
+  'receive.txReceived': 'recebido',
+  'receive.txSent': 'enviado',
 }

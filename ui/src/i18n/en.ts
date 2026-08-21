@@ -838,4 +838,6 @@ export const en: Record<string, string> = {
   'receive.txConfirmed': 'block {h}',
   'receive.txPending': 'pending',
   'receive.viewTx': 'View',
+  'receive.txReceived': 'received',
+  'receive.txSent': 'sent',
 }

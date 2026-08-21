@@ -81,3 +81,11 @@
 }
 .rcv-hist-state.ok { color: var(--success); border-color: var(--success-line); }
 .rcv-history .rcv-note { border-top: 0; padding-top: 8px; margin-top: 10px; }
+
+/* Direction chip: received (incoming) vs sent (this vault's own broadcast, matched by txid). */
+.rcv-hist-dir {
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: .05em; text-transform: uppercase;
+  border-radius: var(--radius-pill); padding: 2px 9px; flex: 0 0 auto;
+}
+.rcv-hist-dir.in { color: var(--success); background: var(--success-soft); border: 1px solid var(--success-line); }
+.rcv-hist-dir.out { color: var(--text-muted); background: var(--surface-2); border: 1px solid var(--line); }
