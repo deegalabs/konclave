@@ -144,20 +144,20 @@ export const en: Record<string, string> = {
   'nav.people': 'Beneficiaries',
   'nav.settings': 'Settings',
   'nav.pay': 'Pay',
-  'nav.activity': 'Activity',
+  'nav.activity': 'Approvals',
   'nav.switchVault': 'Switch vault',
   'nav.more': 'More',
   'nav.bandVault': 'Vault',
   'nav.bandGovernance': 'Governance',
   'nav.bandDo': 'Actions',
 
-  // Activity (merged Proposals + Ledger + Evidence)
+  // Approvals (governance hub: proposals + signing evidence; the Ledger is now a top-level item)
   'activity.eyebrow': 'The proposal lifecycle',
-  'activity.title': 'Activity',
-  'activity.subtitle': 'Proposals, the ledger, and the signing evidence, all in one place.',
+  'activity.title': 'Approvals',
+  'activity.subtitle': 'Proposals awaiting the quorum, and the signing evidence that backs each one.',
   'activity.tab.proposals': 'Proposals',
   'activity.tab.ledger': 'Ledger',
-  'activity.tab.evidence': 'Evidence',
+  'activity.tab.evidence': 'Signing evidence',
 
   // "And now?" connector - the next natural step at the foot of each read/hub screen
   'next.label': 'Next step',

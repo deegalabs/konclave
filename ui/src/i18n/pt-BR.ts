@@ -144,20 +144,20 @@ export const ptBR: Record<string, string> = {
   'nav.people': 'Beneficiários',
   'nav.settings': 'Ajustes',
   'nav.pay': 'Pagar',
-  'nav.activity': 'Atividade',
+  'nav.activity': 'Aprovações',
   'nav.switchVault': 'Trocar cofre',
   'nav.more': 'Mais',
   'nav.bandVault': 'Cofre',
   'nav.bandGovernance': 'Governança',
   'nav.bandDo': 'Ações',
 
-  // Atividade (Propostas + Razão + Evidências fundidas)
+  // Aprovações (hub de governança: propostas + evidências; a Razão agora é item de topo)
   'activity.eyebrow': 'O ciclo das propostas',
-  'activity.title': 'Atividade',
-  'activity.subtitle': 'Propostas, a razão e as evidências de assinatura, tudo num só lugar.',
+  'activity.title': 'Aprovações',
+  'activity.subtitle': 'Propostas aguardando o quórum, e a evidência de assinatura que respalda cada uma.',
   'activity.tab.proposals': 'Propostas',
   'activity.tab.ledger': 'Razão',
-  'activity.tab.evidence': 'Evidências',
+  'activity.tab.evidence': 'Evidências de assinatura',
 
   // Conector "e agora?" - o próximo passo natural no rodapé de cada tela de leitura
   'next.label': 'Próximo passo',
