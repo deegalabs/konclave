@@ -700,6 +700,8 @@ export const en: Record<string, string> = {
   'members.roleCreator': 'set up the vault · signs',
   'members.roleSigns': 'signs',
   'members.signs': 'signs',
+  'members.roleShareVote': 'holds a key share · votes',
+  'members.roleCreatorChip': 'set up the vault',
   'members.footCount': '{count} members · quorum {t}-of-{n}',
   'members.footNote': 'the key is never reassembled · each part signs in place',
   'members.demoNote': 'In this demo the three shares run on this machine. In the product, each member approves **from their own device** with their share · that’s the multi-device step on the roadmap.',

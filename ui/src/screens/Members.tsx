@@ -129,17 +129,28 @@ export default function Members() {
         )}
 
         {live === null ? <Loading /> : (
-        <div className="people mt">
-          {members.map((m, i) => (
-            <div className="who-row" key={i}>
-              <Identicon seed={m.pubkey || m.name} size={38} />
-              <div className="person-main">
-                <div className="who-name">{m.name}{m.name === (me ?? ME) && <span className="klab"> {t('members.you')}</span>}</div>
-                <div className="person-sub mono">{m.name === creatorLabel ? t('members.roleCreator') : t('members.roleSigns')} · id {shortAddr(m.pubkey, 8, 6)}</div>
+        <div className="signers mt">
+          {members.map((m, i) => {
+            const isMe = m.name === (me ?? ME)
+            const isCreator = m.name === creatorLabel
+            return (
+              <div className={'signer-row' + (isMe ? ' me' : '')} key={i}>
+                <Identicon seed={m.pubkey || m.name} size={40} />
+                <div className="signer-main">
+                  <div className="signer-name">
+                    {m.name}
+                    {isMe && <span className="you-tag">{t('members.youShort')}</span>}
+                  </div>
+                  <div className="signer-meta">
+                    {/* the governance role, spelled out - this is a quorum body, not a contact list */}
+                    <span className="role-chip">{t('members.roleShareVote')}</span>
+                    {isCreator && <span className="role-chip creator">{t('members.roleCreatorChip')}</span>}
+                  </div>
+                </div>
+                <span className="signer-id mono">id {shortAddr(m.pubkey, 6, 4)}</span>
               </div>
-              <span className="who-st cap">{t('members.signs')}</span>
-            </div>
-          ))}
+            )
+          })}
         </div>
         )}
 
