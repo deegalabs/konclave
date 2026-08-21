@@ -4,6 +4,7 @@ import { useT, useI18n } from '../i18n'
 import { getSelectedVault } from '../api'
 import { vaultCeremonies, type CeremonyRecord } from '../helper'
 import { fmtDate, shortAddr } from '../format'
+import { useLoading } from '../loading'
 
 /**
  * /ceremonies - the vault's signing evidence trail, inside the vault shell (redesign #6.4). This
@@ -14,19 +15,25 @@ import { fmtDate, shortAddr } from '../format'
 export default function Ceremonies({ embedded = false }: { embedded?: boolean }) {
   const t = useT()
   const { locale } = useI18n()
+  const { begin, end } = useLoading()
   const [records, setRecords] = useState<CeremonyRecord[] | null>(null)
   const [busy, setBusy] = useState(true)
 
   useEffect(() => {
     let on = true
+    begin()
     void (async () => {
-      const id = getSelectedVault()
-      if (!id) { if (on) setBusy(false); return }
-      const r = await vaultCeremonies(id)
-      if (on) { setRecords(r); setBusy(false) }
+      try {
+        const id = getSelectedVault()
+        if (!id) { if (on) setBusy(false); return }
+        const r = await vaultCeremonies(id)
+        if (on) { setRecords(r); setBusy(false) }
+      } finally {
+        end()
+      }
     })()
     return () => { on = false }
-  }, [])
+  }, [begin, end])
 
   const list = (
       <div className="cer-list mt">

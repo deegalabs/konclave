@@ -5,6 +5,7 @@ import { PageHeader, PageFooter, NextStep } from '../page'
 import { getLedger, getProposalDetail, getVault, ledgerCsvUrl, health, shortAddr, IS_DEMO, type Proposal, type PayrollLine } from '../api'
 import { fmtDate, fmtZec } from '../format'
 import { exportLedgerXlsx, type LedgerXlsxItem } from '../ledgerXlsx'
+import { useLoading } from '../loading'
 import { useT, useI18n } from '../i18n'
 
 const SETTLED = (s: string) => s === 'sent' || s === 'confirmed'
@@ -12,6 +13,7 @@ const SETTLED = (s: string) => s === 'sent' || s === 'confirmed'
 export default function Ledger({ embedded = false }: { embedded?: boolean }) {
   const t = useT()
   const { locale } = useI18n()
+  const { begin, end } = useLoading()
   const [rows, setRows] = useState<Proposal[] | null>(null)
   const [live, setLive] = useState(false)
   const [vaultName, setVaultName] = useState<string | null>(null)
@@ -24,17 +26,22 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
 
   useEffect(() => {
     let on = true
+    begin()
     void (async () => {
-      const ok = await health()
-      if (!on) return
-      setLive(ok)
-      const [l, v] = await Promise.all([getLedger(), getVault()])
-      if (!on) return
-      if (l) setRows(l)
-      if (v) { setVaultName(v.name); setThreshold(v.threshold) }
+      try {
+        const ok = await health()
+        if (!on) return
+        setLive(ok)
+        const [l, v] = await Promise.all([getLedger(), getVault()])
+        if (!on) return
+        if (l) setRows(l)
+        if (v) { setVaultName(v.name); setThreshold(v.threshold) }
+      } finally {
+        end()
+      }
     })()
     return () => { on = false }
-  }, [])
+  }, [begin, end])
 
   async function toggle(p: Proposal) {
     if (p.kind !== 'payroll') return

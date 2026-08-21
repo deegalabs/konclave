@@ -5,6 +5,7 @@ import { Identicon } from './avatar'
 import { useT, useI18n } from './i18n'
 import { getVault, health, isVaultUnlocked, IS_DEMO, type Vault } from './api'
 import { VaultSignerProvider } from './VaultSigner'
+import { LoadingProvider, TopProgress } from './loading'
 import SigningPanel from './screens/SigningPanel'
 
 // How many nav items live directly in the mobile bottom bar; the rest fold into "More".
@@ -80,6 +81,8 @@ export default function Layout() {
   ]
 
   return (
+    <LoadingProvider>
+    <TopProgress />
     <VaultSignerProvider>
     <div className="applayout">
       <aside className="rail">
@@ -176,6 +179,7 @@ export default function Layout() {
     </div>
     <SigningPanel />
     </VaultSignerProvider>
+    </LoadingProvider>
   )
 }
 

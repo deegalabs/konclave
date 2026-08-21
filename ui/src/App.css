@@ -69,6 +69,14 @@
 .act-body{margin-top:10px}
 .lg-actions{display:flex; gap:8px; justify-content:flex-end; margin-bottom:12px; flex-wrap:wrap}
 
+/* Top-of-page load progress: an indeterminate line that sweeps while any screen is fetching. */
+.top-progress{position:fixed; top:0; left:0; right:0; height:3px; z-index:200; overflow:hidden; pointer-events:none}
+.top-progress-bar{position:absolute; top:0; height:100%; width:35%;
+  background:linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation:tp-sweep 1.05s ease-in-out infinite}
+@keyframes tp-sweep{0%{left:-35%}100%{left:100%}}
+@media(prefers-reduced-motion:reduce){.top-progress-bar{animation-duration:2.2s}}
+
 .vmeta{font-family:var(--font-mono); font-size:12.5px; color:var(--text-muted); margin-top:12px}
 .vmeta b{color:var(--text); font-weight:500}
 .livetag{margin-left:10px; font-size:11px; letter-spacing:.04em; color:var(--success)}
