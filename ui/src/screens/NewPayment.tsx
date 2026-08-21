@@ -8,6 +8,7 @@ import {
   createProposal, getBalance, getVault, getBeneficiaries, health, shortAddr, classifyAddress, humanError,
   IS_DEMO, type Beneficiary, type Member,
 } from '../api'
+import { listVaults } from '../storage'
 
 const MEMO_MAX = 512
 
@@ -48,7 +49,17 @@ export default function NewPayment() {
         setThreshold(v.threshold)
         setVaultName(v.name)
         const first0 = v.member_list?.[0]
-        if (first0) { setMembersList(v.member_list!); setProposer(first0.name) }
+        if (first0) {
+          setMembersList(v.member_list!)
+          // Live: this device proposes as ITSELF (its own member name), never as the first seat -
+          // the "act as any member" picker is a single-device DEMO artifice. Fall back to the first
+          // seat only when there is no on-device record (local-bridge mode).
+          let mine: string | null = null
+          if (!IS_DEMO) {
+            try { mine = (await listVaults()).find((s) => s.id === v.id)?.myName ?? null } catch { /* no record */ }
+          }
+          setProposer(mine ?? first0.name)
+        }
       }
       // Spendable (not total): the send can only draw on confirmed, spendable funds, so the
       // "available" and the balance-after preview must be against spendable to catch amount+fee
@@ -110,12 +121,18 @@ export default function NewPayment() {
           <span className="ctx-sep">·</span>
           <span>{t('payment.available')} <Secret sm><b>{shownAvailable} ZEC</b></Secret></span>
           {membersList.length > 0 && (
-            <label className="ctx-as">
-              {t('payment.proposingAs')}
-              <select value={proposer} onChange={(e) => setProposer(e.target.value)}>
-                {membersList.map((m) => <option key={m.pubkey || m.name} value={m.name}>{m.name}</option>)}
-              </select>
-            </label>
+            IS_DEMO ? (
+              // DEMO only: one device stands in for the whole quorum, so it may act as any member.
+              <label className="ctx-as">
+                {t('payment.proposingAs')}
+                <select value={proposer} onChange={(e) => setProposer(e.target.value)}>
+                  {membersList.map((m) => <option key={m.pubkey || m.name} value={m.name}>{m.name}</option>)}
+                </select>
+              </label>
+            ) : (
+              // Live: you propose as yourself - a static label, never a member picker.
+              <span className="ctx-as">{t('payment.proposingAs')} <b>{proposer}</b></span>
+            )
           )}
         </div>
         )}
