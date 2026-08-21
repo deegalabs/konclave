@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Secret, activateOnKey } from '../components'
 import { SkeletonRows } from '../skeleton'
-import { PageHeader, NextStep } from '../page'
+import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
 import { getProposals, getVault, health, type Proposal } from '../api'
 import { expiryLabel, fmtZec } from '../format'
@@ -109,7 +109,6 @@ export default function Proposals({ embedded = false }: { embedded?: boolean }) 
       <main className="page narrow">
         <PageHeader title={t('proposals.title')} subtitle={<>{t('proposals.cap')} {live ? '' : t('proposals.demoMode')}</>} />
         {body}
-        <NextStep label={t('next.label')} cta={t('next.ledger')} to="/ledger" />
       </main>
     </>
   )

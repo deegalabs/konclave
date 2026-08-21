@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import encodeQR from '@paulmillr/qr'
 import { getVault, type Vault } from '../api'
 import { useT } from '../i18n'
-import { PageHeader, NextStep } from '../page'
+import { PageHeader } from '../page'
 import { Loading } from '../components'
 import '../receive.css'
 
@@ -102,8 +102,6 @@ export default function Receive() {
       </div>
 
       <p className="rcv-note">{t('receive.note')}</p>
-
-      <NextStep label={t('next.label')} cta={t('next.dashboard')} to="/dashboard" />
     </main>
   )
 }

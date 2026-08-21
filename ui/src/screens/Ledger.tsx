@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState } from 'react'
 import { Secret, RevealButton, activateOnKey } from '../components'
 import { SkeletonRows } from '../skeleton'
-import { PageHeader, PageFooter, NextStep } from '../page'
+import { PageHeader, PageFooter } from '../page'
 import { getLedger, getProposalDetail, getVault, ledgerCsvUrl, health, shortAddr, IS_DEMO, type Proposal, type PayrollLine } from '../api'
 import { fmtDate, fmtZec } from '../format'
 import { exportLedgerXlsx, type LedgerXlsxItem } from '../ledgerXlsx'
@@ -238,7 +238,6 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
       <main className="page">
         <PageHeader title={t('ledger.title')} actions={exportActions} />
         {body}
-        <NextStep label={t('next.label')} cta={t('next.dashboard')} to="/dashboard" />
         <PageFooter>
           <span className="dim pushr">{t('ledger.foot')}</span>
         </PageFooter>

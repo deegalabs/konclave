@@ -159,14 +159,6 @@ export const ptBR: Record<string, string> = {
   'activity.tab.ledger': 'Razão',
   'activity.tab.evidence': 'Evidências de assinatura',
 
-  // Conector "e agora?" - o próximo passo natural no rodapé de cada tela de leitura
-  'next.label': 'Próximo passo',
-  'next.pay': 'Propor um pagamento',
-  'next.dashboard': 'Voltar ao painel',
-  'next.ledger': 'Ver o registro',
-  'next.people': 'Ver beneficiários',
-  'next.members': 'Ver os signatários',
-  'next.proposals': 'Revisar aprovações',
 
   // Landing / explainer (Intro)
   'landing.env': 'Local-first · **a chave nunca sai do aparelho**',
@@ -299,7 +291,6 @@ export const ptBR: Record<string, string> = {
   'ceremonies.dryRun': 'simulação',
   'ceremonies.broadcast': 'transmitido',
   'ceremonies.signature': 'assinatura',
-  'ceremonies.next': 'Ver o extrato',
   'ceremonies.footer': 'Konclave · evidência de assinatura',
   'nav.ceremonies': 'Cerimônias',
   'demo.s1Name': 'Conheça o coletivo',
