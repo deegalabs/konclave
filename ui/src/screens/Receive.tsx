@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import encodeQR from '@paulmillr/qr'
-import { getVault, getTransactions, shortAddr, IS_NET, type Vault, type WalletTx } from '../api'
+import { getVault, getTransactions, getLedger, shortAddr, IS_NET, type Vault, type WalletTx } from '../api'
 import { useT, useTr } from '../i18n'
 import { PageHeader } from '../page'
 import { Loading } from '../components'
@@ -22,6 +22,10 @@ export default function Receive() {
   // link to a block explorer where the amounts are visible (per-tx amount/direction is a follow-up).
   const [txs, setTxs] = useState<WalletTx[] | null>(null)
   const [txLoaded, setTxLoaded] = useState(false)
+  // The vault's OWN broadcast txids (from the ledger). A history tx whose id is in here is a SENT
+  // (outgoing) payment this vault made; anything else is a RECEIVED deposit. This gives direction
+  // client-side, without needing the tool's per-tx amount/direction fields (#125 v2 slice).
+  const [sentIds, setSentIds] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     let on = true
@@ -37,8 +41,11 @@ export default function Receive() {
       if (inFlight) return
       inFlight = true
       try {
-        const r = await getTransactions()
-        if (on) { setTxs(r); setTxLoaded(true) }
+        const [r, ledger] = await Promise.all([getTransactions(), getLedger()])
+        if (!on) return
+        setTxs(r)
+        setTxLoaded(true)
+        if (ledger) setSentIds(new Set(ledger.map((p) => p.txid).filter((x): x is string => !!x)))
       } finally {
         inFlight = false
       }
@@ -137,15 +144,21 @@ export default function Receive() {
             <p className="rcv-note">{t('receive.historyEmpty')}</p>
           ) : (
             <div className="rcv-hist-list">
-              {txs.map((x) => (
-                <div className="rcv-hist-row" key={x.txid}>
-                  <code className="rcv-hist-txid mono">{shortAddr(x.txid, 10, 8)}</code>
-                  <span className={'rcv-hist-state' + (x.mined_height ? ' ok' : '')}>
-                    {x.mined_height ? t('receive.txConfirmed', { h: x.mined_height }) : t('receive.txPending')}
-                  </span>
-                  <a className="link" href={`https://mainnet.zcashexplorer.app/transactions/${x.txid}`} target="_blank" rel="noreferrer">{t('receive.viewTx')} ↗</a>
-                </div>
-              ))}
+              {txs.map((x) => {
+                const sent = sentIds.has(x.txid)
+                return (
+                  <div className="rcv-hist-row" key={x.txid}>
+                    <span className={'rcv-hist-dir ' + (sent ? 'out' : 'in')}>
+                      {sent ? t('receive.txSent') : t('receive.txReceived')}
+                    </span>
+                    <code className="rcv-hist-txid mono">{shortAddr(x.txid, 10, 8)}</code>
+                    <span className={'rcv-hist-state' + (x.mined_height ? ' ok' : '')}>
+                      {x.mined_height ? t('receive.txConfirmed', { h: x.mined_height }) : t('receive.txPending')}
+                    </span>
+                    <a className="link" href={`https://mainnet.zcashexplorer.app/transactions/${x.txid}`} target="_blank" rel="noreferrer">{t('receive.viewTx')} ↗</a>
+                  </div>
+                )
+              })}
             </div>
           )}
           <p className="rcv-note dim">{tr('receive.historyNote')}</p>
