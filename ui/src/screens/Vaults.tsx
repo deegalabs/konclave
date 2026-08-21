@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { getVaults, health, setSelectedVault, unlockVault, markVaultUnlocked, isVaultUnlocked, shortAddr, IS_DEMO, type Vault } from '../api'
+import { MOCK } from '../mock'
 import { helperConfigured, getCustomHelper, setCoordMode, HELPER_BASE } from '../helper'
 import { isDesktop } from '../platform'
 import { listVaults, loadVault } from '../storage'
@@ -10,14 +11,6 @@ import { Dialog, Letterhead, activateOnKey } from '../components'
 import NetVault from './NetVault'
 import { useT, useTr, useI18n } from '../i18n'
 import '../redesign.css'
-
-const MOCK: Vault[] = [
-  {
-    id: 'mock', name: 'Tesouraria Comum', threshold: 2, total: 3, members: 3,
-    member_list: [{ name: 'Alice', pubkey: 'a' }, { name: 'Bob', pubkey: 'b' }, { name: 'Carol', pubkey: 'c' }],
-    group_pubkey: '', orchard_address: 'u1vjgxlvz4ewnt43rkq6fzexpld406dr',
-  },
-]
 
 // Every vault carries WHERE it lives, so one unified list can hold both worlds and route each
 // card's unlock correctly: 'net' = a browser-DKG vault this device holds a share for (encrypted
@@ -94,7 +87,7 @@ export default function Vaults() {
         setLive(ok)
         const vs = ok ? await getVaults() : null
         if (!on) return
-        setRows((vs && vs.length ? vs : MOCK).map((v) => ({ v, src: 'local' as Src })))
+        setRows((vs && vs.length ? vs : MOCK.vaults).map((v) => ({ v, src: 'local' as Src })))
         setLoaded(true)
         return
       }
