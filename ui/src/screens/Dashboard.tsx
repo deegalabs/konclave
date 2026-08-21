@@ -58,8 +58,11 @@ export default function Dashboard() {
   const nav = useNavigate()
   const { open: openSigning } = useVaultSigner()
   const { begin, end } = useLoading()
-  // The page renders nothing real until the first full fetch is in (no placeholder flash).
+  // The page renders once the FAST data (vault + proposals + ledger) is in - no placeholder flash.
   const [firstLoaded, setFirstLoaded] = useState(false)
+  // The balance is fetched separately (it triggers a slow helper wallet sync); its card shows a
+  // skeleton until this flips, so it never flashes "not connected" while merely syncing.
+  const [balLoaded, setBalLoaded] = useState(false)
   const [vault, setVault] = useState<Vault | null>(null)
   const [proposals, setProposals] = useState<Proposal[]>([])
   const [ledger, setLedger] = useState<Proposal[] | null>(null)
@@ -110,11 +113,19 @@ export default function Dashboard() {
         // background poll never yanks the user off the dashboard.
         if (first && v?.locked && !isVaultUnlocked(v.id)) { nav('/vaults'); return }
         if (v) setVault(v)
-        const [ps, b, l] = await Promise.all([getProposals(), getBalance(), getLedger()])
+        // FAST data first: proposals + ledger are plain file reads (no wallet sync). Render the
+        // dashboard on these so it appears immediately, instead of waiting on the balance.
+        const [ps, l] = await Promise.all([getProposals(), getLedger()])
         if (!on) return
         if (ps) setProposals(ps)
-        if (b) setBalance(b)
         if (l) setLedger(l)
+        if (first && on) setFirstLoaded(true) // page is usable now; the balance fills in below
+        // SLOW data separately: getBalance triggers a helper wallet SYNC (seconds). It never gates
+        // the page - the balance card shows a skeleton until it lands (the top-progress runs meanwhile).
+        const b = await getBalance()
+        if (!on) return
+        if (b) setBalance(b)
+        if (on) setBalLoaded(true)
       } finally {
         inFlight = false
         if (first) { end(); if (on) setFirstLoaded(true) }
@@ -159,7 +170,11 @@ export default function Dashboard() {
   const hasBal = balance?.configured === true
   // Live but no wallet wired: show an explicit "not connected" state, never a dash veiled
   // behind the redaction tarja (the privacy gesture must never hide *nothing*).
-  const walletUnwired = isLive && !hasBal
+  // Only claim "not connected" AFTER the balance actually loaded; while it is still syncing we show a
+  // skeleton, never a false "not connected".
+  const walletUnwired = isLive && !hasBal && balLoaded
+  // The balance is still loading (live, but its first fetch/sync hasn't returned) - show the skeleton.
+  const balLoading = loading || (isLive && !balLoaded)
   // Show a figure only when it is real (hasBal) or in actual DEMO mode. Never fabricate a balance
   // just because health() is momentarily false (a real offline blip is not the demo) - while
   // loading or offline-but-real we show a neutral dash, never mock data.
@@ -339,7 +354,7 @@ export default function Dashboard() {
             <h2 className="klab">{t('dashboard.vaultBalance')}</h2>
             <RevealButton />
           </div>
-          {loading ? (
+          {balLoading ? (
             <SkeletonStat />
           ) : walletUnwired ? (
             <div className="fig">
