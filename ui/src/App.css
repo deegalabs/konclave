@@ -731,30 +731,32 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 .linkbtn:disabled{color:var(--text-muted); cursor:default}
 
 /* Payroll lines as a div-grid (redesign): the recipient combobox per line, so its dropdown can
-   overflow the row (a <table> with the responsive nth-child mapping clipped/constrained it). */
-.pf-head, .pf-line{display:grid; grid-template-columns:24px minmax(0,1.6fr) 104px minmax(0,1fr) 32px; gap:10px; align-items:start}
-.pf-head{font-family:var(--font-mono); font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--text-muted); padding:16px 4px 6px}
-.pf-list{display:flex; flex-direction:column; gap:8px}
-.pf-line{padding:2px 0}
-.pf-line .pf-n{color:var(--text-muted); font-size:12px; padding-top:12px; text-align:center}
-.pf-to{min-width:0}
-.pf-val, .pf-memo{width:100%; font-size:13px; color:var(--text); background:var(--surface-2); border:1.5px solid var(--line);
+   overflow the row (a <table> with the responsive nth-child mapping clipped/constrained it).
+   Named .plr-* so it never collides with the past-payrolls list (.pf-*). */
+.plr-head, .plr-line{display:grid; grid-template-columns:22px minmax(0,1.6fr) 96px minmax(0,1fr) 30px; gap:9px; align-items:start}
+.plr-head{font-family:var(--font-mono); font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--text-muted); padding:14px 4px 6px}
+.pay-form .doc-head{margin-top:0}
+.plr-list{display:flex; flex-direction:column; gap:8px}
+.plr-line{padding:1px 0}
+.plr-line .plr-n{color:var(--text-muted); font-size:12px; padding-top:12px; text-align:center}
+.plr-to{min-width:0}
+.plr-val, .plr-memo{width:100%; font-size:13px; color:var(--text); background:var(--surface-2); border:1.5px solid var(--line);
   border-radius:var(--radius-sm); padding:10px 11px; outline:none; font-family:var(--font-sans)}
-.pf-val{font-family:var(--font-mono); text-align:right}
-.pf-val:focus, .pf-memo:focus{border-color:var(--accent); background:var(--surface-1); box-shadow:0 0 0 3px var(--accent-soft)}
-.pf-memo:disabled{opacity:.5}
-.pf-del{justify-self:center; align-self:start; margin-top:6px}
-.pf-issue{grid-column:2 / -2; color:var(--danger-text,var(--danger)); font-family:var(--font-mono); font-size:11px; margin-top:2px}
-.pf-line.bad .pf-to .rcb-field, .pf-line.bad .pf-val{border-color:var(--danger-line,rgba(180,35,24,.3))}
+.plr-val{font-family:var(--font-mono); text-align:right}
+.plr-val:focus, .plr-memo:focus{border-color:var(--accent); background:var(--surface-1); box-shadow:0 0 0 3px var(--accent-soft)}
+.plr-memo:disabled{opacity:.5}
+.plr-del{justify-self:center; align-self:start; margin-top:6px}
+.plr-issue{grid-column:2 / -2; color:var(--danger-text,var(--danger)); font-family:var(--font-mono); font-size:11px; margin-top:2px}
+.plr-line.bad .plr-to .rcb-field, .plr-line.bad .plr-val{border-color:var(--danger-line,rgba(180,35,24,.3))}
 @media(max-width:640px){
-  .pf-head{display:none}
-  .pf-line{grid-template-columns:1fr auto; gap:8px; padding:12px; border:1px solid var(--line); border-radius:var(--radius-sm); background:var(--surface-2)}
-  .pf-line .pf-n{display:none}
-  .pf-to{grid-column:1 / -1}
-  .pf-val{grid-column:1}
-  .pf-del{grid-column:2; margin-top:0; align-self:center}
-  .pf-memo{grid-column:1 / -1}
-  .pf-issue{grid-column:1 / -1}
+  .plr-head{display:none}
+  .plr-line{grid-template-columns:1fr auto; gap:8px; padding:12px; border:1px solid var(--line); border-radius:var(--radius-sm); background:var(--surface-2)}
+  .plr-line .plr-n{display:none}
+  .plr-to{grid-column:1 / -1}
+  .plr-val{grid-column:1}
+  .plr-del{grid-column:2; margin-top:0; align-self:center}
+  .plr-memo{grid-column:1 / -1}
+  .plr-issue{grid-column:1 / -1}
 }
 
 /* Pay: two-column compose (form left, review/orientation right). Collapses to one column when the
