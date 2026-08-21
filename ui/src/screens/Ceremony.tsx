@@ -28,7 +28,9 @@ export default function Ceremony() {
   const [creating, setCreating] = useState(false)
   const [vault, setVault] = useState<Vault | null>(null)
   const [passphrase, setPassphrase] = useState<string | null>(null)
-  const [acked, setAcked] = useState(false)
+  // Confirm the word by re-typing it (not just a checkbox), so a lost/mistyped word is caught at
+  // creation, not at first unlock when the share is already committed (#171).
+  const [confirmWord, setConfirmWord] = useState('')
   const [wordCopied, setWordCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState<number | null>(null)
@@ -75,16 +77,32 @@ export default function Ceremony() {
             <div className="word-box mt">
               <div className="word-head">{tr('ceremony.wordHead')}</div>
               <div className="word-value mono">{passphrase}</div>
-              <button className="btn ghost sm-btn" onClick={() => { void navigator.clipboard.writeText(passphrase).then(() => setWordCopied(true)).catch(() => {}) }}>
-                {wordCopied ? t('ceremony.wordCopied') : t('ceremony.wordCopy')}
-              </button>
+              <div className="btns">
+                <button className="btn ghost sm-btn" onClick={() => { void navigator.clipboard.writeText(passphrase).then(() => setWordCopied(true)).catch(() => {}) }}>
+                  {wordCopied ? t('ceremony.wordCopied') : t('ceremony.wordCopy')}
+                </button>
+                {/* User-driven paper/PDF backup: the app never writes the secret to disk itself
+                    (§6.3); printing is the member's own choice, like a seed-phrase backup. */}
+                <button className="btn ghost sm-btn" onClick={() => window.print()}>{t('ceremony.wordPrint')}</button>
+              </div>
               <div className="word-warn">
                 {tr('ceremony.wordWarn')}
                 <div className="hint mt-xs">{tr('ceremony.wordWarnHint')}</div>
               </div>
-              <label className="word-ack">
-                <input type="checkbox" checked={acked} onChange={(e) => setAcked(e.target.checked)} /> {t('ceremony.wordAck')}
+              <label className="field mt">
+                <span>{t('ceremony.wordConfirm')}</span>
+                <input
+                  className="input mono"
+                  value={confirmWord}
+                  onChange={(e) => setConfirmWord(e.target.value)}
+                  placeholder={t('ceremony.wordConfirmPlaceholder')}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
               </label>
+              {confirmWord.trim().length > 0 && confirmWord.trim() !== passphrase && (
+                <div className="hint warn">{t('ceremony.wordMismatch')}</div>
+              )}
             </div>
           )}
 
@@ -109,8 +127,8 @@ export default function Ceremony() {
 
           <hr className="rule" />
           <div className="right">
-            <button className="btn ok" onClick={() => nav('/dashboard')} disabled={!!passphrase && !acked}
-              title={!!passphrase && !acked ? t('ceremony.confirmSavedWord') : ''}>{t('ceremony.goToVault')}</button>
+            <button className="btn ok" onClick={() => nav('/dashboard')} disabled={!!passphrase && confirmWord.trim() !== passphrase}
+              title={!!passphrase && confirmWord.trim() !== passphrase ? t('ceremony.confirmSavedWord') : ''}>{t('ceremony.goToVault')}</button>
           </div>
         </main>
       </>
