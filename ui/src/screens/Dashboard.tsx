@@ -144,14 +144,16 @@ export default function Dashboard() {
   const isLive = live === true
   const loading = live === null // initial fetch still in flight
 
-  // Vault header - real vault from the bridge; a sample name/address only in DEMO, a neutral
-  // ellipsis while a real vault is still loading (never flash a fabricated name to a real user).
-  const name = vault?.name ?? (IS_DEMO ? dl('Tesouraria Comum', 'Common Treasury') : '…')
+  // Vault header - real vault from the bridge; a sample name/address only in DEMO. The header only
+  // renders past the firstLoaded gate, so a real vault is already resolved; a null vault here is the
+  // genuine no-vault edge, shown with a neutral label (never a "…" that reads as a truncation bug,
+  // never a fabricated name).
+  const name = vault?.name ?? (IS_DEMO ? dl('Tesouraria Comum', 'Common Treasury') : dl('Cofre', 'Vault'))
   const thr = vault?.threshold ?? 2
   const n = vault?.total ?? 3
   const members = vault?.members ?? n
   const roster = vault?.member_list ?? []
-  const addr = vault ? shortAddr(vault.orchard_address) : (IS_DEMO ? 'u1vjgx…d406dr' : '…')
+  const addr = vault ? shortAddr(vault.orchard_address) : (IS_DEMO ? 'u1vjgx…d406dr' : '-')
 
   // Balance - real when the wallet is wired; "-" when live-but-unwired; mock when offline.
   const hasBal = balance?.configured === true
