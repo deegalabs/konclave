@@ -9,6 +9,7 @@ import {
   IS_DEMO, type Beneficiary, type Member,
 } from '../api'
 import { listVaults } from '../storage'
+import { RecipientCombobox } from '../RecipientCombobox'
 
 const MEMO_MAX = 512
 
@@ -70,12 +71,13 @@ export default function NewPayment() {
     return () => { on = false }
   }, [])
 
+  // Refresh the payee list after one is added inline from the recipient field.
+  const reloadBenefs = () => { void getBeneficiaries().then((b) => { if (b) setBenefs(b) }) }
+
   const memoLen = memoBytes(memo)
   const memoOver = memoLen > MEMO_MAX
   const kind = to.trim().length > 1 ? classifyAddress(to.trim()) : null
-  const publicDest = kind === 'transparent'
-  const saplingDest = kind === 'sapling'
-  const unknownDest = kind === 'unknown'
+  const publicDest = kind === 'transparent' // still drives the memo-disable (transparent = no memo)
   // A real available balance when we have it; the demo figure only when genuinely offline
   // (live === false); a neutral dash while still loading (live === null) - never a fake number.
   const shownAvailable = available ?? (IS_DEMO ? '2.4180' : '-')
@@ -137,34 +139,17 @@ export default function NewPayment() {
         </div>
         )}
 
-        {benefs.length > 0 && (
-          <label className="field"><span>{t('payment.personFromRegistry')}</span>
-            <select className="input" value="" onChange={(e) => {
-              const b = benefs.find((x) => x.id === e.target.value)
-              if (b) { setTo(b.address); setToName(b.name); if (b.memo) setMemo(b.memo) }
-            }}>
-              <option value="">{t('payment.chooseByName')}</option>
-              {benefs.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
-          </label>
-        )}
-        {/* The payee registry lives here, inside the compose flow (not a rail peer): pick above, or
-            open it to add/edit. */}
-        <div className="mt-sm"><button type="button" className="btn ghost sm-btn" onClick={() => nav('/people')}>{t('people.manage')}</button></div>
-
+        {/* One "To" field: search saved payees, paste an address, add a new one inline, or open the
+            full list. Replaces the old select + "Manage payees" button + raw address input. */}
         <label className="field"><span>{t('payment.to')}</span>
-          <input className="input mono" placeholder={t('payment.addrPlaceholder')}
-            value={to} onChange={(e) => { setTo(e.target.value); setToName(null) }} />
+          <RecipientCombobox
+            benefs={benefs}
+            address={to}
+            name={toName}
+            onChange={(r) => { setTo(r.address); setToName(r.name); if (r.memo) setMemo(r.memo) }}
+            onReloadBenefs={reloadBenefs}
+          />
         </label>
-        {publicDest && (
-          <div className="hint warn">{tr('payment.warnTransparent')}</div>
-        )}
-        {saplingDest && (
-          <div className="hint warn">{tr('payment.warnSaplingA')} (<span className="mono">u1…</span>) {tr('payment.warnSaplingB')}</div>
-        )}
-        {unknownDest && (
-          <div className="hint warn">{tr('payment.warnUnknown')}</div>
-        )}
 
         <label className="field"><span>{t('payment.value')}</span>
           <input className="input mono" value={value} onChange={(e) => setValue(e.target.value)} />

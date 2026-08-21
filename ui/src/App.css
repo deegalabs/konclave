@@ -667,3 +667,50 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 /* Exit link on the demo banner (#60 runtime demo) */
 .demo-banner-exit{margin-left:12px; text-decoration:underline; color:inherit; opacity:.85; font-weight:600}
 .demo-banner-exit:hover{opacity:1}
+
+/* ============================================================
+   RecipientCombobox - the payee/address picker for Pay + Payroll (redesign).
+   One field: search saved payees, paste an address, add inline, link to the full list.
+   ============================================================ */
+.rcb{position:relative}
+.rcb-field{display:flex; align-items:center; gap:9px; background:var(--surface-2); border:1.5px solid var(--line);
+  border-radius:var(--radius-sm); padding:0 12px; transition:border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out)}
+.rcb.open .rcb-field, .rcb-field:focus-within{border-color:var(--accent); background:var(--surface-1); box-shadow:0 0 0 3px var(--accent-soft)}
+.rcb-lupa{flex:none; color:var(--text-muted)}
+.rcb-input{flex:1; min-width:0; border:0; background:transparent; outline:none; font-size:14px; color:var(--text); padding:11px 0}
+.rcb-input::placeholder{color:var(--text-muted); opacity:.85}
+.rcb-picked{display:flex; align-items:center; gap:9px; flex:1; min-width:0; padding:8px 0}
+.rcb-picked .idc{border-radius:6px; flex:none}
+.rcb-picked .rcb-nm{font-weight:600; font-size:14px}
+.rcb-picked .rcb-ad{font-family:var(--font-mono); font-size:12px; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.rcb-x{background:transparent; border:0; color:var(--text-muted); cursor:pointer; font-size:17px; line-height:1; padding:6px; flex:none}
+.rcb-x:hover{color:var(--text)}
+.rcb-chip{font-family:var(--font-mono); font-size:9px; letter-spacing:.04em; text-transform:uppercase; padding:1px 7px; border-radius:var(--radius-pill); border:1px solid; flex:none}
+.rcb-chip.ok{color:var(--success); background:var(--success-soft); border-color:var(--success-line)}
+.rcb-chip.pub{color:var(--warn); background:var(--warn-soft,rgba(181,71,8,.09)); border-color:var(--warn-line,rgba(181,71,8,.3))}
+
+.rcb-pop{position:absolute; z-index:40; top:calc(100% + 6px); left:0; right:0; background:var(--surface-1);
+  border:1px solid var(--line-strong); border-radius:var(--radius); box-shadow:var(--shadow-overlay); padding:6px; max-height:340px; overflow:auto}
+.rcb-grp{font-family:var(--font-mono); font-size:9.5px; letter-spacing:.12em; text-transform:uppercase; color:var(--text-muted); padding:9px 10px 5px}
+.rcb-opt{display:flex; align-items:center; gap:10px; width:100%; text-align:left; background:transparent; border:0; cursor:pointer;
+  padding:8px 10px; border-radius:var(--radius-sm); color:var(--text)}
+.rcb-opt:hover, .rcb-opt.hi{background:var(--surface-2)}
+.rcb-opt .idc{border-radius:7px; flex:none}
+.rcb-om{flex:1; min-width:0}
+.rcb-on{font-size:13.5px; font-weight:600; display:flex; align-items:center; gap:7px}
+.rcb-oa{font-family:var(--font-mono); font-size:11.5px; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:block}
+.rcb-opt.rcb-add{color:var(--accent); font-weight:600; font-size:13.5px}
+.rcb-plus{width:26px; height:26px; border-radius:7px; display:grid; place-items:center; background:var(--accent-soft); color:var(--accent); flex:none; font-size:16px}
+.rcb-sep{height:1px; background:var(--line); margin:6px 4px}
+.rcb-manage{display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 10px 5px; font-family:var(--font-mono); font-size:11px; color:var(--text-muted)}
+.rcb-manage a{color:var(--accent); text-decoration:none}
+.rcb-manage a:hover{text-decoration:underline}
+.rcb-addbox{padding:8px 8px 6px; display:flex; flex-direction:column; gap:8px}
+.rcb-addacts{display:flex; gap:8px; justify-content:flex-end}
+.hint.rcb-ok{color:var(--success)}
+
+/* compact variant for payroll rows */
+.rcb.compact .rcb-field{padding:0 9px}
+.rcb.compact .rcb-input{font-size:13px; padding:8px 0}
+.rcb.compact .rcb-picked{padding:6px 0}
+.rcb.compact .rcb-picked .rcb-nm{font-size:13px}
