@@ -560,6 +560,8 @@ export const ptBR: Record<string, string> = {
   'payroll.colBeneficiary': 'Beneficiário',
   'payroll.colAddress': 'Endereço',
   'payroll.colValue': 'Valor',
+  'payroll.colRecipient': 'Destinatário',
+  'payroll.recipientPlaceholder': 'Busque ou cole um endereço',
   'payroll.colMemo': 'Memo / holerite',
   'payroll.namePlaceholder': 'nome',
   'payroll.addrPlaceholder': 'u1… (blindado)',
