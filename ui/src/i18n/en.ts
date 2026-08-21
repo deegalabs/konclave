@@ -475,6 +475,7 @@ export const en: Record<string, string> = {
   'payment.proposingAs': 'proposing as',
   'payment.personFromRegistry': 'Person (from registry)',
   'payment.chooseByName': 'choose by name, or type the address below',
+  'people.manage': 'Manage payees',
   'payment.to': 'To',
   'payment.addrPlaceholder': 'Zcash address (u1… recommended)',
   'payment.warnTransparent': 'Transparent address · this payment stays **public** on the blockchain.',

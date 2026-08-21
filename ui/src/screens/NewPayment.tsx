@@ -131,6 +131,9 @@ export default function NewPayment() {
             </select>
           </label>
         )}
+        {/* The payee registry lives here, inside the compose flow (not a rail peer): pick above, or
+            open it to add/edit. */}
+        <div className="mt-sm"><button type="button" className="btn ghost sm-btn" onClick={() => nav('/people')}>{t('people.manage')}</button></div>
 
         <label className="field"><span>{t('payment.to')}</span>
           <input className="input mono" placeholder={t('payment.addrPlaceholder')}

@@ -475,6 +475,7 @@ export const ptBR: Record<string, string> = {
   'payment.proposingAs': 'propondo como',
   'payment.personFromRegistry': 'Pessoa (do cadastro)',
   'payment.chooseByName': 'escolher pelo nome, ou digite o endereço abaixo',
+  'people.manage': 'Gerenciar destinatários',
   'payment.to': 'Para',
   'payment.addrPlaceholder': 'endereço Zcash (u1… recomendado)',
   'payment.warnTransparent': 'Endereço transparente · este pagamento fica **público** na blockchain.',
