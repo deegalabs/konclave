@@ -1,9 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { NavLink, Link, Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { Mark, LangToggle } from './components'
+import { Mark } from './components'
 import { Identicon } from './avatar'
 import { useT, useI18n } from './i18n'
-import { getVault, health, isVaultUnlocked, IS_DEMO, type Vault } from './api'
+import { getVault, health, isVaultUnlocked, setSelectedVault, IS_DEMO, type Vault } from './api'
+import { listVaults } from './storage'
 import { VaultSignerProvider } from './VaultSigner'
 import { LoadingProvider, TopProgress } from './loading'
 import SigningPanel from './screens/SigningPanel'
@@ -21,9 +22,33 @@ export default function Layout() {
   const [vault, setVault] = useState<Vault | null>(null)
   const [live, setLive] = useState<boolean | null>(null)
   const [moreOpen, setMoreOpen] = useState(false)
+  // The vault-switch popover on the footer chip (names the current vault; lists the others).
+  const [switchOpen, setSwitchOpen] = useState(false)
+  const [vaults, setVaults] = useState<{ id: string; name: string }[]>([])
 
-  // Close the mobile "More" sheet on any route change.
-  useEffect(() => { setMoreOpen(false) }, [loc.pathname])
+  // Close the mobile "More" sheet and the vault-switch popover on any route change.
+  useEffect(() => { setMoreOpen(false); setSwitchOpen(false) }, [loc.pathname])
+
+  // Toggle the switcher; on open, refresh the on-device vault list (names for the popover).
+  async function toggleSwitch() {
+    const opening = !switchOpen
+    setSwitchOpen(opening)
+    if (opening) {
+      try {
+        const vs = await listVaults()
+        setVaults(vs.map((v) => ({ id: v.id, name: v.name || 'Vault' })))
+      } catch { /* no on-device records (local-bridge) - the "Manage vaults" link still works */ }
+    }
+  }
+
+  // Switch vaults: same-session-unlocked vaults open straight; otherwise route through /vaults for
+  // the unlock gate (a net vault must decrypt its share into the session before it can be used).
+  function switchTo(id: string) {
+    setSwitchOpen(false)
+    if (id === vault?.id) return
+    setSelectedVault(id)
+    nav(isVaultUnlocked(id) ? '/dashboard' : '/vaults')
+  }
 
   // One-time bootstrap: decide whether the vault is reachable/unlocked and route.
   useEffect(() => {
@@ -137,18 +162,52 @@ export default function Layout() {
         )}
 
         <div className="rail-foot">
-          <Link to="/members" className="rail-quorum">
-            <svg className="medallion" width="40" height="40" viewBox="0 0 42 42" fill="none" aria-hidden="true">
-              <circle cx="21" cy="21" r="19.5" stroke="var(--line-strong)" />
-              <circle cx="21" cy="21" r="14" stroke="var(--accent)" strokeOpacity=".4" strokeDasharray="2 3" />
-              <path d="M21 8l11 6.4v12.8L21 34 10 27.2V14.4z" stroke="var(--accent)" strokeOpacity=".7" />
-              <path d="M17 21l2.8 2.8L26 17.5" stroke="var(--success)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            <div>
-              <div className="q">{thr} / {n}</div>
-              <small>{t('seal.caption')}</small>
-            </div>
-          </Link>
+          {/* The vault chip: NAMES the current vault (+ quorum) and opens an inline switcher, so the
+              persistent shell always answers "which vault am I operating?". */}
+          <div className="rail-vault">
+            <button
+              type="button"
+              className={'rail-vault-chip' + (switchOpen ? ' open' : '')}
+              aria-expanded={switchOpen}
+              aria-haspopup="menu"
+              onClick={() => void toggleSwitch()}
+            >
+              <svg className="medallion" width="38" height="38" viewBox="0 0 42 42" fill="none" aria-hidden="true">
+                <circle cx="21" cy="21" r="19.5" stroke="var(--line-strong)" />
+                <circle cx="21" cy="21" r="14" stroke="var(--accent)" strokeOpacity=".4" strokeDasharray="2 3" />
+                <path d="M21 8l11 6.4v12.8L21 34 10 27.2V14.4z" stroke="var(--accent)" strokeOpacity=".7" />
+                <path d="M17 21l2.8 2.8L26 17.5" stroke="var(--success)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <span className="rv-meta">
+                <span className="rv-name">{vault?.name ?? t('settings.vault')}</span>
+                <small className="rv-q">{thr}/{n} · {t('seal.caption')}</small>
+              </span>
+              <span className="rv-caret" aria-hidden="true">▾</span>
+            </button>
+
+            {switchOpen && (
+              <>
+                <div className="nav-more-scrim" onClick={() => setSwitchOpen(false)} aria-hidden="true" />
+                <div className="vault-pop" role="menu" aria-label={t('nav.switchVault')}>
+                  {vaults.map((v) => (
+                    <button
+                      key={v.id}
+                      type="button"
+                      role="menuitem"
+                      className={'vault-pop-row' + (v.id === vault?.id ? ' current' : '')}
+                      onClick={() => switchTo(v.id)}
+                    >
+                      <Identicon seed={v.id} size={22} />
+                      <span className="vp-name">{v.name}</span>
+                      {v.id === vault?.id && <span className="vp-check" aria-hidden="true">✓</span>}
+                    </button>
+                  ))}
+                  <Link to="/vaults" className="vault-pop-manage" role="menuitem">{t('nav.switchVault')} ▾</Link>
+                </div>
+              </>
+            )}
+          </div>
+
           <div className="rail-avatars" aria-hidden="true">
             {seeds.map((s, i) => <Identicon key={i} seed={s} size={24} />)}
           </div>
@@ -168,9 +227,7 @@ export default function Layout() {
                 </span>
               ) : null}
             </span>
-            <Link to="/vaults" className="rail-switch">{t('nav.switchVault')} ▾</Link>
           </div>
-          <div className="rail-lang"><LangToggle /></div>
         </div>
       </aside>
 
