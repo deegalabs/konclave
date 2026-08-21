@@ -57,11 +57,11 @@ export default function SigningPanel() {
   const canSend = bg.ready && quorumHere && !started && !result
   // The signer is still coming up: has a share but hasn't seated yet. Show a loading line instead of
   // a roster that could momentarily light the wrong seat. (Declared after `started`/`result`.)
-  // Show a loading line in the presence block whenever the roster isn't yet trustworthy: while the
-  // drawer is opening / the share isn't unlocked, while unlocking (typing the passphrase), and while
-  // the signer is still seating. Only once THIS device is seated (bg.ready) do we show the roster
-  // with its real present/absent flags. Never flash a half-known roster.
-  const connecting = !started && !result && (unlocking || !bg.ready)
+  // At the passphrase stage we SHOW the roster (the signers of this vault) - the device just hasn't
+  // joined the signing room yet, so nobody reads as present (honest: real presence needs the share).
+  // The loader appears only once you SUBMIT the passphrase (unlocking) and while the signer seats;
+  // then the roster comes back with its real present/absent flags once THIS device is seated.
+  const connecting = !started && !result && (unlocking || (hasShare && !bg.ready))
 
   const dest = active.to_address ? shortAddr(active.to_address) : '-'
   const amt = fmtZec(active.value_zec)
@@ -134,7 +134,7 @@ export default function SigningPanel() {
           {connecting ? (
             <div className="sign-roster-loading">
               <span className="loader-ring sm" aria-hidden="true" />
-              <span>{unlocking ? t('signing.loadingUnlock') : hasShare ? t('signing.connecting') : t('signing.loadingSigners')}</span>
+              <span>{unlocking ? t('signing.loadingUnlock') : t('signing.connecting')}</span>
             </div>
           ) : (
             <div className="sign-roster">
