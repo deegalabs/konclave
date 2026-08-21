@@ -404,8 +404,12 @@ export async function renameSelf(
   return res
 }
 
-/** Every vault known to this device (for the "Meus cofres" home). */
+/** Every vault known to this device (for the "Meus cofres" home). In browser-native (/net) mode the
+ *  vault list comes from the on-device records (listVaults in storage), NOT the blind helper, so we
+ *  do not call the helper's /api/vaults here (it returns bare ids, not vaults, and 404'd on older
+ *  builds - #136). The Vaults screen already merges the on-device net rows itself. */
 export async function getVaults(): Promise<Vault[] | null> {
+  if (NET) return null
   const r = await getJson<{ vaults: Vault[] }>('/api/vaults')
   return r?.vaults ?? (DEMO ? MOCK.vaults : null)
 }
@@ -579,7 +583,27 @@ export async function deleteVault(
 
 export type Beneficiary = { id: string; name: string; address: string; memo: string; is_public: boolean }
 
+// Browser-native (/net): the payee address-book is a per-vault convenience with NO secrets, so it
+// lives ON THIS DEVICE (localStorage keyed by vault id) instead of the blind helper - which does not
+// implement /api/beneficiaries (the 404s in #136). This keeps the console clean, works offline, and
+// stays local-first. (A vault-shared list would be a helper feature; tracked separately.)
+function benefKey(): string | null {
+  const id = getSelectedVault()
+  return id ? `konclave.benef.${id}` : null
+}
+function netBenefList(): Beneficiary[] {
+  const k = benefKey()
+  if (!k) return []
+  try { return JSON.parse(localStorage.getItem(k) ?? '[]') as Beneficiary[] } catch { return [] }
+}
+function netBenefSave(list: Beneficiary[]): void {
+  const k = benefKey()
+  if (!k) return
+  try { localStorage.setItem(k, JSON.stringify(list)) } catch { /* storage blocked/full */ }
+}
+
 export async function getBeneficiaries(): Promise<Beneficiary[] | null> {
+  if (NET) return netBenefList()
   const r = await getJson<{ beneficiaries: Beneficiary[] }>(withVault('/api/beneficiaries'))
   return r?.beneficiaries ?? (DEMO ? MOCK.beneficiaries : null)
 }
@@ -587,6 +611,20 @@ export async function getBeneficiaries(): Promise<Beneficiary[] | null> {
 export async function addBeneficiary(
   name: string, address: string, memo?: string,
 ): Promise<{ ok: true; beneficiary: Beneficiary } | { ok: false; error: string; detail?: string }> {
+  if (NET) {
+    const addr = address.trim()
+    if (!name.trim() || !addr) return { ok: false, error: 'invalidAddress' }
+    if (classifyAddress(addr) === 'unknown') return { ok: false, error: 'invalidAddress' }
+    const b: Beneficiary = {
+      id: crypto.randomUUID(),
+      name: name.trim(),
+      address: addr,
+      memo: memo?.trim() ?? '',
+      is_public: classifyAddress(addr) === 'transparent',
+    }
+    netBenefSave([...netBenefList(), b])
+    return { ok: true, beneficiary: b }
+  }
   try {
     const res = await fetch(`${BASE}${withVault('/api/beneficiaries')}`, {
       method: 'POST',
@@ -602,6 +640,10 @@ export async function addBeneficiary(
 }
 
 export async function deleteBeneficiary(id: string): Promise<boolean> {
+  if (NET) {
+    netBenefSave(netBenefList().filter((b) => b.id !== id))
+    return true
+  }
   try {
     const res = await fetch(`${BASE}/api/beneficiaries/${encodeURIComponent(id)}/delete`, { method: 'POST' })
     return res.ok
