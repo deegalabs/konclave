@@ -704,6 +704,8 @@ export const ptBR: Record<string, string> = {
   'members.roleCreator': 'criou o cofre · assina',
   'members.roleSigns': 'assina',
   'members.signs': 'assina',
+  'members.roleShareVote': 'guarda um pedaço da chave · vota',
+  'members.roleCreatorChip': 'criou o cofre',
   'members.footCount': '{count} membros · quórum {t}-de-{n}',
   'members.footNote': 'a chave nunca é remontada · cada parte assina no seu lugar',
   'members.demoNote': 'Nesta demonstração as três partes rodam nesta máquina. No produto, cada membro aprova **do seu próprio dispositivo** com a sua parte · é o passo de multi-dispositivo do roadmap.',
