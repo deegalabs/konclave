@@ -708,6 +708,12 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 .rcb-addbox{padding:8px 8px 6px; display:flex; flex-direction:column; gap:8px}
 .rcb-addacts{display:flex; gap:8px; justify-content:flex-end}
 .hint.rcb-ok{color:var(--success)}
+/* Inline "save this pasted address" affordance under the field. */
+.rcb-savesuggest{display:inline-flex; align-items:center; gap:5px; margin-top:6px; padding:0; background:none; border:none;
+  color:var(--accent); font-family:var(--font-mono); font-size:11px; cursor:pointer}
+.rcb-savesuggest:hover{text-decoration:underline}
+.rcb-savebox{margin-top:8px; padding:10px; display:flex; flex-direction:column; gap:8px;
+  background:var(--surface-2); border:1px solid var(--line); border-radius:var(--radius-sm)}
 
 /* compact variant for payroll rows */
 .rcb.compact .rcb-field{padding:0 9px}
