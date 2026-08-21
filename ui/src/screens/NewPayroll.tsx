@@ -8,6 +8,7 @@ import {
   previewPayroll, createPayroll, getBalance, getBeneficiaries, getLedger, getVault, health, classifyAddress, humanError,
   IS_DEMO, type Beneficiary, type Proposal, type Member,
 } from '../api'
+import { listVaults } from '../storage'
 
 const DRAFT_KEY = 'konclave.folha.rascunho'
 
@@ -81,7 +82,16 @@ export default function NewPayroll() {
         if (v) {
           setVaultName(v.name)
           const first0 = v.member_list?.[0]
-          if (first0) { setMembersList(v.member_list!); setProposer(first0.name) }
+          if (first0) {
+            setMembersList(v.member_list!)
+            // Live: propose as THIS device's own member (never the first seat); the picker is a
+            // single-device demo artifice. Fall back to the first seat only without an on-device record.
+            let mine: string | null = null
+            if (!IS_DEMO) {
+              try { mine = (await listVaults()).find((s) => s.id === v.id)?.myName ?? null } catch { /* no record */ }
+            }
+            setProposer(mine ?? first0.name)
+          }
         }
       }
       if (on) setLoaded(true)
@@ -149,12 +159,17 @@ export default function NewPayroll() {
         {loaded && <div className="ctx">
           <span>{tr('payment.fromVault', { name: vaultName })}</span>
           {membersList.length > 0 && (
-            <label className="ctx-as">
-              {t('payment.proposingAs')}
-              <select value={proposer} onChange={(e) => setProposer(e.target.value)}>
-                {membersList.map((m) => <option key={m.pubkey || m.name} value={m.name}>{m.name}</option>)}
-              </select>
-            </label>
+            IS_DEMO ? (
+              // DEMO only: one device stands in for the whole quorum, so it may act as any member.
+              <label className="ctx-as">
+                {t('payment.proposingAs')}
+                <select value={proposer} onChange={(e) => setProposer(e.target.value)}>
+                  {membersList.map((m) => <option key={m.pubkey || m.name} value={m.name}>{m.name}</option>)}
+                </select>
+              </label>
+            ) : (
+              <span className="ctx-as">{t('payment.proposingAs')} <b>{proposer}</b></span>
+            )
           )}
         </div>}
 

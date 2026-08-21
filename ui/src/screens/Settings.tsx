@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Seal, Loading, LangToggle } from '../components'
 import { PageHeader, PageFooter } from '../page'
-import { useT, useI18n } from '../i18n'
+import { useT, useTr, useI18n } from '../i18n'
 import { getVault, health, shortAddr, deleteVault, IS_DEMO, type Vault } from '../api'
 import { listVaults, type Governance } from '../storage'
+import { vaultFingerprint } from '../format'
 import { getTheme, setTheme, type Theme } from '../theme'
 import { getCoordMode, setCoordMode, getCustomHelper, HELPER_BASE, type CoordMode } from '../helper'
 import { isDesktop } from '../platform'
@@ -17,6 +18,7 @@ import { isDesktop } from '../platform'
  */
 export default function Settings() {
   const t = useT()
+  const tr = useTr()
   const { locale } = useI18n()
   const pt = locale === 'pt-BR'
   const nav = useNavigate()
@@ -35,6 +37,10 @@ export default function Settings() {
   const [confirmName, setConfirmName] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  // The vault fingerprint: a PUBLIC anti-impostor code members compare out of band. It lives here in
+  // Settings (with the other vault-identity facts), not on the Signers roster (#160).
+  const [fp, setFp] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     let on = true
@@ -42,22 +48,40 @@ export default function Settings() {
       const ok = await health()
       if (!on) return
       setLive(ok)
+      // The identity we fingerprint: a real vault's group key when we have one, else the vault id;
+      // a stable demo identity so the sample screen still showcases the check.
+      let identity = 'konclave-demo-vault'
       if (ok) {
         const v = await getVault()
         if (on && v) setVault(v)
         // Governance is public vault metadata kept on-device (browser-native). Match by id; older
         // vaults without the field read as 'open' (the historical behavior).
         if (v) {
+          identity = v.id
           try {
             const saved = await listVaults()
             const found = saved.find((s) => s.id === v.id)
             if (on) setGov(found?.governance ?? 'open')
+            if (found?.groupKey) identity = found.groupKey
           } catch { /* no local record (local-bridge mode) - leave governance unshown */ }
         }
       }
+      try {
+        const code = await vaultFingerprint(identity)
+        if (on) setFp(code)
+      } catch { /* WebCrypto unavailable - skip the fingerprint callout */ }
     })()
     return () => { on = false }
   }, [])
+
+  async function copyFp() {
+    if (!fp) return
+    try {
+      await navigator.clipboard.writeText(fp)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch { /* clipboard blocked - the code is visible to read aloud anyway */ }
+  }
 
   const thr = vault?.threshold ?? 2
   const n = vault?.total ?? 3
@@ -168,6 +192,19 @@ export default function Settings() {
         </div>
       </div>
       {gov && <p className="set-hint">{t('settings.govNote')}</p>}
+
+      {fp && (
+        <div className="fp-card mt" role="note" aria-label={t('members.fpTitle')}>
+          <div className="fp-head">
+            <span className="klab">{t('members.fpTitle')}</span>
+            <button className="btn ghost xs-btn" onClick={() => void copyFp()}>
+              {copied ? t('members.fpCopied') : t('members.fpCopy')}
+            </button>
+          </div>
+          <div className="fp-code mono">{fp}</div>
+          <div className="fp-help dim">{tr('members.fpHelp')}</div>
+        </div>
+      )}
 
       <section className="set-danger mt">
         <h2 className="set-danger-title">{t('settings.danger')}</h2>
