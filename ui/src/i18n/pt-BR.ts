@@ -147,6 +147,9 @@ export const ptBR: Record<string, string> = {
   'nav.activity': 'Atividade',
   'nav.switchVault': 'Trocar cofre',
   'nav.more': 'Mais',
+  'nav.bandVault': 'Cofre',
+  'nav.bandGovernance': 'Governança',
+  'nav.bandDo': 'Ações',
 
   // Atividade (Propostas + Razão + Evidências fundidas)
   'activity.eyebrow': 'O ciclo das propostas',
