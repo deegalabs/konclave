@@ -229,18 +229,38 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 .nav-item.active{background:var(--surface-2); color:var(--text)}
 .nav-item.active svg{opacity:1; color:var(--accent)}
 .rail-foot{margin-top:auto; display:flex; flex-direction:column; gap:13px}
-.rail-quorum{border:1px solid var(--line); border-radius:var(--radius); background:var(--surface-1); padding:13px; display:flex; align-items:center; gap:12px; text-decoration:none; color:inherit;
+
+/* Vault chip: names the current vault + quorum; opens an inline switcher popover. */
+.rail-vault{position:relative}
+.rail-vault-chip{width:100%; border:1px solid var(--line); border-radius:var(--radius); background:var(--surface-1);
+  padding:11px 12px; display:flex; align-items:center; gap:11px; text-align:left; cursor:pointer; color:inherit;
   transition:border-color var(--dur-fast) var(--ease-out)}
-.rail-quorum:hover{border-color:var(--accent-line)}
-.rail-quorum .q{font-family:var(--font-mono); font-weight:600; font-size:16px; letter-spacing:.02em}
-.rail-quorum small{display:block; color:var(--text-muted); font-size:10px; letter-spacing:.1em; text-transform:uppercase; margin-top:2px}
+.rail-vault-chip:hover, .rail-vault-chip.open{border-color:var(--accent-line)}
+.rail-vault-chip .medallion{flex:0 0 auto}
+.rv-meta{display:flex; flex-direction:column; min-width:0; flex:1 1 auto}
+.rv-name{font-weight:600; font-size:14px; letter-spacing:.01em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.rv-q{color:var(--text-muted); font-size:10px; letter-spacing:.1em; text-transform:uppercase; margin-top:2px; font-family:var(--font-mono)}
+.rv-caret{flex:0 0 auto; color:var(--text-muted); font-size:11px; transition:transform var(--dur-fast) var(--ease-out)}
+.rail-vault-chip.open .rv-caret{transform:rotate(180deg)}
+
+/* switcher popover (opens upward, above the chip) */
+.vault-pop{position:absolute; bottom:calc(100% + 8px); left:0; right:0; z-index:60;
+  background:var(--surface-0); border:1px solid var(--line-strong); border-radius:var(--radius);
+  box-shadow:var(--shadow-pop, 0 8px 30px rgba(0,0,0,.28)); padding:6px; display:flex; flex-direction:column; gap:2px}
+.vault-pop-row{display:flex; align-items:center; gap:9px; padding:8px 9px; border:0; background:transparent; border-radius:calc(var(--radius) - 4px);
+  cursor:pointer; color:inherit; text-align:left; width:100%; font-size:13px}
+.vault-pop-row:hover{background:var(--surface-1)}
+.vault-pop-row.current{color:var(--text-muted); cursor:default}
+.vault-pop-row .vp-name{flex:1 1 auto; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.vault-pop-row .vp-check{color:var(--success); font-size:12px}
+.vault-pop-manage{display:block; margin-top:4px; padding:8px 9px; border-top:1px solid var(--line);
+  font-family:var(--font-mono); font-size:11px; color:var(--text-muted); text-decoration:none}
+.vault-pop-manage:hover{color:var(--accent)}
+
 .rail-bottom{display:flex; flex-direction:column; gap:9px; align-items:flex-start}
 .rail-avatars{display:flex; padding-left:2px}
 .rail-avatars .idc{border-radius:50%; box-shadow:0 0 0 2px var(--surface-0); margin-left:-7px}
 .rail-avatars .idc:first-child{margin-left:0}
-.rail-lang{padding-top:2px}
-.rail-switch{font-family:var(--font-mono); font-size:11px; color:var(--text-muted); padding:2px; text-decoration:none}
-.rail-switch:hover{color:var(--accent)}
 
 /* the mobile "More" affordance + sheet are off on desktop (the rail shows every item) */
 .nav-more-btn{display:none}
@@ -265,12 +285,17 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
   .rail .brand{flex:0 1 auto; min-width:0}
   .rail .wm{letter-spacing:.24em; text-indent:.24em; font-size:11px}
   .rail .brand-sub{display:none}
-  .rail-foot{margin:0 0 0 auto; flex-direction:row; align-items:center; gap:10px; flex:0 0 auto}
-  .rail-quorum, .rail-avatars{display:none}
+  .rail-foot{margin:0 0 0 auto; flex-direction:row; align-items:center; gap:10px; flex:0 0 auto; min-width:0}
+  .rail-avatars{display:none}
   .rail-bottom{flex-direction:row; align-items:center; gap:10px}
-  .rail-switch{white-space:nowrap; font-size:0}
-  .rail-switch::before{content:"⇄"; font-size:15px}
-  .rail-lang{padding:0}
+  /* the vault chip stays visible (it names the vault) but goes compact: name + caret, no medallion
+     or quorum sub-line, and capped so it never crowds the top bar */
+  .rail-vault{min-width:0}
+  .rail-vault-chip{padding:7px 9px; gap:6px; max-width:44vw}
+  .rail-vault-chip .medallion, .rail-vault-chip .rv-q{display:none}
+  .rail-vault-chip .rv-name{font-size:12px}
+  /* on mobile the top bar is at the TOP, so the popover opens DOWNWARD */
+  .vault-pop{bottom:auto; top:calc(100% + 8px); left:auto; right:0; min-width:200px}
   /* the demo/live indicator collapses to just its dot to save the top-bar width */
   .rail .live{font-size:0; gap:0; padding:7px}
   .rail .live i{margin:0}

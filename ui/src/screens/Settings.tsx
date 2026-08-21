@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Seal, Loading } from '../components'
+import { Seal, Loading, LangToggle } from '../components'
 import { PageHeader, PageFooter } from '../page'
 import { useT, useI18n } from '../i18n'
 import { getVault, health, shortAddr, deleteVault, IS_DEMO, type Vault } from '../api'
@@ -94,6 +94,10 @@ export default function Settings() {
             <button type="button" className={'btn' + (theme === 'light' ? ' ok' : ' ghost')} onClick={() => pickTheme('light')}>{pt ? 'Claro' : 'Light'}</button>
             <button type="button" className={'btn' + (theme === 'dark' ? ' ok' : ' ghost')} onClick={() => pickTheme('dark')}>{pt ? 'Escuro' : 'Dark'}</button>
           </span>
+        </div>
+        <div className="set-row">
+          <span className="set-k">{pt ? 'Idioma' : 'Language'}</span>
+          <span className="set-v"><LangToggle /></span>
         </div>
       </section>
       <p className="set-hint">{pt ? 'Preferência deste dispositivo · o branco é o padrão, o escuro é opcional.' : 'A per-device preference · white is the default, dark is optional.'}</p>
