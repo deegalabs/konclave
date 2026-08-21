@@ -93,27 +93,28 @@ export default function Layout() {
     ? vault.member_list.slice(0, 3).map((m) => m.name)
     : ['A', 'B', 'C']
 
-  // Rail grouped into three intent bands (ADR-0009, GSP IA #156) so a governance vault reads as
-  // VAULT / GOVERNANCE / ACTIONS, not a flat wallet with sibling tabs:
-  //  · VAULT      - the vault itself: overview + receiving.
-  //  · GOVERNANCE - what needs the quorum: approvals + the signers who hold shares and vote.
-  //  · ACTIONS    - the two compose faces that START a governance flow (Pay/Payroll).
+  // Rail grouped into intent bands, ordered by the money LIFECYCLE (in -> propose -> govern), so a
+  // governance vault reads as its flow rather than a flat wallet (ADR-0009, GSP IA #156, refined):
+  //  · COFRE      - the vault's state you consult: overview (Dashboard) + the book (Ledger).
+  //  · MOVIMENTOS - everything that MOVES money: Receber (in), Pagar + Folha (out via a proposal).
+  //                 Receiving is an action, so it lives here, not under "vault".
+  //  · GOVERNANCA - what needs the quorum: approvals + the signers who hold shares and vote.
   // Settings sits below the bands. Beneficiaries is NOT a rail peer: it is a payee address-book that
   // only feeds Pay/Payroll, reached contextually there ("Manage payees"), never a destination.
   type NavItem = [string, string, ReactNode]
   const bands: { label: string; items: NavItem[] }[] = [
     { label: t('nav.bandVault'), items: [
       ['/dashboard', t('nav.dashboard'), <IconGrid key="i" />],
-      ['/receive', t('nav.receive'), <IconReceive key="i" />],
       ['/ledger', t('nav.ledger'), <IconBook key="i" />],
+    ] },
+    { label: t('nav.bandMoney'), items: [
+      ['/receive', t('nav.receive'), <IconReceive key="i" />],
+      ['/pay', t('nav.pay'), <IconSend key="i" />],
+      ['/payroll', t('nav.payroll'), <IconRows key="i" />],
     ] },
     { label: t('nav.bandGovernance'), items: [
       ['/activity', t('nav.activity'), <IconInbox key="i" />],
       ['/members', t('nav.members'), <IconUsers key="i" />],
-    ] },
-    { label: t('nav.bandDo'), items: [
-      ['/pay', t('nav.pay'), <IconSend key="i" />],
-      ['/payroll', t('nav.payroll'), <IconRows key="i" />],
     ] },
   ]
   const tail: NavItem[] = [['/settings', t('nav.settings'), <IconGear key="i" />]]
