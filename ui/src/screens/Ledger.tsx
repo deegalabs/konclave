@@ -24,23 +24,33 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
   const [fKind, setFKind] = useState<'all' | 'payment' | 'payroll'>('all')
   const [xlsxBusy, setXlsxBusy] = useState(false)
 
+  // Auto-refresh (#123): a payment that settles on-chain, or a new proposal, shows in the book
+  // without a manual reload. Poll on the same 12s cadence as the Dashboard/Proposals, in-flight
+  // guarded so calls never overlap; only the FIRST load drives the top-progress bar.
   useEffect(() => {
     let on = true
-    begin()
-    void (async () => {
+    let inFlight = false
+    const load = async (first: boolean) => {
+      if (inFlight) return
+      inFlight = true
+      if (first) begin()
       try {
-        const ok = await health()
-        if (!on) return
-        setLive(ok)
+        if (first) {
+          const ok = await health()
+          if (on) setLive(ok)
+        }
         const [l, v] = await Promise.all([getLedger(), getVault()])
         if (!on) return
         if (l) setRows(l)
         if (v) { setVaultName(v.name); setThreshold(v.threshold) }
       } finally {
-        end()
+        inFlight = false
+        if (first) end()
       }
-    })()
-    return () => { on = false }
+    }
+    void load(true)
+    const id = setInterval(() => void load(false), 12_000)
+    return () => { on = false; clearInterval(id) }
   }, [begin, end])
 
   async function toggle(p: Proposal) {

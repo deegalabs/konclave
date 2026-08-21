@@ -30,13 +30,24 @@ export default function Receive() {
       if (v) setVault(v)
       setLoaded(true)
     })
-    void getTransactions().then((r) => {
-      if (!on) return
-      setTxs(r)
-      setTxLoaded(true)
-    })
+    // Auto-refresh the history (#123): a deposit that lands on-chain shows up without a reload.
+    // In-flight guarded; polls on the shared 15s cadence.
+    let inFlight = false
+    const loadTx = async () => {
+      if (inFlight) return
+      inFlight = true
+      try {
+        const r = await getTransactions()
+        if (on) { setTxs(r); setTxLoaded(true) }
+      } finally {
+        inFlight = false
+      }
+    }
+    void loadTx()
+    const id = setInterval(() => void loadTx(), 15_000)
     return () => {
       on = false
+      clearInterval(id)
     }
   }, [])
 
