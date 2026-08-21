@@ -295,6 +295,7 @@ export const en: Record<string, string> = {
   'members.yourNameSave': 'Save my name',
   'members.yourNameSaved': 'Name updated',
   'members.renameErr': 'Could not rename',
+  'members.yourNameOutOfSync': 'Your saved name isn’t in the current roster (an earlier rename didn’t fully sync on this device). Type your current name to fix it.',
   'ceremonies.eyebrow': 'SIGNING EVIDENCE',
   'ceremonies.title': 'Ceremony record',
   'ceremonies.subtitle': 'Reproducible evidence of every payment this vault signed: the sighash, the quorum aggregate signature, and the on-chain txid. Public and checkable, without trusting the operator.',
