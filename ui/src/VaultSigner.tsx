@@ -9,6 +9,7 @@
 
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { getVault, isVaultUnlocked, IS_NET, type Proposal, type Vault } from './api'
+import { listVaults } from './storage'
 import { useBackgroundSigner, type BackgroundSignerState } from './useBackgroundSigner'
 import { makeSigningGate } from './signing-gate'
 
@@ -16,6 +17,9 @@ interface VaultSignerCtx {
   bg: BackgroundSignerState
   vault: Vault | null
   threshold: number
+  /** This device's own member name, from the on-device record (reflects a rename). The panel uses
+   *  it to identify "you" in the roster - authoritative over the (possibly staler) session share. */
+  myName: string | null
   /** The proposal whose ceremony the panel is showing, or null when the panel is closed. */
   active: Proposal | null
   open: (p: Proposal) => void
@@ -35,18 +39,27 @@ export function useVaultSigner(): VaultSignerCtx {
 
 export function VaultSignerProvider({ children }: { children: ReactNode }) {
   const [vault, setVault] = useState<Vault | null>(null)
+  const [myName, setMyName] = useState<string | null>(null)
   const [active, setActive] = useState<Proposal | null>(null)
   // Bumped after the panel unlocks the share in-session, so useBackgroundSigner re-runs and seats.
   const [nonce, setNonce] = useState(0)
 
+  // Re-load on `nonce` too (a reseat), so a same-session rename+unlock refreshes both the roster and
+  // this device's own name before the panel resolves presence.
   useEffect(() => {
     let on = true
     void (async () => {
       const v = await getVault()
       if (on) setVault(v)
+      if (v) {
+        try {
+          const rec = (await listVaults()).find((s) => s.id === v.id)
+          if (on) setMyName(rec?.myName ?? null)
+        } catch { /* no on-device record (local-bridge) - panel falls back to the session share */ }
+      }
     })()
     return () => { on = false }
-  }, [])
+  }, [nonce])
 
   // The signer runs only while the ceremony panel is OPEN (active != null), not always-on on every
   // screen: an app-wide relay session on every navigation was churny and destabilized the vault
@@ -67,6 +80,7 @@ export function VaultSignerProvider({ children }: { children: ReactNode }) {
     bg,
     vault,
     threshold: vault?.threshold ?? 0,
+    myName,
     active,
     open: setActive,
     close: () => setActive(null),

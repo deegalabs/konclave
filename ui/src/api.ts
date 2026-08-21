@@ -23,6 +23,7 @@ import {
 } from './helper'
 import { zatToZec, parseZecToZat } from './format'
 import { listVaults, updateVaultMeta } from './storage'
+import { getUnlockedShare, setUnlockedShare } from './session'
 
 export type Member = { name: string; pubkey: string }
 
@@ -390,7 +391,15 @@ export async function renameSelf(
   if (!id) return { error: 'no vault selected' }
   const res = await netRenameMember(id, old, next)
   if ('members' in res) {
-    try { await updateVaultMeta(id, { myName: next.trim() }) } catch { /* record absent - roster still renamed */ }
+    const nm = next.trim()
+    try { await updateVaultMeta(id, { myName: nm }) } catch { /* record absent - roster still renamed */ }
+    // Keep the IN-SESSION share's name in sync too: the signing panel identifies "you" from the
+    // unlocked share's myName, so a stale name there makes it fail to light your seat (and fall back
+    // to guessing the first seat). Patch it in place so presence stays correct after a rename.
+    try {
+      const share = getUnlockedShare(id)
+      if (share && share.myName !== nm) setUnlockedShare(id, { ...share, myName: nm })
+    } catch { /* nothing unlocked this session - nothing to sync */ }
   }
   return res
 }
