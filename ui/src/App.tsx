@@ -13,6 +13,7 @@ import NewPayment from './screens/NewPayment'
 import NewPayroll from './screens/NewPayroll'
 import Proposal from './screens/Proposal'
 import Proposals from './screens/Proposals'
+import Activity from './screens/Activity'
 import Ledger from './screens/Ledger'
 import Members from './screens/Members'
 import People from './screens/People'
@@ -61,6 +62,7 @@ export default function App() {
           <Route path="/pay" element={<NewPayment />} />
           <Route path="/payroll" element={<NewPayroll />} />
           <Route path="/proposal" element={<Proposal />} />
+          <Route path="/activity" element={<Activity />} />
           <Route path="/proposals" element={<Proposals />} />
           <Route path="/ledger" element={<Ledger />} />
           <Route path="/ceremonies" element={<Ceremonies />} />

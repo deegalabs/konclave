@@ -8,7 +8,7 @@ import { getProposals, getVault, health, type Proposal } from '../api'
 import { expiryLabel, fmtZec } from '../format'
 import { useT, useTr } from '../i18n'
 
-export default function Proposals() {
+export default function Proposals({ embedded = false }: { embedded?: boolean }) {
   const t = useT()
   const tr = useTr()
   const nav = useNavigate()
@@ -70,35 +70,41 @@ export default function Proposals() {
     </div>
   )
 
+  const body = (
+    <>
+      {!loaded && <SkeletonRows n={4} />}
+
+      {loaded && ready.length > 0 && (
+        <>
+          <div className="plist-head"><span className="klab">{t('proposals.readyToSign')}</span><span className="plist-count ready">{ready.length}</span></div>
+          <div className="plist">{ready.map((p) => <Row key={p.id} p={p} />)}</div>
+        </>
+      )}
+
+      {loaded && (
+        <>
+          <div className="plist-head mt"><span className="klab">{t('proposals.awaitingApproval')}</span><span className="plist-count">{awaiting.length}</span></div>
+          {awaiting.length > 0 ? (
+            <div className="plist">{awaiting.map((p) => <Row key={p.id} p={p} />)}</div>
+          ) : (
+            <div className="empty-note">{t('proposals.nothingAwaiting')} <Link className="link" to="/pay">{t('proposal.proposePaymentLink')}</Link></div>
+          )}
+        </>
+      )}
+
+      {loaded && rows.length === 0 && ready.length === 0 && (
+        <div className="hint mt">{t('proposals.ledgerHint')} <Link className="link" to="/ledger">{t('proposals.viewLedger')}</Link></div>
+      )}
+    </>
+  )
+
+  if (embedded) return body
+
   return (
     <>
       <main className="page narrow">
         <PageHeader title={t('proposals.title')} subtitle={<>{t('proposals.cap')} {live ? '' : t('proposals.demoMode')}</>} />
-
-        {!loaded && <SkeletonRows n={4} />}
-
-        {loaded && ready.length > 0 && (
-          <>
-            <div className="plist-head"><span className="klab">{t('proposals.readyToSign')}</span><span className="plist-count ready">{ready.length}</span></div>
-            <div className="plist">{ready.map((p) => <Row key={p.id} p={p} />)}</div>
-          </>
-        )}
-
-        {loaded && (
-          <>
-            <div className="plist-head mt"><span className="klab">{t('proposals.awaitingApproval')}</span><span className="plist-count">{awaiting.length}</span></div>
-            {awaiting.length > 0 ? (
-              <div className="plist">{awaiting.map((p) => <Row key={p.id} p={p} />)}</div>
-            ) : (
-              <div className="empty-note">{t('proposals.nothingAwaiting')} <Link className="link" to="/pay">{t('proposal.proposePaymentLink')}</Link></div>
-            )}
-          </>
-        )}
-
-        {loaded && rows.length === 0 && ready.length === 0 && (
-          <div className="hint mt">{t('proposals.ledgerHint')} <Link className="link" to="/ledger">{t('proposals.viewLedger')}</Link></div>
-        )}
-
+        {body}
         <NextStep label={t('next.label')} cta={t('next.ledger')} to="/ledger" />
       </main>
     </>
