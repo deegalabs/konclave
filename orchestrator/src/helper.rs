@@ -147,11 +147,54 @@ pub struct VaultBalance {
 /// Sync a registered vault's view-only wallet against lightwalletd and read its shielded balance.
 /// The helper owns the UFVK (view-only), so this is a watcher's read - no share involved. Network
 /// + engine I/O, so it is exercised live, not in unit tests.
+/// How long a wallet sync stays "fresh": within this window, a balance read skips the (slow) sync
+/// and serves the last-synced state, so the Dashboard's 12s poll (and bursts across screens) share
+/// one sync instead of each triggering a multi-second lightwalletd sync (#194).
+pub const SYNC_THROTTLE_SECS: u64 = 15;
+
+fn last_sync_path(vaults_dir: &Path, vault: &str) -> PathBuf {
+    vaults_dir.join(vault).join("last_sync")
+}
+
+/// True when the wallet should be re-synced: no recorded sync yet, or the last one is at least
+/// `throttle_secs` old. Pure (takes `now`), so it is unit-testable.
+pub fn should_sync(vaults_dir: &Path, vault: &str, throttle_secs: u64, now: u64) -> bool {
+    match std::fs::read_to_string(last_sync_path(vaults_dir, vault))
+        .ok()
+        .and_then(|s| s.trim().parse::<u64>().ok())
+    {
+        Some(last) => now.saturating_sub(last) >= throttle_secs,
+        None => true,
+    }
+}
+
+fn mark_synced(vaults_dir: &Path, vault: &str, now: u64) {
+    let path = last_sync_path(vaults_dir, vault);
+    if let Some(p) = path.parent() {
+        let _ = std::fs::create_dir_all(p);
+    }
+    let _ = std::fs::write(&path, now.to_string());
+}
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
 pub fn vault_balance(
     cfg: &HelperConfig,
     reg: &VaultRegistration,
 ) -> Result<VaultBalance, ToolError> {
-    crate::wallet::sync(&cfg.devtool, &reg.wallet_dir, &cfg.lightwalletd)?;
+    // Throttle the sync: only hit lightwalletd if the last sync for this vault is stale. A fresh
+    // deposit still lands within SYNC_THROTTLE_SECS, but rapid balance reads no longer each block on
+    // a full sync (#194). The balance below reflects whatever the wallet last synced.
+    let now = now_secs();
+    if should_sync(&cfg.vaults_dir, &reg.vault_id, SYNC_THROTTLE_SECS, now) {
+        crate::wallet::sync(&cfg.devtool, &reg.wallet_dir, &cfg.lightwalletd)?;
+        mark_synced(&cfg.vaults_dir, &reg.vault_id, now);
+    }
     let b = crate::wallet::balance(&cfg.devtool, &reg.wallet_dir)?;
     Ok(VaultBalance {
         orchard_spendable_zat: b.orchard_spendable.as_u64(),
@@ -1135,6 +1178,22 @@ mod tests {
         let got = load_proposal(&dir, "v", "p1", 200).unwrap();
         assert_eq!(got.approvals, vec!["Michael".to_string(), "Daniel".to_string()]);
         assert!(!got.approvals.iter().any(|a| a == "zcashbrazil"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sync_throttle_shares_a_sync() {
+        let dir = std::env::temp_dir().join(format!("konclave-sync-throttle-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        // No record yet -> must sync.
+        assert!(should_sync(&dir, "v", 15, 1000));
+        mark_synced(&dir, "v", 1000);
+        // Within the window -> skip (serve the last-synced state).
+        assert!(!should_sync(&dir, "v", 15, 1005));
+        assert!(!should_sync(&dir, "v", 15, 1014));
+        // At/after the window -> sync again.
+        assert!(should_sync(&dir, "v", 15, 1015));
+        assert!(should_sync(&dir, "v", 15, 2000));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
