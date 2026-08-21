@@ -560,6 +560,8 @@ export const en: Record<string, string> = {
   'payroll.colBeneficiary': 'Beneficiary',
   'payroll.colAddress': 'Address',
   'payroll.colValue': 'Value',
+  'payroll.colRecipient': 'Recipient',
+  'payroll.recipientPlaceholder': 'Search or paste an address',
   'payroll.colMemo': 'Memo / payslip',
   'payroll.namePlaceholder': 'name',
   'payroll.addrPlaceholder': 'u1… (shielded)',

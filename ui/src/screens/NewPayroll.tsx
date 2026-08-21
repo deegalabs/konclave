@@ -9,6 +9,7 @@ import {
   IS_DEMO, type Beneficiary, type Proposal, type Member,
 } from '../api'
 import { listVaults } from '../storage'
+import { RecipientCombobox } from '../RecipientCombobox'
 
 const DRAFT_KEY = 'konclave.folha.rascunho'
 
@@ -104,6 +105,7 @@ export default function NewPayroll() {
   }
   const addRow = () => setRows((prev) => [...prev, emptyRow()])
   const removeRow = (i: number) => setRows((prev) => (prev.length > 1 ? prev.filter((_, idx) => idx !== i) : [emptyRow()]))
+  const reloadBenefs = () => { void getBeneficiaries().then((b) => { if (b) setBenefs(b) }) }
 
   async function importCsv() {
     setError(null)
@@ -182,47 +184,39 @@ export default function NewPayroll() {
           </label>
         </div>
 
-        <table className="tbl folha mt">
-          <thead><tr><th>#</th><th>{t('payroll.colBeneficiary')}</th><th>{t('payroll.colAddress')}</th><th>{t('payroll.colValue')}</th><th>{t('payroll.colMemo')}</th><th></th></tr></thead>
-          <tbody>
-            {rows.map((r, i) => {
-              const k = r.address.trim().length > 1 ? classifyAddress(r.address.trim()) : null
-              const issue = rowTouched(r) ? rowIssue(r) : null
-              return (
-                <tr key={i} className={issue ? 'row-bad' : ''}>
-                  <td className="mono dim">{i + 1}</td>
-                  <td><input className="cell-input" placeholder={t('payroll.namePlaceholder')} value={r.label} onChange={(e) => updateRow(i, { label: e.target.value })} /></td>
-                  <td>
-                    <input className="cell-input mono" placeholder={t('payroll.addrPlaceholder')} value={r.address} onChange={(e) => updateRow(i, { address: e.target.value })} />
-                    {k === 'transparent' && <div className="cell-warn">{t('payroll.cellPublic')}</div>}
-                    {k === 'sapling' && <div className="cell-warn">{t('payroll.cellSapling')}</div>}
-                  </td>
-                  <td><input className="cell-input mono num-input" placeholder="0.0000" value={r.value} onChange={(e) => updateRow(i, { value: e.target.value })} /></td>
-                  <td><input className="cell-input" placeholder={k === 'transparent' ? t('payroll.memoPublicPlaceholder') : t('payroll.memoPlaceholder')} value={r.memo} onChange={(e) => updateRow(i, { memo: e.target.value })} disabled={k === 'transparent'} /></td>
-                  <td>
-                    <button className="row-del" title={t('common.remove')} onClick={() => removeRow(i)}>×</button>
-                    {issue && <div className="cell-warn err">{t(issue)}</div>}
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+        {/* Each line uses the same recipient combobox as /pay (search a payee, paste, add inline).
+            A div-grid (not a table) so the combobox dropdown can overflow the row freely. */}
+        <div className="pf-head"><span>#</span><span>{t('payroll.colRecipient')}</span><span>{t('payroll.colValue')}</span><span>{t('payroll.colMemo')}</span><span aria-hidden="true"></span></div>
+        <div className="pf-list">
+          {rows.map((r, i) => {
+            const k = r.address.trim().length > 1 ? classifyAddress(r.address.trim()) : null
+            const issue = rowTouched(r) ? rowIssue(r) : null
+            return (
+              <div key={i} className={'pf-line' + (issue ? ' bad' : '')}>
+                <span className="pf-n mono">{i + 1}</span>
+                <div className="pf-to">
+                  <RecipientCombobox
+                    compact
+                    benefs={benefs}
+                    address={r.address}
+                    name={r.label || null}
+                    placeholder={t('payroll.recipientPlaceholder')}
+                    onReloadBenefs={reloadBenefs}
+                    onChange={(rc) => updateRow(i, { address: rc.address, ...(rc.name ? { label: rc.name } : {}), ...(rc.memo ? { memo: rc.memo } : {}) })}
+                  />
+                </div>
+                <input className="cell-input mono num-input pf-val" placeholder="0.0000" value={r.value} onChange={(e) => updateRow(i, { value: e.target.value })} />
+                <input className="cell-input pf-memo" placeholder={k === 'transparent' ? t('payroll.memoPublicPlaceholder') : t('payroll.memoPlaceholder')} value={r.memo} onChange={(e) => updateRow(i, { memo: e.target.value })} disabled={k === 'transparent'} />
+                <button className="row-del pf-del" title={t('common.remove')} onClick={() => removeRow(i)}>×</button>
+                {issue && <div className="cell-warn err pf-issue">{t(issue)}</div>}
+              </div>
+            )
+          })}
+        </div>
 
         <div className="mt-sm folha-actions">
           <button className="btn ghost sm-btn" onClick={addRow}>{t('payroll.addRow')}</button>
-          {benefs.length > 0 && (
-            <select className="btn ghost sm-btn" value="" aria-label={t('a11y.addFromRegistry')} onChange={(e) => {
-              const b = benefs.find((x) => x.id === e.target.value)
-              if (b) setRows((prev) => [...prev.filter(rowTouched), { label: b.name, address: b.address, value: '', memo: b.memo }])
-            }}>
-              <option value="">{t('payroll.fromRegistry')}</option>
-              {benefs.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
-          )}
           <button className="btn ghost sm-btn" onClick={() => setShowImport((v) => !v)}>{t('payroll.importCsv')}</button>
-          {/* Payee registry, reached from inside the compose flow (not a rail peer). */}
-          <button className="btn ghost sm-btn" onClick={() => nav('/people')}>{t('people.manage')}</button>
         </div>
         {count === 0 && !showImport && (
           <div className="hint mt-sm">{tr('payroll.startHint')}</div>
