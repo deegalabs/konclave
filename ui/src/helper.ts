@@ -173,6 +173,14 @@ export async function listMembers(groupKeyHex: string): Promise<string[] | null>
   return (await getJson<{ members: string[] }>(`/api/vault/members?vault=${q(groupKeyHex)}`))?.members ?? null
 }
 
+/** One on-chain transaction the vault's wallet recorded (mined_height null while unconfirmed). */
+export type WalletTx = { txid: string; mined_height: number | null }
+
+/** The vault's full on-chain transaction history (newest first), or `null` if unavailable. */
+export async function listTransactions(groupKeyHex: string): Promise<WalletTx[] | null> {
+  return (await getJson<{ transactions: WalletTx[] }>(`/api/vault/transactions?vault=${q(groupKeyHex)}`))?.transactions ?? null
+}
+
 /** Set the vault's member names (seat order); overwrites the list. Returns the saved names or null.
  *  Used once at DKG completion, where every device writes the same self-declared roster. For later
  *  edits use {@link renameMember}, which changes only one seat and migrates that member's votes. */

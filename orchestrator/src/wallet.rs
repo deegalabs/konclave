@@ -158,6 +158,41 @@ pub fn parse_confirmed_txids(json: &str) -> Result<Vec<String>, ToolError> {
         .collect())
 }
 
+/// One transaction the wallet has recorded on-chain, for the vault's history. Public, checkable
+/// data: the txid links to a block explorer; `mined_height` is `None` while still unconfirmed.
+/// (Amount/direction are a follow-up once the tool's richer `list-tx` fields are captured - see
+/// #125; this v1 surfaces the full on-chain record of the vault since creation.)
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct WalletTx {
+    pub txid: String,
+    pub mined_height: Option<u64>,
+}
+
+/// Parse `list-tx --json` into the vault's full transaction list (newest first: unconfirmed at the
+/// top, then mined by descending height). Unlike `parse_confirmed_txids`, this keeps every row.
+pub fn parse_transactions(json: &str) -> Result<Vec<WalletTx>, ToolError> {
+    #[derive(Deserialize)]
+    struct TxRow {
+        txid: String,
+        mined_height: Option<u64>,
+    }
+    let line = last_json_array_line(json)?;
+    let rows: Vec<TxRow> =
+        serde_json::from_str(line).map_err(|e| ToolError::parse("list-tx JSON", e.to_string()))?;
+    let mut txs: Vec<WalletTx> = rows
+        .into_iter()
+        .map(|r| WalletTx { txid: r.txid, mined_height: r.mined_height })
+        .collect();
+    // Newest first: unconfirmed (None) sorts above any height; mined rows by descending height.
+    txs.sort_by(|a, b| match (a.mined_height, b.mined_height) {
+        (None, None) => std::cmp::Ordering::Equal,
+        (None, Some(_)) => std::cmp::Ordering::Less,
+        (Some(_), None) => std::cmp::Ordering::Greater,
+        (Some(x), Some(y)) => y.cmp(&x),
+    });
+    Ok(txs)
+}
+
 // ---- wrappers that actually run the tool ----
 
 /// Common server args for read commands.
@@ -194,6 +229,13 @@ pub fn balance(devtool: &Path, wallet_dir: &str) -> Result<Balance, ToolError> {
 pub fn list_confirmed_txids(devtool: &Path, wallet_dir: &str) -> Result<Vec<String>, ToolError> {
     let args = ["wallet", "-w", wallet_dir, "list-tx", "--json"];
     parse_confirmed_txids(&run_text(devtool, &args, None)?)
+}
+
+/// `zcash-devtool wallet -w <dir> list-tx --json` → the vault's full transaction history (newest
+/// first), for the on-chain record on the Add-funds screen.
+pub fn list_transactions(devtool: &Path, wallet_dir: &str) -> Result<Vec<WalletTx>, ToolError> {
+    let args = ["wallet", "-w", wallet_dir, "list-tx", "--json"];
+    parse_transactions(&run_text(devtool, &args, None)?)
 }
 
 #[cfg(test)]
@@ -234,6 +276,19 @@ mod tests {
     #[test]
     fn confirmed_txids_empty_array_is_ok() {
         assert_eq!(parse_confirmed_txids("[]").unwrap(), Vec::<String>::new());
+    }
+
+    #[test]
+    fn transactions_keep_all_rows_newest_first() {
+        let txs = parse_transactions(LIST_TX).unwrap();
+        // All three rows kept (unlike confirmed_txids, which drops the unmined one).
+        assert_eq!(txs.len(), 3);
+        // Unconfirmed (mined_height None) sorts first; then mined by descending height.
+        assert_eq!(txs[0].txid, "36c60f1e3f602c2a");
+        assert_eq!(txs[0].mined_height, None);
+        assert_eq!(txs[1].txid, "54266f478505160a"); // height 3428205
+        assert_eq!(txs[2].txid, "aab00f903b65e32d"); // height 3413792
+        assert_eq!(parse_transactions("[]").unwrap(), Vec::<WalletTx>::new());
     }
 
     #[test]

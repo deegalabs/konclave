@@ -832,4 +832,10 @@ export const en: Record<string, string> = {
   'receive.openWallet': 'Open in wallet',
   'receive.note': 'Shielded (u1…) only. A transparent or legacy Sapling address will not receive from this vault.',
   'receive.noVault': 'No vault on this device.',
+  'receive.historyTitle': 'On-chain history',
+  'receive.historyEmpty': 'No transactions yet. Once someone sends ZEC to the vault, it appears here.',
+  'receive.historyNote': 'Every transaction this vault recorded on-chain, since it was created. Open one to see the amounts on the block explorer.',
+  'receive.txConfirmed': 'block {h}',
+  'receive.txPending': 'pending',
+  'receive.viewTx': 'View',
 }

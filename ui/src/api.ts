@@ -19,6 +19,8 @@ import {
   listMembers as netListMembers,
   setMembers as netSetMembers,
   renameMember as netRenameMember,
+  listTransactions as netListTransactions,
+  type WalletTx,
   type Proposal as NetProposal,
 } from './helper'
 import { zatToZec, parseZecToZat } from './format'
@@ -368,6 +370,17 @@ export function humanError(t: TFn, error?: string, detail?: string): string {
   // Fallback: a short detail is probably already readable; otherwise a generic message.
   if (detail && detail.length > 0 && detail.length < 140) return detail
   return error && error.length < 140 ? error : t('error.unexpected')
+}
+
+export type { WalletTx } from './helper'
+
+/** The vault's full on-chain transaction history (newest first) for the Add-funds record. Browser-
+ *  native (/net) only for now; returns null on the bridge/demo path until that side is wired. */
+export async function getTransactions(): Promise<WalletTx[] | null> {
+  if (!NET) return null
+  const id = getSelectedVault()
+  if (!id) return null
+  return netListTransactions(id)
 }
 
 /** Set the member names of the selected /net vault (seat order). Only in browser-native mode. */

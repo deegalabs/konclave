@@ -162,6 +162,16 @@ pub fn vault_balance(
     })
 }
 
+/// The vault's on-chain transaction history (newest first) for the Add-funds record. Read-only:
+/// reads the wallet's current `list-tx` view (the balance poll keeps it synced), so it is fast and
+/// never moves funds. Amount/direction per tx is a follow-up (#125).
+pub fn vault_transactions(
+    cfg: &HelperConfig,
+    reg: &VaultRegistration,
+) -> Result<Vec<crate::wallet::WalletTx>, ToolError> {
+    crate::wallet::list_transactions(&cfg.devtool, &reg.wallet_dir)
+}
+
 /// A record of one signing ceremony the helper drove for a vault (ZecSafe-inspired reproducible
 /// evidence): what was signed, by whom cryptographically (the aggregate FROST signature), and the
 /// resulting on-chain txid. Every field is PUBLIC and independently checkable - anyone can verify

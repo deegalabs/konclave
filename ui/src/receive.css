@@ -64,3 +64,20 @@
   border-top: 1px solid var(--line-soft, var(--surface-3));
   padding-top: 14px;
 }
+
+/* On-chain history: the vault's transaction record since creation, each linking to an explorer. */
+.rcv-history { margin-top: 26px; }
+.rcv-hist-head { margin-bottom: 10px; }
+.rcv-hist-list { display: flex; flex-direction: column; gap: 2px; }
+.rcv-hist-row {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm);
+  background: var(--surface-1);
+}
+.rcv-hist-txid { font-size: 12px; color: var(--text-muted); flex: 1 1 auto; min-width: 0; word-break: break-all; }
+.rcv-hist-state {
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: .05em; text-transform: uppercase;
+  color: var(--text-muted); border: 1px solid var(--line); border-radius: var(--radius-pill); padding: 2px 9px;
+}
+.rcv-hist-state.ok { color: var(--success); border-color: var(--success-line); }
+.rcv-history .rcv-note { border-top: 0; padding-top: 8px; margin-top: 10px; }
