@@ -287,11 +287,17 @@ export async function updateVaultMeta(
   if (!storageAvailable()) return
   const db = await openDb()
   try {
-    const tx = db.transaction(STORE, 'readwrite')
-    const store = tx.objectStore(STORE)
-    const rec = await reqDone(store.get(id) as IDBRequest<VaultRecord | undefined>)
-    if (rec) store.put({ ...rec, ...patch })
-    await txDone(tx)
+    // Read and write in SEPARATE transactions. Awaiting the get inside a readwrite tx lets that tx
+    // auto-commit before the put runs (a classic IndexedDB pitfall), so the patch silently never
+    // persists - which is exactly what left a renamed member's `myName` stale on reload. Read first,
+    // then open a fresh tx to write.
+    const readTx = db.transaction(STORE, 'readonly')
+    const rec = await reqDone(readTx.objectStore(STORE).get(id) as IDBRequest<VaultRecord | undefined>)
+    await txDone(readTx)
+    if (!rec) return
+    const writeTx = db.transaction(STORE, 'readwrite')
+    writeTx.objectStore(STORE).put({ ...rec, ...patch })
+    await txDone(writeTx)
   } finally {
     db.close()
   }

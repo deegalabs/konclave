@@ -17,7 +17,7 @@ import { loadVault } from '../storage'
 
 export default function SigningPanel() {
   const t = useT()
-  const { bg, vault, threshold, active, close, reseat } = useVaultSigner()
+  const { bg, vault, threshold, myName, active, close, reseat } = useVaultSigner()
   const [confirming, setConfirming] = useState(false)
   const [sending, setSending] = useState(false)
   const [result, setResult] = useState<{ txid: string | null } | { error: string } | null>(null)
@@ -31,7 +31,10 @@ export default function SigningPanel() {
   // never seat (0/N forever) - show a clear "unlock" path instead of hanging on "Opening…".
   const loaded = vault ? getUnlockedShare(vault.id) : undefined
   const hasShare = !!loaded
-  const me = loaded?.myName ?? null
+  // Identify "you" from the on-device record first (it reflects a rename immediately); fall back to
+  // the session share's name. A stale name here made the panel fail to find your seat and light the
+  // first member instead.
+  const me = myName ?? loaded?.myName ?? null
   const present = bg.seatCount
   const quorumHere = present >= threshold && threshold > 0
 
