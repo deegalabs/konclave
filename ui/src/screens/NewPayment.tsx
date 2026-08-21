@@ -90,7 +90,9 @@ export default function NewPayment() {
   useEffect(() => { if (usdOn && rateIsStale(cachedRate())) void refreshRate() }, [usdOn])
   const rateAgo = (r: Rate) => {
     const m = Math.max(0, Math.round((Date.now() - r.at) / 60000))
-    return m < 1 ? tr('payment.rateNow') : tr('payment.rateAgo', { m })
+    // Plain string (t), NOT tr — this is interpolated into a template literal; a React node would
+    // stringify to "[object Object]".
+    return m < 1 ? t('payment.rateNow') : t('payment.rateAgo', { m })
   }
   function setMax() {
     if (availableZat == null) return
@@ -136,98 +138,100 @@ export default function NewPayment() {
     }
   }
 
+  const canSubmit = !busy && !memoOver && !overBalance && !!to.trim() && parseFloat(String(value).replace(',', '.')) > 0
+
   return (
-    <>
-      <main className="page narrow">
-        <PageHeader title={t('payment.title')} subtitle={t('payment.cap')} />
+    <main className="page pay">
+      <PageHeader title={t('payment.title')} subtitle={t('payment.cap')} />
 
-        {live === null ? <Loading /> : (
-        <div className="ctx">
-          <span>{tr('payment.fromVault', { name: vaultName })}</span>
-          <span className="ctx-sep">·</span>
-          <span>{t('payment.available')} <Secret sm><b>{shownAvailable} ZEC</b></Secret></span>
-          {membersList.length > 0 && (
-            IS_DEMO ? (
-              // DEMO only: one device stands in for the whole quorum, so it may act as any member.
-              <label className="ctx-as">
-                {t('payment.proposingAs')}
-                <select value={proposer} onChange={(e) => setProposer(e.target.value)}>
-                  {membersList.map((m) => <option key={m.pubkey || m.name} value={m.name}>{m.name}</option>)}
-                </select>
-              </label>
-            ) : (
-              // Live: you propose as yourself - a static label, never a member picker.
-              <span className="ctx-as">{t('payment.proposingAs')} <b>{proposer}</b></span>
-            )
-          )}
-        </div>
+      {live === null ? <Loading /> : (
+      <div className="ctx">
+        <span>{tr('payment.fromVault', { name: vaultName })}</span>
+        <span className="ctx-sep">·</span>
+        <span>{t('payment.available')} <Secret sm><b>{shownAvailable} ZEC</b></Secret></span>
+        {membersList.length > 0 && (
+          IS_DEMO ? (
+            <label className="ctx-as">
+              {t('payment.proposingAs')}
+              <select value={proposer} onChange={(e) => setProposer(e.target.value)}>
+                {membersList.map((m) => <option key={m.pubkey || m.name} value={m.name}>{m.name}</option>)}
+              </select>
+            </label>
+          ) : (
+            <span className="ctx-as">{t('payment.proposingAs')} <b>{proposer}</b></span>
+          )
         )}
+      </div>
+      )}
 
-        {/* One "To" field: search saved payees, paste an address, add a new one inline, or open the
-            full list. Replaces the old select + "Manage payees" button + raw address input. */}
-        <label className="field"><span>{t('payment.to')}</span>
-          <RecipientCombobox
-            benefs={benefs}
-            address={to}
-            name={toName}
-            onChange={(r) => { setTo(r.address); setToName(r.name); if (r.memo) setMemo(r.memo) }}
-            onReloadBenefs={reloadBenefs}
-          />
-        </label>
+      <div className="pay-cols">
+        {/* LEFT: the form you fill in. */}
+        <div className="pay-form">
+          {/* One "To" field: search saved payees, paste an address, add a new one inline. */}
+          <label className="field mt0"><span>{t('payment.to')}</span>
+            <RecipientCombobox
+              benefs={benefs}
+              address={to}
+              name={toName}
+              onChange={(r) => { setTo(r.address); setToName(r.name); if (r.memo) setMemo(r.memo) }}
+              onReloadBenefs={reloadBenefs}
+            />
+          </label>
 
-        <label className="field"><span>{t('payment.value')}</span>
-          <div className="payamt">
-            <input className="payamt-in mono" inputMode="decimal" value={value} placeholder="0.00" onChange={(e) => setValue(e.target.value)} />
-            <span className="payamt-unit">ZEC</span>
-          </div>
-          <div className="payamt-meta">
-            {usdOn ? (
-              <>
-                <span className="payamt-echo">{zecToUsd(value, rate) ? `≈ ${zecToUsd(value, rate)}` : '≈ $-'}</span>
-                <span className="payamt-rate">
-                  <span className="payamt-live" aria-hidden="true" />
-                  {rate ? `${rate.source} · ${rateAgo(rate)}${rateIsStale(rate) ? ` · ${t('dashboard.rateStale')}` : ''}` : t('dashboard.rateNone')}
-                  {' · '}<button type="button" className="linkbtn" onClick={() => void refreshRate()} disabled={rateBusy}>{rateBusy ? t('dashboard.updating') : t('dashboard.refresh')}</button>
-                </span>
-              </>
-            ) : (
-              <button type="button" className="linkbtn" onClick={enableUsd} title={t('dashboard.usdDisclosure')}>{t('dashboard.showUsd')} ≈</button>
-            )}
-            <button type="button" className="payamt-max" onClick={setMax}>{t('payment.max')}</button>
-          </div>
-        </label>
-        {IS_DEMO && <div className="hint" aria-live="polite">{t('common.demoModeNoBridge')}</div>}
+          <label className="field"><span>{t('payment.value')}</span>
+            <div className="payamt">
+              <input className="payamt-in mono" inputMode="decimal" value={value} placeholder="0.00" onChange={(e) => setValue(e.target.value)} />
+              <span className="payamt-unit">ZEC</span>
+            </div>
+            <div className="payamt-meta">
+              {usdOn ? (
+                <>
+                  <span className="payamt-echo">{zecToUsd(value, rate) ? `≈ ${zecToUsd(value, rate)}` : '≈ $-'}</span>
+                  <span className="payamt-rate">
+                    <span className="payamt-live" aria-hidden="true" />
+                    {rate ? `${rate.source} · ${rateAgo(rate)}${rateIsStale(rate) ? ` · ${t('dashboard.rateStale')}` : ''}` : t('dashboard.rateNone')}
+                    {' · '}<button type="button" className="linkbtn" onClick={() => void refreshRate()} disabled={rateBusy}>{rateBusy ? t('dashboard.updating') : t('dashboard.refresh')}</button>
+                  </span>
+                </>
+              ) : (
+                <button type="button" className="linkbtn" onClick={enableUsd} title={t('dashboard.usdDisclosure')}>{t('dashboard.showUsd')} ≈</button>
+              )}
+              <button type="button" className="payamt-max" onClick={setMax}>{t('payment.max')}</button>
+            </div>
+          </label>
+          {IS_DEMO && <div className="hint" aria-live="polite">{t('common.demoModeNoBridge')}</div>}
 
-        <label className="field mt"><span>
-          {t('payment.memoLabel')}{' '}
-          <span className={'dim ns' + (memoOver ? ' over' : '')}>({memoLen}/{MEMO_MAX})</span>
-        </span>
-          <input className="input" value={memo} onChange={(e) => setMemo(e.target.value)}
-            disabled={publicDest} placeholder={publicDest ? t('payment.memoDisabledPlaceholder') : ''} />
-        </label>
-
-        <hr className="rule thin" />
-        <div className="mono dim fee">{tr('payment.feeEstimate')}</div>
-
-        <div className="confirm mt preview">
-          <div className="pv-row"><span className="pv-k">{t('payment.pvProposes')}</span><span className="pv-v"><b>{proposer}</b></span></div>
-          <div className="pv-row"><span className="pv-k">{t('payment.pvPays')}</span><span className="pv-v"><b>{value || '-'} ZEC</b></span></div>
-          <div className="pv-row"><span className="pv-k">{t('payment.pvTo')}</span><span className="pv-v">{toName ? <><b>{toName}</b> · {to ? shortAddr(to) : '…'}</> : (to ? shortAddr(to) : '…')}</span></div>
-          {memo.trim() && !publicDest && <div className="pv-row"><span className="pv-k">{t('payment.pvMemo')}</span><span className="pv-v">“{memo.trim()}”</span></div>}
-          <div className="pv-row"><span className="pv-k">{t('payment.pvApprovals')}</span><span className="pv-v"><b>{threshold}</b> {t('payment.includingYours')}</span></div>
-          <div className="pv-row"><span className="pv-k">{t('payroll.pvAfter')}</span><span className="pv-v">{afterZat === null ? <b className="dim">-</b> : <Secret sm><b>{fmtZec(zatToZec(afterZat))}</b></Secret>}</span></div>
+          <label className="field mt"><span>
+            {t('payment.memoLabel')}{' '}
+            <span className={'dim ns' + (memoOver ? ' over' : '')}>({memoLen}/{MEMO_MAX})</span>
+          </span>
+            <input className="input" value={memo} onChange={(e) => setMemo(e.target.value)}
+              disabled={publicDest} placeholder={publicDest ? t('payment.memoDisabledPlaceholder') : ''} />
+          </label>
         </div>
-        {overBalance && <div className="hint warn mt-sm">{t('payment.warnOverBalance')}</div>}
-        <div className="hint">{tr('payment.approvalHint', { proposer, threshold, rest: threshold > 1 ? t('payment.approvalHintMore', { n: threshold - 1 }) : t('payment.approvalHintReady'), aval: threshold === 1 ? t('payment.avalSingular') : t('payment.avalPlural') })}</div>
 
-        {error && <div className="hint err mt" role="alert">{error}</div>}
+        {/* RIGHT: the review/orientation card — what your co-signers will see, plus fee + guidance. */}
+        <aside className="pay-review">
+          <div className="preview">
+            <div className="pv-tag">◆ {t('payment.reviewTag')}</div>
+            <div className="pv-row"><span className="pv-k">{t('payment.pvProposes')}</span><span className="pv-v"><b>{proposer}</b></span></div>
+            <div className="pv-row"><span className="pv-k">{t('payment.pvPays')}</span><span className="pv-v"><b>{value || '-'} ZEC</b>{usdOn && zecToUsd(value, rate) ? <span className="pv-usd"> ≈ {zecToUsd(value, rate)}</span> : null}</span></div>
+            <div className="pv-row"><span className="pv-k">{t('payment.pvTo')}</span><span className="pv-v">{toName ? <><b>{toName}</b> · {to ? shortAddr(to) : '…'}</> : (to ? shortAddr(to) : '…')}</span></div>
+            {memo.trim() && !publicDest && <div className="pv-row"><span className="pv-k">{t('payment.pvMemo')}</span><span className="pv-v">“{memo.trim()}”</span></div>}
+            <div className="pv-row"><span className="pv-k">{t('payment.pvApprovals')}</span><span className="pv-v"><b>{threshold}</b> {t('payment.includingYours')}</span></div>
+            <div className="pv-row"><span className="pv-k">{t('payroll.pvAfter')}</span><span className="pv-v">{afterZat === null ? <b className="dim">-</b> : <Secret sm><b>{fmtZec(zatToZec(afterZat))}</b></Secret>}</span></div>
+            <div className="pv-fee mono dim">{tr('payment.feeEstimate')}</div>
+          </div>
 
-        <div className="right mt">
-          <button className="btn ok" onClick={submit} disabled={busy || memoOver || overBalance || !to.trim() || !(parseFloat(String(value).replace(',', '.')) > 0)}>
+          {overBalance && <div className="hint warn mt-sm">{t('payment.warnOverBalance')}</div>}
+          <div className="hint mt-sm">{tr('payment.approvalHint', { proposer, threshold, rest: threshold > 1 ? t('payment.approvalHintMore', { n: threshold - 1 }) : t('payment.approvalHintReady'), aval: threshold === 1 ? t('payment.avalSingular') : t('payment.avalPlural') })}</div>
+          {error && <div className="hint err mt-sm" role="alert">{error}</div>}
+
+          <button className="btn ok pay-submit mt" onClick={submit} disabled={!canSubmit}>
             {busy ? t('payment.proposing') : t('payment.proposeBtn')}
           </button>
-        </div>
-      </main>
-    </>
+        </aside>
+      </div>
+    </main>
   )
 }

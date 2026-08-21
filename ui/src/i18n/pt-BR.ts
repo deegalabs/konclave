@@ -523,6 +523,7 @@ export const ptBR: Record<string, string> = {
   'payment.memoLabel': 'Memo · recibo/holerite · só o destinatário lê',
   'payment.memoDisabledPlaceholder': 'sem memo em endereço transparente',
   'payment.feeEstimate': 'Taxa estimada **0.0001 ZEC** · confirmada ao construir a transação',
+  'payment.reviewTag': 'Rascunho que os co-signatários vão revisar',
   'payment.pvProposes': 'Propõe',
   'payment.pvPays': 'Paga',
   'payment.pvTo': 'Para',

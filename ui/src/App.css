@@ -756,3 +756,23 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
   .pf-memo{grid-column:1 / -1}
   .pf-issue{grid-column:1 / -1}
 }
+
+/* Pay: two-column compose (form left, review/orientation right). Collapses to one column when the
+   viewport narrows — which zoom also triggers (zoom shrinks the CSS-px viewport). */
+.page.pay{max-width:1000px; margin:0 auto}
+.pay-cols{display:grid; grid-template-columns:minmax(0,1.25fr) minmax(0,.9fr); gap:26px; align-items:start; margin-top:20px}
+.pay-form{display:flex; flex-direction:column; min-width:0}
+.pay-form .field.mt0{margin-top:0}
+.pay-review{position:sticky; top:18px; display:flex; flex-direction:column; min-width:0}
+.pay-review .preview{background:var(--surface-2); border:1px solid var(--line); border-radius:var(--radius); padding:16px 17px}
+.pv-tag{font-family:var(--font-mono); font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--text-muted); margin-bottom:11px; display:flex; align-items:center; gap:8px}
+.pay-review .pv-row{display:flex; justify-content:space-between; gap:14px; padding:5px 0; font-size:13px}
+.pay-review .pv-k{font-family:var(--font-mono); font-size:10px; letter-spacing:.05em; text-transform:uppercase; color:var(--text-muted)}
+.pay-review .pv-v{text-align:right}
+.pv-usd{font-family:var(--font-mono); font-size:11px; color:var(--silver); margin-left:4px}
+.pv-fee{margin-top:11px; padding-top:11px; border-top:1px solid var(--line); font-size:11px}
+.pay-submit{width:100%; justify-content:center}
+@media(max-width:860px){
+  .pay-cols{grid-template-columns:1fr; gap:20px}
+  .pay-review{position:static}
+}
