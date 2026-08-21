@@ -17,7 +17,7 @@ use std::time::Duration;
 use orchestrator::helper::{
     append_ceremony, is_valid_group_key, ledger_csv, list_proposals, load_ceremonies, load_members,
     load_proposal, payment_plan, register_vault, rename_member, save_members, save_proposal,
-    send_config_for,
+    send_config_for, vault_transactions,
     vault_balance, CeremonyRecord, HelperConfig, HelperProposal, HelperState, PayrollLine,
     VaultRegistration,
 };
@@ -129,6 +129,15 @@ fn handle(
                         })
                         .to_string(),
                     ),
+                    Err(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
+                },
+            }
+        }
+        (Method::Get, "/api/vault/transactions") => {
+            match query_param(query, "vault").and_then(|v| state.get(v)) {
+                None => resp(404, json!({ "error": "no such vault" }).to_string()),
+                Some(reg) => match vault_transactions(cfg, &reg) {
+                    Ok(txs) => resp(200, json!({ "transactions": txs }).to_string()),
                     Err(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
                 },
             }

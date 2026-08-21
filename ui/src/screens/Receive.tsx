@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import encodeQR from '@paulmillr/qr'
-import { getVault, type Vault } from '../api'
-import { useT } from '../i18n'
+import { getVault, getTransactions, shortAddr, IS_NET, type Vault, type WalletTx } from '../api'
+import { useT, useTr } from '../i18n'
 import { PageHeader } from '../page'
 import { Loading } from '../components'
 import '../receive.css'
@@ -13,10 +13,15 @@ import '../receive.css'
 
 export default function Receive() {
   const t = useT()
+  const tr = useTr()
   const [vault, setVault] = useState<Vault | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [amount, setAmount] = useState('')
   const [copied, setCopied] = useState<string | null>(null)
+  // The vault's full on-chain record since creation (browser-native path). Loaded once; the txids
+  // link to a block explorer where the amounts are visible (per-tx amount/direction is a follow-up).
+  const [txs, setTxs] = useState<WalletTx[] | null>(null)
+  const [txLoaded, setTxLoaded] = useState(false)
 
   useEffect(() => {
     let on = true
@@ -24,6 +29,11 @@ export default function Receive() {
       if (!on) return
       if (v) setVault(v)
       setLoaded(true)
+    })
+    void getTransactions().then((r) => {
+      if (!on) return
+      setTxs(r)
+      setTxLoaded(true)
     })
     return () => {
       on = false
@@ -102,6 +112,34 @@ export default function Receive() {
       </div>
 
       <p className="rcv-note">{t('receive.note')}</p>
+
+      {/* On-chain history: every transaction this vault recorded since creation. Browser-native
+          only (the bridge/desktop path is a follow-up); each row links to a block explorer. */}
+      {IS_NET && (
+        <section className="rcv-history">
+          <div className="rcv-hist-head">
+            <span className="klab">{t('receive.historyTitle')}</span>
+          </div>
+          {!txLoaded ? (
+            <Loading />
+          ) : !txs || txs.length === 0 ? (
+            <p className="rcv-note">{t('receive.historyEmpty')}</p>
+          ) : (
+            <div className="rcv-hist-list">
+              {txs.map((x) => (
+                <div className="rcv-hist-row" key={x.txid}>
+                  <code className="rcv-hist-txid mono">{shortAddr(x.txid, 10, 8)}</code>
+                  <span className={'rcv-hist-state' + (x.mined_height ? ' ok' : '')}>
+                    {x.mined_height ? t('receive.txConfirmed', { h: x.mined_height }) : t('receive.txPending')}
+                  </span>
+                  <a className="link" href={`https://mainnet.zcashexplorer.app/transactions/${x.txid}`} target="_blank" rel="noreferrer">{t('receive.viewTx')} ↗</a>
+                </div>
+              ))}
+            </div>
+          )}
+          <p className="rcv-note dim">{tr('receive.historyNote')}</p>
+        </section>
+      )}
     </main>
   )
 }
