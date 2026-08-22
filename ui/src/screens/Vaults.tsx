@@ -186,6 +186,17 @@ export default function Vaults() {
         </div>
 
         <div className="rd-grid">
+          {!loaded && Array.from({ length: 2 }, (_, i) => (
+            <div key={'sk' + i} className="rd-card rd-skel" aria-hidden="true">
+              <span className="sk-line" style={{ width: '42%', height: 20, borderRadius: 999 }} />
+              <span className="sk-line" style={{ width: '58%', height: 22, marginTop: 14 }} />
+              <div className="rd-avatars" style={{ marginTop: 16 }}>
+                <span className="sk-dot" /><span className="sk-dot" />
+                <span className="sk-line" style={{ width: '40%', height: 12 }} />
+              </div>
+              <span className="sk-line" style={{ width: '30%', height: 12, marginTop: 18 }} />
+            </div>
+          ))}
           {rows.map((row) => {
             const v = row.v
             const ms = v.member_list ?? []
