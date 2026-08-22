@@ -29,6 +29,11 @@ pub trait WalletReader {
     fn confirmed_txids(&self) -> Result<Vec<String>, String> {
         Ok(Vec::new())
     }
+    /// The vault's full on-chain transaction history (newest first) for the history/add-funds view.
+    /// Defaults to empty so a reader without a tx history is still valid; `LiveWallet` overrides it.
+    fn transactions(&self) -> Result<Vec<crate::wallet::WalletTx>, String> {
+        Ok(Vec::new())
+    }
 }
 
 /// The live reader: drives `zcash-devtool` via the tested [`crate::wallet`] wrappers.
@@ -47,6 +52,9 @@ impl WalletReader for LiveWallet {
     }
     fn confirmed_txids(&self) -> Result<Vec<String>, String> {
         wallet::list_confirmed_txids(&self.devtool, &self.wallet_dir).map_err(|e| e.to_string())
+    }
+    fn transactions(&self) -> Result<Vec<crate::wallet::WalletTx>, String> {
+        wallet::list_transactions(&self.devtool, &self.wallet_dir).map_err(|e| e.to_string())
     }
 }
 
@@ -359,6 +367,7 @@ pub fn handle(cfg: &Config, method: &str, raw_path: &str, body: &[u8]) -> Respon
         "/api/ledger.csv" => api_ledger_csv(cfg, vsel),
         "/api/beneficiaries" => api_beneficiaries(cfg, vsel),
         "/api/balance" => api_balance(cfg),
+        "/api/transactions" => api_transactions(cfg),
         p if p.starts_with("/api/proposals/") => {
             api_proposal_one(cfg, p.strip_prefix("/api/proposals/").unwrap())
         }
@@ -1105,6 +1114,19 @@ fn api_balance(cfg: &Config) -> Response {
             }
             Response::json(200, &v)
         }
+        Err(e) => Response::json(502, &serde_json::json!({"error": "wallet", "detail": e})),
+    }
+}
+
+/// `GET /api/transactions` - the vault's on-chain history (newest first). Empty (not an error) when
+/// no wallet is configured, so the UI shows an empty record rather than a failure. Parity with the
+/// browser-native `/api/vault/transactions` (#211).
+fn api_transactions(cfg: &Config) -> Response {
+    let Some(reader) = cfg.wallet.as_ref() else {
+        return Response::json(200, &serde_json::json!({ "transactions": [] }));
+    };
+    match reader.transactions() {
+        Ok(txs) => Response::json(200, &serde_json::json!({ "transactions": txs })),
         Err(e) => Response::json(502, &serde_json::json!({"error": "wallet", "detail": e})),
     }
 }
@@ -2238,6 +2260,48 @@ mod tests {
 
     fn body_json(r: &Response) -> serde_json::Value {
         serde_json::from_slice(&r.body).expect("json body")
+    }
+
+    // A wallet that reports a transaction history, for the /api/transactions parity route (#211).
+    struct FakeWalletHist {
+        txs: Vec<crate::wallet::WalletTx>,
+    }
+    impl WalletReader for FakeWalletHist {
+        fn info(&self) -> Result<ChainInfo, String> {
+            Err("not used".into())
+        }
+        fn balance(&self) -> Result<Balance, String> {
+            Err("not used".into())
+        }
+        fn transactions(&self) -> Result<Vec<crate::wallet::WalletTx>, String> {
+            Ok(self.txs.clone())
+        }
+    }
+
+    #[test]
+    fn transactions_route_empty_without_wallet() {
+        let cfg = cfg_with(tmp_db(), None);
+        let r = handle(&cfg, "GET", "/api/transactions", b"");
+        assert_eq!(r.status, 200);
+        assert_eq!(body_json(&r)["transactions"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn transactions_route_returns_history() {
+        use crate::wallet::WalletTx;
+        let txs = vec![
+            WalletTx { txid: "aa".into(), mined_height: None },
+            WalletTx { txid: "bb".into(), mined_height: Some(100) },
+        ];
+        let cfg = cfg_with(tmp_db(), Some(Box::new(FakeWalletHist { txs })));
+        let r = handle(&cfg, "GET", "/api/transactions", b"");
+        assert_eq!(r.status, 200);
+        let arr = body_json(&r)["transactions"].as_array().unwrap().clone();
+        assert_eq!(arr.len(), 2);
+        assert_eq!(arr[0]["txid"], "aa");
+        assert_eq!(arr[0]["mined_height"], serde_json::Value::Null);
+        assert_eq!(arr[1]["txid"], "bb");
+        assert_eq!(arr[1]["mined_height"], 100);
     }
 
     // ---- multi-device reconciliation trigger (§8) ----
