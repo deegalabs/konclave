@@ -790,10 +790,13 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 .pf-row{position:relative; display:flex; align-items:center}
 .pf-input{flex:1; padding-right:74px !important}
 .pf-btn{position:absolute; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer;
-  font-size:16px; line-height:1; padding:6px; border-radius:8px; opacity:.8}
-.pf-btn:hover{opacity:1; background:var(--surface-2,rgba(127,127,127,.12))}
-.pf-btn:nth-of-type(1){right:36px}
-.pf-gen{right:4px}
+  display:grid; place-items:center; width:28px; height:28px; padding:0; border-radius:8px;
+  color:var(--text-muted,#8a97a6); transition:color .12s, background .12s}
+.pf-btn:hover{color:var(--text); background:var(--surface-2,rgba(127,127,127,.12))}
+.pf-btn:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
+.pf-btn:nth-of-type(1){right:38px}
+.pf-gen{right:5px; color:var(--accent)}
+.pf-gen:hover{color:var(--accent); background:var(--accent-soft,rgba(79,140,255,.14))}
 .pf-meter{display:flex; align-items:center; gap:9px; margin-top:8px}
 .pf-bars{display:flex; gap:4px; flex:1}
 .pf-bar{height:4px; flex:1; border-radius:3px; background:var(--line,rgba(127,127,127,.22)); transition:background .2s}

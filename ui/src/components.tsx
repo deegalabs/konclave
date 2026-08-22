@@ -248,11 +248,26 @@ export function PassphraseField({
         />
         <button type="button" className="pf-btn" title={show ? t('pass.hide') : t('pass.show')}
           aria-label={show ? t('pass.hide') : t('pass.show')} onClick={() => setShow((v) => !v)}>
-          {show ? '🙈' : '👁'}
+          {show ? (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M3 3l18 18" />
+              <path d="M10.6 10.7a2.5 2.5 0 0 0 3.4 3.4" />
+              <path d="M9.5 5.2A9.7 9.7 0 0 1 12 5c6.5 0 10 7 10 7a17.7 17.7 0 0 1-2.4 3.2M6.2 6.2A17.5 17.5 0 0 0 2 12s3.5 7 10 7a9.6 9.6 0 0 0 4-.9" />
+            </svg>
+          ) : (
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" />
+              <circle cx="12" cy="12" r="2.6" />
+            </svg>
+          )}
         </button>
         <button type="button" className="pf-btn pf-gen" title={t('pass.generate')}
           aria-label={t('pass.generate')} onClick={() => { onChange(generatePassphrase()); setShow(true) }}>
-          ✨
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M4 20L14 10" />
+            <path d="M13 5.5l1.6.9.9 1.6.9-1.6L18 5.5l-1.6-.9-.9-1.6-.9 1.6z" fill="currentColor" stroke="none" />
+            <path d="M18.5 12l.9 1.6 1.6.9-1.6.9-.9 1.6-.9-1.6-1.6-.9 1.6-.9z" fill="currentColor" stroke="none" />
+          </svg>
         </button>
       </div>
       {value && (
