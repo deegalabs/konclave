@@ -374,13 +374,15 @@ export function humanError(t: TFn, error?: string, detail?: string): string {
 
 export type { WalletTx } from './helper'
 
-/** The vault's full on-chain transaction history (newest first) for the Add-funds record. Browser-
- *  native (/net) only for now; returns null on the bridge/demo path until that side is wired. */
+/** The vault's full on-chain transaction history (newest first) for the Add-funds record. Wired on
+ *  BOTH paths (#211): browser-native via the helper, local bridge via `GET /api/transactions`. */
 export async function getTransactions(): Promise<WalletTx[] | null> {
-  if (!NET) return null
-  const id = getSelectedVault()
-  if (!id) return null
-  return netListTransactions(id)
+  if (NET) {
+    const id = getSelectedVault()
+    if (!id) return null
+    return netListTransactions(id)
+  }
+  return (await getJson<{ transactions: WalletTx[] }>(withVault('/api/transactions')))?.transactions ?? null
 }
 
 /** Set the member names of the selected /net vault (seat order). Only in browser-native mode. */
