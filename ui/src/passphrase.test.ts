@@ -12,8 +12,10 @@ describe('scorePassphrase', () => {
   it('common starts are penalized', () => {
     expect(scorePassphrase('password1').score).toBeLessThanOrEqual(1)
   })
-  it('repeats are penalized', () => {
+  it('judges complexity, not quantity: a long single repeated char is weak', () => {
     expect(scorePassphrase('aaaaaaaa').label).toBe('weak')
+    // The reported bug: 25 identical characters must NOT read as strong.
+    expect(scorePassphrase('a'.repeat(25)).score).toBeLessThanOrEqual(1)
   })
   it('a long mixed passphrase is good or strong', () => {
     expect(scorePassphrase('tavu-keby-3-lomi-daxo').score).toBeGreaterThanOrEqual(3)
@@ -22,12 +24,15 @@ describe('scorePassphrase', () => {
 })
 
 describe('generatePassphrase', () => {
-  it('generates a distinct, strong-enough passphrase each time', () => {
+  it('generates a distinct, strong vault password using every character class', () => {
     const a = generatePassphrase()
     const b = generatePassphrase()
     expect(a).not.toBe(b)
-    expect(a).toMatch(/^[a-z0-9-]+$/)
-    expect(a.split('-').length).toBe(5) // 4 words + 1 number
-    expect(scorePassphrase(a).score).toBeGreaterThanOrEqual(3)
+    expect(a.length).toBe(20)
+    expect(a).toMatch(/[a-z]/)
+    expect(a).toMatch(/[A-Z]/)
+    expect(a).toMatch(/[0-9]/)
+    expect(a).toMatch(/[^A-Za-z0-9]/)
+    expect(scorePassphrase(a).score).toBe(4)
   })
 })
