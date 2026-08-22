@@ -2144,7 +2144,7 @@ pub fn serve(cfg: Config, port: u16) -> std::io::Result<()> {
 }
 
 /// Reconcile a vault's cached proposals against the FRESH on-chain state (multi-device
-/// reconciliation, §8 - on-chain wins). Reads the Orchard spendable **and** the wallet's mined txids
+/// reconciliation, §8 - on-chain wins). Reads the shielded spendable (Orchard + Ironwood) **and** the wallet's mined txids
 /// (`list-tx`) from a live wallet sync, then applies the pure [`crate::reconcile`] decision through
 /// [`Store::reconcile_proposals`]: the balance half invalidates (`Superseded`) reservations the
 /// freshly-synced spendable can no longer fund, and `confirmed_txids` promotes a locally-`Sent`

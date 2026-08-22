@@ -219,7 +219,7 @@ export async function fetchLedgerCsv(groupKeyHex: string): Promise<string | null
   return getText(`/api/vault/ledger.csv?vault=${q(groupKeyHex)}`)
 }
 
-/** A payroll beneficiary line (one private Orchard output). */
+/** A payroll beneficiary line (one private shielded output). */
 export type PayrollLine = { label?: string; to: string; amount_zat: number; memo?: string }
 
 /** Create a payroll proposal (N beneficiaries, one tx). The helper validates each line. */
@@ -262,7 +262,8 @@ export async function getVault(groupKeyHex: string): Promise<HelperVault | null>
   return (await getJson<{ vault: HelperVault }>(`/api/vault?vault=${q(groupKeyHex)}`))?.vault ?? null
 }
 
-/** A vault's Orchard balance (zatoshis) as the helper reports it from its view-only wallet. */
+/** A vault's shielded balance (zatoshis) as the helper reports it from its view-only wallet.
+ *  Spendable is the combined Orchard (withdrawal-only) + Ironwood pools since NU6.3. */
 export type HelperBalance = {
   orchard_spendable_zat: number
   // Since NU6.3 the spendable funds live in the Ironwood pool; the helper reports both and the
@@ -274,7 +275,7 @@ export type HelperBalance = {
 }
 
 /**
- * Sync + read a registered vault's Orchard balance from the helper's view-only wallet. It is a
+ * Sync + read a registered vault's shielded balance from the helper's view-only wallet. It is a
  * watcher's read (the helper holds the UFVK, never a share). Slow (the helper syncs against
  * lightwalletd first). Returns `null` if no helper is configured or the vault is unknown.
  */

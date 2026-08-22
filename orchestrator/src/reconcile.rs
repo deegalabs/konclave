@@ -19,7 +19,7 @@
 //! Store wiring has landed: [`crate::store::Store::reconcile_proposals`] maps the cached records
 //! into this engine and persists the outcomes (`Confirm` → `Confirmed`, `Invalidate` →
 //! `Superseded`). The fresh-sync trigger has landed too - `server::reconcile_vault` +
-//! `POST /api/vault/reconcile` read the on-chain Orchard spendable and run this engine. The one
+//! `POST /api/vault/reconcile` read the on-chain shielded spendable (Orchard + Ironwood) and run this engine. The one
 //! honest gap left is the `confirmed_txids` source for the `Confirm` half: promoting a `Sent`
 //! proposal needs a wallet tx-status query the reader does not yet expose. The balance half -
 //! invalidating reservations the chain can no longer fund - is complete end to end.
