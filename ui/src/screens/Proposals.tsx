@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { startVisiblePoll } from '../usePoll'
 import { Link, useNavigate } from 'react-router-dom'
 import { Secret, activateOnKey } from '../components'
 import { SkeletonRows } from '../skeleton'
@@ -44,8 +45,8 @@ export default function Proposals({ embedded = false }: { embedded?: boolean }) 
       }
     }
     void load(true)
-    const id = setInterval(() => void load(false), 12_000)
-    return () => { on = false; clearInterval(id) }
+    const stop = startVisiblePoll(() => void load(false), 12_000) // pause when hidden, refresh on return (#123)
+    return () => { on = false; stop() }
   }, [])
 
   const awaiting = rows.filter((p) => p.state === 'awaiting')

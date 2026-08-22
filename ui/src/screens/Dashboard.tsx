@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { startVisiblePoll } from '../usePoll'
 import { Link, useNavigate } from 'react-router-dom'
 import { Seal, Secret, RevealButton, Loading } from '../components'
 import { SkeletonStat, SkeletonRows } from '../skeleton'
@@ -134,8 +135,10 @@ export default function Dashboard() {
     void load(true)
     // Auto-refresh: a freshly-funded vault (and its confirming balance / new proposals) updates on
     // its own, so a user watching for funds to land never has to hit reload. Polls every 12s.
-    const id = setInterval(() => void load(false), 12_000)
-    return () => { on = false; clearInterval(id) }
+    // Visibility-aware: pause while the tab is hidden (getBalance triggers a costly helper wallet
+    // sync) and refresh immediately on return (#123).
+    const stop = startVisiblePoll(() => void load(false), 12_000)
+    return () => { on = false; stop() }
   }, [])
 
   // Load "you" + creator for the members peek, once per vault (not on the 12s poll).
