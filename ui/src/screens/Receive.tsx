@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { startVisiblePoll } from '../usePoll'
 import encodeQR from '@paulmillr/qr'
 import { getVault, getTransactions, getLedger, shortAddr, IS_NET, type Vault, type WalletTx } from '../api'
 import { useT, useTr } from '../i18n'
@@ -51,10 +52,10 @@ export default function Receive() {
       }
     }
     void loadTx()
-    const id = setInterval(() => void loadTx(), 15_000)
+    const stop = startVisiblePoll(() => void loadTx(), 15_000) // pause when hidden, refresh on return (#123)
     return () => {
       on = false
-      clearInterval(id)
+      stop()
     }
   }, [])
 

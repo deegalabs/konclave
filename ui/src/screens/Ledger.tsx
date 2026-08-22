@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useState } from 'react'
+import { startVisiblePoll } from '../usePoll'
 import { Secret, RevealButton, activateOnKey } from '../components'
 import { SkeletonRows } from '../skeleton'
 import { PageHeader, PageFooter } from '../page'
@@ -49,8 +50,8 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
       }
     }
     void load(true)
-    const id = setInterval(() => void load(false), 12_000)
-    return () => { on = false; clearInterval(id) }
+    const stop = startVisiblePoll(() => void load(false), 12_000) // pause when hidden, refresh on return (#123)
+    return () => { on = false; stop() }
   }, [begin, end])
 
   async function toggle(p: Proposal) {
