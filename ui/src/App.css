@@ -784,3 +784,20 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
   .pay-cols{grid-template-columns:1fr; gap:20px}
   .pay-review{position:static}
 }
+
+/* Passphrase field: strength meter + magic generate (#221). Style-agnostic wrapper. */
+.pf{width:100%}
+.pf-row{position:relative; display:flex; align-items:center}
+.pf-input{flex:1; padding-right:74px !important}
+.pf-btn{position:absolute; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer;
+  font-size:16px; line-height:1; padding:6px; border-radius:8px; opacity:.8}
+.pf-btn:hover{opacity:1; background:var(--surface-2,rgba(127,127,127,.12))}
+.pf-btn:nth-of-type(1){right:36px}
+.pf-gen{right:4px}
+.pf-meter{display:flex; align-items:center; gap:9px; margin-top:8px}
+.pf-bars{display:flex; gap:4px; flex:1}
+.pf-bar{height:4px; flex:1; border-radius:3px; background:var(--line,rgba(127,127,127,.22)); transition:background .2s}
+.pf-bar.on.s1{background:#d8433f} .pf-bar.on.s2{background:#e0a13f}
+.pf-bar.on.s3{background:#3f7fc4} .pf-bar.on.s4{background:#43b58f}
+.pf-label{font-family:var(--font-mono); font-size:11px; min-width:52px; text-align:right}
+.pf-label.s1{color:#d8433f} .pf-label.s2{color:#e0a13f} .pf-label.s3{color:#3f7fc4} .pf-label.s4{color:#43b58f}

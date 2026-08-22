@@ -1,8 +1,9 @@
-import { useEffect, useRef, type ReactNode, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { useEffect, useRef, useState, type ReactNode, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useReveal } from './reveal'
 import { useI18n, useT } from './i18n'
 import { IS_DEMO } from './api'
+import { scorePassphrase, generatePassphrase } from './passphrase'
 
 /** A thin, always-visible strip in demo mode (runtime `?demo=1` or the VITE_DEMO fallback) so a
  *  visitor never mistakes the sample data for a real vault. Always offers a way back to the landing
@@ -210,6 +211,60 @@ export function Stepper({ step }: { step: number }) {
           </span>
         </span>
       ))}
+    </div>
+  )
+}
+
+/**
+ * A passphrase input with a live strength meter and a "magic" generate button (#221). Style-agnostic:
+ * pass `inputClassName` to match the surrounding form (e.g. "cv-input" / "unlock-input" / "input").
+ * The share it protects is only as safe as this passphrase, so the meter + one-tap strong generator
+ * are the real security lever (not the file format).
+ */
+export function PassphraseField({
+  value, onChange, placeholder, inputClassName = 'input', autoFocus,
+}: {
+  value: string
+  onChange: (v: string) => void
+  placeholder?: string
+  inputClassName?: string
+  autoFocus?: boolean
+}) {
+  const t = useT()
+  const [show, setShow] = useState(false)
+  const s = scorePassphrase(value)
+  return (
+    <div className="pf">
+      <div className="pf-row">
+        <input
+          className={inputClassName + ' pf-input'}
+          type={show ? 'text' : 'password'}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          autoFocus={autoFocus}
+          autoComplete="new-password"
+          spellCheck={false}
+        />
+        <button type="button" className="pf-btn" title={show ? t('pass.hide') : t('pass.show')}
+          aria-label={show ? t('pass.hide') : t('pass.show')} onClick={() => setShow((v) => !v)}>
+          {show ? '🙈' : '👁'}
+        </button>
+        <button type="button" className="pf-btn pf-gen" title={t('pass.generate')}
+          aria-label={t('pass.generate')} onClick={() => { onChange(generatePassphrase()); setShow(true) }}>
+          ✨
+        </button>
+      </div>
+      {value && (
+        <div className="pf-meter" aria-live="polite">
+          <div className="pf-bars" aria-hidden="true">
+            {[1, 2, 3, 4].map((i) => (
+              <span key={i} className={'pf-bar' + (s.score >= i ? ' on s' + s.score : '')} />
+            ))}
+          </div>
+          <span className={'pf-label s' + s.score}>{t('pass.' + s.label)}</span>
+        </div>
+      )}
     </div>
   )
 }

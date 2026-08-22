@@ -13,7 +13,7 @@ import { RelaySession, newRoomCode, deriveRoom, ephemeralTag, b64, unb64, bytesE
 import { decodeBundle } from '../signing'
 import { SigningMachine } from '../signing-machine'
 import { useT, useTr, useI18n } from '../i18n'
-import { Letterhead } from '../components'
+import { Letterhead, PassphraseField } from '../components'
 import {
   saveVault,
   loadVault,
@@ -1271,9 +1271,9 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
               </div>
             )}
             <div className="cv-join">
-              <input className="cv-input" type="password" style={{ letterSpacing: 'normal', textAlign: 'left' }}
+              <PassphraseField inputClassName="cv-input" autoFocus
                 placeholder={pe('Frase-senha (mínimo 8 caracteres)', 'Passphrase (at least 8 characters)')}
-                value={savePass} onChange={(e) => setSavePass(e.target.value)} autoFocus />
+                value={savePass} onChange={setSavePass} />
               {saveErr && <p className="set-err">{saveErr}</p>}
               <button className="rd-enter primary cv-primary" disabled={savePass.length < 8 || saveState === 'saving' || hostedState !== 'registered'}
                 onClick={() => void doSave()}>
