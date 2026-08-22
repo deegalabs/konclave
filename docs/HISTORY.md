@@ -547,3 +547,20 @@ shares and sign over the blind relay (Architecture B). It never sees a share.
   browser-native vault (today the Dashboard is the local-bridge path, mock in the hosted demo). Also
   parallel-tracked: a Tauri 2.0 desktop scaffold + plan on branch `feat/tauri-shell` (unvalidated
   groundwork; needs real hardware / a Mac / Android SDK to build per platform).
+
+---
+
+**Phase 17 - Desktop app RELEASED as v0.2.0 (2026-08-03).** The Tauri desktop line moved from
+scaffold to a tagged release. Real `src-tauri/` code (Tauri shell wrapping the `orchestrator`:
+`lib.rs`, `main.rs`, `share_store.rs`, `tauri.conf.json`, capabilities, icons, `build.rs`) shipped
+as native installers for **Windows / macOS / Linux**, tagged **`v0.2.0`** (git tag created
+2026-08-02 21:36 -0300 = 2026-08-03 UTC; the merge that carried it fixed the desktop CI frontend
+build, #79). The web app remains the primary delivery per [ADR-0005](adr/0005-web-first-delivery.md);
+desktop is the optional native shell, and it changes the delivery form only, never the trust model.
+
+- **Honest limit (still open):** live **per-platform hardware** validation. The shell builds and is
+  released, but validating each platform's installer on real hardware (and the three coordination
+  modes end to end on desktop) remains, because the dev machine's GTK/WSLg window does not render
+  ([ADR-0004](adr/0004-local-http-bridge.md)).
+- This closes the "single desktop binary" roadmap item that earlier phases and the honest ladders
+  carried; the desktop app is now **shipped**, with only the hardware validation caveat above.

@@ -35,9 +35,11 @@ native shells are optional wrappers, not requirements.**
   installable to a home screen / desktop and give an offline app shell - without any store.
 - **Mobile = the browser / PWA.** The phone holds its share (encrypted IndexedDB), signs
   in-browser via WASM over the relay; build/prove/broadcast stay off-device (helper).
-- **Desktop native (optional, deferred):** a Tauri shell wrapping the `orchestrator` for a
-  native installer remains on the roadmap ([ADR-0004]); it changes only the delivery form,
-  never the trust model. Deferred while the dev machine's GTK/WSLg window will not render.
+- **Desktop native (optional, SHIPPED):** a Tauri shell (`src-tauri/`) wrapping the
+  `orchestrator` shipped as native installers (Windows / macOS / Linux) at git tag **v0.2.0**
+  (2026-08-03, [ADR-0004]); it changes only the delivery form, never the trust model. What remains
+  open is live **per-platform hardware** validation (the dev machine's GTK/WSLg window will not
+  render).
 - **Not Wails / a Go shell.** The backend is Rust (`orchestrator`, `konclave-signer`); a Go
   desktop framework would mean porting Layer 2, and it uses the same WebKitGTK that blocks
   us on WSLg - so it solves nothing here. Tauri stays the native path when we package one.
@@ -48,11 +50,15 @@ native shells are optional wrappers, not requirements.**
   we skip the entire native-distribution matrix for the core experience.
 - **The custody invariant is unchanged across shells:** the share stays on-device and
   encrypted; only a wrapper (Tauri) or a tab (PWA) differs.
-- **Honest gaps that remain before "mobile = browser" is fully closed:**
-  - **sign-after-restore** in `/net` - restoring a share from IndexedDB works; reconnecting
-    to the relay and signing again after a reload is the pending piece.
-  - a real broadcast Orchard transaction from the browser (today `/net` signs a real Orchard
-    sighash and verifies; the broadcast loop is Architecture B, wired but not yet live).
+- **Status update (2026-08):** the two gaps this ADR listed are now closed:
+  - **sign-after-restore** in `/net` is **wired and live-exercised**: a reloaded device restores
+    its share from encrypted IndexedDB, rejoins the signing room, re-announces its seat, and signs
+    with the restored share (a live two-tab proof observed a restore-then-sign deadlock edge case,
+    tracked separately; the fresh-DKG path signs cleanly).
+  - a real broadcast from the browser is **proven on mainnet** (Architecture B): a browser-DKG
+    vault signed a real Ironwood tx in the browser and the blind helper broadcast it (txid
+    `3022420a…`). The remaining depth is a broadcast across **separate physical devices** (proven
+    so far as two tabs on one machine).
 - **Service-worker discipline:** the SW is network-first and never caches `/api` or `/relay`
   responses, so an online device never runs stale WASM/JS and no sensitive response is
   persisted; the share lives only in encrypted IndexedDB, never in the SW cache.

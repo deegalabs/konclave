@@ -40,7 +40,29 @@ cycle's work:
 **Open honest debts (§6.15, unchanged)**
 - **H2:** seal the SignRequest (device-key handshake, #63).
 - `/net` **multi-note** over the live relay (unit-tested; single-spend is live-proven).
-- **Tauri** single-binary hardening per platform (needs real per-platform hardware).
+- **Tauri** live **per-platform hardware** validation (the desktop app is **released as v0.2.0**,
+  Windows/macOS/Linux installers; what remains open is validating each platform's installer on
+  real hardware, not building the shell).
+
+## Shipped since (2026-08-22)
+
+- **Desktop app RELEASED as v0.2.0** (2026-08-03, git tag `v0.2.0`): a real Tauri shell
+  (`src-tauri/`) wrapping the orchestrator, with Windows/macOS/Linux installers. Only the
+  live per-platform hardware validation stays open (above); the shell itself is no longer roadmap.
+- **Hosted blind helper is a real crate** (`helper-server/`, CI-gated): the Architecture-B
+  helper (ADR-0006 Rung A) deployed on Railway, blind to shares. The native `orchestrator`
+  (`konclave serve`) is the equivalent **local-mode** helper.
+- **Quorum default = `2-of-3`** with a non-blocking warning badge when `n === t` (no recovery
+  margin), [ADR-0010](adr/0010-quorum-redundancy-default.md).
+- **Create is now an in-vault flow.** The real create path is the embedded `<NetVault embedded />`
+  modal launched from `/vaults` ([ADR-0009](adr/0009-vault-ia-restructure.md)); the standalone
+  `/net` route is **legacy / diagnostics** (linked from Settings), no longer a redirect target.
+- **Onboarding + UX polish:** the 3-door onboarding redesign, a passphrase strength meter +
+  generator, vault export/import, the recipient combobox, and the PWA update prompt + version badge.
+
+> **Network:** mainnet is now **NU6.3 "Ironwood"** (activated 2026-07-28, block 3,428,143), live
+> and safe. Historical phase text below that reads "NU6.2" describes the state at that phase; the
+> current consensus target is NU6.3.
 
 ---
 
@@ -157,22 +179,23 @@ slice slips, Phase 6 is the escape valve, never the core.
 The core crypto is proven (real FROST over Orchard, **eight** verifiable mainnet txids incl. a
 DKG-vault send, a private multi-output payroll, and - on NU6.3 activation day - an
 Orchard→Ironwood migration plus the first **Ironwood-pool spend** (both V6/NU6.3, FROST 2-of-3),
-and browser-side signing of a real Orchard spend). The work from here is **consolidation,
-robustness, and reach**, not new cryptography. Ordered by priority.
+and browser-side signing of a real **Ironwood** spend (the eighth txid, `3022420a…`, a V6/NU6.3
+Ironwood tx). The work from here is **consolidation, robustness, and reach**, not new
+cryptography. Ordered by priority.
 
 ## A. Consolidation
 - Keep `main` the single trunk; land verified work through PRs; keep the proof surfaces
   consistent (see [CLAIMS.md](CLAIMS.md)).
-- Browser signing of a real Orchard spend is now on `main` (the ceremony signs under the
-  PCZT's own randomizer/alpha and verifies under `ak+alpha`). The `/net` "demo → real broadcast"
-  path is **designed and partly built on a branch** (not merged): **Architecture B**, a
-  helper-assisted broadcast that is blind to spending. The browser devices keep the shares and
-  sign over the blind relay; a helper (the native orchestrator, which never sees a share) builds
-  and proves the real PCZT for the vault's own address, publishes a signing request, waits for
-  the aggregate signature, injects, and broadcasts - consistent with "internal transparency,
-  external privacy". The wire protocol and the relay handshake are implemented and unit-tested on
-  both sides (`orchestrator::net_send` / `relay_client`; `ui/net-sign`); the live NetVault relay
-  wiring and the end-to-end testnet proof remain (see `temp/NET-REAL-BROADCAST-SCOPING.md`).
+- Browser signing of a real spend is now on `main` (the ceremony signs under the PCZT's own
+  randomizer/alpha and verifies under `ak+alpha`). The `/net` "demo → real broadcast" path is
+  **proven on mainnet**: **Architecture B**, a helper-assisted broadcast that is blind to
+  spending. The browser devices keep the shares and sign over the blind relay; a helper (the
+  hosted `helper-server`, or the native orchestrator, which never sees a share) builds and proves
+  the real PCZT for the vault's own address, publishes a signing request, waits for the aggregate
+  signature, injects, and broadcasts - consistent with "internal transparency, external privacy".
+  A browser-DKG 2-of-2 vault signed and broadcast a real Ironwood tx this way (txid `3022420a…`,
+  block 3,429,922). Still open: a broadcast across **separate physical devices** (proven so far
+  with two browser tabs on one machine) and **multi-note** over the live relay (unit-tested).
 
 ## B. Network robustness - NU6.3 / Ironwood
 - Ironwood introduces a **new shielded pool** ("Ironwood", V6 transactions with their own
@@ -228,10 +251,11 @@ One UI (`ui/`) and one crypto core (`konclave-wasm`) behind the relay:
 - **Web** - browser + WASM + hosted relay (done; verified across separate machines). **Now
   installable as a PWA** (web app manifest + a network-first, update-safe service worker - the
   `/api` and `/relay` responses are never cached; the share lives only in encrypted IndexedDB).
-- **Desktop (optional)** - a Tauri shell wrapping the `orchestrator` for native installers
-  (Windows / macOS / Linux); deferred while the dev machine's GTK/WSLg window won't render
-  ([ADR-0004](adr/0004-local-http-bridge.md)). Not Wails/Go: the backend is Rust and Wails hits
-  the same WebKitGTK wall.
+- **Desktop (RELEASED, v0.2.0)** - a Tauri shell (`src-tauri/`) wrapping the `orchestrator`,
+  shipped as native installers (Windows / macOS / Linux) at git tag `v0.2.0` (2026-08-03). What
+  remains is live **per-platform hardware** validation (the dev machine's GTK/WSLg window won't
+  render, [ADR-0004](adr/0004-local-http-bridge.md)). Not Wails/Go: the backend is Rust and Wails
+  hits the same WebKitGTK wall.
 - **Mobile = the browser / PWA** - the same UI + WASM core; the device holds its share (encrypted
   IndexedDB) and signs, while build/prove/broadcast stay off-device via the helper (Architecture B),
   trustless and unable to move funds without the quorum. Sign-after-restore in `/net` is **wired end
@@ -240,11 +264,12 @@ One UI (`ui/`) and one crypto core (`konclave-wasm`) behind the relay:
   covered by a bundle+seat test). **Remaining:** a live two-browser proof.
 
 ## E. Closing the loop and depth
-- **Real broadcast from the browser - in progress (Architecture B, PR #11).** The design is
-  settled and the protocol built + unit-tested on both sides: devices keep the shares and sign
-  over the blind relay; a helper (never sees a share) builds/proves the PCZT for the vault's own
-  address, injects, broadcasts. Remaining: the live NetVault relay wiring + the end-to-end testnet
-  proof (a funded browser-DKG vault). See §A and `temp/NET-REAL-BROADCAST-SCOPING.md`.
+- **Real broadcast from the browser - PROVEN on mainnet (Architecture B).** Devices keep the
+  shares and sign over the blind relay; a helper (never sees a share) builds/proves the PCZT for
+  the vault's own address, injects, broadcasts. A browser-DKG vault carried this to a confirmed
+  mainnet Ironwood txid (`3022420a…`). Remaining depth: a broadcast across **separate physical
+  devices** (proven so far as two tabs on one machine) and **multi-note** over the live relay
+  (unit-tested). See §A.
 - Multi-device reconciliation (on-chain wins when the local cache diverges) - decision core + store
   wiring + fresh-sync trigger all landed (`orchestrator::reconcile` + `Store::reconcile_proposals` +
   `server::reconcile_vault` / `POST /api/vault/reconcile`; `Superseded` terminal state; 21 tests).

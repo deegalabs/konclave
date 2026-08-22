@@ -101,6 +101,10 @@ cargo run --manifest-path orchestrator/Cargo.toml --bin konclave -- serve --web 
 # both tabs run a real blind DKG and show the same vault key; then "Assinar" signs together.
 ```
 
+> Note: the standalone `/net` route above is the **legacy / diagnostics** surface. In the product,
+> the real create + multi-device flow is the embedded `<NetVault embedded />` modal launched from
+> `/vaults`, which runs the same ceremony without leaving the vault shell (ADR-0009).
+
 ## Shared-custody safety: recovery + inheritance
 
 Beyond spending, a real shared vault has to survive a lost device and an absent owner. Both are
@@ -126,15 +130,21 @@ built on the same FROST + blind-relay foundation and proven by tests:
   quorum payment, payroll, and fresh-vault txids used a trusted-dealer vault; only the DKG-vault send
   came from a key born by real DKG.
 - 🔬 **By dry-run** (signs, does not yet broadcast): the fully-sealed signing path.
-- 🌐 **In the browser, live over the internet:** multi-device DKG + FROST signing over a **hosted
-  blind relay** (Railway). Try it at https://konclave-demo.vercel.app/#/net in two tabs. The
-  signature is real, over a **real Orchard sighash** (mainnet tx `aab00f90…`) **under the
-  transaction's own alpha** (the correct Orchard mechanism, `ak+alpha`), with per-device
-  `describeOutputs` verification. Not yet broadcastable: the sample PCZT belongs to another vault, so
-  a real broadcast needs a PCZT for this vault's own address, plus the browser broadcast.
-- 🗺️ **Roadmap:** the broadcast of a real transaction from the browser (signing a real Orchard
-  sighash already works), full on-device share persistence,
-  a single desktop binary.
+- 🌐 **In the browser, live over the internet - broadcast PROVEN on mainnet:** multi-device DKG +
+  FROST signing over a **hosted blind relay** (Railway), then a real broadcast via the **hosted
+  blind `helper-server`** (Architecture B, ADR-0006 Rung A). A browser-DKG vault signed a real
+  Ironwood transaction **in the browser** - each tab contributing only its own share - and the
+  blind helper injected and broadcast it: mainnet txid `3022420a…` (V6/NU6.3). Try the ceremony at
+  https://konclave-demo.vercel.app/#/net in two tabs. Honest limit: proven so far with **two tabs
+  on one machine**; a broadcast across **separate physical devices** is the open milestone.
+- 🧩 **Blind helper (`helper-server`):** a real, CI-tested crate deployed on Railway that, given a
+  vault's view-only UFVK and a signing request, builds/proves the PCZT, waits for the browsers'
+  signatures, injects, and broadcasts. It **never sees a share** and cannot move funds without the
+  quorum. The native `orchestrator` (`konclave serve`) is the equivalent local-mode helper.
+- 🗺️ **Roadmap (genuinely open):** a broadcast across separate physical devices, `/net` multi-note
+  over the live relay, and social-recovery / inheritance wired into a live vault UI. *(No longer
+  roadmap, now shipped: browser broadcast, on-device share persistence, and the single desktop
+  binary - Tauri **v0.2.0**, 2026-08-03.)*
 
 ## Privacy & security
 
@@ -144,5 +154,5 @@ keychain); the loopback bridge is guarded against CSRF/DNS-rebinding; destinatio
 validated with an authoritative `zcash_address` decode before any send. See
 [`SECURITY.md`](SECURITY.md).
 
-**Tests:** 166 (orchestrator) + 7 (konclave-wasm) + UI. Documentation: [`README.md`](README.md),
-[`docs/`](docs/), [`CLAUDE.md`](CLAUDE.md).
+**Tests:** 227 (orchestrator) + 7 (konclave-wasm) + the `helper-server` crate + UI (~236+ across
+the Rust crates). Documentation: [`README.md`](README.md), [`docs/`](docs/), [`CLAUDE.md`](CLAUDE.md).

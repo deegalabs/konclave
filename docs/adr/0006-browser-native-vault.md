@@ -96,6 +96,8 @@ share. What deepens across A to C is how little the hosted side sees at all.
 - The full plan, task tree, milestones (M1 = Rung A + cross-device mainnet txid), and risks are the
   working execution plan; this ADR is the durable decision. Related: [ADR-0004](0004-local-http-bridge.md)
   (the local bridge this reuses), [ADR-0002](0002-pczt-frost-bridge.md) (the FROST to PCZT bridge the
-  helper drives), [ADR-0005](0005-web-first-delivery.md) (web-first delivery).
+  helper drives), [ADR-0005](0005-web-first-delivery.md) (web-first delivery),
+  [ADR-0009](0009-vault-ia-restructure.md) (the browser-native vault now lives in the in-vault
+  embedded modal, not the standalone `/net` route).
 - Known engine caveat carried in: the Ironwood single-note dummy issue (upstream librustzcash #2777)
   is worked around with `create-max` until the engine is bumped past commit `51385a15`.

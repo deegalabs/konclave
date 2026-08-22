@@ -108,6 +108,11 @@ Facts (verified 2026-06-30):
   exploitation.
 - **Current status:** Orchard is live and safe on mainnet. **Build against NU6.2** (tooling
   and lightwalletd aware of the upgrade).
+- **Update (2026-08):** mainnet has since activated **NU6.3 "Ironwood"** (2026-07-28, block
+  3,428,143), which adds the **Ironwood shielded pool** (V6 transactions). Ironwood is **live and
+  safe**, and the current consensus target is **NU6.3** (build against it; the RedPallas/FROST
+  spend-authorization scheme is unchanged, so the signing core carries over). The NU6.2 text above
+  is the historical context for the June 2026 Orchard episode.
 - **(Honest) narrative angle for the README:** a trustworthy shared-custody tool right after
   the confidence shock - exactly what [CONCEITO §8](docs/CONCEITO_INICIAL.md) foresees as
   narrative weight. The bug was found with Opus 4.8; Konclave is built with the same model.
@@ -244,10 +249,15 @@ real-DKG vault, and a **browser-signed** send. Ironwood: **proven on mainnet**.
 (#67, primitive proven byte-exact vs the signer). PIN-gated admission + vault fingerprint close the
 invite-as-bearer concern (#67 prevention / #68 detection, both live-validated 2-tab).
 
+**Desktop (Tauri) - RELEASED as v0.2.0 (2026-08-03).** The desktop line shipped: real `src-tauri/`
+code (Tauri shell over the `orchestrator`) tagged **`v0.2.0`**, with Windows/macOS/Linux installers.
+The web app stays the primary delivery (ADR-0005); desktop is the optional native shell. **Still open:**
+live **per-platform hardware** validation (the GTK/WSLg window does not render here, ADR-0004).
+
 **Honest debts still open (§6.15):** Stage 3-4 of the Dashboard-send convergence; **H2** (seal the
-SignRequest - needs a device-key handshake, #63); `/net` **multi-note over the live relay**
-(unit-tested; single-spend is live-proven); a **live multi-device** (not two-tab) broadcast; **Tauri**
-single-binary packaging (branch `feat/tauri-shell` on GitHub - groundwork, needs real per-platform
-hardware; the GTK/WSLg window does not render here, ADR-0004). **Cargo workspace** is now closed - the
-crates are unified under one workspace (orchestrator aligned on `rusqlite 0.37`, resolving the
+SignRequest - needs a device-key handshake, #63); the on-device sighash recompute in the live `/net`
+path (H1 #62; the PIN-gate + fingerprint defenses shipped, ADR-0007); `/net` **multi-note over the
+live relay** (unit-tested; single-spend is live-proven); a **live multi-device** (not two-tab)
+broadcast; **Tauri** live per-platform hardware validation (above). **Cargo workspace** is now closed -
+the crates are unified under one workspace (orchestrator aligned on `rusqlite 0.37`, resolving the
 `links="sqlite3"` conflict; 227 orchestrator tests pass).

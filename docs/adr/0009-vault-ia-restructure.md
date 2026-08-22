@@ -1,7 +1,9 @@
 # ADR-0009: Vault IA restructure (everything in-vault, one activity place, honest roles)
 
-- **Status:** proposed
-- **Date:** 2026-08-20
+- **Status:** accepted, implemented (create + signing moved in-app; the embedded
+  `<NetVault embedded />` modal is now the create path, launched from `/vaults`, and the standalone
+  `/net` route is a legacy / diagnostics surface linked from Settings)
+- **Date:** 2026-08-20 (accepted); implemented 2026-08
 - **Context:**
 
   The in-vault navigation grew one rail item per backend concept, so it now asks the user to tell
@@ -13,11 +15,12 @@
      (`/ledger`) are two filtered views of the same proposal collection; **Ceremonies**
      (`/ceremonies`) is a third read-only view of the same lifecycle. Meanwhile a single **Payment**
      (`/pay`) has no rail entry at all. Users cannot predict which screen holds a given item.
-  2. **"Signers" and the signing step eject the user out to `/net`.** Creating a vault
-     (`Members.tsx:166 nav('/net')`) and signing an approved proposal (`Proposal.tsx nav('/net')`)
-     throw the user out of the in-vault shell, contradicting "do everything inside the vault" and
-     §7 "states always visible". `NetVault` already has an **embedded** mode that is simply not
-     mounted inside `<Layout>`.
+  2. **"Signers" and the signing step eject the user out to `/net`.** *(Resolved.)* Creating a
+     vault (`Members.tsx nav('/net')`) and signing an approved proposal (`Proposal.tsx nav('/net')`)
+     used to throw the user out of the in-vault shell, contradicting "do everything inside the vault"
+     and §7 "states always visible". `NetVault`'s **embedded** mode is now mounted inside `<Layout>`
+     and reached from `/vaults`, so the ejections are gone; bare `/net` remains only as a
+     reference / diagnostics page.
   3. **Presence is untruthful.** The Dashboard rendered the seat count next to a "live" pill, so
      "2 members" + "live" read as "2 members online" when only the connection is live. (Partly
      fixed: the pill now reads "connected", K7 / #122. True per-member presence still pending.)
@@ -90,4 +93,6 @@
     *where* the signing UI renders.
 
 - **Refs:** #128 (epic + full critique), #49 (Dashboard signing / retire /net), #89 (landing
-  redesign, separate), #119 (K4, done), #122 (K7 presence), #133 (K12, done).
+  redesign, separate), #119 (K4, done), #122 (K7 presence), #133 (K12, done);
+  [ADR-0010](0010-quorum-redundancy-default.md) (the 2-of-3 create default + `n === t` warning that
+  the same in-vault create flow surfaces).

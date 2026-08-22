@@ -44,14 +44,24 @@ Any statement of the form "the app payment used DKG" is **false**. Only `aab00f9
 `3022420a…` (browser DKG) came from keys born by real DKG.
 
 ## Honest limits to keep stated (never hide)
-- **Known signing-path gap - transaction-swap (H1, being fixed).** The `/net` signing does not yet
-  recompute the ZIP-244 sighash **on-device** from its own PCZT (the recompute is a stub). A
-  compromised **helper** or **coordinator device** could therefore display a benign PCZT while the
-  signed sighash targets an attacker output, redirecting funds. So do **not** claim "the helper is
-  blind and cannot steal": the helper is blind to *secrets* (round-2 is sealed), but until the
-  on-device sighash binding lands ([ADR-0007](adr/0007-ceremony-security-invariants.md) I2, issue
-  #62) it is **not** blind to *transaction substitution*. **No real-money `/net` broadcast until I2
-  ships.** (Zkool ships this defense; we deferred it - surfaced by our own relay audit.)
+- **Signing-path gap - transaction-swap (H1). Partly shipped, one piece still stubbed.** Keep
+  two things distinct:
+  - **Shipped ([ADR-0007](adr/0007-ceremony-security-invariants.md), #67 / #68, live-validated
+    2-tab):** PIN-gated room admission + a vault fingerprint each signer checks, which close the
+    invite-as-bearer / wrong-room concern, and the on-device ZIP-244 sighash-binding **primitive**
+    (proven byte-exact against the signer).
+  - **Still stubbed (#62):** the live `/net` signing path does not yet recompute the ZIP-244
+    sighash **on-device from its own PCZT** and compare it to what it signs. Until that lands, a
+    compromised **helper** or **coordinator device** could in principle display a benign PCZT while
+    the signed sighash targets an attacker output. So do **not** claim "the helper is blind and
+    cannot steal": the helper is blind to *secrets* (round-2 is sealed) and cannot spend without the
+    quorum, but the live path is not yet fully blind to *transaction substitution* by a malicious
+    coordinator.
+  - **Scope of the caveat:** this is about running the ceremony under an **untrusted third-party
+    helper/coordinator**. It does **not** contradict the proven mainnet browser broadcast
+    (`3022420a…`), which used the project's own blind helper and per-device `describeOutputs`
+    review; it is why we do not yet recommend a real-money `/net` send driven by a helper you do not
+    control until #62 ships. (Zkool ships the recompute defense; we are closing it.)
 - **Signing-request metadata leak (H2, being fixed).** The `/net` signing request (`sighash`,
   `alpha`, `pczt_hex`) is currently posted to the relay in **plaintext**; the PCZT decodes to the
   recipient address and amount. Unlike the DKG round-2 packages (ECIES-sealed), it is not yet sealed,
