@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { isDesktop } from './platform'
 import { useReveal } from './reveal'
 import { DemoBanner } from './components'
+import { UpdatePrompt } from './UpdatePrompt'
 import Layout from './Layout'
 import Demo from './screens/Demo'
 import WasmSigner from './screens/WasmSigner'
@@ -36,6 +37,7 @@ export default function App() {
   return (
     <div className={'root' + (revealed ? ' revealed' : '')}>
       <DemoBanner />
+      <UpdatePrompt />
       <ErrorBoundary>
       <Routes>
         {/* Onboarding - standalone, no rail */}
