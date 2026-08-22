@@ -804,3 +804,20 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 .pf-bar.on.s3{background:#3f7fc4} .pf-bar.on.s4{background:#43b58f}
 .pf-label{font-family:var(--font-mono); font-size:11px; min-width:52px; text-align:right}
 .pf-label.s1{color:#d8433f} .pf-label.s2{color:#e0a13f} .pf-label.s3{color:#3f7fc4} .pf-label.s4{color:#43b58f}
+
+/* PWA update banner (registerType: prompt) — fixed bottom, above the mobile rail. */
+.pwa-update{position:fixed; left:50%; transform:translateX(-50%); bottom:calc(env(safe-area-inset-bottom,0) + 16px);
+  z-index:60; display:flex; align-items:center; gap:12px; max-width:calc(100vw - 24px); width:max-content;
+  background:var(--surface-1,#171d25); color:var(--text); border:1px solid var(--accent-line,rgba(79,140,255,.4));
+  border-radius:14px; padding:12px 12px 12px 16px; box-shadow:0 12px 40px rgba(0,0,0,.4)}
+.pwa-update-txt{display:flex; flex-direction:column; gap:2px; min-width:0}
+.pwa-update-txt b{font-size:13.5px}
+.pwa-update-ver{font-size:10.5px; color:var(--text-muted)}
+.pwa-update-x{background:none; border:none; color:var(--text-muted); font-size:18px; line-height:1; cursor:pointer; padding:4px 6px; border-radius:8px}
+.pwa-update-x:hover{color:var(--text); background:var(--surface-2,rgba(127,127,127,.12))}
+@media(max-width:640px){ .pwa-update{left:12px; right:12px; transform:none; width:auto} }
+
+/* Version badge (footer). */
+.version-badge{font-size:11px; color:var(--text-muted)}
+.version-badge a{color:var(--text-muted); text-decoration:none}
+.version-badge a:hover{color:var(--accent); text-decoration:underline}

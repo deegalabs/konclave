@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Seal, Loading, LangToggle } from '../components'
+import { VersionBadge } from '../UpdatePrompt'
 import { PageHeader, PageFooter } from '../page'
 import { useT, useTr } from '../i18n'
 import { getVault, getSelectedVault, health, shortAddr, deleteVault, IS_DEMO, type Vault } from '../api'
@@ -310,7 +311,7 @@ export default function Settings() {
       </section>
       </>}
 
-      <PageFooter>{t('settings.footer')}</PageFooter>
+      <PageFooter>{t('settings.footer')} · <VersionBadge /></PageFooter>
     </main>
   )
 }
