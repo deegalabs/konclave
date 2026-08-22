@@ -56,6 +56,13 @@ export const ptBR: Record<string, string> = {
 
   // shared
   'common.hide': 'Ocultar',
+  'pass.weak': 'fraca',
+  'pass.fair': 'razoável',
+  'pass.good': 'boa',
+  'pass.strong': 'forte',
+  'pass.generate': 'Gerar uma frase-senha forte',
+  'pass.show': 'Mostrar frase-senha',
+  'pass.hide': 'Ocultar frase-senha',
   'common.reveal': 'Revelar',
   'common.cancel': 'Cancelar',
   'common.back': '← Voltar',

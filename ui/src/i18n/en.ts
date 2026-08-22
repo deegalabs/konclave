@@ -56,6 +56,13 @@ export const en: Record<string, string> = {
 
   // shared
   'common.hide': 'Hide',
+  'pass.weak': 'weak',
+  'pass.fair': 'fair',
+  'pass.good': 'good',
+  'pass.strong': 'strong',
+  'pass.generate': 'Generate a strong passphrase',
+  'pass.show': 'Show passphrase',
+  'pass.hide': 'Hide passphrase',
   'common.reveal': 'Reveal',
   'common.cancel': 'Cancel',
   'common.back': '← Back',
