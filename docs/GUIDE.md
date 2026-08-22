@@ -313,8 +313,8 @@ Cross-cutting guarantees that hold across every use case:
 
 | # | Use case | Route | Actor |
 |---|---|---|---|
-| UC-1 | Create a vault locally (DKG) | `/create` | Treasurer |
-| UC-2 | Create / join a vault across devices | `/net` | 2-3 browser devices |
+| UC-1 | Create a vault (DKG, in-vault modal) | `/vaults` (embedded `<NetVault embedded />`) | Treasurer |
+| UC-2 | Create / join a vault across devices | `/vaults` modal (standalone `/net` is legacy/diagnostics) | 2-3 browser devices |
 | UC-3 | Fund / Receive | `/receive` | Sender / treasurer |
 | UC-4 | Propose a payment | `/pay` | A member (proposer) |
 | UC-5 | Approve / Refuse (quorum) | `/proposal` | Members |
@@ -327,18 +327,27 @@ Cross-cutting guarantees that hold across every use case:
 | UC-12 | Members registry | `/members` | Treasurer |
 | UC-13 | Beneficiaries registry | `/people` | Treasurer |
 
-### UC-1 - Create a vault locally (DKG)
-- **Precondition:** bridge running; engine binaries + `frostd` available.
-- **Flow:** name the vault, list members, choose quorum `t of n` → backend runs a real DKG
-  (`frost-client init` ×N → contact exchange → concurrent `frost-client dkg -C redpallas` over
-  `frostd` → group key → `zcash-sign generate --ak` → Orchard address + UFVK → view-only wallet
-  → **seal each share**). The result screen shows the one-time vault passphrase, receive
-  address, group key; "Go to vault" is gated on acknowledging the passphrase is saved.
+### UC-1 - Create a vault (DKG, in-vault modal)
+- **Where:** the real create path is the embedded `<NetVault embedded />` modal launched from
+  `/vaults` ([ADR-0009](adr/0009-vault-ia-restructure.md)), so creation happens inside the vault
+  shell without ejecting to a separate route. The old standalone `/create` / `/net` routes remain
+  as legacy / diagnostics surfaces.
+- **Precondition:** for the local-mode DKG, bridge running + engine binaries + `frostd` available;
+  for the browser-native path, the blind relay (and helper) reachable.
+- **Flow:** name the vault, list members, choose quorum `t of n` → a real DKG runs (`frost-client
+  init` ×N → contact exchange → concurrent `frost-client dkg -C redpallas` over `frostd` → group
+  key → `zcash-sign generate --ak` → Orchard address + UFVK → view-only wallet → **seal each
+  share**). The result screen shows the one-time vault passphrase, receive address, group key;
+  "Go to vault" is gated on acknowledging the passphrase is saved.
+- **Quorum default:** the create flow defaults to **`2-of-3`** (redundant by construction) and, if
+  you pick `n === t` (e.g. 2-of-2), shows a **non-blocking warning badge** that a lost device then
+  locks the funds ([ADR-0010](adr/0010-quorum-redundancy-default.md)). It is a product guardrail,
+  not a protocol constraint: `n === t` is still allowed.
 - **Postcondition:** a vault with sealed shares, key never reconstituted.
-- **Honest limits:** single-device demo runs all participants as threads; the `/create` invite
-  codes are illustrative (the real product uses each member's `frost-client` contact token).
+- **Honest limits:** single-device demo runs all participants as threads; the legacy `/create`
+  invite codes are illustrative (the real product uses each member's `frost-client` contact token).
 
-### UC-2 - Create / join a vault across devices (`/net`)
+### UC-2 - Create / join a vault across devices (in-vault modal; standalone `/net` is legacy)
 - **Flow:** creator generates a room code and announces `config{n,t}` + a device-key hello;
   joiners announce their hellos; deterministic seating by sorted tag. Then DKG over the relay:
   round-1 packages broadcast (public), round-2 packages **sealed per recipient** (ECIES:
@@ -352,7 +361,10 @@ Cross-cutting guarantees that hold across every use case:
 - **Flow:** the screen reads the vault's shielded **Orchard** address and renders it + a QR + a
   **ZIP-321** `zcash:` payment URI (optional amount), all client-side. Funds land in the vault's
   Orchard pool; balance appears after sync.
-- **Honest limits:** receiving needs no key or signature; Orchard-only (shielded-first).
+- **Honest limits:** receiving needs no key or signature; the receive address is Orchard
+  (shielded-first). Post-NU6.3 the vault's **spendable** balance is **Orchard + Ironwood
+  combined** - a legacy Orchard note can be spent or migrated into the Ironwood pool, and Ironwood
+  notes are spendable in their own right (see the post-Ironwood note in §8).
 
 ### UC-4 - Propose a payment
 - **Flow:** pick a beneficiary or paste an address; enter value + optional memo (≤512 bytes).
@@ -558,11 +570,13 @@ sequenceDiagram
     Note over O,Z: Key never reassembled. Each memo readable only by its recipient UFVK
 ```
 
-### 5.4 Multi-device `/net` signing - Architecture B
+### 5.4 Multi-device signing - Architecture B
 
-The browser devices keep the shares and sign; a **helper** (the native orchestrator) builds,
-proves, injects, and broadcasts - and never sees a share. Fits "internal transparency, external
-privacy".
+The browser devices keep the shares and sign; a **helper** builds, proves, injects, and
+broadcasts - and never sees a share. Fits "internal transparency, external privacy". The helper
+comes in two forms, same blind contract either way: the **hosted blind `helper-server`** (a real
+CI-tested crate deployed on Railway, ADR-0006 Rung A) for the web/browser-native path, or the
+**native `orchestrator`** (`konclave serve`) as the equivalent **local-mode** helper.
 
 ```mermaid
 sequenceDiagram
@@ -639,8 +653,9 @@ before the builder if `sum + fee > available`.
 
 The everyday flow, route by route:
 
-1. **Create or join a vault** (`/create`, or `/net` across devices) - members + quorum; key born
-   by DKG, never whole.
+1. **Create or join a vault** - open the create modal from `/vaults` (the embedded
+   `<NetVault embedded />` flow; standalone `/create` and `/net` are legacy/diagnostics). Members +
+   quorum (defaults to 2-of-3); key born by DKG, never whole.
 2. **Fund it** (`/receive`) - share the Orchard address (QR + ZIP-321) and receive ZEC.
 3. **Propose a payment** (`/pay`) - amount + recipient; address + balance validated up front.
 4. **Approve to quorum** (`/proposals` → a proposal) - approve/refuse; nothing moves until `t`;
@@ -697,7 +712,7 @@ What is shipped, dry-run-only, or roadmap - validated against the code (not just
 | `/net` multi-device - **multi-note over the live relay** | **Wired + unit-tested; live proof pending** |
 | On-device share persistence + sign-after-restore | **Wired + live-exercised; `storage.ts` lacks a direct unit test** |
 | Social recovery (RTS) / Inheritance policy engine | **Core proven by tests; not yet wired into a live vault UI** |
-| Tauri single desktop binary | **Roadmap** (loopback bridge is the current delivery form; see [ADR-0004](adr/0004-local-http-bridge.md)) |
+| Tauri single desktop binary | **Shipped** (desktop app **v0.2.0**, 2026-08-03, `src-tauri/`: Windows/macOS/Linux installers). Open: live per-platform hardware validation. The loopback bridge remains the local delivery form; see [ADR-0004](adr/0004-local-http-bridge.md) |
 
 See [CLAIMS.md](CLAIMS.md) and [PROOF.md](PROOF.md) for the authoritative, evidence-linked ladder.
 

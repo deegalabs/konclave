@@ -421,16 +421,16 @@ export const SECTIONS: Section[] = [
             en: '**By dry-run** (it signs, it does not yet broadcast): the fully-sealed signing path (configs unsealed only to tmpfs).',
           },
           {
-            'pt-BR': '**No navegador, ao vivo:** DKG multi-dispositivo e assinatura FROST por um relay cego hospedado, sobre um **sighash Orchard real** **sob o alpha da própria transação** (o mecanismo Orchard correto, `ak+alpha`), com verificação `describeOutputs` em cada dispositivo. Falta uma PCZT para o endereço deste cofre e o broadcast.',
-            en: '**In the browser, live:** multi-device DKG and FROST signing over a hosted blind relay, over a **real Orchard sighash** **under the transaction’s own alpha** (the correct Orchard mechanism, `ak+alpha`), with per-device `describeOutputs` verification. A PCZT for this vault’s address and the broadcast still remain.',
+            'pt-BR': '**No navegador, ao vivo - broadcast PROVADO na mainnet:** DKG multi-dispositivo e assinatura FROST por um relay cego hospedado, sobre um **sighash real** **sob o alpha da própria transação** (o mecanismo Orchard correto, `ak+alpha`), com verificação `describeOutputs` em cada dispositivo, e então transmitido pelo **helper cego hospedado** (Arquitetura B) - txid `3022420a…`. Limite honesto: até agora foram duas abas numa máquina só; o broadcast entre dispositivos separados é o marco em aberto.',
+            en: '**In the browser, live - broadcast PROVEN on mainnet:** multi-device DKG and FROST signing over a hosted blind relay, over a **real sighash** **under the transaction’s own alpha** (the correct Orchard mechanism, `ak+alpha`), with per-device `describeOutputs` verification, then broadcast by the **hosted blind helper** (Architecture B) - txid `3022420a…`. Honest limit: so far two tabs on one machine; a broadcast across separate devices is the open milestone.',
           },
           {
             'pt-BR': '**Provado por teste:** recuperação social (reparo de share RTS) e o motor de política de herança.',
             en: '**Proven by test:** social recovery (RTS share repair) and the inheritance policy engine.',
           },
           {
-            'pt-BR': '**Roadmap, não entregue:** o **broadcast** de uma transação real a partir do navegador (a assinatura de um sighash Orchard real já funciona; falta financiar o cofre + operador criar/provar a PCZT), e a persistência completa do share no dispositivo (restaura; assinar-após-restore pendente). O app desktop (Tauri) já tem binários publicados no v0.2.0, ainda em amadurecimento por plataforma.',
-            en: '**Roadmap, not shipped:** the **broadcast** of a real transaction from the browser (signing a real Orchard sighash already works; it needs the vault funded + the operator to create/prove the PCZT), and full on-device share persistence (restore works; signing-after-restore pending). The desktop app (Tauri) already ships v0.2.0 binaries, still maturing per platform.',
+            'pt-BR': '**Roadmap, não entregue:** um broadcast entre **dispositivos físicos separados** (até agora, duas abas numa máquina só), o **multi-nota** ao vivo pelo relay, e recuperação social / herança ligadas a um cofre vivo. Já **entregues** (não são mais roadmap): o broadcast assinado no navegador, a persistência do share no dispositivo com assinatura-após-restore, e o app desktop (Tauri **v0.2.0**, ainda em validação por plataforma em hardware real).',
+            en: '**Roadmap, not shipped:** a broadcast across **separate physical devices** (so far, two tabs on one machine), live **multi-note** over the relay, and social recovery / inheritance wired into a live vault. Already **shipped** (no longer roadmap): the browser-signed broadcast, on-device share persistence with sign-after-restore, and the desktop app (Tauri **v0.2.0**, live per-platform hardware validation still open).',
           },
         ],
       },
