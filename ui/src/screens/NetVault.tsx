@@ -689,10 +689,16 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
           t: cfg?.t ?? 0,
         }),
       )
-      const roster = seatTableRef.current.map((s) => s.tag)
       const nm = vaultNameRef.current.trim() || undefined
       const gov: Governance = cfg?.g ?? governanceRef.current
       const mine = myNameRef.current.trim() || undefined
+      // The roster is member NAMES in seat order (identity is the name), NOT the throwaway relay
+      // tags: map each seat's tag to its announced name; this device's own seat uses its name; fall
+      // back to the tag only if a member never announced one. (Was storing raw p-… tags, which then
+      // showed as member names on the vault card / Members list and in the vault export.)
+      const roster = seatTableRef.current.map((s) =>
+        s.tag === myTagRef.current ? (mine ?? s.tag) : (nameByTagRef.current.get(s.tag) ?? s.tag),
+      )
       // Who set up the vault (the device that generated the invite); rides the config broadcast so
       // every device agrees. A real fixed fact, unlike the per-ceremony FROST coordinator role.
       const creator = cfg?.cn || undefined
