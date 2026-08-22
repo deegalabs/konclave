@@ -139,6 +139,8 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
   const [n, setN] = useState(2)
   const [t, setT] = useState(2)
   const [showJoin, setShowJoin] = useState(!!initialJoin) // Join door opens straight into the join screen
+  const [createStep, setCreateStep] = useState<1 | 2>(1) // create form is a 2-step flow (name -> rule)
+  const [advOpen, setAdvOpen] = useState(false) // governance / PIN / relay behind an Advanced disclosure
   const [vaultName, setVaultName] = useState('') // user-given vault name (create modal)
   const vaultNameRef = useRef('') // read at register time (after DKG), avoids a stale closure
   const [codeCopied, setCodeCopied] = useState(false) // invite-copied feedback
@@ -844,92 +846,122 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
     )
   }
   if (phase === 'idle' && embedded) {
+    const approveWord = t === 1 ? pe('aprovar', 'approves') : pe('aprovarem', 'approve')
+    const memberWord = n === 1 ? pe('membro', 'member') : pe('membros', 'members')
+    const trustSentence = pe(
+      `Dinheiro só sai quando ${t} de ${n} ${memberWord} ${approveWord}. Ninguém envia sozinho.`,
+      `Money moves only when ${t} of ${n} ${memberWord} ${approveWord}. No one sends alone.`,
+    )
     return (
       <Shell error={error} embedded>
-        <span className="rd-eyebrow">{pe('CRIAR COFRE EM REDE', 'CREATE A NETWORKED VAULT')}</span>
-        <h2 className="cv-title">{pe('Novo cofre', 'New vault')}</h2>
-        <p className="cv-lead">
-          {pe(
-            'Dois ou mais aparelhos criam um cofre juntos, por DKG real. Cada um sai com o seu pedaço da chave; a chave inteira nunca é montada.',
-            'Two or more devices create one vault together, by a real DKG. Each leaves with its own share; the whole key is never assembled.',
-          )}
-        </p>
-
-        <div className="cv-field cv-name">
-          <span className="cv-k">{pe('Nome do cofre', 'Vault name')}</span>
-          <input className="cv-nameinput" type="text" maxLength={40}
-            placeholder={pe('ex.: Tesouraria do coletivo', 'e.g. Collective treasury')}
-            value={vaultName}
-            onChange={(e) => { setVaultName(e.target.value); vaultNameRef.current = e.target.value }} />
-        </div>
-        <div className="cv-field cv-name">
-          <span className="cv-k">{pe('Seu nome (aparece pros membros)', 'Your name (shown to the members)')}</span>
-          <input className="cv-nameinput" type="text" maxLength={30}
-            placeholder={pe('ex.: Alice', 'e.g. Alice')}
-            value={myName}
-            onChange={(e) => { setMyName(e.target.value); myNameRef.current = e.target.value }} />
+        <div className="cv-steps" aria-hidden="true">
+          <span className={'cv-stepdot' + (createStep >= 1 ? ' on' : '')} />
+          <span className={'cv-stepdot' + (createStep >= 2 ? ' on' : '')} />
         </div>
 
-        <div className="cv-controls">
-          <div className="cv-field">
-            <span className="cv-k">{pe('Dispositivos', 'Devices')}</span>
-            <div className="cv-stepper">
-              <button type="button" className="cv-step" disabled={n <= 2} aria-label={pe('menos', 'fewer')}
-                onClick={() => { const v = n - 1; setN(v); if (t > v) setT(v) }}>−</button>
-              <span className="cv-num">{n}</span>
-              <button type="button" className="cv-step" disabled={n >= 5} aria-label={pe('mais', 'more')}
-                onClick={() => setN(n + 1)}>+</button>
+        {createStep === 1 && (
+          <>
+            <span className="rd-eyebrow">{pe('PASSO 1 DE 2 · NOME', 'STEP 1 OF 2 · NAME')}</span>
+            <h2 className="cv-title">{pe('Como se chama o cofre?', 'What’s the vault called?')}</h2>
+            <p className="cv-lead">{pe('Um nome pra vocês reconhecerem. Dá pra mudar depois.', 'A name you’ll recognize — you can change it later.')}</p>
+            <div className="cv-field cv-name">
+              <span className="cv-k">{pe('Nome do cofre', 'Vault name')}</span>
+              <input className="cv-nameinput" type="text" maxLength={40} autoFocus
+                placeholder={pe('ex.: Tesouraria do coletivo', 'e.g. Collective treasury')}
+                value={vaultName}
+                onChange={(e) => { setVaultName(e.target.value); vaultNameRef.current = e.target.value }} />
             </div>
-          </div>
-          <div className="cv-field">
-            <span className="cv-k">{pe('Quórum para assinar', 'Signing quorum')}</span>
-            <div className="cv-stepper">
-              <button type="button" className="cv-step" disabled={t <= 1} aria-label={pe('menos', 'fewer')}
-                onClick={() => setT(t - 1)}>−</button>
-              <span className="cv-num">{t} <em>{pe('de', 'of')} {n}</em></span>
-              <button type="button" className="cv-step" disabled={t >= n} aria-label={pe('mais', 'more')}
-                onClick={() => setT(t + 1)}>+</button>
+            <div className="cv-field cv-name">
+              <span className="cv-k">{pe('Seu nome (aparece pros membros)', 'Your name (shown to the members)')}</span>
+              <input className="cv-nameinput" type="text" maxLength={30}
+                placeholder={pe('ex.: Alice', 'e.g. Alice')}
+                value={myName}
+                onChange={(e) => { setMyName(e.target.value); myNameRef.current = e.target.value }} />
             </div>
-          </div>
-        </div>
-
-        <div className="cv-field cv-gov">
-          <span className="cv-k">{pe('Governança', 'Governance')}</span>
-          <div className="cv-seg" role="radiogroup" aria-label={pe('Governança', 'Governance')}>
-            <button type="button" role="radio" aria-checked={governance === 'quorum'}
-              className={'cv-segbtn' + (governance === 'quorum' ? ' on' : '')}
-              onClick={() => { setGovernance('quorum'); governanceRef.current = 'quorum' }}>
-              {pe('Sob quórum', 'Quorum-gated')}
+            <button className="rd-enter primary cv-primary" onClick={() => setCreateStep(2)}>
+              {pe('Continuar →', 'Continue →')}
             </button>
-            <button type="button" role="radio" aria-checked={governance === 'open'}
-              className={'cv-segbtn' + (governance === 'open' ? ' on' : '')}
-              onClick={() => { setGovernance('open'); governanceRef.current = 'open' }}>
-              {pe('Aberto', 'Open')}
+            <button type="button" className="cv-linkbtn" onClick={() => setShowJoin(true)}>
+              {pe('Tenho um convite - entrar', 'Have an invite? Join')}
             </button>
-          </div>
-          <span className="cv-govnote">{governance === 'quorum'
-            ? pe('Mudar nomes e beneficiários é decisão do grupo. Mover fundos sempre exige o quórum.',
-                 'Changing names and beneficiaries is a group decision. Moving funds always needs the quorum.')
-            : pe('Qualquer membro edita nomes e beneficiários. Mover fundos sempre exige o quórum.',
-                 'Any member edits names and beneficiaries. Moving funds always needs the quorum.')}</span>
-        </div>
+          </>
+        )}
 
-        <div className="cv-field cv-gov">
-          <span className="cv-k">{pe('PIN de admissão (recomendado)', 'Admission PIN (recommended)')}</span>
-          <input className="cv-nameinput" type="text" maxLength={20} placeholder={pe('opcional, mas mais seguro', 'optional, but safer')}
-            value={pin} onChange={(e) => setPin(e.target.value)} />
-          <span className="cv-govnote">{pe(
-            'Combine um PIN pelos membros e passe SEPARADO do convite. Sem o PIN, quem só tem o convite não acha a sala.',
-            'Agree a PIN and share it SEPARATELY from the invite. Without the PIN, whoever only has the invite cannot find the room.')}</span>
-        </div>
+        {createStep === 2 && (
+          <>
+            <button type="button" className="cv-back" onClick={() => setCreateStep(1)}>{pe('← Voltar', '← Back')}</button>
+            <span className="rd-eyebrow">{pe('PASSO 2 DE 2 · REGRA', 'STEP 2 OF 2 · RULE')}</span>
+            <h2 className="cv-title">{pe('Quem precisa aprovar?', 'Who needs to approve?')}</h2>
+            <p className="cv-lead">{pe('Quantas pessoas, e quantas assinam pra mover dinheiro.', 'How many people, and how many sign to move money.')}</p>
 
-        <button className="rd-enter primary cv-primary"
-          onClick={() => { setRole('create'); void begin('create', newRoomCode(), n, t, pin) }}>
-          {pe('Gerar convite', 'Generate invite')}
-        </button>
-        <button type="button" className="cv-linkbtn" onClick={() => setShowJoin(true)}>
-          {pe('Tenho um convite - entrar', 'Have an invite? Join')}
-        </button>
+            <div className="cv-controls">
+              <div className="cv-field">
+                <span className="cv-k">{pe('Dispositivos', 'Devices')}</span>
+                <div className="cv-stepper">
+                  <button type="button" className="cv-step" disabled={n <= 2} aria-label={pe('menos', 'fewer')}
+                    onClick={() => { const v = n - 1; setN(v); if (t > v) setT(v) }}>−</button>
+                  <span className="cv-num">{n}</span>
+                  <button type="button" className="cv-step" disabled={n >= 5} aria-label={pe('mais', 'more')}
+                    onClick={() => setN(n + 1)}>+</button>
+                </div>
+              </div>
+              <div className="cv-field">
+                <span className="cv-k">{pe('Quórum para assinar', 'Signing quorum')}</span>
+                <div className="cv-stepper">
+                  <button type="button" className="cv-step" disabled={t <= 1} aria-label={pe('menos', 'fewer')}
+                    onClick={() => setT(t - 1)}>−</button>
+                  <span className="cv-num">{t} <em>{pe('de', 'of')} {n}</em></span>
+                  <button type="button" className="cv-step" disabled={t >= n} aria-label={pe('mais', 'more')}
+                    onClick={() => setT(t + 1)}>+</button>
+                </div>
+              </div>
+            </div>
+
+            <div className="cv-trust">{trustSentence}</div>
+
+            <button type="button" className="cv-adv" aria-expanded={advOpen} onClick={() => setAdvOpen((v) => !v)}>
+              {advOpen ? '⌄' : '›'} {pe('Avançado (governança, PIN)', 'Advanced (governance, PIN)')}
+            </button>
+            {advOpen && (
+              <>
+                <div className="cv-field cv-gov">
+                  <span className="cv-k">{pe('Governança', 'Governance')}</span>
+                  <div className="cv-seg" role="radiogroup" aria-label={pe('Governança', 'Governance')}>
+                    <button type="button" role="radio" aria-checked={governance === 'quorum'}
+                      className={'cv-segbtn' + (governance === 'quorum' ? ' on' : '')}
+                      onClick={() => { setGovernance('quorum'); governanceRef.current = 'quorum' }}>
+                      {pe('Sob quórum', 'Quorum-gated')}
+                    </button>
+                    <button type="button" role="radio" aria-checked={governance === 'open'}
+                      className={'cv-segbtn' + (governance === 'open' ? ' on' : '')}
+                      onClick={() => { setGovernance('open'); governanceRef.current = 'open' }}>
+                      {pe('Aberto', 'Open')}
+                    </button>
+                  </div>
+                  <span className="cv-govnote">{governance === 'quorum'
+                    ? pe('Mudar nomes e beneficiários é decisão do grupo. Mover fundos sempre exige o quórum.',
+                         'Changing names and beneficiaries is a group decision. Moving funds always needs the quorum.')
+                    : pe('Qualquer membro edita nomes e beneficiários. Mover fundos sempre exige o quórum.',
+                         'Any member edits names and beneficiaries. Moving funds always needs the quorum.')}</span>
+                </div>
+
+                <div className="cv-field cv-gov">
+                  <span className="cv-k">{pe('PIN de admissão (recomendado)', 'Admission PIN (recommended)')}</span>
+                  <input className="cv-nameinput" type="text" maxLength={20} placeholder={pe('opcional, mas mais seguro', 'optional, but safer')}
+                    value={pin} onChange={(e) => setPin(e.target.value)} />
+                  <span className="cv-govnote">{pe(
+                    'Combine um PIN pelos membros e passe SEPARADO do convite. Sem o PIN, quem só tem o convite não acha a sala.',
+                    'Agree a PIN and share it SEPARATELY from the invite. Without the PIN, whoever only has the invite cannot find the room.')}</span>
+                </div>
+              </>
+            )}
+
+            <button className="rd-enter primary cv-primary"
+              onClick={() => { setRole('create'); void begin('create', newRoomCode(), n, t, pin) }}>
+              {pe('Gerar convite', 'Generate invite')}
+            </button>
+          </>
+        )}
       </Shell>
     )
   }
