@@ -104,7 +104,7 @@ function Shell({ error, children, onDashboard, embedded }: { error: string; chil
 }
 
 
-export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
+export default function NetVault({ embedded, initialJoin }: { embedded?: boolean; initialJoin?: boolean } = {}) {
   const tt = useT()
   const ttr = useTr()
   const { locale } = useI18n()
@@ -138,7 +138,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
   const [joinCode, setJoinCode] = useState('')
   const [n, setN] = useState(2)
   const [t, setT] = useState(2)
-  const [showJoin, setShowJoin] = useState(false) // embedded create modal: Join is a secondary reveal
+  const [showJoin, setShowJoin] = useState(!!initialJoin) // Join door opens straight into the join screen
   const [vaultName, setVaultName] = useState('') // user-given vault name (create modal)
   const vaultNameRef = useRef('') // read at register time (after DKG), avoids a stale closure
   const [codeCopied, setCodeCopied] = useState(false) // invite-copied feedback
