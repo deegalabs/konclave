@@ -4,7 +4,7 @@ import { getVaults, health, setSelectedVault, unlockVault, markVaultUnlocked, is
 import { MOCK } from '../mock'
 import { helperConfigured, getCustomHelper, setCoordMode, HELPER_BASE } from '../helper'
 import { isDesktop } from '../platform'
-import { listVaults, loadVault } from '../storage'
+import { listVaults, loadVault, importVault, parseVaultExport } from '../storage'
 import { setUnlockedShare } from '../session'
 import { Identicon } from '../avatar'
 import { Dialog, Letterhead, activateOnKey } from '../components'
@@ -39,6 +39,48 @@ export default function Vaults() {
   const [choosing, setChoosing] = useState(false)
   const [customStep, setCustomStep] = useState(false)
   const [chooseUrl, setChooseUrl] = useState(getCustomHelper())
+  // Import a vault export (#214): paste the bundle or pick the file, then unlock with its passphrase.
+  const [importing, setImporting] = useState(false)
+  const [impText, setImpText] = useState('')
+  const [impPass, setImpPass] = useState('')
+  const [impBusy, setImpBusy] = useState(false)
+  const [impErr, setImpErr] = useState<string | null>(null)
+
+  async function doImport() {
+    setImpErr(null)
+    if (!impText.trim()) { setImpErr(t('import.errEmpty')); return }
+    if (!impPass) { setImpErr(t('import.errPass')); return }
+    setImpBusy(true)
+    try {
+      const bundle = parseVaultExport(impText.trim())
+      const meta = await importVault(bundle, impPass)
+      const row: Row = {
+        src: 'net',
+        v: {
+          id: meta.id,
+          name: meta.name || t('vaults.networkedVault'),
+          threshold: 0,
+          total: meta.roster.length,
+          members: meta.roster.length,
+          member_list: meta.roster.map((name) => ({ name, pubkey: name })),
+          group_pubkey: meta.groupKey,
+          orchard_address: meta.address,
+        },
+      }
+      setRows((prev) => (prev.some((r) => r.v.id === meta.id) ? prev.map((r) => (r.v.id === meta.id ? row : r)) : [row, ...prev]))
+      setImporting(false); setImpText(''); setImpPass('')
+    } catch (e) {
+      setImpErr(e instanceof Error ? e.message : t('import.errGeneric'))
+    } finally {
+      setImpBusy(false)
+    }
+  }
+  function onImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0]
+    if (!f) return
+    void f.text().then((txt) => { setImpText(txt); setImpErr(null) }).catch(() => setImpErr(t('import.errFile')))
+    e.target.value = '' // allow re-picking the same file
+  }
 
   // Route the create card: on desktop, ask the coordination mode first; on the web the helper is
   // fixed, so go straight (helper -> browser DKG dialog, else the local /create ceremony).
@@ -189,9 +231,35 @@ export default function Vaults() {
             onKeyDown={activateOnKey(() => nav('/intro'))}>{t('vaults.howItWorks')}</span>
           {' · '}<span className="rd-link" onClick={() => nav('/demo')} role="link" tabIndex={0}
             onKeyDown={activateOnKey(() => nav('/demo'))}>{t('demo.watchCta')}</span>
+          {!IS_DEMO && <> · <span className="rd-link" onClick={() => { setImporting(true); setImpErr(null) }} role="link" tabIndex={0}
+            onKeyDown={activateOnKey(() => { setImporting(true); setImpErr(null) })}>{t('import.link')}</span></>}
           {!live && <> · <i>{t('vaults.demoMode')}</i></>}
         </div>
       </main>
+
+      {importing && (
+        <Dialog className="unlock-overlay" cardClassName="unlock-card" labelledBy="import-title" onClose={() => setImporting(false)}>
+          <div className="rd-eyebrow">{t('import.eyebrow')}</div>
+          <h2 id="import-title">{t('import.title')}</h2>
+          <p>{t('import.help')}</p>
+          <textarea className="unlock-input mono" style={{ minHeight: 92, resize: 'vertical' }} placeholder={t('import.pastePlaceholder')}
+            value={impText} onChange={(e) => { setImpText(e.target.value); setImpErr(null) }} spellCheck={false} />
+          <label className="rd-link" style={{ display: 'inline-block', marginTop: 6, cursor: 'pointer' }}>
+            {t('import.orFile')}
+            <input type="file" accept=".json,.konclave,application/json" style={{ display: 'none' }} onChange={onImportFile} />
+          </label>
+          <input className="unlock-input mono" type="password" style={{ marginTop: 10 }} placeholder={t('import.passPlaceholder')}
+            value={impPass} onChange={(e) => { setImpPass(e.target.value); setImpErr(null) }}
+            onKeyDown={(e) => { if (e.key === 'Enter') void doImport() }} />
+          {impErr && <div className="unlock-err" role="alert">{impErr}</div>}
+          <div className="unlock-btns">
+            <button className="rd-enter" onClick={() => setImporting(false)}>{t('common.cancel')}</button>
+            <button className="rd-enter primary" onClick={() => void doImport()} disabled={impBusy || !impText.trim() || !impPass}>
+              {impBusy ? t('import.importing') : t('import.btn')}
+            </button>
+          </div>
+        </Dialog>
+      )}
 
       {unlocking && (
         <Dialog className="unlock-overlay" cardClassName="unlock-card" labelledBy="unlock-title" onClose={() => setUnlocking(null)}>

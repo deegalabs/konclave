@@ -1,6 +1,9 @@
 import 'fake-indexeddb/auto'
 import { describe, it, expect } from 'vitest'
-import { saveVault, loadVault, listVaults, deleteVault, storageAvailable, type VaultData } from './storage'
+import {
+  saveVault, loadVault, listVaults, deleteVault, storageAvailable,
+  exportVault, importVault, parseVaultExport, type VaultData,
+} from './storage'
 
 // Covers the on-device share persistence (Marco 5): the encrypted IndexedDB round-trip that
 // `storage.ts` performs. fake-indexeddb provides IndexedDB; Node's WebCrypto provides
@@ -59,5 +62,67 @@ describe('storage - encrypted IndexedDB persistence', () => {
   it('requires an id and a passphrase to save', async () => {
     await expect(saveVault('', data, 'p')).rejects.toThrow(/id is required/i)
     await expect(saveVault('x', data, '')).rejects.toThrow(/passphrase is required/i)
+  })
+})
+
+describe('storage - portable vault export/import (#214)', () => {
+  const pass = 'move-me-to-another-device'
+
+  it('exports an encrypted bundle that never contains the plaintext share', async () => {
+    await saveVault('exp1', data, pass)
+    const bundle = await exportVault('exp1', pass)
+    expect(bundle.format).toBe('konclave-vault-export')
+    expect(bundle.version).toBe(1)
+    expect(bundle.vault.id).toBe('exp1')
+    expect(bundle.vault.groupKey).toBe('07'.repeat(32))
+    // The 1..32 secret share bytes must never appear anywhere in the serialized bundle.
+    const json = JSON.stringify(bundle)
+    expect(json).not.toContain(JSON.stringify(Array.from(share)))
+    expect(json).not.toContain(share.reduce((s, b) => s + b.toString(16).padStart(2, '0'), ''))
+  })
+
+  it('export rejects a wrong passphrase', async () => {
+    await saveVault('exp2', data, pass)
+    await expect(exportVault('exp2', 'nope')).rejects.toThrow(/wrong passphrase|tampered/i)
+  })
+
+  it('round-trips across a fresh device: export -> delete -> import -> load recovers the share', async () => {
+    await saveVault('exp3', data, pass)
+    const bundle = await exportVault('exp3', pass)
+    const roundtripped = parseVaultExport(JSON.stringify(bundle)) // survives file/paste serialization
+    await deleteVault('exp3') // simulate a new device with no record
+    expect((await listVaults()).map((x) => x.id)).not.toContain('exp3')
+
+    const meta = await importVault(roundtripped, pass)
+    expect(meta.id).toBe('exp3')
+    expect(meta.name).toBe('Test vault')
+
+    const loaded = await loadVault('exp3', pass)
+    expect(Array.from(loaded.sealedShare)).toEqual(Array.from(share))
+    expect(Array.from(loaded.groupKey)).toEqual(Array.from(groupKey))
+    expect(loaded.roster).toEqual(['Alice', 'Bob', 'Carol'])
+  })
+
+  it('import rejects a wrong passphrase before writing anything', async () => {
+    await saveVault('exp4', data, pass)
+    const bundle = await exportVault('exp4', pass)
+    await deleteVault('exp4')
+    await expect(importVault(bundle, 'wrong')).rejects.toThrow(/wrong passphrase/i)
+    expect((await listVaults()).map((x) => x.id)).not.toContain('exp4')
+  })
+
+  it('import refuses to overwrite an existing vault unless overwrite is set', async () => {
+    await saveVault('exp5', data, pass)
+    const bundle = await exportVault('exp5', pass)
+    await expect(importVault(bundle, pass)).rejects.toThrow(/already exists/i)
+    // With overwrite it succeeds.
+    const meta = await importVault(bundle, pass, { overwrite: true })
+    expect(meta.id).toBe('exp5')
+  })
+
+  it('parseVaultExport rejects junk and foreign JSON', () => {
+    expect(() => parseVaultExport('not json')).toThrow(/not valid JSON|not a Konclave/i)
+    expect(() => parseVaultExport(JSON.stringify({ format: 'something-else' }))).toThrow(/not a Konclave/i)
+    expect(() => parseVaultExport(JSON.stringify({ format: 'konclave-vault-export', version: 1 }))).toThrow(/incomplete|corrupt/i)
   })
 })
