@@ -339,6 +339,15 @@
 .cv-input{background:var(--surface-0); border:1px solid var(--line); border-radius:9px; color:var(--text); padding:11px 13px; font-family:var(--font-mono); letter-spacing:.14em; text-align:center; font-size:15px; box-sizing:border-box}
 .cv-input:focus{outline:none; border-color:var(--accent-line)}
 
+/* Create-done backup card: the portable, encrypted copy of the just-created vault (download/copy). */
+.cv-backup{margin-top:16px; display:flex; flex-direction:column; gap:12px}
+.cv-backup-file{display:flex; align-items:center; gap:10px; padding:12px 14px; border:1px solid var(--line);
+  border-radius:10px; background:var(--surface-0); color:var(--accent)}
+.cv-backup-name{color:var(--text); font-size:13px; word-break:break-all}
+.cv-backup-btns{display:flex; gap:10px}
+.cv-backup-btns .cv-primary{flex:1}
+.cv-backup-btns .btn{flex:0 0 auto}
+
 /* Create-modal phases: seats filling (gathering), a running spinner (DKG). */
 .cv-seats{display:flex; gap:8px; margin:16px 0 6px}
 .cv-seat{flex:1; height:34px; border-radius:9px; border:1px solid var(--line-soft); background:var(--surface-2)}

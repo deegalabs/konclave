@@ -19,11 +19,13 @@ import {
   loadVault,
   listVaults,
   deleteVault,
+  exportVault,
   storageAvailable,
   type VaultPublic,
   type VaultLoaded,
   type Governance,
 } from '../storage'
+import { downloadText } from '../download'
 import {
   helperConfigured,
   registerVault,
@@ -191,6 +193,11 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
   const [savePass, setSavePass] = useState('')
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle')
   const [saveErr, setSaveErr] = useState('')
+  // Backup-on-create (create-done step): the encrypted portable copy is built at save time (reusing
+  // the just-entered passphrase) so the operator can download/copy it before opening the vault. The
+  // file is useless without the passphrase; the share never travels in the clear.
+  const [backup, setBackup] = useState<{ json: string; name: string } | null>(null)
+  const [backupCopied, setBackupCopied] = useState(false)
   const [savedVaults, setSavedVaults] = useState<VaultPublic[]>([])
   const [restorePass, setRestorePass] = useState<Record<string, string>>({})
   const [restoreBusy, setRestoreBusy] = useState('')
@@ -720,10 +727,18 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
       // Who set up the vault (the device that generated the invite); rides the config broadcast so
       // every device agrees. A real fixed fact, unlike the per-ceremony FROST coordinator role.
       const creator = cfg?.cn || undefined
-      await saveVault(hex(gvk), { name: nm, governance: gov, myName: mine, creatorName: creator, groupKey: gvk, address: '', roster, sealedShare: bundle }, savePass)
+      const vaultId = hex(gvk)
+      await saveVault(vaultId, { name: nm, governance: gov, myName: mine, creatorName: creator, groupKey: gvk, address: '', roster, sealedShare: bundle }, savePass)
       // Also keep the just-created share unlocked in memory for this session, so the operator can
       // sign from the app immediately without re-entering the passphrase (the access model).
-      setUnlockedShare(hex(gvk), { name: nm, governance: gov, myName: mine, creatorName: creator, groupKey: gvk, address: '', roster, sealedShare: bundle, createdAt: 0 })
+      setUnlockedShare(vaultId, { name: nm, governance: gov, myName: mine, creatorName: creator, groupKey: gvk, address: '', roster, sealedShare: bundle, createdAt: 0 })
+      // Build the portable backup NOW, while we still hold the passphrase, so the create-done step can
+      // offer download/copy without a second prompt. A backup failure must never block opening the vault.
+      try {
+        const exp = await exportVault(vaultId, savePass)
+        const safe = (nm ?? 'konclave-vault').replace(/[^\w.-]+/g, '-').toLowerCase()
+        setBackup({ json: JSON.stringify(exp, null, 2), name: `${safe}.konclave.json` })
+      } catch { /* backup is optional; the vault is already saved on this device */ }
       setSaveState('saved')
       setSavePass('')
       await refreshSaved()
@@ -732,6 +747,18 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
       setSaveErr(L.saveErr + String(e))
     }
   }, [savePass, L, refreshSaved])
+
+  const doBackupDownload = useCallback(() => {
+    if (backup) downloadText(backup.name, backup.json)
+  }, [backup])
+  const doBackupCopy = useCallback(async () => {
+    if (!backup) return
+    try {
+      await navigator.clipboard.writeText(backup.json)
+      setBackupCopied(true)
+      setTimeout(() => setBackupCopied(false), 1500)
+    } catch { /* clipboard blocked; the download button still works */ }
+  }, [backup])
 
   // Restore a saved vault: unlock with the passphrase, bring the vault identity back into view
   // WITHOUT redoing the DKG. The secret material is held in memory (restoredRef) for a future
@@ -780,11 +807,13 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
     if (v) applyLoaded(v)
   }, [phase, applyLoaded, embedded])
 
-  // Embedded create modal: once the just-created share is protected (saved), open the app.
+  // Embedded create modal: once the share is protected (saved), do NOT jump straight to the app -
+  // the create-done step now shows a backup card first (download/copy the portable copy), and the
+  // operator opens the vault from there. Only auto-open if there was nothing to back up.
   useEffect(() => {
-    if (embedded && saveState === 'saved') openDashboard()
+    if (embedded && saveState === 'saved' && !backup) openDashboard()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [embedded, saveState])
+  }, [embedded, saveState, backup])
 
   const doDelete = useCallback(
     async (id: string) => {
@@ -880,7 +909,7 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
           <>
             <span className="rd-eyebrow">{pe('PASSO 1 DE 2 · NOME', 'STEP 1 OF 2 · NAME')}</span>
             <h2 className="cv-title">{pe('Como se chama o cofre?', 'What’s the vault called?')}</h2>
-            <p className="cv-lead">{pe('Um nome pra vocês reconhecerem. Dá pra mudar depois.', 'A name you’ll recognize — you can change it later.')}</p>
+            <p className="cv-lead">{pe('Um nome pra vocês reconhecerem. Dá pra mudar depois.', 'A name you’ll recognize. You can change it later.')}</p>
             <div className="cv-field cv-name">
               <span className="cv-k">{pe('Nome do cofre', 'Vault name')}</span>
               <input className="cv-nameinput" type="text" maxLength={40} autoFocus
@@ -899,7 +928,7 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
               {pe('Continuar →', 'Continue →')}
             </button>
             <button type="button" className="cv-linkbtn" onClick={() => setShowJoin(true)}>
-              {pe('Tenho um convite - entrar', 'Have an invite? Join')}
+              {pe('Tenho um convite? Entrar', 'Have an invite? Join')}
             </button>
           </>
         )}
@@ -940,8 +969,8 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
               <div className="cv-warn" role="note">
                 <span className="cv-warn-tag">{pe('Sem margem de recuperação', 'No recovery margin')}</span>
                 {pe(
-                  `Se um aparelho for perdido, os fundos ficam presos — não há como recuperar. Recomendamos ${t} de ${t + 1}.`,
-                  `If one device is lost, the funds are locked — there is no way to recover. We recommend ${t} of ${t + 1}.`,
+                  `Se um aparelho for perdido, os fundos ficam presos, sem como recuperar. Recomendamos ${t} de ${t + 1}.`,
+                  `If one device is lost, the funds are locked, with no way to recover. We recommend ${t} of ${t + 1}.`,
                 )}
               </div>
             )}
@@ -1251,8 +1280,8 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
             <p className="cv-seatlabel">{rosterCount} {pe('de', 'of')} {total} {pe('conectados', 'connected')}</p>
             {role === 'join' && joinSlow && (
               <div className="cv-trust" style={{ marginTop: 14 }}>{pe(
-                'Ainda não encontramos o cofre. Confira o código e o PIN (o PIN vem separado do convite) — ou aguarde os outros aparelhos entrarem.',
-                'We haven’t found the vault yet. Check the code and the PIN (the PIN comes separately from the invite) — or wait for the other devices to join.')}</div>
+                'Ainda não encontramos o cofre. Confira o código e o PIN (o PIN vem separado do convite), ou aguarde os outros aparelhos entrarem.',
+                'We haven’t found the vault yet. Check the code and the PIN (the PIN comes separately from the invite), or wait for the other devices to join.')}</div>
             )}
           </>
         )}
@@ -1263,7 +1292,33 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
             <p className="cv-lead">{pe('Cada aparelho gera o seu pedaço por DKG. A chave inteira nunca é montada. Não feche esta janela.', 'Each device generates its share by DKG. The whole key is never assembled. Do not close this window.')}</p>
           </div>
         )}
-        {phase === 'done' && (
+        {phase === 'done' && saveState === 'saved' && backup && (
+          <>
+            <span className="rd-eyebrow">{pe('FAÇA O BACKUP', 'BACK IT UP')}</span>
+            <h2 className="cv-title">{pe('Guarde uma cópia do cofre', 'Save a copy of the vault')}</h2>
+            <p className="cv-lead">{pe('Este arquivo é a sua cópia portátil do cofre, cifrada com a frase-senha que você acabou de criar. Guarde em outro aparelho ou num gerenciador de senhas. Sem ele, perder este aparelho pode custar o seu acesso.', 'This file is your portable copy of the vault, encrypted with the passphrase you just created. Keep it on another device or in a password manager. Without it, losing this device can cost you access.')}</p>
+            <div className="cv-backup">
+              <div className="cv-backup-file mono">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M14 3v4a1 1 0 0 0 1 1h4" /><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z" />
+                </svg>
+                <span className="cv-backup-name">{backup.name}</span>
+              </div>
+              <div className="cv-backup-btns">
+                <button type="button" className="rd-enter primary cv-primary" onClick={doBackupDownload}>
+                  {pe('Baixar arquivo', 'Download file')}
+                </button>
+                <button type="button" className="btn ghost" onClick={() => void doBackupCopy()}>
+                  {backupCopied ? tt('members.fpCopied') : pe('Copiar', 'Copy')}
+                </button>
+              </div>
+            </div>
+            <button type="button" className="cv-linkbtn" onClick={openDashboard}>
+              {pe('Já guardei, abrir o cofre →', 'Saved it, open the vault →')}
+            </button>
+          </>
+        )}
+        {phase === 'done' && !(saveState === 'saved' && backup) && (
           <>
             <span className="rd-eyebrow">{pe('COFRE CRIADO', 'VAULT CREATED')}</span>
             <h2 className="cv-title">{pe('Pronto', 'Done')}</h2>
@@ -1289,11 +1344,11 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
                 onClick={() => void doSave()}>
                 {saveState === 'saving' ? pe('Guardando…', 'Saving…')
                   : hostedState !== 'registered' ? pe('Registrando o cofre…', 'Registering the vault…')
-                  : pe('Proteger e abrir o cofre →', 'Protect and open the vault →')}
+                  : pe('Proteger o cofre →', 'Protect the vault →')}
               </button>
               {hostedState === 'registered' && (
                 <button type="button" className="cv-linkbtn cv-danger" onClick={openDashboard}>
-                  {pe('Abrir sem guardar - você perde o seu pedaço ao recarregar. Proteja com uma frase-senha.', 'Open without saving - you lose your share on reload. Protect it with a passphrase.')}
+                  {pe('Abrir sem guardar: você perde o seu pedaço ao recarregar. Proteja com uma frase-senha.', 'Open without saving: you lose your share on reload. Protect it with a passphrase.')}
                 </button>
               )}
             </div>

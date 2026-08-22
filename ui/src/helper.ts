@@ -341,7 +341,7 @@ export async function executeProposal(args: {
       // (e.g. an OOM during proving, #135) — give a clear, non-alarming money-path message instead of
       // a bare "HTTP 502". A precise helper error (the ~7 send stages) is always preferred.
       const msg = raw || (res.status === 502 || res.status === 503
-        ? 'The coordinator is over capacity or restarting. Your funds are safe — nothing was sent. Retry in a moment.'
+        ? 'The coordinator is over capacity or restarting. Your funds are safe. Nothing was sent. Retry in a moment.'
         : `HTTP ${res.status}`)
       return { error: msg }
     }

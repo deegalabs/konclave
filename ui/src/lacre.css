@@ -250,9 +250,11 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 .rail-vault-chip.open .rv-caret{transform:rotate(180deg)}
 
 /* switcher popover (opens upward, above the chip) */
-.vault-pop{position:absolute; bottom:calc(100% + 8px); left:0; right:0; z-index:60;
+/* Open the switcher to the RIGHT of the rail, floating over the page (not cramped inside the narrow
+   rail column). Bottom-aligned to the chip so it rises alongside it. Mobile overrides below. */
+.vault-pop{position:absolute; bottom:0; left:calc(100% + 12px); right:auto; z-index:70; min-width:248px;
   background:var(--surface-0); border:1px solid var(--line-strong); border-radius:var(--radius);
-  box-shadow:var(--shadow-pop, 0 8px 30px rgba(0,0,0,.28)); padding:6px; display:flex; flex-direction:column; gap:2px}
+  box-shadow:var(--shadow-pop, 0 14px 40px rgba(0,0,0,.38)); padding:6px; display:flex; flex-direction:column; gap:2px}
 .vault-pop-row{display:flex; align-items:center; gap:9px; padding:8px 9px; border:0; background:transparent; border-radius:calc(var(--radius) - 4px);
   cursor:pointer; color:inherit; text-align:left; width:100%; font-size:13px}
 .vault-pop-row:hover{background:var(--surface-1)}
@@ -271,6 +273,9 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 /* the mobile "More" affordance + sheet are off on desktop (the rail shows every item) */
 .nav-more-btn{display:none}
 .nav-more-sheet, .nav-more-scrim{display:none}
+/* On desktop the switcher's outside-click catcher is a transparent full-screen layer just under the
+   popover, so clicking anywhere off the menu closes it. (The mobile "More" scrim is styled below.) */
+.vault-scrim{display:block; position:fixed; inset:0; z-index:69; background:transparent}
 
 /* "live" status pill */
 .live{display:inline-flex; align-items:center; gap:7px; font-family:var(--font-mono); font-size:11px; letter-spacing:.06em;

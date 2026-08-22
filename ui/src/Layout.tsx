@@ -209,7 +209,7 @@ export default function Layout() {
 
             {switchOpen && (
               <>
-                <div className="nav-more-scrim" onClick={() => setSwitchOpen(false)} aria-hidden="true" />
+                <div className="nav-more-scrim vault-scrim" onClick={() => setSwitchOpen(false)} aria-hidden="true" />
                 <div className="vault-pop" role="menu" aria-label={t('nav.switchVault')}>
                   {vaults.map((v) => (
                     <button
