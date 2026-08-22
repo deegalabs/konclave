@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router-dom'
 import { Seal, Loading, LangToggle } from '../components'
 import { PageHeader, PageFooter } from '../page'
 import { useT, useTr } from '../i18n'
-import { getVault, health, shortAddr, deleteVault, IS_DEMO, type Vault } from '../api'
-import { listVaults, type Governance } from '../storage'
+import { getVault, getSelectedVault, health, shortAddr, deleteVault, IS_DEMO, type Vault } from '../api'
+import { listVaults, exportVault, type Governance } from '../storage'
+import { downloadText } from '../download'
 import { vaultFingerprint } from '../format'
 import { getTheme, setTheme, type Theme } from '../theme'
 import { getCoordMode, setCoordMode, getCustomHelper, HELPER_BASE, type CoordMode } from '../helper'
@@ -39,6 +40,14 @@ export default function Settings() {
   // Settings (with the other vault-identity facts), not on the Signers roster (#160).
   const [fp, setFp] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  // Export this vault (#214): only for vaults with a local encrypted record on this device (the
+  // browser-native/relay path). The export is the sealed share + public record; never plaintext.
+  const [hasLocal, setHasLocal] = useState(false)
+  const [xpOpen, setXpOpen] = useState(false)
+  const [xpPass, setXpPass] = useState('')
+  const [xpBusy, setXpBusy] = useState(false)
+  const [xpErr, setXpErr] = useState<string | null>(null)
+  const [xpCopied, setXpCopied] = useState(false)
 
   useEffect(() => {
     let on = true
@@ -59,7 +68,7 @@ export default function Settings() {
           try {
             const saved = await listVaults()
             const found = saved.find((s) => s.id === v.id)
-            if (on) setGov(found?.governance ?? 'open')
+            if (on) { setGov(found?.governance ?? 'open'); setHasLocal(!!found) }
             if (found?.groupKey) identity = found.groupKey
           } catch { /* no local record (local-bridge mode) - leave governance unshown */ }
         }
@@ -79,6 +88,36 @@ export default function Settings() {
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     } catch { /* clipboard blocked - the code is visible to read aloud anyway */ }
+  }
+
+  async function runExport(): Promise<{ json: string; name: string } | null> {
+    setXpErr(null)
+    const id = getSelectedVault()
+    if (!id) { setXpErr(t('export.errNoVault')); return null }
+    if (xpPass.length < 1) { setXpErr(t('export.errPass')); return null }
+    try {
+      const bundle = await exportVault(id, xpPass)
+      const json = JSON.stringify(bundle, null, 2)
+      const safe = (vault?.name ?? 'konclave-vault').replace(/[^\w.-]+/g, '-').toLowerCase()
+      return { json, name: `${safe}.konclave.json` }
+    } catch (e) {
+      setXpErr(e instanceof Error ? e.message : t('export.errGeneric'))
+      return null
+    }
+  }
+  async function exportDownload() {
+    setXpBusy(true)
+    const out = await runExport()
+    setXpBusy(false)
+    if (out) downloadText(out.name, out.json)
+  }
+  async function exportCopy() {
+    setXpBusy(true)
+    const out = await runExport()
+    setXpBusy(false)
+    if (out) {
+      try { await navigator.clipboard.writeText(out.json); setXpCopied(true); setTimeout(() => setXpCopied(false), 1500) } catch { setXpErr(t('export.errClipboard')) }
+    }
   }
 
   const thr = vault?.threshold ?? 2
@@ -201,6 +240,32 @@ export default function Settings() {
           <div className="fp-help dim">{tr('members.fpHelp')}</div>
         </div>
       )}
+
+      {hasLocal && (
+        <section className="set-list mt">
+          <div className="set-row">
+            <span className="set-k">{t('export.title')}</span>
+            <span className="set-v">
+              {!xpOpen
+                ? <button type="button" className="btn ghost" onClick={() => { setXpOpen(true); setXpErr(null) }}>{t('export.btn')}</button>
+                : <button type="button" className="btn ghost" onClick={() => { setXpOpen(false); setXpPass(''); setXpErr(null) }}>{t('common.cancel')}</button>}
+            </span>
+          </div>
+          {xpOpen && (
+            <div className="set-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 10 }}>
+              <p className="set-hint" style={{ margin: 0 }}>{t('export.help')}</p>
+              <input className="input mono" type="password" autoFocus placeholder={t('export.passPlaceholder')}
+                value={xpPass} onChange={(e) => { setXpPass(e.target.value); setXpErr(null) }} />
+              {xpErr && <p className="set-err">{xpErr}</p>}
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button type="button" className="btn ok" disabled={xpBusy || !xpPass} onClick={() => void exportDownload()}>{xpBusy ? '…' : t('export.download')}</button>
+                <button type="button" className="btn ghost" disabled={xpBusy || !xpPass} onClick={() => void exportCopy()}>{xpCopied ? t('members.fpCopied') : t('export.copy')}</button>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+      {hasLocal && <p className="set-hint">{t('export.note')}</p>}
 
       <section className="set-danger mt">
         <h2 className="set-danger-title">{t('settings.danger')}</h2>
