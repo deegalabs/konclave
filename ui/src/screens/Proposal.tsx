@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { usePoll } from '../usePoll'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Secret, Dialog, Loading } from '../components'
 import { PageHeader } from '../page'
@@ -19,6 +20,7 @@ export default function Proposal() {
   const nav = useNavigate()
   const { open: openSigning } = useVaultSigner()
   const [p, setP] = useState<Proposal | null>(null)
+  const [pid, setPid] = useState<string | null>(null)
   const [lines, setLines] = useState<PayrollLine[]>([])
   const [threshold, setThreshold] = useState(2)
   const [members, setMembers] = useState<string[]>([])
@@ -53,6 +55,7 @@ export default function Proposal() {
       }
       const detail = id ? await getProposalDetail(id) : null
       if (on) {
+        setPid(id ?? null)
         setP(detail?.proposal ?? null)
         setLines(detail?.lines ?? [])
         setLoading(false)
@@ -60,6 +63,18 @@ export default function Proposal() {
     })()
     return () => { on = false }
   }, [loc.state])
+
+  // Live refresh: re-fetch the proposal so approvals/refusals from other members appear on their own
+  // (and a Sent proposal flips to Confirmed) without a manual reload. Paused while the tab is hidden;
+  // suspended for a terminal proposal and while THIS device is mid-action (voting/sending). (#123)
+  const terminal = !!p && ['confirmed', 'rejected', 'expired', 'cancelled', 'superseded'].includes(p.state)
+  usePoll(() => {
+    if (busy || sending) return
+    void (async () => {
+      const detail = pid ? await getProposalDetail(pid) : null
+      if (detail?.proposal) { setP(detail.proposal); setLines(detail.lines ?? []) }
+    })()
+  }, 8000, !!pid && !terminal)
 
   async function vote(approve: boolean) {
     if (!p) return
