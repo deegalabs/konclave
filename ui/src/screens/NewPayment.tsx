@@ -23,7 +23,7 @@ export default function NewPayment() {
   const tr = useTr()
   const nav = useNavigate()
   const [to, setTo] = useState('')
-  const [value, setValue] = useState('0.5')
+  const [value, setValue] = useState('') // never prefill an amount — the one field with financial consequence
   const [memo, setMemo] = useState('')
   const [threshold, setThreshold] = useState(2)
   const [available, setAvailable] = useState<string | null>(null)
