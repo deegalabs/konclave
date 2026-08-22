@@ -248,6 +248,10 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
   // Ceremony watchdog: fires if the vault isn't created in time (a peer never joined, a
   // message was lost) - surfaces an error instead of hanging on "Criando…" forever (§8).
   const ceremonyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Join fail-fast (#213/3): if a joiner hasn't heard the host's config in ~15s (wrong code/PIN, or
+  // nobody hosting yet), surface an actionable hint instead of waiting out the 90s ceremony timeout.
+  const joinTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [joinSlow, setJoinSlow] = useState(false)
 
   const addLog = useCallback((line: string) => setLog((l) => [...l, line]), [])
 
@@ -388,6 +392,9 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
           setN(parsed.n)
           setT(parsed.t)
           if (parsed.g) { setGovernance(parsed.g); governanceRef.current = parsed.g }
+          // Heard the host: the joiner is in the right room — clear the fail-fast hint.
+          setJoinSlow(false)
+          if (joinTimerRef.current) { clearTimeout(joinTimerRef.current); joinTimerRef.current = null }
         }
         return true
       }
@@ -541,6 +548,15 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
             setError(tt('net.err.timeout'))
           }
         }, 90000)
+        // Fail-fast hint for a joiner who never hears the host's config (non-fatal; the ceremony
+        // still runs, and a slow-but-valid host clears it when config arrives).
+        setJoinSlow(false)
+        if (joinTimerRef.current) clearTimeout(joinTimerRef.current)
+        if (asRole === 'join') {
+          joinTimerRef.current = setTimeout(() => {
+            if (!configRef.current && !part3DoneRef.current) setJoinSlow(true)
+          }, 15000)
+        }
         // The creator declares the group size/threshold; everyone announces their enc key.
         if (asRole === 'create') {
           configRef.current = { n: total, t: threshold, g: governanceRef.current, cn: myNameRef.current.trim() || undefined }
@@ -792,6 +808,7 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
     return () => {
       sessionRef.current?.stop()
       if (ceremonyTimerRef.current) clearTimeout(ceremonyTimerRef.current)
+      if (joinTimerRef.current) clearTimeout(joinTimerRef.current)
     }
   }, [])
 
@@ -1222,6 +1239,11 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
               ))}
             </div>
             <p className="cv-seatlabel">{rosterCount} {pe('de', 'of')} {total} {pe('conectados', 'connected')}</p>
+            {role === 'join' && joinSlow && (
+              <div className="cv-trust" style={{ marginTop: 14 }}>{pe(
+                'Ainda não encontramos o cofre. Confira o código e o PIN (o PIN vem separado do convite) — ou aguarde os outros aparelhos entrarem.',
+                'We haven’t found the vault yet. Check the code and the PIN (the PIN comes separately from the invite) — or wait for the other devices to join.')}</div>
+            )}
           </>
         )}
         {phase === 'dkg' && (
