@@ -60,6 +60,20 @@ jobs:
       - name: Build UI
         run: pnpm -C ui run build
 
+      # Pull the release notes for this tag from CHANGELOG.md so the GitHub release matches the
+      # in-app version. Runs once (Linux) and feeds every platform's upload of the same release.
+      - name: Release notes from CHANGELOG
+        id: notes
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          {
+            echo 'body<<KONCLAVE_EOF'
+            node scripts/release.mjs --notes "${{ inputs.tag || github.ref_name }}"
+            echo ''
+            echo 'Desktop installers (Windows / macOS / Linux) are attached below.'
+            echo 'KONCLAVE_EOF'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build + attach installers
         uses: tauri-apps/tauri-action@v0
         env:
@@ -68,6 +82,6 @@ jobs:
           projectPath: .
           tagName: ${{ inputs.tag || github.ref_name }}
           releaseName: Konclave ${{ inputs.tag || github.ref_name }}
-          releaseBody: 'Desktop installers (Windows / macOS / Linux). See the notes below.'
+          releaseBody: ${{ steps.notes.outputs.body || 'Desktop installers (Windows / macOS / Linux).' }}
           releaseDraft: true
           prerelease: true
