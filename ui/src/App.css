@@ -788,14 +788,16 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 /* Passphrase field: strength meter + magic generate (#221). Style-agnostic wrapper. */
 .pf{width:100%}
 .pf-row{position:relative; display:flex; align-items:center}
-.pf-input{flex:1; padding-right:84px !important; text-align:left !important}
+/* Reserve the far-right corner (~40px) for a browser password-manager icon (Kaspersky/1Password/etc.)
+   and keep our own controls to its left, so both are usable. */
+.pf-input{flex:1; padding-right:112px !important; text-align:left !important}
 .pf-btn{position:absolute; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer;
   display:grid; place-items:center; width:28px; height:28px; padding:0; border-radius:8px;
   color:var(--text-muted,#8a97a6); transition:color .12s, background .12s}
 .pf-btn:hover{color:var(--text); background:var(--surface-2,rgba(127,127,127,.12))}
 .pf-btn:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
-.pf-btn:nth-of-type(1){right:46px}
-.pf-gen{right:12px; color:var(--accent)}
+.pf-btn:nth-of-type(1){right:76px}
+.pf-gen{right:44px; color:var(--accent)}
 .pf-gen:hover{color:var(--accent); background:var(--accent-soft,rgba(79,140,255,.14))}
 .pf-meter{display:flex; align-items:center; gap:9px; margin-top:8px}
 .pf-bars{display:flex; gap:4px; flex:1}

@@ -60,7 +60,7 @@ export const ptBR: Record<string, string> = {
   'pass.fair': 'razoável',
   'pass.good': 'boa',
   'pass.strong': 'forte',
-  'pass.generate': 'Gerar uma frase-senha forte',
+  'pass.generate': 'Gerar uma senha forte',
   'pass.show': 'Mostrar frase-senha',
   'pass.hide': 'Ocultar frase-senha',
   'pwa.title': 'Nova versão disponível',

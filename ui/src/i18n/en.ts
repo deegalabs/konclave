@@ -60,7 +60,7 @@ export const en: Record<string, string> = {
   'pass.fair': 'fair',
   'pass.good': 'good',
   'pass.strong': 'strong',
-  'pass.generate': 'Generate a strong passphrase',
+  'pass.generate': 'Generate a strong password',
   'pass.show': 'Show passphrase',
   'pass.hide': 'Hide passphrase',
   'pwa.title': 'New version available',
