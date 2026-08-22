@@ -136,7 +136,7 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
   const [role, setRole] = useState<'create' | 'join'>('create')
   const [room, setRoom] = useState('')
   const [joinCode, setJoinCode] = useState('')
-  const [n, setN] = useState(2)
+  const [n, setN] = useState(3) // default 2-of-3: redundancy so a lost device never locks the funds
   const [t, setT] = useState(2)
   const [showJoin, setShowJoin] = useState(!!initialJoin) // Join door opens straight into the join screen
   const [createStep, setCreateStep] = useState<1 | 2>(1) // create form is a 2-step flow (name -> rule)
@@ -935,6 +935,16 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
             </div>
 
             <div className="cv-trust">{trustSentence}</div>
+
+            {n === t && (
+              <div className="cv-warn" role="note">
+                <span className="cv-warn-tag">{pe('Sem margem de recuperação', 'No recovery margin')}</span>
+                {pe(
+                  `Se um aparelho for perdido, os fundos ficam presos — não há como recuperar. Recomendamos ${t} de ${t + 1}.`,
+                  `If one device is lost, the funds are locked — there is no way to recover. We recommend ${t} of ${t + 1}.`,
+                )}
+              </div>
+            )}
 
             <button type="button" className="cv-adv" aria-expanded={advOpen} onClick={() => setAdvOpen((v) => !v)}>
               {advOpen ? '⌄' : '›'} {pe('Avançado (governança, PIN)', 'Advanced (governance, PIN)')}
