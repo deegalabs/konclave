@@ -1,4 +1,4 @@
-// Architecture B — the browser (device) side of a real /net broadcast.
+// Architecture B - the browser (device) side of a real /net broadcast.
 //
 // A helper that never sees a share publishes a SIGNING REQUEST into the vault's relay room:
 // the shielded sighash, the per-spend Orchard/Ironwood randomizers (alpha), and the proven

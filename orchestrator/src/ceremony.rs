@@ -1,8 +1,8 @@
 //! FROST ceremony orchestration: the `frostd` server lifecycle and the
 //! coordinator/participant roles.
 //!
-//! In the product each device runs *its own* role — the coordinator collects the
-//! aggregate signature, participants contribute their shares — and `frostd` relays
+//! In the product each device runs *its own* role - the coordinator collects the
+//! aggregate signature, participants contribute their shares - and `frostd` relays
 //! between them. These wrappers therefore model a single role; the multi-device
 //! coordination is the server's job. (Our tests ran all roles on one box, which is
 //! just a harness, not the product shape.)
@@ -38,7 +38,7 @@ impl Frostd {
                 program: frostd.display().to_string(),
                 source,
             })?;
-        // Wait for frostd to actually accept connections instead of a fixed sleep — poll the
+        // Wait for frostd to actually accept connections instead of a fixed sleep - poll the
         // TLS port until it's listening (a real readiness handshake, not a magic timeout), up
         // to ~5s. If it never comes up, the ceremony surfaces a clear connection error next.
         if let Ok(addr) = format!("{ip}:{port}").parse::<SocketAddr>() {
@@ -68,7 +68,7 @@ impl Drop for Frostd {
 /// (sighash) and, for redpallas, the randomizer, and return the 64-byte aggregate
 /// signature once the participants have signed.
 ///
-/// Blocks until the ceremony completes — in the product the participants run
+/// Blocks until the ceremony completes - in the product the participants run
 /// concurrently on their own devices.
 #[allow(clippy::too_many_arguments)]
 pub fn run_coordinator(

@@ -1,63 +1,116 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { getVaults, health, setSelectedVault, unlockVault, markVaultUnlocked, isVaultUnlocked, shortAddr, type Vault } from '../api'
-import { helperConfigured } from '../helper'
-import { listVaults, loadVault } from '../storage'
+import { getVaults, health, setSelectedVault, unlockVault, markVaultUnlocked, isVaultUnlocked, shortAddr, IS_DEMO, type Vault } from '../api'
+import { MOCK } from '../mock'
+import { helperConfigured, getCustomHelper, setCoordMode, HELPER_BASE } from '../helper'
+import { isDesktop } from '../platform'
+import { listVaults, loadVault, importVault, parseVaultExport } from '../storage'
 import { setUnlockedShare } from '../session'
 import { Identicon } from '../avatar'
 import { Dialog, Letterhead, activateOnKey } from '../components'
 import NetVault from './NetVault'
-import { useT, useTr } from '../i18n'
+import { useT, useTr, useI18n } from '../i18n'
 import '../redesign.css'
 
-const MOCK: Vault[] = [
-  {
-    id: 'mock', name: 'Tesouraria Comum', threshold: 2, total: 3, members: 3,
-    member_list: [{ name: 'Alice', pubkey: 'a' }, { name: 'Bob', pubkey: 'b' }, { name: 'Carol', pubkey: 'c' }],
-    group_pubkey: '', orchard_address: 'u1vjgxlvz4ewnt43rkq6fzexpld406dr',
-  },
-]
+// Every vault carries WHERE it lives, so one unified list can hold both worlds and route each
+// card's unlock correctly: 'net' = a browser-DKG vault this device holds a share for (encrypted
+// IndexedDB, unlocked by decrypting the share); 'local' = a local-bridge/orchestrator vault.
+type Src = 'net' | 'local'
+type Row = { v: Vault; src: Src }
 
 export default function Vaults() {
   const t = useT()
   const tr = useTr()
+  const { locale } = useI18n()
+  const pt = locale === 'pt-BR'
   const nav = useNavigate()
-  // Browser-native mode (a hosted blind helper is configured): the /vaults screen lists the vaults
-  // THIS DEVICE holds a share for (from encrypted IndexedDB), never a global helper list, so one
-  // device cannot enumerate another's vaults. Create/Enter route to the /net (Architecture B) flow.
-  const netMode = helperConfigured()
-  const [vaults, setVaults] = useState<Vault[]>([])
+  // netMode still decides how a NEW vault is created (a hosted helper configured -> browser DKG
+  // dialog; otherwise the local /create ceremony). It no longer gates the LIST - that's unified.
+  const netMode = helperConfigured() && !IS_DEMO
+  const [rows, setRows] = useState<Row[]>([])
   const [loaded, setLoaded] = useState(false)
   const [live, setLive] = useState(false)
-  const [unlocking, setUnlocking] = useState<Vault | null>(null)
+  const [unlocking, setUnlocking] = useState<Row | null>(null)
   const [creating, setCreating] = useState(false)
   const [pass, setPass] = useState('')
   const [unlockErr, setUnlockErr] = useState<string | null>(null)
   const [unlockBusy, setUnlockBusy] = useState(false)
+  // Ask-before-create (desktop): pick WHERE the ceremony is coordinated for this new vault.
+  const [choosing, setChoosing] = useState(false)
+  const [customStep, setCustomStep] = useState(false)
+  const [chooseUrl, setChooseUrl] = useState(getCustomHelper())
+  // Import a vault export (#214): paste the bundle or pick the file, then unlock with its passphrase.
+  const [importing, setImporting] = useState(false)
+  const [impText, setImpText] = useState('')
+  const [impPass, setImpPass] = useState('')
+  const [impBusy, setImpBusy] = useState(false)
+  const [impErr, setImpErr] = useState<string | null>(null)
 
-  function enter(v: Vault) {
+  async function doImport() {
+    setImpErr(null)
+    if (!impText.trim()) { setImpErr(t('import.errEmpty')); return }
+    if (!impPass) { setImpErr(t('import.errPass')); return }
+    setImpBusy(true)
+    try {
+      const bundle = parseVaultExport(impText.trim())
+      const meta = await importVault(bundle, impPass)
+      const row: Row = {
+        src: 'net',
+        v: {
+          id: meta.id,
+          name: meta.name || t('vaults.networkedVault'),
+          threshold: 0,
+          total: meta.roster.length,
+          members: meta.roster.length,
+          member_list: meta.roster.map((name) => ({ name, pubkey: name })),
+          group_pubkey: meta.groupKey,
+          orchard_address: meta.address,
+        },
+      }
+      setRows((prev) => (prev.some((r) => r.v.id === meta.id) ? prev.map((r) => (r.v.id === meta.id ? row : r)) : [row, ...prev]))
+      setImporting(false); setImpText(''); setImpPass('')
+    } catch (e) {
+      setImpErr(e instanceof Error ? e.message : t('import.errGeneric'))
+    } finally {
+      setImpBusy(false)
+    }
+  }
+  function onImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0]
+    if (!f) return
+    void f.text().then((txt) => { setImpText(txt); setImpErr(null) }).catch(() => setImpErr(t('import.errFile')))
+    e.target.value = '' // allow re-picking the same file
+  }
+
+  // Route the create card: on desktop, ask the coordination mode first; on the web the helper is
+  // fixed, so go straight (helper -> browser DKG dialog, else the local /create ceremony).
+  const startCreate = () => (isDesktop ? setChoosing(true) : netMode ? setCreating(true) : nav('/create'))
+  const validHelperUrl = (u: string) => /^https:\/\/\S+\.\S+/.test(u.trim())
+
+  function enter(row: Row) {
+    const { v, src } = row
     setSelectedVault(v.id)
-    // The access gate is the SAME inline unlock dialog for both worlds: entering a vault decrypts
-    // YOUR share on this device first. Already unlocked this session -> straight in. Browser-native
-    // vaults always hold a device share, so they always unlock; local-bridge vaults only when locked.
+    // Same inline unlock gate for both worlds. Already unlocked this session -> straight in. A 'net'
+    // vault always holds a device share, so it always unlocks; a 'local' vault only when locked.
     if (isVaultUnlocked(v.id)) { nav('/dashboard'); return }
-    if (netMode || v.locked) { setUnlocking(v); setPass(''); setUnlockErr(null) }
+    if (src === 'net' || v.locked) { setUnlocking(row); setPass(''); setUnlockErr(null) }
     else nav('/dashboard')
   }
   async function doUnlock() {
     if (!unlocking || !pass) return
+    const { v, src } = unlocking
     setUnlockBusy(true); setUnlockErr(null)
     try {
-      if (netMode) {
+      if (src === 'net') {
         // Browser-native: decrypt this device's share into the session store, then open.
-        const v = await loadVault(unlocking.id, pass)
-        setUnlockedShare(unlocking.id, v)
-        markVaultUnlocked(unlocking.id)
+        const share = await loadVault(v.id, pass)
+        setUnlockedShare(v.id, share)
+        markVaultUnlocked(v.id)
         nav('/dashboard')
         return
       }
       const r = await unlockVault(pass)
-      if (r.ok) { markVaultUnlocked(unlocking.id); nav('/dashboard') }
+      if (r.ok) { markVaultUnlocked(v.id); nav('/dashboard') }
       else setUnlockErr(r.wrong ? t('vaults.unlockWrong') : t('vaults.unlockFail'))
     } catch {
       setUnlockErr(t('vaults.unlockWrong'))
@@ -69,18 +122,34 @@ export default function Vaults() {
   useEffect(() => {
     let on = true
     void (async () => {
-      // Browser-native: list the vaults this device holds a share for (encrypted IndexedDB).
-      // Public metadata only (id, address, roster); the share never leaves storage here. No mock,
-      // and no global helper enumeration.
-      if (netMode) {
-        let saved: Awaited<ReturnType<typeof listVaults>> = []
-        try { saved = await listVaults() } catch { saved = [] }
+      // Demo: the coherent mock, unchanged.
+      if (IS_DEMO) {
+        const ok = await health()
         if (!on) return
-        setLive(true)
-        setVaults(saved.map((s) => ({
+        setLive(ok)
+        const vs = ok ? await getVaults() : null
+        if (!on) return
+        setRows((vs && vs.length ? vs : MOCK.vaults).map((v) => ({ v, src: 'local' as Src })))
+        setLoaded(true)
+        return
+      }
+      // Unified: every vault this device can reach, from BOTH sources.
+      //  - 'net'   → browser-DKG vaults in encrypted IndexedDB (public metadata only; the share
+      //             never leaves storage; no global helper enumeration).
+      //  - 'local' → the local orchestrator/bridge's vaults (present on desktop/local server).
+      // On the plain web the bridge is absent, so this degrades to the net-only list (as before).
+      const [saved, bridgeOk] = await Promise.all([
+        listVaults().catch(() => [] as Awaited<ReturnType<typeof listVaults>>),
+        health().catch(() => false),
+      ])
+      const bridge = bridgeOk ? ((await getVaults().catch(() => null)) ?? []) : []
+      if (!on) return
+      const netRows: Row[] = saved.map((s) => ({
+        src: 'net',
+        v: {
           id: s.id,
           name: s.name || t('vaults.networkedVault'),
-          // roster length is the participant count; the threshold is not stored on-device, so the
+          // roster length is the participant count; the threshold isn't stored on-device, so the
           // card shows a neutral "networked" tag instead of a possibly-wrong quorum (threshold: 0).
           threshold: 0,
           total: s.roster.length,
@@ -88,16 +157,14 @@ export default function Vaults() {
           member_list: s.roster.map((name) => ({ name, pubkey: name })),
           group_pubkey: s.groupKey,
           orchard_address: s.address,
-        })))
-        setLoaded(true)
-        return
-      }
-      const ok = await health()
-      if (!on) return
-      setLive(ok)
-      const vs = ok ? await getVaults() : null
-      if (!on) return
-      setVaults(vs && vs.length ? vs : MOCK)
+        },
+      }))
+      const localRows: Row[] = bridge.map((v) => ({ src: 'local', v }))
+      // Dedupe by id (the two sources shouldn't collide, but guard so a vault never shows twice).
+      const seen = new Set<string>()
+      const merged = [...netRows, ...localRows].filter((r) => (seen.has(r.v.id) ? false : (seen.add(r.v.id), true)))
+      setLive(bridgeOk || saved.length > 0)
+      setRows(merged)
       setLoaded(true)
     })()
     return () => { on = false }
@@ -119,12 +186,13 @@ export default function Vaults() {
         </div>
 
         <div className="rd-grid">
-          {vaults.map((v) => {
+          {rows.map((row) => {
+            const v = row.v
             const ms = v.member_list ?? []
             const avatars = ms.length ? ms : Array.from({ length: v.total }, (_, i) => ({ name: t('vaults.memberN', { n: i + 1 }), pubkey: '' }))
             return (
               <div key={v.id} className="rd-card" role="button" tabIndex={0}
-                onClick={() => enter(v)} onKeyDown={activateOnKey(() => enter(v))}>
+                onClick={() => enter(row)} onKeyDown={activateOnKey(() => enter(row))}>
                 <span className="rd-qtag">{v.threshold > 0 ? t('vaults.quorumOf', { t: v.threshold, n: v.total }) : t('vaults.networkedTag')}{v.locked ? ` · ${t('vaults.lockedTag')}` : ''}</span>
                 <h3>{v.name}</h3>
                 <div className="rd-avatars">
@@ -140,7 +208,7 @@ export default function Vaults() {
           })}
 
           <div className="rd-card rd-create" role="button" tabIndex={0}
-            onClick={() => (netMode ? setCreating(true) : nav('/create'))} onKeyDown={activateOnKey(() => (netMode ? setCreating(true) : nav('/create')))}>
+            onClick={startCreate} onKeyDown={activateOnKey(startCreate)}>
             <div>
               <div className="ic">
                 <svg width="34" height="34" viewBox="0 0 34 34" fill="none" stroke="currentColor" strokeWidth="1.6">
@@ -153,29 +221,55 @@ export default function Vaults() {
           </div>
         </div>
 
-        {loaded && vaults.length === 0 && (
+        {loaded && rows.length === 0 && (
           <div className="rd-empty">{t('vaults.empty')}</div>
         )}
 
         <div className="rd-note">
           {tr('vaults.note')}
           {' · '}<span className="rd-link" onClick={() => nav('/intro')} role="link" tabIndex={0}
-            onKeyDown={(e) => { if (e.key === 'Enter') nav('/intro') }}>{t('vaults.howItWorks')}</span>
+            onKeyDown={activateOnKey(() => nav('/intro'))}>{t('vaults.howItWorks')}</span>
           {' · '}<span className="rd-link" onClick={() => nav('/demo')} role="link" tabIndex={0}
-            onKeyDown={(e) => { if (e.key === 'Enter') nav('/demo') }}>{t('demo.watchCta')}</span>
+            onKeyDown={activateOnKey(() => nav('/demo'))}>{t('demo.watchCta')}</span>
+          {!IS_DEMO && <> · <span className="rd-link" onClick={() => { setImporting(true); setImpErr(null) }} role="link" tabIndex={0}
+            onKeyDown={activateOnKey(() => { setImporting(true); setImpErr(null) })}>{t('import.link')}</span></>}
           {!live && <> · <i>{t('vaults.demoMode')}</i></>}
         </div>
       </main>
 
+      {importing && (
+        <Dialog className="unlock-overlay" cardClassName="unlock-card" labelledBy="import-title" onClose={() => setImporting(false)}>
+          <div className="rd-eyebrow">{t('import.eyebrow')}</div>
+          <h2 id="import-title">{t('import.title')}</h2>
+          <p>{t('import.help')}</p>
+          <textarea className="unlock-input mono" style={{ minHeight: 92, resize: 'vertical' }} placeholder={t('import.pastePlaceholder')}
+            value={impText} onChange={(e) => { setImpText(e.target.value); setImpErr(null) }} spellCheck={false} />
+          <label className="rd-link" style={{ display: 'inline-block', marginTop: 6, cursor: 'pointer' }}>
+            {t('import.orFile')}
+            <input type="file" accept=".json,.konclave,application/json" style={{ display: 'none' }} onChange={onImportFile} />
+          </label>
+          <input className="unlock-input mono" type="password" style={{ marginTop: 10 }} placeholder={t('import.passPlaceholder')}
+            value={impPass} onChange={(e) => { setImpPass(e.target.value); setImpErr(null) }}
+            onKeyDown={(e) => { if (e.key === 'Enter') void doImport() }} />
+          {impErr && <div className="unlock-err" role="alert">{impErr}</div>}
+          <div className="unlock-btns">
+            <button className="rd-enter" onClick={() => setImporting(false)}>{t('common.cancel')}</button>
+            <button className="rd-enter primary" onClick={() => void doImport()} disabled={impBusy || !impText.trim() || !impPass}>
+              {impBusy ? t('import.importing') : t('import.btn')}
+            </button>
+          </div>
+        </Dialog>
+      )}
+
       {unlocking && (
         <Dialog className="unlock-overlay" cardClassName="unlock-card" labelledBy="unlock-title" onClose={() => setUnlocking(null)}>
           <div className="rd-eyebrow">{t('vaults.protectedVault')}</div>
-          <h2 id="unlock-title">{unlocking.name}</h2>
-          <p>{netMode
+          <h2 id="unlock-title">{unlocking.v.name}</h2>
+          <p>{unlocking.src === 'net'
             ? t('vaults.netUnlockPrompt')
             : tr('vaults.unlockPrompt')}</p>
           <input
-            className="unlock-input mono" type="password" placeholder={netMode ? t('vaults.passphrase') : t('vaults.wordPlaceholder')}
+            className="unlock-input mono" type="password" placeholder={unlocking.src === 'net' ? t('vaults.passphrase') : t('vaults.wordPlaceholder')}
             value={pass} onChange={(e) => setPass(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') void doUnlock() }}
           />
@@ -186,6 +280,36 @@ export default function Vaults() {
               {unlockBusy ? t('vaults.verifying') : t('vaults.enterArrow')}
             </button>
           </div>
+        </Dialog>
+      )}
+
+      {choosing && (
+        <Dialog className="unlock-overlay" cardClassName="unlock-card" labelledBy="choose-title" onClose={() => { setChoosing(false); setCustomStep(false) }}>
+          <div className="rd-eyebrow">{pt ? 'Criar cofre' : 'Create a vault'}</div>
+          <h2 id="choose-title">{pt ? 'Onde coordenar as aprovações?' : 'Where to coordinate approvals?'}</h2>
+          <p>{pt
+            ? 'Onde as aprovações do grupo são coordenadas. Ninguém vê sua chave; só o grupo assina.'
+            : 'Where the group approvals are coordinated. No one sees your key; only the group signs.'}</p>
+          {!customStep ? (
+            <div className="unlock-btns" style={{ flexDirection: 'column', gap: 8, alignItems: 'stretch' }}>
+              {HELPER_BASE && (
+                <button className="rd-enter primary" onClick={() => { setCoordMode('ours'); setChoosing(false); setCreating(true) }}>{pt ? 'Hospedado pela Konclave' : 'Konclave-hosted'}</button>
+              )}
+              <button className="rd-enter" onClick={() => setCustomStep(true)}>{pt ? 'Seu servidor' : 'Your server'}</button>
+              <button className="rd-enter" onClick={() => { setCoordMode('local'); setChoosing(false); nav('/create') }}>{pt ? 'Só neste dispositivo' : 'This device only'}</button>
+            </div>
+          ) : (
+            <>
+              <input className="unlock-input mono" inputMode="url" placeholder={pt ? 'https://seu-servidor.exemplo.com' : 'https://your-server.example.com'}
+                value={chooseUrl} onChange={(e) => setChooseUrl(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && validHelperUrl(chooseUrl)) { setCoordMode('custom', chooseUrl); setChoosing(false); setCustomStep(false); setCreating(true) } }} />
+              <div className="unlock-btns">
+                <button className="rd-enter" onClick={() => setCustomStep(false)}>{t('common.cancel')}</button>
+                <button className="rd-enter primary" disabled={!validHelperUrl(chooseUrl)}
+                  onClick={() => { setCoordMode('custom', chooseUrl); setChoosing(false); setCustomStep(false); setCreating(true) }}>{pt ? 'Continuar' : 'Continue'}</button>
+              </div>
+            </>
+          )}
         </Dialog>
       )}
 

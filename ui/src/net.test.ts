@@ -4,7 +4,7 @@ import { deriveRoom } from './net'
 // Admission-PIN room derivation (#65 / ADR-0007 I4). Without a PIN the room IS the invite code
 // (backward-compatible bearer model); with a PIN the room is a 128-bit id derived from both, so a
 // device holding only the code lands in a different room and never meets the members.
-describe('deriveRoom — PIN-gated admission', () => {
+describe('deriveRoom - PIN-gated admission', () => {
   it('with no PIN, the room is exactly the invite code', async () => {
     expect(await deriveRoom('GRQ2QWCT', '')).toBe('GRQ2QWCT')
     expect(await deriveRoom('GRQ2QWCT', '   ')).toBe('GRQ2QWCT') // whitespace-only = no PIN

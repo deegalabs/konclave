@@ -1,7 +1,7 @@
-# Konclave MCP — the single-agent-proof treasurer's assistant
+# Konclave MCP - the single-agent-proof treasurer's assistant
 
 An [MCP](https://modelcontextprotocol.io) server that lets an AI assistant help run a
-**Konclave** vault — read its state and **draft** a payment proposal — while being
+**Konclave** vault - read its state and **draft** a payment proposal - while being
 **structurally incapable of moving the money**.
 
 ## The thesis
@@ -12,13 +12,13 @@ with their own key share, and the group key is never reconstituted. It is *singl
 by design.
 
 This MCP server extends that guarantee to AI. It gives an assistant the tools to **READ** the
-vault (balance, proposals, ledger) and to **DRAFT** a payment **proposal** — and **nothing
+vault (balance, proposals, ledger) and to **DRAFT** a payment **proposal** - and **nothing
 else**. There is deliberately **no tool to approve, sign, or broadcast**. The AI can propose and
 inform; only the human quorum, inside the Konclave app, can approve a draft and broadcast it. A
 drafted proposal is created in the *awaiting approval* state and moves zero funds until humans
 act on it.
 
-So even an AI that is fully trusted with these tools — even a compromised or misled one —
+So even an AI that is fully trusted with these tools - even a compromised or misled one -
 **literally cannot move the money alone**. The absence of a sign/send tool is not an oversight;
 it is the feature. Konclave is single-person-proof, and with this server it is **single-agent-proof**
 too: a capability no competitor's treasury tooling offers.
@@ -91,7 +91,7 @@ Add to your `claude_desktop_config.json` (macOS:
 }
 ```
 
-Restart Claude Desktop. The five tools appear; ask it to check the balance or draft a payment —
+Restart Claude Desktop. The five tools appear; ask it to check the balance or draft a payment -
 then watch it stop at the wall: it can hand a proposal to the humans, but it cannot cross the
 quorum.
 

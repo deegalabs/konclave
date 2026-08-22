@@ -1,4 +1,4 @@
-# Konclave blind relay — standalone, public (CORS). Tiny image, no heavy deps.
+# Konclave blind relay - standalone, public (CORS). Tiny image, no heavy deps.
 FROM rust:1-slim AS build
 WORKDIR /app
 COPY Cargo.toml ./

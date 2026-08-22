@@ -3,7 +3,7 @@
 //! chain simply moved). **On-chain always wins.**
 //!
 //! This module is **pure**: it takes an authoritative on-chain snapshot plus the local active
-//! proposals and returns what must change — it never touches I/O, the store, or the wallet. The
+//! proposals and returns what must change - it never touches I/O, the store, or the wallet. The
 //! caller applies the outcomes (promote a confirmed send, invalidate an underfunded proposal).
 //! Keeping the decision pure is deliberate: it makes "on-chain wins" exhaustively testable (the
 //! destructive suite, §8) and auditable, and it keeps sync/persistence where they belong.
@@ -11,18 +11,18 @@
 //! The divergences it resolves:
 //!   1. A locally-`Sent` proposal whose txid is now **confirmed** on-chain → promote to `Confirmed`.
 //!   2. Live proposals (`Awaiting`/`Ready`) hold optimistic **reservations** against the cached
-//!      balance. If their total exceeds the freshly-synced on-chain spendable — because another
-//!      device already spent those notes — the **excess is invalidated**. Oldest keeps priority
+//!      balance. If their total exceeds the freshly-synced on-chain spendable - because another
+//!      device already spent those notes - the **excess is invalidated**. Oldest keeps priority
 //!      (FIFO by `created_at`, `id` as the tiebreak), so **every device reaches the same decision**
 //!      regardless of the order its cache holds.
 //!
 //! Store wiring has landed: [`crate::store::Store::reconcile_proposals`] maps the cached records
 //! into this engine and persists the outcomes (`Confirm` → `Confirmed`, `Invalidate` →
-//! `Superseded`). The fresh-sync trigger has landed too — `server::reconcile_vault` +
-//! `POST /api/vault/reconcile` read the on-chain Orchard spendable and run this engine. The one
+//! `Superseded`). The fresh-sync trigger has landed too - `server::reconcile_vault` +
+//! `POST /api/vault/reconcile` read the on-chain shielded spendable (Orchard + Ironwood) and run this engine. The one
 //! honest gap left is the `confirmed_txids` source for the `Confirm` half: promoting a `Sent`
-//! proposal needs a wallet tx-status query the reader does not yet expose. The balance half —
-//! invalidating reservations the chain can no longer fund — is complete end to end.
+//! proposal needs a wallet tx-status query the reader does not yet expose. The balance half -
+//! invalidating reservations the chain can no longer fund - is complete end to end.
 
 use crate::money::{MoneyError, Zatoshis};
 use crate::proposal::ProposalState;
@@ -32,7 +32,7 @@ use crate::proposal::ProposalState;
 pub struct ChainSnapshot {
     /// Spendable (confirmed, unspent) balance right now.
     pub spendable: Zatoshis,
-    /// Txids observed confirmed on-chain — promotes a locally-`Sent` proposal to `Confirmed`.
+    /// Txids observed confirmed on-chain - promotes a locally-`Sent` proposal to `Confirmed`.
     pub confirmed_txids: Vec<String>,
 }
 
@@ -53,11 +53,11 @@ pub struct LocalProposal {
 /// What reconciliation decides for one proposal. On-chain always wins.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
-    /// No divergence — leave it as it is.
+    /// No divergence - leave it as it is.
     Unchanged,
     /// Locally `Sent` and its txid is confirmed on-chain → promote to `Confirmed`.
     Confirm,
-    /// A live (`Awaiting`/`Ready`) proposal the on-chain balance can no longer fund — another
+    /// A live (`Awaiting`/`Ready`) proposal the on-chain balance can no longer fund - another
     /// device already spent those notes. It cannot proceed; on-chain won.
     Invalidate { reason: String },
 }
@@ -74,7 +74,7 @@ pub struct Decision {
 pub struct ReconcileReport {
     /// One decision per non-terminal, non-draft local proposal, in the input order.
     pub decisions: Vec<Decision>,
-    /// Sum of reservations still held live (`Awaiting`/`Ready` kept) after reconciliation —
+    /// Sum of reservations still held live (`Awaiting`/`Ready` kept) after reconciliation -
     /// never more than the on-chain spendable.
     pub reserved_live: Zatoshis,
     /// How much the live reservations exceeded the on-chain spendable *before* invalidation
@@ -129,7 +129,7 @@ pub fn reconcile(
     }
 
     // 2) Fund the live reservations (Awaiting/Ready) oldest-first; invalidate the excess.
-    //    Deterministic order: (created_at, id) — independent of the cache's insertion order.
+    //    Deterministic order: (created_at, id) - independent of the cache's insertion order.
     let mut live: Vec<&LocalProposal> = locals
         .iter()
         .filter(|p| matches!(p.state, ProposalState::Awaiting | ProposalState::Ready))
@@ -344,7 +344,7 @@ mod tests {
 
     #[test]
     fn mixed_confirm_and_invalidate_in_one_pass() {
-        // A Sent tx confirms while an unfundable live proposal is invalidated — one reconciliation.
+        // A Sent tx confirms while an unfundable live proposal is invalidated - one reconciliation.
         let locals = [
             sent("s", 10_000, "tx1", 1),
             prop("live", ProposalState::Ready, 80_000, 2),

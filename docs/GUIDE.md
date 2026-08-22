@@ -1,4 +1,4 @@
-# Konclave — Complete Guide
+# Konclave - Complete Guide
 
 > The end-to-end guide to how Konclave works and how to use it: use cases, domain
 > model, state machine, sequence diagrams, step-by-step walkthroughs, the key
@@ -11,7 +11,7 @@ Two equally weighted faces: **quorum-approved payment** and **private payroll**.
 cryptography is the Zcash Foundation's; Konclave is the **human layer** on top.
 
 **Design rule:** *hide the cryptography, expose the trust.* You never see "FROST", "DKG",
-or "SIGHASH" — you see *vault, members, approval, payment*.
+or "SIGHASH" - you see *vault, members, approval, payment*.
 
 ---
 
@@ -41,7 +41,7 @@ or "SIGHASH" — you see *vault, members, approval, payment*.
                           frostd · frost-client · zcash-sign · zcash-devtool · librustzcash
 ```
 
-Each layer has a clear job. The orchestrator never reimplements cryptography — it wraps the
+Each layer has a clear job. The orchestrator never reimplements cryptography - it wraps the
 official binaries with **structured output** and adds the usability, orchestration, and
 accounting layer. See [ARCHITECTURE.md](ARCHITECTURE.md) for the full module map.
 
@@ -140,8 +140,8 @@ classDiagram
 
 **Two address layers by design:** `validation::AddressKind` is a fast, non-authoritative
 prefix heuristic that drives the "public destination" UX warning; `address::AddressReport`
-(via `validate_recipient`) is the authoritative `zcash_address` decode — receiver-pool +
-network gate — and is the real guard against the "Sapling address = locked funds" risk.
+(via `validate_recipient`) is the authoritative `zcash_address` decode - receiver-pool +
+network gate - and is the real guard against the "Sapling address = locked funds" risk.
 
 ### 2.2 Orchestration, store & network
 
@@ -257,14 +257,14 @@ classDiagram
 | `SignRequest`, `SignResponse` | `net_send.rs` | Architecture-B wire protocol: helper publishes a signing request, validates aggregate sigs. |
 | relay `Msg`/`RelayState`; `RelayClient` | `relay.rs`, `relay_client.rs` | Blind in-memory mailbox + poll/post transport (forwards opaque bytes only). |
 | `seal`/`unseal`, `KeyStore`, `KeychainStore` | `secrets.rs` | XChaCha20-Poly1305 sealing of shares at rest; keychain trait; ephemeral 0600 unseal. |
-| `DkgSession`, `Coordinator`, `DeviceKey`, `RecoveryHelper` | `konclave-wasm/src/lib.rs` | Browser engine: in-tab DKG, FROST signing, ECIES device keys, RTS recovery — shares never cross to JS. |
+| `DkgSession`, `Coordinator`, `DeviceKey`, `RecoveryHelper` | `konclave-wasm/src/lib.rs` | Browser engine: in-tab DKG, FROST signing, ECIES device keys, RTS recovery - shares never cross to JS. |
 
 ---
 
 ## 3. The proposal state machine
 
 The domain's spine: 9 states, every transition guarded. `Superseded` is the newest terminal
-state and is the **only** one not reachable from `Proposal`'s own methods — it is applied
+state and is the **only** one not reachable from `Proposal`'s own methods - it is applied
 exclusively by reconciliation (`Store::reconcile_proposals` mapping `Outcome::Invalidate`).
 
 ```mermaid
@@ -314,7 +314,7 @@ Cross-cutting guarantees that hold across every use case:
 | # | Use case | Route | Actor |
 |---|---|---|---|
 | UC-1 | Create a vault locally (DKG) | `/create` | Treasurer |
-| UC-2 | Create / join a vault across devices | `/net` | 2–3 browser devices |
+| UC-2 | Create / join a vault across devices | `/net` | 2-3 browser devices |
 | UC-3 | Fund / Receive | `/receive` | Sender / treasurer |
 | UC-4 | Propose a payment | `/pay` | A member (proposer) |
 | UC-5 | Approve / Refuse (quorum) | `/proposal` | Members |
@@ -327,7 +327,7 @@ Cross-cutting guarantees that hold across every use case:
 | UC-12 | Members registry | `/members` | Treasurer |
 | UC-13 | Beneficiaries registry | `/people` | Treasurer |
 
-### UC-1 — Create a vault locally (DKG)
+### UC-1 - Create a vault locally (DKG)
 - **Precondition:** bridge running; engine binaries + `frostd` available.
 - **Flow:** name the vault, list members, choose quorum `t of n` → backend runs a real DKG
   (`frost-client init` ×N → contact exchange → concurrent `frost-client dkg -C redpallas` over
@@ -338,7 +338,7 @@ Cross-cutting guarantees that hold across every use case:
 - **Honest limits:** single-device demo runs all participants as threads; the `/create` invite
   codes are illustrative (the real product uses each member's `frost-client` contact token).
 
-### UC-2 — Create / join a vault across devices (`/net`)
+### UC-2 - Create / join a vault across devices (`/net`)
 - **Flow:** creator generates a room code and announces `config{n,t}` + a device-key hello;
   joiners announce their hellos; deterministic seating by sorted tag. Then DKG over the relay:
   round-1 packages broadcast (public), round-2 packages **sealed per recipient** (ECIES:
@@ -348,13 +348,13 @@ Cross-cutting guarantees that hold across every use case:
 - **Honest limits:** an unsaved share is lost on reload (persistence closes that). Live proof is
   across two tabs / two hosted contexts; multi-note over the live relay is unit-tested.
 
-### UC-3 — Fund / Receive
+### UC-3 - Fund / Receive
 - **Flow:** the screen reads the vault's shielded **Orchard** address and renders it + a QR + a
   **ZIP-321** `zcash:` payment URI (optional amount), all client-side. Funds land in the vault's
   Orchard pool; balance appears after sync.
 - **Honest limits:** receiving needs no key or signature; Orchard-only (shielded-first).
 
-### UC-4 — Propose a payment
+### UC-4 - Propose a payment
 - **Flow:** pick a beneficiary or paste an address; enter value + optional memo (≤512 bytes).
   Live classification warns on transparent (public), Sapling (locked-funds risk), or unknown
   destinations. Submit → boundary validation + **authoritative address guard**
@@ -363,23 +363,23 @@ Cross-cutting guarantees that hold across every use case:
 - **Honest limits:** backend re-validates (400 on Sapling-only / wrong-network / malformed /
   insufficient).
 
-### UC-5 — Approve / Refuse (quorum)
+### UC-5 - Approve / Refuse (quorum)
 - **Flow:** the proposal detail shows the state trail, amount, per-person stance, and progress
   `count/threshold`. Approve/Refuse posts the vote; the authoritative state machine returns `409`
   on a conflicting/out-of-state vote. At `t` approvals the state flips to `ready`.
 - **Postcondition:** `ready` at quorum, or `rejected`/still `awaiting`. **Approval binds the
-  share that signs** — whoever approved is whose config signs.
-- **Honest limits:** a proposal can hit `expired` (72h placeholder) — terminal, cannot be sent.
+  share that signs** - whoever approved is whose config signs.
+- **Honest limits:** a proposal can hit `expired` (72h placeholder) - terminal, cannot be sent.
 
-### UC-6 — Sign & send (FROST broadcast)
-- **Flow:** optionally **validate (dry-run)** — the whole chain except broadcast, returning a
+### UC-6 - Sign & send (FROST broadcast)
+- **Flow:** optionally **validate (dry-run)** - the whole chain except broadcast, returning a
   sighash with no funds moved. **Sign & send** requires the explicit danger-dialog confirm, then
   broadcasts. On success the proposal becomes `sent` with the `txid` + explorer link.
 - **Postcondition:** `sent` (later `confirmed` via reconcile); only the approvers' shares signed.
 - **Honest limits:** `frostd` is started fresh per call, killed on drop; the ceremony can take
-  30–60s.
+  30-60s.
 
-### UC-7 — Private payroll
+### UC-7 - Private payroll
 - **Flow:** build the document (accrual period + description); add rows manually, from the
   registry, or import CSV (`label,address,amount,memo`) parsed locally. Per-row issues +
   public/Sapling warnings; live aggregate (count, Σ, ZIP-317 fee, balance-after); local
@@ -391,44 +391,44 @@ Cross-cutting guarantees that hold across every use case:
 - **Honest limits:** line count bounded by max tx size; each memo is private to that recipient's
   UFVK. Proven on mainnet (txid `b1e24c07…`).
 
-### UC-8 — Social recovery (RTS)
+### UC-8 - Social recovery (RTS)
 - **Flow:** a lost share is rebuilt by a quorum of helpers via the Repairable Threshold Scheme
   entirely in the browser: round-1 helper deltas (public) → round-2 delta exchange → round-3 the
   recovering device combines into the repaired KeyPackage, validated against the group's public
   share. The repaired share is byte-identical and signs a verifying 2-of-3.
 - **Honest limits:** core proven in WASM/tests; not yet wired into a live vault UI.
 
-### UC-9 — Inheritance / dead-man's-switch
+### UC-9 - Inheritance / dead-man's-switch
 - **Flow:** configure the policy (silence window, cancellable grace, heir address). `evaluate`
   maps silence → `Active`/`Pending`/`Released` (skew-safe). On `Released`, the quorum may release
   to the heir **as an ordinary quorum-signed payment** (reuses the FROST send path).
-- **Honest limits:** the screen moves no funds — it is a pure policy visualization; the engine is
+- **Honest limits:** the screen moves no funds - it is a pure policy visualization; the engine is
   pure and tested.
 
-### UC-10 — Browser signer demo
+### UC-10 - Browser signer demo
 - **Flow:** "Run" performs a full 2-of-3 rerandomized-redpallas FROST ceremony entirely in WASM.
   "Read the real PCZT" reads a real mainnet DKG-vault-send PCZT, describes its outputs, extracts
   randomizers, and reconstructs the exact broadcast signed PCZT (linking to `/proof`).
 - **Honest limits:** the "Run" ceremony signs a demo digest; the bridge reads/reconstructs an
-  existing signature — it does not re-sign real funds.
+  existing signature - it does not re-sign real funds.
 
-### UC-11 — Ledger / accounting export
+### UC-11 - Ledger / accounting export
 - **Flow:** the full ledger (terminal states included) with a document band (vault, period,
   count, settled-out/open totals); filter by state and kind; payroll rows expand per beneficiary.
   Export **itemized** CSV (1 payment = 1 row, payroll of N = N rows, RFC-4180 escaped) or
   print/PDF. Settled rows link to the explorer via `txid`.
 - **Honest limits:** read-only; the itemized CSV is the accounting-track deliverable.
 
-### UC-12 — Members registry
+### UC-12 - Members registry
 - **Flow:** displays the real members (name + FROST comm pubkey), coordinator vs. signer role,
   and the quorum seal `t of n`.
 - **Honest limits:** membership is fixed at DKG; this screen is a viewer, not an editor.
 
-### UC-13 — Beneficiaries registry (address book)
+### UC-13 - Beneficiaries registry (address book)
 - **Flow:** list/register/edit/delete beneficiaries (name, address, default memo, public flag);
   classification warns on transparent/Sapling. Registered people feed the pickers on `/pay` and
   `/payroll`.
-- **Honest limits:** no update endpoint — edit = add-then-delete; scoped per selected vault.
+- **Honest limits:** no update endpoint - edit = add-then-delete; scoped per selected vault.
 
 ---
 
@@ -558,10 +558,10 @@ sequenceDiagram
     Note over O,Z: Key never reassembled. Each memo readable only by its recipient UFVK
 ```
 
-### 5.4 Multi-device `/net` signing — Architecture B
+### 5.4 Multi-device `/net` signing - Architecture B
 
 The browser devices keep the shares and sign; a **helper** (the native orchestrator) builds,
-proves, injects, and broadcasts — and never sees a share. Fits "internal transparency, external
+proves, injects, and broadcasts - and never sees a share. Fits "internal transparency, external
 privacy".
 
 ```mermaid
@@ -620,7 +620,7 @@ unsealed only into an ephemeral **0600 file in tmpfs** during a signing ceremony
 RAII guard. The `frost-client` configs used by the ceremony are the sealed ones.
 
 **The blind relay (`relay.rs`, `relay-server/`).** An in-memory room mailbox that forwards only
-opaque bytes — public DKG packages or already-encrypted (ECIES-sealed) round-2 packages. It
+opaque bytes - public DKG packages or already-encrypted (ECIES-sealed) round-2 packages. It
 cannot read what it carries. Public by design (CSRF-exempt) yet Host-gated on the loopback
 bridge; the standalone hosted version adds CORS + rate-limit + presence pruning.
 
@@ -639,17 +639,17 @@ before the builder if `sum + fee > available`.
 
 The everyday flow, route by route:
 
-1. **Create or join a vault** (`/create`, or `/net` across devices) — members + quorum; key born
+1. **Create or join a vault** (`/create`, or `/net` across devices) - members + quorum; key born
    by DKG, never whole.
-2. **Fund it** (`/receive`) — share the Orchard address (QR + ZIP-321) and receive ZEC.
-3. **Propose a payment** (`/pay`) — amount + recipient; address + balance validated up front.
-4. **Approve to quorum** (`/proposals` → a proposal) — approve/refuse; nothing moves until `t`;
+2. **Fund it** (`/receive`) - share the Orchard address (QR + ZIP-321) and receive ZEC.
+3. **Propose a payment** (`/pay`) - amount + recipient; address + balance validated up front.
+4. **Approve to quorum** (`/proposals` → a proposal) - approve/refuse; nothing moves until `t`;
    proposals expire.
-5. **Sign & send** — dry-run to verify, then confirm to broadcast; only the approvers' shares
+5. **Sign & send** - dry-run to verify, then confirm to broadcast; only the approvers' shares
    sign; the key is never reassembled.
-6. **Payroll** (`/payroll`) — CSV of beneficiaries → one shielded tx, N encrypted memos, approved
+6. **Payroll** (`/payroll`) - CSV of beneficiaries → one shielded tx, N encrypted memos, approved
    once.
-7. **Account** (`/ledger`) — full internal ledger + itemized CSV for the accountant.
+7. **Account** (`/ledger`) - full internal ledger + itemized CSV for the accountant.
 
 Try it with demo data at [konclave-demo.vercel.app](https://konclave-demo.vercel.app); run it for
 real per the README's **Try it** section; the same walkthrough is in-app under `/docs`.
@@ -659,15 +659,15 @@ real per the README's **Try it** section; the same walkthrough is in-app under `
 ## 8. Tips & gotchas
 
 - **Sapling ≠ Orchard.** A Sapling-only destination can lock funds; Konclave decodes the address
-  authoritatively (`validate_recipient`) and blocks it with a clear message — heed the warning.
+  authoritatively (`validate_recipient`) and blocks it with a clear message - heed the warning.
 - **Memos are Orchard-only.** Transparent (public) destinations cannot carry a memo; the memo
   field is disabled for them, and a transparent payment is flagged as **public on-chain**.
 - **Approval binds the signer.** Whoever approves is whose share signs. Approve as the member you
   intend to sign as.
 - **Dry-run first.** The send path has a dry-run that runs the whole ceremony and stops *before*
-  broadcast — use it to verify a proposal signs, with zero funds moved. (Note: the dry-run's
-  inject verifies the FROST signature it applied, not the full bundle — see the Ironwood note.)
-- **The ceremony takes 30–60s.** `frostd` is started fresh and killed on drop; there is no client
+  broadcast - use it to verify a proposal signs, with zero funds moved. (Note: the dry-run's
+  inject verifies the FROST signature it applied, not the full bundle - see the Ironwood note.)
+- **The ceremony takes 30-60s.** `frostd` is started fresh and killed on drop; there is no client
   timeout, so let it finish.
 - **Post-Ironwood spends.** Spending a single legacy Orchard note can produce an
   Orchard→Ironwood migration whose dummy spend the FROST inject does not sign; the interim
@@ -675,26 +675,26 @@ real per the README's **Try it** section; the same walkthrough is in-app under `
   lands with the engine bump to a librustzcash including upstream `#2777`.
 - **A reload can lose an unsaved `/net` share.** Save it (encrypted IndexedDB) if you want to
   restore without redoing the DKG.
-- **The hosted demo is mock data.** The real proof is on-chain — run `node scripts/verify-proof.mjs`
+- **The hosted demo is mock data.** The real proof is on-chain - run `node scripts/verify-proof.mjs`
   or see [PROOF.md](PROOF.md).
 
 ---
 
 ## 9. Honest status ladder
 
-What is shipped, dry-run-only, or roadmap — validated against the code (not just prose):
+What is shipped, dry-run-only, or roadmap - validated against the code (not just prose):
 
 | Capability | Status |
 |---|---|
 | Quorum payment (propose → approve → sign → broadcast) via the UI | **Proven on mainnet** (txid `43433a10…`) |
 | Private payroll (one shielded tx, N memos) | **Proven on mainnet** (txid `b1e24c07…`) |
 | Send from a **real DKG** vault | **Proven on mainnet** (txid `aab00f90…`) |
-| **Browser-signed** broadcast (each tab signs in-browser over the relay) | **Proven on mainnet** (txid `3022420a…`) — *two tabs on one machine* |
+| **Browser-signed** broadcast (each tab signs in-browser over the relay) | **Proven on mainnet** (txid `3022420a…`) - *two tabs on one machine* |
 | Broadcast across **separate physical devices** (carried to a confirmed txid) | **Open milestone** (the distributed protocol is proven; separate-device hardware is not yet) |
 | **Ironwood / NU6.3** (Orchard→Ironwood migration + first Ironwood-pool spend) | **Proven on mainnet** (`54266f47…`, `36c60f1e…`) |
 | C6 signer tests (extract/inject vectors) | **Closed** (real Ironwood PCZT vectors, tests green) |
-| `/net` multi-device — single-spend live | **Done** (part of the browser-signed broadcast) |
-| `/net` multi-device — **multi-note over the live relay** | **Wired + unit-tested; live proof pending** |
+| `/net` multi-device - single-spend live | **Done** (part of the browser-signed broadcast) |
+| `/net` multi-device - **multi-note over the live relay** | **Wired + unit-tested; live proof pending** |
 | On-device share persistence + sign-after-restore | **Wired + live-exercised; `storage.ts` lacks a direct unit test** |
 | Social recovery (RTS) / Inheritance policy engine | **Core proven by tests; not yet wired into a live vault UI** |
 | Tauri single desktop binary | **Roadmap** (loopback bridge is the current delivery form; see [ADR-0004](adr/0004-local-http-bridge.md)) |
@@ -704,4 +704,4 @@ See [CLAIMS.md](CLAIMS.md) and [PROOF.md](PROOF.md) for the authoritative, evide
 ---
 
 *This guide is generated from the code and kept honest. If something here disagrees with the
-code, the code wins — please open an issue.*
+code, the code wins - please open an issue.*

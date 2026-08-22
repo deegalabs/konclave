@@ -1,13 +1,16 @@
 import { useEffect, useState } from 'react'
+import { startVisiblePoll } from '../usePoll'
 import { Link, useNavigate } from 'react-router-dom'
-import { Secret, activateOnKey, Loading } from '../components'
-import { PageHeader, NextStep } from '../page'
+import { Secret, activateOnKey } from '../components'
+import { SkeletonRows } from '../skeleton'
+import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
 import { getProposals, getVault, health, type Proposal } from '../api'
 import { expiryLabel, fmtZec } from '../format'
+import { useLoading } from '../loading'
 import { useT, useTr } from '../i18n'
 
-export default function Proposals() {
+export default function Proposals({ embedded = false }: { embedded?: boolean }) {
   const t = useT()
   const tr = useTr()
   const nav = useNavigate()
@@ -15,20 +18,35 @@ export default function Proposals() {
   const [threshold, setThreshold] = useState(2)
   const [live, setLive] = useState(false)
   const [loaded, setLoaded] = useState(false)
+  const { begin, end } = useLoading()
 
+  // Auto-refresh: a new proposal or an incoming approval shows up without a manual reload. Poll on
+  // the same 12s cadence as the Dashboard, guarded so calls never overlap.
   useEffect(() => {
     let on = true
-    void (async () => {
-      const ok = await health()
-      if (!on) return
-      setLive(ok)
-      const [ps, v] = await Promise.all([getProposals(), getVault()])
-      if (!on) return
-      if (v) setThreshold(v.threshold)
-      setRows(ps ?? [])
-      setLoaded(true)
-    })()
-    return () => { on = false }
+    let inFlight = false
+    const load = async (first: boolean) => {
+      if (inFlight) return
+      inFlight = true
+      if (first) begin()
+      try {
+        if (first) {
+          const ok = await health()
+          if (on) setLive(ok)
+        }
+        const [ps, v] = await Promise.all([getProposals(), getVault()])
+        if (!on) return
+        if (v) setThreshold(v.threshold)
+        setRows(ps ?? [])
+        setLoaded(true)
+      } finally {
+        inFlight = false
+        if (first) end()
+      }
+    }
+    void load(true)
+    const stop = startVisiblePoll(() => void load(false), 12_000) // pause when hidden, refresh on return (#123)
+    return () => { on = false; stop() }
   }, [])
 
   const awaiting = rows.filter((p) => p.state === 'awaiting')
@@ -57,36 +75,41 @@ export default function Proposals() {
     </div>
   )
 
+  const body = (
+    <>
+      {!loaded && <SkeletonRows n={4} />}
+
+      {loaded && ready.length > 0 && (
+        <>
+          <div className="plist-head"><span className="klab">{t('proposals.readyToSign')}</span><span className="plist-count ready">{ready.length}</span></div>
+          <div className="plist">{ready.map((p) => <Row key={p.id} p={p} />)}</div>
+        </>
+      )}
+
+      {loaded && (
+        <>
+          <div className="plist-head mt"><span className="klab">{t('proposals.awaitingApproval')}</span><span className="plist-count">{awaiting.length}</span></div>
+          {awaiting.length > 0 ? (
+            <div className="plist">{awaiting.map((p) => <Row key={p.id} p={p} />)}</div>
+          ) : (
+            <div className="empty-note">{t('proposals.nothingAwaiting')} <Link className="link" to="/pay">{t('proposal.proposePaymentLink')}</Link></div>
+          )}
+        </>
+      )}
+
+      {loaded && rows.length === 0 && ready.length === 0 && (
+        <div className="hint mt">{t('proposals.ledgerHint')} <Link className="link" to="/ledger">{t('proposals.viewLedger')}</Link></div>
+      )}
+    </>
+  )
+
+  if (embedded) return body
+
   return (
     <>
       <main className="page narrow">
         <PageHeader title={t('proposals.title')} subtitle={<>{t('proposals.cap')} {live ? '' : t('proposals.demoMode')}</>} />
-
-        {!loaded && <Loading />}
-
-        {loaded && ready.length > 0 && (
-          <>
-            <div className="plist-head"><span className="klab">{t('proposals.readyToSign')}</span><span className="plist-count ready">{ready.length}</span></div>
-            <div className="plist">{ready.map((p) => <Row key={p.id} p={p} />)}</div>
-          </>
-        )}
-
-        {loaded && (
-          <>
-            <div className="plist-head mt"><span className="klab">{t('proposals.awaitingApproval')}</span><span className="plist-count">{awaiting.length}</span></div>
-            {awaiting.length > 0 ? (
-              <div className="plist">{awaiting.map((p) => <Row key={p.id} p={p} />)}</div>
-            ) : (
-              <div className="empty-note">{t('proposals.nothingAwaiting')} <Link className="link" to="/pay">{t('proposal.proposePaymentLink')}</Link></div>
-            )}
-          </>
-        )}
-
-        {loaded && rows.length === 0 && ready.length === 0 && (
-          <div className="hint mt">{t('proposals.ledgerHint')} <Link className="link" to="/ledger">{t('proposals.viewLedger')}</Link></div>
-        )}
-
-        <NextStep label={t('next.label')} cta={t('next.ledger')} to="/ledger" />
+        {body}
       </main>
     </>
   )

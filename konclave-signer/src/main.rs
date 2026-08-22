@@ -228,7 +228,7 @@ fn inject(path: &str, out_path: &str, sigs: Vec<(usize, [u8; 64])>) -> Result<()
 
 /// Build an unproven Orchard PCZT paying N recipients in one transaction. Mirrors
 /// `zcash-devtool pczt create` (which only pays one), extended to a multi-payment ZIP 321
-/// request — the multi-output engine the CLI lacks (roadmap 5-B.2, §2).
+/// request - the multi-output engine the CLI lacks (roadmap 5-B.2, §2).
 fn build_payroll(
     wallet: &str,
     account_uuid: &str,
@@ -387,7 +387,7 @@ fn main() -> Result<()> {
 // The fixtures under tests/vectors/ are REAL proven Orchard PCZTs from mainnet ceremonies (the
 // DKG-vault send `aab00f90...` and the funding send `7f8e59bb...`), with the FROST signatures that
 // were actually broadcast. They pin the sighash, the per-spend randomizers, and byte-for-byte
-// reproduction of the signed PCZT — so a regression in extraction or injection cannot pass silently.
+// reproduction of the signed PCZT - so a regression in extraction or injection cannot pass silently.
 #[cfg(test)]
 mod tests {
     use super::*;

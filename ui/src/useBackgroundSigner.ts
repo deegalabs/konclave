@@ -1,7 +1,7 @@
 // The thin React layer for Stage 3 (issue #49): pipe a RelaySession on the vault's signing room
 // into the tested BackgroundSession, so an unlocked vault SIGNS IN THE BACKGROUND. All the logic
 // lives in the tested core (SigningMachine/BackgroundSigner/SigningSeats/BackgroundSession); this
-// hook is only lifecycle glue — open the room on mount, seat, stop on unmount, and hold the
+// hook is only lifecycle glue - open the room on mount, seat, stop on unmount, and hold the
 // singleton lock so two tabs never double-sign. The Dashboard will consume this; /lab validates it.
 
 import { useEffect, useRef, useState } from 'react'
@@ -31,11 +31,13 @@ export interface BackgroundSignerState {
 
 /**
  * Run a background signer for an UNLOCKED vault. `gate` is the governance policy (default: never
- * sign — the safe default; the caller supplies the real per-vault auto/manual + approval logic).
+ * sign - the safe default; the caller supplies the real per-vault auto/manual + approval logic).
  * Returns null-ish state until the vault's share is unlocked in this session.
  */
 export function useBackgroundSigner(
-  vault: { id: string } | null,
+  // `nonce` lets the caller force a re-seat (e.g. after unlocking the share in-session) without
+  // changing the vault id.
+  vault: { id: string; nonce?: number } | null,
   gate: GovernanceGate = () => false,
 ): BackgroundSignerState {
   const [room, setRoom] = useState('')
@@ -52,6 +54,7 @@ export function useBackgroundSigner(
   gateRef.current = gate
 
   const id = vault?.id ?? null
+  const nonce = vault?.nonce
   useEffect(() => {
     if (!id) return
     const loaded = getUnlockedShare(id)
@@ -103,7 +106,7 @@ export function useBackgroundSigner(
       if (acquired) releaseSigner(id)
       setReady(false)
     }
-  }, [id])
+  }, [id, nonce])
 
   return {
     ready,

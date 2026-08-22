@@ -18,9 +18,14 @@ import {
   voteProposal as netVote,
   listMembers as netListMembers,
   setMembers as netSetMembers,
+  renameMember as netRenameMember,
+  listTransactions as netListTransactions,
+  type WalletTx,
   type Proposal as NetProposal,
 } from './helper'
 import { zatToZec, parseZecToZat } from './format'
+import { listVaults, updateVaultMeta } from './storage'
+import { getUnlockedShare, setUnlockedShare } from './session'
 
 export type Member = { name: string; pubkey: string }
 
@@ -72,7 +77,7 @@ const ENV = import.meta.env as Record<string, string | undefined>
 const BASE: string = ENV.VITE_API_BASE ?? ''
 
 // Demo mode, decided at RUNTIME (issue #60) so ONE build serves both the demo (mock data) and the
-// real app — no build-time VITE_DEMO / separate deploy needed. `?demo=1` enters demo mode and
+// real app - no build-time VITE_DEMO / separate deploy needed. `?demo=1` enters demo mode and
 // persists it (localStorage); `?demo=0` exits. VITE_DEMO stays as a build-time fallback so the
 // existing demo project keeps working. When set, reads that fail fall back to a coherent mock
 // dataset so every screen renders fully populated; `health()` is NOT affected, so the demo pill shows.
@@ -91,7 +96,7 @@ const DEMO = (() => {
       return flag === '1'
     }
     if (localStorage.getItem('konclave.demo') === '1') return true
-  } catch { /* storage unavailable — fall through to the build flag */ }
+  } catch { /* storage unavailable - fall through to the build flag */ }
   return ENV.VITE_DEMO === '1'
 })()
 /** True in demo mode (runtime `?demo=1` or the VITE_DEMO fallback): screens load api data (which
@@ -100,7 +105,7 @@ export const IS_DEMO = DEMO
 
 // Browser-native mode (Etapa 3 convergence): when a hosted blind helper is configured, the PWA
 // screens (Dashboard / Proposals / Ledger) read the SELECTED /net vault from the helper instead of
-// the local bridge, so the same polished app operates the browser-born vault. Never in demo mode —
+// the local bridge, so the same polished app operates the browser-born vault. Never in demo mode -
 // demo always uses mock, so the same canonical build can point at a helper AND still show the demo.
 const NET = helperConfigured() && !DEMO
 /** True when the app operates a browser-native (/net) vault via the hosted helper. Screens use it
@@ -163,7 +168,7 @@ function withVault(path: string): string {
 }
 
 // Vaults unlocked in THIS browser session (in-memory: a reload re-locks, so the
-// passphrase is asked again on every fresh entry — that is the intended behaviour).
+// passphrase is asked again on every fresh entry - that is the intended behaviour).
 const unlockedSession = new Set<string>()
 export function markVaultUnlocked(id: string): void { unlockedSession.add(id) }
 export function isVaultUnlocked(id: string): boolean { return unlockedSession.has(id) }
@@ -203,9 +208,17 @@ export async function getVault(): Promise<Vault | null> {
       const name = names[i] && names[i].trim() ? names[i] : `member ${i + 1}`
       return { name, pubkey: name }
     })
+    // The vault's real name is the one the operator chose at create/join, kept on this device.
+    // Use it instead of a generic 'Networked vault' label; fall back only when there is no record.
+    let vaultName = 'Vault'
+    try {
+      const saved = await listVaults()
+      const rec = saved.find((s) => s.id === id)
+      if (rec?.name && rec.name.trim()) vaultName = rec.name
+    } catch { /* local-bridge mode / no on-device record - keep the neutral fallback */ }
     return {
       id: v.vault_id,
-      name: 'Networked vault',
+      name: vaultName,
       threshold: v.threshold ?? 0,
       total,
       members: total,
@@ -235,12 +248,15 @@ export async function getBalance(): Promise<Balance | null> {
     if (!id) return null
     const b = await netVaultBalance(id)
     if (!b) return null
+    // Since NU6.3 the spendable funds live in the Ironwood pool. Use the helper's combined
+    // shielded_spendable_zat (Orchard + Ironwood); fall back to orchard-only for an older helper.
+    const spendable = b.shielded_spendable_zat ?? b.orchard_spendable_zat
     return {
       configured: true,
       total_zat: b.total_zat,
       total_zec: zatToZec(b.total_zat),
-      spendable_zat: b.orchard_spendable_zat,
-      spendable_zec: zatToZec(b.orchard_spendable_zat),
+      spendable_zat: spendable,
+      spendable_zec: zatToZec(spendable),
     }
   }
   return (await getJson<Balance>(withVault('/api/balance'))) ?? (DEMO ? MOCK.balance : null)
@@ -335,7 +351,7 @@ export function humanError(t: TFn, error?: string, detail?: string): string {
   const has = (s: string) => e.includes(s) || d.includes(s)
 
   if (has('insufficient') || has('saldo')) return t('error.insufficient')
-  // A client-side fetch failure surfaces as 'no connection' — match it BEFORE the ceremony
+  // A client-side fetch failure surfaces as 'no connection' - match it BEFORE the ceremony
   // rule below, whose bare 'connection' substring would otherwise swallow it.
   if (has('no connection') || has('failed to fetch')) return t('error.noConnection')
   if (e === 'send failed' || has('connection') || has('frostd') || has('transport') || has('refused') || has('timed out'))
@@ -356,6 +372,19 @@ export function humanError(t: TFn, error?: string, detail?: string): string {
   return error && error.length < 140 ? error : t('error.unexpected')
 }
 
+export type { WalletTx } from './helper'
+
+/** The vault's full on-chain transaction history (newest first) for the Add-funds record. Wired on
+ *  BOTH paths (#211): browser-native via the helper, local bridge via `GET /api/transactions`. */
+export async function getTransactions(): Promise<WalletTx[] | null> {
+  if (NET) {
+    const id = getSelectedVault()
+    if (!id) return null
+    return netListTransactions(id)
+  }
+  return (await getJson<{ transactions: WalletTx[] }>(withVault('/api/transactions')))?.transactions ?? null
+}
+
 /** Set the member names of the selected /net vault (seat order). Only in browser-native mode. */
 export async function setVaultMembers(names: string[]): Promise<string[] | null> {
   if (!NET) return null
@@ -364,8 +393,57 @@ export async function setVaultMembers(names: string[]): Promise<string[] | null>
   return netSetMembers(id, names)
 }
 
-/** Every vault known to this device (for the "Meus cofres" home). */
+/** Rename THIS device's own seat (`old` -> `next`) on the selected /net vault. The helper migrates
+ *  the name across every proposal's votes (no ghost approver), and we mirror the change into the
+ *  on-device record so "you" keeps pointing at the right seat. Returns the new roster or an error
+ *  reason. A device may only rename the seat it holds - never another member's. */
+export async function renameSelf(
+  old: string,
+  next: string,
+): Promise<{ members: string[] } | { error: string }> {
+  if (!NET) return { error: 'not available' }
+  const id = getSelectedVault()
+  if (!id) return { error: 'no vault selected' }
+  const res = await netRenameMember(id, old, next)
+  if ('members' in res) {
+    const nm = next.trim()
+    try { await updateVaultMeta(id, { myName: nm }) } catch { /* record absent - roster still renamed */ }
+    // Keep the IN-SESSION share's name in sync too: the signing panel identifies "you" from the
+    // unlocked share's myName, so a stale name there makes it fail to light your seat (and fall back
+    // to guessing the first seat). Patch it in place so presence stays correct after a rename.
+    try {
+      const share = getUnlockedShare(id)
+      if (share && share.myName !== nm) setUnlockedShare(id, { ...share, myName: nm })
+    } catch { /* nothing unlocked this session - nothing to sync */ }
+  }
+  return res
+}
+
+/** Self-heal for a stale on-device name: adopt an EXISTING roster name as this device's own, WITHOUT
+ *  a server rename. Used when a prior rename synced the helper (the roster shows the new name) but not
+ *  this device (its record kept the old name) - so the device is "stuck" (the server rejects renaming
+ *  a name it no longer has). Just points the on-device record + session share at the name that is
+ *  already in the roster. No network call, no vote migration (the server side already happened). */
+export async function adoptSelfName(name: string): Promise<{ ok: true } | { error: string }> {
+  if (!NET) return { error: 'not available' }
+  const id = getSelectedVault()
+  if (!id) return { error: 'no vault selected' }
+  const nm = name.trim()
+  if (!nm) return { error: 'empty name' }
+  try { await updateVaultMeta(id, { myName: nm }) } catch { /* record absent */ }
+  try {
+    const share = getUnlockedShare(id)
+    if (share && share.myName !== nm) setUnlockedShare(id, { ...share, myName: nm })
+  } catch { /* nothing unlocked */ }
+  return { ok: true }
+}
+
+/** Every vault known to this device (for the "Meus cofres" home). In browser-native (/net) mode the
+ *  vault list comes from the on-device records (listVaults in storage), NOT the blind helper, so we
+ *  do not call the helper's /api/vaults here (it returns bare ids, not vaults, and 404'd on older
+ *  builds - #136). The Vaults screen already merges the on-device net rows itself. */
 export async function getVaults(): Promise<Vault[] | null> {
+  if (NET) return null
   const r = await getJson<{ vaults: Vault[] }>('/api/vaults')
   return r?.vaults ?? (DEMO ? MOCK.vaults : null)
 }
@@ -468,6 +546,26 @@ export async function createPayroll(
 export async function createVaultDkg(
   name: string, threshold: number, members: string[],
 ): Promise<{ ok: true; vault: Vault; passphrase?: string } | { ok: false; error: string; detail?: string }> {
+  // Demo mode (#88): the DKG bridge/helper isn't reachable on the static deploy, so a real POST
+  // 404s. Return a coherent fake vault so the demo walks the whole create flow (word-box + address)
+  // with sample data instead of a dead end.
+  if (DEMO) {
+    const total = members.length
+    return {
+      ok: true,
+      vault: {
+        id: `demo-${Date.now()}`,
+        name,
+        threshold,
+        total,
+        members: total,
+        member_list: members.map((n) => ({ name: n, pubkey: n })),
+        group_pubkey: 'demo-group',
+        orchard_address: MOCK.vault.orchard_address,
+      },
+      passphrase: 'horizon-common-2026',
+    }
+  }
   try {
     const res = await fetch(`${BASE}/api/vault/dkg`, {
       method: 'POST',
@@ -519,7 +617,27 @@ export async function deleteVault(
 
 export type Beneficiary = { id: string; name: string; address: string; memo: string; is_public: boolean }
 
+// Browser-native (/net): the payee address-book is a per-vault convenience with NO secrets, so it
+// lives ON THIS DEVICE (localStorage keyed by vault id) instead of the blind helper - which does not
+// implement /api/beneficiaries (the 404s in #136). This keeps the console clean, works offline, and
+// stays local-first. (A vault-shared list would be a helper feature; tracked separately.)
+function benefKey(): string | null {
+  const id = getSelectedVault()
+  return id ? `konclave.benef.${id}` : null
+}
+function netBenefList(): Beneficiary[] {
+  const k = benefKey()
+  if (!k) return []
+  try { return JSON.parse(localStorage.getItem(k) ?? '[]') as Beneficiary[] } catch { return [] }
+}
+function netBenefSave(list: Beneficiary[]): void {
+  const k = benefKey()
+  if (!k) return
+  try { localStorage.setItem(k, JSON.stringify(list)) } catch { /* storage blocked/full */ }
+}
+
 export async function getBeneficiaries(): Promise<Beneficiary[] | null> {
+  if (NET) return netBenefList()
   const r = await getJson<{ beneficiaries: Beneficiary[] }>(withVault('/api/beneficiaries'))
   return r?.beneficiaries ?? (DEMO ? MOCK.beneficiaries : null)
 }
@@ -527,6 +645,20 @@ export async function getBeneficiaries(): Promise<Beneficiary[] | null> {
 export async function addBeneficiary(
   name: string, address: string, memo?: string,
 ): Promise<{ ok: true; beneficiary: Beneficiary } | { ok: false; error: string; detail?: string }> {
+  if (NET) {
+    const addr = address.trim()
+    if (!name.trim() || !addr) return { ok: false, error: 'invalidAddress' }
+    if (classifyAddress(addr) === 'unknown') return { ok: false, error: 'invalidAddress' }
+    const b: Beneficiary = {
+      id: crypto.randomUUID(),
+      name: name.trim(),
+      address: addr,
+      memo: memo?.trim() ?? '',
+      is_public: classifyAddress(addr) === 'transparent',
+    }
+    netBenefSave([...netBenefList(), b])
+    return { ok: true, beneficiary: b }
+  }
   try {
     const res = await fetch(`${BASE}${withVault('/api/beneficiaries')}`, {
       method: 'POST',
@@ -542,6 +674,10 @@ export async function addBeneficiary(
 }
 
 export async function deleteBeneficiary(id: string): Promise<boolean> {
+  if (NET) {
+    netBenefSave(netBenefList().filter((b) => b.id !== id))
+    return true
+  }
   try {
     const res = await fetch(`${BASE}/api/beneficiaries/${encodeURIComponent(id)}/delete`, { method: 'POST' })
     return res.ok
@@ -581,7 +717,7 @@ export type SendResult =
 
 /**
  * Run the FROST ceremony for a Ready proposal. `dryRun` signs without broadcasting.
- * No client timeout: the ceremony (create→prove→sign→broadcast) can take 30–60s.
+ * No client timeout: the ceremony (create→prove→sign→broadcast) can take 30-60s.
  */
 export async function sendProposal(id: string, dryRun: boolean): Promise<SendResult> {
   if (NET) {
@@ -593,6 +729,16 @@ export async function sendProposal(id: string, dryRun: boolean): Promise<SendRes
       error: 'sign in /net',
       detail: 'To send this approved payment, open the vault in /net and sign there with your share.',
     }
+  }
+  // Demo mode (#88): no bridge to broadcast against. A dry-run "verifies"; a real send walks the
+  // Sent state carrying a REAL, verifiable mainnet txid, so the explorer link actually resolves -
+  // sample data, but honest about what "confirmed on-chain" looks like.
+  if (DEMO) {
+    if (dryRun) return { ok: true, dryRun: true, sighash: 'demo-sighash-verifies' }
+    const base = MOCK.proposalById(id)
+    const txid = 'f63ee64d7bc086a8286631d03936ec2ca2ca57f4e4c63712fc95c1f02c522360'
+    const proposal = base ? ({ ...base, state: 'sent', txid } as Proposal) : undefined
+    return { ok: true, dryRun: false, txid, proposal }
   }
   try {
     const res = await fetch(`${BASE}/api/proposals/${encodeURIComponent(id)}/send`, {

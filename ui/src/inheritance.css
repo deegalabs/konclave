@@ -1,4 +1,4 @@
-/* /inheritance — a live, client-side visualization of the dead-man's-switch policy engine
+/* /inheritance - a live, client-side visualization of the dead-man's-switch policy engine
    (orchestrator/src/inheritance.rs). Dark, on-brand: role-based tokens with hard fallbacks so
    it renders even before the global CSS loads. Accent stays scarce; mono carries the figures
    and countdowns. Reuses the shared .demo-* / .net-* framing (net.css) for buttons/inputs. */
@@ -48,8 +48,8 @@
   border: 1.5px solid;
   transform: rotate(-2deg);
 }
-.inh-stamp.active { color: var(--accent, var(--accent)); border-color: var(--accent-line, rgba(87, 166, 255, 0.32)); background: var(--accent-soft, rgba(87, 166, 255, 0.1)); }
-.inh-stamp.pending { color: var(--warn, var(--warn)); border-color: rgba(227, 173, 82, 0.4); background: rgba(227, 173, 82, 0.1); }
+.inh-stamp.active { color: var(--accent, var(--accent)); border-color: var(--accent-line, rgba(var(--accent-glow), 0.32)); background: var(--accent-soft, rgba(var(--accent-glow), 0.1)); }
+.inh-stamp.pending { color: var(--warn, var(--warn)); border-color: rgba(181, 71, 8, 0.30); background: rgba(181, 71, 8, 0.10); }
 .inh-stamp.released { color: var(--danger-text, var(--danger-text)); border-color: var(--danger-line, rgba(231, 127, 116, 0.3)); background: var(--danger-soft, rgba(231, 127, 116, 0.1)); }
 
 .inh-count { display: flex; flex-direction: column; gap: 2px; }
@@ -110,9 +110,9 @@
   min-width: 0;
   overflow: hidden;
 }
-.inh-zone.lapse { background: rgba(87, 166, 255, 0.1); }
-.inh-zone.grace { background: rgba(227, 173, 82, 0.12); }
-.inh-zone.released { flex: 1; background: rgba(231, 127, 116, 0.12); }
+.inh-zone.lapse { background: var(--accent-soft); }
+.inh-zone.grace { background: rgba(181, 71, 8, 0.10); }
+.inh-zone.released { flex: 1; background: var(--danger-soft); }
 .inh-zone + .inh-zone { border-left: 1px dashed var(--line-strong, var(--line-strong)); }
 .inh-zone-lab {
   font-family: var(--font-mono, ui-monospace, monospace);
@@ -123,7 +123,7 @@
   white-space: nowrap;
   padding: 0 6px;
 }
-/* The "now" marker — a bright vertical rule tinted by the current phase. */
+/* The "now" marker - a bright vertical rule tinted by the current phase. */
 .inh-marker {
   position: absolute;
   top: -4px;

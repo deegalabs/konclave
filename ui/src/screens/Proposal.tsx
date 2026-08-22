@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { usePoll } from '../usePoll'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Secret, Dialog, Loading } from '../components'
 import { PageHeader } from '../page'
@@ -7,18 +8,25 @@ import { fmtZec } from '../format'
 import { useT, useTr } from '../i18n'
 import {
   getProposalDetail, getProposals, getVault, voteProposal, sendProposal, shortAddr, humanError,
-  IS_NET, type Proposal, type PayrollLine,
+  IS_NET, IS_DEMO, type Proposal, type PayrollLine,
 } from '../api'
+import { listVaults } from '../storage'
+import { useVaultSigner } from '../VaultSigner'
 
 export default function Proposal() {
   const t = useT()
   const tr = useTr()
   const loc = useLocation() as { state?: { id?: string } }
   const nav = useNavigate()
+  const { open: openSigning } = useVaultSigner()
   const [p, setP] = useState<Proposal | null>(null)
+  const [pid, setPid] = useState<string | null>(null)
   const [lines, setLines] = useState<PayrollLine[]>([])
   const [threshold, setThreshold] = useState(2)
   const [members, setMembers] = useState<string[]>([])
+  // The member name THIS device holds (the seat it can sign/vote for). Loaded from the on-device
+  // vault record. Outside demo, a device may only ever cast its OWN vote (never another member's).
+  const [me, setMe] = useState<string | null>(null)
   const [approveAs, setApproveAs] = useState('')
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -31,7 +39,15 @@ export default function Proposal() {
     let on = true
     void (async () => {
       const v = await getVault()
-      if (on && v) { setThreshold(v.threshold); setMembers(v.member_list.map((m) => m.name)) }
+      if (on && v) {
+        setThreshold(v.threshold)
+        setMembers(v.member_list.map((m) => m.name))
+        try {
+          const saved = await listVaults()
+          const rec = saved.find((s) => s.id === v.id)
+          if (on) setMe(rec?.myName ?? null)
+        } catch { /* local-bridge mode: no on-device record - stays null (read-only vote) */ }
+      }
       let id = loc.state?.id
       if (!id) {
         const list = await getProposals()
@@ -39,6 +55,7 @@ export default function Proposal() {
       }
       const detail = id ? await getProposalDetail(id) : null
       if (on) {
+        setPid(id ?? null)
         setP(detail?.proposal ?? null)
         setLines(detail?.lines ?? [])
         setLoading(false)
@@ -47,10 +64,26 @@ export default function Proposal() {
     return () => { on = false }
   }, [loc.state])
 
+  // Live refresh: re-fetch the proposal so approvals/refusals from other members appear on their own
+  // (and a Sent proposal flips to Confirmed) without a manual reload. Paused while the tab is hidden;
+  // suspended for a terminal proposal and while THIS device is mid-action (voting/sending). (#123)
+  const terminal = !!p && ['confirmed', 'rejected', 'expired', 'cancelled', 'superseded'].includes(p.state)
+  usePoll(() => {
+    if (busy || sending) return
+    void (async () => {
+      const detail = pid ? await getProposalDetail(pid) : null
+      if (detail?.proposal) { setP(detail.proposal); setLines(detail.lines ?? []) }
+    })()
+  }, 8000, !!pid && !terminal)
+
   async function vote(approve: boolean) {
     if (!p) return
     const canVote = members.filter((m) => !p.approvals.includes(m) && !p.refusals.includes(m))
-    const who = approveAs && canVote.includes(approveAs) ? approveAs : canVote[0]
+    // Live: a device casts ONLY its own vote (`me`). Demo (one device acting as many members):
+    // the seat picked in the demo dropdown. Never let a proposer/device vote as another member.
+    const who = IS_DEMO
+      ? (approveAs && canVote.includes(approveAs) ? approveAs : canVote[0])
+      : (me && canVote.includes(me) ? me : '')
     if (!who) { setError(t('proposal.errNoVoter')); return }
     setError(null); setBusy(true)
     const res = await voteProposal(p.id, who, approve)
@@ -86,7 +119,7 @@ export default function Proposal() {
   }
 
   const val = fmtZec(p.value_zec)
-  const dest = p.to_address ? shortAddr(p.to_address) : '—'
+  const dest = p.to_address ? shortAddr(p.to_address) : '-'
   const isPayroll = p.kind === 'payroll'
   const isAwaiting = p.state === 'awaiting'
   const isReady = p.state === 'ready'
@@ -101,10 +134,10 @@ export default function Proposal() {
   const title = p.memo?.trim() || (isPayroll ? t('kind.payroll') : t('proposal.paymentTo', { dest }))
   const subtitle = isPayroll ? t('proposal.payrollSubtitle', { n: lines.length }) : t('proposal.paymentSubtitle', { dest })
 
-  // State trail: Aprovação → Assinatura → Enviado (null while terminal-negative).
+  // State trail: Approval → Signature → Sent (null while terminal-negative).
   const trailIdx = isAwaiting ? 0 : isReady ? 1 : isSent ? 2 : null
 
-  // Everyone involved, with their stance — people, not a mono string.
+  // Everyone involved, with their stance - people, not a mono string.
   const everyone = Array.from(new Set([p.proposer, ...members, ...p.approvals, ...p.refusals]))
   const stance = (m: string) => {
     const approved = p.approvals.includes(m)
@@ -117,6 +150,7 @@ export default function Proposal() {
     <>
       <main className="page narrow">
         <PageHeader
+          back={{ to: '/proposals', label: t('proposals.title') }}
           eyebrow={eyebrow}
           title={title}
           subtitle={<>{subtitle}{p.is_public && !isPayroll && <span className="hint warn"> {t('proposal.publicDestSuffix')}</span>}</>}
@@ -139,10 +173,10 @@ export default function Proposal() {
             <tbody>
               {lines.map((l, i) => (
                 <tr key={i}>
-                  <td>{l.label || '—'}</td>
+                  <td>{l.label || '-'}</td>
                   <td className={'mono' + (l.is_public ? ' seal-tx' : '')}>{shortAddr(l.address)}{l.is_public ? ` · ${t('proposal.linePublic')}` : ''}</td>
                   <td className="num"><Secret sm><span>{fmtZec(l.value_zec)}</span></Secret></td>
-                  <td className="mono dim">{l.memo || '—'}</td>
+                  <td className="mono dim">{l.memo || '-'}</td>
                 </tr>
               ))}
             </tbody>
@@ -177,30 +211,44 @@ export default function Proposal() {
         {isAwaiting && (() => {
           const who = approveAs || pendingApprovers[0] || ''
           const falta = Math.max(0, threshold - p.approvals_count)
+          // Live authorization: this device may vote only for its own seat, and only while that seat
+          // is still pending. The proposer already counts as an approval, so they are never pending
+          // here (their approve control does not render). Demo keeps the act-as-any-member picker.
+          const iAmPending = !!me && pendingApprovers.includes(me)
+          const iAlreadyVoted = !!me && (p.approvals.includes(me) || p.refusals.includes(me))
           return (
           <>
             <div className="confirm mt">
               {tr('proposal.awaitingIntro', { proposer: p.proposer, count: p.approvals_count, total: threshold })}{' '}
               {falta > 0 ? tr(falta > 1 ? 'proposal.remainingMany' : 'proposal.remainingOne', { falta }) : tr('proposal.quorumReachedShort')}
             </div>
-            {pendingApprovers.length > 0 ? (
-              <>
-                <div className="demo-note mt">
-                  <span className="demo-tag">{t('proposal.demoTag')}</span>
-                  <div className="hint">{tr('proposal.demoActNote')}</div>
-                  <label className="field mt-sm"><span>{t('proposal.approveRefuseAs')}</span>
-                    <select className="input" value={who} onChange={(e) => setApproveAs(e.target.value)}>
-                      {pendingApprovers.map((m) => <option key={m} value={m}>{m}</option>)}
-                    </select>
-                  </label>
-                </div>
-                <div className="btns mt">
-                  <button className="btn ok" onClick={() => vote(true)} disabled={busy}>{busy ? '…' : t('proposal.approveAs', { who })}</button>
-                  <button className="btn" onClick={() => vote(false)} disabled={busy}>{t('proposal.refuseAs', { who })}</button>
-                </div>
-              </>
+            {IS_DEMO ? (
+              pendingApprovers.length > 0 ? (
+                <>
+                  <div className="demo-note mt">
+                    <span className="demo-tag">{t('proposal.demoTag')}</span>
+                    <div className="hint">{tr('proposal.demoActNote')}</div>
+                    <label className="field mt-sm"><span>{t('proposal.approveRefuseAs')}</span>
+                      <select className="input" value={who} onChange={(e) => setApproveAs(e.target.value)}>
+                        {pendingApprovers.map((m) => <option key={m} value={m}>{m}</option>)}
+                      </select>
+                    </label>
+                  </div>
+                  <div className="btns mt">
+                    <button className="btn ok" onClick={() => vote(true)} disabled={busy}>{busy ? '…' : t('proposal.approveAs', { who })}</button>
+                    <button className="btn" onClick={() => vote(false)} disabled={busy}>{t('proposal.refuseAs', { who })}</button>
+                  </div>
+                </>
+              ) : (
+                <div className="hint mt">{t('proposal.allVoted')}</div>
+              )
+            ) : iAmPending ? (
+              <div className="btns mt">
+                <button className="btn ok" onClick={() => vote(true)} disabled={busy}>{busy ? '…' : t('proposal.approve')}</button>
+                <button className="btn" onClick={() => vote(false)} disabled={busy}>{t('proposal.refuse')}</button>
+              </div>
             ) : (
-              <div className="hint mt">{t('proposal.allVoted')}</div>
+              <div className="hint mt">{iAlreadyVoted ? t('proposal.alreadyVoted') : t('proposal.waitingMembers')}</div>
             )}
           </>
           )
@@ -214,8 +262,8 @@ export default function Proposal() {
             {IS_NET ? (
               <>
                 <div className="btns mt">
-                  <button className="btn ok" onClick={() => nav('/net')}>
-                    {t('proposal.goToCeremony')}
+                  <button className="btn ok" onClick={() => openSigning(p)}>
+                    {t('signing.title')}
                   </button>
                 </div>
                 <div className="hint mt-sm">{t('proposal.ceremonyNote')}</div>
@@ -230,7 +278,7 @@ export default function Proposal() {
                     {sending === 'dry' ? t('proposal.validating') : t('proposal.validateBtn')}
                   </button>
                 </div>
-                {dryOk && <div className="hint mt-sm ready">{t('proposal.dryOkPre')}</div>}
+                {dryOk && <div className="hint mt-sm ready">{t('proposal.dryOkPre')}{t('proposal.dryOkPost')}</div>}
               </>
             )}
             <div className="hint mt-sm">{t('proposal.signNeverReassembles')}</div>

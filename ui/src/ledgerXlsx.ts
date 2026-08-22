@@ -1,5 +1,5 @@
 // Formatted .xlsx ledger export. exceljs is heavy, so it is loaded LAZILY (dynamic import) only
-// when the user actually exports — it never enters the main bundle. The workbook is a real,
+// when the user actually exports - it never enters the main bundle. The workbook is a real,
 // accountant-ready document: a Summary sheet with live SUM/SUMIF formulas over an itemized
 // Movements sheet (a payment = 1 row; a payroll = one row per beneficiary), styled headers,
 // frozen header row, ZEC number format, and a totals row. Nothing here touches secrets or the

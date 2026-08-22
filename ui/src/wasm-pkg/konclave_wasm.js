@@ -124,7 +124,7 @@ export class Coordinator {
         return ret[0] !== 0;
     }
     /**
-     * Verify a group signature under the key re-randomized by the given alpha — the exact check
+     * Verify a group signature under the key re-randomized by the given alpha - the exact check
      * an Orchard spend passes on-chain.
      * @param {Uint8Array} randomizer
      * @param {Uint8Array} sig
@@ -266,7 +266,7 @@ export class DkgSession {
     }
     /**
      * The vault's identity: the 32-byte group verifying key. Every honest device derives
-     * the SAME value — the UI shows it so both tabs can confirm they built one vault.
+     * the SAME value - the UI shows it so both tabs can confirm they built one vault.
      * @returns {Uint8Array}
      */
     groupVk() {
@@ -448,7 +448,7 @@ export class RecoveryHelper {
         wasm.__wbg_recoveryhelper_free(ptr, 0);
     }
     /**
-     * Register a helper's identifier — call once per helper seat, INCLUDING this one.
+     * Register a helper's identifier - call once per helper seat, INCLUDING this one.
      * @param {Uint8Array} id
      */
     addHelper(id) {
@@ -640,7 +640,7 @@ if (Symbol.dispose) TestVault.prototype[Symbol.dispose] = TestVault.prototype.fr
 /**
  * Read every Orchard output of a proven PCZT as JSON: `[{"address": string|null, "value":
  * number|null}, ...]`. The UI shows this and confirms it against the approved proposal BEFORE
- * the device signs — the "what am I signing?" check. Addressed entries are real recipients;
+ * the device signs - the "what am I signing?" check. Addressed entries are real recipients;
  * `address: null` entries are change. Values are zatoshis.
  * @param {Uint8Array} pczt
  * @returns {string}
@@ -796,7 +796,7 @@ export function participantRound2WithRandomizer(sp, nonces_bytes, kp_bytes, rand
 
 /**
  * Recompute the ZIP-244 shielded sig_digest from THIS device's own proven PCZT, returning the
- * 32-byte sighash. The signing driver signs this value, never a sighash handed over the relay —
+ * 32-byte sighash. The signing driver signs this value, never a sighash handed over the relay -
  * the on-device defence against the transaction-swap attack (issue #62 / ADR-0007 I2). Errors
  * if the PCZT is not a shielded-only v5/v6 transaction.
  * @param {Uint8Array} pczt
@@ -857,7 +857,7 @@ export function selftest() {
 }
 
 /**
- * Verify a group signature against the vault's key — so EVERY device confirms the result
+ * Verify a group signature against the vault's key - so EVERY device confirms the result
  * for itself, not on the coordinator's word. All inputs are public (signing package, seed,
  * message, signature); the share never enters.
  * @param {Uint8Array} group_vk

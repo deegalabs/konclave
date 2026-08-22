@@ -5,7 +5,7 @@ edition = "2021"
 description = "Konclave Orchestrator (Layer 2): proposal state machine, validation, and orchestration of the official FROST/Zcash tools"
 license = "MIT OR Apache-2.0"
 
-# The domain core modules (money, proposal, validation) are dependency-free — pure
+# The domain core modules (money, proposal, validation) are dependency-free - pure
 # std, instant builds, zero supply-chain surface. serde/serde_json are used ONLY by
 # the orchestration layer (tools, wallet, signer) to parse tool output robustly.
 [dependencies]
@@ -30,18 +30,18 @@ zeroize = "1"
 keyring = "3"
 # Local per-device state (vaults, proposals). Bundled SQLite; the sqlcipher build adds
 # at-rest DB encryption (audit L2) via `Store::open_keyed` with a key from the OS keychain
-# (C2). SQLCipher is a SQLite superset, so a plaintext DB still opens with plain `open` —
+# (C2). SQLCipher is a SQLite superset, so a plaintext DB still opens with plain `open` -
 # encryption is opt-in and non-breaking. Vendored OpenSSL = no system lib needed (gcc only).
-rusqlite = { version = "0.31", features = ["bundled-sqlcipher-vendored-openssl"] }
+rusqlite = { version = "0.37", features = ["bundled-sqlcipher-vendored-openssl"] }
 # Loopback-only HTTP bridge to the UI (ADR-0004). Blocking server, coherent with
-# the synchronous core (rusqlite/subprocess) — no async runtime dragged in. Bound to
+# the synchronous core (rusqlite/subprocess) - no async runtime dragged in. Bound to
 # 127.0.0.1 only: a local daemon, never a network service.
 tiny_http = "0.12"
 # Authoritative Zcash address validation (audit M2): a real bech32m/base58 decode with
 # receiver-pool inspection before the send path, so a malformed / wrong-network /
 # Sapling-only destination cannot reach the builder and lock funds (§8). Pure Rust, no
 # proving. Pinned to the SAME librustzcash rev as konclave-signer for type parity across
-# the repo (do not bump in isolation — see CLAUDE.md §11 / ADR-0002).
+# the repo (do not bump in isolation - see CLAUDE.md §11 / ADR-0002).
 zcash_address = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
 zcash_protocol = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
 

@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 
 // Smoke: every route renders meaningful content and throws no uncaught JS error. This is the
-// safety net the screens never had — a redesign/refactor that blanks or crashes a route fails here.
+// safety net the screens never had - a redesign/refactor that blanks or crashes a route fails here.
 const routes = [
   '/',
   '/vaults',

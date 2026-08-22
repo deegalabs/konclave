@@ -1,0 +1,27 @@
+[workspace]
+resolver = "2"
+members = [
+  "orchestrator",
+  "helper-server",
+  "konclave-signer",
+  "konclave-wasm",
+  "relay-server",
+  "src-tauri",
+]
+
+# librustzcash crates are pinned to one git rev across the whole workspace (must live at the
+# workspace root, not per-member). Kept in sync with the vendored engine (engine/versions.lock).
+[patch.crates-io]
+equihash = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
+f4jumble = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
+zcash_address = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
+zcash_encoding = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
+zcash_protocol = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
+zip321 = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
+pczt = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
+zcash_client_backend = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
+zcash_client_sqlite = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
+zcash_keys = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
+zcash_primitives = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
+zcash_proofs = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
+zcash_transparent = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }

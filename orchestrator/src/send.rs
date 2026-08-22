@@ -1,10 +1,10 @@
 //! End-to-end spend orchestration (step 2c): chain the tested wrappers into a single
-//! Ready→Sent flow — build the PCZT, prove it, extract the FROST message, run the
+//! Ready→Sent flow - build the PCZT, prove it, extract the FROST message, run the
 //! ceremony, inject the signature, and (optionally) broadcast.
 //!
 //! This is where "an error costs real funds" (CLAUDE.md §4), so it follows the proven
 //! slice recipe exactly (docs/VERTICAL_SLICE.md) and supports a **dry-run** that stops
-//! right before broadcast — everything up to a fully-signed PCZT, no funds moved.
+//! right before broadcast - everything up to a fully-signed PCZT, no funds moved.
 //!
 //! `frostd` is started fresh per call and killed on drop, so no ceremony leaks a server
 //! or a stale session.
@@ -32,7 +32,7 @@ pub struct CeremonyMember {
 
 /// Everything the automated ceremony needs. Loaded from a JSON file (`--ceremony`) so
 /// the paths, group, members and certs live outside the binary. Contains only paths and
-/// public material — never a key share.
+/// public material - never a key share.
 #[derive(Debug, Clone, Deserialize)]
 pub struct SendConfig {
     pub devtool: PathBuf,
@@ -44,7 +44,7 @@ pub struct SendConfig {
     pub konclave_signer: PathBuf,
     pub frostd: PathBuf,
     pub frost_client: PathBuf,
-    /// The vault's members — the ceremony picks the signing set from **who approved**
+    /// The vault's members - the ceremony picks the signing set from **who approved**
     /// (5-D.3: approval ↔ share that signs).
     pub members: Vec<CeremonyMember>,
     /// How many signatures the quorum needs (t).
@@ -62,14 +62,14 @@ pub struct SendConfig {
     /// Scratch directory for the intermediate PCZT files.
     pub work_dir: String,
     /// 5-E: path to the 32-byte sealing key. When set, member configs ending in
-    /// `.sealed` are unsealed to ephemeral 0600 files just for the ceremony — the share
+    /// `.sealed` are unsealed to ephemeral 0600 files just for the ceremony - the share
     /// never sits in cleartext on disk. (Key custody is a 0600 file here; the product
     /// uses the OS keychain.)
     #[serde(default)]
     pub sealing_key_file: Option<String>,
     /// C2: OS-keychain vault id for the sealing key (Windows Credential Manager / macOS
     /// Keychain / Linux Secret Service). Preferred over `sealing_key_file` on a real
-    /// desktop — no sealing key on disk. When both are set, the keychain wins.
+    /// desktop - no sealing key on disk. When both are set, the keychain wins.
     #[serde(default)]
     pub sealing_keychain_id: Option<String>,
     /// 5-F: `zcash-sign` binary (derives the Orchard address + UFVK from the group key).
@@ -90,11 +90,11 @@ fn default_port() -> u16 {
 /// The result of an orchestration run.
 #[derive(Debug, Clone)]
 pub struct SendOutcome {
-    /// The broadcast txid — `None` on a dry-run (signed but not sent).
+    /// The broadcast txid - `None` on a dry-run (signed but not sent).
     pub txid: Option<String>,
     /// Path to the fully-signed PCZT.
     pub signed_pczt: String,
-    /// The shielded sighash the ceremony signed (hex) — useful for the receipt.
+    /// The shielded sighash the ceremony signed (hex) - useful for the receipt.
     pub sighash: String,
     /// The aggregate FROST signature(s) the quorum produced, one hex string per real spend, in
     /// spend order (64 bytes each). These make the ceremony INDEPENDENTLY verifiable off-chain:
@@ -125,7 +125,7 @@ pub enum SpendPlan {
 
 /// Build the unproven PCZT for a plan. A single payment uses the official CLI (one
 /// output); a payroll uses our multi-output builder (`konclave-signer build-payroll`,
-/// which links `zcash_client_backend` — the engine the CLI lacks).
+/// which links `zcash_client_backend` - the engine the CLI lacks).
 fn build_unproven(sc: &SendConfig, plan: &SpendPlan) -> Result<Vec<u8>, ToolError> {
     match plan {
         SpendPlan::Payment {
@@ -167,7 +167,7 @@ fn build_unproven(sc: &SendConfig, plan: &SpendPlan) -> Result<Vec<u8>, ToolErro
 }
 
 /// Run the full spend. On `dry_run` it stops after producing a signed PCZT (no broadcast,
-/// no funds moved) — the way to validate the ceremony works today without spending.
+/// no funds moved) - the way to validate the ceremony works today without spending.
 ///
 /// Handles multi-note spends: a transaction may consume several input notes, each a real
 /// Orchard spend needing its own FROST signature (one ceremony round per randomizer).
@@ -180,7 +180,7 @@ pub fn orchestrate_send(
     std::fs::create_dir_all(&sc.work_dir).map_err(ToolError::Io)?;
 
     // 5-D.3: the signing set is WHO APPROVED. Resolve the first `threshold` approvers to
-    // their configs — the ceremony signs with exactly those members' shares, not a fixed set.
+    // their configs - the ceremony signs with exactly those members' shares, not a fixed set.
     let mut signers: Vec<&CeremonyMember> = Vec::new();
     for a in approvers {
         if let Some(m) = sc.members.iter().find(|m| m.name.eq_ignore_ascii_case(a)) {
@@ -207,7 +207,7 @@ pub fn orchestrate_send(
 
     // 5-E: resolve each signer's config path. A `.sealed` config is unsealed to an
     // ephemeral 0600 file (kept alive by `_config_guards` for the whole ceremony, then
-    // deleted) — the share is never in cleartext on disk.
+    // deleted) - the share is never in cleartext on disk.
     // C2: the sealing key comes from the OS keychain when configured, else the 0600 file.
     let key: Option<Zeroizing<[u8; 32]>> = match (&sc.sealing_keychain_id, &sc.sealing_key_file) {
         (Some(vault_id), _) => {
@@ -290,7 +290,7 @@ pub fn orchestrate_send(
     let tx3_path = format!("{}/tx3-signed.pczt", sc.work_dir);
     signer::inject(&sc.konclave_signer, &tx2_path, &tx3_path, &signatures)?;
 
-    // 7) broadcast — unless this is a dry-run.
+    // 7) broadcast - unless this is a dry-run.
     let txid = if dry_run {
         None
     } else {
@@ -311,11 +311,11 @@ pub fn orchestrate_send(
     })
 }
 
-/// Architecture B — a real `/net` broadcast for a browser-DKG vault. Instead of running the
+/// Architecture B - a real `/net` broadcast for a browser-DKG vault. Instead of running the
 /// native FROST ceremony, the helper builds and proves the PCZT for the vault's own address,
 /// publishes the signing request into a relay room, and waits for the browser devices to return
 /// the aggregate FROST signature; then it injects and (unless `dry_run`) broadcasts. The devices'
-/// shares never reach this process — it sees only public transaction data and the view-only
+/// shares never reach this process - it sees only public transaction data and the view-only
 /// wallet, consistent with "internal transparency, external privacy".
 ///
 /// This is live integration glue (real HTTP via `curl`, real binaries, real broadcast); it is not

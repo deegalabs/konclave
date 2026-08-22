@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Letterhead, Stepper } from '../components'
 import { useT, useTr } from '../i18n'
 import { createVaultDkg, setSelectedVault, markVaultUnlocked, shortAddr, humanError, type Vault } from '../api'
+import { vaultFingerprint } from '../format'
 
 /** Illustrative invite code for the demo. In the product each member generates
  *  their own from their own device (frost-client contact token, zffrost1…). */
@@ -21,17 +22,36 @@ export default function Ceremony() {
   const t = useT()
   const tr = useTr()
   const nav = useNavigate()
-  const [step, setStep] = useState(1) // 1 Definir · 2 Convidar · 3 Criar
+  const [step, setStep] = useState(1) // 1 Define · 2 Invite · 3 Create
   const [name, setName] = useState('Tesouraria da comunidade')
   const [members, setMembers] = useState<string[]>(['Alice', 'Bob', 'Carol'])
   const [threshold, setThreshold] = useState(2)
   const [creating, setCreating] = useState(false)
   const [vault, setVault] = useState<Vault | null>(null)
   const [passphrase, setPassphrase] = useState<string | null>(null)
-  const [acked, setAcked] = useState(false)
+  // Confirm the word by re-typing it (not just a checkbox), so a lost/mistyped word is caught at
+  // creation, not at first unlock when the share is already committed (#171).
+  const [confirmWord, setConfirmWord] = useState('')
   const [wordCopied, setWordCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState<number | null>(null)
+  // The vault fingerprint: the PUBLIC anti-impostor code members compare out of band. Surfaced here
+  // at creation - the moment it matters most (confirm everyone joined the SAME vault) - and again in
+  // Settings (#160). Fingerprints the group verifying key, matching the identity Settings uses.
+  const [fp, setFp] = useState<string | null>(null)
+  const [fpCopied, setFpCopied] = useState(false)
+
+  useEffect(() => {
+    if (!vault) return
+    let on = true
+    void vaultFingerprint(vault.group_pubkey).then((c) => { if (on) setFp(c) }).catch(() => { /* WebCrypto unavailable */ })
+    return () => { on = false }
+  }, [vault])
+
+  async function copyFp() {
+    if (!fp) return
+    try { await navigator.clipboard.writeText(fp); setFpCopied(true); setTimeout(() => setFpCopied(false), 1500) } catch { /* clipboard blocked - readable aloud anyway */ }
+  }
 
   const names = members.map((m) => m.trim()).filter(Boolean)
   const n = members.length
@@ -75,16 +95,32 @@ export default function Ceremony() {
             <div className="word-box mt">
               <div className="word-head">{tr('ceremony.wordHead')}</div>
               <div className="word-value mono">{passphrase}</div>
-              <button className="btn ghost sm-btn" onClick={() => { void navigator.clipboard.writeText(passphrase).then(() => setWordCopied(true)).catch(() => {}) }}>
-                {wordCopied ? t('ceremony.wordCopied') : t('ceremony.wordCopy')}
-              </button>
+              <div className="btns">
+                <button className="btn ghost sm-btn" onClick={() => { void navigator.clipboard.writeText(passphrase).then(() => setWordCopied(true)).catch(() => {}) }}>
+                  {wordCopied ? t('ceremony.wordCopied') : t('ceremony.wordCopy')}
+                </button>
+                {/* User-driven paper/PDF backup: the app never writes the secret to disk itself
+                    (§6.3); printing is the member's own choice, like a seed-phrase backup. */}
+                <button className="btn ghost sm-btn" onClick={() => window.print()}>{t('ceremony.wordPrint')}</button>
+              </div>
               <div className="word-warn">
                 {tr('ceremony.wordWarn')}
                 <div className="hint mt-xs">{tr('ceremony.wordWarnHint')}</div>
               </div>
-              <label className="word-ack">
-                <input type="checkbox" checked={acked} onChange={(e) => setAcked(e.target.checked)} /> {t('ceremony.wordAck')}
+              <label className="field mt">
+                <span>{t('ceremony.wordConfirm')}</span>
+                <input
+                  className="input mono"
+                  value={confirmWord}
+                  onChange={(e) => setConfirmWord(e.target.value)}
+                  placeholder={t('ceremony.wordConfirmPlaceholder')}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
               </label>
+              {confirmWord.trim().length > 0 && confirmWord.trim() !== passphrase && (
+                <div className="hint warn">{t('ceremony.wordMismatch')}</div>
+              )}
             </div>
           )}
 
@@ -98,6 +134,19 @@ export default function Ceremony() {
           <span className="klab mt">{t('ceremony.groupKey')}</span>
           <div className="mono dim">{shortAddr(vault.group_pubkey, 10, 8)}</div>
 
+          {fp && (
+            <div className="fp-card mt" role="note" aria-label={t('members.fpTitle')}>
+              <div className="fp-head">
+                <span className="klab">{t('members.fpTitle')}</span>
+                <button className="btn ghost xs-btn" onClick={() => void copyFp()}>
+                  {fpCopied ? t('members.fpCopied') : t('members.fpCopy')}
+                </button>
+              </div>
+              <div className="fp-code mono">{fp}</div>
+              <div className="fp-help dim">{tr('ceremony.fpHelp')}</div>
+            </div>
+          )}
+
           <span className="klab mt">{t('ceremony.members')}</span>
           <table className="tbl razao">
             <tbody>
@@ -109,8 +158,8 @@ export default function Ceremony() {
 
           <hr className="rule" />
           <div className="right">
-            <button className="btn ok" onClick={() => nav('/dashboard')} disabled={!!passphrase && !acked}
-              title={!!passphrase && !acked ? t('ceremony.confirmSavedWord') : ''}>{t('ceremony.goToVault')}</button>
+            <button className="btn ok" onClick={() => nav('/dashboard')} disabled={!!passphrase && confirmWord.trim() !== passphrase}
+              title={!!passphrase && confirmWord.trim() !== passphrase ? t('ceremony.confirmSavedWord') : ''}>{t('ceremony.goToVault')}</button>
           </div>
         </main>
       </>
@@ -132,7 +181,7 @@ export default function Ceremony() {
     )
   }
 
-  // --- form: step 1 Definir · step 2 Convidar ---
+  // --- form: step 1 Define · step 2 Invite ---
   return (
     <>
       <Letterhead right={<Link className="klab back" to="/">{t('common.backVaults')}</Link>} />

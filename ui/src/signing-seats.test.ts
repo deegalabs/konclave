@@ -4,7 +4,7 @@ import { SigningSeats } from './signing-seats'
 // The rejoin/seating handshake for a signing session (#49 Stage 3), lifted from NetVault. Fixed
 // seats (from the DKG); each device announces its own, and stale tags for a seat are dropped so the
 // distinct-seat count is exact and no duplicate seat can break signing.
-describe('SigningSeats — signing-room seating (rejoin handshake)', () => {
+describe('SigningSeats - signing-room seating (rejoin handshake)', () => {
   it('seats itself on construction (count 1) and announces its own seat', () => {
     let count = 0
     const seats = new SigningSeats('me', 2, (n) => { count = n })
@@ -23,7 +23,7 @@ describe('SigningSeats — signing-room seating (rejoin handshake)', () => {
     expect(seats.handleRejoin('c-tag', 3)).toBe(3)
   })
 
-  it('a reload (same seat, fresh tag) drops the stale tag — no duplicate seat, count stays exact', () => {
+  it('a reload (same seat, fresh tag) drops the stale tag - no duplicate seat, count stays exact', () => {
     let count = 0
     const seats = new SigningSeats('a', 1, (n) => { count = n })
     seats.handleRejoin('b-old', 2)

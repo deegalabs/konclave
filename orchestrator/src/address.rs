@@ -3,7 +3,7 @@
 //! The domain layer ([`crate::validation::AddressKind`]) keeps a fast, dependency-free
 //! prefix heuristic that drives the "this destination is public" UX warning. It is
 //! deliberately NON-authoritative: `starts_with("u1")` happily accepts `u1recipientxxx`,
-//! a testnet `utest…` re-typed as `u1…`, or a Sapling-only address — any of which the
+//! a testnet `utest…` re-typed as `u1…`, or a Sapling-only address - any of which the
 //! transaction builder would then try to pay, locking the funds (destructive-suite §8:
 //! "Sapling address instead of Orchard → risk of locked funds").
 //!
@@ -72,7 +72,7 @@ impl AddressReport {
 
 /// Accept-any visitor, used only to probe an address's network through
 /// [`ZcashAddress::convert_if_network`]. Every address kind resolves to `Accept`, so the
-/// only way the conversion can fail is a network mismatch — exactly what we test for.
+/// only way the conversion can fail is a network mismatch - exactly what we test for.
 struct Accept;
 
 impl TryFromAddress for Accept {
@@ -195,7 +195,7 @@ mod tests {
     fn testnet_validation_flips_the_network_gate() {
         // Readiness for a testnet run (Ironwood/NU6.3): the same authoritative decode,
         // network-parameterized. The network gate is the mirror image of the mainnet default
-        // — on Test a utest… UA is accepted while a mainnet UA is the wrong network. (The pool
+        // - on Test a utest… UA is accepted while a mainnet UA is the wrong network. (The pool
         // capability checks are network-independent, proven by the mainnet cases above.)
         assert!(
             validate_recipient_on(TESTNET_UA, NetworkType::Test).is_ok(),
@@ -206,7 +206,7 @@ mod tests {
             Err(AddressError::WrongNetwork),
             "a mainnet UA is wrong-network when validating on testnet"
         );
-        // And the mainnet default still rejects the testnet UA — production is unchanged.
+        // And the mainnet default still rejects the testnet UA - production is unchanged.
         assert_eq!(
             validate_recipient(TESTNET_UA),
             Err(AddressError::WrongNetwork)
@@ -229,7 +229,7 @@ mod tests {
     #[test]
     fn prefix_looks_valid_but_decode_rejects() {
         // These pass the domain prefix heuristic (`starts_with("u1")`) yet are not real
-        // addresses — the exact gap this authoritative check closes.
+        // addresses - the exact gap this authoritative check closes.
         for bad in [
             "u1recipientxxxxxxxxxxxxxxxxxxxxxxxx",
             "u1demo",

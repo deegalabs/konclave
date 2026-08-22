@@ -2,7 +2,7 @@
 
 The human experience. **Vite + React + TypeScript** as a static bundle
 ([ADR-0003](../docs/adr/0003-vite-over-nextjs.md) revised the originally considered
-Next.js — inapplicable to a local-first app with no server). Served locally by the
+Next.js - inapplicable to a local-first app with no server). Served locally by the
 Orchestrator's loopback HTTP bridge (`konclave serve`, [ADR-0004](../docs/adr/0004-local-http-bridge.md)),
 not by Tauri (packaging as a single desktop binary is a roadmap item). Master principle:
 **hide the cryptography, expose the trust**. The user sees vault, members, approval,
@@ -33,10 +33,10 @@ to the mock (`ui/src/mock.ts`, gated on `VITE_DEMO` for the hosted demo). Run: `
 (Vite dev server, `/api` proxied to the bridge) · `npm run build` · `npm run lint`.
 
 ## Environment (build-time `VITE_*`)
-- `VITE_RELAY_BASE` — hosted blind relay for `/net` (empty = the local bridge, same origin).
-- `VITE_HELPER_BASE` — hosted **blind helper** (ADR-0006 Rung A) for `/net`. When set, a
+- `VITE_RELAY_BASE` - hosted blind relay for `/net` (empty = the local bridge, same origin).
+- `VITE_HELPER_BASE` - hosted **blind helper** (ADR-0006 Rung A) for `/net`. When set, a
   finished browser-DKG vault is registered with the helper, which derives its real Orchard
   address (view-only) and can later drive sends over Architecture B. Empty = `/net` stays a
   pure device-to-device ceremony with no hosted vault (`ui/src/helper.ts` degrades to `null`).
   The demo points it at the Railway helper (`konclave-helper-production.up.railway.app`).
-- `VITE_DEMO` — hosted-demo mode (reads fall back to `ui/src/mock.ts`).
+- `VITE_DEMO` - hosted-demo mode (reads fall back to `ui/src/mock.ts`).

@@ -1,15 +1,15 @@
-# Evolution Map — Konclave
+# Evolution Map - Konclave
 
 > Phase: audit | Brand: konclave | Generated: 2026-07-08
 
 ---
 
 The primary audit deliverable: element-by-element **PRESERVE / EVOLVE / REPLACE** decisions
-with rationale tied to personas and to the stated goal — *consolidate the existing dark
+with rationale tied to personas and to the stated goal - *consolidate the existing dark
 design into one coherent token system + STYLE.md; do NOT rebrand*. Downstream phases
 (strategy → identity → guidelines) treat this table as the contract for what changes.
 
-Legend — **PRESERVE**: keep as-is (may be renamed but not redesigned). **EVOLVE**: keep the
+Legend - **PRESERVE**: keep as-is (may be renamed but not redesigned). **EVOLVE**: keep the
 intent, change the execution. **REPLACE**: remove and substitute.
 
 ## The map
@@ -52,26 +52,26 @@ intent, change the execution. **REPLACE**: remove and substitute.
 
 ## Preserve / Evolve / Replace split
 
-Measured across the 23 catalogued elements (and weighted by brand surface — the preserved
+Measured across the 23 catalogued elements (and weighted by brand surface - the preserved
 items are the load-bearing ones: aesthetic, tarja, type, mono, voice):
 
-- **PRESERVE — ~48%** (8 elements: the dark aesthetic, tarja, mono rule, type pairing,
-  self-hosted fonts, identicons, voice, stamp — the entire load-bearing identity).
-- **EVOLVE — ~35%** (9 elements: token names, CSS merge, App.css surfaces, semantic-color
-  tokens, elevation, glow budget, accent, mark, seal — same intent, better execution).
-- **REPLACE — ~17%** (6 elements: metallic wordmark, purple favicon, dangling logo.png,
-  oxblood literals, the two-vocabulary structure, stale docs — pure liabilities).
+- **PRESERVE - ~48%** (8 elements: the dark aesthetic, tarja, mono rule, type pairing,
+  self-hosted fonts, identicons, voice, stamp - the entire load-bearing identity).
+- **EVOLVE - ~35%** (9 elements: token names, CSS merge, App.css surfaces, semantic-color
+  tokens, elevation, glow budget, accent, mark, seal - same intent, better execution).
+- **REPLACE - ~17%** (6 elements: metallic wordmark, purple favicon, dangling logo.png,
+  oxblood literals, the two-vocabulary structure, stale docs - pure liabilities).
 
 Read: **this is a consolidation, not a rebrand.** Roughly half the brand is preserved
 outright, a third is refined in place, and only the ~17% that is genuinely broken or off-
 concept is removed. The one element inside "evolve" that needs real design (not just
-consolidation) is the mark/favicon/seal family (#16–17, 19).
+consolidation) is the mark/favicon/seal family (#16-17, 19).
 
 ---
 
 ## Related
 
-- brand-inventory.md — the catalog behind each row
-- equity-analysis.md — the keep-vs-inertia reasoning for PRESERVE decisions
-- coherence-assessment.md — the disconnects that drive the EVOLVE/REPLACE decisions
-- market-fit.md — the accent + elevation rationale (rows 13-15)
+- brand-inventory.md - the catalog behind each row
+- equity-analysis.md - the keep-vs-inertia reasoning for PRESERVE decisions
+- coherence-assessment.md - the disconnects that drive the EVOLVE/REPLACE decisions
+- market-fit.md - the accent + elevation rationale (rows 13-15)

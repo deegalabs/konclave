@@ -137,7 +137,7 @@
 }
 .proof-copy:hover {
   background: var(--surface-3, var(--surface-3));
-  border-color: var(--accent-line, rgba(87, 166, 255, 0.35));
+  border-color: var(--accent-line, rgba(var(--accent-glow), 0.35));
 }
 .proof-copy:focus-visible {
   outline: 2px solid var(--accent, var(--accent));
@@ -177,8 +177,8 @@
 }
 .proof-status.found {
   color: var(--success);
-  background: rgba(126, 224, 169, 0.08);
-  border-color: rgba(126, 224, 169, 0.32);
+  background: var(--success-soft);
+  border-color: var(--success-line);
 }
 
 .proof-links {
@@ -202,7 +202,7 @@
 }
 .proof-link:hover {
   color: var(--text, var(--text));
-  border-color: var(--accent-line, rgba(87, 166, 255, 0.45));
+  border-color: var(--accent-line, rgba(var(--accent-glow), 0.45));
 }
 .proof-link:focus-visible {
   outline: 2px solid var(--accent, var(--accent));

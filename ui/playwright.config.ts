@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test'
 
 // Frontend e2e against the plain production build served by `vite preview`. Screens render
 // with no backend (reads degrade to null), and data-dependent flows stub `/api/*` via
-// Playwright route interception — so specs are headless, deterministic, and CI-friendly with
+// Playwright route interception - so specs are headless, deterministic, and CI-friendly with
 // no build-mode dependency. The app uses HashRouter, so deep links are `/#/dashboard`.
 export default defineConfig({
   testDir: './e2e',

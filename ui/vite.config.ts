@@ -23,7 +23,7 @@ export default defineConfig({
           proxy.on('error', (err, _req, res) => {
             if ((err as NodeJS.ErrnoException).code === 'ECONNREFUSED') {
               if (!warned) {
-                console.log('[dev] local bridge (konclave serve) not running — the app uses demo/mock data')
+                console.log('[dev] local bridge (konclave serve) not running - the app uses demo/mock data')
                 warned = true
               }
               const r = res as { writableEnded?: boolean; headersSent?: boolean; writeHead?: (n: number) => void; end?: (s?: string) => void }
@@ -38,7 +38,7 @@ export default defineConfig({
     },
   },
   // Vitest owns the unit tests under src/. The Playwright e2e specs live in e2e/ and are
-  // run by `npm run e2e` — exclude them here so vitest does not try to load @playwright/test.
+  // run by `npm run e2e` - exclude them here so vitest does not try to load @playwright/test.
   test: {
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
   },

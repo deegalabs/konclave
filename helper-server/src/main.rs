@@ -16,7 +16,8 @@ use std::time::Duration;
 
 use orchestrator::helper::{
     append_ceremony, is_valid_group_key, ledger_csv, list_proposals, load_ceremonies, load_members,
-    load_proposal, payment_plan, register_vault, save_members, save_proposal, send_config_for,
+    load_proposal, payment_plan, register_vault, rename_member, save_members, save_proposal,
+    send_config_for, vault_transactions,
     vault_balance, CeremonyRecord, HelperConfig, HelperProposal, HelperState, PayrollLine,
     VaultRegistration,
 };
@@ -121,10 +122,22 @@ fn handle(
                         200,
                         json!({
                             "orchard_spendable_zat": b.orchard_spendable_zat,
+                            "ironwood_spendable_zat": b.ironwood_spendable_zat,
+                            "shielded_spendable_zat": b.shielded_spendable_zat,
+                            "chain_tip_height": b.chain_tip_height,
                             "total_zat": b.total_zat
                         })
                         .to_string(),
                     ),
+                    Err(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
+                },
+            }
+        }
+        (Method::Get, "/api/vault/transactions") => {
+            match query_param(query, "vault").and_then(|v| state.get(v)) {
+                None => resp(404, json!({ "error": "no such vault" }).to_string()),
+                Some(reg) => match vault_transactions(cfg, &reg) {
+                    Ok(txs) => resp(200, json!({ "transactions": txs }).to_string()),
                     Err(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
                 },
             }
@@ -192,6 +205,29 @@ fn handle(
                 Err(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
             }
         }
+        (Method::Post, "/api/vault/members/rename") => {
+            // Rename ONE seat (the caller's own), migrating the name across every proposal's votes so
+            // a rename never leaves a "ghost" approver under the old name. A 400 carries the reason
+            // (unknown seat / name taken / empty) so the UI can show it.
+            #[derive(Deserialize)]
+            struct Req {
+                vault: String,
+                old: String,
+                new: String,
+            }
+            let req: Req = match serde_json::from_slice(body) {
+                Ok(r) => r,
+                Err(_) => return resp(400, json!({ "error": "invalid json" }).to_string()),
+            };
+            let reg = match state.get(&req.vault) {
+                Some(r) => r,
+                None => return resp(404, json!({ "error": "no such vault" }).to_string()),
+            };
+            match rename_member(&cfg.vaults_dir, &reg.vault_id, &req.old, &req.new, now_unix()) {
+                Ok(members) => resp(200, json!({ "members": members }).to_string()),
+                Err(e) => resp(400, json!({ "error": e.to_string() }).to_string()),
+            }
+        }
         (Method::Post, "/api/vault/payroll") => handle_create_payroll(state, cfg, body),
         (Method::Post, "/api/vault/proposals") => handle_create_proposal(state, cfg, body),
         (Method::Post, vp) if vp.starts_with("/api/vault/proposals/") => {
@@ -204,6 +240,41 @@ fn handle(
         (Method::Post, "/api/vault/send") => handle_send(state, cfg, body),
         _ => resp(404, json!({ "error": "not found" }).to_string()),
     }
+}
+
+/// Available memory in MiB parsed from a `/proc/meminfo` string (its `MemAvailable:` line), or None.
+/// Pure, so it is unit-testable without touching the filesystem.
+fn parse_mem_available_mb(meminfo: &str) -> Option<u64> {
+    for line in meminfo.lines() {
+        if let Some(rest) = line.strip_prefix("MemAvailable:") {
+            let kb: u64 = rest.trim().split_whitespace().next()?.parse().ok()?;
+            return Some(kb / 1024);
+        }
+    }
+    None
+}
+
+fn available_mem_mb() -> Option<u64> {
+    std::fs::read_to_string("/proc/meminfo")
+        .ok()
+        .and_then(|s| parse_mem_available_mb(&s))
+}
+
+/// Opt-in pre-prove capacity guard (#135). Proving a PCZT (Halo2) is RAM-heavy; on a small instance
+/// a prove can OOM mid-send, killing the container and returning an ambiguous platform 502. When
+/// `MIN_PROVE_MB` is set and MemAvailable is below it, refuse the prove up front with a clean 503
+/// (before ANY tx work), so the money path fails fast and unambiguously instead of crashing. Disabled
+/// by default (unset/0) so behavior is unchanged until the instance is sized and the threshold tuned.
+fn over_capacity() -> bool {
+    let min: u64 = std::env::var("MIN_PROVE_MB")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    if min == 0 {
+        return false;
+    }
+    // Can't read memory (non-Linux/dev): don't block.
+    available_mem_mb().map(|avail| avail < min).unwrap_or(false)
 }
 
 /// Architecture-B send: the helper builds/proves the PCZT for the vault's own spend, publishes a
@@ -248,6 +319,11 @@ fn handle_send(state: &HelperState, cfg: &HelperConfig, body: &[u8]) -> Resp {
         Ok(p) => p,
         Err(e) => return resp(400, json!({ "error": e.to_string() }).to_string()),
     };
+    // Capacity guard (#135): refuse a memory-heavy prove up front when the instance is low, rather
+    // than OOM-crashing mid-send. Before any tx work, so no ambiguous state.
+    if over_capacity() {
+        return resp(503, json!({ "error": "coordinator over capacity, retry in a moment" }).to_string());
+    }
     // Per-send scratch dir under the vault's own tree (intermediate PCZTs, never a share).
     let work_dir = format!("{}/{}/send-work", cfg.vaults_dir.display(), reg.vault_id);
     let sc = send_config_for(cfg, &reg, work_dir);
@@ -262,7 +338,7 @@ fn handle_send(state: &HelperState, cfg: &HelperConfig, body: &[u8]) -> Resp {
     ) {
         Ok(out) => {
             // Record the ceremony (ZecSafe-inspired reproducible evidence): sighash + aggregate
-            // signature(s) + txid, all public + independently verifiable. Best-effort — a
+            // signature(s) + txid, all public + independently verifiable. Best-effort - a
             // persistence failure must not undo a completed send.
             let rec = CeremonyRecord {
                 vault_id: reg.vault_id.clone(),
@@ -352,6 +428,10 @@ fn handle_proposal_send(state: &HelperState, cfg: &HelperConfig, path: &str, bod
             Err(e) => return resp(400, json!({ "error": e.to_string() }).to_string()),
         }
     };
+    // Capacity guard (#135): same pre-prove check as handle_send.
+    if over_capacity() {
+        return resp(503, json!({ "error": "coordinator over capacity, retry in a moment" }).to_string());
+    }
     let work_dir = format!("{}/{}/send-work", cfg.vaults_dir.display(), reg.vault_id);
     let sc = send_config_for(cfg, &reg, work_dir);
     match net_orchestrate_send(
@@ -567,7 +647,7 @@ fn handle_create_payroll(state: &HelperState, cfg: &HelperConfig, body: &[u8]) -
 }
 
 /// Record an approve/refuse vote on a proposal. Path: `/api/vault/proposals/{id}/(approve|refuse)`.
-/// SECURITY: unauthenticated in this iteration (see `HelperProposal` note) — the money gate is the
+/// SECURITY: unauthenticated in this iteration (see `HelperProposal` note) - the money gate is the
 /// FROST ceremony, not this vote. A vote on a terminal proposal is a 409.
 fn handle_vote(state: &HelperState, cfg: &HelperConfig, path: &str, body: &[u8]) -> Resp {
     let rest = path.trim_start_matches("/api/vault/proposals/");
@@ -630,8 +710,10 @@ fn config_from_env() -> HelperConfig {
     HelperConfig {
         zcash_sign: PathBuf::from(env("KONCLAVE_ZCASH_SIGN", "zcash-sign")),
         devtool: PathBuf::from(env("KONCLAVE_DEVTOOL", "zcash-devtool")),
-        lightwalletd: env("KONCLAVE_LIGHTWALLETD", "testnet.zec.rocks:443"),
-        network: env("KONCLAVE_NETWORK", "test"),
+        // Default to MAINNET: this is a mainnet product, and a testnet default silently mints
+        // `utest1…` vault addresses that would lose real funds. A testnet dev deploy sets these.
+        lightwalletd: env("KONCLAVE_LIGHTWALLETD", "zec.rocks:443"),
+        network: env("KONCLAVE_NETWORK", "main"),
         konclave_signer: PathBuf::from(env("KONCLAVE_SIGNER", "konclave-signer")),
         vaults_dir: PathBuf::from(env("KONCLAVE_VAULTS_DIR", "./helper-vaults")),
     }
@@ -642,7 +724,7 @@ fn main() {
     let cfg = Arc::new(config_from_env());
     let state = Arc::new(HelperState::new());
     // Reseed the registry from disk (a restart / redeploy keeps every vault when vaults_dir is on a
-    // persistent volume). Only public / view-only material is loaded — never a share.
+    // persistent volume). Only public / view-only material is loaded - never a share.
     let restored = orchestrator::helper::load_registrations(&cfg.vaults_dir);
     let restored_n = restored.len();
     for reg in restored {
@@ -672,6 +754,26 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_mem_available_reads_the_meminfo_line() {
+        let meminfo = "MemTotal:        2048000 kB\nMemFree:          123456 kB\nMemAvailable:     524288 kB\nBuffers:            1000 kB\n";
+        assert_eq!(parse_mem_available_mb(meminfo), Some(512)); // 524288 kB / 1024 = 512 MiB
+    }
+
+    #[test]
+    fn parse_mem_available_none_when_absent_or_garbage() {
+        assert_eq!(parse_mem_available_mb("MemFree: 1000 kB\n"), None);
+        assert_eq!(parse_mem_available_mb("MemAvailable: not-a-number kB\n"), None);
+        assert_eq!(parse_mem_available_mb(""), None);
+    }
+
+    #[test]
+    fn over_capacity_disabled_by_default() {
+        // With MIN_PROVE_MB unset, the guard never blocks (default behavior unchanged).
+        std::env::remove_var("MIN_PROVE_MB");
+        assert!(!over_capacity());
+    }
 
     fn cfg() -> HelperConfig {
         HelperConfig {

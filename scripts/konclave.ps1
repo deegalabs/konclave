@@ -1,8 +1,8 @@
-# Konclave — launcher local de dev/demo (Windows).
+# Konclave - launcher local de dev/demo (Windows).
 #
 # Fluxo (ADR-0004): builda o UI bundle no Windows, sobe a ponte local
 # (`konclave serve`) dentro do WSL escutando só em 127.0.0.1, e abre o navegador.
-# Não depende do WSLg — a UI roda no navegador do Windows falando com o backend no WSL
+# Não depende do WSLg - a UI roda no navegador do Windows falando com o backend no WSL
 # via localhost.
 #
 #   Uso:  powershell -ExecutionPolicy Bypass -File scripts\konclave.ps1 [-Port 4762] [-NoBuild]

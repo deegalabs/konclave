@@ -9,7 +9,7 @@ import init, {
   identifierBytes,
 } from '../wasm-pkg/konclave_wasm.js'
 import wasmUrl from '../wasm-pkg/konclave_wasm_bg.wasm?url'
-import { RelaySession, newRoomCode, deriveRoom, ephemeralTag, b64, unb64, bytesEqual, RELAY_BASE, type RelayMsg } from '../net'
+import { RelaySession, newRoomCode, deriveRoom, ephemeralTag, b64, unb64, bytesEqual, relayBase, type RelayMsg } from '../net'
 import { decodeBundle } from '../signing'
 import { SigningMachine } from '../signing-machine'
 import { useT, useTr, useI18n } from '../i18n'
@@ -33,7 +33,7 @@ import {
   executeProposal,
   type Proposal,
 } from '../helper'
-import { zatToZec } from '../format'
+import { zatToZec, vaultFingerprint } from '../format'
 import encodeQR from '@paulmillr/qr'
 import '../redesign.css'
 import '../net.css'
@@ -45,53 +45,6 @@ import '../net.css'
 
 type Phase = 'idle' | 'roster' | 'dkg' | 'done' | 'error' | 'restored' | 'signsession'
 
-// Local, dependency-free labels for the on-device persistence UI (Marco 5). These are ADDITIVE
-// to the /net flow, so rather than touch the shared i18n dictionaries we key a small table by the
-// active locale. No em dashes in copy.
-const PERSIST_LABELS = {
-  'pt-BR': {
-    saveTitle: 'Guardar neste dispositivo',
-    saveHint: 'Cifra a sua parte do cofre com uma frase-senha, para não perder o cofre ao recarregar a página.',
-    savePlaceholder: 'Frase-senha (mínimo 8 caracteres)',
-    saveBtn: 'Guardar cofre',
-    saving: 'Guardando...',
-    saved: 'Cofre guardado neste dispositivo, cifrado.',
-    saveErr: 'Não foi possível guardar o cofre: ',
-    unavailable: 'Este navegador não permite guardar o cofre (sem IndexedDB/WebCrypto).',
-    restoreTitle: 'Cofres guardados neste dispositivo',
-    restorePlaceholder: 'Frase-senha',
-    unlockBtn: 'Abrir',
-    deleteBtn: 'Apagar',
-    unlocking: 'Abrindo...',
-    restoreErr: 'Não foi possível abrir o cofre: ',
-    restoredTitle: 'Cofre restaurado',
-    restoredLead: 'A sua parte do cofre foi restaurada deste dispositivo, sem refazer a criação.',
-    restoredNote: 'Para assinar, reingresse com os membros numa sessão de assinatura abaixo.',
-    rosterLabel: 'Participantes registrados:',
-    backBtn: 'Voltar',
-  },
-  en: {
-    saveTitle: 'Save on this device',
-    saveHint: 'Encrypts your share of the vault with a passphrase, so a page reload does not lose the vault.',
-    savePlaceholder: 'Passphrase (at least 8 characters)',
-    saveBtn: 'Save vault',
-    saving: 'Saving...',
-    saved: 'Vault saved on this device, encrypted.',
-    saveErr: 'Could not save the vault: ',
-    unavailable: 'This browser cannot save the vault (no IndexedDB/WebCrypto).',
-    restoreTitle: 'Vaults saved on this device',
-    restorePlaceholder: 'Passphrase',
-    unlockBtn: 'Open',
-    deleteBtn: 'Delete',
-    unlocking: 'Opening...',
-    restoreErr: 'Could not open the vault: ',
-    restoredTitle: 'Vault restored',
-    restoredLead: 'Your share of the vault was restored from this device, without redoing creation.',
-    restoredNote: 'To sign, rejoin the members in a signing session below.',
-    rosterLabel: 'Registered participants:',
-    backBtn: 'Back',
-  },
-} as const
 
 // Wire messages (JSON inside the relay's opaque `data`; the relay never parses them).
 type Msg =
@@ -102,7 +55,7 @@ type Msg =
   // rejoin (signing after restore): a restored device announces its ORIGINAL seat (its KeyPackage's
   // identifier is bound to it), so a signing session re-seats by declared seat, not by fresh tags.
   | { type: 'rejoin'; seat: number }
-  // signing (Marco 4): all public material — the proven PCZT to verify, the sighash to sign,
+  // signing (Marco 4): all public material - the proven PCZT to verify, the sighash to sign,
   // commitments, signing package, seed, shares, sig.
   | { type: 'sreq'; msg: string; pczt: string }
   // `k` = the 0-based spend position in a multi-note tx. Each real Orchard spend is its own FROST
@@ -123,7 +76,7 @@ const fmtZec = (zat: number) => (zat / 1e8).toFixed(8).replace(/0+$/, '').replac
 function Shell({ error, children, onDashboard, embedded }: { error: string; children: ReactNode; onDashboard?: () => void; embedded?: boolean }) {
   const t = useT()
   // Embedded (inside the /vaults create modal): render just the content, no full-page wrap /
-  // letterhead / frame — the Dialog is the chrome. Same DKG flow, different container.
+  // letterhead / frame - the Dialog is the chrome. Same DKG flow, different container.
   if (embedded) {
     return (
       <div className="rd net-embedded">
@@ -165,7 +118,20 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
     setSelectedVault(groupVk)
     nav('/dashboard')
   }
-  const L = PERSIST_LABELS[locale]
+  // Persistence UI copy, now sourced from the central i18n dictionary (#173) instead of a local
+  // PT/EN table. Keyed the same, so every `L.xxx` usage is unchanged.
+  const L = {
+    saveTitle: tt('net.persist.saveTitle'), saveHint: tt('net.persist.saveHint'),
+    savePlaceholder: tt('net.persist.savePlaceholder'), saveBtn: tt('net.persist.saveBtn'),
+    saving: tt('net.persist.saving'), saved: tt('net.persist.saved'),
+    saveErr: tt('net.persist.saveErr'), unavailable: tt('net.persist.unavailable'),
+    restoreTitle: tt('net.persist.restoreTitle'), restorePlaceholder: tt('net.persist.restorePlaceholder'),
+    unlockBtn: tt('net.persist.unlockBtn'), deleteBtn: tt('net.persist.deleteBtn'),
+    unlocking: tt('net.persist.unlocking'), restoreErr: tt('net.persist.restoreErr'),
+    restoredTitle: tt('net.persist.restoredTitle'), restoredLead: tt('net.persist.restoredLead'),
+    restoredNote: tt('net.persist.restoredNote'), rosterLabel: tt('net.persist.rosterLabel'),
+    backBtn: tt('net.persist.backBtn'),
+  }
   const [phase, setPhase] = useState<Phase>('idle')
   const [role, setRole] = useState<'create' | 'join'>('create')
   const [room, setRoom] = useState('')
@@ -184,6 +150,11 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
   const [rosterCount, setRosterCount] = useState(0)
   const [log, setLog] = useState<string[]>([])
   const [groupVk, setGroupVk] = useState('')
+  // The vault fingerprint: the PUBLIC anti-impostor code members compare out of band (short,
+  // human-comparable code of the group verifying key). Shown on the create-done step - the moment
+  // it matters most across devices - and again in Settings (#160). Same identity Settings uses.
+  const [fp, setFp] = useState<string | null>(null)
+  const [fpCopied, setFpCopied] = useState(false)
   const [error, setError] = useState('')
   // Hosted-helper registration (ADR-0006 Rung A): after DKG, register the vault with the blind
   // helper so it derives the vault's real Orchard address (view-only). Only runs when a helper is
@@ -199,6 +170,12 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
   // signs them (the ceremony), so it keeps the list + a status message, not a create/vote form.
   const [proposals, setProposals] = useState<Proposal[] | null>(null)
   const [propMsg, setPropMsg] = useState('')
+  // Single-flight guard: one send at a time from this device. Two concurrent sends (a double-click,
+  // or the same tab firing twice) would publish two competing sign-requests into the relay room and
+  // neither would gather quorum. The cross-DEVICE lock (two tabs pressing) is the per-vault signing
+  // room + singleton in issue #49; this stops the same device from colliding with itself.
+  const [sendingId, setSendingId] = useState<string | null>(null)
+  const sendingRef = useRef(false)
   const [signPhase, setSignPhase] = useState<'none' | 'signing' | 'signed'>('none')
   const [signature, setSignature] = useState('')
   const [signOk, setSignOk] = useState(false)
@@ -208,7 +185,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
   const [signSeatCount, setSignSeatCount] = useState(0)
   const [signRoomInput, setSignRoomInput] = useState('')
 
-  // --- on-device persistence (Marco 5) — additive, does not touch the DKG/relay/ceremony ---
+  // --- on-device persistence (Marco 5) - additive, does not touch the DKG/relay/ceremony ---
   const [savePass, setSavePass] = useState('')
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle')
   const [saveErr, setSaveErr] = useState('')
@@ -219,7 +196,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
   const [restoredRoster, setRestoredRoster] = useState<string[]>([])
   // Restored secret material, kept only in memory (never surfaced to JSON logs). Present after a
   // restore; `beginSign` wires it into a signing-only relay session (the device re-announces its
-  // original seat via `rejoin`, then signs with these bytes — no DKG redo).
+  // original seat via `rejoin`, then signs with these bytes - no DKG redo).
   const restoredRef = useRef<{
     keyPackage: Uint8Array
     pubkeys: Uint8Array
@@ -267,7 +244,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
   // The per-ceremony signing state (started/nonces/commits/coord/shares/spends/…) now lives inside
   // the shared SigningMachine (issue #50), constructed below.
   // Ceremony watchdog: fires if the vault isn't created in time (a peer never joined, a
-  // message was lost) — surfaces an error instead of hanging on "Criando…" forever (§8).
+  // message was lost) - surfaces an error instead of hanging on "Criando…" forever (§8).
   const ceremonyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const addLog = useCallback((line: string) => setLog((l) => [...l, line]), [])
@@ -283,7 +260,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
     setError(tt('net.err.relayDown'))
   }, [tt])
 
-  // Seat everyone deterministically by sorting their tags — every device computes the same
+  // Seat everyone deterministically by sorting their tags - every device computes the same
   // seating with no central assigner (the invite code names the room, not the seats).
   const computeSeating = useCallback(() => {
     // Admission control: cap the roster at n by sorted tag, so a late/extra peer can never
@@ -330,7 +307,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
     setGroupVk(vk)
     setPhase('done')
     addLog(tt('net.log.round3'))
-    // Register the finished vault with the hosted blind helper (public group key only — no share
+    // Register the finished vault with the hosted blind helper (public group key only - no share
     // crosses). Fire-and-forget: `/net` works with or without a helper, so a failure just leaves
     // the vault local-only. Idempotent, so every device registering the same group key is fine.
     if (helperConfigured()) {
@@ -394,7 +371,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
       try {
         parsed = JSON.parse(msg.data) as Msg
       } catch {
-        return true // unparseable — consume and ignore
+        return true // unparseable - consume and ignore
       }
       // A throwing handler (a malformed package from a peer) must NOT poison the fixpoint: if it
       // never marked the message consumed, advance() would re-apply and re-throw it forever. Catch,
@@ -421,7 +398,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
         if (!startedDkgRef.current) return false // wait until seated
         const seat = seatByTagRef.current.get(msg.from)
         if (seat === undefined) return false
-        if (seat === mySeatRef.current) return true // my own — ignore
+        if (seat === mySeatRef.current) return true // my own - ignore
         if (r1SeenRef.current.has(seat)) return true
         dkgRef.current!.addRound1(identifierBytes(seat), unb64(parsed.pkg))
         r1SeenRef.current.add(seat)
@@ -626,6 +603,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
   // moves real funds, so it is gated by an explicit confirmation (a single click never sends, §7).
   const execProp = useCallback(
     async (id: string) => {
+      if (sendingRef.current) return // a send is already in flight from this device; ignore re-entry
       const ok = typeof window === 'undefined' || window.confirm(
         pe(
           'Executar este pagamento aprovado? As duas abas vão assinar e a transação vai para a rede.',
@@ -633,24 +611,37 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
         ),
       )
       if (!ok) return
+      sendingRef.current = true
+      setSendingId(id)
       setPropMsg(pe('Executando: as abas assinam pelo relay…', 'Executing: the tabs sign over the relay…'))
-      const r = await executeProposal({
-        vault: groupVk,
-        proposalId: id,
-        relayBase: RELAY_BASE,
-        room,
-        dryRun: false,
-      })
-      if (!r) {
-        setPropMsg(pe('Falha ao executar (proposta não pronta ou sem assinaturas a tempo).', 'Execute failed (proposal not ready or no signatures in time).'))
-        return
+      try {
+        const r = await executeProposal({
+          vault: groupVk,
+          proposalId: id,
+          relayBase: relayBase(),
+          room,
+          dryRun: false,
+        })
+        if (!r) {
+          setPropMsg(pe('Falha ao executar: não foi possível falar com o coordenador.', 'Execute failed: could not reach the coordinator.'))
+          return
+        }
+        if ('error' in r) {
+          // The helper's real reason (funds not spendable, timed out waiting for a device to sign,
+          // signature rejected, broadcast refused, ...) instead of a generic guess.
+          setPropMsg(pe(`Falha ao executar: ${r.error}`, `Execute failed: ${r.error}`))
+          return
+        }
+        setPropMsg(
+          r.txid
+            ? `${pe('Transmitido. txid:', 'Broadcast. txid:')} ${r.txid}`
+            : pe('Executado.', 'Executed.'),
+        )
+        void loadProposals()
+      } finally {
+        sendingRef.current = false
+        setSendingId(null)
       }
-      setPropMsg(
-        r.txid
-          ? `${pe('Transmitido. txid:', 'Broadcast. txid:')} ${r.txid}`
-          : pe('Executado.', 'Executed.'),
-      )
-      void loadProposals()
     },
     [groupVk, room, pe, loadProposals],
   )
@@ -667,7 +658,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
     try {
       setSavedVaults(await listVaults())
     } catch {
-      /* listing failure is non-fatal — just show no saved vaults */
+      /* listing failure is non-fatal - just show no saved vaults */
     }
   }, [])
 
@@ -698,10 +689,16 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
           t: cfg?.t ?? 0,
         }),
       )
-      const roster = seatTableRef.current.map((s) => s.tag)
       const nm = vaultNameRef.current.trim() || undefined
       const gov: Governance = cfg?.g ?? governanceRef.current
       const mine = myNameRef.current.trim() || undefined
+      // The roster is member NAMES in seat order (identity is the name), NOT the throwaway relay
+      // tags: map each seat's tag to its announced name; this device's own seat uses its name; fall
+      // back to the tag only if a member never announced one. (Was storing raw p-… tags, which then
+      // showed as member names on the vault card / Members list and in the vault export.)
+      const roster = seatTableRef.current.map((s) =>
+        s.tag === myTagRef.current ? (mine ?? s.tag) : (nameByTagRef.current.get(s.tag) ?? s.tag),
+      )
       // Who set up the vault (the device that generated the invite); rides the config broadcast so
       // every device agrees. A real fixed fact, unlike the per-ceremony FROST coordinator role.
       const creator = cfg?.cn || undefined
@@ -792,9 +789,23 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
     }
   }, [])
 
+  // Derive the vault fingerprint from the group verifying key once the vault exists (same identity
+  // Settings fingerprints, so the codes line up across devices and screens).
+  useEffect(() => {
+    if (!groupVk) { setFp(null); return }
+    let on = true
+    void vaultFingerprint(groupVk).then((c) => { if (on) setFp(c) }).catch(() => { /* WebCrypto unavailable */ })
+    return () => { on = false }
+  }, [groupVk])
+
+  const copyFp = useCallback(async () => {
+    if (!fp) return
+    try { await navigator.clipboard.writeText(fp); setFpCopied(true); setTimeout(() => setFpCopied(false), 1500) } catch { /* clipboard blocked - readable aloud anyway */ }
+  }, [fp])
+
   // ---- render ----
 
-  // Create modal (embedded), idle: two separate views — CREATE or JOIN — toggled, never both at
+  // Create modal (embedded), idle: two separate views - CREATE or JOIN - toggled, never both at
   // once, each purpose-built and on brand. Each participant gives their OWN name (travels in the
   // relay hello, so everyone's member list shows real names). DKG logic unchanged.
   if (phase === 'idle' && embedded && showJoin) {
@@ -913,7 +924,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
           {pe('Gerar convite', 'Generate invite')}
         </button>
         <button type="button" className="cv-linkbtn" onClick={() => setShowJoin(true)}>
-          {pe('Tenho um convite — entrar', 'Have an invite? Join')}
+          {pe('Tenho um convite - entrar', 'Have an invite? Join')}
         </button>
       </Shell>
     )
@@ -1082,8 +1093,8 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
           <div className="net-vk">{signature}</div>
           <p className="net-lead" style={{ fontSize: '.82rem', opacity: 0.8, marginTop: 10 }}>
             {pe(
-              'Assinatura válida sob o alpha da própria transação (o mecanismo de gasto Orchard real), verificada sob ak+alpha. A assinatura agregada volta ao operador pelo relay, que a injeta na PCZT e transmite — nenhum dispositivo transmite sozinho, e o operador nunca vê uma parte da chave.',
-              'Valid signature under the transaction’s own alpha (the real Orchard spend mechanism), verified under ak+alpha. The aggregate signature is returned to the operator over the relay, who injects it into the PCZT and broadcasts — no single device broadcasts alone, and the operator never sees a key share.',
+              'Assinatura válida sob o alpha da própria transação (o mecanismo de gasto Orchard real), verificada sob ak+alpha. A assinatura agregada volta ao operador pelo relay, que a injeta na PCZT e transmite - nenhum dispositivo transmite sozinho, e o operador nunca vê uma parte da chave.',
+              'Valid signature under the transaction’s own alpha (the real Orchard spend mechanism), verified under ak+alpha. The aggregate signature is returned to the operator over the relay, who injects it into the PCZT and broadcasts - no single device broadcasts alone, and the operator never sees a key share.',
             )}
           </p>
         </>
@@ -1131,10 +1142,13 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
                     <div className="net-trail-row" style={{ marginTop: 4 }}>
                       <button
                         className="net-btn primary"
-                        disabled={!room}
+                        disabled={!room || sendingId !== null}
+                        aria-busy={sendingId === p.id}
                         onClick={() => void execProp(p.id)}
                       >
-                        {room
+                        {sendingId === p.id
+                          ? pe('Enviando…', 'Sending…')
+                          : room
                           ? pe('Assinar e enviar', 'Sign & send')
                           : pe('Inicie uma sessão de assinatura', 'Start a signing session')}
                       </button>
@@ -1150,7 +1164,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
   )
 
   // Embedded (create modal): clean, purpose-built rendering for the gathering / running / done
-  // phases — seats filling, a running indicator, and a done step that just protects the device and
+  // phases - seats filling, a running indicator, and a done step that just protects the device and
   // opens the Dashboard (the address/QR/proposals/ceremony all live in the app now).
   if (embedded && (phase === 'roster' || phase === 'dkg' || phase === 'done')) {
     return (
@@ -1186,6 +1200,18 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
             <span className="rd-eyebrow">{pe('COFRE CRIADO', 'VAULT CREATED')}</span>
             <h2 className="cv-title">{pe('Pronto', 'Done')}</h2>
             <p className="cv-lead">{pe('O cofre nasceu. Cada aparelho guardou o seu pedaço; a chave inteira nunca foi montada. Proteja este aparelho com uma frase-senha para não perder o cofre ao recarregar.', 'The vault is born. Each device kept its share; the whole key was never assembled. Protect this device with a passphrase so a reload does not lose it.')}</p>
+            {fp && (
+              <div className="fp-card" role="note" aria-label={tt('members.fpTitle')} style={{ marginBottom: 16 }}>
+                <div className="fp-head">
+                  <span className="klab">{tt('members.fpTitle')}</span>
+                  <button className="btn ghost xs-btn" onClick={() => void copyFp()}>
+                    {fpCopied ? tt('members.fpCopied') : tt('members.fpCopy')}
+                  </button>
+                </div>
+                <div className="fp-code mono">{fp}</div>
+                <div className="fp-help dim">{ttr('ceremony.fpHelp')}</div>
+              </div>
+            )}
             <div className="cv-join">
               <input className="cv-input" type="password" style={{ letterSpacing: 'normal', textAlign: 'left' }}
                 placeholder={pe('Frase-senha (mínimo 8 caracteres)', 'Passphrase (at least 8 characters)')}
@@ -1199,7 +1225,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
               </button>
               {hostedState === 'registered' && (
                 <button type="button" className="cv-linkbtn cv-danger" onClick={openDashboard}>
-                  {pe('Abrir sem guardar — você perde o seu pedaço ao recarregar (só a recuperação social traz de volta)', 'Open without saving — you lose your share on reload (only social recovery brings it back)')}
+                  {pe('Abrir sem guardar - você perde o seu pedaço ao recarregar (só a recuperação social traz de volta)', 'Open without saving - you lose your share on reload (only social recovery brings it back)')}
                 </button>
               )}
             </div>

@@ -1,17 +1,17 @@
 /**
- * @konclave/frost — a reusable browser primitive for FROST threshold signatures on Zcash.
+ * @konclave/frost - a reusable browser primitive for FROST threshold signatures on Zcash.
  *
  * This is a thin, typed, ergonomic wrapper over Konclave's WebAssembly core
  * (`konclave-wasm`). It exposes four capabilities, all running entirely in the browser
  * with the secret key share NEVER leaving the device:
  *
- *   1. DKG      — a real Distributed Key Generation across N devices (no trusted dealer),
+ *   1. DKG      - a real Distributed Key Generation across N devices (no trusted dealer),
  *                 producing one FROST vault whose key is never reconstituted.
- *   2. Signing  — a rerandomized-redpallas (Orchard-compatible) FROST group signature,
+ *   2. Signing  - a rerandomized-redpallas (Orchard-compatible) FROST group signature,
  *                 each device signing with only its own piece.
- *   3. Sealing  — an ECIES confidential channel (X25519 -> HKDF-SHA256 -> XChaCha20-Poly1305)
+ *   3. Sealing  - an ECIES confidential channel (X25519 -> HKDF-SHA256 -> XChaCha20-Poly1305)
  *                 so a blind relay only ever carries public material or ciphertext.
- *   4. Recovery — the Repairable Threshold Scheme (RTS): a quorum of helpers rebuilds a lost
+ *   4. Recovery - the Repairable Threshold Scheme (RTS): a quorum of helpers rebuilds a lost
  *                 member's share without touching the group key.
  *
  * HONESTY NOTE. Konclave does NOT reimplement the cryptography. The primitives here are the
@@ -58,7 +58,7 @@ export {
   participantRound2,
   /** Seal plaintext to a recipient's 32-byte public key; `aad` binds sender/recipient context. */
   sealTo,
-  /** Verify a group signature against the vault's key — every device confirms the result itself. */
+  /** Verify a group signature against the vault's key - every device confirms the result itself. */
   verifyRedpallas,
   /** Deterministic 1-based identifier bytes, so every device agrees on who is who with no registry. */
   identifierBytes,
@@ -85,7 +85,7 @@ export type WasmSource = InitInput
  *
  * You MUST provide where the `.wasm` binary lives. It is intentionally not bundled with this
  * SDK (it is ~450 KB). The binary ships with the `konclave-wasm` package as
- * `konclave_wasm_bg.wasm` — see the README for the three common ways to point at it.
+ * `konclave_wasm_bg.wasm` - see the README for the three common ways to point at it.
  *
  * @param wasm - a URL/Response/bytes/Module locating `konclave_wasm_bg.wasm`.
  *
@@ -190,7 +190,7 @@ export function localTestCeremony(
   // Trusted-dealer stand-in for two unlocked device shares (seats 0 and 1 of a 2-of-3).
   const vault = new TestVault()
 
-  // Round 1 — each device keeps its nonces local, sends only its commitment.
+  // Round 1 - each device keeps its nonces local, sends only its commitment.
   const a = participantRound1(vault.key_package(0))
   const b = participantRound1(vault.key_package(1))
 
@@ -202,7 +202,7 @@ export function localTestCeremony(
   const sp = coord.signingPackage()
   const seed = coord.seed()
 
-  // Round 2 — each device signs with ITS OWN nonces; only the share crosses.
+  // Round 2 - each device signs with ITS OWN nonces; only the share crosses.
   coord.addShare(vault.id(0), participantRound2(sp, a.nonces(), vault.key_package(0), seed))
   coord.addShare(vault.id(1), participantRound2(sp, b.nonces(), vault.key_package(1), seed))
 

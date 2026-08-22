@@ -1,8 +1,8 @@
-//! The blind mailbox — Milestone 1 of the konclave.app network.
+//! The blind mailbox - Milestone 1 of the konclave.app network.
 //!
 //! This answers the concrete question "how do three separate devices find each other?".
 //! A device posts an **opaque** message into a room; the other devices in that room poll
-//! and receive it. The relay **never parses `data`** — it forwards bytes it cannot read.
+//! and receive it. The relay **never parses `data`** - it forwards bytes it cannot read.
 //! That is exactly what keeps it *blind*: it moves ciphertext and public FROST material
 //! between peers and can do nothing with either.
 //!
@@ -14,7 +14,7 @@
 //! `429`, so neither grows without bound. This is the same trust model as the Zcash
 //! Foundation's `frostd`: a public-material-only coordinator.
 //!
-//! Transport shape: HTTP short-poll (no new dependency — same `tiny_http` server). A room is
+//! Transport shape: HTTP short-poll (no new dependency - same `tiny_http` server). A room is
 //! an in-memory append-only log of messages with monotonic sequence numbers; a reader asks
 //! for everything `since` the last seq it saw. Simple, testable, and trivially hostable as
 //! the same handler on `0.0.0.0` when we move past two-tabs-on-one-machine (Milestone 5).
@@ -27,7 +27,7 @@ use serde::{Deserialize, Serialize};
 use crate::server::Response;
 
 /// Max rooms held at once; the least-recently-active is evicted past this (a public relay
-/// must not grow without bound). Generous for a coordination relay — rooms are tiny.
+/// must not grow without bound). Generous for a coordination relay - rooms are tiny.
 const MAX_ROOMS: usize = 512;
 /// Max messages retained per room. A DKG or signing ceremony is a few dozen messages; this
 /// leaves ample headroom while capping a single room's memory.
@@ -37,7 +37,7 @@ const MAX_MSGS: usize = 512;
 const MAX_DATA: usize = 128 * 1024;
 /// A `from` tag cap (it is an ephemeral pseudonym, not free-form text).
 const MAX_FROM: usize = 128;
-/// Rooms idle longer than this (seconds) are dropped on the next access — no background job.
+/// Rooms idle longer than this (seconds) are dropped on the next access - no background job.
 const ROOM_TTL: i64 = 3600;
 /// A peer counts as "present" if seen within this window (seconds).
 const PEER_WINDOW: i64 = 45;
@@ -46,14 +46,14 @@ const PEER_WINDOW: i64 = 45;
 /// after 45s; this just reclaims the memory once it is long gone.
 const PRESENCE_TTL: i64 = 300;
 /// Fixed-window rate limit: at most `RATE_MAX` requests per `RATE_WINDOW` seconds per source
-/// key (a `from` tag, or the room id when a poll carries none). Generous — a real short-poll
-/// ceremony sends a couple of requests per second, well under this — it only refuses floods.
+/// key (a `from` tag, or the room id when a poll carries none). Generous - a real short-poll
+/// ceremony sends a couple of requests per second, well under this - it only refuses floods.
 const RATE_WINDOW: i64 = 10;
 const RATE_MAX: u32 = 150;
 /// Cap on distinct rate-limit keys tracked at once (stale windows are reclaimed past this).
 const MAX_RATE_KEYS: usize = 4096;
 
-/// One relayed message. `data` is opaque to the relay — it is only ever stored and echoed.
+/// One relayed message. `data` is opaque to the relay - it is only ever stored and echoed.
 #[derive(Clone, Serialize)]
 pub struct Msg {
     pub seq: u64,
@@ -209,7 +209,7 @@ impl RelayState {
         let mut rooms = self.rooms.lock().unwrap_or_else(|e| e.into_inner());
         prune(&mut rooms, now);
         let Some(room) = rooms.get_mut(room_id) else {
-            // An unknown room is not an error — it just has nothing yet.
+            // An unknown room is not an error - it just has nothing yet.
             return json(
                 200,
                 serde_json::json!({ "messages": [], "next": since, "peers": 0 }),

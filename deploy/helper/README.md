@@ -2,8 +2,8 @@
 
 The [`helper-server`](../../helper-server) crate is the hosted, **share-blind** helper of
 ADR-0006 Rung A: it registers a browser-DKG vault by its FROST group key, derives the vault's
-Orchard address + UFVK (public material only), keeps a view-only wallet per vault, and — over
-Architecture B — builds/proves/broadcasts a spend while the **browsers** sign over the blind
+Orchard address + UFVK (public material only), keeps a view-only wallet per vault, and - over
+Architecture B - builds/proves/broadcasts a spend while the **browsers** sign over the blind
 relay. It never receives, derives, or stores a share.
 
 It runs on Railway alongside the blind relay (`konclave-relay` project, `konclave-helper`
@@ -68,18 +68,18 @@ railway domain -s konclave-helper                           # mint the public UR
 The volume mounted at `/data` (= `KONCLAVE_VAULTS_DIR=/data/vaults`) makes registrations survive a
 redeploy: `helper-server` reseeds its registry from `<vaults_dir>/<id>/registration.json` at startup,
 and a re-register returns the STORED address instead of re-deriving a fresh diversified one. The
-image runs as root so the (root-owned) volume is writable — acceptable for this blind demo helper
+image runs as root so the (root-owned) volume is writable - acceptable for this blind demo helper
 (no secret in the container); dropping to non-root + chowning the volume is a hardening follow-up.
 
 ## Configuration (env vars)
 
-All are public tooling paths / endpoints — nothing secret. Defaults suit the testnet demo.
+All are public tooling paths / endpoints - nothing secret. Defaults suit the testnet demo.
 
 | var | default | meaning |
 |---|---|---|
 | `KONCLAVE_HELPER_ADDR` | `0.0.0.0:4780` | bind address (the CMD wires Railway's `$PORT` in) |
-| `KONCLAVE_NETWORK` | `test` | `main` or `test` (drives address validation + derivation) |
-| `KONCLAVE_LIGHTWALLETD` | `testnet.zec.rocks:443` | lightwalletd for the view-only wallets |
+| `KONCLAVE_NETWORK` | `main` | `main` or `test` (drives address validation + derivation) |
+| `KONCLAVE_LIGHTWALLETD` | `zec.rocks:443` | lightwalletd for the view-only wallets (mainnet default; `testnet.zec.rocks:443` for testnet) |
 | `KONCLAVE_ZCASH_SIGN` / `KONCLAVE_DEVTOOL` / `KONCLAVE_SIGNER` | `/usr/local/bin/...` | engine binary paths |
 | `KONCLAVE_VAULTS_DIR` | `/home/helper/vaults` | per-vault view-only wallets + send scratch |
 
@@ -90,5 +90,5 @@ All are public tooling paths / endpoints — nothing secret. Defaults suit the t
 ## API
 
 See [`helper-server/src/main.rs`](../../helper-server/src/main.rs). Read paths never leak the
-UFVK or account (audit M1); `POST /api/vault/send` defaults `dry_run` to **true** — the caller
+UFVK or account (audit M1); `POST /api/vault/send` defaults `dry_run` to **true** - the caller
 must pass `dry_run:false` to broadcast, so a single call never fires funds.

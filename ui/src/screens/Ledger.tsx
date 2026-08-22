@@ -1,15 +1,20 @@
 import { Fragment, useEffect, useState } from 'react'
-import { Secret, RevealButton, activateOnKey, Loading } from '../components'
-import { PageHeader, PageFooter, NextStep } from '../page'
-import { getLedger, getProposalDetail, getVault, ledgerCsvUrl, health, shortAddr, type Proposal, type PayrollLine } from '../api'
+import { startVisiblePoll } from '../usePoll'
+import { Secret, RevealButton, activateOnKey } from '../components'
+import { SkeletonRows } from '../skeleton'
+import { PageHeader, PageFooter } from '../page'
+import { getLedger, getProposalDetail, getVault, ledgerCsvUrl, health, shortAddr, IS_DEMO, type Proposal, type PayrollLine } from '../api'
 import { fmtDate, fmtZec } from '../format'
 import { exportLedgerXlsx, type LedgerXlsxItem } from '../ledgerXlsx'
-import { useT } from '../i18n'
+import { useLoading } from '../loading'
+import { useT, useI18n } from '../i18n'
 
 const SETTLED = (s: string) => s === 'sent' || s === 'confirmed'
 
-export default function Ledger() {
+export default function Ledger({ embedded = false }: { embedded?: boolean }) {
   const t = useT()
+  const { locale } = useI18n()
+  const { begin, end } = useLoading()
   const [rows, setRows] = useState<Proposal[] | null>(null)
   const [live, setLive] = useState(false)
   const [vaultName, setVaultName] = useState<string | null>(null)
@@ -20,19 +25,34 @@ export default function Ledger() {
   const [fKind, setFKind] = useState<'all' | 'payment' | 'payroll'>('all')
   const [xlsxBusy, setXlsxBusy] = useState(false)
 
+  // Auto-refresh (#123): a payment that settles on-chain, or a new proposal, shows in the book
+  // without a manual reload. Poll on the same 12s cadence as the Dashboard/Proposals, in-flight
+  // guarded so calls never overlap; only the FIRST load drives the top-progress bar.
   useEffect(() => {
     let on = true
-    void (async () => {
-      const ok = await health()
-      if (!on) return
-      setLive(ok)
-      const [l, v] = await Promise.all([getLedger(), getVault()])
-      if (!on) return
-      if (l) setRows(l)
-      if (v) { setVaultName(v.name); setThreshold(v.threshold) }
-    })()
-    return () => { on = false }
-  }, [])
+    let inFlight = false
+    const load = async (first: boolean) => {
+      if (inFlight) return
+      inFlight = true
+      if (first) begin()
+      try {
+        if (first) {
+          const ok = await health()
+          if (on) setLive(ok)
+        }
+        const [l, v] = await Promise.all([getLedger(), getVault()])
+        if (!on) return
+        if (l) setRows(l)
+        if (v) { setVaultName(v.name); setThreshold(v.threshold) }
+      } finally {
+        inFlight = false
+        if (first) end()
+      }
+    }
+    void load(true)
+    const stop = startVisiblePoll(() => void load(false), 12_000) // pause when hidden, refresh on return (#123)
+    return () => { on = false; stop() }
+  }, [begin, end])
 
   async function toggle(p: Proposal) {
     if (p.kind !== 'payroll') return
@@ -104,29 +124,28 @@ export default function Ledger() {
   const dates = ledger.map((p) => p.created_at).filter(Boolean) as number[]
   const lo = dates.length ? Math.min(...dates) : 0
   const hi = dates.length ? Math.max(...dates) : 0
-  const period = !dates.length ? '—' : lo === hi ? fmtDate(lo) : `${fmtDate(lo)} - ${fmtDate(hi)}`
+  const period = !dates.length ? '-' : lo === hi ? fmtDate(lo, locale) : `${fmtDate(lo, locale)} - ${fmtDate(hi, locale)}`
   const filtered = ledger.filter((p) => {
     const stOk = fState === 'all' || (fState === 'settled' ? SETTLED(p.state) : p.state === 'awaiting' || p.state === 'ready')
     const knOk = fKind === 'all' || p.kind === fKind
     return stOk && knOk
   })
 
-  return (
+  const exportActions = (
     <>
-      <main className="page">
-        <PageHeader
-          title={t('ledger.title')}
-          actions={<>
-            <a className="btn ghost sm-btn" href={ledgerCsvUrl()} download="konclave-razao.csv">{t('ledger.exportCsv')}</a>
-            <button className="btn ghost sm-btn" disabled={xlsxBusy} onClick={() => void exportXlsx()}>{xlsxBusy ? t('ledger.exporting') : t('ledger.exportXlsx')}</button>
-            <button className="btn ghost sm-btn" onClick={() => window.print()}>{t('ledger.pdf')}</button>
-          </>}
-        />
+      <a className="btn ghost sm-btn" href={ledgerCsvUrl()} download="konclave-ledger.csv">{t('ledger.exportCsv')}</a>
+      <button className="btn ghost sm-btn" disabled={xlsxBusy} onClick={() => void exportXlsx()}>{xlsxBusy ? t('ledger.exporting') : t('ledger.exportXlsx')}</button>
+      <button className="btn ghost sm-btn" onClick={() => window.print()}>{t('ledger.pdf')}</button>
+    </>
+  )
 
-        {/* Banda de documento — o livro do cofre para entregar ao contador */}
+  const body = (
+    <>
+        {embedded && <div className="lg-actions">{exportActions}</div>}
+        {/* Document band - the vault's book to hand to the accountant */}
         <div className="doc-band">
           <div className="db-meta">
-            <div><span className="klab">{t('ledger.vault')}</span><b>{vaultName ?? 'Tesouraria Comum'}</b></div>
+            <div><span className="klab">{t('ledger.vault')}</span><b>{vaultName ?? (IS_DEMO ? t('common.sampleVault') : '…')}</b></div>
             <div><span className="klab">{t('ledger.period')}</span><b className="mono">{period}</b></div>
             <div><span className="klab">{t('ledger.entries')}</span><b>{ledger.length}</b></div>
           </div>
@@ -158,7 +177,7 @@ export default function Ledger() {
           <thead><tr><th>{t('ledger.colDate')}</th><th>{t('ledger.colDocument')}</th><th>{t('ledger.colWho')}</th><th>{t('ledger.colValue')}</th></tr></thead>
           <tbody>
             {rows === null && (
-              <tr><td colSpan={4}><Loading /></td></tr>
+              <tr><td colSpan={4}><SkeletonRows n={5} /></td></tr>
             )}
             {rows !== null && ledger.length === 0 && (
               <tr><td colSpan={4} className="by">{t('ledger.emptyNone')}</td></tr>
@@ -184,7 +203,7 @@ export default function Ledger() {
                     style={isPayroll ? { cursor: 'pointer' } : undefined}
                     {...(isPayroll ? { role: 'button' as const, tabIndex: 0, 'aria-expanded': isOpen, onKeyDown: activateOnKey(() => toggle(p)) } : {})}
                   >
-                    <td className="mono">{fmtDate(p.created_at)}</td>
+                    <td className="mono">{fmtDate(p.created_at, locale)}</td>
                     <td>
                       {isPayroll && <span className="caret">{isOpen ? '▾' : '▸'} </span>}
                       {p.memo || (isPayroll ? t('kind.payroll') : t('kind.payment'))}
@@ -220,8 +239,16 @@ export default function Ledger() {
           </tbody>
         </table>
 
-        <NextStep label={t('next.label')} cta={t('next.dashboard')} to="/dashboard" />
+    </>
+  )
 
+  if (embedded) return body
+
+  return (
+    <>
+      <main className="page">
+        <PageHeader title={t('ledger.title')} actions={exportActions} />
+        {body}
         <PageFooter>
           <span className="dim pushr">{t('ledger.foot')}</span>
         </PageFooter>

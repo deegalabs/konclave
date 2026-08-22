@@ -5,7 +5,7 @@ import '../redesign.css'
 import '../landing.css'
 
 /**
- * /lab — the laboratory hub (redesign Fase 0). Groups the live cryptographic proofs that used
+ * /lab - the laboratory hub (redesign Fase 0). Groups the live cryptographic proofs that used
  * to be scattered top-level routes (signer, recovery, inheritance) plus the on-chain proof, so
  * they read as one "see the cryptography" surface instead of disconnected pages. Standalone
  * (no rail), reuses the landing's explore-grid styling. Bilingual inline.
@@ -23,7 +23,7 @@ const COPY: Record<'pt-BR' | 'en', {
       { to: '/signer', name: 'Assinar no navegador', desc: 'Uma assinatura de quórum acontecendo inteira dentro do navegador.', tag: 'demo' },
       { to: '/recovery', name: 'Recuperação de membro', desc: 'Um quórum reconstrói a parte de quem perdeu acesso, sem expor a chave.', tag: 'demo' },
       { to: '/inheritance', name: 'Herança', desc: 'Se um responsável some, o quórum libera os fundos a um herdeiro.', tag: 'demo' },
-      { to: '/lab/background-signer', name: 'Assinatura em 2º plano', desc: 'Um cofre destrancado assina um pagamento em 2º plano, sem ir ao /net (Stage 3).', tag: 'demo' },
+      { to: '/lab/background-signer', name: 'Assinatura em 2º plano', desc: 'Um cofre destrancado assina um pagamento em 2º plano, direto do painel, sem uma tela de cerimônia separada.', tag: 'demo' },
       { to: '/proof', name: 'Comprovação na blockchain', desc: 'Confira você mesmo, no explorador público, as transações reais na mainnet.', tag: 'prova' },
     ],
   },
@@ -36,7 +36,7 @@ const COPY: Record<'pt-BR' | 'en', {
       { to: '/signer', name: 'Sign in the browser', desc: 'A quorum signature happening entirely inside the browser.', tag: 'demo' },
       { to: '/recovery', name: 'Member recovery', desc: 'A quorum rebuilds the share of whoever lost access, without exposing the key.', tag: 'demo' },
       { to: '/inheritance', name: 'Inheritance', desc: 'If a steward disappears, the quorum releases the funds to an heir.', tag: 'demo' },
-      { to: '/lab/background-signer', name: 'Background signing', desc: 'An unlocked vault signs a payment in the background, no /net screen (Stage 3).', tag: 'demo' },
+      { to: '/lab/background-signer', name: 'Background signing', desc: 'An unlocked vault signs a payment in the background, straight from the dashboard, with no separate ceremony screen.', tag: 'demo' },
       { to: '/proof', name: 'Proof on the blockchain', desc: 'Check for yourself, on the public explorer, the real mainnet transactions.', tag: 'proof' },
     ],
   },

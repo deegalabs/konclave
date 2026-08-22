@@ -30,7 +30,7 @@
   margin: 0 auto;
 }
 
-/* — sidebar — */
+/* - sidebar - */
 .docs-side {
   border-right: 1px solid var(--line);
   padding: 30px 20px 40px;
@@ -59,7 +59,7 @@
   border-left: 2px solid transparent;
   transition: background .15s, color .15s;
 }
-.docs-navlink:hover { background: rgba(255, 255, 255, .03); color: var(--text); }
+.docs-navlink:hover { background: var(--surface-2); color: var(--text); }
 .docs-navlink.active {
   background: var(--accent-soft);
   color: var(--accent);
@@ -68,7 +68,7 @@
 }
 .docs-navlink:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
-/* — article — */
+/* - article - */
 .docs-main { padding: 34px 40px 80px; min-width: 0; }
 .docs-article { max-width: 680px; }
 
@@ -165,7 +165,7 @@
 }
 .docs-note strong { color: var(--text); font-weight: 600; }
 
-/* — diagram figures — */
+/* - diagram figures - */
 .docs-fig { margin: 22px 0; position: relative; }
 .docs-fig-scroll {
   overflow-x: auto;
@@ -206,7 +206,7 @@
 .docs-fig-expand:hover { color: var(--accent); border-color: var(--accent-line); background: var(--surface-3); }
 .docs-fig-expand:focus-visible { opacity: 1; outline: 2px solid var(--accent); outline-offset: 2px; }
 
-/* — diagram lightbox (expanded view) — */
+/* - diagram lightbox (expanded view) - */
 .docs-lightbox {
   position: fixed;
   inset: 0;
@@ -281,7 +281,7 @@
   .docs-lightbox { animation: none; }
 }
 
-/* — prev/next pager — */
+/* - prev/next pager - */
 .docs-pager {
   display: flex;
   justify-content: space-between;
@@ -301,7 +301,7 @@
   min-width: 150px;
   transition: border-color .15s, background .15s;
 }
-.docs-pager-link:hover { border-color: var(--accent-line); background: rgba(255, 255, 255, .02); }
+.docs-pager-link:hover { border-color: var(--accent-line); background: var(--surface-2); }
 .docs-pager-link.next { text-align: right; align-items: flex-end; margin-left: auto; }
 .docs-pager-link small {
   font-family: var(--font-mono);

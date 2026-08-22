@@ -1,14 +1,15 @@
-//! Konclave — the blind mailbox relay, standalone and PUBLIC.
+//! Konclave - the blind mailbox relay, standalone and PUBLIC.
 //!
 //! This is the hosted counterpart of `orchestrator/src/relay.rs`: the same in-memory,
 //! opaque-message room mailbox, but bound on `0.0.0.0` with permissive CORS so browsers on
 //! `konclave.app` (any origin) can reach it for multi-device DKG/signing ceremonies. It is
-//! blind by construction — it forwards public/encrypted bytes it cannot read and holds no key.
+//! blind by construction - it forwards public/encrypted bytes it cannot read and holds no key.
 //!
 //! Public by design, so there is NO Host gate and NO session token here (unlike the loopback
 //! bridge). Hardening in place for a public relay: rooms/messages are capped and TTL-evicted,
 //! the presence map is pruned (stale `from` tags dropped past `PRESENCE_TTL`), and a
-//! dependency-free per-source fixed-window rate limiter refuses floods with `429`. It moves
+//! dependency-free fixed-window rate limiter refuses floods with `429` - keyed BOTH per client IP
+//! (robust: a flooding source cannot cheaply change it) and per `from`/room key (#64). It moves
 //! nothing but ciphertext/public FROST material between peers.
 
 use std::collections::HashMap;
@@ -30,10 +31,15 @@ const PEER_WINDOW: i64 = 45;
 // just reclaims the memory once it is long gone.
 const PRESENCE_TTL: i64 = 300;
 // Fixed-window rate limit: at most RATE_MAX requests per RATE_WINDOW seconds per source key
-// (a `from` tag, or the room id when a poll carries none). Generous — a real short-poll
-// ceremony sends a couple of requests per second, well under this — it only refuses floods.
+// (a `from` tag, or the room id when a poll carries none). Generous - a real short-poll
+// ceremony sends a couple of requests per second, well under this - it only refuses floods.
 const RATE_WINDOW: i64 = 10;
 const RATE_MAX: u32 = 150;
+// Per-IP fixed-window limit (#64). The `from`/room key above is client-controlled (an attacker can
+// rotate `from` tags to dodge it), so the robust flood defense keys on the client IP - which a single
+// flooding source cannot cheaply change. Higher than RATE_MAX because one IP (behind NAT) may carry
+// several legitimate tabs/members; still far below any real flood (thousands/s).
+const RATE_MAX_IP: u32 = 300;
 // Cap on distinct rate-limit keys tracked at once (stale windows are reclaimed past this).
 const MAX_RATE_KEYS: usize = 4096;
 
@@ -88,12 +94,19 @@ impl RelayState {
         raw: &str,
         body: &[u8],
         now: i64,
+        ip: &str,
     ) -> (u16, String) {
         let Some(room_id) = path.strip_prefix("/api/relay/") else {
             return (404, r#"{"error":"not found"}"#.into());
         };
         if room_id.is_empty() || room_id.contains('/') || room_id.len() > 128 {
             return (400, r#"{"error":"bad room id"}"#.into());
+        }
+        // Per-IP flood check FIRST (robust: the client cannot cheaply change its IP), so a source
+        // rotating `from` tags to dodge the per-key limit below is still capped. `ip:` namespaces
+        // the key so it never collides with a `from`/room key in the same map.
+        if !self.rate_ok(&format!("ip:{ip}"), now, RATE_MAX_IP) {
+            return (429, r#"{"error":"rate limited"}"#.into());
         }
         match *method {
             Method::Post => self.post(room_id, body, now),
@@ -104,7 +117,7 @@ impl RelayState {
 
     /// Fixed-window per-key rate check. Returns `true` if the request is within budget.
     /// O(1) amortized; the key map is pruned of stale windows only when it grows large.
-    fn rate_ok(&self, key: &str, now: i64) -> bool {
+    fn rate_ok(&self, key: &str, now: i64, max: u32) -> bool {
         let mut lim = self.limiter.lock().unwrap_or_else(|e| e.into_inner());
         if lim.len() > MAX_RATE_KEYS {
             lim.retain(|_, (start, _)| now.saturating_sub(*start) < RATE_WINDOW);
@@ -114,7 +127,7 @@ impl RelayState {
             *entry = (now, 0);
         }
         entry.1 += 1;
-        entry.1 <= RATE_MAX
+        entry.1 <= max
     }
 
     fn post(&self, room_id: &str, body: &[u8], now: i64) -> (u16, String) {
@@ -130,7 +143,7 @@ impl RelayState {
         if req.from.is_empty() || req.from.len() > MAX_FROM {
             return (400, r#"{"error":"bad from tag"}"#.into());
         }
-        if !self.rate_ok(&req.from, now) {
+        if !self.rate_ok(&req.from, now, RATE_MAX) {
             return (429, r#"{"error":"rate limited"}"#.into());
         }
         if req.data.len() > MAX_DATA {
@@ -170,7 +183,7 @@ impl RelayState {
             Some(f) if !f.is_empty() => f.as_str(),
             _ => room_id,
         };
-        if !self.rate_ok(key, now) {
+        if !self.rate_ok(key, now, RATE_MAX) {
             return (429, r#"{"error":"rate limited"}"#.into());
         }
         let mut rooms = self.rooms.lock().unwrap_or_else(|e| e.into_inner());
@@ -224,6 +237,25 @@ fn query(raw: &str, key: &str) -> Option<String> {
     })
 }
 
+/// The client's IP for rate limiting. Behind Railway's proxy `remote_addr` is the proxy, so prefer
+/// the first hop of `X-Forwarded-For` (the real client); fall back to `remote_addr` for a direct
+/// connection. An attacker can spoof XFF only if they bypass the proxy, which the platform prevents.
+fn client_ip(req: &tiny_http::Request) -> String {
+    for h in req.headers() {
+        if h.field.equiv("X-Forwarded-For") {
+            if let Some(first) = h.value.as_str().split(',').next() {
+                let ip = first.trim();
+                if !ip.is_empty() {
+                    return ip.to_string();
+                }
+            }
+        }
+    }
+    req.remote_addr()
+        .map(|a| a.ip().to_string())
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
 fn now_unix() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -248,6 +280,47 @@ fn with_cors<R: Read>(mut resp: Response<R>, json: bool) -> Response<R> {
     resp
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rate_ok_blocks_past_max_then_resets_next_window() {
+        let st = RelayState::default();
+        let now = 1_000_000;
+        // First `max` requests pass; the (max+1)-th in the same window is refused.
+        for i in 0..5 {
+            assert!(st.rate_ok("k", now, 5), "req {i} should pass");
+        }
+        assert!(!st.rate_ok("k", now, 5), "6th in-window request is refused");
+        // A new window (>= RATE_WINDOW later) resets the counter.
+        assert!(st.rate_ok("k", now + RATE_WINDOW, 5), "next window resets");
+    }
+
+    #[test]
+    fn rate_ok_keys_are_independent() {
+        let st = RelayState::default();
+        let now = 2_000_000;
+        assert!(!(1..=6).all(|_| st.rate_ok("a", now, 5))); // "a" hits its cap
+        // A different key (e.g. a per-IP key vs a from key) has its own budget.
+        assert!(st.rate_ok("ip:203.0.113.7", now, 5));
+    }
+
+    #[test]
+    fn per_ip_check_stops_from_tag_rotation() {
+        // The point of #64: rotating the `from` tag dodges the per-key limit, but the per-IP key
+        // (same ip) keeps counting and eventually refuses. Simulate handle's IP-first check.
+        let st = RelayState::default();
+        let now = 3_000_000;
+        let ip_key = "ip:198.51.100.9";
+        let mut refused = false;
+        for _ in 0..(RATE_MAX_IP + 10) {
+            if !st.rate_ok(ip_key, now, RATE_MAX_IP) { refused = true; break; }
+        }
+        assert!(refused, "a single IP is capped regardless of from-tag rotation");
+    }
+}
+
 fn main() {
     let port: u16 = std::env::var("PORT")
         .ok()
@@ -262,6 +335,7 @@ fn main() {
         let method = req.method().clone();
         let url = req.url().to_string();
         let path = url.split(['?', '#']).next().unwrap_or(&url).to_string();
+        let ip = client_ip(&req);
 
         if method == Method::Options {
             let _ = req.respond(with_cors(Response::empty(204), false));
@@ -277,7 +351,7 @@ fn main() {
             {
                 let _ = req.as_reader().read_to_end(&mut buf);
             }
-            state.handle(&method, &path, &url, &buf, now_unix())
+            state.handle(&method, &path, &url, &buf, now_unix(), &ip)
         } else if path == "/" || path == "/health" {
             (
                 200,

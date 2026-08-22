@@ -1,30 +1,73 @@
 // Client for the hosted BLIND helper (orchestrator/src/helper.rs + helper-server, ADR-0006
 // Rung A). The helper turns a browser-DKG group key into an operable vault: it derives the
 // vault's Orchard address + UFVK (public material only), keeps a view-only wallet per vault,
-// and — over Architecture B — builds/proves/broadcasts a spend while the browsers sign over the
+// and - over Architecture B - builds/proves/broadcasts a spend while the browsers sign over the
 // blind relay. It NEVER receives, derives, or stores a share. So this client only ever sends the
 // PUBLIC group key (already shown on `/net`) and public send parameters; no secret crosses it.
 //
 // `VITE_HELPER_BASE` points at the hosted helper (e.g. https://konclave-helper-production.up.
 // railway.app). When unset, every call degrades to `null` and `/net` stays a pure two-device
-// ceremony with no hosted vault — the local-first path is unchanged.
+// ceremony with no hosted vault - the local-first path is unchanged.
 
 const ENV = import.meta.env as Record<string, string | undefined>
 
-/** The hosted helper's base URL, or '' when no helper is configured. */
+/** The BUILT-IN hosted helper's base URL ("our helper"), or '' when none is baked in. */
 export const HELPER_BASE: string = ENV.VITE_HELPER_BASE ?? ''
 
-/** True when a hosted helper is configured (so `/net` can offer the full-vault path). */
+// Coordination mode - the user's runtime choice of WHERE the blind helper lives (desktop):
+//   'ours'   → the built-in HELPER_BASE (default when one is baked in)
+//   'custom' → a self-hosted helper URL the user provides
+//   'local'  → no helper at all (pure local orchestrator/bridge)
+// Persisted per device. The helper stays BLIND in every mode - it never sees a share; switching
+// modes only changes which blind coordinator (or none) the browser talks to.
+export type CoordMode = 'ours' | 'custom' | 'local'
+const MODE_KEY = 'konclave.coord.mode'
+const URL_KEY = 'konclave.coord.url'
+
+function ls(key: string): string | null {
+  try { return localStorage.getItem(key) } catch { return null }
+}
+
+/** The chosen coordination mode; defaults to 'ours' when a helper is baked in, else 'local'. */
+export function getCoordMode(): CoordMode {
+  const m = ls(MODE_KEY)
+  if (m === 'ours' || m === 'custom' || m === 'local') return m
+  return HELPER_BASE ? 'ours' : 'local'
+}
+
+/** The user-provided self-hosted helper URL (for 'custom' mode), trailing slash trimmed. */
+export function getCustomHelper(): string {
+  return (ls(URL_KEY) ?? '').trim().replace(/\/+$/, '')
+}
+
+/** Persist the coordination choice. Callers reload so `netMode` recomputes app-wide. */
+export function setCoordMode(mode: CoordMode, url?: string): void {
+  try {
+    localStorage.setItem(MODE_KEY, mode)
+    if (url !== undefined) localStorage.setItem(URL_KEY, url.trim().replace(/\/+$/, ''))
+  } catch { /* storage unavailable - the choice won't persist, but applies this session */ }
+}
+
+/** The EFFECTIVE helper base for the current mode, or '' when local / unset. */
+export function helperBase(): string {
+  const mode = getCoordMode()
+  if (mode === 'local') return ''
+  if (mode === 'custom') return getCustomHelper()
+  return HELPER_BASE
+}
+
+/** True when a hosted helper is in effect (so `/net` can offer the full-vault path). */
 export function helperConfigured(): boolean {
-  return HELPER_BASE !== ''
+  return helperBase() !== ''
 }
 
 // ---- request helpers (one place for fetch + ok-check + parse, degrading to null) ----
 
 async function getJson<T>(path: string): Promise<T | null> {
-  if (!HELPER_BASE) return null
+  const base = helperBase()
+  if (!base) return null
   try {
-    const res = await fetch(`${HELPER_BASE}${path}`)
+    const res = await fetch(`${base}${path}`)
     if (!res.ok) return null
     return (await res.json()) as T
   } catch {
@@ -33,9 +76,10 @@ async function getJson<T>(path: string): Promise<T | null> {
 }
 
 async function postJson<T>(path: string, body: unknown): Promise<T | null> {
-  if (!HELPER_BASE) return null
+  const base = helperBase()
+  if (!base) return null
   try {
-    const res = await fetch(`${HELPER_BASE}${path}`, {
+    const res = await fetch(`${base}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -48,9 +92,10 @@ async function postJson<T>(path: string, body: unknown): Promise<T | null> {
 }
 
 async function getText(path: string): Promise<string | null> {
-  if (!HELPER_BASE) return null
+  const base = helperBase()
+  if (!base) return null
   try {
-    const res = await fetch(`${HELPER_BASE}${path}`)
+    const res = await fetch(`${base}${path}`)
     if (!res.ok) return null
     return await res.text()
   } catch {
@@ -128,9 +173,45 @@ export async function listMembers(groupKeyHex: string): Promise<string[] | null>
   return (await getJson<{ members: string[] }>(`/api/vault/members?vault=${q(groupKeyHex)}`))?.members ?? null
 }
 
-/** Set the vault's member names (seat order); overwrites the list. Returns the saved names or null. */
+/** One on-chain transaction the vault's wallet recorded (mined_height null while unconfirmed). */
+export type WalletTx = { txid: string; mined_height: number | null }
+
+/** The vault's full on-chain transaction history (newest first), or `null` if unavailable. */
+export async function listTransactions(groupKeyHex: string): Promise<WalletTx[] | null> {
+  return (await getJson<{ transactions: WalletTx[] }>(`/api/vault/transactions?vault=${q(groupKeyHex)}`))?.transactions ?? null
+}
+
+/** Set the vault's member names (seat order); overwrites the list. Returns the saved names or null.
+ *  Used once at DKG completion, where every device writes the same self-declared roster. For later
+ *  edits use {@link renameMember}, which changes only one seat and migrates that member's votes. */
 export async function setMembers(groupKeyHex: string, names: string[]): Promise<string[] | null> {
   return (await postJson<{ members: string[] }>('/api/vault/members', { vault: groupKeyHex, names }))?.members ?? null
+}
+
+/** Rename ONE seat (`old` -> `new`) and migrate that member's votes across every proposal, so a
+ *  rename never leaves an orphaned "ghost" approver under the old name. Returns the updated roster,
+ *  or a `{ error }` reason (unknown seat / name already taken / empty) the UI can surface. */
+export async function renameMember(
+  groupKeyHex: string,
+  old: string,
+  next: string,
+): Promise<{ members: string[] } | { error: string }> {
+  const base = helperBase()
+  if (!base) return { error: 'no helper' }
+  try {
+    // Read the body even on a 400 (postJson drops it) so the specific reason - name taken / unknown
+    // seat / empty - reaches the UI instead of a generic failure.
+    const res = await fetch(`${base}/api/vault/members/rename`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ vault: groupKeyHex, old, new: next }),
+    })
+    const data = (await res.json().catch(() => null)) as { members?: string[]; error?: string } | null
+    if (res.ok && data?.members) return { members: data.members }
+    return { error: data?.error ?? 'rename failed' }
+  } catch {
+    return { error: 'rename failed' }
+  }
 }
 
 /** Fetch the vault's ledger (its confirmed, governed payments) as a CSV string, or `null`. */
@@ -138,7 +219,7 @@ export async function fetchLedgerCsv(groupKeyHex: string): Promise<string | null
   return getText(`/api/vault/ledger.csv?vault=${q(groupKeyHex)}`)
 }
 
-/** A payroll beneficiary line (one private Orchard output). */
+/** A payroll beneficiary line (one private shielded output). */
 export type PayrollLine = { label?: string; to: string; amount_zat: number; memo?: string }
 
 /** Create a payroll proposal (N beneficiaries, one tx). The helper validates each line. */
@@ -181,11 +262,20 @@ export async function getVault(groupKeyHex: string): Promise<HelperVault | null>
   return (await getJson<{ vault: HelperVault }>(`/api/vault?vault=${q(groupKeyHex)}`))?.vault ?? null
 }
 
-/** A vault's Orchard balance (zatoshis) as the helper reports it from its view-only wallet. */
-export type HelperBalance = { orchard_spendable_zat: number; total_zat: number }
+/** A vault's shielded balance (zatoshis) as the helper reports it from its view-only wallet.
+ *  Spendable is the combined Orchard (withdrawal-only) + Ironwood pools since NU6.3. */
+export type HelperBalance = {
+  orchard_spendable_zat: number
+  // Since NU6.3 the spendable funds live in the Ironwood pool; the helper reports both and the
+  // combined shielded_spendable_zat. Optional so an older helper (orchard + total only) still parses.
+  ironwood_spendable_zat?: number
+  shielded_spendable_zat?: number
+  chain_tip_height?: number
+  total_zat: number
+}
 
 /**
- * Sync + read a registered vault's Orchard balance from the helper's view-only wallet. It is a
+ * Sync + read a registered vault's shielded balance from the helper's view-only wallet. It is a
  * watcher's read (the helper holds the UFVK, never a share). Slow (the helper syncs against
  * lightwalletd first). Returns `null` if no helper is configured or the vault is unknown.
  */
@@ -220,9 +310,43 @@ export async function executeProposal(args: {
   relayBase: string
   room: string
   dryRun?: boolean
-}): Promise<{ txid: string | null; dry_run: boolean; state: string } | null> {
-  return postJson<{ txid: string | null; dry_run: boolean; state: string }>(
-    `/api/vault/proposals/${q(args.proposalId)}/send`,
-    { vault: args.vault, relay_base: args.relayBase, room: args.room, dry_run: args.dryRun ?? true },
-  )
+}): Promise<
+  | { txid: string | null; dry_run: boolean; state: string }
+  | { error: string }
+  | null
+> {
+  // A send can fail at any of ~7 stages (build/prove/sign/inject/broadcast); the helper returns a
+  // precise `{error}` with an accurate status. We read that body instead of collapsing every
+  // failure to null, so the UI can show WHY (CLAUDE.md §6.11, §11) instead of a generic guess.
+  const base = helperBase()
+  if (!base) return null
+  try {
+    const res = await fetch(`${base}/api/vault/proposals/${q(args.proposalId)}/send`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        vault: args.vault,
+        relay_base: args.relayBase,
+        room: args.room,
+        dry_run: args.dryRun ?? true,
+      }),
+    })
+    const data = (await res.json().catch(() => null)) as
+      | { txid: string | null; dry_run: boolean; state: string }
+      | { error?: string }
+      | null
+    if (!res.ok) {
+      const raw = data && 'error' in data && typeof data.error === 'string' ? data.error : ''
+      // A 502/503 with no precise reason is typically the coordinator over capacity or restarting
+      // (e.g. an OOM during proving, #135) — give a clear, non-alarming money-path message instead of
+      // a bare "HTTP 502". A precise helper error (the ~7 send stages) is always preferred.
+      const msg = raw || (res.status === 502 || res.status === 503
+        ? 'The coordinator is over capacity or restarting. Your funds are safe — nothing was sent. Retry in a moment.'
+        : `HTTP ${res.status}`)
+      return { error: msg }
+    }
+    return data as { txid: string | null; dry_run: boolean; state: string }
+  } catch {
+    return null // could not reach the coordinator at all
+  }
 }

@@ -30,8 +30,8 @@ export interface VaultPublic {
   id: string
   name?: string // user-given vault name (public metadata); falls back to a generated one in the UI
   governance?: Governance
-  myName?: string // the name THIS device chose at create/join — lets the UI mark "you" correctly
-  creatorName?: string // who set up the vault (propagated) — marks the creator, not a rotating coordinator
+  myName?: string // the name THIS device chose at create/join - lets the UI mark "you" correctly
+  creatorName?: string // who set up the vault (propagated) - marks the creator, not a rotating coordinator
   groupKey: string // hex of the 32-byte group verifying key (the vault's public identity)
   address: string
   roster: string[]
@@ -85,7 +85,7 @@ interface VaultRecord {
  * evicted under storage pressure or the ~7-day inactivity clear (Safari ITP is the worst case).
  * Best-effort: Chromium/Firefox grant it based on engagement/PWA-install; iOS Safari usually
  * declines (there the safety net is social recovery, not persistence). Returns the granted state.
- * Never throws — a browser without the API just reports false. Call it from a user gesture
+ * Never throws - a browser without the API just reports false. Call it from a user gesture
  * (e.g. right after the user protects a vault) for the best chance of a grant.
  */
 export async function requestPersistentStorage(): Promise<boolean> {
@@ -213,7 +213,7 @@ export async function saveVault(id: string, data: VaultData, passphrase: string)
   }
 
   // The user just committed a share to this device: the strongest moment to ask the browser to
-  // keep it. Fire-and-forget — a decline never blocks the save (recovery covers a lost share).
+  // keep it. Fire-and-forget - a decline never blocks the save (recovery covers a lost share).
   void requestPersistentStorage()
 }
 
@@ -256,6 +256,170 @@ export async function loadVault(id: string, passphrase: string): Promise<VaultLo
   }
 }
 
+/**
+ * A portable vault export (#214). Carries the PUBLIC metadata plus the share exactly as it lives at
+ * rest: AES-GCM ciphertext + its salt/iv. The secret is NEVER exported in the clear - the bundle is
+ * only useful to someone who also knows the passphrase. Import re-persists it on another device (or
+ * another backend), so a member is never locked to one machine. `groupKey`/`salt`/`iv`/`cipher` hex.
+ */
+export interface VaultExport {
+  format: 'konclave-vault-export'
+  version: 1
+  exportedAt: number
+  vault: {
+    id: string
+    name?: string
+    governance?: Governance
+    myName?: string
+    creatorName?: string
+    groupKey: string
+    address: string
+    roster: string[]
+    createdAt: number
+    salt: string
+    iv: string
+    cipher: string
+  }
+}
+
+/**
+ * Build a portable export of a saved vault. Verifies the passphrase decrypts the share first (so the
+ * bundle is guaranteed usable on import), then serializes the ENCRYPTED record - never the plaintext
+ * share. The result is safe to store anywhere: without the passphrase it is opaque ciphertext.
+ */
+export async function exportVault(id: string, passphrase: string): Promise<VaultExport> {
+  if (!storageAvailable()) throw new Error('This browser cannot read the vault (no IndexedDB/WebCrypto)')
+  if (!passphrase) throw new Error('A passphrase is required to export the vault')
+
+  const db = await openDb()
+  let record: VaultRecord | undefined
+  try {
+    const tx = db.transaction(STORE, 'readonly')
+    record = await reqDone(tx.objectStore(STORE).get(id) as IDBRequest<VaultRecord | undefined>)
+    await txDone(tx)
+  } finally {
+    db.close()
+  }
+  if (!record) throw new Error('No saved vault with that id on this device')
+
+  // Verify the passphrase actually unlocks the share (AES-GCM auth). We export the original
+  // ciphertext unchanged, so the SAME passphrase unlocks it after import.
+  const key = await deriveKey(passphrase, record.salt)
+  try {
+    await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bufOf(record.iv) }, key, bufOf(record.cipher))
+  } catch {
+    throw new Error('Wrong passphrase, or the saved vault was tampered with')
+  }
+
+  return {
+    format: 'konclave-vault-export',
+    version: 1,
+    exportedAt: Date.now(),
+    vault: {
+      id: record.id,
+      name: record.name,
+      governance: record.governance,
+      myName: record.myName,
+      creatorName: record.creatorName,
+      groupKey: record.groupKey,
+      address: record.address,
+      roster: record.roster,
+      createdAt: record.createdAt,
+      salt: hex(record.salt),
+      iv: hex(record.iv),
+      cipher: hex(record.cipher),
+    },
+  }
+}
+
+/** Parse + validate an export bundle (from a file or pasted text). Throws a clear error otherwise. */
+export function parseVaultExport(raw: string): VaultExport {
+  let obj: unknown
+  try {
+    obj = JSON.parse(raw)
+  } catch {
+    throw new Error('This does not look like a Konclave vault export (not valid JSON)')
+  }
+  const b = obj as Partial<VaultExport>
+  if (!b || b.format !== 'konclave-vault-export') throw new Error('This is not a Konclave vault export')
+  if (b.version !== 1) throw new Error('Unsupported export version - update Konclave')
+  const v = b.vault
+  if (!v || !v.id || !v.groupKey || !v.cipher || !v.salt || !v.iv || !Array.isArray(v.roster)) {
+    throw new Error('The export is incomplete or corrupt')
+  }
+  return b as VaultExport
+}
+
+/**
+ * Import a vault export onto THIS device. Verifies the passphrase decrypts the share before writing
+ * anything (never imports a share the user cannot unlock). Refuses to overwrite an existing vault of
+ * the same id unless `overwrite` is set. Returns the imported vault's public metadata.
+ */
+export async function importVault(
+  bundle: VaultExport,
+  passphrase: string,
+  opts?: { overwrite?: boolean },
+): Promise<VaultPublic> {
+  if (!storageAvailable()) throw new Error('This browser cannot store the vault (no IndexedDB/WebCrypto)')
+  if (!passphrase) throw new Error('A passphrase is required to import the vault')
+  const v = bundle?.vault
+  if (!v || !v.id || !v.cipher || !v.salt || !v.iv) throw new Error('The export is incomplete or corrupt')
+
+  const salt = unhex(v.salt)
+  const iv = unhex(v.iv)
+  const cipher = unhex(v.cipher)
+
+  // Verify the passphrase unlocks the share before persisting - so an import is always usable.
+  const key = await deriveKey(passphrase, salt)
+  try {
+    await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bufOf(iv) }, key, bufOf(cipher))
+  } catch {
+    throw new Error('Wrong passphrase for this export')
+  }
+
+  // Never silently clobber a different vault already on this device.
+  const existing = (await listVaults()).find((s) => s.id === v.id)
+  if (existing && !opts?.overwrite) throw new Error('A vault with this id already exists on this device')
+
+  const record: VaultRecord = {
+    id: v.id,
+    name: v.name,
+    governance: v.governance,
+    myName: v.myName,
+    creatorName: v.creatorName,
+    groupKey: v.groupKey,
+    address: v.address,
+    roster: v.roster,
+    createdAt: v.createdAt || Date.now(),
+    salt,
+    iv,
+    cipher,
+  }
+
+  const db = await openDb()
+  try {
+    const tx = db.transaction(STORE, 'readwrite')
+    tx.objectStore(STORE).put(record)
+    await txDone(tx)
+  } finally {
+    db.close()
+  }
+
+  void requestPersistentStorage()
+
+  return {
+    id: record.id,
+    name: record.name,
+    governance: record.governance,
+    myName: record.myName,
+    creatorName: record.creatorName,
+    groupKey: record.groupKey,
+    address: record.address,
+    roster: record.roster,
+    createdAt: record.createdAt,
+  }
+}
+
 /** List saved vaults' public metadata (no secrets touched, no passphrase needed). */
 export async function listVaults(): Promise<VaultPublic[]> {
   if (!storageAvailable()) return []
@@ -272,6 +436,32 @@ export async function listVaults(): Promise<VaultPublic[]> {
     return records
       .map((r) => ({ id: r.id, name: r.name, governance: r.governance, myName: r.myName, creatorName: r.creatorName, groupKey: r.groupKey, address: r.address, roster: r.roster, createdAt: r.createdAt }))
       .sort((a, b) => b.createdAt - a.createdAt)
+  } finally {
+    db.close()
+  }
+}
+
+/** Patch a saved vault's PUBLIC metadata (never touches the sealed share, so no passphrase needed).
+ *  Used when this device renames its own seat: the on-device `myName` must follow the roster so the
+ *  UI keeps recognizing which member "you" are. A no-op if the vault or IndexedDB is unavailable. */
+export async function updateVaultMeta(
+  id: string,
+  patch: Partial<Pick<VaultRecord, 'name' | 'myName' | 'creatorName'>>,
+): Promise<void> {
+  if (!storageAvailable()) return
+  const db = await openDb()
+  try {
+    // Read and write in SEPARATE transactions. Awaiting the get inside a readwrite tx lets that tx
+    // auto-commit before the put runs (a classic IndexedDB pitfall), so the patch silently never
+    // persists - which is exactly what left a renamed member's `myName` stale on reload. Read first,
+    // then open a fresh tx to write.
+    const readTx = db.transaction(STORE, 'readonly')
+    const rec = await reqDone(readTx.objectStore(STORE).get(id) as IDBRequest<VaultRecord | undefined>)
+    await txDone(readTx)
+    if (!rec) return
+    const writeTx = db.transaction(STORE, 'readwrite')
+    writeTx.objectStore(STORE).put({ ...rec, ...patch })
+    await txDone(writeTx)
   } finally {
     db.close()
   }

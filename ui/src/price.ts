@@ -1,9 +1,9 @@
-// ZEC -> USD estimate — OPT-IN and disclosed (privacy by default, §6.1/§6.2).
+// ZEC -> USD estimate - OPT-IN and disclosed (privacy by default, §6.1/§6.2).
 //
 // A price lookup is the ONE outbound request in an otherwise egress-free app, and it reveals to a
 // third party that someone is running a Zcash tool. So it is OFF until the user turns it on, the
 // source is named in the UI, and the last rate is cached so an enabled vault keeps working offline
-// (and makes at most one network call per TTL). No amount, address, or vault id is ever sent — the
+// (and makes at most one network call per TTL). No amount, address, or vault id is ever sent - the
 // request carries only "what is ZEC worth in USD".
 
 const KEY_ENABLED = 'konclave.usd.enabled'
@@ -32,7 +32,7 @@ export function setUsdEnabled(on: boolean): void {
     if (on) localStorage.setItem(KEY_ENABLED, '1')
     else localStorage.removeItem(KEY_ENABLED)
   } catch {
-    /* storage blocked — the toggle just will not persist */
+    /* storage blocked - the toggle just will not persist */
   }
 }
 
@@ -45,7 +45,7 @@ export function cachedRate(): Rate | null {
       return { usd: r.usd, at: r.at, source: r.source || SOURCE }
     }
   } catch {
-    /* corrupt cache — treat as none */
+    /* corrupt cache - treat as none */
   }
   return null
 }
@@ -70,7 +70,7 @@ export async function fetchRate(): Promise<Rate | null> {
     try {
       localStorage.setItem(KEY_CACHE, JSON.stringify(rate))
     } catch {
-      /* cache write blocked — return the fresh rate anyway */
+      /* cache write blocked - return the fresh rate anyway */
     }
     return rate
   } catch {

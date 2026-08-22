@@ -1,6 +1,6 @@
 /// <reference types="node" />
 // End-to-end test of the FROST<->PCZT bridge across the JS boundary (slice 2). This exercises the
-// real wasm-pack artifact the browser loads — describeOutputs / extractRandomizers / injectSigs —
+// real wasm-pack artifact the browser loads - describeOutputs / extractRandomizers / injectSigs -
 // against the same real Ironwood (V6/NU6.3, pczt v2) golden vector that pins the native signer
 // (audit C6). It proves the wire encoding round-trips in JavaScript, not just that Rust compiles.
 import { readFileSync } from 'node:fs'

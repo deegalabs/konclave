@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
+import { startVisiblePoll } from '../usePoll'
 import encodeQR from '@paulmillr/qr'
-import { getVault, type Vault } from '../api'
-import { useT } from '../i18n'
-import { PageHeader, NextStep } from '../page'
+import { getVault, getTransactions, getLedger, shortAddr, IS_NET, type Vault, type WalletTx } from '../api'
+import { useT, useTr } from '../i18n'
+import { PageHeader } from '../page'
 import { Loading } from '../components'
 import '../receive.css'
 
@@ -13,10 +14,19 @@ import '../receive.css'
 
 export default function Receive() {
   const t = useT()
+  const tr = useTr()
   const [vault, setVault] = useState<Vault | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [amount, setAmount] = useState('')
   const [copied, setCopied] = useState<string | null>(null)
+  // The vault's full on-chain record since creation (browser-native path). Loaded once; the txids
+  // link to a block explorer where the amounts are visible (per-tx amount/direction is a follow-up).
+  const [txs, setTxs] = useState<WalletTx[] | null>(null)
+  const [txLoaded, setTxLoaded] = useState(false)
+  // The vault's OWN broadcast txids (from the ledger). A history tx whose id is in here is a SENT
+  // (outgoing) payment this vault made; anything else is a RECEIVED deposit. This gives direction
+  // client-side, without needing the tool's per-tx amount/direction fields (#125 v2 slice).
+  const [sentIds, setSentIds] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     let on = true
@@ -25,15 +35,37 @@ export default function Receive() {
       if (v) setVault(v)
       setLoaded(true)
     })
+    // Auto-refresh the history (#123): a deposit that lands on-chain shows up without a reload.
+    // In-flight guarded; polls on the shared 15s cadence.
+    let inFlight = false
+    const loadTx = async () => {
+      if (inFlight) return
+      inFlight = true
+      try {
+        const [r, ledger] = await Promise.all([getTransactions(), getLedger()])
+        if (!on) return
+        setTxs(r)
+        setTxLoaded(true)
+        if (ledger) setSentIds(new Set(ledger.map((p) => p.txid).filter((x): x is string => !!x)))
+      } finally {
+        inFlight = false
+      }
+    }
+    void loadTx()
+    const stop = startVisiblePoll(() => void loadTx(), 15_000) // pause when hidden, refresh on return (#123)
     return () => {
       on = false
+      stop()
     }
   }, [])
 
   const address = vault?.orchard_address ?? ''
   const uri = useMemo(() => {
     if (!address) return ''
-    const amt = amount.trim()
+    const raw = amount.trim().replace(',', '.')
+    // Only a well-formed positive number becomes a ZIP-321 amount; anything else is ignored so the
+    // URI/QR never carries a malformed value.
+    const amt = /^\d+(\.\d+)?$/.test(raw) && Number(raw) > 0 ? raw : ''
     return `zcash:${address}${amt ? `?amount=${encodeURIComponent(amt)}` : ''}`
   }, [address, amount])
 
@@ -66,7 +98,7 @@ export default function Receive() {
       <PageHeader title={t('receive.title')} subtitle={t('receive.lead')} />
 
       <div className="rcv-grid">
-        <div className="rcv-qr" dangerouslySetInnerHTML={{ __html: qrSvg }} role="img" aria-label="QR" />
+        <div className="rcv-qr" dangerouslySetInnerHTML={{ __html: qrSvg }} role="img" aria-label={t('receive.qrAlt')} />
 
         <div className="rcv-side">
           <span className="klab">{t('receive.address')}</span>
@@ -100,7 +132,39 @@ export default function Receive() {
 
       <p className="rcv-note">{t('receive.note')}</p>
 
-      <NextStep label={t('next.label')} cta={t('next.dashboard')} to="/dashboard" />
+      {/* On-chain history: every transaction this vault recorded since creation. Browser-native
+          only (the bridge/desktop path is a follow-up); each row links to a block explorer. */}
+      {IS_NET && (
+        <section className="rcv-history">
+          <div className="rcv-hist-head">
+            <span className="klab">{t('receive.historyTitle')}</span>
+          </div>
+          {!txLoaded ? (
+            <Loading />
+          ) : !txs || txs.length === 0 ? (
+            <p className="rcv-note">{t('receive.historyEmpty')}</p>
+          ) : (
+            <div className="rcv-hist-list">
+              {txs.map((x) => {
+                const sent = sentIds.has(x.txid)
+                return (
+                  <div className="rcv-hist-row" key={x.txid}>
+                    <span className={'rcv-hist-dir ' + (sent ? 'out' : 'in')}>
+                      {sent ? t('receive.txSent') : t('receive.txReceived')}
+                    </span>
+                    <code className="rcv-hist-txid mono">{shortAddr(x.txid, 10, 8)}</code>
+                    <span className={'rcv-hist-state' + (x.mined_height ? ' ok' : '')}>
+                      {x.mined_height ? t('receive.txConfirmed', { h: x.mined_height }) : t('receive.txPending')}
+                    </span>
+                    <a className="link" href={`https://mainnet.zcashexplorer.app/transactions/${x.txid}`} target="_blank" rel="noreferrer">{t('receive.viewTx')} ↗</a>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+          <p className="rcv-note dim">{tr('receive.historyNote')}</p>
+        </section>
+      )}
     </main>
   )
 }

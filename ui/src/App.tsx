@@ -13,6 +13,7 @@ import NewPayment from './screens/NewPayment'
 import NewPayroll from './screens/NewPayroll'
 import Proposal from './screens/Proposal'
 import Proposals from './screens/Proposals'
+import Activity from './screens/Activity'
 import Ledger from './screens/Ledger'
 import Members from './screens/Members'
 import People from './screens/People'
@@ -26,6 +27,8 @@ import Settings from './screens/Settings'
 import Ceremonies from './screens/Ceremonies'
 import Lab from './screens/Lab'
 import BackgroundSignerLab from './screens/BackgroundSignerLab'
+import NotFound from './screens/NotFound'
+import ErrorBoundary from './ErrorBoundary'
 import './App.css'
 
 export default function App() {
@@ -33,8 +36,9 @@ export default function App() {
   return (
     <div className={'root' + (revealed ? ' revealed' : '')}>
       <DemoBanner />
+      <ErrorBoundary>
       <Routes>
-        {/* Onboarding — standalone, no rail */}
+        {/* Onboarding - standalone, no rail */}
         {/* The desktop app opens straight on the product (the vaults), not the marketing landing;
             the web keeps the landing at `/`. */}
         <Route path="/" element={isDesktop ? <Navigate to="/vaults" replace /> : <Intro />} />
@@ -51,13 +55,14 @@ export default function App() {
         <Route path="/recovery" element={<Recovery />} />
         <Route path="/inheritance" element={<Inheritance />} />
         <Route path="/create" element={<Ceremony />} />
-        {/* In-vault — persistent left rail */}
+        {/* In-vault - persistent left rail */}
         <Route element={<Layout />}>
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/receive" element={<Receive />} />
           <Route path="/pay" element={<NewPayment />} />
           <Route path="/payroll" element={<NewPayroll />} />
           <Route path="/proposal" element={<Proposal />} />
+          <Route path="/activity" element={<Activity />} />
           <Route path="/proposals" element={<Proposals />} />
           <Route path="/ledger" element={<Ledger />} />
           <Route path="/ceremonies" element={<Ceremonies />} />
@@ -65,7 +70,10 @@ export default function App() {
           <Route path="/people" element={<People />} />
           <Route path="/settings" element={<Settings />} />
         </Route>
+        {/* Catch-all - a real 404 instead of silently falling back to a default screen. */}
+        <Route path="*" element={<NotFound />} />
       </Routes>
+      </ErrorBoundary>
     </div>
   )
 }

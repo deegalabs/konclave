@@ -3,7 +3,7 @@
 # UI bundle + JSON API on 127.0.0.1 (loopback only) from inside WSL. Detached, so the
 # Windows launcher returns while the daemon keeps running.
 #
-# Repo root is derived from this script's location — no hardcoded personal paths.
+# Repo root is derived from this script's location - no hardcoded personal paths.
 set -uo pipefail
 source "$HOME/.cargo/env" 2>/dev/null || true
 
@@ -18,7 +18,7 @@ echo "→ building konclave bin…"
 
 if [ ! -x "$BIN" ]; then echo "ERROR: binary not found at $BIN"; exit 1; fi
 if [ ! -f "$REPO/ui/dist/index.html" ]; then
-  echo "WARNING: ui/dist missing — run 'npm run build' in ui/ (the .ps1 launcher does this)."
+  echo "WARNING: ui/dist missing - run 'npm run build' in ui/ (the .ps1 launcher does this)."
 fi
 
 pkill -f 'konclave serve' 2>/dev/null; sleep 0.4

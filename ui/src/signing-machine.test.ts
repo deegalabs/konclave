@@ -1,10 +1,10 @@
 /// <reference types="node" />
-// Orchestration test for the SigningMachine (issue #50) — the guard the /net ceremony never had.
+// Orchestration test for the SigningMachine (issue #50) - the guard the /net ceremony never had.
 // net-flow.test drives the WASM crypto directly; here we drive the RELAY STATE MACHINE: two
 // SigningMachines, each with only its own share, exchange sreq|s1|sp|s2|signed over an in-memory
 // bus (with the SAME fixpoint NetVault runs: a handler returning `false` is re-applied later), and
 // must reach a verifying aggregate signature. A single-note self-contained ceremony, seeded by a
-// helper sign-request, exactly as Architecture B drives it — proving the extracted machine keeps
+// helper sign-request, exactly as Architecture B drives it - proving the extracted machine keeps
 // the proven money path's behavior, off the browser.
 import { readFileSync } from 'node:fs'
 import { beforeAll, describe, expect, it } from 'vitest'
@@ -44,7 +44,7 @@ function dkg2of3() {
 }
 
 // An in-memory relay room: opaque messages, each tagged with its sender. A device receives EVERY
-// message (its own included) exactly as the mailbox echoes to the poller — the coordinator needs
+// message (its own included) exactly as the mailbox echoes to the poller - the coordinator needs
 // its own commitment back, so this is load-bearing, not a shortcut.
 interface Wire { seq: number; from: string; data: string }
 class Bus {
@@ -126,7 +126,7 @@ async function runCeremony(a: Device, b: Device, bus: Bus) {
   }
 }
 
-describe('SigningMachine — relay orchestration (the /net ceremony state machine)', () => {
+describe('SigningMachine - relay orchestration (the /net ceremony state machine)', () => {
   it('two devices, each with only its own share, reach a verifying aggregate signature', async () => {
     const { s0, s1, groupVk, pubkeys } = dkg2of3()
     const bus = new Bus()

@@ -1,10 +1,12 @@
 //! Wallet orchestration (read side): drives `zcash-devtool wallet` and parses its
 //! JSON into typed values. Sync/balance/get-info are the structured, JSON-emitting
-//! commands — exactly the "structured output, never read the screen" discipline.
+//! commands - exactly the "structured output, never read the screen" discipline.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde::Deserialize;
+use serde_json::Value;
 
 use crate::money::Zatoshis;
 use crate::tools::{run_text, ToolError};
@@ -25,24 +27,59 @@ struct ChainInfoRaw {
 }
 
 /// Vault balance (from `wallet balance --json`). Confirmed vs. spendable are kept
-/// separate — never merged into one unlabeled number (spec §2.3).
+/// separate - never merged into one unlabeled number (spec §2.3).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Balance {
     pub chain_tip_height: u64,
     pub orchard_spendable: Zatoshis,
+    /// Ironwood pool (NU6.3, V6). Post-activation every new shielded deposit lands here, not in
+    /// Orchard (Orchard is withdrawal-only), and it carries its OWN value balance (ZIP-318). The
+    /// pre-Ironwood reader ignored this field, so an Ironwood-funded vault reported 0 spendable.
+    pub ironwood_spendable: Zatoshis,
     pub sapling_spendable: Zatoshis,
     pub transparent_spendable: Zatoshis,
     /// Total including notes not yet spendable (e.g. awaiting confirmations).
     pub total: Zatoshis,
 }
 
+impl Balance {
+    /// What the FROST/Orchard-family vault can actually spend: the Orchard pool plus the Ironwood
+    /// pool (both are RedPallas/Orchard-shaped and this vault holds no Sapling/transparent spend
+    /// key). This is the number the send path and the UI mean by "spendable".
+    pub fn shielded_spendable(&self) -> Zatoshis {
+        Zatoshis::from_u64(self.orchard_spendable.as_u64() + self.ironwood_spendable.as_u64())
+            .unwrap_or(self.orchard_spendable)
+    }
+}
+
 #[derive(Deserialize)]
 struct BalanceRaw {
     chain_tip_height: u64,
     orchard_spendable: u64,
+    #[serde(default)]
+    ironwood_spendable: u64,
     sapling_spendable: u64,
     transparent_spendable: u64,
     total: u64,
+    // Any field the pinned devtool emits that we do not name explicitly (e.g. a differently-named
+    // Ironwood balance in a future engine bump) lands here, so we can still find the Ironwood
+    // spendable by shape instead of guessing the exact key.
+    #[serde(flatten)]
+    extra: BTreeMap<String, Value>,
+}
+
+/// Find an Ironwood spendable amount among fields we did not name explicitly, by shape: any key
+/// containing both "ironwood" and "spendable" whose value is a number. Zero if none. This makes the
+/// reader robust to the exact JSON key the Ironwood-pinned `zcash-devtool` uses.
+fn ironwood_from_extra(extra: &BTreeMap<String, Value>) -> u64 {
+    extra
+        .iter()
+        .filter(|(k, _)| {
+            let k = k.to_ascii_lowercase();
+            k.contains("ironwood") && k.contains("spendable")
+        })
+        .filter_map(|(_, v)| v.as_u64())
+        .sum()
 }
 
 /// Parse the JSON from `wallet get-info`.
@@ -68,9 +105,17 @@ pub fn parse_balance(json: &str) -> Result<Balance, ToolError> {
         Zatoshis::from_u64(v)
             .map_err(|e| ToolError::parse(format!("balance.{field}"), e.to_string()))
     };
+    // Prefer the explicitly-named field; fall back to shape-matching the extras so a renamed
+    // Ironwood balance in a later engine still counts.
+    let ironwood = if raw.ironwood_spendable != 0 {
+        raw.ironwood_spendable
+    } else {
+        ironwood_from_extra(&raw.extra)
+    };
     Ok(Balance {
         chain_tip_height: raw.chain_tip_height,
         orchard_spendable: z(raw.orchard_spendable, "orchard_spendable")?,
+        ironwood_spendable: z(ironwood, "ironwood_spendable")?,
         sapling_spendable: z(raw.sapling_spendable, "sapling_spendable")?,
         transparent_spendable: z(raw.transparent_spendable, "transparent_spendable")?,
         total: z(raw.total, "total")?,
@@ -96,7 +141,7 @@ fn last_json_array_line(text: &str) -> Result<&str, ToolError> {
 /// Parse `list-tx --json` (a `[{"txid","mined_height"}]` array) into the txids the wallet has
 /// recorded as **mined** (`mined_height` non-null). Unmined transactions are excluded. This is the
 /// `confirmed_txids` source that lets reconciliation promote a locally-`Sent` proposal to
-/// `Confirmed` (§8) — a fresh sync before this call makes the wallet's view current.
+/// `Confirmed` (§8) - a fresh sync before this call makes the wallet's view current.
 pub fn parse_confirmed_txids(json: &str) -> Result<Vec<String>, ToolError> {
     #[derive(serde::Deserialize)]
     struct TxRow {
@@ -111,6 +156,41 @@ pub fn parse_confirmed_txids(json: &str) -> Result<Vec<String>, ToolError> {
         .filter(|r| r.mined_height.is_some())
         .map(|r| r.txid)
         .collect())
+}
+
+/// One transaction the wallet has recorded on-chain, for the vault's history. Public, checkable
+/// data: the txid links to a block explorer; `mined_height` is `None` while still unconfirmed.
+/// (Amount/direction are a follow-up once the tool's richer `list-tx` fields are captured - see
+/// #125; this v1 surfaces the full on-chain record of the vault since creation.)
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct WalletTx {
+    pub txid: String,
+    pub mined_height: Option<u64>,
+}
+
+/// Parse `list-tx --json` into the vault's full transaction list (newest first: unconfirmed at the
+/// top, then mined by descending height). Unlike `parse_confirmed_txids`, this keeps every row.
+pub fn parse_transactions(json: &str) -> Result<Vec<WalletTx>, ToolError> {
+    #[derive(Deserialize)]
+    struct TxRow {
+        txid: String,
+        mined_height: Option<u64>,
+    }
+    let line = last_json_array_line(json)?;
+    let rows: Vec<TxRow> =
+        serde_json::from_str(line).map_err(|e| ToolError::parse("list-tx JSON", e.to_string()))?;
+    let mut txs: Vec<WalletTx> = rows
+        .into_iter()
+        .map(|r| WalletTx { txid: r.txid, mined_height: r.mined_height })
+        .collect();
+    // Newest first: unconfirmed (None) sorts above any height; mined rows by descending height.
+    txs.sort_by(|a, b| match (a.mined_height, b.mined_height) {
+        (None, None) => std::cmp::Ordering::Equal,
+        (None, Some(_)) => std::cmp::Ordering::Less,
+        (Some(_), None) => std::cmp::Ordering::Greater,
+        (Some(x), Some(y)) => y.cmp(&x),
+    });
+    Ok(txs)
 }
 
 // ---- wrappers that actually run the tool ----
@@ -129,7 +209,7 @@ pub fn get_info(devtool: &Path, wallet_dir: &str, server: &str) -> Result<ChainI
     parse_chain_info(&run_text(devtool, &args, None)?)
 }
 
-/// `zcash-devtool wallet -w <dir> sync -s <server> --connection direct` — bring the wallet's
+/// `zcash-devtool wallet -w <dir> sync -s <server> --connection direct` - bring the wallet's
 /// view current against lightwalletd so a following `balance` / `list-tx` is up to date. The
 /// stdout is progress noise (not JSON); only success/failure matters here.
 pub fn sync(devtool: &Path, wallet_dir: &str, server: &str) -> Result<(), ToolError> {
@@ -149,6 +229,13 @@ pub fn balance(devtool: &Path, wallet_dir: &str) -> Result<Balance, ToolError> {
 pub fn list_confirmed_txids(devtool: &Path, wallet_dir: &str) -> Result<Vec<String>, ToolError> {
     let args = ["wallet", "-w", wallet_dir, "list-tx", "--json"];
     parse_confirmed_txids(&run_text(devtool, &args, None)?)
+}
+
+/// `zcash-devtool wallet -w <dir> list-tx --json` → the vault's full transaction history (newest
+/// first), for the on-chain record on the Add-funds screen.
+pub fn list_transactions(devtool: &Path, wallet_dir: &str) -> Result<Vec<WalletTx>, ToolError> {
+    let args = ["wallet", "-w", wallet_dir, "list-tx", "--json"];
+    parse_transactions(&run_text(devtool, &args, None)?)
 }
 
 #[cfg(test)]
@@ -192,13 +279,62 @@ mod tests {
     }
 
     #[test]
+    fn transactions_keep_all_rows_newest_first() {
+        let txs = parse_transactions(LIST_TX).unwrap();
+        // All three rows kept (unlike confirmed_txids, which drops the unmined one).
+        assert_eq!(txs.len(), 3);
+        // Unconfirmed (mined_height None) sorts first; then mined by descending height.
+        assert_eq!(txs[0].txid, "36c60f1e3f602c2a");
+        assert_eq!(txs[0].mined_height, None);
+        assert_eq!(txs[1].txid, "54266f478505160a"); // height 3428205
+        assert_eq!(txs[2].txid, "aab00f903b65e32d"); // height 3413792
+        assert_eq!(parse_transactions("[]").unwrap(), Vec::<WalletTx>::new());
+    }
+
+    #[test]
     fn parses_balance_into_typed_zatoshis() {
         let b = parse_balance(BALANCE).unwrap();
         assert_eq!(b.chain_tip_height, 3_396_338);
         assert_eq!(b.total, Zatoshis::from_u64(100_000).unwrap());
         assert_eq!(b.orchard_spendable, Zatoshis::ZERO);
+        // A pre-Ironwood balance JSON has no ironwood field: it defaults to zero, not an error.
+        assert_eq!(b.ironwood_spendable, Zatoshis::ZERO);
+        assert_eq!(b.shielded_spendable(), Zatoshis::ZERO);
         // total is 0.001 ZEC (the funding amount), not yet spendable.
         assert_eq!(b.total.to_zec_string(), "0.00100000");
+    }
+
+    // Post-NU6.3: the deposit lands in the Ironwood pool. `total` counts it; `orchard_spendable` is
+    // zero; the spendable lives under an ironwood field. The pre-Ironwood reader dropped it and
+    // reported 0 spendable (the bug this test locks down).
+    const BALANCE_IRONWOOD: &str = r#"{"chain_tip_height":3428300,"orchard_spendable":0,"ironwood_spendable":1213291,"sapling_spendable":0,"transparent_spendable":0,"total":1213291}"#;
+
+    #[test]
+    fn parses_ironwood_spendable_as_shielded() {
+        let b = parse_balance(BALANCE_IRONWOOD).unwrap();
+        assert_eq!(b.orchard_spendable, Zatoshis::ZERO);
+        assert_eq!(b.ironwood_spendable, Zatoshis::from_u64(1_213_291).unwrap());
+        // The number the send path / UI mean by "spendable" now includes the Ironwood pool.
+        assert_eq!(b.shielded_spendable(), Zatoshis::from_u64(1_213_291).unwrap());
+        assert_eq!(b.total, Zatoshis::from_u64(1_213_291).unwrap());
+    }
+
+    #[test]
+    fn ironwood_spendable_found_by_shape_when_key_differs() {
+        // A future engine could name the field differently; we still find it by shape (contains
+        // "ironwood" + "spendable"), instead of silently reporting 0.
+        let j = r#"{"chain_tip_height":3428300,"orchard_spendable":0,"sapling_spendable":0,"transparent_spendable":0,"total":500000,"ironwoodPoolSpendable":500000}"#;
+        let b = parse_balance(j).unwrap();
+        assert_eq!(b.ironwood_spendable, Zatoshis::from_u64(500_000).unwrap());
+        assert_eq!(b.shielded_spendable(), Zatoshis::from_u64(500_000).unwrap());
+    }
+
+    #[test]
+    fn shielded_spendable_sums_orchard_and_ironwood() {
+        // Mid-migration a vault can hold both pools; spendable is the sum.
+        let j = r#"{"chain_tip_height":3428300,"orchard_spendable":300000,"ironwood_spendable":700000,"sapling_spendable":0,"transparent_spendable":0,"total":1000000}"#;
+        let b = parse_balance(j).unwrap();
+        assert_eq!(b.shielded_spendable(), Zatoshis::from_u64(1_000_000).unwrap());
     }
 
     #[test]

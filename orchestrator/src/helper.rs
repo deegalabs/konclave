@@ -52,7 +52,7 @@ pub enum SendReject {
     /// The destination failed authoritative decode / pool / network validation.
     Address(AddressError),
     /// The destination decoded but cannot receive shielded Orchard funds (Sapling-only /
-    /// transparent-only) — Konclave is shielded-first and refuses to lock funds (§8).
+    /// transparent-only) - Konclave is shielded-first and refuses to lock funds (§8).
     NotOrchard,
     /// The amount was zero (nothing to send).
     ZeroAmount,
@@ -72,7 +72,7 @@ impl std::fmt::Display for SendReject {
 
 /// Validate a single-payment destination + amount and build the `SpendPlan` the helper spends.
 /// Authoritative: the recipient is decoded with `zcash_address` on the helper's network and must
-/// be able to receive Orchard (shielded-first, §8 — a Sapling/transparent-only address would lock
+/// be able to receive Orchard (shielded-first, §8 - a Sapling/transparent-only address would lock
 /// funds). Rejections are caller-fixable (`SendReject`) and happen before any engine runs.
 pub fn payment_plan(
     to: &str,
@@ -95,7 +95,7 @@ pub fn payment_plan(
 }
 
 /// Build the `SendConfig` for an Architecture-B send from a registered vault. Only the
-/// build/prove/extract/inject/broadcast fields are populated — the ceremony fields (members,
+/// build/prove/extract/inject/broadcast fields are populated - the ceremony fields (members,
 /// frostd, certs, threshold) are left empty on purpose: in Architecture B the **browsers** run
 /// the FROST ceremony over the relay, and `send::net_orchestrate_send` never touches those
 /// fields. The helper is blind to shares; it only assembles the PCZT and broadcasts the
@@ -130,33 +130,94 @@ pub fn send_config_for(
     }
 }
 
-/// A vault's Orchard balance as the helper reports it to the browsers. Orchard-only and minimal:
-/// spendable (confirmed, ready to send) plus total (including notes still confirming). Internal
-/// transparency for the members — the helper reads it from its view-only wallet.
+/// A vault's shielded balance as the helper reports it to the browsers. Since NU6.3 the spendable
+/// funds live in the Ironwood pool (Orchard is withdrawal-only), so we report both pools plus the
+/// combined `shielded_spendable_zat` the UI means by "spendable", and `total_zat` (including notes
+/// still confirming). Internal transparency for the members - read from the view-only wallet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VaultBalance {
     pub orchard_spendable_zat: u64,
+    pub ironwood_spendable_zat: u64,
+    /// Orchard + Ironwood: what the vault can actually spend.
+    pub shielded_spendable_zat: u64,
     pub total_zat: u64,
+    pub chain_tip_height: u64,
 }
 
-/// Sync a registered vault's view-only wallet against lightwalletd and read its Orchard balance.
-/// The helper owns the UFVK (view-only), so this is a watcher's read — no share involved. Network
+/// Sync a registered vault's view-only wallet against lightwalletd and read its shielded balance.
+/// The helper owns the UFVK (view-only), so this is a watcher's read - no share involved. Network
 /// + engine I/O, so it is exercised live, not in unit tests.
+/// How long a wallet sync stays "fresh": within this window, a balance read skips the (slow) sync
+/// and serves the last-synced state, so the Dashboard's 12s poll (and bursts across screens) share
+/// one sync instead of each triggering a multi-second lightwalletd sync (#194).
+pub const SYNC_THROTTLE_SECS: u64 = 15;
+
+fn last_sync_path(vaults_dir: &Path, vault: &str) -> PathBuf {
+    vaults_dir.join(vault).join("last_sync")
+}
+
+/// True when the wallet should be re-synced: no recorded sync yet, or the last one is at least
+/// `throttle_secs` old. Pure (takes `now`), so it is unit-testable.
+pub fn should_sync(vaults_dir: &Path, vault: &str, throttle_secs: u64, now: u64) -> bool {
+    match std::fs::read_to_string(last_sync_path(vaults_dir, vault))
+        .ok()
+        .and_then(|s| s.trim().parse::<u64>().ok())
+    {
+        Some(last) => now.saturating_sub(last) >= throttle_secs,
+        None => true,
+    }
+}
+
+fn mark_synced(vaults_dir: &Path, vault: &str, now: u64) {
+    let path = last_sync_path(vaults_dir, vault);
+    if let Some(p) = path.parent() {
+        let _ = std::fs::create_dir_all(p);
+    }
+    let _ = std::fs::write(&path, now.to_string());
+}
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
 pub fn vault_balance(
     cfg: &HelperConfig,
     reg: &VaultRegistration,
 ) -> Result<VaultBalance, ToolError> {
-    crate::wallet::sync(&cfg.devtool, &reg.wallet_dir, &cfg.lightwalletd)?;
+    // Throttle the sync: only hit lightwalletd if the last sync for this vault is stale. A fresh
+    // deposit still lands within SYNC_THROTTLE_SECS, but rapid balance reads no longer each block on
+    // a full sync (#194). The balance below reflects whatever the wallet last synced.
+    let now = now_secs();
+    if should_sync(&cfg.vaults_dir, &reg.vault_id, SYNC_THROTTLE_SECS, now) {
+        crate::wallet::sync(&cfg.devtool, &reg.wallet_dir, &cfg.lightwalletd)?;
+        mark_synced(&cfg.vaults_dir, &reg.vault_id, now);
+    }
     let b = crate::wallet::balance(&cfg.devtool, &reg.wallet_dir)?;
     Ok(VaultBalance {
         orchard_spendable_zat: b.orchard_spendable.as_u64(),
+        ironwood_spendable_zat: b.ironwood_spendable.as_u64(),
+        shielded_spendable_zat: b.shielded_spendable().as_u64(),
         total_zat: b.total.as_u64(),
+        chain_tip_height: b.chain_tip_height,
     })
+}
+
+/// The vault's on-chain transaction history (newest first) for the Add-funds record. Read-only:
+/// reads the wallet's current `list-tx` view (the balance poll keeps it synced), so it is fast and
+/// never moves funds. Amount/direction per tx is a follow-up (#125).
+pub fn vault_transactions(
+    cfg: &HelperConfig,
+    reg: &VaultRegistration,
+) -> Result<Vec<crate::wallet::WalletTx>, ToolError> {
+    crate::wallet::list_transactions(&cfg.devtool, &reg.wallet_dir)
 }
 
 /// A record of one signing ceremony the helper drove for a vault (ZecSafe-inspired reproducible
 /// evidence): what was signed, by whom cryptographically (the aggregate FROST signature), and the
-/// resulting on-chain txid. Every field is PUBLIC and independently checkable — anyone can verify
+/// resulting on-chain txid. Every field is PUBLIC and independently checkable - anyone can verify
 /// each `signatures` entry under the vault's group verifying key for `sighash` (off-chain), and
 /// confirm `txid` on a block explorer (on-chain). Persisted per vault so the trail is auditable
 /// and survives restarts. Contains no share and no secret.
@@ -217,7 +278,7 @@ pub fn load_ceremonies(vaults_dir: &Path, group_key: &str) -> Vec<CeremonyRecord
 /// ceremony (Architecture B) which the helper broadcasts.
 ///
 /// SECURITY MODEL (audit): the helper is a public service, so these vote endpoints are
-/// **unauthenticated** in this iteration — anyone who knows the vault_id could POST a proposal or a
+/// **unauthenticated** in this iteration - anyone who knows the vault_id could POST a proposal or a
 /// vote. That is a coordination/spam surface, NOT a fund-safety hole: the real money gate is the
 /// FROST ceremony, which needs `threshold` REAL browser shares to produce a valid signature. A
 /// forged vote only changes the displayed approval count; it cannot move funds. The hardening
@@ -393,6 +454,71 @@ pub fn load_members(vaults_dir: &Path, vault: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Rename ONE member seat (`old` -> `new`) and MIGRATE every proposal's votes so the rename never
+/// orphans an approval into a "ghost" member. Because votes are recorded by member NAME (the seat's
+/// public label), a bulk overwrite of the roster used to leave the old name attached to past
+/// approvals while the new name showed as still-awaiting - the same person counted twice. This walks
+/// every proposal and rewrites the name in `proposer`/`approvals`/`refusals` in lockstep with the
+/// roster, so identity stays consistent across a rename.
+///
+/// Guards: the `old` name must be an existing seat, and `new` must be non-empty and not already
+/// taken by a DIFFERENT seat (renaming a seat to its own current name is a no-op, allowed). Returns
+/// the updated roster.
+pub fn rename_member(
+    vaults_dir: &Path,
+    vault: &str,
+    old: &str,
+    new: &str,
+    now: u64,
+) -> Result<Vec<String>, ToolError> {
+    let new = new.trim();
+    if new.is_empty() {
+        return Err(ToolError::parse("members", "a member name cannot be empty"));
+    }
+    let mut names = load_members(vaults_dir, vault);
+    if !names.iter().any(|n| n == old) {
+        return Err(ToolError::parse("members", "no such member to rename"));
+    }
+    if names.iter().any(|n| n == new && n != old) {
+        return Err(ToolError::parse("members", "that name is already taken"));
+    }
+    if old == new {
+        return Ok(names); // no-op rename
+    }
+    for n in names.iter_mut() {
+        if n == old {
+            *n = new.to_string();
+        }
+    }
+    save_members(vaults_dir, vault, &names)?;
+
+    // Migrate the name everywhere a vote references it, so quorum counting and the approvals list
+    // stay coherent (no orphaned approval under the old name, no duplicate row for the new one).
+    for mut p in list_proposals(vaults_dir, vault, now) {
+        let mut changed = false;
+        if p.proposer == old {
+            p.proposer = new.to_string();
+            changed = true;
+        }
+        for a in p.approvals.iter_mut() {
+            if a == old {
+                *a = new.to_string();
+                changed = true;
+            }
+        }
+        for r in p.refusals.iter_mut() {
+            if r == old {
+                *r = new.to_string();
+                changed = true;
+            }
+        }
+        if changed {
+            save_proposal(vaults_dir, &p)?;
+        }
+    }
+    Ok(names)
+}
+
 /// One RFC-4180 CSV field: wrap in quotes and double any embedded quote when it contains a comma,
 /// quote, or newline. Prevents CSV injection of stray columns from a memo/address.
 fn csv_field(s: &str) -> String {
@@ -433,7 +559,7 @@ pub fn ledger_csv(sent: &[HelperProposal]) -> String {
 
 /// A vault registered with the helper: its public identity plus where its view-only wallet lives.
 /// `vault_id` equals the group verifying key hex (the same id the browser shows on `/net`).
-/// Serializable so it can be persisted to disk (see [`save_registration`]) — the FS is a redeploy-
+/// Serializable so it can be persisted to disk (see [`save_registration`]) - the FS is a redeploy-
 /// durable cache of PUBLIC / view-only material (address + UFVK + wallet dir), never a share.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VaultRegistration {
@@ -460,7 +586,7 @@ pub fn registration_path(vaults_dir: &Path, group_key: &str) -> PathBuf {
 }
 
 /// Persist a registration next to its view-only wallet, so a helper restart / redeploy keeps the
-/// vault (and its ALREADY-derived address — no re-derivation, so the address stays stable). Writes
+/// vault (and its ALREADY-derived address - no re-derivation, so the address stays stable). Writes
 /// only public / view-only fields.
 pub fn save_registration(vaults_dir: &Path, reg: &VaultRegistration) -> Result<(), ToolError> {
     let path = registration_path(vaults_dir, &reg.vault_id);
@@ -531,7 +657,7 @@ pub fn register_vault(
         ));
     }
     // Persisted-registration shortcut: if this vault was registered before (surviving a restart),
-    // return the STORED registration — no re-derivation, so the address stays stable and the
+    // return the STORED registration - no re-derivation, so the address stays stable and the
     // heavy wallet init is not repeated.
     if let Some(reg) = load_registration(&cfg.vaults_dir, group_key) {
         return Ok(reg);
@@ -572,7 +698,7 @@ pub fn register_vault(
         total,
     };
     // Persist so a restart keeps the vault + its now-fixed address. Best-effort: a write failure
-    // (e.g. read-only FS) must not fail the registration — the in-memory state still serves it.
+    // (e.g. read-only FS) must not fail the registration - the in-memory state still serves it.
     let _ = save_registration(&cfg.vaults_dir, &reg);
     Ok(reg)
 }
@@ -1029,6 +1155,68 @@ mod tests {
         // Overwrites, not appends.
         save_members(&dir, "v", &["Dave".to_string()]).unwrap();
         assert_eq!(load_members(&dir, "v"), vec!["Dave".to_string()]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rename_member_migrates_votes_no_ghost() {
+        // The reported bug: renaming a member left their past approval attached to the OLD name while
+        // the roster showed the NEW name still awaiting - one person shown as two rows in a 2-of-2.
+        let dir = std::env::temp_dir().join(format!("konclave-rename-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        save_members(&dir, "v", &["Michael".into(), "zcashbrazil".into()]).unwrap();
+        let mut p = mk_prop("v", "p1");
+        p.proposer = "Michael".into();
+        p.approvals = vec!["Michael".into(), "zcashbrazil".into()]; // both approved
+        save_proposal(&dir, &p).unwrap();
+
+        let roster = rename_member(&dir, "v", "zcashbrazil", "Daniel", 200).unwrap();
+        assert_eq!(roster, vec!["Michael".to_string(), "Daniel".to_string()]);
+
+        // The proposal's approval moved with the rename: still exactly 2 approvers, now Daniel not
+        // zcashbrazil - no orphan, no ghost row.
+        let got = load_proposal(&dir, "v", "p1", 200).unwrap();
+        assert_eq!(got.approvals, vec!["Michael".to_string(), "Daniel".to_string()]);
+        assert!(!got.approvals.iter().any(|a| a == "zcashbrazil"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sync_throttle_shares_a_sync() {
+        let dir = std::env::temp_dir().join(format!("konclave-sync-throttle-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        // No record yet -> must sync.
+        assert!(should_sync(&dir, "v", 15, 1000));
+        mark_synced(&dir, "v", 1000);
+        // Within the window -> skip (serve the last-synced state).
+        assert!(!should_sync(&dir, "v", 15, 1005));
+        assert!(!should_sync(&dir, "v", 15, 1014));
+        // At/after the window -> sync again.
+        assert!(should_sync(&dir, "v", 15, 1015));
+        assert!(should_sync(&dir, "v", 15, 2000));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rename_member_guards() {
+        let dir = std::env::temp_dir().join(format!("konclave-rename-guard-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        save_members(&dir, "v", &["Alice".into(), "Bob".into()]).unwrap();
+        // Unknown seat.
+        assert!(rename_member(&dir, "v", "Nobody", "X", 0).is_err());
+        // Collision with a different seat.
+        assert!(rename_member(&dir, "v", "Alice", "Bob", 0).is_err());
+        // Empty new name.
+        assert!(rename_member(&dir, "v", "Alice", "  ", 0).is_err());
+        // No-op (rename to self) is allowed and leaves the roster intact.
+        assert_eq!(
+            rename_member(&dir, "v", "Alice", "Alice", 0).unwrap(),
+            vec!["Alice".to_string(), "Bob".to_string()]
+        );
+        // A real rename trims and persists.
+        let roster = rename_member(&dir, "v", "Alice", " Alicia ", 0).unwrap();
+        assert_eq!(roster, vec!["Alicia".to_string(), "Bob".to_string()]);
+        assert_eq!(load_members(&dir, "v"), roster);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

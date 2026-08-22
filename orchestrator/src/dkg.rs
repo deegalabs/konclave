@@ -1,5 +1,5 @@
 //! DKG vault creation (5-F): create a vault by **Distributed Key Generation** through the
-//! app — the key is NEVER reconstituted; each participant computes only its own share via
+//! app - the key is NEVER reconstituted; each participant computes only its own share via
 //! `frostd`. Mirrors the proven Phase-2 recipe (docs/VERTICAL_SLICE.md).
 //!
 //! Single-device demo: all participants run here as threads; the product runs one per
@@ -23,8 +23,8 @@ pub struct DkgVault {
     pub wallet_dir: String,
     /// (name, comm pubkey, sealed config path) per member.
     pub members: Vec<(String, String, String)>,
-    /// The vault passphrase ("palavra do cofre"), generated here and shown ONCE. The
-    /// shares are sealed under a key derived from it — without it they do not open.
+    /// The vault passphrase, generated here and shown ONCE. The
+    /// shares are sealed under a key derived from it - without it they do not open.
     pub passphrase: String,
     /// KDF salt for the passphrase (persist with the vault; not a secret).
     pub salt: Vec<u8>,
@@ -46,7 +46,7 @@ impl Drop for DirGuard {
 }
 
 /// A fresh 0700 directory in tmpfs (`/dev/shm`, never touches disk) when available, else the
-/// OS temp dir — for the transient cleartext frost-client configs (C3).
+/// OS temp dir - for the transient cleartext frost-client configs (C3).
 fn make_tmpfs_dir() -> Result<std::path::PathBuf, ToolError> {
     let base = if std::path::Path::new("/dev/shm").is_dir() {
         std::path::PathBuf::from("/dev/shm")
@@ -97,7 +97,7 @@ pub fn create_vault_dkg(
     let vdir = format!("{vaults_dir}/{slug}-{}", short_id());
     std::fs::create_dir_all(&vdir).map_err(ToolError::Io)?;
     // C3: the cleartext configs (which hold the raw share) live ONLY in tmpfs and are wiped
-    // when `_cfg_guard` drops — even on panic. The durable vault dir gets only the sealed
+    // when `_cfg_guard` drops - even on panic. The durable vault dir gets only the sealed
     // outputs + the view-only wallet.
     let tmp_cfg_dir = make_tmpfs_dir()?;
     let _cfg_guard = DirGuard(tmp_cfg_dir.clone());
@@ -171,7 +171,7 @@ pub fn create_vault_dkg(
     )?; // start() now blocks until frostd accepts connections (no magic sleep)
 
     // 5) DKG: creator (with -S) + joiners, concurrent.
-    let desc = format!("Konclave — {name}");
+    let desc = format!("Konclave - {name}");
     run_dkg_all(sc, &configs, &desc, &threshold.to_string(), &s_list)?;
 
     // 6) group pubkey.
@@ -207,8 +207,8 @@ pub fn create_vault_dkg(
     )?;
 
     // 9) generate the vault passphrase, derive the sealing key from it, seal each config
-    //    under it (5-E + "palavra do cofre"), remove plaintext. Without the word, the
-    //    sealed shares do not open — no sealing key sits on disk.
+    //    under it (5-E + the vault passphrase), remove plaintext. Without the word, the
+    //    sealed shares do not open - no sealing key sits on disk.
     let passphrase = secrets::generate_passphrase().map_err(|e| err("secrets", e.to_string()))?;
     let salt = secrets::generate_salt().map_err(|e| err("secrets", e.to_string()))?;
     // Hold the derived sealing key in `Zeroizing` so it is wiped from memory on drop (M4).

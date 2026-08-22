@@ -20,12 +20,17 @@ export function DemoBanner() {
   )
 }
 
-/** The quiet loading affordance — a single `.hint` line, announced via `role="status"`.
- *  No spinner, no looping motion (strict motion budget): while an initial fetch is in flight
- *  a screen shows this instead of flashing empty-state or mock data. */
+/** The loading affordance: a centered spinning ring (the accent on a faint track) with the label
+ *  below, announced via `role="status"`. Shown while an initial fetch is in flight instead of
+ *  flashing empty-state or mock data. Honors prefers-reduced-motion (the ring slows, never stops). */
 export function Loading() {
   const t = useT()
-  return <p className="hint" role="status">{t('common.loading')}</p>
+  return (
+    <div className="loader" role="status">
+      <span className="loader-ring" aria-hidden="true" />
+      <span className="loader-text">{t('common.loading')}</span>
+    </div>
+  )
 }
 
 /** Enter/Space handler for elements given `role="button"` + `tabIndex`.
@@ -93,20 +98,23 @@ export function LangToggle() {
   )
 }
 
-/** Konclave mark — the radial-key emblem (silver spokes + blue keyhole), matching the logo. */
+/** Konclave mark - the radial-key emblem (silver spokes + blue keyhole), matching the logo. */
 export function Mark() {
   const spokes = Array.from({ length: 12 }, (_, i) => i * 30)
   return (
     <svg className="mark" viewBox="0 0 40 40" fill="none" aria-hidden="true">
-      <g stroke="#c6cfd9" strokeWidth="1.3" strokeLinecap="round" opacity="0.9">
+      <g stroke="#7E93B0" strokeWidth="1.5" strokeLinecap="round">
         {spokes.map((a, i) => {
           const r = (a * Math.PI) / 180
-          return <line key={i} x1={20 + Math.cos(r) * 13} y1={20 + Math.sin(r) * 13} x2={20 + Math.cos(r) * 18} y2={20 + Math.sin(r) * 18} />
+          // alternate the ray length for a radiant "seal" burst
+          const inner = i % 2 === 0 ? 12.4 : 13.4
+          const outer = i % 2 === 0 ? 18.8 : 17.2
+          return <line key={i} x1={20 + Math.cos(r) * inner} y1={20 + Math.sin(r) * inner} x2={20 + Math.cos(r) * outer} y2={20 + Math.sin(r) * outer} />
         })}
       </g>
-      <circle cx="20" cy="19" r="7" stroke="#c6cfd9" strokeWidth="1.5" />
-      <circle cx="20" cy="17.6" r="2.4" fill="#57a6ff" />
-      <path d="M20 19.4 L18.7 25 L21.3 25 Z" fill="#57a6ff" />
+      <circle cx="20" cy="19" r="7.2" stroke="#5C6F8B" strokeWidth="1.7" />
+      <circle cx="20" cy="17.5" r="2.7" fill="var(--accent, #2F6FE0)" />
+      <path d="M20 19.6 L18.6 25.3 L21.4 25.3 Z" fill="var(--accent, #2F6FE0)" />
     </svg>
   )
 }

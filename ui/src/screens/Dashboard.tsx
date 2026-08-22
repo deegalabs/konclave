@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
+import { startVisiblePoll } from '../usePoll'
 import { Link, useNavigate } from 'react-router-dom'
 import { Seal, Secret, RevealButton, Loading } from '../components'
+import { SkeletonStat, SkeletonRows } from '../skeleton'
 import { SpendBars, type SpendPoint } from '../charts'
 import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
@@ -11,10 +13,13 @@ import {
   getVault, getProposals, getBalance, getLedger, health, shortAddr, isVaultUnlocked, IS_DEMO,
   type Vault, type Proposal, type Balance,
 } from '../api'
+import { listVaults } from '../storage'
+import { useVaultSigner } from '../VaultSigner'
+import { useLoading } from '../loading'
 
 type Movimento = { date: string; title: string; by?: string; value: string; dir: 'out' | 'in'; status: string }
 
-// Offline placeholder (only shown when there is no ledger — the demo and the live app both use
+// Offline placeholder (only shown when there is no ledger - the demo and the live app both use
 // the real ledger). Locale-aware so it never shows PT copy in the EN interface. `dl` reads the
 // persisted locale per access; the getters re-resolve when the language toggles.
 const dpt = (): boolean => {
@@ -52,11 +57,22 @@ export default function Dashboard() {
   const t = useT()
   const tr = useTr()
   const nav = useNavigate()
+  const { open: openSigning } = useVaultSigner()
+  const { begin, end } = useLoading()
+  // The page renders once the FAST data (vault + proposals + ledger) is in - no placeholder flash.
+  const [firstLoaded, setFirstLoaded] = useState(false)
+  // The balance is fetched separately (it triggers a slow helper wallet sync); its card shows a
+  // skeleton until this flips, so it never flashes "not connected" while merely syncing.
+  const [balLoaded, setBalLoaded] = useState(false)
   const [vault, setVault] = useState<Vault | null>(null)
   const [proposals, setProposals] = useState<Proposal[]>([])
   const [ledger, setLedger] = useState<Proposal[] | null>(null)
   const [balance, setBalance] = useState<Balance | null>(null)
   const [live, setLive] = useState<boolean | null>(null)
+  // For the members peek: this device's seat and the vault creator (on-device record). Loaded once
+  // per vault id, not on every poll.
+  const [me, setMe] = useState<string | null>(null)
+  const [creator, setCreator] = useState<string | null>(null)
   const [rate, setRate] = useState<Rate | null>(cachedRate())
   const [usdOn, setUsdOn] = useState<boolean>(usdEnabled())
   const [rateBusy, setRateBusy] = useState(false)
@@ -82,63 +98,114 @@ export default function Dashboard() {
 
   useEffect(() => {
     let on = true
+    let inFlight = false
+    const load = async (first: boolean) => {
+      if (inFlight) return // never overlap polls (the helper's wallet sync can be slow)
+      inFlight = true
+      if (first) begin()
+      try {
+        const ok = await health()
+        if (!on) return
+        setLive(ok)
+        if (!ok && !IS_DEMO) return
+        const v = await getVault()
+        if (!on) return
+        // Locked vault not unlocked this session → send back to unlock. Only on first load, so a
+        // background poll never yanks the user off the dashboard.
+        if (first && v?.locked && !isVaultUnlocked(v.id)) { nav('/vaults'); return }
+        if (v) setVault(v)
+        // FAST data first: proposals + ledger are plain file reads (no wallet sync). Render the
+        // dashboard on these so it appears immediately, instead of waiting on the balance.
+        const [ps, l] = await Promise.all([getProposals(), getLedger()])
+        if (!on) return
+        if (ps) setProposals(ps)
+        if (l) setLedger(l)
+        if (first && on) setFirstLoaded(true) // page is usable now; the balance fills in below
+        // SLOW data separately: getBalance triggers a helper wallet SYNC (seconds). It never gates
+        // the page - the balance card shows a skeleton until it lands (the top-progress runs meanwhile).
+        const b = await getBalance()
+        if (!on) return
+        if (b) setBalance(b)
+        if (on) setBalLoaded(true)
+      } finally {
+        inFlight = false
+        if (first) { end(); if (on) setFirstLoaded(true) }
+      }
+    }
+    void load(true)
+    // Auto-refresh: a freshly-funded vault (and its confirming balance / new proposals) updates on
+    // its own, so a user watching for funds to land never has to hit reload. Polls every 12s.
+    // Visibility-aware: pause while the tab is hidden (getBalance triggers a costly helper wallet
+    // sync) and refresh immediately on return (#123).
+    const stop = startVisiblePoll(() => void load(false), 12_000)
+    return () => { on = false; stop() }
+  }, [])
+
+  // Load "you" + creator for the members peek, once per vault (not on the 12s poll).
+  useEffect(() => {
+    if (!vault) return
+    let on = true
     void (async () => {
-      const ok = await health()
-      if (!on) return
-      setLive(ok)
-      if (!ok && !IS_DEMO) return
-      const v = await getVault()
-      if (!on) return
-      // Locked vault not unlocked this session → send back to unlock (§ passphrase).
-      if (v?.locked && !isVaultUnlocked(v.id)) { nav('/vaults'); return }
-      if (v) setVault(v)
-      const [ps, b, l] = await Promise.all([getProposals(), getBalance(), getLedger()])
-      if (!on) return
-      if (ps) setProposals(ps)
-      if (b) setBalance(b)
-      if (l) setLedger(l)
+      try {
+        const saved = await listVaults()
+        const rec = saved.find((s) => s.id === vault.id)
+        if (on && rec) { setMe(rec.myName ?? null); setCreator(rec.creatorName ?? null) }
+      } catch { /* local-bridge mode: no on-device record - the peek just omits the you/creator marks */ }
     })()
     return () => { on = false }
-  }, [])
+  }, [vault?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const isLive = live === true
   const loading = live === null // initial fetch still in flight
 
-  // Vault header — real vault from the bridge; placeholder only in the offline showcase.
-  const name = vault?.name ?? dl('Tesouraria Comum', 'Common Treasury')
+  // Vault header - real vault from the bridge; a sample name/address only in DEMO. The header only
+  // renders past the firstLoaded gate, so a real vault is already resolved; a null vault here is the
+  // genuine no-vault edge, shown with a neutral label (never a "…" that reads as a truncation bug,
+  // never a fabricated name).
+  const name = vault?.name ?? (IS_DEMO ? dl('Tesouraria Comum', 'Common Treasury') : dl('Cofre', 'Vault'))
   const thr = vault?.threshold ?? 2
   const n = vault?.total ?? 3
   const members = vault?.members ?? n
-  const addr = vault ? shortAddr(vault.orchard_address) : 'u1vjgx…d406dr'
+  const roster = vault?.member_list ?? []
+  const addr = vault ? shortAddr(vault.orchard_address) : (IS_DEMO ? 'u1vjgx…d406dr' : '-')
 
-  // Balance — real when the wallet is wired; "—" when live-but-unwired; mock when offline.
+  // Balance - real when the wallet is wired; "-" when live-but-unwired; mock when offline.
   const hasBal = balance?.configured === true
   // Live but no wallet wired: show an explicit "not connected" state, never a dash veiled
   // behind the redaction tarja (the privacy gesture must never hide *nothing*).
-  const walletUnwired = isLive && !hasBal
-  // Show a figure only when it is real (hasBal) or genuinely offline-demo (live === false).
-  // While still loading (live === null) show a neutral dash, never a fabricated balance.
-  const amt = hasBal ? fmt4(balance!.total_zec) : (live === false ? '2.4180' : '—')
-  const confirmado = hasBal ? fmt4(balance!.spendable_zec) : (live === false ? '2.4180' : '—')
-  const pendente = hasBal ? `+${fmt4(balance!.pending_zec)}` : (live === false ? '+0.0100' : '—')
+  // Only claim "not connected" AFTER the balance actually loaded; while it is still syncing we show a
+  // skeleton, never a false "not connected".
+  const walletUnwired = isLive && !hasBal && balLoaded
+  // The balance is still loading (live, but its first fetch/sync hasn't returned) - show the skeleton.
+  const balLoading = loading || (isLive && !balLoaded)
+  // Show a figure only when it is real (hasBal) or in actual DEMO mode. Never fabricate a balance
+  // just because health() is momentarily false (a real offline blip is not the demo) - while
+  // loading or offline-but-real we show a neutral dash, never mock data.
+  const amt = hasBal ? fmt4(balance!.total_zec) : (IS_DEMO ? '2.4180' : '-')
 
-  // Pending approval — first awaiting proposal. When live with none, show an empty state
+  // Pending approval - first awaiting proposal. When live with none, show an empty state
   // instead of a fabricated card.
   const awaiting = proposals.filter((p) => p.state === 'awaiting')
   const pending = awaiting[0] ?? null
+  // Approved-and-waiting-to-sign proposals. They are still OPEN (funds committed) and need an
+  // action (signing), so they must be counted as open, reserve funds, and be surfaced - not read
+  // as "nothing waiting" with 0 reserved.
+  const ready = proposals.filter((p) => p.state === 'ready')
+  const open = awaiting.concat(ready)
+  const firstReady = !IS_DEMO && !pending ? (ready[0] ?? null) : null
   // Show the (mock) approval card only when genuinely offline; during load (live === null) wait
   // for real proposals instead of flashing a fabricated one.
-  const showApprovalCard = live === false || pending !== null
+  const showApprovalCard = IS_DEMO || pending !== null
   const pAmt = pending ? fmt4(pending.value_zec, '0.0003') : '0.5000'
-  const pMemo = pending?.memo ?? 'adiantamento maio'
+  const pMemo = pending?.memo ?? dl('adiantamento de maio', 'May advance')
   const pProposer = pending?.proposer ?? 'Bruno'
   const pApprovals = pending?.approvals_count ?? 1
   const pExpiry = pending ? expiryLabel(pending.expiry_unix, t) : t('expiry.hours', { h: 71 })
 
-  // Movements — the real ledger when live; the mock only in the offline showcase.
+  // Movements - the real ledger when live; the mock only in the offline showcase.
   const movs: Movimento[] | null = ledger && ledger.length
     ? ledger.slice(0, 6).map((p) => ({
-        date: fmtDate(p.created_at),
+        date: fmtDate(p.created_at, dpt() ? 'pt-BR' : 'en'),
         title: p.memo || (p.kind === 'payroll' ? t('kind.payroll') : t('kind.payment')),
         by: t('dashboard.movBy', { proposer: p.proposer }) + (p.approvals.length ? t('dashboard.movApprovedBy', { who: p.approvals.join(', ') }) : ''),
         value: `−${fmt4(p.value_zec)}`,
@@ -148,13 +215,24 @@ export default function Dashboard() {
     : null
   // Real ledger when there is one; the mock showcase ONLY when genuinely offline/demo. A LIVE vault
   // with an empty ledger (e.g. a fresh /net vault, no proposals yet) shows no movements, not mock.
-  const movimentos: Movimento[] = movs ?? (live === false || IS_DEMO ? MOVIMENTOS_MOCK : [])
+  const movimentos: Movimento[] = movs ?? (IS_DEMO ? MOVIMENTOS_MOCK : [])
 
-  // KPIs — all derived from real data (no fabrication). Reserved = funds committed by open
+  // KPIs - all derived from real data (no fabrication). Reserved = funds committed by open
   // proposals (a product rule, not a protocol lock); Paid = settled outflow across the ledger.
   const parseZ = (s?: string) => { const n = parseFloat(s || ''); return isFinite(n) ? n : 0 }
+  // Confirming = not-yet-spendable funds (still gathering the ~10 confirmations). Use the helper's
+  // pending figure when present; otherwise derive it as total - spendable so the card never shows a
+  // stray "+-". Only in DEMO do we invent a figure.
+  const pendNum = hasBal
+    ? (balance!.pending_zec != null
+        ? parseZ(balance!.pending_zec)
+        : Math.max(0, parseZ(balance!.total_zec) - parseZ(balance!.spendable_zec)))
+    : (IS_DEMO ? 0.01 : 0)
   const settled = (ledger ?? []).filter((p) => p.state === 'sent' || p.state === 'confirmed')
-  const reservedZec = awaiting.reduce((a, p) => a + parseZ(p.value_zec), 0)
+  // Reserved = funds committed by every OPEN proposal (awaiting approval OR approved and awaiting
+  // signing). An approved-not-yet-sent proposal still holds its funds; counting only `awaiting`
+  // made the reservation vanish the moment quorum was reached.
+  const reservedZec = open.reduce((a, p) => a + parseZ(p.value_zec), 0)
   const paidZec = settled.reduce((a, p) => a + parseZ(p.value_zec), 0)
 
   // Settled spend grouped by month (ascending, last 6). SpendBars self-hides below two periods.
@@ -174,7 +252,7 @@ export default function Dashboard() {
     .map(([, v]) => v)
 
   // USD estimate (opt-in). Only priceable when there is a real or offline-demo ZEC figure.
-  const balZecNum = hasBal ? parseZ(balance!.total_zec) : (live === false ? 2.418 : undefined)
+  const balZecNum = hasBal ? parseZ(balance!.total_zec) : (IS_DEMO ? 2.418 : undefined)
   const usdBal = usdOn ? zecToUsd(balZecNum, rate) : null
   const usdPaid = usdOn ? zecToUsd(paidZec, rate) : null
   // "how fresh is the rate" label
@@ -187,6 +265,11 @@ export default function Dashboard() {
   }
 
 
+  // Nothing renders until the first full fetch is in - no half-built page with placeholders.
+  if (!firstLoaded) {
+    return <main className="page dash"><Loading /></main>
+  }
+
   return (
     <>
       <main className="page dash">
@@ -194,14 +277,31 @@ export default function Dashboard() {
           eyebrow={t('dashboard.collectiveVault')}
           title={name}
           subtitle={<>
-            {tr('dashboard.vmetaPre')} · <Link className="link" to="/members">{t('dashboard.membersCount', { n: members })}</Link>
+            {tr('dashboard.vmetaPre')} · <span className="members-peek">
+              <Link className="link" to="/members" aria-describedby={roster.length > 0 ? 'members-pop' : undefined}>{t('dashboard.membersCount', { n: members })}</Link>
+              {roster.length > 0 && (
+                <span className="members-pop" role="tooltip" id="members-pop">
+                  <span className="members-pop-head">{t('dashboard.membersQuorum', { t: thr, n })}</span>
+                  <span className="members-pop-list">
+                    {roster.map((m) => (
+                      <span className="members-pop-row" key={m.pubkey || m.name}>
+                        <Identicon seed={m.pubkey || m.name} size={22} />
+                        <span className="members-pop-name">{m.name}</span>
+                        {m.name === creator && <span className="klab members-pop-tag creator">{t('members.creatorShort')}</span>}
+                        {m.name === me && <span className="klab members-pop-tag">{t('members.youShort')}</span>}
+                      </span>
+                    ))}
+                  </span>
+                </span>
+              )}
+            </span>
             {live === true && <span className="livetag" title={t('dashboard.liveTitle')} aria-live="polite">{t('dashboard.live')}</span>}
-            {live === false && <span className="livetag off" title={t('dashboard.demoTitle')} aria-live="polite">{t('dashboard.demo')}</span>}
+            {IS_DEMO && <span className="livetag off" title={t('dashboard.demoTitle')} aria-live="polite">{t('dashboard.demo')}</span>}
           </>}
           actions={<Seal t={thr} n={n} />}
         />
 
-        {/* 1 · O que precisa de você — a ação primeiro */}
+        {/* 1 · What needs you - the action first */}
         {loading ? (
           <section className="needyou calm"><Loading /></section>
         ) : showApprovalCard ? (
@@ -223,9 +323,29 @@ export default function Dashboard() {
             </div>
             <div className="note">{t('dashboard.chooseWhoNote')}</div>
           </section>
+        ) : firstReady ? (
+          <section className="needyou act">
+            <div className="req"><span className="stamp st-ready">{t('stamp.ready')}</span> {t('dashboard.readyToSign', { count: ready.length })}</div>
+            <div className="ny-body">
+              <Identicon seed={firstReady.proposer} size={38} />
+              <div className="ny-main">
+                <div className="ny-amt">{fmt4(firstReady.value_zec)} <span className="dim small">ZEC</span></div>
+                <div className="a-to">{firstReady.memo?.trim() || (firstReady.kind === 'payroll' ? t('kind.payroll') : t('kind.payment'))}</div>
+                <div className="a-meta">
+                  <span className="prog">{Array.from({ length: thr }, (_, i) => <i key={i} className="on" />)}</span>
+                  <span>{t('dashboard.ofApprovals', { count: firstReady.approvals_count, total: thr })}</span>
+                </div>
+              </div>
+            </div>
+            <div className="btns">
+              <button className="btn ok" onClick={() => openSigning(firstReady)}>{t('dashboard.goSign')}</button>
+              <Link className="btn ghost" to="/proposal" state={{ id: firstReady.id }}>{t('dashboard.reviewVote')}</Link>
+            </div>
+            <div className="note">{t('dashboard.readyToSignNote')}</div>
+          </section>
         ) : (
           <section className="needyou calm">
-            <div className="req"><span className="stamp">—</span> {t('dashboard.nothingWaiting')}</div>
+            <div className="req"><span className="stamp" aria-hidden="true">·</span> {t('dashboard.nothingWaiting')}</div>
             <div className="note">{t('dashboard.nothingWaitingNote')}</div>
             <div className="btns"><Link className="btn ok" to="/pay">{t('dashboard.proposePayment')}</Link></div>
           </section>
@@ -237,7 +357,9 @@ export default function Dashboard() {
             <h2 className="klab">{t('dashboard.vaultBalance')}</h2>
             <RevealButton />
           </div>
-          {walletUnwired ? (
+          {balLoading ? (
+            <SkeletonStat />
+          ) : walletUnwired ? (
             <div className="fig">
               <span className="amt" style={{ fontSize: '17px', letterSpacing: '.02em', color: 'var(--text-muted)' }}>
                 {t('dashboard.walletNotConnected')}
@@ -246,17 +368,18 @@ export default function Dashboard() {
           ) : (
             <>
               <div className="fig">
-                <Secret><span className="amt">{amt}</span></Secret>
+                <Secret><span className="amt" style={{ fontFeatureSettings: '"zero" 0' }}>{amt}</span></Secret>
                 <span className="unit">ZEC</span>
               </div>
-              <div className="breakdown">
-                <span>{t('dashboard.confirmedLower')} <Secret sm><b>{confirmado}</b></Secret></span>
-                <span className="pd">{t('dashboard.pendingLower')} <Secret sm><b>{pendente}</b></Secret></span>
-              </div>
+              {pendNum > 0 && (
+                <div className="breakdown">
+                  <span className="pd">{t('dashboard.confirming', { amt: `+${fmt4(String(pendNum))}` })}</span>
+                </div>
+              )}
               <div className="usd">
                 {usdOn ? (
                   <>
-                    <span className="usd-v">≈ <Secret sm><b>{usdBal ?? '—'}</b></Secret></span>
+                    <span className="usd-v">≈ <Secret sm><b>{usdBal ?? '-'}</b></Secret></span>
                     <span className="usd-src">{rate
                       ? `${rate.source} · ${rateAgo()}${rateIsStale(rate) ? ` · ${t('dashboard.rateStale')}` : ''}`
                       : t('dashboard.rateNone')}</span>
@@ -283,12 +406,12 @@ export default function Dashboard() {
           </div>
         </section>
 
-        {/* 2b · KPIs — números do cofre, todos derivados de dados reais */}
+        {/* 2b · KPIs - vault figures, all derived from real data */}
         {!loading && (
           <section className="kpis">
             <div className="kpi">
               <span className="kpi-k klab">{t('dashboard.kpiOpen')}</span>
-              <span className="kpi-v mono">{awaiting.length}</span>
+              <span className="kpi-v mono">{open.length}</span>
             </div>
             <div className="kpi">
               <span className="kpi-k klab">{t('dashboard.kpiReserved')}</span>
@@ -302,7 +425,7 @@ export default function Dashboard() {
           </section>
         )}
 
-        {/* 3 · Ações primárias (a navegação de seções vive no rail) */}
+        {/* 3 · Primary actions (section nav lives in the rail) */}
         <section className="actions">
           <Link className="action" to="/pay">
             <span className="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M12 5v14M5 12h14" /></svg></span>
@@ -316,7 +439,7 @@ export default function Dashboard() {
           </Link>
         </section>
 
-        {/* 4 · Histórico */}
+        {/* 4 · History */}
         <section className="ledger">
           <h2 className="klab">{t('dashboard.movements')}</h2>
           <div className="cap">{t('dashboard.movementsCap')}</div>
@@ -326,7 +449,7 @@ export default function Dashboard() {
               <SpendBars data={spendSeries} />
             </div>
           )}
-          {loading && <Loading />}
+          {loading && <SkeletonRows n={4} />}
           {!loading && movimentos.length === 0 && (
             <div className="cap">{t('dashboard.noMovements')}</div>
           )}
