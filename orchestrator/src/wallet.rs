@@ -50,6 +50,17 @@ impl Balance {
         Zatoshis::from_u64(self.orchard_spendable.as_u64() + self.ironwood_spendable.as_u64())
             .unwrap_or(self.orchard_spendable)
     }
+
+    /// Whether this vault must migrate its Orchard funds to Ironwood before a normal payment can be
+    /// signed (#86). A spend that touches the **Orchard** pool creates a zero-value "migration dummy"
+    /// the pinned engine (`42ffd0d`) leaves unstamped, so the FROST signer skips it and the broadcast
+    /// fails with `MissingSpendAuthSig`. The interim workaround: if any Orchard funds are spendable,
+    /// do a one-time `create-max` self-send (Orchard -> Ironwood) first; afterwards payments draw from
+    /// the Ironwood pool (which signs its own dummy) with plain `create`. An Ironwood-only vault
+    /// (Orchard == 0) needs no migration. Removed once the engine bump (>= `51385a15`) lands.
+    pub fn needs_orchard_migration(&self) -> bool {
+        self.orchard_spendable.as_u64() > 0
+    }
 }
 
 #[derive(Deserialize)]
@@ -335,6 +346,19 @@ mod tests {
         let j = r#"{"chain_tip_height":3428300,"orchard_spendable":300000,"ironwood_spendable":700000,"sapling_spendable":0,"transparent_spendable":0,"total":1000000}"#;
         let b = parse_balance(j).unwrap();
         assert_eq!(b.shielded_spendable(), Zatoshis::from_u64(1_000_000).unwrap());
+    }
+
+    #[test]
+    fn needs_orchard_migration_only_when_orchard_funds_present() {
+        // Orchard funds present -> a normal spend would hit the unstamped dummy (#86) -> migrate first.
+        let orchard = r#"{"chain_tip_height":1,"orchard_spendable":300000,"ironwood_spendable":0,"sapling_spendable":0,"transparent_spendable":0,"total":300000}"#;
+        assert!(parse_balance(orchard).unwrap().needs_orchard_migration());
+        // Ironwood-only (post-migration / fresh Ironwood deposits) -> no migration needed.
+        let ironwood = r#"{"chain_tip_height":1,"orchard_spendable":0,"ironwood_spendable":700000,"sapling_spendable":0,"transparent_spendable":0,"total":700000}"#;
+        assert!(!parse_balance(ironwood).unwrap().needs_orchard_migration());
+        // Mixed (mid-migration) still needs it while any Orchard remains.
+        let mixed = r#"{"chain_tip_height":1,"orchard_spendable":1,"ironwood_spendable":700000,"sapling_spendable":0,"transparent_spendable":0,"total":700001}"#;
+        assert!(parse_balance(mixed).unwrap().needs_orchard_migration());
     }
 
     #[test]
