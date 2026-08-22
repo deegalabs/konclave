@@ -9,7 +9,7 @@ import init, {
   identifierBytes,
 } from '../wasm-pkg/konclave_wasm.js'
 import wasmUrl from '../wasm-pkg/konclave_wasm_bg.wasm?url'
-import { RelaySession, newRoomCode, deriveRoom, ephemeralTag, b64, unb64, bytesEqual, relayBase, type RelayMsg } from '../net'
+import { RelaySession, newRoomCode, deriveRoom, ephemeralTag, b64, unb64, bytesEqual, relayBase, encodeInvite, parseInvite, type RelayMsg } from '../net'
 import { decodeBundle } from '../signing'
 import { SigningMachine } from '../signing-machine'
 import { useT, useTr, useI18n } from '../i18n'
@@ -71,6 +71,14 @@ function hex(bytes: Uint8Array): string {
 }
 
 const shortId = (s: string) => (s.length > 24 ? `${s.slice(0, 14)}…${s.slice(-6)}` : s)
+
+// Normalize a typed/pasted invite: uppercase ONLY the room code (its alphabet is uppercase); the
+// relay suffix after '~' is base64url and case-sensitive, so it must be left untouched (#213).
+function normalizeInviteInput(s: string): string {
+  const t = s.trim()
+  const i = t.indexOf('~')
+  return i < 0 ? t.toUpperCase() : t.slice(0, i).toUpperCase() + t.slice(i)
+}
 const fmtZec = (zat: number) => (zat / 1e8).toFixed(8).replace(/0+$/, '').replace(/\.$/, '')
 
 function Shell({ error, children, onDashboard, embedded }: { error: string; children: ReactNode; onDashboard?: () => void; embedded?: boolean }) {
@@ -208,6 +216,10 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
 
   // --- mutable ceremony state (refs so the poll callback always sees the latest) ---
   const sessionRef = useRef<RelaySession | null>(null)
+  // The relay THIS ceremony meets on: for a create it is this device's chosen relay; for a join it is
+  // the relay carried in the invite (falling back to the local default). Threaded into the relay
+  // session, the helper's relay param, and the shareable invite so every device meets on the same one.
+  const ceremonyRelayRef = useRef<string>('')
   const dkgRef = useRef<DkgSession | null>(null)
 
   // This device's signing material, from the live DKG session OR from a restored vault. Signing
@@ -528,10 +540,21 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
         myTagRef.current = ephemeralTag()
         // The code is the human-readable invite (shown/copied); the ACTUAL relay room is derived
         // from code + optional PIN (#65). Without a PIN the room is the code (unchanged behavior).
-        const roomId = await deriveRoom(code, pin)
-        setRoom(code)
+        // A JOIN code may be an invite carrying the creator's relay - split it so the room derives
+        // from the plain code and this session meets on that relay (#213). A CREATE uses this
+        // device's chosen relay.
+        let roomCode = code
+        let relay = relayBase()
+        if (asRole === 'join') {
+          const parsed = parseInvite(code)
+          roomCode = parsed.room
+          relay = parsed.relay ?? relayBase()
+        }
+        ceremonyRelayRef.current = relay
+        const roomId = await deriveRoom(roomCode, pin)
+        setRoom(roomCode)
         setPhase('roster')
-        const sess = new RelaySession(roomId, myTagRef.current, onMessage, (p) => setPeers(p))
+        const sess = new RelaySession(roomId, myTagRef.current, onMessage, (p) => setPeers(p), undefined, relay)
         sessionRef.current = sess
         sess.start()
         ceremonyTimerRef.current = setTimeout(() => {
@@ -618,7 +641,9 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
         const r = await executeProposal({
           vault: groupVk,
           proposalId: id,
-          relayBase: relayBase(),
+          // Use the relay this vault's ceremony meets on (invite-carried for a joiner), so the helper
+          // publishes its sign-request into the same room the browsers are polling.
+          relayBase: ceremonyRelayRef.current || relayBase(),
           room,
           dryRun: false,
         })
@@ -816,7 +841,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
         <div className="cv-field cv-name">
           <span className="cv-k">{pe('Código do convite', 'Invite code')}</span>
           <input className="cv-nameinput" style={{ fontFamily: 'var(--font-mono)', letterSpacing: '.14em', textAlign: 'center' }}
-            placeholder="KX7M4PQR" value={joinCode} onChange={(e) => setJoinCode(e.target.value.toUpperCase().trim())} />
+            placeholder="KX7M4PQR" value={joinCode} onChange={(e) => setJoinCode(normalizeInviteInput(e.target.value))} />
         </div>
         <div className="cv-field cv-name">
           <span className="cv-k">{pe('PIN (se combinaram um)', 'PIN (if one was agreed)')}</span>
@@ -965,7 +990,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
               className="net-input"
               placeholder={tt('net.idle.joinPlaceholder')}
               value={joinCode}
-              onChange={(e) => setJoinCode(e.target.value.toUpperCase().trim())}
+              onChange={(e) => setJoinCode(normalizeInviteInput(e.target.value))}
             />
             <button
               className="net-btn"
@@ -1171,8 +1196,8 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
               <p className="cv-lead">{pe('Envie este código para os outros aparelhos. O cofre nasce quando todos entrarem.', 'Send this code to the other devices. The vault is born once they all join.')}</p>
             )}
             <div className="net-code" role="button" tabIndex={0}
-              onClick={() => { void navigator.clipboard?.writeText(room); setCodeCopied(true); window.setTimeout(() => setCodeCopied(false), 1800) }}
-              title={tt('net.invite.clickCopy')}>{room}</div>
+              onClick={() => { void navigator.clipboard?.writeText(encodeInvite(room, ceremonyRelayRef.current)); setCodeCopied(true); window.setTimeout(() => setCodeCopied(false), 1800) }}
+              title={tt('net.invite.clickCopy')}>{encodeInvite(room, ceremonyRelayRef.current)}</div>
             <p className="cv-copyhint">{codeCopied ? pe('Copiado ✓', 'Copied ✓') : pe('Toque para copiar', 'Tap to copy')}</p>
             <div className="cv-seats">
               {Array.from({ length: total }, (_, i) => (
@@ -1235,15 +1260,15 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
         <>
           <h1 className="net-h1">{tt('net.invite.title')}</h1>
           <p className="net-lead">{tt('net.invite.lead')}</p>
-          <div className="net-code" onClick={() => navigator.clipboard?.writeText(room)} title={tt('net.invite.clickCopy')}>
-            {room}
+          <div className="net-code" onClick={() => navigator.clipboard?.writeText(encodeInvite(room, ceremonyRelayRef.current))} title={tt('net.invite.clickCopy')}>
+            {encodeInvite(room, ceremonyRelayRef.current)}
           </div>
         </>
       )}
       {role === 'join' && phase === 'roster' && (
         <>
           <h1 className="net-h1">{tt('net.joining.title')}</h1>
-          <div className="net-code">{room}</div>
+          <div className="net-code">{encodeInvite(room, ceremonyRelayRef.current)}</div>
         </>
       )}
       {phase === 'dkg' && <h1 className="net-h1">{tt('net.creating.title')}</h1>}
