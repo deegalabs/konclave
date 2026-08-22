@@ -88,9 +88,10 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 /* the shared header (landing + standalone screens) must never overflow on mobile:
    it wraps to a second line and sheds the secondary nav links. */
 @media(max-width:640px){
-  .lh{padding:13px 20px; flex-wrap:wrap; row-gap:10px; column-gap:12px}
-  .lh .wm{letter-spacing:.22em; text-indent:.22em}
-  .lh-right{gap:10px; flex-wrap:wrap; justify-content:flex-end}
+  /* One row: logo left, controls right (no wrapping to a second line). */
+  .lh{padding:12px 16px; flex-wrap:nowrap; column-gap:10px}
+  .lh .wm{letter-spacing:.18em; text-indent:.18em}
+  .lh-right{gap:8px; flex-wrap:nowrap; justify-content:flex-end; min-width:0}
   .lh-right .doclink{display:none}
   .lh-right .rd-status{display:none}
   .net-tag{white-space:nowrap}
