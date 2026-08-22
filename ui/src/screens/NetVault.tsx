@@ -9,7 +9,7 @@ import init, {
   identifierBytes,
 } from '../wasm-pkg/konclave_wasm.js'
 import wasmUrl from '../wasm-pkg/konclave_wasm_bg.wasm?url'
-import { RelaySession, newRoomCode, deriveRoom, ephemeralTag, b64, unb64, bytesEqual, RELAY_BASE, type RelayMsg } from '../net'
+import { RelaySession, newRoomCode, deriveRoom, ephemeralTag, b64, unb64, bytesEqual, relayBase, type RelayMsg } from '../net'
 import { decodeBundle } from '../signing'
 import { SigningMachine } from '../signing-machine'
 import { useT, useTr, useI18n } from '../i18n'
@@ -618,7 +618,7 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
         const r = await executeProposal({
           vault: groupVk,
           proposalId: id,
-          relayBase: RELAY_BASE,
+          relayBase: relayBase(),
           room,
           dryRun: false,
         })

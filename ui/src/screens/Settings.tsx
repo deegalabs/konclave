@@ -9,6 +9,7 @@ import { downloadText } from '../download'
 import { vaultFingerprint } from '../format'
 import { getTheme, setTheme, type Theme } from '../theme'
 import { getCoordMode, setCoordMode, getCustomHelper, HELPER_BASE, type CoordMode } from '../helper'
+import { getRelayMode, getCustomRelay, setRelay, RELAY_BASE, type RelayMode } from '../net'
 import { isDesktop } from '../platform'
 
 /**
@@ -29,6 +30,13 @@ export default function Settings() {
   const [helperUrl, setHelperUrl] = useState(getCustomHelper())
   const applyCoord = (mode: CoordMode, url?: string) => { setCoordMode(mode, url); location.reload() }
   const validHelperUrl = (u: string) => /^https:\/\/\S+\.\S+/.test(u.trim())
+  // Relay selection (#213): WHICH blind rendezvous the browser ceremonies use. All members of a
+  // vault must use the same relay, so it applies app-wide (reload so net.ts reads the new choice).
+  const [relayMode, setRelayMode] = useState<RelayMode>(getRelayMode())
+  const [relayUrl, setRelayUrl] = useState(getCustomRelay())
+  const applyRelay = (mode: RelayMode, url?: string) => { setRelay(mode, url); location.reload() }
+  const validRelayUrl = (u: string) => /^https:\/\/\S+\.\S+/.test(u.trim())
+  const showRelay = RELAY_BASE !== '' && !IS_DEMO
   const [vault, setVault] = useState<Vault | null>(null)
   const [gov, setGov] = useState<Governance | null>(null)
   const [live, setLive] = useState<boolean | null>(null)
@@ -186,6 +194,29 @@ export default function Settings() {
             )}
           </section>
           <p className="set-hint">{t('settings.coordHint')}</p>
+        </>
+      )}
+
+      {/* Relay - WHICH blind rendezvous the ceremonies use. Applies on web + desktop, since every
+          member of a vault must meet on the same relay. Default is the built-in Konclave relay. */}
+      {showRelay && (
+        <>
+          <section className="set-list mt">
+            <div className="set-row">
+              <span className="set-k">{t('settings.relay')}</span>
+              <span className="set-v" style={{ display: 'inline-flex', gap: 8, flexWrap: 'wrap' }}>
+                <button type="button" className={'btn' + (relayMode === 'ours' ? ' ok' : ' ghost')} onClick={() => applyRelay('ours')}>{t('settings.relayBuiltin')}</button>
+                <button type="button" className={'btn' + (relayMode === 'custom' ? ' ok' : ' ghost')} onClick={() => setRelayMode('custom')}>{t('settings.relayCustom')}</button>
+              </span>
+            </div>
+            {relayMode === 'custom' && (
+              <div className="set-row" style={{ gap: 8 }}>
+                <input className="unlock-input mono" style={{ flex: 1 }} inputMode="url" placeholder={t('settings.relayUrlPlaceholder')} value={relayUrl} onChange={(e) => setRelayUrl(e.target.value)} />
+                <button type="button" className="btn ok" disabled={!validRelayUrl(relayUrl)} onClick={() => applyRelay('custom', relayUrl)}>{t('settings.coordSave')}</button>
+              </div>
+            )}
+          </section>
+          <p className="set-hint">{t('settings.relayHint')}</p>
         </>
       )}
 

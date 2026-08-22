@@ -11,7 +11,7 @@ import { fmtZec, shortAddr } from '../format'
 import { useVaultSigner } from '../VaultSigner'
 import { executeProposal } from '../helper'
 import { markVaultUnlocked } from '../api'
-import { RELAY_BASE } from '../net'
+import { relayBase } from '../net'
 import { getUnlockedShare, setUnlockedShare } from '../session'
 import { loadVault } from '../storage'
 
@@ -75,7 +75,7 @@ export default function SigningPanel() {
     const r = await executeProposal({
       vault: vault.group_pubkey,
       proposalId: active!.id,
-      relayBase: RELAY_BASE,
+      relayBase: relayBase(),
       room: bg.room,
       dryRun: false,
     })
