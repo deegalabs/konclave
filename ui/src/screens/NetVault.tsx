@@ -1283,7 +1283,7 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
               </button>
               {hostedState === 'registered' && (
                 <button type="button" className="cv-linkbtn cv-danger" onClick={openDashboard}>
-                  {pe('Abrir sem guardar - você perde o seu pedaço ao recarregar (só a recuperação social traz de volta)', 'Open without saving - you lose your share on reload (only social recovery brings it back)')}
+                  {pe('Abrir sem guardar - você perde o seu pedaço ao recarregar. Proteja com uma frase-senha.', 'Open without saving - you lose your share on reload. Protect it with a passphrase.')}
                 </button>
               )}
             </div>
