@@ -279,6 +279,8 @@ export default function Settings() {
           </button>
         ) : (
           <div className="set-confirm">
+            {/* Same funds-loss warning the Dashboard delete path shows — consistent risk disclosure. */}
+            <div className="hint warn mt-xs">{tr('dashboard.deleteFundsWarn')}</div>
             <label className="field">
               <span>{t('settings.confirmPrompt')}</span>
               <input

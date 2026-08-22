@@ -2,7 +2,7 @@
 // Portuguese-first (the target treasurer audience), English available via the toggle.
 // Local-first friendly: no network, no telemetry - just two static dictionaries.
 
-import { createContext, Fragment, useCallback, useContext, useState, type ReactNode } from 'react'
+import { createContext, Fragment, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import { en } from './en'
 import { ptBR } from './pt-BR'
 
@@ -45,6 +45,12 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     setLocaleState(l)
     try { localStorage.setItem(LOCALE_KEY, l) } catch { /* storage unavailable */ }
   }, [])
+
+  // Keep <html lang> in sync so assistive tech pronounces the page in the right language
+  // (WCAG 3.1.1/3.1.2) — a bilingual app must update it when the locale toggles, not just at load.
+  useEffect(() => {
+    try { document.documentElement.lang = locale } catch { /* no document (SSR/test) */ }
+  }, [locale])
 
   const t = useCallback<TFn>((key, vars) => {
     // Fall back to English, then to the raw key, so a missing translation is never a blank.
