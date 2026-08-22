@@ -54,11 +54,41 @@ export {
   Round1,
   /** Participant device, round 1: from local key-package bytes -> a Round1 (nonces + commitment). */
   participantRound1,
-  /** Participant device, round 2: sign with the local nonces + seed -> this device's share bytes. */
+  /** Participant device, round 2 (SEED path): sign with the local nonces + seed -> share bytes. */
   participantRound2,
+  /**
+   * Participant device, round 2, REAL-ORCHARD path: sign under the spend's 32-byte Orchard
+   * randomizer (alpha) instead of a seed, so the share can be aggregated into a signature the
+   * PCZT will accept on-chain. Pair with {@link Coordinator.aggregateWithRandomizer} /
+   * {@link Coordinator.verifyWithRandomizer} using the SAME alpha.
+   */
+  participantRound2WithRandomizer,
+  /**
+   * Recompute the ZIP-244 shielded sig_digest from a device's OWN proven PCZT (32-byte sighash).
+   * Each device signs THIS value, never a sighash handed over the wire - the on-device defence
+   * against a transaction-swap (ADR-0007). Throws if the PCZT is not a shielded-only v5/v6 tx.
+   */
+  pcztSighash,
+  /**
+   * Read the `(action_index, alpha)` randomizers of the real Orchard spends from a proven PCZT:
+   * a flat buffer of 36-byte records (u32-LE index + 32-byte alpha), one ceremony per record.
+   */
+  extractRandomizers,
+  /**
+   * Read every Orchard output of a proven PCZT as a JSON string:
+   * `[{"address": string|null, "value": number|null}, ...]` (zatoshis; `address:null` is change).
+   * The "what am I signing?" check the UI shows before any device contributes a signature.
+   */
+  describeOutputs,
+  /**
+   * Apply FROST redpallas signatures to a proven PCZT and return the signed PCZT bytes. `sighash`
+   * is the 32-byte shielded sighash; `sigs` is a flat buffer of 68-byte records (u32-LE index +
+   * 64-byte signature). Throws if a signature does not verify.
+   */
+  injectSigs,
   /** Seal plaintext to a recipient's 32-byte public key; `aad` binds sender/recipient context. */
   sealTo,
-  /** Verify a group signature against the vault's key - every device confirms the result itself. */
+  /** Verify a group signature against the vault's key (SEED path) - each device confirms for itself. */
   verifyRedpallas,
   /** Deterministic 1-based identifier bytes, so every device agrees on who is who with no registry. */
   identifierBytes,
