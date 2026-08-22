@@ -1,11 +1,18 @@
 /**
- * Example: a 2-of-3 rerandomized-redpallas FROST signature, produced entirely in WebAssembly.
- *
- * This mirrors Konclave's in-app proof (ui/src/screens/WasmSigner.tsx), but through the SDK's
- * clean surface. It uses a test trusted-dealer vault so the whole ceremony runs in ONE process
+ * Example: a 2-of-3 redpallas FROST signature over an arbitrary message, produced entirely in
+ * WebAssembly. This is the SEED path: a generic redpallas group signature you can verify with
+ * `verifyRedpallas`. It uses a test trusted-dealer vault so the whole ceremony runs in ONE process
  * and you can see every step. In a real deployment each `participant*` call runs on a DIFFERENT
  * device and the byte blobs (commitment, signing package, seed, share) travel over your chosen
  * transport (a blind relay, WebRTC, QR codes) - the SECRET share and nonces never move.
+ *
+ * IMPORTANT: a real Orchard SPEND is NOT signed this way. It uses the rerandomized path over a
+ * proven PCZT: `pcztSighash` + `extractRandomizers` + `participantRound2WithRandomizer` +
+ * `Coordinator.aggregateWithRandomizer` / `verifyWithRandomizer` + `injectSigs`. That path needs a
+ * PCZT built and proven by a wallet, so it cannot run standalone here; see the README section
+ * "Signing a real Orchard spend (the rerandomized path)" and, for the full multi-device driver,
+ * Konclave's `ui/src/signing-machine.ts`. The seed ceremony below is a self-check of the crypto,
+ * not an on-chain spend.
  *
  * Run (after `npm install` and providing the wasm binary - see the README):
  *   npx tsx examples/sign.ts
@@ -34,9 +41,11 @@ async function main(): Promise<void> {
   const wasmPath = require.resolve('konclave-wasm/konclave_wasm_bg.wasm')
   await init(readFileSync(wasmPath))
 
-  // 2) The message to sign. In production this is a Zcash transaction's sighash (ZIP-244
-  //    sig_digest); here it is an arbitrary demo string.
-  const message = new TextEncoder().encode('konclave: an Orchard sighash would go here (demo)')
+  // 2) The message to sign. Here it is an arbitrary demo string. For a real Orchard spend this
+  //    would be the ZIP-244 sig_digest read from THIS device's own proven PCZT (`pcztSighash`),
+  //    and the round-2 / aggregate / verify calls below would take the spend's Orchard randomizer
+  //    (see the README's rerandomized-path section) - not the generic seed used here.
+  const message = new TextEncoder().encode('konclave: generic redpallas self-check (not an Orchard spend)')
 
   // 3) A trusted-dealer 2-of-3 vault, standing in for three unlocked device shares. The real
   //    product creates the vault by DKG (see the README's DKG example); the ceremony below is
