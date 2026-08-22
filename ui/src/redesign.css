@@ -53,6 +53,24 @@
   transition: border-color var(--dur-fast) var(--ease-out);
 }
 .rd-card:hover { border-color: var(--accent-line); }
+
+/* Loading skeleton while the vault list resolves (no card flash before it lands). */
+.rd-card.rd-skel { cursor: default; }
+.rd-card.rd-skel:hover { border-color: var(--line-2); }
+.rd-skel .sk-line, .rd-skel .sk-dot {
+  display: inline-block; background: var(--surface-2); border-radius: var(--radius-sm);
+  position: relative; overflow: hidden;
+}
+.rd-skel .sk-line { height: 14px; }
+.rd-skel .sk-dot { width: 30px; height: 30px; border-radius: var(--radius-sm); margin-left: -6px; }
+.rd-skel .sk-dot:first-child { margin-left: 0; }
+.rd-skel .sk-line::after, .rd-skel .sk-dot::after {
+  content: ""; position: absolute; inset: 0; transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--text) 8%, transparent), transparent);
+  animation: sk-shimmer 1.3s ease-in-out infinite;
+}
+@keyframes sk-shimmer { 100% { transform: translateX(100%); } }
+@media (prefers-reduced-motion: reduce) { .rd-skel .sk-line::after, .rd-skel .sk-dot::after { animation: none; } }
 .rd-qtag {
   display: inline-block; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.03em;
   color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent-line);
