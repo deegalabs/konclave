@@ -138,6 +138,77 @@ To wire this across devices, move each public blob (`commitment()`, `signingPack
 each `addShare` payload) over your transport with `toBase64` / `fromBase64`. Use `identifierBytes(i)`
 so every device agrees on who is seat `i` with no central registry.
 
+The example above signs an arbitrary message on the **seed path** (`participantRound2` + `aggregate`
++ `verifyRedpallas`). That is the right surface for a generic redpallas signature, but it is **not**
+what an Orchard spend needs. Read on.
+
+## Signing a real Orchard spend (the rerandomized path)
+
+An Orchard spend is authorized under a per-spend **rerandomizer** (`alpha`), not a generic seed. To
+produce a signature a real transaction will accept on-chain, drive the ceremony over the PCZT (the
+Partially Created Zcash Transaction the wallet builds and proves), using the rerandomized surface:
+`pcztSighash`, `extractRandomizers`, `participantRound2WithRandomizer`,
+`Coordinator.aggregateWithRandomizer`, `Coordinator.verifyWithRandomizer`, and `injectSigs`. This is
+exactly the ceremony Konclave runs in `ui/src/signing-machine.ts`.
+
+The shape per spend:
+
+```ts
+import {
+  init, Coordinator, identifierBytes,
+  participantRound1, participantRound2WithRandomizer,
+  pcztSighash, extractRandomizers, describeOutputs, injectSigs,
+} from '@konclave/frost'
+
+await init(wasmUrl)
+
+// The wallet hands each device the SAME proven PCZT bytes. Each device signs only what its own
+// copy commits to - never a sighash received over the wire (the transaction-swap defence).
+const pczt: Uint8Array = /* proven PCZT from your wallet (Konclave: the blind helper) */ undefined!
+
+// 1) "What am I signing?" - confirm the outputs against the approved proposal BEFORE signing.
+const outs = JSON.parse(describeOutputs(pczt)) as { address: string | null; value: number | null }[]
+//    (address:null entries are change; values are zatoshis)
+
+// 2) The message every device signs is the ZIP-244 sighash of ITS OWN PCZT.
+const sighash = pcztSighash(pczt)
+
+// 3) Each real Orchard spend has its own (index, alpha). One ceremony per record.
+const rand = extractRandomizers(pczt) // flat 36-byte records: u32-LE index + 32-byte alpha
+for (let off = 0; off + 36 <= rand.length; off += 36) {
+  const index = rand[off]! | (rand[off + 1]! << 8) | (rand[off + 2]! << 16) | (rand[off + 3]! << 24)
+  const alpha = rand.slice(off + 4, off + 36)
+
+  // Round 1 (per device): nonces local, commitment public - as before.
+  const a = participantRound1(myKeyPackage)
+  // ...collect commitments from >= threshold devices...
+
+  // Coordinator builds the signing package over the sighash.
+  const coord = new Coordinator(groupVk, pubkeys, sighash)
+  // coord.addCommitment(identifierBytes(seat), commitmentBytes)  // for each chosen seat
+  coord.prepare()
+  const sp = coord.signingPackage()
+
+  // Round 2 (per device): sign with THIS spend's alpha, not a seed.
+  const share = participantRound2WithRandomizer(sp, a.nonces(), myKeyPackage, alpha)
+  // coord.addShare(identifierBytes(seat), shareBytes)  // for each chosen seat
+
+  // Aggregate + verify UNDER the same alpha - the exact check the chain runs.
+  const sig = coord.aggregateWithRandomizer(alpha)
+  const ok = coord.verifyWithRandomizer(alpha, sig)
+  // record (index, sig) for this spend
+}
+
+// 4) Inject every (index, 64-byte sig) into the PCZT; hand the signed PCZT back to the wallet.
+//    `sigs` is a flat buffer of 68-byte records: u32-LE index + 64-byte signature.
+const signedPczt = injectSigs(pczt, sighash, /* sigs */ undefined!)
+```
+
+The wallet then extracts and broadcasts the transaction from `signedPczt`. Building and proving the
+PCZT and broadcasting the final transaction are the wallet's job (see "Honest limits"); this SDK
+gives you the FROST surface to sign it correctly. Konclave's full multi-device driver over a blind
+relay lives in `ui/src/signing-machine.ts`.
+
 ## DKG (create a vault across devices)
 
 `DkgSession` runs a real Distributed Key Generation. Round 1 happens on construction; you then
@@ -232,8 +303,12 @@ const repairedKeyPackage = combiner.keyPackage() // throws if it does not match 
 
 `init`, `isReady`, `WasmSource`
 
-Ceremony: `DkgSession`, `Coordinator`, `Round1`, `participantRound1`, `participantRound2`,
-`verifyRedpallas`, `identifierBytes`, `TestVault`
+Ceremony (seed path): `DkgSession`, `Coordinator`, `Round1`, `participantRound1`,
+`participantRound2`, `verifyRedpallas`, `identifierBytes`, `TestVault`
+
+Real Orchard spend (rerandomized path): `pcztSighash`, `extractRandomizers`,
+`participantRound2WithRandomizer`, `Coordinator.aggregateWithRandomizer`,
+`Coordinator.verifyWithRandomizer`, `describeOutputs`, `injectSigs`
 
 Confidential channel: `DeviceKey`, `sealTo`
 
@@ -247,9 +322,14 @@ All class and function signatures come straight from `konclave-wasm`; see
 
 ## Honest limits
 
-- The signed message is whatever bytes you pass. Producing a real Orchard transaction sighash and
-  broadcasting it is out of scope for this SDK; that is the wallet's job (Konclave does it with
-  the Zcash Foundation's `zcash-devtool` / `konclave-signer` outside the browser).
+- This SDK signs; it does not build, prove, or broadcast. Constructing the PCZT, proving it, and
+  broadcasting the final transaction are the wallet's job (Konclave does this with the Zcash
+  Foundation's `zcash-devtool` / `konclave-signer` outside the browser). What the SDK now covers is
+  the full FROST signing surface for a real Orchard spend: read the sighash and randomizers from a
+  proven PCZT (`pcztSighash`, `extractRandomizers`), sign under each spend's alpha
+  (`participantRound2WithRandomizer` + `aggregateWithRandomizer` / `verifyWithRandomizer`), and
+  inject the signatures back (`injectSigs`). The seed path (`participantRound2` + `verifyRedpallas`)
+  remains for generic redpallas signatures, but it is NOT what an on-chain Orchard spend accepts.
 - Persisting a share on-device (encrypted IndexedDB, passkey unlock) is the consumer's
   responsibility. This SDK keeps the share in wasm memory for the life of the session.
 - The transport is not included. Konclave ships a blind-relay transport separately; you may use

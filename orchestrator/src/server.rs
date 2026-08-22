@@ -2053,6 +2053,18 @@ pub fn handle_secured(
         return Response::json(403, &serde_json::json!({ "error": "bad_host" }));
     }
     let path = raw_path.split(['?', '#']).next().unwrap_or(raw_path);
+    // Loopback-only session handoff for non-browser local clients (e.g. the Konclave MCP
+    // server). A browser SPA reads its token from the injected `window.__KONCLAVE_SESSION__`,
+    // but a headless local process has no HTML to parse. This GET hands it the same per-run
+    // token so it can make authenticated POSTs. It is safe:
+    //   - the loopback `Host` gate above already ran (defeats DNS-rebinding), and
+    //   - no CORS headers are ever emitted, so the browser same-origin policy stops any
+    //     cross-origin web page from reading the response body.
+    // A local non-browser process is already trusted (it has full loopback access and could
+    // POST regardless); this only spares it from scraping the HTML. Read-only, no state change.
+    if method == "GET" && path == "/api/session" {
+        return Response::json(200, &serde_json::json!({ "session": session_token }));
+    }
     // The blind mailbox is public-by-design: it carries only opaque/encrypted bytes between
     // devices and is meant to be reached cross-origin (a hosted relay has no session at all).
     // So it is exempt from the per-session CSRF token - the Host gate below still applies. It
@@ -2520,6 +2532,30 @@ mod tests {
         );
         assert_eq!(r.status, 200);
         assert_eq!(body_json(&r)["status"], "ok");
+    }
+
+    #[test]
+    fn session_endpoint_returns_the_token_on_loopback_get() {
+        // A non-browser local client (the MCP server) fetches the per-run token here instead
+        // of scraping the injected HTML. Loopback-only: the Host gate guards it.
+        let cfg = cfg_with(tmp_db(), None);
+        let r = handle_secured(
+            &cfg,
+            "s3cr3t",
+            "GET",
+            "/api/session",
+            b"",
+            Some("127.0.0.1:4762"),
+            None,
+            None,
+        );
+        assert_eq!(r.status, 200);
+        assert_eq!(body_json(&r)["session"], "s3cr3t");
+        // Foreign Host is still refused (the loopback gate runs first).
+        let foreign =
+            handle_secured(&cfg, "s3cr3t", "GET", "/api/session", b"", Some("evil.com"), None, None);
+        assert_eq!(foreign.status, 403);
+        assert_eq!(body_json(&foreign)["error"], "bad_host");
     }
 
     #[test]
