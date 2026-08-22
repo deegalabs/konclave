@@ -9,7 +9,7 @@ import init, {
   identifierBytes,
 } from '../wasm-pkg/konclave_wasm.js'
 import wasmUrl from '../wasm-pkg/konclave_wasm_bg.wasm?url'
-import { RelaySession, newRoomCode, deriveRoom, ephemeralTag, b64, unb64, bytesEqual, relayBase, encodeInvite, parseInvite, type RelayMsg } from '../net'
+import { RelaySession, newRoomCode, deriveRoom, ephemeralTag, b64, unb64, bytesEqual, relayBase, getCustomRelay, setRelay, RELAY_BASE, encodeInvite, parseInvite, type RelayMsg } from '../net'
 import { decodeBundle } from '../signing'
 import { SigningMachine } from '../signing-machine'
 import { useT, useTr, useI18n } from '../i18n'
@@ -144,6 +144,11 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
   const [role, setRole] = useState<'create' | 'join'>('create')
   const [room, setRoom] = useState('')
   const [joinCode, setJoinCode] = useState('')
+  // Relay chosen at CREATE time (#213): the selector otherwise lives in per-vault Settings, which is
+  // unreachable before the first vault exists. Prefilled with any custom relay already set. Empty =
+  // the built-in relay. Persisted via setRelay() right before the ceremony, so the invite carries it.
+  const [createRelay, setCreateRelay] = useState(getCustomRelay())
+  const validRelayUrl = (u: string) => /^https:\/\/\S+\.\S+/.test(u.trim())
   const [n, setN] = useState(2)
   const [t, setT] = useState(2)
   const [showJoin, setShowJoin] = useState(false) // embedded create modal: Join is a secondary reveal
@@ -938,8 +943,23 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
             'Agree a PIN and share it SEPARATELY from the invite. Without the PIN, whoever only has the invite cannot find the room.')}</span>
         </div>
 
+        <div className="cv-field cv-gov">
+          <span className="cv-k">{pe('Relay (avançado)', 'Relay (advanced)')}</span>
+          <input className="cv-nameinput" style={{ fontFamily: 'var(--font-mono)' }} inputMode="url"
+            placeholder={RELAY_BASE ? `${pe('padrão', 'default')}: ${RELAY_BASE}` : 'https://relay.example.org'}
+            value={createRelay} onChange={(e) => setCreateRelay(e.target.value)} />
+          <span className="cv-govnote">{pe(
+            'Onde os aparelhos se encontram para a cerimônia. Deixe em branco para o relay padrão da Konclave. Se usar um próprio, o convite já leva o endereço - os outros entram nele automaticamente.',
+            'Where the devices meet for the ceremony. Leave blank for the built-in Konclave relay. If you use your own, the invite carries the address - others join it automatically.')}</span>
+        </div>
+
         <button className="rd-enter primary cv-primary"
-          onClick={() => { setRole('create'); void begin('create', newRoomCode(), n, t, pin) }}>
+          onClick={() => {
+            const r = createRelay.trim()
+            if (r && validRelayUrl(r)) setRelay('custom', r)
+            else if (!r) setRelay('ours')
+            setRole('create'); void begin('create', newRoomCode(), n, t, pin)
+          }}>
           {pe('Gerar convite', 'Generate invite')}
         </button>
         <button type="button" className="cv-linkbtn" onClick={() => setShowJoin(true)}>
