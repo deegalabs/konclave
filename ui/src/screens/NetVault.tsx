@@ -751,12 +751,16 @@ export default function NetVault({ embedded }: { embedded?: boolean } = {}) {
   // Access gate: if this device's share was already unlocked at /unlock (session store), restore
   // straight into the signing-ready state, no second passphrase prompt.
   useEffect(() => {
+    // The embedded CREATE modal must always show the "new vault" form — never auto-restore the
+    // currently selected/unlocked vault (that hijacked "Create" into the "vault restored" view when
+    // logged in, forcing a cache clear). Auto-restore stays on the standalone /net page only.
+    if (embedded) return
     if (phase !== 'idle') return
     const id = getSelectedVault()
     if (!id) return
     const v = getUnlockedShare(id)
     if (v) applyLoaded(v)
-  }, [phase, applyLoaded])
+  }, [phase, applyLoaded, embedded])
 
   // Embedded create modal: once the just-created share is protected (saved), open the app.
   useEffect(() => {
