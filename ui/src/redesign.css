@@ -42,6 +42,27 @@
 .rd-hero p { color: var(--text-muted); font-size: 15.5px; line-height: 1.6; margin: 14px 0 0; max-width: 58ch; }
 .rd-hero p b { color: var(--text); font-weight: 600; }
 
+/* Three equal onboarding doors (Create / Join / Import). Stacked full-width on mobile. */
+.rd-doors { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 30px; }
+.rd-door {
+  display: flex; flex-direction: column; align-items: flex-start; text-align: left; gap: 3px;
+  border: 1px solid var(--line-2); border-radius: var(--radius); padding: 17px 16px; cursor: pointer;
+  background: linear-gradient(180deg, var(--surface-2), var(--surface-1)); color: var(--text);
+  transition: border-color var(--dur-fast) var(--ease-out), transform var(--dur-fast);
+}
+.rd-door:hover { border-color: var(--accent-line); }
+.rd-door:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.rd-door.primary { border-color: var(--accent-line); background: linear-gradient(180deg, var(--accent-line), var(--surface-1)); }
+.rd-door-ic {
+  width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center; margin-bottom: 9px;
+  background: var(--surface-0); color: var(--accent); font-size: 19px; font-family: var(--font-mono);
+}
+.rd-door.primary .rd-door-ic { background: var(--accent); color: var(--on-accent); }
+.rd-door-t { font-family: var(--font-sans); font-weight: 700; font-size: 16px; }
+.rd-door-d { color: var(--text-muted); font-size: 12.3px; line-height: 1.4; }
+.rd-vlabel { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--silver); margin: 0 0 12px; }
+@media (max-width: 640px) { .rd-doors { grid-template-columns: 1fr; } }
+
 .rd-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
 
 /* Vault card - layered slate surface, hairline border; FLAT (no float), matching every in-vault
@@ -164,6 +185,32 @@
 .unlock-input:focus { border-color: var(--accent); outline: 2px solid var(--accent-line); outline-offset: 1px; }
 .unlock-err { color: var(--danger-text); font-family: var(--font-mono); font-size: 12.5px; margin-top: 10px; }
 .unlock-btns { display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px; }
+
+/* Import: one field that is both the drop zone and the paste/type target (#214 redesign). */
+.imp-field {
+  display: block; position: relative; border: 2px dashed var(--line-soft); border-radius: var(--radius);
+  background: var(--surface-0); padding: 14px 14px 40px; cursor: text; transition: border-color var(--dur-fast) var(--ease-out), background var(--dur-fast);
+}
+.imp-field.hot { border-color: var(--accent); background: var(--accent-line); }
+.imp-field-ta {
+  width: 100%; min-height: 92px; resize: none; border: none; background: transparent; outline: none;
+  color: var(--text); font-size: 12.5px; line-height: 1.5;
+}
+.imp-field-ta::placeholder { color: var(--text-muted); }
+.imp-field-file {
+  position: absolute; left: 14px; bottom: 12px; color: var(--accent); font-family: var(--font-mono);
+  font-size: 11.5px; cursor: pointer;
+}
+.imp-field-file:hover { text-decoration: underline; }
+.imp-preview {
+  display: flex; align-items: center; gap: 12px; padding: 13px 14px; border-radius: var(--radius);
+  background: var(--surface-0); border: 1px solid var(--success, #43b58f);
+}
+.imp-preview .idc { border-radius: var(--radius-sm); flex: none; }
+.imp-preview-main { min-width: 0; }
+.imp-preview-nm { font-family: var(--font-sans); font-weight: 700; font-size: 16px; color: var(--text); }
+.imp-preview-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.imp-preview-ok { margin-left: auto; color: var(--success, #43b58f); font-size: 11px; white-space: nowrap; }
 .rd-enter.primary { background: var(--accent); border-color: transparent; color: var(--on-accent); font-weight: 600; }
 .rd-enter.primary:disabled { opacity: 0.5; cursor: default; }
 

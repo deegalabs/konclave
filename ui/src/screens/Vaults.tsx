@@ -4,7 +4,7 @@ import { getVaults, health, setSelectedVault, unlockVault, markVaultUnlocked, is
 import { MOCK } from '../mock'
 import { helperConfigured, getCustomHelper, setCoordMode, HELPER_BASE } from '../helper'
 import { isDesktop } from '../platform'
-import { listVaults, loadVault, importVault, parseVaultExport } from '../storage'
+import { listVaults, loadVault, importVault, parseVaultExport, type VaultExport } from '../storage'
 import { setUnlockedShare } from '../session'
 import { Identicon } from '../avatar'
 import { Dialog, Letterhead, activateOnKey } from '../components'
@@ -32,6 +32,7 @@ export default function Vaults() {
   const [live, setLive] = useState(false)
   const [unlocking, setUnlocking] = useState<Row | null>(null)
   const [creating, setCreating] = useState(false)
+  const [joinMode, setJoinMode] = useState(false) // the Join door opens the create modal straight into join
   const [pass, setPass] = useState('')
   const [unlockErr, setUnlockErr] = useState<string | null>(null)
   const [unlockBusy, setUnlockBusy] = useState(false)
@@ -39,21 +40,45 @@ export default function Vaults() {
   const [choosing, setChoosing] = useState(false)
   const [customStep, setCustomStep] = useState(false)
   const [chooseUrl, setChooseUrl] = useState(getCustomHelper())
-  // Import a vault export (#214): paste the bundle or pick the file, then unlock with its passphrase.
+  // Import a vault export (#214, redesign): ONE field that is both the drop zone and the paste/type
+  // target; the passphrase (stage B) is revealed only after the export validates (validate-then-unlock).
   const [importing, setImporting] = useState(false)
   const [impText, setImpText] = useState('')
+  const [impParsed, setImpParsed] = useState<VaultExport | null>(null)
+  const [dragOver, setDragOver] = useState(false)
   const [impPass, setImpPass] = useState('')
   const [impBusy, setImpBusy] = useState(false)
   const [impErr, setImpErr] = useState<string | null>(null)
 
+  // Re-validate on every change to the single field (paste, type, or a dropped/chosen file's text).
+  function onImpText(txt: string) {
+    setImpText(txt); setImpErr(null); setImpPass('')
+    const trimmed = txt.trim()
+    if (!trimmed) { setImpParsed(null); return }
+    try { setImpParsed(parseVaultExport(trimmed)) } catch { setImpParsed(null) }
+  }
+  function readFile(f: File | undefined | null) {
+    if (!f) return
+    void f.text().then(onImpText).catch(() => setImpErr(t('import.errFile')))
+  }
+  function onDrop(e: React.DragEvent) {
+    e.preventDefault(); setDragOver(false)
+    readFile(e.dataTransfer.files?.[0])
+  }
+  function onImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+    readFile(e.target.files?.[0])
+    e.target.value = '' // allow re-picking the same file
+  }
+  function resetImport() {
+    setImporting(false); setImpText(''); setImpParsed(null); setImpPass(''); setImpErr(null); setDragOver(false)
+  }
+
   async function doImport() {
-    setImpErr(null)
-    if (!impText.trim()) { setImpErr(t('import.errEmpty')); return }
+    if (!impParsed) return
     if (!impPass) { setImpErr(t('import.errPass')); return }
-    setImpBusy(true)
+    setImpErr(null); setImpBusy(true)
     try {
-      const bundle = parseVaultExport(impText.trim())
-      const meta = await importVault(bundle, impPass)
+      const meta = await importVault(impParsed, impPass)
       const row: Row = {
         src: 'net',
         v: {
@@ -68,18 +93,12 @@ export default function Vaults() {
         },
       }
       setRows((prev) => (prev.some((r) => r.v.id === meta.id) ? prev.map((r) => (r.v.id === meta.id ? row : r)) : [row, ...prev]))
-      setImporting(false); setImpText(''); setImpPass('')
+      resetImport()
     } catch (e) {
       setImpErr(e instanceof Error ? e.message : t('import.errGeneric'))
     } finally {
       setImpBusy(false)
     }
-  }
-  function onImportFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0]
-    if (!f) return
-    void f.text().then((txt) => { setImpText(txt); setImpErr(null) }).catch(() => setImpErr(t('import.errFile')))
-    e.target.value = '' // allow re-picking the same file
   }
 
   // Route the create card: on desktop, ask the coordination mode first; on the web the helper is
@@ -185,6 +204,33 @@ export default function Vaults() {
           <p>{tr('vaults.lead')}</p>
         </div>
 
+        {/* Three equal doors: Create / Join / Import — the two cold-start doors are no longer hidden. */}
+        <div className="rd-doors">
+          <button type="button" className="rd-door primary" onClick={() => { setJoinMode(false); startCreate() }}>
+            <span className="rd-door-ic" aria-hidden="true">
+              <svg width="22" height="22" viewBox="0 0 34 34" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="13.5" cy="17" r="7.5" /><circle cx="20.5" cy="17" r="7.5" /></svg>
+            </span>
+            <span className="rd-door-t">{t('vaults.doorCreate')}</span>
+            <span className="rd-door-d">{t('vaults.doorCreateSub')}</span>
+          </button>
+          {!IS_DEMO && (
+            <button type="button" className="rd-door" onClick={() => { setJoinMode(true); setCreating(true) }}>
+              <span className="rd-door-ic" aria-hidden="true">→</span>
+              <span className="rd-door-t">{t('vaults.doorJoin')}</span>
+              <span className="rd-door-d">{t('vaults.doorJoinSub')}</span>
+            </button>
+          )}
+          {!IS_DEMO && (
+            <button type="button" className="rd-door" onClick={() => { setImpText(''); setImpParsed(null); setImpPass(''); setImpErr(null); setImporting(true) }}>
+              <span className="rd-door-ic" aria-hidden="true">↑</span>
+              <span className="rd-door-t">{t('vaults.doorImport')}</span>
+              <span className="rd-door-d">{t('vaults.doorImportSub')}</span>
+            </button>
+          )}
+        </div>
+
+        {(rows.length > 0 || !loaded) && <div className="rd-vlabel">{t('vaults.onThisDevice')}</div>}
+
         <div className="rd-grid">
           {!loaded && Array.from({ length: 2 }, (_, i) => (
             <div key={'sk' + i} className="rd-card rd-skel" aria-hidden="true">
@@ -217,19 +263,6 @@ export default function Vaults() {
               </div>
             )
           })}
-
-          <div className="rd-card rd-create" role="button" tabIndex={0}
-            onClick={startCreate} onKeyDown={activateOnKey(startCreate)}>
-            <div>
-              <div className="ic">
-                <svg width="34" height="34" viewBox="0 0 34 34" fill="none" stroke="currentColor" strokeWidth="1.6">
-                  <circle cx="13.5" cy="17" r="7.5" /><circle cx="20.5" cy="17" r="7.5" />
-                </svg>
-              </div>
-              <div className="t">{t('vaults.createTitle')}</div>
-              <div className="sub">{t('vaults.createSub')}</div>
-            </div>
-          </div>
         </div>
 
         {loaded && rows.length === 0 && (
@@ -242,33 +275,60 @@ export default function Vaults() {
             onKeyDown={activateOnKey(() => nav('/intro'))}>{t('vaults.howItWorks')}</span>
           {' · '}<span className="rd-link" onClick={() => nav('/demo')} role="link" tabIndex={0}
             onKeyDown={activateOnKey(() => nav('/demo'))}>{t('demo.watchCta')}</span>
-          {!IS_DEMO && <> · <span className="rd-link" onClick={() => { setImporting(true); setImpErr(null) }} role="link" tabIndex={0}
-            onKeyDown={activateOnKey(() => { setImporting(true); setImpErr(null) })}>{t('import.link')}</span></>}
           {!live && <> · <i>{t('vaults.demoMode')}</i></>}
         </div>
       </main>
 
       {importing && (
-        <Dialog className="unlock-overlay" cardClassName="unlock-card" labelledBy="import-title" onClose={() => setImporting(false)}>
+        <Dialog className="unlock-overlay" cardClassName="unlock-card" labelledBy="import-title" onClose={resetImport}>
           <div className="rd-eyebrow">{t('import.eyebrow')}</div>
           <h2 id="import-title">{t('import.title')}</h2>
-          <p>{t('import.help')}</p>
-          <textarea className="unlock-input mono" style={{ minHeight: 92, resize: 'vertical' }} placeholder={t('import.pastePlaceholder')}
-            value={impText} onChange={(e) => { setImpText(e.target.value); setImpErr(null) }} spellCheck={false} />
-          <label className="rd-link" style={{ display: 'inline-block', marginTop: 6, cursor: 'pointer' }}>
-            {t('import.orFile')}
-            <input type="file" accept=".json,.konclave,application/json" style={{ display: 'none' }} onChange={onImportFile} />
-          </label>
-          <input className="unlock-input mono" type="password" style={{ marginTop: 10 }} placeholder={t('import.passPlaceholder')}
-            value={impPass} onChange={(e) => { setImpPass(e.target.value); setImpErr(null) }}
-            onKeyDown={(e) => { if (e.key === 'Enter') void doImport() }} />
-          {impErr && <div className="unlock-err" role="alert">{impErr}</div>}
-          <div className="unlock-btns">
-            <button className="rd-enter" onClick={() => setImporting(false)}>{t('common.cancel')}</button>
-            <button className="rd-enter primary" onClick={() => void doImport()} disabled={impBusy || !impText.trim() || !impPass}>
-              {impBusy ? t('import.importing') : t('import.btn')}
-            </button>
-          </div>
+
+          {!impParsed ? (
+            // Stage A: one field — drop a .konclave OR paste/type the export text (validated live).
+            <>
+              <p>{t('import.help')}</p>
+              <label className={'imp-field' + (dragOver ? ' hot' : '')}
+                onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={onDrop}>
+                <textarea className="imp-field-ta mono" placeholder={t('import.dropOrPaste')}
+                  value={impText} onChange={(e) => onImpText(e.target.value)} spellCheck={false} autoFocus />
+                <span className="imp-field-file">
+                  {t('import.orFile')}
+                  <input type="file" accept=".json,.konclave,application/json" hidden onChange={onImportFile} />
+                </span>
+              </label>
+              {impText.trim() && !impParsed && <div className="hint warn mt-xs">{t('import.notRecognized')}</div>}
+              {impErr && <div className="unlock-err" role="alert">{impErr}</div>}
+              <div className="unlock-btns">
+                <button className="rd-enter" onClick={resetImport}>{t('common.cancel')}</button>
+              </div>
+            </>
+          ) : (
+            // Stage B: validated — show a preview from the public metadata, then unlock with the passphrase.
+            <>
+              <div className="imp-preview">
+                <Identicon seed={impParsed.vault.groupKey || impParsed.vault.id} size={40} />
+                <div className="imp-preview-main">
+                  <div className="imp-preview-nm">{impParsed.vault.name || t('vaults.networkedVault')}</div>
+                  <div className="imp-preview-meta mono">{t('import.previewMembers', { n: impParsed.vault.roster.length })} · {shortAddr(impParsed.vault.id, 6, 4)}</div>
+                </div>
+                <span className="imp-preview-ok mono">✓ {t('import.valid')}</span>
+              </div>
+              <input className="unlock-input mono" type="password" style={{ marginTop: 12 }} placeholder={t('import.passPlaceholder')}
+                value={impPass} autoFocus onChange={(e) => { setImpPass(e.target.value); setImpErr(null) }}
+                onKeyDown={(e) => { if (e.key === 'Enter') void doImport() }} />
+              <div className="hint dim mt-xs">{t('import.stillSealed')}</div>
+              {impErr && <div className="unlock-err" role="alert">{impErr}</div>}
+              <div className="unlock-btns">
+                <button className="rd-enter" onClick={() => { setImpParsed(null); setImpPass(''); setImpErr(null) }}>{t('common.back')}</button>
+                <button className="rd-enter primary" onClick={() => void doImport()} disabled={impBusy || !impPass}>
+                  {impBusy ? t('import.importing') : t('import.btn')}
+                </button>
+              </div>
+            </>
+          )}
         </Dialog>
       )}
 
@@ -326,7 +386,7 @@ export default function Vaults() {
 
       {creating && (
         <Dialog className="create-overlay" cardClassName="create-card" labelledBy="create-title" onClose={() => setCreating(false)}>
-          <NetVault embedded />
+          <NetVault embedded initialJoin={joinMode} />
         </Dialog>
       )}
     </div>
