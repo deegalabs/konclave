@@ -17,7 +17,7 @@ const DEFAULT_WEB: &str = "ui/dist";
 const DEFAULT_DB: &str = "konclave.db";
 
 /// `konclave seal --in <file> --out <file.sealed> (--key <keyfile> | --keychain <vault-id>)`
-/// - seal a secret file (e.g. a frost-client config holding a share) at rest with
+/// Seal a secret file (e.g. a frost-client config holding a share) at rest with
 /// XChaCha20-Poly1305. The 32-byte sealing key comes from a 0600 file **or**, preferred on
 /// a real desktop, the **OS keychain** (audit C2). The ceremony unseals it to an ephemeral file.
 fn run_seal(args: &[String]) -> Result<(), String> {
@@ -105,7 +105,7 @@ fn write_private_key(path: &str, key: &[u8; 32]) -> Result<(), String> {
 }
 
 /// `konclave create-vault --ceremony <json> --name <name> --threshold <t> --members a,b,c`
-/// - create a vault by DKG (test harness; the same orchestration backs the HTTP endpoint).
+/// Create a vault by DKG (test harness; the same orchestration backs the HTTP endpoint).
 fn run_create_vault(args: &[String]) -> Result<(), String> {
     let mut ceremony: Option<PathBuf> = None;
     let mut name: Option<String> = None;
@@ -324,7 +324,7 @@ fn run_serve(args: &[String]) -> Result<(), String> {
 }
 
 /// `konclave sign-send --ceremony <json> --to <addr> --value-zat <n> [--memo <m>] [--dry-run]`
-/// - drive the full FROST ceremony + (optionally) broadcast. Test harness for step 2c;
+/// Drive the full FROST ceremony + (optionally) broadcast. Test harness for step 2c;
 /// the same orchestration backs the HTTP send endpoint.
 fn run_sign_send(args: &[String]) -> Result<(), String> {
     let mut ceremony: Option<PathBuf> = None;

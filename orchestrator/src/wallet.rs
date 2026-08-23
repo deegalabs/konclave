@@ -181,7 +181,10 @@ pub fn parse_transactions(json: &str) -> Result<Vec<WalletTx>, ToolError> {
         serde_json::from_str(line).map_err(|e| ToolError::parse("list-tx JSON", e.to_string()))?;
     let mut txs: Vec<WalletTx> = rows
         .into_iter()
-        .map(|r| WalletTx { txid: r.txid, mined_height: r.mined_height })
+        .map(|r| WalletTx {
+            txid: r.txid,
+            mined_height: r.mined_height,
+        })
         .collect();
     // Newest first: unconfirmed (None) sorts above any height; mined rows by descending height.
     txs.sort_by(|a, b| match (a.mined_height, b.mined_height) {
@@ -315,7 +318,10 @@ mod tests {
         assert_eq!(b.orchard_spendable, Zatoshis::ZERO);
         assert_eq!(b.ironwood_spendable, Zatoshis::from_u64(1_213_291).unwrap());
         // The number the send path / UI mean by "spendable" now includes the Ironwood pool.
-        assert_eq!(b.shielded_spendable(), Zatoshis::from_u64(1_213_291).unwrap());
+        assert_eq!(
+            b.shielded_spendable(),
+            Zatoshis::from_u64(1_213_291).unwrap()
+        );
         assert_eq!(b.total, Zatoshis::from_u64(1_213_291).unwrap());
     }
 
@@ -334,7 +340,10 @@ mod tests {
         // Mid-migration a vault can hold both pools; spendable is the sum.
         let j = r#"{"chain_tip_height":3428300,"orchard_spendable":300000,"ironwood_spendable":700000,"sapling_spendable":0,"transparent_spendable":0,"total":1000000}"#;
         let b = parse_balance(j).unwrap();
-        assert_eq!(b.shielded_spendable(), Zatoshis::from_u64(1_000_000).unwrap());
+        assert_eq!(
+            b.shielded_spendable(),
+            Zatoshis::from_u64(1_000_000).unwrap()
+        );
     }
 
     #[test]
