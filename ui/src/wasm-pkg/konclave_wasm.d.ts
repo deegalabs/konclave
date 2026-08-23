@@ -237,6 +237,20 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly __wbg_recoverycombiner_free: (a: number, b: number) => void;
+    readonly __wbg_recoveryhelper_free: (a: number, b: number) => void;
+    readonly recoverycombiner_addSigma: (a: number, b: number, c: number) => void;
+    readonly recoverycombiner_keyPackage: (a: number) => [number, number, number, number];
+    readonly recoverycombiner_new: (a: number, b: number, c: number, d: number) => number;
+    readonly recoveryhelper_addHelper: (a: number, b: number, c: number) => void;
+    readonly recoveryhelper_addIncomingDelta: (a: number, b: number, c: number) => void;
+    readonly recoveryhelper_computeDeltas: (a: number) => [number, number];
+    readonly recoveryhelper_delta: (a: number, b: number) => [number, number];
+    readonly recoveryhelper_deltaCount: (a: number) => number;
+    readonly recoveryhelper_deltaRecipient: (a: number, b: number) => [number, number];
+    readonly recoveryhelper_new: (a: number, b: number, c: number, d: number) => number;
+    readonly recoveryhelper_sigma: (a: number) => [number, number, number, number];
+    readonly selftest: () => [number, number];
     readonly __wbg_coordinator_free: (a: number, b: number) => void;
     readonly __wbg_round1_free: (a: number, b: number) => void;
     readonly __wbg_testvault_free: (a: number, b: number) => void;
@@ -260,23 +274,6 @@ export interface InitOutput {
     readonly testvault_key_package: (a: number, b: number) => [number, number];
     readonly testvault_new: () => [number, number, number];
     readonly testvault_pubkeys: (a: number) => [number, number];
-    readonly __wbg_recoverycombiner_free: (a: number, b: number) => void;
-    readonly __wbg_recoveryhelper_free: (a: number, b: number) => void;
-    readonly recoverycombiner_addSigma: (a: number, b: number, c: number) => void;
-    readonly recoverycombiner_keyPackage: (a: number) => [number, number, number, number];
-    readonly recoverycombiner_new: (a: number, b: number, c: number, d: number) => number;
-    readonly recoveryhelper_addHelper: (a: number, b: number, c: number) => void;
-    readonly recoveryhelper_addIncomingDelta: (a: number, b: number, c: number) => void;
-    readonly recoveryhelper_computeDeltas: (a: number) => [number, number];
-    readonly recoveryhelper_delta: (a: number, b: number) => [number, number];
-    readonly recoveryhelper_deltaCount: (a: number) => number;
-    readonly recoveryhelper_deltaRecipient: (a: number, b: number) => [number, number];
-    readonly recoveryhelper_new: (a: number, b: number, c: number, d: number) => number;
-    readonly recoveryhelper_sigma: (a: number) => [number, number, number, number];
-    readonly describeOutputs: (a: number, b: number) => [number, number, number, number];
-    readonly extractRandomizers: (a: number, b: number) => [number, number, number, number];
-    readonly injectSigs: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
-    readonly pcztSighash: (a: number, b: number) => [number, number, number, number];
     readonly __wbg_devicekey_free: (a: number, b: number) => void;
     readonly __wbg_dkgsession_free: (a: number, b: number) => void;
     readonly devicekey_fromSecret: (a: number, b: number) => [number, number, number];
@@ -300,7 +297,10 @@ export interface InitOutput {
     readonly identifierBytes: (a: number) => [number, number, number, number];
     readonly sealTo: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
     readonly verifyRedpallas: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
-    readonly selftest: () => [number, number];
+    readonly describeOutputs: (a: number, b: number) => [number, number, number, number];
+    readonly extractRandomizers: (a: number, b: number) => [number, number, number, number];
+    readonly injectSigs: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
+    readonly pcztSighash: (a: number, b: number) => [number, number, number, number];
     readonly __wbindgen_exn_store: (a: number) => void;
     readonly __externref_table_alloc: () => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;

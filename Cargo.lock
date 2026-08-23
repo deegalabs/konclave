@@ -2542,8 +2542,8 @@ dependencies = [
  "clap",
  "ff",
  "hex",
- "orchard 0.15.0",
- "pczt 0.9.1",
+ "orchard",
+ "pczt",
  "rand",
  "serde",
  "serde_json",
@@ -2552,7 +2552,7 @@ dependencies = [
  "zcash_client_backend",
  "zcash_client_sqlite",
  "zcash_primitives",
- "zcash_protocol 0.10.3",
+ "zcash_protocol",
  "zip321",
 ]
 
@@ -2579,8 +2579,8 @@ dependencies = [
  "hex",
  "hkdf",
  "js-sys",
- "orchard 0.15.0",
- "pczt 0.7.0",
+ "orchard",
+ "pczt",
  "rand",
  "reddsa",
  "sha2 0.10.9",
@@ -3173,40 +3173,6 @@ checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
 name = "orchard"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a54f8d29bfb1e76a9d4e868a1a08cce2e57dd2bdc66232982822ad3114b91ab3"
-dependencies = [
- "aes",
- "bitvec",
- "blake2b_simd",
- "corez",
- "ff",
- "fpe",
- "getset",
- "group",
- "halo2_poseidon",
- "hex",
- "incrementalmerkletree",
- "lazy_static",
- "memuse",
- "nonempty",
- "pasta_curves",
- "rand",
- "rand_core",
- "reddsa",
- "serde",
- "sinsemilla",
- "subtle",
- "tracing",
- "visibility",
- "zcash_note_encryption",
- "zcash_spec",
- "zip32",
-]
-
-[[package]]
-name = "orchard"
 version = "0.15.0"
 source = "git+https://github.com/zcash/orchard.git?rev=3bd2b736d1273226595773265313fc3f3428af16#3bd2b736d1273226595773265313fc3f3428af16"
 dependencies = [
@@ -3253,7 +3219,7 @@ dependencies = [
  "serde_json",
  "tiny_http",
  "zcash_address",
- "zcash_protocol 0.10.3",
+ "zcash_protocol",
  "zeroize",
 ]
 
@@ -3342,23 +3308,6 @@ dependencies = [
 
 [[package]]
 name = "pczt"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4712bd8688e1d1aa0eb0e78dc5c846bc2d70dcd1de544ecf053516df174c4fcd"
-dependencies = [
- "ff",
- "getset",
- "nonempty",
- "orchard 0.14.0",
- "pasta_curves",
- "postcard",
- "serde",
- "serde_with",
- "zcash_protocol 0.9.0",
-]
-
-[[package]]
-name = "pczt"
 version = "0.9.1"
 source = "git+https://github.com/zcash/librustzcash?rev=6c07e5f3297febf469e5cc8d0b91321e0767cdd7#6c07e5f3297febf469e5cc8d0b91321e0767cdd7"
 dependencies = [
@@ -3369,7 +3318,7 @@ dependencies = [
  "getset",
  "jubjub",
  "nonempty",
- "orchard 0.15.0",
+ "orchard",
  "pasta_curves",
  "postcard",
  "rand_core",
@@ -3380,7 +3329,7 @@ dependencies = [
  "serde_with",
  "zcash_note_encryption",
  "zcash_primitives",
- "zcash_protocol 0.10.3",
+ "zcash_protocol",
  "zcash_script",
  "zcash_transparent",
 ]
@@ -6244,7 +6193,7 @@ dependencies = [
  "corez",
  "f4jumble",
  "zcash_encoding",
- "zcash_protocol 0.10.3",
+ "zcash_protocol",
 ]
 
 [[package]]
@@ -6266,9 +6215,9 @@ dependencies = [
  "incrementalmerkletree",
  "memuse",
  "nonempty",
- "orchard 0.15.0",
+ "orchard",
  "pasta_curves",
- "pczt 0.9.1",
+ "pczt",
  "percent-encoding",
  "postcard",
  "prost",
@@ -6289,7 +6238,7 @@ dependencies = [
  "zcash_keys",
  "zcash_note_encryption",
  "zcash_primitives",
- "zcash_protocol 0.10.3",
+ "zcash_protocol",
  "zcash_script",
  "zcash_transparent",
  "zip32",
@@ -6312,7 +6261,7 @@ dependencies = [
  "jubjub",
  "maybe-rayon",
  "nonempty",
- "orchard 0.15.0",
+ "orchard",
  "prost",
  "rand",
  "rand_core",
@@ -6337,7 +6286,7 @@ dependencies = [
  "zcash_keys",
  "zcash_pool_migration",
  "zcash_primitives",
- "zcash_protocol 0.10.3",
+ "zcash_protocol",
  "zcash_script",
  "zcash_transparent",
  "zip32",
@@ -6370,7 +6319,7 @@ dependencies = [
  "group",
  "memuse",
  "nonempty",
- "orchard 0.15.0",
+ "orchard",
  "rand_core",
  "sapling-crypto",
  "secrecy",
@@ -6378,7 +6327,7 @@ dependencies = [
  "tracing",
  "zcash_address",
  "zcash_encoding",
- "zcash_protocol 0.10.3",
+ "zcash_protocol",
  "zcash_transparent",
  "zip32",
 ]
@@ -6405,14 +6354,14 @@ dependencies = [
  "getset",
  "incrementalmerkletree",
  "libm",
- "orchard 0.15.0",
- "pczt 0.9.1",
+ "orchard",
+ "pczt",
  "rand_core",
  "shardtree",
  "zcash_client_backend",
  "zcash_keys",
  "zcash_primitives",
- "zcash_protocol 0.10.3",
+ "zcash_protocol",
  "zip32",
 ]
 
@@ -6433,7 +6382,7 @@ dependencies = [
  "jubjub",
  "memuse",
  "nonempty",
- "orchard 0.15.0",
+ "orchard",
  "rand_core",
  "redjubjub",
  "sapling-crypto",
@@ -6441,20 +6390,9 @@ dependencies = [
  "sha2 0.10.9",
  "zcash_encoding",
  "zcash_note_encryption",
- "zcash_protocol 0.10.3",
+ "zcash_protocol",
  "zcash_script",
  "zcash_transparent",
-]
-
-[[package]]
-name = "zcash_protocol"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5bec496a0bd62dae98c4b26f51c5dab112d0c5350bbc2ccfdfd05bb3454f714d"
-dependencies = [
- "corez",
- "hex",
- "zcash_encoding",
 ]
 
 [[package]]
@@ -6513,7 +6451,7 @@ dependencies = [
  "subtle",
  "zcash_address",
  "zcash_encoding",
- "zcash_protocol 0.10.3",
+ "zcash_protocol",
  "zcash_script",
  "zcash_spec",
  "zip32",
@@ -6635,7 +6573,7 @@ dependencies = [
  "nom",
  "percent-encoding",
  "zcash_address",
- "zcash_protocol 0.10.3",
+ "zcash_protocol",
 ]
 
 [[package]]

@@ -17,7 +17,11 @@ reddsa = { version = "0.5.2", features = ["frost"] }
 frost-rerandomized = "=3.0.0"
 # Orchard action verification + digest surface (proven wasm-clean: wasm-orchard-probe).
 # Ironwood: bumped 0.14 -> 0.15 to match the engine's NU6.3 pin so the PCZT wire format (v2) parses.
-orchard = { version = "0.15", default-features = false, features = ["unstable-frost"] }
+# Pinned EXACT to =0.15.0 (the workspace's patched fork rev), mirroring konclave-signer: the fork's
+# 0.15.0 still declares `unstable-frost`, but crates.io has since published orchard 0.15.5, and a bare
+# "0.15" would let cargo drop the root [patch.crates-io] and drift to 0.15.5. The exact pin keeps the
+# whole workspace unified on the single patched orchard rev.
+orchard = { version = "=0.15.0", default-features = false, features = ["unstable-frost"] }
 # ZIP-244 sig_digest recompute (proven wasm-clean: wasm-sighash-probe)
 blake2b_simd = "1"
 # PCZT parse + FROST signature injection (the FROST<->PCZT bridge, ported from konclave-signer).
@@ -26,7 +30,7 @@ blake2b_simd = "1"
 # features, which would drag in secp256k1 (C) and zcash_script (C++) and break the wasm32 build.
 # The shielded sighash is passed IN (it is public data - the message the FROST quorum signs - and
 # computing it from the full tx needs zcash_primitives, which stays native/off-device).
-pczt = { version = "0.7", default-features = false, features = ["orchard"] }
+pczt = { version = "0.9.1", default-features = false, features = ["orchard"] }
 ff = "0.13"
 # --- Ironwood (NU6.3) pin: mirror the engine's librustzcash rev so the PCZT wire format (v2)
 # parses in the browser. Only pczt + its pure-Rust deps are patched; no signer/transparent
