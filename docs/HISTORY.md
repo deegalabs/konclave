@@ -564,3 +564,31 @@ desktop is the optional native shell, and it changes the delivery form only, nev
   ([ADR-0004](adr/0004-local-http-bridge.md)).
 - This closes the "single desktop binary" roadmap item that earlier phases and the honest ladders
   carried; the desktop app is now **shipped**, with only the hardware validation caveat above.
+
+---
+
+**Phase 18 - Security-hardening cycle + Ironwood engine bump prepared + helper on mainnet
+(2026-08).** A product-mode maintenance phase focused on supply-chain hygiene, the finals engine
+upgrade, and the hosted helper's move to production.
+
+- **Security-hardening cycle (#262 / #263 / #264 / #265, CI green #261).** GitHub Actions pinned to
+  commit SHAs and `curl | sh` installers removed from workflows (#264); a script-injection vector in
+  the desktop-release release-notes workflow step fixed; pnpm supply-chain policies added (minimum
+  release age, dependency-trust policy, and a block on exotic sub-dependencies, #263); and the hosted
+  blind helper container hardened to run as a **non-root** `konclave` user - `entrypoint.sh` enters
+  as root only to `chown` the Railway volume, then `exec gosu konclave` drops privileges before
+  running the share-blind helper (#265).
+- **Ironwood finals engine bump prepared (#259, branch `feat/engine-ironwood-bump`).** pczt 0.9.1 /
+  `zcash_client_backend` 0.24.0-rc.6 (librustzcash) + `zcash-sign` frost-tools #593 + `zcash-devtool`
+  from `main`, so the receive path can retarget to the Ironwood pool. CI is green, but it is **gated
+  on a live round-trip and NOT merged to `main`**; `engine/versions.lock` on `main` intentionally
+  keeps the older pins (`zcash-sign` `3d2985c`, `zcash-devtool`/`konclave-signer` `42ffd0d`) until
+  #259 merges. No CHANGELOG entry for the bump yet - that lands at merge time.
+- **Hosted blind helper deployed on mainnet.** The Architecture-B helper (`helper-server`, ADR-0006
+  Rung A) now runs against **Zcash mainnet** on Railway (`KONCLAVE_NETWORK=main`, lightwalletd
+  `zec.rocks:443`), serving **~23 live vaults** on the durable `/data` volume, all intact across the
+  non-root migration. It still never receives, derives, or stores a share. There is no mainnet
+  hosted-helper *send* txid yet (the send remains proven on testnet, `docs/CLAIMS.md`); the 8-txid
+  mainnet proof set (`docs/PROOF.md`) is unchanged.
+- **Honest limit (still open):** the Ironwood bump's live round-trip (which gates the #259 merge) and
+  a mainnet hosted-helper send both remain to be demonstrated.

@@ -6,25 +6,35 @@ Orchard address + UFVK (public material only), keeps a view-only wallet per vaul
 Architecture B - builds/proves/broadcasts a spend while the **browsers** sign over the blind
 relay. It never receives, derives, or stores a share.
 
-It runs on Railway alongside the blind relay (`konclave-relay` project, `konclave-helper`
-service), the same way the relay does.
+It runs on **Zcash mainnet** (`KONCLAVE_NETWORK=main`, lightwalletd `zec.rocks:443`) on Railway
+alongside the blind relay (`konclave-relay` project, `konclave-helper` service), the same way the
+relay does. It currently serves ~23 live vaults.
 
 ## The image (`Dockerfile`)
 
-A deliberate tradeoff for the **testnet demo**: the image *bundles* the engine binaries built
-from source on the maintainer's machine at the pins in
-[`engine/versions.lock`](../../engine/versions.lock), instead of compiling them in-image:
+A deliberate tradeoff: the image *bundles* the engine binaries built from source on the
+maintainer's machine, instead of compiling them in-image:
 
-| binary | source pin | role in the helper |
-|---|---|---|
-| `zcash-sign` | frost-tools `3d2985c` | register: derive Orchard address + UFVK from the group key |
-| `zcash-devtool` | Ironwood librustzcash `42ffd0d` | register: view-only wallet init; send: PCZT create/prove/broadcast |
-| `konclave-signer` | Ironwood librustzcash `42ffd0d` | send: extract the sighash / inject the browsers' aggregate signature |
+| binary | role in the helper |
+|---|---|
+| `zcash-sign` | register: derive Orchard address + UFVK from the group key |
+| `zcash-devtool` | register: view-only wallet init; send: PCZT create/prove/broadcast |
+| `konclave-signer` | send: extract the sighash / inject the browsers' aggregate signature |
 
-A from-source multi-stage build is the **hardening follow-up**; for the demo it would blow
-Railway's build limits (librustzcash + orchard + halo2). The binaries are glibc-2.39 (Ubuntu
-24.04), so the runtime image is pinned to `ubuntu:24.04`. The helper does **not** need `frostd`
-(in Architecture B the browsers run the FROST ceremony over the relay).
+**Engine pins - deployed vs `engine/versions.lock`.** The **deployed** helper runs the
+Ironwood-bump engine: **pczt 0.9.1 / `zcash_client_backend` 0.24.0-rc.6** (librustzcash) for
+`zcash-devtool` + `konclave-signer`, and **`zcash-sign` from frost-tools #593**, with
+`zcash-devtool` from librustzcash `main`. That bump is not yet merged to `main` (it lives on
+branch `feat/engine-ironwood-bump`, #259, gated on a live round-trip), so
+[`engine/versions.lock`](../../engine/versions.lock) on `main` still shows the **older** pins
+(`zcash-sign` frost-tools `3d2985c`, `zcash-devtool`/`konclave-signer` librustzcash `42ffd0d`)
+until #259 merges. Both are true at once: read the lockfile as the repo's committed pin and this
+note as what the running image carries.
+
+A from-source multi-stage build (librustzcash + orchard + halo2) would exceed Railway's build
+limits, so the binaries are built out of band. They are glibc-2.39 (Ubuntu 24.04), so the runtime
+image is pinned to `ubuntu:24.04`. The helper does **not** need `frostd` (in Architecture B the
+browsers run the FROST ceremony over the relay).
 
 ## Build the deploy context
 
@@ -68,12 +78,15 @@ railway domain -s konclave-helper                           # mint the public UR
 The volume mounted at `/data` (= `KONCLAVE_VAULTS_DIR=/data/vaults`) makes registrations survive a
 redeploy: `helper-server` reseeds its registry from `<vaults_dir>/<id>/registration.json` at startup,
 and a re-register returns the STORED address instead of re-deriving a fresh diversified one. The
-image runs as root so the (root-owned) volume is writable - acceptable for this blind demo helper
-(no secret in the container); dropping to non-root + chowning the volume is a hardening follow-up.
+container runs as a **non-root** user (#265): `entrypoint.sh` enters as root only to `chown` the
+Railway volume so it is writable, then `exec gosu konclave` drops to the dedicated, unprivileged
+`konclave` system user before running the (share-blind) helper. No secret ever lives in the
+container.
 
 ## Configuration (env vars)
 
-All are public tooling paths / endpoints - nothing secret. Defaults suit the testnet demo.
+All are public tooling paths / endpoints - nothing secret. The defaults below are the mainnet
+deployment values.
 
 | var | default | meaning |
 |---|---|---|
@@ -81,11 +94,13 @@ All are public tooling paths / endpoints - nothing secret. Defaults suit the tes
 | `KONCLAVE_NETWORK` | `main` | `main` or `test` (drives address validation + derivation) |
 | `KONCLAVE_LIGHTWALLETD` | `zec.rocks:443` | lightwalletd for the view-only wallets (mainnet default; `testnet.zec.rocks:443` for testnet) |
 | `KONCLAVE_ZCASH_SIGN` / `KONCLAVE_DEVTOOL` / `KONCLAVE_SIGNER` | `/usr/local/bin/...` | engine binary paths |
-| `KONCLAVE_VAULTS_DIR` | `/home/helper/vaults` | per-vault view-only wallets + send scratch |
+| `KONCLAVE_VAULTS_DIR` | `/data/vaults` | per-vault view-only wallets + send scratch (per the Dockerfile) |
 
-> `KONCLAVE_VAULTS_DIR` is on the container's ephemeral filesystem. A redeploy loses the
-> view-only wallets (the vaults must re-register); fine for the demo. Attach a Railway volume to
-> persist them for real use.
+> With the Railway volume mounted at `/data` (see "Deploy" above), `KONCLAVE_VAULTS_DIR=/data/vaults`
+> lives on **durable** storage, so registrations persist across redeploys. Without a volume,
+> `/data` is on the container's ephemeral filesystem and a redeploy loses the view-only wallets (the
+> vaults must re-register), so the volume is required for real use - and is attached on the mainnet
+> deployment.
 
 ## API
 
