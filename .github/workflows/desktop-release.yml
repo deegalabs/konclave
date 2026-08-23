@@ -65,10 +65,14 @@ jobs:
       - name: Release notes from CHANGELOG
         id: notes
         if: matrix.platform == 'ubuntu-22.04'
+        # The tag is untrusted input (a crafted tag/branch name could inject shell). Pass it through
+        # an env var so the shell treats it as data, never interpolate ${{...}} into the run: script.
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           {
             echo 'body<<KONCLAVE_EOF'
-            node scripts/release.mjs --notes "${{ inputs.tag || github.ref_name }}"
+            node scripts/release.mjs --notes "$TAG"
             echo ''
             echo 'Desktop installers (Windows / macOS / Linux) are attached below.'
             echo 'KONCLAVE_EOF'
