@@ -1017,7 +1017,6 @@ pub mod seal {
 pub mod pczt_bridge {
     use ff::PrimeField;
     use orchard::primitives::redpallas::{self, SpendAuth};
-    use orchard::value::NoteValue;
     use pczt::{
         roles::low_level_signer::{OrchardParseError, Signer},
         Pczt,
@@ -1045,13 +1044,18 @@ pub mod pczt_bridge {
     // differs. A single Konclave send spends from ONE pool; we read Orchard first and fall back to
     // Ironwood, matching konclave-signer's pool-aware bridge (§ Phase 12).
 
-    /// The real spends `(idx, alpha)` in one bundle (dummy zero-value spends skipped; the real spend
-    /// can sit at any action index, so callers must not assume 0).
+    /// The spends `(idx, alpha)` in one bundle that still AWAIT a signature. Mirrors the Zcash
+    /// Foundation's `zcash-sign` #593 (`collect_randomizers`): the test is `spend_auth_sig().is_none()`,
+    /// NOT "is this a non-zero (real) spend". Post-NU6.3 / v6, an Ironwood spend pairs the requested
+    /// note with a wallet-controlled zero-value "dummy" spend that the engine no longer auto-signs in
+    /// `create` (librustzcash #2777/#2778); it must be signed like any other spend. Filtering by value
+    /// left the dummy unsigned -> `MissingSpendAuthSig` at extract. A padding dummy that the IO
+    /// finalizer DID pre-sign has `spend_auth_sig == Some` and is correctly skipped; the real spend can
+    /// sit at any action index.
     fn collect_real(bundle: &orchard::pczt::Bundle) -> Vec<(usize, [u8; 32])> {
         let mut r = vec![];
         for (idx, action) in bundle.actions().iter().enumerate() {
-            let is_real = matches!(action.spend().value(), Some(v) if *v != NoteValue::default());
-            if is_real {
+            if action.spend().spend_auth_sig().is_none() {
                 if let Some(alpha) = action.spend().alpha() {
                     let repr = alpha.to_repr();
                     let slice: &[u8] = repr.as_ref();
