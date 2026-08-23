@@ -17,9 +17,8 @@ use std::time::Duration;
 use orchestrator::helper::{
     append_ceremony, is_valid_group_key, ledger_csv, list_proposals, load_ceremonies, load_members,
     load_proposal, payment_plan, register_vault, rename_member, save_members, save_proposal,
-    send_config_for, vault_transactions,
-    vault_balance, CeremonyRecord, HelperConfig, HelperProposal, HelperState, PayrollLine,
-    VaultRegistration,
+    send_config_for, vault_balance, vault_transactions, CeremonyRecord, HelperConfig,
+    HelperProposal, HelperState, PayrollLine, VaultRegistration,
 };
 use orchestrator::send::{net_orchestrate_send, PayrollDest, SpendPlan};
 use serde::Deserialize;
@@ -223,7 +222,13 @@ fn handle(
                 Some(r) => r,
                 None => return resp(404, json!({ "error": "no such vault" }).to_string()),
             };
-            match rename_member(&cfg.vaults_dir, &reg.vault_id, &req.old, &req.new, now_unix()) {
+            match rename_member(
+                &cfg.vaults_dir,
+                &reg.vault_id,
+                &req.old,
+                &req.new,
+                now_unix(),
+            ) {
                 Ok(members) => resp(200, json!({ "members": members }).to_string()),
                 Err(e) => resp(400, json!({ "error": e.to_string() }).to_string()),
             }
@@ -247,7 +252,7 @@ fn handle(
 fn parse_mem_available_mb(meminfo: &str) -> Option<u64> {
     for line in meminfo.lines() {
         if let Some(rest) = line.strip_prefix("MemAvailable:") {
-            let kb: u64 = rest.trim().split_whitespace().next()?.parse().ok()?;
+            let kb: u64 = rest.split_whitespace().next()?.parse().ok()?;
             return Some(kb / 1024);
         }
     }
@@ -322,7 +327,10 @@ fn handle_send(state: &HelperState, cfg: &HelperConfig, body: &[u8]) -> Resp {
     // Capacity guard (#135): refuse a memory-heavy prove up front when the instance is low, rather
     // than OOM-crashing mid-send. Before any tx work, so no ambiguous state.
     if over_capacity() {
-        return resp(503, json!({ "error": "coordinator over capacity, retry in a moment" }).to_string());
+        return resp(
+            503,
+            json!({ "error": "coordinator over capacity, retry in a moment" }).to_string(),
+        );
     }
     // Per-send scratch dir under the vault's own tree (intermediate PCZTs, never a share).
     let work_dir = format!("{}/{}/send-work", cfg.vaults_dir.display(), reg.vault_id);
@@ -430,7 +438,10 @@ fn handle_proposal_send(state: &HelperState, cfg: &HelperConfig, path: &str, bod
     };
     // Capacity guard (#135): same pre-prove check as handle_send.
     if over_capacity() {
-        return resp(503, json!({ "error": "coordinator over capacity, retry in a moment" }).to_string());
+        return resp(
+            503,
+            json!({ "error": "coordinator over capacity, retry in a moment" }).to_string(),
+        );
     }
     let work_dir = format!("{}/{}/send-work", cfg.vaults_dir.display(), reg.vault_id);
     let sc = send_config_for(cfg, &reg, work_dir);
@@ -764,7 +775,10 @@ mod tests {
     #[test]
     fn parse_mem_available_none_when_absent_or_garbage() {
         assert_eq!(parse_mem_available_mb("MemFree: 1000 kB\n"), None);
-        assert_eq!(parse_mem_available_mb("MemAvailable: not-a-number kB\n"), None);
+        assert_eq!(
+            parse_mem_available_mb("MemAvailable: not-a-number kB\n"),
+            None
+        );
         assert_eq!(parse_mem_available_mb(""), None);
     }
 

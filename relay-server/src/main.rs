@@ -280,47 +280,6 @@ fn with_cors<R: Read>(mut resp: Response<R>, json: bool) -> Response<R> {
     resp
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn rate_ok_blocks_past_max_then_resets_next_window() {
-        let st = RelayState::default();
-        let now = 1_000_000;
-        // First `max` requests pass; the (max+1)-th in the same window is refused.
-        for i in 0..5 {
-            assert!(st.rate_ok("k", now, 5), "req {i} should pass");
-        }
-        assert!(!st.rate_ok("k", now, 5), "6th in-window request is refused");
-        // A new window (>= RATE_WINDOW later) resets the counter.
-        assert!(st.rate_ok("k", now + RATE_WINDOW, 5), "next window resets");
-    }
-
-    #[test]
-    fn rate_ok_keys_are_independent() {
-        let st = RelayState::default();
-        let now = 2_000_000;
-        assert!(!(1..=6).all(|_| st.rate_ok("a", now, 5))); // "a" hits its cap
-        // A different key (e.g. a per-IP key vs a from key) has its own budget.
-        assert!(st.rate_ok("ip:203.0.113.7", now, 5));
-    }
-
-    #[test]
-    fn per_ip_check_stops_from_tag_rotation() {
-        // The point of #64: rotating the `from` tag dodges the per-key limit, but the per-IP key
-        // (same ip) keeps counting and eventually refuses. Simulate handle's IP-first check.
-        let st = RelayState::default();
-        let now = 3_000_000;
-        let ip_key = "ip:198.51.100.9";
-        let mut refused = false;
-        for _ in 0..(RATE_MAX_IP + 10) {
-            if !st.rate_ok(ip_key, now, RATE_MAX_IP) { refused = true; break; }
-        }
-        assert!(refused, "a single IP is capped regardless of from-tag rotation");
-    }
-}
-
 fn main() {
     let port: u16 = std::env::var("PORT")
         .ok()
@@ -363,5 +322,52 @@ fn main() {
 
         let resp = Response::from_string(body).with_status_code(status);
         let _ = req.respond(with_cors(resp, true));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rate_ok_blocks_past_max_then_resets_next_window() {
+        let st = RelayState::default();
+        let now = 1_000_000;
+        // First `max` requests pass; the (max+1)-th in the same window is refused.
+        for i in 0..5 {
+            assert!(st.rate_ok("k", now, 5), "req {i} should pass");
+        }
+        assert!(!st.rate_ok("k", now, 5), "6th in-window request is refused");
+        // A new window (>= RATE_WINDOW later) resets the counter.
+        assert!(st.rate_ok("k", now + RATE_WINDOW, 5), "next window resets");
+    }
+
+    #[test]
+    fn rate_ok_keys_are_independent() {
+        let st = RelayState::default();
+        let now = 2_000_000;
+        assert!(!(1..=6).all(|_| st.rate_ok("a", now, 5))); // "a" hits its cap
+                                                            // A different key (e.g. a per-IP key vs a from key) has its own budget.
+        assert!(st.rate_ok("ip:203.0.113.7", now, 5));
+    }
+
+    #[test]
+    fn per_ip_check_stops_from_tag_rotation() {
+        // The point of #64: rotating the `from` tag dodges the per-key limit, but the per-IP key
+        // (same ip) keeps counting and eventually refuses. Simulate handle's IP-first check.
+        let st = RelayState::default();
+        let now = 3_000_000;
+        let ip_key = "ip:198.51.100.9";
+        let mut refused = false;
+        for _ in 0..(RATE_MAX_IP + 10) {
+            if !st.rate_ok(ip_key, now, RATE_MAX_IP) {
+                refused = true;
+                break;
+            }
+        }
+        assert!(
+            refused,
+            "a single IP is capped regardless of from-tag rotation"
+        );
     }
 }
