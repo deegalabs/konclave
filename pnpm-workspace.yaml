@@ -2,3 +2,9 @@ packages:
   - ui
   - mcp-server
   - sdk
+
+# Supply-chain hardening (flagged by the security scan). Safe here: the lockfile has no exotic
+# (git/tarball) subdeps, and CI installs with --frozen-lockfile so resolution is not re-run.
+minimumReleaseAge: 1440        # do not pull a package published less than 24h ago (dodges fresh-publish attacks)
+trustPolicy: no-downgrade      # never let an update silently downgrade a security setting
+blockExoticSubdeps: true       # transitive deps must come from the registry, not git/tarball sources
