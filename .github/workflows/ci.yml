@@ -64,8 +64,9 @@ jobs:
           workspaces: konclave-wasm
       - name: Install wasm-pack
         # Deterministic install from source (pinned version) instead of piping a remote script to a
-        # shell (no curl | sh). The Rust toolchain is already set up above.
-        run: cargo install wasm-pack --version 0.13.1 --locked
+        # shell (no curl | sh). The Rust toolchain is already set up above. --force pins our exact
+        # version over the runner's pre-installed wasm-pack.
+        run: cargo install wasm-pack --version 0.13.1 --locked --force
       - name: Build for the browser (wasm32 + wasm-bindgen)
         working-directory: konclave-wasm
         run: wasm-pack build --target web --out-dir /tmp/pkg
