@@ -57,26 +57,28 @@ repo = "https://github.com/zcash/zcash-devtool"
 rev  = "539ae81d6e793d15ea6ed3fb4157973545e27326"                 # main HEAD as of 2026-08-22
 # Its committed Cargo.lock resolves orchard to git 0.15.0 @ 3bd2b736 and every librustzcash crate
 # to 6c07e5f3 — the exact pin set mirrored in the workspace root [patch.crates-io].
+# Built on the build host 2026-08-22 (invoked by the orchestrator/helper for PCZT prove/create):
+#   sha256(zcash-devtool) = 045c32288b359caea337a1334dce60a813f9295a3b94eb8abf51a44a93965ce7
 
 # Binaries produced from the frost-tools source above (sha256 of THIS build — see NOTE).
-# The bump to frost-tools #593 requires a rebuild on a build host; sha256 values below are stale
-# placeholders until then (do NOT trust them for verification):
+# Rebuilt on the build host 2026-08-22 at frost-tools 06c0dbdbb1ba; the sha256 below are the real
+# values of that build (not bit-reproducible across machines — see NOTE):
 [[binary]]
 name    = "frostd"
 version = "0.1.0"
-sha256  = "TODO: recompute on rebuild at frost-tools 06c0dbdbb1ba"
+sha256  = "b2b73023b813ea74f099ad710d35ff36bb5601b7bdd27ba4fce999dde097576d"
 role    = "Coordination server (blind). Local dev: run with --no-tls-very-insecure. Default port 2744."
 
 [[binary]]
 name    = "frost-client"
 version = "0.1.0"
-sha256  = "TODO: recompute on rebuild at frost-tools 06c0dbdbb1ba"
+sha256  = "0084243d4061bea422142d9cdf1bcf88f38dd7262bab28f02a6c664eb947a4b5"
 role    = "init / dkg / trusted-dealer / coordinator / participant; contacts; sessions; --cli for JSON"
 
 [[binary]]
 name    = "zcash-sign"
 version = "0.1.0"
-sha256  = "TODO: recompute on rebuild at frost-tools 06c0dbdbb1ba"
+sha256  = "27f58e7ceb6aa0405cc3d6e0947f999c21d1157206401b24fb71faddb02be5f1"
 role    = "generate --ak -> Orchard addr + UFVK; sign tx-plan(Ywallet)/PCZT with external FROST signature (Ironwood V6 via #593)"
 
 # Key transitive crypto deps of frost-tools @ #593 (recorded for audit; authoritative lock is that
@@ -91,7 +93,7 @@ zcash_client_backend = "0.24.0-rc.1"
 
 # NOTE: sha256 values are for binaries built on THIS machine; the build is not bit-reproducible,
 # so the authoritative reproducibility anchor is (repo rev + the repo's committed Cargo.lock).
-# The placeholders above must be recomputed after the frost-tools #593 rebuild on the build host.
+# Recompute these if you rebuild on a different host.
 # zcash_client_backend is also LINKED into the Orchestrator/konclave-signer, pinned via the
 # workspace [patch.crates-io] at librustzcash 6c07e5f3 (backend 0.24.0-rc.6) — not invoked as a
 # binary, and a different rc than the frost-tools external binary above.
