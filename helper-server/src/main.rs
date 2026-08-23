@@ -252,7 +252,7 @@ fn handle(
 fn parse_mem_available_mb(meminfo: &str) -> Option<u64> {
     for line in meminfo.lines() {
         if let Some(rest) = line.strip_prefix("MemAvailable:") {
-            let kb: u64 = rest.trim().split_whitespace().next()?.parse().ok()?;
+            let kb: u64 = rest.split_whitespace().next()?.parse().ok()?;
             return Some(kb / 1024);
         }
     }

@@ -1,8 +1,8 @@
 //! Inheritance / dead-man's-switch - the second human-layer feature that matches Steward.
 //!
 //! The owner sends signed "proof-of-life" heartbeats. If they ever lapse for longer than the
-//! configured window, the vault's quorum is authorized to **release** the funds to a named heir
-//! - the release itself is an ordinary quorum-signed payment (it reuses the FROST send path;
+//! configured window, the vault's quorum is authorized to **release** the funds to a named heir.
+//! The release itself is an ordinary quorum-signed payment (it reuses the FROST send path;
 //! nothing new cryptographically). The novelty, and the whole safety of it, is this policy: who
 //! decides the owner is gone, and when.
 //!

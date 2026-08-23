@@ -280,6 +280,51 @@ fn with_cors<R: Read>(mut resp: Response<R>, json: bool) -> Response<R> {
     resp
 }
 
+fn main() {
+    let port: u16 = std::env::var("PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(8080);
+    let addr = format!("0.0.0.0:{port}");
+    let server = Server::http(&addr).expect("bind");
+    let state = RelayState::default();
+    eprintln!("konclave relay listening on {addr}");
+
+    for mut req in server.incoming_requests() {
+        let method = req.method().clone();
+        let url = req.url().to_string();
+        let path = url.split(['?', '#']).next().unwrap_or(&url).to_string();
+        let ip = client_ip(&req);
+
+        if method == Method::Options {
+            let _ = req.respond(with_cors(Response::empty(204), false));
+            continue;
+        }
+
+        let (status, body) = if path.starts_with("/api/relay/") {
+            let mut buf = Vec::new();
+            if req
+                .body_length()
+                .map(|n| n <= 2 * 1024 * 1024)
+                .unwrap_or(true)
+            {
+                let _ = req.as_reader().read_to_end(&mut buf);
+            }
+            state.handle(&method, &path, &url, &buf, now_unix(), &ip)
+        } else if path == "/" || path == "/health" {
+            (
+                200,
+                r#"{"status":"ok","service":"konclave-relay"}"#.to_string(),
+            )
+        } else {
+            (404, r#"{"error":"not found"}"#.to_string())
+        };
+
+        let resp = Response::from_string(body).with_status_code(status);
+        let _ = req.respond(with_cors(resp, true));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -324,50 +369,5 @@ mod tests {
             refused,
             "a single IP is capped regardless of from-tag rotation"
         );
-    }
-}
-
-fn main() {
-    let port: u16 = std::env::var("PORT")
-        .ok()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(8080);
-    let addr = format!("0.0.0.0:{port}");
-    let server = Server::http(&addr).expect("bind");
-    let state = RelayState::default();
-    eprintln!("konclave relay listening on {addr}");
-
-    for mut req in server.incoming_requests() {
-        let method = req.method().clone();
-        let url = req.url().to_string();
-        let path = url.split(['?', '#']).next().unwrap_or(&url).to_string();
-        let ip = client_ip(&req);
-
-        if method == Method::Options {
-            let _ = req.respond(with_cors(Response::empty(204), false));
-            continue;
-        }
-
-        let (status, body) = if path.starts_with("/api/relay/") {
-            let mut buf = Vec::new();
-            if req
-                .body_length()
-                .map(|n| n <= 2 * 1024 * 1024)
-                .unwrap_or(true)
-            {
-                let _ = req.as_reader().read_to_end(&mut buf);
-            }
-            state.handle(&method, &path, &url, &buf, now_unix(), &ip)
-        } else if path == "/" || path == "/health" {
-            (
-                200,
-                r#"{"status":"ok","service":"konclave-relay"}"#.to_string(),
-            )
-        } else {
-            (404, r#"{"error":"not found"}"#.to_string())
-        };
-
-        let resp = Response::from_string(body).with_status_code(status);
-        let _ = req.respond(with_cors(resp, true));
     }
 }

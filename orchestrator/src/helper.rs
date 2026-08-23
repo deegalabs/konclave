@@ -145,8 +145,8 @@ pub struct VaultBalance {
 }
 
 /// Sync a registered vault's view-only wallet against lightwalletd and read its shielded balance.
-/// The helper owns the UFVK (view-only), so this is a watcher's read - no share involved. Network
-/// + engine I/O, so it is exercised live, not in unit tests.
+/// The helper owns the UFVK (view-only), so this is a watcher's read - no share involved. Network +
+/// engine I/O, so it is exercised live, not in unit tests.
 /// How long a wallet sync stays "fresh": within this window, a balance read skips the (slow) sync
 /// and serves the last-synced state, so the Dashboard's 12s poll (and bursts across screens) share
 /// one sync instead of each triggering a multi-second lightwalletd sync (#194).
