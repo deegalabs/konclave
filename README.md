@@ -11,7 +11,7 @@
 [![Zcash mainnet](https://img.shields.io/badge/Zcash-mainnet%20(NU6.3%20Ironwood)-e5a00d?logo=zcash&logoColor=white)](#proven-on-zcash-mainnet)
 [![FROST + Accounting](https://img.shields.io/badge/ZecHub%203.0-FROST%20%2B%20Accounting-6f42c1)](#why-we-built-this)
 [![License: Apache-2.0 OR MIT](https://img.shields.io/badge/license-Apache--2.0%20OR%20MIT-blue.svg)](#license)
-[![Tests: 235 Rust + 54 UI](https://img.shields.io/badge/tests-235%20Rust%20%2B%2054%20UI-2ea44f.svg)](#status)
+[![Tests: 237 Rust + 54 UI](https://img.shields.io/badge/tests-237%20Rust%20%2B%2054%20UI-2ea44f.svg)](#status)
 [![CI](https://github.com/deegalabs/konclave/actions/workflows/ci.yml/badge.svg)](https://github.com/deegalabs/konclave/actions/workflows/ci.yml)
 
 Submission for **ZecHub Hackathon 3.0** · FROST + Accounting
@@ -247,7 +247,7 @@ without overstatement.
 | Orchestrator | Rust: proposal state machine, ZIP-317/address validation, payroll, SQLite/**SQLCipher** store, XChaCha20-Poly1305 + Argon2id sealing, OS keychain |
 | Browser signer | `konclave-wasm`: rerandomized-redpallas FROST + DKG + ECIES sealing + recovery, compiled to WebAssembly |
 | Blind relay | `relay-server`: standalone `tiny_http` mailbox (CORS, opaque messages), hosted on Railway |
-| Blind helper | `helper-server`: the Architecture-B helper ([ADR-0006](docs/adr/0006-browser-native-vault.md) Rung A) - given a vault's view-only UFVK + a signing request it builds/proves the PCZT, waits for the browsers' signatures, injects and broadcasts; **blind to shares**, hosted on Railway (the native `orchestrator` is the local-mode equivalent) |
+| Blind helper | `helper-server`: the Architecture-B helper ([ADR-0006](docs/adr/0006-browser-native-vault.md) Rung A) - given a vault's view-only UFVK + a signing request it builds/proves the PCZT, waits for the browsers' signatures, injects and broadcasts; **blind to shares**, hosted on Railway as a **non-root** container (the native `orchestrator` is the local-mode equivalent) |
 | Engine (not reimplemented) | ZF `frostd` · `frost-client` · `zcash-sign` · `zcash-devtool` · `librustzcash` (`zcash_client_backend` linked) |
 | Deploy | Vercel (UI, git auto-deploy) · Railway (relay) · Zcash mainnet (the real path) |
 

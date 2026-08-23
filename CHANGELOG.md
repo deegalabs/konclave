@@ -32,6 +32,7 @@ release notes (see `.github/workflows/desktop-release.yml`).
   Payroll redesign mirroring Pay.
 - Blind relay: per-IP rate limiting. Hosted helper: capacity guard with a clear
   over-capacity message.
+- Hosted blind helper (`helper-server`) live on Railway mainnet: it registers a browser-DKG vault by its FROST group key, keeps a view-only wallet, and builds/proves/broadcasts a spend while the browsers sign over the blind relay, never receiving, deriving, or storing a share (ADR-0006 Rung A, Architecture B).
 
 ### Changed
 - Default quorum is now 2-of-3, with a non-blocking warning badge when the
@@ -44,12 +45,20 @@ release notes (see `.github/workflows/desktop-release.yml`).
 - Passphrase field icons are clean inline SVGs; the generate button no longer
   collides with the input edge.
 - Removed em-dashes from user-facing copy.
+- The hosted blind helper container now runs as a non-root user: the entrypoint enters as root only to chown the Railway volume, then drops to a dedicated `konclave` system user via `gosu` before running the (share-blind) helper.
+- MCP server and SDK brought current with the shipped reality; SDK example clarified to sign the seed path, not an Orchard spend.
+- Passphrase strength is now scored by complexity, with a stronger vault-grade generator and room for a password manager.
 
 ### Fixed
 - Create modal no longer auto-restores a selected vault when logged in (which
   had forced a cache clear).
 - Vault roster stores member names, not throwaway relay tags.
 - Self-rename heals member identity and migrates votes.
+
+### Security
+- CI hardening: GitHub Actions pinned to commit SHAs and `curl | sh` installers removed from workflows.
+- Fixed a script-injection vector in the desktop-release release-notes workflow step.
+- pnpm supply-chain policies: minimum release age, dependency trust policy, and a block on exotic sub-dependencies.
 
 ## [0.2.0] - 2026-08-02
 

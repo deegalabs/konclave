@@ -44,11 +44,19 @@ From [CONCEITO_INICIAL.md §13](docs/CONCEITO_INICIAL.md) + the logistics conver
 | Where the key lives | **The key share NEVER leaves the device** (OS secure vault). Only **public material** travels between members |
 | Coordination | **Official `frostd`** (blind server - sees only public data) + QR/copy-paste fallback (stretch) |
 | Key generation (product) | **Real DKG** (trusted-dealer only as slice scaffolding) |
-| Network | **Mainnet, real ZEC, minimal amount** (~0.01 ZEC). Receive **only in Orchard** |
+| Network | **Mainnet, real ZEC, minimal amount** (~0.01 ZEC). Shielded receive **only** (see note) |
 | Privacy | **Shielded-first** (Orchard); no telemetry; secrets never in log/disk/URL |
 | Scope | Untouchable core + 3 promoted extras (memo-payslip, accounting, proposal desk) |
 | License | **Dual Apache-2.0 / MIT** |
 | Team | **Solo** → scope locked to the core; extras only if there is room; stretch out of scope |
+
+> **Note on "Receive only in Orchard" (post-NU6.3).** Since NU6.3 "Ironwood" activated on
+> mainnet (§5), new shielded receives land in the **Ironwood** pool at the protocol level (Orchard
+> is withdraw-only going forward). The decision stands as **shielded-first, shielded-receive-only**;
+> the concrete retarget of the receive path to Ironwood rides on the engine slice
+> (`feat/engine-ironwood-bump`, #259), which is prepared and green but **gated on a live round-trip
+> and not yet merged to `main`**. Treat the Orchard wording above as the historical framing and this
+> note as the current, gated target.
 
 Technical decisions assumed in logistics:
 - **Dev OS:** start native on **Windows**; **WSL2** only if the tooling breaks.
@@ -260,4 +268,19 @@ path (H1 #62; the PIN-gate + fingerprint defenses shipped, ADR-0007); `/net` **m
 live relay** (unit-tested; single-spend is live-proven); a **live multi-device** (not two-tab)
 broadcast; **Tauri** live per-platform hardware validation (above). **Cargo workspace** is now closed -
 the crates are unified under one workspace (orchestrator aligned on `rusqlite 0.37`, resolving the
-`links="sqlite3"` conflict; 227 orchestrator tests pass).
+`links="sqlite3"` conflict; 237 orchestrator tests pass).
+
+**Ops + hardening (2026-08).**
+- **Ironwood finals engine bump prepared (#259, branch `feat/engine-ironwood-bump`).** pczt 0.9.1 /
+  `zcash_client_backend` 0.24.0-rc.6 (librustzcash) + `zcash-sign` frost-tools #593 + `zcash-devtool`
+  from `main`. CI is green, but it is **gated on a live round-trip and NOT merged to `main`** -
+  `engine/versions.lock` on `main` intentionally keeps the older pins until then.
+- **Hosted blind helper deployed on mainnet, non-root.** The Architecture-B helper (ADR-0006 Rung A)
+  runs on Railway against mainnet (~23 live vaults). The container now runs as a **non-root**
+  `konclave` user: the entrypoint enters as root only to `chown` the durable Railway volume, then
+  drops via `gosu` before running the share-blind helper (#265). It still never receives, derives, or
+  stores a share.
+- **Security-hardening cycle landed:** GitHub Actions pinned to commit SHAs and `curl | sh`
+  installers removed from workflows; a script-injection vector in the desktop-release notes step
+  fixed; pnpm supply-chain policies (minimum release age, dependency-trust policy, block on exotic
+  sub-dependencies); and the non-root helper above.

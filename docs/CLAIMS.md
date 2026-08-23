@@ -123,6 +123,11 @@ Any statement of the form "the app payment used DKG" is **false**. Only `aab00f9
   real user anywhere would drive, over public infrastructure, proven end to end.
   - Still **testnet, not mainnet**, and still **two browser tabs on one machine**, not separate
     physical devices (the open milestone at the top of this section stands unchanged).
+  - **Deployment update (2026-08):** the hosted share-blind helper is now **deployed on Zcash
+    mainnet** on Railway (non-root container, durable volume) and serves **~23 live vaults**. That is
+    a deployment fact, not a send proof: there is **no mainnet hosted-helper send txid yet**, so the
+    Architecture-B end-to-end send above remains **proven on testnet only**. The mainnet proof set
+    stands at **8 txids** (`docs/PROOF.md`), unchanged by this deployment.
   - Two hosted-helper bugs were found and fixed in the process: the helper image shipped without
     `curl` (its relay transport shells out to curl, so the publish step failed at "curl spawn"); and
     the helper's signing-collection window (`max_polls`) was too short for the browser ceremony over
