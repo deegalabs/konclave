@@ -2302,8 +2302,14 @@ mod tests {
     fn transactions_route_returns_history() {
         use crate::wallet::WalletTx;
         let txs = vec![
-            WalletTx { txid: "aa".into(), mined_height: None },
-            WalletTx { txid: "bb".into(), mined_height: Some(100) },
+            WalletTx {
+                txid: "aa".into(),
+                mined_height: None,
+            },
+            WalletTx {
+                txid: "bb".into(),
+                mined_height: Some(100),
+            },
         ];
         let cfg = cfg_with(tmp_db(), Some(Box::new(FakeWalletHist { txs })));
         let r = handle(&cfg, "GET", "/api/transactions", b"");
@@ -2552,8 +2558,16 @@ mod tests {
         assert_eq!(r.status, 200);
         assert_eq!(body_json(&r)["session"], "s3cr3t");
         // Foreign Host is still refused (the loopback gate runs first).
-        let foreign =
-            handle_secured(&cfg, "s3cr3t", "GET", "/api/session", b"", Some("evil.com"), None, None);
+        let foreign = handle_secured(
+            &cfg,
+            "s3cr3t",
+            "GET",
+            "/api/session",
+            b"",
+            Some("evil.com"),
+            None,
+            None,
+        );
         assert_eq!(foreign.status, 403);
         assert_eq!(body_json(&foreign)["error"], "bad_host");
     }

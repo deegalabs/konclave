@@ -302,7 +302,7 @@ mod tests {
         let st = RelayState::default();
         let now = 2_000_000;
         assert!(!(1..=6).all(|_| st.rate_ok("a", now, 5))); // "a" hits its cap
-        // A different key (e.g. a per-IP key vs a from key) has its own budget.
+                                                            // A different key (e.g. a per-IP key vs a from key) has its own budget.
         assert!(st.rate_ok("ip:203.0.113.7", now, 5));
     }
 
@@ -315,9 +315,15 @@ mod tests {
         let ip_key = "ip:198.51.100.9";
         let mut refused = false;
         for _ in 0..(RATE_MAX_IP + 10) {
-            if !st.rate_ok(ip_key, now, RATE_MAX_IP) { refused = true; break; }
+            if !st.rate_ok(ip_key, now, RATE_MAX_IP) {
+                refused = true;
+                break;
+            }
         }
-        assert!(refused, "a single IP is capped regardless of from-tag rotation");
+        assert!(
+            refused,
+            "a single IP is capped regardless of from-tag rotation"
+        );
     }
 }
 

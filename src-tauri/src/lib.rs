@@ -36,7 +36,9 @@ fn msg(e: StoreError) -> String {
 #[tauri::command]
 fn secure_store(id: String, share_b64: String) -> Result<(), String> {
     let bytes = unb64(&share_b64)?;
-    KeychainShareStore::default().store(&id, &bytes).map_err(msg)
+    KeychainShareStore::default()
+        .store(&id, &bytes)
+        .map_err(msg)
 }
 
 /// Return the stored share bytes (base64) for `id`, or an explicit "not found" error.

@@ -1176,14 +1176,18 @@ mod tests {
         // The proposal's approval moved with the rename: still exactly 2 approvers, now Daniel not
         // zcashbrazil - no orphan, no ghost row.
         let got = load_proposal(&dir, "v", "p1", 200).unwrap();
-        assert_eq!(got.approvals, vec!["Michael".to_string(), "Daniel".to_string()]);
+        assert_eq!(
+            got.approvals,
+            vec!["Michael".to_string(), "Daniel".to_string()]
+        );
         assert!(!got.approvals.iter().any(|a| a == "zcashbrazil"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn sync_throttle_shares_a_sync() {
-        let dir = std::env::temp_dir().join(format!("konclave-sync-throttle-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("konclave-sync-throttle-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         // No record yet -> must sync.
         assert!(should_sync(&dir, "v", 15, 1000));
@@ -1199,7 +1203,8 @@ mod tests {
 
     #[test]
     fn rename_member_guards() {
-        let dir = std::env::temp_dir().join(format!("konclave-rename-guard-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("konclave-rename-guard-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         save_members(&dir, "v", &["Alice".into(), "Bob".into()]).unwrap();
         // Unknown seat.
