@@ -11,17 +11,29 @@ members = [
 
 # librustzcash crates are pinned to one git rev across the whole workspace (must live at the
 # workspace root, not per-member). Kept in sync with the vendored engine (engine/versions.lock).
+#
+# Ironwood bump (ADR-0002): aligned to zcash-devtool main so the PCZT wire format stays
+# byte-for-byte identical to the reference devtool (which builds/proves the PCZT that
+# zcash-sign externally signs). librustzcash @ 6c07e5f3 = pczt 0.9.1 / zcash_client_backend
+# 0.24.0-rc.6 (carries the #2778 ZIP-32 stamping fix for the Orchard migration-dummy) /
+# zcash_primitives 0.30.0 / zcash_client_sqlite 0.22.0-rc.6. orchard is patched to the SAME
+# rev zcash-devtool main patches to (zcash/orchard @ 3bd2b736, PR #535 deferred-anchor); that
+# rev is version 0.15.0 and still exposes the `unstable-frost` feature konclave-signer needs
+# for RedPallas spend-auth extraction, so byte-compat with the devtool and unstable-frost are
+# satisfied by a single orchard rev (no fork conflict).
 [patch.crates-io]
-equihash = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
-f4jumble = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
-zcash_address = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
-zcash_encoding = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
-zcash_protocol = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
-zip321 = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
-pczt = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
-zcash_client_backend = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
-zcash_client_sqlite = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
-zcash_keys = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
-zcash_primitives = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
-zcash_proofs = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
-zcash_transparent = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
+equihash = { git = "https://github.com/zcash/librustzcash", rev = "6c07e5f3297febf469e5cc8d0b91321e0767cdd7" }
+f4jumble = { git = "https://github.com/zcash/librustzcash", rev = "6c07e5f3297febf469e5cc8d0b91321e0767cdd7" }
+zcash_address = { git = "https://github.com/zcash/librustzcash", rev = "6c07e5f3297febf469e5cc8d0b91321e0767cdd7" }
+zcash_encoding = { git = "https://github.com/zcash/librustzcash", rev = "6c07e5f3297febf469e5cc8d0b91321e0767cdd7" }
+zcash_protocol = { git = "https://github.com/zcash/librustzcash", rev = "6c07e5f3297febf469e5cc8d0b91321e0767cdd7" }
+zip321 = { git = "https://github.com/zcash/librustzcash", rev = "6c07e5f3297febf469e5cc8d0b91321e0767cdd7" }
+pczt = { git = "https://github.com/zcash/librustzcash", rev = "6c07e5f3297febf469e5cc8d0b91321e0767cdd7" }
+zcash_client_backend = { git = "https://github.com/zcash/librustzcash", rev = "6c07e5f3297febf469e5cc8d0b91321e0767cdd7" }
+zcash_client_sqlite = { git = "https://github.com/zcash/librustzcash", rev = "6c07e5f3297febf469e5cc8d0b91321e0767cdd7" }
+zcash_keys = { git = "https://github.com/zcash/librustzcash", rev = "6c07e5f3297febf469e5cc8d0b91321e0767cdd7" }
+zcash_primitives = { git = "https://github.com/zcash/librustzcash", rev = "6c07e5f3297febf469e5cc8d0b91321e0767cdd7" }
+zcash_proofs = { git = "https://github.com/zcash/librustzcash", rev = "6c07e5f3297febf469e5cc8d0b91321e0767cdd7" }
+zcash_transparent = { git = "https://github.com/zcash/librustzcash", rev = "6c07e5f3297febf469e5cc8d0b91321e0767cdd7" }
+# orchard: match zcash-devtool main's patch (deferred-anchor + unstable-frost, both at 0.15.0).
+orchard = { git = "https://github.com/zcash/orchard.git", rev = "3bd2b736d1273226595773265313fc3f3428af16" }

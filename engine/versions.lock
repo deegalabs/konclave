@@ -13,58 +13,85 @@ reference_tutorial = "https://frost.zfnd.org/zcash/ywallet-demo.html"
 ciphersuite = "redpallas"                                         # pass `-C redpallas` -> Rerandomized FROST
 
 # NU6.3 / Ironwood readiness (Option A — clean cut at mainnet activation, 2026-07-28).
-# FROST / RedPallas is UNCHANGED by the upgrade, so the frost-tools binaries below do NOT change.
-# What changes is the send path (the PCZT bridge + the wallet engine), which must be rebuilt
-# against a librustzcash that knows the Ironwood pool (V6 transactions, a new shielded pool):
-#   - librustzcash pin: 42ffd0d89ffd6c401c9669651a6123f707d5703d   (orchard 0.15, pczt v2)
-#   - konclave-signer/Cargo.toml pins this rev; the Ironwood zcash-devtool is built at the same pin.
+# FROST / RedPallas is UNCHANGED by the upgrade, so the FROST math is unaffected; what changes is
+# the send path (the PCZT bridge + the wallet engine), which is rebuilt against a librustzcash that
+# knows the Ironwood pool (V6 transactions, a new shielded pool).
 #
-# ALIGNMENT (checked 2026-07-27): this pin MATCHES zcash-devtool origin/main (c8322f7), which is
-# the reference Ironwood tool ("no branch checkout needed anymore"). The final librustzcash crates
-# shipped 2026-07-26/27 (zcash_primitives 0.30.0, orchard 0.15.4, zcash_protocol 0.10.1,
-# zcash_keys 0.16.0, pczt 0.9.1) are NEWER than what zcash-devtool main pins — so we deliberately
-# hold at 42ffd0d to keep the PCZT wire format byte-for-byte identical to the devtool (ADR-0002),
-# and bump to the finals only when zcash-devtool main does. Our 42ffd0d engine already produces
-# testnet Ironwood spends the network mines, so it is consensus-valid for the activation.
+# BUMP (2026-08-22): moved off the interim 42ffd0d hold onto the finals that zcash-devtool main now
+# pins, so the PCZT wire format stays byte-for-byte identical to the reference devtool (ADR-0002).
+#   - librustzcash pin: 6c07e5f3297febf469e5cc8d0b91321e0767cdd7
+#       pczt 0.9.1 · zcash_client_backend 0.24.0-rc.6 (carries #2778, the ZIP-32 stamping fix for
+#       the Orchard migration-dummy) · zcash_primitives 0.30.0 · zcash_client_sqlite 0.22.0-rc.6 ·
+#       zcash_protocol 0.10.3 · zcash_keys 0.16.1 · zip321 0.9.0-rc.1 · zcash_transparent 0.10.0
+#   - orchard: patched to zcash/orchard rev 3bd2b736d1273226595773265313fc3f3428af16 (PR #535,
+#       deferred-anchor) — the SAME orchard rev zcash-devtool main's Cargo.lock pins. That rev is
+#       version 0.15.0 and still exposes the `unstable-frost` feature konclave-signer needs for
+#       RedPallas spend-auth extraction, so byte-compat with the devtool and unstable-frost are met
+#       by ONE orchard rev (no fork conflict). konclave-signer pins orchard "=0.15.0" so cargo does
+#       not silently prefer the higher crates.io 0.15.5 and drop the patch.
+#   - The librustzcash pins live at the workspace root [patch.crates-io]; konclave-signer/Cargo.toml
+#       carries the matching version numbers.
 #
-# Re-validated end-to-end on testnet with the REPO konclave-signer (dual-pool): sync -> create ->
-# prove -> extract (4 real spends) -> 4 FROST 2-of-3 ceremonies -> inject (verifies each) ->
-# broadcast, accepted. See temp/IRONWOOD-PRODUCTIZATION-PLAN.md. This branch is held until activation.
+# ALIGNMENT (checked 2026-08-22): this pin set MATCHES zcash-devtool main (539ae81d), whose committed
+# Cargo.lock resolves orchard to the git fork 0.15.0 @ 3bd2b736 and all librustzcash crates to
+# 6c07e5f3 — see [source.zcash-devtool] below.
+#
+# Byte-compat re-validated in-tree: the konclave-signer Ironwood fixtures (a REAL proven V6 PCZT and
+# its signed form from a testnet 2-of-3 ceremony) still parse and reproduce byte-for-byte under
+# pczt 0.9.1 (`inject_reproduces_signed_ironwood_pczt` + the sighash/randomizer pins pass), so the
+# V6 wire format is stable across the 42ffd0d -> 6c07e5f3 bump.
 
 [source.frost-tools]
 repo = "https://github.com/ZcashFoundation/frost-tools"
-rev  = "3d2985cfbc5df9314f3882a6d693bbe0d711051f"                 # "frostd: don't force localhost ... (#587)"
-# Transitive deps are locked by the repo's committed Cargo.lock at this rev.
+rev  = "06c0dbdbb1bac9b99cd255e74ba2f387c295e660"                 # zcash-sign Ironwood V6 support (PR #593, merged 2026-08-12)
+# Transitive deps are locked by the repo's committed Cargo.lock at this rev. At #593 frost-tools
+# pins pczt 0.8.0-rc.1 / zcash_client_backend 0.24.0-rc.1 and an orchard "unstable-frost" fork
+# (conradoplg/orchard rev 42015f15733b95e179189628d6fa34d92b5b3b8b). zcash-sign is invoked as an
+# EXTERNAL binary, so this differs from our linked-library pin above; interoperation is at the
+# PCZT wire level (pczt 0.9 <-> 0.8 V6 envelopes), not at the Rust API level.
 
-# Binaries produced from the source above (sha256 of THIS build — see NOTE):
+# The reference Ironwood PCZT tool. Not invoked as a binary here — recorded so the librustzcash /
+# orchard pins above can be checked against it (their patch set must match, ADR-0002).
+[source.zcash-devtool]
+repo = "https://github.com/zcash/zcash-devtool"
+rev  = "539ae81d6e793d15ea6ed3fb4157973545e27326"                 # main HEAD as of 2026-08-22
+# Its committed Cargo.lock resolves orchard to git 0.15.0 @ 3bd2b736 and every librustzcash crate
+# to 6c07e5f3 — the exact pin set mirrored in the workspace root [patch.crates-io].
+
+# Binaries produced from the frost-tools source above (sha256 of THIS build — see NOTE).
+# The bump to frost-tools #593 requires a rebuild on a build host; sha256 values below are stale
+# placeholders until then (do NOT trust them for verification):
 [[binary]]
 name    = "frostd"
 version = "0.1.0"
-sha256  = "efd1647783d13599072841cad92b0d01ea42ecfd871d50846e26a57929ff1a0c"
+sha256  = "TODO: recompute on rebuild at frost-tools 06c0dbdbb1ba"
 role    = "Coordination server (blind). Local dev: run with --no-tls-very-insecure. Default port 2744."
 
 [[binary]]
 name    = "frost-client"
 version = "0.1.0"
-sha256  = "4e0c0185850ac1cc9b2860b1fa249826b9b9f7656c7cc3963cde13e33340fd1a"
+sha256  = "TODO: recompute on rebuild at frost-tools 06c0dbdbb1ba"
 role    = "init / dkg / trusted-dealer / coordinator / participant; contacts; sessions; --cli for JSON"
 
 [[binary]]
 name    = "zcash-sign"
 version = "0.1.0"
-sha256  = "df64816ecb3d923d82d303df9fab241d18d2e0039277014f6f508b2f0cce5238"
-role    = "generate --ak -> Orchard addr + UFVK; sign tx-plan(Ywallet)/PCZT with external FROST signature"
+sha256  = "TODO: recompute on rebuild at frost-tools 06c0dbdbb1ba"
+role    = "generate --ak -> Orchard addr + UFVK; sign tx-plan(Ywallet)/PCZT with external FROST signature (Ironwood V6 via #593)"
 
-# Key transitive crypto deps (recorded for audit; authoritative lock is Cargo.lock @ rev):
+# Key transitive crypto deps of frost-tools @ #593 (recorded for audit; authoritative lock is that
+# repo's committed Cargo.lock @ rev). frost_core/frost_rerandomized carry over unchanged by NU6.3:
 [crypto_deps]
 frost_core           = "2.2.0"
 frost_rerandomized   = "2.1.0"
 reddsa               = "0.5.1 (+git rev ed49e9ca0699a6450f6d4a9fe62ff168f5ea1ead)"
-orchard              = "0.11.0 (fork github.com/conradoplg/orchard rev 4d001c5b6ad15373e68a5923d5868fbe42daba96)"
-pczt                 = "0.5.0"
-zcash_client_backend = "0.21.0"
+orchard              = "fork github.com/conradoplg/orchard rev 42015f15733b95e179189628d6fa34d92b5b3b8b (unstable-frost)"
+pczt                 = "0.8.0-rc.1"
+zcash_client_backend = "0.24.0-rc.1"
 
 # NOTE: sha256 values are for binaries built on THIS machine; the build is not bit-reproducible,
 # so the authoritative reproducibility anchor is (repo rev + the repo's committed Cargo.lock).
-# zcash_client_backend is also LINKED into the Orchestrator (src-tauri/), pinned there via its own
-# Cargo.lock — not invoked as a binary.
+# The placeholders above must be recomputed after the frost-tools #593 rebuild on the build host.
+# zcash_client_backend is also LINKED into the Orchestrator/konclave-signer, pinned via the
+# workspace [patch.crates-io] at librustzcash 6c07e5f3 (backend 0.24.0-rc.6) — not invoked as a
+# binary, and a different rc than the frost-tools external binary above.

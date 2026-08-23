@@ -14,10 +14,15 @@ anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 hex = "0.4"
 ff = "0.13"
-orchard = { version = "0.15", default-features = false, features = ["unstable-frost"] }
-pczt = { version = "0.7", features = ["signer"] }
-zcash_primitives = "0.29"
-zcash_protocol = "0.10"
+# Pinned to EXACTLY 0.15.0 so the workspace unifies on the zcash/orchard fork the root
+# [patch.crates-io] points at (rev 3bd2b736, PR #535 deferred-anchor) - the same orchard
+# zcash-devtool main locks. A bare "0.15" would let cargo prefer the higher crates.io 0.15.5
+# and silently drop the patch, diverging from the devtool's build (ADR-0002 byte-compat).
+# The fork is version 0.15.0 and still exposes `unstable-frost` (RedPallas spend-auth extraction).
+orchard = { version = "=0.15.0", default-features = false, features = ["unstable-frost"] }
+pczt = { version = "0.9.1", features = ["signer"] }
+zcash_primitives = "0.30.0"
+zcash_protocol = "0.10.3"
 
 # Multi-output PCZT construction for payroll (5-B.2): link zcash_client_backend directly
 # (§2 "link zcash_client_backend for the plan"), building an N-output Orchard PCZT the
@@ -26,10 +31,10 @@ rand = "0.8"
 uuid = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-zcash_address = "0.13"
-zip321 = "0.8"
-zcash_client_backend = { version = "0.23", features = ["orchard", "pczt", "unstable"] }
-zcash_client_sqlite = { version = "0.21", features = ["transparent-inputs", "orchard", "unstable", "serde"] }
+zcash_address = "0.13.0"
+zip321 = "0.9.0-rc.1"
+zcash_client_backend = { version = "0.24.0-rc.6", features = ["orchard", "pczt", "unstable"] }
+zcash_client_sqlite = { version = "0.22.0-rc.6", features = ["transparent-inputs", "orchard", "unstable", "serde"] }
 
 # The librustzcash git pins that keep the PCZT wire format byte-exact now live at the
 # workspace root ([patch.crates-io] in the top-level Cargo.toml), shared by every crate.

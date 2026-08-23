@@ -339,13 +339,18 @@ fn build_payroll(
         ConfirmationsPolicy::default(),
         &SpendPolicy::default(),
         None,
+        // proposed_version: None -> build at the version implied by the target height (V6 from
+        // NU6.3/Ironwood onward), so the pool is resolved from consensus, not pinned here.
+        None,
     )
     .map_err(|e: WalletErr<_, std::convert::Infallible, _, _, _, _>| {
         anyhow!("propose_transfer: {e:?}")
     })?;
 
-    // `None` expiry (the caller syncs before building) and the DEFAULT Orchard bundle type; the
+    // `None` expiry (the caller syncs before building) and the DEFAULT Orchard-pool padding; the
     // pool (Orchard pre-NU6.3, Ironwood post-NU6.3) is resolved from consensus at the target height.
+    // The final arg changed from an orchard `BundleType` to `BundlePadding` in the Ironwood line
+    // (backend 0.24); DEFAULT preserves the previous behavior.
     let pczt = create_pczt_from_proposal(
         &mut db,
         &params,
@@ -353,7 +358,7 @@ fn build_payroll(
         OvkPolicy::Sender,
         &proposal,
         None,
-        orchard::builder::BundleType::DEFAULT,
+        zcash_primitives::transaction::builder::BundlePadding::DEFAULT,
     )
     .map_err(
         |e: WalletErr<_, _, std::convert::Infallible, _, std::convert::Infallible, _>| {
