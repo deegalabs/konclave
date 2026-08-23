@@ -269,14 +269,18 @@ export default function Vaults() {
           <div className="rd-empty">{t('vaults.empty')}</div>
         )}
 
-        <div className="rd-note">
-          {tr('vaults.note')}
-          {' · '}<span className="rd-link" onClick={() => nav('/intro')} role="link" tabIndex={0}
-            onKeyDown={activateOnKey(() => nav('/intro'))}>{t('vaults.howItWorks')}</span>
-          {' · '}<span className="rd-link" onClick={() => nav('/demo')} role="link" tabIndex={0}
-            onKeyDown={activateOnKey(() => nav('/demo'))}>{t('demo.watchCta')}</span>
-          {!live && <> · <i>{t('vaults.demoMode')}</i></>}
-        </div>
+        {/* Only after the vault list resolves, so the local-first / demo-mode note does not flash
+            above the skeleton during load. */}
+        {loaded && (
+          <div className="rd-note">
+            {tr('vaults.note')}
+            {' · '}<span className="rd-link" onClick={() => nav('/intro')} role="link" tabIndex={0}
+              onKeyDown={activateOnKey(() => nav('/intro'))}>{t('vaults.howItWorks')}</span>
+            {' · '}<span className="rd-link" onClick={() => nav('/demo')} role="link" tabIndex={0}
+              onKeyDown={activateOnKey(() => nav('/demo'))}>{t('demo.watchCta')}</span>
+            {!live && <> · <i>{t('vaults.demoMode')}</i></>}
+          </div>
+        )}
       </main>
 
       {importing && (
