@@ -187,6 +187,11 @@ pub fn vault_balance(
     cfg: &HelperConfig,
     reg: &VaultRegistration,
 ) -> Result<VaultBalance, ToolError> {
+    // Migrate the wallet database to the schema THIS engine expects before touching it. Idempotent,
+    // and it must run outside the sync throttle below: `balance` reads the database unconditionally,
+    // so a throttled read on a wallet written by an older engine would still fail (in production:
+    // `no such table: orchard_ironwood_migrations`).
+    crate::wallet::upgrade(&cfg.devtool, &reg.wallet_dir);
     // Throttle the sync: only hit lightwalletd if the last sync for this vault is stale. A fresh
     // deposit still lands within SYNC_THROTTLE_SECS, but rapid balance reads no longer each block on
     // a full sync (#194). The balance below reflects whatever the wallet last synced.
