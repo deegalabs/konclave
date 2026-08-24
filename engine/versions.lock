@@ -132,3 +132,37 @@ zcash_client_backend = "0.24.0-rc.1"
 # That difference is fine: zcash-sign is reached as an EXTERNAL binary and Konclave only calls its
 # `generate --ak` subcommand, which never touches a PCZT (interoperation with frost-tools is at the
 # PCZT wire level, and only for the paths we do not use).
+
+# ---------------------------------------------------------------------------------------------
+# DEPLOY ARTIFACTS - the stable-line build used to assemble the hosted helper image (2026-08-24).
+# These are OUR crates, built from this repo at the commit that carries this file, on the released
+# crate set above (workspace has no [patch.crates-io]; Cargo.lock has zero git sources). Recorded so
+# a deployed image can be traced back to an exact source state. Not bit-reproducible across hosts.
+[deploy_build]
+date        = "2026-08-24"
+line        = "released crates.io (pczt 0.9.3 / zcash_client_backend 0.24.0 / zcash_primitives 0.30.1 / orchard 0.15.5)"
+rustc       = "1.95.0"
+
+[[deploy_binary]]
+name   = "konclave-signer"
+sha256 = "79ea4bc7053da4a90c8fba88c677c0f8703c95e1e3a32b0f53ce107778572133"
+role   = "FROST<->PCZT bridge: extract shielded sighash + per-spend randomizers; inject the aggregate signature (pool-aware: Orchard pre-NU6.3, Ironwood post-NU6.3)"
+
+[[deploy_binary]]
+name   = "helper-server"
+sha256 = "59fc9577f97f5d7d68433f74ea10aa7ebed367adc102b8bf58e0055f5a49a086"
+role   = "hosted BLIND helper (ADR-0006 Rung A): registers a vault by group key, keeps a view-only wallet, builds/proves/broadcasts while the browsers sign. Never receives, derives, or stores a share"
+
+[[deploy_binary]]
+name   = "konclave"
+sha256 = "e17a8b3d387f24166a45727d406a6eba881d8ab21083fc31eaba917aed97ab64"
+role   = "local-first bridge (`konclave serve`, ADR-0004): loopback HTTP API + static UI"
+
+# The external zcash-devtool used alongside them in the helper image, built on the same released
+# line (its own Cargo.lock has zero git sources). See the HONEST CAVEAT under [source.zcash-devtool]:
+# this build comes from upstream rev 539ae81d PLUS a local manifest re-pin and an off-by-default
+# `pool-migration` feature gate, because upstream does not build on the released line unmodified.
+[[deploy_binary]]
+name   = "zcash-devtool"
+sha256 = "8c41afd3950d2b169c6880ef99a7d0c3c6e22061507115f789a1b5589c526153"
+role   = "PCZT suite: `pczt create` / `prove` / `send` only (Konclave never invokes `pczt sign`, which has no Ironwood path upstream - see zcash/zcash-devtool PR #238)"
