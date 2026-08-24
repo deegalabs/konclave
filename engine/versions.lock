@@ -17,29 +17,45 @@ ciphersuite = "redpallas"                                         # pass `-C red
 # the send path (the PCZT bridge + the wallet engine), which is rebuilt against a librustzcash that
 # knows the Ironwood pool (V6 transactions, a new shielded pool).
 #
-# BUMP (2026-08-22): moved off the interim 42ffd0d hold onto the finals that zcash-devtool main now
-# pins, so the PCZT wire format stays byte-for-byte identical to the reference devtool (ADR-0002).
-#   - librustzcash pin: 6c07e5f3297febf469e5cc8d0b91321e0767cdd7
-#       pczt 0.9.1 · zcash_client_backend 0.24.0-rc.6 (carries #2778, the ZIP-32 stamping fix for
-#       the Orchard migration-dummy) · zcash_primitives 0.30.0 · zcash_client_sqlite 0.22.0-rc.6 ·
-#       zcash_protocol 0.10.3 · zcash_keys 0.16.1 · zip321 0.9.0-rc.1 · zcash_transparent 0.10.0
-#   - orchard: patched to zcash/orchard rev 3bd2b736d1273226595773265313fc3f3428af16 (PR #535,
-#       deferred-anchor) — the SAME orchard rev zcash-devtool main's Cargo.lock pins. That rev is
-#       version 0.15.0 and still exposes the `unstable-frost` feature konclave-signer needs for
-#       RedPallas spend-auth extraction, so byte-compat with the devtool and unstable-frost are met
-#       by ONE orchard rev (no fork conflict). konclave-signer pins orchard "=0.15.0" so cargo does
-#       not silently prefer the higher crates.io 0.15.5 and drop the patch.
-#   - The librustzcash pins live at the workspace root [patch.crates-io]; konclave-signer/Cargo.toml
-#       carries the matching version numbers.
+# BUMP (2026-08-24): moved off git revs entirely and onto the RELEASED crates.io line. The workspace
+# root now carries NO [patch.crates-io] and Cargo.lock has ZERO git sources. Every crate below is a
+# published release, so the money path no longer rides on a moving, unaudited git rev.
 #
-# ALIGNMENT (checked 2026-08-22): this pin set MATCHES zcash-devtool main (539ae81d), whose committed
-# Cargo.lock resolves orchard to the git fork 0.15.0 @ 3bd2b736 and all librustzcash crates to
-# 6c07e5f3 — see [source.zcash-devtool] below.
+# The linked (not invoked) librustzcash / orchard crate set:
+#       pczt 0.9.3 · zcash_client_backend 0.24.0 (carries #2778, the ZIP-32 stamping fix for the
+#       Orchard migration-dummy, which survived rc.6 into the final) · zcash_primitives 0.30.1 ·
+#       zcash_client_sqlite 0.22.0 · zcash_protocol 0.10.5 · zcash_keys 0.16.1 · zcash_address
+#       0.13.0 · zip321 0.9.0 · zcash_transparent 0.10.0 · zcash_pool_migration 0.1.0
+#       orchard 0.15.5
 #
-# Byte-compat re-validated in-tree: the konclave-signer Ironwood fixtures (a REAL proven V6 PCZT and
-# its signed form from a testnet 2-of-3 ceremony) still parse and reproduce byte-for-byte under
-# pczt 0.9.1 (`inject_reproduces_signed_ironwood_pczt` + the sighash/randomizer pins pass), so the
-# V6 wire format is stable across the 42ffd0d -> 6c07e5f3 bump.
+# Why the two old git pins could be dropped:
+#   - orchard `unstable-frost` (RedPallas spend-auth extraction, needed by konclave-signer and
+#       konclave-wasm): published orchard 0.15.5 declares `unstable-frost = []` in its own [features]
+#       table (verified in the crate source), so the zcash/orchard fork rev 3bd2b736 is unnecessary.
+#       The two crates enable the feature per-manifest.
+#   - the deferred-anchor work (zcash/orchard PR #535) that fork rev carried: RELEASED in orchard
+#       0.15.2, so 0.15.5 is a strict superset of rev 3bd2b736, not a divergence from it.
+#   - the interim librustzcash holds (42ffd0d, then 6c07e5f3): the crates they anticipated are now
+#       published, and the rc versions 6c07e5f3 carried (backend 0.24.0-rc.6, sqlite 0.22.0-rc.6,
+#       zip321 0.9.0-rc.1) have all reached their finals.
+#
+# ALIGNMENT (ADR-0002, checked 2026-08-24): zcash-devtool main is on the SAME released crate set with
+# no patch table and zero git sources of its own, so producer and consumer now resolve literally the
+# same crate artifacts instead of merely pointing at the same git rev. See [source.zcash-devtool]
+# below for the one honest caveat (upstream 539ae81d needs a local patch to BUILD on this line).
+#
+# Byte-compat re-validated in-tree on the released crates: the konclave-signer and konclave-wasm
+# Ironwood fixtures (a REAL proven V6 PCZT and its signed form from a testnet 2-of-3 ceremony) parse
+# and reproduce byte-for-byte under pczt 0.9.3 (`inject_reproduces_signed_ironwood_pczt` plus the
+# pinned sighash / randomizer values pass), so the V6 wire format is stable across the
+# 42ffd0d -> 6c07e5f3 -> released-crates moves. Test counts on this pin set: konclave-signer 7,
+# konclave-wasm 20, orchestrator 237, all passing.
+#
+# NOT covered by any byte-exact fixture: the multi-output payroll builder
+# (`create_pczt_from_proposal` in konclave-signer). It is compile-verified and its call signature is
+# unchanged, but no fixture pins its OUTPUT bytes, so a fee / padding / anchor behavior shift between
+# the rc and released backend would be invisible here. Do a live dry-run against the reference
+# devtool before any broadcast on this pin set.
 
 [source.frost-tools]
 repo = "https://github.com/ZcashFoundation/frost-tools"
@@ -55,10 +71,26 @@ rev  = "06c0dbdbb1bac9b99cd255e74ba2f387c295e660"                 # zcash-sign I
 [source.zcash-devtool]
 repo = "https://github.com/zcash/zcash-devtool"
 rev  = "539ae81d6e793d15ea6ed3fb4157973545e27326"                 # main HEAD as of 2026-08-22
-# Its committed Cargo.lock resolves orchard to git 0.15.0 @ 3bd2b736 and every librustzcash crate
-# to 6c07e5f3 — the exact pin set mirrored in the workspace root [patch.crates-io].
-# Built on the build host 2026-08-22 (invoked by the orchestrator/helper for PCZT prove/create):
-#   sha256(zcash-devtool) = 045c32288b359caea337a1334dce60a813f9295a3b94eb8abf51a44a93965ce7
+# HONEST CAVEAT: upstream rev 539ae81d does NOT build against the released crate line unmodified.
+# Its `migration` subcommand calls a zcash_pool_migration API that is ahead of the published 0.1.0.
+# The local build re-pins the manifest to the released versions and puts that subcommand behind an
+# off-by-default `pool-migration` feature. Konclave never invokes it (only `pczt create`, `pczt
+# prove`, `pczt send`), so the gate does not touch our path, but the build is upstream-rev PLUS a
+# local patch, not the upstream rev alone. Upstream it or carry it deliberately.
+# With that patch its manifest and Cargo.lock resolve orchard 0.15.5, pczt 0.9.3,
+# zcash_client_backend 0.24.0, zcash_primitives 0.30.1, zcash_protocol 0.10.5, zcash_client_sqlite
+# 0.22.0, zcash_keys 0.16.1, zcash_address 0.13.0, zip321 0.9.0, zcash_transparent 0.10.0, with zero
+# git sources: the same released set the workspace links.
+#
+# sha256 STALE - NEEDS A REBUILD RECORD. The value below is the 2026-08-22 build at the OLD rc pins
+# and no longer corresponds to anything the workspace should ship against:
+#   sha256(zcash-devtool, 2026-08-22, rc pins, STALE) =
+#     045c32288b359caea337a1334dce60a813f9295a3b94eb8abf51a44a93965ce7
+# A local stable-line build exists on the build host and hashes to
+#   8c41afd3950d2b169c6880ef99a7d0c3c6e22061507115f789a1b5589c526153
+# but it came from the locally patched working tree described above, not from a clean checkout, so it
+# is recorded as an OBSERVATION, not as the authoritative pin. Rebuild from a committed, reproducible
+# source state (upstream rev + a committed patch, or a fork rev) and record that sha256 here.
 
 # Binaries produced from the frost-tools source above (sha256 of THIS build — see NOTE).
 # Rebuilt on the build host 2026-08-22 at frost-tools 06c0dbdbb1ba; the sha256 below are the real
@@ -94,6 +126,9 @@ zcash_client_backend = "0.24.0-rc.1"
 # NOTE: sha256 values are for binaries built on THIS machine; the build is not bit-reproducible,
 # so the authoritative reproducibility anchor is (repo rev + the repo's committed Cargo.lock).
 # Recompute these if you rebuild on a different host.
-# zcash_client_backend is also LINKED into the Orchestrator/konclave-signer, pinned via the
-# workspace [patch.crates-io] at librustzcash 6c07e5f3 (backend 0.24.0-rc.6) — not invoked as a
-# binary, and a different rc than the frost-tools external binary above.
+# zcash_client_backend is also LINKED into the Orchestrator/konclave-signer, now at the RELEASED
+# crates.io 0.24.0 (no workspace [patch.crates-io], no git rev) - not invoked as a binary, and a
+# different version than the frost-tools external binary above, which stays at its own 0.24.0-rc.1.
+# That difference is fine: zcash-sign is reached as an EXTERNAL binary and Konclave only calls its
+# `generate --ak` subcommand, which never touches a PCZT (interoperation with frost-tools is at the
+# PCZT wire level, and only for the paths we do not use).

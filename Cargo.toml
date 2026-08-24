@@ -9,31 +9,23 @@ members = [
   "src-tauri",
 ]
 
-# librustzcash crates are pinned to one git rev across the whole workspace (must live at the
-# workspace root, not per-member). Kept in sync with the vendored engine (engine/versions.lock).
+# NO [patch.crates-io]. Every librustzcash / orchard crate comes straight from crates.io at a
+# RELEASED version - there are zero git sources in Cargo.lock. Keep it that way: a git rev is a
+# moving, unaudited target on a money path, and the released line now carries everything the
+# earlier pins were reaching for.
 #
-# Ironwood bump (ADR-0002): aligned to zcash-devtool main so the PCZT wire format stays
-# byte-for-byte identical to the reference devtool (which builds/proves the PCZT that
-# zcash-sign externally signs). librustzcash @ 6c07e5f3 = pczt 0.9.1 / zcash_client_backend
-# 0.24.0-rc.6 (carries the #2778 ZIP-32 stamping fix for the Orchard migration-dummy) /
-# zcash_primitives 0.30.0 / zcash_client_sqlite 0.22.0-rc.6. orchard is patched to the SAME
-# rev zcash-devtool main patches to (zcash/orchard @ 3bd2b736, PR #535 deferred-anchor); that
-# rev is version 0.15.0 and still exposes the `unstable-frost` feature konclave-signer needs
-# for RedPallas spend-auth extraction, so byte-compat with the devtool and unstable-frost are
-# satisfied by a single orchard rev (no fork conflict).
-[patch.crates-io]
-equihash = { git = "https://github.com/zcash/librustzcash", rev = "6c07e5f3297febf469e5cc8d0b91321e0767cdd7" }
-f4jumble = { git = "https://github.com/zcash/librustzcash", rev = "6c07e5f3297febf469e5cc8d0b91321e0767cdd7" }
-zcash_address = { git = "https://github.com/zcash/librustzcash", rev = "6c07e5f3297febf469e5cc8d0b91321e0767cdd7" }
-zcash_encoding = { git = "https://github.com/zcash/librustzcash", rev = "6c07e5f3297febf469e5cc8d0b91321e0767cdd7" }
-zcash_protocol = { git = "https://github.com/zcash/librustzcash", rev = "6c07e5f3297febf469e5cc8d0b91321e0767cdd7" }
-zip321 = { git = "https://github.com/zcash/librustzcash", rev = "6c07e5f3297febf469e5cc8d0b91321e0767cdd7" }
-pczt = { git = "https://github.com/zcash/librustzcash", rev = "6c07e5f3297febf469e5cc8d0b91321e0767cdd7" }
-zcash_client_backend = { git = "https://github.com/zcash/librustzcash", rev = "6c07e5f3297febf469e5cc8d0b91321e0767cdd7" }
-zcash_client_sqlite = { git = "https://github.com/zcash/librustzcash", rev = "6c07e5f3297febf469e5cc8d0b91321e0767cdd7" }
-zcash_keys = { git = "https://github.com/zcash/librustzcash", rev = "6c07e5f3297febf469e5cc8d0b91321e0767cdd7" }
-zcash_primitives = { git = "https://github.com/zcash/librustzcash", rev = "6c07e5f3297febf469e5cc8d0b91321e0767cdd7" }
-zcash_proofs = { git = "https://github.com/zcash/librustzcash", rev = "6c07e5f3297febf469e5cc8d0b91321e0767cdd7" }
-zcash_transparent = { git = "https://github.com/zcash/librustzcash", rev = "6c07e5f3297febf469e5cc8d0b91321e0767cdd7" }
-# orchard: match zcash-devtool main's patch (deferred-anchor + unstable-frost, both at 0.15.0).
-orchard = { git = "https://github.com/zcash/orchard.git", rev = "3bd2b736d1273226595773265313fc3f3428af16" }
+# ADR-0002 (byte-compat with the reference devtool) is SATISFIED BY, not weakened by, this move:
+# zcash-devtool main is itself on the same published releases (orchard 0.15.5, pczt 0.9.3,
+# zcash_client_backend 0.24.0, zcash_primitives 0.30.1, zcash_protocol 0.10.5) with no patch table
+# of its own, so producer and consumer now share the exact same crate artifacts instead of merely
+# happening to point at the same git rev.
+#
+# Two things the old patch table existed for, and where they went:
+#   - orchard `unstable-frost` (RedPallas spend-auth extraction for konclave-signer/konclave-wasm):
+#     published orchard 0.15.5 declares `unstable-frost = []` in its own [features] table, so no
+#     fork rev is needed. Enable the feature per-crate, not here.
+#   - the deferred-anchor work (zcash/orchard PR #535) the fork rev 3bd2b736 carried: released in
+#     orchard 0.15.2, so 0.15.5 is a strict superset of that rev.
+#
+# Version pins live per-member (konclave-signer, konclave-wasm, orchestrator). Bump them together,
+# and keep engine/versions.lock in sync.

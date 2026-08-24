@@ -40,6 +40,15 @@ matches byte for byte. Enabling discovery: **mainline `orchard 0.14` already shi
 FROST hooks** (`unstable-frost`, `apply_signature`, access to `alpha`): the old fork was
 upstreamed.
 
+> **Amendment (2026-08-24).** The version numbers in the paragraph above are the ones this
+> decision was taken against on 2026-07-01 and are kept as the historical record. They are no
+> longer the pins in force. The *principle* is unchanged (match the reference `zcash-devtool` so
+> the PCZT wire format is byte-identical); the *set* has moved twice since, and now sits on
+> released crates.io versions with no `[patch.crates-io]` and no git revs at all
+> (orchard 0.15.5, pczt 0.9.3, zcash_client_backend 0.24.0, zcash_primitives 0.30.1).
+> **`engine/versions.lock` is the single live source for the pin set. Read it, not this
+> paragraph, before changing a version.**
+
 ## Consequences
 
 - It is **glue, not cryptography**: only calls to the official libraries; the FROST math

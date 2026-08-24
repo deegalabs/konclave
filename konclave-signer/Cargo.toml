@@ -14,27 +14,30 @@ anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 hex = "0.4"
 ff = "0.13"
-# Pinned to EXACTLY 0.15.0 so the workspace unifies on the zcash/orchard fork the root
-# [patch.crates-io] points at (rev 3bd2b736, PR #535 deferred-anchor) - the same orchard
-# zcash-devtool main locks. A bare "0.15" would let cargo prefer the higher crates.io 0.15.5
-# and silently drop the patch, diverging from the devtool's build (ADR-0002 byte-compat).
-# The fork is version 0.15.0 and still exposes `unstable-frost` (RedPallas spend-auth extraction).
-orchard = { version = "=0.15.0", default-features = false, features = ["unstable-frost"] }
-pczt = { version = "0.9.1", features = ["signer"] }
-zcash_primitives = "0.30.0"
-zcash_protocol = "0.10.3"
+# Published crates.io release, no fork rev and no [patch.crates-io]. 0.15.5 declares
+# `unstable-frost` itself (the feature that makes SpendValidatingKey's ak (de)serialization
+# public for RedPallas spend-auth work), and it already contains the deferred-anchor work
+# (PR #535, released in 0.15.2) that the old fork pin existed for. This is the same orchard
+# release zcash-devtool main resolves, so ADR-0002 byte-compat holds on a shared artifact.
+orchard = { version = "0.15.5", default-features = false, features = ["unstable-frost"] }
+# 0.9.3's `default` gained "orchard"+"sapling", which is inert here: the `signer` feature
+# already implies both. A crate that must stay lean (konclave-wasm) sets default-features = false.
+pczt = { version = "0.9.3", features = ["signer"] }
+zcash_primitives = "0.30.1"
+zcash_protocol = "0.10.5"
 
 # Multi-output PCZT construction for payroll (5-B.2): link zcash_client_backend directly
 # (§2 "link zcash_client_backend for the plan"), building an N-output Orchard PCZT the
-# CLI can't. Same librustzcash rev as the bridge (patched below) so the wire format matches.
+# CLI can't. Same released librustzcash line as the bridge above so the wire format matches.
 rand = "0.8"
 uuid = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 zcash_address = "0.13.0"
-zip321 = "0.9.0-rc.1"
-zcash_client_backend = { version = "0.24.0-rc.6", features = ["orchard", "pczt", "unstable"] }
-zcash_client_sqlite = { version = "0.22.0-rc.6", features = ["transparent-inputs", "orchard", "unstable", "serde"] }
+zip321 = "0.9.0"
+zcash_client_backend = { version = "0.24.0", features = ["orchard", "pczt", "unstable"] }
+zcash_client_sqlite = { version = "0.22.0", features = ["transparent-inputs", "orchard", "unstable", "serde"] }
 
-# The librustzcash git pins that keep the PCZT wire format byte-exact now live at the
-# workspace root ([patch.crates-io] in the top-level Cargo.toml), shared by every crate.
+# Every zcash crate above is a released crates.io version. The workspace root carries NO
+# [patch.crates-io] and Cargo.lock has zero git sources; see the root Cargo.toml for why, and
+# keep engine/versions.lock in sync when these move.

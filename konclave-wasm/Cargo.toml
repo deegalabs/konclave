@@ -16,12 +16,10 @@ reddsa = { version = "0.5.2", features = ["frost"] }
 # ciphersuite types unify.
 frost-rerandomized = "=3.0.0"
 # Orchard action verification + digest surface (proven wasm-clean: wasm-orchard-probe).
-# Ironwood: bumped 0.14 -> 0.15 to match the engine's NU6.3 pin so the PCZT wire format (v2) parses.
-# Pinned EXACT to =0.15.0 (the workspace's patched fork rev), mirroring konclave-signer: the fork's
-# 0.15.0 still declares `unstable-frost`, but crates.io has since published orchard 0.15.5, and a bare
-# "0.15" would let cargo drop the root [patch.crates-io] and drift to 0.15.5. The exact pin keeps the
-# whole workspace unified on the single patched orchard rev.
-orchard = { version = "=0.15.0", default-features = false, features = ["unstable-frost"] }
+# Ironwood: 0.15.x matches the engine's NU6.3 line so the PCZT wire format (v2) parses.
+# Released crates.io 0.15.5, same as konclave-signer and as zcash-devtool main - no fork rev and
+# no [patch.crates-io]. 0.15.5 declares `unstable-frost` itself, so the feature survives the move.
+orchard = { version = "0.15.5", default-features = false, features = ["unstable-frost"] }
 # ZIP-244 sig_digest recompute (proven wasm-clean: wasm-sighash-probe)
 blake2b_simd = "1"
 # PCZT parse + FROST signature injection (the FROST<->PCZT bridge, ported from konclave-signer).
@@ -30,11 +28,13 @@ blake2b_simd = "1"
 # features, which would drag in secp256k1 (C) and zcash_script (C++) and break the wasm32 build.
 # The shielded sighash is passed IN (it is public data - the message the FROST quorum signs - and
 # computing it from the full tx needs zcash_primitives, which stays native/off-device).
-pczt = { version = "0.9.1", default-features = false, features = ["orchard"] }
+# default-features = false is LOAD-BEARING, and more so since pczt 0.9.3: its `default` set gained
+# "orchard"+"sapling", so taking defaults here would pull sapling-crypto into the wasm32 graph.
+pczt = { version = "0.9.3", default-features = false, features = ["orchard"] }
 ff = "0.13"
-# --- Ironwood (NU6.3) pin: mirror the engine's librustzcash rev so the PCZT wire format (v2)
-# parses in the browser. Only pczt + its pure-Rust deps are patched; no signer/transparent
-# features, so the wasm32 build stays free of secp256k1 (C) / zcash_script (C++). ---
+# --- Ironwood (NU6.3): mirror the engine's released librustzcash line so the PCZT wire format
+# (v2) parses in the browser. No signer/transparent features, so the wasm32 build stays free of
+# secp256k1 (C) / zcash_script (C++). ---
 hex = "0.4"
 rand = "0.8"
 getrandom = { version = "0.2", features = ["js"] }
@@ -49,5 +49,6 @@ sha2 = "0.10"
 wasm-bindgen = "0.2"
 js-sys = "0.3"
 
-# The librustzcash Ironwood (NU6.3) pin now lives at the workspace root ([patch.crates-io]);
-# it stays in sync with konclave-signer / the engine so the v2 PCZT parses byte-exact.
+# The zcash crates above are released crates.io versions (no workspace [patch.crates-io], zero git
+# sources in Cargo.lock); they stay in sync with konclave-signer / the engine so the v2 PCZT parses
+# byte-exact.
