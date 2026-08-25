@@ -202,6 +202,9 @@
   font-size: 11.5px; cursor: pointer;
 }
 .imp-field-file:hover { text-decoration: underline; }
+/* It opens a file dialog, so it must look and behave like something you press. */
+.imp-field-file { cursor: pointer; }
+.imp-field-file:focus-within { text-decoration: underline; outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-sm); }
 .imp-preview {
   display: flex; align-items: center; gap: 12px; padding: 13px 14px; border-radius: var(--radius);
   background: var(--surface-0); border: 1px solid var(--success, #43b58f);

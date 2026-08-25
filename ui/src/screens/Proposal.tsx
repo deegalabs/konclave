@@ -200,7 +200,10 @@ export default function Proposal() {
         {/* What this actually costs the vault. The amount alone is not the cost: on a small payroll
             the network fee was five times the payment and appeared nowhere, so people approved
             something the vault could not pay and only found out after everyone had signed. */}
-        {cost && (
+        {/* Only while the payment can still be acted on. Once it is sent the vault has ALREADY paid
+            it, so the balance is lower by exactly that much and the shortfall arithmetic turns into
+            a lie: a confirmed payment on mainnet was still being told the vault could not afford it. */}
+        {cost && (isAwaiting || isReady) && (
           /* Exact, not rounded. These figures exist to be COMPARED - with each other and with the
              balance - and four decimals prints 0.00024 and 0.0002 identically, so the box would
              have said this takes 0.0002 out of a 0.0002 balance while warning it was short. */

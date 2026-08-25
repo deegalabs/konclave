@@ -222,8 +222,12 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 .railcontent{min-width:0}
 .applayout .page{max-width:940px; padding:var(--pad) var(--pad) 84px}
 
+/* `position:sticky` CREATES a stacking context, so everything inside the rail - including the vault
+   switcher's z-index:70 - was trapped under the page's content, which comes later in the DOM. The
+   popover rendered behind the cards it was supposed to cover, reading as a transparent menu. The
+   rail is persistent shell: it belongs above the content that scrolls under it. */
 .rail{border-right:1px solid var(--line-soft); padding:24px 18px; display:flex; flex-direction:column; gap:28px;
-  position:sticky; top:0; height:100vh}
+  position:sticky; top:0; height:100vh; z-index:60}
 .rail .brand{display:flex; align-items:center; gap:11px; text-decoration:none; color:inherit}
 .rail .wm{font-family:var(--font-mono); font-weight:600; font-size:12px; letter-spacing:.42em; text-indent:.42em}
 .rail .brand-sub{font-family:var(--font-mono); font-size:9px; letter-spacing:.2em; color:var(--text-muted); text-transform:uppercase; margin-top:2px}
@@ -296,7 +300,7 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
   .applayout{grid-template-columns:1fr}
 
   /* top bar */
-  .rail{position:sticky; top:0; z-index:40; height:auto; flex-direction:row; align-items:center;
+  .rail{position:sticky; top:0; z-index:60; height:auto; flex-direction:row; align-items:center;
     flex-wrap:nowrap; gap:10px; border-right:0; border-bottom:1px solid var(--line);
     padding:10px var(--pad); background:var(--surface-0)}
   .rail .brand{flex:0 1 auto; min-width:0}

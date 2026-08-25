@@ -159,8 +159,9 @@
 
 /* In-vault signing ceremony panel (K11) - a right-side session Sheet; echoes the members-popover
    language (surface-1, line, mono klab headers, Identicon roster). */
-.sign-scrim{position:fixed; inset:0; z-index:40; background:rgba(0,0,0,.42)}
-.sign-sheet{position:fixed; top:0; right:0; bottom:0; z-index:41; width:min(420px,92vw);
+/* Above the rail (60): a session sheet covers the shell, not the other way round. */
+.sign-scrim{position:fixed; inset:0; z-index:80; background:rgba(0,0,0,.42)}
+.sign-sheet{position:fixed; top:0; right:0; bottom:0; z-index:81; width:min(420px,92vw);
   display:flex; flex-direction:column; gap:16px; padding:24px 24px 28px; overflow-y:auto; overflow-x:hidden;
   background:var(--surface-1); border-left:1px solid var(--line); box-shadow:-12px 0 40px rgba(0,0,0,.25);
   animation:signSlide .18s ease}

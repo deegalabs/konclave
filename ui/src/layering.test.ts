@@ -35,8 +35,25 @@ describe('stacking order: a modal is never buried', () => {
   it('the confirm modal sits above every other overlay that can be open under it', () => {
     // The vault switcher (and its scrim) and the mobile bottom nav: each one, left above a modal,
     // would take the click meant for the money confirm.
-    for (const under of ['.vault-pop', '.vault-scrim', '.railnav', '.nav-more-sheet']) {
+    for (const under of ['.vault-pop', '.vault-scrim', '.railnav', '.nav-more-sheet', '.rail']) {
       expect(z('.modal-overlay')).toBeGreaterThan(z(under))
     }
+  })
+})
+
+describe('stacking order: the shell and the sheets', () => {
+  it('the signing sheet covers the rail, not the other way round', () => {
+    // The rail is `position:sticky`, which CREATES a stacking context: everything inside it - the
+    // vault switcher at z-index 70 included - is trapped at the rail's own level. So the rail needs
+    // a level of its own, and every surface meant to cover it needs a higher one.
+    expect(z('.sign-sheet')).toBeGreaterThan(z('.rail'))
+    expect(z('.sign-scrim')).toBeGreaterThan(z('.rail'))
+  })
+
+  it('the vault switcher is reachable: it lives inside the rail, so the rail carries them both', () => {
+    // The popover's own z-index is meaningless outside the rail's stacking context; what decides
+    // whether it covers the page is the RAIL's level.
+    expect(z('.rail')).toBeGreaterThan(z('.railnav')) // above the mobile bar too
+    expect(z('.modal-overlay')).toBeGreaterThan(z('.rail'))
   })
 })
