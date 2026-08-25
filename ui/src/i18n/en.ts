@@ -661,6 +661,11 @@ export const en: Record<string, string> = {
   'signing.confirmSignTitle': 'Sign this payment?',
   'signing.confirmSignBody': 'Your share joins the signature. The payment only goes out when the last signer signs.',
   'signing.confirmSignCta': 'Sign {amt} ZEC',
+  'signing.armExpires': 'Your signature counts for {mins} more min. After that it stops counting and you sign again.',
+  'signing.usdNote': '≈ {usd} · {source}, {age}',
+  'signing.rateNow': 'now',
+  'signing.rateMin': '{n} min ago',
+  'signing.rateStale': 'stale rate',
   'signing.tryAgain': 'Try again',
   'signing.errUnreachable': 'could not reach the coordinator',
 

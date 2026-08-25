@@ -18,10 +18,11 @@ import { markVaultUnlocked } from '../api'
 import { relayBase } from '../net'
 import { getUnlockedShare, setUnlockedShare } from '../session'
 import { loadVault } from '../storage'
+import { usdEnabled, cachedRate, fetchRate, zecToUsd, type Rate } from '../price'
 
 export default function SigningPanel() {
   const t = useT()
-  const { bg, vault, threshold, myName, active, close, reseat, armed, armActive } = useVaultSigner()
+  const { bg, vault, threshold, myName, active, close, reseat, armed, armActive, armedUntil } = useVaultSigner()
   const [confirming, setConfirming] = useState(false)
   const [sending, setSending] = useState(false)
   // When the send started, so the run line can show elapsed time. The build+prove leg is
@@ -36,6 +37,11 @@ export default function SigningPanel() {
   const [arming, setArming] = useState(false)
   // The send fires from an effect (the room names the sender), so guard it: one send per proposal.
   const sentOnce = useRef<string | null>(null)
+  const [rate, setRate] = useState<Rate | null>(cachedRate())
+  // The figure people actually judge is the one in their own currency, and this is the screen where
+  // they commit. Re-price on open and again at the confirm, rather than showing whatever was cached
+  // when the proposal was written - which can be hours or days old by now.
+  const [armLeft, setArmLeft] = useState(0)
 
   // Tick while a send is in flight. The build+prove leg is minutes long and emits no event we can
   // observe, so elapsed time is the only honest signal that the vault is working, not stuck.
@@ -55,6 +61,22 @@ export default function SigningPanel() {
     // Deliberately keyed on the decision and the payment only: doSend closes over state that
     // changes during the send, and re-running it would be a second broadcast.
   }, [bg.iSend, active?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!active || !usdEnabled()) return
+    let on = true
+    void fetchRate().then((r) => { if (on && r) setRate(r) })
+    return () => { on = false }
+  }, [active])
+
+  // Count the arming down, so the screen never claims a signature that has stopped counting.
+  useEffect(() => {
+    if (armedUntil === null) { setArmLeft(0); return }
+    const tick = () => setArmLeft(Math.max(0, Math.ceil((armedUntil - Date.now()) / 60000)))
+    tick()
+    const id = window.setInterval(tick, 15000)
+    return () => window.clearInterval(id)
+  }, [armedUntil])
 
   // Everyone who signed deserves the outcome, not just whoever sent. Only the sending device gets
   // the txid in its reply, so every OTHER device watches the proposal until the vault records it -
@@ -125,8 +147,22 @@ export default function SigningPanel() {
   const connecting = !started && !result && (unlocking || (hasShare && !bg.ready))
 
   const dest = active.to_address ? shortAddr(active.to_address) : '-'
+  const amtNum = active.value_zec
   const amt = fmtZec(active.value_zec)
   const isPayroll = active.kind === 'payroll'
+
+  // Priced only if the owner opted in, and never presented as fact: the source and the age of the
+  // quote ride along, so nobody reads an estimate as the amount being spent.
+  const rateAgeMin = rate ? Math.floor((Date.now() - rate.at) / 60000) : 0
+  const usdAmt = usdEnabled() ? zecToUsd(amtNum, rate) : null
+  const usd = usdAmt
+    ? t('signing.usdNote', {
+        usd: usdAmt,
+        source: rate?.source ?? '',
+        age: rateAgeMin < 1 ? t('signing.rateNow') : rateAgeMin > 30 ? t('signing.rateStale') : t('signing.rateMin', { n: rateAgeMin }),
+      })
+    : null
+
 
   async function doSend() {
     // Every exit from here must leave a visible trace. The panel used to close its confirm dialog
@@ -212,7 +248,8 @@ export default function SigningPanel() {
         <h2 id="sign-title" className="sign-title">{t('signing.title')}</h2>
 
         <div className="sign-what">
-          <span className="sign-amt">{amt} <span className="dim small">ZEC</span></span>
+          <span className="sign-amt num">{amt} <span className="dim small">ZEC</span></span>
+          {usd && <span className="sign-usd dim small">{usd}</span>}
           <span className="sign-to mono">{isPayroll ? t('kind.payroll') : <>→ {dest}</>}</span>
         </div>
 
@@ -307,6 +344,7 @@ export default function SigningPanel() {
             <>
               <div className="confirm ready">{quorumSigned ? t('signing.othersSending') : t('signing.youSigned')}</div>
               <div className="hint mt-sm">{t('signing.signedCount', { n: signedCount, t: threshold })}</div>
+              {armLeft > 0 && <div className="hint mt-sm dim">{t('signing.armExpires', { mins: armLeft })}</div>}
             </>
           ) : quorumSigned ? (
             <>
@@ -321,7 +359,11 @@ export default function SigningPanel() {
               <button
                 className="btn ok mt-sm"
                 disabled={!canSign}
-                onClick={() => setConfirming(true)}
+                onClick={() => {
+                  // Re-price at the moment of the decision, not at the moment the screen loaded.
+                  if (usdEnabled()) void fetchRate().then((r) => { if (r) setRate(r) })
+                  setConfirming(true)
+                }}
               >
                 {arming ? t('signing.arming') : iWouldBeLast ? t('signing.signAndSend') : t('signing.signAct')}
               </button>
@@ -339,7 +381,8 @@ export default function SigningPanel() {
             {iWouldBeLast ? t('signing.confirmTitle') : t('signing.confirmSignTitle')}
           </h2>
           <div className="send-confirm-what">
-            <strong className="scw-amt">{amt} ZEC</strong>
+            <strong className="scw-amt num">{amt} ZEC</strong>
+            {usd && <span className="scw-usd dim small"> {usd}</span>}
             {isPayroll ? <span className="scw-kind"> · {t('kind.payroll')}</span> : <> <span aria-hidden="true">→</span> <code>{dest}</code></>}
           </div>
           <p className="modal-p">{iWouldBeLast ? t('signing.confirmBody') : t('signing.confirmSignBody')}</p>

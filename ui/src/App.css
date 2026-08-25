@@ -117,6 +117,9 @@
 .sign-title{font-size:1.35rem; margin:0}
 .sign-what{display:flex; flex-direction:column; gap:3px; padding-bottom:14px; border-bottom:1px solid var(--line)}
 .sign-amt{font-size:1.55rem; font-weight:600; letter-spacing:-.01em}
+/* The estimate sits under the amount, never beside it as an equal: one is the money, the other
+   is a quote from a third party, carrying its source and its age. */
+.sign-usd{display:block; margin-top:2px; font-size:12px}
 .sign-to{color:var(--text-muted); font-size:13px}
 .sign-presence-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:9px}
 .sign-roster{display:flex; flex-direction:column; gap:8px}
@@ -199,7 +202,8 @@
 /* Send-confirm restated amount (Proposal detail dialog) */
 .send-confirm-what{margin:8px 0 6px; padding:12px 14px; border:1px solid var(--danger-line);
   border-radius:var(--radius-sm); background:var(--danger-soft)}
-.scw-amt{font-family:var(--font-mono); font-size:1.05rem}
+.scw-amt{font-family:var(--font-num); font-size:1.05rem}
+.scw-usd{font-size:12px}
 .scw-kind{opacity:.85}
 .row-del{border:1px solid var(--line); background:var(--surface-2); color:var(--text-muted); width:29px; height:29px; border-radius:var(--radius-sm); cursor:pointer; line-height:1; font-size:14px}
 .row-del:hover{color:var(--danger); border-color:var(--danger)}

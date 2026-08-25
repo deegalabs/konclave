@@ -661,6 +661,11 @@ export const ptBR: Record<string, string> = {
   'signing.confirmSignTitle': 'Assinar este pagamento?',
   'signing.confirmSignBody': 'Sua parte entra na assinatura. O pagamento só sai quando o último signatário assinar.',
   'signing.confirmSignCta': 'Assinar {amt} ZEC',
+  'signing.armExpires': 'Sua assinatura vale por mais {mins} min. Depois disso, ela deixa de contar e você assina de novo.',
+  'signing.usdNote': '≈ {usd} · {source}, {age}',
+  'signing.rateNow': 'agora',
+  'signing.rateMin': 'há {n} min',
+  'signing.rateStale': 'cotação antiga',
   'signing.tryAgain': 'Tentar de novo',
   'signing.errUnreachable': 'não foi possível falar com o coordenador',
 
