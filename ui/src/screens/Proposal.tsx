@@ -4,7 +4,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Secret, Dialog, Loading } from '../components'
 import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
-import { fmtZec, parseZecToZat, zatToZec } from '../format'
+import { fmtZec, fmtZecExact, parseZecToZat } from '../format'
 import { useT, useTr } from '../i18n'
 import { useToast } from '../toast'
 import {
@@ -201,18 +201,21 @@ export default function Proposal() {
             the network fee was five times the payment and appeared nowhere, so people approved
             something the vault could not pay and only found out after everyone had signed. */}
         {cost && (
+          /* Exact, not rounded. These figures exist to be COMPARED - with each other and with the
+             balance - and four decimals prints 0.00024 and 0.0002 identically, so the box would
+             have said this takes 0.0002 out of a 0.0002 balance while warning it was short. */
           <div className={'p-cost' + (cost.short > 0 ? ' short' : '')}>
             <span className="p-cost-line">
               <span className="p-cost-k">{t('proposal.costFee')}</span>
-              <span className="p-cost-v num">+ {fmtZec(zatToZec(cost.feeZat))} ZEC</span>
+              <span className="p-cost-v num">+ {fmtZecExact(cost.feeZat / 1e8)} ZEC</span>
             </span>
             <span className="p-cost-line">
               <span className="p-cost-k">{t('proposal.costTotal')}</span>
-              <span className="p-cost-v num"><b>{fmtZec(zatToZec(cost.totalZat))} ZEC</b></span>
+              <span className="p-cost-v num"><b>{fmtZecExact(cost.totalZat / 1e8)} ZEC</b></span>
             </span>
             {cost.short > 0 && (
               <div className="hint warn mt-sm" role="status">
-                {tr('proposal.costShort', { short: fmtZec(zatToZec(cost.short)) })}
+                {tr('proposal.costShort', { short: fmtZecExact(cost.short / 1e8) })}
               </div>
             )}
           </div>

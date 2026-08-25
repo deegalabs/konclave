@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Secret, activateOnKey, Loading } from '../components'
 import { PageHeader } from '../page'
-import { fmtZec, parseZecToZat, zatToZec } from '../format'
+import { fmtZec, fmtZecExact, parseZecToZat, zatToZec } from '../format'
 import { useT, useTr } from '../i18n'
 import { useToast } from '../toast'
 import {
@@ -284,7 +284,7 @@ export default function NewPayroll() {
             <span className="plf-fig">
               <span className="plf-k">{t('payroll.pvTotal')}</span>
               <span className="plf-v num">
-                <b className={count > 0 ? undefined : 'dim'}>{fmtZec(zatToZec(totalZat))} ZEC</b>
+                <b className={count > 0 ? undefined : 'dim'}>{fmtZecExact(totalZat / 1e8)} ZEC</b>
               </span>
               {usdOn && count > 0 && zecToUsd(zatToZec(totalZat), rate) && (
                 <span className="plf-usd">≈ {zecToUsd(zatToZec(totalZat), rate)}</span>
@@ -293,14 +293,14 @@ export default function NewPayroll() {
 
             <span className="plf-fig">
               <span className="plf-k">{t('payroll.pvFeeK')}</span>
-              <span className="plf-v num dim">+ {fmtZec(zatToZec(feeZat))} ZEC</span>
+              <span className="plf-v num dim">+ {fmtZecExact(feeZat / 1e8)} ZEC</span>
             </span>
 
             <span className={'plf-fig' + (overBalance ? ' bad' : '')}>
               <span className="plf-k">{t('payroll.pvAfter')}</span>
               <span className="plf-v num">
                 {afterZat === null ? <b className="dim">-</b>
-                  : <b className={count > 0 ? undefined : 'dim'}>{fmtZec(zatToZec(afterZat))} ZEC</b>}
+                  : <b className={count > 0 ? undefined : 'dim'}>{fmtZecExact(afterZat / 1e8)} ZEC</b>}
               </span>
             </span>
           </div>
