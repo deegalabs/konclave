@@ -102,7 +102,10 @@ export function VaultSignerProvider({ children }: { children: ReactNode }) {
     threshold: vault?.threshold ?? 0,
     myName,
     active,
-    open: (p: Proposal) => { setArmedProposal(null); setActive(p) },
+    // Closing and reopening the SAME payment must not un-sign you: only a different payment
+    // starts over. (A full reload does clear it - the share is session-scoped too, so that path
+    // goes back through the passphrase and the signature is offered again.)
+    open: (p: Proposal) => { setArmedProposal((cur) => (cur === p.id ? cur : null)); setActive(p) },
     close: () => setActive(null),
     reseat: () => setNonce((n) => n + 1),
     armed: !!active && armedProposal === active.id,
