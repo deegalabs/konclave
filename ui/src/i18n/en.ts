@@ -440,6 +440,7 @@ export const en: Record<string, string> = {
   'ceremony.vaultName': 'Vault name',
   'ceremony.whoCares': 'Who looks after this vault',
   'ceremony.personNamePlaceholder': 'person’s name',
+  'ceremony.vaultNamePlaceholder': 'e.g. Collective treasury',
   'ceremony.addPerson': '+ Add person',
   'ceremony.howManyApprovals': 'How many approvals does each payment need?',
   'ceremony.ofNPeople': 'of {n} people',
@@ -453,6 +454,7 @@ export const en: Record<string, string> = {
   'ceremony.inviteGuest': 'guest',
   'ceremony.inviteCopied': 'copied',
   'ceremony.inviteCopy': 'copy invite',
+  'ceremony.inviteFromDevice': 'the invite is generated on that person’s own device',
   'ceremony.localSharesNote': '**In this local mode**, Konclave generates everyone’s shares here on this device, so you can run the flow end to end. In the product, each guest opens Konclave on their device, pastes the code and generates their share · which never leaves it.',
   'ceremony.createNowDkg': 'Create vault now ',
 
