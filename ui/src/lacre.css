@@ -31,6 +31,11 @@
   /* type */
   --font-sans:"Archivo",system-ui,sans-serif;
   --font-mono:"Spline Sans Mono",ui-monospace,monospace;
+  /* Numbers: the same monospace (digits stay aligned) with the dotted-zero OpenType feature
+     OFF and tabular figures ON. Spline Sans Mono draws a dot inside 0 by default, which reads
+     as a decimal point in an amount field. Use --font-num + .num for every figure a user
+     reads as money or a count; keep --font-mono for addresses, hashes and codes. */
+  --font-num:"Spline Sans Mono",ui-monospace,monospace;
   /* shape */
   --radius:12px; --radius-sm:8px; --radius-lg:16px; --radius-pill:999px;
   /* elevation - soft, cool (white v2 uses shadow, not just borders) */
@@ -105,6 +110,7 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 .klab{font-family:var(--font-mono); font-size:11px; letter-spacing:.22em; text-transform:uppercase; color:var(--text-muted)}
 .h1{font-weight:700; font-size:clamp(24px,3vw,33px); letter-spacing:-.018em; line-height:1.08; text-wrap:balance; margin:6px 0 4px}
 .mono{font-family:var(--font-mono)}
+.num{font-family:var(--font-num); font-variant-numeric:tabular-nums; font-feature-settings:"zero" 0,"tnum" 1}
 .dim{color:var(--text-muted)}
 .rule{height:0; border:0; border-top:1px solid var(--line); margin:22px 0}
 .rule.thin{border-top:1px solid var(--line)}
