@@ -28,9 +28,10 @@ signature element) derived from the Zcash/Orchard world, consolidated through th
 brand pipeline (see `.design/branding/konclave/` and `STYLE.md`).
 
 ## Data
-Wired to live data through `ui/src/api.ts` (the loopback `/api/*` bridge) with a fallback
-to the mock (`ui/src/mock.ts`, gated on `VITE_DEMO` for the hosted demo). Run: `npm run dev`
-(Vite dev server, `/api` proxied to the bridge) · `npm run build` · `npm run lint`.
+Wired to live data only, through `ui/src/api.ts` (the loopback `/api/*` bridge) or the hosted
+blind helper for `/net` vaults. There is no mock/demo dataset: a screen with no data renders its
+empty state. Run: `npm run dev` (Vite dev server, `/api` proxied to the bridge) ·
+`npm run build` · `npm run lint`.
 
 ## Environment (build-time `VITE_*`)
 - `VITE_RELAY_BASE` - hosted blind relay for `/net` (empty = the local bridge, same origin).
@@ -38,5 +39,4 @@ to the mock (`ui/src/mock.ts`, gated on `VITE_DEMO` for the hosted demo). Run: `
   finished browser-DKG vault is registered with the helper, which derives its real Orchard
   address (view-only) and can later drive sends over Architecture B. Empty = `/net` stays a
   pure device-to-device ceremony with no hosted vault (`ui/src/helper.ts` degrades to `null`).
-  The demo points it at the Railway helper (`konclave-helper-production.up.railway.app`).
-- `VITE_DEMO` - hosted-demo mode (reads fall back to `ui/src/mock.ts`).
+  The hosted build points it at the Railway helper (`konclave-helper-production.up.railway.app`).

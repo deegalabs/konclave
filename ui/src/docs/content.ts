@@ -205,8 +205,8 @@ export const SECTIONS: Section[] = [
       {
         k: 'note',
         t: {
-          'pt-BR': 'Experimente o fluxo com dados de demonstração aqui mesmo na demo hospedada, ou rode de verdade localmente (veja **Rodar localmente**).',
-          en: 'Try the flow with demo data right here on the hosted demo, or run it for real locally (see **Run it locally**).',
+          'pt-BR': 'Não há dados de exemplo: para experimentar o fluxo, crie um cofre de verdade (na web ou localmente, veja **Rodar localmente**).',
+          en: 'There is no sample data: to try the flow, create a real vault (on the web or locally, see **Run it locally**).',
         },
       },
     ],
@@ -464,13 +464,13 @@ export const SECTIONS: Section[] = [
       },
       {
         k: 'code',
-        t: 'npm --prefix ui ci && npm --prefix ui run build\ncargo run --manifest-path orchestrator/Cargo.toml --bin konclave -- serve --web ui/dist --demo\n# then open the printed http://127.0.0.1:4762',
+        t: 'npm --prefix ui ci && npm --prefix ui run build\ncargo run --manifest-path orchestrator/Cargo.toml --bin konclave -- serve --web ui/dist\n# then open the printed http://127.0.0.1:4762',
       },
       {
         k: 'note',
         t: {
-          'pt-BR': 'A rede multi-dispositivo (duas abas fazem um cofre e assinam) roda contra o servidor local em `http://127.0.0.1:4762/#/net`, ou ao vivo no demo hospedado.',
-          en: 'The multi-device network (two tabs make one vault, then sign) works against the local server at `http://127.0.0.1:4762/#/net`, or live at the hosted demo.',
+          'pt-BR': 'A rede multi-dispositivo (duas abas fazem um cofre e assinam) roda contra o servidor local em `http://127.0.0.1:4762/#/net`, ou ao vivo no app hospedado.',
+          en: 'The multi-device network (two tabs make one vault, then sign) works against the local server at `http://127.0.0.1:4762/#/net`, or live on the hosted app.',
         },
       },
     ],

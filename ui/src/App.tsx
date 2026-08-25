@@ -1,10 +1,8 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { isDesktop } from './platform'
 import { useReveal } from './reveal'
-import { DemoBanner } from './components'
 import { UpdatePrompt } from './UpdatePrompt'
 import Layout from './Layout'
-import Demo from './screens/Demo'
 import WasmSigner from './screens/WasmSigner'
 import NetVault from './screens/NetVault'
 import Dashboard from './screens/Dashboard'
@@ -36,7 +34,6 @@ export default function App() {
   const { revealed } = useReveal()
   return (
     <div className={'root' + (revealed ? ' revealed' : '')}>
-      <DemoBanner />
       <UpdatePrompt />
       <ErrorBoundary>
       <Routes>
@@ -46,7 +43,6 @@ export default function App() {
         <Route path="/" element={isDesktop ? <Navigate to="/vaults" replace /> : <Intro />} />
         <Route path="/vaults" element={<Vaults />} />
         <Route path="/intro" element={<Intro />} />
-        <Route path="/demo" element={<Demo />} />
         <Route path="/signer" element={<WasmSigner />} />
         <Route path="/net" element={<NetVault />} />
         <Route path="/docs" element={<Docs />} />

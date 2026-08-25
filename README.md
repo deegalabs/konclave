@@ -25,17 +25,18 @@ multisig (for example on an EVM chain) can offer.
 
 ---
 
-## Demo
+## Try it live
 
-- **Live app** (demo data, no setup): https://konclave-demo.vercel.app
+- **Live app** (create a real vault, no setup): https://konclave-demo.vercel.app
 - **FROST signing in the browser** (WebAssembly, ~60 ms): https://konclave-demo.vercel.app/#/signer
 - **Multi-device vault, live over the internet:** https://konclave-demo.vercel.app/#/net. Open it
   in **two tabs**: one creates a vault and shows an invite code, the other joins, and together they
   run a real **Distributed Key Generation** over a hosted blind relay, then sign as a quorum.
 - **Pitch video:** [Watch on YouTube](https://youtu.be/_UyWlLRnJms)
 
-> The hosted app runs on demo data. The real proof is the mainnet transaction below: an actual
-> 2-of-3 quorum payment, signed by a FROST ceremony, broadcast to Zcash mainnet.
+> There is no demo mode and no sample data: the hosted app only ever shows a vault you actually
+> created. The proof is the mainnet transaction below: an actual 2-of-3 quorum payment, signed by a
+> FROST ceremony, broadcast to Zcash mainnet.
 
 ## Why we built this
 
@@ -119,8 +120,8 @@ The whole flow, in the app's own words (hide the cryptography, expose the trust)
 7. **Account** (`/ledger`). Every action lands in the internal ledger (who proposed, who approved,
    states, dates), with an itemized CSV export for the accountant.
 
-Try the flow with demo data at [konclave-demo.vercel.app](https://konclave-demo.vercel.app), or run
-it for real locally (see [**Try it**](#try-it)). The same walkthrough is available in-app under
+Try the flow by creating a vault at [konclave-demo.vercel.app](https://konclave-demo.vercel.app),
+or run it locally (see [**Try it**](#try-it)). The same walkthrough is available in-app under
 `/docs`.
 
 ## How it works
@@ -268,12 +269,12 @@ Foundation engine binaries built per [`engine/versions.lock`](engine/versions.lo
 
 ```sh
 npm --prefix ui ci && npm --prefix ui run build
-cargo run --manifest-path orchestrator/Cargo.toml --bin konclave -- serve --web ui/dist --demo
+cargo run --manifest-path orchestrator/Cargo.toml --bin konclave -- serve --web ui/dist
 # then open the printed http://127.0.0.1:4762
 ```
 
 The multi-device network (two tabs make one vault, then sign) works against the local server at
-`http://127.0.0.1:4762/#/net`, or live at the hosted demo above.
+`http://127.0.0.1:4762/#/net`, or live on the hosted app above.
 
 ## Project structure
 

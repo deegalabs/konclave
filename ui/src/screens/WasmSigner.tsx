@@ -110,7 +110,7 @@ export default function WasmSigner() {
       <Letterhead />
       <div className="demo-main">
         <div className="demo-col">
-          <span className="demo-eyebrow"><span className="dot" aria-hidden="true" />{t('demo.live')}</span>
+          <span className="demo-eyebrow"><span className="dot" aria-hidden="true" />{t('signer.liveTag')}</span>
           <h1 className="demo-title">{t('signer.title')}</h1>
           <p className="demo-caption">{t('signer.eyebrow')}</p>
           <p className="demo-lead">{tr('signer.lead')}</p>

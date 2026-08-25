@@ -2,28 +2,11 @@ import { useEffect, useRef, useState, type ReactNode, type KeyboardEvent as Reac
 import { Link } from 'react-router-dom'
 import { useReveal } from './reveal'
 import { useI18n, useT } from './i18n'
-import { IS_DEMO } from './api'
 import { scorePassphrase, generatePassphrase } from './passphrase'
-
-/** A thin, always-visible strip in demo mode (runtime `?demo=1` or the VITE_DEMO fallback) so a
- *  visitor never mistakes the sample data for a real vault. Always offers a way back to the landing
- *  (which leaves demo mode via `?demo=0`), from where a visitor re-enters the demo or the real vault.
- *  Renders nothing outside demo mode. */
-export function DemoBanner() {
-  const t = useT()
-  if (!IS_DEMO) return null
-  return (
-    <div className="demo-banner" role="note">
-      <span className="demo-banner-tag">DEMO</span>
-      {t('demo.bannerNote')}
-      <a className="demo-banner-exit" href="?demo=0">{t('demo.bannerExit')}</a>
-    </div>
-  )
-}
 
 /** The loading affordance: a centered spinning ring (the accent on a faint track) with the label
  *  below, announced via `role="status"`. Shown while an initial fetch is in flight instead of
- *  flashing empty-state or mock data. Honors prefers-reduced-motion (the ring slows, never stops). */
+ *  flashing a half-built page. Honors prefers-reduced-motion (the ring slows, never stops). */
 export function Loading() {
   const t = useT()
   return (

@@ -6,7 +6,7 @@ import { useT, useTr } from '../i18n'
 import { fmtZec, parseZecToZat, zatToZec } from '../format'
 import {
   createProposal, getBalance, getVault, getBeneficiaries, health, shortAddr, classifyAddress, humanError,
-  IS_DEMO, type Beneficiary, type Member,
+  type Beneficiary, type Member,
 } from '../api'
 import { listVaults } from '../storage'
 import { RecipientCombobox } from '../RecipientCombobox'
@@ -28,9 +28,9 @@ export default function NewPayment() {
   const [threshold, setThreshold] = useState(2)
   const [available, setAvailable] = useState<string | null>(null)
   const [benefs, setBenefs] = useState<Beneficiary[]>([])
-  // Neutral placeholder while the real vault name loads; the sample name only in demo, never a
-  // fake name flashed to a real user (the real name replaces this as soon as getVault resolves).
-  const [vaultName, setVaultName] = useState(IS_DEMO ? t('common.sampleVault') : '…')
+  // Neutral placeholder while the real vault name loads - never a fake name flashed to a real
+  // user (the real name replaces this as soon as getVault resolves).
+  const [vaultName, setVaultName] = useState('…')
   const [membersList, setMembersList] = useState<Member[]>([])
   const [proposer, setProposer] = useState('Alice')
   const [toName, setToName] = useState<string | null>(null)
@@ -53,13 +53,10 @@ export default function NewPayment() {
         const first0 = v.member_list?.[0]
         if (first0) {
           setMembersList(v.member_list!)
-          // Live: this device proposes as ITSELF (its own member name), never as the first seat -
-          // the "act as any member" picker is a single-device DEMO artifice. Fall back to the first
-          // seat only when there is no on-device record (local-bridge mode).
+          // This device proposes as ITSELF (its own member name), never as another seat. Fall back
+          // to the first seat only when there is no on-device record (local-bridge mode).
           let mine: string | null = null
-          if (!IS_DEMO) {
-            try { mine = (await listVaults()).find((s) => s.id === v.id)?.myName ?? null } catch { /* no record */ }
-          }
+          try { mine = (await listVaults()).find((s) => s.id === v.id)?.myName ?? null } catch { /* no record */ }
           setProposer(mine ?? first0.name)
         }
       }
@@ -108,9 +105,8 @@ export default function NewPayment() {
   const memoOver = memoLen > MEMO_MAX
   const kind = to.trim().length > 1 ? classifyAddress(to.trim()) : null
   const publicDest = kind === 'transparent' // still drives the memo-disable (transparent = no memo)
-  // A real available balance when we have it; the demo figure only when genuinely offline
-  // (live === false); a neutral dash while still loading (live === null) - never a fake number.
-  const shownAvailable = available ?? (IS_DEMO ? '2.4180' : '-')
+  // A real available balance when we have it; a neutral dash otherwise - never a fake number.
+  const shownAvailable = available ?? '-'
   // Preview the balance after this payment (like the payroll screen). Display only - the backend
   // stays authoritative on the real fee; ~0.0001 ZEC is a reasonable single-payment estimate.
   const amountZat = parseZecToZat(value)
@@ -129,7 +125,7 @@ export default function NewPayment() {
     if (!to.trim()) { setError(t('payment.errNoAddress')); return }
     setBusy(true)
     const res = await createProposal({
-      proposer, // the member this device is acting as (single-device demo)
+      proposer, // the member seat this device holds
       to_address: to.trim(),
       value_zec: value.trim(),
       memo: memo.trim() || undefined,
@@ -154,16 +150,7 @@ export default function NewPayment() {
         <span className="ctx-sep">·</span>
         <span>{t('payment.available')} <Secret sm><b>{shownAvailable} ZEC</b></Secret></span>
         {membersList.length > 0 && (
-          IS_DEMO ? (
-            <label className="ctx-as">
-              {t('payment.proposingAs')}
-              <select value={proposer} onChange={(e) => setProposer(e.target.value)}>
-                {membersList.map((m) => <option key={m.pubkey || m.name} value={m.name}>{m.name}</option>)}
-              </select>
-            </label>
-          ) : (
-            <span className="ctx-as">{t('payment.proposingAs')} <b>{proposer}</b></span>
-          )
+          <span className="ctx-as">{t('payment.proposingAs')} <b>{proposer}</b></span>
         )}
       </div>
 
@@ -212,7 +199,7 @@ export default function NewPayment() {
               </span>
             </div>
           </label>
-          {IS_DEMO && <div className="hint" aria-live="polite">{t('common.demoModeNoBridge')}</div>}
+          {live === false && <div className="hint" aria-live="polite">{t('common.vaultUnreachable')}</div>}
 
           <label className="field mt"><span>
             {t('payment.memoLabel')}{' '}

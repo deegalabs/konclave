@@ -4,7 +4,7 @@ import { Seal, Loading, LangToggle } from '../components'
 import { VersionBadge } from '../UpdatePrompt'
 import { PageHeader, PageFooter } from '../page'
 import { useT, useTr } from '../i18n'
-import { getVault, getSelectedVault, health, shortAddr, deleteVault, IS_DEMO, type Vault } from '../api'
+import { getVault, getSelectedVault, health, shortAddr, deleteVault, type Vault } from '../api'
 import { listVaults, exportVault, type Governance } from '../storage'
 import { downloadText } from '../download'
 import { vaultFingerprint } from '../format'
@@ -56,9 +56,9 @@ export default function Settings() {
       const ok = await health()
       if (!on) return
       setLive(ok)
-      // The identity we fingerprint: a real vault's group key when we have one, else the vault id;
-      // a stable demo identity so the sample screen still showcases the check.
-      let identity = 'konclave-demo-vault'
+      // The identity we fingerprint: a real vault's group key when we have one, else the vault id.
+      // Never a stand-in: a fabricated fingerprint would be compared out of band as if it were real.
+      let identity: string | null = null
       if (ok) {
         const v = await getVault()
         if (on && v) setVault(v)
@@ -74,10 +74,12 @@ export default function Settings() {
           } catch { /* no local record (local-bridge mode) - leave governance unshown */ }
         }
       }
-      try {
-        const code = await vaultFingerprint(identity)
-        if (on) setFp(code)
-      } catch { /* WebCrypto unavailable - skip the fingerprint callout */ }
+      if (identity) {
+        try {
+          const code = await vaultFingerprint(identity)
+          if (on) setFp(code)
+        } catch { /* WebCrypto unavailable - skip the fingerprint callout */ }
+      }
     })()
     return () => { on = false }
   }, [])
@@ -142,7 +144,6 @@ export default function Settings() {
         title={t('settings.title')}
         subtitle={<>
           {vault?.name ?? t('settings.vault')} · {t('settings.quorumWord')} {thr}/{n}
-          {IS_DEMO && <span className="livetag off"> {t('settings.demoTag')}</span>}
         </>}
         actions={<Seal t={thr} n={n} />}
       />
