@@ -67,39 +67,51 @@
 .loader-text{font-family:var(--font-mono); font-size:11.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--text-muted)}
 @media(prefers-reduced-motion:reduce){.loader-ring{animation-duration:2.4s}}
 
-/* Toasts. Transient acknowledgement, never something the reader must act on - that keeps its place
-   on the screen where the action is. Severity is never colour alone: each kind carries a glyph, and
-   the tinted rail plus the glyph read the same to someone who cannot tell the hues apart. */
-.kc-toaster{position:fixed; z-index:1000; bottom:22px; right:22px; display:flex; flex-direction:column;
-  gap:10px; align-items:flex-end; pointer-events:none; max-width:min(92vw,400px)}
-.kc-toast{pointer-events:auto; display:flex; align-items:flex-start; gap:10px; width:100%;
-  padding:12px 12px 12px 13px; background:var(--surface-1); border:1px solid var(--line);
-  border-left:3px solid var(--accent); border-radius:var(--radius); box-shadow:var(--shadow-overlay);
-  color:var(--text); font-family:var(--font-sans); font-size:13.5px; line-height:1.45;
-  animation:kc-toast-in .2s cubic-bezier(.2,.7,.3,1)}
-.kc-toast.out{animation:kc-toast-out .16s ease-in forwards}
+/* Toasts. Top-right, clear of the content and of the page's own controls, sliding in from the edge
+   they live on and leaving the same way. Transient acknowledgement only: anything the reader has to
+   act on keeps its place on the screen where the action is.
+   Severity is never colour alone - each kind carries a glyph, so the tinted rule and the glyph say
+   the same thing to someone who cannot tell the hues apart. */
+.kc-toaster{position:fixed; z-index:1000; top:18px; right:18px; display:flex; flex-direction:column;
+  gap:8px; align-items:flex-end; pointer-events:none; width:min(92vw,360px)}
+.kc-toast{pointer-events:auto; display:grid; grid-template-columns:auto minmax(0,1fr) auto;
+  align-items:start; gap:10px; width:100%; padding:12px 12px 12px 14px;
+  background:var(--surface-1); border:1px solid var(--line); border-radius:var(--radius);
+  box-shadow:var(--shadow-overlay); color:var(--text);
+  font-family:var(--font-sans); font-size:13px; line-height:1.5;
+  animation:kc-toast-in .22s cubic-bezier(.16,1,.3,1)}
+.kc-toast.out{animation:kc-toast-out .16s cubic-bezier(.4,0,1,1) forwards}
+/* A rule down the left edge, the same device every framed block in the app uses (.confirm, .hint),
+   so a toast reads as one of them rather than as a visitor. Info stays neutral: only a severity
+   that means something spends colour. */
+.kc-toast{position:relative; border-left:3px solid var(--line)}
 .kc-toast[data-kind="ok"]{border-left-color:var(--success)}
 .kc-toast[data-kind="warn"]{border-left-color:var(--warn)}
 .kc-toast[data-kind="err"]{border-left-color:var(--danger)}
-.kc-toast-glyph{flex:0 0 auto; width:17px; height:17px; margin-top:1px; border-radius:var(--radius-pill);
+.kc-toast-glyph{width:18px; height:18px; margin-top:1px; border-radius:var(--radius-pill);
   display:grid; place-items:center; font-family:var(--font-mono); font-size:11px; font-weight:700;
   color:var(--accent); background:var(--accent-soft)}
 .kc-toast[data-kind="ok"] .kc-toast-glyph{color:var(--success); background:var(--success-soft)}
 .kc-toast[data-kind="warn"] .kc-toast-glyph{color:var(--warn); background:var(--warn-soft,rgba(181,71,8,.09))}
 .kc-toast[data-kind="err"] .kc-toast-glyph{color:var(--danger); background:var(--danger-soft)}
-.kc-toast-msg{flex:1 1 auto; min-width:0; overflow-wrap:anywhere}
-.kc-toast-close{flex:0 0 auto; appearance:none; border:0; background:transparent; color:var(--text-muted);
-  cursor:pointer; font-family:var(--font-mono); font-size:17px; line-height:1; padding:0 3px;
-  border-radius:var(--radius-sm)}
-.kc-toast-close:hover{color:var(--text)}
-@keyframes kc-toast-in{from{opacity:0; transform:translateY(10px) scale(.985)} to{opacity:1; transform:none}}
-@keyframes kc-toast-out{to{opacity:0; transform:translateY(6px) scale(.99)}}
-/* Above the mobile nav bar (z 50), and full width so a sentence is not squeezed into a corner. */
+.kc-toast-msg{min-width:0; overflow-wrap:anywhere; padding-top:1px}
+.kc-toast-close{appearance:none; border:0; background:transparent; color:var(--text-muted);
+  cursor:pointer; font-family:var(--font-mono); font-size:16px; line-height:1; padding:1px 2px;
+  border-radius:var(--radius-sm); opacity:.7}
+.kc-toast-close:hover{color:var(--text); opacity:1}
+.kc-toast-close:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
+/* In and out along the edge it lives on, so the motion says where it came from and where it went. */
+@keyframes kc-toast-in{from{opacity:0; transform:translateX(14px)} to{opacity:1; transform:none}}
+@keyframes kc-toast-out{to{opacity:0; transform:translateX(14px)}}
+/* Narrow: full width under the header, still at the top. */
 @media(max-width:720px){
-  .kc-toaster{left:12px; right:12px; bottom:calc(62px + env(safe-area-inset-bottom) + 12px); align-items:stretch; max-width:none}
+  .kc-toaster{left:10px; right:10px; top:10px; width:auto; align-items:stretch}
+  @keyframes kc-toast-in{from{opacity:0; transform:translateY(-10px)} to{opacity:1; transform:none}}
+  @keyframes kc-toast-out{to{opacity:0; transform:translateY(-8px)}}
 }
 @media(prefers-reduced-motion:reduce){
   .kc-toast, .kc-toast.out{animation:none}
+  .kc-toast.out{opacity:0}
 }
 
 /* Top-of-page load progress: an indeterminate line that sweeps while any screen is fetching. */
