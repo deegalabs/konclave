@@ -25,10 +25,11 @@ export default function SigningPanel() {
   const { bg, vault, threshold, myName, active, close, reseat, armed, armActive, armedUntil } = useVaultSigner()
   const [confirming, setConfirming] = useState(false)
   const [sending, setSending] = useState(false)
-  // When the send started, so the run line can show elapsed time. The build+prove leg is
-  // minutes long and emits no event we can observe, so elapsed time is the only honest
-  // signal we have that the vault is still working rather than stuck.
-  const [sentAt, setSentAt] = useState<number | null>(null)
+  // When the ceremony started on THIS device. The run is minutes long and emits no event we can
+  // observe, so a clock is the only honest sign that the vault is working rather than stuck - and
+  // every device that signed needs it, not just the one that sent. A member who signed first sat
+  // in front of a frozen line for the whole build+prove+broadcast leg with nothing moving.
+  const [runSince, setRunSince] = useState<number | null>(null)
   const [elapsed, setElapsed] = useState(0)
   const [result, setResult] = useState<{ txid: string | null } | { error: string } | null>(null)
   const [pass, setPass] = useState('')
@@ -37,19 +38,28 @@ export default function SigningPanel() {
   const [arming, setArming] = useState(false)
   // The send fires from an effect (the room names the sender), so guard it: one send per proposal.
   const sentOnce = useRef<string | null>(null)
+  // True while anything is running here: this device signing, or the send it triggered.
+  const started = sending || bg.phase !== 'idle'
   const [rate, setRate] = useState<Rate | null>(cachedRate())
   // The figure people actually judge is the one in their own currency, and this is the screen where
   // they commit. Re-price on open and again at the confirm, rather than showing whatever was cached
   // when the proposal was written - which can be hours or days old by now.
   const [armLeft, setArmLeft] = useState(0)
 
-  // Tick while a send is in flight. The build+prove leg is minutes long and emits no event we can
-  // observe, so elapsed time is the only honest signal that the vault is working, not stuck.
+  // Start the clock when the run starts, stop it when it ends. Keyed on `started`, so it covers a
+  // device that only signs just as much as the one that broadcasts.
   useEffect(() => {
-    if (sentAt === null || !sending) return
-    const id = window.setInterval(() => setElapsed(Math.floor((Date.now() - sentAt) / 1000)), 1000)
+    if (!started) { setRunSince(null); setElapsed(0); return }
+    setRunSince((cur) => cur ?? Date.now())
+  }, [started])
+
+  useEffect(() => {
+    if (runSince === null) return
+    const tick = () => setElapsed(Math.floor((Date.now() - runSince) / 1000))
+    tick()
+    const id = window.setInterval(tick, 1000)
     return () => window.clearInterval(id)
-  }, [sentAt, sending])
+  }, [runSince])
 
   // The room decided this device sends. It already passed the money confirm (that is what
   // `iWouldBeLast` gates), so fire once - and only once - per proposal.
@@ -132,7 +142,6 @@ export default function SigningPanel() {
   // read as not-last, and whichever one closed the quorum would send with no confirm at all.
   const iWouldBeLast = !armed && threshold > 0 && signedCount === threshold - 1
 
-  const started = sending || bg.phase !== 'idle'
   const sent = result && 'txid' in result && result.txid
   const errMsg = (result && 'error' in result && result.error) || bg.error || ''
   // What this device can do now is SIGN. The send is not a button any more: it follows from the
@@ -182,7 +191,6 @@ export default function SigningPanel() {
     console.info('[konclave] send: start', { proposal: args.proposalId, room: args.room, phase: bg.phase })
     setConfirming(false)
     setSending(true)
-    setSentAt(Date.now())
     setResult(null)
     try {
       const r = await executeProposal(args)
@@ -293,7 +301,7 @@ export default function SigningPanel() {
               <div className="confirm ready">{t('signing.sentTitle')}</div>
               {(result as { txid: string }).txid && (
                 <div className="p-meta mt-sm">
-                  <div className="mono"><code>{(result as { txid: string }).txid}</code></div>
+                  <div className="sign-txid mono"><code>{(result as { txid: string }).txid}</code></div>
                   <a className="link" href={`https://mainnet.zcashexplorer.app/transactions/${(result as { txid: string }).txid}`} target="_blank" rel="noreferrer">{t('proposal.viewExplorer')}</a>
                 </div>
               )}
@@ -313,14 +321,22 @@ export default function SigningPanel() {
             </div>
           ) : started ? (
             <div className="sign-run">
-              <div className="confirm">{sending || bg.phase === 'signed' ? t('signing.sending') : t('signing.signing')}</div>
+              <div className="sign-run-head">
+                <span className="loader-ring sm" aria-hidden="true" />
+                {/* Three real stages, in order, instead of one label that claims the wrong one: the
+                    coordinator builds and proves before any share is asked for, so "signed,
+                    sending" was a lie for the whole first minute on the sending device. */}
+                <span className="confirm">
+                  {bg.phase === 'signed' ? t('signing.sending')
+                    : bg.phase === 'signing' ? t('signing.signing')
+                    : t('signing.building')}
+                </span>
+              </div>
               {bg.what && <div className="hint mt-sm mono">→ {shortAddr(bg.what.addr)} · {bg.what.zec} ZEC</div>}
-              {sending && (
-                <div className="hint mt-sm" aria-live="polite">
-                  {t('signing.takesMinutes')} · <span className="num">{Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, '0')}</span>
-                  {elapsed > 180 && <div className="hint err mt-sm">{t('signing.slowHint')}</div>}
-                </div>
-              )}
+              <div className="hint mt-sm" aria-live="polite">
+                {t('signing.takesMinutes')} · <span className="num">{Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, '0')}</span>
+              </div>
+              {elapsed > 180 && <div className="hint err mt-sm">{t('signing.slowHint')}</div>}
             </div>
           ) : !hasShare ? (
             <div className="sign-unlock">

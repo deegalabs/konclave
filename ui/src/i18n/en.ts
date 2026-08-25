@@ -656,7 +656,7 @@ export const en: Record<string, string> = {
   'signing.othersSending': 'Quorum complete. Whoever signed last is sending. Leave this screen open.',
   'signing.errNoTxid': 'the coordinator replied with no txid; nothing was confirmed as sent',
   'signing.takesMinutes': 'This takes a few minutes: the vault builds the transaction, proves it and broadcasts',
-  'signing.slowHint': 'This is taking longer than usual. Nothing has been broadcast yet; you can close and come back, or try again in a few minutes.',
+  'signing.slowHint': 'This is taking longer than usual. Nothing has been broadcast yet. Keep this screen open: your share only counts while it is. If it fails, you can try again.',
   'signing.errNoVault': 'The vault is not loaded on this device. Reload the page and try again.',
   'signing.confirmSignTitle': 'Sign this payment?',
   'signing.confirmSignBody': 'Your share joins the signature. The payment only goes out when the last signer signs.',
@@ -667,6 +667,7 @@ export const en: Record<string, string> = {
   'signing.rateMin': '{n} min ago',
   'signing.rateStale': 'stale rate',
   'signing.seatSigned': 'signed',
+  'signing.building': 'Building the transaction and proving it…',
   'signing.tryAgain': 'Try again',
   'signing.errUnreachable': 'could not reach the coordinator',
 
