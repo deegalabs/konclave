@@ -42,10 +42,10 @@ class Bus {
   post(from: string, data: string) { this.msgs.push({ seq: this.seq++, from, data }) }
 }
 
-interface Dev { tag: string; session: BackgroundSession; delivered: Set<number>; sig: { hex: string; ok: boolean } | null; errors: string[]; seats: number }
+interface Dev { tag: string; session: BackgroundSession; delivered: Set<number>; sig: { hex: string; ok: boolean } | null; errors: string[]; seats: number; armedSeats: number[]; namedSender: string | null }
 
 function makeDev(tag: string, seat: number, bus: Bus, mat: () => { keyPackage: Uint8Array; groupVk: Uint8Array; pubkeys: Uint8Array }, gate: GovernanceGate): Dev {
-  const dev: Dev = { tag, session: null as unknown as BackgroundSession, delivered: new Set(), sig: null, errors: [], seats: 0 }
+  const dev: Dev = { tag, session: null as unknown as BackgroundSession, delivered: new Set(), sig: null, errors: [], seats: 0, armedSeats: [], namedSender: null }
   dev.session = new BackgroundSession({
     myTag: tag,
     mySeat: seat,
@@ -56,6 +56,10 @@ function makeDev(tag: string, seat: number, bus: Bus, mat: () => { keyPackage: U
     onError: (m) => dev.errors.push(m),
     onSignature: (hex, ok) => { dev.sig = { hex, ok } },
     onSeatCount: (n) => { dev.seats = n },
+    onArmed: (seats, triggerTag) => {
+      dev.armedSeats = seats
+      if (triggerTag) dev.namedSender = triggerTag
+    },
   })
   return dev
 }
@@ -123,5 +127,93 @@ describe('BackgroundSession - seated background signing (Stage 3 core, end to en
 
     expect(A.sig?.ok).toBe(true)
     expect(B.sig?.ok).toBe(true)
+  })
+})
+
+describe('BackgroundSession - everyone signs, the last one sends', () => {
+  const mat = (kp: Uint8Array, groupVk: Uint8Array, pubkeys: Uint8Array) => () => ({ keyPackage: kp, groupVk, pubkeys })
+
+  it('names exactly one sender - the device whose signature closed the quorum - and both agree', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const open: GovernanceGate = () => true
+    const A = makeDev('a-tag', 1, bus, mat(s0.keyPackage(), groupVk, pubkeys), open)
+    const B = makeDev('b-tag', 2, bus, mat(s1.keyPackage(), groupVk, pubkeys), open)
+    await A.session.start(); await B.session.start(); await run([A, B], bus)
+
+    await A.session.arm('p1')
+    await run([A, B], bus)
+    // One of two signed: nobody sends yet, on either device.
+    expect(A.armedSeats).toEqual([1])
+    expect(B.armedSeats).toEqual([1])
+    expect(A.namedSender).toBeNull()
+    expect(B.namedSender).toBeNull()
+
+    await B.session.arm('p1')
+    await run([A, B], bus)
+    expect(A.armedSeats).toEqual([1, 2])
+    expect(B.armedSeats).toEqual([1, 2])
+    // The quorum closed on B's signature, so B sends - and A computes the same answer from the
+    // same ordered log, so A does not also send.
+    expect(A.namedSender).toBe('b-tag')
+    expect(B.namedSender).toBe('b-tag')
+  })
+
+  it('a device re-announcing its own signature never re-fires the send', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const open: GovernanceGate = () => true
+    const A = makeDev('a-tag', 1, bus, mat(s0.keyPackage(), groupVk, pubkeys), open)
+    const B = makeDev('b-tag', 2, bus, mat(s1.keyPackage(), groupVk, pubkeys), open)
+    await A.session.start(); await B.session.start(); await run([A, B], bus)
+
+    await A.session.arm('p1'); await B.session.arm('p1'); await run([A, B], bus)
+    expect(B.namedSender).toBe('b-tag')
+    B.namedSender = null
+    // B reloads and re-announces (same seat, and again after A repeats too): still no new sender.
+    await B.session.arm('p1'); await A.session.arm('p1'); await run([A, B], bus)
+    expect(B.namedSender).toBeNull()
+    expect(A.armedSeats).toEqual([1, 2])
+  })
+
+  it('a signature announced for another payment never counts toward this one', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const open: GovernanceGate = () => true
+    const A = makeDev('a-tag', 1, bus, mat(s0.keyPackage(), groupVk, pubkeys), open)
+    const B = makeDev('b-tag', 2, bus, mat(s1.keyPackage(), groupVk, pubkeys), open)
+    await A.session.start(); await B.session.start(); await run([A, B], bus)
+
+    await A.session.arm('p-old')
+    await B.session.arm('p-new') // a different payment resets the tally
+    await run([A, B], bus)
+    expect(A.armedSeats).toEqual([2])
+    expect(A.namedSender).toBeNull() // one of two on the new payment: nothing sends
+  })
+
+  it('a device that did not sign contributes nothing: the quorum never closes', async () => {
+    // The behavioural change: presence used to be enough (the gate said yes to anyone present).
+    // Now an unsigned device stays out, so a payment nobody signed produces no signature at all.
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const armed = new Set<string>()
+    const gateFor = (tag: string): GovernanceGate => () => armed.has(tag)
+    const A = makeDev('a-tag', 1, bus, mat(s0.keyPackage(), groupVk, pubkeys), gateFor('a-tag'))
+    const B = makeDev('b-tag', 2, bus, mat(s1.keyPackage(), groupVk, pubkeys), gateFor('b-tag'))
+    await A.session.start(); await B.session.start(); await run([A, B], bus)
+
+    bus.post('helper', requestFor(dkgProvenPczt()))
+    await run([A, B], bus)
+    expect(A.sig).toBeNull()
+    expect(B.sig).toBeNull()
+    expect(A.session.isDone()).toBe(false)
+
+    // Both owners sign: the same request now completes, with no new request from the helper.
+    armed.add('a-tag'); armed.add('b-tag')
+    await A.session.retry(); await B.session.retry()
+    await run([A, B], bus)
+    expect(A.sig?.ok).toBe(true)
+    expect(B.sig?.ok).toBe(true)
+    expect(A.sig?.hex).toBe(B.sig?.hex)
   })
 })

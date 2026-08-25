@@ -30,15 +30,36 @@ export interface BackgroundSessionDeps {
   onWhat?: (w: { zec: string; addr: string } | null) => void
   onSignature?: (hex: string, ok: boolean) => void
   onSeatCount?: (n: number) => void
+  /** Armed seats changed. `triggerTag` is the tag of the device whose arming COMPLETED the quorum -
+   *  the one, and only one, that asks the helper to build and broadcast. Null on every other
+   *  message, so exactly one device triggers per quorum. */
+  onArmed?: (seats: number[], triggerTag: string | null) => void
+}
+
+/** A device announcing that its owner explicitly signed THIS proposal. Broadcast into the signing
+ *  room so every device can see who has signed and agree, from one ordered log, on who sends. */
+export interface ArmedMsg {
+  type: 'armed'
+  seat: number
+  /** The proposal this arming is for, so a replayed arming from an older payment is ignored. */
+  proposal: string
 }
 
 export class BackgroundSession {
   private readonly seats: SigningSeats
   private readonly signer: BackgroundSigner
   private readonly send: (data: string) => Promise<boolean>
+  private readonly threshold: () => number
+  private readonly onArmed?: (seats: number[], triggerTag: string | null) => void
+  /** Seat -> the tag that armed it, for the proposal in `armedProposal`. Keyed by SEAT so a device
+   *  that reloads (new tag, same seat) replaces its own arming instead of counting twice. */
+  private readonly armed = new Map<number, string>()
+  private armedProposal: string | null = null
 
   constructor(deps: BackgroundSessionDeps) {
     this.send = deps.send
+    this.threshold = deps.threshold
+    this.onArmed = deps.onArmed
     this.seats = new SigningSeats(deps.myTag, deps.mySeat, deps.onSeatCount)
     this.signer = new BackgroundSigner({
       signingMaterial: deps.signingMaterial,
@@ -67,11 +88,15 @@ export class BackgroundSession {
    *  signing message that arrived before its sender was seated now proceeds); everything else goes
    *  to the signer. Call from RelaySession.onMessage. */
   async onMessage(from: string, data: string): Promise<void> {
-    let parsed: { type?: string; seat?: number } | null = null
+    let parsed: { type?: string; seat?: number; proposal?: string } | null = null
     try {
-      parsed = JSON.parse(data) as { type?: string; seat?: number }
+      parsed = JSON.parse(data) as { type?: string; seat?: number; proposal?: string }
     } catch {
       /* not JSON - hand to the signer, which ignores unparseable input */
+    }
+    if (parsed?.type === 'armed' && typeof parsed.seat === 'number' && typeof parsed.proposal === 'string') {
+      this.handleArmed(from, parsed.seat, parsed.proposal)
+      return
     }
     if (parsed?.type === 'rejoin' && typeof parsed.seat === 'number') {
       this.seats.handleRejoin(from, parsed.seat)
@@ -97,8 +122,40 @@ export class BackgroundSession {
     return this.seats.seatCount()
   }
 
+  /** Announce that this device's owner explicitly signed `proposal`. Every device (this one
+   *  included, the relay echoes it back) sees the same ordered log and agrees on who sends. */
+  async arm(proposal: string): Promise<void> {
+    const msg: ArmedMsg = { type: 'armed', seat: this.seats.mySeat(), proposal }
+    await this.send(JSON.stringify(msg))
+  }
+
+  /** Apply one arming. An arming for a DIFFERENT proposal starts a fresh tally, so a replayed
+   *  arming from an older payment can never count toward this one. The device whose arming brings
+   *  the tally exactly to the threshold is named as the trigger - once, deterministically, from an
+   *  ordering every device sees identically. */
+  private handleArmed(from: string, seat: number, proposal: string): void {
+    if (this.armedProposal !== proposal) {
+      this.armedProposal = proposal
+      this.armed.clear()
+    }
+    const known = this.armed.get(seat)
+    this.armed.set(seat, from)
+    const t = this.threshold()
+    // Only a NEW seat can complete the quorum; a device re-announcing its own seat must not
+    // re-fire the trigger.
+    const completes = known === undefined && t > 0 && this.armed.size === t
+    this.onArmed?.(this.armedSeats(), completes ? from : null)
+  }
+
+  /** The seats that have signed the current proposal, ascending. */
+  armedSeats(): number[] {
+    return [...this.armed.keys()].sort((a, b) => a - b)
+  }
+
   /** Reset for a NEXT payment (the caller moves to a fresh signing room per payment). */
   rearm(): void {
     this.signer.rearm()
+    this.armed.clear()
+    this.armedProposal = null
   }
 }
