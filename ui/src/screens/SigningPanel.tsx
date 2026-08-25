@@ -24,7 +24,7 @@ import { usdEnabled, cachedRate, fetchRate, zecToUsd, type Rate } from '../price
 export default function SigningPanel() {
   const t = useT()
   const toast = useToast()
-  const { bg, vault, threshold, myName, active, close, reseat, armed, armActive, armedUntil } = useVaultSigner()
+  const { bg, vault, threshold, myName, active, close, reseat, armed, armActive, armedUntil, unarmActive } = useVaultSigner()
   const [confirming, setConfirming] = useState(false)
   const [sending, setSending] = useState(false)
   // When the ceremony started on THIS device. The run is minutes long and emits no event we can
@@ -180,6 +180,10 @@ export default function SigningPanel() {
   function fail(msg: string) {
     setResult({ error: msg })
     toast.err(msg)
+    // Nothing moved, so the payment goes back to unsigned everywhere. Left standing, the failed
+    // attempt's signatures sit in the permanent room and the payment reads as already signed by
+    // devices that have gone - with no button to sign it and no one to send it.
+    void unarmActive()
   }
 
   async function doSend() {
@@ -380,12 +384,12 @@ export default function SigningPanel() {
               <div className="hint mt-sm">{t('signing.signedCount', { n: signedCount, t: threshold })}</div>
               {armLeft > 0 && <div className="hint mt-sm dim">{t('signing.armExpires', { mins: armLeft })}</div>}
             </>
-          ) : quorumSigned ? (
-            <>
-              <div className="confirm ready">{t('signing.othersSending')}</div>
-              <div className="hint mt-sm">{t('signing.signedCount', { n: signedCount, t: threshold })}</div>
-            </>
           ) : (
+            // A device that has NOT signed in this session always gets the button, whatever the room
+            // says the tally is. Its own signature is the only thing it can contribute, and without
+            // it a stale tally leaves the payment frozen: signed by nobody present, sendable by
+            // nobody at all. Signing again is safe - the tally is keyed by seat, and a seat that
+            // re-announces provably does not fire the send a second time.
             <>
               <div className="confirm ready">{t('signing.readyToSend')}</div>
               <div className="hint mt-sm">{t('signing.signedCount', { n: signedCount, t: threshold })}</div>

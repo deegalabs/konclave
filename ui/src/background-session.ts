@@ -7,6 +7,7 @@
 // messages into `onMessage` and calls `start()`/`stop()`. Unit-tested end to end over an in-memory
 // relay, so the live layer is glue, not logic.
 
+import { armIsLive } from './signing-gate'
 import { SigningSeats } from './signing-seats'
 import { BackgroundSigner, type GovernanceGate } from './background-signer'
 import type { SigningMaterial } from './signing-machine'
@@ -34,6 +35,8 @@ export interface BackgroundSessionDeps {
    *  the one, and only one, that asks the helper to build and broadcast. Null on every other
    *  message, so exactly one device triggers per quorum. */
   onArmed?: (seats: number[], triggerTag: string | null) => void
+  /** Clock, injectable so the expiry rule is testable without waiting ten minutes. */
+  now?: () => number
 }
 
 /** A device announcing that its owner explicitly signed THIS proposal. Broadcast into the signing
@@ -43,6 +46,17 @@ export interface ArmedMsg {
   seat: number
   /** The proposal this arming is for, so a replayed arming from an older payment is ignored. */
   proposal: string
+  /** When it was given (sender's clock, ms). Signatures expire on the wire the way they expire on
+   *  the device, so the room cannot hold a payment hostage with signatures nobody remembers giving. */
+  at: number
+}
+
+/** Withdraws every signature for a payment. Published when an attempt FAILED: nothing moved, so the
+ *  payment goes back to unsigned and everyone can decide again, rather than looking already-signed
+ *  by devices that are gone. */
+export interface UnarmedMsg {
+  type: 'unarmed'
+  proposal: string
 }
 
 export class BackgroundSession {
@@ -51,6 +65,7 @@ export class BackgroundSession {
   private readonly send: (data: string) => Promise<boolean>
   private readonly threshold: () => number
   private readonly onArmed?: (seats: number[], triggerTag: string | null) => void
+  private readonly now: () => number
   /** Seat -> the tag that armed it, for `currentProposal`. Keyed by SEAT so a device that reloads
    *  (new tag, same seat) replaces its own arming instead of counting twice. */
   private readonly armed = new Map<number, string>()
@@ -67,6 +82,7 @@ export class BackgroundSession {
     this.send = deps.send
     this.threshold = deps.threshold
     this.onArmed = deps.onArmed
+    this.now = deps.now ?? (() => Date.now())
     this.seats = new SigningSeats(deps.myTag, deps.mySeat, deps.onSeatCount)
     this.signer = new BackgroundSigner({
       signingMaterial: deps.signingMaterial,
@@ -95,14 +111,21 @@ export class BackgroundSession {
    *  signing message that arrived before its sender was seated now proceeds); everything else goes
    *  to the signer. Call from RelaySession.onMessage. */
   async onMessage(from: string, data: string): Promise<void> {
-    let parsed: { type?: string; seat?: number; proposal?: string } | null = null
+    let parsed: { type?: string; seat?: number; proposal?: string; at?: number } | null = null
     try {
-      parsed = JSON.parse(data) as { type?: string; seat?: number; proposal?: string }
+      parsed = JSON.parse(data) as { type?: string; seat?: number; proposal?: string; at?: number }
     } catch {
       /* not JSON - hand to the signer, which ignores unparseable input */
     }
+    if (parsed?.type === 'unarmed' && typeof parsed.proposal === 'string') {
+      if (parsed.proposal === this.currentProposal) {
+        this.armed.clear()
+        this.onArmed?.([], null)
+      }
+      return
+    }
     if (parsed?.type === 'armed' && typeof parsed.seat === 'number' && typeof parsed.proposal === 'string') {
-      this.handleArmed(from, parsed.seat, parsed.proposal)
+      this.handleArmed(from, parsed.seat, parsed.proposal, typeof parsed.at === 'number' ? parsed.at : null)
       return
     }
     if (parsed?.type === 'rejoin' && typeof parsed.seat === 'number') {
@@ -142,7 +165,14 @@ export class BackgroundSession {
    *  included, the relay echoes it back) sees the same ordered log and agrees on who sends. */
   async arm(proposal: string): Promise<void> {
     this.setProposal(proposal) // a no-op in the normal path; correct if the caller never scoped us
-    const msg: ArmedMsg = { type: 'armed', seat: this.seats.mySeat(), proposal }
+    const msg: ArmedMsg = { type: 'armed', seat: this.seats.mySeat(), proposal, at: this.now() }
+    await this.send(JSON.stringify(msg))
+  }
+
+  /** Withdraw every signature for `proposal`: an attempt failed and nothing moved, so the payment
+   *  goes back to unsigned on every device instead of looking signed by devices that have gone. */
+  async unarm(proposal: string): Promise<void> {
+    const msg: UnarmedMsg = { type: 'unarmed', proposal }
     await this.send(JSON.stringify(msg))
   }
 
@@ -150,8 +180,14 @@ export class BackgroundSession {
    *  history on join can never build a tally for the payment on screen. The device whose signature
    *  brings the tally exactly to the threshold is named as the sender - once, deterministically,
    *  from an ordering every device sees identically. */
-  private handleArmed(from: string, seat: number, proposal: string): void {
+  private handleArmed(from: string, seat: number, proposal: string, at: number | null): void {
     if (proposal !== this.currentProposal) return
+    // A signature expires on the wire exactly as it expires on the device. Without this, a failed
+    // attempt's signatures sat in the permanent room forever: on reload both devices rebuilt a full
+    // quorum from tags that no longer existed, so the payment read as signed by ghosts and sendable
+    // by nobody - no button, no sender, no way out. One with no timestamp is from before this rule
+    // and is always stale; it can only be a leftover.
+    if (at === null || !armIsLive(at, this.now())) return
     const known = this.armed.get(seat)
     this.armed.set(seat, from)
     const t = this.threshold()

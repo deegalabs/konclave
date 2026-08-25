@@ -11,6 +11,7 @@ import { dkgProvenPczt } from './demo-vector'
 import { parseAlphas } from './signing'
 import { bytesToHex } from './net-sign'
 import { BackgroundSession } from './background-session'
+import { ARM_TTL_MS } from './signing-gate'
 import type { GovernanceGate } from './background-signer'
 
 beforeAll(async () => {
@@ -44,6 +45,7 @@ class Bus {
 
 interface Dev { tag: string; session: BackgroundSession; delivered: Set<number>; sig: { hex: string; ok: boolean } | null; errors: string[]; seats: number; armedSeats: number[]; namedSender: string | null }
 
+let NOW = 1_700_000_000_000
 function makeDev(tag: string, seat: number, bus: Bus, mat: () => { keyPackage: Uint8Array; groupVk: Uint8Array; pubkeys: Uint8Array }, gate: GovernanceGate): Dev {
   const dev: Dev = { tag, session: null as unknown as BackgroundSession, delivered: new Set(), sig: null, errors: [], seats: 0, armedSeats: [], namedSender: null }
   dev.session = new BackgroundSession({
@@ -56,6 +58,7 @@ function makeDev(tag: string, seat: number, bus: Bus, mat: () => { keyPackage: U
     onError: (m) => dev.errors.push(m),
     onSignature: (hex, ok) => { dev.sig = { hex, ok } },
     onSeatCount: (n) => { dev.seats = n },
+    now: () => NOW,
     onArmed: (seats, triggerTag) => {
       dev.armedSeats = seats
       if (triggerTag) dev.namedSender = triggerTag
@@ -255,5 +258,93 @@ describe('BackgroundSession - everyone signs, the last one sends', () => {
     expect(A.sig?.ok).toBe(true)
     expect(B.sig?.ok).toBe(true)
     expect(A.sig?.hex).toBe(B.sig?.hex)
+  })
+})
+
+describe('BackgroundSession - a failed attempt must not freeze the payment', () => {
+  const mat = (kp: Uint8Array, groupVk: Uint8Array, pubkeys: Uint8Array) => () => ({ keyPackage: kp, groupVk, pubkeys })
+  const pair = (bus: Bus) => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const open: GovernanceGate = () => true
+    return [
+      makeDev('a-tag', 1, bus, mat(s0.keyPackage(), groupVk, pubkeys), open),
+      makeDev('b-tag', 2, bus, mat(s1.keyPackage(), groupVk, pubkeys), open),
+    ] as const
+  }
+
+  it('signatures expire on the wire, so a stale room cannot hold a payment hostage', async () => {
+    // What shipped: an attempt failed, its two signatures stayed in the permanent room, and on
+    // reload both devices rebuilt a full quorum from tags that no longer existed. The payment read
+    // as signed by ghosts and sendable by nobody: no button, no sender, no way out.
+    const bus = new Bus()
+    const stale = NOW - ARM_TTL_MS - 1
+    bus.post('gone-a', JSON.stringify({ type: 'armed', seat: 1, proposal: 'p1', at: stale }))
+    bus.post('gone-b', JSON.stringify({ type: 'armed', seat: 2, proposal: 'p1', at: stale }))
+
+    const [A, B] = pair(bus)
+    A.session.setProposal('p1'); B.session.setProposal('p1')
+    await A.session.start(); await B.session.start(); await run([A, B], bus)
+
+    expect(A.armedSeats).toEqual([])
+    expect(A.namedSender).toBeNull()
+
+    // And it can be signed again, normally, from zero.
+    await A.session.arm('p1'); await run([A, B], bus)
+    await B.session.arm('p1'); await run([A, B], bus)
+    expect(A.armedSeats).toEqual([1, 2])
+    expect(A.namedSender).toBe('b-tag')
+  })
+
+  it('a signature with no timestamp is always stale: it can only be a leftover', async () => {
+    const bus = new Bus()
+    bus.post('gone-a', JSON.stringify({ type: 'armed', seat: 1, proposal: 'p1' }))
+    bus.post('gone-b', JSON.stringify({ type: 'armed', seat: 2, proposal: 'p1' }))
+    const [A, B] = pair(bus)
+    A.session.setProposal('p1'); B.session.setProposal('p1')
+    await A.session.start(); await B.session.start(); await run([A, B], bus)
+    expect(A.armedSeats).toEqual([])
+  })
+
+  it('a fresh signature still counts', async () => {
+    const bus = new Bus()
+    bus.post('someone', JSON.stringify({ type: 'armed', seat: 2, proposal: 'p1', at: NOW - 1000 }))
+    const [A, B] = pair(bus)
+    A.session.setProposal('p1'); B.session.setProposal('p1')
+    await A.session.start(); await B.session.start(); await run([A, B], bus)
+    expect(A.armedSeats).toEqual([2])
+  })
+
+  it('withdrawing after a failure puts the payment back to unsigned everywhere', async () => {
+    const bus = new Bus()
+    const [A, B] = pair(bus)
+    A.session.setProposal('p1'); B.session.setProposal('p1')
+    await A.session.start(); await B.session.start(); await run([A, B], bus)
+
+    await A.session.arm('p1'); await B.session.arm('p1'); await run([A, B], bus)
+    expect(A.armedSeats).toEqual([1, 2])
+    expect(B.namedSender).toBe('b-tag')
+
+    // The send failed: nothing moved, so nobody is holding a signature any more.
+    await B.session.unarm('p1'); await run([A, B], bus)
+    expect(A.armedSeats).toEqual([])
+    expect(B.armedSeats).toEqual([])
+
+    // ...and signing it again works, naming a sender again.
+    A.namedSender = null; B.namedSender = null
+    await A.session.arm('p1'); await B.session.arm('p1'); await run([A, B], bus)
+    expect(A.armedSeats).toEqual([1, 2])
+    expect(A.namedSender).toBe('b-tag')
+  })
+
+  it('a withdrawal for a different payment is ignored', async () => {
+    const bus = new Bus()
+    const [A, B] = pair(bus)
+    A.session.setProposal('p1'); B.session.setProposal('p1')
+    await A.session.start(); await B.session.start(); await run([A, B], bus)
+    await A.session.arm('p1'); await run([A, B], bus)
+    expect(A.armedSeats).toEqual([1])
+
+    await B.session.unarm('p-other'); await run([A, B], bus)
+    expect(A.armedSeats).toEqual([1]) // untouched
   })
 })
