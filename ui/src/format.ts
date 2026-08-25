@@ -17,11 +17,25 @@ function isRealUnix(unix?: number): unix is number {
   return typeof unix === 'number' && Number.isFinite(unix) && unix > 0 && unix < MAX_SANE_UNIX
 }
 
-/** Format a ZEC amount (string or number) with 4 decimals. Falls back when not finite. */
+/**
+ * Format a ZEC amount (string or number) with 4 decimals. Falls back when not finite.
+ *
+ * A non-zero amount is NEVER shown as zero. Four decimals is the right measure for ordinary sums,
+ * but ZEC divides into 100 million, so a real payment can be smaller than the last digit shown -
+ * and rendering 2500 zatoshi as "0.0000" tells the reader the opposite of the truth on a screen
+ * about money. Below that floor the figure keeps enough decimals to be itself (up to all 8),
+ * trailing zeros trimmed so ordinary amounts are unaffected.
+ */
 export function fmtZec(zec?: string | number, fallback = '-'): string {
   if (zec === undefined || zec === null || zec === '') return fallback
   const n = typeof zec === 'number' ? zec : Number(zec)
-  return Number.isFinite(n) ? n.toFixed(4) : fallback
+  if (!Number.isFinite(n)) return fallback
+  const at4 = n.toFixed(4)
+  if (n === 0 || Number(at4) !== 0) return at4
+  // Smaller than the 4-decimal floor: show it truthfully rather than as zero.
+  const sign = n < 0 ? '-' : ''
+  const full = Math.abs(n).toFixed(8).replace(/0+$/, '')
+  return sign + full
 }
 
 /** Parse a ZEC decimal string into integer zatoshis, mirroring money.rs::from_zec_str,

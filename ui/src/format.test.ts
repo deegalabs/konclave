@@ -115,3 +115,34 @@ describe('vaultFingerprint (SHA-256 of the public group identity)', () => {
     expect(a).not.toBe(b)
   })
 })
+
+// A screen about money must not tell you an amount is zero when it is not. ZEC divides into 100
+// million, so a real payment can sit below the fourth decimal - which is exactly where a nearly
+// empty vault operates.
+describe('fmtZec - a real amount is never shown as zero', () => {
+  it('keeps four decimals for ordinary amounts', () => {
+    expect(fmtZec('1.5')).toBe('1.5000')
+    expect(fmtZec(0.1234)).toBe('0.1234')
+    expect(fmtZec('0.00012345')).toBe('0.0001')
+  })
+
+  it('shows an amount smaller than the four-decimal floor as itself', () => {
+    expect(fmtZec('0.000025')).toBe('0.000025') // 2500 zatoshi
+    expect(fmtZec('0.000015')).toBe('0.000015') // 1500 zatoshi
+    expect(fmtZec('0.00000001')).toBe('0.00000001') // one zatoshi
+  })
+
+  it('still shows a true zero as zero', () => {
+    expect(fmtZec(0)).toBe('0.0000')
+    expect(fmtZec('0')).toBe('0.0000')
+  })
+
+  it('keeps the sign on a small negative', () => {
+    expect(fmtZec(-0.000025)).toBe('-0.000025')
+  })
+
+  it('falls back on nothing and on nonsense', () => {
+    expect(fmtZec(undefined)).toBe('-')
+    expect(fmtZec('abc')).toBe('-')
+  })
+})
