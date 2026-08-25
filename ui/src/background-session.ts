@@ -37,6 +37,8 @@ export interface BackgroundSessionDeps {
   onArmed?: (seats: number[], triggerTag: string | null) => void
   /** Clock, injectable so the expiry rule is testable without waiting ten minutes. */
   now?: () => number
+  /** An attempt failed elsewhere. Every device that signed learns it, not only the one that sent. */
+  onFailed?: (code: FailureCode) => void
 }
 
 /** A device announcing that its owner explicitly signed THIS proposal. Broadcast into the signing
@@ -53,10 +55,19 @@ export interface ArmedMsg {
 
 /** Withdraws every signature for a payment. Published when an attempt FAILED: nothing moved, so the
  *  payment goes back to unsigned and everyone can decide again, rather than looking already-signed
- *  by devices that are gone. */
+ *  by devices that are gone.
+ *
+ *  It carries a COARSE reason and never the message. Only the device that sent gets the reply, so
+ *  without this the others sit on "sending" and never learn it failed - but the message names the
+ *  vault's balance, and the relay can read every body it carries. A code says enough for each device
+ *  to write its own sentence, and tells the relay nothing it could not already infer from the
+ *  silence that follows a failed ceremony. */
+export type FailureCode = 'funds' | 'ceremony' | 'coordinator' | 'unknown'
+
 export interface UnarmedMsg {
   type: 'unarmed'
   proposal: string
+  code?: FailureCode
 }
 
 export class BackgroundSession {
@@ -66,6 +77,7 @@ export class BackgroundSession {
   private readonly threshold: () => number
   private readonly onArmed?: (seats: number[], triggerTag: string | null) => void
   private readonly now: () => number
+  private readonly onFailed?: (code: FailureCode) => void
   /** Seat -> the tag that armed it, for `currentProposal`. Keyed by SEAT so a device that reloads
    *  (new tag, same seat) replaces its own arming instead of counting twice. */
   private readonly armed = new Map<number, string>()
@@ -83,6 +95,7 @@ export class BackgroundSession {
     this.threshold = deps.threshold
     this.onArmed = deps.onArmed
     this.now = deps.now ?? (() => Date.now())
+    this.onFailed = deps.onFailed
     this.seats = new SigningSeats(deps.myTag, deps.mySeat, deps.onSeatCount)
     this.signer = new BackgroundSigner({
       signingMaterial: deps.signingMaterial,
@@ -111,9 +124,9 @@ export class BackgroundSession {
    *  signing message that arrived before its sender was seated now proceeds); everything else goes
    *  to the signer. Call from RelaySession.onMessage. */
   async onMessage(from: string, data: string): Promise<void> {
-    let parsed: { type?: string; seat?: number; proposal?: string; at?: number } | null = null
+    let parsed: { type?: string; seat?: number; proposal?: string; at?: number; code?: FailureCode } | null = null
     try {
-      parsed = JSON.parse(data) as { type?: string; seat?: number; proposal?: string; at?: number }
+      parsed = JSON.parse(data) as { type?: string; seat?: number; proposal?: string; at?: number; code?: FailureCode }
     } catch {
       /* not JSON - hand to the signer, which ignores unparseable input */
     }
@@ -121,6 +134,7 @@ export class BackgroundSession {
       if (parsed.proposal === this.currentProposal) {
         this.armed.clear()
         this.onArmed?.([], null)
+        if (parsed.code) this.onFailed?.(parsed.code)
       }
       return
     }
@@ -171,8 +185,8 @@ export class BackgroundSession {
 
   /** Withdraw every signature for `proposal`: an attempt failed and nothing moved, so the payment
    *  goes back to unsigned on every device instead of looking signed by devices that have gone. */
-  async unarm(proposal: string): Promise<void> {
-    const msg: UnarmedMsg = { type: 'unarmed', proposal }
+  async unarm(proposal: string, code?: FailureCode): Promise<void> {
+    const msg: UnarmedMsg = { type: 'unarmed', proposal, ...(code ? { code } : {}) }
     await this.send(JSON.stringify(msg))
   }
 

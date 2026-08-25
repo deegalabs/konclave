@@ -12,6 +12,7 @@ import { getUnlockedShare } from './session'
 import { decodeBundle } from './signing'
 import { BackgroundSession } from './background-session'
 import { signingRoom, acquireSigner, releaseSigner, type GovernanceGate } from './background-signer'
+import type { FailureCode } from './background-session'
 
 const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('')
 
@@ -30,8 +31,13 @@ export interface BackgroundSignerState {
   /** Announce that this device's owner signed `proposal`. */
   arm: (proposal: string) => Promise<void>
   /** Withdraw every signature for `proposal` after a failed attempt: nothing moved, so the payment
-   *  goes back to unsigned on every device instead of looking signed by devices that have gone. */
-  unarm: (proposal: string) => Promise<void>
+   *  goes back to unsigned on every device instead of looking signed by devices that have gone.
+   *  `code` tells the OTHER devices why, so they are not left on "sending" forever. */
+  unarm: (proposal: string, code?: FailureCode) => Promise<void>
+  /** An attempt failed elsewhere: the coarse reason, for a device that signed but did not send. */
+  peerFailure: FailureCode | null
+  /** Clear the peer failure once it has been read. */
+  clearPeerFailure: () => void
   /** Point the signer at the payment now on screen (null when none). Changing payment starts a
    *  fresh tally AND drops any standing "this device sends" decision. */
   setProposal: (id: string | null) => void
@@ -61,6 +67,7 @@ export function useBackgroundSigner(
   const [error, setError] = useState('')
   const [armedSeats, setArmedSeats] = useState<number[]>([])
   const [iSend, setISend] = useState(false)
+  const [peerFailure, setPeerFailure] = useState<FailureCode | null>(null)
   // The payment the signer is scoped to, so a change resets exactly once (and not on every render).
   const proposalRef = useRef<string | null>(null)
   const setProposal = useCallback((id: string | null) => {
@@ -70,6 +77,7 @@ export function useBackgroundSigner(
     // have the next one broadcast the instant it opened - no signature, no confirm.
     setISend(false)
     setArmedSeats([])
+    setPeerFailure(null)
     sessionRef.current?.setProposal(id)
   }, [])
   const relayRef = useRef<RelaySession | null>(null)
@@ -114,6 +122,7 @@ export function useBackgroundSigner(
           onPhase: setPhase,
           onWhat: setWhat,
           onSignature: (h, ok) => setSignature({ hex: h, ok }),
+          onFailed: setPeerFailure,
           onArmed: (seats, triggerTag) => {
             setArmedSeats(seats)
             if (triggerTag === myTag) setISend(true)
@@ -150,10 +159,12 @@ export function useBackgroundSigner(
     armedSeats,
     iSend,
     arm: async (proposal: string) => { await sessionRef.current?.arm(proposal) },
-    unarm: async (proposal: string) => {
+    unarm: async (proposal: string, code?: FailureCode) => {
       setISend(false)
-      await sessionRef.current?.unarm(proposal)
+      await sessionRef.current?.unarm(proposal, code)
     },
+    peerFailure,
+    clearPeerFailure: () => setPeerFailure(null),
     setProposal,
     phase,
     signature,

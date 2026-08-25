@@ -23,6 +23,7 @@ import {
   type Proposal as NetProposal,
 } from './helper'
 import { fmtZecExact, zatToZec, parseZecToZat } from './format'
+import type { FailureCode } from './background-session'
 import { listVaults, updateVaultMeta } from './storage'
 import { getUnlockedShare, setUnlockedShare } from './session'
 
@@ -297,6 +298,19 @@ export function classifyAddress(addr: string): AddressKind {
  * (§6.11 "human-readable errors"). Matches on the backend's English error CODES; returns a
  * localized message. Keeps the raw detail only as a last resort.
  */
+/**
+ * A coarse reason a failure can be told to the OTHER devices. Never the message: that names the
+ * vault's balance, and the relay reads every body it carries. This says enough for each device to
+ * write its own sentence, and tells the relay nothing the silence after a failed ceremony would not.
+ */
+export function errorCode(error?: string, detail?: string): FailureCode {
+  const s = `${error ?? ''} ${detail ?? ''}`.toLowerCase()
+  if (s.includes('insufficient') || s.includes('funds')) return 'funds'
+  if (s.includes('over capacity') || s.includes('restarting') || s.includes('http 5')) return 'coordinator'
+  if (s.includes('timed out') || s.includes('signature') || s.includes('share') || s.includes('relay')) return 'ceremony'
+  return 'unknown'
+}
+
 export function humanError(t: TFn, error?: string, detail?: string): string {
   const e = (error ?? '').toLowerCase()
   const d = (detail ?? '').toLowerCase()

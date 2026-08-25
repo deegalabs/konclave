@@ -12,10 +12,10 @@ import { Dialog } from '../components'
 import { Identicon } from '../avatar'
 import { useT } from '../i18n'
 import { useToast } from '../toast'
-import { fmtZec, shortAddr } from '../format'
+import { fmtZec, parseZecToZat, shortAddr, zatToZec } from '../format'
 import { useVaultSigner } from '../VaultSigner'
 import { executeProposal, listProposals } from '../helper'
-import { humanError, markVaultUnlocked } from '../api'
+import { errorCode, getBalance, getProposalDetail, humanError, markVaultUnlocked } from '../api'
 import { relayBase } from '../net'
 import { getUnlockedShare, setUnlockedShare } from '../session'
 import { loadVault } from '../storage'
@@ -47,6 +47,11 @@ export default function SigningPanel() {
   // they commit. Re-price on open and again at the confirm, rather than showing whatever was cached
   // when the proposal was written - which can be hours or days old by now.
   const [armLeft, setArmLeft] = useState(0)
+  // Signing is where a payment the vault cannot pay must stop. Approval is consent and stays open;
+  // this is the act that spends, and letting it run cost two people and a full ceremony to learn
+  // what one balance read would have said in a second.
+  const [spendableZat, setSpendableZat] = useState<number | null>(null)
+  const [payrollLines, setPayrollLines] = useState(1)
 
   // Start the clock when the run starts, stop it when it ends. Keyed on `started`, so it covers a
   // device that only signs just as much as the one that broadcasts.
@@ -62,6 +67,27 @@ export default function SigningPanel() {
     const id = window.setInterval(tick, 1000)
     return () => window.clearInterval(id)
   }, [runSince])
+
+  useEffect(() => {
+    if (!active) return
+    let on = true
+    void getBalance().then((b) => { if (on && b?.configured) setSpendableZat(b.spendable_zat ?? b.total_zat ?? null) })
+    if (active.kind === 'payroll') {
+      void getProposalDetail(active.id).then((d) => { if (on && d) setPayrollLines(Math.max(1, d.lines.length)) })
+    }
+    return () => { on = false }
+  }, [active])
+
+  // A member who signed but did not send learns the outcome here. Only the sending device gets the
+  // reply, so this is the ONLY way the rest of the vault finds out the payment is not coming.
+  useEffect(() => {
+    if (!bg.peerFailure) return
+    const msg = t('signing.peerFailed.' + bg.peerFailure)
+    setResult({ error: msg })
+    toast.err(msg)
+    bg.clearPeerFailure()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bg.peerFailure])
 
   // The room decided this device sends. It already passed the money confirm (that is what
   // `iWouldBeLast` gates), so fire once - and only once - per proposal.
@@ -148,7 +174,6 @@ export default function SigningPanel() {
   const errMsg = (result && 'error' in result && result.error) || bg.error || ''
   // What this device can do now is SIGN. The send is not a button any more: it follows from the
   // quorum closing, on the device the room named.
-  const canSign = bg.ready && quorumHere && !started && !result && !armed && !arming
   // The signer is still coming up: has a share but hasn't seated yet. Show a loading line instead of
   // a roster that could momentarily light the wrong seat. (Declared after `started`/`result`.)
   // At the passphrase stage we SHOW the roster (the signers of this vault) - the device just hasn't
@@ -161,6 +186,20 @@ export default function SigningPanel() {
   const amtNum = active.value_zec
   const amt = fmtZec(active.value_zec)
   const isPayroll = active.kind === 'payroll'
+
+  // ZIP-317, spends + outputs (see the note in Proposal.tsx): one spend + N destinations + change.
+  // The line count is fetched with the proposal; a payroll whose lines have not landed yet is
+  // costed as one destination, which under-states rather than over-states, so the block never
+  // fires on a guess.
+  const feeZat = 5000 * Math.max(2, 1 + Math.max(1, payrollLines) + 1)
+  const amountZat = parseZecToZat(active.value_zec ?? '')
+  const shortZat = spendableZat === null || amountZat === null
+    ? 0
+    : Math.max(0, amountZat + feeZat - spendableZat)
+
+  // What this device can do now is SIGN - and not at all when the vault cannot pay. Approval is
+  // consent and stays open; this is the act that spends.
+  const canSign = bg.ready && quorumHere && !started && !result && !armed && !arming && shortZat === 0
 
   // Priced only if the owner opted in, and never presented as fact: the source and the age of the
   // quote ride along, so nobody reads an estimate as the amount being spent.
@@ -177,13 +216,16 @@ export default function SigningPanel() {
 
   // A failed send keeps its message on the panel - the reader has to act on it - and is announced
   // as well, because the run takes minutes and nobody watches a panel for that long.
-  function fail(msg: string) {
+  function fail(msg: string, raw?: string) {
     setResult({ error: msg })
     toast.err(msg)
     // Nothing moved, so the payment goes back to unsigned everywhere. Left standing, the failed
     // attempt's signatures sit in the permanent room and the payment reads as already signed by
     // devices that have gone - with no button to sign it and no one to send it.
-    void unarmActive()
+    //
+    // The reason travels with it, as a code. Only THIS device gets the reply, so without it every
+    // other member who signed sits on "sending" and never learns the payment is not coming.
+    void unarmActive(errorCode(raw ?? msg))
   }
 
   async function doSend() {
@@ -212,7 +254,7 @@ export default function SigningPanel() {
       // Through humanError, so the money path never shows a binary path and a Rust struct. It was
       // reporting failures like "/usr/local/bin/konclave-signer exited with 1: Error:
       // propose_transfer: InsufficientFunds { available: Zatoshis(20000), required: Zatoshis(24000) }".
-      else if ('error' in r) fail(humanError(t, r.error))
+      else if ('error' in r) fail(humanError(t, r.error), r.error)
       else if (!r.txid) fail(t('signing.errNoTxid')) // a reply with no txid is NOT a send
       else { setResult({ txid: r.txid }); toast.ok(t('toast.sent')) }
     } catch (e) {
@@ -393,7 +435,9 @@ export default function SigningPanel() {
             <>
               <div className="confirm ready">{t('signing.readyToSend')}</div>
               <div className="hint mt-sm">{t('signing.signedCount', { n: signedCount, t: threshold })}</div>
-              <div className="hint mt-sm">{iWouldBeLast ? t('signing.lastSigner') : t('signing.notLastYet')}</div>
+              {shortZat > 0
+                ? <div className="hint warn mt-sm" role="status">{t('signing.blockedShort', { short: fmtZec(zatToZec(shortZat)) })}</div>
+                : <div className="hint mt-sm">{iWouldBeLast ? t('signing.lastSigner') : t('signing.notLastYet')}</div>}
               <button
                 className="btn ok mt-sm"
                 disabled={!canSign}

@@ -150,6 +150,14 @@ export type Proposal = {
 }
 
 /** Create a payment proposal. The helper validates the destination + amount authoritatively. */
+/**
+ * How long a proposal stays open on the browser-native path: 72 hours, the same deadline the local
+ * bridge already uses (`server.rs`) and the one CLAUDE.md §10 documents. Both call sites here used
+ * to send `0`, which the helper reads as "never" - so on the web a proposal nobody acted on stayed
+ * open forever, and the lifecycle the product describes was one the product did not run.
+ */
+const PROPOSAL_TTL_SECONDS = 72 * 60 * 60
+
 export async function createProposal(args: {
   vault: string
   proposer: string
@@ -164,7 +172,7 @@ export async function createProposal(args: {
     to: args.to,
     amount_zat: args.amountZat,
     memo: args.memo,
-    expiry_unix: args.expiryUnix ?? 0,
+    expiry_unix: args.expiryUnix ?? Math.floor(Date.now() / 1000) + PROPOSAL_TTL_SECONDS,
   })
 }
 
@@ -233,7 +241,7 @@ export async function createPayroll(args: {
     vault: args.vault,
     proposer: args.proposer,
     lines: args.lines.map((l) => ({ label: l.label ?? '', to: l.to, amount_zat: l.amount_zat, memo: l.memo })),
-    expiry_unix: args.expiryUnix ?? 0,
+    expiry_unix: args.expiryUnix ?? Math.floor(Date.now() / 1000) + PROPOSAL_TTL_SECONDS,
   })
 }
 
