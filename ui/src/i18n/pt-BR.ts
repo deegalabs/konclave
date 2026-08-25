@@ -34,6 +34,14 @@ export const ptBR: Record<string, string> = {
   'expiry.days': 'expira em {d}d',
 
   // human errors (humanError)
+  'error.insufficientExact': 'O cofre tem {have} ZEC e este pagamento precisa de {need} ZEC (valor + taxa da rede). Reduza os valores ou adicione fundos.',
+  'toast.approved': 'Sua aprovação foi registrada.',
+  'toast.refused': 'Sua recusa foi registrada.',
+  'toast.sent': 'Enviado. O pagamento está na rede.',
+  'toast.paymentSent': 'Pagamento enviado para aprovação.',
+  'toast.payrollSent': 'Folha enviada para aprovação.',
+  'toast.csvImported': '{n} linhas importadas.',
+  'toast.csvPartial': '{ok} linhas importadas, {bad} com erro.',
   'error.insufficient': 'Saldo insuficiente no cofre para este valor (somando a taxa de rede).',
   'error.ceremony': 'Não foi possível concluir o envio. Verifique sua conexão e tente de novo em instantes; nada foi enviado.',
   'error.share': 'Uma das partes da chave falhou ao assinar. Confira se os membros do quórum estão disponíveis.',

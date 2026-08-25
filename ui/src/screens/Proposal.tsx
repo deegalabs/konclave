@@ -6,6 +6,7 @@ import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
 import { fmtZec } from '../format'
 import { useT, useTr } from '../i18n'
+import { useToast } from '../toast'
 import {
   getProposalDetail, getProposals, getVault, voteProposal, sendProposal, shortAddr, humanError,
   IS_NET, type Proposal, type PayrollLine,
@@ -15,6 +16,7 @@ import { useVaultSigner } from '../VaultSigner'
 
 export default function Proposal() {
   const t = useT()
+  const toast = useToast()
   const tr = useTr()
   const loc = useLocation() as { state?: { id?: string } }
   const nav = useNavigate()
@@ -84,8 +86,15 @@ export default function Proposal() {
     setError(null); setBusy(true)
     const res = await voteProposal(p.id, who, approve)
     setBusy(false)
-    if (res.ok) setP(res.proposal)
-    else setError(humanError(t, res.error, res.detail))
+    if (res.ok) {
+      setP(res.proposal)
+      // The row updates in place, so the change is easy to miss; the toast says it was recorded.
+      toast.ok(approve ? t('toast.approved') : t('toast.refused'))
+    } else {
+      const msg = humanError(t, res.error, res.detail)
+      setError(msg)   // stays on screen: this is the money path
+      toast.err(msg)  // and is announced, in case the eye is elsewhere
+    }
   }
 
   async function send(dryRun: boolean) {

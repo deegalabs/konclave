@@ -11,10 +11,11 @@ import { useEffect, useRef, useState } from 'react'
 import { Dialog } from '../components'
 import { Identicon } from '../avatar'
 import { useT } from '../i18n'
+import { useToast } from '../toast'
 import { fmtZec, shortAddr } from '../format'
 import { useVaultSigner } from '../VaultSigner'
 import { executeProposal, listProposals } from '../helper'
-import { markVaultUnlocked } from '../api'
+import { humanError, markVaultUnlocked } from '../api'
 import { relayBase } from '../net'
 import { getUnlockedShare, setUnlockedShare } from '../session'
 import { loadVault } from '../storage'
@@ -22,6 +23,7 @@ import { usdEnabled, cachedRate, fetchRate, zecToUsd, type Rate } from '../price
 
 export default function SigningPanel() {
   const t = useT()
+  const toast = useToast()
   const { bg, vault, threshold, myName, active, close, reseat, armed, armActive, armedUntil } = useVaultSigner()
   const [confirming, setConfirming] = useState(false)
   const [sending, setSending] = useState(false)
@@ -173,6 +175,13 @@ export default function SigningPanel() {
     : null
 
 
+  // A failed send keeps its message on the panel - the reader has to act on it - and is announced
+  // as well, because the run takes minutes and nobody watches a panel for that long.
+  function fail(msg: string) {
+    setResult({ error: msg })
+    toast.err(msg)
+  }
+
   async function doSend() {
     // Every exit from here must leave a visible trace. The panel used to close its confirm dialog
     // and then, on some paths, show nothing at all: no error, no progress, no way to tell whether
@@ -195,15 +204,18 @@ export default function SigningPanel() {
     try {
       const r = await executeProposal(args)
       console.info('[konclave] send: reply', r)
-      if (!r) setResult({ error: t('signing.errUnreachable') })
-      else if ('error' in r) setResult({ error: r.error })
-      else if (!r.txid) setResult({ error: t('signing.errNoTxid') }) // a reply with no txid is NOT a send
-      else setResult({ txid: r.txid })
+      if (!r) fail(t('signing.errUnreachable'))
+      // Through humanError, so the money path never shows a binary path and a Rust struct. It was
+      // reporting failures like "/usr/local/bin/konclave-signer exited with 1: Error:
+      // propose_transfer: InsufficientFunds { available: Zatoshis(20000), required: Zatoshis(24000) }".
+      else if ('error' in r) fail(humanError(t, r.error))
+      else if (!r.txid) fail(t('signing.errNoTxid')) // a reply with no txid is NOT a send
+      else { setResult({ txid: r.txid }); toast.ok(t('toast.sent')) }
     } catch (e) {
       // A throw here previously escaped as an unhandled rejection: `sending` stayed true forever and
       // the panel sat on a progress line that would never resolve.
       console.error('[konclave] send: threw', e)
-      setResult({ error: e instanceof Error ? e.message : String(e) })
+      fail(e instanceof Error ? e.message : String(e))
     } finally {
       setSending(false)
     }

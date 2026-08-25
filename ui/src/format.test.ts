@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fmtZec, parseZecToZat, zatToZec, expiryLabel, fmtDate, fingerprintCode, vaultFingerprint } from './format'
+import { fmtZec, fmtZecExact, parseZecToZat, zatToZec, expiryLabel, fmtDate, fingerprintCode, vaultFingerprint } from './format'
 import type { TFn } from './i18n'
 
 // A fake translator: echoes the key with its vars, so we can assert which label was chosen.
@@ -144,5 +144,29 @@ describe('fmtZec - a real amount is never shown as zero', () => {
   it('falls back on nothing and on nonsense', () => {
     expect(fmtZec(undefined)).toBe('-')
     expect(fmtZec('abc')).toBe('-')
+  })
+})
+
+// Rounding is right for reading and wrong for comparing. An error that says "the vault has X and
+// this needs Y" must not print the same number twice.
+describe('fmtZecExact - a figure that decides something is never rounded away', () => {
+  it('keeps the decimals that tell two close figures apart', () => {
+    expect(fmtZecExact(0.0002)).toBe('0.0002')
+    expect(fmtZecExact(0.00024)).toBe('0.00024')
+    expect(fmtZecExact(0.0002)).not.toBe(fmtZecExact(0.00024))
+  })
+
+  it('never shows fewer than four decimals, so it still reads as money', () => {
+    expect(fmtZecExact(1.5)).toBe('1.5000')
+    expect(fmtZecExact(12)).toBe('12.0000')
+    expect(fmtZecExact(0)).toBe('0.0000')
+  })
+
+  it('goes all the way to one zatoshi', () => {
+    expect(fmtZecExact(0.00000001)).toBe('0.00000001')
+  })
+
+  it('falls back on nonsense', () => {
+    expect(fmtZecExact(NaN)).toBe('-')
   })
 })

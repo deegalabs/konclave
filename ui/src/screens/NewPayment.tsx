@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Loading } from '../components'
 import { PageHeader } from '../page'
 import { useT, useTr } from '../i18n'
+import { useToast } from '../toast'
 import { fmtZec, parseZecToZat, zatToZec } from '../format'
 import {
   createProposal, getBalance, getVault, getBeneficiaries, health, shortAddr, classifyAddress, humanError,
@@ -20,6 +21,7 @@ function memoBytes(s: string): number {
 
 export default function NewPayment() {
   const t = useT()
+  const toast = useToast()
   const tr = useTr()
   const nav = useNavigate()
   const [to, setTo] = useState('')
@@ -132,9 +134,13 @@ export default function NewPayment() {
     })
     setBusy(false)
     if (res.ok) {
+      // We navigate away, so the confirmation has to travel with the reader.
+      toast.ok(t('toast.paymentSent'))
       nav('/proposal', { state: { id: res.proposal.id } })
     } else {
-      setError(humanError(t, res.error, res.detail))
+      const msg = humanError(t, res.error, res.detail)
+      setError(msg)
+      toast.err(msg)
     }
   }
 
