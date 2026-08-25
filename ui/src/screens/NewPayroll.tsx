@@ -6,7 +6,7 @@ import { fmtZec, parseZecToZat, zatToZec } from '../format'
 import { useT, useTr } from '../i18n'
 import {
   previewPayroll, createPayroll, getBalance, getBeneficiaries, getLedger, getVault, health, classifyAddress, humanError,
-  IS_DEMO, type Beneficiary, type Proposal, type Member,
+  type Beneficiary, type Proposal, type Member,
 } from '../api'
 import { listVaults } from '../storage'
 import { RecipientCombobox } from '../RecipientCombobox'
@@ -45,8 +45,8 @@ export default function NewPayroll() {
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [pastFolhas, setPastFolhas] = useState<Proposal[]>([])
-  // Neutral placeholder while the real vault name loads; sample only in demo (never a fake name).
-  const [vaultName, setVaultName] = useState(IS_DEMO ? t('common.sampleVault') : '…')
+  // Neutral placeholder while the real vault name loads (never a fake name).
+  const [vaultName, setVaultName] = useState('…')
   const [membersList, setMembersList] = useState<Member[]>([])
   const [proposer, setProposer] = useState('Alice')
   const [loaded, setLoaded] = useState(false)
@@ -86,12 +86,10 @@ export default function NewPayroll() {
           const first0 = v.member_list?.[0]
           if (first0) {
             setMembersList(v.member_list!)
-            // Live: propose as THIS device's own member (never the first seat); the picker is a
-            // single-device demo artifice. Fall back to the first seat only without an on-device record.
+            // Propose as THIS device's own member (never another seat). Fall back to the first
+            // seat only without an on-device record.
             let mine: string | null = null
-            if (!IS_DEMO) {
-              try { mine = (await listVaults()).find((s) => s.id === v.id)?.myName ?? null } catch { /* no record */ }
-            }
+            try { mine = (await listVaults()).find((s) => s.id === v.id)?.myName ?? null } catch { /* no record */ }
             setProposer(mine ?? first0.name)
           }
         }
@@ -175,17 +173,7 @@ export default function NewPayroll() {
         <div className="ctx">
           <span>{tr('payment.fromVault', { name: vaultName })}</span>
           {membersList.length > 0 && (
-            IS_DEMO ? (
-              // DEMO only: one device stands in for the whole quorum, so it may act as any member.
-              <label className="ctx-as">
-                {t('payment.proposingAs')}
-                <select value={proposer} onChange={(e) => setProposer(e.target.value)}>
-                  {membersList.map((m) => <option key={m.pubkey || m.name} value={m.name}>{m.name}</option>)}
-                </select>
-              </label>
-            ) : (
-              <span className="ctx-as">{t('payment.proposingAs')} <b>{proposer}</b></span>
-            )
+            <span className="ctx-as">{t('payment.proposingAs')} <b>{proposer}</b></span>
           )}
         </div>
 

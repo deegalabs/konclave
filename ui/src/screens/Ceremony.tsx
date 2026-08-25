@@ -242,7 +242,7 @@ export default function Ceremony() {
               ))}
             </div>
 
-            <div className="confirm mt">{tr('ceremony.demoNote')}</div>
+            <div className="confirm mt">{tr('ceremony.localSharesNote')}</div>
 
             {error && <div className="hint err mt" role="alert">{error}</div>}
             <hr className="rule" />

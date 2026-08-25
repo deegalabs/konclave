@@ -3,7 +3,7 @@ import { NavLink, Link, Outlet, useNavigate, useLocation } from 'react-router-do
 import { Mark } from './components'
 import { Identicon } from './avatar'
 import { useT, useI18n } from './i18n'
-import { getVault, health, isVaultUnlocked, setSelectedVault, IS_DEMO, type Vault } from './api'
+import { getVault, health, isVaultUnlocked, setSelectedVault, type Vault } from './api'
 import { listVaults } from './storage'
 import { VaultSignerProvider } from './VaultSigner'
 import { LoadingProvider, TopProgress } from './loading'
@@ -69,10 +69,8 @@ export default function Layout() {
   // Proactive liveness signal: poll the bridge/helper so a daemon that stops (or
   // comes back) is reflected without a reload - plus an immediate re-check when the
   // tab regains focus or the browser reports it's back online. Lightweight (a single
-  // /api/health ping) and self-clearing on unmount. Skipped in demo mode, where
-  // health() is intentionally false and the pill reads "demo", not "offline".
+  // /api/health ping) and self-clearing on unmount.
   useEffect(() => {
-    if (IS_DEMO) return
     let on = true
     const check = () => { void health().then((ok) => { if (on) setLive(ok) }) }
     check()
@@ -234,14 +232,11 @@ export default function Layout() {
             {seeds.map((s, i) => <Identicon key={i} seed={s} size={24} />)}
           </div>
           <div className="rail-bottom">
-            {/* Three distinct states, one persistent live region:
-                • demo  → neutral "demo" tag (health() is intentionally false here)
+            {/* Two distinct states, one persistent live region:
                 • live  → green pill, bridge/helper answered
                 • offline → warn/danger pill, a real vault we can't reach right now */}
             <span className="live-status" aria-live="polite">
-              {IS_DEMO ? (
-                <span className="live off"><i />{t('dashboard.demo')}</span>
-              ) : live === true ? (
+              {live === true ? (
                 <span className="live"><i />{t('dashboard.live')}</span>
               ) : live === false ? (
                 <span className="live offline" role="status">

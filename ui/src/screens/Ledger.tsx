@@ -3,7 +3,7 @@ import { startVisiblePoll } from '../usePoll'
 import { Secret, RevealButton, activateOnKey } from '../components'
 import { SkeletonRows } from '../skeleton'
 import { PageHeader, PageFooter } from '../page'
-import { getLedger, getProposalDetail, getVault, ledgerCsvUrl, health, shortAddr, IS_DEMO, type Proposal, type PayrollLine } from '../api'
+import { getLedger, getProposalDetail, getVault, ledgerCsvUrl, shortAddr, type Proposal, type PayrollLine } from '../api'
 import { fmtDate, fmtZec } from '../format'
 import { exportLedgerXlsx, type LedgerXlsxItem } from '../ledgerXlsx'
 import { useLoading } from '../loading'
@@ -16,7 +16,6 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
   const { locale } = useI18n()
   const { begin, end } = useLoading()
   const [rows, setRows] = useState<Proposal[] | null>(null)
-  const [live, setLive] = useState(false)
   const [vaultName, setVaultName] = useState<string | null>(null)
   const [threshold, setThreshold] = useState(2)
   const [open, setOpen] = useState<Set<string>>(new Set())
@@ -36,10 +35,6 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
       inFlight = true
       if (first) begin()
       try {
-        if (first) {
-          const ok = await health()
-          if (on) setLive(ok)
-        }
         const [l, v] = await Promise.all([getLedger(), getVault()])
         if (!on) return
         if (l) setRows(l)
@@ -145,7 +140,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
         {/* Document band - the vault's book to hand to the accountant */}
         <div className="doc-band">
           <div className="db-meta">
-            <div><span className="klab">{t('ledger.vault')}</span><b>{vaultName ?? (IS_DEMO ? t('common.sampleVault') : '…')}</b></div>
+            <div><span className="klab">{t('ledger.vault')}</span><b>{vaultName ?? '…'}</b></div>
             <div><span className="klab">{t('ledger.period')}</span><b className="mono">{period}</b></div>
             <div><span className="klab">{t('ledger.entries')}</span><b>{ledger.length}</b></div>
           </div>
@@ -155,7 +150,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
             <span className="db-reveal"><RevealButton /></span>
           </div>
         </div>
-        <div className="cap">{live ? t('ledger.capLive') : t('ledger.capDemo')}</div>
+        <div className="cap">{t('ledger.capLive')}</div>
 
         <div className="filters">
           <span className="chip-group">

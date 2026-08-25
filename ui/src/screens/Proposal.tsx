@@ -8,7 +8,7 @@ import { fmtZec } from '../format'
 import { useT, useTr } from '../i18n'
 import {
   getProposalDetail, getProposals, getVault, voteProposal, sendProposal, shortAddr, humanError,
-  IS_NET, IS_DEMO, type Proposal, type PayrollLine,
+  IS_NET, type Proposal, type PayrollLine,
 } from '../api'
 import { listVaults } from '../storage'
 import { useVaultSigner } from '../VaultSigner'
@@ -25,9 +25,8 @@ export default function Proposal() {
   const [threshold, setThreshold] = useState(2)
   const [members, setMembers] = useState<string[]>([])
   // The member name THIS device holds (the seat it can sign/vote for). Loaded from the on-device
-  // vault record. Outside demo, a device may only ever cast its OWN vote (never another member's).
+  // vault record. A device may only ever cast its OWN vote (never another member's).
   const [me, setMe] = useState<string | null>(null)
-  const [approveAs, setApproveAs] = useState('')
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -79,16 +78,13 @@ export default function Proposal() {
   async function vote(approve: boolean) {
     if (!p) return
     const canVote = members.filter((m) => !p.approvals.includes(m) && !p.refusals.includes(m))
-    // Live: a device casts ONLY its own vote (`me`). Demo (one device acting as many members):
-    // the seat picked in the demo dropdown. Never let a proposer/device vote as another member.
-    const who = IS_DEMO
-      ? (approveAs && canVote.includes(approveAs) ? approveAs : canVote[0])
-      : (me && canVote.includes(me) ? me : '')
+    // A device casts ONLY its own vote (`me`). Never let a proposer/device vote as another member.
+    const who = me && canVote.includes(me) ? me : ''
     if (!who) { setError(t('proposal.errNoVoter')); return }
     setError(null); setBusy(true)
     const res = await voteProposal(p.id, who, approve)
     setBusy(false)
-    if (res.ok) { setP(res.proposal); setApproveAs('') }
+    if (res.ok) setP(res.proposal)
     else setError(humanError(t, res.error, res.detail))
   }
 
@@ -209,11 +205,10 @@ export default function Proposal() {
         )}
 
         {isAwaiting && (() => {
-          const who = approveAs || pendingApprovers[0] || ''
           const falta = Math.max(0, threshold - p.approvals_count)
-          // Live authorization: this device may vote only for its own seat, and only while that seat
-          // is still pending. The proposer already counts as an approval, so they are never pending
-          // here (their approve control does not render). Demo keeps the act-as-any-member picker.
+          // Authorization: this device may vote only for its own seat, and only while that seat is
+          // still pending. The proposer already counts as an approval, so they are never pending
+          // here (their approve control does not render).
           const iAmPending = !!me && pendingApprovers.includes(me)
           const iAlreadyVoted = !!me && (p.approvals.includes(me) || p.refusals.includes(me))
           return (
@@ -222,27 +217,7 @@ export default function Proposal() {
               {tr('proposal.awaitingIntro', { proposer: p.proposer, count: p.approvals_count, total: threshold })}{' '}
               {falta > 0 ? tr(falta > 1 ? 'proposal.remainingMany' : 'proposal.remainingOne', { falta }) : tr('proposal.quorumReachedShort')}
             </div>
-            {IS_DEMO ? (
-              pendingApprovers.length > 0 ? (
-                <>
-                  <div className="demo-note mt">
-                    <span className="demo-tag">{t('proposal.demoTag')}</span>
-                    <div className="hint">{tr('proposal.demoActNote')}</div>
-                    <label className="field mt-sm"><span>{t('proposal.approveRefuseAs')}</span>
-                      <select className="input" value={who} onChange={(e) => setApproveAs(e.target.value)}>
-                        {pendingApprovers.map((m) => <option key={m} value={m}>{m}</option>)}
-                      </select>
-                    </label>
-                  </div>
-                  <div className="btns mt">
-                    <button className="btn ok" onClick={() => vote(true)} disabled={busy}>{busy ? '…' : t('proposal.approveAs', { who })}</button>
-                    <button className="btn" onClick={() => vote(false)} disabled={busy}>{t('proposal.refuseAs', { who })}</button>
-                  </div>
-                </>
-              ) : (
-                <div className="hint mt">{t('proposal.allVoted')}</div>
-              )
-            ) : iAmPending ? (
+            {iAmPending ? (
               <div className="btns mt">
                 <button className="btn ok" onClick={() => vote(true)} disabled={busy}>{busy ? '…' : t('proposal.approve')}</button>
                 <button className="btn" onClick={() => vote(false)} disabled={busy}>{t('proposal.refuse')}</button>

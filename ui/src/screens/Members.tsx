@@ -3,10 +3,9 @@ import { Seal, Loading } from '../components'
 import { PageHeader, PageFooter } from '../page'
 import { Identicon } from '../avatar'
 import { useT, useTr } from '../i18n'
-import { getVault, health, shortAddr, IS_NET, renameSelf, adoptSelfName, IS_DEMO, type Vault } from '../api'
+import { getVault, health, shortAddr, IS_NET, renameSelf, adoptSelfName, type Vault } from '../api'
 import { listVaults, type Governance } from '../storage'
 
-const ME = 'Alice' // this device acts as the coordinator member (single-device demo)
 
 export default function Members() {
   const t = useT()
@@ -21,8 +20,8 @@ export default function Members() {
   const [renameErr, setRenameErr] = useState<string | null>(null)
   const [renamed, setRenamed] = useState(false)
   const [gov, setGov] = useState<Governance | null>(null)
-  // The name THIS device chose at create/join, so "you" marks the right seat (was hardcoded to
-  // 'Alice', which mislabeled every other device). Falls back to ME for the offline demo.
+  // The name THIS device chose at create/join, so "you" marks the right seat. Without an on-device
+  // record there is no "you" to mark - never guess a seat.
   const [me, setMe] = useState<string | null>(null)
   // Who set up the vault (propagated). Marks the creator - a real fixed fact - rather than the
   // per-ceremony FROST "coordinator" role, which used to be pinned to seat 0 (the wrong member).
@@ -82,15 +81,11 @@ export default function Members() {
 
   const thr = vault?.threshold ?? 2
   const n = vault?.total ?? 3
-  // Sample roster ONLY in demo; a real vault still loading shows nothing (the Loading guard above
-  // covers live===null), never a fabricated Alice/Bob/Carol.
-  const members = vault?.member_list ?? (IS_DEMO ? [
-    { name: 'Alice', pubkey: '317db593' },
-    { name: 'Bob', pubkey: '2ca6d736' },
-    { name: 'Carol', pubkey: '2fd84a5c' },
-  ] : [])
-  // Mark the actual creator; in the offline demo (no propagated creator) fall back to the first seat.
-  const creatorLabel = creator ?? (IS_DEMO ? members[0]?.name ?? null : null)
+  // The real roster only; a vault still loading shows nothing (the Loading guard below covers
+  // live===null), never a fabricated Alice/Bob/Carol.
+  const members = vault?.member_list ?? []
+  // Mark the actual creator when the on-device record carries one.
+  const creatorLabel = creator
   // This device's stored name is NOT in the current roster: a prior rename synced the helper but not
   // this device, so it is "stuck". The editor self-heals (adopt an existing roster name); flag it.
   const meOutOfSync = !!me && members.length > 0 && !members.some((m) => m.name === me)
@@ -103,7 +98,6 @@ export default function Members() {
           title={t('members.title')}
           subtitle={<>
             {tr('members.vmeta', { t: thr })}
-            {IS_DEMO && <span className="livetag off"> {t('members.demo')}</span>}
           </>}
           actions={<Seal t={thr} n={n} />}
         />
@@ -112,7 +106,7 @@ export default function Members() {
         {live === null ? <Loading /> : (
         <div className="signers mt">
           {members.map((m, i) => {
-            const isMe = m.name === (me ?? ME)
+            const isMe = !!me && m.name === me
             const isCreator = m.name === creatorLabel
             return (
               <div className={'signer-row' + (isMe ? ' me' : '')} key={i}>
@@ -171,7 +165,7 @@ export default function Members() {
           <span className="dim pushr">{t('members.footNote')}</span>
         </PageFooter>
 
-        <div className="confirm mt">{IS_NET ? tr('members.netNote') : tr('members.demoNote')}</div>
+        <div className="confirm mt">{IS_NET ? tr('members.netNote') : tr('members.localNote')}</div>
 
       </main>
     </>

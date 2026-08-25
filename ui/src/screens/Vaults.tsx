@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { getVaults, health, setSelectedVault, unlockVault, markVaultUnlocked, isVaultUnlocked, shortAddr, IS_DEMO, type Vault } from '../api'
-import { MOCK } from '../mock'
+import { getVaults, health, setSelectedVault, unlockVault, markVaultUnlocked, isVaultUnlocked, shortAddr, type Vault } from '../api'
 import { helperConfigured, getCustomHelper, setCoordMode, HELPER_BASE } from '../helper'
 import { isDesktop } from '../platform'
 import { listVaults, loadVault, importVault, parseVaultExport, type VaultExport } from '../storage'
@@ -26,10 +25,9 @@ export default function Vaults() {
   const nav = useNavigate()
   // netMode still decides how a NEW vault is created (a hosted helper configured -> browser DKG
   // dialog; otherwise the local /create ceremony). It no longer gates the LIST - that's unified.
-  const netMode = helperConfigured() && !IS_DEMO
+  const netMode = helperConfigured()
   const [rows, setRows] = useState<Row[]>([])
   const [loaded, setLoaded] = useState(false)
-  const [live, setLive] = useState(false)
   const [unlocking, setUnlocking] = useState<Row | null>(null)
   const [creating, setCreating] = useState(false)
   const [joinMode, setJoinMode] = useState(false) // the Join door opens the create modal straight into join
@@ -141,17 +139,6 @@ export default function Vaults() {
   useEffect(() => {
     let on = true
     void (async () => {
-      // Demo: the coherent mock, unchanged.
-      if (IS_DEMO) {
-        const ok = await health()
-        if (!on) return
-        setLive(ok)
-        const vs = ok ? await getVaults() : null
-        if (!on) return
-        setRows((vs && vs.length ? vs : MOCK.vaults).map((v) => ({ v, src: 'local' as Src })))
-        setLoaded(true)
-        return
-      }
       // Unified: every vault this device can reach, from BOTH sources.
       //  - 'net'   → browser-DKG vaults in encrypted IndexedDB (public metadata only; the share
       //             never leaves storage; no global helper enumeration).
@@ -182,7 +169,6 @@ export default function Vaults() {
       // Dedupe by id (the two sources shouldn't collide, but guard so a vault never shows twice).
       const seen = new Set<string>()
       const merged = [...netRows, ...localRows].filter((r) => (seen.has(r.v.id) ? false : (seen.add(r.v.id), true)))
-      setLive(bridgeOk || saved.length > 0)
       setRows(merged)
       setLoaded(true)
     })()
@@ -213,20 +199,16 @@ export default function Vaults() {
             <span className="rd-door-t">{t('vaults.doorCreate')}</span>
             <span className="rd-door-d">{t('vaults.doorCreateSub')}</span>
           </button>
-          {!IS_DEMO && (
-            <button type="button" className="rd-door" onClick={() => { setJoinMode(true); setCreating(true) }}>
-              <span className="rd-door-ic" aria-hidden="true">→</span>
-              <span className="rd-door-t">{t('vaults.doorJoin')}</span>
-              <span className="rd-door-d">{t('vaults.doorJoinSub')}</span>
-            </button>
-          )}
-          {!IS_DEMO && (
-            <button type="button" className="rd-door" onClick={() => { setImpText(''); setImpParsed(null); setImpPass(''); setImpErr(null); setImporting(true) }}>
-              <span className="rd-door-ic" aria-hidden="true">↑</span>
-              <span className="rd-door-t">{t('vaults.doorImport')}</span>
-              <span className="rd-door-d">{t('vaults.doorImportSub')}</span>
-            </button>
-          )}
+          <button type="button" className="rd-door" onClick={() => { setJoinMode(true); setCreating(true) }}>
+            <span className="rd-door-ic" aria-hidden="true">→</span>
+            <span className="rd-door-t">{t('vaults.doorJoin')}</span>
+            <span className="rd-door-d">{t('vaults.doorJoinSub')}</span>
+          </button>
+          <button type="button" className="rd-door" onClick={() => { setImpText(''); setImpParsed(null); setImpPass(''); setImpErr(null); setImporting(true) }}>
+            <span className="rd-door-ic" aria-hidden="true">↑</span>
+            <span className="rd-door-t">{t('vaults.doorImport')}</span>
+            <span className="rd-door-d">{t('vaults.doorImportSub')}</span>
+          </button>
         </div>
 
         {(rows.length > 0 || !loaded) && <div className="rd-vlabel">{t('vaults.onThisDevice')}</div>}
@@ -269,16 +251,13 @@ export default function Vaults() {
           <div className="rd-empty">{t('vaults.empty')}</div>
         )}
 
-        {/* Only after the vault list resolves, so the local-first / demo-mode note does not flash
-            above the skeleton during load. */}
+        {/* Only after the vault list resolves, so the local-first note does not flash above the
+            skeleton during load. */}
         {loaded && (
           <div className="rd-note">
             {tr('vaults.note')}
             {' · '}<span className="rd-link" onClick={() => nav('/intro')} role="link" tabIndex={0}
               onKeyDown={activateOnKey(() => nav('/intro'))}>{t('vaults.howItWorks')}</span>
-            {' · '}<span className="rd-link" onClick={() => nav('/demo')} role="link" tabIndex={0}
-              onKeyDown={activateOnKey(() => nav('/demo'))}>{t('demo.watchCta')}</span>
-            {!live && <> · <i>{t('vaults.demoMode')}</i></>}
           </div>
         )}
       </main>

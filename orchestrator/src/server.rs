@@ -1896,11 +1896,12 @@ pub const SLICE_GROUP: &str = "1539b0ec3bc70a98d5c0e436da0b103552544d77d6b199efc
 /// The real vault's Orchard receive address - public material (you hand it out to be paid).
 pub const SLICE_ADDRESS: &str = "u1vjgxlvz4ewnt43rkq6fzexpl639745spx369tc4j9n9l0qnt9rufxdt2pxe3jtku7lqv4gtzfqafxtf7gal5y9gmz84nkza6z5d406dr";
 
-/// Seed the **real** slice vault so a fresh DB renders a Painel coherent with the live
-/// balance and the ceremony (same address/group). Only PUBLIC material is committed here:
-/// the Orchard address and the group pubkey are public; the UFVK (view key) is not put in
-/// git - it is loaded from the wallet at runtime. Skips if a vault already exists.
-pub fn seed_demo(store: &mut Store) -> Result<(), crate::store::StoreError> {
+/// TEST-ONLY fixture: seed the slice vault so the HTTP tests have a coherent store to read.
+/// Only PUBLIC material is used here (the Orchard address and the group pubkey); the UFVK
+/// is never put in git. There is no runtime path to this: the binary never seeds sample
+/// data into a user's database. Skips if a vault already exists.
+#[cfg(test)]
+pub(crate) fn seed_demo(store: &mut Store) -> Result<(), crate::store::StoreError> {
     use crate::proposal::{ProposalState, Quorum};
     if !store.list_vaults()?.is_empty() {
         return Ok(());

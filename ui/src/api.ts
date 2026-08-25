@@ -6,7 +6,6 @@
 // resilient if the local daemon is momentarily down).
 
 import type { TFn } from './i18n'
-import { MOCK } from './mock'
 import {
   helperConfigured,
   helperHealth,
@@ -76,38 +75,10 @@ export type Balance = {
 const ENV = import.meta.env as Record<string, string | undefined>
 const BASE: string = ENV.VITE_API_BASE ?? ''
 
-// Demo mode, decided at RUNTIME (issue #60) so ONE build serves both the demo (mock data) and the
-// real app - no build-time VITE_DEMO / separate deploy needed. `?demo=1` enters demo mode and
-// persists it (localStorage); `?demo=0` exits. VITE_DEMO stays as a build-time fallback so the
-// existing demo project keeps working. When set, reads that fail fall back to a coherent mock
-// dataset so every screen renders fully populated; `health()` is NOT affected, so the demo pill shows.
-const DEMO = (() => {
-  if (typeof window === 'undefined') return ENV.VITE_DEMO === '1'
-  try {
-    const q = new URLSearchParams(window.location.search)
-    const flag = q.get('demo')
-    if (flag === '1' || flag === '0') {
-      if (flag === '1') localStorage.setItem('konclave.demo', '1')
-      else localStorage.removeItem('konclave.demo')
-      // Strip `?demo` from the address bar so the path stays clean; the mode persists via localStorage.
-      q.delete('demo')
-      const qs = q.toString()
-      window.history.replaceState(null, '', window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash)
-      return flag === '1'
-    }
-    if (localStorage.getItem('konclave.demo') === '1') return true
-  } catch { /* storage unavailable - fall through to the build flag */ }
-  return ENV.VITE_DEMO === '1'
-})()
-/** True in demo mode (runtime `?demo=1` or the VITE_DEMO fallback): screens load api data (which
- *  falls back to the coherent mock) even though `health()` is false. */
-export const IS_DEMO = DEMO
-
 // Browser-native mode (Etapa 3 convergence): when a hosted blind helper is configured, the PWA
 // screens (Dashboard / Proposals / Ledger) read the SELECTED /net vault from the helper instead of
-// the local bridge, so the same polished app operates the browser-born vault. Never in demo mode -
-// demo always uses mock, so the same canonical build can point at a helper AND still show the demo.
-const NET = helperConfigured() && !DEMO
+// the local bridge, so the same polished app operates the browser-born vault.
+const NET = helperConfigured()
 /** True when the app operates a browser-native (/net) vault via the hosted helper. Screens use it
  *  to route signing to /net (where the share lives) instead of a server-side ceremony. */
 export const IS_NET = NET
@@ -228,7 +199,7 @@ export async function getVault(): Promise<Vault | null> {
     }
   }
   const r = await getJson<{ vault: Vault | null }>(withVault('/api/vault'))
-  return r?.vault ?? (DEMO ? MOCK.vault : null)
+  return r?.vault ?? null
 }
 
 export async function getProposals(): Promise<Proposal[] | null> {
@@ -239,7 +210,7 @@ export async function getProposals(): Promise<Proposal[] | null> {
     return ps ? ps.map(mapNetProposal) : null
   }
   const r = await getJson<{ proposals: Proposal[] }>(withVault('/api/proposals'))
-  return r?.proposals ?? (DEMO ? MOCK.proposals : null)
+  return r?.proposals ?? null
 }
 
 export async function getBalance(): Promise<Balance | null> {
@@ -259,7 +230,7 @@ export async function getBalance(): Promise<Balance | null> {
       spendable_zec: zatToZec(spendable),
     }
   }
-  return (await getJson<Balance>(withVault('/api/balance'))) ?? (DEMO ? MOCK.balance : null)
+  return await getJson<Balance>(withVault('/api/balance'))
 }
 
 /** Shorten an address for display: `u1vjgx…d406dr`. */
@@ -297,25 +268,6 @@ export async function createProposal(input: NewProposal): Promise<CreateResult> 
     return p
       ? { ok: true, proposal: mapNetProposal(p) }
       : { ok: false, error: 'invalid address', detail: 'the coordinator rejected the destination or amount' }
-  }
-  if (DEMO) {
-    const proposal: Proposal = {
-      id: `demo-${Date.now()}`,
-      vault_id: 'demo',
-      kind: 'payment',
-      state: 'awaiting',
-      proposer: input.proposer,
-      value_zat: Math.round((parseFloat(input.value_zec) || 0) * 1e8),
-      value_zec: input.value_zec,
-      memo: input.memo,
-      to_address: input.to_address,
-      is_public: classifyAddress(input.to_address) !== 'unified',
-      created_at: Math.floor(Date.now() / 1000),
-      approvals: [input.proposer],
-      refusals: [],
-      approvals_count: 1,
-    }
-    return { ok: true, proposal }
   }
   try {
     const res = await fetch(`${BASE}${withVault('/api/proposals')}`, {
@@ -445,7 +397,7 @@ export async function adoptSelfName(name: string): Promise<{ ok: true } | { erro
 export async function getVaults(): Promise<Vault[] | null> {
   if (NET) return null
   const r = await getJson<{ vaults: Vault[] }>('/api/vaults')
-  return r?.vaults ?? (DEMO ? MOCK.vaults : null)
+  return r?.vaults ?? null
 }
 
 /** The full ledger (all proposals, terminal states included) for the Razão screen. */
@@ -457,7 +409,7 @@ export async function getLedger(): Promise<Proposal[] | null> {
     return ps ? ps.map(mapNetProposal) : null
   }
   const r = await getJson<{ ledger: Proposal[] }>(withVault('/api/ledger'))
-  return r?.ledger ?? (DEMO ? MOCK.ledger : null)
+  return r?.ledger ?? null
 }
 
 /** URL of the CSV export the browser downloads (handed to the accountant). */
@@ -546,26 +498,6 @@ export async function createPayroll(
 export async function createVaultDkg(
   name: string, threshold: number, members: string[],
 ): Promise<{ ok: true; vault: Vault; passphrase?: string } | { ok: false; error: string; detail?: string }> {
-  // Demo mode (#88): the DKG bridge/helper isn't reachable on the static deploy, so a real POST
-  // 404s. Return a coherent fake vault so the demo walks the whole create flow (word-box + address)
-  // with sample data instead of a dead end.
-  if (DEMO) {
-    const total = members.length
-    return {
-      ok: true,
-      vault: {
-        id: `demo-${Date.now()}`,
-        name,
-        threshold,
-        total,
-        members: total,
-        member_list: members.map((n) => ({ name: n, pubkey: n })),
-        group_pubkey: 'demo-group',
-        orchard_address: MOCK.vault.orchard_address,
-      },
-      passphrase: 'horizon-common-2026',
-    }
-  }
   try {
     const res = await fetch(`${BASE}/api/vault/dkg`, {
       method: 'POST',
@@ -639,7 +571,7 @@ function netBenefSave(list: Beneficiary[]): void {
 export async function getBeneficiaries(): Promise<Beneficiary[] | null> {
   if (NET) return netBenefList()
   const r = await getJson<{ beneficiaries: Beneficiary[] }>(withVault('/api/beneficiaries'))
-  return r?.beneficiaries ?? (DEMO ? MOCK.beneficiaries : null)
+  return r?.beneficiaries ?? null
 }
 
 export async function addBeneficiary(
@@ -707,7 +639,7 @@ export async function getProposalDetail(
     return { proposal: mapNetProposal(hp), lines }
   }
   const r = await getJson<{ proposal: Proposal; lines: PayrollLine[] }>(`/api/proposals/${encodeURIComponent(id)}`)
-  if (!r?.proposal) return DEMO ? MOCK.proposalDetail(id) : null
+  if (!r?.proposal) return null
   return { proposal: r.proposal, lines: r.lines ?? [] }
 }
 
@@ -729,16 +661,6 @@ export async function sendProposal(id: string, dryRun: boolean): Promise<SendRes
       error: 'sign in /net',
       detail: 'To send this approved payment, open the vault in /net and sign there with your share.',
     }
-  }
-  // Demo mode (#88): no bridge to broadcast against. A dry-run "verifies"; a real send walks the
-  // Sent state carrying a REAL, verifiable mainnet txid, so the explorer link actually resolves -
-  // sample data, but honest about what "confirmed on-chain" looks like.
-  if (DEMO) {
-    if (dryRun) return { ok: true, dryRun: true, sighash: 'demo-sighash-verifies' }
-    const base = MOCK.proposalById(id)
-    const txid = 'f63ee64d7bc086a8286631d03936ec2ca2ca57f4e4c63712fc95c1f02c522360'
-    const proposal = base ? ({ ...base, state: 'sent', txid } as Proposal) : undefined
-    return { ok: true, dryRun: false, txid, proposal }
   }
   try {
     const res = await fetch(`${BASE}/api/proposals/${encodeURIComponent(id)}/send`, {
@@ -775,15 +697,6 @@ export async function voteProposal(
     if (!vid) return { ok: false, error: 'no vault' }
     const p = await netVote(vid, id, member, approve)
     return p ? { ok: true, proposal: mapNetProposal(p) } : { ok: false, error: 'vote rejected' }
-  }
-  if (DEMO) {
-    const base = MOCK.proposalById(id)
-    if (!base) return { ok: false, error: 'not found' }
-    const approvals = approve && !base.approvals.includes(member) ? [...base.approvals, member] : base.approvals
-    const refusals = !approve && !base.refusals.includes(member) ? [...base.refusals, member] : base.refusals
-    const approvals_count = approvals.length
-    const state = approve && approvals_count >= MOCK.vault.threshold ? 'ready' : base.state
-    return { ok: true, proposal: { ...base, approvals, refusals, approvals_count, state } }
   }
   try {
     const res = await fetch(`${BASE}/api/proposals/${encodeURIComponent(id)}/${approve ? 'approve' : 'refuse'}`, {

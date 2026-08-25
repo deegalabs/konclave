@@ -10,7 +10,6 @@ use zeroize::Zeroizing;
 
 use orchestrator::send::{net_orchestrate_send, orchestrate_send, SendConfig, SpendPlan};
 use orchestrator::server::{self, Config, LiveWallet};
-use orchestrator::store::Store;
 
 const DEFAULT_PORT: u16 = 4762;
 const DEFAULT_WEB: &str = "ui/dist";
@@ -218,7 +217,6 @@ fn print_usage() {
          \x20 --web <DIR>       UI bundle (default {DEFAULT_WEB})\n\
          \x20 --db <PATH>       local SQLite database (default {DEFAULT_DB})\n\
          \x20 --db-keychain <ID> encrypt the DB at rest (SQLCipher, key from OS keychain)\n\
-         \x20 --demo            seed a sample vault + proposals if the database is empty\n\
          \x20 --devtool <PATH>  zcash-devtool binary (enables live /api/balance)\n\
          \x20 --wallet <DIR>    zcash-devtool wallet directory\n\
          \x20 --server <URI>    lightwalletd server (e.g. https://zec.rocks:443)\n\
@@ -238,7 +236,6 @@ fn run_serve(args: &[String]) -> Result<(), String> {
     let mut port = DEFAULT_PORT;
     let mut web = PathBuf::from(DEFAULT_WEB);
     let mut db = DEFAULT_DB.to_string();
-    let mut demo = false;
     let mut devtool: Option<PathBuf> = None;
     let mut wallet_dir: Option<String> = None;
     let mut server_uri: Option<String> = None;
@@ -253,7 +250,6 @@ fn run_serve(args: &[String]) -> Result<(), String> {
             "--web" => web = PathBuf::from(next()?),
             "--db" => db = next()?.clone(),
             "--db-keychain" => db_keychain = Some(next()?.clone()),
-            "--demo" => demo = true,
             "--devtool" => devtool = Some(PathBuf::from(next()?)),
             "--wallet" => wallet_dir = Some(next()?.clone()),
             "--server" => server_uri = Some(next()?.clone()),
@@ -275,16 +271,6 @@ fn run_serve(args: &[String]) -> Result<(), String> {
         }
         None => None,
     };
-
-    if demo {
-        let mut store = match &db_key {
-            Some(k) => Store::open_keyed(&db, k),
-            None => Store::open(&db),
-        }
-        .map_err(|e| format!("opening database: {e}"))?;
-        server::seed_demo(&mut store).map_err(|e| format!("seeding demo: {e}"))?;
-        eprintln!("demo: sample vault and proposals ready in {db}");
-    }
 
     // Live balance is only available when all three wallet inputs are present.
     let wallet = match (devtool, wallet_dir, server_uri) {

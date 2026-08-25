@@ -10,7 +10,7 @@ import { fmtZec as fmt4, expiryLabel, fmtDate } from '../format'
 import { usdEnabled, setUsdEnabled, cachedRate, rateIsStale, fetchRate, zecToUsd, type Rate } from '../price'
 import { useT, useTr } from '../i18n'
 import {
-  getVault, getProposals, getBalance, getLedger, health, shortAddr, isVaultUnlocked, IS_DEMO,
+  getVault, getProposals, getBalance, getLedger, health, shortAddr, isVaultUnlocked,
   type Vault, type Proposal, type Balance,
 } from '../api'
 import { listVaults } from '../storage'
@@ -19,9 +19,8 @@ import { useLoading } from '../loading'
 
 type Movimento = { date: string; title: string; by?: string; value: string; dir: 'out' | 'in'; status: string }
 
-// Offline placeholder (only shown when there is no ledger - the demo and the live app both use
-// the real ledger). Locale-aware so it never shows PT copy in the EN interface. `dl` reads the
-// persisted locale per access; the getters re-resolve when the language toggles.
+// Locale helpers for the few neutral labels this screen renders outside the i18n table. `dl` reads
+// the persisted locale per access, so it re-resolves when the language toggles.
 const dpt = (): boolean => {
   try {
     const l = localStorage.getItem('konclave.locale')
@@ -33,25 +32,6 @@ const dpt = (): boolean => {
   }
 }
 const dl = (pt: string, en: string): string => (dpt() ? pt : en)
-const MOVIMENTOS_MOCK: Movimento[] = [
-  {
-    date: '28/04',
-    get title() { return dl('Folha de abril · 8 pagamentos', 'April payroll · 8 payments') },
-    get by() { return dl('prop. Ana · aprov. Ana, Bruno', 'by Ana · approved Ana, Bruno') },
-    value: '−4.2000',
-    dir: 'out',
-    status: 'verificar', // stable key: the label is translated at render via t()
-  },
-  {
-    date: '22/04',
-    get title() { return dl('Doação recebida', 'Donation received') },
-    get by() { return dl('de contribuinte anônimo', 'from an anonymous contributor') },
-    value: '+1.0000',
-    dir: 'in',
-    status: 'confirmado', // stable key
-  },
-]
-
 
 export default function Dashboard() {
   const t = useT()
@@ -107,7 +87,7 @@ export default function Dashboard() {
         const ok = await health()
         if (!on) return
         setLive(ok)
-        if (!ok && !IS_DEMO) return
+        if (!ok) return
         const v = await getVault()
         if (!on) return
         // Locked vault not unlocked this session → send back to unlock. Only on first load, so a
@@ -158,18 +138,18 @@ export default function Dashboard() {
   const isLive = live === true
   const loading = live === null // initial fetch still in flight
 
-  // Vault header - real vault from the bridge; a sample name/address only in DEMO. The header only
-  // renders past the firstLoaded gate, so a real vault is already resolved; a null vault here is the
-  // genuine no-vault edge, shown with a neutral label (never a "…" that reads as a truncation bug,
-  // never a fabricated name).
-  const name = vault?.name ?? (IS_DEMO ? dl('Tesouraria Comum', 'Common Treasury') : dl('Cofre', 'Vault'))
+  // Vault header - the real vault from the bridge/helper. The header only renders past the
+  // firstLoaded gate, so a real vault is already resolved; a null vault here is the genuine
+  // no-vault edge, shown with a neutral label (never a "…" that reads as a truncation bug, never a
+  // fabricated name).
+  const name = vault?.name ?? dl('Cofre', 'Vault')
   const thr = vault?.threshold ?? 2
   const n = vault?.total ?? 3
   const members = vault?.members ?? n
   const roster = vault?.member_list ?? []
-  const addr = vault ? shortAddr(vault.orchard_address) : (IS_DEMO ? 'u1vjgx…d406dr' : '-')
+  const addr = vault ? shortAddr(vault.orchard_address) : '-'
 
-  // Balance - real when the wallet is wired; "-" when live-but-unwired; mock when offline.
+  // Balance - real when the wallet is wired; "-" when live-but-unwired or still loading.
   const hasBal = balance?.configured === true
   // Live but no wallet wired: show an explicit "not connected" state, never a dash veiled
   // behind the redaction tarja (the privacy gesture must never hide *nothing*).
@@ -178,10 +158,9 @@ export default function Dashboard() {
   const walletUnwired = isLive && !hasBal && balLoaded
   // The balance is still loading (live, but its first fetch/sync hasn't returned) - show the skeleton.
   const balLoading = loading || (isLive && !balLoaded)
-  // Show a figure only when it is real (hasBal) or in actual DEMO mode. Never fabricate a balance
-  // just because health() is momentarily false (a real offline blip is not the demo) - while
-  // loading or offline-but-real we show a neutral dash, never mock data.
-  const amt = hasBal ? fmt4(balance!.total_zec) : (IS_DEMO ? '2.4180' : '-')
+  // Show a figure only when it is real (hasBal). Never fabricate a balance: while loading or
+  // offline we show a neutral dash.
+  const amt = hasBal ? fmt4(balance!.total_zec) : '-'
 
   // Pending approval - first awaiting proposal. When live with none, show an empty state
   // instead of a fabricated card.
@@ -192,17 +171,14 @@ export default function Dashboard() {
   // as "nothing waiting" with 0 reserved.
   const ready = proposals.filter((p) => p.state === 'ready')
   const open = awaiting.concat(ready)
-  const firstReady = !IS_DEMO && !pending ? (ready[0] ?? null) : null
-  // Show the (mock) approval card only when genuinely offline; during load (live === null) wait
-  // for real proposals instead of flashing a fabricated one.
-  const showApprovalCard = IS_DEMO || pending !== null
-  const pAmt = pending ? fmt4(pending.value_zec, '0.0003') : '0.5000'
-  const pMemo = pending?.memo ?? dl('adiantamento de maio', 'May advance')
-  const pProposer = pending?.proposer ?? 'Bruno'
-  const pApprovals = pending?.approvals_count ?? 1
-  const pExpiry = pending ? expiryLabel(pending.expiry_unix, t) : t('expiry.hours', { h: 71 })
+  const firstReady = !pending ? (ready[0] ?? null) : null
+  const pAmt = pending ? fmt4(pending.value_zec) : '-'
+  const pMemo = pending?.memo?.trim() || (pending?.kind === 'payroll' ? t('kind.payroll') : t('kind.payment'))
+  const pProposer = pending?.proposer ?? ''
+  const pApprovals = pending?.approvals_count ?? 0
+  const pExpiry = pending ? expiryLabel(pending.expiry_unix, t) : ''
 
-  // Movements - the real ledger when live; the mock only in the offline showcase.
+  // Movements - the real ledger, or nothing at all.
   const movs: Movimento[] | null = ledger && ledger.length
     ? ledger.slice(0, 6).map((p) => ({
         date: fmtDate(p.created_at, dpt() ? 'pt-BR' : 'en'),
@@ -213,21 +189,21 @@ export default function Dashboard() {
         status: p.state === 'sent' || p.state === 'confirmed' ? 'confirmado' : 'verificar',
       }))
     : null
-  // Real ledger when there is one; the mock showcase ONLY when genuinely offline/demo. A LIVE vault
-  // with an empty ledger (e.g. a fresh /net vault, no proposals yet) shows no movements, not mock.
-  const movimentos: Movimento[] = movs ?? (IS_DEMO ? MOVIMENTOS_MOCK : [])
+  // A vault with an empty ledger (e.g. a fresh /net vault, no proposals yet) shows the empty state
+  // below, never a fabricated movement.
+  const movimentos: Movimento[] = movs ?? []
 
   // KPIs - all derived from real data (no fabrication). Reserved = funds committed by open
   // proposals (a product rule, not a protocol lock); Paid = settled outflow across the ledger.
   const parseZ = (s?: string) => { const n = parseFloat(s || ''); return isFinite(n) ? n : 0 }
   // Confirming = not-yet-spendable funds (still gathering the ~10 confirmations). Use the helper's
   // pending figure when present; otherwise derive it as total - spendable so the card never shows a
-  // stray "+-". Only in DEMO do we invent a figure.
+  // stray "+-".
   const pendNum = hasBal
     ? (balance!.pending_zec != null
         ? parseZ(balance!.pending_zec)
         : Math.max(0, parseZ(balance!.total_zec) - parseZ(balance!.spendable_zec)))
-    : (IS_DEMO ? 0.01 : 0)
+    : 0
   const settled = (ledger ?? []).filter((p) => p.state === 'sent' || p.state === 'confirmed')
   // Reserved = funds committed by every OPEN proposal (awaiting approval OR approved and awaiting
   // signing). An approved-not-yet-sent proposal still holds its funds; counting only `awaiting`
@@ -251,8 +227,8 @@ export default function Dashboard() {
     .slice(-6)
     .map(([, v]) => v)
 
-  // USD estimate (opt-in). Only priceable when there is a real or offline-demo ZEC figure.
-  const balZecNum = hasBal ? parseZ(balance!.total_zec) : (IS_DEMO ? 2.418 : undefined)
+  // USD estimate (opt-in). Only priceable when there is a real ZEC figure.
+  const balZecNum = hasBal ? parseZ(balance!.total_zec) : undefined
   const usdBal = usdOn ? zecToUsd(balZecNum, rate) : null
   const usdPaid = usdOn ? zecToUsd(paidZec, rate) : null
   // "how fresh is the rate" label
@@ -296,7 +272,6 @@ export default function Dashboard() {
               )}
             </span>
             {live === true && <span className="livetag" title={t('dashboard.liveTitle')} aria-live="polite">{t('dashboard.live')}</span>}
-            {IS_DEMO && <span className="livetag off" title={t('dashboard.demoTitle')} aria-live="polite">{t('dashboard.demo')}</span>}
           </>}
           actions={<Seal t={thr} n={n} />}
         />
@@ -304,7 +279,7 @@ export default function Dashboard() {
         {/* 1 · What needs you - the action first */}
         {loading ? (
           <section className="needyou calm"><Loading /></section>
-        ) : showApprovalCard ? (
+        ) : pending ? (
           <section className="needyou act">
             <div className="req"><span className="stamp">{t('stamp.awaiting')}</span> {t('dashboard.needsYou')}{isLive && awaiting.length > 1 ? t('dashboard.awaitingSuffix', { n: awaiting.length }) : ''}</div>
             <div className="ny-body">

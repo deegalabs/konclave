@@ -5,7 +5,7 @@ import { Secret, activateOnKey } from '../components'
 import { SkeletonRows } from '../skeleton'
 import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
-import { getProposals, getVault, health, type Proposal } from '../api'
+import { getProposals, getVault, type Proposal } from '../api'
 import { expiryLabel, fmtZec } from '../format'
 import { useLoading } from '../loading'
 import { useT, useTr } from '../i18n'
@@ -16,7 +16,6 @@ export default function Proposals({ embedded = false }: { embedded?: boolean }) 
   const nav = useNavigate()
   const [rows, setRows] = useState<Proposal[]>([])
   const [threshold, setThreshold] = useState(2)
-  const [live, setLive] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const { begin, end } = useLoading()
 
@@ -30,10 +29,6 @@ export default function Proposals({ embedded = false }: { embedded?: boolean }) 
       inFlight = true
       if (first) begin()
       try {
-        if (first) {
-          const ok = await health()
-          if (on) setLive(ok)
-        }
         const [ps, v] = await Promise.all([getProposals(), getVault()])
         if (!on) return
         if (v) setThreshold(v.threshold)
@@ -108,7 +103,7 @@ export default function Proposals({ embedded = false }: { embedded?: boolean }) 
   return (
     <>
       <main className="page narrow">
-        <PageHeader title={t('proposals.title')} subtitle={<>{t('proposals.cap')} {live ? '' : t('proposals.demoMode')}</>} />
+        <PageHeader title={t('proposals.title')} subtitle={t('proposals.cap')} />
         {body}
       </main>
     </>
