@@ -51,10 +51,17 @@ export class BackgroundSession {
   private readonly send: (data: string) => Promise<boolean>
   private readonly threshold: () => number
   private readonly onArmed?: (seats: number[], triggerTag: string | null) => void
-  /** Seat -> the tag that armed it, for the proposal in `armedProposal`. Keyed by SEAT so a device
-   *  that reloads (new tag, same seat) replaces its own arming instead of counting twice. */
+  /** Seat -> the tag that armed it, for `currentProposal`. Keyed by SEAT so a device that reloads
+   *  (new tag, same seat) replaces its own arming instead of counting twice. */
   private readonly armed = new Map<number, string>()
-  private armedProposal: string | null = null
+  /** The payment whose signatures this session is counting. Anything else is ignored.
+   *
+   *  The signing room is PERMANENT (it is derived from the group key), so its log still holds every
+   *  earlier payment's signatures, and a device joining replays the whole thing from seq 0. Without
+   *  this scope, the last payment's two signatures rebuilt a full quorum for a payment that had
+   *  already been sent - the panel then showed "2 of 2 signed" for a payroll nobody had signed, and
+   *  never offered the button to sign it. */
+  private currentProposal: string | null = null
 
   constructor(deps: BackgroundSessionDeps) {
     this.send = deps.send
@@ -122,22 +129,29 @@ export class BackgroundSession {
     return this.seats.seatCount()
   }
 
+  /** Point this session at the payment now on screen. Changing payment starts a fresh tally, so a
+   *  signature given for one payment can never count toward another. */
+  setProposal(id: string | null): void {
+    if (this.currentProposal === id) return
+    this.currentProposal = id
+    this.armed.clear()
+    this.onArmed?.([], null)
+  }
+
   /** Announce that this device's owner explicitly signed `proposal`. Every device (this one
    *  included, the relay echoes it back) sees the same ordered log and agrees on who sends. */
   async arm(proposal: string): Promise<void> {
+    this.setProposal(proposal) // a no-op in the normal path; correct if the caller never scoped us
     const msg: ArmedMsg = { type: 'armed', seat: this.seats.mySeat(), proposal }
     await this.send(JSON.stringify(msg))
   }
 
-  /** Apply one arming. An arming for a DIFFERENT proposal starts a fresh tally, so a replayed
-   *  arming from an older payment can never count toward this one. The device whose arming brings
-   *  the tally exactly to the threshold is named as the trigger - once, deterministically, from an
-   *  ordering every device sees identically. */
+  /** Apply one signature. Signatures for any other payment are dropped, so replaying the room's
+   *  history on join can never build a tally for the payment on screen. The device whose signature
+   *  brings the tally exactly to the threshold is named as the sender - once, deterministically,
+   *  from an ordering every device sees identically. */
   private handleArmed(from: string, seat: number, proposal: string): void {
-    if (this.armedProposal !== proposal) {
-      this.armedProposal = proposal
-      this.armed.clear()
-    }
+    if (proposal !== this.currentProposal) return
     const known = this.armed.get(seat)
     this.armed.set(seat, from)
     const t = this.threshold()
@@ -156,6 +170,6 @@ export class BackgroundSession {
   rearm(): void {
     this.signer.rearm()
     this.armed.clear()
-    this.armedProposal = null
+    this.currentProposal = null
   }
 }
