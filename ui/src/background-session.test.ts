@@ -43,11 +43,11 @@ class Bus {
   post(from: string, data: string) { this.msgs.push({ seq: this.seq++, from, data }) }
 }
 
-interface Dev { tag: string; session: BackgroundSession; delivered: Set<number>; sig: { hex: string; ok: boolean } | null; errors: string[]; seats: number; armedSeats: number[]; namedSender: string | null }
+interface Dev { tag: string; session: BackgroundSession; delivered: Set<number>; sig: { hex: string; ok: boolean } | null; errors: string[]; seats: number; armedSeats: number[]; namedSender: string | null; failure: string | null }
 
 let NOW = 1_700_000_000_000
 function makeDev(tag: string, seat: number, bus: Bus, mat: () => { keyPackage: Uint8Array; groupVk: Uint8Array; pubkeys: Uint8Array }, gate: GovernanceGate): Dev {
-  const dev: Dev = { tag, session: null as unknown as BackgroundSession, delivered: new Set(), sig: null, errors: [], seats: 0, armedSeats: [], namedSender: null }
+  const dev: Dev = { tag, session: null as unknown as BackgroundSession, delivered: new Set(), sig: null, errors: [], seats: 0, armedSeats: [], namedSender: null, failure: null }
   dev.session = new BackgroundSession({
     myTag: tag,
     mySeat: seat,
@@ -59,6 +59,7 @@ function makeDev(tag: string, seat: number, bus: Bus, mat: () => { keyPackage: U
     onSignature: (hex, ok) => { dev.sig = { hex, ok } },
     onSeatCount: (n) => { dev.seats = n },
     now: () => NOW,
+    onFailed: (c) => { dev.failure = c },
     onArmed: (seats, triggerTag) => {
       dev.armedSeats = seats
       if (triggerTag) dev.namedSender = triggerTag
@@ -346,5 +347,53 @@ describe('BackgroundSession - a failed attempt must not freeze the payment', () 
 
     await B.session.unarm('p-other'); await run([A, B], bus)
     expect(A.armedSeats).toEqual([1]) // untouched
+  })
+})
+
+describe('BackgroundSession - the whole vault learns a send failed, not only the sender', () => {
+  const mat = (kp: Uint8Array, groupVk: Uint8Array, pubkeys: Uint8Array) => () => ({ keyPackage: kp, groupVk, pubkeys })
+  const pair = (bus: Bus) => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const open: GovernanceGate = () => true
+    return [
+      makeDev('a-tag', 1, bus, mat(s0.keyPackage(), groupVk, pubkeys), open),
+      makeDev('b-tag', 2, bus, mat(s1.keyPackage(), groupVk, pubkeys), open),
+    ] as const
+  }
+
+  it('carries the reason to the devices that signed but did not send', async () => {
+    // Only the sending device gets the reply. Without this the others sit on "sending" and never
+    // learn the payment is not coming.
+    const bus = new Bus()
+    const [A, B] = pair(bus)
+    A.session.setProposal('p1'); B.session.setProposal('p1')
+    await A.session.start(); await B.session.start(); await run([A, B], bus)
+    await A.session.arm('p1'); await B.session.arm('p1'); await run([A, B], bus)
+
+    await B.session.unarm('p1', 'funds'); await run([A, B], bus)
+    expect(A.failure).toBe('funds')
+    expect(B.failure).toBe('funds')
+    expect(A.armedSeats).toEqual([]) // and the payment is signable again
+  })
+
+  it('says nothing when there is no reason to give', async () => {
+    const bus = new Bus()
+    const [A, B] = pair(bus)
+    A.session.setProposal('p1'); B.session.setProposal('p1')
+    await A.session.start(); await B.session.start(); await run([A, B], bus)
+    await A.session.arm('p1'); await run([A, B], bus)
+
+    await B.session.unarm('p1'); await run([A, B], bus)
+    expect(A.failure).toBeNull()
+    expect(A.armedSeats).toEqual([])
+  })
+
+  it('ignores a failure announced for another payment', async () => {
+    const bus = new Bus()
+    const [A, B] = pair(bus)
+    A.session.setProposal('p1'); B.session.setProposal('p1')
+    await A.session.start(); await B.session.start(); await run([A, B], bus)
+    await B.session.unarm('p-other', 'funds'); await run([A, B], bus)
+    expect(A.failure).toBeNull()
   })
 })

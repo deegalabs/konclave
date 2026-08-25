@@ -67,6 +67,15 @@
 .loader-text{font-family:var(--font-mono); font-size:11.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--text-muted)}
 @media(prefers-reduced-motion:reduce){.loader-ring{animation-duration:2.4s}}
 
+/* What a proposal costs the vault, under the amount. The amount alone is not the cost: on a small
+   payroll the network fee was five times the payment and appeared nowhere on this screen. */
+.p-cost{display:flex; flex-direction:column; gap:4px; margin-top:10px; padding:11px 13px;
+  background:var(--surface-2); border:1px solid var(--line); border-radius:var(--radius-sm)}
+.p-cost.short{border-color:var(--warn-line,rgba(181,71,8,.3))}
+.p-cost-line{display:flex; justify-content:space-between; gap:14px; font-size:13px}
+.p-cost-k{font-family:var(--font-mono); font-size:10px; letter-spacing:.05em; text-transform:uppercase; color:var(--text-muted)}
+.p-cost-v{white-space:nowrap}
+
 /* Toasts. Top-right, clear of the content and of the page's own controls, sliding in from the edge
    they live on and leaving the same way. Transient acknowledgement only: anything the reader has to
    act on keeps its place on the screen where the action is.

@@ -4,11 +4,11 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Secret, Dialog, Loading } from '../components'
 import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
-import { fmtZec } from '../format'
+import { fmtZec, parseZecToZat, zatToZec } from '../format'
 import { useT, useTr } from '../i18n'
 import { useToast } from '../toast'
 import {
-  getProposalDetail, getProposals, getVault, voteProposal, sendProposal, shortAddr, humanError,
+  getProposalDetail, getProposals, getVault, voteProposal, sendProposal, shortAddr, humanError, getBalance,
   IS_NET, type Proposal, type PayrollLine,
 } from '../api'
 import { listVaults } from '../storage'
@@ -17,6 +17,10 @@ import { useVaultSigner } from '../VaultSigner'
 export default function Proposal() {
   const t = useT()
   const toast = useToast()
+  // What the vault actually holds, so the cost of this proposal can be stated against it. Approval
+  // is consent, not spending, so a short balance never blocks the vote - but it must be visible:
+  // the fee on a small payroll was five times the payment and appeared nowhere on this screen.
+  const [spendableZat, setSpendableZat] = useState<number | null>(null)
   const tr = useTr()
   const loc = useLocation() as { state?: { id?: string } }
   const nav = useNavigate()
@@ -77,6 +81,12 @@ export default function Proposal() {
     })()
   }, 8000, !!pid && !terminal)
 
+  useEffect(() => {
+    let on = true
+    void getBalance().then((b) => { if (on && b?.configured) setSpendableZat(b.spendable_zat ?? b.total_zat ?? null) })
+    return () => { on = false }
+  }, [])
+
   async function vote(approve: boolean) {
     if (!p) return
     const canVote = members.filter((m) => !p.approvals.includes(m) && !p.refusals.includes(m))
@@ -126,6 +136,20 @@ export default function Proposal() {
   const val = fmtZec(p.value_zec)
   const dest = p.to_address ? shortAddr(p.to_address) : '-'
   const isPayroll = p.kind === 'payroll'
+  // ZIP-317: 5000 zat per logical action. For a bundle with cross-address transfers disabled the
+  // count is spends + outputs (orchard's builder pairs each with a fabricated zero-valued
+  // counterpart), so one spend + N destinations + change. Measured against a real refusal: a 2-line
+  // payroll of 4000 zat was charged 20000, exactly four actions.
+  const cost = (() => {
+    const amountZat = parseZecToZat(p.value_zec ?? '')
+    if (amountZat === null) return null
+    const dests = isPayroll ? Math.max(1, lines.length) : 1
+    const feeZat = 5000 * Math.max(2, 1 + dests + 1)
+    const totalZat = amountZat + feeZat
+    const short = spendableZat === null ? 0 : Math.max(0, totalZat - spendableZat)
+    return { feeZat, totalZat, short }
+  })()
+
   const isAwaiting = p.state === 'awaiting'
   const isReady = p.state === 'ready'
   const isRejected = p.state === 'rejected'
@@ -172,6 +196,27 @@ export default function Proposal() {
         </div>
 
         <div className="p-amt mt"><Secret><span>{val}</span></Secret> <span className="dim small">ZEC</span></div>
+
+        {/* What this actually costs the vault. The amount alone is not the cost: on a small payroll
+            the network fee was five times the payment and appeared nowhere, so people approved
+            something the vault could not pay and only found out after everyone had signed. */}
+        {cost && (
+          <div className={'p-cost' + (cost.short > 0 ? ' short' : '')}>
+            <span className="p-cost-line">
+              <span className="p-cost-k">{t('proposal.costFee')}</span>
+              <span className="p-cost-v num">+ {fmtZec(zatToZec(cost.feeZat))} ZEC</span>
+            </span>
+            <span className="p-cost-line">
+              <span className="p-cost-k">{t('proposal.costTotal')}</span>
+              <span className="p-cost-v num"><b>{fmtZec(zatToZec(cost.totalZat))} ZEC</b></span>
+            </span>
+            {cost.short > 0 && (
+              <div className="hint warn mt-sm" role="status">
+                {tr('proposal.costShort', { short: fmtZec(zatToZec(cost.short)) })}
+              </div>
+            )}
+          </div>
+        )}
         {isPayroll && (
           <table className="tbl folha-read mt">
             <thead><tr><th>{t('proposal.colLabel')}</th><th>{t('proposal.colDest')}</th><th>{t('proposal.colValue')}</th><th>{t('proposal.colMemo')}</th></tr></thead>

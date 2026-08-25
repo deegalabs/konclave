@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { shortAddr, classifyAddress, humanError, netState, mapNetProposal } from './api'
+import { shortAddr, classifyAddress, errorCode, humanError, netState, mapNetProposal } from './api'
 import type { Proposal as NetProposal } from './helper'
 import type { TFn } from './i18n'
 
@@ -121,5 +121,21 @@ describe('humanError - insufficient funds carries the two figures that decide it
 
   it('falls back to the generic message when the figures are not there', () => {
     expect(humanError(t, 'insufficient funds')).toBe('error.insufficient')
+  })
+})
+
+// The reason a send failed travels to the other signers as a CODE, never as the message: the
+// message names the vault's balance, and the relay reads every body it carries.
+describe('errorCode - a reason the relay may see', () => {
+  it('classifies the failures that actually happen', () => {
+    expect(errorCode('InsufficientFunds { available: Zatoshis(1), required: Zatoshis(2) }')).toBe('funds')
+    expect(errorCode('The coordinator is over capacity or restarting.')).toBe('coordinator')
+    expect(errorCode('timed out waiting for the devices signatures')).toBe('ceremony')
+    expect(errorCode('something nobody has seen before')).toBe('unknown')
+  })
+
+  it('never carries a figure', () => {
+    const code = errorCode('InsufficientFunds { available: Zatoshis(20000), required: Zatoshis(24000) }')
+    expect(code).not.toMatch(/\d/)
   })
 })
