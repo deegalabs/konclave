@@ -177,101 +177,129 @@ export default function NewPayroll() {
           )}
         </div>
 
-        <div className="pay-cols">
-          {/* LEFT: the payroll document you fill in — heading + one line per payment. */}
-          <div className="pay-form">
-            <div className="doc-head">
-              <label className="field inline"><span>{t('payroll.competence')}</span>
-                <input className="input mono" placeholder={t('payroll.competencePlaceholder')} value={competencia} onChange={(e) => setCompetencia(e.target.value)} />
-              </label>
-              <label className="field inline"><span>{t('payroll.description')}</span>
-                <input className="input" placeholder={t('payroll.descriptionPlaceholder')} value={description} onChange={(e) => setDescription(e.target.value)} />
-              </label>
-            </div>
-
-            {/* Each line uses the same recipient combobox as /pay (search a payee, paste, add inline).
-                A div-grid (not a table) so the combobox dropdown can overflow the row freely. */}
-            <div className="plr-head"><span>#</span><span>{t('payroll.colRecipient')}</span><span>{t('payroll.colValue')}</span><span>{t('payroll.colMemo')}</span><span aria-hidden="true"></span></div>
-            <div className="plr-list">
-              {rows.map((r, i) => {
-                const k = r.address.trim().length > 1 ? classifyAddress(r.address.trim()) : null
-                const issue = rowTouched(r) ? rowIssue(r) : null
-                return (
-                  <div key={i} className={'plr-line' + (issue ? ' bad' : '')}>
-                    <span className="plr-n mono">{i + 1}</span>
-                    <div className="plr-to">
-                      <RecipientCombobox
-                        compact
-                        benefs={benefs}
-                        address={r.address}
-                        name={r.label || null}
-                        placeholder={t('payroll.recipientPlaceholder')}
-                        onReloadBenefs={reloadBenefs}
-                        onChange={(rc) => updateRow(i, { address: rc.address, ...(rc.name ? { label: rc.name } : {}), ...(rc.memo ? { memo: rc.memo } : {}) })}
-                      />
-                    </div>
-                    <input className="plr-val mono" placeholder="0.0000" value={r.value} onChange={(e) => updateRow(i, { value: e.target.value })} />
-                    <input className="plr-memo" placeholder={k === 'transparent' ? t('payroll.memoPublicPlaceholder') : t('payroll.memoPlaceholder')} value={r.memo} onChange={(e) => updateRow(i, { memo: e.target.value })} disabled={k === 'transparent'} />
-                    <button className="row-del plr-del" title={t('common.remove')} onClick={() => removeRow(i)}>×</button>
-                    {issue && <div className="cell-warn err plr-issue">{t(issue)}</div>}
-                  </div>
-                )
-              })}
-            </div>
-
-            <div className="mt-sm folha-actions">
-              <button className="btn ghost sm-btn" onClick={addRow}>{t('payroll.addRow')}</button>
-              <button className="btn ghost sm-btn" onClick={() => setShowImport((v) => !v)}>{t('payroll.importCsv')}</button>
-            </div>
-            {count === 0 && !showImport && (
-              <div className="hint mt-sm">{tr('payroll.startHint')}</div>
-            )}
-
-            {showImport && (
-              <div className="mt-sm">
-                <textarea className="input mono csv-area" rows={4} placeholder={t('payroll.csvPlaceholder')} value={csv} onChange={(e) => setCsv(e.target.value)} spellCheck={false} />
-                <div className="mt-sm"><button className="btn ghost sm-btn" onClick={importCsv}>{t('payroll.csvRead')}</button></div>
-              </div>
-            )}
+        {/* A payroll is a DOCUMENT, so it is laid out as one: full width for the lines, and the
+            totals at the foot where a document's totals belong. The side rail this replaces was
+            taking 40% of the page from the one thing that needs room - the table - leaving the
+            recipient chip wrapping onto three lines beside a 96px value box. */}
+        <div className="payroll-doc">
+          <div className="doc-head">
+            <label className="field inline"><span>{t('payroll.competence')}</span>
+              <input className="input mono" placeholder={t('payroll.competencePlaceholder')} value={competencia} onChange={(e) => setCompetencia(e.target.value)} />
+            </label>
+            <label className="field inline wide"><span>{t('payroll.description')}</span>
+              <input className="input" placeholder={t('payroll.descriptionPlaceholder')} value={description} onChange={(e) => setDescription(e.target.value)} />
+            </label>
           </div>
 
-          {/* RIGHT: the review card — the document your co-signers approve, plus total + guidance. */}
-          <aside className="pay-review">
-            <div className="preview">
-              <div className="pv-tag">◆ {t('payroll.reviewTag')}</div>
-              <div className="pv-row"><span className="pv-k">{t('payroll.pvDocument')}</span><span className="pv-v"><b>{competencia ? `${t('payroll.docPrefix')} · ${competencia}` : t('payroll.docPrefix')}</b></span></div>
-              <div className="pv-row"><span className="pv-k">{t('payroll.pvPayments')}</span><span className="pv-v"><b>{count}</b> {t('payroll.pvPaymentsSuffix')}</span></div>
-              {/* Redact only when there's a real figure - hiding a zero behind the tarja is theatre. */}
-              <div className="pv-row"><span className="pv-k">{t('payroll.pvTotal')}</span><span className="pv-v">
-                {count > 0
-                  ? <><Secret sm><b>{fmtZec(zatToZec(totalZat))} ZEC</b></Secret>{usdOn && zecToUsd(zatToZec(totalZat), rate) ? <span className="pv-usd"> ≈ {zecToUsd(zatToZec(totalZat), rate)}</span> : null}</>
-                  : <b className="dim">{fmtZec(zatToZec(totalZat))} ZEC</b>}
-              </span></div>
-              {count > 0 && <div className="pv-row"><span className="pv-k">{t('payroll.pvFeeK')}</span><span className="pv-v mono dim">+ {fmtZec(zatToZec(feeZat))} ZEC</span></div>}
-              <div className="pv-row"><span className="pv-k">{t('payroll.pvAfter')}</span><span className="pv-v">
-                {afterZat === null ? <b className="dim">-</b>
-                  : count > 0 ? <Secret sm><b>{fmtZec(zatToZec(afterZat))}</b></Secret> : <b className="dim">{fmtZec(zatToZec(afterZat))}</b>}
-              </span></div>
-              <div className="pv-row"><span className="pv-k">{t('payroll.pvApproval')}</span><span className="pv-v">{tr('payroll.pvApprovalValue', { proposer })}</span></div>
-              <div className="pv-fee">
-                {usdOn ? (
-                  <span className="payamt-rate">
-                    <span className="payamt-live" aria-hidden="true" />
-                    {rate ? `${rate.source} · ${rateIsStale(rate) ? t('dashboard.rateStale') : t('dashboard.rateLive')}` : t('dashboard.rateNone')}
-                    {' · '}<button type="button" className="linkbtn" onClick={() => void refreshRate()} disabled={rateBusy}>{rateBusy ? t('dashboard.updating') : t('dashboard.refresh')}</button>
+          {/* Each line uses the same recipient combobox as /pay (search a payee, paste, add inline).
+              A div-grid (not a table) so the combobox dropdown can overflow the row freely. */}
+          <div className="plr-head"><span>#</span><span>{t('payroll.colRecipient')}</span><span>{t('payroll.colValue')}</span><span>{t('payroll.colMemo')}</span><span aria-hidden="true"></span></div>
+          <div className="plr-list">
+            {rows.map((r, i) => {
+              const k = r.address.trim().length > 1 ? classifyAddress(r.address.trim()) : null
+              const issue = rowTouched(r) ? rowIssue(r) : null
+              return (
+                <div key={i} className={'plr-line' + (issue ? ' bad' : '')}>
+                  <span className="plr-n mono">{i + 1}</span>
+                  <div className="plr-to">
+                    <RecipientCombobox
+                      compact
+                      benefs={benefs}
+                      address={r.address}
+                      name={r.label || null}
+                      placeholder={t('payroll.recipientPlaceholder')}
+                      onReloadBenefs={reloadBenefs}
+                      onChange={(rc) => updateRow(i, { address: rc.address, ...(rc.name ? { label: rc.name } : {}), ...(rc.memo ? { memo: rc.memo } : {}) })}
+                    />
+                  </div>
+                  {/* The unit lives in the field, so the column reads as money and the number has
+                      room to be a number. */}
+                  <span className="plr-valwrap">
+                    <input className="plr-val num" inputMode="decimal" placeholder="0.0000" value={r.value} onChange={(e) => updateRow(i, { value: e.target.value })} aria-label={t('payroll.colValue')} />
+                    <span className="plr-unit" aria-hidden="true">ZEC</span>
                   </span>
-                ) : (
-                  <button type="button" className="linkbtn" onClick={enableUsd} title={t('dashboard.usdDisclosure')}>{t('dashboard.showUsd')} ≈</button>
-                )}
-              </div>
+                  <input className="plr-memo" placeholder={k === 'transparent' ? t('payroll.memoPublicPlaceholder') : t('payroll.memoPlaceholder')} value={r.memo} onChange={(e) => updateRow(i, { memo: e.target.value })} disabled={k === 'transparent'} />
+                  <button className="row-del plr-del" title={t('common.remove')} onClick={() => removeRow(i)}>×</button>
+                  {issue && <div className="cell-warn err plr-issue">{t(issue)}</div>}
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="mt-sm folha-actions">
+            <button className="btn ghost sm-btn" onClick={addRow}>{t('payroll.addRow')}</button>
+            <button className="btn ghost sm-btn" onClick={() => setShowImport((v) => !v)}>{t('payroll.importCsv')}</button>
+          </div>
+          {count === 0 && !showImport && (
+            <div className="hint mt-sm">{tr('payroll.startHint')}</div>
+          )}
+
+          {showImport && (
+            <div className="mt-sm">
+              <textarea className="input mono csv-area" rows={4} placeholder={t('payroll.csvPlaceholder')} value={csv} onChange={(e) => setCsv(e.target.value)} spellCheck={false} />
+              <div className="mt-sm"><button className="btn ghost sm-btn" onClick={importCsv}>{t('payroll.csvRead')}</button></div>
             </div>
-
-            {afterZat !== null && afterZat < 0 && <div className="hint warn mt-sm">{t('payroll.warnExceeds')}</div>}
-            {error && <div className="hint err mt-sm" role="alert">{error}</div>}
-
-            <button className="btn ok pay-submit mt" onClick={submit} disabled={!canSubmit}>{busy ? t('payroll.sending') : t('payroll.submitBtn')}</button>
-          </aside>
+          )}
         </div>
+
+        {/* The foot of the document: what the co-signers will approve, the three figures that decide
+            it, and the action. The fee is given the same weight as the total - on a small balance it
+            is most of what leaves the vault, and it used to be dim 10px text in a corner. */}
+        <div className={'payroll-foot' + (overBalance ? ' over' : '')}>
+          <div className="plf-doc">
+            <span className="pv-tag">◆ {t('payroll.reviewTag')}</span>
+            <span className="plf-title"><b>{competencia ? `${t('payroll.docPrefix')} · ${competencia}` : t('payroll.docPrefix')}</b></span>
+            <span className="plf-sub"><b>{count}</b> {t('payroll.pvPaymentsSuffix')}</span>
+          </div>
+
+          <div className="plf-figs">
+            <span className="plf-fig">
+              <span className="plf-k">{t('payroll.pvTotal')}</span>
+              <span className="plf-v num">
+                {count > 0
+                  ? <Secret sm><b>{fmtZec(zatToZec(totalZat))} ZEC</b></Secret>
+                  : <b className="dim">{fmtZec(zatToZec(totalZat))} ZEC</b>}
+              </span>
+              {usdOn && count > 0 && zecToUsd(zatToZec(totalZat), rate) && (
+                <span className="plf-usd">≈ {zecToUsd(zatToZec(totalZat), rate)}</span>
+              )}
+            </span>
+
+            <span className="plf-fig">
+              <span className="plf-k">{t('payroll.pvFeeK')}</span>
+              <span className="plf-v num dim">+ {fmtZec(zatToZec(feeZat))} ZEC</span>
+            </span>
+
+            <span className={'plf-fig' + (overBalance ? ' bad' : '')}>
+              <span className="plf-k">{t('payroll.pvAfter')}</span>
+              <span className="plf-v num">
+                {afterZat === null ? <b className="dim">-</b>
+                  : count > 0 ? <Secret sm><b>{fmtZec(zatToZec(afterZat))} ZEC</b></Secret>
+                  : <b className="dim">{fmtZec(zatToZec(afterZat))} ZEC</b>}
+              </span>
+            </span>
+          </div>
+
+          <div className="plf-act">
+            <button className="btn ok" onClick={submit} disabled={!canSubmit}>{busy ? t('payroll.sending') : t('payroll.submitBtn')}</button>
+            <span className="plf-note">{tr('payroll.pvApprovalValue', { proposer })}</span>
+          </div>
+
+          <div className="plf-rate">
+            {usdOn ? (
+              <span className="payamt-rate">
+                <span className="payamt-live" aria-hidden="true" />
+                {rate ? `${rate.source} · ${rateIsStale(rate) ? t('dashboard.rateStale') : t('dashboard.rateLive')}` : t('dashboard.rateNone')}
+                {' · '}<button type="button" className="linkbtn" onClick={() => void refreshRate()} disabled={rateBusy}>{rateBusy ? t('dashboard.updating') : t('dashboard.refresh')}</button>
+              </span>
+            ) : (
+              <button type="button" className="linkbtn" onClick={enableUsd} title={t('dashboard.usdDisclosure')}>{t('dashboard.showUsd')} ≈</button>
+            )}
+          </div>
+        </div>
+
+        {overBalance && <div className="hint warn mt-sm">{t('payroll.warnExceeds')}</div>}
+        {error && <div className="hint err mt-sm" role="alert">{error}</div>}
 
         {pastFolhas.length > 0 && (
           <div className="past-folhas mt">

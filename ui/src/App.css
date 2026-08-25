@@ -691,8 +691,12 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 .rcb-input::placeholder{color:var(--text-muted); opacity:.85}
 .rcb-picked{display:flex; align-items:center; gap:9px; flex:1; min-width:0; padding:8px 0}
 .rcb-picked .idc{border-radius:6px; flex:none}
-.rcb-picked .rcb-nm{font-weight:600; font-size:14px}
-.rcb-picked .rcb-ad{font-family:var(--font-mono); font-size:12px; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+/* One line, always. When the cell is tight the address gives way first, then the name truncates -
+   the kind chip never does, because "shielded or transparent" is the fact that matters most here.
+   Left to wrap, a two-word payee name turned the chip into a three-line block beside a one-line
+   value box, which is what made the table read as broken. */
+.rcb-picked .rcb-nm{font-weight:600; font-size:14px; flex:0 1 auto; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.rcb-picked .rcb-ad{font-family:var(--font-mono); font-size:12px; color:var(--text-muted); flex:1 1 auto; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
 .rcb-x{background:transparent; border:0; color:var(--text-muted); cursor:pointer; font-size:17px; line-height:1; padding:6px; flex:none}
 .rcb-x:hover{color:var(--text)}
 .rcb-chip{font-family:var(--font-mono); font-size:9px; letter-spacing:.04em; text-transform:uppercase; padding:1px 7px; border-radius:var(--radius-pill); border:1px solid; flex:none}
@@ -749,7 +753,10 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 /* Payroll lines as a div-grid (redesign): the recipient combobox per line, so its dropdown can
    overflow the row (a <table> with the responsive nth-child mapping clipped/constrained it).
    Named .plr-* so it never collides with the past-payrolls list (.pf-*). */
-.plr-head, .plr-line{display:grid; grid-template-columns:22px minmax(0,1.6fr) 96px minmax(0,1fr) 30px; gap:9px; align-items:start}
+/* Full page width, so each column can be the size its content actually is: the recipient chip
+   (avatar + name + address + kind) needs ~2x the value box, and the value box needs room for a
+   figure plus its unit. At 1.6fr / 96px inside a 58%-wide rail the chip wrapped onto three lines. */
+.plr-head, .plr-line{display:grid; grid-template-columns:24px minmax(0,1.7fr) 148px minmax(0,1.25fr) 32px; gap:12px; align-items:start}
 .plr-head{font-family:var(--font-mono); font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--text-muted); padding:14px 4px 6px}
 .pay-form .doc-head{margin-top:0}
 .plr-list{display:flex; flex-direction:column; gap:8px}
@@ -758,21 +765,80 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 .plr-to{min-width:0}
 .plr-val, .plr-memo{width:100%; font-size:13px; color:var(--text); background:var(--surface-2); border:1.5px solid var(--line);
   border-radius:var(--radius-sm); padding:10px 11px; outline:none; font-family:var(--font-sans)}
-.plr-val{font-family:var(--font-mono); text-align:right}
+/* The unit sits inside the field, so the column reads as money and the figure keeps the whole box. */
+.plr-valwrap{position:relative; display:block; min-width:0}
+.plr-val{font-family:var(--font-num); text-align:right; padding-right:42px}
+.plr-unit{position:absolute; right:11px; top:50%; transform:translateY(-50%); pointer-events:none;
+  font-family:var(--font-mono); font-size:10px; letter-spacing:.06em; color:var(--text-muted)}
 .plr-val:focus, .plr-memo:focus{border-color:var(--accent); background:var(--surface-1); box-shadow:0 0 0 3px var(--accent-soft)}
 .plr-memo:disabled{opacity:.5}
 .plr-del{justify-self:center; align-self:start; margin-top:6px}
 .plr-issue{grid-column:2 / -2; color:var(--danger-text,var(--danger)); font-family:var(--font-mono); font-size:11px; margin-top:2px}
 .plr-line.bad .plr-to .rcb-field, .plr-line.bad .plr-val{border-color:var(--danger-line,rgba(180,35,24,.3))}
-@media(max-width:640px){
+/* Between the two: still a table, but the value column gives way first (it has a fixed floor). */
+@media(max-width:1000px){
+  .plr-head, .plr-line{grid-template-columns:22px minmax(0,1.6fr) 124px minmax(0,1fr) 30px; gap:9px}
+}
+/* Narrow: one card per line, numbered, so a payroll stays a list of payments and not a squeezed
+   spreadsheet. The card carries the line number the header used to. */
+@media(max-width:720px){
   .plr-head{display:none}
-  .plr-line{grid-template-columns:1fr auto; gap:8px; padding:12px; border:1px solid var(--line); border-radius:var(--radius-sm); background:var(--surface-2)}
-  .plr-line .plr-n{display:none}
-  .plr-to{grid-column:1 / -1}
-  .plr-val{grid-column:1}
-  .plr-del{grid-column:2; margin-top:0; align-self:center}
-  .plr-memo{grid-column:1 / -1}
-  .plr-issue{grid-column:1 / -1}
+  .plr-line{grid-template-columns:1fr auto; gap:9px; padding:13px; border:1px solid var(--line);
+    border-radius:var(--radius-sm); background:var(--surface-2); position:relative}
+  .plr-line .plr-n{position:absolute; top:-9px; left:11px; padding:1px 7px; background:var(--surface-1);
+    border:1px solid var(--line); border-radius:var(--radius-pill); font-size:10px; text-align:center}
+  /* Explicit rows: in DOM order the delete button lands after the memo and takes a row of its own.
+     It belongs beside the value, where it reads as "remove this line". */
+  .plr-to{grid-column:1 / -1; grid-row:1}
+  .plr-valwrap{grid-column:1; grid-row:2}
+  .plr-del{grid-column:2; grid-row:2; margin-top:0; align-self:center}
+  .plr-memo{grid-column:1 / -1; grid-row:3}
+  .plr-issue{grid-column:1 / -1; grid-row:4}
+}
+
+/* The payroll document and its foot. A payroll is a document, so it gets the page's full width for
+   its lines, and its totals sit at the end - where a document's totals go - instead of in a rail
+   that took 40% of the width from the table that needed it. */
+.payroll-doc{display:flex; flex-direction:column; min-width:0; margin-top:20px}
+.payroll-doc .doc-head{margin-top:0; gap:14px 22px}
+/* `.field` carries a 16px block margin from the base sheet; inside a flex row with its own gap
+   that doubled up and left a hole between the two document fields when they stacked. */
+.payroll-doc .doc-head .field{margin:0}
+.payroll-doc .field.inline{flex:0 1 260px}
+.payroll-doc .field.inline.wide{flex:1 1 380px}
+
+.payroll-foot{position:sticky; bottom:12px; z-index:2; margin-top:22px;
+  display:grid; grid-template-columns:minmax(0,1fr) auto auto; gap:14px 34px; align-items:end;
+  background:var(--surface-2); border:1px solid var(--line); border-radius:var(--radius);
+  padding:16px 18px; box-shadow:0 6px 24px rgba(0,0,0,.10)}
+.payroll-foot.over{border-color:var(--danger-line,rgba(180,35,24,.34))}
+.plf-doc{display:flex; flex-direction:column; gap:3px; min-width:0}
+.plf-doc .pv-tag{margin-bottom:4px}
+.plf-title{font-size:14px}
+.plf-sub{font-size:12px; color:var(--text-muted)}
+
+.plf-figs{display:flex; gap:26px; align-items:flex-end}
+.plf-fig{display:flex; flex-direction:column; gap:3px}
+.plf-k{font-family:var(--font-mono); font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--text-muted)}
+/* The fee gets the same size as the total: on a small balance it is most of what leaves the vault,
+   and it used to be 10px dim text in a corner. */
+.plf-v{font-size:15px; white-space:nowrap}
+.plf-fig.bad .plf-v{color:var(--danger-text,var(--danger))}
+.plf-usd{font-family:var(--font-mono); font-size:11px; color:var(--silver)}
+
+.plf-act{display:flex; flex-direction:column; align-items:flex-end; gap:5px}
+.plf-note{font-size:11px; color:var(--text-muted); text-align:right; max-width:30ch; text-wrap:balance}
+.plf-rate{grid-column:1 / -1; padding-top:11px; border-top:1px solid var(--line); font-size:11px}
+
+@media(max-width:900px){
+  .payroll-foot{grid-template-columns:1fr; align-items:stretch; position:static}
+  .plf-figs{justify-content:space-between; gap:14px; flex-wrap:wrap}
+  .plf-act{align-items:stretch}
+  .plf-act .btn{justify-content:center}
+  .plf-note{text-align:center; max-width:none}
+}
+@media(prefers-reduced-motion:no-preference){
+  .payroll-foot{transition:border-color .15s ease}
 }
 
 /* Pay: two-column compose (form left, review/orientation right). Collapses to one column when the
