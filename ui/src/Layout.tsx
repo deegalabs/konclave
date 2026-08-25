@@ -85,11 +85,11 @@ export default function Layout() {
     }
   }, [])
 
-  const thr = vault?.threshold ?? 2
-  const n = vault?.total ?? 3
-  const seeds = vault?.member_list?.length
-    ? vault.member_list.slice(0, 3).map((m) => m.name)
-    : ['A', 'B', 'C']
+  // No invented vault. These used to fall back to 2/3 and three fictional members 'A', 'B', 'C',
+  // so on every refresh a 2-of-2 vault flashed "2/3" with three strangers' faces under it, and a
+  // vault that failed to load kept them. The shell says nothing until it knows.
+  const quorum = vault ? `${vault.threshold}/${vault.total}` : null
+  const seeds = vault?.member_list?.length ? vault.member_list.slice(0, 3).map((m) => m.name) : []
 
   // Rail grouped into intent bands, ordered by the money LIFECYCLE (in -> propose -> govern), so a
   // governance vault reads as its flow rather than a flat wallet (ADR-0009, GSP IA #156, refined):
@@ -199,8 +199,8 @@ export default function Layout() {
                 <path d="M17 21l2.8 2.8L26 17.5" stroke="var(--success)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
               <span className="rv-meta">
-                <span className="rv-name">{vault?.name ?? t('settings.vault')}</span>
-                <small className="rv-q">{thr}/{n} · {t('seal.caption')}</small>
+                <span className="rv-name">{vault?.name ?? '…'}</span>
+                <small className="rv-q">{quorum ? `${quorum} · ${t('seal.caption')}` : t('common.loading')}</small>
               </span>
               <span className="rv-caret" aria-hidden="true">▾</span>
             </button>

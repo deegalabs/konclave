@@ -271,17 +271,20 @@ export default function Vaults() {
             // Stage A: one field — drop a .konclave OR paste/type the export text (validated live).
             <>
               <p>{t('import.help')}</p>
-              <label className={'imp-field' + (dragOver ? ' hot' : '')}
+              {/* A drop zone, not a label. As a <label> wrapping both controls, clicking "choose a
+                  file" activated the label's FIRST labelable descendant - the textarea - so the file
+                  dialog never opened. The file input gets a label of its own. */}
+              <div className={'imp-field' + (dragOver ? ' hot' : '')}
                 onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
                 onDragLeave={() => setDragOver(false)}
                 onDrop={onDrop}>
                 <textarea className="imp-field-ta mono" placeholder={t('import.dropOrPaste')}
                   value={impText} onChange={(e) => onImpText(e.target.value)} spellCheck={false} autoFocus />
-                <span className="imp-field-file">
+                <label className="imp-field-file">
                   {t('import.orFile')}
                   <input type="file" accept=".json,.konclave,application/json" hidden onChange={onImportFile} />
-                </span>
-              </label>
+                </label>
+              </div>
               {impText.trim() && !impParsed && <div className="hint warn mt-xs">{t('import.notRecognized')}</div>}
               {impErr && <div className="unlock-err" role="alert">{impErr}</div>}
               <div className="unlock-btns">
