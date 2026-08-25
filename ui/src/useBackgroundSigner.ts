@@ -29,6 +29,9 @@ export interface BackgroundSignerState {
   iSend: boolean
   /** Announce that this device's owner signed `proposal`. */
   arm: (proposal: string) => Promise<void>
+  /** Withdraw every signature for `proposal` after a failed attempt: nothing moved, so the payment
+   *  goes back to unsigned on every device instead of looking signed by devices that have gone. */
+  unarm: (proposal: string) => Promise<void>
   /** Point the signer at the payment now on screen (null when none). Changing payment starts a
    *  fresh tally AND drops any standing "this device sends" decision. */
   setProposal: (id: string | null) => void
@@ -147,6 +150,10 @@ export function useBackgroundSigner(
     armedSeats,
     iSend,
     arm: async (proposal: string) => { await sessionRef.current?.arm(proposal) },
+    unarm: async (proposal: string) => {
+      setISend(false)
+      await sessionRef.current?.unarm(proposal)
+    },
     setProposal,
     phase,
     signature,

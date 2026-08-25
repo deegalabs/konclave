@@ -28,6 +28,8 @@ interface VaultSignerCtx {
   reseat: () => void
   /** This device's owner explicitly signed the proposal now on screen. */
   armed: boolean
+  /** Withdraw every signature for the open proposal (an attempt failed; nothing moved). */
+  unarmActive: () => Promise<void>
   /** Sign the active proposal from this device: arm the gate, then tell the room. */
   armActive: () => Promise<void>
   /** When this device's signature stops counting (epoch ms), or null when it is not armed. */
@@ -143,6 +145,14 @@ export function VaultSignerProvider({ children }: { children: ReactNode }) {
     close: () => setActive(null),
     reseat: () => setNonce((n) => n + 1),
     armed: !!active && armedProposal === active.id,
+    unarmActive: async () => {
+      if (!active) return
+      setArmedProposal(null)
+      setArmedAt(null)
+      armedRef.current = null
+      armedAtRef.current = null
+      await bg.unarm(active.id)
+    },
     armedUntil: armedAt === null ? null : armedAt + ARM_TTL_MS,
     armActive: async () => {
       if (!active) return
