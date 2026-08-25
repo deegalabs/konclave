@@ -666,6 +666,7 @@ export const ptBR: Record<string, string> = {
   'signing.rateNow': 'agora',
   'signing.rateMin': 'há {n} min',
   'signing.rateStale': 'cotação antiga',
+  'signing.seatSigned': 'assinou',
   'signing.tryAgain': 'Tentar de novo',
   'signing.errUnreachable': 'não foi possível falar com o coordenador',
 

@@ -273,7 +273,13 @@ export default function SigningPanel() {
                 >
                   <Identicon seed={m.pubkey || m.name} size={22} />
                   <span className="sign-seat-name">{m.name}{me && m.name === me && <span className="klab"> {t('members.youShort')}</span>}</span>
-                  {signedSeats.includes(i + 1) && <span className="sign-seat-tick" aria-hidden="true">✓</span>}
+                  {signedSeats.includes(i + 1) && (
+                    <>
+                      {/* The tick reads at a glance; the label makes it readable at all. */}
+                      <span className="visually-hidden">{t('signing.seatSigned')}</span>
+                      <span className="sign-seat-tick" aria-hidden="true">✓</span>
+                    </>
+                  )}
                 </span>
               ))}
             </div>

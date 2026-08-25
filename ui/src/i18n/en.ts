@@ -666,6 +666,7 @@ export const en: Record<string, string> = {
   'signing.rateNow': 'now',
   'signing.rateMin': '{n} min ago',
   'signing.rateStale': 'stale rate',
+  'signing.seatSigned': 'signed',
   'signing.tryAgain': 'Try again',
   'signing.errUnreachable': 'could not reach the coordinator',
 
