@@ -9,6 +9,32 @@ import {
 } from '../api'
 import { listVaults, type Governance } from '../storage'
 
+/**
+ * What kind of address this is, said plainly on BOTH kinds - the way a shielded wallet labels it.
+ * "public" alone (and only on transparent) left the shielded case unlabelled, so a reader could not
+ * tell whether the absence meant private or unknown. Transparent is the exception that carries a
+ * warning tone, because paying it puts the amount and the recipient on a public ledger.
+ */
+function AddrKind({ transparent, t }: { transparent?: boolean; t: (k: string) => string }) {
+  return transparent ? (
+    <span className="akind akind-pub" title={t('people.kindTransparentHelp')}>
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"
+        strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="2.6" />
+      </svg>
+      {t('people.kindTransparent')}
+    </span>
+  ) : (
+    <span className="akind akind-shield" title={t('people.kindShieldedHelp')}>
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"
+        strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M12 3l7.5 3v5.4c0 4.5-3.1 8.2-7.5 9.6-4.4-1.4-7.5-5.1-7.5-9.6V6z" />
+      </svg>
+      {t('people.kindShielded')}
+    </span>
+  )
+}
+
 export default function People() {
   const t = useT()
   const [list, setList] = useState<Beneficiary[]>([])
@@ -89,7 +115,8 @@ export default function People() {
                 <div className="person-main">
                   <div className="who-name">{b.name}</div>
                   <div className="person-sub mono">
-                    <span className={b.is_public ? 'seal-tx' : 'dim'}>{shortAddr(b.address)}{b.is_public ? t('people.publicSuffix') : ''}</span>
+                    <span className="dim">{shortAddr(b.address)}</span>
+                    <AddrKind transparent={b.is_public} t={t} />
                     {b.memo ? <span className="dim"> · {b.memo}</span> : null}
                   </div>
                 </div>

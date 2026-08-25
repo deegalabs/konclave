@@ -833,3 +833,11 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 .payamt-quick .payamt-max{margin-left:0}
 .payamt-max:disabled{opacity:.45; cursor:not-allowed}
 .payamt-max:hover:not(:disabled){border-color:var(--accent-line); color:var(--accent)}
+/* Address kind on a beneficiary row: name BOTH kinds, the way a shielded wallet does. Shielded is
+   the quiet default; transparent carries a warning tone because paying it publishes the amount and
+   the recipient on-chain. */
+.akind{display:inline-flex; align-items:center; gap:4px; margin-left:8px; padding:1px 7px 1px 6px;
+  border-radius:var(--radius-pill); border:1px solid; font-size:10.5px; font-weight:600;
+  letter-spacing:.02em; text-transform:none; vertical-align:baseline}
+.akind-shield{color:var(--success); border-color:var(--success-line); background:var(--success-soft)}
+.akind-pub{color:var(--warn); border-color:var(--warn); background:transparent}
