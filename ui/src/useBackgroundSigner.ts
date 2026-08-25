@@ -23,6 +23,12 @@ export interface BackgroundSignerState {
   signature: { hex: string; ok: boolean } | null
   what: { zec: string; addr: string } | null
   error: string
+  /** Seats that have explicitly signed the proposal now on screen. */
+  armedSeats: number[]
+  /** True once this device's own arming completed the quorum: it is the one that sends. */
+  iSend: boolean
+  /** Announce that this device's owner signed `proposal`. */
+  arm: (proposal: string) => Promise<void>
   /** Re-drive after arming a manual-mode payment (a gate-pending request then proceeds). */
   retry: () => Promise<void>
   /** DEV/validation: publish a raw sign-request into the room (the helper does this in production). */
@@ -47,6 +53,8 @@ export function useBackgroundSigner(
   const [signature, setSignature] = useState<{ hex: string; ok: boolean } | null>(null)
   const [what, setWhat] = useState<{ zec: string; addr: string } | null>(null)
   const [error, setError] = useState('')
+  const [armedSeats, setArmedSeats] = useState<number[]>([])
+  const [iSend, setISend] = useState(false)
   const relayRef = useRef<RelaySession | null>(null)
   const sessionRef = useRef<BackgroundSession | null>(null)
   const roomRef = useRef('')
@@ -75,6 +83,9 @@ export function useBackgroundSigner(
         roomRef.current = r
         setRoom(r)
         const myTag = ephemeralTag()
+        // Who sends is decided by the room's ordered log, not by who clicked first: the device whose
+        // arming completes the quorum is named the trigger, and every device computes the same name.
+        // So two people signing at the same instant still produce exactly ONE send.
         const session = new BackgroundSession({
           myTag,
           mySeat: b.seat,
@@ -86,6 +97,10 @@ export function useBackgroundSigner(
           onPhase: setPhase,
           onWhat: setWhat,
           onSignature: (h, ok) => setSignature({ hex: h, ok }),
+          onArmed: (seats, triggerTag) => {
+            setArmedSeats(seats)
+            if (triggerTag === myTag) setISend(true)
+          },
           onError: setError,
         })
         sessionRef.current = session
@@ -112,6 +127,9 @@ export function useBackgroundSigner(
     ready,
     room,
     seatCount,
+    armedSeats,
+    iSend,
+    arm: async (proposal: string) => { await sessionRef.current?.arm(proposal) },
     phase,
     signature,
     what,

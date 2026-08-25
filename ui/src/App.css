@@ -122,6 +122,10 @@
 .sign-roster{display:flex; flex-direction:column; gap:8px}
 .sign-seat{display:flex; align-items:center; gap:9px; font-size:13px; color:var(--text-muted); opacity:.5}
 .sign-seat.on{opacity:1; color:var(--text)}
+/* Signed is a stronger state than present: presence is a count we infer, a signature is a
+   seat we can name. It reads at a glance, and never by color alone (the tick carries it). */
+.sign-seat.signed{opacity:1; color:var(--text)}
+.sign-seat-tick{margin-left:auto; color:var(--success); font-weight:700}
 /* while the signer is coming up, show a loading line instead of a roster that could momentarily
    light the wrong seat (presence is resolved from a live count + the local seat's own name). */
 .sign-roster-loading{display:flex; align-items:center; gap:9px; font-family:var(--font-mono);
@@ -484,7 +488,11 @@ h1.klab,h2.klab,h3.klab{margin:0;font-weight:400}
 .danger-body{display:flex; align-items:center; justify-content:space-between; gap:16px; margin-top:8px}
 .danger-t{font-weight:700; font-size:15px}
 .danger-d{font-family:var(--font-mono); font-size:12px; color:var(--text-muted); margin-top:3px}
-.modal-overlay{position:fixed; inset:0; z-index:30; display:grid; place-items:center; padding:24px; background:rgba(8,11,15,.66); backdrop-filter:blur(4px)}
+/* Above EVERY session surface, including the signing sheet (41), its scrim (40) and the mobile
+   nav (50). A modal is the most blocking thing on screen; when it rendered UNDER the signing
+   sheet the send confirm was born buried: it looked greyed out, took no click, and the click
+   landed on the scrim beneath it, closing the panel with no send and no error. */
+.modal-overlay{position:fixed; inset:0; z-index:100; display:grid; place-items:center; padding:24px; background:rgba(8,11,15,.66); backdrop-filter:blur(4px)}
 .modal-card{width:100%; max-width:440px; padding:26px; border-radius:var(--radius-lg); background:linear-gradient(180deg,var(--surface-2),var(--surface-1)); border:1px solid var(--line-2); box-shadow:var(--shadow-overlay)}
 .modal-card.danger{border-color:var(--danger-line)}
 .modal-h{margin:6px 0 4px; font-size:22px}
