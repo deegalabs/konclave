@@ -658,6 +658,9 @@ export const ptBR: Record<string, string> = {
   'signing.arming': 'Assinando…',
   'signing.othersSending': 'Quórum completo. Quem assinou por último está enviando. Deixe esta tela aberta.',
   'signing.errNoTxid': 'o coordenador respondeu sem txid; nada foi confirmado como enviado',
+  'signing.confirmSignTitle': 'Assinar este pagamento?',
+  'signing.confirmSignBody': 'Sua parte entra na assinatura. O pagamento só sai quando o último signatário assinar.',
+  'signing.confirmSignCta': 'Assinar {amt} ZEC',
   'signing.tryAgain': 'Tentar de novo',
   'signing.errUnreachable': 'não foi possível falar com o coordenador',
 

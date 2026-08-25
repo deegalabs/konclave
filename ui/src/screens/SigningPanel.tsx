@@ -104,8 +104,10 @@ export default function SigningPanel() {
   const signedSeats = bg.armedSeats
   const signedCount = signedSeats.length
   const quorumSigned = threshold > 0 && signedCount >= threshold
-  // If I sign now, the quorum closes and I am the one who sends - so my click needs the money
-  // confirm. A prediction only drives the LABEL; who actually sends is decided by the room's log.
+  // If I sign now, the quorum closes and I am the one who sends. This drives the WORDING only:
+  // every signature is confirmed on its own device, whoever you are. Predicting "I am last" and
+  // confirming only then would leave a hole - two people clicking in the same instant would both
+  // read as not-last, and whichever one closed the quorum would send with no confirm at all.
   const iWouldBeLast = !armed && threshold > 0 && signedCount === threshold - 1
 
   const started = sending || bg.phase !== 'idle'
@@ -319,7 +321,7 @@ export default function SigningPanel() {
               <button
                 className="btn ok mt-sm"
                 disabled={!canSign}
-                onClick={() => (iWouldBeLast ? setConfirming(true) : void doSign())}
+                onClick={() => setConfirming(true)}
               >
                 {arming ? t('signing.arming') : iWouldBeLast ? t('signing.signAndSend') : t('signing.signAct')}
               </button>
@@ -333,15 +335,19 @@ export default function SigningPanel() {
       {confirming && (
         <Dialog className="modal-overlay" cardClassName="modal-card danger" labelledBy="sign-confirm-title" onClose={() => setConfirming(false)}>
           <span className="klab danger-lab">{t('proposal.confirmLabel')}</span>
-          <h2 id="sign-confirm-title" className="modal-h">{t('signing.confirmTitle')}</h2>
+          <h2 id="sign-confirm-title" className="modal-h">
+            {iWouldBeLast ? t('signing.confirmTitle') : t('signing.confirmSignTitle')}
+          </h2>
           <div className="send-confirm-what">
             <strong className="scw-amt">{amt} ZEC</strong>
             {isPayroll ? <span className="scw-kind"> · {t('kind.payroll')}</span> : <> <span aria-hidden="true">→</span> <code>{dest}</code></>}
           </div>
-          <p className="modal-p">{t('signing.confirmBody')}</p>
+          <p className="modal-p">{iWouldBeLast ? t('signing.confirmBody') : t('signing.confirmSignBody')}</p>
           <div className="btns right mt">
             <button className="btn ghost" onClick={() => setConfirming(false)}>{t('common.cancel')}</button>
-            <button className="btn ok" onClick={() => { setConfirming(false); void doSign() }}>{t('signing.confirmSend', { amt })}</button>
+            <button className="btn ok" onClick={() => { setConfirming(false); void doSign() }}>
+              {iWouldBeLast ? t('signing.confirmSend', { amt }) : t('signing.confirmSignCta', { amt })}
+            </button>
           </div>
         </Dialog>
       )}

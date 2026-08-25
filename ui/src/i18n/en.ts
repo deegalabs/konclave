@@ -658,6 +658,9 @@ export const en: Record<string, string> = {
   'signing.takesMinutes': 'This takes a few minutes: the vault builds the transaction, proves it and broadcasts',
   'signing.slowHint': 'This is taking longer than usual. Nothing has been broadcast yet; you can close and come back, or try again in a few minutes.',
   'signing.errNoVault': 'The vault is not loaded on this device. Reload the page and try again.',
+  'signing.confirmSignTitle': 'Sign this payment?',
+  'signing.confirmSignBody': 'Your share joins the signature. The payment only goes out when the last signer signs.',
+  'signing.confirmSignCta': 'Sign {amt} ZEC',
   'signing.tryAgain': 'Try again',
   'signing.errUnreachable': 'could not reach the coordinator',
 
