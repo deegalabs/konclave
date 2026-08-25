@@ -140,6 +140,7 @@ describe('BackgroundSession - everyone signs, the last one sends', () => {
     const A = makeDev('a-tag', 1, bus, mat(s0.keyPackage(), groupVk, pubkeys), open)
     const B = makeDev('b-tag', 2, bus, mat(s1.keyPackage(), groupVk, pubkeys), open)
     await A.session.start(); await B.session.start(); await run([A, B], bus)
+    A.session.setProposal('p1'); B.session.setProposal('p1')
 
     await A.session.arm('p1')
     await run([A, B], bus)
@@ -166,6 +167,7 @@ describe('BackgroundSession - everyone signs, the last one sends', () => {
     const A = makeDev('a-tag', 1, bus, mat(s0.keyPackage(), groupVk, pubkeys), open)
     const B = makeDev('b-tag', 2, bus, mat(s1.keyPackage(), groupVk, pubkeys), open)
     await A.session.start(); await B.session.start(); await run([A, B], bus)
+    A.session.setProposal('p1'); B.session.setProposal('p1')
 
     await A.session.arm('p1'); await B.session.arm('p1'); await run([A, B], bus)
     expect(B.namedSender).toBe('b-tag')
@@ -183,12 +185,50 @@ describe('BackgroundSession - everyone signs, the last one sends', () => {
     const A = makeDev('a-tag', 1, bus, mat(s0.keyPackage(), groupVk, pubkeys), open)
     const B = makeDev('b-tag', 2, bus, mat(s1.keyPackage(), groupVk, pubkeys), open)
     await A.session.start(); await B.session.start(); await run([A, B], bus)
+    A.session.setProposal('p-old'); B.session.setProposal('p-old')
 
     await A.session.arm('p-old')
-    await B.session.arm('p-new') // a different payment resets the tally
+    await run([A, B], bus)
+    expect(A.armedSeats).toEqual([1])
+
+    // Both devices move to a different payment: the previous one's signatures do not carry over.
+    A.session.setProposal('p-new'); B.session.setProposal('p-new')
+    expect(A.armedSeats).toEqual([])
+    await B.session.arm('p-new')
     await run([A, B], bus)
     expect(A.armedSeats).toEqual([2])
     expect(A.namedSender).toBeNull() // one of two on the new payment: nothing sends
+  })
+
+  it('replaying the room does not rebuild a quorum from a payment already sent', async () => {
+    // The signing room is permanent, so its log still holds every earlier payment's signatures and
+    // a device joining replays the whole thing. This is the bug that shipped: the previous
+    // payment's two signatures counted as a full quorum for the payroll on screen, so the panel
+    // announced "2 of 2 signed" for something nobody had signed - and never offered the button.
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const open: GovernanceGate = () => true
+    // The room already carries a completed payment's signatures, from tags long gone.
+    bus.post('p-old-a', JSON.stringify({ type: 'armed', seat: 1, proposal: 'p-sent' }))
+    bus.post('p-old-b', JSON.stringify({ type: 'armed', seat: 2, proposal: 'p-sent' }))
+
+    const A = makeDev('a-tag', 1, bus, mat(s0.keyPackage(), groupVk, pubkeys), open)
+    const B = makeDev('b-tag', 2, bus, mat(s1.keyPackage(), groupVk, pubkeys), open)
+    A.session.setProposal('p-new'); B.session.setProposal('p-new')
+    await A.session.start(); await B.session.start(); await run([A, B], bus)
+
+    expect(A.armedSeats).toEqual([]) // nobody has signed THIS payment
+    expect(B.armedSeats).toEqual([])
+    expect(A.namedSender).toBeNull() // and nothing was named to send it
+    expect(B.namedSender).toBeNull()
+
+    // Signing it now works normally, from zero.
+    await A.session.arm('p-new'); await run([A, B], bus)
+    expect(A.armedSeats).toEqual([1])
+    await B.session.arm('p-new'); await run([A, B], bus)
+    expect(A.armedSeats).toEqual([1, 2])
+    expect(A.namedSender).toBe('b-tag')
+    expect(B.namedSender).toBe('b-tag')
   })
 
   it('a device that did not sign contributes nothing: the quorum never closes', async () => {

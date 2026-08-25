@@ -116,6 +116,13 @@ export function VaultSignerProvider({ children }: { children: ReactNode }) {
 
   const bg = useBackgroundSigner(unlocked, gate)
 
+  // Scope the signer to the payment on screen. Without this the room's whole history counts: it is
+  // permanent, so the previous payment's signatures replayed as a full quorum for the new one.
+  const setProposal = bg.setProposal
+  useEffect(() => {
+    setProposal(active?.id ?? null)
+  }, [active?.id, bg.ready, setProposal])
+
   const value: VaultSignerCtx = {
     bg,
     vault,

@@ -4,7 +4,7 @@
 // hook is only lifecycle glue - open the room on mount, seat, stop on unmount, and hold the
 // singleton lock so two tabs never double-sign. The Dashboard will consume this; /lab validates it.
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import init from './wasm-pkg/konclave_wasm.js'
 import wasmUrl from './wasm-pkg/konclave_wasm_bg.wasm?url'
 import { RelaySession, relayPost, ephemeralTag } from './net'
@@ -29,6 +29,9 @@ export interface BackgroundSignerState {
   iSend: boolean
   /** Announce that this device's owner signed `proposal`. */
   arm: (proposal: string) => Promise<void>
+  /** Point the signer at the payment now on screen (null when none). Changing payment starts a
+   *  fresh tally AND drops any standing "this device sends" decision. */
+  setProposal: (id: string | null) => void
   /** Re-drive after arming a manual-mode payment (a gate-pending request then proceeds). */
   retry: () => Promise<void>
   /** DEV/validation: publish a raw sign-request into the room (the helper does this in production). */
@@ -55,6 +58,17 @@ export function useBackgroundSigner(
   const [error, setError] = useState('')
   const [armedSeats, setArmedSeats] = useState<number[]>([])
   const [iSend, setISend] = useState(false)
+  // The payment the signer is scoped to, so a change resets exactly once (and not on every render).
+  const proposalRef = useRef<string | null>(null)
+  const setProposal = useCallback((id: string | null) => {
+    if (proposalRef.current === id) return
+    proposalRef.current = id
+    // Drop the standing decision with the tally. Left set, a member who sent the LAST payment would
+    // have the next one broadcast the instant it opened - no signature, no confirm.
+    setISend(false)
+    setArmedSeats([])
+    sessionRef.current?.setProposal(id)
+  }, [])
   const relayRef = useRef<RelaySession | null>(null)
   const sessionRef = useRef<BackgroundSession | null>(null)
   const roomRef = useRef('')
@@ -104,6 +118,9 @@ export function useBackgroundSigner(
           onError: setError,
         })
         sessionRef.current = session
+        // The panel may have opened before this session existed; scope it now, or every signature
+        // that arrives would be dropped as belonging to "no payment" and nobody could sign.
+        session.setProposal(proposalRef.current)
         const relay = new RelaySession(r, myTag, (m) => void session.onMessage(m.from, m.data))
         relayRef.current = relay
         relay.start()
@@ -130,6 +147,7 @@ export function useBackgroundSigner(
     armedSeats,
     iSend,
     arm: async (proposal: string) => { await sessionRef.current?.arm(proposal) },
+    setProposal,
     phase,
     signature,
     what,
