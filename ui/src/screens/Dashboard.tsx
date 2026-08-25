@@ -368,7 +368,7 @@ export default function Dashboard() {
           ) : (
             <>
               <div className="fig">
-                <Secret><span className="amt" style={{ fontFeatureSettings: '"zero" 0' }}>{amt}</span></Secret>
+                <Secret><span className="amt">{amt}</span></Secret>
                 <span className="unit">ZEC</span>
               </div>
               {pendNum > 0 && (
