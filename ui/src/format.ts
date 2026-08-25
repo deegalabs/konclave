@@ -38,6 +38,20 @@ export function fmtZec(zec?: string | number, fallback = '-'): string {
   return sign + full
 }
 
+/**
+ * A ZEC figure that must be EXACT, because a difference decides the outcome. `fmtZec` rounds to four
+ * decimals, which is right for reading but wrong for comparing: 0.0002 and 0.00024 both print as
+ * "0.0002", so an error saying "the vault has X and this needs Y" would name the same number twice.
+ * Keeps every significant decimal (up to 8), never fewer than four, so it still reads as money.
+ */
+export function fmtZecExact(zec: number): string {
+  if (!Number.isFinite(zec)) return '-'
+  let s = zec.toFixed(8)
+  const minLen = s.indexOf('.') + 5 // the fourth decimal
+  while (s.length > minLen && s.endsWith('0')) s = s.slice(0, -1)
+  return s
+}
+
 /** Parse a ZEC decimal string into integer zatoshis, mirroring money.rs::from_zec_str,
  *  without floating point. Accepts `12`, `1.5`, `.5`, `5.` (typing-friendly); rejects empty,
  *  a lone dot, non-numeric, negative, or > 8 fractional digits. Returns null when invalid. */

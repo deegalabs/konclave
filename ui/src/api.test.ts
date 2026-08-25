@@ -100,3 +100,26 @@ describe('NET adapter (helper proposal -> PWA proposal)', () => {
     expect(p.approvals_count).toBe(2)
   })
 })
+
+// The money path must never show a binary path and a Rust struct. This one shipped to a user:
+//   /usr/local/bin/konclave-signer exited with 1: Error: propose_transfer:
+//   InsufficientFunds { available: Zatoshis(20000), required: Zatoshis(24000) }
+describe('humanError - insufficient funds carries the two figures that decide it', () => {
+  const t = ((k: string, v?: Record<string, string | number>) =>
+    k === 'error.insufficientExact' ? `have ${v?.have} need ${v?.need}` : k) as unknown as Parameters<typeof humanError>[0]
+
+  it('reads the engine figures out of the raw error and formats them as ZEC', () => {
+    const raw = '/usr/local/bin/konclave-signer exited with 1: Error: propose_transfer: '
+      + 'InsufficientFunds { available: Zatoshis(20000), required: Zatoshis(24000) }'
+    expect(humanError(t, raw)).toBe('have 0.0002 need 0.00024')
+  })
+
+  it('reads them out of the detail as well as the error', () => {
+    expect(humanError(t, 'send failed', 'InsufficientFunds { available: Zatoshis(1), required: Zatoshis(2) }'))
+      .toBe('have 0.00000001 need 0.00000002')
+  })
+
+  it('falls back to the generic message when the figures are not there', () => {
+    expect(humanError(t, 'insufficient funds')).toBe('error.insufficient')
+  })
+})

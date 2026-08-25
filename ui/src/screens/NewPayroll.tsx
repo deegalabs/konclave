@@ -4,6 +4,7 @@ import { Secret, activateOnKey, Loading } from '../components'
 import { PageHeader } from '../page'
 import { fmtZec, parseZecToZat, zatToZec } from '../format'
 import { useT, useTr } from '../i18n'
+import { useToast } from '../toast'
 import {
   previewPayroll, createPayroll, getBalance, getBeneficiaries, getLedger, getVault, health, classifyAddress, humanError,
   type Beneficiary, type Proposal, type Member,
@@ -32,6 +33,7 @@ const rowTouched = (r: Row) => !!(r.address.trim() || r.value.trim() || r.label.
 
 export default function NewPayroll() {
   const t = useT()
+  const toast = useToast()
   const tr = useTr()
   const nav = useNavigate()
   const [competencia, setCompetencia] = useState('')
@@ -130,14 +132,30 @@ export default function NewPayroll() {
     setRows(imported.length ? imported : [emptyRow()])
     setShowImport(false)
     const e0 = p.errors[0]
-    if (e0) setError(t('payroll.errCsvRows', { count: p.errors.length, row: e0.row, reason: e0.reason }))
+    if (e0) {
+      // Rejected rows stay inline: they name a row number the reader has to go and fix.
+      setError(t('payroll.errCsvRows', { count: p.errors.length, row: e0.row, reason: e0.reason }))
+      toast.warn(t('toast.csvPartial', { ok: imported.length, bad: p.errors.length }))
+    } else if (imported.length) {
+      toast.ok(t('toast.csvImported', { n: imported.length }))
+    }
   }
 
   // Live aggregates over the valid rows.
   const validRows = rows.filter((r) => rowTouched(r) && rowIssue(r) === null)
   const count = validRows.length
   const totalZat = validRows.reduce((acc, r) => acc + (parseZecToZat(r.value) ?? 0), 0)
-  const feeZat = count > 0 ? 5000 * Math.max(2, count + 1) : 0
+  // ZIP-317: 5000 zat per logical action, minimum 2. The action count is NOT max(spends, outputs)
+  // here: for a bundle with cross-address transfers disabled, orchard's builder pairs every spend
+  // and every output with a fabricated zero-valued counterpart, so it is spends + outputs, and the
+  // crate tells wallets in so many words to "account for this larger action count"
+  // (orchard::builder::BundleType::num_actions). One spend + N lines + change.
+  //
+  // Measured, not assumed: a 2-line payroll of 4000 zat was refused by the engine with
+  // `InsufficientFunds { available: 20000, required: 24000 }` - a 20000 fee, exactly 4 actions,
+  // where the old max() estimate said 3. Erring high costs the last few thousand zatoshi of a
+  // vault; erring low costs a payroll that fails AFTER everyone has signed it.
+  const feeZat = count > 0 ? 5000 * Math.max(2, 1 + count + 1) : 0
   const afterZat = balanceZat === null ? null : balanceZat - totalZat - feeZat
   const overBalance = afterZat !== null && afterZat < 0
   const anyBadTouched = rows.some((r) => rowTouched(r) && rowIssue(r) !== null)
@@ -157,8 +175,16 @@ export default function NewPayroll() {
       desc,
     )
     setBusy(false)
-    if (res.ok) { localStorage.removeItem(DRAFT_KEY); nav('/proposal', { state: { id: res.proposal.id } }) }
-    else setError(humanError(t, res.error, res.detail))
+    if (res.ok) {
+      localStorage.removeItem(DRAFT_KEY)
+      // We navigate away, so the confirmation has to travel with the reader.
+      toast.ok(t('toast.payrollSent'))
+      nav('/proposal', { state: { id: res.proposal.id } })
+    } else {
+      const msg = humanError(t, res.error, res.detail)
+      setError(msg)
+      toast.err(msg)
+    }
   }
 
   return (

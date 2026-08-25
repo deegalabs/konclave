@@ -22,7 +22,7 @@ import {
   type WalletTx,
   type Proposal as NetProposal,
 } from './helper'
-import { zatToZec, parseZecToZat } from './format'
+import { fmtZecExact, zatToZec, parseZecToZat } from './format'
 import { listVaults, updateVaultMeta } from './storage'
 import { getUnlockedShare, setUnlockedShare } from './session'
 
@@ -302,6 +302,17 @@ export function humanError(t: TFn, error?: string, detail?: string): string {
   const d = (detail ?? '').toLowerCase()
   const has = (s: string) => e.includes(s) || d.includes(s)
 
+  // The engine reports the two figures that decide it. Pass them through: "the vault has X and this
+  // needs Y" is actionable, where a generic "insufficient funds" leaves you guessing by how much -
+  // and the gap is usually the fee, which is exactly the part nobody can compute in their head.
+  const funds = /available:\s*Zatoshis\((\d+)\)[\s\S]*?required:\s*Zatoshis\((\d+)\)/i.exec(`${error ?? ''} ${detail ?? ''}`)
+  if (funds) {
+    const have = Number(funds[1]), need = Number(funds[2])
+    if (Number.isFinite(have) && Number.isFinite(need)) {
+      // Exact, not rounded: the gap between the two is the whole point of the message.
+      return t('error.insufficientExact', { have: fmtZecExact(have / 1e8), need: fmtZecExact(need / 1e8) })
+    }
+  }
   if (has('insufficient') || has('saldo')) return t('error.insufficient')
   // A client-side fetch failure surfaces as 'no connection' - match it BEFORE the ceremony
   // rule below, whose bare 'connection' substring would otherwise swallow it.

@@ -34,6 +34,14 @@ export const en: Record<string, string> = {
   'expiry.days': 'expires in {d}d',
 
   // human errors (humanError)
+  'error.insufficientExact': 'The vault holds {have} ZEC and this payment needs {need} ZEC (amount + network fee). Lower the amounts or add funds.',
+  'toast.approved': 'Your approval was recorded.',
+  'toast.refused': 'Your refusal was recorded.',
+  'toast.sent': 'Sent. The payment is on the network.',
+  'toast.paymentSent': 'Payment sent for approval.',
+  'toast.payrollSent': 'Payroll sent for approval.',
+  'toast.csvImported': '{n} lines imported.',
+  'toast.csvPartial': '{ok} lines imported, {bad} with errors.',
   'error.insufficient': 'The vault does not have enough balance for this amount (including the network fee).',
   'error.ceremony': 'The send could not be completed. Check your connection and try again in a moment; nothing was sent.',
   'error.share': 'One of the key shares failed to sign. Make sure the quorum members are available.',

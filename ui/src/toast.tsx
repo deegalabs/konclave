@@ -9,99 +9,134 @@ import {
   type ReactNode,
 } from 'react'
 
-// A small, dismissible toast system for Konclave. Local-first, no dependencies: a context
-// exposes `useToast()` with `ok/err/info`, and a single <Toaster/> renders the live stack
-// (bottom-right on desktop, bottom-center on mobile). Each toast auto-dismisses after ~3.5s,
-// can be closed manually (× or Escape), and is announced politely to assistive tech.
-// Styling uses the existing design tokens only (see lacre.css) - no new colors.
+// Transient feedback for Konclave: a context exposes `useToast()` with `ok/warn/err/info`, and a
+// single <Toaster/> renders the live stack (bottom-right on desktop, bottom-centre on mobile).
+//
+// What belongs here and what does not. A toast ACKNOWLEDGES - "recorded", "copied", "imported". It
+// never carries something the reader must act on and could miss, so a failure on the money path
+// keeps its inline message on the screen where the action is, and the toast only mirrors it. A
+// message that disappears after a few seconds is the wrong home for "your payment did not go out".
+//
+// Severity is never colour alone: each kind carries a glyph and its own dwell time, and warnings and
+// errors are announced assertively while the quiet kinds stay polite. Hovering or focusing the stack
+// holds every timer, so a toast cannot slip away while it is being read.
 
-type ToastKind = 'ok' | 'err' | 'info'
+export type ToastKind = 'ok' | 'warn' | 'err' | 'info'
 
-type Toast = {
-  id: number
-  kind: ToastKind
-  message: string
-}
+type Toast = { id: number; kind: ToastKind; message: string; leaving?: boolean }
 
 type ToastApi = {
   ok: (message: string) => void
+  warn: (message: string) => void
   err: (message: string) => void
   info: (message: string) => void
 }
 
-const AUTO_DISMISS_MS = 3500
+/** How long each kind stays. The more it matters, the longer you get to read it. */
+export const DWELL_MS: Record<ToastKind, number> = { ok: 3500, info: 3500, warn: 6000, err: 9000 }
+/** Length of the leave animation; the row is removed after it. */
+const LEAVE_MS = 160
 const MAX_TOASTS = 3
+
+const GLYPH: Record<ToastKind, string> = { ok: '✓', warn: '!', err: '×', info: 'i' }
 
 const ToastContext = createContext<ToastApi | null>(null)
 
-// Map each semantic kind to its token-backed dot color.
-const DOT_COLOR: Record<ToastKind, string> = {
-  ok: 'var(--success)',
-  err: 'var(--danger)',
-  info: 'var(--accent)',
+/**
+ * Add `t` to `stack`, keeping it bounded and dropping an identical message that is still showing.
+ * Pure, so the queue rules are testable without timers: a repeated action (a second click, a retry)
+ * should refresh one row rather than stack three copies of the same sentence.
+ */
+export function queueToast(stack: Toast[], t: Toast, max = MAX_TOASTS): Toast[] {
+  const withoutDupe = stack.filter((x) => !(x.kind === t.kind && x.message === t.message))
+  return [...withoutDupe, t].slice(-max)
 }
 
 let nextId = 1
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([])
-  // Track each toast's auto-dismiss timer so we can clear it on manual close / unmount.
   const timers = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map())
+  const held = useRef(false)
+
+  const clearTimer = useCallback((id: number) => {
+    const t = timers.current.get(id)
+    if (t) { clearTimeout(t); timers.current.delete(id) }
+  }, [])
 
   const dismiss = useCallback((id: number) => {
-    const t = timers.current.get(id)
-    if (t) {
-      clearTimeout(t)
-      timers.current.delete(id)
-    }
-    setToasts((prev) => prev.filter((x) => x.id !== id))
-  }, [])
+    clearTimer(id)
+    // Mark, then remove: the row animates out instead of vanishing mid-sentence.
+    setToasts((prev) => prev.map((x) => (x.id === id ? { ...x, leaving: true } : x)))
+    setTimeout(() => setToasts((prev) => prev.filter((x) => x.id !== id)), LEAVE_MS)
+  }, [clearTimer])
 
-  const push = useCallback(
-    (kind: ToastKind, message: string) => {
-      const id = nextId++
-      setToasts((prev) => {
-        // Keep the stack bounded: drop the oldest when we exceed the cap.
-        const next = [...prev, { id, kind, message }]
-        const trimmed = next.slice(-MAX_TOASTS)
-        // Clear timers for any toast we just evicted so they don't fire against a dead id.
-        for (const old of next.slice(0, next.length - trimmed.length)) {
-          const timer = timers.current.get(old.id)
-          if (timer) {
-            clearTimeout(timer)
-            timers.current.delete(old.id)
-          }
-        }
-        return trimmed
-      })
-      const timer = setTimeout(() => dismiss(id), AUTO_DISMISS_MS)
-      timers.current.set(id, timer)
-    },
-    [dismiss],
-  )
+  const arm = useCallback((id: number, kind: ToastKind) => {
+    clearTimer(id)
+    timers.current.set(id, setTimeout(() => dismiss(id), DWELL_MS[kind]))
+  }, [clearTimer, dismiss])
 
-  const api = useMemo<ToastApi>(
-    () => ({
-      ok: (m: string) => push('ok', m),
-      err: (m: string) => push('err', m),
-      info: (m: string) => push('info', m),
-    }),
-    [push],
-  )
+  const push = useCallback((kind: ToastKind, message: string) => {
+    const id = nextId++
+    setToasts((prev) => {
+      const next = queueToast(prev, { id, kind, message })
+      for (const gone of prev) if (!next.some((x) => x.id === gone.id)) clearTimer(gone.id)
+      return next
+    })
+    if (!held.current) arm(id, kind)
+  }, [arm, clearTimer])
 
-  // Clear every pending timer on unmount.
+  const api = useMemo<ToastApi>(() => ({
+    ok: (m) => push('ok', m),
+    warn: (m) => push('warn', m),
+    err: (m) => push('err', m),
+    info: (m) => push('info', m),
+  }), [push])
+
+  // Hold every timer while the stack is hovered or focused, so nothing slips away mid-read.
+  const hold = useCallback(() => {
+    held.current = true
+    for (const id of timers.current.keys()) clearTimer(id)
+  }, [clearTimer])
+  const release = useCallback(() => {
+    held.current = false
+    setToasts((prev) => { prev.forEach((t) => { if (!t.leaving) arm(t.id, t.kind) }); return prev })
+  }, [arm])
+
   useEffect(() => {
     const map = timers.current
-    return () => {
-      for (const t of map.values()) clearTimeout(t)
-      map.clear()
-    }
+    return () => { for (const t of map.values()) clearTimeout(t); map.clear() }
   }, [])
+
+  // Escape dismisses the newest, wherever focus happens to be.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== 'Escape') return
+      const last = toasts[toasts.length - 1]
+      if (last) dismiss(last.id)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [toasts, dismiss])
 
   return (
     <ToastContext.Provider value={api}>
       {children}
-      <Toaster toasts={toasts} onDismiss={dismiss} />
+      <div className="kc-toaster" onMouseEnter={hold} onMouseLeave={release} onFocus={hold} onBlur={release}>
+        {toasts.map((t) => (
+          <div
+            key={t.id}
+            className={'kc-toast' + (t.leaving ? ' out' : '')}
+            data-kind={t.kind}
+            role={t.kind === 'err' || t.kind === 'warn' ? 'alert' : 'status'}
+            aria-live={t.kind === 'err' || t.kind === 'warn' ? 'assertive' : 'polite'}
+          >
+            <span className="kc-toast-glyph" aria-hidden="true">{GLYPH[t.kind]}</span>
+            <span className="kc-toast-msg">{t.message}</span>
+            <button type="button" className="kc-toast-close" onClick={() => dismiss(t.id)} aria-label="Dismiss">×</button>
+          </div>
+        ))}
+      </div>
     </ToastContext.Provider>
   )
 }
@@ -111,71 +146,3 @@ export function useToast(): ToastApi {
   if (!ctx) throw new Error('useToast must be used within a <ToastProvider>')
   return ctx
 }
-
-function Toaster({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id: number) => void }) {
-  return (
-    <>
-      <style>{TOASTER_CSS}</style>
-      <div className="kc-toaster" role="status" aria-live="polite" aria-relevant="additions">
-        {toasts.map((t) => (
-          <div key={t.id} className="kc-toast" data-kind={t.kind}>
-            <span className="kc-toast-dot" style={{ background: DOT_COLOR[t.kind] }} aria-hidden="true" />
-            <span className="kc-toast-msg">{t.message}</span>
-            <button
-              type="button"
-              className="kc-toast-close"
-              onClick={() => onDismiss(t.id)}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') onDismiss(t.id)
-              }}
-              aria-label="Dismiss"
-            >
-              ×
-            </button>
-          </div>
-        ))}
-      </div>
-    </>
-  )
-}
-
-// Scoped styles for the toaster. Tokens only; the global reduced-motion rule in lacre.css
-// disables the entry animation, and we re-assert it here so the component is self-contained.
-const TOASTER_CSS = `
-.kc-toaster{
-  position:fixed; z-index:1000; bottom:22px; right:22px;
-  display:flex; flex-direction:column; gap:10px; align-items:flex-end;
-  pointer-events:none; max-width:min(92vw,380px);
-}
-.kc-toast{
-  pointer-events:auto;
-  display:flex; align-items:center; gap:10px;
-  width:100%;
-  padding:11px 12px 11px 14px;
-  background:var(--surface-1); border:1px solid var(--line);
-  border-radius:var(--radius); box-shadow:var(--shadow-overlay);
-  color:var(--text); font-family:var(--font-sans); font-size:13.5px; line-height:1.4;
-  animation:kc-toast-in .18s ease-out;
-}
-.kc-toast-dot{
-  flex:0 0 auto; width:9px; height:9px; border-radius:var(--radius-pill);
-}
-.kc-toast-msg{ flex:1 1 auto; min-width:0; word-break:break-word; }
-.kc-toast-close{
-  flex:0 0 auto; appearance:none; border:0; background:transparent;
-  color:var(--text-muted); cursor:pointer;
-  font-family:var(--font-mono); font-size:17px; line-height:1;
-  padding:2px 4px; border-radius:var(--radius-sm);
-}
-.kc-toast-close:hover{ color:var(--text); }
-@keyframes kc-toast-in{
-  from{ opacity:0; transform:translateY(8px); }
-  to{ opacity:1; transform:none; }
-}
-@media (max-width:520px){
-  .kc-toaster{ left:12px; right:12px; bottom:14px; align-items:center; max-width:none; }
-}
-@media (prefers-reduced-motion:reduce){
-  .kc-toast{ animation:none; }
-}
-`
