@@ -94,10 +94,14 @@ export default function NewPayment() {
     // stringify to "[object Object]".
     return m < 1 ? t('payment.rateNow') : t('payment.rateAgo', { m })
   }
-  function setMax() {
+  /// Quick amounts. 100% is "everything the vault can actually send", i.e. spendable minus the
+  /// fee - anything else would be rejected as an overspend. The smaller fractions are of the
+  /// spendable balance (the fee still comes out of the vault on top, and the balance-after
+  /// preview below shows the real remainder).
+  function setFraction(pct: number) {
     if (availableZat == null) return
-    const max = availableZat - feeZat
-    if (max > 0) setValue(zatToZec(max))
+    const target = pct >= 100 ? availableZat - feeZat : Math.floor((availableZat * pct) / 100)
+    if (target > 0) setValue(zatToZec(target))
   }
 
   const memoLen = memoBytes(memo)
@@ -195,7 +199,17 @@ export default function NewPayment() {
               ) : (
                 <button type="button" className="linkbtn" onClick={enableUsd} title={t('dashboard.usdDisclosure')}>{t('dashboard.showUsd')} ≈</button>
               )}
-              <button type="button" className="payamt-max" onClick={setMax}>{t('payment.max')}</button>
+              <span className="payamt-avail">
+                {t('payment.available')} <b className="num">{shownAvailable}</b> ZEC
+              </span>
+              <span className="payamt-quick">
+                {[25, 50, 75].map((p) => (
+                  <button key={p} type="button" className="payamt-max" disabled={availableZat == null}
+                    onClick={() => setFraction(p)}>{p}%</button>
+                ))}
+                <button type="button" className="payamt-max" disabled={availableZat == null}
+                  onClick={() => setFraction(100)}>{t('payment.max')}</button>
+              </span>
             </div>
           </label>
           {IS_DEMO && <div className="hint" aria-live="polite">{t('common.demoModeNoBridge')}</div>}

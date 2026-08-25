@@ -41,7 +41,7 @@
 .dm-row:first-of-type{border-top:0}
 .dm-row .rk{color:var(--text-muted)} .dm-row .rv{font-family:var(--font-mono)}
 .dm-addr{font-family:var(--font-mono); font-size:12.5px; background:var(--surface-0); border:1px solid var(--line); border-radius:var(--radius-sm); padding:8px 11px; display:inline-block}
-.dm-big{font-family:var(--font-mono); font-weight:500; font-size:clamp(30px,5vw,44px); letter-spacing:-.02em}
+.dm-big{font-family:var(--font-num); font-variant-numeric:tabular-nums; font-feature-settings:"zero" 0,"tnum" 1; font-weight:500; font-size:clamp(30px,5vw,44px); letter-spacing:-.02em}
 .dm-unit{font-family:var(--font-mono); color:var(--text-muted); font-size:14px; letter-spacing:.12em}
 .dm-hide{position:relative; color:transparent}
 .dm-hide::after{content:""; position:absolute; inset:14% -4px; border-radius:3px; background:repeating-linear-gradient(135deg,var(--surface-3) 0 8px,var(--surface-2) 8px 16px)}

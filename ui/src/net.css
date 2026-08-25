@@ -316,7 +316,7 @@
 .cv-step{width:34px; height:34px; border-radius:9px; border:1px solid var(--line); background:var(--surface-1); color:var(--text); font-size:18px; cursor:pointer; display:grid; place-items:center; line-height:1}
 .cv-step:hover:not(:disabled){border-color:var(--accent-line); color:var(--accent)}
 .cv-step:disabled{opacity:.35; cursor:not-allowed}
-.cv-num{font-family:var(--font-mono); font-size:22px; font-weight:700; color:var(--silver); text-align:center}
+.cv-num{font-family:var(--font-num); font-variant-numeric:tabular-nums; font-feature-settings:"zero" 0,"tnum" 1; font-size:22px; font-weight:700; color:var(--silver); text-align:center}
 .cv-num em{font-style:normal; font-size:13px; color:var(--text-muted); font-weight:400}
 .cv-primary{width:100%; margin-top:2px}
 .cv-linkbtn{display:block; width:100%; margin-top:14px; background:none; border:none; color:var(--text-muted); font-family:var(--font-mono); font-size:12.5px; cursor:pointer; text-align:center}
