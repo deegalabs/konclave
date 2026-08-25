@@ -440,6 +440,7 @@ export const ptBR: Record<string, string> = {
   'ceremony.vaultName': 'Nome do cofre',
   'ceremony.whoCares': 'Quem cuida deste cofre',
   'ceremony.personNamePlaceholder': 'nome da pessoa',
+  'ceremony.vaultNamePlaceholder': 'ex.: Tesouraria do coletivo',
   'ceremony.addPerson': '+ Adicionar pessoa',
   'ceremony.howManyApprovals': 'Quantas aprovações cada pagamento precisa?',
   'ceremony.ofNPeople': 'de {n} pessoas',
@@ -453,6 +454,7 @@ export const ptBR: Record<string, string> = {
   'ceremony.inviteGuest': 'convidado',
   'ceremony.inviteCopied': 'copiado',
   'ceremony.inviteCopy': 'copiar convite',
+  'ceremony.inviteFromDevice': 'o convite é gerado no aparelho da própria pessoa',
   'ceremony.localSharesNote': '**Neste modo local**, o Konclave gera as partes de todos aqui neste aparelho, para você rodar o fluxo de ponta a ponta. No produto, cada convidado abre o Konclave no seu dispositivo, cola o código e gera a sua parte · que nunca sai de lá.',
   'ceremony.createNowDkg': 'Criar cofre agora',
 

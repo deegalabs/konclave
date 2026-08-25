@@ -5,26 +5,16 @@ import { useT, useTr } from '../i18n'
 import { createVaultDkg, setSelectedVault, markVaultUnlocked, shortAddr, humanError, type Vault } from '../api'
 import { vaultFingerprint } from '../format'
 
-/** Illustrative invite code for the demo. In the product each member generates
- *  their own from their own device (frost-client contact token, zffrost1…). */
-function inviteCode(name: string, i: number): string {
-  const seed = `${name}#${i}`
-  let h = 2166136261
-  for (let k = 0; k < seed.length; k++) { h ^= seed.charCodeAt(k); h = Math.imul(h, 16777619) }
-  const abc = 'abcdefghijklmnopqrstuvwxyz0123456789'
-  let s = ''
-  let x = h >>> 0
-  for (let k = 0; k < 34; k++) { s += abc[x % 36]; x = Math.floor(x / 36) + (k + 3) * 2654435 }
-  return `zffrost1${s}`
-}
-
 export default function Ceremony() {
   const t = useT()
   const tr = useTr()
   const nav = useNavigate()
   const [step, setStep] = useState(1) // 1 Define · 2 Invite · 3 Create
-  const [name, setName] = useState('Tesouraria da comunidade')
-  const [members, setMembers] = useState<string[]>(['Alice', 'Bob', 'Carol'])
+  // Empty, never a sample name: a prefilled example becomes the real vault or member name
+  // whenever someone does not overwrite it (the hosted helper carries vaults whose members
+  // are literally "Alice" and "Bob"). Placeholders show the shape without becoming data.
+  const [name, setName] = useState('')
+  const [members, setMembers] = useState<string[]>(['', '', ''])
   const [threshold, setThreshold] = useState(2)
   const [creating, setCreating] = useState(false)
   const [vault, setVault] = useState<Vault | null>(null)
@@ -34,7 +24,6 @@ export default function Ceremony() {
   const [confirmWord, setConfirmWord] = useState('')
   const [wordCopied, setWordCopied] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [copied, setCopied] = useState<number | null>(null)
   // The vault fingerprint: the PUBLIC anti-impostor code members compare out of band. Surfaced here
   // at creation - the moment it matters most (confirm everyone joined the SAME vault) - and again in
   // Settings (#160). Fingerprints the group verifying key, matching the identity Settings uses.
@@ -67,9 +56,6 @@ export default function Ceremony() {
     setStep(2)
   }
 
-  async function copyInvite(i: number) {
-    try { await navigator.clipboard.writeText(inviteCode(names[i] ?? `m${i}`, i)); setCopied(i); setTimeout(() => setCopied(null), 1400) } catch { /* clipboard blocked */ }
-  }
 
   async function create() {
     setError(null)
@@ -194,7 +180,7 @@ export default function Ceremony() {
             <p className="cap">{tr('ceremony.step1Cap')}</p>
 
             <label className="field"><span>{t('ceremony.vaultName')}</span>
-              <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
+              <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder={t('ceremony.vaultNamePlaceholder')} />
             </label>
 
             <span className="klab">{t('ceremony.whoCares')}</span>
@@ -235,8 +221,7 @@ export default function Ceremony() {
                     <span className="invite-tag">{i === 0 ? t('ceremony.inviteHost') : t('ceremony.inviteGuest')}</span>
                   </div>
                   <div className="invite-code">
-                    <code>{shortAddr(inviteCode(nm, i), 14, 8)}</code>
-                    <button className="btn ghost sm-btn" onClick={() => copyInvite(i)}>{copied === i ? t('ceremony.inviteCopied') : t('ceremony.inviteCopy')}</button>
+                    <span className="dim">{t('ceremony.inviteFromDevice')}</span>
                   </div>
                 </div>
               ))}
