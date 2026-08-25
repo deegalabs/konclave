@@ -170,3 +170,20 @@ describe('fmtZecExact - a figure that decides something is never rounded away', 
     expect(fmtZecExact(NaN)).toBe('-')
   })
 })
+
+// Caught reviewing the funding rules against a live vault: the cost box said this payment takes
+// 0.0002 out of a 0.0002 balance - looking exactly affordable - while warning it was 0.00004 short.
+// Both figures were real and different; four decimals printed them the same.
+describe('fmtZecExact - figures shown to be compared must not collide', () => {
+  it('tells the vault balance and what a payment costs apart', () => {
+    const balance = 20000 / 1e8   // what the vault holds
+    const cost = 24000 / 1e8      // amount + network fee
+    expect(fmtZec(balance)).toBe(fmtZec(cost))            // the collision, at four decimals
+    expect(fmtZecExact(balance)).not.toBe(fmtZecExact(cost))
+    expect(fmtZecExact(cost)).toBe('0.00024')
+  })
+
+  it('names the shortfall as itself, not as zero', () => {
+    expect(fmtZecExact(4000 / 1e8)).toBe('0.00004')
+  })
+})

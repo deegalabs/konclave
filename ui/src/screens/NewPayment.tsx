@@ -4,7 +4,7 @@ import { Loading } from '../components'
 import { PageHeader } from '../page'
 import { useT, useTr } from '../i18n'
 import { useToast } from '../toast'
-import { fmtZec, parseZecToZat, zatToZec } from '../format'
+import { fmtZecExact, parseZecToZat, zatToZec } from '../format'
 import {
   createProposal, getBalance, getVault, getBeneficiaries, health, shortAddr, classifyAddress, humanError,
   type Beneficiary, type Member,
@@ -230,7 +230,7 @@ export default function NewPayment() {
             <div className="pv-row"><span className="pv-k">{t('payment.pvTo')}</span><span className="pv-v">{toName ? <><b>{toName}</b> · {to ? shortAddr(to) : '…'}</> : (to ? shortAddr(to) : '…')}</span></div>
             {memo.trim() && !publicDest && <div className="pv-row"><span className="pv-k">{t('payment.pvMemo')}</span><span className="pv-v">“{memo.trim()}”</span></div>}
             <div className="pv-row"><span className="pv-k">{t('payment.pvApprovals')}</span><span className="pv-v"><b>{threshold}</b> {t('payment.includingYours')}</span></div>
-            <div className="pv-row"><span className="pv-k">{t('payroll.pvAfter')}</span><span className="pv-v">{afterZat === null ? <b className="dim">-</b> : <b className="num">{fmtZec(zatToZec(afterZat))}</b>}</span></div>
+            <div className="pv-row"><span className="pv-k">{t('payroll.pvAfter')}</span><span className="pv-v">{afterZat === null ? <b className="dim">-</b> : <b className="num">{fmtZecExact(afterZat / 1e8)}</b>}</span></div>
             <div className="pv-fee mono dim">{tr('payment.feeEstimate')}</div>
           </div>
 

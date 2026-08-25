@@ -12,7 +12,7 @@ import { Dialog } from '../components'
 import { Identicon } from '../avatar'
 import { useT } from '../i18n'
 import { useToast } from '../toast'
-import { fmtZec, parseZecToZat, shortAddr, zatToZec } from '../format'
+import { fmtZec, fmtZecExact, parseZecToZat, shortAddr } from '../format'
 import { useVaultSigner } from '../VaultSigner'
 import { executeProposal, listProposals } from '../helper'
 import { errorCode, getBalance, getProposalDetail, humanError, markVaultUnlocked } from '../api'
@@ -436,7 +436,7 @@ export default function SigningPanel() {
               <div className="confirm ready">{t('signing.readyToSend')}</div>
               <div className="hint mt-sm">{t('signing.signedCount', { n: signedCount, t: threshold })}</div>
               {shortZat > 0
-                ? <div className="hint warn mt-sm" role="status">{t('signing.blockedShort', { short: fmtZec(zatToZec(shortZat)) })}</div>
+                ? <div className="hint warn mt-sm" role="status">{t('signing.blockedShort', { short: fmtZecExact(shortZat / 1e8) })}</div>
                 : <div className="hint mt-sm">{iWouldBeLast ? t('signing.lastSigner') : t('signing.notLastYet')}</div>}
               <button
                 className="btn ok mt-sm"
