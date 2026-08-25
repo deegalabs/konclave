@@ -301,7 +301,7 @@ export default function SigningPanel() {
               <div className="confirm ready">{t('signing.sentTitle')}</div>
               {(result as { txid: string }).txid && (
                 <div className="p-meta mt-sm">
-                  <div className="mono"><code>{(result as { txid: string }).txid}</code></div>
+                  <div className="sign-txid mono"><code>{(result as { txid: string }).txid}</code></div>
                   <a className="link" href={`https://mainnet.zcashexplorer.app/transactions/${(result as { txid: string }).txid}`} target="_blank" rel="noreferrer">{t('proposal.viewExplorer')}</a>
                 </div>
               )}

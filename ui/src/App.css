@@ -105,7 +105,7 @@
    language (surface-1, line, mono klab headers, Identicon roster). */
 .sign-scrim{position:fixed; inset:0; z-index:40; background:rgba(0,0,0,.42)}
 .sign-sheet{position:fixed; top:0; right:0; bottom:0; z-index:41; width:min(420px,92vw);
-  display:flex; flex-direction:column; gap:16px; padding:24px 24px 28px; overflow-y:auto;
+  display:flex; flex-direction:column; gap:16px; padding:24px 24px 28px; overflow-y:auto; overflow-x:hidden;
   background:var(--surface-1); border-left:1px solid var(--line); box-shadow:-12px 0 40px rgba(0,0,0,.25);
   animation:signSlide .18s ease}
 @keyframes signSlide{from{transform:translateX(16px); opacity:.5}to{transform:none; opacity:1}}
@@ -123,6 +123,10 @@
 .sign-to{color:var(--text-muted); font-size:13px}
 .sign-presence-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:9px}
 /* The run line: a spinner beside the state, so a leg that takes minutes never reads as frozen. */
+/* A txid is 64 unbroken hex characters. Left to itself it pushed the sheet wider than the
+   viewport and gave the whole drawer a horizontal scrollbar, on the one screen where the
+   user most wants to copy something. It wraps instead. */
+.sign-txid{overflow-wrap:anywhere; word-break:break-all; font-size:11.5px; line-height:1.5}
 .sign-run-head{display:flex; align-items:center; gap:10px}
 .sign-run-head .confirm{flex:1; min-width:0}
 .sign-roster{display:flex; flex-direction:column; gap:8px}
@@ -527,6 +531,10 @@ h1.klab,h2.klab,h3.klab{margin:0;font-weight:400}
 /* ---- Proposal ---- */
 .p-amt{font-family:var(--font-num); font-variant-numeric:tabular-nums; font-feature-settings:"zero" 0,"tnum" 1; font-size:30px; font-weight:500; margin:16px 0 4px}
 .p-meta{font-family:var(--font-mono); font-size:12.5px; color:var(--text-muted)}
+/* Anything hex in here (a txid, a sighash) is one unbroken 64-character word. Wherever it
+   lands - the proposal page, the signing drawer - it wraps rather than widening its
+   container and handing the page a horizontal scrollbar. */
+.p-meta code{overflow-wrap:anywhere; word-break:break-all}
 .stamp.st-sent,.stamp.st-confirmed{border-color:var(--success); color:var(--success)}
 .stamp.st-rejected,.stamp.st-expired,.stamp.st-cancelled,.stamp.st-superseded{border-color:var(--danger); color:var(--danger-text)}
 .ptrail{margin:18px 0 6px; padding:14px 16px; border-radius:var(--radius); border:1px solid var(--line-2);
