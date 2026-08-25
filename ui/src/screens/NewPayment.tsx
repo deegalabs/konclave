@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Secret, Loading } from '../components'
+import { Loading } from '../components'
 import { PageHeader } from '../page'
 import { useT, useTr } from '../i18n'
 import { fmtZec, parseZecToZat, zatToZec } from '../format'
@@ -148,7 +148,12 @@ export default function NewPayment() {
       <div className="ctx">
         <span>{tr('payment.fromVault', { name: vaultName })}</span>
         <span className="ctx-sep">·</span>
-        <span>{t('payment.available')} <Secret sm><b>{shownAvailable} ZEC</b></Secret></span>
+        {/* Was veiled here and printed in the clear 40px lower, beside the 25/50/75/Max controls -
+            which cost the friction of a toggle and protected nothing, since the same figure was
+            readable further down the page. You cannot responsibly choose an amount without seeing
+            what there is, so on a compose screen it reads. The veil governs the surfaces that
+            merely DISPLAY the vault (Dashboard, Ledger, proposals). */}
+        <span>{t('payment.available')} <b className="num">{shownAvailable} ZEC</b></span>
         {membersList.length > 0 && (
           <span className="ctx-as">{t('payment.proposingAs')} <b>{proposer}</b></span>
         )}
@@ -219,7 +224,7 @@ export default function NewPayment() {
             <div className="pv-row"><span className="pv-k">{t('payment.pvTo')}</span><span className="pv-v">{toName ? <><b>{toName}</b> · {to ? shortAddr(to) : '…'}</> : (to ? shortAddr(to) : '…')}</span></div>
             {memo.trim() && !publicDest && <div className="pv-row"><span className="pv-k">{t('payment.pvMemo')}</span><span className="pv-v">“{memo.trim()}”</span></div>}
             <div className="pv-row"><span className="pv-k">{t('payment.pvApprovals')}</span><span className="pv-v"><b>{threshold}</b> {t('payment.includingYours')}</span></div>
-            <div className="pv-row"><span className="pv-k">{t('payroll.pvAfter')}</span><span className="pv-v">{afterZat === null ? <b className="dim">-</b> : <Secret sm><b>{fmtZec(zatToZec(afterZat))}</b></Secret>}</span></div>
+            <div className="pv-row"><span className="pv-k">{t('payroll.pvAfter')}</span><span className="pv-v">{afterZat === null ? <b className="dim">-</b> : <b className="num">{fmtZec(zatToZec(afterZat))}</b>}</span></div>
             <div className="pv-fee mono dim">{tr('payment.feeEstimate')}</div>
           </div>
 

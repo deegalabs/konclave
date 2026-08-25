@@ -253,12 +253,12 @@ export default function NewPayroll() {
           </div>
 
           <div className="plf-figs">
+            {/* In the clear. See the note on the veil at the foot of this file: this is the draft you
+                are typing, and every line of it is already legible in the fields above. */}
             <span className="plf-fig">
               <span className="plf-k">{t('payroll.pvTotal')}</span>
               <span className="plf-v num">
-                {count > 0
-                  ? <Secret sm><b>{fmtZec(zatToZec(totalZat))} ZEC</b></Secret>
-                  : <b className="dim">{fmtZec(zatToZec(totalZat))} ZEC</b>}
+                <b className={count > 0 ? undefined : 'dim'}>{fmtZec(zatToZec(totalZat))} ZEC</b>
               </span>
               {usdOn && count > 0 && zecToUsd(zatToZec(totalZat), rate) && (
                 <span className="plf-usd">≈ {zecToUsd(zatToZec(totalZat), rate)}</span>
@@ -274,8 +274,7 @@ export default function NewPayroll() {
               <span className="plf-k">{t('payroll.pvAfter')}</span>
               <span className="plf-v num">
                 {afterZat === null ? <b className="dim">-</b>
-                  : count > 0 ? <Secret sm><b>{fmtZec(zatToZec(afterZat))} ZEC</b></Secret>
-                  : <b className="dim">{fmtZec(zatToZec(afterZat))} ZEC</b>}
+                  : <b className={count > 0 ? undefined : 'dim'}>{fmtZec(zatToZec(afterZat))} ZEC</b>}
               </span>
             </span>
           </div>
@@ -301,6 +300,12 @@ export default function NewPayroll() {
         {overBalance && <div className="hint warn mt-sm">{t('payroll.warnExceeds')}</div>}
         {error && <div className="hint err mt-sm" role="alert">{error}</div>}
 
+        {/* THE VEIL (tarja). It hides the VAULT's own figures - its balance, its history, its pending
+            payments - so a glance at the screen does not read the treasury. It does not hide the
+            draft you are composing: you typed it, and it is legible in the fields either way, so a
+            bar over the total bought no privacy and cost you the ability to check your own
+            arithmetic. The list below is the vault's history, not your draft, so it stays veiled -
+            the rule is about what the figure IS, not which screen it happens to be on. */}
         {pastFolhas.length > 0 && (
           <div className="past-folhas mt">
             <span className="klab">{t('payroll.pastPayrolls')}</span>
