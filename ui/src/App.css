@@ -122,6 +122,9 @@
 .sign-usd{display:block; margin-top:2px; font-size:12px}
 .sign-to{color:var(--text-muted); font-size:13px}
 .sign-presence-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:9px}
+/* The run line: a spinner beside the state, so a leg that takes minutes never reads as frozen. */
+.sign-run-head{display:flex; align-items:center; gap:10px}
+.sign-run-head .confirm{flex:1; min-width:0}
 .sign-roster{display:flex; flex-direction:column; gap:8px}
 .sign-seat{display:flex; align-items:center; gap:9px; font-size:13px; color:var(--text-muted); opacity:.5}
 .sign-seat.on{opacity:1; color:var(--text)}

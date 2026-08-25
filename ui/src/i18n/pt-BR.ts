@@ -640,7 +640,7 @@ export const ptBR: Record<string, string> = {
   'signing.signing': 'Assinando… reunindo as partes dos aprovadores.',
   'signing.sending': 'Assinado. Enviando para a rede…',
   'signing.takesMinutes': 'Isto leva alguns minutos: o cofre monta a transação, gera a prova e transmite',
-  'signing.slowHint': 'Está demorando mais que o normal. Nada foi transmitido ainda; você pode fechar e voltar, ou tentar de novo em alguns minutos.',
+  'signing.slowHint': 'Está demorando mais que o normal. Nada foi transmitido ainda. Mantenha esta tela aberta: sua parte só conta enquanto ela estiver aberta. Se falhar, dá para tentar de novo.',
   'signing.errNoVault': 'Cofre não carregado neste aparelho. Recarregue a página e tente de novo.',
   'signing.sentTitle': 'Enviado. Este pagamento está na rede.',
   'signing.reassure': 'Sua parte da chave nunca sai deste aparelho. O cofre transmite; ninguém assina sozinho.',
@@ -667,6 +667,7 @@ export const ptBR: Record<string, string> = {
   'signing.rateMin': 'há {n} min',
   'signing.rateStale': 'cotação antiga',
   'signing.seatSigned': 'assinou',
+  'signing.building': 'Montando a transação e gerando a prova…',
   'signing.tryAgain': 'Tentar de novo',
   'signing.errUnreachable': 'não foi possível falar com o coordenador',
 
