@@ -269,12 +269,14 @@ whoever approved, sealed at rest) → account (ledger + itemized CSV). Browser-n
 vault by **real DKG across devices over a blind relay** and signs over it; a **hosted blind helper**
 builds/proves/broadcasts the tx without ever seeing a share (Architecture B, ADR-0006).
 
-**Proven on mainnet.** **11 verifiable txids** (`docs/PROOF.md` / `scripts/verify-proof.mjs`),
+**Proven on mainnet.** **12 verifiable txids** (`docs/PROOF.md` / `scripts/verify-proof.mjs`),
 including the Orchard→Ironwood migration + the first Ironwood-pool spend (V6/NU6.3), a send from a
 real-DKG vault, a **browser-signed** send, a **3-of-4** vault operated by someone other than the
 maintainer, and - since 2026-08-26 - a **private payroll on the web path** (2 beneficiaries in one V6
-transaction, `7c4c1dd5`, block 3,461,704). Quorums proven: 2-of-2, 2-of-3, 3-of-4. Ironwood:
-**proven on mainnet**.
+transaction, `7c4c1dd5`, block 3,461,704), and a ceremony **across separate physical machines over
+the internet** (`aec83baf`, block 3,460,285: proposed and approved by one operator, co-signed by
+another on a different computer in a different place). Quorums proven: 2-of-2, 2-of-3, 3-of-4.
+Ironwood: **proven on mainnet**. The cross-device broadcast is **no longer an open debt**.
 
 **On "local-first", which changed shape rather than becoming false.** The closed decision in §2 is a
 local-first *desktop* app, and the desktop shell exists (v0.2.0). What ships and is used is the
@@ -314,8 +316,7 @@ transaction under a signer.
 **Honest debts still open (§6.15):** Stage 3-4 of the Dashboard-send convergence; **H2** (seal the
 SignRequest - needs a device-key handshake, #63: the CONTENT of a request is verified on-device by
 H1, but its ORIGIN is not authenticated); `/net` **multi-note over the
-live relay** (unit-tested; single-spend is live-proven); a **live multi-device** (not two-tab)
-broadcast; **Tauri** live per-platform hardware validation (above). **Cargo workspace** is now closed -
+live relay** (unit-tested; single-spend is live-proven); **Tauri** live per-platform hardware validation (above). **Cargo workspace** is now closed -
 the crates are unified under one workspace (orchestrator aligned on `rusqlite 0.37`, resolving the
 `links="sqlite3"` conflict; 237 orchestrator tests pass).
 
