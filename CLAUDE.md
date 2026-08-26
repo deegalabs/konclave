@@ -121,6 +121,37 @@ Facts (verified 2026-06-30):
   safe**, and the current consensus target is **NU6.3** (build against it; the RedPallas/FROST
   spend-authorization scheme is unchanged, so the signing core carries over). The NU6.2 text above
   is the historical context for the June 2026 Orchard episode.
+- **Update (2026-08-26), verified against primary sources.** Each item below was checked at
+  zips.z.cash / the Zcash forum / the issuing body; anything that could only be found on social
+  media or secondary press is marked as such and is NOT a basis for decisions.
+  - **`zcashd` is dead. CONFIRMED.** It halts at block 3,417,100 (2026-07-18) and does not support
+    NU6.3; the network was left Zebra-only deliberately
+    ([end-of-life](https://zcash.github.io/zcash/user/end-of-life.html)). Build against Zebra/Zaino,
+    never against a zcashd assumption ([#256](https://github.com/deegalabs/konclave/issues/256)).
+  - **ZIP 326 is the rule that binds us today. CONFIRMED** ([ZIP 326](https://zips.z.cash/zip-0326),
+    status Draft, NU6.3): *"A wallet MUST NOT send funds to any external receiver (including its
+    own) in the Orchard pool after NU6.3 activation."* Our destination validation still asks for an
+    Orchard receiver, which is the receiver this forbids
+    ([#341](https://github.com/deegalabs/konclave/issues/341)).
+  - **NU7 is being polled, not scheduled. CONFIRMED with a large caveat.** The coinholder vote runs
+    2026-08-25 to 2026-09-14, snapshot block 3,459,350, legitimacy quorum 1,000,000 ZEC - and the
+    thread says plainly *"it is a sentiment poll, not a vote"*. `draft-arya-deploy-nu7` is **Draft
+    with activation heights TBD**. **NU6.3 remains the consensus target**; NU7 is a thing to watch,
+    not to build against.
+  - Two NU7 candidates would touch this product if it lands: **ZIP 218** caps Orchard actions per
+    block (a hard ceiling on payroll outputs, see
+    [#295](https://github.com/deegalabs/konclave/issues/295)), and **ZIP 2002 (Explicit Fees)**
+    changes fee validation for v6+ transactions (touches our ZIP 317 work,
+    [#206](https://github.com/deegalabs/konclave/issues/206)).
+  - **"FROST v3 ships in NU7" is misleading.** ZIP 312 is **Draft**, category **Wallet**, with no
+    target upgrade, and is not among the NU7 candidates; `frost-core v3.0.0` shipped in April 2025.
+    What does matter: the Foundation's 2026 goals include finalising ZIP 312, **integrating FROST
+    into `zcash-devtool`**, and publishing an **official DKG** - which would change our integration
+    path, and is worth tracking rather than reacting to.
+  - **Not confirmed, do not repeat:** that a CFTC hearing named Zcash (the 2026-08-20 Innovation
+    Advisory Committee meeting is real and Winklevoss is a member, but no CFTC document mentions
+    Zcash); that PGPZ *is* a 501(c)(4) (there is a grant application describing it as *planned*);
+    a Zaino-replaces-lightwalletd date; and the Zebra CVEs circulating without a primary advisory.
 - **(Honest) narrative angle for the README:** a trustworthy shared-custody tool right after
   the confidence shock - exactly what [CONCEITO §8](docs/CONCEITO_INICIAL.md) foresees as
   narrative weight. The bug was found with Opus 4.8; Konclave is built with the same model.
@@ -219,7 +250,7 @@ Full plan: [docs/ROADMAP.md](docs/ROADMAP.md).
 
 | Parameter | Value | Status |
 |---|---|---|
-| Demo funding | ~0.01 ZEC (≈ $4 at ~$395/ZEC on 2026-06-30) | decided |
+| Demo funding | ~0.01 ZEC (≈ $7.79 at $778.56/ZEC on 2026-08-26; was ≈ $4 at ~$395 on 2026-06-30) | decided |
 | Proposal expiry deadline | 72h | configurable placeholder |
 | Line limit per payroll | function of the max tx size | to fix in Phase 3 |
 | Payroll CSV columns | label, address, amount, memo | to fix in Phase 3 |
@@ -262,9 +293,16 @@ code (Tauri shell over the `orchestrator`) tagged **`v0.2.0`**, with Windows/mac
 The web app stays the primary delivery (ADR-0005); desktop is the optional native shell. **Still open:**
 live **per-platform hardware** validation (the GTK/WSLg window does not render here, ADR-0004).
 
+**H1 is DONE and live** (this entry used to sit in the debts below, and was stale). Every device
+recomputes the ZIP-244 sighash from **its own** PCZT and signs that, refusing the ceremony if it
+disagrees with the requested one (`ui/src/signing-machine.ts:183-196`), and it decodes and shows what
+the transaction pays before contributing a share. `SigningMachine` is what the background signer
+drives, so this is the live path, not a lab one. #62 is closed. A hostile helper cannot swap the
+transaction under a signer.
+
 **Honest debts still open (§6.15):** Stage 3-4 of the Dashboard-send convergence; **H2** (seal the
-SignRequest - needs a device-key handshake, #63); the on-device sighash recompute in the live `/net`
-path (H1 #62; the PIN-gate + fingerprint defenses shipped, ADR-0007); `/net` **multi-note over the
+SignRequest - needs a device-key handshake, #63: the CONTENT of a request is verified on-device by
+H1, but its ORIGIN is not authenticated); `/net` **multi-note over the
 live relay** (unit-tested; single-spend is live-proven); a **live multi-device** (not two-tab)
 broadcast; **Tauri** live per-platform hardware validation (above). **Cargo workspace** is now closed -
 the crates are unified under one workspace (orchestrator aligned on `rusqlite 0.37`, resolving the
