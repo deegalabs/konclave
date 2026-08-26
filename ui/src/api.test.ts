@@ -139,3 +139,21 @@ describe('errorCode - a reason the relay may see', () => {
     expect(code).not.toMatch(/\d/)
   })
 })
+
+// The helper refuses an unfundable proposal at creation now (#293), with the figures already
+// parsed. The message a person reads must be the same either way: the same sentence whether the
+// numbers arrived from the helper's JSON or from a raw engine error further down the path.
+describe('humanError - the helper 422 and the raw engine error say the same thing', () => {
+  const t = ((k: string, v?: Record<string, string | number>) =>
+    k === 'error.insufficientExact' ? `have ${v?.have} need ${v?.need}` : k) as unknown as Parameters<typeof humanError>[0]
+
+  it('reads the helper refusal', () => {
+    expect(humanError(t, 'insufficient funds',
+      '{"available_zat":20000,"required_zat":24000,"short_zat":4000}')).toBe('have 0.0002 need 0.00024')
+  })
+
+  it('still reads the raw engine error', () => {
+    expect(humanError(t, 'InsufficientFunds { available: Zatoshis(20000), required: Zatoshis(24000) }'))
+      .toBe('have 0.0002 need 0.00024')
+  })
+})

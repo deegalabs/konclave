@@ -20,7 +20,7 @@ use orchestrator::helper::{
     send_config_for, vault_balance, vault_transactions, CeremonyRecord, HelperConfig,
     HelperProposal, HelperState, PayrollLine, VaultRegistration,
 };
-use orchestrator::send::{net_orchestrate_send, PayrollDest, SpendPlan};
+use orchestrator::send::{funding_check, net_orchestrate_send, Funding, PayrollDest, SpendPlan};
 use serde::Deserialize;
 use serde_json::json;
 use tiny_http::{Header, Method, Response, Server};
@@ -368,6 +368,49 @@ fn handle_send(state: &HelperState, cfg: &HelperConfig, body: &[u8]) -> Resp {
     }
 }
 
+/// Ask the wallet whether the vault can actually pay `plan`, and turn a "no" into an answer a
+/// person can act on.
+///
+/// This is the gate the product was missing. A payroll was created, approved by two people and
+/// signed by both before the engine refused it for want of 4,000 zatoshi - a refusal that could
+/// have been had in one second, from the same wallet, before anyone was asked for anything. The
+/// check touches no share, opens no room and asks nobody's attention.
+///
+/// `Ok(None)` means it can be paid. `Ok(Some(resp))` is the refusal to return, with both figures.
+/// An `Err` here is NOT a funding answer (a missing binary, a broken wallet); the caller decides
+/// whether to fail closed or carry on, and this function never guesses.
+fn refuse_if_unfunded(
+    cfg: &HelperConfig,
+    reg: &orchestrator::helper::VaultRegistration,
+    plan: &SpendPlan,
+) -> Result<Option<Resp>, String> {
+    let work_dir = format!("{}/{}/send-work", cfg.vaults_dir.display(), reg.vault_id);
+    if std::fs::create_dir_all(&work_dir).is_err() {
+        return Err("could not prepare the work directory".into());
+    }
+    let sc = send_config_for(cfg, reg, work_dir);
+    match funding_check(&sc, plan) {
+        Ok(Funding::Ok) => Ok(None),
+        Ok(Funding::Short {
+            available,
+            required,
+        }) => Ok(Some(resp(
+            422,
+            json!({
+                "error": "insufficient funds",
+                "available_zat": available,
+                "required_zat": required,
+                "short_zat": required.saturating_sub(available),
+                "detail": format!(
+                    "the vault holds {available} zatoshi and this needs {required} (amount plus the network fee)"
+                ),
+            })
+            .to_string(),
+        ))),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 /// Execute a READY proposal over Architecture B: build the PCZT for the proposal's payment, run the
 /// browser ceremony over the relay, and (unless `dry_run`) broadcast. On a real broadcast the
 /// proposal is marked `sent` with its txid.
@@ -442,6 +485,15 @@ fn handle_proposal_send(state: &HelperState, cfg: &HelperConfig, path: &str, bod
             503,
             json!({ "error": "coordinator over capacity, retry in a moment" }).to_string(),
         );
+    }
+    // Last gate before the room opens. The build inside `net_orchestrate_send` would refuse this
+    // too, but as a 502 "send failed" - and by then every device has been asked to sign. Asking
+    // here turns the same refusal into two figures and leaves the ceremony untouched. Funds can
+    // leave between approval and send, so this is not redundant with the check at creation.
+    match refuse_if_unfunded(cfg, &reg, &plan) {
+        Ok(Some(r)) => return r,
+        Ok(None) => {}
+        Err(_) => {} // an unrelated fault must not block a send the vault could make
     }
     let work_dir = format!("{}/{}/send-work", cfg.vaults_dir.display(), reg.vault_id);
     let sc = send_config_for(cfg, &reg, work_dir);
@@ -547,6 +599,27 @@ fn handle_create_proposal(state: &HelperState, cfg: &HelperConfig, body: &[u8]) 
     ) {
         return resp(400, json!({ "error": e.to_string() }).to_string());
     }
+    // The vault must be able to PAY it, not merely address it. Asked of the wallet, which is the
+    // only thing that knows its own note selection, and asked HERE: before a single member is shown
+    // a proposal to approve. The payroll that prompted this was created, approved by two people and
+    // signed by both before the engine refused it for want of 4,000 zatoshi.
+    match payment_plan(
+        &req.to,
+        req.amount_zat,
+        req.memo.clone(),
+        cfg.network_type(),
+    ) {
+        Ok(plan) => match refuse_if_unfunded(cfg, &reg, &plan) {
+            Ok(Some(r)) => return r,
+            Ok(None) => {}
+            // Not a funding answer (a missing binary, an unreadable wallet). Fail OPEN rather than
+            // block every proposal on an unrelated fault: a vault that cannot answer is not the
+            // same as a vault that cannot pay, and the send path asks again anyway.
+            Err(_) => {}
+        },
+        Err(e) => return resp(400, json!({ "error": e.to_string() }).to_string()),
+    }
+
     let now = now_unix();
     let mut p = HelperProposal {
         id: gen_proposal_id(),
@@ -631,6 +704,29 @@ fn handle_create_payroll(state: &HelperState, cfg: &HelperConfig, body: &[u8]) -
             memo: l.memo,
         });
     }
+    // Same gate as a single payment, and it matters more here: a payroll's fee grows with the line
+    // count, so the gap between "the total looks affordable" and "the vault can pay it" is widest
+    // exactly where the most people are waiting on the answer.
+    {
+        let dests: Vec<PayrollDest> = lines
+            .iter()
+            .map(|l| PayrollDest {
+                address: l.to.clone(),
+                value_zat: l.amount_zat,
+                memo: if l.memo.as_deref().unwrap_or("").is_empty() {
+                    None
+                } else {
+                    l.memo.clone()
+                },
+            })
+            .collect();
+        match refuse_if_unfunded(cfg, &reg, &SpendPlan::Payroll { lines: dests }) {
+            Ok(Some(r)) => return r,
+            Ok(None) => {}
+            Err(_) => {} // see the note on the payment path: an unrelated fault fails open
+        }
+    }
+
     let now = now_unix();
     let mut p = HelperProposal {
         id: gen_proposal_id(),

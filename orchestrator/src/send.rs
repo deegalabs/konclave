@@ -126,6 +126,71 @@ pub enum SpendPlan {
 /// Build the unproven PCZT for a plan. A single payment uses the official CLI (one
 /// output); a payroll uses our multi-output builder (`konclave-signer build-payroll`,
 /// which links `zcash_client_backend` - the engine the CLI lacks).
+/// What the wallet says when asked whether it can fund a plan.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Funding {
+    /// The wallet built the transaction, so the vault can pay this.
+    Ok,
+    /// It cannot, and these are the two figures that decide it, in zatoshis.
+    Short { available: u64, required: u64 },
+}
+
+/// Read `available` / `required` out of a wallet error, if it is an insufficient-funds one.
+///
+/// The engine reports `InsufficientFunds { available: Zatoshis(20000), required: Zatoshis(24000) }`.
+/// Those two numbers are the whole answer a person needs, and the gap between them is the fee -
+/// precisely the part nobody can compute in their head. Pure, so the shape is pinned by tests
+/// rather than discovered in production.
+pub fn parse_insufficient_funds(stderr: &str) -> Option<(u64, u64)> {
+    let at = stderr.find("InsufficientFunds")?;
+    let rest = &stderr[at..];
+    let grab = |key: &str| -> Option<u64> {
+        let i = rest.find(key)? + key.len();
+        let tail = &rest[i..];
+        let open = tail.find('(')? + 1;
+        let close = tail[open..].find(')')?;
+        tail[open..open + close].trim().parse::<u64>().ok()
+    };
+    Some((grab("available:")?, grab("required:")?))
+}
+
+/// Ask the WALLET whether this plan can be paid, before anyone is asked to approve or sign.
+///
+/// This is the only honest answer to "does it fit": the fee depends on which notes the wallet
+/// selects, so no client-side estimate can be right. `build_unproven` is what makes it cheap enough
+/// to ask - it touches no share, needs no relay, no ceremony and nobody's attention, and it is
+/// already step 1 of a real send. Asking it early costs one build; not asking it cost a payroll
+/// that was proposed, approved by two people and signed by both before the engine refused it.
+///
+/// Work happens in a scratch directory that is removed afterwards, so a check never leaves a
+/// payroll spec behind (see #297 on the send path's own leftovers).
+pub fn funding_check(sc: &SendConfig, plan: &SpendPlan) -> Result<Funding, ToolError> {
+    let probe_dir = format!("{}/funding-check", sc.work_dir);
+    let _ = std::fs::remove_dir_all(&probe_dir);
+    std::fs::create_dir_all(&probe_dir).map_err(ToolError::Io)?;
+    let probe = SendConfig {
+        work_dir: probe_dir.clone(),
+        ..sc.clone()
+    };
+    let outcome = build_unproven(&probe, plan);
+    let _ = std::fs::remove_dir_all(&probe_dir);
+    match outcome {
+        Ok(_) => Ok(Funding::Ok),
+        Err(e) => {
+            let text = e.to_string();
+            match parse_insufficient_funds(&text) {
+                Some((available, required)) => Ok(Funding::Short {
+                    available,
+                    required,
+                }),
+                // Not a funding problem: let the caller see the real error rather than reporting a
+                // shortfall we did not measure.
+                None => Err(e),
+            }
+        }
+    }
+}
+
 fn build_unproven(sc: &SendConfig, plan: &SpendPlan) -> Result<Vec<u8>, ToolError> {
     match plan {
         SpendPlan::Payment {
@@ -514,5 +579,60 @@ mod tests {
     #[test]
     fn hex_encode_is_lowercase_padded() {
         assert_eq!(hex_encode(&[0x00, 0x0f, 0xff]), "000fff");
+    }
+}
+
+#[cfg(test)]
+mod funding_tests {
+    use super::*;
+
+    // The exact string a real refusal produced on mainnet, wrapped the way the tool reports it.
+    const REAL: &str = "/usr/local/bin/konclave-signer exited with 1: Error: propose_transfer: \
+                        InsufficientFunds { available: Zatoshis(20000), required: Zatoshis(24000) }";
+
+    #[test]
+    fn reads_both_figures_from_a_real_refusal() {
+        assert_eq!(parse_insufficient_funds(REAL), Some((20_000, 24_000)));
+    }
+
+    #[test]
+    fn the_gap_is_the_fee_plus_what_is_missing() {
+        let (available, required) = parse_insufficient_funds(REAL).expect("parsed");
+        assert!(
+            required > available,
+            "a refusal always needs more than it has"
+        );
+        assert_eq!(required - available, 4_000);
+    }
+
+    #[test]
+    fn ignores_an_error_that_is_not_about_funds() {
+        assert_eq!(parse_insufficient_funds("Error: no such wallet"), None);
+        assert_eq!(parse_insufficient_funds(""), None);
+    }
+
+    #[test]
+    fn survives_a_truncated_or_reordered_report() {
+        // Half a message must not yield half an answer.
+        assert_eq!(
+            parse_insufficient_funds("InsufficientFunds { available: Zatoshis(1) }"),
+            None
+        );
+        assert_eq!(
+            parse_insufficient_funds(
+                "InsufficientFunds { available: Zatoshis(7), required: Zatoshis(9) } trailing"
+            ),
+            Some((7, 9))
+        );
+    }
+
+    #[test]
+    fn a_zero_balance_is_a_number_like_any_other() {
+        assert_eq!(
+            parse_insufficient_funds(
+                "InsufficientFunds { available: Zatoshis(0), required: Zatoshis(10000) }"
+            ),
+            Some((0, 10_000))
+        );
     }
 }
