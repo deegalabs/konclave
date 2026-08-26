@@ -145,17 +145,22 @@ export default function NewPayroll() {
   const validRows = rows.filter((r) => rowTouched(r) && rowIssue(r) === null)
   const count = validRows.length
   const totalZat = validRows.reduce((acc, r) => acc + (parseZecToZat(r.value) ?? 0), 0)
-  // ZIP-317: 5000 zat per logical action, minimum 2. The action count is NOT max(spends, outputs)
-  // here: for a bundle with cross-address transfers disabled, orchard's builder pairs every spend
-  // and every output with a fabricated zero-valued counterpart, so it is spends + outputs, and the
-  // crate tells wallets in so many words to "account for this larger action count"
-  // (orchard::builder::BundleType::num_actions). One spend + N lines + change.
+  // ZIP-317: 5000 zat per logical action, minimum 2. `max(spends, outputs)` - one spend, N lines
+  // plus change - which is what EVERY successful send has actually been charged:
   //
-  // Measured, not assumed: a 2-line payroll of 4000 zat was refused by the engine with
-  // `InsufficientFunds { available: 20000, required: 24000 }` - a 20000 fee, exactly 4 actions,
-  // where the old max() estimate said 3. Erring high costs the last few thousand zatoshi of a
-  // vault; erring low costs a payroll that fails AFTER everyone has signed it.
-  const feeZat = count > 0 ? 5000 * Math.max(2, 1 + count + 1) : 0
+  //   payment, 1 destination   1 spend + 2 outputs   fee 10000   max(1,2)=2
+  //   payroll, 2 lines         1 spend + 3 outputs   fee 15000   max(1,3)=3
+  //
+  // I briefly changed this to spends+outputs on the strength of one refusal - a 2-line payroll of
+  // 4000 zat against a 20000 balance came back `InsufficientFunds { available: 20000, required:
+  // 24000 }`, implying four actions. The very same payroll then went through against a larger
+  // balance at 15000, three actions. Same outputs, different answer: the refusal is not explained
+  // by the action count, and one data point was not enough to move the formula. It is back to what
+  // matches every send that worked, and the outlier is recorded in #206.
+  //
+  // This is an ESTIMATE and always will be: only the wallet knows its note selection. The gate that
+  // can actually be right is the helper's, using build_unproven before anyone signs (#293).
+  const feeZat = count > 0 ? 5000 * Math.max(2, count + 1) : 0
   const afterZat = balanceZat === null ? null : balanceZat - totalZat - feeZat
   const overBalance = afterZat !== null && afterZat < 0
   const anyBadTouched = rows.some((r) => rowTouched(r) && rowIssue(r) !== null)

@@ -144,7 +144,7 @@ export default function Proposal() {
     const amountZat = parseZecToZat(p.value_zec ?? '')
     if (amountZat === null) return null
     const dests = isPayroll ? Math.max(1, lines.length) : 1
-    const feeZat = 5000 * Math.max(2, 1 + dests + 1)
+    const feeZat = 5000 * Math.max(2, dests + 1)
     const totalZat = amountZat + feeZat
     const short = spendableZat === null ? 0 : Math.max(0, totalZat - spendableZat)
     return { feeZat, totalZat, short }

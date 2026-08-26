@@ -20,6 +20,7 @@ Konclave claims seven real Zcash **mainnet** transactions:
 | First **browser-signed** mainnet broadcast: browser-DKG 2-of-2 vault, each **tab** signing **in the browser** with only its own share over the blind relay (Architecture B), Ironwood pool. *Two tabs on one machine* - the cross-device broadcast is the open milestone. | `3022420a8bcf17ffd5511163c18ee9b5996a3ba44747e4eff6794bdd3f04ccee` | 3,429,922 |
 | Browser-signed send under the **everyone-signs / last-signer-sends** model: 2-of-2 browser-DKG vault, each device signing its own share, the device that closed the quorum broadcasting | `64f94d290f409f0e80b7985213bf0089a82b5c8de13e587d096ad57be7ae7f32` | 3,460,108 |
 | **3-of-4** browser-DKG vault, browser-signed, operated by someone other than the maintainer - the largest quorum proven | `b496fc3ce0b728f840b5346127a7757c670b4e38f55f0f7198b4a2e43a902898` | 3,460,538 |
+| **Private payroll on the web path, post-Ironwood**: 2 beneficiaries in ONE V6 transaction, browser-DKG 2-of-2 vault, approved once and signed by both devices under the everyone-signs / last-signer-sends model | `7c4c1dd5d8522dc14a77b4a37ebb0846d5a3b7ed0c507c9cede2de09480490ea` | 3,461,704 |
 
 The verifier queries independent public explorers and confirms each transaction
 exists and is mined on mainnet, reporting the block height, confirmations, and
