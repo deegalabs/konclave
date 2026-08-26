@@ -76,6 +76,16 @@
 .p-cost-k{font-family:var(--font-mono); font-size:10px; letter-spacing:.05em; text-transform:uppercase; color:var(--text-muted)}
 .p-cost-v{white-space:nowrap}
 
+/* Confirmation progress. A count of how far the chain has buried the newest note, not a promise
+   about when the vault will spend it - the vault decides that, and the pending line vanishing is
+   the real signal. Quiet by design: this is a wait, not an alarm. */
+.confbar{display:inline-flex; align-items:center; gap:8px; margin-left:10px; vertical-align:middle}
+.confbar-track{width:64px; height:4px; border-radius:var(--radius-pill); background:var(--line); overflow:hidden}
+.confbar-fill{display:block; height:100%; border-radius:inherit; background:var(--accent);
+  transition:width .4s cubic-bezier(.2,.7,.3,1)}
+.confbar-n{font-size:11px; color:var(--text-muted)}
+@media(prefers-reduced-motion:reduce){.confbar-fill{transition:none}}
+
 /* Toasts. Top-right, clear of the content and of the page's own controls, sliding in from the edge
    they live on and leaving the same way. Transient acknowledgement only: anything the reader has to
    act on keeps its place on the screen where the action is.
@@ -139,6 +149,8 @@
 /* Members peek - a hover/focus popover off the "N members" link, so the roster (creator + you) is
    a glance, not a page jump (K14). Signs-vs-approves per member needs the governance model (ADR-0009). */
 .members-peek{position:relative; display:inline-block}
+/* The popover hangs below the line it belongs to; nothing on the path may clip it. */
+.members-peek, .members-pop{overflow:visible}
 .members-pop{position:absolute; top:calc(100% + 8px); left:0; z-index:30; min-width:210px;
   display:flex; flex-direction:column; gap:9px; padding:12px 14px;
   background:var(--surface-1); border:1px solid var(--line); border-radius:10px;
@@ -674,6 +686,13 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 .page.dash::before{content:""; position:absolute; top:-24px; left:0; right:0; height:240px; z-index:0; pointer-events:none;
   background:radial-gradient(60% 180px at 30% 0, rgba(var(--accent-glow),.08), transparent 72%)}
 .page.dash > *{position:relative; z-index:1}
+/* Each dashboard block gets its own stacking context from the rule above, so a popover inside one
+   of them is trapped at that block's level however high its own z-index is: the NEXT block, also
+   at 1 and later in the DOM, simply paints over it. That is what made the members card look like
+   it had no background - it had one, and was being covered. The block holding a popover is raised
+   above its siblings, only while the popover is showing. */
+.page.dash > *:has(.members-peek:hover), .page.dash > *:has(.members-peek:focus-within){z-index:6}
+.page.dash > *:has(.members-pop){position:relative}
 
 /* the "needs you" approval card is the hero action - give it a soft accent glow */
 .needyou.act{background:linear-gradient(180deg,var(--accent-soft),transparent);

@@ -229,6 +229,7 @@ export async function getBalance(): Promise<Balance | null> {
       total_zec: zatToZec(b.total_zat),
       spendable_zat: spendable,
       spendable_zec: zatToZec(spendable),
+      chain_tip_height: b.chain_tip_height,
     }
   }
   return await getJson<Balance>(withVault('/api/balance'))
@@ -310,6 +311,17 @@ export function errorCode(error?: string, detail?: string): FailureCode {
   if (s.includes('timed out') || s.includes('signature') || s.includes('share') || s.includes('relay')) return 'ceremony'
   return 'unknown'
 }
+
+/**
+ * How many confirmations a note needs before the wallet will spend it. Not our choice: it is
+ * `ConfirmationsPolicy::default()` in zcash_client_backend (data_api/wallet.rs:450-461), and we
+ * never pass `--min-confirmations`, so the default is what every vault gets.
+ *
+ * There are two numbers, and the difference is worth showing: money that arrived from OUTSIDE is
+ * untrusted and waits 10; the change from the vault's own payment is trusted and waits 3.
+ */
+export const CONFIRMATIONS_UNTRUSTED = 10
+export const CONFIRMATIONS_TRUSTED = 3
 
 export function humanError(t: TFn, error?: string, detail?: string): string {
   const e = (error ?? '').toLowerCase()
