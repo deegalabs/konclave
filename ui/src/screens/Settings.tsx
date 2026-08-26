@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Seal, Loading, LangToggle } from '../components'
+import { Seal, Loading, LangToggle, Soon } from '../components'
 import { VersionBadge } from '../UpdatePrompt'
 import { PageHeader, PageFooter } from '../page'
 import { useT, useTr } from '../i18n'
@@ -275,13 +275,16 @@ export default function Settings() {
       )}
       {hasLocal && <p className="set-hint">{t('export.note')}</p>}
 
-      {/* Hidden on the web: `deleteVault` has no web path (it posts to the local bridge), so the
-          control could only ever fail there. On the web a vault is removed from the vault list. */}
-      {!IS_NET && (
       <section className="set-danger mt">
         <h2 className="set-danger-title">{t('settings.danger')}</h2>
         <p className="set-danger-note">{t('settings.dangerNote')}</p>
-        {!confirming ? (
+        {IS_NET ? (
+          /* `deleteVault` posts to the local bridge and has no web path. Named rather than removed:
+             a treasurer who wants to get rid of a vault should see that the product knows about it. */
+          <Soon reason={t('settings.removeSoonWhy')}>
+            <button type="button" className="btn danger" disabled>{t('settings.remove')}</button>
+          </Soon>
+        ) : !confirming ? (
           <button type="button" className="btn danger" onClick={() => setConfirming(true)}>
             {t('settings.remove')}
           </button>
@@ -316,7 +319,6 @@ export default function Settings() {
           </div>
         )}
       </section>
-      )}
       </>}
 
       <PageFooter>{t('settings.footer')} · <VersionBadge /></PageFooter>

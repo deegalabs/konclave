@@ -1,9 +1,9 @@
 import { Fragment, useEffect, useState } from 'react'
 import { startVisiblePoll } from '../usePoll'
-import { Secret, RevealButton, activateOnKey } from '../components'
+import { Secret, RevealButton, activateOnKey, Soon } from '../components'
 import { SkeletonRows } from '../skeleton'
 import { PageHeader, PageFooter } from '../page'
-import { getLedger, getProposalDetail, getVault, ledgerCsvUrl, shortAddr, type Proposal, type PayrollLine } from '../api'
+import { getLedger, getProposalDetail, getVault, ledgerCsvUrl, shortAddr, IS_NET, type Proposal, type PayrollLine } from '../api'
 import { fmtDate, fmtZec } from '../format'
 import { exportLedgerXlsx, type LedgerXlsxItem } from '../ledgerXlsx'
 import { useLoading } from '../loading'
@@ -128,7 +128,15 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
 
   const exportActions = (
     <>
-      <a className="btn ghost sm-btn" href={ledgerCsvUrl()} download="konclave-ledger.csv">{t('ledger.exportCsv')}</a>
+      {/* The CSV comes from the bridge's endpoint and is dead on the primary path (#301). The XLSX
+          and the print view are built in the browser and work everywhere, so only this one waits. */}
+      {IS_NET ? (
+        <Soon reason={t('ledger.exportSoonWhy')}>
+          <span className="btn ghost sm-btn">{t('ledger.exportCsv')}</span>
+        </Soon>
+      ) : (
+        <a className="btn ghost sm-btn" href={ledgerCsvUrl()} download="konclave-ledger.csv">{t('ledger.exportCsv')}</a>
+      )}
       <button className="btn ghost sm-btn" disabled={xlsxBusy} onClick={() => void exportXlsx()}>{xlsxBusy ? t('ledger.exporting') : t('ledger.exportXlsx')}</button>
       <button className="btn ghost sm-btn" onClick={() => window.print()}>{t('ledger.pdf')}</button>
     </>

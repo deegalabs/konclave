@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Secret, activateOnKey, Loading } from '../components'
+import { Secret, activateOnKey, Loading, Soon } from '../components'
 import { PageHeader } from '../page'
 import { fmtZec, fmtZecExact, parseZecToZat, zatToZec } from '../format'
 import { useT, useTr } from '../i18n'
@@ -161,6 +161,13 @@ export default function NewPayroll() {
   // This is an ESTIMATE and always will be: only the wallet knows its note selection. The gate that
   // can actually be right is the helper's, using build_unproven before anyone signs (#293).
   const feeZat = count > 0 ? 5000 * Math.max(2, count + 1) : 0
+  // What batching is worth, in the vault's own money. Paying these N people one at a time is N
+  // transactions of two actions each; one payroll is a single spend, N outputs and change. The
+  // saving grows toward half as N grows, and it is the whole reason this screen exists - so it is
+  // stated rather than left for the reader to work out from a fee they cannot see the shape of.
+  const soloFeeZat = count > 0 ? count * 5000 * 2 : 0
+  const savedZat = Math.max(0, soloFeeZat - feeZat)
+
   const afterZat = balanceZat === null ? null : balanceZat - totalZat - feeZat
   const overBalance = afterZat !== null && afterZat < 0
   const anyBadTouched = rows.some((r) => rowTouched(r) && rowIssue(r) !== null)
@@ -259,10 +266,14 @@ export default function NewPayroll() {
 
           <div className="mt-sm folha-actions">
             <button className="btn ghost sm-btn" onClick={addRow}>{t('payroll.addRow')}</button>
-            {/* CSV import runs through `previewPayroll`, which has no web path: it posts to the
-                local bridge's /api/payroll/preview and always fails here. Offer it only where it
-                works, and say why rather than letting the button fail. */}
-            {!IS_NET && (
+            {/* CSV import runs through `previewPayroll`, which posts to the local bridge and has no
+                web path. Shown rather than hidden: the reader can see the product intends to do
+                this, and is told it is not ready instead of meeting a control that fails. */}
+            {IS_NET ? (
+              <Soon reason={t('payroll.importSoonWhy')}>
+                <button className="btn ghost sm-btn" disabled>{t('payroll.importCsv')}</button>
+              </Soon>
+            ) : (
               <button className="btn ghost sm-btn" onClick={() => setShowImport((v) => !v)}>{t('payroll.importCsv')}</button>
             )}
           </div>
@@ -304,6 +315,9 @@ export default function NewPayroll() {
             <span className="plf-fig">
               <span className="plf-k">{t('payroll.pvFeeK')}</span>
               <span className="plf-v num dim">+ {fmtZecExact(feeZat / 1e8)} ZEC</span>
+              {savedZat > 0 && (
+                <span className="plf-saved">{t('payroll.feeSaved', { n: count, saved: fmtZecExact(savedZat / 1e8) })}</span>
+              )}
             </span>
 
             <span className={'plf-fig' + (overBalance ? ' bad' : '')}>

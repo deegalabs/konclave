@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Letterhead, Dialog } from '../components'
+import { Letterhead, Dialog, Soon } from '../components'
 import { useI18n } from '../i18n'
 import { getTheme, setTheme, type Theme } from '../theme'
 import '../redesign.css'
@@ -9,7 +9,11 @@ import '../landing-vault.css'
 const REPO = 'https://github.com/deegalabs/konclave'
 const RELEASES = `${REPO}/releases`
 const VER = '0.2.0'
+// Kept, unused for now: the installers exist at these URLs and the buttons go live again the
+// moment per-platform validation lands (#212). Deleting it would lose the mapping.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const dl = (file: string) => `${REPO}/releases/download/v${VER}/${file}`
+void dl
 // One-click installers → the real v0.2.0 assets (GitHub serves them as attachments, so the
 // click downloads directly). macOS ships Apple-Silicon; Intel / .deb / .rpm live under RELEASES.
 const BUILDS = {
@@ -25,6 +29,10 @@ type OS = keyof typeof BUILDS
 export default function Intro() {
   const { locale } = useI18n()
   const pt = locale === 'pt-BR'
+  // The landing has its own copy (it predates the i18n dictionary), so the reason lives here.
+  const soonWhy = pt
+    ? 'O aplicativo de mesa existe e está assinado, mas ainda não foi validado em cada plataforma. Enquanto isso, o cofre roda inteiro no navegador.'
+    : 'The desktop app exists and is signed, but has not been validated on each platform yet. Meanwhile the vault runs entirely in the browser.'
   const vid = useRef<HTMLVideoElement>(null)
   const [theme, setTh] = useState<Theme>(getTheme())
   const [install, setInstall] = useState(false)
@@ -137,7 +145,12 @@ export default function Intro() {
               <div className="lv-d">{pt ? 'Um app de janela única; nada roda na nuvem.' : 'A single-window app; nothing runs in the cloud.'}</div>
               <div className="lv-ver">v{VER} · {BUILDS[os].ext}</div>
             </div>
-            <a className="lv-btn dl sm" href={dl(BUILDS[os].file)} rel="noreferrer">{pt ? 'Baixar' : 'Download'}</a>
+            {/* The desktop line is built and signed (v0.2.0) but not yet validated per platform
+                (#212, ADR-0004). Offering an untested installer for a tool that holds money is a
+                worse promise than saying "not yet" - so the option stays visible and inert. */}
+            <Soon reason={soonWhy}>
+              <span className="lv-btn dl sm">{pt ? 'Baixar' : 'Download'}</span>
+            </Soon>
           </div>
 
           <button className="lv-more" onClick={() => setShowAll((s) => !s)}>{pt ? 'Outras plataformas' : 'Other platforms'} {showAll ? '▴' : '▾'}</button>
@@ -150,7 +163,9 @@ export default function Intro() {
                     <div className="lv-t">{p}</div>
                     <div className="lv-ver">v{VER} · {BUILDS[p].ext}</div>
                   </div>
-                  <a className="lv-btn dl sm" href={dl(BUILDS[p].file)} rel="noreferrer">{pt ? 'Baixar' : 'Download'}</a>
+                  <Soon reason={soonWhy}>
+                    <span className="lv-btn dl sm">{pt ? 'Baixar' : 'Download'}</span>
+                  </Soon>
                 </div>
               ))}
               <a className="lv-more" href={RELEASES} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: 4 }}>
