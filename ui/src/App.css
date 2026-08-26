@@ -76,6 +76,24 @@
 .p-cost-k{font-family:var(--font-mono); font-size:10px; letter-spacing:.05em; text-transform:uppercase; color:var(--text-muted)}
 .p-cost-v{white-space:nowrap}
 
+/* Confirmation progress. A count of how far the chain has buried the newest note, not a promise
+   about when the vault will spend it - the vault decides that, and the pending line vanishing is
+   the real signal. Quiet by design: this is a wait, not an alarm. */
+.confbar{display:inline-flex; align-items:center; gap:8px; margin-left:10px; vertical-align:middle}
+.confbar-track{width:64px; height:4px; border-radius:var(--radius-pill); background:var(--line); overflow:hidden}
+.confbar-fill{display:block; height:100%; border-radius:inherit; background:var(--accent);
+  transition:width .4s cubic-bezier(.2,.7,.3,1)}
+.confbar-n{font-size:11px; color:var(--text-muted)}
+@media(prefers-reduced-motion:reduce){.confbar-fill{transition:none}}
+
+/* An action that is not ready yet. Dimmed and inert, but present and named: the reader can see
+   the product intends to do this, and is told so rather than left to discover a dead control. */
+.soon-wrap{position:relative; display:inline-flex; align-items:center; gap:8px; cursor:not-allowed}
+.soon-wrap > *:not(.soon-badge):not(.visually-hidden){opacity:.45; pointer-events:none; filter:saturate(.5)}
+.soon-badge{flex:none; font-family:var(--font-mono); font-size:9px; letter-spacing:.1em;
+  text-transform:uppercase; color:var(--text-muted); background:var(--surface-2);
+  border:1px solid var(--line); border-radius:var(--radius-pill); padding:2px 8px; white-space:nowrap}
+
 /* Toasts. Top-right, clear of the content and of the page's own controls, sliding in from the edge
    they live on and leaving the same way. Transient acknowledgement only: anything the reader has to
    act on keeps its place on the screen where the action is.
@@ -139,6 +157,8 @@
 /* Members peek - a hover/focus popover off the "N members" link, so the roster (creator + you) is
    a glance, not a page jump (K14). Signs-vs-approves per member needs the governance model (ADR-0009). */
 .members-peek{position:relative; display:inline-block}
+/* The popover hangs below the line it belongs to; nothing on the path may clip it. */
+.members-peek, .members-pop{overflow:visible}
 .members-pop{position:absolute; top:calc(100% + 8px); left:0; z-index:30; min-width:210px;
   display:flex; flex-direction:column; gap:9px; padding:12px 14px;
   background:var(--surface-1); border:1px solid var(--line); border-radius:10px;
@@ -289,8 +309,8 @@
   border:1px solid var(--line); padding:8px 12px; cursor:pointer}
 .reveal-btn:hover{border-color:var(--accent); color:var(--accent)}
 .fig{display:flex; align-items:baseline; gap:14px; margin:16px 0 10px}
-.amt{font-family:var(--font-num); font-variant-numeric:tabular-nums; font-feature-settings:"zero" 0,"tnum" 1; font-weight:500; font-size:clamp(38px,7vw,62px); letter-spacing:-.02em}
-.unit{font-family:var(--font-num); font-variant-numeric:tabular-nums; font-feature-settings:"zero" 0,"tnum" 1; font-size:16px; color:var(--text-muted); letter-spacing:.14em}
+.amt{font-family:var(--font-num); font-variant-numeric:tabular-nums; font-weight:500; font-size:clamp(38px,7vw,62px); letter-spacing:-.02em}
+.unit{font-family:var(--font-num); font-variant-numeric:tabular-nums; font-size:16px; color:var(--text-muted); letter-spacing:.14em}
 .breakdown{display:flex; gap:34px; font-family:var(--font-mono); font-size:12.5px; color:var(--text-muted)}
 .breakdown b{color:var(--text); font-weight:500}
 .breakdown .pd b{color:var(--silver)}
@@ -310,7 +330,7 @@
 .kpi{display:flex; flex-direction:column; gap:7px; padding:15px 17px; border-radius:var(--radius);
   background:var(--surface-2); border:1px solid var(--line-2)}
 .kpi-k{color:var(--text-muted)}
-.kpi-v{font-family:var(--font-num); font-variant-numeric:tabular-nums; font-feature-settings:"zero" 0,"tnum" 1; font-size:23px; font-weight:500; color:var(--text); letter-spacing:-.01em}
+.kpi-v{font-family:var(--font-num); font-variant-numeric:tabular-nums; font-size:23px; font-weight:500; color:var(--text); letter-spacing:-.01em}
 .kpi-u{font-size:12px; color:var(--text-muted); letter-spacing:.12em}
 .kpi-sub{font-family:var(--font-mono); font-size:11.5px; color:var(--text-muted)}
 
@@ -337,7 +357,7 @@
 .approve{padding:26px 30px; border-right:1px solid var(--line)}
 @media(max-width:720px){.approve{border-right:0; border-bottom:1px solid var(--line); padding:24px 0}}
 .req{font-family:var(--font-mono); font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--accent); display:flex; align-items:center; gap:9px}
-.a-amt{font-family:var(--font-num); font-variant-numeric:tabular-nums; font-feature-settings:"zero" 0,"tnum" 1; font-weight:500; font-size:28px; margin:16px 0 3px}
+.a-amt{font-family:var(--font-num); font-variant-numeric:tabular-nums; font-weight:500; font-size:28px; margin:16px 0 3px}
 .dim{color:var(--text-muted)} .small{font-size:15px}
 .a-to{font-family:var(--font-mono); font-size:12.5px; color:var(--text-muted)}
 .a-to b{color:var(--text); font-weight:500}
@@ -368,7 +388,7 @@
 .ny-body{display:flex; gap:16px; align-items:flex-start; margin:14px 0 16px}
 .ny-body .idc{border-radius:9px; box-shadow:0 0 0 2px var(--surface-1); flex:0 0 auto; margin-top:2px}
 .ny-main{flex:1}
-.ny-amt{font-family:var(--font-num); font-variant-numeric:tabular-nums; font-feature-settings:"zero" 0,"tnum" 1; font-weight:500; font-size:34px; letter-spacing:-.01em}
+.ny-amt{font-family:var(--font-num); font-variant-numeric:tabular-nums; font-weight:500; font-size:34px; letter-spacing:-.01em}
 .opnav.card{padding:20px 26px; border-radius:var(--radius-lg); border:1px solid var(--line-2);
   background:linear-gradient(180deg,rgba(200,220,245,.04),rgba(200,220,245,.01));
   box-shadow:0 1px 0 rgba(210,228,250,.05) inset}
@@ -451,7 +471,7 @@ h1.klab,h2.klab,h3.klab{margin:0;font-weight:400}
 .hero-hint{font-size:11px; margin-top:16px}
 
 /* ---- Ceremony ---- */
-.selq{display:flex; align-items:center; gap:10px; font-family:var(--font-num); font-variant-numeric:tabular-nums; font-feature-settings:"zero" 0,"tnum" 1; font-size:22px}
+.selq{display:flex; align-items:center; gap:10px; font-family:var(--font-num); font-variant-numeric:tabular-nums; font-size:22px}
 .selq .box{border:1.5px solid var(--text); background:var(--surface-2); padding:4px 14px}
 .selq-unit{font-size:13px; font-family:var(--font-sans)}
 .members{margin-top:8px}
@@ -474,7 +494,7 @@ h1.klab,h2.klab,h3.klab{margin:0;font-weight:400}
 .db-meta > div, .db-t{display:flex; flex-direction:column; gap:3px}
 .db-meta b{font-size:15px} .db-meta .klab{margin:0}
 .db-totals{display:flex; align-items:center; gap:26px}
-.db-t b{font-family:var(--font-num); font-variant-numeric:tabular-nums; font-feature-settings:"zero" 0,"tnum" 1; font-size:16px}
+.db-t b{font-family:var(--font-num); font-variant-numeric:tabular-nums; font-size:16px}
 .db-t b.out{color:var(--text)} .db-reveal{margin-left:4px}
 .tbl .doc-row:hover td{background:var(--accent-soft)}
 .caret{font-family:var(--font-mono); color:var(--accent); font-size:11px}
@@ -586,7 +606,7 @@ h1.klab,h2.klab,h3.klab{margin:0;font-weight:400}
 .plist-go{color:var(--accent); font-weight:700}
 
 /* ---- Proposal ---- */
-.p-amt{font-family:var(--font-num); font-variant-numeric:tabular-nums; font-feature-settings:"zero" 0,"tnum" 1; font-size:30px; font-weight:500; margin:16px 0 4px}
+.p-amt{font-family:var(--font-num); font-variant-numeric:tabular-nums; font-size:30px; font-weight:500; margin:16px 0 4px}
 .p-meta{font-family:var(--font-mono); font-size:12.5px; color:var(--text-muted)}
 /* Anything hex in here (a txid, a sighash) is one unbroken 64-character word. Wherever it
    lands - the proposal page, the signing drawer - it wraps rather than widening its
@@ -674,6 +694,15 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 .page.dash::before{content:""; position:absolute; top:-24px; left:0; right:0; height:240px; z-index:0; pointer-events:none;
   background:radial-gradient(60% 180px at 30% 0, rgba(var(--accent-glow),.08), transparent 72%)}
 .page.dash > *{position:relative; z-index:1}
+/* Each dashboard block gets its own stacking context from the rule above, so anything inside one of
+   them is trapped at that block's level however high its own z-index is: the NEXT block, also at 1
+   and later in the DOM, simply paints over it. That is what made the members card look like it had
+   no background - it had one, and was being covered.
+   The header is raised UNCONDITIONALLY rather than on hover: a rule that only applies while a
+   pointer is over something fails on touch, and a `:has()` rule fails outright on a browser that
+   does not support it - and the failure is exactly the bug. Nothing on a page should cover its own
+   heading in any case. */
+.page.dash > .page-header{z-index:6}
 
 /* the "needs you" approval card is the hero action - give it a soft accent glow */
 .needyou.act{background:linear-gradient(180deg,var(--accent-soft),transparent);
@@ -795,7 +824,7 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 /* Pay amount with a live USD echo (opt-in). ZEC is the authoritative figure; $ is a muted echo. */
 .payamt{display:flex; align-items:baseline; gap:10px; background:var(--surface-2); border:1.5px solid var(--line); border-radius:var(--radius-sm); padding:10px 13px}
 .payamt:focus-within{border-color:var(--accent); background:var(--surface-1); box-shadow:0 0 0 3px var(--accent-soft)}
-.payamt-in{flex:1; min-width:0; border:0; background:transparent; outline:none; font-family:var(--font-num); font-variant-numeric:tabular-nums; font-feature-settings:"zero" 0,"tnum" 1; font-weight:600; font-size:24px; letter-spacing:-.01em; color:var(--text)}
+.payamt-in{flex:1; min-width:0; border:0; background:transparent; outline:none; font-family:var(--font-num); font-variant-numeric:tabular-nums; font-weight:600; font-size:24px; letter-spacing:-.01em; color:var(--text)}
 .payamt-in::placeholder{color:var(--text-muted); opacity:.7}
 .payamt-unit{flex:none; font-family:var(--font-num); font-weight:600; font-size:13px; color:var(--text-muted)}
 .payamt-meta{display:flex; align-items:center; gap:10px; margin-top:8px; flex-wrap:wrap; font-family:var(--font-mono); font-size:11.5px; color:var(--text-muted)}
@@ -882,6 +911,8 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 .plf-v{font-size:15px; white-space:nowrap}
 .plf-fig.bad .plf-v{color:var(--danger-text,var(--danger))}
 .plf-usd{font-family:var(--font-mono); font-size:11px; color:var(--silver)}
+/* Why the payroll exists, in the vault's own money. Quiet: a fact, not a boast. */
+.plf-saved{font-size:11px; color:var(--success); white-space:nowrap}
 
 .plf-act{display:flex; flex-direction:column; align-items:flex-end; gap:5px}
 .plf-note{font-size:11px; color:var(--text-muted); text-align:right; max-width:30ch; text-wrap:balance}

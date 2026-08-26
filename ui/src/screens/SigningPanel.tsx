@@ -191,7 +191,7 @@ export default function SigningPanel() {
   // The line count is fetched with the proposal; a payroll whose lines have not landed yet is
   // costed as one destination, which under-states rather than over-states, so the block never
   // fires on a guess.
-  const feeZat = 5000 * Math.max(2, 1 + Math.max(1, payrollLines) + 1)
+  const feeZat = 5000 * Math.max(2, Math.max(1, payrollLines) + 1)
   const amountZat = parseZecToZat(active.value_zec ?? '')
   const shortZat = spendableZat === null || amountZat === null
     ? 0

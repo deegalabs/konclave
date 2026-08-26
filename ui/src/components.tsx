@@ -69,6 +69,25 @@ export function Dialog({ labelledBy, onClose, className, cardClassName, children
   )
 }
 
+/**
+ * An action that exists but is not ready. Shown, never hidden: hiding it makes the product look
+ * smaller than it is and leaves the reader wondering whether they missed something; a control that
+ * fails makes them wonder whether the vault is broken. This says which it is, in one word, and
+ * carries WHY as a title so nobody has to guess.
+ *
+ * `reason` is for the reader, not the changelog: say what does not work yet, not which module.
+ */
+export function Soon({ children, reason }: { children: ReactNode; reason: string }) {
+  const t = useT()
+  return (
+    <span className="soon-wrap" title={reason}>
+      {children}
+      <span className="soon-badge" aria-hidden="true">{t('common.soon')}</span>
+      <span className="visually-hidden">{reason}</span>
+    </span>
+  )
+}
+
 /** Language toggle (PT / EN). Keyboard-operable buttons; the choice persists per device. */
 export function LangToggle() {
   const { locale, setLocale, t } = useI18n()

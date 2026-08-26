@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Seal, Loading, LangToggle } from '../components'
+import { Seal, Loading, LangToggle, Soon } from '../components'
 import { VersionBadge } from '../UpdatePrompt'
 import { PageHeader, PageFooter } from '../page'
 import { useT, useTr } from '../i18n'
-import { getVault, getSelectedVault, health, shortAddr, deleteVault, type Vault } from '../api'
+import { getVault, getSelectedVault, health, shortAddr, deleteVault, IS_NET, type Vault } from '../api'
 import { listVaults, exportVault, type Governance } from '../storage'
 import { downloadText } from '../download'
 import { vaultFingerprint } from '../format'
@@ -128,6 +128,9 @@ export default function Settings() {
   const network = (vault as unknown as { network?: string } | null)?.network
 
   async function removeFromDevice() {
+    // `deleteVault` posts to the local bridge's /api/vault/delete and has no web path, so on the
+    // web this could only ever fail. The control is hidden there rather than left to fail.
+    if (IS_NET) return
     if (!vault || confirmName.trim() !== vault.name) return
     setBusy(true)
     setErr(null)
@@ -275,7 +278,13 @@ export default function Settings() {
       <section className="set-danger mt">
         <h2 className="set-danger-title">{t('settings.danger')}</h2>
         <p className="set-danger-note">{t('settings.dangerNote')}</p>
-        {!confirming ? (
+        {IS_NET ? (
+          /* `deleteVault` posts to the local bridge and has no web path. Named rather than removed:
+             a treasurer who wants to get rid of a vault should see that the product knows about it. */
+          <Soon reason={t('settings.removeSoonWhy')}>
+            <button type="button" className="btn danger" disabled>{t('settings.remove')}</button>
+          </Soon>
+        ) : !confirming ? (
           <button type="button" className="btn danger" onClick={() => setConfirming(true)}>
             {t('settings.remove')}
           </button>

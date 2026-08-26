@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Secret, activateOnKey, Loading } from '../components'
+import { Secret, activateOnKey, Loading, Soon } from '../components'
 import { PageHeader } from '../page'
 import { fmtZec, fmtZecExact, parseZecToZat, zatToZec } from '../format'
 import { useT, useTr } from '../i18n'
 import { useToast } from '../toast'
 import {
-  previewPayroll, createPayroll, getBalance, getBeneficiaries, getLedger, getVault, health, classifyAddress, humanError,
+  previewPayroll, createPayroll, getBalance, getBeneficiaries, getLedger, getVault, health, classifyAddress, humanError, IS_NET,
   type Beneficiary, type Proposal, type Member,
 } from '../api'
 import { listVaults } from '../storage'
@@ -145,17 +145,29 @@ export default function NewPayroll() {
   const validRows = rows.filter((r) => rowTouched(r) && rowIssue(r) === null)
   const count = validRows.length
   const totalZat = validRows.reduce((acc, r) => acc + (parseZecToZat(r.value) ?? 0), 0)
-  // ZIP-317: 5000 zat per logical action, minimum 2. The action count is NOT max(spends, outputs)
-  // here: for a bundle with cross-address transfers disabled, orchard's builder pairs every spend
-  // and every output with a fabricated zero-valued counterpart, so it is spends + outputs, and the
-  // crate tells wallets in so many words to "account for this larger action count"
-  // (orchard::builder::BundleType::num_actions). One spend + N lines + change.
+  // ZIP-317: 5000 zat per logical action, minimum 2. `max(spends, outputs)` - one spend, N lines
+  // plus change - which is what EVERY successful send has actually been charged:
   //
-  // Measured, not assumed: a 2-line payroll of 4000 zat was refused by the engine with
-  // `InsufficientFunds { available: 20000, required: 24000 }` - a 20000 fee, exactly 4 actions,
-  // where the old max() estimate said 3. Erring high costs the last few thousand zatoshi of a
-  // vault; erring low costs a payroll that fails AFTER everyone has signed it.
-  const feeZat = count > 0 ? 5000 * Math.max(2, 1 + count + 1) : 0
+  //   payment, 1 destination   1 spend + 2 outputs   fee 10000   max(1,2)=2
+  //   payroll, 2 lines         1 spend + 3 outputs   fee 15000   max(1,3)=3
+  //
+  // I briefly changed this to spends+outputs on the strength of one refusal - a 2-line payroll of
+  // 4000 zat against a 20000 balance came back `InsufficientFunds { available: 20000, required:
+  // 24000 }`, implying four actions. The very same payroll then went through against a larger
+  // balance at 15000, three actions. Same outputs, different answer: the refusal is not explained
+  // by the action count, and one data point was not enough to move the formula. It is back to what
+  // matches every send that worked, and the outlier is recorded in #206.
+  //
+  // This is an ESTIMATE and always will be: only the wallet knows its note selection. The gate that
+  // can actually be right is the helper's, using build_unproven before anyone signs (#293).
+  const feeZat = count > 0 ? 5000 * Math.max(2, count + 1) : 0
+  // What batching is worth, in the vault's own money. Paying these N people one at a time is N
+  // transactions of two actions each; one payroll is a single spend, N outputs and change. The
+  // saving grows toward half as N grows, and it is the whole reason this screen exists - so it is
+  // stated rather than left for the reader to work out from a fee they cannot see the shape of.
+  const soloFeeZat = count > 0 ? count * 5000 * 2 : 0
+  const savedZat = Math.max(0, soloFeeZat - feeZat)
+
   const afterZat = balanceZat === null ? null : balanceZat - totalZat - feeZat
   const overBalance = afterZat !== null && afterZat < 0
   const anyBadTouched = rows.some((r) => rowTouched(r) && rowIssue(r) !== null)
@@ -254,10 +266,19 @@ export default function NewPayroll() {
 
           <div className="mt-sm folha-actions">
             <button className="btn ghost sm-btn" onClick={addRow}>{t('payroll.addRow')}</button>
-            <button className="btn ghost sm-btn" onClick={() => setShowImport((v) => !v)}>{t('payroll.importCsv')}</button>
+            {/* CSV import runs through `previewPayroll`, which posts to the local bridge and has no
+                web path. Shown rather than hidden: the reader can see the product intends to do
+                this, and is told it is not ready instead of meeting a control that fails. */}
+            {IS_NET ? (
+              <Soon reason={t('payroll.importSoonWhy')}>
+                <button className="btn ghost sm-btn" disabled>{t('payroll.importCsv')}</button>
+              </Soon>
+            ) : (
+              <button className="btn ghost sm-btn" onClick={() => setShowImport((v) => !v)}>{t('payroll.importCsv')}</button>
+            )}
           </div>
           {count === 0 && !showImport && (
-            <div className="hint mt-sm">{tr('payroll.startHint')}</div>
+            <div className="hint mt-sm">{tr(IS_NET ? 'payroll.startHintWeb' : 'payroll.startHint')}</div>
           )}
 
           {showImport && (
@@ -294,6 +315,9 @@ export default function NewPayroll() {
             <span className="plf-fig">
               <span className="plf-k">{t('payroll.pvFeeK')}</span>
               <span className="plf-v num dim">+ {fmtZecExact(feeZat / 1e8)} ZEC</span>
+              {savedZat > 0 && (
+                <span className="plf-saved">{t('payroll.feeSaved', { n: count, saved: fmtZecExact(savedZat / 1e8) })}</span>
+              )}
             </span>
 
             <span className={'plf-fig' + (overBalance ? ' bad' : '')}>

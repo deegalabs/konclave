@@ -124,7 +124,7 @@ Any statement of the form "the app payment used DKG" is **false**. Only `aab00f9
   - Still **testnet, not mainnet**, and still **two browser tabs on one machine**, not separate
     physical devices (the open milestone at the top of this section stands unchanged).
   - **Deployment update (2026-08):** the hosted share-blind helper is now **deployed on Zcash
-    mainnet** on Railway (non-root container, durable volume) and serves **~23 live vaults**. That is
+    mainnet** on Railway (non-root container, durable volume) and serves **~26 live vaults**. That is
     a deployment fact, not a send proof: there is **no mainnet hosted-helper send txid yet**, so the
     Architecture-B end-to-end send above remains **proven on testnet only**. The mainnet proof set
     stands at **8 txids** (`docs/PROOF.md`), unchanged by this deployment.

@@ -8,6 +8,7 @@ import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
 import { fmtZec as fmt4, expiryLabel, fmtDate } from '../format'
 import { usdEnabled, setUsdEnabled, cachedRate, rateIsStale, fetchRate, zecToUsd, type Rate } from '../price'
+import { CONFIRMATIONS_UNTRUSTED, getTransactions } from '../api'
 import { useT, useTr } from '../i18n'
 import {
   getVault, getProposals, getBalance, getLedger, health, shortAddr, isVaultUnlocked,
@@ -54,6 +55,9 @@ export default function Dashboard() {
   const [me, setMe] = useState<string | null>(null)
   const [creator, setCreator] = useState<string | null>(null)
   const [rate, setRate] = useState<Rate | null>(cachedRate())
+  // How far the newest note has confirmed. Only fetched while something IS confirming, so a settled
+  // vault pays nothing for it.
+  const [newestHeight, setNewestHeight] = useState<number | null>(null)
   const [usdOn, setUsdOn] = useState<boolean>(usdEnabled())
   const [rateBusy, setRateBusy] = useState(false)
 
@@ -199,6 +203,17 @@ export default function Dashboard() {
   // Confirming = not-yet-spendable funds (still gathering the ~10 confirmations). Use the helper's
   // pending figure when present; otherwise derive it as total - spendable so the card never shows a
   // stray "+-".
+  const pendZatNow = hasBal ? Math.max(0, parseZ(balance!.total_zec) - parseZ(balance!.spendable_zec)) : 0
+  useEffect(() => {
+    if (pendZatNow <= 0) { setNewestHeight(null); return }
+    let on = true
+    void getTransactions().then((txs) => {
+      const h = txs?.[0]?.mined_height
+      if (on && typeof h === 'number' && h > 0) setNewestHeight(h)
+    })
+    return () => { on = false }
+  }, [pendZatNow])
+
   const pendNum = hasBal
     ? (balance!.pending_zec != null
         ? parseZ(balance!.pending_zec)
@@ -228,6 +243,8 @@ export default function Dashboard() {
     .map(([, v]) => v)
 
   // USD estimate (opt-in). Only priceable when there is a real ZEC figure.
+  const tip = hasBal ? balance!.chain_tip_height : undefined
+  const confs = tip && newestHeight ? Math.max(0, tip - newestHeight + 1) : null
   const balZecNum = hasBal ? parseZ(balance!.total_zec) : undefined
   const usdBal = usdOn ? zecToUsd(balZecNum, rate) : null
   const usdPaid = usdOn ? zecToUsd(paidZec, rate) : null
@@ -349,6 +366,19 @@ export default function Dashboard() {
               {pendNum > 0 && (
                 <div className="breakdown">
                   <span className="pd">{t('dashboard.confirming', { amt: `+${fmt4(String(pendNum))}` })}</span>
+                  {/* A count, not a promise. The vault decides when a note is spendable; this only
+                      shows how far the chain has buried it, so the wait stops being a blank pause.
+                      The bar can fill early for change, which the wallet clears at three - the truth
+                      is the pending line disappearing, and it disappears the moment that happens. */}
+                  {confs !== null && (
+                    <span className="confbar" role="status"
+                      aria-label={t('dashboard.confirmProgress', { n: Math.min(confs, CONFIRMATIONS_UNTRUSTED), of: CONFIRMATIONS_UNTRUSTED })}>
+                      <span className="confbar-track">
+                        <span className="confbar-fill" style={{ width: `${Math.min(100, (confs / CONFIRMATIONS_UNTRUSTED) * 100)}%` }} />
+                      </span>
+                      <span className="confbar-n num">{Math.min(confs, CONFIRMATIONS_UNTRUSTED)}/{CONFIRMATIONS_UNTRUSTED}</span>
+                    </span>
+                  )}
                 </div>
               )}
               <div className="usd">
