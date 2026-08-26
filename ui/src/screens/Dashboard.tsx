@@ -416,15 +416,15 @@ export default function Dashboard() {
           <section className="kpis">
             <div className="kpi">
               <span className="kpi-k klab">{t('dashboard.kpiOpen')}</span>
-              <span className="kpi-v mono">{open.length}</span>
+              <span className="kpi-v">{open.length}</span>
             </div>
             <div className="kpi">
               <span className="kpi-k klab">{t('dashboard.kpiReserved')}</span>
-              <span className="kpi-v mono"><Secret sm><b>{fmt4(String(reservedZec))}</b></Secret> <span className="kpi-u">ZEC</span></span>
+              <span className="kpi-v"><Secret sm><b>{fmt4(String(reservedZec))}</b></Secret> <span className="kpi-u">ZEC</span></span>
             </div>
             <div className="kpi">
               <span className="kpi-k klab">{t('dashboard.kpiPaid')}</span>
-              <span className="kpi-v mono"><Secret sm><b>{fmt4(String(paidZec))}</b></Secret> <span className="kpi-u">ZEC</span></span>
+              <span className="kpi-v"><Secret sm><b>{fmt4(String(paidZec))}</b></Secret> <span className="kpi-u">ZEC</span></span>
               {usdPaid && <span className="kpi-sub">≈ {usdPaid}</span>}
             </div>
           </section>

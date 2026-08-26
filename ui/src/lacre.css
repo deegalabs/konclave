@@ -181,7 +181,9 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 .tbl th{font-family:var(--font-mono); font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--text-muted);
   text-align:left; font-weight:400; padding:11px 12px; border-bottom:1px solid var(--line); background:var(--surface-2)}
 .tbl td{padding:12px 10px; border-bottom:1px solid var(--line); vertical-align:top}
-.tbl td.num{font-family:var(--font-mono); text-align:right; white-space:nowrap}
+/* A cell tagged `num` IS a figure: this used to re-declare --font-mono and silently undo the
+   .num helper, so every table of amounts kept the dotted zero. */
+.tbl td.num{font-family:var(--font-num); font-variant-numeric:tabular-nums; text-align:right; white-space:nowrap}
 .tbl .by{font-family:var(--font-mono); font-size:11px; color:var(--text-muted); margin-top:3px}
 .tbl .by b{color:var(--text); font-weight:500}
 
@@ -260,7 +262,7 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 .rail-vault-chip .medallion{flex:0 0 auto}
 .rv-meta{display:flex; flex-direction:column; min-width:0; flex:1 1 auto}
 .rv-name{font-weight:600; font-size:14px; letter-spacing:.01em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
-.rv-q{color:var(--text-muted); font-size:10px; letter-spacing:.1em; text-transform:uppercase; margin-top:2px; font-family:var(--font-mono)}
+.rv-q{color:var(--text-muted); font-size:10px; letter-spacing:.1em; text-transform:uppercase; margin-top:2px; font-family:var(--font-num); font-variant-numeric:tabular-nums}
 .rv-caret{flex:0 0 auto; color:var(--text-muted); font-size:11px; transition:transform var(--dur-fast) var(--ease-out)}
 .rail-vault-chip.open .rv-caret{transform:rotate(180deg)}
 

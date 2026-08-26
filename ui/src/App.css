@@ -424,7 +424,7 @@
 .ldesc .t{font-weight:600; font-size:14.5px}
 .ldesc .by{font-family:var(--font-mono); font-size:11.5px; color:var(--text-muted); margin-top:3px}
 .ldesc .by b{color:var(--text); font-weight:500}
-.lval{font-family:var(--font-mono); font-size:15px; text-align:right; white-space:nowrap}
+.lval{font-family:var(--font-num); font-variant-numeric:tabular-nums; font-size:15px; text-align:right; white-space:nowrap}
 .lval.out{color:var(--text)} .lval.in{color:var(--success)}
 .lval .st{font-size:10.5px; color:var(--text-muted); margin-top:3px}
 
@@ -524,7 +524,7 @@ h1.klab,h2.klab,h3.klab{margin:0;font-weight:400}
 .pv-k{flex:0 0 96px; color:var(--text-muted); text-transform:uppercase; font-size:10.5px; letter-spacing:.1em}
 .pv-v{flex:1; color:var(--text)}
 /* Figures in a preview are the record: mono (STYLE.md). Surrounding prose stays sans. */
-.pv-v b{font-family:var(--font-mono); font-weight:500}
+.pv-v b{font-family:var(--font-num); font-variant-numeric:tabular-nums; font-weight:500}
 
 /* ---- Ceremony · vault word ---- */
 .word-box{padding:18px 20px; border-radius:var(--radius); border:1px solid var(--accent-line);
@@ -565,6 +565,7 @@ h1.klab,h2.klab,h3.klab{margin:0;font-weight:400}
 .pf-row:hover{background:linear-gradient(90deg,var(--accent-soft),transparent)}
 .pf-name{font-weight:600; font-size:14px}
 .pf-meta{display:flex; align-items:center; gap:14px; font-family:var(--font-mono); font-size:12px; color:var(--text-muted)}
+.pf-val{font-family:var(--font-num); font-variant-numeric:tabular-nums}
 .pf-st{font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; border:1px solid var(--line); border-radius:var(--radius-pill); padding:2px 9px}
 .pf-st.sent,.pf-st.confirmed{color:var(--success); border-color:var(--success-line)}
 .pf-st.awaiting,.pf-st.ready{color:var(--accent); border-color:var(--accent-line)}
@@ -590,7 +591,7 @@ h1.klab,h2.klab,h3.klab{margin:0;font-weight:400}
 
 /* ---- Proposals (list) ---- */
 .plist-head{display:flex; align-items:center; gap:10px; margin:10px 0 8px}
-.plist-count{font-family:var(--font-mono); font-size:11px; color:var(--text-muted); border:1px solid var(--line); border-radius:var(--radius-pill); padding:2px 9px}
+.plist-count{font-family:var(--font-num); font-variant-numeric:tabular-nums; font-size:11px; color:var(--text-muted); border:1px solid var(--line); border-radius:var(--radius-pill); padding:2px 9px}
 .plist-count.ready{color:var(--success); border-color:var(--success-line)}
 .plist{display:flex; flex-direction:column; border-radius:var(--radius); border:1px solid var(--line-2); overflow:hidden;
   background:linear-gradient(180deg,rgba(200,220,245,.03),rgba(200,220,245,.008))}
@@ -601,7 +602,9 @@ h1.klab,h2.klab,h3.klab{margin:0;font-weight:400}
 .plist-title{font-weight:600; font-size:14.5px}
 .plist-sub{font-family:var(--font-mono); font-size:11.5px; color:var(--text-muted); margin-top:3px}
 .plist-right{text-align:right; font-family:var(--font-mono)}
-.plist-val{font-size:13.5px}
+/* Figures inherit --font-mono from their row otherwise. Every amount a person reads as money
+   declares the number font itself, so no ancestor can hand it back the dotted zero. */
+.plist-val{font-size:13.5px; font-family:var(--font-num); font-variant-numeric:tabular-nums}
 .plist-prog{font-size:11px; color:var(--text-muted); margin-top:3px; display:flex; align-items:center; gap:7px; justify-content:flex-end}
 .plist-go{color:var(--accent); font-weight:700}
 
@@ -831,7 +834,10 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 .payamt-echo{color:var(--silver)}
 .payamt-rate{display:inline-flex; align-items:center; gap:7px}
 .payamt-live{width:6px; height:6px; border-radius:50%; background:var(--success); box-shadow:0 0 0 3px var(--success-soft)}
-.payamt-max{margin-left:auto; background:transparent; border:1px solid var(--line); border-radius:var(--radius-pill); color:var(--text-muted); font:inherit; font-size:11px; padding:3px 10px; cursor:pointer}
+/* `font:inherit` is a SHORTHAND and resets font-family, so the number font has to come after it
+   or it is silently thrown away - the same shape of trap as font-feature-settings clobbering
+   font-variant-numeric. */
+.payamt-max{margin-left:auto; background:transparent; border:1px solid var(--line); border-radius:var(--radius-pill); color:var(--text-muted); font:inherit; font-family:var(--font-num); font-variant-numeric:tabular-nums; font-size:11px; padding:3px 10px; cursor:pointer}
 .payamt-max:hover{border-color:var(--accent-line); color:var(--accent)}
 .linkbtn{background:transparent; border:0; color:var(--accent); font:inherit; font-size:11.5px; cursor:pointer; padding:0}
 .linkbtn:disabled{color:var(--text-muted); cursor:default}
@@ -943,6 +949,9 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 .pay-review .pv-v{text-align:right}
 .pv-usd{font-family:var(--font-mono); font-size:11px; color:var(--silver); margin-left:4px}
 .pv-fee{margin-top:11px; padding-top:11px; border-top:1px solid var(--line); font-size:11px}
+/* The fee sits inside a sentence, so the sentence keeps the mono voice and only the figure
+   inside it switches - a `<b>` is how the copy already marks it. */
+.pv-fee b, .payamt-avail b, .set-row b{font-family:var(--font-num); font-variant-numeric:tabular-nums}
 .pay-submit{width:100%; justify-content:center}
 @media(max-width:860px){
   .pay-cols{grid-template-columns:1fr; gap:20px}

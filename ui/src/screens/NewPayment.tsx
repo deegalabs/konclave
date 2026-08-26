@@ -214,7 +214,7 @@ export default function NewPayment() {
 
           <label className="field mt"><span>
             {t('payment.memoLabel')}{' '}
-            <span className={'dim ns' + (memoOver ? ' over' : '')}>({memoLen}/{MEMO_MAX})</span>
+            <span className={'dim ns num' + (memoOver ? ' over' : '')}>({memoLen}/{MEMO_MAX})</span>
           </span>
             <input className="input" value={memo} onChange={(e) => setMemo(e.target.value)}
               disabled={publicDest} placeholder={publicDest ? t('payment.memoDisabledPlaceholder') : ''} />
