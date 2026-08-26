@@ -12,9 +12,13 @@ const css = ['./App.css', './lacre.css', './redesign.css', './net.css']
   .map((f) => { try { return readFileSync(new URL(f, import.meta.url), 'utf8') } catch { return '' } })
   .join('\n')
 
-/** The z-index declared for a selector, from the stylesheet itself. */
+/** The z-index declared for a selector, from the stylesheet itself.
+ *  The selector is escaped in full: it used to prefix a single backslash and leave `.`, `>` and
+ *  spaces to the regex engine, which quietly matched the wrong rule (or none) for any selector
+ *  more complex than one class. */
 function z(selector: string): number {
-  const rule = new RegExp(`\\${selector}\\s*\\{[^}]*\\}`, 'g')
+  const esc = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s*>\s*/g, '\\s*>\\s*')
+  const rule = new RegExp(`${esc}\\s*\\{[^}]*\\}`, 'g')
   for (const m of css.match(rule) ?? []) {
     const hit = /z-index:\s*(\d+)/.exec(m)
     if (hit) return Number(hit[1])
@@ -55,5 +59,15 @@ describe('stacking order: the shell and the sheets', () => {
     // whether it covers the page is the RAIL's level.
     expect(z('.rail')).toBeGreaterThan(z('.railnav')) // above the mobile bar too
     expect(z('.modal-overlay')).toBeGreaterThan(z('.rail'))
+  })
+})
+
+describe('stacking order: a popover is not covered by the block after it', () => {
+  it('the dashboard header outranks the blocks that follow it', () => {
+    // `.page.dash > *` gives EVERY dashboard block its own stacking context, so the members
+    // popover's own z-index is meaningless outside its block: what decides whether it is covered
+    // is the HEADER's level against its siblings'. This shipped broken and read as "the card has
+    // no background" - it had one, and the next block painted over it.
+    expect(z('.page.dash > .page-header')).toBeGreaterThan(z('.page.dash > *'))
   })
 })

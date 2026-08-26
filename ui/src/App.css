@@ -686,13 +686,15 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 .page.dash::before{content:""; position:absolute; top:-24px; left:0; right:0; height:240px; z-index:0; pointer-events:none;
   background:radial-gradient(60% 180px at 30% 0, rgba(var(--accent-glow),.08), transparent 72%)}
 .page.dash > *{position:relative; z-index:1}
-/* Each dashboard block gets its own stacking context from the rule above, so a popover inside one
-   of them is trapped at that block's level however high its own z-index is: the NEXT block, also
-   at 1 and later in the DOM, simply paints over it. That is what made the members card look like
-   it had no background - it had one, and was being covered. The block holding a popover is raised
-   above its siblings, only while the popover is showing. */
-.page.dash > *:has(.members-peek:hover), .page.dash > *:has(.members-peek:focus-within){z-index:6}
-.page.dash > *:has(.members-pop){position:relative}
+/* Each dashboard block gets its own stacking context from the rule above, so anything inside one of
+   them is trapped at that block's level however high its own z-index is: the NEXT block, also at 1
+   and later in the DOM, simply paints over it. That is what made the members card look like it had
+   no background - it had one, and was being covered.
+   The header is raised UNCONDITIONALLY rather than on hover: a rule that only applies while a
+   pointer is over something fails on touch, and a `:has()` rule fails outright on a browser that
+   does not support it - and the failure is exactly the bug. Nothing on a page should cover its own
+   heading in any case. */
+.page.dash > .page-header{z-index:6}
 
 /* the "needs you" approval card is the hero action - give it a soft accent glow */
 .needyou.act{background:linear-gradient(180deg,var(--accent-soft),transparent);
