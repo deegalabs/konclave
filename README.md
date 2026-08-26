@@ -75,13 +75,13 @@ upgrade on mainnet.
 
 ## Proven on Zcash mainnet
 
-This is not a mock. **8 verifiable mainnet transactions**, every one a real 2-of-3 FROST ceremony
-with the key never reconstituted. The flagship is an application-driven **quorum payment** - proposed
+This is not a mock. **11 verifiable mainnet transactions**, every one a real FROST ceremony with
+the key never reconstituted - quorums of 2-of-2, 2-of-3 and 3-of-4. The flagship is an application-driven **quorum payment** - proposed
 and approved in the app, signed by a FROST ceremony, broadcast to mainnet:
 
 > **txid** [`43433a109d3f2a078c0a9269ccb156392ade7a1f7ac1532981611eda1e59a572`](https://mainnet.zcashexplorer.app/transactions/43433a109d3f2a078c0a9269ccb156392ade7a1f7ac1532981611eda1e59a572)
 
-The eight also prove, on-chain: a **private payroll** (one shielded Orchard transaction, N encrypted
+The eleven also prove, on-chain: a **private payroll** (one shielded transaction, N encrypted
 memos), a send from a **real DKG vault** (the key born distributed, never assembled), a
 **browser-signed** broadcast (each browser tab signing with only its own share over the blind relay -
 *two tabs on one machine so far; the cross-device broadcast is the open milestone*), and the full
@@ -95,8 +95,8 @@ block explorers - or open any of them from [docs/PROOF.md](docs/PROOF.md).
 
 | | |
 |---|---|
-| **Quorum payment** | Propose a payment → members approve → at quorum the vault signs (FROST) and sends a shielded Orchard transaction. One click never moves money; every fund-moving action has a preview and an explicit confirmation. |
-| **Private payroll** | Import a CSV of beneficiaries → one shielded Orchard transaction with N outputs, approved **once**. Each payslip rides in an **encrypted memo** only its recipient can read. |
+| **Quorum payment** | Propose a payment → members approve → at quorum the vault signs (FROST) and sends a shielded transaction (the Ironwood pool, since NU6.3). One click never moves money; every fund-moving action has a preview and an explicit confirmation. |
+| **Private payroll** | Enter the beneficiaries (or import a CSV, on the local build) → one shielded transaction with N outputs, approved **once**. Each payslip rides in an **encrypted memo** only its recipient can read. |
 | **Accounting** | A full internal ledger (who proposed, who approved, states, dates) plus an **itemized CSV export** (a payroll of N is N line-items). Transparent inside, private outside. |
 
 ## Using it: step by step
@@ -113,7 +113,7 @@ The whole flow, in the app's own words (hide the cryptography, expose the trust)
 4. **Approve to quorum** (`/proposals` → a proposal). Each member reviews and approves or refuses.
    Nothing moves until the agreed number of approvals is in, and proposals expire.
 5. **Sign & send.** At quorum a FROST ceremony signs with **only the shares of whoever approved** and
-   broadcasts one shielded Orchard transaction. A preview and an explicit confirmation guard the
+   broadcasts one shielded transaction. A preview and an explicit confirmation guard the
    broadcast: one click never moves money, and the key is never reassembled.
 6. **Payroll, optional** (`/payroll`). Import a CSV of beneficiaries → one shielded transaction with
    N outputs, approved **once**, each payslip in an encrypted memo only its recipient can read.

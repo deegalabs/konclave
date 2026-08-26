@@ -8,7 +8,7 @@
 ## Status - 2026-08-19 (post-hackathon)
 
 The core runs end to end (payment + payroll: propose -> validate -> approve/refuse -> sign with
-FROST -> account) and is **proven on mainnet** (8 verifiable txids, see `docs/PROOF.md`). This
+FROST -> account) and is **proven on mainnet** (11 verifiable txids, see `docs/PROOF.md`). This
 cycle's work:
 
 **Shipped**
