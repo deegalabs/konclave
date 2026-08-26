@@ -6,7 +6,7 @@ import { fmtZec, fmtZecExact, parseZecToZat, zatToZec } from '../format'
 import { useT, useTr } from '../i18n'
 import { useToast } from '../toast'
 import {
-  previewPayroll, createPayroll, getBalance, getBeneficiaries, getLedger, getVault, health, classifyAddress, humanError,
+  previewPayroll, createPayroll, getBalance, getBeneficiaries, getLedger, getVault, health, classifyAddress, humanError, IS_NET,
   type Beneficiary, type Proposal, type Member,
 } from '../api'
 import { listVaults } from '../storage'
@@ -254,10 +254,15 @@ export default function NewPayroll() {
 
           <div className="mt-sm folha-actions">
             <button className="btn ghost sm-btn" onClick={addRow}>{t('payroll.addRow')}</button>
-            <button className="btn ghost sm-btn" onClick={() => setShowImport((v) => !v)}>{t('payroll.importCsv')}</button>
+            {/* CSV import runs through `previewPayroll`, which has no web path: it posts to the
+                local bridge's /api/payroll/preview and always fails here. Offer it only where it
+                works, and say why rather than letting the button fail. */}
+            {!IS_NET && (
+              <button className="btn ghost sm-btn" onClick={() => setShowImport((v) => !v)}>{t('payroll.importCsv')}</button>
+            )}
           </div>
           {count === 0 && !showImport && (
-            <div className="hint mt-sm">{tr('payroll.startHint')}</div>
+            <div className="hint mt-sm">{tr(IS_NET ? 'payroll.startHintWeb' : 'payroll.startHint')}</div>
           )}
 
           {showImport && (

@@ -562,6 +562,7 @@ export const en: Record<string, string> = {
   'payroll.addRow': '+ Add line',
   'payroll.fromRegistry': '+ from registry…',
   'payroll.importCsv': '↑ Import CSV',
+  'payroll.startHintWeb': 'Start the payroll: type in the table above, or pick someone from the registry.',
   'payroll.startHint': 'Start building the payroll: type in the table above, pick someone **from the registry**, or **import a CSV** (label, address, value, memo).',
   'payroll.csvPlaceholder': 'label,address,value,memo',
   'payroll.csvRead': 'Read and fill the table',

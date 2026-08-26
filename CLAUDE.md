@@ -314,7 +314,7 @@ the crates are unified under one workspace (orchestrator aligned on `rusqlite 0.
   from `main`. CI is green, but it is **gated on a live round-trip and NOT merged to `main`** -
   `engine/versions.lock` on `main` intentionally keeps the older pins until then.
 - **Hosted blind helper deployed on mainnet, non-root.** The Architecture-B helper (ADR-0006 Rung A)
-  runs on Railway against mainnet (~23 live vaults). The container now runs as a **non-root**
+  runs on Railway against mainnet (~26 live vaults). The container now runs as a **non-root**
   `konclave` user: the entrypoint enters as root only to `chown` the durable Railway volume, then
   drops via `gosu` before running the share-blind helper (#265). It still never receives, derives, or
   stores a share.

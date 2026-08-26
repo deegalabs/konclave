@@ -562,6 +562,7 @@ export const ptBR: Record<string, string> = {
   'payroll.addRow': '+ Adicionar linha',
   'payroll.fromRegistry': '+ do cadastro…',
   'payroll.importCsv': '↑ Importar CSV',
+  'payroll.startHintWeb': 'Comece a folha: digite na tabela acima ou escolha alguém do registro.',
   'payroll.startHint': 'Comece a montar a folha: escreva na tabela acima, escolha alguém **do cadastro**, ou **importe um CSV** (rótulo, endereço, valor, memo).',
   'payroll.csvPlaceholder': 'rótulo,endereço,valor,memo',
   'payroll.csvRead': 'Ler e preencher tabela',

@@ -586,7 +586,7 @@ upgrade, and the hosted helper's move to production.
   #259 merges. No CHANGELOG entry for the bump yet - that lands at merge time.
 - **Hosted blind helper deployed on mainnet.** The Architecture-B helper (`helper-server`, ADR-0006
   Rung A) now runs against **Zcash mainnet** on Railway (`KONCLAVE_NETWORK=main`, lightwalletd
-  `zec.rocks:443`), serving **~23 live vaults** on the durable `/data` volume, all intact across the
+  `zec.rocks:443`), serving **~26 live vaults** on the durable `/data` volume, all intact across the
   non-root migration. It still never receives, derives, or stores a share. There is no mainnet
   hosted-helper *send* txid yet (the send remains proven on testnet, `docs/CLAIMS.md`); the 8-txid
   mainnet proof set (`docs/PROOF.md`) is unchanged.

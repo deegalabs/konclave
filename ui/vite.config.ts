@@ -28,7 +28,10 @@ export default defineConfig({
       registerType: 'prompt',
       // The <UpdatePrompt/> useRegisterSW hook owns registration; don't also auto-inject a script.
       injectRegister: false,
-      includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
+      // The `mark-*` set is drawn from the same geometry as the live <Mark/> emblem
+      // (ui/src/components.tsx). The older `icon-*`/`favicon.svg` files are kept on disk on
+      // purpose - nothing that shipped is deleted - they are simply no longer the ones referenced.
+      includeAssets: ['mark-favicon.svg', 'mark-apple-touch.png'],
       manifest: {
         name: 'Konclave',
         short_name: 'Konclave',
@@ -36,13 +39,13 @@ export default defineConfig({
         start_url: './',
         scope: './',
         display: 'standalone',
-        background_color: '#12161a',
-        theme_color: '#12161a',
+        background_color: '#0f141a',
+        theme_color: '#0f141a',
         lang: 'pt-BR',
         icons: [
-          { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
-          { src: 'icon-512.png', sizes: '512x512', type: 'image/png' },
-          { src: 'icon-maskable.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' },
+          { src: 'mark-192.png', sizes: '192x192', type: 'image/png' },
+          { src: 'mark-512.png', sizes: '512x512', type: 'image/png' },
+          { src: 'mark-maskable.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' },
         ],
       },
       workbox: {
