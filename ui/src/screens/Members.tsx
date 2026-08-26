@@ -19,7 +19,9 @@ export default function Members() {
   const [saving, setSaving] = useState(false)
   const [renameErr, setRenameErr] = useState<string | null>(null)
   const [renamed, setRenamed] = useState(false)
-  const [gov, setGov] = useState<Governance | null>(null)
+  // Read from the on-device record but not shown: the governance nudge it used to gate was
+  // removed. Kept as a setter-only so the record read stays intact for whatever needs it next.
+  const [, setGov] = useState<Governance | null>(null)
   // The name THIS device chose at create/join, so "you" marks the right seat. Without an on-device
   // record there is no "you" to mark - never guess a seat.
   const [me, setMe] = useState<string | null>(null)
@@ -129,10 +131,6 @@ export default function Members() {
         </div>
         )}
 
-        {IS_NET && vault && gov === 'quorum' && (
-          <div className="gov-nudge mt" role="note">{t('gov.nudgeSigners')}</div>
-        )}
-
         {IS_NET && vault && me && (
           <div className="confirm mt">
             <div className="who-name mb-sm">{t('members.yourNameTitle')}</div>
@@ -156,7 +154,6 @@ export default function Members() {
             </button>
             {renamed && <div className="hint ready mt-sm">{t('members.yourNameSaved')}</div>}
             {renameErr && <div className="hint err mt-sm" role="alert">{t('members.renameErr')}: {renameErr}</div>}
-            <div className="fp-help dim mt-sm">{t('members.yourNameHelp')}</div>
           </div>
         )}
 
