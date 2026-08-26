@@ -21,6 +21,7 @@ Konclave claims seven real Zcash **mainnet** transactions:
 | Browser-signed send under the **everyone-signs / last-signer-sends** model: 2-of-2 browser-DKG vault, each device signing its own share, the device that closed the quorum broadcasting | `64f94d290f409f0e80b7985213bf0089a82b5c8de13e587d096ad57be7ae7f32` | 3,460,108 |
 | **3-of-4** browser-DKG vault, browser-signed, operated by someone other than the maintainer - the largest quorum proven | `b496fc3ce0b728f840b5346127a7757c670b4e38f55f0f7198b4a2e43a902898` | 3,460,538 |
 | **Private payroll on the web path, post-Ironwood**: 2 beneficiaries in ONE V6 transaction, browser-DKG 2-of-2 vault, approved once and signed by both devices under the everyone-signs / last-signer-sends model | `7c4c1dd5d8522dc14a77b4a37ebb0846d5a3b7ed0c507c9cede2de09480490ea` | 3,461,704 |
+| **Across separate physical machines, over the internet**: 2-of-2 browser-DKG vault, proposed and approved by Michael, co-signed by Daniel on a different computer in a different place, each browser holding only its own share. This closes the cross-device milestone the README carried as open | `aec83baf22ee9eaab1281d43a7efb4abed619154980a935bf37ddc00171a938a` | 3,460,285 |
 
 The verifier queries independent public explorers and confirms each transaction
 exists and is mined on mainnet, reporting the block height, confirmations, and
@@ -87,7 +88,9 @@ verification.
 ## What on-chain verification CANNOT prove alone
 
 On-chain data does **not**, by itself, prove that the payment was authorized by a
-2-of-3 **threshold (FROST)** signature rather than by an ordinary single signer.
+**threshold (FROST)** signature rather than by an ordinary single signer. Nor does it
+prove *where* the signers were: the cross-machine ceremony above is attested by the two
+operators and by the ceremony trail, not by the chain, for the same structural reason.
 
 The reason is structural, not a gap in the tooling. FROST produces a single
 aggregated signature that is valid under the group's public key. For Orchard

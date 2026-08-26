@@ -8,7 +8,7 @@
 ## Status - 2026-08-19 (post-hackathon)
 
 The core runs end to end (payment + payroll: propose -> validate -> approve/refuse -> sign with
-FROST -> account) and is **proven on mainnet** (8 verifiable txids, see `docs/PROOF.md`). This
+FROST -> account) and is **proven on mainnet** (12 verifiable txids, see `docs/PROOF.md`). This
 cycle's work:
 
 **Shipped**
@@ -35,7 +35,7 @@ cycle's work:
 - A real **Dashboard-triggered broadcast** on mainnet (money-gated; needs a funded vault + a live
   dry-run; the final click is the owner's).
 - **Live desktop (Tauri) validation** of all three coordination modes end to end.
-- A **live multi-device** (not two-tab) broadcast.
+- ~~A **live multi-device** (not two-tab) broadcast.~~ **Done 2026-08-25** (`aec83baf`, block 3,460,285: two people, two machines, over the internet).
 
 **Open honest debts (§6.15, unchanged)**
 - **H2:** seal the SignRequest (device-key handshake, #63).

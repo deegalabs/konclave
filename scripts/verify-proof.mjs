@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readFileSync } from "node:fs";
 // verify-proof.mjs - independent, judge-runnable proof that Konclave's claimed
 // mainnet transactions are real, mined Zcash transactions.
 //
@@ -11,7 +12,7 @@
 // HONEST SCOPE (read this before drawing conclusions):
 //   On-chain data proves a transaction exists, is mined, and (being shielded)
 //   reveals nothing about amounts or parties. It does NOT, by itself, prove the
-//   2-of-3 threshold/FROST nature of the signature. A FROST-aggregated Orchard
+//   threshold/FROST nature of the signature. A FROST-aggregated Orchard
 //   signature is designed to be indistinguishable on-chain from an ordinary
 //   single-signer Orchard signature - that indistinguishability is precisely the
 //   privacy property. The threshold nature is attested by the build and the
@@ -20,40 +21,22 @@
 // Requirements: Node 18+ (uses global fetch). No npm install needed.
 // Usage: node scripts/verify-proof.mjs
 
-const TXIDS = [
-  {
-    txid: "43433a109d3f2a078c0a9269ccb156392ade7a1f7ac1532981611eda1e59a572",
-    label: "application-driven 2-of-3 quorum payment (FROST-signed, broadcast)",
-  },
-  {
-    txid: "f63ee64d7bc086a8286631d03936ec2ca2ca57f4e4c63712fc95c1f02c522360",
-    label: "Gate-1 CLI-driven vertical-slice payment",
-  },
-  {
-    txid: "6c898239e05fdd1ccce5d650fa25eeabb10d1645a3fdbc36ab5fd3ac8d4fd35f",
-    label: "2-of-3 FROST payment from a freshly created + funded vault (reproduced end to end)",
-  },
-  {
-    txid: "b1e24c07fcd629e6e6ea6809ffeb5d2e311054781740c6a5db73dabc94d0e1b4",
-    label: "private multi-output payroll (3 outputs, one encrypted memo each), 2-of-3 FROST",
-  },
-  {
-    txid: "aab00f903b65e32d1adac317820a85fc97d15c2dcd788b3657ce36773e230ff3",
-    label: "2-of-3 FROST send from a real DKG-generated vault (key never reconstituted), broadcast to mainnet",
-  },
-  {
-    txid: "54266f478505160adfb039c7c76f5615f1536a34059ab30e9f24781ec2e5c494",
-    label: "post-Ironwood (NU6.3) V6 tx: 2-of-3 FROST Orchard->Ironwood migration (spends all Orchard notes, seeds the Ironwood pool)",
-  },
-  {
-    txid: "36c60f1e3f602c2ac13c9f5b0687f248522499fc5a8b69311605336457226c95",
-    label: "first Ironwood-pool spend on mainnet: 2-of-3 FROST spend FROM the Ironwood pool (V6/NU6.3)",
-  },
-  {
-    txid: "3022420a8bcf17ffd5511163c18ee9b5996a3ba44747e4eff6794bdd3f04ccee",
-    label: "first browser-signed mainnet broadcast: a browser-DKG 2-of-2 vault, each device signing IN THE BROWSER with only its own share over the blind relay (Architecture B, WASM signer), Ironwood pool (V6/NU6.3)",
-  },
-];
+// The list is READ FROM docs/PROOF.md, not duplicated here. It used to be a hard-coded array, and
+// it drifted: the document said eleven transactions while the script checked eight - so the very
+// command offered as "don't trust us, check" disagreed with the claim it was meant to verify.
+// One source, one answer.
+const PROOF = new URL("../docs/PROOF.md", import.meta.url);
+const TXIDS = readFileSync(PROOF, "utf8")
+  .split("\n")
+  .map((line) => /^\|\s*(.+?)\s*\|\s*`([0-9a-f]{64})`\s*\|/.exec(line))
+  .filter(Boolean)
+  .map((m) => ({ txid: m[2], label: m[1].replace(/\*\*/g, "").replace(/\s+/g, " ").trim() }));
+
+if (TXIDS.length === 0) {
+  console.error("No transactions found in docs/PROOF.md - has the table format changed?");
+  process.exit(2);
+}
+
 
 const TIMEOUT_MS = 15000;
 
@@ -235,7 +218,7 @@ async function main() {
 
   console.log("\nHonest scope: this proves existence + mined state on mainnet. Being");
   console.log("shielded, these transactions reveal nothing on-chain about amounts or");
-  console.log("parties. On-chain data does NOT by itself prove the 2-of-3 FROST nature:");
+  console.log("parties. On-chain data does NOT by itself prove the FROST threshold nature:");
   console.log("a FROST-aggregated Orchard signature is indistinguishable from a normal");
   console.log("single-signer one - that indistinguishability is the privacy property.");
   console.log("The threshold nature is attested by the build and ceremony, not the chain.");

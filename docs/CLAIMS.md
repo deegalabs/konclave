@@ -26,7 +26,7 @@ all documents:
    - `trusted-dealer` - a dealer briefly held the whole key at setup, then split it.
 
 ## Mainnet transactions (authoritative attribution)
-As of this writing, eight verifiable mainnet txids. **Two** are from real DKG vaults (the CLI
+As of this writing, twelve verifiable mainnet txids. **Two** are from real DKG vaults (the CLI
 DKG-vault send and the browser-DKG browser-signed broadcast); the rest are trusted-dealer.
 
 | Transaction | Evidence | Key origin |
@@ -127,7 +127,7 @@ Any statement of the form "the app payment used DKG" is **false**. Only `aab00f9
     mainnet** on Railway (non-root container, durable volume) and serves **~26 live vaults**. That is
     a deployment fact, not a send proof: there is **no mainnet hosted-helper send txid yet**, so the
     Architecture-B end-to-end send above remains **proven on testnet only**. The mainnet proof set
-    stands at **8 txids** (`docs/PROOF.md`), unchanged by this deployment.
+    stands at **12 txids** (`docs/PROOF.md`), unchanged by this deployment.
   - Two hosted-helper bugs were found and fixed in the process: the helper image shipped without
     `curl` (its relay transport shells out to curl, so the publish step failed at "curl spawn"); and
     the helper's signing-collection window (`max_polls`) was too short for the browser ceremony over
