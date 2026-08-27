@@ -188,7 +188,7 @@ handshake replaced the fixed sleep in the DKG/send ceremony.
 
 ---
 
-**Phase 9 - konclave.app network (multi-device FROST in the browser) - 🚧 Marcos 1-4 DONE
+**Phase 9 - konclave.xyz network (multi-device FROST in the browser) - 🚧 Marcos 1-4 DONE
 (2026-07-15).** The step from "one machine" to "any device": separate browsers create and
 operate ONE vault over a **blind relay**, no server ever seeing a secret. Proven live across
 two browser tabs. Submitted to ZecHub Hackathon 3.0 (FROST + Accounting) on the deadline.

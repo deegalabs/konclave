@@ -1,4 +1,4 @@
-// Transport client for the blind mailbox (orchestrator/src/relay.rs) - the konclave.app
+// Transport client for the blind mailbox (orchestrator/src/relay.rs) - the konclave.xyz
 // network. A device POSTs an OPAQUE message into a room; the others in the room poll and
 // receive it. This client knows nothing about ceremonies: it just moves strings. Whatever
 // is sensitive is public-by-design (FROST material) or already sealed to a recipient before

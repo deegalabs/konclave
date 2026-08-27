@@ -40,7 +40,7 @@ import encodeQR from '@paulmillr/qr'
 import '../redesign.css'
 import '../net.css'
 
-// The konclave.app network, made visible: two (or three) browser contexts create ONE vault by
+// The konclave.xyz network, made visible: two (or three) browser contexts create ONE vault by
 // a real DKG over the blind relay. Each keeps its own share; the round-2 secret pieces are
 // sealed to their recipient, so the relay only ever carries public material or ciphertext.
 // This is the "I created / I invited / I entered the code" flow, running for real across tabs.

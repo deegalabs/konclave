@@ -1,4 +1,4 @@
-//! Konclave browser-signer core (WS1 of the konclave.app plan).
+//! Konclave browser-signer core (WS1 of the konclave.xyz plan).
 //!
 //! Assembles the three de-risked probes into ONE module the browser calls:
 //!

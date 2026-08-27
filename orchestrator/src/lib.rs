@@ -37,7 +37,7 @@ pub mod wallet;
 // --- local HTTP bridge to the UI (ADR-0004) ---
 pub mod server;
 
-// --- the blind mailbox: the konclave.app network transport (Milestone 1) ---
+// --- the blind mailbox: the konclave.xyz network transport (Milestone 1) ---
 pub mod relay;
 
 // --- inheritance / dead-man's-switch policy engine ---

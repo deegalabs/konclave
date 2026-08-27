@@ -50,7 +50,7 @@ the reference [`frost`](https://github.com/ZcashFoundation/frost) crate,
 [librustzcash](https://github.com/zcash/librustzcash). Konclave adds the usability,
 orchestration, and accounting layer on top.
 
-## The step beyond: konclave.app (FROST across devices, in the browser)
+## The step beyond: konclave.xyz (FROST across devices, in the browser)
 
 The headline new capability, aimed straight at the FROST track's "threshold signing wallets"
 idea: **separate devices create and operate one vault entirely in the browser, over a blind

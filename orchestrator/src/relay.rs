@@ -1,4 +1,4 @@
-//! The blind mailbox - Milestone 1 of the konclave.app network.
+//! The blind mailbox - Milestone 1 of the konclave.xyz network.
 //!
 //! This answers the concrete question "how do three separate devices find each other?".
 //! A device posts an **opaque** message into a room; the other devices in that room poll

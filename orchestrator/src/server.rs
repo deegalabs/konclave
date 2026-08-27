@@ -74,7 +74,7 @@ pub struct Config {
     /// L2: when set, the DB is opened with SQLCipher under this key (from the OS keychain),
     /// so vault metadata + the UFVK are encrypted at rest. `None` = plaintext (legacy/default).
     pub db_key: Option<zeroize::Zeroizing<[u8; 32]>>,
-    /// The blind mailbox (konclave.app network transport). In-memory, opaque messages only -
+    /// The blind mailbox (konclave.xyz network transport). In-memory, opaque messages only -
     /// it moves ciphertext/public FROST material between devices and cannot read either.
     pub relay: crate::relay::RelayState,
 }
@@ -289,7 +289,7 @@ pub fn handle(cfg: &Config, method: &str, raw_path: &str, body: &[u8]) -> Respon
     let vsel = query_param(raw_path, "vault");
     let vsel = vsel.as_deref();
 
-    // The blind mailbox (konclave.app network transport) owns its own GET/POST/HEAD routing.
+    // The blind mailbox (konclave.xyz network transport) owns its own GET/POST/HEAD routing.
     // It carries opaque bytes between devices and is intentionally NOT vault-scoped.
     if path.starts_with("/api/relay/") {
         return cfg

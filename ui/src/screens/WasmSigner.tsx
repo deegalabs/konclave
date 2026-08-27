@@ -32,7 +32,7 @@ const hexToBytes = (s: string) => new Uint8Array(s.match(/../g)!.map((b) => pars
 const toHex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('')
 const short = (s: string) => (s.length > 24 ? `${s.slice(0, 14)}…${s.slice(-6)}` : s)
 
-/** konclave.app proof: a full 2-of-3 rerandomized redpallas FROST ceremony run entirely in
+/** konclave.xyz proof: a full 2-of-3 rerandomized redpallas FROST ceremony run entirely in
  *  WebAssembly, in the browser - the secret share never leaves, only public material moves.
  *  Plus the FROST↔PCZT bridge operating on a real mainnet transaction. */
 export default function WasmSigner() {
