@@ -233,26 +233,36 @@ fn build_unproven(sc: &SendConfig, plan: &SpendPlan) -> Result<Vec<u8>, ToolErro
             memo.as_deref(),
         ),
         SpendPlan::Payroll { lines } => {
+            // The spec is the most sensitive plaintext this process ever writes: every
+            // beneficiary's name, address, amount and payslip memo, for the whole group. It used to
+            // be written into `sc.work_dir` and left there - and on the hosted helper that
+            // directory is the DURABLE Railway volume, so one payroll's roster outlived the send
+            // by however long the vault existed (#297).
+            //
+            // It now goes through the same guard the unsealed shares use: a 0600 file on tmpfs when
+            // /dev/shm exists (so on the helper it never reaches a disk), removed when the guard
+            // drops - including on panic and on any error path below.
             let spec = serde_json::to_string(lines)
                 .map_err(|e| ToolError::parse("payroll spec", e.to_string()))?;
-            let spec_path = format!("{}/payroll-spec.json", sc.work_dir);
-            std::fs::write(&spec_path, spec).map_err(ToolError::Io)?;
             let out_path = format!("{}/payroll.pczt", sc.work_dir);
-            crate::tools::run(
-                &sc.konclave_signer,
-                &[
-                    "build-payroll",
-                    "--wallet",
-                    &sc.wallet_dir,
-                    "--account",
-                    &sc.account,
-                    "--spec",
-                    &spec_path,
-                    "--out",
-                    &out_path,
-                ],
-                None,
-            )?;
+            crate::secrets::with_private_file(spec.as_bytes(), |spec_path| {
+                crate::tools::run(
+                    &sc.konclave_signer,
+                    &[
+                        "build-payroll",
+                        "--wallet",
+                        &sc.wallet_dir,
+                        "--account",
+                        &sc.account,
+                        "--spec",
+                        &spec_path.to_string_lossy(),
+                        "--out",
+                        &out_path,
+                    ],
+                    None,
+                )
+            })
+            .map_err(|e| ToolError::parse("payroll spec", e.to_string()))??;
             std::fs::read(&out_path).map_err(ToolError::Io)
         }
     }
