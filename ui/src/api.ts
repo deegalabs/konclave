@@ -331,7 +331,11 @@ export function humanError(t: TFn, error?: string, detail?: string): string {
   // The engine reports the two figures that decide it. Pass them through: "the vault has X and this
   // needs Y" is actionable, where a generic "insufficient funds" leaves you guessing by how much -
   // and the gap is usually the fee, which is exactly the part nobody can compute in their head.
-  const funds = /available:\s*Zatoshis\((\d+)\)[\s\S]*?required:\s*Zatoshis\((\d+)\)/i.exec(`${error ?? ''} ${detail ?? ''}`)
+  // The helper now refuses an unfundable proposal up front (422) with the figures already parsed,
+  // so prefer those; the regex below still reads them out of a raw engine error further down the
+  // path, where nobody has parsed anything yet.
+  const funds = /available_zat"?\s*[:=]\s*(\d+)[\s\S]*?required_zat"?\s*[:=]\s*(\d+)/i.exec(`${error ?? ''} ${detail ?? ''}`)
+    ?? /available:\s*Zatoshis\((\d+)\)[\s\S]*?required:\s*Zatoshis\((\d+)\)/i.exec(`${error ?? ''} ${detail ?? ''}`)
   if (funds) {
     const have = Number(funds[1]), need = Number(funds[2])
     if (Number.isFinite(have) && Number.isFinite(need)) {
