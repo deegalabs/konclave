@@ -135,23 +135,50 @@ pub enum Funding {
     Short { available: u64, required: u64 },
 }
 
-/// Read `available` / `required` out of a wallet error, if it is an insufficient-funds one.
+/// Read `available` / `required` out of a wallet error, in either shape the engine emits.
 ///
-/// The engine reports `InsufficientFunds { available: Zatoshis(20000), required: Zatoshis(24000) }`.
-/// Those two numbers are the whole answer a person needs, and the gap between them is the fee -
-/// precisely the part nobody can compute in their head. Pure, so the shape is pinned by tests
-/// rather than discovered in production.
+/// There are TWO, and shipping a parser that knew only one is what let an unfundable proposal
+/// through on the payment path while the payroll path refused it correctly:
+///
+///   payroll  (konclave-signer, Debug)  InsufficientFunds { available: Zatoshis(20000), required: Zatoshis(24000) }
+///   payment  (zcash-devtool, Display)  Insufficient balance (have 501000, need 900010000 including fee)
+///
+/// The devtool renders the wallet error through `Display` (`Error::Wallet(e) => e.fmt(f)`), and
+/// `zcash_client_backend`'s Display for this case is literally
+/// "Insufficient balance (have {}, need {} including fee)". Both shapes are read from the crates,
+/// not from a sample, and both are pinned by tests.
 pub fn parse_insufficient_funds(stderr: &str) -> Option<(u64, u64)> {
-    let at = stderr.find("InsufficientFunds")?;
-    let rest = &stderr[at..];
-    let grab = |key: &str| -> Option<u64> {
-        let i = rest.find(key)? + key.len();
-        let tail = &rest[i..];
-        let open = tail.find('(')? + 1;
-        let close = tail[open..].find(')')?;
-        tail[open..open + close].trim().parse::<u64>().ok()
-    };
-    Some((grab("available:")?, grab("required:")?))
+    // Shape 1: the Debug rendering.
+    if let Some(at) = stderr.find("InsufficientFunds") {
+        let rest = &stderr[at..];
+        let grab = |key: &str| -> Option<u64> {
+            let i = rest.find(key)? + key.len();
+            let tail = &rest[i..];
+            let open = tail.find('(')? + 1;
+            let close = tail[open..].find(')')?;
+            tail[open..open + close].trim().parse::<u64>().ok()
+        };
+        if let (Some(a), Some(r)) = (grab("available:"), grab("required:")) {
+            return Some((a, r));
+        }
+    }
+    // Shape 2: the Display rendering.
+    if let Some(at) = stderr.find("Insufficient balance") {
+        let rest = &stderr[at..];
+        let num_after = |key: &str| -> Option<u64> {
+            let i = rest.find(key)? + key.len();
+            let digits: String = rest[i..]
+                .chars()
+                .skip_while(|c| !c.is_ascii_digit())
+                .take_while(|c| c.is_ascii_digit())
+                .collect();
+            digits.parse::<u64>().ok()
+        };
+        if let (Some(a), Some(r)) = (num_after("have"), num_after("need")) {
+            return Some((a, r));
+        }
+    }
+    None
 }
 
 /// Ask the WALLET whether this plan can be paid, before anyone is asked to approve or sign.
@@ -590,9 +617,35 @@ mod funding_tests {
     const REAL: &str = "/usr/local/bin/konclave-signer exited with 1: Error: propose_transfer: \
                         InsufficientFunds { available: Zatoshis(20000), required: Zatoshis(24000) }";
 
+    /// The OTHER shape, and the one that got through: `zcash-devtool` renders the wallet error via
+    /// Display, and the backend's Display for this case is
+    /// "Insufficient balance (have {}, need {} including fee)".
+    const REAL_DISPLAY: &str =
+        "Error: Insufficient balance (have 501000, need 900010000 including fee)";
+
     #[test]
     fn reads_both_figures_from_a_real_refusal() {
         assert_eq!(parse_insufficient_funds(REAL), Some((20_000, 24_000)));
+    }
+
+    #[test]
+    fn reads_the_display_shape_too() {
+        // A parser that knew only the Debug shape let an unfundable payment through in production
+        // while refusing the equivalent payroll. Same question, two binaries, two wordings.
+        assert_eq!(
+            parse_insufficient_funds(REAL_DISPLAY),
+            Some((501_000, 900_010_000))
+        );
+    }
+
+    #[test]
+    fn the_two_shapes_answer_the_same_question() {
+        let (a1, r1) = parse_insufficient_funds(REAL).expect("debug shape");
+        let (a2, r2) = parse_insufficient_funds(REAL_DISPLAY).expect("display shape");
+        assert!(
+            r1 > a1 && r2 > a2,
+            "a refusal always needs more than it has"
+        );
     }
 
     #[test]
