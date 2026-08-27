@@ -9,6 +9,7 @@ import { Identicon } from '../avatar'
 import { fmtZec as fmt4, expiryLabel, fmtDate } from '../format'
 import { rankDesk, type Band } from '../desk'
 import { balanceParts } from '../balance-parts'
+import { participation } from '../participation'
 import { usdEnabled, setUsdEnabled, cachedRate, rateIsStale, fetchRate, zecToUsd, type Rate } from '../price'
 import { CONFIRMATIONS_UNTRUSTED, getTransactions } from '../api'
 import { useT, useTr } from '../i18n'
@@ -76,7 +77,7 @@ export default function Dashboard() {
   const t = useT()
   const tr = useTr()
   const nav = useNavigate()
-  const { open: openSigning } = useVaultSigner()
+  const { open: openSigning, bg } = useVaultSigner()
   const { begin, end } = useLoading()
   // The page renders once the FAST data (vault + proposals + ledger) is in - no placeholder flash.
   const [firstLoaded, setFirstLoaded] = useState(false)
@@ -214,6 +215,7 @@ export default function Dashboard() {
   const open = desk.items.map((i) => i.p)
   const leadExpiry = lead ? expiryLabel(lead.p.expiry_unix, t) : ''
 
+
   // Movements - the real ledger, or nothing at all.
   const movs: Movimento[] | null = ledger && ledger.length
     ? ledger.slice(0, 6).map((p) => ({
@@ -267,6 +269,17 @@ export default function Dashboard() {
   const parts = hasBal && balance!.total_zat != null
     ? balanceParts(balance!.total_zat, balance!.spendable_zat ?? balance!.total_zat, reservedZat)
     : null
+  // Who takes part, from the book. Approvals only - nothing records who SIGNED (#290), so a
+  // "approved and signed" reading would be half invented.
+  const part = participation(ledger ?? [], roster.map((m) => m.name))
+
+  // Can this vault pay right now? Four conditions, every one from data already on this page. The
+  // point is answering BEFORE the click what today could only be discovered after it.
+  const seatsHere = bg.seatCount
+  const quorumReachable = thr > 0 && seatsHere >= thr
+  const hasFree = parts !== null && parts.freeZat > 0
+  const backendsUp = isLive
+  const canPay = quorumReachable && hasFree && backendsUp
 
   // Settled spend grouped by month (ascending, last 6). SpendBars self-hides below two periods.
   const byMonth = new Map<string, SpendPoint>()
@@ -414,6 +427,31 @@ export default function Dashboard() {
           </div>
 
           <aside className="dash-aside">
+        {/* 2a · Can this vault pay right now? Answering it here is the point: every condition below
+            was previously discovered only AFTER proposing, approving, signing and waiting. */}
+        {!loading && (
+          <section className={'ready ' + (canPay ? 'ok' : 'not')}>
+            <div className="ready-top">
+              <span className="ready-dot" aria-hidden="true" />
+              <b>{canPay ? t('dashboard.readyYes') : t('dashboard.readyNo')}</b>
+            </div>
+            <span className={'chk ' + (quorumReachable ? 'y' : 'n')}>
+              <span className="m" aria-hidden="true">{quorumReachable ? '✓' : '!'}</span>
+              <span>{t('dashboard.readySeats', { present: seatsHere, threshold: thr })}</span>
+            </span>
+            <span className={'chk ' + (hasFree ? 'y' : 'n')}>
+              <span className="m" aria-hidden="true">{hasFree ? '✓' : '!'}</span>
+              <span>{hasFree
+                ? tr('dashboard.readyFree', { amt: fmt4(String((parts?.freeZat ?? 0) / 1e8)) })
+                : t('dashboard.readyNoFree')}</span>
+            </span>
+            <span className={'chk ' + (backendsUp ? 'y' : 'n')}>
+              <span className="m" aria-hidden="true">{backendsUp ? '✓' : '!'}</span>
+              <span>{backendsUp ? t('dashboard.readyBackends') : t('dashboard.readyBackendsDown')}</span>
+            </span>
+          </section>
+        )}
+
         {/* 2 · Saldo */}
         <section className="entry">
           <div className="entry-top">
@@ -518,6 +556,12 @@ export default function Dashboard() {
           </div>
         </section>
 
+        {/* 2c · Acting on a balance happens next to the balance, not in a band further down. */}
+        <div className="aside-acts">
+          <Link className="btn ok" to="/pay">{t('dashboard.actPayTitle')}</Link>
+          <Link className="btn ghost" to="/payroll">{t('dashboard.actPayrollTitle')}</Link>
+        </div>
+
         {/* 2b · KPIs - vault figures, all derived from real data */}
         {!loading && (
           <section className="kpis">
@@ -539,47 +583,73 @@ export default function Dashboard() {
           </aside>
         </div>
 
-        {/* 3 · Primary actions (section nav lives in the rail) */}
-        <section className="actions">
-          <Link className="action" to="/pay">
-            <span className="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M12 5v14M5 12h14" /></svg></span>
-            <div className="action-main"><h3>{t('dashboard.actPayTitle')}</h3><p>{t('dashboard.actPayDesc')}</p></div>
-            <span className="go">→</span>
-          </Link>
-          <Link className="action" to="/payroll">
-            <span className="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 7h16M4 12h16M4 17h10" /></svg></span>
-            <div className="action-main"><h3>{t('dashboard.actPayrollTitle')}</h3><p>{t('dashboard.actPayrollDesc')}</p></div>
-            <span className="go">→</span>
-          </Link>
-        </section>
+        {/* 3 · How the vault has been behaving. Two panels, one series each, one hue each. */}
+        {!loading && (spendSeries.length >= 2 || part.considered > 0) && (
+          <div className="dash-charts">
+            {spendSeries.length >= 2 && (
+              <section className="panel">
+                <h3>{t('dashboard.spendByMonth')}</h3>
+                <SpendBars data={spendSeries} />
+              </section>
+            )}
+            {part.considered > 0 && (
+              <section className="panel">
+                <h3>{t('dashboard.whoApproves')}</h3>
+                <span className="chartcap">{t('dashboard.lastNProposals', { n: part.considered })}</span>
+                <div className="prows">
+                  {part.rows.map((r) => (
+                    <div className="prow" key={r.name}>
+                      <span className="pname">{r.name}</span>
+                      <span className="trk"><span className="fil" style={{ width: `${r.pct}%` }} /></span>
+                      <span className="pn num">{r.approved}/{part.considered}</span>
+                    </div>
+                  ))}
+                </div>
+                {/* Says approvals, not signatures, because nothing records who signed (#290). */}
+                <p className="cap">{t('dashboard.whoApprovesNote')}</p>
+              </section>
+            )}
+          </div>
+        )}
 
-        {/* 4 · History */}
+        {/* 4 · History, as a table: four aligned columns read better than loose rows. */}
         <section className="ledger">
-          <h2 className="klab">{t('dashboard.movements')}</h2>
-          <div className="cap">{t('dashboard.movementsCap')}</div>
-          {!loading && spendSeries.length >= 2 && (
-            <div className="spendwrap">
-              <div className="klab plain">{t('dashboard.spendByMonth')}</div>
-              <SpendBars data={spendSeries} />
-            </div>
-          )}
+          <div className="ledger-head">
+            <h2 className="klab">{t('dashboard.movements')}</h2>
+            <span className="cap">{t('dashboard.movementsCap')}</span>
+          </div>
           {loading && <SkeletonRows n={4} />}
           {!loading && movimentos.length === 0 && (
             <div className="cap">{t('dashboard.noMovements')}</div>
           )}
-          {!loading && movimentos.map((m, i) => (
-            <div className="lrow" key={i}>
-              <div className="ldate">{m.date}</div>
-              <div className="ldesc">
-                <div className="t">{m.title}</div>
-                {m.by && <div className="by">{m.by}</div>}
-              </div>
-              <div className={'lval ' + m.dir}>
-                <Secret sm><span>{m.value}</span></Secret>
-                <div className="st">{m.status === 'verificar' ? <Link className="link" to="/ledger">{t('dashboard.verify')}</Link> : t('dashboard.confirmed')}</div>
-              </div>
+          {!loading && movimentos.length > 0 && (
+            <div className="tblwrap">
+              <table className="movtbl">
+                <thead>
+                  <tr>
+                    <th>{t('dashboard.colDate')}</th>
+                    <th>{t('dashboard.colWhat')}</th>
+                    <th>{t('dashboard.colWho')}</th>
+                    <th className="n">{t('dashboard.colValue')}</th>
+                    <th>{t('dashboard.colState')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {movimentos.map((m, i) => (
+                    <tr key={i}>
+                      <td className="n dt">{m.date}</td>
+                      <td className="what">{m.title}</td>
+                      <td className="who">{m.by}</td>
+                      <td className="n"><Secret sm><span>{m.value}</span></Secret></td>
+                      <td>{m.status === 'verificar'
+                        ? <Link className="chip pend" to="/ledger">{t('dashboard.verify')}</Link>
+                        : <span className="chip ok">{t('dashboard.confirmed')}</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          ))}
+          )}
         </section>
 
       </main>

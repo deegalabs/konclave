@@ -375,6 +375,23 @@ export const en: Record<string, string> = {
   'dashboard.vaultBalance': 'Vault balance',
   // The balance as a composition (free / reserved / confirming) - #293's "free instead of spendable".
   'dashboard.compFree': 'Free',
+  // Readiness: can the vault pay right now, and if not, which condition fails.
+  'dashboard.readyYes': 'Ready to pay',
+  'dashboard.readyNo': 'Cannot pay right now',
+  'dashboard.readySeats': '{present} of {threshold} seats present',
+  'dashboard.readyFree': 'free <b>{amt}</b> ZEC',
+  'dashboard.readyNoFree': 'nothing free to spend right now',
+  'dashboard.readyBackends': 'vault and relay responding',
+  'dashboard.readyBackendsDown': 'vault or relay not answering',
+  // Participation and the movements table.
+  'dashboard.whoApproves': 'Who approves',
+  'dashboard.lastNProposals': 'last {n} proposals',
+  'dashboard.whoApprovesNote': 'Approvals per member. Who signed is not recorded yet, so it is not here.',
+  'dashboard.colDate': 'Date',
+  'dashboard.colWhat': 'Description',
+  'dashboard.colWho': 'Who',
+  'dashboard.colValue': 'Amount',
+  'dashboard.colState': 'State',
   'dashboard.spendableIn': 'Spendable in',
   'dashboard.compReserved': 'Reserved',
   'dashboard.compConfirming': 'Confirming',

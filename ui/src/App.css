@@ -390,6 +390,60 @@
 .ny-main{flex:1}
 .ny-amt{font-family:var(--font-num); font-variant-numeric:tabular-nums; font-weight:500; font-size:34px; letter-spacing:-.01em}
 
+/* Dashboard · the readiness card. Four conditions, each with its own mark, so "why not" is
+   answered on the same glance as "can I". */
+.ready{background:var(--surface-1); border:1px solid var(--line); border-radius:var(--radius);
+  box-shadow:var(--shadow-sm); padding:15px 16px; display:flex; flex-direction:column; gap:9px}
+.ready.ok{border-color:var(--success-line)}
+.ready.not{border-color:var(--warn-line)}
+.ready-top{display:flex; align-items:center; gap:9px; font-size:14px}
+.ready-dot{width:8px; height:8px; border-radius:50%; flex:none; display:block}
+.ready.ok .ready-dot{background:var(--success)}
+.ready.not .ready-dot{background:var(--warn)}
+.ready .chk{display:flex; align-items:flex-start; gap:9px; font-size:12.5px; color:var(--text-muted); line-height:1.5}
+.ready .chk .m{flex:none; width:13px; text-align:center; font-weight:700; line-height:1.5}
+.ready .chk.y .m{color:var(--success)}
+.ready .chk.n .m{color:var(--warn)}
+.ready .chk b{color:var(--text); font-weight:600; font-family:var(--font-num); font-variant-numeric:tabular-nums}
+
+/* Acting on a balance happens next to the balance. */
+.aside-acts{display:grid; grid-template-columns:1fr 1fr; gap:9px}
+.aside-acts .btn{justify-content:center; text-decoration:none}
+
+/* Two panels side by side under the desk: one series each, one hue each. */
+.dash-charts{display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:16px; align-items:start}
+.dash-charts .panel{background:var(--surface-1); border:1px solid var(--line); border-radius:var(--radius);
+  box-shadow:var(--shadow-sm); padding:18px; display:flex; flex-direction:column; gap:12px}
+.dash-charts .panel h3{margin:0; font-size:14px; font-weight:600}
+.dash-charts .chartcap{font-family:var(--font-mono); font-size:10.5px; letter-spacing:.1em;
+  text-transform:uppercase; color:var(--text-muted); margin-top:-6px}
+.prows{display:flex; flex-direction:column; gap:11px}
+.prow{display:grid; grid-template-columns:minmax(56px,88px) 1fr auto; gap:12px; align-items:center; font-size:13px}
+.prow .pname{color:var(--silver); overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.prow .trk{display:block; height:8px; background:var(--line); border-radius:4px; overflow:hidden}
+.prow .fil{display:block; height:100%; background:var(--accent); border-radius:4px}
+.prow .pn{font-family:var(--font-mono); font-size:11px; color:var(--text-muted)}
+.dash-charts .panel .cap{font-size:12.5px; line-height:1.5; margin:0; border-top:1px solid var(--line-2); padding-top:11px}
+@media(max-width:900px){ .dash-charts{grid-template-columns:1fr} }
+
+/* Movements as a table: four aligned columns read better than loose rows. */
+.ledger-head{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:12px}
+.ledger-head .cap{margin-left:auto}
+.movtbl{width:100%; border-collapse:collapse; font-size:13.5px; min-width:520px}
+.movtbl th,.movtbl td{text-align:left; padding:11px 12px; border-bottom:1px solid var(--line-2); vertical-align:top}
+.movtbl thead th{font-family:var(--font-mono); font-size:10px; letter-spacing:.12em; text-transform:uppercase;
+  color:var(--text-muted); font-weight:400; background:var(--surface-2); border-bottom:1px solid var(--line)}
+.movtbl td.n,.movtbl th.n{text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap}
+.movtbl td.dt{font-family:var(--font-mono); font-size:12px; color:var(--text-muted); text-align:left}
+.movtbl td.what{font-weight:500}
+.movtbl td.who{color:var(--text-muted); font-size:12.5px}
+.movtbl tbody tr:last-child td{border-bottom:0}
+.movtbl .chip{display:inline-block; font-family:var(--font-mono); font-size:9.5px; letter-spacing:.1em;
+  text-transform:uppercase; padding:2px 8px; border-radius:var(--radius-pill); border:1px solid; text-decoration:none}
+.movtbl .chip.ok{color:var(--success); border-color:var(--success-line); background:var(--success-soft)}
+.movtbl .chip.pend{color:var(--warn); border-color:var(--warn-line); background:var(--warn-soft)}
+.ledger .tblwrap{overflow-x:auto}
+
 /* Dashboard · two columns. The desk leads and the balance follows it on the right, staying put
    while the page scrolls - the money is the number you read the ledger against, so it must not
    leave the screen when you scroll down to read it. Collapses to one column on a narrow viewport,
@@ -403,7 +457,10 @@
 /* Three KPI columns in a 336px rail leaves ~110px each and wraps the unit onto its own line. */
 .dash-aside .kpis{grid-template-columns:1fr 1fr}
 @media(max-width:900px){
-  .dash-cols{grid-template-columns:1fr; gap:0}
+  /* minmax(0,1fr), not 1fr: a grid item defaults to min-width:auto, so the movements table's
+     min-width:520px would set the floor for the WHOLE column and stretch every card past the
+     viewport. The table scrolls inside its own wrapper instead. */
+  .dash-cols{grid-template-columns:minmax(0,1fr); gap:0}
   .dash-aside{position:static}
   /* One column, but NOT "everything on the left, then everything on the right" - that puts the
      balance under the ledger, which is the exact problem this layout exists to fix. Letting the
@@ -412,7 +469,7 @@
   .dash-main{display:contents}
   .dash-main > .needyou{order:1}
   .dash-aside{order:2; gap:16px; margin:16px 0}
-  .dash-main > .actions{order:3}
+  .dash-main > .dash-charts{order:3}
   .dash-main > .ledger{order:4}
 }
 /* A sticky column must not trap the members popover or a toast behind it. */

@@ -375,6 +375,23 @@ export const ptBR: Record<string, string> = {
   'dashboard.vaultBalance': 'Saldo do cofre',
   // The balance as a composition (free / reserved / confirming) - #293's "free instead of spendable".
   'dashboard.compFree': 'Livre',
+  // Readiness: can the vault pay right now, and if not, which condition fails.
+  'dashboard.readyYes': 'Pronto para pagar',
+  'dashboard.readyNo': 'Não dá para pagar agora',
+  'dashboard.readySeats': '{present} de {threshold} assentos presentes',
+  'dashboard.readyFree': 'livre <b>{amt}</b> ZEC',
+  'dashboard.readyNoFree': 'nada livre para gastar agora',
+  'dashboard.readyBackends': 'cofre e relay respondendo',
+  'dashboard.readyBackendsDown': 'cofre ou relay sem resposta',
+  // Participation and the movements table.
+  'dashboard.whoApproves': 'Quem aprova',
+  'dashboard.lastNProposals': 'últimas {n} propostas',
+  'dashboard.whoApprovesNote': 'Aprovações por membro. Quem assinou não é registrado ainda, então não está aqui.',
+  'dashboard.colDate': 'Data',
+  'dashboard.colWhat': 'Descrição',
+  'dashboard.colWho': 'Quem',
+  'dashboard.colValue': 'Valor',
+  'dashboard.colState': 'Estado',
   'dashboard.spendableIn': 'Gastável em',
   'dashboard.compReserved': 'Reservado',
   'dashboard.compConfirming': 'Confirmando',
