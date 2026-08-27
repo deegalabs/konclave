@@ -356,10 +356,19 @@ impl HelperProposal {
         };
     }
 
-    /// Record a vote (dedup across both lists), then recompute. Returns false if the proposal is
-    /// already terminal (`sent`/`refused`/`expired`) and cannot take votes.
+    /// Record a vote (dedup across both lists), then recompute. Returns false only when the
+    /// proposal is genuinely finished.
+    ///
+    /// `sent` and `expired` are facts: money moved, or a deadline passed. Nothing revises them.
+    ///
+    /// `refused` is NOT one of those. Look at `recompute`: it is DERIVED from the refusal count on
+    /// every call, not stamped once. Refusing this state as terminal made a single refusal
+    /// unrecoverable, and votes are unauthenticated (#288) - so one request per seat, from anyone
+    /// holding the vault id, left the group with a proposal it could not revive. Accepting a vote
+    /// here lets a member withdraw a refusal, and `recompute` moves the proposal back out of
+    /// `refused` on its own. The refusal is still recorded; it just stops being a one-way door.
     pub fn vote(&mut self, member: &str, approve: bool, now: u64) -> bool {
-        if self.state == "sent" || self.state == "refused" || self.state == "expired" {
+        if self.state == "sent" || self.state == "expired" {
             return false;
         }
         self.approvals.retain(|m| m != member);
@@ -926,8 +935,27 @@ mod tests {
         assert_eq!(p.state, "pending");
         assert!(p.vote("carol", false, 100));
         assert_eq!(p.state, "refused");
-        // A terminal proposal rejects further votes.
-        assert!(!p.vote("alice", true, 100));
+
+        // This used to assert that a refused proposal rejects further votes. The expectation was
+        // wrong, and #288 is why: `refused` is derived from the refusal count on every recompute,
+        // not stamped once, and votes are unauthenticated - so treating it as terminal let one
+        // request per seat, from anyone holding the vault id, brick a vault's governance with no
+        // way back. A member withdrawing a refusal must bring the proposal back.
+        assert!(
+            p.vote("carol", true, 100),
+            "a refusal is not a one-way door"
+        );
+        assert_ne!(p.state, "refused", "withdrawing it revives the proposal");
+        assert!(p.refusals.iter().all(|m| m != "carol"));
+
+        // What IS terminal stays terminal.
+        p.state = "sent".into();
+        assert!(!p.vote("alice", true, 100), "a sent payment takes no votes");
+        p.state = "expired".into();
+        assert!(
+            !p.vote("alice", true, 100),
+            "an expired proposal takes no votes"
+        );
     }
 
     #[test]

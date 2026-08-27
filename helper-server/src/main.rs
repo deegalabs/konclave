@@ -111,6 +111,18 @@ fn handle(
                     json!({ "error": "group_key must be 64 hex chars" }).to_string(),
                 );
             }
+            // A quorum of 0 is not "unknown", it is unusable: `recompute` never reaches `ready`
+            // with `threshold == 0`, so the vault registers and every proposal it will ever hold
+            // stays pending forever, with nothing on screen saying why (#288). The fields are
+            // `#[serde(default)]` for older clients, so this rejects the value rather than the
+            // absence: 0/0 still registers (legacy), but a caller that sends a quorum must send a
+            // usable one.
+            if (req.threshold == 0) != (req.total == 0) || req.threshold > req.total {
+                return resp(
+                    400,
+                    json!({ "error": "threshold must be between 1 and total" }).to_string(),
+                );
+            }
             // Idempotent: if already registered, return it without re-running the tooling.
             if let Some(r) = state.get(&req.group_key) {
                 return resp(200, vault_value(&r).to_string());
@@ -819,6 +831,21 @@ fn handle_vote(state: &HelperState, cfg: &HelperConfig, path: &str, body: &[u8])
     if state.get(&req.vault).is_none() {
         return resp(404, json!({ "error": "no such vault" }).to_string());
     }
+    // Roster check (#288). These endpoints are unauthenticated: anyone with the vault id can POST.
+    // This does not fix that - a caller can still claim to be "dan" - but it does stop a vote from
+    // an arbitrary name, which is what let a stranger fill the refusal list with seats that do not
+    // exist and push the proposal past its quorum.
+    //
+    // A vault with no saved roster is allowed through deliberately: older vaults registered before
+    // members were recorded would otherwise lose the ability to vote at all. That is a fail-open
+    // and it is named here rather than hidden.
+    let roster = load_members(&cfg.vaults_dir, &req.vault);
+    if !roster.is_empty() && !roster.iter().any(|m| m == &req.member) {
+        return resp(
+            403,
+            json!({ "error": "not a member of this vault" }).to_string(),
+        );
+    }
     let now = now_unix();
     let mut p = match load_proposal(&cfg.vaults_dir, &req.vault, id, now) {
         Some(p) => p,
@@ -1119,6 +1146,152 @@ mod tests {
             handle(&st, &cfg(), &Method::Post, "/api/vault/proposals", bad_addr).status,
             400
         );
+    }
+
+    /// #288: votes are unauthenticated, so a stranger with the vault id could vote as ANY name.
+    /// That is how a refusal list gets filled with seats that do not exist.
+    #[test]
+    fn a_vote_from_someone_who_is_not_a_member_is_refused() {
+        let dir = std::env::temp_dir().join(format!("konclave-hs-roster-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let cfg = cfg_at(&dir);
+        let st = HelperState::new();
+        seed(&st, "aaaa");
+        handle(
+            &st,
+            &cfg,
+            &Method::Post,
+            "/api/vault/members",
+            br#"{"vault":"aaaa","names":["alice","bob"]}"#,
+        );
+        let body = format!(
+            r#"{{"vault":"aaaa","proposer":"alice","to":"{TESTNET_ORCHARD_UA}","amount_zat":1000000}}"#
+        );
+        let created = handle(
+            &st,
+            &cfg,
+            &Method::Post,
+            "/api/vault/proposals",
+            body.as_bytes(),
+        );
+        let id = created
+            .body
+            .split("\"id\":\"")
+            .nth(1)
+            .unwrap()
+            .split('"')
+            .next()
+            .unwrap()
+            .to_string();
+
+        let path = format!("/api/vault/proposals/{id}/refuse");
+        let outsider = handle(
+            &st,
+            &cfg,
+            &Method::Post,
+            &path,
+            br#"{"vault":"aaaa","member":"mallory"}"#,
+        );
+        assert_eq!(
+            outsider.status, 403,
+            "a name that is not a seat cannot vote"
+        );
+
+        // A real seat still can.
+        let member = handle(
+            &st,
+            &cfg,
+            &Method::Post,
+            &path,
+            br#"{"vault":"aaaa","member":"bob"}"#,
+        );
+        assert_eq!(member.status, 200);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #288: `refused` is DERIVED from the refusal count, not stamped. Treating it as terminal made
+    /// one refusal a one-way door, and with unauthenticated votes that door could be shut by a
+    /// stranger. A member must be able to withdraw a refusal.
+    #[test]
+    fn a_refusal_can_be_withdrawn_and_the_proposal_comes_back() {
+        let dir = std::env::temp_dir().join(format!("konclave-hs-unbrick-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let cfg = cfg_at(&dir);
+        let st = HelperState::new();
+        seed(&st, "aaaa"); // 2 of 3
+        let body = format!(
+            r#"{{"vault":"aaaa","proposer":"alice","to":"{TESTNET_ORCHARD_UA}","amount_zat":1000000}}"#
+        );
+        let created = handle(
+            &st,
+            &cfg,
+            &Method::Post,
+            "/api/vault/proposals",
+            body.as_bytes(),
+        );
+        let id = created
+            .body
+            .split("\"id\":\"")
+            .nth(1)
+            .unwrap()
+            .split('"')
+            .next()
+            .unwrap()
+            .to_string();
+
+        // Two refusals on a 2-of-3 make the quorum unreachable -> refused.
+        for who in ["bob", "carol"] {
+            let path = format!("/api/vault/proposals/{id}/refuse");
+            let body = format!(r#"{{"vault":"aaaa","member":"{who}"}}"#);
+            let r = handle(&st, &cfg, &Method::Post, &path, body.as_bytes());
+            assert_eq!(r.status, 200);
+        }
+        let listed = handle(
+            &st,
+            &cfg,
+            &Method::Get,
+            "/api/vault/proposals?vault=aaaa",
+            b"",
+        );
+        assert!(
+            listed.body.contains("\"state\":\"refused\""),
+            "two refusals kill a 2-of-3"
+        );
+
+        // Bob changes his mind. Before this fix the vault was stuck here forever.
+        let path = format!("/api/vault/proposals/{id}/approve");
+        let back = handle(
+            &st,
+            &cfg,
+            &Method::Post,
+            &path,
+            br#"{"vault":"aaaa","member":"bob"}"#,
+        );
+        assert_eq!(back.status, 200, "a refusal must not be a one-way door");
+        assert!(
+            !back.body.contains("\"state\":\"refused\""),
+            "withdrawing the refusal brings the proposal back"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// #288: a vault registered with threshold 0 can never reach `ready`, so every proposal it will
+    /// ever hold stays pending forever with nothing on screen saying why.
+    #[test]
+    fn registering_with_an_unusable_quorum_is_refused() {
+        let st = HelperState::new();
+        let bad = [
+            br#"{"group_key":"aa","threshold":0,"total":3}"#.as_slice(),
+            br#"{"group_key":"aa","threshold":4,"total":3}"#.as_slice(),
+        ];
+        for body in bad {
+            let key = "a".repeat(64);
+            let b = String::from_utf8(body.to_vec())
+                .unwrap()
+                .replace("\"aa\"", &format!("\"{key}\""));
+            let r = handle(&st, &cfg(), &Method::Post, "/api/vault", b.as_bytes());
+            assert_eq!(r.status, 400, "an unusable quorum must not register: {b}");
+        }
     }
 
     #[test]
