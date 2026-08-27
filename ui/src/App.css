@@ -390,6 +390,53 @@
 .ny-main{flex:1}
 .ny-amt{font-family:var(--font-num); font-variant-numeric:tabular-nums; font-weight:500; font-size:34px; letter-spacing:-.01em}
 
+/* Dashboard · two columns. The desk leads and the balance follows it on the right, staying put
+   while the page scrolls - the money is the number you read the ledger against, so it must not
+   leave the screen when you scroll down to read it. Collapses to one column on a narrow viewport,
+   with the balance moving above the ledger rather than below it. */
+.dash-cols{display:grid; grid-template-columns:minmax(0,1.6fr) 336px; gap:16px; align-items:start; margin-top:28px}
+.dash-main{display:flex; flex-direction:column; gap:0; min-width:0}
+.dash-main > .needyou{margin-top:0}
+.dash-aside{display:flex; flex-direction:column; gap:16px; position:sticky; top:16px}
+.dash-aside > .entry{margin:0}
+.dash-aside .kpis{margin:0}
+/* Three KPI columns in a 336px rail leaves ~110px each and wraps the unit onto its own line. */
+.dash-aside .kpis{grid-template-columns:1fr 1fr}
+@media(max-width:900px){
+  .dash-cols{grid-template-columns:1fr; gap:0}
+  .dash-aside{position:static}
+  /* One column, but NOT "everything on the left, then everything on the right" - that puts the
+     balance under the ledger, which is the exact problem this layout exists to fix. Letting the
+     left column's children join the grid lets the money sit where it belongs: right after the
+     desk, above the actions and the book. */
+  .dash-main{display:contents}
+  .dash-main > .needyou{order:1}
+  .dash-aside{order:2; gap:16px; margin:16px 0}
+  .dash-main > .actions{order:3}
+  .dash-main > .ledger{order:4}
+}
+/* A sticky column must not trap the members popover or a toast behind it. */
+@media(min-width:901px){ .dash-aside{z-index:1} }
+
+/* The balance as a composition. Every segment carries its own value in the legend, so identity
+   never rests on colour alone - and the 2px gaps are surface, not a border, so the segments read
+   as parts of one quantity rather than three separate bars. */
+.bal-comp{display:flex; flex-direction:column; gap:10px; margin:14px 0 4px}
+.comp{display:flex; gap:2px; height:12px; border-radius:4px; overflow:hidden; background:var(--surface-2)}
+.comp span{display:block; height:100%}
+.comp .c-free{background:var(--accent)}
+.comp .c-res{background:var(--warn)}
+.comp .c-conf{background:var(--line-strong)}
+.comp-legend{display:flex; flex-direction:column; gap:6px}
+.comp-legend .cl{display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--text-muted)}
+.comp-legend .cl i{width:9px; height:9px; border-radius:2px; flex:none; display:block}
+.comp-legend .cl i.c-free{background:var(--accent)}
+.comp-legend .cl i.c-res{background:var(--warn)}
+.comp-legend .cl i.c-conf{background:var(--line-strong)}
+.comp-legend .cl b{margin-left:auto; color:var(--text); font-weight:600;
+  font-family:var(--font-num); font-variant-numeric:tabular-nums}
+.hint.sm{font-size:12px}
+
 /* Dashboard · the desk. The lead proposal keeps the `.needyou` anatomy above; what follows is the
    queue underneath it - one line per open proposal, ordered by desk.ts. A row is a whole link, so
    the hit target is the row and not a chevron. */

@@ -373,6 +373,13 @@ export const ptBR: Record<string, string> = {
   'dashboard.nothingWaitingNote': 'Quando alguém propuser um pagamento, ele aparece aqui para o seu aval.',
   'dashboard.proposePayment': 'Propor pagamento',
   'dashboard.vaultBalance': 'Saldo do cofre',
+  // The balance as a composition (free / reserved / confirming) - #293's "free instead of spendable".
+  'dashboard.compFree': 'Livre',
+  'dashboard.spendableIn': 'Gastável em',
+  'dashboard.compReserved': 'Reservado',
+  'dashboard.compConfirming': 'Confirmando',
+  'dashboard.compAria': 'Livre {free} ZEC, reservado {reserved} ZEC, confirmando {confirming} ZEC',
+  'dashboard.overCommitted': 'As propostas abertas somam mais do que o cofre pode gastar agora. Alguma delas não vai conseguir ser paga.',
   'dashboard.walletNotConnected': 'Carteira não conectada',
   'dashboard.walletNotConnectedNote': 'O saldo aparece quando o cofre sincroniza com a rede.',
   'dashboard.confirmedLower': 'confirmado',

@@ -8,6 +8,7 @@ import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
 import { fmtZec as fmt4, expiryLabel, fmtDate } from '../format'
 import { rankDesk, type Band } from '../desk'
+import { balanceParts } from '../balance-parts'
 import { usdEnabled, setUsdEnabled, cachedRate, rateIsStale, fetchRate, zecToUsd, type Rate } from '../price'
 import { CONFIRMATIONS_UNTRUSTED, getTransactions } from '../api'
 import { useT, useTr } from '../i18n'
@@ -257,6 +258,16 @@ export default function Dashboard() {
   const reservedZec = open.reduce((a, p) => a + parseZ(p.value_zec), 0)
   const paidZec = settled.reduce((a, p) => a + parseZ(p.value_zec), 0)
 
+  // The balance as a composition rather than one number. `free` is spendable MINUS what open
+  // proposals already claim, which is the figure a treasurer is actually asking for: what can be
+  // committed without double-committing (#293). Reserved is a product rule, not a protocol lock.
+  // Integers all the way: the DTO carries zatoshi, and a proposal carries `value_zat`. Going via
+  // the decimal strings would put money back through floating point, which is #303's whole point.
+  const reservedZat = open.reduce((a, p) => a + p.value_zat, 0)
+  const parts = hasBal && balance!.total_zat != null
+    ? balanceParts(balance!.total_zat, balance!.spendable_zat ?? balance!.total_zat, reservedZat)
+    : null
+
   // Settled spend grouped by month (ascending, last 6). SpendBars self-hides below two periods.
   const byMonth = new Map<string, SpendPoint>()
   for (const p of settled) {
@@ -324,6 +335,11 @@ export default function Dashboard() {
           actions={<Seal t={thr} n={n} />}
         />
 
+        {/* 1+2 · The desk leads, the balance follows it on the right and stays there while the
+            page scrolls - the two questions a treasurer asks in that order, side by side instead
+            of stacked with the money below the fold. */}
+        <div className="dash-cols">
+          <div className="dash-main">
         {/* 1 · Your desk - every open proposal, ranked (desk.ts), action first */}
         {loading ? (
           <section className="needyou calm"><Loading /></section>
@@ -395,6 +411,9 @@ export default function Dashboard() {
           </section>
         )}
 
+          </div>
+
+          <aside className="dash-aside">
         {/* 2 · Saldo */}
         <section className="entry">
           <div className="entry-top">
@@ -415,9 +434,45 @@ export default function Dashboard() {
                 <Secret><span className="amt">{amt}</span></Secret>
                 <span className="unit">ZEC</span>
               </div>
+              {/* The balance as a composition. Free is what can be committed WITHOUT
+                  double-committing: spendable minus what open proposals already claim. Every
+                  segment carries its own value, so identity never rests on colour alone. */}
+              {parts && parts.totalZat > 0 && (
+                <div className="bal-comp">
+                  <div className="comp" role="img"
+                    aria-label={t('dashboard.compAria', {
+                      free: fmt4(String(parts.freeZat / 1e8)),
+                      reserved: fmt4(String(parts.reservedZat / 1e8)),
+                      confirming: fmt4(String(parts.confirmingZat / 1e8)),
+                    })}>
+                    {parts.pct.free > 0 && <span className="c-free" style={{ width: `${parts.pct.free}%` }} />}
+                    {parts.pct.reserved > 0 && <span className="c-res" style={{ width: `${parts.pct.reserved}%` }} />}
+                    {parts.pct.confirming > 0 && <span className="c-conf" style={{ width: `${parts.pct.confirming}%` }} />}
+                  </div>
+                  <div className="comp-legend">
+                    <span className="cl"><i className="c-free" /> {t('dashboard.compFree')}
+                      <b><Secret sm>{fmt4(String(parts.freeZat / 1e8))}</Secret></b></span>
+                    {parts.reservedZat > 0 && (
+                      <span className="cl"><i className="c-res" /> {t('dashboard.compReserved')}
+                        <b><Secret sm>{fmt4(String(parts.reservedZat / 1e8))}</Secret></b></span>
+                    )}
+                    {parts.confirmingZat > 0 && (
+                      <span className="cl"><i className="c-conf" /> {t('dashboard.compConfirming')}
+                        <b><Secret sm>{fmt4(String(parts.confirmingZat / 1e8))}</Secret></b></span>
+                    )}
+                  </div>
+                  {parts.overCommitted && (
+                    <div className="hint warn sm" role="status">{t('dashboard.overCommitted')}</div>
+                  )}
+                </div>
+              )}
               {pendNum > 0 && (
                 <div className="breakdown">
-                  <span className="pd">{t('dashboard.confirming', { amt: `+${fmt4(String(pendNum))}` })}</span>
+                  {/* The amount already sits in the composition legend above; repeating it here
+                      just made the same number appear twice. What this line adds is the WAIT: how
+                      far the chain has buried it and how far there is to go. */}
+                  {!parts && <span className="pd">{t('dashboard.confirming', { amt: `+${fmt4(String(pendNum))}` })}</span>}
+                  {parts && <span className="pd">{t('dashboard.spendableIn')}</span>}
                   {/* A count, not a promise. The vault decides when a note is spendable; this only
                       shows how far the chain has buried it, so the wait stops being a blank pause.
                       The bar can fill early for change, which the wallet clears at three - the truth
@@ -481,6 +536,8 @@ export default function Dashboard() {
             </div>
           </section>
         )}
+          </aside>
+        </div>
 
         {/* 3 · Primary actions (section nav lives in the rail) */}
         <section className="actions">
