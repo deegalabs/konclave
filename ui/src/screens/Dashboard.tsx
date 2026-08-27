@@ -7,6 +7,7 @@ import { SpendBars, type SpendPoint } from '../charts'
 import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
 import { fmtZec as fmt4, expiryLabel, fmtDate } from '../format'
+import { rankDesk, type Band } from '../desk'
 import { usdEnabled, setUsdEnabled, cachedRate, rateIsStale, fetchRate, zecToUsd, type Rate } from '../price'
 import { CONFIRMATIONS_UNTRUSTED, getTransactions } from '../api'
 import { useT, useTr } from '../i18n'
@@ -33,6 +34,42 @@ const dpt = (): boolean => {
   }
 }
 const dl = (pt: string, en: string): string => (dpt() ? pt : en)
+
+/** How many queued rows sit under the open one before the card sends you to /proposals. */
+const QUEUE_ROWS = 3
+
+const STAMP_CLASS: Record<Band, string> = {
+  sign: 'st-ready',
+  vote: '',
+  wait: 'st-wait',
+  voted: 'st-wait',
+}
+
+const NOTE_KEY: Record<Band, string> = {
+  sign: 'desk.noteSign',
+  vote: 'desk.noteVote',
+  wait: 'desk.noteWait',
+  voted: 'desk.noteVoted',
+}
+
+/**
+ * The stamp and the one-line summary. Both fall back to neutral, vault-level wording when this
+ * device does not know its own member name (`desk.personal === false`): we will not tell someone
+ * their vote is missing when we cannot tell whether they voted.
+ */
+function stampKey(band: Band, personal: boolean): string {
+  if (!personal) return band === 'sign' ? 'stamp.ready' : 'stamp.awaiting'
+  return `desk.band.${band}`
+}
+function lineKey(band: Band, personal: boolean): string {
+  if (!personal) return band === 'sign' ? 'dashboard.readyToSign' : 'dashboard.needsYou'
+  return `desk.line.${band}`
+}
+
+/** What a proposal is about, in the member's own words when they left any. */
+function whatOf(p: Proposal, t: (k: string) => string): string {
+  return p.memo?.trim() || (p.kind === 'payroll' ? t('kind.payroll') : t('kind.payment'))
+}
 
 export default function Dashboard() {
   const t = useT()
@@ -166,21 +203,15 @@ export default function Dashboard() {
   // offline we show a neutral dash.
   const amt = hasBal ? fmt4(balance!.total_zec) : '-'
 
-  // Pending approval - first awaiting proposal. When live with none, show an empty state
-  // instead of a fabricated card.
-  const awaiting = proposals.filter((p) => p.state === 'awaiting')
-  const pending = awaiting[0] ?? null
-  // Approved-and-waiting-to-sign proposals. They are still OPEN (funds committed) and need an
-  // action (signing), so they must be counted as open, reserve funds, and be surfaced - not read
-  // as "nothing waiting" with 0 reserved.
-  const ready = proposals.filter((p) => p.state === 'ready')
-  const open = awaiting.concat(ready)
-  const firstReady = !pending ? (ready[0] ?? null) : null
-  const pAmt = pending ? fmt4(pending.value_zec) : '-'
-  const pMemo = pending?.memo?.trim() || (pending?.kind === 'payroll' ? t('kind.payroll') : t('kind.payment'))
-  const pProposer = pending?.proposer ?? ''
-  const pApprovals = pending?.approvals_count ?? 0
-  const pExpiry = pending ? expiryLabel(pending.expiry_unix, t) : ''
+  // The desk: every OPEN proposal, ranked for THIS device (the rule lives in desk.ts). This
+  // replaces the old "pick one" logic, which hid a ready-to-sign proposal behind any awaiting one,
+  // ordered by array position rather than urgency, and said "needs you" to a member who had
+  // already voted. Open proposals still hold funds, so they also feed the reserved KPI below.
+  const desk = rankDesk(proposals, me, thr)
+  const lead = desk.items[0] ?? null
+  const queue = desk.items.slice(1, 1 + QUEUE_ROWS)
+  const open = desk.items.map((i) => i.p)
+  const leadExpiry = lead ? expiryLabel(lead.p.expiry_unix, t) : ''
 
   // Movements - the real ledger, or nothing at all.
   const movs: Movimento[] | null = ledger && ledger.length
@@ -293,47 +324,68 @@ export default function Dashboard() {
           actions={<Seal t={thr} n={n} />}
         />
 
-        {/* 1 · What needs you - the action first */}
+        {/* 1 · Your desk - every open proposal, ranked (desk.ts), action first */}
         {loading ? (
           <section className="needyou calm"><Loading /></section>
-        ) : pending ? (
+        ) : lead ? (
           <section className="needyou act">
-            <div className="req"><span className="stamp">{t('stamp.awaiting')}</span> {t('dashboard.needsYou')}{isLive && awaiting.length > 1 ? t('dashboard.awaitingSuffix', { n: awaiting.length }) : ''}</div>
+            <div className="req">
+              <span className={'stamp ' + STAMP_CLASS[lead.band]}>{t(stampKey(lead.band, desk.personal))}</span>
+              <span className="desk-line">{t(lineKey(lead.band, desk.personal))}</span>
+              {lead.last && <span className="desk-last">{t('desk.last')}</span>}
+              {desk.open > 1 && <span className="desk-count">{t('desk.openCount', { n: desk.open })}</span>}
+            </div>
             <div className="ny-body">
-              <Identicon seed={pProposer} size={38} />
+              <Identicon seed={lead.p.proposer} size={38} />
               <div className="ny-main">
-                <div className="ny-amt">{pAmt} <span className="dim small">ZEC</span></div>
-                <div className="a-to">{tr('dashboard.memoProposedBy', { memo: pMemo, proposer: pProposer })}</div>
+                <div className="ny-amt"><Secret>{fmt4(lead.p.value_zec)}</Secret> <span className="dim small">ZEC</span></div>
+                <div className="a-to">{tr('dashboard.memoProposedBy', { memo: whatOf(lead.p, t), proposer: lead.p.proposer })}</div>
                 <div className="a-meta">
-                  <span className="prog">{Array.from({ length: thr }, (_, i) => <i key={i} className={i < pApprovals ? 'on' : ''} />)}</span>
-                  <span>{t('dashboard.ofApprovals', { count: pApprovals, total: thr })}{pExpiry ? ` · ${pExpiry}` : ''}</span>
+                  <span className="prog">{Array.from({ length: thr }, (_, i) => <i key={i} className={i < lead.p.approvals_count ? 'on' : ''} />)}</span>
+                  <span>
+                    {t('dashboard.ofApprovals', { count: lead.p.approvals_count, total: thr })}
+                    {lead.last ? ` · ${t('desk.signSends')}` : ''}
+                    {leadExpiry ? ` · ${leadExpiry}` : ''}
+                  </span>
                 </div>
               </div>
             </div>
             <div className="btns">
-              <Link className="btn ok" to="/proposal" state={pending ? { id: pending.id } : undefined}>{t('dashboard.reviewVote')}</Link>
+              {lead.band === 'sign' ? (
+                <>
+                  <button className="btn ok" onClick={() => openSigning(lead.p)}>
+                    {lead.last ? t('desk.signAndSend') : t('dashboard.goSign')}
+                  </button>
+                  <Link className="btn ghost" to="/proposal" state={{ id: lead.p.id }}>{t('desk.view')}</Link>
+                </>
+              ) : lead.band === 'vote' ? (
+                <Link className="btn ok" to="/proposal" state={{ id: lead.p.id }}>{t('dashboard.reviewVote')}</Link>
+              ) : (
+                <Link className="btn ghost" to="/proposal" state={{ id: lead.p.id }}>{t('desk.view')}</Link>
+              )}
             </div>
-            <div className="note">{t('dashboard.chooseWhoNote')}</div>
-          </section>
-        ) : firstReady ? (
-          <section className="needyou act">
-            <div className="req"><span className="stamp st-ready">{t('stamp.ready')}</span> {t('dashboard.readyToSign', { count: ready.length })}</div>
-            <div className="ny-body">
-              <Identicon seed={firstReady.proposer} size={38} />
-              <div className="ny-main">
-                <div className="ny-amt">{fmt4(firstReady.value_zec)} <span className="dim small">ZEC</span></div>
-                <div className="a-to">{firstReady.memo?.trim() || (firstReady.kind === 'payroll' ? t('kind.payroll') : t('kind.payment'))}</div>
-                <div className="a-meta">
-                  <span className="prog">{Array.from({ length: thr }, (_, i) => <i key={i} className="on" />)}</span>
-                  <span>{t('dashboard.ofApprovals', { count: firstReady.approvals_count, total: thr })}</span>
-                </div>
+            <div className="note">{t(NOTE_KEY[lead.band])}</div>
+
+            {queue.length > 0 && (
+              <div className="desk-queue">
+                {queue.map((it) => {
+                  const when = expiryLabel(it.p.expiry_unix, t)
+                  return (
+                    <Link className="desk-row" key={it.p.id} to="/proposal" state={{ id: it.p.id }}>
+                      <span className={'stamp ' + STAMP_CLASS[it.band]}>{t(stampKey(it.band, desk.personal))}</span>
+                      <span className="dq-amt"><Secret sm>{fmt4(it.p.value_zec)}</Secret> <span className="dim">ZEC</span></span>
+                      <span className="dq-what">{whatOf(it.p, t)}</span>
+                      <span className="prog sm">{Array.from({ length: thr }, (_, i) => <i key={i} className={i < it.p.approvals_count ? 'on' : ''} />)}</span>
+                      <span className="dq-when">{when || t('dashboard.ofApprovals', { count: it.p.approvals_count, total: thr })}</span>
+                      <span className="dq-go" aria-hidden="true">›</span>
+                    </Link>
+                  )
+                })}
               </div>
-            </div>
-            <div className="btns">
-              <button className="btn ok" onClick={() => openSigning(firstReady)}>{t('dashboard.goSign')}</button>
-              <Link className="btn ghost" to="/proposal" state={{ id: firstReady.id }}>{t('dashboard.reviewVote')}</Link>
-            </div>
-            <div className="note">{t('dashboard.readyToSignNote')}</div>
+            )}
+            {desk.open > 1 + queue.length && (
+              <Link className="desk-foot" to="/proposals">{t('desk.seeAll', { n: desk.open })}</Link>
+            )}
           </section>
         ) : (
           <section className="needyou calm">
