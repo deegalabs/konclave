@@ -61,6 +61,15 @@
 .lv-icon:hover{border-color:var(--accent);color:var(--accent)}
 .lv-dl{font-family:inherit;font-weight:560;font-size:13.5px;border-radius:10px;cursor:pointer;display:inline-flex;align-items:center;gap:7px;padding:8px 14px;color:var(--ink);background:var(--surface);border:1px solid var(--line2)}
 .lv-dl:hover{border-color:var(--accent);color:var(--accent)}
+/* The header carries the mark, the wordmark, a theme button, this one and the PT/EN toggle.
+   Past a point they stop fitting, and because .lh-right is right-justified with min-width:0
+   the excess grows LEFTWARD and paints over the wordmark - it is not clipped, it is covered.
+   Nothing here may be dropped (this button is the only way into the install dialog), so the
+   longest label is what gives: below 560px it is an icon, like the theme button beside it. */
+@media(max-width:560px){
+  .lv-dl{padding:8px; gap:0}
+  .lv-dl-t{display:none}
+}
 
 /* dark mode: keep the bright studio clip from becoming a white blob on the dark page */
 :root[data-theme="dark"] .lv-bg{filter:brightness(.52) contrast(1.06)}
@@ -76,6 +85,17 @@
 .lv-plat.road{opacity:.75;border-style:dashed}
 .lv-pic{width:40px;height:40px;border-radius:10px;background:var(--bg2);display:grid;place-items:center;flex:none;color:var(--muted2)}
 .lv-mm{flex:1;min-width:0}
+/* On a phone the row's fixed parts - icon, a "Download" button and a SOON badge - add up to more
+   than the row, and `min-width:0` then lets the text column shrink to the longest WORD: measured
+   at 73px inside a 313px row, which renders "A single-window app" one word per line.
+   Below 560px the action drops to its own full-width line and the text gets the row. */
+@media(max-width:560px){
+  .lv-plat{flex-wrap:wrap; row-gap:10px}
+  .lv-mm{flex:1 1 auto; min-width:140px}
+  .lv-plat > .lv-btn,
+  .lv-plat > .soon-wrap{flex:1 1 100%; justify-content:center}
+  .lv-plat > .soon-wrap > .lv-btn{flex:1 1 auto; justify-content:center}
+}
 .lv-t{color:var(--ink);font-weight:600;font-size:14px;display:flex;align-items:center;gap:8px}
 .lv-d{color:var(--muted2);font-size:12px;margin-top:2px}
 .lv-ver{font-family:var(--mono);font-size:10.5px;color:var(--muted2);margin-top:3px}

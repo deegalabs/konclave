@@ -323,7 +323,18 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 
 /* On mobile the rail splits: a slim sticky TOP bar (brand + compact utilities)
    and a fixed BOTTOM tab bar for navigation - the native-app pattern. */
-@media(max-width:860px){
+/* ---- the breakpoint scale ----
+   Media queries cannot read custom properties, so the numbers are literal - but there are only
+   three, and they are written here so the next one has somewhere to belong:
+
+     560px   phone: one column everywhere, tighter gutters
+     900px   the rail becomes a top bar AND multi-column content stacks. ONE number, because they
+             are one decision: below it there is not enough width for a 248px rail beside content.
+     ----    above 900 is the desktop layout
+
+   This was 860 for the shell and 900 for the dashboard, which left a band (861-900) where the rail
+   was still a sidebar eating 248px while the content had already given up on two columns. */
+@media(max-width:900px){
   .applayout{grid-template-columns:1fr}
 
   /* top bar */
