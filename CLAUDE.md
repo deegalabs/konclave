@@ -229,6 +229,23 @@ is implemented and tested end to end (engine + store + the `POST /api/vault/reco
 
 ---
 
+## 8b. Incidents
+
+When the product breaks for someone who was not testing it on purpose, it gets a postmortem in
+[docs/incidents/](docs/incidents/) — **written first, registered only with the maintainer's
+approval** (the rule and the template are in that folder's README).
+
+Two things make these worth reading rather than filing: they say what is **still open**, so a
+postmortem never retires an alarm while the hazard stands; and they name the **author's** mistakes,
+not only the system's. Two of the three defects in the 2026-08-26 signing incident were the same
+mistake in different places, and the third was introduced by the fix for the first — none of which
+is visible from the code.
+
+- [2026-08-26 · no vault could sign a second payment](docs/incidents/2026-08-26-signing-replay.md) — one defect in three readers, plus a regression from its own fix
+- [2026-08-27 · the helper stopped answering](docs/incidents/2026-08-27-helper-unresponsive.md) — serial request loop; root cause still open (#375)
+
+---
+
 ## 9. Phase roadmap
 
 Full plan: [docs/ROADMAP.md](docs/ROADMAP.md).
