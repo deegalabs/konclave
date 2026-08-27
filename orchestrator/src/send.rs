@@ -446,10 +446,19 @@ pub fn net_orchestrate_send(
         "helper",
     );
     let req = net_send::SignRequest::from_signing_input(&input, &tx2);
-    net_send::publish_request(&client, &req).map_err(|e| ToolError::parse("relay", e))?;
+    let posted =
+        net_send::publish_request(&client, &req).map_err(|e| ToolError::parse("relay", e))?;
 
     // 4) poll until the devices return the aggregate signatures (or we time out).
-    let mut since = 0u64;
+    //
+    // Start STRICTLY AFTER our own request, which is what `publish_request` returns the sequence
+    // for. Starting at 0 read the room from the beginning and found the PREVIOUS payment's
+    // response: the signing room is permanent per vault, so an old `net-sign-response` sits in it
+    // for as long as the room lives. Those signatures are structurally valid - same real-spend
+    // index, same 64 bytes, so `into_sigs` accepts them - and only the cryptography catches it,
+    // as `IronwoodSign(InvalidExternalSignature)` at inject time. Every send after the first one
+    // in a room failed that way until the room expired (#358).
+    let mut since = posted;
     let mut collected = None;
     for _ in 0..max_polls {
         let (found, next) = net_send::collect_response(&client, &req, since)
