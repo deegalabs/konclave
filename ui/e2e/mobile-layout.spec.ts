@@ -69,10 +69,12 @@ async function stubApi(page: Page) {
 /** Runs in the page: everything sticking out of the viewport, and every box cropping its own
  *  content. `.top-progress` is skipped - it is an indeterminate loader whose bar is MEANT to be
  *  clipped as it slides. An `text-overflow:ellipsis` box is skipped too: that truncation is a
- *  deliberate, signposted one. */
+ *  deliberate, signposted one. Third: a child spilling sideways out of a parent that does not
+ *  clip - the overlap case, which neither of the other two can see. */
 function measure() {
   const clipped: string[] = []
   const wide: string[] = []
+  const escaped: string[] = []
   const vw = document.documentElement.clientWidth
   for (const el of Array.from(document.querySelectorAll('*'))) {
     if (el.closest('.top-progress')) continue
@@ -88,8 +90,43 @@ function measure() {
       clipped.push(`${name} crops ${el.scrollWidth - el.clientWidth}px of "${text}"`)
     }
     if (r.right > vw + 1) wide.push(`${name} +${Math.round(r.right - vw)}px past the edge`)
+
+    // A child that will not shrink inside a right-justified box grows LEFTWARD out of it and is
+    // painted over its neighbour. Nothing leaves the viewport and nothing is cropped, so neither
+    // check above sees it - that is how the header controls came to cover the wordmark, where the
+    // icon escaped `.lh-right` and landed on `.brand` one level up.
+    //
+    // Escaping a parent is not itself a fault (a zero-width or collapsed container makes every
+    // child "escape", and negative margins are used on purpose), so escape alone is not reported.
+    // What is reported is an escape that LANDS on something: the element overlapping one of its
+    // parent's siblings, which normal flow never produces deliberately.
+    const par = el.parentElement
+    const inFlow = (k: Element) => {
+      const kcs = getComputedStyle(k)
+      // A wrapped `display:inline` box reports the UNION of its line boxes, so two of them in one
+      // paragraph always look overlapped while nothing overlaps on screen - not comparable here.
+      if (kcs.position !== 'static' || kcs.display === 'none' || kcs.display === 'inline') return false
+      const kr = k.getBoundingClientRect()
+      return kr.width > 1 && kr.height > 1
+    }
+    if (par?.parentElement && cs.position === 'static' && !el.closest('svg') && inFlow(el)) {
+      const pr = par.getBoundingClientRect()
+      if (Math.max(pr.left - r.left, r.right - pr.right) > 1) {
+        for (const uncle of Array.from(par.parentElement.children)) {
+          if (uncle === par || !inFlow(uncle)) continue
+          const u = uncle.getBoundingClientRect()
+          const dx = Math.min(r.right, u.right) - Math.max(r.left, u.left)
+          const dy = Math.min(r.bottom, u.bottom) - Math.max(r.top, u.top)
+          if (dx > 1 && dy > 1) {
+            const lab = uncle.tagName.toLowerCase() + (typeof uncle.className === 'string' && uncle.className.trim()
+              ? '.' + uncle.className.trim().split(/\s+/)[0] : '')
+            escaped.push(`${name} spills out of its box and covers ${lab} by ${Math.round(dx)}x${Math.round(dy)}px`)
+          }
+        }
+      }
+    }
   }
-  return { overflow: document.documentElement.scrollWidth - vw, clipped, wide: wide.slice(0, 5) }
+  return { overflow: document.documentElement.scrollWidth - vw, clipped, wide: wide.slice(0, 5), escaped }
 }
 
 for (const width of WIDTHS) {
@@ -103,6 +140,7 @@ for (const width of WIDTHS) {
       const r = await page.evaluate(measure)
       if (r.overflow > 1) problems.push(`${route}: page scrolls ${r.overflow}px sideways [${r.wide.join('; ')}]`)
       for (const c of r.clipped) problems.push(`${route}: ${c}`)
+      for (const e of r.escaped) problems.push(`${route}: ${e}`)
     }
 
     expect(problems, `layout problems at ${width}px:\n  ${problems.join('\n  ')}`).toEqual([])

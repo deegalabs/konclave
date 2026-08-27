@@ -61,6 +61,15 @@
 .lv-icon:hover{border-color:var(--accent);color:var(--accent)}
 .lv-dl{font-family:inherit;font-weight:560;font-size:13.5px;border-radius:10px;cursor:pointer;display:inline-flex;align-items:center;gap:7px;padding:8px 14px;color:var(--ink);background:var(--surface);border:1px solid var(--line2)}
 .lv-dl:hover{border-color:var(--accent);color:var(--accent)}
+/* The header carries the mark, the wordmark, a theme button, this one and the PT/EN toggle.
+   Past a point they stop fitting, and because .lh-right is right-justified with min-width:0
+   the excess grows LEFTWARD and paints over the wordmark - it is not clipped, it is covered.
+   Nothing here may be dropped (this button is the only way into the install dialog), so the
+   longest label is what gives: below 560px it is an icon, like the theme button beside it. */
+@media(max-width:560px){
+  .lv-dl{padding:8px; gap:0}
+  .lv-dl-t{display:none}
+}
 
 /* dark mode: keep the bright studio clip from becoming a white blob on the dark page */
 :root[data-theme="dark"] .lv-bg{filter:brightness(.52) contrast(1.06)}
