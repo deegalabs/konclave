@@ -384,6 +384,34 @@ fn refuse_if_unfunded(
     reg: &orchestrator::helper::VaultRegistration,
     plan: &SpendPlan,
 ) -> Result<Option<Resp>, String> {
+    // First, the certain answer that needs no parsing at all: if the AMOUNT alone already exceeds
+    // what the vault can spend, no fee could rescue it. This layer exists because the parsing one
+    // failed in production - it knew only one of the engine's two error shapes, so an unfundable
+    // payment sailed through while the equivalent payroll was refused. A gate whose correctness
+    // depends on matching a string should never be the only gate.
+    let wanted: u64 = match plan {
+        SpendPlan::Payment { value_zat, .. } => *value_zat,
+        SpendPlan::Payroll { lines } => lines.iter().map(|l| l.value_zat).sum(),
+    };
+    if let Ok(b) = vault_balance(cfg, reg) {
+        let spendable = b.shielded_spendable_zat;
+        if wanted > spendable {
+            return Ok(Some(resp(
+                422,
+                json!({
+                    "error": "insufficient funds",
+                    "available_zat": spendable,
+                    "required_zat": wanted,
+                    "short_zat": wanted.saturating_sub(spendable),
+                    "detail": format!(
+                        "the vault can spend {spendable} zatoshi and this asks for {wanted}, before any network fee"
+                    ),
+                })
+                .to_string(),
+            )));
+        }
+    }
+
     let work_dir = format!("{}/{}/send-work", cfg.vaults_dir.display(), reg.vault_id);
     if std::fs::create_dir_all(&work_dir).is_err() {
         return Err("could not prepare the work directory".into());
