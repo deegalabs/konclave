@@ -9,6 +9,8 @@
 //! Bind on `0.0.0.0` with permissive CORS so browsers on any origin can reach it (like the relay).
 //! Config comes from the environment (see `HelperConfig::from_env`).
 
+mod concurrency;
+
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -984,18 +986,62 @@ fn main() {
         cfg.network
     );
 
-    for mut req in server.incoming_requests() {
-        if req.method() == &Method::Options {
-            let _ = req.respond(with_cors(Response::from_data(Vec::new())).with_status_code(204));
-            continue;
-        }
-        let method = req.method().clone();
-        let path = req.url().to_string();
-        let mut body = Vec::new();
-        let _ = req.as_reader().read_to_end(&mut body);
-        let r = handle(&state, &cfg, &method, &path, &body);
-        let out = Response::from_data(r.body.into_bytes()).with_status_code(r.status);
-        let _ = req.respond(with_cors(out));
+    // One request at a time is what took the vault down (#375): a send polls the relay for the
+    // browsers' signatures for up to five minutes, and while it did, nothing else was answered -
+    // not reads, not other vaults, not even `/api/health`, so "busy" and "dead" looked identical.
+    //
+    // `tiny_http::Server` hands out requests from any thread, so a fixed pool is enough; this needs
+    // no async runtime. Concurrency on its own would be worse than the bug, though: each vault owns
+    // a directory on the durable volume that the handlers reach through subprocesses, so two
+    // requests for the SAME vault would write over each other. `VaultLocks` serialises those, and
+    // only those. A send still holds its own vault for as long as the quorum takes; what it stops
+    // holding is everybody else.
+    let locks = Arc::new(concurrency::VaultLocks::new());
+    let workers = concurrency::worker_count(
+        std::env::var("KONCLAVE_HELPER_WORKERS").ok().as_deref(),
+        std::thread::available_parallelism().map_or(1, |n| n.get()),
+    );
+    eprintln!("konclave-helper serving with {workers} worker(s)");
+
+    let server = Arc::new(server);
+    let mut pool = Vec::with_capacity(workers);
+    for _ in 0..workers {
+        let (server, state, cfg, locks) = (
+            Arc::clone(&server),
+            Arc::clone(&state),
+            Arc::clone(&cfg),
+            Arc::clone(&locks),
+        );
+        pool.push(std::thread::spawn(move || loop {
+            // `recv` fails only when the server is gone; then the worker retires.
+            let Ok(mut req) = server.recv() else { return };
+            if req.method() == &Method::Options {
+                let _ =
+                    req.respond(with_cors(Response::from_data(Vec::new())).with_status_code(204));
+                continue;
+            }
+            let method = req.method().clone();
+            let path = req.url().to_string();
+            let mut body = Vec::new();
+            let _ = req.as_reader().read_to_end(&mut body);
+
+            // Held for the whole request, and only when the request names a vault - so health and
+            // anything unrouted never wait for a lock at all.
+            let query = path.split_once('?').map_or("", |(_, q)| q);
+            let lock = concurrency::request_vault(query, &body).map(|v| locks.for_vault(&v));
+            // A handler that panicked would poison this lock and wedge that vault forever; taking
+            // the inner value keeps the vault serving instead.
+            let _guard = lock
+                .as_ref()
+                .map(|m| m.lock().unwrap_or_else(|e| e.into_inner()));
+
+            let r = handle(&state, &cfg, &method, &path, &body);
+            let out = Response::from_data(r.body.into_bytes()).with_status_code(r.status);
+            let _ = req.respond(with_cors(out));
+        }));
+    }
+    for w in pool {
+        let _ = w.join();
     }
 }
 
