@@ -67,11 +67,23 @@ fn handle(
 ) -> Resp {
     let (p, query) = path.split_once('?').unwrap_or((path, ""));
     match (method, p) {
+        // Health carries no vault data. It used to report `state.len()`, which no client ever read
+        // and which told any caller how many vaults the helper holds - transmitted without need
+        // (#6.2, data minimization).
         (Method::Get, "/api/health") => resp(
             200,
-            json!({ "status": "ok", "name": "konclave-helper", "vaults": state.len() }).to_string(),
+            json!({ "status": "ok", "name": "konclave-helper" }).to_string(),
         ),
-        (Method::Get, "/api/vaults") => resp(200, json!({ "vaults": state.ids() }).to_string()),
+        // `GET /api/vaults` is GONE (#267). It enumerated every registered vault id, and since the
+        // id IS the group verifying key, that one unauthenticated call handed a stranger the key to
+        // every read route below: balance, transactions, proposals with their destinations and
+        // memos, the ledger, member names, the ceremony trail. Nothing in the app ever called it
+        // (the browser knows its own vault ids from on-device records; the LOCAL bridge has its own
+        // /api/vaults, which is a different server and is unaffected). Reading a vault here now
+        // requires already knowing its 256-bit id, which appears nowhere public.
+        //
+        // This closes DISCOVERY, not authorization: whoever has an id can still read that vault.
+        // The per-vault read capability is the other half of #267.
         (Method::Get, "/api/vault") => match query_param(query, "vault").and_then(|v| state.get(v))
         {
             Some(r) => resp(200, json!({ "vault": vault_value(&r) }).to_string()),
@@ -937,13 +949,15 @@ mod tests {
     }
 
     #[test]
-    fn health_reports_vault_count() {
+    fn health_answers_without_saying_anything_about_the_vaults() {
         let st = HelperState::new();
         seed(&st, "aaaa");
         let r = handle(&st, &cfg(), &Method::Get, "/api/health", b"");
         assert_eq!(r.status, 200);
-        assert!(r.body.contains("\"vaults\":1"));
         assert!(r.body.contains("konclave-helper"));
+        // No count, and above all no ids: health is liveness, not an inventory.
+        assert!(!r.body.contains("vaults"));
+        assert!(!r.body.contains("aaaa"));
     }
 
     #[test]
@@ -960,14 +974,27 @@ mod tests {
         assert_eq!(miss.status, 404);
     }
 
+    /// #267: the enumeration endpoint is gone and must stay gone. A regression here would re-open
+    /// the leak in one line, so the test asserts on the ids themselves, not just the status.
     #[test]
-    fn list_vaults_sorted() {
+    fn vault_enumeration_is_refused_and_leaks_no_id() {
         let st = HelperState::new();
         seed(&st, "bbbb");
         seed(&st, "aaaa");
         let r = handle(&st, &cfg(), &Method::Get, "/api/vaults", b"");
+        assert_eq!(r.status, 404);
+        assert!(!r.body.contains("aaaa"));
+        assert!(!r.body.contains("bbbb"));
+    }
+
+    /// Knowing an id still reads that ONE vault. Closing discovery is not authorization, and the
+    /// test says so out loud so the remaining half of #267 is not mistaken for done.
+    #[test]
+    fn a_known_id_still_reads_its_own_vault() {
+        let st = HelperState::new();
+        seed(&st, "aaaa");
+        let r = handle(&st, &cfg(), &Method::Get, "/api/vault?vault=aaaa", b"");
         assert_eq!(r.status, 200);
-        assert_eq!(r.body, "{\"vaults\":[\"aaaa\",\"bbbb\"]}");
     }
 
     #[test]

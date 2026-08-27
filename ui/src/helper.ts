@@ -109,8 +109,10 @@ const q = (v: string) => encodeURIComponent(v)
 export type HelperVault = { vault_id: string; address: string; threshold?: number; total?: number }
 
 /** Helper liveness: the registered-vault count, or `null` if no/unreachable helper. */
-export async function helperHealth(): Promise<{ vaults: number } | null> {
-  return getJson<{ vaults: number }>('/api/health')
+export async function helperHealth(): Promise<{ status?: string } | null> {
+  // Liveness only. Health used to carry a vault count; it told any caller how many vaults the
+  // helper holds and no client ever read it, so it is gone (#267).
+  return getJson<{ status?: string }>('/api/health')
 }
 
 /**
