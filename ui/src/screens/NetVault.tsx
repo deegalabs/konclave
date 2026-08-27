@@ -657,6 +657,17 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
           setPropMsg(pe(`Falha ao executar: ${r.error}`, `Execute failed: ${r.error}`))
           return
         }
+        if ('unknown' in r) {
+          // The coordinator went quiet after a request it may have served in full (#280). It
+          // persists the proposal as sent WITH its txid before replying, so this must never be
+          // rendered as a failure and must never invite a retry. Reload and let the list say.
+          setPropMsg(pe(
+            'Sem resposta do cofre. O pagamento PODE ter sido transmitido - confira a proposta na lista antes de tentar de novo.',
+            'No answer from the vault. The payment MAY have been broadcast - check the proposal in the list before retrying.',
+          ))
+          void loadProposals()
+          return
+        }
         setPropMsg(
           r.txid
             ? `${pe('Transmitido. txid:', 'Broadcast. txid:')} ${r.txid}`

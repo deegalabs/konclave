@@ -708,6 +708,13 @@ export const ptBR: Record<string, string> = {
   'signing.peerFailed.unknown': 'O envio falhou. Nada foi transmitido. Dá para assinar de novo.',
   'signing.blockedShort': 'Faltam {short} ZEC para o cofre pagar isto com a taxa da rede. Assinar está bloqueado até o saldo chegar; nada foi perdido.',
   'signing.tryAgain': 'Tentar de novo',
+  // #280: a send whose outcome is unknown. Never a failure, never a Retry - the money may have moved.
+  'signing.checking': 'Confirmando o que aconteceu',
+  'signing.checkingNote': 'O cofre não respondeu a tempo. Estamos perguntando a ele se o pagamento saiu. Não feche esta tela. ({n} tentativas restantes)',
+  'signing.unresolved': 'Não sabemos se este pagamento saiu.',
+  'signing.unresolvedNote': 'O cofre parou de responder no meio do envio. Ele pode ter transmitido. NÃO tente de novo: confira o livro e o explorador primeiro, porque tentar outra vez gastaria as mesmas notas duas vezes.',
+  'signing.openLedger': 'Abrir o livro',
+  'toast.sendUnresolved': 'Envio sem resposta. Confira antes de tentar de novo.',
   'signing.errUnreachable': 'não foi possível falar com o coordenador',
 
   // Proposals list
