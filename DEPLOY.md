@@ -1,6 +1,6 @@
 # Deploy: Konclave
 
-How the two hosted pieces of the konclave.app demo are deployed, and how they auto-update from
+How the two hosted pieces of the konclave.xyz demo are deployed, and how they auto-update from
 this repo. (The core app is local-first; these are only the **demo** surfaces.)
 
 ## UI demo → Vercel (auto-deploys on push) ✅

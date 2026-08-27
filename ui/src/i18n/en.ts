@@ -245,18 +245,6 @@ export const en: Record<string, string> = {
   'landing.footer2': 'ZecHub Hackathon 3.0 · FROST + Accounting tracks · dual Apache-2.0 / MIT license.',
 
   // Landing · roadmap (where it's going)
-  'landing.roadEyebrow': 'Where it’s going',
-  'landing.roadTitle': 'Today on your device. Tomorrow, from any browser.',
-  'landing.roadLead': 'The same vault, opened from a URL, and the **key still never leaves your device** (FROST in WASM, blind server). Local-first is where the key lives, not where the app is downloaded from.',
-  'landing.roadNowLabel': 'Today',
-  'landing.roadNowTitle': 'Local-first app',
-  'landing.roadNowDesc': 'On your computer. Already proven on **mainnet**, with quorum payments and private payroll.',
-  'landing.roadNowBadge': 'shipped',
-  'landing.roadNextLabel': 'Tomorrow',
-  'landing.roadNextTitle': 'konclave.app',
-  'landing.roadNextDesc': 'Opens from a URL; the **key is born and signs in the browser**, the coordination server is blind. The hardest part (FROST in the browser) **is already proven**.',
-  'landing.roadNextBadge': 'crypto proven',
-  'landing.roadNote': 'Honest roadmap: delivered today, designed and de-risked for tomorrow, no promising what it doesn’t deliver.',
 
   'settings.eyebrow': 'SETTINGS',
   'settings.title': 'Settings',
@@ -928,7 +916,7 @@ export const en: Record<string, string> = {
 
   // In-browser FROST proof (WasmSigner · /signer)
   'signer.liveTag': 'Live demo',
-  'signer.eyebrow': 'konclave.app · in-browser proof',
+  'signer.eyebrow': 'konclave.xyz · in-browser proof',
   'signer.title': 'Sign FROST in the browser',
   'signer.lead': 'Runs a **2-of-3 rerandomized redpallas** ceremony (the Orchard signing path) entirely in **WebAssembly, right here in your browser**. The secret part (share + nonces) never leaves the device, only public material circulates, as with the blind relay.',
   'signer.signing': 'Signing…',

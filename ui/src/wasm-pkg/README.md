@@ -16,7 +16,7 @@ The split ceremony (`ceremony` module) drives a full 2-of-3 rerandomized redpall
 **through serialized wire bytes**: the share (KeyPackage) and nonces stay local; only public
 material (commitments, signing package, randomizer seed, shares, signature) crosses, exactly
 what the blind relay carries. This is the "round1/round2/aggregate over the relay" step of the
-konclave.app plan (temp/21, WS1). The **wasm-bindgen JS API** (`TestVault`, `participantRound1`,
+konclave.xyz plan (temp/21, WS1). The **wasm-bindgen JS API** (`TestVault`, `participantRound1`,
 `Coordinator`, `participantRound2`) lets **JavaScript drive the full multi-device ceremony**,
 verified in headless Chromium (`js-test/ceremony.html` → `JS-CEREMONY-OK sig=64B`), exactly the
 surface the React app calls. Next: implement the byte-exact

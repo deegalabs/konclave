@@ -2,7 +2,7 @@
 //!
 //! This is the hosted counterpart of `orchestrator/src/relay.rs`: the same in-memory,
 //! opaque-message room mailbox, but bound on `0.0.0.0` with permissive CORS so browsers on
-//! `konclave.app` (any origin) can reach it for multi-device DKG/signing ceremonies. It is
+//! `konclave.xyz` (any origin) can reach it for multi-device DKG/signing ceremonies. It is
 //! blind by construction - it forwards public/encrypted bytes it cannot read and holds no key.
 //!
 //! Public by design, so there is NO Host gate and NO session token here (unlike the loopback

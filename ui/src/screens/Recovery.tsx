@@ -15,7 +15,7 @@ import '../redesign.css'
 import '../net.css'
 import '../recovery.css'
 
-// konclave.app proof: social recovery (the Repairable Threshold Scheme) run entirely in the
+// konclave.xyz proof: social recovery (the Repairable Threshold Scheme) run entirely in the
 // browser. A member loses their device; a quorum of the OTHER members rebuilds that member's
 // share from public group data plus their own shares. The group key is never touched, no single
 // helper ever holds the lost share, and the rebuilt share is byte-identical to the one that was
