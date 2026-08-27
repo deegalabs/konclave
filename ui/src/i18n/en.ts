@@ -708,6 +708,13 @@ export const en: Record<string, string> = {
   'signing.peerFailed.unknown': 'The send failed. Nothing was broadcast. You can sign again.',
   'signing.blockedShort': 'The vault is {short} ZEC short of paying this with the network fee. Signing is blocked until the funds arrive; nothing is lost.',
   'signing.tryAgain': 'Try again',
+  // #280: a send whose outcome is unknown. Never a failure, never a Retry - the money may have moved.
+  'signing.checking': 'Checking what happened',
+  'signing.checkingNote': 'The vault did not answer in time. We are asking it whether the payment went out. Do not close this screen. ({n} checks left)',
+  'signing.unresolved': 'We do not know whether this payment went out.',
+  'signing.unresolvedNote': 'The vault stopped answering mid-send. It may have broadcast. Do NOT try again: check the book and the explorer first, because retrying would spend the same notes twice.',
+  'signing.openLedger': 'Open the book',
+  'toast.sendUnresolved': 'Send unanswered. Check before retrying.',
   'signing.errUnreachable': 'could not reach the coordinator',
 
   // Proposals list

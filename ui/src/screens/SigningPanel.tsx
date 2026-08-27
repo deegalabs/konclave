@@ -17,6 +17,7 @@ import { useVaultSigner } from '../VaultSigner'
 import { executeProposal, listProposals } from '../helper'
 import { errorCode, getBalance, getProposalDetail, humanError, markVaultUnlocked } from '../api'
 import { relayBase } from '../net'
+import { resolveOutcome, RESOLVE_ATTEMPTS } from '../send-outcome'
 import { getUnlockedShare, setUnlockedShare } from '../session'
 import { loadVault } from '../storage'
 import { usdEnabled, cachedRate, fetchRate, zecToUsd, type Rate } from '../price'
@@ -33,7 +34,9 @@ export default function SigningPanel() {
   // in front of a frozen line for the whole build+prove+broadcast leg with nothing moving.
   const [runSince, setRunSince] = useState<number | null>(null)
   const [elapsed, setElapsed] = useState(0)
-  const [result, setResult] = useState<{ txid: string | null } | { error: string } | null>(null)
+  const [result, setResult] = useState<{ txid: string | null } | { error: string } | { unresolved: true } | null>(null)
+  // How many checks remain while resolving an unknown outcome; 0 when not resolving.
+  const [checking, setChecking] = useState(0)
   const [pass, setPass] = useState('')
   const [unlocking, setUnlocking] = useState(false)
   const [unlockErr, setUnlockErr] = useState('')
@@ -190,6 +193,9 @@ export default function SigningPanel() {
 
   const sent = result && 'txid' in result && result.txid
   const errMsg = (result && 'error' in result && result.error) || bg.error || ''
+  // The send's outcome is not known and may never be. This is deliberately NOT an error state: no
+  // failure wording, and above all no Retry, because the money may already have moved (#280).
+  const unresolved = !!result && 'unresolved' in result
   // What this device can do now is SIGN. The send is not a button any more: it follows from the
   // quorum closing, on the device the room named.
   // The signer is still coming up: has a share but hasn't seated yet. Show a loading line instead of
@@ -269,6 +275,11 @@ export default function SigningPanel() {
       const r = await executeProposal(args)
       console.info('[konclave] send: reply', r)
       if (!r) fail(t('signing.errUnreachable'))
+      // The coordinator went quiet, or answered with a gateway error carrying no reason. It
+      // persists the proposal as sent WITH its txid BEFORE it replies, so this is at least as
+      // likely to mean the payment went out and the answer was lost. Saying "failed" here is how a
+      // treasurer is invited to pay twice (#280). Ask the vault instead.
+      else if ('unknown' in r) await resolveUnknown(vault.group_pubkey, args.proposalId)
       // Through humanError, so the money path never shows a binary path and a Rust struct. It was
       // reporting failures like "/usr/local/bin/konclave-signer exited with 1: Error:
       // propose_transfer: InsufficientFunds { available: Zatoshis(20000), required: Zatoshis(24000) }".
@@ -282,6 +293,39 @@ export default function SigningPanel() {
       fail(e instanceof Error ? e.message : String(e))
     } finally {
       setSending(false)
+    }
+  }
+
+  /**
+   * The send's outcome is unknown. Ask the vault, repeatedly, instead of guessing (#280).
+   *
+   * Three endings, and each one says exactly what it knows. `sent` is a normal success found the
+   * slow way. `not-sent` is the only ending that may offer Retry, because it is the only one where
+   * we know the notes are untouched. `unresolved` stays unresolved: no failure, no Retry, and a
+   * line telling the person where to look.
+   */
+  async function resolveUnknown(groupKey: string, proposalId: string): Promise<void> {
+    setChecking(RESOLVE_ATTEMPTS)
+    try {
+      const r = await resolveOutcome(proposalId, {
+        list: () => listProposals(groupKey),
+        wait: (ms) => new Promise((res) => window.setTimeout(res, ms)),
+        onAttempt: setChecking,
+      })
+      console.info('[konclave] send: resolved', r)
+      if (r.kind === 'sent') {
+        setResult({ txid: r.txid })
+        toast.ok(t('toast.sent'))
+      } else if (r.kind === 'not-sent') {
+        fail(t('signing.errUnreachable'))
+      } else {
+        // Unknown, and still unknown. Do NOT call it a failure and do NOT unarm: the signatures may
+        // be attached to a transaction that is already on the chain.
+        setResult({ unresolved: true })
+        toast.warn(t('toast.sendUnresolved'))
+      }
+    } finally {
+      setChecking(0)
     }
   }
 
@@ -381,6 +425,20 @@ export default function SigningPanel() {
                   <a className="link" href={`https://mainnet.zcashexplorer.app/transactions/${(result as { txid: string }).txid}`} target="_blank" rel="noreferrer">{t('proposal.viewExplorer')}</a>
                 </div>
               )}
+            </div>
+          ) : checking > 0 ? (
+            <div className="sign-run">
+              <div className="sign-run-head">
+                <span className="loader-ring sm" aria-hidden="true" />
+                <span>{t('signing.checking')}</span>
+              </div>
+              <div className="note">{t('signing.checkingNote', { n: checking })}</div>
+            </div>
+          ) : unresolved ? (
+            <div className="sign-err">
+              <div className="hint warn" role="alert">{t('signing.unresolved')}</div>
+              <div className="note">{t('signing.unresolvedNote')}</div>
+              <a className="btn ghost sm-btn mt-sm" href="/ledger">{t('signing.openLedger')}</a>
             </div>
           ) : errMsg ? (
             <div className="sign-err">

@@ -323,6 +323,9 @@ export async function executeProposal(args: {
 }): Promise<
   | { txid: string | null; dry_run: boolean; state: string }
   | { error: string }
+  /** The coordinator did not answer, or gave a gateway error with no reason. The money may have
+   *  moved. The caller MUST resolve it against the vault before saying anything (#280). */
+  | { unknown: true }
   | null
 > {
   // A send can fail at any of ~7 stages (build/prove/sign/inject/broadcast); the helper returns a
@@ -347,16 +350,21 @@ export async function executeProposal(args: {
       | null
     if (!res.ok) {
       const raw = data && 'error' in data && typeof data.error === 'string' ? data.error : ''
-      // A 502/503 with no precise reason is typically the coordinator over capacity or restarting
-      // (e.g. an OOM during proving, #135) — give a clear, non-alarming money-path message instead of
-      // a bare "HTTP 502". A precise helper error (the ~7 send stages) is always preferred.
-      const msg = raw || (res.status === 502 || res.status === 503
-        ? 'The coordinator is over capacity or restarting. Your funds are safe. Nothing was sent. Retry in a moment.'
-        : `HTTP ${res.status}`)
-      return { error: msg }
+      // A precise helper error names one of the ~7 send stages and is a real failure report: the
+      // helper reached that stage and stopped, so nothing was broadcast.
+      if (raw) return { error: raw }
+      // A gateway status with NO reason is the dangerous case (#280). The helper persists the
+      // proposal as `sent` WITH its txid before it replies, and the reply comes after a blocking
+      // build+prove+broadcast that routinely outlives a proxy idle timeout. So a bare 502 is at
+      // least as likely to mean "it went out and the answer was lost" as "nothing happened". This
+      // used to return the sentence "Nothing was sent. Retry in a moment.", which is the exact
+      // claim we cannot make - and the retry it invited is a double-spend attempt.
+      if (res.status === 502 || res.status === 503 || res.status === 504) return { unknown: true }
+      return { error: `HTTP ${res.status}` }
     }
     return data as { txid: string | null; dry_run: boolean; state: string }
   } catch {
-    return null // could not reach the coordinator at all
+    // No response at all. Same reasoning: the request may have been fully served.
+    return { unknown: true }
   }
 }
