@@ -310,9 +310,12 @@ desktop" as the original intent and ADR-0005 as the delivery that carries it tod
   live 2-tab DKG.
 - **Stage 2 (#70):** `rearm()` + `isDone()` so one machine signs successive payments (fresh room per
   payment). `/net` unchanged.
-- **Stage 3 (next):** an app-level background signer + a per-vault signing room (derived from the group
-  key) + a singleton lock, so a send runs **from the Dashboard** with no "go to /net". **Stage 4**
-  (Dashboard-triggered broadcast) stays **money-gated** behind a live dry-run.
+- **Stage 3 + 4 (done, 2026-08-27, EPIC closed):** an app-level background signer on a per-vault
+  signing room, the panel mounted at the shell, and the broadcast triggered from the Dashboard desk.
+  Proven on mainnet with `78fe7dfa…` - ceremony start to signature response in **7 seconds**. The
+  money gate stayed: the send is still a preview plus an explicit confirm, never a single click.
+  What is NOT done and keeps its own issues: the cross-tab lock is still an in-process `Set`
+  (#285), and the ceremony has no abort and no reload persistence (#284).
 
 **Ceremony security (ADR-0007).** H1 transaction-swap defense = on-device ZIP-244 sighash binding
 (#67, primitive proven byte-exact vs the signer). PIN-gated admission + vault fingerprint close the
@@ -336,12 +339,23 @@ what the background signer drives, so this is the live path, not a lab one. #62 
 > now refuses a mismatch and never overwrites the local sighash. Only with that does "a hostile
 > helper cannot swap the transaction under a signer" hold as written.
 
-**Honest debts still open (§6.15):** Stage 3-4 of the Dashboard-send convergence; **H2** (seal the
-SignRequest - needs a device-key handshake, #63: the CONTENT of a request is verified on-device by
-H1, but its ORIGIN is not authenticated); `/net` **multi-note over the
-live relay** (unit-tested; single-spend is live-proven); **Tauri** live per-platform hardware validation (above). **Cargo workspace** is now closed -
-the crates are unified under one workspace (orchestrator aligned on `rusqlite 0.37`, resolving the
-`links="sqlite3"` conflict; 237 orchestrator tests pass).
+**Honest debts still open (§6.15).** Ordered by what they cost:
+
+- **The helper serves one request at a time** (#375), so a five-minute send makes the whole service
+  indistinguishable from dead, `/api/health` included. It took the vault down on 2026-08-27 -
+  see [the postmortem](docs/incidents/2026-08-27-helper-unresponsive.md). Root cause untouched.
+- **Write endpoints are unauthenticated** (#288, critical): anyone with a vault id can vote. The
+  permanent damage is gone (a refusal can now be withdrawn), the authentication is not.
+- **`/net` never got the replay mitigation** (#363): `NetVault.tsx` is a second, diverged ceremony
+  driver whose wire type erases the ceremony tag and whose `onMessage` ignores history.
+- **H2** (#63): H1 verifies the CONTENT of a sign request on-device; its ORIGIN is still not
+  authenticated. Needs the device-key handshake.
+- **Read access is not gated** (#267 second half): dropping `/api/vaults` closed discovery, not
+  authorization. Blocked on a migration decision - 26 live vaults, invites already distributed.
+- **No staging** (#370). Every fix this week was validated by spending real ZEC on mainnet, and a
+  preview shares the production helper, so "try it" still means "try it on the live vaults".
+- **`/net` multi-note over the live relay** (unit-tested; single-spend is live-proven), and **Tauri**
+  live per-platform hardware validation (above).
 
 **Ops + hardening (2026-08).**
 - **Ironwood finals engine bump prepared (#259, branch `feat/engine-ironwood-bump`).** pczt 0.9.1 /
