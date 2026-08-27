@@ -46,7 +46,8 @@ into the browser. See §8 for how those become the two delivery shells.
 | `engine/` | Official Zcash Foundation binaries, pinned by SHA in `engine/versions.lock`. Not reimplemented. | 1 |
 | `sdk/` | `@konclave/frost` - the WASM core packaged as a reusable browser SDK. | - |
 | `mcp-server/` | MCP "AI treasurer": reads + proposes, deliberately **no** sign/send tool (single-agent-proof). | - |
-| `src-tauri/` | **Placeholder** for the desktop shell (§8, roadmap). Today just a README. | - |
+| `helper-server/` | The hosted **view-only helper** (Architecture B, ADR-0006): registers a browser-DKG vault by its group key, keeps a view-only wallet, and builds/proves/broadcasts while the browsers sign. Deployed on Railway. It never receives, derives or stores a share. | 2 |
+| `src-tauri/` | The desktop shell (Tauri), released as **v0.2.0**. Optional native shell; the web app is the primary delivery (ADR-0005). Per-platform hardware validation is still open (#212). | - |
 
 ## 3. What travels vs. what stays (trust model)
 
@@ -79,6 +80,14 @@ it disrupts coordination (hence the QR/copy-paste fallback on the roadmap).
 | `secrets` | Seal shares at rest (XChaCha20-Poly1305); key in the OS keychain (`KeyStore`) |
 | `store` | Local state in SQLite/SQLCipher |
 | `server` / `relay` | The loopback HTTP bridge (`/api/*`) and the in-process blind relay |
+| `helper` | Everything the hosted view-only helper needs: registration, its proposals, members, the ceremony trail. `helper-server/` is a thin shell over this. |
+| `net_send` / `relay_client` | Architecture B: publish the sign request into the vault's relay room and collect the browsers' aggregate signature |
+| `money` | Zatoshi arithmetic - money is never summed in floating point |
+| `reconcile` | On-chain wins: promote a `sent` proposal whose txid confirmed, invalidate reservations a fresh sync can no longer fund |
+| `payroll` / `pczt` / `signer` / `tools` / `inheritance` | Payroll plan validation · PCZT create/prove/send · the `konclave-signer` bridge · subprocess running · the inheritance switch |
+
+> This table lists every module in `orchestrator/src/lib.rs`. It fell five behind once; if you add
+> one, add its row.
 
 ## 6. Proposal state machine (LOGICA §6)
 
@@ -110,10 +119,17 @@ pczt create ─> prove (Halo2) ─> EXTRACT ─> FROST ceremony ─> INJECT ─>
 4. **INJECT** the signatures into the PCZT; injection **verifies** each against the sighash → signed
    tx → broadcast → confirmation.
 
-EXTRACT and INJECT exist in **two** places, proven byte-for-byte equal by shared real-mainnet golden
-vectors (`konclave-signer/tests/vectors/`, `konclave-wasm/tests/vectors/`):
+EXTRACT and INJECT exist in **two** places, each checked against real-mainnet golden vectors:
 - **native** - `konclave-signer` (audit C6 tests), used by the desktop/orchestrator path;
 - **WASM** - `konclave-wasm::pczt_bridge` (parity tests), used by the browser path.
+
+> **The vectors are not actually shared, and this said they were** (#365). The two directories
+> (`konclave-signer/tests/vectors/`, `konclave-wasm/tests/vectors/`) hold byte-identical **copies**:
+> distinct inodes, no symlink, each crate `include_bytes!`s its own, and **nothing in the build or
+> in CI enforces that they stay equal**. The cross-check sighash is a hardcoded constant in both.
+> The duplication is the right design - two independent implementations checked against one vector
+> is the correct answer for a byte-exact bridge across two runtimes - but its whole value rests on
+> the vector genuinely being one, which today is a convention rather than a guarantee.
 
 ## 8. Two shells, one core (delivery)
 
@@ -158,7 +174,7 @@ bundle and converge on the same on-chain transaction (guaranteed by the §7 pari
 1. **Real browser transaction (slice 2):** on-device "what am I signing" verification + the
    create/prove boundary, then wire `pczt_bridge` into the `/net` ceremony and close with a real
    `pczt send` - a broadcast Orchard tx from the browser.
-2. **Desktop shell (Tauri):** turn `src-tauri/` from placeholder into a two-click app that embeds
+2. **Desktop shell (Tauri):** shipped as v0.2.0 - a two-click app that embeds
    `orchestrator/` and moves share custody to the OS keychain.
 3. **On-device share persistence:** encrypted IndexedDB + WebAuthn (sign-after-restore).
 4. **Multi-device reconciliation:** the "on-chain wins" rule + destructive test (the one open item
