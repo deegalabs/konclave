@@ -373,6 +373,13 @@ export const en: Record<string, string> = {
   'dashboard.nothingWaitingNote': 'When someone proposes a payment, it shows up here for your approval.',
   'dashboard.proposePayment': 'Propose payment',
   'dashboard.vaultBalance': 'Vault balance',
+  // The balance as a composition (free / reserved / confirming) - #293's "free instead of spendable".
+  'dashboard.compFree': 'Free',
+  'dashboard.spendableIn': 'Spendable in',
+  'dashboard.compReserved': 'Reserved',
+  'dashboard.compConfirming': 'Confirming',
+  'dashboard.compAria': 'Free {free} ZEC, reserved {reserved} ZEC, confirming {confirming} ZEC',
+  'dashboard.overCommitted': 'Open proposals add up to more than the vault can spend right now. One of them will not be payable.',
   'dashboard.walletNotConnected': 'Wallet not connected',
   'dashboard.walletNotConnectedNote': 'The balance appears once the vault syncs with the network.',
   'dashboard.confirmedLower': 'confirmed',
