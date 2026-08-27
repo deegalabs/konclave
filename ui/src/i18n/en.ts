@@ -379,7 +379,7 @@ export const en: Record<string, string> = {
   'dashboard.readyYes': 'Ready to pay',
   'dashboard.readyNo': 'Cannot pay right now',
   'dashboard.readySeats': '{present} of {threshold} seats present',
-  'dashboard.readyFree': 'free <b>{amt}</b> ZEC',
+  'dashboard.readyFree': 'free **{amt}** ZEC',
   'dashboard.readyNoFree': 'nothing free to spend right now',
   'dashboard.readyBackends': 'vault and relay responding',
   'dashboard.readyBackendsDown': 'vault or relay not answering',

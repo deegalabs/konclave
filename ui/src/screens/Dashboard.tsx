@@ -424,6 +424,75 @@ export default function Dashboard() {
           </section>
         )}
 
+          {/* 3 · How the vault has been behaving. Two panels, one series each, one hue each. */}
+          {!loading && (spendSeries.length >= 2 || part.considered > 0) && (
+            <div className="dash-charts">
+              {spendSeries.length >= 2 && (
+                <section className="panel">
+                  <h3>{t('dashboard.spendByMonth')}</h3>
+                  <SpendBars data={spendSeries} />
+                </section>
+              )}
+              {part.considered > 0 && (
+                <section className="panel">
+                  <h3>{t('dashboard.whoApproves')}</h3>
+                  <span className="chartcap">{t('dashboard.lastNProposals', { n: part.considered })}</span>
+                  <div className="prows">
+                    {part.rows.map((r) => (
+                      <div className="prow" key={r.name}>
+                        <span className="pname">{r.name}</span>
+                        <span className="trk"><span className="fil" style={{ width: `${r.pct}%` }} /></span>
+                        <span className="pn num">{r.approved}/{part.considered}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Says approvals, not signatures, because nothing records who signed (#290). */}
+                  <p className="cap">{t('dashboard.whoApprovesNote')}</p>
+                </section>
+              )}
+            </div>
+          )}
+
+          {/* 4 · History, as a table: four aligned columns read better than loose rows. */}
+          <section className="ledger">
+            <div className="ledger-head">
+              <h2 className="klab">{t('dashboard.movements')}</h2>
+              <span className="cap">{t('dashboard.movementsCap')}</span>
+            </div>
+            {loading && <SkeletonRows n={4} />}
+            {!loading && movimentos.length === 0 && (
+              <div className="cap">{t('dashboard.noMovements')}</div>
+            )}
+            {!loading && movimentos.length > 0 && (
+              <div className="tblwrap">
+                <table className="movtbl">
+                  <thead>
+                    <tr>
+                      <th>{t('dashboard.colDate')}</th>
+                      <th>{t('dashboard.colWhat')}</th>
+                      <th>{t('dashboard.colWho')}</th>
+                      <th className="n">{t('dashboard.colValue')}</th>
+                      <th>{t('dashboard.colState')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {movimentos.map((m, i) => (
+                      <tr key={i}>
+                        <td className="n dt">{m.date}</td>
+                        <td className="what">{m.title}</td>
+                        <td className="who">{m.by}</td>
+                        <td className="n"><Secret sm><span>{m.value}</span></Secret></td>
+                        <td>{m.status === 'verificar'
+                          ? <Link className="chip pend" to="/ledger">{t('dashboard.verify')}</Link>
+                          : <span className="chip ok">{t('dashboard.confirmed')}</span>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
           </div>
 
           <aside className="dash-aside">
@@ -582,75 +651,6 @@ export default function Dashboard() {
         )}
           </aside>
         </div>
-
-        {/* 3 · How the vault has been behaving. Two panels, one series each, one hue each. */}
-        {!loading && (spendSeries.length >= 2 || part.considered > 0) && (
-          <div className="dash-charts">
-            {spendSeries.length >= 2 && (
-              <section className="panel">
-                <h3>{t('dashboard.spendByMonth')}</h3>
-                <SpendBars data={spendSeries} />
-              </section>
-            )}
-            {part.considered > 0 && (
-              <section className="panel">
-                <h3>{t('dashboard.whoApproves')}</h3>
-                <span className="chartcap">{t('dashboard.lastNProposals', { n: part.considered })}</span>
-                <div className="prows">
-                  {part.rows.map((r) => (
-                    <div className="prow" key={r.name}>
-                      <span className="pname">{r.name}</span>
-                      <span className="trk"><span className="fil" style={{ width: `${r.pct}%` }} /></span>
-                      <span className="pn num">{r.approved}/{part.considered}</span>
-                    </div>
-                  ))}
-                </div>
-                {/* Says approvals, not signatures, because nothing records who signed (#290). */}
-                <p className="cap">{t('dashboard.whoApprovesNote')}</p>
-              </section>
-            )}
-          </div>
-        )}
-
-        {/* 4 · History, as a table: four aligned columns read better than loose rows. */}
-        <section className="ledger">
-          <div className="ledger-head">
-            <h2 className="klab">{t('dashboard.movements')}</h2>
-            <span className="cap">{t('dashboard.movementsCap')}</span>
-          </div>
-          {loading && <SkeletonRows n={4} />}
-          {!loading && movimentos.length === 0 && (
-            <div className="cap">{t('dashboard.noMovements')}</div>
-          )}
-          {!loading && movimentos.length > 0 && (
-            <div className="tblwrap">
-              <table className="movtbl">
-                <thead>
-                  <tr>
-                    <th>{t('dashboard.colDate')}</th>
-                    <th>{t('dashboard.colWhat')}</th>
-                    <th>{t('dashboard.colWho')}</th>
-                    <th className="n">{t('dashboard.colValue')}</th>
-                    <th>{t('dashboard.colState')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {movimentos.map((m, i) => (
-                    <tr key={i}>
-                      <td className="n dt">{m.date}</td>
-                      <td className="what">{m.title}</td>
-                      <td className="who">{m.by}</td>
-                      <td className="n"><Secret sm><span>{m.value}</span></Secret></td>
-                      <td>{m.status === 'verificar'
-                        ? <Link className="chip pend" to="/ledger">{t('dashboard.verify')}</Link>
-                        : <span className="chip ok">{t('dashboard.confirmed')}</span>}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
 
       </main>
 

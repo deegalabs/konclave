@@ -379,7 +379,7 @@ export const ptBR: Record<string, string> = {
   'dashboard.readyYes': 'Pronto para pagar',
   'dashboard.readyNo': 'Não dá para pagar agora',
   'dashboard.readySeats': '{present} de {threshold} assentos presentes',
-  'dashboard.readyFree': 'livre <b>{amt}</b> ZEC',
+  'dashboard.readyFree': 'livre **{amt}** ZEC',
   'dashboard.readyNoFree': 'nada livre para gastar agora',
   'dashboard.readyBackends': 'cofre e relay respondendo',
   'dashboard.readyBackendsDown': 'cofre ou relay sem resposta',

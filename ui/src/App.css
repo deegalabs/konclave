@@ -444,6 +444,16 @@
 .movtbl .chip.pend{color:var(--warn); border-color:var(--warn-line); background:var(--warn-soft)}
 .ledger .tblwrap{overflow-x:auto}
 
+/* The dashboard is the one page with two columns, so the 940px meant for a single column left
+   the main column at ~508px and squeezed everything. Scoped with `.applayout` to beat the
+   `.applayout .page` rule at equal specificity rather than relying on import order. */
+.applayout .page.dash{max-width:1280px}
+/* The shell itself caps at 1320px including a 248px rail, which leaves the dashboard's main column
+   at ~640px however wide the page is allowed to be. Widen the shell for THIS page only.
+   `:has()` is safe here precisely because its failure mode is benign: a browser without it keeps
+   today's 1320px and the dashboard is merely narrower, never broken. */
+.applayout:has(> .railcontent .page.dash){max-width:1600px}
+
 /* Dashboard · two columns. The desk leads and the balance follows it on the right, staying put
    while the page scrolls - the money is the number you read the ledger against, so it must not
    leave the screen when you scroll down to read it. Collapses to one column on a narrow viewport,
