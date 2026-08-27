@@ -259,6 +259,17 @@ fn handle(
     }
 }
 
+/// Removes a per-send scratch directory when it goes out of scope, whatever the outcome. Kept as a
+/// guard rather than a call at each exit so an early `return` or a panic cannot leave a payroll's
+/// beneficiary list sitting on the durable volume (#297).
+struct ScratchDir(String);
+
+impl Drop for ScratchDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
 /// Available memory in MiB parsed from a `/proc/meminfo` string (its `MemAvailable:` line), or None.
 /// Pure, so it is unit-testable without touching the filesystem.
 fn parse_mem_available_mb(meminfo: &str) -> Option<u64> {
@@ -345,7 +356,14 @@ fn handle_send(state: &HelperState, cfg: &HelperConfig, body: &[u8]) -> Resp {
         );
     }
     // Per-send scratch dir under the vault's own tree (intermediate PCZTs, never a share).
+    //
+    // On this server that tree is the DURABLE Railway volume, so anything left here outlives the
+    // send by the life of the vault. The PCZTs are not shares, but a payroll PCZT carries every
+    // beneficiary's address and memo, which is exactly what the vault exists to keep off the wire
+    // (#297). The guard wipes the directory when this function returns, on success and on failure
+    // alike; nothing reads `SendOutcome::signed_pczt` back, it is only reported.
     let work_dir = format!("{}/{}/send-work", cfg.vaults_dir.display(), reg.vault_id);
+    let _scratch = ScratchDir(work_dir.clone());
     let sc = send_config_for(cfg, &reg, work_dir);
     match net_orchestrate_send(
         &sc,
@@ -428,6 +446,9 @@ fn refuse_if_unfunded(
     if std::fs::create_dir_all(&work_dir).is_err() {
         return Err("could not prepare the work directory".into());
     }
+    // Same durable volume, same rule: the probe builds a real unproven PCZT for the real plan, so
+    // it holds the real destinations. Wipe it whatever happens (#297).
+    let _scratch = ScratchDir(work_dir.clone());
     let sc = send_config_for(cfg, reg, work_dir);
     match funding_check(&sc, plan) {
         Ok(Funding::Ok) => Ok(None),
@@ -536,6 +557,7 @@ fn handle_proposal_send(state: &HelperState, cfg: &HelperConfig, path: &str, bod
         Err(_) => {} // an unrelated fault must not block a send the vault could make
     }
     let work_dir = format!("{}/{}/send-work", cfg.vaults_dir.display(), reg.vault_id);
+    let _scratch = ScratchDir(work_dir.clone());
     let sc = send_config_for(cfg, &reg, work_dir);
     match net_orchestrate_send(
         &sc,

@@ -394,6 +394,22 @@ pub fn with_unsealed_file<T>(
     Ok(result)
 }
 
+/// Write `contents` to a short-lived, private (0600) file, run `op` with its path, then delete it -
+/// even on panic. Same guard as [`with_unsealed_file`], for plaintext that was never sealed but
+/// must not persist: a payroll spec carries every beneficiary's name, address, amount and payslip
+/// memo, and the helper's work dir is a durable Railway volume (#297).
+///
+/// The file lands on tmpfs when `/dev/shm` exists, so on the helper it never reaches disk at all.
+pub fn with_private_file<T>(
+    contents: &[u8],
+    op: impl FnOnce(&Path) -> T,
+) -> Result<T, SecretError> {
+    let file = EphemeralFile::create(contents)?;
+    let result = op(&file.path);
+    // `file` drops here, removing the plaintext.
+    Ok(result)
+}
+
 /// An unsealed secret materialized as a short-lived 0600 file, removed when dropped.
 /// Use this when several unsealed files must live at once (e.g. one config per FROST
 /// signer for the whole ceremony) - hold the guards, use their paths, let them drop.
@@ -537,6 +553,56 @@ mod tests {
         let k2 = ks.get_or_create_key("vault-2").unwrap();
         assert_eq!(k1, k1_again, "same vault => same key");
         assert_ne!(k1, k2, "different vaults => different keys");
+    }
+
+    #[test]
+    /// #297: a payroll spec names every beneficiary, their address, their amount and their payslip
+    /// memo. It used to be written into the helper's DURABLE volume and left there.
+    #[test]
+    fn private_file_carries_the_plaintext_and_is_gone_afterwards() {
+        let spec = br#"[{"label":"Ana","to":"u1abc","amount_zat":1000,"memo":"salario agosto"}]"#;
+        let mut seen_path = std::path::PathBuf::new();
+        let read_back = with_private_file(spec, |p| {
+            seen_path = p.to_path_buf();
+            std::fs::read(p).expect("the tool must be able to read the spec while it runs")
+        })
+        .unwrap();
+        assert_eq!(read_back, spec, "the tool sees the real spec");
+        assert!(
+            !seen_path.exists(),
+            "the beneficiary roster must not survive the send"
+        );
+    }
+
+    /// The guard must also fire when the operation fails, which is the path a real send takes when
+    /// the builder rejects a line - the case where a leftover is most likely to go unnoticed.
+    #[test]
+    fn private_file_is_removed_even_when_the_operation_fails() {
+        let mut seen_path = std::path::PathBuf::new();
+        let r: Result<(), &str> = with_private_file(b"secret roster", |p| {
+            seen_path = p.to_path_buf();
+            Err("builder refused this payroll")
+        })
+        .unwrap();
+        assert!(r.is_err());
+        assert!(
+            !seen_path.exists(),
+            "a failed send must not leave the roster behind"
+        );
+    }
+
+    /// It must never be written next to the vault's durable files, whatever the caller passes.
+    #[test]
+    fn private_file_never_lands_in_a_caller_supplied_directory() {
+        let vault_dir = std::env::temp_dir().join("konclave-297-durable");
+        std::fs::create_dir_all(&vault_dir).unwrap();
+        let mut seen_path = std::path::PathBuf::new();
+        with_private_file(b"roster", |p| seen_path = p.to_path_buf()).unwrap();
+        assert!(
+            !seen_path.starts_with(&vault_dir),
+            "the spec must live on tmpfs or the temp dir, never in the vault's work dir"
+        );
+        let _ = std::fs::remove_dir_all(&vault_dir);
     }
 
     #[test]
