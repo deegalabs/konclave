@@ -335,7 +335,11 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
    This was 860 for the shell and 900 for the dashboard, which left a band (861-900) where the rail
    was still a sidebar eating 248px while the content had already given up on two columns. */
 @media(max-width:900px){
-  .applayout{grid-template-columns:1fr}
+  /* `1fr` is `minmax(auto, 1fr)`: its floor is the content's min-content, so a bar that wants more
+     room than the phone has widens the whole grid and the PAGE scrolls sideways (16px at 320px, on
+     every in-vault screen). `minmax(0, 1fr)` lets the track shrink; what does not fit is then the
+     bar's own problem to solve, in the bar, instead of everyone else's. */
+  .applayout{grid-template-columns:minmax(0,1fr)}
 
   /* top bar */
   .rail{position:sticky; top:0; z-index:60; height:auto; flex-direction:row; align-items:center;

@@ -26,12 +26,12 @@ const ADDR =
 const proposal = (id: string, state: string, zec: string, zat: number, who: string, kind = 'payment') => ({
   id, vault_id: 'demo', kind, state, proposer: who, value_zat: zat, value_zec: zec,
   to_address: ADDR, is_public: false, expiry_unix: 4_000_000_000, created_at: 1_700_000_000,
-  approvals: state === 'open' ? ['Alice'] : ['Alice', 'Bob'], refusals: [],
-  approvals_count: state === 'open' ? 1 : 2,
+  approvals: state === 'pending' ? ['Alice'] : ['Alice', 'Bob'], refusals: [],
+  approvals_count: state === 'pending' ? 1 : 2,
 })
 
 const PROPOSALS = [
-  proposal('p1', 'open', '0.0120', 1_200_000, 'Alice'),
+  proposal('p1', 'pending', '0.0120', 1_200_000, 'Alice'),
   proposal('p2', 'ready', '1.5000', 150_000_000, 'Bob'),
   proposal('p3', 'sent', '0.0500', 5_000_000, 'Carolina Nascimento'),
   proposal('p4', 'confirmed', '12.3456', 1_234_560_000, 'Alice'),
@@ -52,18 +52,21 @@ async function stubApi(page: Page) {
     try { localStorage.setItem('konclave.vault', 'demo') } catch { /* storage unavailable */ }
   })
   const json = (body: unknown) => (r: { fulfill: (o: { json: unknown }) => unknown }) => r.fulfill({ json: body })
+  // Playwright gives precedence to the LAST matching route, so these run from the most GENERAL to
+  // the most SPECIFIC. With the catch-all registered last it answered everything and every screen
+  // rendered EMPTY - which is precisely the state that hides the overflow this spec looks for.
+  await page.route('**/api/**', json({}))
   await page.route('**/api/health**', json({ status: 'ok', name: 'konclave', version: 'e2e' }))
-  await page.route('**/api/vaults**', json({ vaults: [VAULT] }))
   await page.route('**/api/vault**', json({ vault: VAULT }))
+  await page.route('**/api/vaults**', json({ vaults: [VAULT] }))
   await page.route('**/api/balance**', json({
     configured: true, total_zat: 200_000_000, total_zec: '2.0000',
     spendable_zec: '1.8000', spendable_zat: 180_000_000, pending_zec: '0.2000', reserved_zat: 20_000_000,
   }))
   await page.route('**/api/ledger**', json({ proposals: PROPOSALS }))
-  await page.route('**/api/proposals/p2**', json({ proposal: PROPOSALS[1], lines: [] }))
-  await page.route('**/api/proposals**', json({ proposals: PROPOSALS }))
   await page.route('**/api/ceremonies**', json({ ceremonies: [] }))
-  await page.route('**/api/**', json({}))
+  await page.route('**/api/proposals**', json({ proposals: PROPOSALS }))
+  await page.route('**/api/proposals/p2**', json({ proposal: PROPOSALS[1], lines: [] }))
 }
 
 /** Runs in the page: everything sticking out of the viewport, and every box cropping its own
@@ -89,7 +92,9 @@ function measure() {
       const text = ((el as HTMLElement).innerText || '').trim().slice(0, 36).replace(/\n/g, ' / ')
       clipped.push(`${name} crops ${el.scrollWidth - el.clientWidth}px of "${text}"`)
     }
-    if (r.right > vw + 1) wide.push(`${name} +${Math.round(r.right - vw)}px past the edge`)
+    if (r.right > vw + 1) {
+      wide.push(`${name} L=${Math.round(r.left)} w=${Math.round(r.width)} right=${Math.round(r.right)} (viewport ${vw})`)
+    }
 
     // A child that will not shrink inside a right-justified box grows LEFTWARD out of it and is
     // painted over its neighbour. Nothing leaves the viewport and nothing is cropped, so neither
