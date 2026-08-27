@@ -386,7 +386,10 @@ mod tests {
 
         // Polling strictly after our own request waits for a real answer instead.
         let (waiting, since) = collect_response(&helper, &req, posted).unwrap();
-        assert!(waiting.is_none(), "no signatures until THIS payment is signed");
+        assert!(
+            waiting.is_none(),
+            "no signatures until THIS payment is signed"
+        );
 
         // And when the devices do answer, it is collected normally.
         device
