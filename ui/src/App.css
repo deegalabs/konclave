@@ -28,6 +28,15 @@
 .page-header-sub{margin-top:11px; font-family:var(--font-mono); font-size:12.5px; line-height:1.55; color:var(--text-muted)}
 .page-header-sub b{color:var(--text); font-weight:500}
 .page-header-actions{display:flex; align-items:center; gap:14px; flex:0 0 auto; margin-left:auto}
+/* On a narrow phone a row of export buttons is wider than the screen. `flex:0 0 auto` keeps
+   the group at its max-content width, so wrapping alone never fires - it has to be given the
+   whole row first, and then the buttons wrap inside it. The header with the quorum globe is
+   excluded: there the action is a companion to the title and stays beside it (720px block). */
+@media(max-width:560px){
+  .page-header:not(:has(.seal-wrap)) .page-header-actions{
+    flex:1 1 100%; flex-wrap:wrap; justify-content:flex-start;
+    row-gap:8px; column-gap:10px; margin-left:0}
+}
 /* On mobile, a header whose action is the quorum globe keeps it to the RIGHT of the
    title (text left, globe right). It TOP-aligns with the title (not floating centered)
    and shrinks, so it reads as a compact companion to the heading. */
@@ -843,7 +852,7 @@ h1.klab,h2.klab,h3.klab{margin:0;font-weight:400}
 
 /* ---- Ledger ---- */
 .filters{display:flex; gap:14px; margin:14px 0; align-items:center; flex-wrap:wrap}
-.chip-group{display:inline-flex; gap:6px}
+.chip-group{display:inline-flex; flex-wrap:wrap; gap:6px}
 .chip{font-family:var(--font-mono); font-size:12px; color:var(--text-muted); border:1px solid var(--line); background:var(--surface-2); padding:7px 12px; border-radius:var(--radius-pill); cursor:pointer; transition:all var(--dur-fast) var(--ease-out)}
 .chip:hover{color:var(--text); border-color:var(--text-muted)}
 .chip.on{color:var(--accent); border-color:var(--accent-line); background:var(--accent-soft)}

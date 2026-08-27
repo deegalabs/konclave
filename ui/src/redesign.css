@@ -63,7 +63,10 @@
 .rd-vlabel { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--silver); margin: 0 0 12px; }
 @media (max-width: 640px) { .rd-doors { grid-template-columns: 1fr; } }
 
-.rd-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
+/* `minmax(300px, ...)` is a floor the track keeps even when the screen is narrower than it,
+   so on a 320px phone the card hangs 20px off the edge. `min(300px, 100%)` lets the floor
+   fall back to the container width - one column, no overflow, no media query. */
+.rd-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: 20px; }
 
 /* Vault card - layered slate surface, hairline border; FLAT (no float), matching every in-vault
    card. Was shipping shadow-sm, contradicting its own "flat" note and reading as a "second app". */
@@ -222,8 +225,12 @@
 .doclink { font-size: 13px; font-weight: 600; color: var(--silver); text-decoration: none; letter-spacing: .01em; transition: color .15s; }
 .doclink:hover { color: var(--accent); }
 .doclink:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
-.lang-toggle { display: inline-flex; border: 1px solid var(--line-soft); border-radius: var(--radius-sm); overflow: hidden; }
-.lang-btn { background: transparent; color: var(--silver); border: none; padding: 3px 9px; font: inherit; font-size: 11px; letter-spacing: .04em; cursor: pointer; }
+.lang-toggle { display: inline-flex; border: 1px solid var(--line-soft); border-radius: var(--radius-sm); overflow: hidden;
+  /* A control never pays for a tight row. `overflow:hidden` rounds the corners, so any
+     shrink here would crop a label instead of the box growing: refuse to shrink, and let
+     the wordmark beside it absorb the squeeze (see .lh-right min-width:0 in lacre.css). */
+  flex: 0 0 auto; }
+.lang-btn { background: transparent; color: var(--silver); border: none; padding: 3px 9px; font: inherit; font-size: 11px; letter-spacing: .04em; cursor: pointer; flex: 0 0 auto; white-space: nowrap; }
 .lang-btn.on { background: var(--accent); color: var(--on-accent); font-weight: 700; }
 .lang-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
