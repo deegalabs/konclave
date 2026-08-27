@@ -555,7 +555,6 @@ mod tests {
         assert_ne!(k1, k2, "different vaults => different keys");
     }
 
-    #[test]
     /// #297: a payroll spec names every beneficiary, their address, their amount and their payslip
     /// memo. It used to be written into the helper's DURABLE volume and left there.
     #[test]
