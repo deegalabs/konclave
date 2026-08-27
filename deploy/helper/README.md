@@ -60,7 +60,7 @@ Validate locally before deploying:
 cd ~/konclave-helper-deploy
 docker build -t konclave-helper:test .
 docker run --rm -d --name h -e PORT=4790 -p 4790:4790 konclave-helper:test
-curl -s localhost:4790/api/health   # -> {"name":"konclave-helper","status":"ok","vaults":0}
+curl -s localhost:4790/api/health   # -> {"name":"konclave-helper","status":"ok"}
 docker rm -f h
 ```
 

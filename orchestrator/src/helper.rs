@@ -774,19 +774,15 @@ impl HelperState {
             .cloned()
     }
 
+    // There is deliberately NO `ids()` / list-all here. The registry is looked up BY id, never
+    // enumerated: the id is the group verifying key, and handing out the list of ids hands out read
+    // access to every vault the helper knows (#267). If you need to count them for ops, use `len()`
+    // and keep the count on the server.
     pub fn contains(&self, vault_id: &str) -> bool {
         self.vaults
             .lock()
             .expect("helper state mutex")
             .contains_key(vault_id)
-    }
-
-    /// Registered vault ids, sorted (stable for listing).
-    pub fn ids(&self) -> Vec<String> {
-        let m = self.vaults.lock().expect("helper state mutex");
-        let mut ids: Vec<String> = m.keys().cloned().collect();
-        ids.sort();
-        ids
     }
 
     pub fn len(&self) -> usize {
@@ -977,7 +973,6 @@ mod tests {
         assert!(!st.contains("cccc"));
         assert_eq!(st.get("bbbb").unwrap().address, "u1bbbb");
         assert!(st.get("cccc").is_none());
-        assert_eq!(st.ids(), vec!["aaaa".to_string(), "bbbb".to_string()]);
     }
 
     #[test]
