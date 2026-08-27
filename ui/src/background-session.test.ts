@@ -114,6 +114,68 @@ describe('BackgroundSession - seated background signing (Stage 3 core, end to en
     expect(A.sig?.hex).toBe(B.sig?.hex) // the two devices agree on the aggregate signature
   })
 
+  it('BUG #354: a second payment on the same session never started, because nothing rearmed the machine', async () => {
+    // Production has ONE permanent signing room per vault and one long-lived session on it. After a
+    // payment completed, the machine stayed `done` with the previous ceremony's message, nonces and
+    // result, and `rearm()` was called from nowhere outside its own test. So the panel opened on the
+    // next payment still showing the last one as sent, and the ceremony that should have started
+    // never did: `onSreq` returns early while `started` is true.
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const open: GovernanceGate = () => true
+    const A = makeDev('a-tag', 1, bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }), open)
+    const B = makeDev('b-tag', 2, bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }), open)
+    A.session.setProposal('payment-1')
+    B.session.setProposal('payment-1')
+    await A.session.start()
+    await B.session.start()
+    await run([A, B], bus)
+
+    bus.post('helper', requestFor(dkgProvenPczt()))
+    await run([A, B], bus)
+    expect(A.session.isDone()).toBe(true)
+    const first = A.sig?.hex
+    expect(first).toBeTruthy()
+
+    // The panel now opens on a DIFFERENT payment. That alone must put the machine back to zero.
+    A.session.setProposal('payment-2')
+    B.session.setProposal('payment-2')
+    expect(A.session.isDone()).toBe(false)
+    expect(B.session.isDone()).toBe(false)
+
+    // And the next ceremony actually runs, rather than being swallowed by a machine that thinks it
+    // already finished.
+    bus.post('helper', requestFor(dkgProvenPczt()))
+    await run([A, B], bus)
+    expect(A.errors).toEqual([])
+    expect(B.errors).toEqual([])
+    expect(A.session.isDone()).toBe(true)
+    expect(A.sig?.ok).toBe(true)
+    expect(A.sig?.hex).toBe(B.sig?.hex)
+  })
+
+  it('closing and reopening the SAME payment does not throw away the ceremony', async () => {
+    // The counterpart to the rule above: the panel goes to null when it closes, and that must not
+    // reset anything. Only moving to a different payment does.
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const open: GovernanceGate = () => true
+    const A = makeDev('a-tag', 1, bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }), open)
+    const B = makeDev('b-tag', 2, bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }), open)
+    A.session.setProposal('payment-1')
+    B.session.setProposal('payment-1')
+    await A.session.start()
+    await B.session.start()
+    await run([A, B], bus)
+    bus.post('helper', requestFor(dkgProvenPczt()))
+    await run([A, B], bus)
+    expect(A.session.isDone()).toBe(true)
+
+    A.session.setProposal(null)      // panel closed
+    A.session.setProposal('payment-1') // reopened on the same payment
+    expect(A.session.isDone()).toBe(true) // still finished; the result is still the user's to read
+  })
+
   it('a signing message that arrives before its sender is seated still completes (rejoin re-drives)', async () => {
     // Deliver the helper request BEFORE B has announced its seat, to exercise the fixpoint: the
     // coordinator's early messages referencing B wait until B's rejoin lands, then complete.
