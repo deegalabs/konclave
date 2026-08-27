@@ -12,8 +12,30 @@ Implementations: browser client `ui/src/net.ts` (relay transport), `ui/src/scree
 ## 1. Transport (the blind relay)
 - A **room** is named by a code. Messages are `{seq, from, data}`: `seq` monotonic per room, `from`
   an ephemeral per-session tag, `data` an **opaque** byte string the relay never parses.
-- Clients **short-poll** with a cursor over `seq` (dedup, replay-immune). The relay returns the
-  message list plus a **peer count**.
+- Clients **short-poll** with a cursor over `seq`. The relay returns the message list plus a **peer
+  count**.
+- **The cursor dedups within a session; it does NOT make the room replay-immune.** This line used to
+  claim it did, and three separate bugs came from believing it (#354, #356, #358). A cursor that
+  starts at 0 replays the whole room, and a room is **permanent per vault**: the signing room is
+  `sha256("konclave-sign " + groupKey)` and the relay retains 512 messages with a one-hour idle TTL.
+  So every new reader is handed every previous ceremony.
+- **I5 (replay discipline):** every reader of a permanent room MUST declare, per message type, what
+  history means to it. Two classes, and mixing them up is what broke:
+
+  | class | types | on history |
+  |---|---|---|
+  | **replay-safe, and history is REQUIRED** | `armed`, `unarmed`, `rejoin` | process it. A device that reloads mid-payment learns who already signed only by reading the room back. These are scoped by proposal and expire on the wire (#324/#326) precisely so this is safe. |
+  | **replay-unsafe** | `sreq`, `s1`, `sp`, `s2`, `signed`, `net-sign-request`, `net-sign-response` | drop it. A finished payment's round-1 commitments fed into a fresh ceremony are what FROST rejects as *"the participant's commitment is incorrect"*, and a previous payment's response injected into a new PCZT is `InvalidExternalSignature`. Nothing is lost: a device that reloads mid-ceremony left its nonces in the page it closed. |
+
+  A **server** reader does this with a cursor: `publish_request` returns the seq it posted at, and
+  the poll starts strictly after it. A **client** reader cannot, because it needs history for the
+  first class, so the transport reports whether each message is history and the session decides per
+  type. Any new message type MUST be placed in one of the two rows above.
+- **Where this has bitten:** `RelaySession` starting at 0 (#354, browser), the same fix then starving
+  the arming tally (#356, my regression), and `net_orchestrate_send` polling from 0 and injecting the
+  previous payment's signatures (#358, helper). Before theorising about a ceremony failure, **read
+  the room**: `GET {relay}/api/relay/{room}?since=0&from=diag` settled #354 and #358 in one look,
+  after code-reading had produced two wrong hypotheses.
 - **I1 (relay is blind):** the relay sees only room id, tags, sizes, timing, and peer count. It MUST
   NOT be able to read any secret, recipient address, or amount. Every payload carrying spending
   detail MUST be sealed before it is posted (see §4).
@@ -85,6 +107,7 @@ REQUIRES **authenticated admission**:
 - [x] **I2** on-device sighash recompute + refuse-on-mismatch (#62/#67; primitive proven byte-exact, live-validated 2-tab).
 - [ ] **I3** SignRequest ECIES-sealed (#63) - **the one open invariant** (plan in §4 above).
 - [x] **I4** authenticated admission: PIN + creator admission + OOB fingerprint + ≥128-bit code (#65/#67/#68, live-validated 2-tab).
+- [x] **I5** replay discipline: every permanent-room reader declares per type whether history applies (§1; #354/#356/#358, live-validated 2-device 2026-08-27, txid `78fe7dfa…`).
 - Gate: a real-money `/net` broadcast stays blocked on **I3** (I1/I2/I4 are enforced); I3 is money-path and lands with a live 2-device check.
 
 ## 6. Non-goals (for now)

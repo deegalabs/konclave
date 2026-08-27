@@ -306,12 +306,18 @@ code (Tauri shell over the `orchestrator`) tagged **`v0.2.0`**, with Windows/mac
 The web app stays the primary delivery (ADR-0005); desktop is the optional native shell. **Still open:**
 live **per-platform hardware** validation (the GTK/WSLg window does not render here, ADR-0004).
 
-**H1 is DONE and live** (this entry used to sit in the debts below, and was stale). Every device
-recomputes the ZIP-244 sighash from **its own** PCZT and signs that, refusing the ceremony if it
-disagrees with the requested one (`ui/src/signing-machine.ts:183-196`), and it decodes and shows what
-the transaction pays before contributing a share. `SigningMachine` is what the background signer
-drives, so this is the live path, not a lab one. #62 is closed. A hostile helper cannot swap the
-transaction under a signer.
+**H1 is DONE and live, in BOTH rounds since 2026-08-27.** Every device recomputes the ZIP-244 sighash
+from **its own** PCZT and signs that, refusing the ceremony if it disagrees with the requested one,
+and it decodes and shows what the transaction pays before contributing a share. `SigningMachine` is
+what the background signer drives, so this is the live path, not a lab one. #62 is closed.
+
+> **This paragraph overstated the guarantee until 2026-08-27, and the correction is worth keeping.**
+> The check bound round 1 only. In round 2, `onSp` overwrote the locally derived sighash with the
+> coordinator's wire value **without comparing them**, and the share is computed over the
+> coordinator's SigningPackage (`frost_rerandomized::sign` signs the message inside it). So a device
+> displayed the transaction it had verified and signed the one it was handed. Fixed in #355: `onSp`
+> now refuses a mismatch and never overwrites the local sighash. Only with that does "a hostile
+> helper cannot swap the transaction under a signer" hold as written.
 
 **Honest debts still open (§6.15):** Stage 3-4 of the Dashboard-send convergence; **H2** (seal the
 SignRequest - needs a device-key handshake, #63: the CONTENT of a request is verified on-device by
