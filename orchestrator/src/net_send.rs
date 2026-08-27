@@ -353,4 +353,46 @@ mod tests {
         assert_eq!(sigs.len(), 4);
         assert_eq!(sigs[0], (0, [0xabu8; 64]));
     }
+
+    /// #358: the signing room is PERMANENT per vault, so the previous payment's response is still
+    /// in it. Polling from 0 finds that one, and it is structurally valid - same real-spend index,
+    /// same 64 bytes - so `into_sigs` accepts it and only the cryptography catches it, at inject
+    /// time, as `InvalidExternalSignature`. Every send after the first one in a room failed that
+    /// way. The cursor `publish_request` returns is the whole fix.
+    #[test]
+    fn a_previous_payments_response_is_never_mistaken_for_this_ones() {
+        let state = Arc::new(RelayState::new());
+        let helper = client(state.clone(), "helper");
+        let device = client(state, "device");
+
+        // A payment that already completed left its response in the room.
+        let old_req = SignRequest::from_signing_input(&ironwood_input(), &[0x11, 0x22]);
+        publish_request(&helper, &old_req).unwrap();
+        device
+            .post(&serde_json::to_string(&response_for(&old_req)).unwrap())
+            .unwrap();
+
+        // Now a NEW payment publishes its request into the same room.
+        let req = SignRequest::from_signing_input(&ironwood_input(), &[0xaa, 0xbb]);
+        let posted = publish_request(&helper, &req).unwrap();
+
+        // Polling from the start hands back the OLD payment's signatures, which is the bug: they
+        // decode, they cover every requested index, and nothing here can tell they are wrong.
+        let (stale, _) = collect_response(&helper, &req, 0).unwrap();
+        assert!(
+            stale.is_some(),
+            "polling from 0 accepts the previous payment's response - this is what broke"
+        );
+
+        // Polling strictly after our own request waits for a real answer instead.
+        let (waiting, since) = collect_response(&helper, &req, posted).unwrap();
+        assert!(waiting.is_none(), "no signatures until THIS payment is signed");
+
+        // And when the devices do answer, it is collected normally.
+        device
+            .post(&serde_json::to_string(&response_for(&req)).unwrap())
+            .unwrap();
+        let (sigs, _) = collect_response(&helper, &req, since).unwrap();
+        assert!(sigs.is_some(), "this payment's own response is collected");
+    }
 }
