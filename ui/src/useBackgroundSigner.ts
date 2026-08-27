@@ -146,12 +146,9 @@ export function useBackgroundSigner(
         // The panel may have opened before this session existed; scope it now, or every signature
         // that arrives would be dropped as belonging to "no payment" and nobody could sign.
         session.setProposal(proposalRef.current)
-        // Start at the room's HEAD, not at seq 0. The signing room is permanent and this device
-        // listens on it continuously, so its history is never something to catch up on - it is
-        // the previous ceremony, and replaying it fed a finished payment's sreq and commitments
-        // into the next one until FROST refused the mix (#354). The DKG/create room still
-        // replays, because a late joiner genuinely needs what it missed.
-        const relay = new RelaySession(r, myTag, (m) => void session.onMessage(m.from, m.data), undefined, undefined, true)
+        // History is read back (the arming tally is rebuilt from it), and each message says whether
+        // it is history or live. The session decides per type: arming yes, ceremony no (#354, #356).
+        const relay = new RelaySession(r, myTag, (m, hist) => void session.onMessage(m.from, m.data, hist))
         relayRef.current = relay
         relay.start()
         await session.start() // announce this device's seat

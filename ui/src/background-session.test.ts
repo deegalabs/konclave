@@ -114,6 +114,63 @@ describe('BackgroundSession - seated background signing (Stage 3 core, end to en
     expect(A.sig?.hex).toBe(B.sig?.hex) // the two devices agree on the aggregate signature
   })
 
+  it('BUG #356: a signature read back from the room still counts, or the quorum never closes', async () => {
+    // Both members present, one has signed, and the other device joined afterwards. It learns that
+    // signature only by reading the room back. #354 cut history off at the transport and starved
+    // this: the panel sat at "1 of 2" with 2/2 present and nothing wrong on screen.
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const open: GovernanceGate = () => true
+    const A = makeDev('a-tag', 1, bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }), open)
+    const B = makeDev('b-tag', 2, bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }), open)
+    A.session.setProposal('p1')
+    B.session.setProposal('p1')
+
+    // B signed before A was listening. A reads it back from the room, marked historical.
+    await B.session.arm('p1')
+    const armed = bus.msgs[bus.msgs.length - 1]!
+    await A.session.onMessage(armed.from, armed.data, true)
+    expect(A.armedSeats).toEqual([2])
+
+    // A signs too, and the quorum closes.
+    await A.session.arm('p1')
+    for (const m of bus.msgs) await A.session.onMessage(m.from, m.data, false)
+    expect(A.armedSeats).toEqual([1, 2])
+  })
+
+  it('BUG #354: a ceremony message read back from the room is dropped, whatever else it carries', async () => {
+    // The counterpart. The room is permanent, so a finished payment's request and commitments are
+    // still in it. Replayed into a fresh ceremony they are what FROST rejects. A device that
+    // reloaded mid-ceremony lost its nonces with the page anyway, so nothing is given up here.
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const open: GovernanceGate = () => true
+    const A = makeDev('a-tag', 1, bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }), open)
+    const B = makeDev('b-tag', 2, bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }), open)
+    await A.session.start()
+    await B.session.start()
+    await run([A, B], bus)
+
+    const request = requestFor(dkgProvenPczt())
+    // Delivered as history: the coordinator does not react at all, so no ceremony begins.
+    const before = bus.msgs.length
+    await A.session.onMessage('helper', request, true)
+    await B.session.onMessage('helper', request, true)
+    const isType = (d: string, t: string) => { try { return (JSON.parse(d) as { type?: string }).type === t } catch { return false } }
+    expect(bus.msgs.slice(before).some((m) => isType(m.data, 'sreq'))).toBe(false)
+    expect(bus.msgs.slice(before).some((m) => isType(m.data, 's1'))).toBe(false)
+    expect(A.session.isDone()).toBe(false)
+    expect(A.sig).toBeNull()
+    expect(B.sig).toBeNull()
+
+    // The same request delivered live does start one, and it completes.
+    bus.post('helper', request)
+    await run([A, B], bus)
+    expect(A.errors).toEqual([])
+    expect(A.sig?.ok).toBe(true)
+    expect(A.sig?.hex).toBe(B.sig?.hex)
+  })
+
   it('BUG #354: a second payment on the same session never started, because nothing rearmed the machine', async () => {
     // Production has ONE permanent signing room per vault and one long-lived session on it. After a
     // payment completed, the machine stayed `done` with the previous ceremony's message, nonces and

@@ -127,7 +127,7 @@ export class BackgroundSession {
   /** Pipe one relay message in. Routes `rejoin` to the seat table (then re-drives the signer, so a
    *  signing message that arrived before its sender was seated now proceeds); everything else goes
    *  to the signer. Call from RelaySession.onMessage. */
-  async onMessage(from: string, data: string): Promise<void> {
+  async onMessage(from: string, data: string, historical = false): Promise<void> {
     let parsed: { type?: string; seat?: number; proposal?: string; at?: number; code?: FailureCode } | null = null
     try {
       parsed = JSON.parse(data) as { type?: string; seat?: number; proposal?: string; at?: number; code?: FailureCode }
@@ -151,6 +151,17 @@ export class BackgroundSession {
       await this.signer.retry() // a pending signing message may now know this sender's seat
       return
     }
+    // Everything above is replay-safe by construction and MUST see history: a device that reloads
+    // mid-payment learns who already signed only by reading the room back, which is why arming is
+    // scoped by proposal and expires on the wire (#324, #326). Starve that and two members sit at
+    // "1 of 2" with both present and nothing wrong on screen (#356).
+    //
+    // The ceremony below is the opposite. A finished payment's `sreq` and round-1 commitments are
+    // still in this permanent room, and feeding them to a fresh ceremony is what FROST rejects as
+    // "the participant's commitment is incorrect" (#354). Nothing is lost by dropping them: a
+    // device that reloads mid-ceremony left its nonces in the page it just closed, so it could not
+    // have continued that ceremony anyway - it needs a new request, not the old one.
+    if (historical) return
     await this.signer.feed(from, data)
   }
 

@@ -107,31 +107,29 @@ export async function relayPoll(
  * as messages arrive, so a caught-up device never re-processes a message. Call `stop()` to
  * end the loop (e.g. on unmount or when the ceremony completes).
  *
- * `startAtTail` decides what "new" means on the FIRST poll, and the two rooms want opposite
- * answers (#354):
+ * Every message says whether it came from the room's HISTORY (the first poll, i.e. everything
+ * posted before this device joined) or arrived live. The signing room needs both answers at once
+ * (#354, #356):
  *
- * - **DKG / create** (default, `false`): start at seq 0 and replay everything. A guest who opens
- *   the invite after the host has already broadcast the round-1 packages must see them, so
- *   history is the feature.
- * - **Signing** (`true`): start at the room's current head. The signing room is PERMANENT (it is
- *   derived from the group key alone) and a device listens on it continuously, so history there is
- *   never something to catch up on - it is the previous ceremony. Replaying it feeds a finished
- *   payment's `sreq` and `s1` commitments into a fresh one, and FROST rejects the mix as "the
- *   participant's commitment is incorrect". That survived reloads, because the poison lived in the
- *   room rather than in memory.
+ * - The arming tally is REBUILT from history by design - a device that reloads mid-payment has to
+ *   learn who already signed, which is why those messages are scoped by proposal and expire on the
+ *   wire (#324, #326). Cutting history off starves it: two devices sit at "1 of 2" forever with
+ *   both members present and no error.
+ * - The FROST ceremony wants the opposite. A finished payment's `sreq` and round-1 commitments
+ *   replayed into a fresh ceremony are what FROST rejects as "the participant's commitment is
+ *   incorrect", and it survived reloads because the poison lived in the room, not in memory.
+ *
+ * So the split is not made here. This class only reports WHERE a message came from; the session
+ * decides what that means per message type, because only it knows which are replay-safe.
  */
-/** A `since` past any real sequence number, used to ask the relay for the head of the log without
- *  receiving anything. The relay's seq starts at 1 and increments per message, so no live room ever
- *  reaches this. */
-const TAIL_PROBE = Number.MAX_SAFE_INTEGER
-
 export class RelaySession {
   readonly room: string
   readonly from: string
-  private readonly onMessage: (m: RelayMsg) => void
+  private readonly onMessage: (m: RelayMsg, historical: boolean) => void
   private readonly onPeers?: (n: number) => void
   private readonly intervalMs: number
-  private readonly startAtTail: boolean
+  /** True until the first poll has been delivered: everything in it predates this device joining. */
+  private firstPoll = true
   private since = 0
   private timer: ReturnType<typeof setTimeout> | null = null
   private stopped = false
@@ -140,17 +138,15 @@ export class RelaySession {
   constructor(
     room: string,
     from: string,
-    onMessage: (m: RelayMsg) => void,
+    onMessage: (m: RelayMsg, historical: boolean) => void,
     onPeers?: (n: number) => void,
     intervalMs = 700,
-    startAtTail = false,
   ) {
     this.room = room
     this.from = from
     this.onMessage = onMessage
     this.onPeers = onPeers
     this.intervalMs = intervalMs
-    this.startAtTail = startAtTail
   }
 
   /** Begin polling. Idempotent: a second call is a no-op while running. */
@@ -158,29 +154,22 @@ export class RelaySession {
     if (this.timer || this.stopped) return
     const tick = async () => {
       if (this.stopped) return
-      // Tail start: one probe past the end of the log. The relay answers `messages: []` and
-      // `next` = the last seq it holds, so we learn the head WITHOUT consuming (or delivering) a
-      // single historical message. A room that does not exist yet answers `next = since`, which is
-      // the probe value, so we fall back to 0 and behave exactly like a replaying reader.
-      if (this.startAtTail && this.since === 0) {
-        const head = await relayPoll(this.room, TAIL_PROBE, this.from)
-        if (this.stopped) return
-        this.since = head && head.next < TAIL_PROBE ? head.next : 0
-      }
       const r = await relayPoll(this.room, this.since, this.from)
       if (r) {
         if (r.peers !== this.peers) {
           this.peers = r.peers
           this.onPeers?.(r.peers)
         }
+        const historical = this.firstPoll
         for (const m of r.messages) {
           if (m.seq > this.since) this.since = m.seq
           try {
-            this.onMessage(m)
+            this.onMessage(m, historical)
           } catch {
             /* a bad message must not kill the loop */
           }
         }
+        this.firstPoll = false
       }
       if (!this.stopped) this.timer = setTimeout(tick, this.intervalMs)
     }
