@@ -272,18 +272,41 @@ impl Drop for ScratchDir {
 
 /// Remove every `<vault>/send-work` under `vaults_dir`, returning how many were removed.
 ///
-/// Deliberately narrow: it only ever deletes a directory named exactly `send-work`, one level under
-/// a vault, and it walks nothing else. A vault's registration, wallet, proposals, members and
-/// ceremony trail are siblings and are never candidates.
+/// This deletes from the volume that holds the vaults' ONLY copy of their registration, wallet,
+/// proposals, roster and ceremony trail, so it is written to be impossible to widen by accident:
+///
+/// 1. It only ever removes a directory named exactly `send-work`.
+/// 2. Only one level under `vaults_dir`. It never recurses looking for more.
+/// 3. Only when the parent **proves it is a vault** by holding `registration.json`. `vaults_dir`
+///    comes from an environment variable with a default, so a misconfigured or unset value would
+///    otherwise point this at an unrelated tree; with this check such a directory has no vaults in
+///    it and the sweep does nothing at all.
+/// 4. It names every directory it removes on stderr, so the deploy log is the record of what went.
+///
+/// Nothing of account lives in a scratch dir: a send's txid is in the proposal record and in
+/// `ceremonies.jsonl`, and `SendOutcome::signed_pczt` is only ever reported, never read back.
 fn sweep_send_work(vaults_dir: &std::path::Path) -> usize {
     let Ok(entries) = std::fs::read_dir(vaults_dir) else {
         return 0; // no volume yet (first boot) - nothing to sweep
     };
     let mut n = 0;
     for e in entries.flatten() {
-        let scratch = e.path().join("send-work");
-        if scratch.is_dir() && std::fs::remove_dir_all(&scratch).is_ok() {
-            n += 1;
+        let vault = e.path();
+        // A directory that cannot show a registration is not a vault, and we do not touch it -
+        // including a vault whose registration is already missing, which is broken in a way a
+        // delete would only make harder to diagnose.
+        if !vault.join("registration.json").is_file() {
+            continue;
+        }
+        let scratch = vault.join("send-work");
+        if scratch.is_dir() {
+            match std::fs::remove_dir_all(&scratch) {
+                Ok(()) => {
+                    eprintln!("swept scratch dir: {}", scratch.display());
+                    n += 1;
+                }
+                Err(err) => eprintln!("could not sweep {}: {err}", scratch.display()),
+            }
         }
     }
     n
@@ -1050,8 +1073,18 @@ mod tests {
         std::fs::write(vault.join("proposals/p1.json"), b"{}").unwrap();
         // A vault that never sent anything must survive untouched too.
         std::fs::create_dir_all(root.join("bbbb/wallet")).unwrap();
+        std::fs::write(root.join("bbbb/registration.json"), b"{}").unwrap();
+        // A directory that is NOT a vault (no registration) is never touched, even if something
+        // inside it happens to be called send-work. This is the guard against a misconfigured
+        // KONCLAVE_VAULTS_DIR pointing the sweep at an unrelated tree.
+        std::fs::create_dir_all(root.join("not-a-vault/send-work")).unwrap();
+        std::fs::write(root.join("not-a-vault/send-work/keep.txt"), b"x").unwrap();
 
         assert_eq!(sweep_send_work(&root), 1);
+        assert!(
+            root.join("not-a-vault/send-work/keep.txt").exists(),
+            "a directory with no registration.json is not a vault and must be left alone"
+        );
 
         assert!(!vault.join("send-work").exists(), "the roster is gone");
         for kept in [
