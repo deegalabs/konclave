@@ -105,3 +105,9 @@
 .lv-more{font-family:var(--mono);font-size:12px;color:var(--accent-ink);cursor:pointer;padding:4px 2px;background:none;border:0;text-decoration:none}
 .lv-more:hover{text-decoration:underline}
 .lv-btn.sm{padding:8px 14px;font-size:13px}
+
+/* The install offer inside the web-app line of the download dialog (#382). It sits under the
+   description rather than beside "Open", so the row keeps one primary action and the offer reads
+   as part of what the web app IS, not as a competing button. */
+.lv-inst{margin-top:9px; display:inline-flex; align-items:center; gap:7px}
+.lv-inst-hint{margin-top:7px}

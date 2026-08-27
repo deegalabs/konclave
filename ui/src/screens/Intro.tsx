@@ -5,6 +5,7 @@ import { useI18n } from '../i18n'
 import { getTheme, setTheme, type Theme } from '../theme'
 import '../redesign.css'
 import '../landing-vault.css'
+import { useInstall } from '../use-install'
 
 const REPO = 'https://github.com/deegalabs/konclave'
 const RELEASES = `${REPO}/releases`
@@ -36,6 +37,7 @@ export default function Intro() {
   const vid = useRef<HTMLVideoElement>(null)
   const [theme, setTh] = useState<Theme>(getTheme())
   const [install, setInstall] = useState(false)
+  const { offer, promptInstall } = useInstall()
   const [showAll, setShowAll] = useState(false)
 
   // Honor reduced-motion: hold the poster frame instead of looping the clip.
@@ -131,11 +133,30 @@ export default function Intro() {
           <h2 id="lv-install-t">{pt ? 'Baixe o Konclave' : 'Get Konclave'}</h2>
           <p className="lv-msub">{pt ? 'Sua parte da chave nunca sai do aparelho - em qualquer plataforma.' : 'Your key share never leaves your device - on every platform.'}</p>
 
+          {/* The web line used to end at "nothing to install", which on a phone is the opposite of
+              true: the app IS installable and this dialog is where the offer belongs. What can be
+              offered differs by platform, so the line changes with it (#382). */}
           <div className="lv-plat hi">
             <span className="lv-pic"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7"><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18" /></svg></span>
             <div className="lv-mm">
               <div className="lv-t">{pt ? 'App web' : 'Web app'} <span className="lv-chip live">{pt ? 'no ar' : 'live'}</span></div>
-              <div className="lv-d">{pt ? 'Roda no navegador. Nada pra instalar.' : 'Runs in your browser. Nothing to install.'}</div>
+              <div className="lv-d">{offer.kind === 'none'
+                ? (pt ? 'Roda no navegador. Nada pra instalar.' : 'Runs in your browser. Nothing to install.')
+                : (pt ? 'Roda no navegador, e cabe na sua tela inicial.' : 'Runs in your browser, and fits on your home screen.')}</div>
+              {offer.kind === 'prompt' && (
+                <button type="button" className="lv-btn dl sm lv-inst" onClick={() => void promptInstall()}>
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
+                  {pt ? 'Instalar no aparelho' : 'Install on this device'}
+                </button>
+              )}
+              {offer.kind === 'ios' && (
+                <div className="lv-ver lv-inst-hint">{pt
+                  ? 'No iPhone: Compartilhar → Adicionar à Tela de Início'
+                  : 'On iPhone: Share → Add to Home Screen'}</div>
+              )}
+              {offer.kind === 'installed' && (
+                <div className="lv-ver lv-inst-hint">{pt ? 'Já instalado neste aparelho' : 'Already installed on this device'}</div>
+              )}
             </div>
             <Link className="lv-btn pri sm" to="/vaults" onClick={() => setInstall(false)}>{pt ? 'Abrir' : 'Open'}</Link>
           </div>
