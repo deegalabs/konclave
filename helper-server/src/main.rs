@@ -270,6 +270,25 @@ impl Drop for ScratchDir {
     }
 }
 
+/// Remove every `<vault>/send-work` under `vaults_dir`, returning how many were removed.
+///
+/// Deliberately narrow: it only ever deletes a directory named exactly `send-work`, one level under
+/// a vault, and it walks nothing else. A vault's registration, wallet, proposals, members and
+/// ceremony trail are siblings and are never candidates.
+fn sweep_send_work(vaults_dir: &std::path::Path) -> usize {
+    let Ok(entries) = std::fs::read_dir(vaults_dir) else {
+        return 0; // no volume yet (first boot) - nothing to sweep
+    };
+    let mut n = 0;
+    for e in entries.flatten() {
+        let scratch = e.path().join("send-work");
+        if scratch.is_dir() && std::fs::remove_dir_all(&scratch).is_ok() {
+            n += 1;
+        }
+    }
+    n
+}
+
 /// Available memory in MiB parsed from a `/proc/meminfo` string (its `MemAvailable:` line), or None.
 /// Pure, so it is unit-testable without touching the filesystem.
 fn parse_mem_available_mb(meminfo: &str) -> Option<u64> {
@@ -899,9 +918,19 @@ fn main() {
     for reg in restored {
         state.insert(reg);
     }
+    // Sweep every leftover send scratch directory before serving a single request (#297).
+    //
+    // Sends now wipe their own on the way out, but this volume is durable and every payroll ever
+    // sent before that fix left its beneficiary roster and its PCZTs sitting here. Boot is the only
+    // moment when no send can be in flight, which is what makes deleting these safe to automate
+    // rather than something to type into a shell against a live service.
+    //
+    // Nothing of record lives here: the txid is in the proposal and in ceremonies.jsonl, and the
+    // registration, wallet, roster and proposals are sibling paths this never touches.
+    let swept = sweep_send_work(&cfg.vaults_dir);
     let server = Server::http(&addr).expect("bind");
     eprintln!(
-        "konclave-helper listening on {addr} (network={}, {restored_n} vault(s) restored)",
+        "konclave-helper listening on {addr} (network={}, {restored_n} vault(s) restored, {swept} scratch dir(s) swept)",
         cfg.network
     );
 
@@ -998,6 +1027,58 @@ mod tests {
 
     /// #267: the enumeration endpoint is gone and must stay gone. A regression here would re-open
     /// the leak in one line, so the test asserts on the ids themselves, not just the status.
+    /// #297: the boot sweep clears the historical leak. The test that matters is not that it
+    /// deletes - it is that it deletes ONLY that, on a volume holding the vaults' only copy of
+    /// their registration, wallet, roster, proposals and ceremony trail.
+    #[test]
+    fn the_boot_sweep_removes_scratch_dirs_and_nothing_else() {
+        let root = std::env::temp_dir().join(format!("konclave-sweep-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let vault = root.join("aaaa");
+        // Everything a real vault directory holds.
+        std::fs::create_dir_all(vault.join("send-work")).unwrap();
+        std::fs::create_dir_all(vault.join("wallet")).unwrap();
+        std::fs::create_dir_all(vault.join("proposals")).unwrap();
+        std::fs::write(
+            vault.join("send-work/payroll-spec.json"),
+            b"[{\"to\":\"u1...\"}]",
+        )
+        .unwrap();
+        std::fs::write(vault.join("registration.json"), b"{}").unwrap();
+        std::fs::write(vault.join("members.json"), b"[]").unwrap();
+        std::fs::write(vault.join("ceremonies.jsonl"), b"{}").unwrap();
+        std::fs::write(vault.join("proposals/p1.json"), b"{}").unwrap();
+        // A vault that never sent anything must survive untouched too.
+        std::fs::create_dir_all(root.join("bbbb/wallet")).unwrap();
+
+        assert_eq!(sweep_send_work(&root), 1);
+
+        assert!(!vault.join("send-work").exists(), "the roster is gone");
+        for kept in [
+            "registration.json",
+            "members.json",
+            "ceremonies.jsonl",
+            "wallet",
+            "proposals",
+            "proposals/p1.json",
+        ] {
+            assert!(vault.join(kept).exists(), "{kept} must survive the sweep");
+        }
+        assert!(root.join("bbbb/wallet").exists());
+
+        // Idempotent: a second boot finds nothing and does nothing.
+        assert_eq!(sweep_send_work(&root), 0);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// First boot, before any volume exists.
+    #[test]
+    fn the_boot_sweep_is_a_no_op_when_there_is_no_volume() {
+        let missing = std::env::temp_dir().join("konclave-sweep-does-not-exist-xyz");
+        let _ = std::fs::remove_dir_all(&missing);
+        assert_eq!(sweep_send_work(&missing), 0);
+    }
+
     #[test]
     fn vault_enumeration_is_refused_and_leaks_no_id() {
         let st = HelperState::new();
