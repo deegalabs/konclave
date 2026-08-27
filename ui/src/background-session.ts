@@ -89,6 +89,10 @@ export class BackgroundSession {
    *  already been sent - the panel then showed "2 of 2 signed" for a payroll nobody had signed, and
    *  never offered the button to sign it. */
   private currentProposal: string | null = null
+  /** The payment the SIGNER's machine is bound to. Distinct from `currentProposal`, which
+   *  follows the panel and goes null when it closes; this one only ever moves forward to the
+   *  next real payment, so closing and reopening the same one keeps the ceremony alive. */
+  private machineProposal: string | null = null
 
   constructor(deps: BackgroundSessionDeps) {
     this.send = deps.send
@@ -167,12 +171,23 @@ export class BackgroundSession {
   }
 
   /** Point this session at the payment now on screen. Changing payment starts a fresh tally, so a
-   *  signature given for one payment can never count toward another. */
+   *  signature given for one payment can never count toward another - and, since #354, also resets
+   *  the SIGNER, whose machine otherwise carries the previous ceremony's message, nonces,
+   *  commitments and result straight into the next payment.
+   *
+   *  The reset fires only when moving to a DIFFERENT payment, never when the panel merely closes
+   *  (`id === null`) and reopens on the same one. Closing must not throw away an in-flight
+   *  ceremony, which is why `machineProposal` tracks the last payment the machine was bound to
+   *  rather than following `currentProposal` down to null. */
   setProposal(id: string | null): void {
     if (this.currentProposal === id) return
     this.currentProposal = id
     this.armed.clear()
     this.onArmed?.([], null)
+    if (id !== null && id !== this.machineProposal) {
+      this.machineProposal = id
+      this.signer.rearm()
+    }
   }
 
   /** Announce that this device's owner explicitly signed `proposal`. Every device (this one
@@ -216,10 +231,12 @@ export class BackgroundSession {
     return [...this.armed.keys()].sort((a, b) => a - b)
   }
 
-  /** Reset for a NEXT payment (the caller moves to a fresh signing room per payment). */
+  /** Reset for a NEXT payment. Also clears `machineProposal`, so the next `setProposal` binds the
+   *  machine again rather than assuming it is already pointed at the right payment. */
   rearm(): void {
     this.signer.rearm()
     this.armed.clear()
     this.currentProposal = null
+    this.machineProposal = null
   }
 }

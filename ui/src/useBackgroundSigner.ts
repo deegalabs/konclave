@@ -70,6 +70,9 @@ export function useBackgroundSigner(
   const [peerFailure, setPeerFailure] = useState<FailureCode | null>(null)
   // The payment the signer is scoped to, so a change resets exactly once (and not on every render).
   const proposalRef = useRef<string | null>(null)
+  // The last payment this hook's view was bound to. Like BackgroundSession.machineProposal it only
+  // moves forward to a real payment, so closing the panel (id -> null) never wipes what is on it.
+  const boundRef = useRef<string | null>(null)
   const setProposal = useCallback((id: string | null) => {
     if (proposalRef.current === id) return
     proposalRef.current = id
@@ -78,6 +81,16 @@ export function useBackgroundSigner(
     setISend(false)
     setArmedSeats([])
     setPeerFailure(null)
+    // A DIFFERENT payment starts from nothing. The phase, the signature, the description and the
+    // error all describe a ceremony that is over; carrying them across is how the panel opened on a
+    // new payroll still showing the previous one as sent (#354).
+    if (id !== null && id !== boundRef.current) {
+      boundRef.current = id
+      setPhase('idle')
+      setSignature(null)
+      setWhat(null)
+      setError('')
+    }
     sessionRef.current?.setProposal(id)
   }, [])
   const relayRef = useRef<RelaySession | null>(null)
@@ -133,7 +146,12 @@ export function useBackgroundSigner(
         // The panel may have opened before this session existed; scope it now, or every signature
         // that arrives would be dropped as belonging to "no payment" and nobody could sign.
         session.setProposal(proposalRef.current)
-        const relay = new RelaySession(r, myTag, (m) => void session.onMessage(m.from, m.data))
+        // Start at the room's HEAD, not at seq 0. The signing room is permanent and this device
+        // listens on it continuously, so its history is never something to catch up on - it is
+        // the previous ceremony, and replaying it fed a finished payment's sreq and commitments
+        // into the next one until FROST refused the mix (#354). The DKG/create room still
+        // replays, because a late joiner genuinely needs what it missed.
+        const relay = new RelaySession(r, myTag, (m) => void session.onMessage(m.from, m.data), undefined, undefined, true)
         relayRef.current = relay
         relay.start()
         await session.start() // announce this device's seat

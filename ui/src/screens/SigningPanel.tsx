@@ -53,6 +53,24 @@ export default function SigningPanel() {
   const [spendableZat, setSpendableZat] = useState<number | null>(null)
   const [payrollLines, setPayrollLines] = useState(1)
 
+  // A DIFFERENT payment starts from nothing (#354). The panel deliberately keeps its result when it
+  // CLOSES, so a stray click on the scrim cannot erase a failure nobody read - but that same
+  // persistence meant opening the next payment showed the previous one's "sent", its txid and its
+  // error. `boundTo` only ever moves forward to a real payment, so closing and reopening the same
+  // one still keeps what is on screen.
+  const boundTo = useRef<string | null>(null)
+  useEffect(() => {
+    const id = active?.id ?? null
+    if (id === null || id === boundTo.current) return
+    boundTo.current = id
+    setResult(null)
+    setConfirming(false)
+    setSending(false)
+    setRunSince(null)
+    setElapsed(0)
+    setArming(false)
+  }, [active?.id])
+
   // Start the clock when the run starts, stop it when it ends. Keyed on `started`, so it covers a
   // device that only signs just as much as the one that broadcasts.
   useEffect(() => {

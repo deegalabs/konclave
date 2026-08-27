@@ -17,12 +17,25 @@ import { parseAlphas } from './signing'
 
 /** The signing-only subset of the /net wire protocol. `k` = the 0-based spend position in a
  *  multi-note tx (each real Orchard spend is its own ceremony; single-spend tx is always k=0). */
+/** Which ceremony a message belongs to: the first 8 bytes of the transaction's ZIP-244 sighash, in
+ *  hex. Every device derives it from ITS OWN PCZT (the same value H1 already binds to), so it needs
+ *  no new trust and no coordination - two devices working on the same transaction always agree, and
+ *  two working on different ones never do.
+ *
+ *  `k` already scopes messages to a spend WITHIN one transaction. `h` scopes them to the
+ *  transaction, which `k` cannot: the signing room is permanent per vault, so two payments signed
+ *  around the same time put their `s1`/`sp`/`s2` into one stream with nothing to tell them apart.
+ *
+ *  Optional on the wire so a device on an older cached build is not cut off mid-rollout: a message
+ *  with no `h` is accepted, only a MISMATCHED one is dropped. */
+export type CeremonyTag = { h?: string }
+
 export type SignWireMsg =
   | { type: 'sreq'; msg: string; pczt: string }
-  | { type: 's1'; commit: string; k: number }
-  | { type: 'sp'; signers: number[]; sp: string; msg: string; k: number }
-  | { type: 's2'; share: string; k: number }
-  | { type: 'signed'; sig: string; ok: boolean; k: number }
+  | ({ type: 's1'; commit: string; k: number } & CeremonyTag)
+  | ({ type: 'sp'; signers: number[]; sp: string; msg: string; k: number } & CeremonyTag)
+  | ({ type: 's2'; share: string; k: number } & CeremonyTag)
+  | ({ type: 'signed'; sig: string; ok: boolean; k: number } & CeremonyTag)
 
 /** This device's signing material (from a live DKG session OR a restored vault). */
 export interface SigningMaterial {
@@ -171,7 +184,7 @@ export class SigningMachine {
     this.coord = null
     const r1 = participantRound1(this.d.signingMaterial().keyPackage)
     this.nonces = r1.nonces()
-    await this.d.send({ type: 's1', commit: b64(r1.commitment()), k })
+    await this.d.send({ type: 's1', commit: b64(r1.commitment()), k, h: this.tag() })
     const n = this.spends.length
     this.d.onLog(n > 1 ? `~ signing spend ${k + 1}/${n}` : this.d.tt('net.log.signCommit'))
   }
@@ -219,8 +232,23 @@ export class SigningMachine {
     return true
   }
 
+  /** This ceremony's tag: the first 8 bytes of the sighash THIS device derived from its own PCZT. */
+  private tag(): string | undefined {
+    if (this.msg.length < 8) return undefined
+    return Array.from(this.msg.slice(0, 8), (b) => b.toString(16).padStart(2, '0')).join('')
+  }
+
+  /** True when a message belongs to a DIFFERENT transaction than the one being signed here. An
+   *  absent tag is from a build that predates this rule and is let through; only a tag that
+   *  disagrees is refused. */
+  private otherCeremony(m: CeremonyTag): boolean {
+    const mine = this.tag()
+    return mine !== undefined && m.h !== undefined && m.h !== mine
+  }
+
   private async onS1(parsed: Extract<SignWireMsg, { type: 's1' }>, fromTag: string): Promise<boolean> {
     if (!this.started) return false
+    if (this.otherCeremony(parsed)) return true // another transaction's round 1 - never mix it in
     // Spend-tagged: a message for a LATER spend waits (re-applied after we advance); an EARLIER
     // one is stale and dropped. Keeps N sequential ceremonies from crossing over the relay.
     if (parsed.k !== this.cur) return parsed.k > this.cur ? false : true
@@ -237,7 +265,7 @@ export class SigningMachine {
       this.coord = coord
       this.sp = coord.signingPackage()
       this.spSent = true
-      await this.d.send({ type: 'sp', signers: chosen, sp: b64(this.sp), msg: b64(this.msg), k: this.cur })
+      await this.d.send({ type: 'sp', signers: chosen, sp: b64(this.sp), msg: b64(this.msg), k: this.cur, h: this.tag() })
       this.d.onLog(this.d.tt('net.log.signCoord', { seats: chosen.join(', ') }))
     }
     return true
@@ -245,9 +273,19 @@ export class SigningMachine {
 
   private async onSp(parsed: Extract<SignWireMsg, { type: 'sp' }>): Promise<boolean> {
     if (!this.started) return false
+    if (this.otherCeremony(parsed)) return true
     if (parsed.k !== this.cur) return parsed.k > this.cur ? false : true
+    // H1 / ADR-0007, the second half. `onSreq` recomputes the ZIP-244 sighash from THIS device's own
+    // PCZT and refuses a request that disagrees - and this line used to hand that back, overwriting
+    // the locally derived sighash with whatever the coordinator put on the wire, unchecked. The
+    // share is then computed over the coordinator's SigningPackage, so the device would display the
+    // transaction it verified and sign the one it was handed. Refuse instead: the message this
+    // device signs is the one its own PCZT commits to, in round 2 as much as in round 1.
+    if (!bytesEqual(unb64(parsed.msg), this.msg)) {
+      this.d.onError(this.d.tt('net.err.sighashMismatch'))
+      return true
+    }
     this.sp = unb64(parsed.sp)
-    this.msg = unb64(parsed.msg)
     if (parsed.signers.includes(this.d.mySeat()) && !this.sentS2 && this.nonces && this.alpha) {
       const share = participantRound2WithRandomizer(
         this.sp,
@@ -256,7 +294,7 @@ export class SigningMachine {
         this.alpha, // the current spend's alpha (set by beginSpend)
       )
       this.sentS2 = true
-      await this.d.send({ type: 's2', share: b64(share), k: this.cur })
+      await this.d.send({ type: 's2', share: b64(share), k: this.cur, h: this.tag() })
       this.d.onLog(this.d.tt('net.log.signShare'))
     }
     return true
@@ -264,6 +302,7 @@ export class SigningMachine {
 
   private async onS2(parsed: Extract<SignWireMsg, { type: 's2' }>, fromTag: string): Promise<boolean> {
     if (!this.started) return false
+    if (this.otherCeremony(parsed)) return true
     if (this.d.mySeat() !== 1) return true // only the coordinator aggregates
     if (parsed.k !== this.cur) return parsed.k > this.cur ? false : true
     if (!this.coord) return false
@@ -280,7 +319,7 @@ export class SigningMachine {
       // Broadcast this spend's signature tagged with `k`; every device records it and either
       // advances to the next spend or finalizes (the `signed` handler). The Architecture B
       // response for the WHOLE set is posted once, at the last spend.
-      await this.d.send({ type: 'signed', sig: b64(sig), ok, k: this.cur })
+      await this.d.send({ type: 'signed', sig: b64(sig), ok, k: this.cur, h: this.tag() })
       this.d.onLog(this.d.tt('net.log.signAggregate'))
     }
     return true
@@ -288,6 +327,7 @@ export class SigningMachine {
 
   private async onSigned(parsed: Extract<SignWireMsg, { type: 'signed' }>): Promise<boolean> {
     if (!this.started) return false
+    if (this.otherCeremony(parsed)) return true
     if (parsed.k !== this.cur) return parsed.k > this.cur ? false : true
     const sig = unb64(parsed.sig)
     let ok = parsed.ok
