@@ -184,6 +184,61 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     expect(B.errors.length).toBeGreaterThan(0)
   })
 
+  it('H1 round 2: a coordinator cannot swap the message in the SigningPackage (#354)', async () => {
+    // The `sreq` check binds round 1 to the sighash this device computed from its OWN PCZT. Round 2
+    // used to hand that back: `onSp` overwrote the local sighash with the coordinator's wire value,
+    // unchecked, and the share is computed over the coordinator's SigningPackage. So an honest
+    // device displayed the transaction it had verified and signed the one it was handed.
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+
+    const pczt = dkgProvenPczt()
+    bus.post('helper', signRequestFor(pczt).json)
+    // Let round 1 happen, then intercept: replace the coordinator's `sp` with one claiming a
+    // DIFFERENT message. The SigningPackage bytes are left alone, so only the claim changes - which
+    // is exactly the part the device used to trust.
+    await pump(A, bus)  // A binds to the request and posts its round-1 commitment
+    await pump(B, bus)  // B does the same
+    await pump(A, bus)  // A now has both commitments and posts the SigningPackage
+    const sp = bus.msgs.find((m) => { try { return (JSON.parse(m.data) as { type?: string }).type === 'sp' } catch { return false } })
+    expect(sp).toBeDefined()
+    const body = JSON.parse(sp!.data) as { msg: string }
+    body.msg = b64(new Uint8Array(32).fill(9))
+    sp!.data = JSON.stringify(body)
+
+    await runCeremony(A, B, bus)
+
+    // B refuses rather than signing a message its own PCZT does not commit to.
+    expect(B.errors.length).toBeGreaterThan(0)
+    expect(bus.msgs.some((m) => { try { return (JSON.parse(m.data) as { type?: string }).type === 's2' && m.from === 'B' } catch { return false } })).toBe(false)
+  })
+
+  it('a message tagged for a DIFFERENT transaction is dropped, an untagged one is not (#354)', async () => {
+    // The signing room is permanent per vault, so two payments signed around the same time share one
+    // stream. `k` scopes a message to a spend within a transaction; `h` scopes it to the transaction.
+    // An absent tag is from an older build and must still be accepted, or a rollout cuts devices off.
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+
+    const pczt = dkgProvenPczt()
+    bus.post('helper', signRequestFor(pczt).json)
+    await runCeremony(A, B, bus)
+    expect(A.sig?.ok).toBe(true)
+
+    // Every message this ceremony put on the wire carries the same tag, and it is the sighash prefix
+    // both devices derived independently.
+    const tagged = bus.msgs
+      .map((m) => { try { return JSON.parse(m.data) as { type?: string; h?: string } } catch { return null } })
+      .filter((o): o is { type: string; h: string } => !!o?.h)
+    expect(tagged.length).toBeGreaterThan(0)
+    const expected = bytesToHex(pcztSighash(pczt)).slice(0, 16)
+    for (const o of tagged) expect(o.h).toBe(expected)
+  })
+
   it('re-arm: the SAME machines sign a SECOND payment (fresh room) to a new verifying signature', async () => {
     // The background signer (Stage 3) reuses one machine across payments. Prove a machine signs
     // payment 1, `rearm()`s, and signs payment 2 in its OWN fresh room to another verifying sig,
