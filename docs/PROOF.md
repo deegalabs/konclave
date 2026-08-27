@@ -6,7 +6,12 @@ plainly what on-chain data can and cannot prove, so nothing here is overclaimed.
 
 ## What the proof shows
 
-Konclave claims seven real Zcash **mainnet** transactions:
+Konclave claims 12 real Zcash **mainnet** transactions.
+
+Each row below is a **first**: the first time one capability was proven on the live network.
+It is not a log of every send. The vaults have made more transactions than this, and the ones
+that only repeat a capability already listed are deliberately left out - a row here is meant to
+be a claim you can check, not evidence of volume.
 
 | Role | Transaction ID | Block |
 |---|---|---|
