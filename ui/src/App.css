@@ -390,10 +390,25 @@
 .ny-main{flex:1}
 .ny-amt{font-family:var(--font-num); font-variant-numeric:tabular-nums; font-weight:500; font-size:34px; letter-spacing:-.01em}
 
+/* Receive, in the 336px rail: the wide row wraps the truncated address onto two lines inside its
+   own chip and breaks "shielded address only" in half. Stack it instead - label, then the address
+   on a line of its own, then the badge - and stop the address wrapping at all, since `shortAddr`
+   has already shortened it and a truncated string broken again reads as a rendering fault. */
+.dash-aside .receive{flex-direction:column; align-items:stretch; gap:8px; margin-top:16px; padding-top:14px}
+.dash-aside .receive code{white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  text-align:center; border-radius:var(--radius-sm)}
+.dash-aside .receive .orchard{margin-left:0; justify-content:center; white-space:nowrap; font-size:10px}
+
 /* Dashboard · the readiness card. Four conditions, each with its own mark, so "why not" is
    answered on the same glance as "can I". */
-.ready{background:var(--surface-1); border:1px solid var(--line); border-radius:var(--radius);
-  box-shadow:var(--shadow-sm); padding:15px 16px; display:flex; flex-direction:column; gap:9px}
+/* Same card language as `.entry` - translucent fill, soft line, inset highlight, large radius.
+   The first version used a solid surface with a drop shadow and a 12px radius, which read as a
+   different kind of object sitting next to the balance instead of a sibling of it. The state
+   still shows, in the dot and the marks; the border only tints. */
+.ready{padding:16px 18px; border-radius:var(--radius-lg);
+  background:linear-gradient(180deg,rgba(200,220,245,.045),rgba(200,220,245,.012));
+  border:1px solid var(--line-2); box-shadow:0 1px 0 rgba(210,228,250,.05) inset;
+  display:flex; flex-direction:column; gap:9px}
 .ready.ok{border-color:var(--success-line)}
 .ready.not{border-color:var(--warn-line)}
 .ready-top{display:flex; align-items:center; gap:9px; font-size:14px}
@@ -411,9 +426,15 @@
 .aside-acts .btn{justify-content:center; text-decoration:none}
 
 /* Two panels side by side under the desk: one series each, one hue each. */
-.dash-charts{display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:16px; align-items:start}
-.dash-charts .panel{background:var(--surface-1); border:1px solid var(--line); border-radius:var(--radius);
-  box-shadow:var(--shadow-sm); padding:18px; display:flex; flex-direction:column; gap:12px}
+/* auto-fit, not `1fr 1fr`: the outflow chart hides below two months of history (a single bar is
+   not a trend), and a fixed two-column grid then left the surviving panel at half width with a
+   hole beside it. With auto-fit a lone panel simply fills the row. */
+.dash-charts{display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px;
+  margin-top:16px; align-items:start}
+.dash-charts .panel{padding:20px 22px; border-radius:var(--radius-lg);
+  background:linear-gradient(180deg,rgba(200,220,245,.045),rgba(200,220,245,.012));
+  border:1px solid var(--line-2); box-shadow:0 1px 0 rgba(210,228,250,.05) inset;
+  display:flex; flex-direction:column; gap:12px}
 .dash-charts .panel h3{margin:0; font-size:14px; font-weight:600}
 .dash-charts .chartcap{font-family:var(--font-mono); font-size:10.5px; letter-spacing:.1em;
   text-transform:uppercase; color:var(--text-muted); margin-top:-6px}
@@ -424,7 +445,6 @@
 .prow .fil{display:block; height:100%; background:var(--accent); border-radius:4px}
 .prow .pn{font-family:var(--font-mono); font-size:11px; color:var(--text-muted)}
 .dash-charts .panel .cap{font-size:12.5px; line-height:1.5; margin:0; border-top:1px solid var(--line-2); padding-top:11px}
-@media(max-width:900px){ .dash-charts{grid-template-columns:1fr} }
 
 /* Movements as a table: four aligned columns read better than loose rows. */
 .ledger-head{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:12px}
