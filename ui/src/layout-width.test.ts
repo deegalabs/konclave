@@ -48,24 +48,34 @@ describe('the shell is the same width on every route', () => {
   })
 })
 
-describe('pages vary their content width, and only through tokens', () => {
+describe('every screen behind the menu is the same width', () => {
   it('declares the four width tokens once', () => {
-    for (const t of ['--shell-w', '--content-w', '--content-wide', '--content-narrow']) {
+    for (const t of ['--shell-w', '--content-w', '--col-read', '--col-narrow']) {
       const declared = all.match(new RegExp(`${t}\\s*:`, 'g')) ?? []
       expect(declared, `${t} should be declared exactly once`).toHaveLength(1)
     }
   })
 
-  it('gives every page variant a token rather than a literal', () => {
-    for (const sel of ['.page.dash', '.page.narrow', '.page.pay']) {
-      const b = blocks(sel).filter((x) => /max-width/.test(x))
-      expect(b.length, `${sel} should cap its width`).toBeGreaterThan(0)
-      expect(b[0], `${sel} should use a token`).toMatch(/max-width:\s*var\(--content-/)
+  it('gives no page its own width', () => {
+    // Three page widths (1280 / 940 / 560) meant the app resized as you moved through the menu.
+    // A screen that needs a narrower COLUMN constrains its content, not its page.
+    for (const [sel] of rules()) {
+      if (!/\.page\.[a-z-]+/.test(sel)) continue
+      const body = blocks(sel.trim())[0] ?? ''
+      const capsThePage = /(^|;|\s)max-width\s*:/.test(body) && !/>\s*\*/.test(sel)
+      expect(capsThePage, `${sel.trim()} must not set its own page width`).toBe(false)
     }
   })
 
-  it('centres the page, so a narrow one does not hug the rail', () => {
-    const page = blocks('.applayout .page').filter((b) => /max-width/.test(b))
+  it('caps the page once, from the token, and centres it', () => {
+    // Only the rule that CAPS it - the same selector also appears in a media query that adjusts
+    // padding, and that one is not a width declaration.
+    const page = rules()
+      .filter(([sel]) => sel.trim() === '.applayout .page')
+      .map(([, body]) => body)
+      .filter((b) => /max-width/.test(b))
+    expect(page, 'the page width should be declared in exactly one place').toHaveLength(1)
+    expect(page[0]).toMatch(/max-width:\s*var\(--content-w\)/)
     expect(page[0]).toMatch(/margin-inline:\s*auto/)
   })
 })

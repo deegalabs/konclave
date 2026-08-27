@@ -233,15 +233,21 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
   --pad:clamp(20px,3vw,40px);   /* gutter */
   --rail-w:248px;               /* the nav column */
   --shell-w:1600px;             /* the frame. Constant on every route. */
-  --content-w:940px;            /* default reading width - text, forms, lists */
-  --content-wide:1280px;        /* screens that genuinely need two columns */
-  --content-narrow:560px;       /* single-focus screens */
+  --content-w:1280px;           /* the page. The SAME on every screen behind the menu. */
+  --col-read:940px;             /* a reading column INSIDE a page: lists, prose */
+  --col-narrow:560px;           /* a single-focus column: one form, one decision */
 }
 .applayout{display:grid; grid-template-columns:var(--rail-w) minmax(0,1fr); min-height:100vh;
   max-width:var(--shell-w); margin-inline:auto}
 .railcontent{min-width:0}
-/* Centred, so a page narrower than the frame sits in the middle instead of hugging the rail. */
+/* One page width behind the menu, centred. Every screen the rail links to is the same width, so
+   navigating never resizes the app - it was three different widths (1280 / 940 / 560) and the
+   change of frame between screens read as the layout jumping.
+   A screen that needs a narrower COLUMN constrains its content, not the page: `.col-read` and
+   `.col-narrow` below. */
 .applayout .page{max-width:var(--content-w); margin-inline:auto; padding:var(--pad) var(--pad) 84px}
+.col-read > *,   .applayout .page.narrow > *{max-width:var(--col-narrow); margin-inline:auto}
+.applayout .page.pay > *{max-width:var(--col-read); margin-inline:auto}
 
 /* `position:sticky` CREATES a stacking context, so everything inside the rail - including the vault
    switcher's z-index:70 - was trapped under the page's content, which comes later in the DOM. The

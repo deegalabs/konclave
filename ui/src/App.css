@@ -464,10 +464,8 @@
 .movtbl .chip.pend{color:var(--warn); border-color:var(--warn-line); background:var(--warn-soft)}
 .ledger .tblwrap{overflow-x:auto}
 
-/* The dashboard is the one page with two columns, so the default reading width squeezed it.
-   It takes the WIDE content token - the frame stays put. Widening the frame per page (which an
-   earlier version of this did with `:has()`) moved the rail 140px sideways between routes. */
-.applayout .page.dash{max-width:var(--content-wide)}
+/* The dashboard needs no width of its own any more: every page behind the menu is `--content-w`,
+   and the dashboard is simply the one that uses all of it with two columns. */
 
 /* Dashboard · two columns. The desk leads and the balance follows it on the right, staying put
    while the page scrolls - the money is the number you read the ledger against, so it must not
@@ -614,7 +612,7 @@
 .revealed .secret .bar{transform:scaleX(0); transform-origin:left; opacity:0; pointer-events:none}
 
 /* ---- shared helpers across screens ---- */
-.page.narrow{max-width:var(--content-narrow); margin-inline:auto}
+
 .right{text-align:right}
 .center{justify-content:center}
 .mt{margin-top:16px}
@@ -1118,7 +1116,7 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 
 /* Pay: two-column compose (form left, review/orientation right). Collapses to one column when the
    viewport narrows — which zoom also triggers (zoom shrinks the CSS-px viewport). */
-.page.pay{max-width:var(--content-w); margin-inline:auto}
+
 .pay-cols{display:grid; grid-template-columns:minmax(0,1.25fr) minmax(0,.9fr); gap:26px; align-items:start; margin-top:20px}
 .pay-form{display:flex; flex-direction:column; min-width:0}
 .pay-form .field.mt0{margin-top:0}
