@@ -286,13 +286,13 @@ whoever approved, sealed at rest) → account (ledger + itemized CSV). Browser-n
 vault by **real DKG across devices over a blind relay** and signs over it; a **hosted blind helper**
 builds/proves/broadcasts the tx without ever seeing a share (Architecture B, ADR-0006).
 
-**Proven on mainnet.** **12 verifiable txids** (`docs/PROOF.md` / `scripts/verify-proof.mjs`),
+**Proven on mainnet.** **13 verifiable txids** (`docs/PROOF.md` / `scripts/verify-proof.mjs`),
 including the Orchard→Ironwood migration + the first Ironwood-pool spend (V6/NU6.3), a send from a
 real-DKG vault, a **browser-signed** send, a **3-of-4** vault operated by someone other than the
 maintainer, and - since 2026-08-26 - a **private payroll on the web path** (2 beneficiaries in one V6
 transaction, `7c4c1dd5`, block 3,461,704), and a ceremony **across separate physical machines over
 the internet** (`aec83baf`, block 3,460,285: proposed and approved by one operator, co-signed by
-another on a different computer in a different place). Quorums proven: 2-of-2, 2-of-3, 3-of-4.
+another on a different computer in a different place), and - since 2026-08-28 - a send **signed from a phone via the installed PWA** (`2d861b8f`, block 3,463,297: 2-of-2, closing signature made on an Android phone in a mobile browser, its share sealed on that phone). Quorums proven: 2-of-2, 2-of-3, 3-of-4.
 Ironwood: **proven on mainnet**. The cross-device broadcast is **no longer an open debt**.
 
 **On "local-first", which changed shape rather than becoming false.** The closed decision in §2 is a
