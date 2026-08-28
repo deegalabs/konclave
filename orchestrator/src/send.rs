@@ -468,10 +468,24 @@ pub fn net_orchestrate_send(
     // index, same 64 bytes, so `into_sigs` accepts them - and only the cryptography catches it,
     // as `IronwoodSign(InvalidExternalSignature)` at inject time. Every send after the first one
     // in a room failed that way until the room expired (#358).
+    // tx3 is written by the verifier below (a candidate is verified BY injecting it), so it must
+    // exist before the poll loop.
+    let tx3_path = format!("{}/net-tx3-signed.pczt", sc.work_dir);
     let mut since = posted;
     let mut collected = None;
     for _ in 0..max_polls {
-        let (found, next) = net_send::collect_response(&client, &req, since)
+        // Verify each candidate by trial-injecting it: `inject` checks every redpallas signature
+        // as it applies it, so a real device's response injects cleanly (and tx3_path is then the
+        // signed tx, ready to broadcast) while a bogus response an outsider posted into the public
+        // room fails the crypto and is SKIPPED - noise, not a kill (#391). Before this, the send
+        // accepted the first structurally-valid message and died at inject, so any outsider could
+        // DoS every send by posting one junk response. (Cost: an inject subprocess per structurally
+        // -valid candidate; bounded by max_polls and the relay's rate limit. Authenticating room
+        // writes, #63, would stop the injection at the source.)
+        let verify = |sigs: &net_send::SpendSigs| {
+            signer::inject(&sc.konclave_signer, &tx2_path, &tx3_path, sigs).is_ok()
+        };
+        let (found, next) = net_send::collect_response(&client, &req, since, verify)
             .map_err(|e| ToolError::parse("relay", e))?;
         since = next;
         if found.is_some() {
@@ -480,13 +494,11 @@ pub fn net_orchestrate_send(
         }
         thread::sleep(poll_delay);
     }
+    // The accepted response was already injected by `verify`; tx3_path holds the signed tx. `sigs`
+    // is still used below to record the ceremony's signatures.
     let sigs = collected.ok_or_else(|| {
         ToolError::parse("net-send", "timed out waiting for the devices' signatures")
     })?;
-
-    // 5) inject every signature (inject verifies each), then broadcast unless dry-run.
-    let tx3_path = format!("{}/net-tx3-signed.pczt", sc.work_dir);
-    signer::inject(&sc.konclave_signer, &tx2_path, &tx3_path, &sigs)?;
 
     let txid = if dry_run {
         None
