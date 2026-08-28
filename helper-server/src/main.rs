@@ -17,10 +17,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use orchestrator::helper::{
-    append_ceremony, is_valid_group_key, ledger_csv, list_proposals, load_ceremonies, load_members,
-    load_proposal, payment_plan, register_vault, rename_member, save_members, save_proposal,
-    send_config_for, vault_balance, vault_transactions, CeremonyRecord, HelperConfig,
-    HelperProposal, HelperState, PayrollLine, VaultRegistration,
+    append_ceremony, claim_members, is_valid_group_key, ledger_csv, list_proposals,
+    load_ceremonies, load_members, load_proposal, payment_plan, register_vault, rename_member,
+    save_proposal, send_config_for, vault_balance, vault_transactions, CeremonyRecord,
+    HelperConfig, HelperProposal, HelperState, PayrollLine, RosterWrite, VaultRegistration,
 };
 use orchestrator::send::{funding_check, net_orchestrate_send, Funding, PayrollDest, SpendPlan};
 use serde::Deserialize;
@@ -225,8 +225,24 @@ fn handle(
                 Some(r) => r,
                 None => return resp(404, json!({ "error": "no such vault" }).to_string()),
             };
-            match save_members(&cfg.vaults_dir, &reg.vault_id, &req.names) {
-                Ok(()) => resp(200, json!({ "members": req.names }).to_string()),
+            // Write-ONCE. This endpoint is unauthenticated, and it used to overwrite: anyone
+            // holding a vault id could replace the roster with names of their own and then vote as
+            // them, which made the roster check on `handle_vote` cosmetic (#288). The roster is
+            // decided by the DKG and never changes wholesale afterwards - later edits go one seat
+            // at a time through /members/rename. A repeat of the SAME list is accepted because
+            // that is the real flow: at DKG completion every device posts it.
+            match claim_members(&cfg.vaults_dir, &reg.vault_id, &req.names) {
+                Ok(RosterWrite::Claimed) | Ok(RosterWrite::Unchanged) => {
+                    resp(200, json!({ "members": req.names }).to_string())
+                }
+                Ok(RosterWrite::Refused) => resp(
+                    409,
+                    json!({
+                        "error": "this vault already has a roster",
+                        "detail": "The member list is set once, by the DKG. Rename a single seat instead."
+                    })
+                    .to_string(),
+                ),
                 Err(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
             }
         }
@@ -1657,6 +1673,62 @@ mod tests {
         let r = handle(&st, &cfg, &Method::Post, &send_path, body2);
         assert_eq!(r.status, 409);
         assert!(r.body.contains("not ready"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_stranger_cannot_replace_a_vault_roster() {
+        // The roster check on votes is only as strong as who may write the roster. This endpoint is
+        // unauthenticated, so before #288 anyone holding a vault id could swap the member list for
+        // names of their own and then vote as them.
+        let dir = std::env::temp_dir().join(format!("konclave-hs-claim-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let cfg = cfg_at(&dir);
+        let st = HelperState::new();
+        seed(&st, "aaaa");
+
+        let real = br#"{"vault":"aaaa","names":["Alice","Bob","Carol"]}"#;
+        assert_eq!(
+            handle(&st, &cfg, &Method::Post, "/api/vault/members", real).status,
+            200
+        );
+        // Every device posts the same list when the DKG finishes: a repeat is normal.
+        assert_eq!(
+            handle(&st, &cfg, &Method::Post, "/api/vault/members", real).status,
+            200
+        );
+
+        // The attack: replace the roster, then vote as the name you just installed.
+        let hostile = br#"{"vault":"aaaa","names":["Mallory"]}"#;
+        let refused = handle(&st, &cfg, &Method::Post, "/api/vault/members", hostile);
+        assert_eq!(refused.status, 409);
+
+        let after = handle(
+            &st,
+            &cfg,
+            &Method::Get,
+            "/api/vault/members?vault=aaaa",
+            b"",
+        );
+        assert!(
+            after.body.contains("Alice") && !after.body.contains("Mallory"),
+            "the roster moved: {}",
+            after.body
+        );
+
+        // And with the roster intact, the installed name is still refused a vote.
+        let vote = br#"{"vault":"aaaa","member":"Mallory"}"#;
+        assert_eq!(
+            handle(
+                &st,
+                &cfg,
+                &Method::Post,
+                "/api/vault/proposals/nope/approve",
+                vote
+            )
+            .status,
+            403
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
