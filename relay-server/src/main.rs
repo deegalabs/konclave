@@ -12,9 +12,11 @@
 //! (robust: a flooding source cannot cheaply change it) and per `from`/room key (#64). It moves
 //! nothing but ciphertext/public FROST material between peers.
 
+mod concurrency;
+
 use std::collections::HashMap;
 use std::io::Read;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -290,38 +292,59 @@ fn main() {
     let state = RelayState::default();
     eprintln!("konclave relay listening on {addr}");
 
-    for mut req in server.incoming_requests() {
-        let method = req.method().clone();
-        let url = req.url().to_string();
-        let path = url.split(['?', '#']).next().unwrap_or(&url).to_string();
-        let ip = client_ip(&req);
+    // A worker pool, not a single-threaded loop: one connection that dribbles a slow body ties one
+    // worker, not the whole relay. The single-threaded loop was a full outage from one IP with no
+    // flood (#390) - the same shape as the helper's #375, fixed there in #384. The relay's state is
+    // behind Mutexes, so it shares across workers by Arc.
+    let state = Arc::new(state);
+    let server = Arc::new(server);
+    let workers = concurrency::worker_count(
+        std::env::var("KONCLAVE_RELAY_WORKERS").ok().as_deref(),
+        std::thread::available_parallelism().map_or(1, |n| n.get()),
+    );
+    eprintln!("konclave relay serving with {workers} worker(s)");
 
-        if method == Method::Options {
-            let _ = req.respond(with_cors(Response::empty(204), false));
-            continue;
-        }
+    let mut pool = Vec::with_capacity(workers);
+    for _ in 0..workers {
+        let (server, state) = (Arc::clone(&server), Arc::clone(&state));
+        pool.push(std::thread::spawn(move || loop {
+            let Ok(mut req) = server.recv() else { return };
+            let method = req.method().clone();
+            let url = req.url().to_string();
+            let path = url.split(['?', '#']).next().unwrap_or(&url).to_string();
+            let ip = client_ip(&req);
 
-        let (status, body) = if path.starts_with("/api/relay/") {
-            let mut buf = Vec::new();
-            if req
-                .body_length()
-                .map(|n| n <= 2 * 1024 * 1024)
-                .unwrap_or(true)
-            {
-                let _ = req.as_reader().read_to_end(&mut buf);
+            if method == Method::Options {
+                let _ = req.respond(with_cors(Response::empty(204), false));
+                continue;
             }
-            state.handle(&method, &path, &url, &buf, now_unix(), &ip)
-        } else if path == "/" || path == "/health" {
-            (
-                200,
-                r#"{"status":"ok","service":"konclave-relay"}"#.to_string(),
-            )
-        } else {
-            (404, r#"{"error":"not found"}"#.to_string())
-        };
 
-        let resp = Response::from_string(body).with_status_code(status);
-        let _ = req.respond(with_cors(resp, true));
+            let (status, body) = if path.starts_with("/api/relay/") {
+                let mut buf = Vec::new();
+                // Read with a hard ceiling - including when there is NO Content-Length, which used
+                // to be read unbounded (#390). `take` caps a dribbling or chunked body.
+                match concurrency::body_read_cap(req.body_length().map(|n| n as u64)) {
+                    concurrency::ReadPlan::Read(limit) => {
+                        let _ = req.as_reader().take(limit).read_to_end(&mut buf);
+                    }
+                    concurrency::ReadPlan::Skip => { /* over the cap: handle an empty body */ }
+                }
+                state.handle(&method, &path, &url, &buf, now_unix(), &ip)
+            } else if path == "/" || path == "/health" {
+                (
+                    200,
+                    r#"{"status":"ok","service":"konclave-relay"}"#.to_string(),
+                )
+            } else {
+                (404, r#"{"error":"not found"}"#.to_string())
+            };
+
+            let resp = Response::from_string(body).with_status_code(status);
+            let _ = req.respond(with_cors(resp, true));
+        }));
+    }
+    for w in pool {
+        let _ = w.join();
     }
 }
 
