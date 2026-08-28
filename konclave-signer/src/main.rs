@@ -18,7 +18,6 @@ use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 use ff::PrimeField;
 use orchard::primitives::redpallas::{self, SpendAuth};
-use orchard::value::NoteValue;
 use pczt::{
     roles::low_level_signer::{OrchardParseError, Signer as LowSigner},
     roles::signer::Signer as HlSigner,
@@ -120,14 +119,19 @@ fn shielded_sighash(pczt: &Pczt) -> Result<[u8; 32]> {
     Ok(signer.shielded_sighash())
 }
 
-/// Collect `(action_index, alpha)` for the REAL spends of one Orchard-shaped bundle. Dummy
-/// spends (zero value) are signed by the wallet's IO finalizer and are skipped; a real spend
-/// can sit at any action index (index 0 is often a dummy pad).
+/// Collect `(action_index, alpha)` for every spend of one Orchard-shaped bundle that still
+/// AWAITS a signature. This mirrors the Zcash Foundation's `zcash-sign` #593
+/// (`collect_randomizers`): the test is `spend_auth_sig().is_none()`, NOT "is this a non-zero
+/// (real) spend". The distinction matters post-NU6.3 / v6: an Ironwood spend pairs the requested
+/// note with a wallet-controlled zero-value "dummy" spend, and the engine no longer auto-signs
+/// that dummy in `create` (see librustzcash #2777/#2778) — it must be signed like any other spend.
+/// Filtering by value skipped the dummy, leaving it unsigned -> `MissingSpendAuthSig` at extract.
+/// A protocol-padding dummy that the IO finalizer DID pre-sign already has `spend_auth_sig == Some`,
+/// so it is correctly skipped here; and a real spend can sit at any action index.
 fn collect_real(bundle: &orchard::pczt::Bundle) -> Vec<(usize, [u8; 32])> {
     let mut out = vec![];
     for (idx, action) in bundle.actions().iter().enumerate() {
-        let is_real = matches!(action.spend().value(), Some(v) if *v != NoteValue::default());
-        if is_real {
+        if action.spend().spend_auth_sig().is_none() {
             if let Some(alpha) = action.spend().alpha() {
                 let repr = alpha.to_repr();
                 let slice: &[u8] = repr.as_ref();
@@ -339,13 +343,18 @@ fn build_payroll(
         ConfirmationsPolicy::default(),
         &SpendPolicy::default(),
         None,
+        // proposed_version: None -> build at the version implied by the target height (V6 from
+        // NU6.3/Ironwood onward), so the pool is resolved from consensus, not pinned here.
+        None,
     )
     .map_err(|e: WalletErr<_, std::convert::Infallible, _, _, _, _>| {
         anyhow!("propose_transfer: {e:?}")
     })?;
 
-    // `None` expiry (the caller syncs before building) and the DEFAULT Orchard bundle type; the
+    // `None` expiry (the caller syncs before building) and the DEFAULT Orchard-pool padding; the
     // pool (Orchard pre-NU6.3, Ironwood post-NU6.3) is resolved from consensus at the target height.
+    // The final arg changed from an orchard `BundleType` to `BundlePadding` in the Ironwood line
+    // (backend 0.24); DEFAULT preserves the previous behavior.
     let pczt = create_pczt_from_proposal(
         &mut db,
         &params,
@@ -353,7 +362,7 @@ fn build_payroll(
         OvkPolicy::Sender,
         &proposal,
         None,
-        orchard::builder::BundleType::DEFAULT,
+        zcash_primitives::transaction::builder::BundlePadding::DEFAULT,
     )
     .map_err(
         |e: WalletErr<_, _, std::convert::Infallible, _, std::convert::Infallible, _>| {

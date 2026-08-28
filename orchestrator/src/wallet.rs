@@ -212,10 +212,32 @@ pub fn get_info(devtool: &Path, wallet_dir: &str, server: &str) -> Result<ChainI
     parse_chain_info(&run_text(devtool, &args, None)?)
 }
 
+/// `zcash-devtool wallet -w <dir> upgrade` - bring an existing wallet database up to the schema
+/// the CURRENT engine expects. Idempotent: a wallet already at the current schema is a no-op, so
+/// this is safe to call on every sync.
+///
+/// Why it is called before every sync: a wallet file created by an older engine keeps that engine's
+/// schema, and a newer `zcash_client_sqlite` fails the moment it touches a table it added. The
+/// observed failure after an engine bump was
+/// `DbError(SqliteFailure(..., "no such table: orchard_ironwood_migrations"))` on `sync`, which
+/// takes every vault's balance and history offline until the database is migrated. Running the
+/// upgrade first makes an engine bump self-healing for wallets that already exist on disk.
+///
+/// A failure here is deliberately NOT fatal: an older engine has no `upgrade` subcommand at all,
+/// and a wallet it can already read needs no migration. Swallowing the error keeps this backward
+/// compatible; a real schema problem still surfaces on the `sync` that follows.
+pub fn upgrade(devtool: &Path, wallet_dir: &str) {
+    let args = ["wallet", "-w", wallet_dir, "upgrade"];
+    let _ = crate::tools::run(devtool, &args, None);
+}
+
 /// `zcash-devtool wallet -w <dir> sync -s <server> --connection direct` - bring the wallet's
 /// view current against lightwalletd so a following `balance` / `list-tx` is up to date. The
 /// stdout is progress noise (not JSON); only success/failure matters here.
+///
+/// Runs `upgrade` first so a wallet written by an older engine is migrated rather than failing.
 pub fn sync(devtool: &Path, wallet_dir: &str, server: &str) -> Result<(), ToolError> {
+    upgrade(devtool, wallet_dir);
     let s = server_args(server);
     let args = ["wallet", "-w", wallet_dir, "sync", s[0], s[1], s[2], s[3]];
     crate::tools::run(devtool, &args, None)?;
@@ -244,6 +266,45 @@ pub fn list_transactions(devtool: &Path, wallet_dir: &str) -> Result<Vec<WalletT
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `sync` must run `wallet upgrade` FIRST, so a wallet database written by an older engine is
+    /// migrated instead of failing the moment the newer `zcash_client_sqlite` touches a table it
+    /// added (observed in production as `no such table: orchard_ironwood_migrations`, which took
+    /// every vault's balance offline until the engine was rolled back).
+    ///
+    /// Drives a fake devtool that appends its subcommand to a log, then asserts the order.
+    #[test]
+    fn sync_upgrades_the_wallet_schema_first() {
+        use std::io::Write;
+        let dir = std::env::temp_dir().join(format!("konclave-upgrade-test-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let log = dir.join("calls.log");
+        let _ = std::fs::remove_file(&log);
+        let fake = dir.join("fake-devtool");
+        {
+            let mut f = std::fs::File::create(&fake).expect("create fake devtool");
+            // $4 is the subcommand: `wallet -w <dir> <subcommand> ...`
+            writeln!(f, "#!/bin/sh\necho \"$4\" >> \"{}\"", log.display()).expect("write");
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut p = std::fs::metadata(&fake).expect("stat").permissions();
+            p.set_mode(0o755);
+            std::fs::set_permissions(&fake, p).expect("chmod");
+        }
+
+        sync(&fake, dir.to_str().expect("utf8 dir"), "zec.rocks:443").expect("sync runs");
+
+        let calls = std::fs::read_to_string(&log).expect("the fake devtool was invoked");
+        let order: Vec<&str> = calls.lines().collect();
+        assert_eq!(
+            order,
+            vec!["upgrade", "sync"],
+            "sync must call `wallet upgrade` before `wallet sync`, got {order:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     // Real output captured during the vertical slice.
     const GET_INFO: &str = r#"2026-06-30T20:12:45Z  INFO zcash_devtool::remote: Connecting to zec.rocks:443

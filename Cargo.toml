@@ -9,19 +9,23 @@ members = [
   "src-tauri",
 ]
 
-# librustzcash crates are pinned to one git rev across the whole workspace (must live at the
-# workspace root, not per-member). Kept in sync with the vendored engine (engine/versions.lock).
-[patch.crates-io]
-equihash = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
-f4jumble = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
-zcash_address = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
-zcash_encoding = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
-zcash_protocol = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
-zip321 = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
-pczt = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
-zcash_client_backend = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
-zcash_client_sqlite = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
-zcash_keys = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
-zcash_primitives = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
-zcash_proofs = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
-zcash_transparent = { git = "https://github.com/zcash/librustzcash", rev = "42ffd0d89ffd6c401c9669651a6123f707d5703d" }
+# NO [patch.crates-io]. Every librustzcash / orchard crate comes straight from crates.io at a
+# RELEASED version - there are zero git sources in Cargo.lock. Keep it that way: a git rev is a
+# moving, unaudited target on a money path, and the released line now carries everything the
+# earlier pins were reaching for.
+#
+# ADR-0002 (byte-compat with the reference devtool) is SATISFIED BY, not weakened by, this move:
+# zcash-devtool main is itself on the same published releases (orchard 0.15.5, pczt 0.9.3,
+# zcash_client_backend 0.24.0, zcash_primitives 0.30.1, zcash_protocol 0.10.5) with no patch table
+# of its own, so producer and consumer now share the exact same crate artifacts instead of merely
+# happening to point at the same git rev.
+#
+# Two things the old patch table existed for, and where they went:
+#   - orchard `unstable-frost` (RedPallas spend-auth extraction for konclave-signer/konclave-wasm):
+#     published orchard 0.15.5 declares `unstable-frost = []` in its own [features] table, so no
+#     fork rev is needed. Enable the feature per-crate, not here.
+#   - the deferred-anchor work (zcash/orchard PR #535) the fork rev 3bd2b736 carried: released in
+#     orchard 0.15.2, so 0.15.5 is a strict superset of that rev.
+#
+# Version pins live per-member (konclave-signer, konclave-wasm, orchestrator). Bump them together,
+# and keep engine/versions.lock in sync.
