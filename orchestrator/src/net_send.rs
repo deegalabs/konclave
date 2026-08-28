@@ -164,13 +164,21 @@ pub fn collect_response<T: Transport>(
     client: &RelayClient<T>,
     req: &SignRequest,
     since: u64,
+    verify: impl Fn(&SpendSigs) -> bool,
 ) -> Result<(Option<SpendSigs>, u64), String> {
     let (hit, next) = client.find(since, |d| d.contains(RESPONSE_KIND))?;
     match hit {
         Some(msg) => {
-            let resp: SignResponse =
-                serde_json::from_str(&msg.data).map_err(|e| format!("decode response: {e}"))?;
-            Ok((Some(resp.into_sigs(req)?), next))
+            // Skip a candidate that does not decode, does not cover the request exactly, or does
+            // not VERIFY, and keep polling. An outsider who knows the (public) room can post a
+            // structurally-valid but cryptographically-bogus response; taking the first such
+            // message and failing at inject is what let any outsider DoS every send (#391). Only a
+            // real, verified response is accepted; a bad one is noise, never fatal.
+            let accepted = serde_json::from_str::<SignResponse>(&msg.data)
+                .ok()
+                .and_then(|resp| resp.into_sigs(req).ok())
+                .filter(|sigs| verify(sigs));
+            Ok((accepted, next))
         }
         None => Ok((None, next)),
     }
@@ -316,6 +324,68 @@ mod tests {
     }
 
     #[test]
+    fn a_response_that_fails_verification_is_skipped_not_accepted() {
+        // #391: an outsider who knows the (public) room can post a structurally-valid but
+        // cryptographically-bogus net-sign-response. It must NOT be accepted (and then kill the
+        // send at inject) - the collector must skip it when `verify` rejects it.
+        let state = Arc::new(RelayState::new());
+        let helper = client(state.clone(), "helper");
+        let attacker = client(state, "attacker");
+        let req = SignRequest::from_signing_input(&ironwood_input(), &[0xaa, 0xbb]);
+        publish_request(&helper, &req).unwrap();
+
+        // The attacker posts a well-formed-but-bogus response into the room.
+        let bogus = response_for(&req);
+        attacker
+            .post(&serde_json::to_string(&bogus).unwrap())
+            .unwrap();
+
+        // With a verifier that rejects it, the collector returns NOTHING - the bogus message is
+        // skipped, the send keeps waiting for the real one.
+        let (got, _next) = collect_response(&helper, &req, 0, |_| false).unwrap();
+        assert!(
+            got.is_none(),
+            "a response that does not verify must be skipped, not accepted"
+        );
+    }
+
+    #[test]
+    fn a_verified_response_is_accepted() {
+        let state = Arc::new(RelayState::new());
+        let helper = client(state.clone(), "helper");
+        let device = client(state, "device");
+        let req = SignRequest::from_signing_input(&ironwood_input(), &[0xaa, 0xbb]);
+        publish_request(&helper, &req).unwrap();
+        device
+            .post(&serde_json::to_string(&response_for(&req)).unwrap())
+            .unwrap();
+
+        let (got, _next) = collect_response(&helper, &req, 0, |_| true).unwrap();
+        assert!(got.is_some(), "a response that verifies is accepted");
+    }
+
+    #[test]
+    fn a_malformed_response_is_skipped_not_fatal() {
+        // A garbage message containing the response marker must be skipped, never abort the send.
+        let state = Arc::new(RelayState::new());
+        let helper = client(state.clone(), "helper");
+        let attacker = client(state, "attacker");
+        let req = SignRequest::from_signing_input(&ironwood_input(), &[0xaa, 0xbb]);
+        publish_request(&helper, &req).unwrap();
+        attacker
+            .post(&format!(
+                "{{\"kind\":\"{RESPONSE_KIND}\",\"garbage\":true}}"
+            ))
+            .unwrap();
+
+        let (got, _next) = collect_response(&helper, &req, 0, |_| true).unwrap();
+        assert!(
+            got.is_none(),
+            "a malformed response must be skipped, not fatal"
+        );
+    }
+
+    #[test]
     fn helper_publishes_and_collects_the_devices_signatures() {
         let state = Arc::new(RelayState::new());
         let helper = client(state.clone(), "helper");
@@ -327,7 +397,7 @@ mod tests {
         publish_request(&helper, &req).unwrap();
 
         // Before the device responds, the helper is still waiting (no response yet).
-        let (waiting, since) = collect_response(&helper, &req, 0).unwrap();
+        let (waiting, since) = collect_response(&helper, &req, 0, |_| true).unwrap();
         assert!(waiting.is_none(), "no signatures until the devices respond");
 
         // The device reads the request off the relay and posts a (simulated) aggregate response.
@@ -348,7 +418,7 @@ mod tests {
         device.post(&serde_json::to_string(&resp).unwrap()).unwrap();
 
         // The helper collects and assembles the inject-ready pairs.
-        let (sigs, _) = collect_response(&helper, &req, since).unwrap();
+        let (sigs, _) = collect_response(&helper, &req, since, |_| true).unwrap();
         let sigs = sigs.expect("the devices' response is now present");
         assert_eq!(sigs.len(), 4);
         assert_eq!(sigs[0], (0, [0xabu8; 64]));
@@ -378,14 +448,14 @@ mod tests {
 
         // Polling from the start hands back the OLD payment's signatures, which is the bug: they
         // decode, they cover every requested index, and nothing here can tell they are wrong.
-        let (stale, _) = collect_response(&helper, &req, 0).unwrap();
+        let (stale, _) = collect_response(&helper, &req, 0, |_| true).unwrap();
         assert!(
             stale.is_some(),
             "polling from 0 accepts the previous payment's response - this is what broke"
         );
 
         // Polling strictly after our own request waits for a real answer instead.
-        let (waiting, since) = collect_response(&helper, &req, posted).unwrap();
+        let (waiting, since) = collect_response(&helper, &req, posted, |_| true).unwrap();
         assert!(
             waiting.is_none(),
             "no signatures until THIS payment is signed"
@@ -395,7 +465,7 @@ mod tests {
         device
             .post(&serde_json::to_string(&response_for(&req)).unwrap())
             .unwrap();
-        let (sigs, _) = collect_response(&helper, &req, since).unwrap();
+        let (sigs, _) = collect_response(&helper, &req, since, |_| true).unwrap();
         assert!(sigs.is_some(), "this payment's own response is collected");
     }
 }
