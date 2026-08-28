@@ -2,23 +2,31 @@ import { describe, expect, it } from 'vitest'
 import { approvalGateDecision, type ApprovalContext } from './approval-gate'
 import type { PcztOutput } from './approved-payment'
 
-const VAULT = 'u1vault'
-const ALICE = 'u1alice'
-const MALLORY = 'u1mallory'
+// Receivers (raw address bytes, hex) - what the device compares. Labels are advisory.
+const ALICE_RCV = 'a1a1a1a1'
+const MALLORY_RCV = 'cacacaca'
+const VAULT_CHG = 'de020202'
+const OURS = [VAULT_CHG]
 
 // The owner approved and armed a payment of 1,200,000 zat to Alice.
 const armedForAlice: ApprovalContext = {
-  approved: [{ to: ALICE, amountZat: 1_200_000 }],
-  vaultAddress: VAULT,
+  approved: [{ toReceiver: ALICE_RCV, amountZat: 1_200_000 }],
+  ourReceivers: OURS,
   mode: 'manual',
   armedAndLive: true,
 }
 
 const paysAlice: { outputs: PcztOutput[] } = {
-  outputs: [{ address: ALICE, value: 1_200_000 }, { address: VAULT, value: 500 }],
+  outputs: [
+    { address: 'u1alice', value: 1_200_000, recipient: ALICE_RCV },
+    { address: null, value: 999_500, recipient: VAULT_CHG },
+  ],
 }
 const paysMallory: { outputs: PcztOutput[] } = {
-  outputs: [{ address: MALLORY, value: 1_200_000 }, { address: VAULT, value: 500 }],
+  outputs: [
+    { address: 'u1alice', value: 1_200_000, recipient: MALLORY_RCV }, // label lies; recipient is Mallory
+    { address: null, value: 999_500, recipient: VAULT_CHG },
+  ],
 }
 
 describe('approvalGateDecision — the money-gate business rule (#281)', () => {
@@ -33,11 +41,22 @@ describe('approvalGateDecision — the money-gate business rule (#281)', () => {
   })
 
   it('REFUSES a swapped amount even while armed', () => {
-    const paysAliceMore = { outputs: [{ address: ALICE, value: 9_000_000 }, { address: VAULT, value: 500 }] }
+    const paysAliceMore = {
+      outputs: [
+        { address: 'u1alice', value: 9_000_000, recipient: ALICE_RCV },
+        { address: null, value: 999_500, recipient: VAULT_CHG },
+      ],
+    }
     expect(approvalGateDecision(armedForAlice, paysAliceMore)).toBe(false)
   })
 
   it('does not sign the approved payment when NOT armed (manual mode)', () => {
     expect(approvalGateDecision({ ...armedForAlice, armedAndLive: false }, paysAlice)).toBe(false)
+  })
+
+  it('auto mode signs the approved payment with no arming, but still refuses a swap', () => {
+    const auto: ApprovalContext = { ...armedForAlice, mode: 'auto', armedAndLive: false }
+    expect(approvalGateDecision(auto, paysAlice)).toBe(true)
+    expect(approvalGateDecision(auto, paysMallory)).toBe(false)
   })
 })
