@@ -111,6 +111,8 @@ pub struct Response {
     pub status: u16,
     pub content_type: String,
     pub body: Vec<u8>,
+    /// Extra response headers (name, value). Security headers ride here (#268).
+    pub headers: Vec<(String, String)>,
 }
 
 impl Response {
@@ -119,6 +121,7 @@ impl Response {
             status,
             content_type: "application/json; charset=utf-8".into(),
             body: serde_json::to_vec(value).unwrap_or_else(|_| b"{}".to_vec()),
+            headers: Vec::new(),
         }
     }
     fn text(status: u16, ct: &str, body: Vec<u8>) -> Response {
@@ -126,6 +129,7 @@ impl Response {
             status,
             content_type: ct.into(),
             body,
+            headers: Vec::new(),
         }
     }
 }
@@ -662,6 +666,7 @@ fn csv_response(csv: String) -> Response {
         status: 200,
         content_type: "text/csv; charset=utf-8".into(),
         body: csv.into_bytes(),
+        headers: Vec::new(),
     }
 }
 
@@ -1846,16 +1851,29 @@ fn now_unix() -> Option<i64> {
 
 /// Serve a file from `web_dir`. `/` → `index.html`. Traversal (`..`) is rejected.
 fn serve_static(web_dir: &Path, path: &str) -> Response {
+    // Every served document carries the security headers (#268): the CSP is the backstop for the
+    // key-share guarantee against an injected script, and it must ride the HTML the WASM signer runs
+    // in. Applied here, at the one place that serves the app's documents.
+    fn with_security(mut r: Response) -> Response {
+        for (k, v) in crate::csp::security_headers() {
+            r.headers.push((k.to_string(), v.to_string()));
+        }
+        r
+    }
     let rel = if path == "/" {
         "index.html"
     } else {
         path.trim_start_matches('/')
     };
     if rel.split(['/', '\\']).any(|seg| seg == "..") {
-        return Response::text(403, "text/plain; charset=utf-8", b"forbidden".to_vec());
+        return with_security(Response::text(
+            403,
+            "text/plain; charset=utf-8",
+            b"forbidden".to_vec(),
+        ));
     }
     let full = web_dir.join(rel);
-    match std::fs::read(&full) {
+    with_security(match std::fs::read(&full) {
         Ok(bytes) => Response::text(200, content_type(&full), bytes),
         Err(_) => Response::text(
             404,
@@ -1866,7 +1884,7 @@ fn serve_static(web_dir: &Path, path: &str) -> Response {
               (<code>npm run build</code> in <code>ui/</code>)</body>"
                 .to_vec(),
         ),
-    }
+    })
 }
 
 fn content_type(path: &Path) -> &'static str {
@@ -2091,7 +2109,10 @@ pub fn handle_secured(
         && resp.content_type.starts_with("text/html")
     {
         let ct = resp.content_type.clone();
-        return Response::text(200, &ct, inject_session(resp.body, session_token));
+        let headers = resp.headers.clone();
+        let mut rewrapped = Response::text(200, &ct, inject_session(resp.body, session_token));
+        rewrapped.headers = headers; // keep the security headers through the session-token inject
+        return rewrapped;
     }
     resp
 }
@@ -2148,9 +2169,17 @@ pub fn serve(cfg: Config, port: u16) -> std::io::Result<()> {
         let header =
             tiny_http::Header::from_bytes(&b"Content-Type"[..], resp.content_type.as_bytes())
                 .expect("valid header");
-        let response = tiny_http::Response::from_data(resp.body)
+        let extra = resp.headers.clone();
+        let mut response = tiny_http::Response::from_data(resp.body)
             .with_status_code(resp.status)
             .with_header(header);
+        // Emit every header the handler set - the security headers (#268) ride here; without this
+        // the CSP would never reach the browser.
+        for (k, v) in &extra {
+            if let Ok(h) = tiny_http::Header::from_bytes(k.as_bytes(), v.as_bytes()) {
+                response = response.with_header(h);
+            }
+        }
         let _ = req.respond(response);
     }
     Ok(())
@@ -2225,6 +2254,31 @@ fn reconcile_handler(cfg: &Config, want: Option<&str>) -> Response {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn the_served_page_carries_a_content_security_policy() {
+        // #268: the document that runs the WASM signer must ship a CSP that blocks inline script.
+        // Serving no CSP (as it did) leaves the key-share guarantee with no backstop against XSS.
+        let dir = std::env::temp_dir().join(format!("konclave-csp-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        std::fs::write(dir.join("index.html"), b"<!doctype html><title>x</title>").unwrap();
+        let r = serve_static(&dir, "/");
+        let csp = r
+            .headers
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case("content-security-policy"))
+            .map(|(_, v)| v.clone());
+        let _ = std::fs::remove_dir_all(&dir);
+        let csp = csp.expect("the served page must carry a Content-Security-Policy header");
+        assert!(
+            crate::csp::blocks_inline_script(&csp),
+            "the served CSP must block inline script"
+        );
+        assert!(
+            crate::csp::allows_wasm(&csp),
+            "the served CSP must allow the WASM signer"
+        );
+    }
     use super::*;
 
     struct FakeWallet {
