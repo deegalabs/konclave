@@ -6,7 +6,7 @@ plainly what on-chain data can and cannot prove, so nothing here is overclaimed.
 
 ## What the proof shows
 
-Konclave claims 13 real Zcash **mainnet** transactions.
+Konclave claims 14 real Zcash **mainnet** transactions.
 
 Each row below is a **first**: the first time one capability was proven on the live network.
 It is not a log of every send. The vaults have made more transactions than this, and the ones
@@ -28,6 +28,7 @@ be a claim you can check, not evidence of volume.
 | **Private payroll on the web path, post-Ironwood**: 2 beneficiaries in ONE V6 transaction, browser-DKG 2-of-2 vault, approved once and signed by both devices under the everyone-signs / last-signer-sends model | `7c4c1dd5d8522dc14a77b4a37ebb0846d5a3b7ed0c507c9cede2de09480490ea` | 3,461,704 |
 | **Across separate physical machines, over the internet**: 2-of-2 browser-DKG vault, proposed and approved by Michael, co-signed by Daniel on a different computer in a different place, each browser holding only its own share. This closes the cross-device milestone the README carried as open | `aec83baf22ee9eaab1281d43a7efb4abed619154980a935bf37ddc00171a938a` | 3,460,285 |
 | **Signed from a phone**, via the installed PWA: 2-of-2 browser-DKG vault, everyone-signs / last-signer-sends, the closing signature made on an **Android phone in a mobile browser**, its share sealed on that phone. The chain cannot prove the device (for the same reason it cannot prove a signature was a threshold one), so this rests on the operator and the ceremony trail, not the block. | `2d861b8f6fe6e1959b15364f484a532aad6cd4d30066850360a72206ece5d06b` | 3,463,297 |
+| **Survived a live bogus-response injection** (#394): an outsider holding only the public vault id posted a structurally-valid but cryptographically-bogus `net-sign-response` into a running 2-of-2 ceremony; the helper skipped it and collected the real signatures. The chain shows a normal send, not the attack - the injection is attested by the captured room trace (`docs/proof/2026-08-28-injection-resilience.md`), not the block. | `ef80a1812275eccb58a032cdeeb1769e4890949257578c45e78348bcc07040c6` | 3,463,857 |
 
 The verifier queries independent public explorers and confirms each transaction
 exists and is mined on mainnet, reporting the block height, confirmations, and
