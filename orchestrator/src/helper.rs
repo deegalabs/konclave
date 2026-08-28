@@ -455,6 +455,56 @@ pub fn save_members(vaults_dir: &Path, vault: &str, names: &[String]) -> Result<
     Ok(())
 }
 
+/// What a roster write did.
+#[derive(Debug, PartialEq, Eq)]
+pub enum RosterWrite {
+    /// There was no roster; this one is now the vault's.
+    Claimed,
+    /// The same roster was already there. Every device writes it at DKG completion, so a repeat
+    /// is the normal case, not an error.
+    Unchanged,
+    /// A roster exists and this one differs. Refused.
+    Refused,
+}
+
+/// Claim the vault's roster, once.
+///
+/// `save_members` overwrites, and the endpoint that reaches it is unauthenticated: anyone holding a
+/// vault id could replace the member list with names of their own and then vote as them, which is
+/// what made the roster check on votes cosmetic (#288). The roster is decided by the DKG and never
+/// changes wholesale afterwards - later edits are one seat at a time through `rename_member`, which
+/// migrates that member's votes. So the honest rule is write-once.
+///
+/// Idempotent on an identical list because that is the real flow: at DKG completion every device
+/// posts the same self-declared roster, and the second device must not get an error.
+///
+/// Names are compared trimmed, so a roster written with stray whitespace still matches itself.
+///
+/// This does NOT authenticate the first writer. A vault that has no roster yet - one registered
+/// before rosters were recorded - can still have one claimed by whoever asks first. Closing that
+/// needs the per-vault capability in #267 / the device-key handshake in #63.
+pub fn claim_members(
+    vaults_dir: &Path,
+    vault: &str,
+    names: &[String],
+) -> Result<RosterWrite, ToolError> {
+    let existing = load_members(vaults_dir, vault);
+    if existing.is_empty() {
+        save_members(vaults_dir, vault, names)?;
+        return Ok(RosterWrite::Claimed);
+    }
+    let same = existing.len() == names.len()
+        && existing
+            .iter()
+            .zip(names.iter())
+            .all(|(a, b)| a.trim() == b.trim());
+    Ok(if same {
+        RosterWrite::Unchanged
+    } else {
+        RosterWrite::Refused
+    })
+}
+
 /// Load the vault's member names (empty when none were set yet).
 pub fn load_members(vaults_dir: &Path, vault: &str) -> Vec<String> {
     std::fs::read_to_string(members_path(vaults_dir, vault))
@@ -1178,6 +1228,56 @@ mod tests {
         // Overwrites, not appends.
         save_members(&dir, "v", &["Dave".to_string()]).unwrap();
         assert_eq!(load_members(&dir, "v"), vec!["Dave".to_string()]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_roster_is_claimed_once_and_a_stranger_cannot_replace_it() {
+        let dir = std::env::temp_dir().join(format!("konclave-claim-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let roster: Vec<String> = vec!["Alice".into(), "Bob".into(), "Carol".into()];
+
+        // First writer wins: the DKG decided this list.
+        assert_eq!(
+            claim_members(&dir, "v", &roster).unwrap(),
+            RosterWrite::Claimed
+        );
+        assert_eq!(load_members(&dir, "v"), roster);
+
+        // Every device posts the same list at DKG completion, so a repeat is normal, not an error.
+        assert_eq!(
+            claim_members(&dir, "v", &roster).unwrap(),
+            RosterWrite::Unchanged
+        );
+        // Stray whitespace still matches itself.
+        let spaced: Vec<String> = vec![" Alice".into(), "Bob ".into(), "Carol".into()];
+        assert_eq!(
+            claim_members(&dir, "v", &spaced).unwrap(),
+            RosterWrite::Unchanged
+        );
+
+        // The attack this exists to stop: replace the roster, then vote as one of the new names.
+        let hostile: Vec<String> = vec!["Mallory".into()];
+        assert_eq!(
+            claim_members(&dir, "v", &hostile).unwrap(),
+            RosterWrite::Refused
+        );
+        assert_eq!(
+            load_members(&dir, "v"),
+            roster,
+            "the roster must not have moved"
+        );
+
+        // Emptying it is refused too: an empty roster is what makes voting fail open.
+        assert_eq!(claim_members(&dir, "v", &[]).unwrap(), RosterWrite::Refused);
+        assert_eq!(load_members(&dir, "v"), roster);
+
+        // Adding a name is a different roster, not an append.
+        let grown: Vec<String> = vec!["Alice".into(), "Bob".into(), "Carol".into(), "Dave".into()];
+        assert_eq!(
+            claim_members(&dir, "v", &grown).unwrap(),
+            RosterWrite::Refused
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
