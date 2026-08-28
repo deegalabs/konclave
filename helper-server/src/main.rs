@@ -284,7 +284,12 @@ fn handle(
                 handle_vote(state, cfg, vp, body)
             }
         }
-        (Method::Post, "/api/vault/send") => handle_send(state, cfg, body),
+        // `POST /api/vault/send` is REMOVED (#387). It opened a FROST ceremony to an arbitrary
+        // destination with no proposal, no approval and no roster check - an outsider who knew a
+        // vault id could make the helper build+prove a PCZT to their own address and solicit
+        // signatures in the vault's real room. No client ever used it (the app sends only approved
+        // proposals via `/api/vault/proposals/{id}/send`, which refuses non-`ready`), so it was a
+        // pure governance-bypass surface. It now falls through to the 404 below.
         _ => resp(404, json!({ "error": "not found" }).to_string()),
     }
 }
@@ -384,92 +389,6 @@ fn over_capacity() -> bool {
 /// the engine runs, so those branches are unit-testable; only the happy path touches the tooling
 /// and the relay. `dry_run` defaults to **true** (safe): the caller must pass `"dry_run": false`
 /// to actually broadcast, so a single call never fires funds by accident.
-fn handle_send(state: &HelperState, cfg: &HelperConfig, body: &[u8]) -> Resp {
-    #[derive(Deserialize)]
-    struct Req {
-        vault: String,
-        to: String,
-        amount_zat: u64,
-        memo: Option<String>,
-        #[serde(default = "default_dry_run")]
-        dry_run: bool,
-        relay_base: String,
-        room: String,
-        #[serde(default = "default_max_polls")]
-        max_polls: u32,
-    }
-    fn default_dry_run() -> bool {
-        true
-    }
-    fn default_max_polls() -> u32 {
-        // The browser FROST ceremony over the blind relay (short-poll, several round-trips per
-        // spend) can exceed 2 minutes, so give the helper a generous window to collect the
-        // devices' aggregate signature before giving up. Each poll is `poll_delay` (1s).
-        300
-    }
-    let req: Req = match serde_json::from_slice(body) {
-        Ok(r) => r,
-        Err(_) => return resp(400, json!({ "error": "invalid json" }).to_string()),
-    };
-    let reg = match state.get(&req.vault) {
-        Some(r) => r,
-        None => return resp(404, json!({ "error": "no such vault" }).to_string()),
-    };
-    let plan = match payment_plan(&req.to, req.amount_zat, req.memo, cfg.network_type()) {
-        Ok(p) => p,
-        Err(e) => return resp(400, json!({ "error": e.to_string() }).to_string()),
-    };
-    // Capacity guard (#135): refuse a memory-heavy prove up front when the instance is low, rather
-    // than OOM-crashing mid-send. Before any tx work, so no ambiguous state.
-    if over_capacity() {
-        return resp(
-            503,
-            json!({ "error": "coordinator over capacity, retry in a moment" }).to_string(),
-        );
-    }
-    // Per-send scratch dir under the vault's own tree (intermediate PCZTs, never a share).
-    //
-    // On this server that tree is the DURABLE Railway volume, so anything left here outlives the
-    // send by the life of the vault. The PCZTs are not shares, but a payroll PCZT carries every
-    // beneficiary's address and memo, which is exactly what the vault exists to keep off the wire
-    // (#297). The guard wipes the directory when this function returns, on success and on failure
-    // alike; nothing reads `SendOutcome::signed_pczt` back, it is only reported.
-    let work_dir = format!("{}/{}/send-work", cfg.vaults_dir.display(), reg.vault_id);
-    let _scratch = ScratchDir(work_dir.clone());
-    let sc = send_config_for(cfg, &reg, work_dir);
-    match net_orchestrate_send(
-        &sc,
-        &plan,
-        &req.relay_base,
-        &req.room,
-        req.dry_run,
-        req.max_polls,
-        Duration::from_secs(1),
-    ) {
-        Ok(out) => {
-            // Record the ceremony (ZecSafe-inspired reproducible evidence): sighash + aggregate
-            // signature(s) + txid, all public + independently verifiable. Best-effort - a
-            // persistence failure must not undo a completed send.
-            let rec = CeremonyRecord {
-                vault_id: reg.vault_id.clone(),
-                sighash: out.sighash.clone(),
-                signatures: out.signatures.clone(),
-                txid: out.txid.clone(),
-                dry_run: req.dry_run,
-                created_at_unix: now_unix(),
-            };
-            let _ = append_ceremony(&cfg.vaults_dir, &rec);
-            resp(
-                200,
-                json!({ "txid": out.txid, "dry_run": req.dry_run, "sighash": out.sighash,
-                        "signatures": out.signatures })
-                .to_string(),
-            )
-        }
-        Err(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
-    }
-}
-
 /// Ask the wallet whether the vault can actually pay `plan`, and turn a "no" into an answer a
 /// person can act on.
 ///
@@ -612,7 +531,7 @@ fn handle_proposal_send(state: &HelperState, cfg: &HelperConfig, path: &str, bod
             Err(e) => return resp(400, json!({ "error": e.to_string() }).to_string()),
         }
     };
-    // Capacity guard (#135): same pre-prove check as handle_send.
+    // Capacity guard (#135): refuse a memory-heavy prove up front when the instance is low.
     if over_capacity() {
         return resp(
             503,
@@ -1267,30 +1186,14 @@ mod tests {
     // All send rejections below fire BEFORE the engine/relay run, so no tooling is touched.
 
     #[test]
-    fn send_rejects_bad_json_before_anything() {
-        let st = HelperState::new();
-        let r = handle(&st, &cfg(), &Method::Post, "/api/vault/send", b"not json");
-        assert_eq!(r.status, 400);
-    }
-
-    #[test]
-    fn send_unknown_vault_is_404() {
-        let st = HelperState::new();
-        // Well-formed request, but the vault is not registered: rejected before the engine.
-        let body = br#"{"vault":"zzzz","to":"utest1xyz","amount_zat":1000,"relay_base":"http://x","room":"r"}"#;
-        let r = handle(&st, &cfg(), &Method::Post, "/api/vault/send", body);
-        assert_eq!(r.status, 404);
-    }
-
-    #[test]
-    fn send_rejects_zero_amount_for_known_vault() {
+    fn the_ungoverned_direct_send_route_is_gone() {
+        // #387: `POST /api/vault/send` opened a ceremony to an arbitrary destination with no
+        // proposal/approval/roster check. It is removed; the only send path is an approved proposal.
         let st = HelperState::new();
         seed(&st, "aaaa");
-        // Zero amount is caught by payment_plan before any PCZT is built.
-        let body = br#"{"vault":"aaaa","to":"utest1xyz","amount_zat":0,"relay_base":"http://x","room":"r"}"#;
+        let body = br#"{"vault":"aaaa","to":"utest1xyz","amount_zat":1000,"relay_base":"http://x","room":"r"}"#;
         let r = handle(&st, &cfg(), &Method::Post, "/api/vault/send", body);
-        assert_eq!(r.status, 400);
-        assert!(r.body.contains("greater than zero"));
+        assert_eq!(r.status, 404, "the raw send route must not exist");
     }
 
     // A real testnet Orchard-capable unified address (payment_plan accepts it on "test").
@@ -1883,15 +1786,5 @@ mod tests {
             b"",
         );
         assert_eq!(r.status, 404);
-    }
-
-    #[test]
-    fn send_rejects_bad_destination_for_known_vault() {
-        let st = HelperState::new();
-        seed(&st, "aaaa");
-        // A malformed destination is rejected by authoritative decode before the engine runs.
-        let body = br#"{"vault":"aaaa","to":"not-an-address","amount_zat":1000,"relay_base":"http://x","room":"r"}"#;
-        let r = handle(&st, &cfg(), &Method::Post, "/api/vault/send", body);
-        assert_eq!(r.status, 400);
     }
 }
