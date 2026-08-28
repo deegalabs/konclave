@@ -257,6 +257,7 @@ fn json(status: u16, v: serde_json::Value) -> Response {
         status,
         content_type: "application/json; charset=utf-8".into(),
         body: serde_json::to_vec(&v).unwrap_or_else(|_| b"{}".to_vec()),
+        headers: Vec::new(),
     }
 }
 

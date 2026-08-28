@@ -9,6 +9,7 @@
 //! the SQLite store, and OS-keychain share storage are layered on top.
 
 // --- domain core (dependency-free) ---
+pub mod csp;
 pub mod money;
 pub mod payroll;
 pub mod proposal;
