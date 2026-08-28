@@ -1061,11 +1061,18 @@ pub mod pczt_bridge {
     /// "what am I signing?" check before a device joins the ceremony.
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct OutputInfo {
-        /// The user-facing address the funds go to (the UA string the Constructor/Updater set),
-        /// if present. The signer must confirm this matches the approved proposal.
+        /// The user-facing address label (the `user_address` an Updater set), if present. ADVISORY:
+        /// shown to the human, but NOT trusted for the approval decision - the party that builds the
+        /// PCZT controls it, and the orchard PCZT spec requires a Signer to confirm it contains
+        /// `recipient` rather than trust it. Change outputs carry `None`.
         pub address: Option<String>,
         /// The output value in zatoshis, if the PCZT exposes it (it does for our shielded sends).
         pub value: Option<u64>,
+        /// The raw 43-byte Orchard/Ironwood receiver, hex-encoded - the GROUND TRUTH of who gets paid,
+        /// bound into the note commitment the sighash covers. This is what the on-device money gate
+        /// (#281) compares against the approved recipients; `user_address` is only a label over it.
+        /// `None` only if the PCZT omits it (unverifiable, fails closed downstream).
+        pub recipient: Option<String>,
     }
 
     /// Read every Orchard output of a proven PCZT as `(address, value)` - what this transaction
@@ -1085,6 +1092,10 @@ pub mod pczt_bridge {
                     OutputInfo {
                         address: o.user_address().clone(),
                         value: o.value().map(|v| v.inner()),
+                        recipient: o
+                            .recipient()
+                            .as_ref()
+                            .map(|a| hex::encode(a.to_raw_address_bytes())),
                     }
                 })
                 .collect()
@@ -1450,6 +1461,35 @@ pub mod pczt_bridge {
             assert!(
                 outs.iter().any(|o| o.value.is_some()),
                 "at least one output exposes a value",
+            );
+        }
+
+        #[test]
+        fn describe_outputs_exposes_recipient_bytes_for_the_money_gate() {
+            // The on-device money gate (#281) decides on `recipient`, not the advisory `user_address`.
+            // Every real output of this proven send must expose its 43-byte receiver as 86 hex chars,
+            // so the gate has the ground truth to compare against the approved recipients.
+            let outs = describe_outputs(IW_PROVEN).unwrap();
+            for o in &outs {
+                let r = o.recipient.as_ref().expect("every real output exposes a recipient");
+                assert_eq!(r.len(), 86, "a raw Orchard receiver is 43 bytes = 86 hex chars");
+                assert!(r.bytes().all(|b| b.is_ascii_hexdigit()), "recipient is hex");
+            }
+            // This send's shape, decoded: a payment output that carries a user_address, and a change
+            // output that does NOT (it pays the vault's internal scope). The gate cannot tell change
+            // from the external receive address, which is exactly why `ourReceivers` is supplied.
+            let payment = outs
+                .iter()
+                .find(|o| o.address.is_some())
+                .expect("a payment output carries a user_address label");
+            assert!(payment.value.unwrap_or(0) > 0);
+            let change = outs
+                .iter()
+                .find(|o| o.address.is_none() && o.value.unwrap_or(0) > 0)
+                .expect("a change output has value but no user_address");
+            assert_ne!(
+                change.recipient, payment.recipient,
+                "change pays the vault's internal scope, a different receiver than the payment",
             );
         }
 
@@ -2196,7 +2236,15 @@ mod js_pczt {
                 Some(v) => v.to_string(),
                 None => "null".to_string(),
             };
-            s.push_str(&format!("{{\"address\":{},\"value\":{}}}", addr, val));
+            // recipient is hex ([a-f0-9]), always JSON-safe.
+            let recip = match &o.recipient {
+                Some(r) => format!("\"{}\"", r),
+                None => "null".to_string(),
+            };
+            s.push_str(&format!(
+                "{{\"address\":{},\"value\":{},\"recipient\":{}}}",
+                addr, val, recip
+            ));
         }
         s.push(']');
         Ok(s)
