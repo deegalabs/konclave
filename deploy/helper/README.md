@@ -105,5 +105,7 @@ deployment values.
 ## API
 
 See [`helper-server/src/main.rs`](../../helper-server/src/main.rs). Read paths never leak the
-UFVK or account (audit M1); `POST /api/vault/send` defaults `dry_run` to **true** - the caller
-must pass `dry_run:false` to broadcast, so a single call never fires funds.
+UFVK or account (audit M1). A send is solicited only for an **approved proposal** via
+`POST /api/vault/proposals/{id}/send` (refused unless the proposal is `ready`), which defaults
+`dry_run` to **true** so a single call never fires funds. The old ungoverned `POST /api/vault/send`
+(arbitrary destination, no approval) was removed in #387.
