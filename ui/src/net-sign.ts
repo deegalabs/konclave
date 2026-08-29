@@ -10,8 +10,14 @@
 // sides agree byte-for-byte. Parsing is strict: a malformed or wrong-kind message is rejected,
 // never half-interpreted.
 
+import { hexToBytes } from './bytes'
+import { openBody } from './wasm-pkg/konclave_wasm.js'
+
 export const REQUEST_KIND = 'net-sign-request'
 export const RESPONSE_KIND = 'net-sign-response'
+/** A SignRequest sealed to the vault's registered devices (#63): the relay carries only ciphertext.
+ *  This device opens the box addressed to its own comms pubkey. Matches the helper's `SealedRequest`. */
+export const SEALED_REQUEST_KIND = 'net-sign-request-sealed'
 
 /** One spend to authorize: action index + its 64-hex redpallas randomizer. */
 export type SpendReq = { index: number; alpha: string }
@@ -22,6 +28,9 @@ export type SignRequest = {
   sighash: string // 64-hex
   spends: SpendReq[]
   pcztHex: string
+  /** True when this request was opened from a SEALED wire (#63) - i.e. every device registered, so
+   *  every device holds the PCZT and the coordinator must NOT re-broadcast it in the `sreq`. */
+  sealed: boolean
 }
 
 /** One aggregate signature the devices produced for a requested spend (128-hex). */
@@ -54,7 +63,56 @@ export function parseSignRequest(data: string): SignRequest | null {
     if (typeof s?.index !== 'number' || typeof s?.alpha !== 'string') return null
     spends.push({ index: s.index, alpha: s.alpha })
   }
-  return { kind: REQUEST_KIND, sighash: r.sighash, spends, pcztHex: r.pczt_hex }
+  return { kind: REQUEST_KIND, sighash: r.sighash, spends, pcztHex: r.pczt_hex, sealed: r.sealed === true }
+}
+
+/** Something that can open a box sealed to this device (a `DeviceKey`). */
+export interface Opener {
+  open: (sealed: Uint8Array, aad: Uint8Array) => Uint8Array
+}
+
+/**
+ * If `data` is a SignRequest SEALED to this device (#63), open the box addressed to `devicePubHex`
+ * and return the plaintext request JSON. Otherwise return `data` UNCHANGED: a plaintext request
+ * passes straight through (compat), and a sealed message with no box for this device (or one that
+ * fails to open) falls through so the downstream parser simply ignores it - a device never acts on a
+ * request it could not open. The AAD is the device pubkey bytes, matching the helper's `seal`.
+ */
+export function unsealSignRequest(data: string, key: Opener, devicePubHex: string): string {
+  let o: unknown
+  try {
+    o = JSON.parse(data)
+  } catch {
+    return data
+  }
+  if (typeof o !== 'object' || o === null) return data
+  const r = o as Record<string, unknown>
+  if (
+    r.kind !== SEALED_REQUEST_KIND ||
+    typeof r.body !== 'string' ||
+    typeof r.boxes !== 'object' ||
+    r.boxes === null
+  )
+    return data
+  const mine = (r.boxes as Record<string, unknown>)[devicePubHex]
+  if (typeof mine !== 'string') return data // not sealed to this device
+  try {
+    // Hybrid (#63): open my box for the 32-byte body key, then decrypt the shared body with it.
+    const bodyKey = key.open(hexToBytes(mine), hexToBytes(devicePubHex))
+    const opened = new TextDecoder().decode(openBody(bodyKey, hexToBytes(r.body)))
+    // Mark it sealed so the coordinator knows every device registered (all opened it) and can drop
+    // the PCZT from the sreq without stranding an older device (#63). If the plaintext is not the
+    // JSON we expect, return it untouched - the parser will reject it downstream.
+    try {
+      const obj = JSON.parse(opened) as Record<string, unknown>
+      obj.sealed = true
+      return JSON.stringify(obj)
+    } catch {
+      return opened
+    }
+  } catch {
+    return data // tampered / wrong key: leave it, so the downstream parser ignores it
+  }
 }
 
 /**

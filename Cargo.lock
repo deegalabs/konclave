@@ -2543,6 +2543,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "konclave-seal"
+version = "0.1.0"
+dependencies = [
+ "chacha20poly1305",
+ "hkdf",
+ "rand",
+ "sha2 0.10.9",
+ "x25519-dalek",
+]
+
+[[package]]
 name = "konclave-signer"
 version = "0.1.0"
 dependencies = [
@@ -2580,20 +2591,17 @@ name = "konclave-wasm"
 version = "0.1.0"
 dependencies = [
  "blake2b_simd",
- "chacha20poly1305",
  "ff",
  "frost-rerandomized",
  "getrandom 0.2.17",
  "hex",
- "hkdf",
  "js-sys",
+ "konclave-seal",
  "orchard",
  "pczt",
  "rand",
  "reddsa",
- "sha2 0.10.9",
  "wasm-bindgen",
- "x25519-dalek",
 ]
 
 [[package]]
@@ -3223,6 +3231,7 @@ dependencies = [
  "chacha20poly1305",
  "getrandom 0.2.17",
  "keyring",
+ "konclave-seal",
  "rusqlite",
  "serde",
  "serde_json",

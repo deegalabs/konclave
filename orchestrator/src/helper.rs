@@ -513,6 +513,49 @@ pub fn load_members(vaults_dir: &Path, vault: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+fn device_keys_path(vaults_dir: &Path, vault: &str) -> PathBuf {
+    vaults_dir.join(vault).join("device-keys.json")
+}
+
+/// The vault's registered device comms pubkeys (hex), the seal-set for a SignRequest (#63). Empty
+/// when none registered yet - in which case the request is posted UNSEALED (compat during rollout).
+pub fn load_device_keys(vaults_dir: &Path, vault: &str) -> Vec<String> {
+    std::fs::read_to_string(device_keys_path(vaults_dir, vault))
+        .ok()
+        .and_then(|j| serde_json::from_str::<Vec<String>>(&j).ok())
+        .unwrap_or_default()
+}
+
+/// Register a device's PERSISTENT comms pubkey (hex of its X25519 public, derived from its share) so
+/// the helper can SEAL the SignRequest to it, keeping recipient + amount off the relay (H2 / ADR-0007
+/// I3). Idempotent: registering the same key again is a no-op. Returns whether the key was NEW.
+///
+/// This is public material (a pubkey), and registration is NOT yet authenticated: an outsider holding
+/// the vault id could register a key of their own and receive a sealed copy - but such a holder can
+/// read the cleartext request TODAY (the vault-id capability, #388). So sealing is a strict gain
+/// against the relay operator and a room-holder who lacks the group key; authenticating the registrant
+/// is the #392/#288 layer, tracked separately.
+pub fn add_device_key(
+    vaults_dir: &Path,
+    vault: &str,
+    device_pub: &str,
+) -> Result<bool, ToolError> {
+    let device_pub = device_pub.trim();
+    let mut keys = load_device_keys(vaults_dir, vault);
+    if keys.iter().any(|k| k == device_pub) {
+        return Ok(false); // already registered: idempotent no-op
+    }
+    keys.push(device_pub.to_string());
+    let path = device_keys_path(vaults_dir, vault);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(ToolError::Io)?;
+    }
+    let json =
+        serde_json::to_string(&keys).map_err(|e| ToolError::parse("device-keys", e.to_string()))?;
+    std::fs::write(&path, json).map_err(ToolError::Io)?;
+    Ok(true)
+}
+
 /// Rename ONE member seat (`old` -> `new`) and MIGRATE every proposal's votes so the rename never
 /// orphans an approval into a "ghost" member. Because votes are recorded by member NAME (the seat's
 /// public label), a bulk overwrite of the roster used to leave the old name attached to past
@@ -1228,6 +1271,33 @@ mod tests {
         // Overwrites, not appends.
         save_members(&dir, "v", &["Dave".to_string()]).unwrap();
         assert_eq!(load_members(&dir, "v"), vec!["Dave".to_string()]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn device_keys_register_idempotently_as_a_set() {
+        // #63 Passo 2: the helper collects each device's comms pubkey so it can seal to the set.
+        let dir = std::env::temp_dir().join(format!("konclave-devkey-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert!(load_device_keys(&dir, "v").is_empty(), "starts empty");
+
+        assert!(add_device_key(&dir, "v", "aa11").unwrap(), "aa11 is new");
+        assert!(add_device_key(&dir, "v", "bb22").unwrap(), "bb22 is new");
+        assert!(
+            !add_device_key(&dir, "v", "aa11").unwrap(),
+            "a duplicate registration is not new (idempotent)",
+        );
+
+        let mut keys = load_device_keys(&dir, "v");
+        keys.sort();
+        assert_eq!(
+            keys,
+            vec!["aa11".to_string(), "bb22".to_string()],
+            "the set holds both distinct keys, the duplicate collapsed",
+        );
+        // A different vault has its own set.
+        assert!(load_device_keys(&dir, "other").is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

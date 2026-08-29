@@ -13,6 +13,9 @@ import { decodeBundle } from './signing'
 import { BackgroundSession } from './background-session'
 import { signingRoom, acquireSigner, releaseSigner, type GovernanceGate } from './background-signer'
 import type { FailureCode } from './background-session'
+import { registerDeviceKey } from './helper'
+import { deviceCommsKey, devicePubHex } from './device-key'
+import { unsealSignRequest } from './net-sign'
 
 const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('')
 
@@ -111,6 +114,13 @@ export function useBackgroundSigner(
       try {
         await init(wasmUrl)
         const b = decodeBundle(loaded)
+        // This device's persistent comms identity (#63): derived from its share, used to register
+        // with the helper (so it can seal SignRequests to us) and to OPEN the sealed request off the
+        // relay. Best-effort and idempotent registration; never blocks signing, and an unsealed
+        // request stays the compat fallback until every device registers.
+        const deviceKey = deviceCommsKey(b.keyPackage)
+        const myPub = devicePubHex(b.keyPackage)
+        void registerDeviceKey(hex(loaded.groupKey), myPub)
         if (!acquireSigner(id)) {
           setError('another signer is already active for this vault on this device')
           return
@@ -148,7 +158,10 @@ export function useBackgroundSigner(
         session.setProposal(proposalRef.current)
         // History is read back (the arming tally is rebuilt from it), and each message says whether
         // it is history or live. The session decides per type: arming yes, ceremony no (#354, #356).
-        const relay = new RelaySession(r, myTag, (m, hist) => void session.onMessage(m.from, m.data, hist))
+        // Open a sealed request (#63) before the session sees it; a plaintext request passes through.
+        const relay = new RelaySession(r, myTag, (m, hist) =>
+          void session.onMessage(m.from, unsealSignRequest(m.data, deviceKey, myPub), hist),
+        )
         relayRef.current = relay
         relay.start()
         await session.start() // announce this device's seat

@@ -1,0 +1,16 @@
+[package]
+name = "konclave-seal"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0 OR MIT"
+
+# The confidential-channel primitive (ECIES over X25519), shared by konclave-wasm (browser) and the
+# orchestrator (hosted helper) so ONE implementation seals both DKG round-2 packages and the
+# SignRequest (#63). Pure Rust and wasm-clean; getrandom's `js` feature is enabled by the downstream
+# crate (konclave-wasm) via feature unification, so this crate stays neutral for the native build.
+[dependencies]
+x25519-dalek = { version = "2", features = ["static_secrets"] }
+chacha20poly1305 = "0.10"
+hkdf = "0.12"
+sha2 = "0.10"
+rand = "0.8"

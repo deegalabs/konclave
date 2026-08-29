@@ -429,6 +429,9 @@ pub fn net_orchestrate_send(
     plan: &SpendPlan,
     relay_base: &str,
     room: &str,
+    // The vault's registered device comms pubkeys (#63): the request is SEALED to these, so the
+    // relay carries only ciphertext. Empty = plaintext (compat until every device has registered).
+    device_pubs: &[String],
     dry_run: bool,
     max_polls: u32,
     poll_delay: Duration,
@@ -456,8 +459,8 @@ pub fn net_orchestrate_send(
         "helper",
     );
     let req = net_send::SignRequest::from_signing_input(&input, &tx2);
-    let posted =
-        net_send::publish_request(&client, &req).map_err(|e| ToolError::parse("relay", e))?;
+    let posted = net_send::publish_sealed_request(&client, &req, device_pubs)
+        .map_err(|e| ToolError::parse("relay", e))?;
 
     // 4) poll until the devices return the aggregate signatures (or we time out).
     //

@@ -844,168 +844,10 @@ pub mod recovery {
     }
 }
 
-// ---------- 3b. The confidential channel (seal the DKG's secret packages) ----------
-//
-// The DKG's round-2 packages are the ONE secret piece that must travel between devices.
-// They must reach the relay already sealed to their recipient, so a blind (or hostile)
-// relay carries only ciphertext. ECIES: an ephemeral X25519 key → HKDF-SHA256 → an
-// XChaCha20-Poly1305 box. Confidentiality comes from here; sender-authenticity of the
-// *plaintext* is guaranteed independently by the DKG (part3 checks each round-2 share
-// against the sender's authenticated round-1 commitment) and by the transport signing every
-// relay message. This is exactly the "confidential and authenticated channel" the round-2
-// package docstring demands.
-pub mod seal {
-    use chacha20poly1305::aead::{Aead, KeyInit, Payload};
-    use chacha20poly1305::{Key, XChaCha20Poly1305, XNonce};
-    use hkdf::Hkdf;
-    use rand::rngs::OsRng;
-    use rand::RngCore;
-    use sha2::Sha256;
-    use x25519_dalek::{EphemeralSecret, PublicKey, StaticSecret};
-
-    const INFO: &[u8] = b"konclave-dkg-seal-v1";
-    const EPH_LEN: usize = 32;
-    const NONCE_LEN: usize = 24;
-
-    /// A device's long-term encryption keypair - separate from its FROST share. The public
-    /// half rides in the invite/contacts; the secret half never leaves the device.
-    pub struct DeviceKey {
-        secret: StaticSecret,
-    }
-
-    impl DeviceKey {
-        /// A fresh keypair from the OS CSPRNG.
-        pub fn generate() -> DeviceKey {
-            let mut b = [0u8; 32];
-            OsRng.fill_bytes(&mut b);
-            DeviceKey {
-                secret: StaticSecret::from(b),
-            }
-        }
-        /// Restore from the 32 secret bytes persisted on the device.
-        pub fn from_secret_bytes(b: &[u8; 32]) -> DeviceKey {
-            DeviceKey {
-                secret: StaticSecret::from(*b),
-            }
-        }
-        pub fn secret_bytes(&self) -> [u8; 32] {
-            self.secret.to_bytes()
-        }
-        pub fn public_bytes(&self) -> [u8; 32] {
-            PublicKey::from(&self.secret).to_bytes()
-        }
-    }
-
-    fn derive_key(shared: &[u8; 32]) -> [u8; 32] {
-        let hk = Hkdf::<Sha256>::new(None, shared);
-        let mut okm = [0u8; 32];
-        hk.expand(INFO, &mut okm)
-            .expect("hkdf expand 32 bytes never fails");
-        okm
-    }
-
-    /// Seal `plaintext` to `recipient_pub` (32-byte X25519 public key). `aad` binds context
-    /// (e.g. the sender and recipient identifiers) into the tag. Wire layout:
-    /// `ephemeral_pub(32) ‖ nonce(24) ‖ ciphertext`.
-    pub fn seal(recipient_pub: &[u8; 32], plaintext: &[u8], aad: &[u8]) -> Result<Vec<u8>, String> {
-        let eph = EphemeralSecret::random_from_rng(OsRng);
-        let eph_pub = PublicKey::from(&eph);
-        let shared = eph.diffie_hellman(&PublicKey::from(*recipient_pub));
-        let key = derive_key(shared.as_bytes());
-        let cipher = XChaCha20Poly1305::new(Key::from_slice(&key));
-        let mut nonce = [0u8; NONCE_LEN];
-        OsRng.fill_bytes(&mut nonce);
-        let ct = cipher
-            .encrypt(
-                XNonce::from_slice(&nonce),
-                Payload {
-                    msg: plaintext,
-                    aad,
-                },
-            )
-            .map_err(|_| "seal: encrypt failed".to_string())?;
-        let mut out = Vec::with_capacity(EPH_LEN + NONCE_LEN + ct.len());
-        out.extend_from_slice(eph_pub.as_bytes());
-        out.extend_from_slice(&nonce);
-        out.extend_from_slice(&ct);
-        Ok(out)
-    }
-
-    /// Open a sealed message with this device's secret. `aad` must equal what was sealed, or
-    /// the tag check fails. A wrong key or any tampering is an error, never a silent bad open.
-    pub fn open(device: &DeviceKey, sealed: &[u8], aad: &[u8]) -> Result<Vec<u8>, String> {
-        if sealed.len() < EPH_LEN + NONCE_LEN {
-            return Err("open: message too short".into());
-        }
-        let mut eph = [0u8; EPH_LEN];
-        eph.copy_from_slice(&sealed[..EPH_LEN]);
-        let mut nonce = [0u8; NONCE_LEN];
-        nonce.copy_from_slice(&sealed[EPH_LEN..EPH_LEN + NONCE_LEN]);
-        let ct = &sealed[EPH_LEN + NONCE_LEN..];
-        let shared = device.secret.diffie_hellman(&PublicKey::from(eph));
-        let key = derive_key(shared.as_bytes());
-        let cipher = XChaCha20Poly1305::new(Key::from_slice(&key));
-        cipher
-            .decrypt(XNonce::from_slice(&nonce), Payload { msg: ct, aad })
-            .map_err(|_| "open: wrong recipient or tampered message".to_string())
-    }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-
-        #[test]
-        fn a_sealed_package_opens_only_for_its_recipient() {
-            let bob = DeviceKey::generate();
-            let aad = b"alice->bob:round2";
-            let secret_share = b"this stands in for a DKG round-2 secret package";
-            let sealed = seal(&bob.public_bytes(), secret_share, aad).unwrap();
-
-            // Bob opens it.
-            assert_eq!(open(&bob, &sealed, aad).unwrap(), secret_share);
-
-            // A different device cannot.
-            let mallory = DeviceKey::generate();
-            assert!(open(&mallory, &sealed, aad).is_err());
-        }
-
-        #[test]
-        fn tampering_or_wrong_context_is_rejected() {
-            let bob = DeviceKey::generate();
-            let aad = b"alice->bob:round2";
-            let mut sealed = seal(&bob.public_bytes(), b"payload", aad).unwrap();
-
-            // Flip a ciphertext byte → tag fails.
-            let last = sealed.len() - 1;
-            sealed[last] ^= 0x01;
-            assert!(open(&bob, &sealed, aad).is_err());
-
-            // Right ciphertext, wrong AAD (different sender/recipient binding) → tag fails.
-            let good = seal(&bob.public_bytes(), b"payload", aad).unwrap();
-            assert!(open(&bob, &good, b"eve->bob:round2").is_err());
-        }
-
-        #[test]
-        fn the_relay_only_ever_sees_ciphertext() {
-            // The sealed bytes must not contain the plaintext anywhere (a blind relay holding
-            // these learns nothing about the share).
-            let bob = DeviceKey::generate();
-            let plaintext = b"SECRET-SHARE-MATERIAL-0xdeadbeef";
-            let sealed = seal(&bob.public_bytes(), plaintext, b"ctx").unwrap();
-            assert!(
-                !sealed.windows(plaintext.len()).any(|w| w == plaintext),
-                "plaintext must never appear in the sealed bytes"
-            );
-        }
-
-        #[test]
-        fn a_persisted_device_key_round_trips() {
-            let k = DeviceKey::generate();
-            let restored = DeviceKey::from_secret_bytes(&k.secret_bytes());
-            assert_eq!(k.public_bytes(), restored.public_bytes());
-        }
-    }
-}
+// The confidential-channel primitive (ECIES seal/open) now lives in the shared `konclave-seal`
+// crate so the hosted helper can seal a SignRequest with the SAME implementation (#63). Aliased
+// as `seal` so every `seal::...` reference in this crate keeps resolving.
+pub use konclave_seal as seal;
 
 // ---------- the FROST<->PCZT bridge, ported from konclave-signer (browser parity) ----------
 // Slice 1 of "real-transaction browser signing": extract the per-spend randomizers from a proven
@@ -1889,6 +1731,15 @@ mod js_dkg {
                 inner: seal::DeviceKey::from_secret_bytes(&b),
             })
         }
+        /// This device's PERSISTENT comms identity for a vault, derived from its FROST share
+        /// (serialized KeyPackage). Reproduced on every unlock with nothing stored (#63). The
+        /// public half (`publicBytes`) is what the device registers so the helper can seal to it.
+        #[wasm_bindgen(js_name = fromShare)]
+        pub fn from_share(key_package: &[u8]) -> DeviceKey {
+            DeviceKey {
+                inner: seal::device_key_from_share(key_package),
+            }
+        }
         #[wasm_bindgen(js_name = secretBytes)]
         pub fn secret_bytes(&self) -> Vec<u8> {
             self.inner.secret_bytes().to_vec()
@@ -1911,6 +1762,22 @@ mod js_dkg {
             .try_into()
             .map_err(|_| je("recipient pub must be 32 bytes"))?;
         seal::seal(&pk, plaintext, aad).map_err(je)
+    }
+
+    /// Encrypt a body ONCE under a raw 32-byte key (hybrid sealing, #63): the helper seals the key to
+    /// each device, so the SignRequest wire stays flat in the signer count. Exposed for parity/tests.
+    #[wasm_bindgen(js_name = sealBody)]
+    pub fn seal_body(key: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, JsValue> {
+        let k: [u8; 32] = key.try_into().map_err(|_| je("key must be 32 bytes"))?;
+        Ok(seal::seal_body(&k, plaintext))
+    }
+
+    /// Decrypt the shared body of a sealed request, with the 32-byte key this device recovered from
+    /// its own box (`DeviceKey.open`). A wrong key or any tampering is an error.
+    #[wasm_bindgen(js_name = openBody)]
+    pub fn open_body(key: &[u8], sealed: &[u8]) -> Result<Vec<u8>, JsValue> {
+        let k: [u8; 32] = key.try_into().map_err(|_| je("key must be 32 bytes"))?;
+        seal::open_body(&k, sealed).map_err(je)
     }
 
     /// Deterministic identifier bytes for participant number `index` (1-based), so every device
