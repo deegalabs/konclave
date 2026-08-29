@@ -912,6 +912,27 @@ export function selftest() {
 }
 
 /**
+ * Sign a signing-room message with this device's share (room-auth, #392). 64-byte signature.
+ * Domain-separated so it can never be a transaction spend-auth signature (see `room_auth`).
+ * @param {Uint8Array} key_package
+ * @param {Uint8Array} msg
+ * @returns {Uint8Array}
+ */
+export function signRoomMsg(key_package, msg) {
+    const ptr0 = passArray8ToWasm0(key_package, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passArray8ToWasm0(msg, wasm.__wbindgen_malloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.signRoomMsg(ptr0, len0, ptr1, len1);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v3 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v3;
+}
+
+/**
  * Verify a group signature against the vault's key - so EVERY device confirms the result
  * for itself, not on the coordinator's word. All inputs are public (signing package, seed,
  * message, signature); the share never enters.
@@ -934,6 +955,30 @@ export function verifyRedpallas(group_vk, sp, seed, message, sig) {
     const ptr4 = passArray8ToWasm0(sig, wasm.__wbindgen_malloc);
     const len4 = WASM_VECTOR_LEN;
     const ret = wasm.verifyRedpallas(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return ret[0] !== 0;
+}
+
+/**
+ * Verify a room message was signed by SEAT `seat`'s share (1-based), against the DKG
+ * PublicKeyPackage every device holds (#392). The seat's identity is its `verifying_share` -
+ * no trusted registry - so an outsider cannot forge a seat it does not hold the share for.
+ * @param {Uint8Array} pubkeys
+ * @param {number} seat
+ * @param {Uint8Array} msg
+ * @param {Uint8Array} sig
+ * @returns {boolean}
+ */
+export function verifyRoomSig(pubkeys, seat, msg, sig) {
+    const ptr0 = passArray8ToWasm0(pubkeys, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passArray8ToWasm0(msg, wasm.__wbindgen_malloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passArray8ToWasm0(sig, wasm.__wbindgen_malloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ret = wasm.verifyRoomSig(ptr0, len0, seat, ptr1, len1, ptr2, len2);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }

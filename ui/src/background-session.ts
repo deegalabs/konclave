@@ -11,6 +11,8 @@ import { armIsLive } from './signing-gate'
 import { SigningSeats } from './signing-seats'
 import { BackgroundSigner, type GovernanceGate } from './background-signer'
 import type { SigningMaterial } from './signing-machine'
+import { signRejoin, verifyRejoin } from './room-auth'
+import { bytesToHex } from './bytes'
 
 export interface BackgroundSessionDeps {
   /** This device's relay tag (a throwaway per-session pseudonym). */
@@ -73,6 +75,9 @@ export interface UnarmedMsg {
 export class BackgroundSession {
   private readonly seats: SigningSeats
   private readonly signer: BackgroundSigner
+  /** This device's share + the group PublicKeyPackage, to sign its own rejoin and verify peers' (#392). */
+  private readonly signingMaterial: () => SigningMaterial
+  private readonly myTag: string
   private readonly send: (data: string) => Promise<boolean>
   private readonly threshold: () => number
   private readonly onArmed?: (seats: number[], triggerTag: string | null) => void
@@ -96,6 +101,8 @@ export class BackgroundSession {
 
   constructor(deps: BackgroundSessionDeps) {
     this.send = deps.send
+    this.signingMaterial = deps.signingMaterial
+    this.myTag = deps.myTag
     this.threshold = deps.threshold
     this.onArmed = deps.onArmed
     this.now = deps.now ?? (() => Date.now())
@@ -119,18 +126,22 @@ export class BackgroundSession {
     })
   }
 
-  /** Announce this device's seat on the signing room. Call once, right after opening the room. */
+  /** Announce this device's seat on the signing room, SIGNED with its share so peers can prove it
+   *  (#392). Call once, right after opening the room. */
   async start(): Promise<void> {
-    await this.send(JSON.stringify(this.seats.announcement()))
+    const ann = this.seats.announcement()
+    const mat = this.signingMaterial()
+    const sig = signRejoin(mat.keyPackage, ann.seat, bytesToHex(mat.groupVk), this.myTag)
+    await this.send(JSON.stringify({ ...ann, sig }))
   }
 
   /** Pipe one relay message in. Routes `rejoin` to the seat table (then re-drives the signer, so a
    *  signing message that arrived before its sender was seated now proceeds); everything else goes
    *  to the signer. Call from RelaySession.onMessage. */
   async onMessage(from: string, data: string, historical = false): Promise<void> {
-    let parsed: { type?: string; seat?: number; proposal?: string; at?: number; code?: FailureCode } | null = null
+    let parsed: { type?: string; seat?: number; sig?: string; proposal?: string; at?: number; code?: FailureCode } | null = null
     try {
-      parsed = JSON.parse(data) as { type?: string; seat?: number; proposal?: string; at?: number; code?: FailureCode }
+      parsed = JSON.parse(data) as { type?: string; seat?: number; sig?: string; proposal?: string; at?: number; code?: FailureCode }
     } catch {
       /* not JSON - hand to the signer, which ignores unparseable input */
     }
@@ -147,7 +158,13 @@ export class BackgroundSession {
       return
     }
     if (parsed?.type === 'rejoin' && typeof parsed.seat === 'number') {
-      this.seats.handleRejoin(from, parsed.seat)
+      // A rejoin is PROVEN only if it carries a valid signature by that seat's own share (#392); an
+      // unproven one may seat an empty seat but never evicts the holder, closing the seat-hijack (A4).
+      const mat = this.signingMaterial()
+      const proven =
+        typeof parsed.sig === 'string' &&
+        verifyRejoin(mat.pubkeys, parsed.seat, bytesToHex(mat.groupVk), from, parsed.sig)
+      this.seats.handleRejoin(from, parsed.seat, proven)
       await this.signer.retry() // a pending signing message may now know this sender's seat
       return
     }
