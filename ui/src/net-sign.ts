@@ -10,8 +10,13 @@
 // sides agree byte-for-byte. Parsing is strict: a malformed or wrong-kind message is rejected,
 // never half-interpreted.
 
+import { hexToBytes } from './bytes'
+
 export const REQUEST_KIND = 'net-sign-request'
 export const RESPONSE_KIND = 'net-sign-response'
+/** A SignRequest sealed to the vault's registered devices (#63): the relay carries only ciphertext.
+ *  This device opens the box addressed to its own comms pubkey. Matches the helper's `SealedRequest`. */
+export const SEALED_REQUEST_KIND = 'net-sign-request-sealed'
 
 /** One spend to authorize: action index + its 64-hex redpallas randomizer. */
 export type SpendReq = { index: number; alpha: string }
@@ -55,6 +60,38 @@ export function parseSignRequest(data: string): SignRequest | null {
     spends.push({ index: s.index, alpha: s.alpha })
   }
   return { kind: REQUEST_KIND, sighash: r.sighash, spends, pcztHex: r.pczt_hex }
+}
+
+/** Something that can open a box sealed to this device (a `DeviceKey`). */
+export interface Opener {
+  open: (sealed: Uint8Array, aad: Uint8Array) => Uint8Array
+}
+
+/**
+ * If `data` is a SignRequest SEALED to this device (#63), open the box addressed to `devicePubHex`
+ * and return the plaintext request JSON. Otherwise return `data` UNCHANGED: a plaintext request
+ * passes straight through (compat), and a sealed message with no box for this device (or one that
+ * fails to open) falls through so the downstream parser simply ignores it - a device never acts on a
+ * request it could not open. The AAD is the device pubkey bytes, matching the helper's `seal`.
+ */
+export function unsealSignRequest(data: string, key: Opener, devicePubHex: string): string {
+  let o: unknown
+  try {
+    o = JSON.parse(data)
+  } catch {
+    return data
+  }
+  if (typeof o !== 'object' || o === null) return data
+  const r = o as Record<string, unknown>
+  if (r.kind !== SEALED_REQUEST_KIND || typeof r.boxes !== 'object' || r.boxes === null) return data
+  const mine = (r.boxes as Record<string, unknown>)[devicePubHex]
+  if (typeof mine !== 'string') return data // not sealed to this device
+  try {
+    const opened = key.open(hexToBytes(mine), hexToBytes(devicePubHex))
+    return new TextDecoder().decode(opened)
+  } catch {
+    return data // tampered / wrong key: leave it, so the downstream parser ignores it
+  }
 }
 
 /**
