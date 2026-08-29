@@ -61,7 +61,7 @@ type Msg =
   | { type: 'rejoin'; seat: number }
   // signing (Marco 4): all public material - the proven PCZT to verify, the sighash to sign,
   // commitments, signing package, seed, shares, sig.
-  | { type: 'sreq'; msg: string; pczt: string }
+  | { type: 'sreq'; msg: string; pczt?: string }
   // `k` = the 0-based spend position in a multi-note tx. Each real Orchard spend is its own FROST
   // ceremony (fresh nonces, its own alpha) over the SAME sighash; devices tag every round with `k`
   // so a message for a later spend waits and an earlier one is ignored. For a single-spend tx k=0.

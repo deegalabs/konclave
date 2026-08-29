@@ -31,9 +31,13 @@ function sealWireFor(pubHexes: string[], plaintext: string): string {
 describe('unsealSignRequest (#63) — the device opens its box', () => {
   const request = JSON.stringify({ kind: 'net-sign-request', sighash: 'abcd', spends: [], pczt_hex: 'dead' })
 
-  it('recovers the exact request from a box sealed to this device', () => {
+  it('recovers the request from a box sealed to this device, marked sealed', () => {
     const wire = sealWireFor([pubHex, 'bb'.repeat(32)], request)
-    expect(unsealSignRequest(wire, deviceCommsKey(share), pubHex)).toBe(request)
+    const opened = JSON.parse(unsealSignRequest(wire, deviceCommsKey(share), pubHex))
+    // Same content as the sealed request...
+    expect(opened).toMatchObject(JSON.parse(request))
+    // ...plus the `sealed` marker, so the coordinator knows to drop the PCZT re-broadcast (#63).
+    expect(opened.sealed).toBe(true)
   })
 
   it('passes a plaintext request straight through (compat)', () => {

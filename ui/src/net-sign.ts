@@ -27,6 +27,9 @@ export type SignRequest = {
   sighash: string // 64-hex
   spends: SpendReq[]
   pcztHex: string
+  /** True when this request was opened from a SEALED wire (#63) - i.e. every device registered, so
+   *  every device holds the PCZT and the coordinator must NOT re-broadcast it in the `sreq`. */
+  sealed: boolean
 }
 
 /** One aggregate signature the devices produced for a requested spend (128-hex). */
@@ -59,7 +62,7 @@ export function parseSignRequest(data: string): SignRequest | null {
     if (typeof s?.index !== 'number' || typeof s?.alpha !== 'string') return null
     spends.push({ index: s.index, alpha: s.alpha })
   }
-  return { kind: REQUEST_KIND, sighash: r.sighash, spends, pcztHex: r.pczt_hex }
+  return { kind: REQUEST_KIND, sighash: r.sighash, spends, pcztHex: r.pczt_hex, sealed: r.sealed === true }
 }
 
 /** Something that can open a box sealed to this device (a `DeviceKey`). */
@@ -87,8 +90,17 @@ export function unsealSignRequest(data: string, key: Opener, devicePubHex: strin
   const mine = (r.boxes as Record<string, unknown>)[devicePubHex]
   if (typeof mine !== 'string') return data // not sealed to this device
   try {
-    const opened = key.open(hexToBytes(mine), hexToBytes(devicePubHex))
-    return new TextDecoder().decode(opened)
+    const opened = new TextDecoder().decode(key.open(hexToBytes(mine), hexToBytes(devicePubHex)))
+    // Mark it sealed so the coordinator knows every device registered (all opened it) and can drop
+    // the PCZT from the sreq without stranding an older device (#63). If the plaintext is not the
+    // JSON we expect, return it untouched - the parser will reject it downstream.
+    try {
+      const obj = JSON.parse(opened) as Record<string, unknown>
+      obj.sealed = true
+      return JSON.stringify(obj)
+    } catch {
+      return opened
+    }
   } catch {
     return data // tampered / wrong key: leave it, so the downstream parser ignores it
   }

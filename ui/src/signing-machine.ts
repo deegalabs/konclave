@@ -31,7 +31,10 @@ import { parseAlphas } from './signing'
 export type CeremonyTag = { h?: string }
 
 export type SignWireMsg =
-  | { type: 'sreq'; msg: string; pczt: string }
+  // `pczt` is OMITTED for a sealed request (#63): every device already holds the PCZT from the
+  // sealed helper request, so re-broadcasting it would leak the payment to the relay. A plaintext
+  // (compat) request still carries it inline for a device that has not opened one.
+  | { type: 'sreq'; msg: string; pczt?: string }
   | ({ type: 's1'; commit: string; k: number } & CeremonyTag)
   | ({ type: 'sp'; signers: number[]; sp: string; msg: string; k: number } & CeremonyTag)
   | ({ type: 's2'; share: string; k: number } & CeremonyTag)
@@ -149,7 +152,10 @@ export class SigningMachine {
       await this.d.send({
         type: 'sreq',
         msg: b64(hexBytes(helperReq.sighash)),
-        pczt: b64(hexBytes(helperReq.pcztHex)),
+        // A sealed request means every device registered and opened it, so each already holds the
+        // PCZT: omit it here or it leaks the payment to the relay (#63). A plaintext (compat)
+        // request still carries it inline for an older device that only reads the sreq.
+        ...(helperReq.sealed ? {} : { pczt: b64(hexBytes(helperReq.pcztHex)) }),
       })
     }
     return true
@@ -192,7 +198,15 @@ export class SigningMachine {
   private async onSreq(parsed: Extract<SignWireMsg, { type: 'sreq' }>): Promise<boolean> {
     if (!this.d.hasVault()) return false // no vault yet
     if (!this.started) {
-      const pczt = unb64(parsed.pczt)
+      // The PCZT to sign: from the sreq inline (an older, plaintext coordinator), or - for a sealed
+      // request where the coordinator omitted it so it never touches the relay (#63) - the PCZT this
+      // device already opened from the helper request. If neither is available yet, wait.
+      const pczt = parsed.pczt
+        ? unb64(parsed.pczt)
+        : this.helperReq
+          ? hexBytes(this.helperReq.pcztHex)
+          : null
+      if (!pczt) return false
       // H1 / ADR-0007 I2 (transaction-swap defense): recompute the ZIP-244 sighash from OUR OWN
       // PCZT and sign THAT, refusing if it disagrees with the requested one. A hostile helper or
       // coordinator can otherwise display a benign PCZT while the wire `sighash` targets an

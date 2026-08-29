@@ -165,6 +165,36 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     expect(resp.sigs).toHaveLength(spends.length)
   })
 
+  it('a SEALED request does not re-broadcast the PCZT to the relay, yet still signs (#63)', async () => {
+    // The leak the live test caught: sealing the helper request is not enough - the coordinator's
+    // `sreq` re-broadcast the PCZT in cleartext, and the PCZT decodes to recipient + amount. When
+    // the request is sealed (every device registered, so every device opened it and holds the PCZT),
+    // the coordinator must NOT re-broadcast it; each device uses the PCZT it already has.
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys })) // seat 1
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+
+    const pczt = dkgProvenPczt()
+    const spends = parseAlphas(pczt).map((s) => ({ index: s.index, alpha: bytesToHex(s.alpha) }))
+    // `sealed: true` is what unsealSignRequest marks on a request it opened from a box.
+    bus.post('helper', JSON.stringify({
+      kind: 'net-sign-request', sighash: bytesToHex(pcztSighash(pczt)), spends, pczt_hex: bytesToHex(pczt), sealed: true,
+    }))
+
+    await runCeremony(A, B, bus)
+
+    // THE POINT: no `sreq` may carry a PCZT (that is the leak), and the ceremony still completes.
+    const sreqs = bus.msgs
+      .map((m) => { try { return JSON.parse(m.data) as { type?: string; pczt?: string } } catch { return {} } })
+      .filter((p) => p.type === 'sreq')
+    expect(sreqs.length).toBeGreaterThan(0)
+    for (const s of sreqs) expect(s.pczt).toBeUndefined() // the PCZT is not re-broadcast
+    expect(A.sig?.ok).toBe(true)
+    expect(B.sig?.ok).toBe(true) // the participant signed using the PCZT it already held
+    expect(A.sig?.hex).toBe(B.sig?.hex)
+  })
+
   it('the H1 sighash-binding refusal fires when the wire sighash does not match the PCZT', async () => {
     const { s0, s1, groupVk, pubkeys } = dkg2of3()
     const bus = new Bus()
