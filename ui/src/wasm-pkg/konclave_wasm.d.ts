@@ -196,6 +196,12 @@ export function identifierBytes(index: number): Uint8Array;
 export function injectSigs(pczt: Uint8Array, sighash: Uint8Array, sigs: Uint8Array): Uint8Array;
 
 /**
+ * Decrypt the shared body of a sealed request, with the 32-byte key this device recovered from
+ * its own box (`DeviceKey.open`). A wrong key or any tampering is an error.
+ */
+export function openBody(key: Uint8Array, sealed: Uint8Array): Uint8Array;
+
+/**
  * Participant device, round 1 (JS): from the local key-package bytes.
  */
 export function participantRound1(kp_bytes: Uint8Array): Round1;
@@ -219,6 +225,12 @@ export function participantRound2WithRandomizer(sp: Uint8Array, nonces_bytes: Ui
  * if the PCZT is not a shielded-only v5/v6 transaction.
  */
 export function pcztSighash(pczt: Uint8Array): Uint8Array;
+
+/**
+ * Encrypt a body ONCE under a raw 32-byte key (hybrid sealing, #63): the helper seals the key to
+ * each device, so the SignRequest wire stays flat in the signer count. Exposed for parity/tests.
+ */
+export function sealBody(key: Uint8Array, plaintext: Uint8Array): Uint8Array;
 
 /**
  * Seal `plaintext` to a recipient's 32-byte public key (used on each round-2 package so the
@@ -257,6 +269,32 @@ export interface InitOutput {
     readonly recoveryhelper_deltaRecipient: (a: number, b: number) => [number, number];
     readonly recoveryhelper_new: (a: number, b: number, c: number, d: number) => number;
     readonly recoveryhelper_sigma: (a: number) => [number, number, number, number];
+    readonly __wbg_devicekey_free: (a: number, b: number) => void;
+    readonly __wbg_dkgsession_free: (a: number, b: number) => void;
+    readonly devicekey_fromSecret: (a: number, b: number) => [number, number, number];
+    readonly devicekey_fromShare: (a: number, b: number) => number;
+    readonly devicekey_new: () => number;
+    readonly devicekey_open: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
+    readonly devicekey_publicBytes: (a: number) => [number, number];
+    readonly devicekey_secretBytes: (a: number) => [number, number];
+    readonly dkgsession_addRound1: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly dkgsession_addRound2: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly dkgsession_groupVk: (a: number) => [number, number];
+    readonly dkgsession_keyPackage: (a: number) => [number, number];
+    readonly dkgsession_myId: (a: number) => [number, number];
+    readonly dkgsession_new: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly dkgsession_part2: (a: number) => [number, number];
+    readonly dkgsession_part3: (a: number) => [number, number];
+    readonly dkgsession_pubkeys: (a: number) => [number, number];
+    readonly dkgsession_round1Package: (a: number) => [number, number];
+    readonly dkgsession_round2Count: (a: number) => number;
+    readonly dkgsession_round2Package: (a: number, b: number) => [number, number];
+    readonly dkgsession_round2Recipient: (a: number, b: number) => [number, number];
+    readonly identifierBytes: (a: number) => [number, number, number, number];
+    readonly openBody: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly sealBody: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly sealTo: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
+    readonly verifyRedpallas: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
     readonly describeOutputs: (a: number, b: number) => [number, number, number, number];
     readonly extractRandomizers: (a: number, b: number) => [number, number, number, number];
     readonly injectSigs: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
@@ -284,30 +322,6 @@ export interface InitOutput {
     readonly testvault_key_package: (a: number, b: number) => [number, number];
     readonly testvault_new: () => [number, number, number];
     readonly testvault_pubkeys: (a: number) => [number, number];
-    readonly __wbg_devicekey_free: (a: number, b: number) => void;
-    readonly __wbg_dkgsession_free: (a: number, b: number) => void;
-    readonly devicekey_fromSecret: (a: number, b: number) => [number, number, number];
-    readonly devicekey_fromShare: (a: number, b: number) => number;
-    readonly devicekey_new: () => number;
-    readonly devicekey_open: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
-    readonly devicekey_publicBytes: (a: number) => [number, number];
-    readonly devicekey_secretBytes: (a: number) => [number, number];
-    readonly dkgsession_addRound1: (a: number, b: number, c: number, d: number, e: number) => void;
-    readonly dkgsession_addRound2: (a: number, b: number, c: number, d: number, e: number) => void;
-    readonly dkgsession_groupVk: (a: number) => [number, number];
-    readonly dkgsession_keyPackage: (a: number) => [number, number];
-    readonly dkgsession_myId: (a: number) => [number, number];
-    readonly dkgsession_new: (a: number, b: number, c: number, d: number) => [number, number, number];
-    readonly dkgsession_part2: (a: number) => [number, number];
-    readonly dkgsession_part3: (a: number) => [number, number];
-    readonly dkgsession_pubkeys: (a: number) => [number, number];
-    readonly dkgsession_round1Package: (a: number) => [number, number];
-    readonly dkgsession_round2Count: (a: number) => number;
-    readonly dkgsession_round2Package: (a: number, b: number) => [number, number];
-    readonly dkgsession_round2Recipient: (a: number, b: number) => [number, number];
-    readonly identifierBytes: (a: number) => [number, number, number, number];
-    readonly sealTo: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
-    readonly verifyRedpallas: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
     readonly __wbindgen_exn_store: (a: number) => void;
     readonly __externref_table_alloc: () => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;

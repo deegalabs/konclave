@@ -11,6 +11,7 @@
 // never half-interpreted.
 
 import { hexToBytes } from './bytes'
+import { openBody } from './wasm-pkg/konclave_wasm.js'
 
 export const REQUEST_KIND = 'net-sign-request'
 export const RESPONSE_KIND = 'net-sign-response'
@@ -86,11 +87,19 @@ export function unsealSignRequest(data: string, key: Opener, devicePubHex: strin
   }
   if (typeof o !== 'object' || o === null) return data
   const r = o as Record<string, unknown>
-  if (r.kind !== SEALED_REQUEST_KIND || typeof r.boxes !== 'object' || r.boxes === null) return data
+  if (
+    r.kind !== SEALED_REQUEST_KIND ||
+    typeof r.body !== 'string' ||
+    typeof r.boxes !== 'object' ||
+    r.boxes === null
+  )
+    return data
   const mine = (r.boxes as Record<string, unknown>)[devicePubHex]
   if (typeof mine !== 'string') return data // not sealed to this device
   try {
-    const opened = new TextDecoder().decode(key.open(hexToBytes(mine), hexToBytes(devicePubHex)))
+    // Hybrid (#63): open my box for the 32-byte body key, then decrypt the shared body with it.
+    const bodyKey = key.open(hexToBytes(mine), hexToBytes(devicePubHex))
+    const opened = new TextDecoder().decode(openBody(bodyKey, hexToBytes(r.body)))
     // Mark it sealed so the coordinator knows every device registered (all opened it) and can drop
     // the PCZT from the sreq without stranding an older device (#63). If the plaintext is not the
     // JSON we expect, return it untouched - the parser will reject it downstream.

@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import init, { sealTo } from './wasm-pkg/konclave_wasm.js'
+import init, { sealTo, sealBody } from './wasm-pkg/konclave_wasm.js'
 import { deviceCommsKey, devicePubHex } from './device-key'
 import { SEALED_REQUEST_KIND, unsealSignRequest } from './net-sign'
 import { bytesToHex, hexToBytes } from './bytes'
@@ -17,15 +17,17 @@ beforeAll(async () => {
 
 const enc = (s: string) => new TextEncoder().encode(s)
 
-// Build the SAME sealed wire the Rust helper posts: one box per device pubkey, the box being
-// hex(seal(pub, plaintext, aad = pub)).
+// Build the SAME hybrid wire the Rust helper posts (#63): the body encrypted ONCE under a random key,
+// and that key sealed to each device pubkey (aad = pub). Here a fixed key stands in for the random one.
 function sealWireFor(pubHexes: string[], plaintext: string): string {
+  const bodyKey = new Uint8Array(32).fill(7)
+  const body = bytesToHex(sealBody(bodyKey, enc(plaintext)))
   const boxes: Record<string, string> = {}
   for (const ph of pubHexes) {
     const pub = hexToBytes(ph)
-    boxes[ph] = bytesToHex(sealTo(pub, enc(plaintext), pub))
+    boxes[ph] = bytesToHex(sealTo(pub, bodyKey, pub)) // seal the KEY, not the whole body
   }
-  return JSON.stringify({ kind: SEALED_REQUEST_KIND, boxes })
+  return JSON.stringify({ kind: SEALED_REQUEST_KIND, body, boxes })
 }
 
 describe('unsealSignRequest (#63) — the device opens its box', () => {

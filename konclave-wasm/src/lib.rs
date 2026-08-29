@@ -1764,6 +1764,22 @@ mod js_dkg {
         seal::seal(&pk, plaintext, aad).map_err(je)
     }
 
+    /// Encrypt a body ONCE under a raw 32-byte key (hybrid sealing, #63): the helper seals the key to
+    /// each device, so the SignRequest wire stays flat in the signer count. Exposed for parity/tests.
+    #[wasm_bindgen(js_name = sealBody)]
+    pub fn seal_body(key: &[u8], plaintext: &[u8]) -> Result<Vec<u8>, JsValue> {
+        let k: [u8; 32] = key.try_into().map_err(|_| je("key must be 32 bytes"))?;
+        Ok(seal::seal_body(&k, plaintext))
+    }
+
+    /// Decrypt the shared body of a sealed request, with the 32-byte key this device recovered from
+    /// its own box (`DeviceKey.open`). A wrong key or any tampering is an error.
+    #[wasm_bindgen(js_name = openBody)]
+    pub fn open_body(key: &[u8], sealed: &[u8]) -> Result<Vec<u8>, JsValue> {
+        let k: [u8; 32] = key.try_into().map_err(|_| je("key must be 32 bytes"))?;
+        seal::open_body(&k, sealed).map_err(je)
+    }
+
     /// Deterministic identifier bytes for participant number `index` (1-based), so every device
     /// agrees on who is who without a central registry.
     #[wasm_bindgen(js_name = identifierBytes)]

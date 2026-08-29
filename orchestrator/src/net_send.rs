@@ -65,11 +65,14 @@ pub const RESPONSE_KIND: &str = "net-sign-response";
 /// recipient + amount. A device finds the box addressed to its pubkey and opens it.
 pub const SEALED_REQUEST_KIND: &str = "net-sign-request-sealed";
 
-/// The sealed wire message: one ciphertext box per registered device, keyed by its comms pubkey
-/// (hex). The box is `hexenc(seal(device_pub, request_json, aad = device_pub))`.
+/// The sealed wire message, HYBRID so its size is flat in the signer count (#63): `body` is the
+/// request encrypted ONCE under a random symmetric key (hex of `seal_body`), and each `boxes` entry
+/// seals that 32-byte key to one device's comms pubkey (hex of `seal(pub, key, aad = pub)`), keyed by
+/// the pubkey. A device opens its box for the key, then `open_body`s the shared body.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SealedRequest {
     pub kind: String,
+    pub body: String,
     pub boxes: std::collections::BTreeMap<String, String>,
 }
 
@@ -176,18 +179,23 @@ pub fn seal_request_wire(req: &SignRequest, device_pubs: &[String]) -> Result<St
         return serde_json::to_string(req).map_err(|e| format!("encode request: {e}"));
     }
     let plaintext = serde_json::to_string(req).map_err(|e| format!("encode request: {e}"))?;
+    // Encrypt the (PCZT-sized) body ONCE under a random key; seal only that key per device, so the
+    // wire stays ~one body regardless of the signer count (the fix for the 128 KiB relay cap, #63).
+    let key = konclave_seal::random_key();
+    let body = hexenc(&konclave_seal::seal_body(&key, plaintext.as_bytes()));
     let mut boxes = std::collections::BTreeMap::new();
     for ph in device_pubs {
         let pk: [u8; 32] = hexdec(ph, "device pubkey")?
             .try_into()
             .map_err(|_| "device pubkey must be 32 bytes".to_string())?;
         // AAD = the recipient pubkey, so a box cannot be replayed into a different device's slot.
-        let sealed =
-            konclave_seal::seal(&pk, plaintext.as_bytes(), &pk).map_err(|e| format!("seal: {e}"))?;
-        boxes.insert(ph.clone(), hexenc(&sealed));
+        let sealed_key =
+            konclave_seal::seal(&pk, &key, &pk).map_err(|e| format!("seal: {e}"))?;
+        boxes.insert(ph.clone(), hexenc(&sealed_key));
     }
     serde_json::to_string(&SealedRequest {
         kind: SEALED_REQUEST_KIND.to_string(),
+        body,
         boxes,
     })
     .map_err(|e| format!("encode sealed request: {e}"))
@@ -281,17 +289,47 @@ mod tests {
         assert!(!wire.contains(&req.sighash), "the sighash must not leak to the relay");
         assert!(!wire.contains(&req.pczt_hex), "the PCZT must not leak to the relay");
 
-        // Device A opens its own box (AAD = its pubkey) and recovers the EXACT request.
+        // Device A opens its own box for the key (AAD = its pubkey), then opens the shared body.
         let sealed: SealedRequest = serde_json::from_str(&wire).unwrap();
         let box_a = hexdec(sealed.boxes.get(&pub_a).unwrap(), "box").unwrap();
-        let opened = open(&dev_a, &box_a, &dev_a.public_bytes()).unwrap();
-        let got: SignRequest = serde_json::from_slice(&opened).unwrap();
+        let key: [u8; 32] = open(&dev_a, &box_a, &dev_a.public_bytes())
+            .unwrap()
+            .try_into()
+            .expect("a box holds the 32-byte body key");
+        let body = hexdec(&sealed.body, "body").unwrap();
+        let got: SignRequest =
+            serde_json::from_slice(&konclave_seal::open_body(&key, &body).unwrap()).unwrap();
         assert_eq!(got, req);
         assert!(sealed.boxes.contains_key(&pub_b), "device B has its own box too");
 
         // A device NOT in the set cannot open A's box.
         let mallory = device_key_from_share(b"outsider share");
         assert!(open(&mallory, &box_a, &dev_a.public_bytes()).is_err());
+    }
+
+    #[test]
+    fn a_sealed_request_stays_flat_in_the_signer_count() {
+        // The regression the live test caught (#63): sealing the whole body PER device blew the
+        // relay's 128 KiB cap. Hybrid sealing keeps the wire ~one body plus a tiny box per device,
+        // so adding signers adds key-boxes, not whole bodies.
+        use konclave_seal::device_key_from_share;
+        // A realistic ~8 KiB PCZT (the real send was ~12 KiB; two boxes of it already hit 99 KiB).
+        let req = SignRequest::from_signing_input(&ironwood_input(), &vec![0x5a; 8192]);
+        let pubs = |n: usize| -> Vec<String> {
+            (0..n)
+                .map(|i| hexenc(&device_key_from_share(&[i as u8, 0xab]).public_bytes()))
+                .collect()
+        };
+        let w2 = seal_request_wire(&req, &pubs(2)).unwrap().len();
+        let w8 = seal_request_wire(&req, &pubs(8)).unwrap().len();
+        // Six more signers add six small key-boxes, a tiny fraction of the body - NOT six more
+        // bodies (which is what the old per-device sealing did, and what overflowed the cap).
+        assert!(
+            w8 - w2 < w2 / 5,
+            "wire grew {} bytes for +6 signers (2-signer wire is {}); that is not flat",
+            w8 - w2,
+            w2,
+        );
     }
 
     #[test]

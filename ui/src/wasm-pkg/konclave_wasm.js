@@ -739,6 +739,27 @@ export function injectSigs(pczt, sighash, sigs) {
 }
 
 /**
+ * Decrypt the shared body of a sealed request, with the 32-byte key this device recovered from
+ * its own box (`DeviceKey.open`). A wrong key or any tampering is an error.
+ * @param {Uint8Array} key
+ * @param {Uint8Array} sealed
+ * @returns {Uint8Array}
+ */
+export function openBody(key, sealed) {
+    const ptr0 = passArray8ToWasm0(key, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passArray8ToWasm0(sealed, wasm.__wbindgen_malloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.openBody(ptr0, len0, ptr1, len1);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v3 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v3;
+}
+
+/**
  * Participant device, round 1 (JS): from the local key-package bytes.
  * @param {Uint8Array} kp_bytes
  * @returns {Round1}
@@ -825,6 +846,27 @@ export function pcztSighash(pczt) {
     var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
     wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
     return v2;
+}
+
+/**
+ * Encrypt a body ONCE under a raw 32-byte key (hybrid sealing, #63): the helper seals the key to
+ * each device, so the SignRequest wire stays flat in the signer count. Exposed for parity/tests.
+ * @param {Uint8Array} key
+ * @param {Uint8Array} plaintext
+ * @returns {Uint8Array}
+ */
+export function sealBody(key, plaintext) {
+    const ptr0 = passArray8ToWasm0(key, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passArray8ToWasm0(plaintext, wasm.__wbindgen_malloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.sealBody(ptr0, len0, ptr1, len1);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v3 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v3;
 }
 
 /**

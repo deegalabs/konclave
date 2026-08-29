@@ -118,9 +118,66 @@ pub fn open(device: &DeviceKey, sealed: &[u8], aad: &[u8]) -> Result<Vec<u8>, St
         .map_err(|_| "open: wrong recipient or tampered message".to_string())
 }
 
+// ---------- Hybrid sealing: encrypt a large body ONCE, seal only the small key to each recipient ----
+//
+// Sealing a whole SignRequest to EACH device (via `seal`) multiplies the ~PCZT-sized body by the
+// signer count and blew the relay's 128 KiB message cap for a real send (#63). Hybrid fixes that: the
+// helper encrypts the body once under a random symmetric key (`seal_body`) and `seal`s only that
+// 32-byte key to each device, so the wire is ~one body plus a tiny box per device - flat in the
+// signer count. Each device opens its box for the key, then `open_body`s the shared body.
+
+/// A fresh 32-byte symmetric key for hybrid sealing, from the OS CSPRNG.
+pub fn random_key() -> [u8; 32] {
+    let mut k = [0u8; 32];
+    OsRng.fill_bytes(&mut k);
+    k
+}
+
+/// Encrypt `plaintext` under a raw 32-byte key (XChaCha20-Poly1305). Wire: `nonce(24) ‖ ciphertext`.
+pub fn seal_body(key: &[u8; 32], plaintext: &[u8]) -> Vec<u8> {
+    let cipher = XChaCha20Poly1305::new(Key::from_slice(key));
+    let mut nonce = [0u8; NONCE_LEN];
+    OsRng.fill_bytes(&mut nonce);
+    let ct = cipher
+        .encrypt(XNonce::from_slice(&nonce), Payload { msg: plaintext, aad: b"" })
+        .expect("xchacha20-poly1305 encryption never fails");
+    let mut out = Vec::with_capacity(NONCE_LEN + ct.len());
+    out.extend_from_slice(&nonce);
+    out.extend_from_slice(&ct);
+    out
+}
+
+/// Decrypt what `seal_body` produced. A wrong key or any tampering is an error, never a bad open.
+pub fn open_body(key: &[u8; 32], sealed: &[u8]) -> Result<Vec<u8>, String> {
+    if sealed.len() < NONCE_LEN {
+        return Err("open_body: message too short".into());
+    }
+    let mut nonce = [0u8; NONCE_LEN];
+    nonce.copy_from_slice(&sealed[..NONCE_LEN]);
+    let ct = &sealed[NONCE_LEN..];
+    let cipher = XChaCha20Poly1305::new(Key::from_slice(key));
+    cipher
+        .decrypt(XNonce::from_slice(&nonce), Payload { msg: ct, aad: b"" })
+        .map_err(|_| "open_body: wrong key or tampered message".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_body_sealed_under_a_symmetric_key_opens_only_with_that_key() {
+        // Hybrid sealing (#63): the body is encrypted once; only the key is sealed per device.
+        let k = random_key();
+        let plaintext = b"a large SignRequest body carrying the PCZT hex".as_slice();
+        let sealed = seal_body(&k, plaintext);
+        assert_eq!(open_body(&k, &sealed).unwrap(), plaintext, "round-trips with its key");
+        assert!(open_body(&random_key(), &sealed).is_err(), "a different key cannot open it");
+        assert!(
+            !sealed.windows(plaintext.len()).any(|w| w == plaintext),
+            "the plaintext never appears in the sealed body",
+        );
+    }
 
     #[test]
     fn a_device_key_derived_from_a_share_is_deterministic_and_distinct() {
