@@ -13,6 +13,7 @@ import { RelaySession, newRoomCode, deriveRoom, ephemeralTag, b64, unb64, bytesE
 import { decodeBundle } from '../signing'
 import { SigningMachine } from '../signing-machine'
 import { unsealSignRequest } from '../net-sign'
+import { generateVaultSecret } from '../vault-secret'
 import { deviceCommsKey, devicePubHex } from '../device-key'
 import { useT, useTr, useI18n } from '../i18n'
 import { Letterhead, PassphraseField } from '../components'
@@ -56,6 +57,9 @@ type Msg =
   | { type: 'hello'; encPub: string; name?: string }
   | { type: 'r1'; pkg: string }
   | { type: 'r2'; to: number; box: string }
+  // #388: the creator seals the per-vault access secret S to each seat over the ceremony's enc
+  // channel (same encPub/aad as r2), so every member persists the same S with their share.
+  | { type: 'vsec'; to: number; box: string }
   // rejoin (signing after restore): a restored device announces its ORIGINAL seat (its KeyPackage's
   // identifier is bound to it), so a signing session re-seats by declared seat, not by fresh tags.
   | { type: 'rejoin'; seat: number }
@@ -232,6 +236,10 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
     throw new Error('no signing material: no live DKG session and no restored vault')
   }, [])
   const deviceKeyRef = useRef<DeviceKey | null>(null)
+  // #388: this device is the vault creator (mints S), and the per-vault access secret S once it has
+  // been minted (creator) or received sealed from the creator (joiner). null until then.
+  const isCreatorRef = useRef(false)
+  const accessSecretRef = useRef<Uint8Array | null>(null)
   const myTagRef = useRef('')
   const configRef = useRef<{ n: number; t: number; g?: Governance; cn?: string } | null>(null)
   // Governance policy the creator picks; propagated to every device in the `config` broadcast so
@@ -322,6 +330,25 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
     setGroupVk(vk)
     setPhase('done')
     addLog(tt('net.log.round3'))
+    // #388: the creator mints the per-vault access secret S and seals it to each other seat over the
+    // ceremony's existing encrypted channel (same encPub/aad as round2). Members persist it with
+    // their share. Best-effort by design: a member who never receives it saves an unmigrated (open)
+    // vault, and S carries no enforcement until its readKey is registered - so this cannot break
+    // creation.
+    if (isCreatorRef.current && !accessSecretRef.current) {
+      const s = generateVaultSecret()
+      accessSecretRef.current = s
+      const mySeat = mySeatRef.current
+      void (async () => {
+        for (const seatRow of seatTableRef.current) {
+          if (seatRow.tag === myTagRef.current || seatRow.encPub.length === 0) continue
+          const recipSeat = seatByTagRef.current.get(seatRow.tag)
+          if (recipSeat === undefined) continue
+          const aad = new TextEncoder().encode(`${mySeat}->${recipSeat}`)
+          await send({ type: 'vsec', to: recipSeat, box: b64(sealTo(seatRow.encPub, s, aad)) })
+        }
+      })()
+    }
     // Register the finished vault with the hosted blind helper (public group key only - no share
     // crosses). Fire-and-forget: `/net` works with or without a helper, so a failure just leaves
     // the vault local-only. Idempotent, so every device registering the same group key is fine.
@@ -457,6 +484,20 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
         return true
       }
 
+      // ---- #388: receive the per-vault access secret S the creator sealed to this seat ----
+      if (parsed.type === 'vsec') {
+        if (parsed.to !== mySeatRef.current) return true // addressed to another seat
+        const seat = seatByTagRef.current.get(msg.from) // the creator's seat
+        if (seat === undefined) return false
+        const aad = new TextEncoder().encode(`${seat}->${mySeatRef.current}`)
+        try {
+          accessSecretRef.current = deviceKeyRef.current!.open(unb64(parsed.box), aad)
+        } catch {
+          // A member that cannot open it just saves an unmigrated (open) vault - safe fallback.
+        }
+        return true
+      }
+
       // ---- rejoin (signing after restore): re-seat by declared seat, not by fresh tags ----
       if (parsed.type === 'rejoin') {
         // A device that reloads rejoins with a FRESH ephemeral tag but the SAME seat. Drop any
@@ -553,6 +594,8 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
       try {
         await init(wasmUrl)
         deviceKeyRef.current = new DeviceKey()
+        isCreatorRef.current = asRole === 'create' // #388: the creator mints S
+        accessSecretRef.current = null
         myTagRef.current = ephemeralTag()
         // The code is the human-readable invite (shown/copied); the ACTUAL relay room is derived
         // from code + optional PIN (#65). Without a PIN the room is the code (unchanged behavior).
@@ -751,10 +794,10 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
       // every device agrees. A real fixed fact, unlike the per-ceremony FROST coordinator role.
       const creator = cfg?.cn || undefined
       const vaultId = hex(gvk)
-      await saveVault(vaultId, { name: nm, governance: gov, myName: mine, creatorName: creator, groupKey: gvk, address: '', roster, sealedShare: bundle }, savePass)
+      await saveVault(vaultId, { name: nm, governance: gov, myName: mine, creatorName: creator, groupKey: gvk, address: '', roster, sealedShare: bundle, accessSecret: accessSecretRef.current ?? undefined }, savePass)
       // Also keep the just-created share unlocked in memory for this session, so the operator can
       // sign from the app immediately without re-entering the passphrase (the access model).
-      setUnlockedShare(vaultId, { name: nm, governance: gov, myName: mine, creatorName: creator, groupKey: gvk, address: '', roster, sealedShare: bundle, createdAt: 0 })
+      setUnlockedShare(vaultId, { name: nm, governance: gov, myName: mine, creatorName: creator, groupKey: gvk, address: '', roster, sealedShare: bundle, createdAt: 0, accessSecret: accessSecretRef.current ?? undefined })
       // Build the portable backup NOW, while we still hold the passphrase, so the create-done step can
       // offer download/copy without a second prompt. A backup failure must never block opening the vault.
       try {
