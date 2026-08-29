@@ -18,3 +18,31 @@ export const VAULT_SECRET_BYTES = 32
 export function generateVaultSecret(): Uint8Array {
   return crypto.getRandomValues(new Uint8Array(VAULT_SECRET_BYTES))
 }
+
+/**
+ * The helper read token: `readKey = HKDF-SHA256(S, info="konclave-read-v1")` (#388 Passo 2).
+ *
+ * Domain-separated from S so a leaked read token (e.g. a value logged in a request header) reveals
+ * neither S nor anything derived from it for the signing room. The client sends this once at
+ * registration; the helper stores it and constant-time compares it on every read. A vault with no
+ * stored readKey keeps accepting reads without a token (pre-#388 compat), so migration is per-vault.
+ */
+export async function deriveReadKey(secret: Uint8Array): Promise<Uint8Array> {
+  const base = await crypto.subtle.importKey('raw', bufOf(secret), 'HKDF', false, ['deriveBits'])
+  const bits = await crypto.subtle.deriveBits(
+    {
+      name: 'HKDF',
+      hash: 'SHA-256',
+      salt: new Uint8Array(0),
+      info: new TextEncoder().encode('konclave-read-v1'),
+    },
+    base,
+    256,
+  )
+  return new Uint8Array(bits)
+}
+
+/** A fresh ArrayBuffer view of `b` (crypto.subtle wants a plain BufferSource). */
+function bufOf(b: Uint8Array): ArrayBuffer {
+  return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer
+}
