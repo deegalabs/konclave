@@ -12,6 +12,8 @@ import wasmUrl from '../wasm-pkg/konclave_wasm_bg.wasm?url'
 import { RelaySession, newRoomCode, deriveRoom, ephemeralTag, b64, unb64, bytesEqual, relayBase, type RelayMsg } from '../net'
 import { decodeBundle } from '../signing'
 import { SigningMachine } from '../signing-machine'
+import { unsealSignRequest } from '../net-sign'
+import { deviceCommsKey, devicePubHex } from '../device-key'
 import { useT, useTr, useI18n } from '../i18n'
 import { Letterhead, PassphraseField } from '../components'
 import {
@@ -391,8 +393,18 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
       // surface, and consume it (§8: corrupted/missing material stays a clear failure, not a hang).
       try {
       // Architecture B: a helper's raw sign-request is detected before the typed dispatch and drives
-      // the ceremony over its real PCZT (the machine posts the aggregate signature back RAW).
-      if (await machine.tryHelperRequest(msg.data)) return true
+      // the ceremony over its real PCZT (the machine posts the aggregate signature back RAW). Open a
+      // SEALED request (#63) with this device's persistent (share-derived) comms key first; a
+      // plaintext request passes straight through. Guard: no signing material yet means we hold no
+      // share, so a sealed request cannot be for us - leave it for the parser to ignore.
+      let reqData = msg.data
+      try {
+        const kp = signingMaterial().keyPackage
+        reqData = unsealSignRequest(msg.data, deviceCommsKey(kp), devicePubHex(kp))
+      } catch {
+        /* no signing material yet */
+      }
+      if (await machine.tryHelperRequest(reqData)) return true
       if (parsed.type === 'config') {
         if (!configRef.current) {
           configRef.current = { n: parsed.n, t: parsed.t, g: parsed.g, cn: parsed.cn }
