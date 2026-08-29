@@ -33,14 +33,20 @@ export class SigningSeats {
   }
 
   /**
-   * Apply a peer's `rejoin`: re-seat by the DECLARED seat, dropping any stale tag that used to hold
-   * that seat (a reloaded device rejoins with a fresh tag but the same seat), so each seat has
-   * exactly one presence - the count is distinct SEATS (never > n) and the table has no duplicate
-   * seat that would break signing. Returns the distinct-seat count.
+   * Apply a peer's `rejoin`. `proven` is whether the caller verified a signature by this seat's own
+   * share (#392): only a PROVEN rejoin may TAKE OVER a seat another tag already holds - a reloaded
+   * device rejoining with a fresh tag, which only that seat's share-holder can sign. An UNPROVEN
+   * rejoin (an outsider, or an older build) may seat an EMPTY seat but NEVER evicts an established
+   * one, which closes the seat-hijack (A4). Returns the distinct-seat count.
    */
-  handleRejoin(fromTag: string, seat: number): number {
-    for (const [tag, s] of this.byTag.entries()) {
-      if (s === seat && tag !== fromTag) this.byTag.delete(tag)
+  handleRejoin(fromTag: string, seat: number, proven: boolean): number {
+    // Is this seat already held by a DIFFERENT tag? Taking it over is an eviction, and only a proven
+    // rejoin (a real signature by this seat's share - a legit reload) may do it. An unproven claim on
+    // an occupied seat is ignored, never evicting the holder (A4 seat-hijack, #392).
+    const heldBy = [...this.byTag.entries()].find(([tag, s]) => s === seat && tag !== fromTag)?.[0]
+    if (heldBy !== undefined) {
+      if (!proven) return this.seatCount() // occupied + unproven -> never evict
+      this.byTag.delete(heldBy) // proven takeover: the seat's own share-holder, reloaded
     }
     this.byTag.set(fromTag, seat)
     const count = this.seatCount()

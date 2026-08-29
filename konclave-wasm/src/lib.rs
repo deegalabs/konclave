@@ -1875,6 +1875,28 @@ mod js_dkg {
         dkg::identifier_bytes(index).map_err(je)
     }
 
+    /// Sign a signing-room message with this device's share (room-auth, #392). 64-byte signature.
+    /// Domain-separated so it can never be a transaction spend-auth signature (see `room_auth`).
+    #[wasm_bindgen(js_name = signRoomMsg)]
+    pub fn sign_room_msg(key_package: &[u8], msg: &[u8]) -> Result<Vec<u8>, JsValue> {
+        let kp = crate::frost::keys::KeyPackage::deserialize(key_package).map_err(je)?;
+        Ok(crate::room_auth::sign_with_share(kp.signing_share(), msg).to_vec())
+    }
+
+    /// Verify a room message was signed by SEAT `seat`'s share (1-based), against the DKG
+    /// PublicKeyPackage every device holds (#392). The seat's identity is its `verifying_share` -
+    /// no trusted registry - so an outsider cannot forge a seat it does not hold the share for.
+    #[wasm_bindgen(js_name = verifyRoomSig)]
+    pub fn verify_room_sig(pubkeys: &[u8], seat: u16, msg: &[u8], sig: &[u8]) -> Result<bool, JsValue> {
+        let sig64: [u8; 64] = sig.try_into().map_err(|_| je("sig must be 64 bytes"))?;
+        let pk = crate::frost::keys::PublicKeyPackage::deserialize(pubkeys).map_err(je)?;
+        let id = crate::frost::Identifier::try_from(seat).map_err(je)?;
+        Ok(match pk.verifying_shares().get(&id) {
+            Some(vs) => crate::room_auth::verify_against_share(vs, msg, &sig64),
+            None => false,
+        })
+    }
+
     /// Verify a group signature against the vault's key - so EVERY device confirms the result
     /// for itself, not on the coordinator's word. All inputs are public (signing package, seed,
     /// message, signature); the share never enters.
