@@ -71,9 +71,9 @@ export function helperConfigured(): boolean {
  *  UNLOCKED (its access secret S is in memory). Absent otherwise, so an unmigrated or locked vault
  *  simply reads open - the helper keeps the gate open until a readKey is registered. */
 async function readAuthHeaders(path: string): Promise<Record<string, string>> {
-  const m = /[?&]vault=([0-9a-fA-F]{64})/.exec(path)
-  if (!m) return {}
-  const s = getUnlockedShare(m[1])?.accessSecret
+  const id = /[?&]vault=([0-9a-fA-F]{64})/.exec(path)?.[1]
+  if (!id) return {}
+  const s = getUnlockedShare(id)?.accessSecret
   if (!s) return {}
   try {
     return { 'X-Konclave-Read': bytesToHex(await deriveReadKey(s)) }
