@@ -17,7 +17,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use orchestrator::helper::{
-    append_ceremony, claim_members, is_valid_group_key, ledger_csv, list_proposals,
+    add_device_key, append_ceremony, claim_members, is_valid_group_key, ledger_csv, list_proposals,
     load_ceremonies, load_members, load_proposal, payment_plan, register_vault, rename_member,
     save_proposal, send_config_for, vault_balance, vault_transactions, CeremonyRecord,
     HelperConfig, HelperProposal, HelperState, PayrollLine, RosterWrite, VaultRegistration,
@@ -137,6 +137,41 @@ fn handle(
                     resp(200, out)
                 }
                 Err(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
+            }
+        }
+        // Register a device's persistent comms pubkey (#63): the helper collects the set so it can
+        // SEAL a SignRequest to every device, keeping recipient + amount off the relay. Additive and
+        // idempotent; the vault must already be registered. Auth of the registrant is #392/#288.
+        (Method::Post, "/api/vault/devicekey") => {
+            #[derive(Deserialize)]
+            struct Req {
+                group_key: String,
+                device_pub: String,
+            }
+            let req: Req = match serde_json::from_slice(body) {
+                Ok(r) => r,
+                Err(_) => return resp(400, json!({ "error": "invalid json" }).to_string()),
+            };
+            if !is_valid_group_key(&req.group_key) {
+                return resp(
+                    400,
+                    json!({ "error": "group_key must be 64 hex chars" }).to_string(),
+                );
+            }
+            // A device comms pubkey is a 32-byte X25519 public = 64 lowercase hex chars.
+            let dp = req.device_pub.trim();
+            if dp.len() != 64 || !dp.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return resp(
+                    400,
+                    json!({ "error": "device_pub must be 64 hex chars" }).to_string(),
+                );
+            }
+            match state.get(&req.group_key) {
+                None => resp(404, json!({ "error": "no such vault" }).to_string()),
+                Some(reg) => match add_device_key(&cfg.vaults_dir, &reg.vault_id, dp) {
+                    Ok(added) => resp(200, json!({ "ok": true, "added": added }).to_string()),
+                    Err(e) => resp(500, json!({ "error": e.to_string() }).to_string()),
+                },
             }
         }
         (Method::Get, "/api/vault/balance") => {
@@ -1174,6 +1209,52 @@ mod tests {
         );
         assert_eq!(r.status, 200);
         assert_eq!(st.len(), 1);
+    }
+
+    #[test]
+    fn devicekey_registers_for_a_known_vault_and_validates_input() {
+        let gk = "1111111111111111111111111111111111111111111111111111111111111111";
+        let pub_hex = "aa".repeat(32); // 64 hex chars = a 32-byte X25519 pubkey
+        let st = HelperState::new();
+
+        // Unknown vault → 404 (must register the vault before its devices).
+        let unknown = handle(
+            &st,
+            &cfg(),
+            &Method::Post,
+            "/api/vault/devicekey",
+            format!(r#"{{"group_key":"{gk}","device_pub":"{pub_hex}"}}"#).as_bytes(),
+        );
+        assert_eq!(unknown.status, 404);
+
+        seed(&st, gk);
+        let dir = cfg().vaults_dir.join(gk);
+        let _ = std::fs::remove_dir_all(&dir);
+
+        // A malformed device_pub is rejected at the boundary.
+        let bad = handle(
+            &st,
+            &cfg(),
+            &Method::Post,
+            "/api/vault/devicekey",
+            format!(r#"{{"group_key":"{gk}","device_pub":"nothex"}}"#).as_bytes(),
+        );
+        assert_eq!(bad.status, 400);
+
+        // First registration is new; a repeat is idempotent.
+        let body = format!(r#"{{"group_key":"{gk}","device_pub":"{pub_hex}"}}"#);
+        let first = handle(&st, &cfg(), &Method::Post, "/api/vault/devicekey", body.as_bytes());
+        assert_eq!(first.status, 200);
+        assert!(first.body.contains("\"added\":true"));
+        let second = handle(&st, &cfg(), &Method::Post, "/api/vault/devicekey", body.as_bytes());
+        assert!(second.body.contains("\"added\":false"));
+
+        assert_eq!(
+            orchestrator::helper::load_device_keys(&cfg().vaults_dir, gk),
+            vec![pub_hex],
+            "the pubkey is persisted in the vault's seal-set",
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

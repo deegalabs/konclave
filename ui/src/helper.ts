@@ -179,6 +179,21 @@ export async function createProposal(args: {
 }
 
 /** The vault's member names (seat order), or `null` if no helper / unknown vault. */
+/** Register this device's persistent comms pubkey so the helper can SEAL a SignRequest to it (#63),
+ *  keeping recipient + amount off the relay. Idempotent, so it is safe to call on every unlock.
+ *  Best-effort: returns null on any failure (a device still signs even if registration did not land;
+ *  an unsealed request is the compat fallback until every device has registered). */
+export async function registerDeviceKey(
+  groupKeyHex: string,
+  devicePubHex: string,
+): Promise<boolean | null> {
+  const r = await postJson<{ ok: boolean; added: boolean }>('/api/vault/devicekey', {
+    group_key: groupKeyHex,
+    device_pub: devicePubHex,
+  })
+  return r ? r.added : null
+}
+
 export async function listMembers(groupKeyHex: string): Promise<string[] | null> {
   return (await getJson<{ members: string[] }>(`/api/vault/members?vault=${q(groupKeyHex)}`))?.members ?? null
 }

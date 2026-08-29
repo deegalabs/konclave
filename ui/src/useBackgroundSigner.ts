@@ -13,6 +13,8 @@ import { decodeBundle } from './signing'
 import { BackgroundSession } from './background-session'
 import { signingRoom, acquireSigner, releaseSigner, type GovernanceGate } from './background-signer'
 import type { FailureCode } from './background-session'
+import { registerDeviceKey } from './helper'
+import { devicePubHex } from './device-key'
 
 const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('')
 
@@ -111,6 +113,10 @@ export function useBackgroundSigner(
       try {
         await init(wasmUrl)
         const b = decodeBundle(loaded)
+        // Register this device's persistent comms pubkey so the helper can SEAL SignRequests to it
+        // (#63), keeping recipient + amount off the relay. Best-effort and idempotent; never blocks
+        // signing, and an unsealed request stays the compat fallback until every device registers.
+        void registerDeviceKey(hex(loaded.groupKey), devicePubHex(b.keyPackage))
         if (!acquireSigner(id)) {
           setError('another signer is already active for this vault on this device')
           return
