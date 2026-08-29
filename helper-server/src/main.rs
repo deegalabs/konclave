@@ -19,7 +19,7 @@ use std::time::Duration;
 use orchestrator::helper::{
     add_device_key, append_ceremony, claim_members, is_valid_group_key, ledger_csv,
     list_proposals, load_ceremonies, load_device_keys, load_members, load_proposal, payment_plan,
-    register_vault, rename_member,
+    read_authorized, register_vault, rename_member, set_read_key,
     save_proposal, send_config_for, vault_balance, vault_transactions, CeremonyRecord,
     HelperConfig, HelperProposal, HelperState, PayrollLine, RosterWrite, VaultRegistration,
 };
@@ -68,7 +68,42 @@ fn handle(
     path: &str,
     body: &[u8],
 ) -> Resp {
+    handle_with_token(state, cfg, method, path, body, None)
+}
+
+/// Like `handle`, plus the #388 read token from the request's `X-Konclave-Read` header. Split out so
+/// the many existing tests keep calling `handle` (token = None = the pre-#388 open gate).
+fn handle_with_token(
+    state: &HelperState,
+    cfg: &HelperConfig,
+    method: &Method,
+    path: &str,
+    body: &[u8],
+    read_token: Option<&str>,
+) -> Resp {
     let (p, query) = path.split_once('?').unwrap_or((path, ""));
+    // #388 read gate: the private read routes require the vault's readKey once one is set. A vault
+    // with no readKey stays open, so migration is per-vault and pre-#388 vaults keep working. The
+    // token rides in a header, never the URL/query (§6.3). An unauthorized read is 401.
+    const GATED_READS: &[&str] = &[
+        "/api/vault/balance",
+        "/api/vault/transactions",
+        "/api/vault/ceremonies",
+        "/api/vault/proposals",
+        "/api/vault/ledger",
+        "/api/vault/ledger.csv",
+        "/api/vault/members",
+    ];
+    if *method == Method::Get && GATED_READS.contains(&p) {
+        if let Some(reg) = query_param(query, "vault").and_then(|v| state.get(v)) {
+            if !read_authorized(&cfg.vaults_dir, &reg.vault_id, read_token) {
+                return resp(
+                    401,
+                    json!({ "error": "read not authorized for this vault" }).to_string(),
+                );
+            }
+        }
+    }
     match (method, p) {
         // Health carries no vault data. It used to report `state.len()`, which no client ever read
         // and which told any caller how many vaults the helper holds - transmitted without need
@@ -171,6 +206,40 @@ fn handle(
                 None => resp(404, json!({ "error": "no such vault" }).to_string()),
                 Some(reg) => match add_device_key(&cfg.vaults_dir, &reg.vault_id, dp) {
                     Ok(added) => resp(200, json!({ "ok": true, "added": added }).to_string()),
+                    Err(e) => resp(500, json!({ "error": e.to_string() }).to_string()),
+                },
+            }
+        }
+        // Register the vault's read token (#388): readKey = HKDF(S, "read"), 32 bytes = 64 hex. Set
+        // once at migration; thereafter the read routes above require it. Like devicekey, this is NOT
+        // yet authenticated - authenticating the registrant is the #288/#392 layer, tracked there.
+        (Method::Post, "/api/vault/readkey") => {
+            #[derive(Deserialize)]
+            struct Req {
+                group_key: String,
+                read_key: String,
+            }
+            let req: Req = match serde_json::from_slice(body) {
+                Ok(r) => r,
+                Err(_) => return resp(400, json!({ "error": "invalid json" }).to_string()),
+            };
+            if !is_valid_group_key(&req.group_key) {
+                return resp(
+                    400,
+                    json!({ "error": "group_key must be 64 hex chars" }).to_string(),
+                );
+            }
+            let rk = req.read_key.trim();
+            if rk.len() != 64 || !rk.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return resp(
+                    400,
+                    json!({ "error": "read_key must be 64 hex chars" }).to_string(),
+                );
+            }
+            match state.get(&req.group_key) {
+                None => resp(404, json!({ "error": "no such vault" }).to_string()),
+                Some(reg) => match set_read_key(&cfg.vaults_dir, &reg.vault_id, rk) {
+                    Ok(()) => resp(200, json!({ "ok": true }).to_string()),
                     Err(e) => resp(500, json!({ "error": e.to_string() }).to_string()),
                 },
             }
@@ -1005,6 +1074,13 @@ fn main() {
             }
             let method = req.method().clone();
             let path = req.url().to_string();
+            // The #388 read token rides in a header (never the URL/query, §6.3). Read it before
+            // as_reader() takes the mutable borrow.
+            let read_token = req
+                .headers()
+                .iter()
+                .find(|h| h.field.equiv("X-Konclave-Read"))
+                .map(|h| h.value.as_str().to_string());
             let mut body = Vec::new();
             let _ = req.as_reader().read_to_end(&mut body);
 
@@ -1018,7 +1094,7 @@ fn main() {
                 .as_ref()
                 .map(|m| m.lock().unwrap_or_else(|e| e.into_inner()));
 
-            let r = handle(&state, &cfg, &method, &path, &body);
+            let r = handle_with_token(&state, &cfg, &method, &path, &body, read_token.as_deref());
             let out = Response::from_data(r.body.into_bytes()).with_status_code(r.status);
             let _ = req.respond(with_cors(out));
         }));
@@ -1102,6 +1178,38 @@ mod tests {
         assert!(!ok.body.contains("acct-"));
         let miss = handle(&st, &cfg(), &Method::Get, "/api/vault?vault=zzzz", b"");
         assert_eq!(miss.status, 404);
+    }
+
+    #[test]
+    fn read_gate_requires_the_token_once_a_readkey_is_set() {
+        // #388: a private read route is open until the vault has a readKey; once set, the read must
+        // present exactly it via the X-Konclave-Read header.
+        let st = HelperState::new();
+        seed(&st, "gateopen");
+        seed(&st, "gateset");
+        let c = cfg();
+        let _ = std::fs::remove_file(c.vaults_dir.join("gateset").join("read-key.json"));
+
+        // No readKey: members read is open (pre-#388 compat).
+        let open = handle(&st, &c, &Method::Get, "/api/vault/members?vault=gateopen", b"");
+        assert_eq!(open.status, 200);
+
+        // Migrate gateset.
+        let tok = "ab".repeat(32);
+        set_read_key(&c.vaults_dir, "gateset", &tok).unwrap();
+
+        // No token -> 401, wrong token -> 401, right token -> passes the gate (200).
+        let no_tok = handle(&st, &c, &Method::Get, "/api/vault/members?vault=gateset", b"");
+        assert_eq!(no_tok.status, 401, "a migrated vault refuses an untokened read");
+        let wrong = "00".repeat(32);
+        let bad =
+            handle_with_token(&st, &c, &Method::Get, "/api/vault/members?vault=gateset", b"", Some(&wrong));
+        assert_eq!(bad.status, 401, "a wrong token is refused");
+        let good =
+            handle_with_token(&st, &c, &Method::Get, "/api/vault/members?vault=gateset", b"", Some(&tok));
+        assert_eq!(good.status, 200, "the right token passes");
+
+        let _ = std::fs::remove_file(c.vaults_dir.join("gateset").join("read-key.json"));
     }
 
     /// #267: the enumeration endpoint is gone and must stay gone. A regression here would re-open
