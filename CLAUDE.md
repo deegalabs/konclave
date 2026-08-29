@@ -286,13 +286,13 @@ whoever approved, sealed at rest) → account (ledger + itemized CSV). Browser-n
 vault by **real DKG across devices over a blind relay** and signs over it; a **hosted blind helper**
 builds/proves/broadcasts the tx without ever seeing a share (Architecture B, ADR-0006).
 
-**Proven on mainnet.** **14 verifiable txids** (`docs/PROOF.md` / `scripts/verify-proof.mjs`),
+**Proven on mainnet.** **15 verifiable txids** (`docs/PROOF.md` / `scripts/verify-proof.mjs`),
 including the Orchard→Ironwood migration + the first Ironwood-pool spend (V6/NU6.3), a send from a
 real-DKG vault, a **browser-signed** send, a **3-of-4** vault operated by someone other than the
 maintainer, and - since 2026-08-26 - a **private payroll on the web path** (2 beneficiaries in one V6
 transaction, `7c4c1dd5`, block 3,461,704), and a ceremony **across separate physical machines over
 the internet** (`aec83baf`, block 3,460,285: proposed and approved by one operator, co-signed by
-another on a different computer in a different place), and - since 2026-08-28 - a send **signed from a phone via the installed PWA** (`2d861b8f`, block 3,463,297: 2-of-2, closing signature made on an Android phone in a mobile browser, its share sealed on that phone). Quorums proven: 2-of-2, 2-of-3, 3-of-4.
+another on a different computer in a different place), and - since 2026-08-28 - a send **signed from a phone via the installed PWA** (`2d861b8f`, block 3,463,297: 2-of-2, closing signature made on an Android phone in a mobile browser, its share sealed on that phone), and - since 2026-08-29 - a send with **the relay blind to the payment** (#63: the SignRequest sealed to the devices and the ceremony carrying no cleartext PCZT, `047fe6ca`, block 3,464,505; the block shows a normal send, the relay's blindness is attested by the captured room trace, `docs/proof/2026-08-29-relay-blind.md`). Quorums proven: 2-of-2, 2-of-3, 3-of-4.
 Ironwood: **proven on mainnet**. The cross-device broadcast is **no longer an open debt**.
 
 **On "local-first", which changed shape rather than becoming false.** The closed decision in §2 is a
@@ -348,8 +348,14 @@ what the background signer drives, so this is the live path, not a lab one. #62 
   permanent damage is gone (a refusal can now be withdrawn), the authentication is not.
 - **`/net` never got the replay mitigation** (#363): `NetVault.tsx` is a second, diverged ceremony
   driver whose wire type erases the ceremony tag and whose `onMessage` ignores history.
-- **H2** (#63): H1 verifies the CONTENT of a sign request on-device; its ORIGIN is still not
-  authenticated. Needs the device-key handshake.
+- **H2 CONFIDENTIALITY is DONE (#63), merged and proven live (2026-08-29).** The device-key handshake
+  landed: each device derives a persistent comms key from its share, registers it, and the helper
+  hybrid-seals the SignRequest to the seated devices; the ceremony no longer re-broadcasts the PCZT.
+  The relay is blind to who a vault pays and how much (proof: `047fe6ca`, room trace). Live validation
+  caught two defects unit tests missed (the `sreq` still leaked the PCZT; sealing per-device overflowed
+  the relay's 128 KiB cap - fixed by hybrid sealing). What is NOT done is **ORIGIN AUTHENTICATION**:
+  an outsider with the vault id can still register a key or post room messages - that is **#392**
+  (authenticate the room messages / the registrant), which reuses this same device-key foundation.
 - **Read access is not gated** (#267 second half): dropping `/api/vaults` closed discovery, not
   authorization. Blocked on a migration decision - 26 live vaults, invites already distributed.
 - **No staging** (#370). Every fix this week was validated by spending real ZEC on mainnet, and a

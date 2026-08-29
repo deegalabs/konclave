@@ -6,7 +6,7 @@ plainly what on-chain data can and cannot prove, so nothing here is overclaimed.
 
 ## What the proof shows
 
-Konclave claims 14 real Zcash **mainnet** transactions.
+Konclave claims 15 real Zcash **mainnet** transactions.
 
 Each row below is a **first**: the first time one capability was proven on the live network.
 It is not a log of every send. The vaults have made more transactions than this, and the ones
@@ -29,6 +29,7 @@ be a claim you can check, not evidence of volume.
 | **Across separate physical machines, over the internet**: 2-of-2 browser-DKG vault, proposed and approved by Michael, co-signed by Daniel on a different computer in a different place, each browser holding only its own share. This closes the cross-device milestone the README carried as open | `aec83baf22ee9eaab1281d43a7efb4abed619154980a935bf37ddc00171a938a` | 3,460,285 |
 | **Signed from a phone**, via the installed PWA: 2-of-2 browser-DKG vault, everyone-signs / last-signer-sends, the closing signature made on an **Android phone in a mobile browser**, its share sealed on that phone. The chain cannot prove the device (for the same reason it cannot prove a signature was a threshold one), so this rests on the operator and the ceremony trail, not the block. | `2d861b8f6fe6e1959b15364f484a532aad6cd4d30066850360a72206ece5d06b` | 3,463,297 |
 | **Survived a live bogus-response injection** (#394): an outsider holding only the public vault id posted a structurally-valid but cryptographically-bogus `net-sign-response` into a running 2-of-2 ceremony; the helper skipped it and collected the real signatures. The chain shows a normal send, not the attack - the injection is attested by the captured room trace (`docs/proof/2026-08-28-injection-resilience.md`), not the block. | `ef80a1812275eccb58a032cdeeb1769e4890949257578c45e78348bcc07040c6` | 3,463,857 |
+| **The relay blind to the payment** (#63): a 2-of-2 browser-DKG vault send with the SignRequest sealed to the devices' share-derived keys and the ceremony carrying no cleartext PCZT, so a relay operator sees only ciphertext. The chain shows a normal send; the relay's blindness is attested by the captured room trace - a sealed request that fit the relay cap and an `sreq` with no PCZT (`docs/proof/2026-08-29-relay-blind.md`), not the block. | `047fe6cafe792f72c38eb6cd379e7c43be9c79cf20801288cab342580e896db3` | 3,464,505 |
 
 The verifier queries independent public explorers and confirms each transaction
 exists and is mined on mainnet, reporting the block height, confirmations, and
