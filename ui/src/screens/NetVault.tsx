@@ -13,7 +13,7 @@ import { RelaySession, newRoomCode, deriveRoom, ephemeralTag, b64, unb64, bytesE
 import { decodeBundle } from '../signing'
 import { SigningMachine } from '../signing-machine'
 import { unsealSignRequest } from '../net-sign'
-import { generateVaultSecret } from '../vault-secret'
+import { generateVaultSecret, deriveReadKey } from '../vault-secret'
 import { deviceCommsKey, devicePubHex } from '../device-key'
 import { useT, useTr, useI18n } from '../i18n'
 import { Letterhead, PassphraseField } from '../components'
@@ -32,6 +32,7 @@ import { downloadText } from '../download'
 import {
   helperConfigured,
   registerVault,
+  registerReadKey,
   setMembers,
   vaultBalance,
   listProposals,
@@ -367,6 +368,13 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
             (s.tag === myTagRef.current ? myNameRef.current.trim() : nameByTagRef.current.get(s.tag)) || s.tag,
           )
           if (names.length) void setMembers(vk, names)
+          // #388: the creator registers the vault's readKey (HKDF(S, "read")), turning on the read
+          // gate for this new vault. Only the creator (it holds S immediately); idempotent. A helper
+          // without the endpoint just 404s, so the vault stays open until the gate ships.
+          if (isCreatorRef.current && accessSecretRef.current) {
+            const s = accessSecretRef.current
+            void deriveReadKey(s).then((rk) => registerReadKey(vk, hex(rk)))
+          }
         } else {
           setHostedState('failed')
         }
