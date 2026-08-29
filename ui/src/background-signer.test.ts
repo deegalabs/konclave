@@ -14,6 +14,7 @@ import { pcztSighash } from './wasm-pkg/konclave_wasm.js'
 import {
   BackgroundSigner,
   signingRoom,
+  signingRoomFromSecret,
   acquireSigner,
   releaseSigner,
   isSignerActive,
@@ -105,6 +106,22 @@ describe('signingRoom (per-vault, domain-separated)', () => {
     expect(r).toMatch(/^[0-9a-f]{32}$/)
     expect(await signingRoom(gk.toUpperCase())).toBe(r) // case-normalized -> every device agrees
     expect(await signingRoom('6b207009592233c7ab835765f35093ed357380589a4380a4d0cfd3c9d0c00c0b')).not.toBe(r)
+  })
+})
+
+describe('signingRoomFromSecret (#388: signing room from S, not the public id)', () => {
+  it('is a deterministic 128-bit hex id, secret-sensitive, and never the group-key room', async () => {
+    const S = new Uint8Array(Array.from({ length: 32 }, (_, i) => i + 1))
+    const r = await signingRoomFromSecret(S)
+    expect(r).toMatch(/^[0-9a-f]{32}$/)
+    expect(await signingRoomFromSecret(S)).toBe(r) // deterministic -> every member agrees on the room
+    const other = new Uint8Array(32).fill(9)
+    expect(await signingRoomFromSecret(other)).not.toBe(r) // different S -> different room
+    // Domain-separated from the group-key room: an id-only outsider cannot land on it even if the
+    // S bytes happened to equal a group key (different prefix), and a migrated vault never collides
+    // with its own legacy room.
+    const sHex = Array.from(S, (x) => x.toString(16).padStart(2, '0')).join('')
+    expect(await signingRoom(sHex)).not.toBe(r)
   })
 })
 

@@ -11,7 +11,7 @@ import { RelaySession, relayPost, ephemeralTag } from './net'
 import { getUnlockedShare } from './session'
 import { decodeBundle } from './signing'
 import { BackgroundSession } from './background-session'
-import { signingRoom, acquireSigner, releaseSigner, type GovernanceGate } from './background-signer'
+import { signingRoom, signingRoomFromSecret, acquireSigner, releaseSigner, type GovernanceGate } from './background-signer'
 import type { FailureCode } from './background-session'
 import { registerDeviceKey } from './helper'
 import { deviceCommsKey, devicePubHex } from './device-key'
@@ -126,7 +126,12 @@ export function useBackgroundSigner(
           return
         }
         acquired = true
-        const r = await signingRoom(hex(loaded.groupKey))
+        // #388: a migrated vault (every device holds S) meets in the S-room, so an id-only outsider
+        // cannot compute or observe it. A pre-#388 vault (no S) stays on the group-key room. It is
+        // all-or-nothing per vault (S is distributed to every seat at the DKG), so all signers agree.
+        const r = loaded.accessSecret
+          ? await signingRoomFromSecret(loaded.accessSecret)
+          : await signingRoom(hex(loaded.groupKey))
         if (stopped) return
         roomRef.current = r
         setRoom(r)
