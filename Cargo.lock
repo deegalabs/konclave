@@ -3231,6 +3231,7 @@ dependencies = [
  "chacha20poly1305",
  "getrandom 0.2.17",
  "keyring",
+ "konclave-seal",
  "rusqlite",
  "serde",
  "serde_json",

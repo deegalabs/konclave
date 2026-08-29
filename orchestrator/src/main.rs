@@ -442,6 +442,7 @@ fn run_net_send(args: &[String]) -> Result<(), String> {
         &plan,
         &relay_base,
         &room,
+        &[], // the local CLI path has no registered device keys: plaintext (compat)
         dry_run,
         300,
         std::time::Duration::from_secs(2),

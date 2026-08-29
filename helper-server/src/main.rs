@@ -17,8 +17,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use orchestrator::helper::{
-    add_device_key, append_ceremony, claim_members, is_valid_group_key, ledger_csv, list_proposals,
-    load_ceremonies, load_members, load_proposal, payment_plan, register_vault, rename_member,
+    add_device_key, append_ceremony, claim_members, is_valid_group_key, ledger_csv,
+    list_proposals, load_ceremonies, load_device_keys, load_members, load_proposal, payment_plan,
+    register_vault, rename_member,
     save_proposal, send_config_for, vault_balance, vault_transactions, CeremonyRecord,
     HelperConfig, HelperProposal, HelperState, PayrollLine, RosterWrite, VaultRegistration,
 };
@@ -585,11 +586,23 @@ fn handle_proposal_send(state: &HelperState, cfg: &HelperConfig, path: &str, bod
     let work_dir = format!("{}/{}/send-work", cfg.vaults_dir.display(), reg.vault_id);
     let _scratch = ScratchDir(work_dir.clone());
     let sc = send_config_for(cfg, &reg, work_dir);
+    // The request is SEALED to the registered device pubkeys (#63) ONLY once EVERY seat has
+    // registered - otherwise a device that has not registered yet would get no box and be locked out
+    // of its own vault. Until then (and for legacy 0-total vaults) the request stays plaintext, so
+    // the rollout never breaks a live vault. A device registers on unlock, so a vault converges to
+    // sealed as its members open it on a build that registers.
+    let registered = load_device_keys(&cfg.vaults_dir, &reg.vault_id);
+    let device_pubs: Vec<String> = if reg.total > 0 && registered.len() >= reg.total as usize {
+        registered
+    } else {
+        Vec::new()
+    };
     match net_orchestrate_send(
         &sc,
         &plan,
         &req.relay_base,
         &req.room,
+        &device_pubs,
         req.dry_run,
         req.max_polls,
         Duration::from_secs(1),
