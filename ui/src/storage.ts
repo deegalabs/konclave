@@ -48,6 +48,9 @@ export interface VaultData {
   address: string
   roster: string[]
   sealedShare: Uint8Array
+  /** The per-vault access secret S (#388): every seated member holds it, an id-only outsider does
+   *  not. Sealed at rest like the share. Optional so vaults created before #388 still save/load. */
+  accessSecret?: Uint8Array
 }
 
 /** What loadVault returns after decrypting: the same shape, group key back as bytes. */
@@ -61,9 +64,13 @@ export interface VaultLoaded {
   roster: string[]
   sealedShare: Uint8Array
   createdAt: number
+  /** The per-vault access secret S (#388), or undefined for a vault saved before #388. */
+  accessSecret?: Uint8Array
 }
 
-// Internal on-disk record. `cipher`/`salt`/`iv` protect `sealedShare`; the rest is public.
+// Internal on-disk record. `cipher`/`salt`/`iv` protect `sealedShare`; `secretCipher`/`secretIv`
+// protect the #388 access secret under the SAME derived key (a distinct iv per GCM rule); the rest
+// is public. `secret*` are absent on pre-#388 records.
 interface VaultRecord {
   id: string
   name?: string
@@ -77,6 +84,8 @@ interface VaultRecord {
   salt: Uint8Array
   iv: Uint8Array
   cipher: Uint8Array
+  secretIv?: Uint8Array
+  secretCipher?: Uint8Array
 }
 
 
@@ -188,6 +197,16 @@ export async function saveVault(id: string, data: VaultData, passphrase: string)
   const key = await deriveKey(passphrase, salt)
   const cipherBuf = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: bufOf(iv) }, key, bufOf(data.sealedShare))
 
+  // The #388 access secret is sealed under the same key with its OWN iv (GCM requires a unique iv
+  // per encryption). Absent when the vault has no S yet (pre-#388, or not distributed).
+  let secretIv: Uint8Array | undefined
+  let secretCipher: Uint8Array | undefined
+  if (data.accessSecret) {
+    secretIv = crypto.getRandomValues(new Uint8Array(12))
+    const buf = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: bufOf(secretIv) }, key, bufOf(data.accessSecret))
+    secretCipher = new Uint8Array(buf)
+  }
+
   const record: VaultRecord = {
     id,
     name: data.name,
@@ -201,6 +220,8 @@ export async function saveVault(id: string, data: VaultData, passphrase: string)
     salt,
     iv,
     cipher: new Uint8Array(cipherBuf),
+    secretIv,
+    secretCipher,
   }
 
   const db = await openDb()
@@ -243,6 +264,14 @@ export async function loadVault(id: string, passphrase: string): Promise<VaultLo
     throw new Error('Wrong passphrase, or the saved vault was tampered with')
   }
 
+  // The #388 access secret, when this vault has one (same key, its own iv). The share already
+  // authenticated the passphrase above, so a failure here is genuine corruption of that field.
+  let accessSecret: Uint8Array | undefined
+  if (record.secretCipher && record.secretIv) {
+    const buf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bufOf(record.secretIv) }, key, bufOf(record.secretCipher))
+    accessSecret = new Uint8Array(buf)
+  }
+
   return {
     name: record.name,
     governance: record.governance,
@@ -253,6 +282,7 @@ export async function loadVault(id: string, passphrase: string): Promise<VaultLo
     roster: record.roster,
     sealedShare: new Uint8Array(plainBuf),
     createdAt: record.createdAt,
+    accessSecret,
   }
 }
 

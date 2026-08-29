@@ -9,6 +9,10 @@
 // railway.app). When unset, every call degrades to `null` and `/net` stays a pure two-device
 // ceremony with no hosted vault - the local-first path is unchanged.
 
+import { getUnlockedShare } from './session'
+import { deriveReadKey } from './vault-secret'
+import { bytesToHex } from './bytes'
+
 const ENV = import.meta.env as Record<string, string | undefined>
 
 /** The BUILT-IN hosted helper's base URL ("our helper"), or '' when none is baked in. */
@@ -63,11 +67,26 @@ export function helperConfigured(): boolean {
 
 // ---- request helpers (one place for fetch + ok-check + parse, degrading to null) ----
 
+/** The #388 read token header for a request whose `?vault=<id>` names a vault this device has
+ *  UNLOCKED (its access secret S is in memory). Absent otherwise, so an unmigrated or locked vault
+ *  simply reads open - the helper keeps the gate open until a readKey is registered. */
+async function readAuthHeaders(path: string): Promise<Record<string, string>> {
+  const id = /[?&]vault=([0-9a-fA-F]{64})/.exec(path)?.[1]
+  if (!id) return {}
+  const s = getUnlockedShare(id)?.accessSecret
+  if (!s) return {}
+  try {
+    return { 'X-Konclave-Read': bytesToHex(await deriveReadKey(s)) }
+  } catch {
+    return {}
+  }
+}
+
 async function getJson<T>(path: string): Promise<T | null> {
   const base = helperBase()
   if (!base) return null
   try {
-    const res = await fetch(`${base}${path}`)
+    const res = await fetch(`${base}${path}`, { headers: await readAuthHeaders(path) })
     if (!res.ok) return null
     return (await res.json()) as T
   } catch {
@@ -95,7 +114,7 @@ async function getText(path: string): Promise<string | null> {
   const base = helperBase()
   if (!base) return null
   try {
-    const res = await fetch(`${base}${path}`)
+    const res = await fetch(`${base}${path}`, { headers: await readAuthHeaders(path) })
     if (!res.ok) return null
     return await res.text()
   } catch {
@@ -192,6 +211,17 @@ export async function registerDeviceKey(
     device_pub: devicePubHex,
   })
   return r ? r.added : null
+}
+
+/** Register the vault's #388 readKey (hex of HKDF(S, "read")) with the helper, turning on the read
+ *  gate for this vault. Idempotent (same S -> same readKey). Best-effort: returns false on any
+ *  failure (a helper without the endpoint just 404s, and the vault stays open until it lands). */
+export async function registerReadKey(groupKeyHex: string, readKeyHex: string): Promise<boolean> {
+  const r = await postJson<{ ok: boolean }>('/api/vault/readkey', {
+    group_key: groupKeyHex,
+    read_key: readKeyHex,
+  })
+  return r?.ok ?? false
 }
 
 export async function listMembers(groupKeyHex: string): Promise<string[] | null> {

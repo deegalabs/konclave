@@ -556,6 +556,55 @@ pub fn add_device_key(
     Ok(true)
 }
 
+fn read_key_path(vaults_dir: &Path, vault: &str) -> PathBuf {
+    vaults_dir.join(vault).join("read-key.json")
+}
+
+/// The vault's registered read token (hex of `readKey = HKDF(S, "read")`), or `None` when the vault
+/// has not migrated to #388. While `None`, reads are accepted untokened (per-vault compat).
+pub fn load_read_key(vaults_dir: &Path, vault: &str) -> Option<String> {
+    std::fs::read_to_string(read_key_path(vaults_dir, vault))
+        .ok()
+        .and_then(|j| serde_json::from_str::<String>(&j).ok())
+}
+
+/// Register (or replace) the vault's read token. Called once at migration; from then on every read
+/// must present exactly this value. This is a shared access secret (members + helper), not spendable
+/// material - it gates WHO may ask the helper, and does not change that the helper is view-only.
+pub fn set_read_key(vaults_dir: &Path, vault: &str, read_key: &str) -> Result<(), ToolError> {
+    let path = read_key_path(vaults_dir, vault);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(ToolError::Io)?;
+    }
+    let json = serde_json::to_string(read_key.trim())
+        .map_err(|e| ToolError::parse("read-key", e.to_string()))?;
+    std::fs::write(&path, json).map_err(ToolError::Io)?;
+    Ok(())
+}
+
+/// Is this read authorized? A vault with no registered readKey is OPEN (pre-#388 compat). Once a
+/// readKey is set, the read must present exactly it, compared in constant time so a guess learns
+/// nothing from timing.
+pub fn read_authorized(vaults_dir: &Path, vault: &str, presented: Option<&str>) -> bool {
+    match load_read_key(vaults_dir, vault) {
+        None => true, // not migrated: the gate is open
+        Some(expected) => presented.is_some_and(|p| ct_eq(p.trim().as_bytes(), expected.as_bytes())),
+    }
+}
+
+/// Constant-time byte-string equality (reveals only the length). Keeps a token guess from learning,
+/// via timing, how many leading bytes were right.
+fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
 /// Rename ONE member seat (`old` -> `new`) and MIGRATE every proposal's votes so the rename never
 /// orphans an approval into a "ghost" member. Because votes are recorded by member NAME (the seat's
 /// public label), a bulk overwrite of the roster used to leave the old name attached to past
@@ -1298,6 +1347,31 @@ mod tests {
         );
         // A different vault has its own set.
         assert!(load_device_keys(&dir, "other").is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn read_gate_opens_until_a_key_is_set_then_requires_it() {
+        // #388 Passo 2: reads are gated by a per-vault readKey = HKDF(S, "read"). A vault with no
+        // readKey keeps accepting reads untokened (compat during migration); once a readKey is set,
+        // a read must present exactly it.
+        let dir = std::env::temp_dir().join(format!("konclave-readkey-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        // No key yet: the gate is OPEN, with or without a presented token.
+        assert!(load_read_key(&dir, "v").is_none(), "starts with no readKey");
+        assert!(read_authorized(&dir, "v", None), "open when no key is set");
+        assert!(read_authorized(&dir, "v", Some("whatever")), "open ignores any token when no key");
+
+        // Set the key: now a read must present it.
+        set_read_key(&dir, "v", "deadbeef").unwrap();
+        assert_eq!(load_read_key(&dir, "v").as_deref(), Some("deadbeef"));
+        assert!(read_authorized(&dir, "v", Some("deadbeef")), "the right token passes");
+        assert!(!read_authorized(&dir, "v", Some("wrong")), "a wrong token is refused");
+        assert!(!read_authorized(&dir, "v", None), "a migrated vault refuses an untokened read");
+
+        // The gate is per-vault: another vault with no key is still open.
+        assert!(read_authorized(&dir, "other", None), "a different vault has its own gate");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

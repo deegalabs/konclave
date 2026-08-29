@@ -126,3 +126,35 @@ describe('storage - portable vault export/import (#214)', () => {
     expect(() => parseVaultExport(JSON.stringify({ format: 'konclave-vault-export', version: 1 }))).toThrow(/incomplete|corrupt/i)
   })
 })
+
+// The per-vault access secret S (#388): a fresh random secret every seated member holds and an
+// id-only outsider does not, so a leaked vault id no longer opens the reads or the signing room.
+// It is sealed at rest exactly like the share (encrypted under the passphrase, never in the clear),
+// and it is OPTIONAL so vaults created before #388 still load.
+describe('storage - per-vault access secret (#388)', () => {
+  const accessSecret = new Uint8Array(Array.from({ length: 32 }, (_, i) => i + 100)) // 100..131
+
+  it('round-trips the sealed access secret alongside the share', async () => {
+    await saveVault('sec1', { ...data, accessSecret }, 'pw')
+    const loaded = await loadVault('sec1', 'pw')
+    expect(loaded.accessSecret).toBeDefined()
+    expect(Array.from(loaded.accessSecret!)).toEqual(Array.from(accessSecret))
+    // The share is unaffected.
+    expect(Array.from(loaded.sealedShare)).toEqual(Array.from(share))
+  })
+
+  it('a vault saved without an access secret loads with accessSecret undefined (pre-#388 compat)', async () => {
+    await saveVault('sec2', data, 'pw') // no accessSecret
+    const loaded = await loadVault('sec2', 'pw')
+    expect(loaded.accessSecret).toBeUndefined()
+  })
+
+  it('never leaks the access secret bytes into public metadata', async () => {
+    await saveVault('sec3', { ...data, accessSecret }, 'pw')
+    const v = (await listVaults()).find((x) => x.id === 'sec3')
+    expect(v).toBeTruthy()
+    const secretHex = accessSecret.reduce((s, b) => s + b.toString(16).padStart(2, '0'), '')
+    expect(JSON.stringify(v)).not.toContain(JSON.stringify(Array.from(accessSecret)))
+    expect(JSON.stringify(v)).not.toContain(secretHex)
+  })
+})
