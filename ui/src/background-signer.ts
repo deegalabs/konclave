@@ -28,6 +28,16 @@ export async function signingRoom(groupKeyHex: string): Promise<string> {
   return toHex(digest.slice(0, 16)) // 128-bit hex room id
 }
 
+/** The signing room for a MIGRATED vault (#388): derived from the per-vault secret S, not the public
+ *  group key, so an id-only outsider can neither compute nor observe it. Domain-separated from the
+ *  group-key room (`-s` prefix) so a vault never collides with its own legacy room. Only vaults where
+ *  every device holds S use it, so all signers still land on the same room. */
+export async function signingRoomFromSecret(secret: Uint8Array): Promise<string> {
+  const data = new TextEncoder().encode('konclave-sign-s ' + toHex(secret))
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', data))
+  return toHex(digest.slice(0, 16)) // 128-bit hex room id
+}
+
 // --- singleton guard: one active signer per vault per device (two tabs must not double-sign) ---
 // In-process guard (one JS context / tab). Across tabs, production wraps this with the Web Locks
 // API (navigator.locks) keyed by the vault; this registry is the unit-testable core.
