@@ -63,6 +63,94 @@ pub fn frost_selftest() -> Result<String, String> {
     Ok("OK: 2-of-3 rerandomized redpallas FROST VERIFIED".into())
 }
 
+// ---------- Room-message authentication (#392) — spike ----------
+//
+// Authenticate signing-room writes so an outsider who only knows the (public) room cannot hijack a
+// seat or evict a live ceremony. A device signs its room messages with its FROST signing SHARE,
+// DOMAIN-SEPARATED so the signed bytes can never be a transaction spend-auth signature, and any
+// device verifies against that seat's public `verifying_share` - which every honest device already
+// holds in the DKG's PublicKeyPackage (the trustless anchor, no new registration needed for the 26
+// existing vaults). Safety rests on two disjointnesses: the base share is NOT the rerandomized key a
+// spend auth needs (Orchard verifies under ak+alpha), and every room message carries a domain prefix
+// so it never collides with a 32-byte tx sighash; the reddsa nonce is fresh per signature.
+pub mod room_auth {
+    use crate::frost;
+    use rand::rngs::OsRng;
+    use reddsa::orchard::SpendAuth;
+
+    const DOMAIN: &[u8] = b"konclave-room-v1\x00";
+
+    fn domain_msg(msg: &[u8]) -> Vec<u8> {
+        let mut m = Vec::with_capacity(DOMAIN.len() + msg.len());
+        m.extend_from_slice(DOMAIN);
+        m.extend_from_slice(msg);
+        m
+    }
+
+    /// Sign a room message with this device's FROST signing share. 64-byte RedPallas signature.
+    pub fn sign_with_share(signing_share: &frost::keys::SigningShare, msg: &[u8]) -> [u8; 64] {
+        let bytes: [u8; 32] = signing_share
+            .serialize()
+            .try_into()
+            .expect("a redpallas signing share is 32 bytes");
+        let sk = reddsa::SigningKey::<SpendAuth>::try_from(bytes).expect("valid share scalar");
+        let sig = sk.sign(OsRng, &domain_msg(msg));
+        <[u8; 64]>::from(sig)
+    }
+
+    /// True iff `sig` is `verifying_share`'s signature over the domain-separated `msg`.
+    pub fn verify_against_share(
+        verifying_share: &frost::keys::VerifyingShare,
+        msg: &[u8],
+        sig: &[u8; 64],
+    ) -> bool {
+        let vk_bytes: [u8; 32] = match verifying_share.serialize().ok().and_then(|v| v.try_into().ok()) {
+            Some(b) => b,
+            None => return false,
+        };
+        let vk = match reddsa::VerificationKey::<SpendAuth>::try_from(vk_bytes) {
+            Ok(v) => v,
+            Err(_) => return false,
+        };
+        vk.verify(&domain_msg(msg), &reddsa::Signature::from(*sig)).is_ok()
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use crate::frost::keys::{generate_with_dealer, IdentifierList, KeyPackage};
+        use rand::rngs::OsRng;
+
+        #[test]
+        fn a_room_message_binds_to_the_seat_that_signed_it() {
+            // The #392 anchor: a device signs with its share; anyone verifies against that seat's
+            // verifying_share from the DKG PublicKeyPackage - so a seat cannot be forged.
+            let (shares, pubkeys) =
+                generate_with_dealer(3, 2, IdentifierList::Default, OsRng).unwrap();
+            let (id, secret) = shares.into_iter().next().unwrap();
+            let kp = KeyPackage::try_from(secret).unwrap();
+            let vshare = *pubkeys.verifying_shares().get(&id).unwrap();
+
+            let msg = b"rejoin seat=1 room=abcd nonce=42";
+            let sig = sign_with_share(kp.signing_share(), msg);
+
+            assert!(verify_against_share(&vshare, msg, &sig), "signs and verifies for its own seat");
+
+            // A DIFFERENT seat's verifying_share must not verify (no seat forgery).
+            let other = *pubkeys
+                .verifying_shares()
+                .iter()
+                .find(|(oid, _)| **oid != id)
+                .map(|(_, v)| v)
+                .unwrap();
+            assert!(!verify_against_share(&other, msg, &sig), "a different seat cannot claim it");
+
+            // A tampered message must not verify.
+            assert!(!verify_against_share(&vshare, b"rejoin seat=2 room=abcd nonce=42", &sig));
+        }
+    }
+}
+
 // ---------- 3. ZIP-244 sig_digest surface (blake2b, Orchard-only) ----------
 
 /// The ZIP-244 digest of an EMPTY transparent bundle - a fixed blake2b personalized hash,
