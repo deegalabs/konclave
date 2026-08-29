@@ -896,6 +896,24 @@ pub mod seal {
         }
     }
 
+    /// A device's PERSISTENT comms identity for a vault, derived deterministically from its FROST
+    /// share (the serialized KeyPackage). Unlike `generate()` (a fresh ephemeral key), this is the
+    /// device's long-term identity: reproduced on every unlock from the already-sealed share, so
+    /// NOTHING NEW IS STORED and no key-distribution migration touches the sealed-share blob. HKDF
+    /// over the share with a distinct info label yields a key independent of the DKG-seal key; the
+    /// share cannot be recovered from the public half (HKDF is one-way). This public half is what a
+    /// device registers with the helper so the helper can seal the SignRequest to it (#63 / I3).
+    pub fn device_key_from_share(key_package: &[u8]) -> DeviceKey {
+        // HKDF-SHA256 over the share with an info label distinct from the DKG-seal one, so the
+        // comms key is cryptographically independent of the sealing key derived elsewhere.
+        // StaticSecret::from clamps the 32 bytes, so any HKDF output is a valid X25519 secret.
+        let hk = Hkdf::<Sha256>::new(None, key_package);
+        let mut okm = [0u8; 32];
+        hk.expand(b"konclave-device-comms-v1", &mut okm)
+            .expect("hkdf expand 32 bytes never fails");
+        DeviceKey::from_secret_bytes(&okm)
+    }
+
     fn derive_key(shared: &[u8; 32]) -> [u8; 32] {
         let hk = Hkdf::<Sha256>::new(None, shared);
         let mut okm = [0u8; 32];
@@ -953,6 +971,36 @@ pub mod seal {
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        #[test]
+        fn a_device_key_derived_from_a_share_is_deterministic_and_distinct() {
+            // The persistent device identity (#63): derived from the FROST share, so it survives a
+            // reload with nothing stored, and every device gets its OWN identity.
+            let share_a = b"device A's serialized FROST KeyPackage bytes".as_slice();
+            let share_b = b"device B's serialized FROST KeyPackage bytes".as_slice();
+
+            // Deterministic: the same share always yields the same identity (reproduced on unlock).
+            assert_eq!(
+                device_key_from_share(share_a).public_bytes(),
+                device_key_from_share(share_a).public_bytes(),
+                "the same share must derive the same device identity every time",
+            );
+            // Distinct: different devices (different shares) get different identities.
+            assert_ne!(
+                device_key_from_share(share_a).public_bytes(),
+                device_key_from_share(share_b).public_bytes(),
+                "different shares must derive different device identities",
+            );
+            // Usable: a message sealed to the derived public opens with the derived key.
+            let dev = device_key_from_share(share_a);
+            let aad = b"helper->device:sign-request";
+            let sealed = seal(&dev.public_bytes(), b"sighash+alpha+pczt", aad).unwrap();
+            assert_eq!(
+                open(&device_key_from_share(share_a), &sealed, aad).unwrap(),
+                b"sighash+alpha+pczt",
+                "the derived key must open what was sealed to its public half",
+            );
+        }
 
         #[test]
         fn a_sealed_package_opens_only_for_its_recipient() {
@@ -1888,6 +1936,15 @@ mod js_dkg {
             Ok(DeviceKey {
                 inner: seal::DeviceKey::from_secret_bytes(&b),
             })
+        }
+        /// This device's PERSISTENT comms identity for a vault, derived from its FROST share
+        /// (serialized KeyPackage). Reproduced on every unlock with nothing stored (#63). The
+        /// public half (`publicBytes`) is what the device registers so the helper can seal to it.
+        #[wasm_bindgen(js_name = fromShare)]
+        pub fn from_share(key_package: &[u8]) -> DeviceKey {
+            DeviceKey {
+                inner: seal::device_key_from_share(key_package),
+            }
         }
         #[wasm_bindgen(js_name = secretBytes)]
         pub fn secret_bytes(&self) -> Vec<u8> {
