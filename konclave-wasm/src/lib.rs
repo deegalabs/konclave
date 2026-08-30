@@ -104,7 +104,11 @@ pub mod room_auth {
         msg: &[u8],
         sig: &[u8; 64],
     ) -> bool {
-        let vk_bytes: [u8; 32] = match verifying_share.serialize().ok().and_then(|v| v.try_into().ok()) {
+        let vk_bytes: [u8; 32] = match verifying_share
+            .serialize()
+            .ok()
+            .and_then(|v| v.try_into().ok())
+        {
             Some(b) => b,
             None => return false,
         };
@@ -112,7 +116,8 @@ pub mod room_auth {
             Ok(v) => v,
             Err(_) => return false,
         };
-        vk.verify(&domain_msg(msg), &reddsa::Signature::from(*sig)).is_ok()
+        vk.verify(&domain_msg(msg), &reddsa::Signature::from(*sig))
+            .is_ok()
     }
 
     #[cfg(test)]
@@ -134,7 +139,10 @@ pub mod room_auth {
             let msg = b"rejoin seat=1 room=abcd nonce=42";
             let sig = sign_with_share(kp.signing_share(), msg);
 
-            assert!(verify_against_share(&vshare, msg, &sig), "signs and verifies for its own seat");
+            assert!(
+                verify_against_share(&vshare, msg, &sig),
+                "signs and verifies for its own seat"
+            );
 
             // A DIFFERENT seat's verifying_share must not verify (no seat forgery).
             let other = *pubkeys
@@ -143,10 +151,17 @@ pub mod room_auth {
                 .find(|(oid, _)| **oid != id)
                 .map(|(_, v)| v)
                 .unwrap();
-            assert!(!verify_against_share(&other, msg, &sig), "a different seat cannot claim it");
+            assert!(
+                !verify_against_share(&other, msg, &sig),
+                "a different seat cannot claim it"
+            );
 
             // A tampered message must not verify.
-            assert!(!verify_against_share(&vshare, b"rejoin seat=2 room=abcd nonce=42", &sig));
+            assert!(!verify_against_share(
+                &vshare,
+                b"rejoin seat=2 room=abcd nonce=42",
+                &sig
+            ));
         }
     }
 }
@@ -1887,7 +1902,12 @@ mod js_dkg {
     /// PublicKeyPackage every device holds (#392). The seat's identity is its `verifying_share` -
     /// no trusted registry - so an outsider cannot forge a seat it does not hold the share for.
     #[wasm_bindgen(js_name = verifyRoomSig)]
-    pub fn verify_room_sig(pubkeys: &[u8], seat: u16, msg: &[u8], sig: &[u8]) -> Result<bool, JsValue> {
+    pub fn verify_room_sig(
+        pubkeys: &[u8],
+        seat: u16,
+        msg: &[u8],
+        sig: &[u8],
+    ) -> Result<bool, JsValue> {
         let sig64: [u8; 64] = sig.try_into().map_err(|_| je("sig must be 64 bytes"))?;
         let pk = crate::frost::keys::PublicKeyPackage::deserialize(pubkeys).map_err(je)?;
         let id = crate::frost::Identifier::try_from(seat).map_err(je)?;

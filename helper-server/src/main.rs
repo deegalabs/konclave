@@ -17,11 +17,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use orchestrator::helper::{
-    add_device_key, append_ceremony, claim_members, is_valid_group_key, ledger_csv,
-    list_proposals, load_ceremonies, load_device_keys, load_members, load_proposal, payment_plan,
-    read_authorized, register_vault, rename_member, set_read_key,
-    save_proposal, send_config_for, vault_balance, vault_transactions, CeremonyRecord,
-    HelperConfig, HelperProposal, HelperState, PayrollLine, RosterWrite, VaultRegistration,
+    add_device_key, append_ceremony, claim_members, is_valid_group_key, ledger_csv, list_proposals,
+    load_ceremonies, load_device_keys, load_members, load_proposal, payment_plan, read_authorized,
+    register_vault, rename_member, save_proposal, send_config_for, set_read_key, vault_balance,
+    vault_transactions, CeremonyRecord, HelperConfig, HelperProposal, HelperState, PayrollLine,
+    RosterWrite, VaultRegistration,
 };
 use orchestrator::send::{funding_check, net_orchestrate_send, Funding, PayrollDest, SpendPlan};
 use serde::Deserialize;
@@ -1191,7 +1191,13 @@ mod tests {
         let _ = std::fs::remove_file(c.vaults_dir.join("gateset").join("read-key.json"));
 
         // No readKey: members read is open (pre-#388 compat).
-        let open = handle(&st, &c, &Method::Get, "/api/vault/members?vault=gateopen", b"");
+        let open = handle(
+            &st,
+            &c,
+            &Method::Get,
+            "/api/vault/members?vault=gateopen",
+            b"",
+        );
         assert_eq!(open.status, 200);
 
         // Migrate gateset.
@@ -1199,14 +1205,35 @@ mod tests {
         set_read_key(&c.vaults_dir, "gateset", &tok).unwrap();
 
         // No token -> 401, wrong token -> 401, right token -> passes the gate (200).
-        let no_tok = handle(&st, &c, &Method::Get, "/api/vault/members?vault=gateset", b"");
-        assert_eq!(no_tok.status, 401, "a migrated vault refuses an untokened read");
+        let no_tok = handle(
+            &st,
+            &c,
+            &Method::Get,
+            "/api/vault/members?vault=gateset",
+            b"",
+        );
+        assert_eq!(
+            no_tok.status, 401,
+            "a migrated vault refuses an untokened read"
+        );
         let wrong = "00".repeat(32);
-        let bad =
-            handle_with_token(&st, &c, &Method::Get, "/api/vault/members?vault=gateset", b"", Some(&wrong));
+        let bad = handle_with_token(
+            &st,
+            &c,
+            &Method::Get,
+            "/api/vault/members?vault=gateset",
+            b"",
+            Some(&wrong),
+        );
         assert_eq!(bad.status, 401, "a wrong token is refused");
-        let good =
-            handle_with_token(&st, &c, &Method::Get, "/api/vault/members?vault=gateset", b"", Some(&tok));
+        let good = handle_with_token(
+            &st,
+            &c,
+            &Method::Get,
+            "/api/vault/members?vault=gateset",
+            b"",
+            Some(&tok),
+        );
         assert_eq!(good.status, 200, "the right token passes");
 
         let _ = std::fs::remove_file(c.vaults_dir.join("gateset").join("read-key.json"));
@@ -1364,10 +1391,22 @@ mod tests {
 
         // First registration is new; a repeat is idempotent.
         let body = format!(r#"{{"group_key":"{gk}","device_pub":"{pub_hex}"}}"#);
-        let first = handle(&st, &cfg(), &Method::Post, "/api/vault/devicekey", body.as_bytes());
+        let first = handle(
+            &st,
+            &cfg(),
+            &Method::Post,
+            "/api/vault/devicekey",
+            body.as_bytes(),
+        );
         assert_eq!(first.status, 200);
         assert!(first.body.contains("\"added\":true"));
-        let second = handle(&st, &cfg(), &Method::Post, "/api/vault/devicekey", body.as_bytes());
+        let second = handle(
+            &st,
+            &cfg(),
+            &Method::Post,
+            "/api/vault/devicekey",
+            body.as_bytes(),
+        );
         assert!(second.body.contains("\"added\":false"));
 
         assert_eq!(
