@@ -19,6 +19,7 @@ import {
 } from '../api'
 import { listVaults } from '../storage'
 import { useVaultSigner } from '../VaultSigner'
+import { getUnlockedShare } from '../session'
 import { useLoading } from '../loading'
 
 type Movimento = { date: string; title: string; by?: string; value: string; dir: 'out' | 'in'; status: string }
@@ -313,6 +314,11 @@ export default function Dashboard() {
   }
 
 
+  // #388: is this vault protected by S? The unlocked share carries it when secured. `undefined`
+  // means unknown (no in-session unlocked share, e.g. a local/bridge vault) -> show no banner.
+  const unlockedShare = vault ? getUnlockedShare(vault.id) : undefined
+  const secured = unlockedShare ? unlockedShare.accessSecret != null : undefined
+
   // Nothing renders until the first full fetch is in - no half-built page with placeholders.
   if (!firstLoaded) {
     return <main className="page dash"><Loading /></main>
@@ -347,6 +353,12 @@ export default function Dashboard() {
           </>}
           actions={<Seal t={thr} n={n} />}
         />
+
+        {secured === false && (
+          <div className="dash-openwarn" role="alert">
+            <span className="ow-ic" aria-hidden="true">⚠</span> {t('dashboard.openBanner')}
+          </div>
+        )}
 
         {/* 1+2 · The desk leads, the balance follows it on the right and stays there while the
             page scrolls - the two questions a treasurer asks in that order, side by side instead
