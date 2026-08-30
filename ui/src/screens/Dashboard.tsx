@@ -19,7 +19,6 @@ import {
 } from '../api'
 import { listVaults } from '../storage'
 import { useVaultSigner } from '../VaultSigner'
-import { getUnlockedShare } from '../session'
 import { useLoading } from '../loading'
 
 type Movimento = { date: string; title: string; by?: string; value: string; dir: 'out' | 'in'; status: string }
@@ -90,6 +89,9 @@ export default function Dashboard() {
   const [ledger, setLedger] = useState<Proposal[] | null>(null)
   const [balance, setBalance] = useState<Balance | null>(null)
   const [live, setLive] = useState<boolean | null>(null)
+  // #388: whether this vault holds S (gated) or is legacy/open. Read from listVaults (the record's
+  // sealed-S presence), so it is robust to the in-session unlock state; undefined = unknown -> no banner.
+  const [secured, setSecured] = useState<boolean | undefined>(undefined)
   // For the members peek: this device's seat and the vault creator (on-device record). Loaded once
   // per vault id, not on every poll.
   const [me, setMe] = useState<string | null>(null)
@@ -118,6 +120,16 @@ export default function Dashboard() {
   useEffect(() => {
     if (usdOn && rateIsStale(cachedRate())) void refreshRate()
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // #388: read whether this vault holds S from the on-device record (not the in-memory unlock), so
+  // the open/legacy banner shows reliably even after a reload.
+  useEffect(() => {
+    const id = getSelectedVault()
+    if (!id) return
+    let on = true
+    void listVaults().then((l) => { if (on) setSecured(l.find((v) => v.id === id)?.secured) }).catch(() => {})
+    return () => { on = false }
   }, [])
 
   useEffect(() => {
@@ -313,13 +325,6 @@ export default function Dashboard() {
     return t('dashboard.agoHours', { n: Math.floor(min / 60) })
   }
 
-
-  // #388: is this vault protected by S? Keyed on the SELECTED vault id (not the helper-fetched
-  // vault), so the state shows even if the helper has not answered. The unlocked share carries S
-  // when secured; `undefined` = unknown (no in-session share, e.g. a local/bridge vault) -> no banner.
-  const selId = getSelectedVault()
-  const unlockedShare = selId ? getUnlockedShare(selId) : undefined
-  const secured = unlockedShare ? unlockedShare.accessSecret != null : undefined
 
   // Nothing renders until the first full fetch is in - no half-built page with placeholders.
   if (!firstLoaded) {
