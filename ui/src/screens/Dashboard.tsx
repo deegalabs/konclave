@@ -11,7 +11,7 @@ import { rankDesk, type Band } from '../desk'
 import { balanceParts } from '../balance-parts'
 import { participation } from '../participation'
 import { usdEnabled, setUsdEnabled, cachedRate, rateIsStale, fetchRate, zecToUsd, type Rate } from '../price'
-import { CONFIRMATIONS_UNTRUSTED, getTransactions } from '../api'
+import { CONFIRMATIONS_UNTRUSTED, getTransactions, getSelectedVault } from '../api'
 import { useT, useTr } from '../i18n'
 import {
   getVault, getProposals, getBalance, getLedger, health, shortAddr, isVaultUnlocked,
@@ -89,6 +89,9 @@ export default function Dashboard() {
   const [ledger, setLedger] = useState<Proposal[] | null>(null)
   const [balance, setBalance] = useState<Balance | null>(null)
   const [live, setLive] = useState<boolean | null>(null)
+  // #388: whether this vault holds S (gated) or is legacy/open. Read from listVaults (the record's
+  // sealed-S presence), so it is robust to the in-session unlock state; undefined = unknown -> no banner.
+  const [secured, setSecured] = useState<boolean | undefined>(undefined)
   // For the members peek: this device's seat and the vault creator (on-device record). Loaded once
   // per vault id, not on every poll.
   const [me, setMe] = useState<string | null>(null)
@@ -117,6 +120,16 @@ export default function Dashboard() {
   useEffect(() => {
     if (usdOn && rateIsStale(cachedRate())) void refreshRate()
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // #388: read whether this vault holds S from the on-device record (not the in-memory unlock), so
+  // the open/legacy banner shows reliably even after a reload.
+  useEffect(() => {
+    const id = getSelectedVault()
+    if (!id) return
+    let on = true
+    void listVaults().then((l) => { if (on) setSecured(l.find((v) => v.id === id)?.secured) }).catch(() => {})
+    return () => { on = false }
   }, [])
 
   useEffect(() => {
@@ -347,6 +360,12 @@ export default function Dashboard() {
           </>}
           actions={<Seal t={thr} n={n} />}
         />
+
+        {secured === false && (
+          <div className="dash-openwarn" role="alert">
+            <span className="ow-ic" aria-hidden="true">⚠</span> {t('dashboard.openBanner')}
+          </div>
+        )}
 
         {/* 1+2 · The desk leads, the balance follows it on the right and stays there while the
             page scrolls - the two questions a treasurer asks in that order, side by side instead

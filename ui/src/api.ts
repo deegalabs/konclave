@@ -41,6 +41,9 @@ export type Vault = {
   // ufvk is intentionally NOT sent by the bridge (it decrypts the whole tx graph + memos).
   server_url?: string
   locked?: boolean
+  // #388: whether this vault holds the per-vault secret S (reads + signing room gated). undefined
+  // when unknown (e.g. a bridge/local vault); false = a legacy/open vault a leaked id can read.
+  secured?: boolean
 }
 
 export type Proposal = {

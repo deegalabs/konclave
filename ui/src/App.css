@@ -1202,3 +1202,9 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
   letter-spacing:.02em; text-transform:none; vertical-align:baseline}
 .akind-shield{color:var(--success); border-color:var(--success-line); background:var(--success-soft)}
 .akind-pub{color:var(--warn); border-color:var(--warn); background:transparent}
+
+/* #388 open/legacy vault warning banner on the Dashboard. */
+.dash-openwarn { display:flex; align-items:flex-start; gap:8px; margin:14px 0 4px; padding:12px 14px;
+  border-radius:var(--radius); font-size:13.5px; line-height:1.5; color:var(--warn-strong);
+  background:var(--surface-1); border:1px solid var(--warn); }
+.dash-openwarn .ow-ic { flex:0 0 auto; color:var(--warn); font-weight:700; }
