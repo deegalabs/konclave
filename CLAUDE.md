@@ -242,7 +242,7 @@ mistake in different places, and the third was introduced by the fix for the fir
 is visible from the code.
 
 - [2026-08-26 · no vault could sign a second payment](docs/incidents/2026-08-26-signing-replay.md) — one defect in three readers, plus a regression from its own fix
-- [2026-08-27 · the helper stopped answering](docs/incidents/2026-08-27-helper-unresponsive.md) — serial request loop; root cause still open (#375)
+- [2026-08-27 · the helper stopped answering](docs/incidents/2026-08-27-helper-unresponsive.md) — serial request loop; root cause fixed 2026-08-28 by a worker pool (#384; #375 pending close, postmortem still to reconcile)
 
 ---
 
@@ -339,11 +339,41 @@ what the background signer drives, so this is the live path, not a lab one. #62 
 > now refuses a mismatch and never overwrites the local sighash. Only with that does "a hostile
 > helper cannot swap the transaction under a signer" hold as written.
 
+**Privacy: a leaked vault id no longer opens the books (#388) - DONE and LIVE (2026-08-30).**
+Shipped to production (`konclave-demo.vercel.app` / `www.konclave.xyz`) and validated on mainnet the
+same day. Each seated member holds a fresh **random** per-vault secret `S`, minted by the creator at
+the DKG and sealed to members over the #63 encrypted channel, persisted sealed at rest like the share
+(**not** DKG-derived - that material is public or relay-observable, so a derived secret would be known
+to the relay). From `S`:
+- **Reads are gated (PR #402):** the helper's private reads (balance, transactions, ceremonies,
+  proposals, ledger, members) require `readKey = HKDF(S, "read")` in an `X-Konclave-Read` header
+  (never the URL, §6.3) - `401` once a readKey is registered, open until then so migration is
+  per-vault. Live on mainnet: leaked id -> `401`, member -> `200`.
+- **The signing room is from `S`, not the group key (PR #403):** `SHA-256("konclave-sign-s " + S)[:16]`,
+  so an id-only outsider can neither compute nor observe it. Proven by a real mainnet 2-of-2 S-vault
+  sweep, SignRequest sealed (#63), nothing in cleartext (`34e2a51c…`); a CORS fix (allow
+  `X-Konclave-Read`) rode along, a real defect caught by live validation.
+- **Security-state UI (PR #404):** a **Private/Open** badge on the vault list (from `listVaults`'
+  `secured` flag, the sealed-`S` presence, never the secret) and an honest warning banner on an
+  **open/legacy** vault, whose books a leaked link still reads through the helper (the chain stays
+  encrypted). Protecting an open vault means re-creating it and moving funds with a signed send, not an
+  auto-migration.
+- **Encrypted export v2 (PR #405 / #214):** a vault export is now a **single opaque blob** (metadata +
+  share + `S` + beneficiaries, all under the passphrase) - a leaked backup reveals nothing, not even
+  the vault id; import reads v1 + v2. `docs/RECOVERY.md`: the export restores the **share**, not the
+  vault identity/UFVK (random at creation, not reproducible), so the full kit is the share export
+  **plus** the helper's `registration.json`.
+- **First protected vault in the wild:** an external user (not the maintainer) created a #388 family
+  vault (`882bde37…`) on 2026-08-30 - the protection holds outside the lab.
+
 **Honest debts still open (§6.15).** Ordered by what they cost:
 
-- **The helper serves one request at a time** (#375), so a five-minute send makes the whole service
-  indistinguishable from dead, `/api/health` included. It took the vault down on 2026-08-27 -
-  see [the postmortem](docs/incidents/2026-08-27-helper-unresponsive.md). Root cause untouched.
+- **The helper served one request at a time** (#375): a five-minute send made the whole service
+  indistinguishable from dead, `/api/health` included, and it took the vault down on 2026-08-27
+  (see [the postmortem](docs/incidents/2026-08-27-helper-unresponsive.md)). **Fixed 2026-08-28 by a
+  worker pool (#384)** - the relay twin the same way (#393). The issue is a close candidate pending a
+  confirmation glance; the postmortem still records the root cause as open and is the maintainer's to
+  reconcile.
 - **Write endpoints are unauthenticated** (#288, critical): anyone with a vault id can vote. The
   permanent damage is gone (a refusal can now be withdrawn), the authentication is not.
 - **`/net` never got the replay mitigation** (#363): `NetVault.tsx` is a second, diverged ceremony
@@ -353,11 +383,14 @@ what the background signer drives, so this is the live path, not a lab one. #62 
   hybrid-seals the SignRequest to the seated devices; the ceremony no longer re-broadcasts the PCZT.
   The relay is blind to who a vault pays and how much (proof: `047fe6ca`, room trace). Live validation
   caught two defects unit tests missed (the `sreq` still leaked the PCZT; sealing per-device overflowed
-  the relay's 128 KiB cap - fixed by hybrid sealing). What is NOT done is **ORIGIN AUTHENTICATION**:
-  an outsider with the vault id can still register a key or post room messages - that is **#392**
-  (authenticate the room messages / the registrant), which reuses this same device-key foundation.
-- **Read access is not gated** (#267 second half): dropping `/api/vaults` closed discovery, not
-  authorization. Blocked on a migration decision - 26 live vaults, invites already distributed.
+  the relay's 128 KiB cap - fixed by hybrid sealing). The **ORIGIN-AUTHENTICATION** follow-on has since
+  landed: **#392 is closed** (#401 authenticated signing-room seating, so an outsider can no longer
+  hijack a seat or forge room messages); the residual ceremony-DoS vectors - an unproven rejoin
+  grabbing an empty seat, or flooding the room - are tracked as **#399/#400**.
+- **Read access is now gated by `S`** (#388/#402, was #267): the helper's private reads require the
+  `readKey`, so a leaked id gets `401`. **Residual (open):** the ~5 legacy/open vaults created before
+  #388 stay readable through the helper until re-created - there is no automatic migration; a guided
+  "Protect this vault" flow is designed in **#406**.
 - **No staging** (#370). Every fix this week was validated by spending real ZEC on mainnet, and a
   preview shares the production helper, so "try it" still means "try it on the live vaults".
 - **`/net` multi-note over the live relay** (unit-tested; single-spend is live-proven), and **Tauri**
@@ -369,10 +402,12 @@ what the background signer drives, so this is the live path, not a lab one. #62 
   from `main`. CI is green, but it is **gated on a live round-trip and NOT merged to `main`** -
   `engine/versions.lock` on `main` intentionally keeps the older pins until then.
 - **Hosted blind helper deployed on mainnet, non-root.** The Architecture-B helper (ADR-0006 Rung A)
-  runs on Railway against mainnet (~26 live vaults). The container now runs as a **non-root**
-  `konclave` user: the entrypoint enters as root only to `chown` the durable Railway volume, then
-  drops via `gosu` before running the share-blind helper (#265). It still never receives, derives, or
-  stores a share.
+  runs on Railway against mainnet, serving **5 active vaults** after a census that reversibly retired
+  21 disposable test vaults (26 -> 5, moved to `/data/vaults/_retired`, recoverable per
+  `docs/RECOVERY.md` C); a new-vault tripwire now watches the production volume. The container runs as
+  a **non-root** `konclave` user: the entrypoint enters as root only to `chown` the durable Railway
+  volume, then drops via `gosu` before running the share-blind helper (#265). It still never receives,
+  derives, or stores a share.
 - **Security-hardening cycle landed:** GitHub Actions pinned to commit SHAs and `curl | sh`
   installers removed from workflows; a script-injection vector in the desktop-release notes step
   fixed; pnpm supply-chain policies (minimum release age, dependency-trust policy, block on exotic

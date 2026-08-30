@@ -75,7 +75,7 @@ upgrade on mainnet.
 
 ## Proven on Zcash mainnet
 
-This is not a mock. **12 verifiable mainnet transactions**, every one a real FROST ceremony with
+This is not a mock. **15 verifiable mainnet transactions**, every one a real FROST ceremony with
 the key never reconstituted - quorums of 2-of-2, 2-of-3 and 3-of-4. The flagship is an application-driven **quorum payment** - proposed
 and approved in the app, signed by a FROST ceremony, broadcast to mainnet:
 
@@ -191,6 +191,19 @@ not promise what we do not deliver.
   bridge is guarded against CSRF/DNS-rebinding; secret material is zeroized in memory; destinations
   are validated with an authoritative `zcash_address` decode before any send. See
   [`SECURITY.md`](SECURITY.md).
+- **Read access is gated, not just the spend (#388, live):** a Konclave vault's on-chain data is
+  shielded, but the hosted helper keeps a *view-only* copy of it and used to answer reads to anyone
+  who had the public vault id. Now every member holds a per-vault secret **S** (minted at the DKG,
+  sealed to members, never on the wire); the helper's reads - balance, history, members, ledger - and
+  the signing room are gated behind a token derived from S, so a leaked link opens neither the books
+  nor the room. The vault list shows a **Private / Open** badge and an open (not-yet-migrated) vault
+  carries a plain-language warning. Stay honest about the limit: the gate is opt-in per vault (legacy
+  vaults stay open until migrated, #406) and **write** endpoints are not yet authenticated (#288).
+- **A leaked backup reveals nothing (#214, live):** the vault export is a single opaque blob -
+  metadata, share, S and beneficiaries all encrypted under a passphrase, only a non-sensitive envelope
+  in the clear - so a stolen backup file does not even disclose the vault id. Restoring it brings back
+  the signing seat; recovering the vault's on-chain identity also needs the helper record (see
+  [`docs/RECOVERY.md`](docs/RECOVERY.md)).
 
 **Proven vs pending, the honest ladder:**
 

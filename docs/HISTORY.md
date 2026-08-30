@@ -592,3 +592,77 @@ upgrade, and the hosted helper's move to production.
   mainnet proof set (`docs/PROOF.md`) is unchanged.
 - **Honest limit (still open):** the Ironwood bump's live round-trip (which gates the #259 merge) and
   a mainnet hosted-helper send both remain to be demonstrated.
+
+---
+
+**Phase 19 - Privacy: a leaked vault id no longer opens the books (#388), shipped and live
+(2026-08-30).** Until now a vault's only access control was its id: anyone with the (widely shared) id
+could read the helper's view of a vault - balance, transactions, ceremonies, proposals, ledger,
+members - and could compute its signing room from the public group key. The #388 stack closes both,
+shipped to production (`konclave-demo.vercel.app` / `www.konclave.xyz`), and was validated on mainnet
+the same day.
+
+- **Per-vault secret `S` (PR #402).** Every seated member now holds a fresh **random** 32-byte secret
+  `S` (`ui/src/vault-secret.ts`, `randomSecret`), minted by the creator at the DKG and sealed to the
+  other members over the ceremony's **own** encrypted channel (the #63 device comms keys), then
+  persisted sealed at rest exactly like the share (`storage.ts` `secretCipher`/`secretIv`, AES-GCM
+  under the passphrase). The design constraint that forced this shape: `S` is **not** derived from the
+  DKG. All DKG-derived material is either public or passes through the blind relay, so a secret derived
+  from it would be known to the relay - the opposite of the point. A fresh random secret, distributed
+  only inside the sealed channel, is the one thing the relay never sees.
+- **Reads gated by `S` (PR #402).** The helper's private read routes (balance, transactions,
+  ceremonies, proposals, `ledger`/`ledger.csv`, members) require `readKey = HKDF-SHA256(S,
+  "konclave-read-v1")`, presented in an `X-Konclave-Read` request header - never in the URL (§6.3). The
+  gate is per-vault and migration-safe: a vault with no registered readKey stays open (pre-#388
+  compat), and once a readKey is registered the helper returns `401` to any read that does not present
+  exactly it, compared in constant time (`orchestrator/src/helper.rs`, `helper-server/src/main.rs`).
+  Live-validated on mainnet: a leaked id gets `401`, a member holding `S` gets `200`.
+- **Signing room from `S` (PR #403).** A migrated vault's signing room is now
+  `SHA-256("konclave-sign-s " + S)[:16]` (`ui/src/background-signer.ts`, `signingRoomFromSecret`),
+  domain-separated from the legacy group-key room (`signingRoom`), so an id-only outsider can neither
+  compute nor observe where the vault signs; every device that holds `S` still lands on the same room
+  with no coordination. Proven end to end with a **real mainnet broadcast**: a 2-of-2 S-vault swept its
+  funds, the ceremony ran in the S-room with the SignRequest sealed (#63) and no destination or amount
+  in cleartext - txid `34e2a51c9cf4f6436659dcfa0f762e1dbc4740bb9a9cfedcef9c237651866436`. A **CORS
+  fix** (add `X-Konclave-Read` to the allow-header list) rode along - a real defect that only surfaced
+  under live validation, because the browser blocks the header at pre-flight.
+- **Security-state UI (PR #404).** The vault list shows a **Private / Open** badge, driven by
+  `listVaults`' `secured` flag, which is derived from the presence of the sealed `S` on disk - never
+  from the secret itself. The Dashboard shows an honest warning banner on an **open / legacy** vault
+  (created before #388), stating plainly that a leaked link can still read its books through the helper
+  while the blockchain itself stays encrypted. The copy is deliberately honest about the remedy:
+  protecting an already-open vault means **re-creating it and moving the funds with a signed send**,
+  not an automatic migration.
+- **Encrypted export v2 (PR #405, closes the #214 recovery gap).** A vault export used to be a v1
+  bundle whose envelope (id, address, member names) was cleartext. It is now a **single opaque blob**
+  (`storage.ts` `VaultExportV2`): metadata, the share, the secret `S`, and the beneficiaries are all
+  encrypted under the passphrase with a fresh salt/iv, so a leaked backup reveals nothing - not even
+  the vault id. `parseVaultExport` reads **both** v1 (legacy) and v2, so old exports still import.
+  `docs/RECOVERY.md` is the new recovery runbook, written after the 2026-08-29 live audit that proved
+  the client export alone is not a complete backup: the export restores the **share** but not the
+  vault's on-chain identity, because the address + UFVK are generated once with randomness at
+  registration (`zcash-sign generate --ak` is non-deterministic) and are not reproducible from the
+  group key. The full recovery kit is therefore the share export **plus** the helper's
+  `registration.json`.
+- **Ops: vault census + tripwire.** A census of the production helper volume reversibly retired **21
+  disposable test vaults** (`mv` into `/data/vaults/_retired`, recoverable by moving them back and
+  redeploying - RECOVERY.md procedure C), taking the live set from **26 to 5 active** vaults with no
+  identity lost. A new-vault tripwire now watches the production volume so an unexpected registration
+  is noticed.
+- **First protected vault in the wild (2026-08-30).** A real external user - not the maintainer -
+  created a #388-protected **family vault** (members Brittany / Nathan / Kiddos, id `882bde37…`, with a
+  `read-key.json`), the first evidence that the protection works for someone operating the product
+  outside the lab.
+
+**Honest debts STILL open after #388 (§6.15):**
+- **Write endpoints remain unauthenticated (#288).** Reads are gated, the helper's write endpoints
+  (voting) are not: anyone with the vault id can vote. The signing-room seat-hijack / message-forgery
+  vector (#392) was closed in #401; residual ceremony-DoS vectors are tracked as #399/#400.
+- **Migrating the ~5 existing legacy/open vaults (ops).** They stay readable through the helper until
+  re-created under #388. There is no automatic migration; **#406** designs a guided "Protect this
+  vault" flow.
+- **The helper's single-request outage (#375)** was fixed 2026-08-28 by a worker pool (#384, pending
+  close); there is **no staging (#370)**, and
+  portability is **Konclave-web to Konclave-web only** (desktop / `frost-client` import not wired,
+  #214/#126); the relay is self-hostable and blind, but there is still **no relay-free ceremony**
+  (QR / copy-paste planned, not built).

@@ -46,7 +46,7 @@ into the browser. See §8 for how those become the two delivery shells.
 | `engine/` | Official Zcash Foundation binaries, pinned by SHA in `engine/versions.lock`. Not reimplemented. | 1 |
 | `sdk/` | `@konclave/frost` - the WASM core packaged as a reusable browser SDK. | - |
 | `mcp-server/` | MCP "AI treasurer": reads + proposes, deliberately **no** sign/send tool (single-agent-proof). | - |
-| `helper-server/` | The hosted **view-only helper** (Architecture B, ADR-0006): registers a browser-DKG vault by its group key, keeps a view-only wallet, and builds/proves/broadcasts while the browsers sign. Deployed on Railway. It never receives, derives or stores a share. | 2 |
+| `helper-server/` | The hosted **view-only helper** (Architecture B, ADR-0006): registers a browser-DKG vault by its group key, keeps a view-only wallet, and builds/proves/broadcasts while the browsers sign. Deployed on Railway. It never receives, derives or stores a share, and since #388 gates its reads behind the per-vault `readKey`. | 2 |
 | `src-tauri/` | The desktop shell (Tauri), released as **v0.2.0**. Optional native shell; the web app is the primary delivery (ADR-0005). Per-platform hardware validation is still open (#212). | - |
 
 ## 3. What travels vs. what stays (trust model)
@@ -54,12 +54,30 @@ into the browser. See §8 for how those become the two delivery shells.
 | Stays **on the device only** (never leaves) | **Travels over the network** (public) |
 |---|---|
 | Key share, seed, secrets | DKG round packages, nonce commitments |
-| Decrypted memos | Partial signatures |
-| The act of signing | The final transaction (goes to mainnet) |
+| Per-vault access secret **S** (sealed at rest, #388) | Partial signatures |
+| Decrypted memos | The final transaction (goes to mainnet) |
+| The act of signing | `readKey = HKDF-SHA256(S)` (a one-way derived token, to the helper) |
 
 `frostd` and the `relay-server` are **blind couriers**: they carry public/encrypted envelopes and
 open none of them. Compromising either reveals no secrets and grants no ability to spend; at worst
 it disrupts coordination (hence the QR/copy-paste fallback on the roadmap).
+
+**Per-vault read access (#388).** A vault id is the public group verifying key, so on its own it is
+not a secret - which is why the hosted helper's *view-only* reads (balance, history, ceremonies,
+proposals, ledger, members) are gated behind a per-vault secret **S**. S is fresh randomness minted by
+the creator at the DKG and sealed to each member over the ceremony's encrypted channel (the #63
+device-comms keys), then persisted sealed at rest like the share; it is **not** derived from the DKG
+(anything DKG-derived crosses the relay). The helper authorizes a read only if it carries
+`readKey = HKDF-SHA256(S)` (the `X-Konclave-Read` header, constant-time compared), and a migrated
+vault's signing room is derived from S (`SHA-256("konclave-sign-s " + S)[:16]`) rather than the public
+group key, so an id-only outsider can neither read the books nor find the room. The gate is per-vault
+and opt-in on registration (a vault with no registered `readKey` stays open, so pre-#388 vaults keep
+working; migrating the rest is #406). This is an access-control lock on the **helper**, not a change
+to the chain, which is always shielded. **Write** endpoints stay unauthenticated for now (#288; the
+signing-room seat-hijack #392 was closed in #401, residual DoS #399/#400).
+The vault backup **export** is now one opaque blob too (v2, #214/#405): metadata, share, S and
+beneficiaries are all encrypted under a passphrase, so a leaked backup reveals nothing, not even the
+vault id (recovery detail in [`RECOVERY.md`](RECOVERY.md)).
 
 ## 4. Sources of truth
 
@@ -80,7 +98,7 @@ it disrupts coordination (hence the QR/copy-paste fallback on the roadmap).
 | `secrets` | Seal shares at rest (XChaCha20-Poly1305); key in the OS keychain (`KeyStore`) |
 | `store` | Local state in SQLite/SQLCipher |
 | `server` / `relay` | The loopback HTTP bridge (`/api/*`) and the in-process blind relay |
-| `helper` | Everything the hosted view-only helper needs: registration, its proposals, members, the ceremony trail. `helper-server/` is a thin shell over this. |
+| `helper` | Everything the hosted view-only helper needs: registration, its proposals, members, the ceremony trail. Private reads are gated behind the per-vault `readKey` (#388: `load_read_key`/`set_read_key`, open until a vault registers one). `helper-server/` is a thin shell over this. |
 | `net_send` / `relay_client` | Architecture B: publish the sign request into the vault's relay room and collect the browsers' aggregate signature |
 | `money` | Zatoshi arithmetic - money is never summed in floating point |
 | `reconcile` | On-chain wins: promote a `sent` proposal whose txid confirmed, invalidate reservations a fresh sync can no longer fund |
@@ -162,13 +180,17 @@ bundle and converge on the same on-chain transaction (guaranteed by the §7 pari
 
 ## 9. Status and what we intend to build
 
-**Built and proven (12 verifiable mainnet txids incl. the Ironwood cycle + the first browser-signed broadcast; see `docs/PROOF.md`):**
+**Built and proven (15 verifiable mainnet txids incl. the Ironwood cycle, the first browser-signed broadcast, a cross-device send across separate physical machines, and a phone-signed send; see `docs/PROOF.md`):**
 - Real DKG vaults (key never reconstituted) and trusted-dealer vaults, quorum payment + private
   payroll, all via the native path (orchestrator + konclave-signer + engine).
 - The web/WASM core: multi-device DKG + FROST signing over the hosted blind relay (the signed
   message is still a **test digest**), social recovery (RTS), inheritance policy engine.
 - The FROST↔PCZT bridge in WASM (`pczt_bridge`), byte-for-byte equal to native (branch
   `feat/wasm-pczt-bridge`).
+- **Per-vault read access + S-derived signing room + fully-encrypted v2 export (#388/#214, live).**
+  A leaked vault id no longer opens the helper's reads or the ceremony room (see §3); the export is
+  one opaque passphrase-encrypted blob. Open: migrating the remaining legacy vaults (#406) and
+  authenticating the write endpoints (#288).
 
 **Intend to build (roadmap; details in `temp/PROXIMOS-PASSOS.md`):**
 1. **Real browser transaction (slice 2):** on-device "what am I signing" verification + the

@@ -26,8 +26,8 @@ all documents:
    - `trusted-dealer` - a dealer briefly held the whole key at setup, then split it.
 
 ## Mainnet transactions (authoritative attribution)
-As of this writing, twelve verifiable mainnet txids. **Two** are from real DKG vaults (the CLI
-DKG-vault send and the browser-DKG browser-signed broadcast); the rest are trusted-dealer.
+As of this writing, fifteen verifiable mainnet txids. **Nine** are from real DKG vaults (one CLI
+DKG-vault send and eight browser-DKG browser-signed sends); the other six are trusted-dealer.
 
 | Transaction | Evidence | Key origin |
 |---|---|---|
@@ -39,43 +39,88 @@ DKG-vault send and the browser-DKG browser-signed broadcast); the rest are trust
 | Orchard→Ironwood migration, V6/NU6.3 (`54266f47…`) | proven on-chain | trusted-dealer |
 | First Ironwood-pool spend, V6/NU6.3 (`36c60f1e…`) | proven on-chain | trusted-dealer |
 | **Browser-signed broadcast, V6/NU6.3 (`3022420a…`)** | proven on-chain | **DKG** (browser) |
+| Everyone-signs / last-signer-sends 2-of-2 (`64f94d29…`) | proven on-chain | **DKG** (browser) |
+| **3-of-4** browser vault, largest quorum (`b496fc3c…`) | proven on-chain | **DKG** (browser) |
+| Private payroll on the web, 2 beneficiaries (`7c4c1dd5…`) | proven on-chain | **DKG** (browser) |
+| Across separate physical machines, over the internet (`aec83baf…`) | proven on-chain | **DKG** (browser) |
+| Signed from a phone via the PWA (`2d861b8f…`) | proven on-chain | **DKG** (browser) |
+| Survived a live bogus-response injection, #394 (`ef80a181…`) | proven on-chain | **DKG** (browser) |
+| Relay blind to the payment, #63 (`047fe6ca…`) | proven on-chain | **DKG** (browser) |
 
-Any statement of the form "the app payment used DKG" is **false**. Only `aab00f90…` (CLI DKG) and
-`3022420a…` (browser DKG) came from keys born by real DKG.
+Any statement of the form "the app payment used DKG" is **false**. The DKG-born sends are `aab00f90…`
+(CLI DKG) and the eight browser-DKG sends (`3022420a…`, `64f94d29…`, `b496fc3c…`, `7c4c1dd5…`,
+`aec83baf…`, `2d861b8f…`, `ef80a181…`, `047fe6ca…`); the app-payment, CLI-slice, fresh-vault, payroll
+and both Ironwood-migration sends are trusted-dealer.
 
 ## Honest limits to keep stated (never hide)
-- **Signing-path gap - transaction-swap (H1). Partly shipped, one piece still stubbed.** Keep
-  two things distinct:
-  - **Shipped ([ADR-0007](adr/0007-ceremony-security-invariants.md), #67 / #68, live-validated
-    2-tab):** PIN-gated room admission + a vault fingerprint each signer checks, which close the
-    invite-as-bearer / wrong-room concern, and the on-device ZIP-244 sighash-binding **primitive**
-    (proven byte-exact against the signer).
-  - **Still stubbed (#62):** the live `/net` signing path does not yet recompute the ZIP-244
-    sighash **on-device from its own PCZT** and compare it to what it signs. Until that lands, a
-    compromised **helper** or **coordinator device** could in principle display a benign PCZT while
-    the signed sighash targets an attacker output. So do **not** claim "the helper is blind and
-    cannot steal": the helper is blind to *secrets* (round-2 is sealed) and cannot spend without the
-    quorum, but the live path is not yet fully blind to *transaction substitution* by a malicious
-    coordinator.
-  - **Scope of the caveat:** this is about running the ceremony under an **untrusted third-party
-    helper/coordinator**. It does **not** contradict the proven mainnet browser broadcast
-    (`3022420a…`), which used the project's own blind helper and per-device `describeOutputs`
-    review; it is why we do not yet recommend a real-money `/net` send driven by a helper you do not
-    control until #62 ships. (Zkool ships the recompute defense; we are closing it.)
-- **Signing-request metadata leak (H2, being fixed).** The `/net` signing request (`sighash`,
-  `alpha`, `pczt_hex`) is currently posted to the relay in **plaintext**; the PCZT decodes to the
-  recipient address and amount. Unlike the DKG round-2 packages (ECIES-sealed), it is not yet sealed,
-  so a curious relay operator or room-code holder can read who a shielded vault pays and how much.
-  Sealing it requires distributing the seated devices' X25519 keys to the (blind) helper - a
-  handshake change, not a one-liner ([ADR-0007](adr/0007-ceremony-security-invariants.md) I3, issue
-  #63). Until then, do not claim `/net` hides send metadata from the relay.
-- **All eight mainnet sends so far were signed on a single machine.** The first seven used
-  co-located CLI shares; the eighth (`3022420a…`) used **two browser tabs on one machine**. So the
-  distributed browser-signing *protocol* is proven (separate shares, a blind relay, the key never
-  reconstituted), but a broadcast across **separate, independently-controlled physical devices**,
-  carried to a confirmed txid, is **still the open milestone** - the exact next step an independent
-  review of the ZecHub FROST projects (2026-07-29) named as the meaningful one, and which none of the
-  six had reached at that cutoff.
+- **Signing-path transaction-swap defense (H1) - SHIPPED on the primary path (#62 closed, live since
+  2026-08-27).** Keep two things distinct:
+  - **Shipped and live:** the app's background signer drives `SigningMachine`, which recomputes the
+    ZIP-244 sighash **on-device from its own PCZT** and refuses the ceremony if it disagrees with what
+    it is asked to sign - in **both** rounds (round 2's gap, where `onSp` overwrote the local sighash
+    unchecked, was closed in #355), and it decodes and shows what the transaction pays before
+    contributing a share. Plus ([ADR-0007](adr/0007-ceremony-security-invariants.md), #67 / #68,
+    live-validated 2-tab): PIN-gated room admission + a vault fingerprint each signer checks, which
+    close the invite-as-bearer / wrong-room concern. So on the path the app actually sends over, a
+    hostile helper or coordinator **cannot** swap the transaction under a signer.
+  - **Residual (open, #363):** the legacy standalone `/net` route (`NetVault.tsx`) is a **diverged**
+    ceremony driver that does **not** recompute the sighash. That is #363, not #62. Do not drive a
+    real-money send through that legacy route under a helper you do not control; the shipped
+    background-signer path is the one the app uses. (Zkool ships the recompute defense too.)
+- **Signing-request metadata leak (H2) - SHIPPED (#63), proven live 2026-08-29.** This bullet used to
+  read: the `/net` signing request (`sighash`, `alpha`, `pczt_hex`) was posted to the relay in
+  **plaintext**, so a curious relay operator or room-code holder could read who a shielded vault pays
+  and how much. That is now closed. Each device derives a persistent comms key from its share and
+  registers it; the (blind) helper **hybrid-seals** the SignRequest to the seated devices; and the
+  ceremony no longer re-broadcasts the PCZT ([ADR-0007](adr/0007-ceremony-security-invariants.md) I3).
+  The relay is blind to the payment - proof `047fe6ca…` (block 3,464,505), attested by the captured
+  room trace (`docs/proof/2026-08-29-relay-blind.md`), not by the block. **Origin authentication of the
+  signing room has since landed (#392, closed in #401):** an id-only outsider can no longer hijack a
+  seat or forge room messages; residual ceremony-DoS vectors are #399/#400. Separately, the helper's
+  write endpoints (voting) remain unauthenticated (#288).
+- **A leaked vault id no longer opens the books or the signing room (#388, shipped and live).** Keep
+  the nuance exact, because it is easy to overstate:
+  - **What was leaking was never the chain.** A Konclave vault's on-chain data is Orchard-shielded:
+    amounts, parties and memos are encrypted on mainnet and always were. The exposure was at the
+    **helper**, which holds a *view-only* decryption of the vault (its UFVK) and used to answer reads
+    - balance, transactions, ceremonies, proposals, ledger, members - to anyone who presented the
+    public **vault id** (the group verifying key). The id was, in effect, a bearer **read** capability.
+    It was never a spend capability: spending has always required a quorum of shares.
+  - **What #388 changed.** Every seated member now holds a per-vault secret **S** - fresh 256-bit
+    randomness minted by the creator at the DKG and sealed to members over the ceremony's encrypted
+    channel (the #63 device-comms keys), persisted sealed at rest like the share. **S is not derived
+    from the DKG** (anything DKG-derived crosses the relay and so would not be secret). The helper now
+    gates its private reads behind `readKey = HKDF-SHA256(S)` in an `X-Konclave-Read` header
+    (constant-time compared), and a migrated vault meets in a signing room derived from S
+    (`SHA-256("konclave-sign-s " + S)[:16]`), not the public group key - so an id-only outsider can
+    neither read the books nor find, join or observe the room.
+  - **This is a product access-control lock, not a new cryptographic guarantee about the chain**
+    (§6.14). It controls **who may ask the helper** and **who can find the room**; it does not change
+    what the chain reveals (nothing) or the spend rule (a quorum). "Private outside, transparent
+    inside" now holds for the helper's view too, not only for the chain.
+  - **Still open, do not claim closed:** the gate is **per-vault and opt-in on registration** - a
+    vault with no registered `readKey` stays **open** so the pre-#388 live vaults keep working, and
+    migrating the remaining legacy vaults is #406. **Write** endpoints are still unauthenticated
+    (anyone with a vault id can still vote): that is #288, a different axis from this read gate. (The
+    signing-room seat-hijack #392 was closed in #401; residual ceremony-DoS is #399/#400.) A live
+    external user created a #388-protected vault on 2026-08-30.
+- **The vault export is one opaque encrypted blob (#214/#405, shipped).** v1 left the vault's identity
+  in the clear (id/group key, address, member names, beneficiaries) even though the share was
+  encrypted, so a leaked backup doxxed the vault. v2 encrypts the **entire** payload - metadata, share,
+  the #388 secret S, and the beneficiaries - under the passphrase; only a non-sensitive envelope
+  (format, version, salt, IV) is cleartext, so a leaked v2 backup reveals nothing, not even the vault
+  id. Import reads both v1 (legacy) and v2. Honest limit unchanged: the share export restores the
+  **signing seat**, not the vault's on-chain **identity** (the address/UFVK are random at registration
+  and not reproducible from the share); the full kit is the share export **plus** the helper's
+  `registration.json` (see [`RECOVERY.md`](RECOVERY.md), #214).
+- **The cross-device milestone is now closed on mainnet.** The first eight mainnet sends were signed
+  on a single machine (seven with co-located CLI shares; the eighth, `3022420a…`, two browser tabs on
+  one machine). Since then a broadcast across **separate, independently-controlled physical devices**,
+  carried to a confirmed txid, has been proven: `aec83baf…` (proposed and approved by Michael,
+  co-signed by Daniel on a different computer in a different place) and `2d861b8f…` (the closing
+  signature made on an **Android phone**). This was the exact next step an independent review of the
+  ZecHub FROST projects (2026-07-29) named as the meaningful one, and which none of the six had
+  reached at that cutoff.
 - **Browser-signed broadcast (two tabs, one machine) - PROVEN on mainnet (2026-07-30).** `/net` over
   a blind relay is no longer "verified but not broadcast": a browser-DKG **2-of-2** vault (created
   live in two browser tabs - both on one machine - over the hosted relay, key never reconstituted)
@@ -83,7 +128,8 @@ Any statement of the form "the app payment used DKG" is **false**. Only `aab00f9
   BROWSER** - each **tab** contributing only its own share over the blind relay - after which the
   blind helper (`orchestrator::net_send`, Architecture B) injected and broadcast it. Mined: txid
   `3022420a8bcf17ffd5511163c18ee9b5996a3ba44747e4eff6794bdd3f04ccee` (block 3,429,922, V6/NU6.3).
-  What it does **not** yet show: those two tabs on **separate devices** (see the open milestone above).
+  It was two tabs on **one machine**; the separate-physical-devices milestone was closed later on
+  mainnet (`aec83baf…`, `2d861b8f…`, above).
   - The unlock: `konclave-wasm` was ported to the Ironwood librustzcash pin (pczt v2, pool-aware
     `extract_randomizers`/`inject_sigs` for Orchard **and** Ironwood), staying wasm-clean (0
     secp256k1). Before this the browser WASM could not parse a V6 PCZT (`UnknownVersion(2)`).
@@ -121,13 +167,15 @@ Any statement of the form "the app payment used DKG" is **false**. Only `aab00f9
   view-only balance dropping by exactly the ZIP-317 fee (10000 zat) after an independent sync. This
   is the full self-service pipeline (register, receive, balance, sign, broadcast, ceremony record) a
   real user anywhere would drive, over public infrastructure, proven end to end.
-  - Still **testnet, not mainnet**, and still **two browser tabs on one machine**, not separate
-    physical devices (the open milestone at the top of this section stands unchanged).
-  - **Deployment update (2026-08):** the hosted share-blind helper is now **deployed on Zcash
-    mainnet** on Railway (non-root container, durable volume) and serves **~26 live vaults**. That is
-    a deployment fact, not a send proof: there is **no mainnet hosted-helper send txid yet**, so the
-    Architecture-B end-to-end send above remains **proven on testnet only**. The mainnet proof set
-    stands at **12 txids** (`docs/PROOF.md`), unchanged by this deployment.
+  - That specific proof was **testnet** and **two browser tabs on one machine**. The cross-device,
+    mainnet milestone it left open has since been closed on mainnet (`aec83baf…`, separate physical
+    machines; `2d861b8f…`, an Android phone).
+  - **Update (2026-08-30):** the hosted share-blind helper runs on Zcash **mainnet** (Railway,
+    non-root container, durable volume) and, after a census that reversibly retired disposable test
+    vaults, serves **5 active vaults** (was ~26). Architecture B is now **proven on mainnet**, not only
+    on testnet: browser-signed sends over the hosted, public, share-blind helper, including **across
+    separate physical machines** (`aec83baf…`) and with the **relay blind to the payment**
+    (`047fe6ca…`). The mainnet proof set stands at **15 txids** (`docs/PROOF.md`).
   - Two hosted-helper bugs were found and fixed in the process: the helper image shipped without
     `curl` (its relay transport shells out to curl, so the publish step failed at "curl spawn"); and
     the helper's signing-collection window (`max_polls`) was too short for the browser ceremony over
