@@ -189,8 +189,7 @@ pub fn seal_request_wire(req: &SignRequest, device_pubs: &[String]) -> Result<St
             .try_into()
             .map_err(|_| "device pubkey must be 32 bytes".to_string())?;
         // AAD = the recipient pubkey, so a box cannot be replayed into a different device's slot.
-        let sealed_key =
-            konclave_seal::seal(&pk, &key, &pk).map_err(|e| format!("seal: {e}"))?;
+        let sealed_key = konclave_seal::seal(&pk, &key, &pk).map_err(|e| format!("seal: {e}"))?;
         boxes.insert(ph.clone(), hexenc(&sealed_key));
     }
     serde_json::to_string(&SealedRequest {
@@ -286,8 +285,14 @@ mod tests {
 
         // THE POINT: the relay sees only ciphertext - the sighash and the PCZT must not appear.
         assert!(wire.contains(SEALED_REQUEST_KIND), "sealed wire kind");
-        assert!(!wire.contains(&req.sighash), "the sighash must not leak to the relay");
-        assert!(!wire.contains(&req.pczt_hex), "the PCZT must not leak to the relay");
+        assert!(
+            !wire.contains(&req.sighash),
+            "the sighash must not leak to the relay"
+        );
+        assert!(
+            !wire.contains(&req.pczt_hex),
+            "the PCZT must not leak to the relay"
+        );
 
         // Device A opens its own box for the key (AAD = its pubkey), then opens the shared body.
         let sealed: SealedRequest = serde_json::from_str(&wire).unwrap();
@@ -300,7 +305,10 @@ mod tests {
         let got: SignRequest =
             serde_json::from_slice(&konclave_seal::open_body(&key, &body).unwrap()).unwrap();
         assert_eq!(got, req);
-        assert!(sealed.boxes.contains_key(&pub_b), "device B has its own box too");
+        assert!(
+            sealed.boxes.contains_key(&pub_b),
+            "device B has its own box too"
+        );
 
         // A device NOT in the set cannot open A's box.
         let mallory = device_key_from_share(b"outsider share");

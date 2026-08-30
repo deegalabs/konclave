@@ -535,11 +535,7 @@ pub fn load_device_keys(vaults_dir: &Path, vault: &str) -> Vec<String> {
 /// read the cleartext request TODAY (the vault-id capability, #388). So sealing is a strict gain
 /// against the relay operator and a room-holder who lacks the group key; authenticating the registrant
 /// is the #392/#288 layer, tracked separately.
-pub fn add_device_key(
-    vaults_dir: &Path,
-    vault: &str,
-    device_pub: &str,
-) -> Result<bool, ToolError> {
+pub fn add_device_key(vaults_dir: &Path, vault: &str, device_pub: &str) -> Result<bool, ToolError> {
     let device_pub = device_pub.trim();
     let mut keys = load_device_keys(vaults_dir, vault);
     if keys.iter().any(|k| k == device_pub) {
@@ -588,7 +584,9 @@ pub fn set_read_key(vaults_dir: &Path, vault: &str, read_key: &str) -> Result<()
 pub fn read_authorized(vaults_dir: &Path, vault: &str, presented: Option<&str>) -> bool {
     match load_read_key(vaults_dir, vault) {
         None => true, // not migrated: the gate is open
-        Some(expected) => presented.is_some_and(|p| ct_eq(p.trim().as_bytes(), expected.as_bytes())),
+        Some(expected) => {
+            presented.is_some_and(|p| ct_eq(p.trim().as_bytes(), expected.as_bytes()))
+        }
     }
 }
 
@@ -1355,23 +1353,39 @@ mod tests {
         // #388 Passo 2: reads are gated by a per-vault readKey = HKDF(S, "read"). A vault with no
         // readKey keeps accepting reads untokened (compat during migration); once a readKey is set,
         // a read must present exactly it.
-        let dir = std::env::temp_dir().join(format!("konclave-readkey-test-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("konclave-readkey-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
 
         // No key yet: the gate is OPEN, with or without a presented token.
         assert!(load_read_key(&dir, "v").is_none(), "starts with no readKey");
         assert!(read_authorized(&dir, "v", None), "open when no key is set");
-        assert!(read_authorized(&dir, "v", Some("whatever")), "open ignores any token when no key");
+        assert!(
+            read_authorized(&dir, "v", Some("whatever")),
+            "open ignores any token when no key"
+        );
 
         // Set the key: now a read must present it.
         set_read_key(&dir, "v", "deadbeef").unwrap();
         assert_eq!(load_read_key(&dir, "v").as_deref(), Some("deadbeef"));
-        assert!(read_authorized(&dir, "v", Some("deadbeef")), "the right token passes");
-        assert!(!read_authorized(&dir, "v", Some("wrong")), "a wrong token is refused");
-        assert!(!read_authorized(&dir, "v", None), "a migrated vault refuses an untokened read");
+        assert!(
+            read_authorized(&dir, "v", Some("deadbeef")),
+            "the right token passes"
+        );
+        assert!(
+            !read_authorized(&dir, "v", Some("wrong")),
+            "a wrong token is refused"
+        );
+        assert!(
+            !read_authorized(&dir, "v", None),
+            "a migrated vault refuses an untokened read"
+        );
 
         // The gate is per-vault: another vault with no key is still open.
-        assert!(read_authorized(&dir, "other", None), "a different vault has its own gate");
+        assert!(
+            read_authorized(&dir, "other", None),
+            "a different vault has its own gate"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
