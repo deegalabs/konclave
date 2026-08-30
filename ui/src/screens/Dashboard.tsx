@@ -11,7 +11,7 @@ import { rankDesk, type Band } from '../desk'
 import { balanceParts } from '../balance-parts'
 import { participation } from '../participation'
 import { usdEnabled, setUsdEnabled, cachedRate, rateIsStale, fetchRate, zecToUsd, type Rate } from '../price'
-import { CONFIRMATIONS_UNTRUSTED, getTransactions } from '../api'
+import { CONFIRMATIONS_UNTRUSTED, getTransactions, getSelectedVault } from '../api'
 import { useT, useTr } from '../i18n'
 import {
   getVault, getProposals, getBalance, getLedger, health, shortAddr, isVaultUnlocked,
@@ -314,9 +314,11 @@ export default function Dashboard() {
   }
 
 
-  // #388: is this vault protected by S? The unlocked share carries it when secured. `undefined`
-  // means unknown (no in-session unlocked share, e.g. a local/bridge vault) -> show no banner.
-  const unlockedShare = vault ? getUnlockedShare(vault.id) : undefined
+  // #388: is this vault protected by S? Keyed on the SELECTED vault id (not the helper-fetched
+  // vault), so the state shows even if the helper has not answered. The unlocked share carries S
+  // when secured; `undefined` = unknown (no in-session share, e.g. a local/bridge vault) -> no banner.
+  const selId = getSelectedVault()
+  const unlockedShare = selId ? getUnlockedShare(selId) : undefined
   const secured = unlockedShare ? unlockedShare.accessSecret != null : undefined
 
   // Nothing renders until the first full fetch is in - no half-built page with placeholders.

@@ -234,7 +234,7 @@ export default function Vaults() {
               <div key={v.id} className="rd-card" role="button" tabIndex={0}
                 onClick={() => enter(row)} onKeyDown={activateOnKey(() => enter(row))}>
                 <span className="rd-qtag">{v.threshold > 0 ? t('vaults.quorumOf', { t: v.threshold, n: v.total }) : t('vaults.networkedTag')}{v.locked ? ` · ${t('vaults.lockedTag')}` : ''}</span>
-                {v.secured === true && <span className="rd-sectag safe" title={t('vaults.securedHint')}>🔒 {t('vaults.securedBadge')}</span>}
+                {v.secured === true && <span className="rd-sectag safe" title={t('vaults.securedHint')}>{t('vaults.securedBadge')}</span>}
                 {v.secured === false && <span className="rd-sectag open" title={t('vaults.openHint')}>⚠ {t('vaults.openBadge')}</span>}
                 <h3>{v.name}</h3>
                 <div className="rd-avatars">
