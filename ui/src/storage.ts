@@ -290,13 +290,10 @@ export async function loadVault(id: string, passphrase: string): Promise<VaultLo
   }
 }
 
-/**
- * A portable vault export (#214). Carries the PUBLIC metadata plus the share exactly as it lives at
- * rest: AES-GCM ciphertext + its salt/iv. The secret is NEVER exported in the clear - the bundle is
- * only useful to someone who also knows the passphrase. Import re-persists it on another device (or
- * another backend), so a member is never locked to one machine. `groupKey`/`salt`/`iv`/`cipher` hex.
- */
-export interface VaultExport {
+/** A v1 export: public metadata in the CLEAR plus the sealed share (salt/iv/cipher). Kept only so a
+ *  backup made before v2 still imports; its metadata (id, address, member names) is cleartext, which
+ *  is exactly what v2 closes. `secret*`/`beneficiaries` are optional (some late-v1 builds carried them). */
+export interface VaultExportV1 {
   format: 'konclave-vault-export'
   version: 1
   exportedAt: number
@@ -313,7 +310,41 @@ export interface VaultExport {
     salt: string
     iv: string
     cipher: string
+    secretIv?: string
+    secretCipher?: string
+    beneficiaries?: unknown[]
   }
+}
+
+/** A v2 export: a SINGLE opaque blob. Everything - metadata, the share, the #388 secret S, the
+ *  beneficiaries - is encrypted under the passphrase, so a leaked export file reveals nothing (not
+ *  even the vault id, address, or member names) without the passphrase. Only the envelope
+ *  (format/version/salt/iv) is cleartext, and none of it is sensitive. */
+export interface VaultExportV2 {
+  format: 'konclave-vault-export'
+  version: 2
+  exportedAt: number
+  salt: string
+  iv: string
+  cipher: string
+}
+
+export type VaultExport = VaultExportV1 | VaultExportV2
+
+/** The plaintext inside a v2 blob (encrypted at rest inside `cipher`). Hex for the byte fields. */
+interface V2Payload {
+  id: string
+  name?: string
+  governance?: Governance
+  myName?: string
+  creatorName?: string
+  groupKey: string
+  address: string
+  roster: string[]
+  createdAt: number
+  share: string
+  accessSecret: string | null
+  beneficiaries: unknown[]
 }
 
 /**
@@ -321,48 +352,71 @@ export interface VaultExport {
  * bundle is guaranteed usable on import), then serializes the ENCRYPTED record - never the plaintext
  * share. The result is safe to store anywhere: without the passphrase it is opaque ciphertext.
  */
-export async function exportVault(id: string, passphrase: string): Promise<VaultExport> {
+/** The localStorage key the payee address-book lives under (mirrors `benefKey` in api.ts). Read/write
+ *  it directly here so a vault export/import carries the beneficiaries without a cycle through api.ts. */
+function beneficiariesKey(id: string): string {
+  return `konclave.benef.${id}`
+}
+function readBeneficiaries(id: string): unknown[] {
+  try {
+    if (typeof localStorage === 'undefined') return []
+    return JSON.parse(localStorage.getItem(beneficiariesKey(id)) ?? '[]') as unknown[]
+  } catch {
+    return []
+  }
+}
+function writeBeneficiaries(id: string, list: unknown[]): void {
+  try {
+    if (typeof localStorage === 'undefined' || !Array.isArray(list) || list.length === 0) return
+    localStorage.setItem(beneficiariesKey(id), JSON.stringify(list))
+  } catch {
+    /* storage blocked/full - the vault still imports, just without its payee list */
+  }
+}
+
+/**
+ * Build a portable v2 export: a SINGLE opaque blob. Everything the device needs to operate the vault
+ * - metadata, the share, the #388 secret S, and the beneficiaries - is encrypted under the passphrase
+ * (a fresh salt/iv), so a leaked export file reveals nothing without the passphrase, not even the
+ * vault id, address, or member names. Verifies the passphrase unlocks the share before exporting, so
+ * the bundle is guaranteed importable.
+ */
+export async function exportVault(id: string, passphrase: string): Promise<VaultExportV2> {
   if (!storageAvailable()) throw new Error('This browser cannot read the vault (no IndexedDB/WebCrypto)')
   if (!passphrase) throw new Error('A passphrase is required to export the vault')
 
-  const db = await openDb()
-  let record: VaultRecord | undefined
-  try {
-    const tx = db.transaction(STORE, 'readonly')
-    record = await reqDone(tx.objectStore(STORE).get(id) as IDBRequest<VaultRecord | undefined>)
-    await txDone(tx)
-  } finally {
-    db.close()
-  }
-  if (!record) throw new Error('No saved vault with that id on this device')
+  // loadVault decrypts the share + S with the passphrase (and throws on a wrong one), so the export
+  // is guaranteed usable and we never touch ciphertext we could not open.
+  const loaded = await loadVault(id, passphrase)
 
-  // Verify the passphrase actually unlocks the share (AES-GCM auth). We export the original
-  // ciphertext unchanged, so the SAME passphrase unlocks it after import.
-  const key = await deriveKey(passphrase, record.salt)
-  try {
-    await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bufOf(record.iv) }, key, bufOf(record.cipher))
-  } catch {
-    throw new Error('Wrong passphrase, or the saved vault was tampered with')
+  const payload: V2Payload = {
+    id,
+    name: loaded.name,
+    governance: loaded.governance,
+    myName: loaded.myName,
+    creatorName: loaded.creatorName,
+    groupKey: hex(loaded.groupKey),
+    address: loaded.address,
+    roster: loaded.roster,
+    createdAt: loaded.createdAt,
+    share: hex(loaded.sealedShare),
+    accessSecret: loaded.accessSecret ? hex(loaded.accessSecret) : null,
+    beneficiaries: readBeneficiaries(id),
   }
+
+  const salt = crypto.getRandomValues(new Uint8Array(16))
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const key = await deriveKey(passphrase, salt)
+  const plaintext = new TextEncoder().encode(JSON.stringify(payload))
+  const cipher = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: bufOf(iv) }, key, bufOf(plaintext))
 
   return {
     format: 'konclave-vault-export',
-    version: 1,
+    version: 2,
     exportedAt: Date.now(),
-    vault: {
-      id: record.id,
-      name: record.name,
-      governance: record.governance,
-      myName: record.myName,
-      creatorName: record.creatorName,
-      groupKey: record.groupKey,
-      address: record.address,
-      roster: record.roster,
-      createdAt: record.createdAt,
-      salt: hex(record.salt),
-      iv: hex(record.iv),
-      cipher: hex(record.cipher),
-    },
+    salt: hex(salt),
+    iv: hex(iv),
+    cipher: hex(new Uint8Array(cipher)),
   }
 }
 
@@ -374,20 +428,105 @@ export function parseVaultExport(raw: string): VaultExport {
   } catch {
     throw new Error('This does not look like a Konclave vault export (not valid JSON)')
   }
-  const b = obj as Partial<VaultExport>
-  if (!b || b.format !== 'konclave-vault-export') throw new Error('This is not a Konclave vault export')
-  if (b.version !== 1) throw new Error('Unsupported export version - update Konclave')
-  const v = b.vault
-  if (!v || !v.id || !v.groupKey || !v.cipher || !v.salt || !v.iv || !Array.isArray(v.roster)) {
-    throw new Error('The export is incomplete or corrupt')
+  const b = obj as {
+    format?: unknown
+    version?: unknown
+    salt?: unknown
+    iv?: unknown
+    cipher?: unknown
+    vault?: VaultExportV1['vault']
   }
-  return b as VaultExport
+  if (!b || b.format !== 'konclave-vault-export') throw new Error('This is not a Konclave vault export')
+  if (b.version === 2) {
+    if (!b.salt || !b.iv || !b.cipher) throw new Error('The export is incomplete or corrupt')
+    return b as unknown as VaultExportV2
+  }
+  if (b.version === 1) {
+    const v = b.vault
+    if (!v || !v.id || !v.groupKey || !v.cipher || !v.salt || !v.iv || !Array.isArray(v.roster)) {
+      throw new Error('The export is incomplete or corrupt')
+    }
+    return b as unknown as VaultExportV1
+  }
+  throw new Error('Unsupported export version - update Konclave')
 }
 
 /**
  * Import a vault export onto THIS device. Verifies the passphrase decrypts the share before writing
  * anything (never imports a share the user cannot unlock). Refuses to overwrite an existing vault of
  * the same id unless `overwrite` is set. Returns the imported vault's public metadata.
+ */
+/** What both export formats decode to before re-persisting: metadata + the raw share bytes + the
+ *  optional #388 secret S + the optional beneficiaries. */
+interface DecodedImport {
+  id: string
+  name?: string
+  governance?: Governance
+  myName?: string
+  creatorName?: string
+  groupKey: Uint8Array
+  address: string
+  roster: string[]
+  createdAt: number
+  share: Uint8Array
+  accessSecret?: Uint8Array
+  beneficiaries?: unknown[]
+}
+
+/** Decode a v2 opaque blob: decrypt the whole payload with the passphrase, then read the fields. */
+async function decodeV2(b: VaultExportV2, passphrase: string): Promise<DecodedImport> {
+  if (!b.salt || !b.iv || !b.cipher) throw new Error('The export is incomplete or corrupt')
+  const key = await deriveKey(passphrase, unhex(b.salt))
+  let plainBuf: ArrayBuffer
+  try {
+    plainBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bufOf(unhex(b.iv)) }, key, bufOf(unhex(b.cipher)))
+  } catch {
+    throw new Error('Wrong passphrase for this export')
+  }
+  let p: V2Payload
+  try {
+    p = JSON.parse(new TextDecoder().decode(plainBuf)) as V2Payload
+  } catch {
+    throw new Error('The export is corrupt')
+  }
+  if (!p.id || !p.groupKey || !p.share || !Array.isArray(p.roster)) throw new Error('The export is incomplete or corrupt')
+  return {
+    id: p.id, name: p.name, governance: p.governance, myName: p.myName, creatorName: p.creatorName,
+    groupKey: unhex(p.groupKey), address: p.address, roster: p.roster, createdAt: p.createdAt || Date.now(),
+    share: unhex(p.share), accessSecret: p.accessSecret ? unhex(p.accessSecret) : undefined,
+    beneficiaries: Array.isArray(p.beneficiaries) ? p.beneficiaries : undefined,
+  }
+}
+
+/** Decode a legacy v1 bundle: the share is `cipher` (decrypt it); metadata is cleartext. */
+async function decodeV1(b: VaultExportV1, passphrase: string): Promise<DecodedImport> {
+  const v = b.vault
+  if (!v || !v.id || !v.cipher || !v.salt || !v.iv) throw new Error('The export is incomplete or corrupt')
+  const key = await deriveKey(passphrase, unhex(v.salt))
+  let shareBuf: ArrayBuffer
+  try {
+    shareBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bufOf(unhex(v.iv)) }, key, bufOf(unhex(v.cipher)))
+  } catch {
+    throw new Error('Wrong passphrase for this export')
+  }
+  let accessSecret: Uint8Array | undefined
+  if (v.secretIv && v.secretCipher) {
+    try {
+      accessSecret = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bufOf(unhex(v.secretIv)) }, key, bufOf(unhex(v.secretCipher))))
+    } catch { /* a corrupt late-v1 S field: import the share without it */ }
+  }
+  return {
+    id: v.id, name: v.name, governance: v.governance, myName: v.myName, creatorName: v.creatorName,
+    groupKey: unhex(v.groupKey), address: v.address, roster: v.roster, createdAt: v.createdAt || Date.now(),
+    share: new Uint8Array(shareBuf), accessSecret,
+    beneficiaries: Array.isArray(v.beneficiaries) ? v.beneficiaries : undefined,
+  }
+}
+
+/**
+ * Import an export bundle (v1 or v2) and re-persist it on this device. The secrets (share, S) are
+ * re-encrypted at rest under the passphrase with a fresh salt/iv; the beneficiaries are restored.
+ * Refuses to clobber a different vault with the same id unless `overwrite`.
  */
 export async function importVault(
   bundle: VaultExport,
@@ -396,38 +535,31 @@ export async function importVault(
 ): Promise<VaultPublic> {
   if (!storageAvailable()) throw new Error('This browser cannot store the vault (no IndexedDB/WebCrypto)')
   if (!passphrase) throw new Error('A passphrase is required to import the vault')
-  const v = bundle?.vault
-  if (!v || !v.id || !v.cipher || !v.salt || !v.iv) throw new Error('The export is incomplete or corrupt')
 
-  const salt = unhex(v.salt)
-  const iv = unhex(v.iv)
-  const cipher = unhex(v.cipher)
-
-  // Verify the passphrase unlocks the share before persisting - so an import is always usable.
-  const key = await deriveKey(passphrase, salt)
-  try {
-    await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bufOf(iv) }, key, bufOf(cipher))
-  } catch {
-    throw new Error('Wrong passphrase for this export')
-  }
+  const d = bundle?.version === 2
+    ? await decodeV2(bundle, passphrase)
+    : await decodeV1(bundle as VaultExportV1, passphrase)
 
   // Never silently clobber a different vault already on this device.
-  const existing = (await listVaults()).find((s) => s.id === v.id)
+  const existing = (await listVaults()).find((s) => s.id === d.id)
   if (existing && !opts?.overwrite) throw new Error('A vault with this id already exists on this device')
 
+  // Re-encrypt the secrets at rest (fresh salt/iv), preserving the original createdAt.
+  const salt = crypto.getRandomValues(new Uint8Array(16))
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const key = await deriveKey(passphrase, salt)
+  const cipher = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: bufOf(iv) }, key, bufOf(d.share)))
+  let secretIv: Uint8Array | undefined
+  let secretCipher: Uint8Array | undefined
+  if (d.accessSecret) {
+    secretIv = crypto.getRandomValues(new Uint8Array(12))
+    secretCipher = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: bufOf(secretIv) }, key, bufOf(d.accessSecret)))
+  }
+
   const record: VaultRecord = {
-    id: v.id,
-    name: v.name,
-    governance: v.governance,
-    myName: v.myName,
-    creatorName: v.creatorName,
-    groupKey: v.groupKey,
-    address: v.address,
-    roster: v.roster,
-    createdAt: v.createdAt || Date.now(),
-    salt,
-    iv,
-    cipher,
+    id: d.id, name: d.name, governance: d.governance, myName: d.myName, creatorName: d.creatorName,
+    groupKey: hex(d.groupKey), address: d.address, roster: d.roster, createdAt: d.createdAt,
+    salt, iv, cipher, secretIv, secretCipher,
   }
 
   const db = await openDb()
@@ -439,18 +571,13 @@ export async function importVault(
     db.close()
   }
 
+  if (d.beneficiaries) writeBeneficiaries(d.id, d.beneficiaries)
   void requestPersistentStorage()
 
   return {
-    id: record.id,
-    name: record.name,
-    governance: record.governance,
-    myName: record.myName,
-    creatorName: record.creatorName,
-    groupKey: record.groupKey,
-    address: record.address,
-    roster: record.roster,
-    createdAt: record.createdAt,
+    id: record.id, name: record.name, governance: record.governance, myName: record.myName,
+    creatorName: record.creatorName, groupKey: record.groupKey, address: record.address,
+    roster: record.roster, createdAt: record.createdAt, secured: !!record.secretCipher,
   }
 }
 

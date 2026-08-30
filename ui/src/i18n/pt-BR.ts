@@ -315,6 +315,8 @@ export const ptBR: Record<string, string> = {
   'import.notRecognized': 'Isto ainda não parece uma exportação de cofre da Konclave.',
   'import.previewMembers': '{n} membros',
   'import.valid': 'válido',
+  'import.encryptedBackup': 'Backup cifrado do cofre',
+  'import.encryptedMeta': 'Selado. O cofre aparece ao destravar.',
   'import.stillSealed': 'Seu pedaço da chave continua lacrado até a frase-senha estar certa.',
   'import.orFile': 'ou escolher um arquivo…',
   'import.passPlaceholder': 'A frase-senha do cofre',
