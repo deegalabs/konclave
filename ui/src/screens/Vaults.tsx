@@ -298,11 +298,23 @@ export default function Vaults() {
             // Stage B: validated — show a preview from the public metadata, then unlock with the passphrase.
             <>
               <div className="imp-preview">
-                <Identicon seed={impParsed.vault.groupKey || impParsed.vault.id} size={40} />
-                <div className="imp-preview-main">
-                  <div className="imp-preview-nm">{impParsed.vault.name || t('vaults.networkedVault')}</div>
-                  <div className="imp-preview-meta mono">{t('import.previewMembers', { n: impParsed.vault.roster.length })} · {shortAddr(impParsed.vault.id, 6, 4)}</div>
-                </div>
+                {impParsed.version === 2 ? (
+                  <>
+                    <Identicon seed="konclave-encrypted-backup" size={40} />
+                    <div className="imp-preview-main">
+                      <div className="imp-preview-nm">{t('import.encryptedBackup')}</div>
+                      <div className="imp-preview-meta mono">{t('import.encryptedMeta')}</div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <Identicon seed={impParsed.vault.groupKey || impParsed.vault.id} size={40} />
+                    <div className="imp-preview-main">
+                      <div className="imp-preview-nm">{impParsed.vault.name || t('vaults.networkedVault')}</div>
+                      <div className="imp-preview-meta mono">{t('import.previewMembers', { n: impParsed.vault.roster.length })} · {shortAddr(impParsed.vault.id, 6, 4)}</div>
+                    </div>
+                  </>
+                )}
                 <span className="imp-preview-ok mono">✓ {t('import.valid')}</span>
               </div>
               <input className="unlock-input mono" type="password" style={{ marginTop: 12 }} placeholder={t('import.passPlaceholder')}

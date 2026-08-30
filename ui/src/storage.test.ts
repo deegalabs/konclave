@@ -65,20 +65,24 @@ describe('storage - encrypted IndexedDB persistence', () => {
   })
 })
 
-describe('storage - portable vault export/import (#214)', () => {
+describe('storage - portable vault export/import (v2 opaque + v1 compat, #214/#388)', () => {
   const pass = 'move-me-to-another-device'
+  const shareHex = share.reduce((s, b) => s + b.toString(16).padStart(2, '0'), '')
 
-  it('exports an encrypted bundle that never contains the plaintext share', async () => {
+  it('exports a v2 opaque blob that leaks no metadata or share', async () => {
     await saveVault('exp1', data, pass)
     const bundle = await exportVault('exp1', pass)
     expect(bundle.format).toBe('konclave-vault-export')
-    expect(bundle.version).toBe(1)
-    expect(bundle.vault.id).toBe('exp1')
-    expect(bundle.vault.groupKey).toBe('07'.repeat(32))
-    // The 1..32 secret share bytes must never appear anywhere in the serialized bundle.
+    expect(bundle.version).toBe(2)
+    expect(bundle).not.toHaveProperty('vault')
+    expect(bundle.cipher.length).toBeGreaterThan(0)
+    // Nothing sensitive is in the clear: not the share, the group key, the address, member names, or id.
     const json = JSON.stringify(bundle)
-    expect(json).not.toContain(JSON.stringify(Array.from(share)))
-    expect(json).not.toContain(share.reduce((s, b) => s + b.toString(16).padStart(2, '0'), ''))
+    expect(json).not.toContain(shareHex)
+    expect(json).not.toContain('07'.repeat(32))
+    expect(json).not.toContain('u1examplevaultaddress')
+    expect(json).not.toContain('Alice')
+    expect(json).not.toContain('exp1')
   })
 
   it('export rejects a wrong passphrase', async () => {
@@ -86,8 +90,9 @@ describe('storage - portable vault export/import (#214)', () => {
     await expect(exportVault('exp2', 'nope')).rejects.toThrow(/wrong passphrase|tampered/i)
   })
 
-  it('round-trips across a fresh device: export -> delete -> import -> load recovers the share', async () => {
-    await saveVault('exp3', data, pass)
+  it('v2 round-trips across a fresh device: export -> delete -> import -> load (with S)', async () => {
+    const accessSecret = new Uint8Array(32).fill(5)
+    await saveVault('exp3', { ...data, accessSecret }, pass)
     const bundle = await exportVault('exp3', pass)
     const roundtripped = parseVaultExport(JSON.stringify(bundle)) // survives file/paste serialization
     await deleteVault('exp3') // simulate a new device with no record
@@ -96,11 +101,13 @@ describe('storage - portable vault export/import (#214)', () => {
     const meta = await importVault(roundtripped, pass)
     expect(meta.id).toBe('exp3')
     expect(meta.name).toBe('Test vault')
+    expect(meta.secured).toBe(true)
 
     const loaded = await loadVault('exp3', pass)
     expect(Array.from(loaded.sealedShare)).toEqual(Array.from(share))
     expect(Array.from(loaded.groupKey)).toEqual(Array.from(groupKey))
     expect(loaded.roster).toEqual(['Alice', 'Bob', 'Carol'])
+    expect(Array.from(loaded.accessSecret!)).toEqual(Array.from(accessSecret))
   })
 
   it('import rejects a wrong passphrase before writing anything', async () => {
@@ -115,15 +122,49 @@ describe('storage - portable vault export/import (#214)', () => {
     await saveVault('exp5', data, pass)
     const bundle = await exportVault('exp5', pass)
     await expect(importVault(bundle, pass)).rejects.toThrow(/already exists/i)
-    // With overwrite it succeeds.
     const meta = await importVault(bundle, pass, { overwrite: true })
     expect(meta.id).toBe('exp5')
   })
 
-  it('parseVaultExport rejects junk and foreign JSON', () => {
+  it('carries the beneficiaries through v2 export -> import, sealed', async () => {
+    const store = new Map<string, string>()
+    ;(globalThis as unknown as { localStorage: Storage }).localStorage = {
+      getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v),
+      removeItem: (k: string) => void store.delete(k), clear: () => store.clear(), key: () => null, length: 0,
+    } as Storage
+    const payees = [{ id: 'p1', name: 'Rent', address: 'u1rentpayee', memo: '', is_public: false }]
+    store.set('konclave.benef.exp6', JSON.stringify(payees))
+    await saveVault('exp6', data, pass)
+    const bundle = await exportVault('exp6', pass)
+    expect(JSON.stringify(bundle)).not.toContain('u1rentpayee') // sealed, not cleartext
+    store.clear()
+    await deleteVault('exp6')
+    await importVault(bundle, pass)
+    expect(JSON.parse(store.get('konclave.benef.exp6') ?? '[]')).toEqual(payees)
+    delete (globalThis as unknown as { localStorage?: Storage }).localStorage
+  })
+
+  it('still imports a legacy v1 bundle (backward compat)', async () => {
+    // Build a v1 bundle by hand: cipher = AES-GCM(passphrase) of the share, as v1 stored it.
+    const salt = crypto.getRandomValues(new Uint8Array(16))
+    const iv = crypto.getRandomValues(new Uint8Array(12))
+    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveKey'])
+    const key = await crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: 210_000, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
+    const cipher = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, share))
+    const hx = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('')
+    const v1 = { format: 'konclave-vault-export', version: 1, exportedAt: Date.now(), vault: { id: 'v1imp', name: 'Legacy', groupKey: hx(groupKey), address: 'u1legacy', roster: ['A', 'B'], createdAt: 111, salt: hx(salt), iv: hx(iv), cipher: hx(cipher) } }
+    const parsed = parseVaultExport(JSON.stringify(v1))
+    const meta = await importVault(parsed, pass)
+    expect(meta.id).toBe('v1imp')
+    expect(meta.secured).toBe(false) // a v1 export has no S
+    expect(Array.from((await loadVault('v1imp', pass)).sealedShare)).toEqual(Array.from(share))
+  })
+
+  it('parseVaultExport accepts v2, rejects junk, foreign JSON, and unknown versions', () => {
     expect(() => parseVaultExport('not json')).toThrow(/not valid JSON|not a Konclave/i)
     expect(() => parseVaultExport(JSON.stringify({ format: 'something-else' }))).toThrow(/not a Konclave/i)
-    expect(() => parseVaultExport(JSON.stringify({ format: 'konclave-vault-export', version: 1 }))).toThrow(/incomplete|corrupt/i)
+    expect(() => parseVaultExport(JSON.stringify({ format: 'konclave-vault-export', version: 2 }))).toThrow(/incomplete|corrupt/i)
+    expect(() => parseVaultExport(JSON.stringify({ format: 'konclave-vault-export', version: 9 }))).toThrow(/Unsupported/i)
   })
 })
 

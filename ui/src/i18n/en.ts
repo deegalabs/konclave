@@ -315,6 +315,8 @@ export const en: Record<string, string> = {
   'import.notRecognized': 'This does not look like a Konclave vault export yet.',
   'import.previewMembers': '{n} members',
   'import.valid': 'valid',
+  'import.encryptedBackup': 'Encrypted vault backup',
+  'import.encryptedMeta': 'Sealed. The vault appears once you unlock it.',
   'import.stillSealed': 'Your key share stays sealed until the passphrase is right.',
   'import.orFile': 'or choose a file…',
   'import.passPlaceholder': 'The vault’s passphrase',
