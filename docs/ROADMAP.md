@@ -38,7 +38,9 @@ cycle's work:
 - ~~A **live multi-device** (not two-tab) broadcast.~~ **Done 2026-08-25** (`aec83baf`, block 3,460,285: two people, two machines, over the internet).
 
 **Open honest debts (§6.15, unchanged)**
-- **H2:** seal the SignRequest (device-key handshake, #63).
+- ~~**H2:** seal the SignRequest (device-key handshake, #63).~~ **Done 2026-08-29** (#63: sealed to
+  the devices' comms keys, ceremony carries no cleartext PCZT; proof `047fe6ca…`,
+  `docs/proof/2026-08-29-relay-blind.md`).
 - `/net` **multi-note** over the live relay (unit-tested; single-spend is live-proven).
 - **Tauri** live **per-platform hardware** validation (the desktop app is **released as v0.2.0**,
   Windows/macOS/Linux installers; what remains open is validating each platform's installer on
@@ -63,6 +65,43 @@ cycle's work:
 > **Network:** mainnet is now **NU6.3 "Ironwood"** (activated 2026-07-28, block 3,428,143), live
 > and safe. Historical phase text below that reads "NU6.2" describes the state at that phase; the
 > current consensus target is NU6.3.
+
+## Shipped since (2026-08-30) - the #388 privacy stack
+
+A leaked vault id no longer opens the treasury's books or reaches the signing room. Shipped to
+production (`konclave-demo.vercel.app` / `www.konclave.xyz`) and validated on mainnet.
+
+- **Per-vault secret `S` + reads gated (#388 / PR #402) - DONE, LIVE.** Every seated member holds a
+  fresh random `S`, minted at the DKG and sealed to members over the #63 channel, sealed at rest like
+  the share (not DKG-derived - that material is relay-observable). The helper's private reads require
+  `readKey = HKDF(S, "read")` in an `X-Konclave-Read` header (never the URL): `401` for a leaked id,
+  `200` for a member; open until a readKey is registered, so migration is per-vault. This
+  **supersedes the earlier "read access is not gated" (#267) debt.**
+- **Signing room from `S` (PR #403) - DONE, PROVEN on mainnet.** A migrated vault signs in
+  `SHA-256("konclave-sign-s " + S)[:16]`, not the public group key, so an id-only outsider can neither
+  compute nor observe it. A 2-of-2 S-vault swept its funds this way, SignRequest sealed (#63), nothing
+  in cleartext (txid `34e2a51c…`). A CORS fix (allow `X-Konclave-Read`) rode along.
+- **Security-state UI (PR #404) - DONE.** A Private/Open badge on the vault list (from the sealed-`S`
+  presence, never the secret) and an honest warning banner on an open/legacy vault; the copy is honest
+  that protecting an open vault means re-creating it, not an auto-migration.
+- **Encrypted export v2 (PR #405 / #214) - DONE.** A vault export is a single opaque blob (metadata +
+  share + `S` + beneficiaries under the passphrase); a leaked backup reveals nothing, not even the id.
+  Import reads v1 + v2. `docs/RECOVERY.md` is the runbook - the export restores the share, not the
+  vault identity/UFVK, so the full kit is the share export plus the helper's `registration.json`.
+- **Ops.** A census reversibly retired 21 disposable test vaults (26 -> 5 active, moved to
+  `/data/vaults/_retired`), a new-vault tripwire watches the production volume, and a real external
+  user created a #388-protected family vault (`882bde37…`) in the wild on 2026-08-30.
+
+**Still roadmap after #388 (§6.15)**
+- **Write auth (#288):** reads are gated, the helper's write endpoints (voting) are not - anyone with
+  the id can vote. The signing-room seat-hijack half was closed in #401 (#392 done); residual
+  ceremony-DoS vectors are #399/#400.
+- **Migrating the ~5 legacy/open vaults (#406):** a guided "Protect this vault" flow; no auto-migration.
+- **Helper single-request outage (#375)** - fixed 2026-08-28 by a worker pool (#384), pending close;
+  **no staging (#370)**.
+- **Portability is Konclave-web to Konclave-web only (#214 / #126):** desktop / `frost-client` import
+  is not wired; the relay is self-hostable and blind, but there is still **no relay-free ceremony**
+  (QR / copy-paste planned, not built).
 
 ---
 
