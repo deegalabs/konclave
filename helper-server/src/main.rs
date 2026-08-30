@@ -61,6 +61,11 @@ fn query_param<'a>(query: &'a str, key: &str) -> Option<&'a str> {
 /// The pure router. `state` is the live registry; `cfg` is the helper's tooling config. Returns the
 /// status + JSON body. Only `POST /api/vault` reaches the engine (via register_vault); every read
 /// path and every input rejection is decided here, so they are unit-testable.
+///
+/// Test-only shim: production serves through `handle_with_token` (which carries the #388 read token);
+/// the many pre-#388 tests call this no-token form (token = None = the open gate). Gated `#[cfg(test)]`
+/// so it stays out of the binary and does not trip `-D dead-code`.
+#[cfg(test)]
 fn handle(
     state: &HelperState,
     cfg: &HelperConfig,
