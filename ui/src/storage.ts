@@ -36,6 +36,10 @@ export interface VaultPublic {
   address: string
   roster: string[]
   createdAt: number
+  /** #388: whether this vault holds the per-vault secret S (its reads + signing room are gated).
+   *  `false` = a legacy/open vault (a leaked id can read its books). Derived from the presence of the
+   *  sealed S, never the secret itself, so it is safe to expose without unlocking. */
+  secured?: boolean
 }
 
 /** Plaintext payload handed to saveVault; `sealedShare` is the secret to be encrypted at rest. */
@@ -464,7 +468,7 @@ export async function listVaults(): Promise<VaultPublic[]> {
     const records = await reqDone(tx.objectStore(STORE).getAll() as IDBRequest<VaultRecord[]>)
     await txDone(tx)
     return records
-      .map((r) => ({ id: r.id, name: r.name, governance: r.governance, myName: r.myName, creatorName: r.creatorName, groupKey: r.groupKey, address: r.address, roster: r.roster, createdAt: r.createdAt }))
+      .map((r) => ({ id: r.id, name: r.name, governance: r.governance, myName: r.myName, creatorName: r.creatorName, groupKey: r.groupKey, address: r.address, roster: r.roster, createdAt: r.createdAt, secured: !!r.secretCipher }))
       .sort((a, b) => b.createdAt - a.createdAt)
   } finally {
     db.close()

@@ -42,7 +42,7 @@ describe('storage - encrypted IndexedDB persistence', () => {
     const v = list.find((x) => x.id === 'v1')
     expect(v).toBeTruthy()
     expect(v).not.toHaveProperty('sealedShare')
-    expect(Object.keys(v!).sort()).toEqual(['address', 'createdAt', 'creatorName', 'governance', 'groupKey', 'id', 'myName', 'name', 'roster'])
+    expect(Object.keys(v!).sort()).toEqual(['address', 'createdAt', 'creatorName', 'governance', 'groupKey', 'id', 'myName', 'name', 'roster', 'secured'])
     expect(v!.name).toBe('Test vault')
     expect(v!.governance).toBe('quorum')
     expect(v!.myName).toBe('Alice')
@@ -147,6 +147,14 @@ describe('storage - per-vault access secret (#388)', () => {
     await saveVault('sec2', data, 'pw') // no accessSecret
     const loaded = await loadVault('sec2', 'pw')
     expect(loaded.accessSecret).toBeUndefined()
+  })
+
+  it('listVaults reports whether a vault is secured (has S) - never the secret itself', async () => {
+    await saveVault('secured1', { ...data, accessSecret }, 'pw')
+    await saveVault('open1', data, 'pw') // no accessSecret -> legacy/open vault
+    const list = await listVaults()
+    expect(list.find((v) => v.id === 'secured1')?.secured).toBe(true)
+    expect(list.find((v) => v.id === 'open1')?.secured).toBe(false)
   })
 
   it('never leaks the access secret bytes into public metadata', async () => {
