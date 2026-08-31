@@ -113,6 +113,18 @@ and both Ironwood-migration sends are trusted-dealer.
   **signing seat**, not the vault's on-chain **identity** (the address/UFVK are random at registration
   and not reproducible from the share); the full kit is the share export **plus** the helper's
   `registration.json` (see [`RECOVERY.md`](RECOVERY.md), #214).
+- **The AI assistant cannot move money - state the guarantee precisely, and its limit.** What is
+  true and checkable: `mcp-server/` registers exactly **eight** tools - six read-only (`list_vaults`,
+  `get_vault`, `get_balance`, `get_transactions`, `list_proposals`, `get_ledger`) and two draft
+  (`propose_payment`, `propose_payroll`) - and there is **no** approve, sign, send or broadcast tool
+  among them; a drafted proposal is created *awaiting approval* and moves zero funds. The guarantee is **structural** - the capability
+  does not exist - not a behavioural promise about a model. What it does **not** claim: that an
+  assistant cannot influence an outcome. It can draft a proposal with a destination or an amount a
+  human should refuse, and if the quorum approves it, the money moves. The defence there is the same
+  as for any proposal: the preview, the explicit confirmation, and the on-device sighash check (H1) -
+  not the MCP boundary. Related, and worth saying because outside readers assume otherwise: the MCP
+  server is **not** the coordinator of the FROST ceremony (that is the blind helper); an AI is never
+  on the critical path of a spend.
 - **The cross-device milestone is now closed on mainnet.** The first eight mainnet sends were signed
   on a single machine (seven with co-located CLI shares; the eighth, `3022420a…`, two browser tabs on
   one machine). Since then a broadcast across **separate, independently-controlled physical devices**,

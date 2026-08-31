@@ -186,6 +186,18 @@ not promise what we do not deliver.
   material crosses it; your share never leaves your device.
 - **Enforced by the product (not the chain):** quorum-by-value, balance reservation, and proposal
   expiry are application policy, not on-chain-enforced rules. We say so plainly.
+- **Who coordinates, and what that role is trusted with:** pure FROST does not define message
+  transport, member identity, or who assembles the transaction, so *something* has to coordinate.
+  Here that is the **blind helper**: it builds and proves the transaction, hosts the signing round,
+  and broadcasts the result. It is trusted for **availability**, never for secrets or authority - it
+  never receives a share, and it cannot spend without a quorum. The relay is a blind mailbox: since
+  #63 the signing request is sealed to the members' device keys, so it carries ciphertext, not the
+  recipient or the amount.
+- **The AI assistant is off the money path, structurally:** [`mcp-server/`](mcp-server/) exposes a
+  vault to an AI assistant that can **read** the books and **draft** a proposal, and deliberately has
+  **no tool to approve, sign, or broadcast**. A drafted proposal is created *awaiting approval* and
+  moves zero funds until humans act on it. The coordinator is the blind helper, not the MCP server:
+  the assistant proposes and informs, the human quorum decides, and the shares sign on the devices.
 - **Security posture:** shares are sealed at rest (XChaCha20-Poly1305, Argon2id-derived key, key in
   the OS keychain) and unsealed only to ephemeral `0600` files in tmpfs during signing; the local
   bridge is guarded against CSRF/DNS-rebinding; secret material is zeroized in memory; destinations
