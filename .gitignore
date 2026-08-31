@@ -63,5 +63,8 @@ logs/
 .vercel
 .env*
 
-# Claude Code worktrees/scratch
-.claude/
+# Claude Code local state stays out, but project skills are versioned.
+# NOTE: must exclude the CONTENTS (.claude/*), not the directory (.claude/),
+# or git never descends into it and the negation below has no effect.
+.claude/*
+!.claude/skills/
