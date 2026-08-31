@@ -12,6 +12,7 @@ import {
 import { listVaults } from '../storage'
 import { RecipientCombobox } from '../RecipientCombobox'
 import { usdEnabled, setUsdEnabled, cachedRate, rateIsStale, fetchRate, zecToUsd, type Rate } from '../price'
+import { proposeBlock } from '../propose-guard'
 
 const DRAFT_KEY = 'konclave.folha.rascunho'
 
@@ -169,9 +170,13 @@ export default function NewPayroll() {
   const savedZat = Math.max(0, soloFeeZat - feeZat)
 
   const afterZat = balanceZat === null ? null : balanceZat - totalZat - feeZat
-  const overBalance = afterZat !== null && afterZat < 0
+  // Same pure gate as the payment screen (`propose-guard.ts`). This screen had the identical
+  // fail-open: a balance we could not read left `overBalance` false, and the payroll submitted
+  // against an unknown balance.
+  const block = proposeBlock({ amountZat: totalZat, availableZat: balanceZat, feeZat })
+  const overBalance = block === 'over-balance'
   const anyBadTouched = rows.some((r) => rowTouched(r) && rowIssue(r) !== null)
-  const canSubmit = count > 0 && !anyBadTouched && !busy && !overBalance
+  const canSubmit = count > 0 && !anyBadTouched && !busy && block === null
 
   async function submit() {
     setError(null)

@@ -12,6 +12,7 @@ import {
 import { listVaults } from '../storage'
 import { RecipientCombobox } from '../RecipientCombobox'
 import { usdEnabled, setUsdEnabled, cachedRate, rateIsStale, fetchRate, zecToUsd, type Rate } from '../price'
+import { proposeBlock } from '../propose-guard'
 
 const MEMO_MAX = 512
 
@@ -118,9 +119,12 @@ export default function NewPayment() {
   // through to a dead-end proposal.
   const feeZat = 15000
   const afterZat = availableZat == null || amountZat == null ? null : availableZat - amountZat - feeZat
-  // Amount + fee exceeds the spendable balance: block proposing, so a member never approves a
-  // payment that the vault cannot actually send (the dead-end the helper rejected at build time).
-  const overBalance = afterZat !== null && afterZat < 0
+  // The submit gate is a pure rule (`propose-guard.ts`) shared with the payroll screen, because it
+  // used to live inline in both and FAIL OPEN in both: any figure that would not parse made the
+  // over-balance test false, which the screen read as "all clear". A balance we cannot read and an
+  // amount we cannot parse now block instead of waving the payment through.
+  const block = proposeBlock({ amountZat, availableZat, feeZat, memoOver })
+  const overBalance = block === 'over-balance'
 
   async function submit() {
     setError(null)
@@ -144,7 +148,10 @@ export default function NewPayment() {
     }
   }
 
-  const canSubmit = !busy && !memoOver && !overBalance && !!to.trim() && parseFloat(String(value).replace(',', '.')) > 0
+  // `block === null` covers memo, amount and balance. The amount check used to be a looser
+  // `parseFloat(value.replace(',', '.')) > 0`, which accepted a comma decimal that `parseZecToZat`
+  // rejects - so the button enabled for an amount the rest of the code could not read.
+  const canSubmit = !busy && block === null && !!to.trim()
 
   return (
     <main className="page pay">
