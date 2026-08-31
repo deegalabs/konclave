@@ -11,7 +11,7 @@
 [![Zcash mainnet](https://img.shields.io/badge/Zcash-mainnet%20(NU6.3%20Ironwood)-e5a00d?logo=zcash&logoColor=white)](#proven-on-zcash-mainnet)
 [![FROST + Accounting](https://img.shields.io/badge/ZecHub%203.0-FROST%20%2B%20Accounting-6f42c1)](#why-we-built-this)
 [![License: Apache-2.0 OR MIT](https://img.shields.io/badge/license-Apache--2.0%20OR%20MIT-blue.svg)](#license)
-[![Tests: 237 Rust + 54 UI](https://img.shields.io/badge/tests-237%20Rust%20%2B%2054%20UI-2ea44f.svg)](#status)
+[![Tests: 315 Rust + 245 UI](https://img.shields.io/badge/tests-315%20Rust%20%2B%20245%20UI-2ea44f.svg)](#status)
 [![CI](https://github.com/deegalabs/konclave/actions/workflows/ci.yml/badge.svg)](https://github.com/deegalabs/konclave/actions/workflows/ci.yml)
 
 Submission for **ZecHub Hackathon 3.0** · FROST + Accounting
@@ -81,7 +81,7 @@ and approved in the app, signed by a FROST ceremony, broadcast to mainnet:
 
 > **txid** [`43433a109d3f2a078c0a9269ccb156392ade7a1f7ac1532981611eda1e59a572`](https://mainnet.zcashexplorer.app/transactions/43433a109d3f2a078c0a9269ccb156392ade7a1f7ac1532981611eda1e59a572)
 
-The twelve also prove, on-chain: a **private payroll** (one shielded transaction, N encrypted
+They also prove, on-chain: a **private payroll** (one shielded transaction, N encrypted
 memos), a send from a **real DKG vault** (the key born distributed, never assembled), a
 **browser-signed** broadcast (each browser holding only its own share over the blind relay,
 *including one signed across separate physical machines, over the internet, by two people in two
