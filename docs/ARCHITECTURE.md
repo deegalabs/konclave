@@ -62,6 +62,19 @@ into the browser. See §8 for how those become the two delivery shells.
 open none of them. Compromising either reveals no secrets and grants no ability to spend; at worst
 it disrupts coordination (hence the QR/copy-paste fallback on the roadmap).
 
+**The coordinator role, named.** Pure FROST specifies the signing rounds but not message transport,
+member identity, or who assembles the transaction - RFC 9591 only requires that the channel be
+authenticated. Something must therefore coordinate, and here that is the **blind helper**: it builds
+and proves the PCZT, hosts the signing round, injects the aggregate signature and broadcasts. It is
+trusted for **availability only** - never for secrets (it never receives a share) and never for
+authority (it cannot spend without a quorum). Two consequences worth stating because they are easy to
+assume wrongly: the **relay is not the coordinator** (it is a mailbox, and since #63 the signing
+request is sealed to the members' device keys, so it carries ciphertext rather than recipient and
+amount), and the **MCP server is not the coordinator either** - `mcp-server/` is a read-and-draft
+assistant with deliberately no approve/sign/broadcast tool, so an AI never sits on the critical path
+of moving money. Member identity, the piece FROST leaves open, is the per-device identity key of
+[ADR-0011](adr/0011-authenticated-writes-device-identity.md) (#288).
+
 **Per-vault read access (#388).** A vault id is the public group verifying key, so on its own it is
 not a secret - which is why the hosted helper's *view-only* reads (balance, history, ceremonies,
 proposals, ledger, members) are gated behind a per-vault secret **S**. S is fresh randomness minted by
