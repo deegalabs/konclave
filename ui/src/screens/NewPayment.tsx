@@ -12,7 +12,7 @@ import {
 import { listVaults } from '../storage'
 import { RecipientCombobox } from '../RecipientCombobox'
 import { usdEnabled, setUsdEnabled, cachedRate, rateIsStale, fetchRate, zecToUsd, type Rate } from '../price'
-import { proposeBlock } from '../propose-guard'
+import { proposeBlock, blockMessageKey } from '../propose-guard'
 
 const MEMO_MAX = 512
 
@@ -242,6 +242,12 @@ export default function NewPayment() {
           </div>
 
           {overBalance && <div className="hint warn mt-sm">{t('payment.warnOverBalance')}</div>}
+          {/* The gate fails closed now, so a member can meet a disabled button for reasons the
+              screen used to stay silent about. Say which one - but never on an untouched form:
+              an empty amount also parses to null, and a warning on a blank field is noise. */}
+          {value.trim() !== '' && blockMessageKey(block) && (
+            <div className="hint warn mt-sm">{t(blockMessageKey(block)!)}</div>
+          )}
           <div className="hint mt-sm">{tr('payment.approvalHint', { proposer, threshold, rest: threshold > 1 ? t('payment.approvalHintMore', { n: threshold - 1 }) : t('payment.approvalHintReady'), aval: threshold === 1 ? t('payment.avalSingular') : t('payment.avalPlural') })}</div>
           {error && <div className="hint err mt-sm" role="alert">{error}</div>}
 

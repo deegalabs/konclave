@@ -567,6 +567,9 @@ export const en: Record<string, string> = {
   'payment.avalPlural': 'approvals',
   'payment.proposing': 'Proposing…',
   'payment.proposeBtn': 'Propose payment',
+  'money.blockAmount': "That amount is not a number the vault can pay. Use a dot for the decimal, for example 0.5.",
+  'money.blockBalanceUnknown': "The vault balance could not be read, so this cannot be checked yet. Try again in a moment.",
+  'money.blockNoFunds': "This vault has nothing spendable yet. Funds received recently may still be confirming.",
   'payment.warnOverBalance': 'Amount plus the network fee is more than the vault can spend right now. Lower the amount.',
 
   // New payroll

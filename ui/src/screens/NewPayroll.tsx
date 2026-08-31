@@ -12,7 +12,7 @@ import {
 import { listVaults } from '../storage'
 import { RecipientCombobox } from '../RecipientCombobox'
 import { usdEnabled, setUsdEnabled, cachedRate, rateIsStale, fetchRate, zecToUsd, type Rate } from '../price'
-import { proposeBlock } from '../propose-guard'
+import { proposeBlock, blockMessageKey } from '../propose-guard'
 
 const DRAFT_KEY = 'konclave.folha.rascunho'
 
@@ -353,6 +353,11 @@ export default function NewPayroll() {
         </div>
 
         {overBalance && <div className="hint warn mt-sm">{t('payroll.warnExceeds')}</div>}
+        {/* Same reason as the payment screen: the gate fails closed, so name the block. Only once
+            there is a valid row - on an empty sheet the total is 0 and would always warn. */}
+        {count > 0 && blockMessageKey(block) && (
+          <div className="hint warn mt-sm">{t(blockMessageKey(block)!)}</div>
+        )}
         {error && <div className="hint err mt-sm" role="alert">{error}</div>}
 
         {/* THE VEIL (tarja). It hides the VAULT's own figures - its balance, its history, its pending

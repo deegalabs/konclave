@@ -42,6 +42,28 @@ export interface ProposeInput {
  * the wrong field. `no-funds` is separated from `over-balance` because at zero spendable the
  * "lower the amount" remedy is impossible - the honest answer is that there is nothing to spend.
  */
+/**
+ * The i18n key explaining a block, or `null` when the screen owns the wording.
+ *
+ * `memo` and `over-balance` already have screen-specific copy (a byte counter, and a
+ * payment-vs-payroll phrasing), so they are left alone. The three returned here are the ones the
+ * gate started blocking on when it was made to fail closed - without them a member would meet a
+ * disabled button and no reason, which for the comma-decimal case is worse than the old behaviour
+ * of enabling the button and failing afterwards.
+ */
+export function blockMessageKey(b: ProposeBlock): string | null {
+  switch (b) {
+    case 'amount':
+      return 'money.blockAmount'
+    case 'balance-unknown':
+      return 'money.blockBalanceUnknown'
+    case 'no-funds':
+      return 'money.blockNoFunds'
+    default:
+      return null
+  }
+}
+
 export function proposeBlock(input: ProposeInput): ProposeBlock {
   const { amountZat, availableZat, feeZat, memoOver = false } = input
 
