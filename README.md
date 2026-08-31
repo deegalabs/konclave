@@ -41,7 +41,7 @@ multisig (for example on an EVM chain) can offer.
 ## Why we built this
 
 Using FROST on Zcash today means a **CLI, several terminals, and copying hex between participants
-by hand**. The Zcash Foundation finished the cryptography, audited twice, and says plainly that
+by hand**. The Zcash Foundation built and partially audited the cryptography, and says plainly that
 *wallet integration is the missing piece*: it is gated to "technically-inclined users," and
 **no usable GUI for FROST on Zcash exists.** Making "easy multi-sig tools for shielded addresses
 (FROST in user-facing wallets)" is a named

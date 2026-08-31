@@ -113,6 +113,14 @@ and both Ironwood-migration sends are trusted-dealer.
   **signing seat**, not the vault's on-chain **identity** (the address/UFVK are random at registration
   and not reproducible from the share); the full kit is the share export **plus** the helper's
   `registration.json` (see [`RECOVERY.md`](RECOVERY.md), #214).
+- **"Audited" needs its scope, and the scope excludes our variant.** The Zcash Foundation's
+  `ZcashFoundation/frost` README says the code base has been *"partially audited by NCC"* and states
+  the exclusion explicitly: *"This does not include frost-secp256k1-tr and **rerandomized FROST**."*
+  Rerandomized FROST (RedPallas) is precisely the variant Zcash - and therefore Konclave - uses for
+  Orchard/Ironwood spend authorization. `frostd`/`frost-client` carry a separate Least Authority
+  audit, which covers the *coordination tooling*, not the ceremony cryptography we depend on. So do
+  not write "the cryptography is audited" without that scope: two audits exist, and neither one
+  covers the signing variant on our money path. (Verified against the ZF repo README, 2026-08-31.)
 - **The AI assistant cannot move money - state the guarantee precisely, and its limit.** What is
   true and checkable: `mcp-server/` registers exactly **eight** tools - six read-only (`list_vaults`,
   `get_vault`, `get_balance`, `get_transactions`, `list_proposals`, `get_ledger`) and two draft

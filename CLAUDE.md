@@ -95,7 +95,7 @@ Full detail and module map: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 |---|---|---|
 | `frostd` | `ZcashFoundation/frost-tools` | Coordination server (blind, public material only) |
 | `frost-client` | `ZcashFoundation/frost-tools` | User init, DKG/trusted-dealer, contacts, ceremony |
-| `zcash-sign` | `ZcashFoundation/frost-tools` (verified) | `generate --ak` → Orchard address + UFVK; `sign` injects the FROST signature into a Ywallet/PCZT plan |
+| `zcash-sign` | `ZcashFoundation/frost-tools` (verified) | `generate --ak` → Orchard address + UFVK; `sign` injects the FROST signature into a **PCZT**. (Ywallet signing is **disabled** upstream: `sign.rs` returns `Err("Ywallet signing is disabled")` behind `#[cfg(false)]`. Verified 2026-08-31.) |
 | `zcash-devtool` | `zcash/zcash-devtool` | **PCZT** suite (create/prove/sign/combine) - the envelope for the tx and the payroll |
 | `frost` (core lib) | `ZcashFoundation/frost` | Reference implementation of FROST |
 | `zcash_client_backend` | `zcash/librustzcash` | **Linked** in Rust: UFVK sync, balance, plan construction |
@@ -129,18 +129,31 @@ Facts (verified 2026-06-30):
     ([end-of-life](https://zcash.github.io/zcash/user/end-of-life.html)). Build against Zebra/Zaino,
     never against a zcashd assumption ([#256](https://github.com/deegalabs/konclave/issues/256)).
   - **ZIP 326 is the rule that binds us today. CONFIRMED** ([ZIP 326](https://zips.z.cash/zip-0326),
-    status Draft, NU6.3): *"A wallet MUST NOT send funds to any external receiver (including its
-    own) in the Orchard pool after NU6.3 activation."* Our destination validation still asks for an
-    Orchard receiver, which is the receiver this forbids
-    ([#341](https://github.com/deegalabs/konclave/issues/341)).
+    status Draft, category Wallet, NU6.3): *"A wallet MUST NOT send funds to any external receiver
+    (including its own) in the Orchard pool after NU6.3 activation."*
+    **Read the scope precisely - an earlier version of this line got it backwards.** The rule binds
+    the **pool an output is placed in**, not the **receiver** of the address. ZIP 326 says so itself:
+    *"a receiver ... is scoped to the Orchard protocol, not to a pool"*, and *"Once an
+    Orchard-protocol receiver has been exposed, no party can be prevented from sending funds to it in
+    either pool."* So our destination validation asking for an Orchard receiver is **correct** - that
+    receiver also receives Ironwood-pool notes - and rejecting such addresses would break valid
+    payments. What matters is that outputs and change land in **Ironwood**, which they do
+    (`fallback_change_pool` is only used when a transaction has no shielded inputs, which never
+    happens for a vault spend). [#341](https://github.com/deegalabs/konclave/issues/341) is rescoped
+    accordingly. Note also that the consensus text (ZIP 2006) is still **Reserved and empty**, so the
+    only citable rule today is this Draft, Wallet-category MUST NOT. Verified 2026-08-31.
   - **NU7 is being polled, not scheduled. CONFIRMED with a large caveat.** The coinholder vote runs
     2026-08-25 to 2026-09-14, snapshot block 3,459,350, legitimacy quorum 1,000,000 ZEC - and the
     thread says plainly *"it is a sentiment poll, not a vote"*. `draft-arya-deploy-nu7` is **Draft
     with activation heights TBD**. **NU6.3 remains the consensus target**; NU7 is a thing to watch,
     not to build against.
-  - Two NU7 candidates would touch this product if it lands: **ZIP 218** caps Orchard actions per
-    block (a hard ceiling on payroll outputs, see
-    [#295](https://github.com/deegalabs/konclave/issues/295)), and **ZIP 2002 (Explicit Fees)**
+  - Two NU7 candidates would touch this product if it lands: **ZIP 218** (its actual title is
+    *"25-second Block Target Spacing"*, Draft, NU7) carries an anti-DoS limit of *"The total number of
+    Orchard actions across all transactions in the **block** MUST NOT exceed ... 330"*. Note **per
+    block, summed across every transaction** - so for a large payroll it is a throughput and
+    latency concern, not the per-transaction ceiling an earlier version of this line described
+    ([#295](https://github.com/deegalabs/konclave/issues/295)). Verified 2026-08-31. And **ZIP 2002
+    (Explicit Fees)**
     changes fee validation for v6+ transactions (touches our ZIP 317 work,
     [#206](https://github.com/deegalabs/konclave/issues/206)).
   - **"FROST v3 ships in NU7" is misleading.** ZIP 312 is **Draft**, category **Wallet**, with no
