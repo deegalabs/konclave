@@ -338,15 +338,29 @@ impl HelperProposal {
         if self.state == "sent" {
             return;
         }
-        if self.expiry_unix != 0 && now >= self.expiry_unix {
-            self.state = "expired".into();
-            return;
-        }
+        // ORDER MATTERS, and it is not chronological: refusal is evaluated BEFORE expiry.
+        //
+        // A refusal is a DECISION the group made; an expiry is a deadline nobody met. When both
+        // hold of the same proposal, the record must report the decision - otherwise the ledger
+        // says "nobody got round to it" about a payment that was actually voted down, and the
+        // governance trail lies about what happened.
+        //
+        // This was a LIVE defect, not a hypothetical: while the web path sent `expiry_unix: 0` the
+        // expiry branch never fired and the bug slept; #328 started sending a real 72h deadline and
+        // woke it. Do not "tidy" these two branches back into time order.
+        //
+        // Withdrawal still works (#369): `refused` is derived from the refusal count on every call,
+        // so if a member takes their refusal back this branch stops matching and an open proposal
+        // past its deadline correctly falls through to `expired` below.
         if self.total > 0
             && self.threshold > 0
             && (self.total as usize).saturating_sub(self.refusals.len()) < self.threshold as usize
         {
             self.state = "refused".into();
+            return;
+        }
+        if self.expiry_unix != 0 && now >= self.expiry_unix {
+            self.state = "expired".into();
             return;
         }
         self.state = if self.threshold > 0 && self.approvals.len() >= self.threshold as usize {
@@ -1064,6 +1078,38 @@ mod tests {
         p.expiry_unix = 300;
         p.recompute(301);
         assert_eq!(p.state, "expired");
+    }
+
+    /// #289: a refusal is a DECISION; an expiry is a TIMEOUT. When both are true of the same
+    /// proposal, the record must say what the group actually did.
+    ///
+    /// `recompute` checked expiry first and returned early, so a proposal the group had refused
+    /// read `expired` once its deadline passed - the ledger said "nobody got round to it" about a
+    /// payment that was voted down. The defect was latent while the web path sent `expiry_unix: 0`
+    /// (the branch never fired) and went LIVE when #328 started sending a real 72h deadline.
+    #[test]
+    fn a_refused_proposal_stays_refused_past_its_deadline() {
+        let mut p = mk_prop("v", "p3");
+        p.approvals.clear();
+        p.expiry_unix = 300;
+
+        // 2-of-3: two refusals leave one possible approver, below the threshold.
+        assert!(p.vote("bob", false, 100));
+        assert!(p.vote("carol", false, 100));
+        assert_eq!(p.state, "refused");
+
+        // The deadline passes. The decision must survive it.
+        p.recompute(301);
+        assert_eq!(
+            p.state, "refused",
+            "the group refused this payment; a passed deadline must not rewrite that as a timeout"
+        );
+
+        // A proposal still in play, with no refusals, DOES expire - that branch is unaffected.
+        let mut open = mk_prop("v", "p4");
+        open.expiry_unix = 300;
+        open.recompute(301);
+        assert_eq!(open.state, "expired");
     }
 
     #[test]
