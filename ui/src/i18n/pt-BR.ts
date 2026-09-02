@@ -567,6 +567,9 @@ export const ptBR: Record<string, string> = {
   'payment.avalPlural': 'avais',
   'payment.proposing': 'Propondo…',
   'payment.proposeBtn': 'Propor pagamento',
+  'money.blockAmount': "Esse valor não é um número que o cofre consiga pagar. Use ponto no decimal, por exemplo 0.5.",
+  'money.blockBalanceUnknown': "Não foi possível ler o saldo do cofre, então isso ainda não dá para conferir. Tente de novo em instantes.",
+  'money.blockNoFunds': "Este cofre ainda não tem saldo gastável. Fundos recebidos há pouco podem estar confirmando.",
   'payment.warnOverBalance': 'O valor mais a taxa de rede passa do que o cofre pode gastar agora. Reduza o valor.',
 
   // New payroll
