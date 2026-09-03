@@ -962,7 +962,6 @@ pub use konclave_seal as seal;
 pub mod pczt_bridge {
     use ff::PrimeField;
     use orchard::primitives::redpallas::{self, SpendAuth};
-    use orchard::value::NoteValue;
     use pczt::{
         roles::low_level_signer::{OrchardParseError, Signer},
         Pczt,
@@ -990,13 +989,18 @@ pub mod pczt_bridge {
     // differs. A single Konclave send spends from ONE pool; we read Orchard first and fall back to
     // Ironwood, matching konclave-signer's pool-aware bridge (§ Phase 12).
 
-    /// The real spends `(idx, alpha)` in one bundle (dummy zero-value spends skipped; the real spend
-    /// can sit at any action index, so callers must not assume 0).
+    /// Every spend `(idx, alpha)` in one bundle that still AWAITS a signature. The test is
+    /// `spend_auth_sig().is_none()`, NOT "is this a non-zero (real) spend" - the same predicate the
+    /// Zcash Foundation's `zcash-sign` moved to in frost-tools #592, and the same one
+    /// `konclave-signer` uses. Post-NU6.3 the builder pairs a spend or output with a fabricated
+    /// zero-valued counterpart that is WALLET-CONTROLLED and ours to sign; filtering by value
+    /// skipped it and the send died at extract with `MissingSpendAuthSig` (#86). A protocol padding
+    /// dummy still gets skipped, for the right reason: the IO Finalizer signed it, so it already
+    /// carries a `spend_auth_sig`. The real spend can sit at any action index.
     fn collect_real(bundle: &orchard::pczt::Bundle) -> Vec<(usize, [u8; 32])> {
         let mut r = vec![];
         for (idx, action) in bundle.actions().iter().enumerate() {
-            let is_real = matches!(action.spend().value(), Some(v) if *v != NoteValue::default());
-            if is_real {
+            if action.spend().spend_auth_sig().is_none() {
                 if let Some(alpha) = action.spend().alpha() {
                     let repr = alpha.to_repr();
                     let slice: &[u8] = repr.as_ref();
@@ -1323,6 +1327,14 @@ pub mod pczt_bridge {
             include_bytes!("../tests/vectors/ironwood_single_spend.signed.pczt");
         const IW_SIG0: &[u8] = include_bytes!("../tests/vectors/ironwood_single_spend.sig0.raw");
 
+        // A wallet-controlled ZERO-VALUE spend still awaiting a signature: the same vector above
+        // with action 1's spend value set to 0, so it differs in exactly the field under test.
+        // Post-NU6.3 the builder fabricates such a counterpart under the cross-address restriction
+        // and it is OURS to sign, unlike a protocol padding dummy (which carries `dummy_sk`, is
+        // signed by the IO Finalizer, and therefore arrives with `spend_auth_sig == Some`).
+        const IW_ZERO_VALUE: &[u8] =
+            include_bytes!("../tests/vectors/ironwood_zero_value_spend.proven.pczt");
+
         const IW_SIGHASH: [u8; 32] =
             hex_literal("332de126200c22131337474ae50367218ec87815c23d297dcdc8278ecb8903b0");
 
@@ -1364,6 +1376,37 @@ pub mod pczt_bridge {
             assert_eq!(
                 hex::encode(r[3].1),
                 "cf92a74546950873969d7540a65ccaaaf849f73f62ca7ae50ccab671cb023512",
+            );
+        }
+
+        #[test]
+        fn a_zero_value_spend_awaiting_a_signature_is_collected() {
+            // Parity with konclave-signer's test of the same name, on the same bytes. Selecting by
+            // `value != 0` skipped this spend, nobody signed it, and the send died at extract with
+            // `MissingSpendAuthSig` (#86). The browser signer must not diverge from the native one
+            // here: two signers that disagree about WHICH spends need a signature produce a
+            // transaction that one of them thinks is complete (#365).
+            let r = extract_randomizers(IW_ZERO_VALUE).unwrap();
+            let indices: Vec<usize> = r.iter().map(|(i, _)| *i).collect();
+            assert_eq!(
+                indices,
+                vec![0, 1, 2, 3],
+                "every unsigned spend must be collected, including the zero-value one at index 1",
+            );
+        }
+
+        #[test]
+        fn an_already_signed_spend_is_not_collected() {
+            // The other half: the predicate must not become "collect everything". An action an
+            // earlier signer authorized carries a signature and is skipped, which is what keeps a
+            // signed action out of a second ceremony.
+            let signed = inject_sigs(IW_PROVEN, IW_SIGHASH, &[(0, sig64(IW_SIG0))]).unwrap();
+            let r = extract_randomizers(&signed).unwrap();
+            let indices: Vec<usize> = r.iter().map(|(i, _)| *i).collect();
+            assert_eq!(
+                indices,
+                vec![1, 2, 3],
+                "action 0 now carries a signature and must not be collected again",
             );
         }
 
