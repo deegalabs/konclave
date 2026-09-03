@@ -18,7 +18,6 @@ use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 use ff::PrimeField;
 use orchard::primitives::redpallas::{self, SpendAuth};
-use orchard::value::NoteValue;
 use pczt::{
     roles::low_level_signer::{OrchardParseError, Signer as LowSigner},
     roles::signer::Signer as HlSigner,
@@ -120,14 +119,25 @@ fn shielded_sighash(pczt: &Pczt) -> Result<[u8; 32]> {
     Ok(signer.shielded_sighash())
 }
 
-/// Collect `(action_index, alpha)` for the REAL spends of one Orchard-shaped bundle. Dummy
-/// spends (zero value) are signed by the wallet's IO finalizer and are skipped; a real spend
-/// can sit at any action index (index 0 is often a dummy pad).
+/// Collect `(action_index, alpha)` for every spend of one Orchard-shaped bundle that still
+/// AWAITS a signature. The test is `spend_auth_sig().is_none()`, NOT "is this a non-zero (real)
+/// spend", and the difference is load-bearing post-NU6.3.
+///
+/// Selecting by value was inherited from `zcash-sign` as it stood at `36df5d2` (frost-tools #574),
+/// under its own `// TODO: improve dummy detection`. The Foundation replaced it with this predicate
+/// in `0cfaa75` (#592) - the same commit that made `zcash-sign` Ironwood-capable - because the two
+/// questions stopped coinciding: post-NU6.3 the builder pairs a spend or output with a fabricated
+/// zero-valued counterpart that is WALLET-CONTROLLED and ours to sign. Filtering by value skipped
+/// it, nobody signed it, and the failure surfaced far away as `MissingSpendAuthSig` (#86).
+///
+/// A protocol padding dummy is excluded for the right reason rather than by luck: it carries
+/// `dummy_sk`, the IO Finalizer signs it and clears the key, so it arrives here already carrying a
+/// `spend_auth_sig`. So does anything an earlier signer authorized, which keeps a signed action out
+/// of a second ceremony. A real spend can sit at any action index.
 fn collect_real(bundle: &orchard::pczt::Bundle) -> Vec<(usize, [u8; 32])> {
     let mut out = vec![];
     for (idx, action) in bundle.actions().iter().enumerate() {
-        let is_real = matches!(action.spend().value(), Some(v) if *v != NoteValue::default());
-        if is_real {
+        if action.spend().spend_auth_sig().is_none() {
             if let Some(alpha) = action.spend().alpha() {
                 let repr = alpha.to_repr();
                 let slice: &[u8] = repr.as_ref();
@@ -471,5 +481,52 @@ mod tests {
         // not silently written into a broken transaction.
         let err = inject_sigs(parse(IW_PROVEN), &[(0, [0u8; 64])]);
         assert!(err.is_err(), "a signature that does not verify must fail");
+    }
+
+    // A wallet-controlled ZERO-VALUE spend that still awaits a signature. Derived from
+    // `ironwood_single_spend.proven.pczt` by setting action 1's spend value to 0, so it differs
+    // from the real vector in exactly the one field under test and nothing else.
+    //
+    // This shape is not synthetic in the wild: post-NU6.3 the builder pairs a requested spend or
+    // output with a fabricated zero-valued counterpart under the cross-address restriction, and
+    // that counterpart is WALLET-CONTROLLED - ours to sign, not a protocol padding dummy. The
+    // padding dummy is the one carrying `dummy_sk`, and the IO Finalizer signs and clears it, so
+    // it arrives here with `spend_auth_sig == Some`. This one arrives with `None`.
+    //
+    // librustzcash states the rule (`zcash_client_backend/src/data_api/wallet.rs`): an action
+    // needs a signature "if and only if its spend requires one: this covers both the requested
+    // real spends and the wallet-controlled zero-value spends [...] Protocol padding dummies are
+    // pre-signed and cleared by the IO Finalizer, so they are excluded by this check."
+    const IW_ZERO_VALUE: &[u8] =
+        include_bytes!("../tests/vectors/ironwood_zero_value_spend.proven.pczt");
+
+    #[test]
+    fn a_zero_value_spend_awaiting_a_signature_is_collected() {
+        // The regression this guards: selecting by `value != 0` skips this spend, nobody signs it,
+        // and the failure surfaces far away as `MissingSpendAuthSig` at extract (#86). Selecting by
+        // "does it still need a signature" is what upstream `zcash-sign` switched to for Ironwood
+        // (frost-tools #592).
+        let r = extract_randomizers(&parse(IW_ZERO_VALUE)).unwrap();
+        let indices: Vec<usize> = r.iter().map(|(i, _)| *i).collect();
+        assert_eq!(
+            indices,
+            vec![0, 1, 2, 3],
+            "every unsigned spend must be collected, including the zero-value one at index 1",
+        );
+    }
+
+    #[test]
+    fn an_already_signed_spend_is_not_collected() {
+        // The other half: the discriminator must not become "collect everything". A spend the IO
+        // Finalizer (or an earlier signer) already authorized carries a signature and is skipped -
+        // which is what keeps a protocol padding dummy out of the ceremony.
+        let signed = inject_sigs(parse(IW_PROVEN), &[(0, sig64(IW_SIG0))]).unwrap();
+        let r = extract_randomizers(&signed).unwrap();
+        let indices: Vec<usize> = r.iter().map(|(i, _)| *i).collect();
+        assert_eq!(
+            indices,
+            vec![1, 2, 3],
+            "action 0 now carries a signature and must not be collected again",
+        );
     }
 }
