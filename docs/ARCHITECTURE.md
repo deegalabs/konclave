@@ -189,7 +189,10 @@ bundle and converge on the same on-chain transaction (guaranteed by the §7 pari
 - **Web (browser)** is the reach layer: a member approves/signs from a phone or laptop with no
   install, via the WASM core over the blind relay. Security is by **role**: the browser is for
   participation, not long-term custody; every device verifies **what it is signing** on-device
-  (recipient/amount vs. the approved proposal) and the share is protected by WebAuthn.
+  (recipient/amount vs. the approved proposal) and the share is sealed at rest in IndexedDB under a
+  passphrase-derived key. **WebAuthn/passkey unlock is NOT implemented** - it is listed under §9 as
+  intended work (#57), and until it lands the share's protection at rest is the passphrase and
+  whatever the browser's storage guarantees, which can be evicted (#307).
 
 ## 9. Status and what we intend to build
 
