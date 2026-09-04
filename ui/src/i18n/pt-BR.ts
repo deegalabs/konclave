@@ -128,6 +128,8 @@ export const ptBR: Record<string, string> = {
   'vaults.securedHint': 'Um link vazado não abre os livros nem a sala de assinatura.',
   'vaults.openBadge': 'Aberto',
   'vaults.openHint': 'Quem tiver o link deste cofre lê saldo, histórico e membros.',
+  'dashboard.evictionBanner': "Este navegador não garantiu guardar a sua parte da chave, então ela pode ser apagada sem aviso. Baixe o seu backup agora e guarde onde só você alcança.",
+  'dashboard.evictionCta': "Fazer backup deste cofre",
   'dashboard.openBanner': 'Cofre aberto: quem tiver o link lê este cofre (saldo, histórico, membros) pelo servidor. A blockchain em si continua cifrada. Proteger exige re-criar o cofre e mover os fundos com um envio assinado; não é automático.',
   'dashboard.securedNote': 'Cofre privado: um link vazado não abre os livros nem a sala de assinatura.',
   'vaults.membersCount': '{n} membros',

@@ -17,7 +17,7 @@ import {
   getVault, getProposals, getBalance, getLedger, health, shortAddr, isVaultUnlocked,
   type Vault, type Proposal, type Balance,
 } from '../api'
-import { listVaults } from '../storage'
+import { storagePersistence, warnsAboutEviction, listVaults } from '../storage'
 import { useVaultSigner } from '../VaultSigner'
 import { useLoading } from '../loading'
 
@@ -92,6 +92,10 @@ export default function Dashboard() {
   // #388: whether this vault holds S (gated) or is legacy/open. Read from listVaults (the record's
   // sealed-S presence), so it is robust to the in-session unlock state; undefined = unknown -> no banner.
   const [secured, setSecured] = useState<boolean | undefined>(undefined)
+  // #307: whether this browser has promised to keep the share. `undefined` while unasked, so the
+  // banner never flashes before we know. The answer is read here rather than stored at save time
+  // because it can change under the member (a granted origin can be revoked in settings).
+  const [evictable, setEvictable] = useState<boolean | undefined>(undefined)
   // For the members peek: this device's seat and the vault creator (on-device record). Loaded once
   // per vault id, not on every poll.
   const [me, setMe] = useState<string | null>(null)
@@ -120,6 +124,18 @@ export default function Dashboard() {
   useEffect(() => {
     if (usdOn && rateIsStale(cachedRate())) void refreshRate()
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // #307: whether this browser will keep the share is a fact about the BROWSER, not about the
+  // selected vault, so it gets its own effect and runs once on mount. Hanging it off the vault
+  // effect was the first shape of this and it was wrong: it made a browser-level risk invisible
+  // whenever the vault lookup bailed early.
+  useEffect(() => {
+    let on = true
+    void storagePersistence()
+      .then((st) => { if (on) setEvictable(warnsAboutEviction(st)) })
+      .catch(() => {})
+    return () => { on = false }
   }, [])
 
   // #388: read whether this vault holds S from the on-device record (not the in-memory unlock), so
@@ -364,6 +380,17 @@ export default function Dashboard() {
         {secured === false && (
           <div className="dash-openwarn" role="alert">
             <span className="ow-ic" aria-hidden="true">⚠</span> {t('dashboard.openBanner')}
+          </div>
+        )}
+
+        {/* #307: the browser did not promise to keep the share. Not a bug in the app - it is how
+            browser storage works - but staying silent about it is how someone loses a seat with no
+            warning and no recovery path (#58). The action sits in the banner because "download your
+            backup" with nowhere to click is advice, not a fix. */}
+        {evictable === true && (
+          <div className="dash-openwarn" role="alert">
+            <span className="ow-ic" aria-hidden="true">⚠</span> {t('dashboard.evictionBanner')}{' '}
+            <Link to="/settings">{t('dashboard.evictionCta')}</Link>
           </div>
         )}
 

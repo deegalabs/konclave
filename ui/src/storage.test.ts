@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest'
 import {
   saveVault, loadVault, listVaults, deleteVault, storageAvailable,
   exportVault, importVault, parseVaultExport, type VaultData,
+  warnsAboutEviction, storagePersistence,
 } from './storage'
 
 // Covers the on-device share persistence (Marco 5): the encrypted IndexedDB round-trip that
@@ -205,5 +206,57 @@ describe('storage - per-vault access secret (#388)', () => {
     const secretHex = accessSecret.reduce((s, b) => s + b.toString(16).padStart(2, '0'), '')
     expect(JSON.stringify(v)).not.toContain(JSON.stringify(Array.from(accessSecret)))
     expect(JSON.stringify(v)).not.toContain(secretHex)
+  })
+})
+
+// #307: the browser's answer to "will you keep this?" was requested and thrown away at both call
+// sites, so a member on a browser that declines could lose their share to eviction and never be
+// told. These cover the decision that fixes it, including the case the old code got wrong by
+// omission: not knowing.
+describe('storage persistence - #307, a refusal must not be silent', () => {
+  it('says nothing when the browser granted persistence', () => {
+    expect(warnsAboutEviction('persisted')).toBe(false)
+  })
+
+  it('warns when the browser refused', () => {
+    // Safari is the live case: it usually declines, and clears after ~7 days of inactivity.
+    expect(warnsAboutEviction('evictable')).toBe(true)
+  })
+
+  it('warns when it cannot tell, because not knowing is not the same as safe', () => {
+    // A browser with no Storage API cannot promise anything, so it offers no guarantee either.
+    // The costs are not symmetric: a missed warning loses a key share, a false one is a banner
+    // someone reads twice. This is the same fail-closed rule the propose gate follows.
+    expect(warnsAboutEviction('unknown')).toBe(true)
+  })
+
+  it('reports unknown when the browser has no Storage API at all', async () => {
+    await expect(storagePersistence({} as Navigator)).resolves.toBe('unknown')
+  })
+
+  it('reports persisted without asking again when it is already granted', async () => {
+    let asked = false
+    const nav = {
+      storage: {
+        persisted: async () => true,
+        persist: async () => { asked = true; return false },
+      },
+    } as unknown as Navigator
+    await expect(storagePersistence(nav)).resolves.toBe('persisted')
+    expect(asked, 'an already-persisted origin must not be re-prompted').toBe(false)
+  })
+
+  it('reports evictable when the browser refuses the request', async () => {
+    const nav = {
+      storage: { persisted: async () => false, persist: async () => false },
+    } as unknown as Navigator
+    await expect(storagePersistence(nav)).resolves.toBe('evictable')
+  })
+
+  it('reports unknown when the API throws, rather than claiming either answer', async () => {
+    const nav = {
+      storage: { persisted: async () => { throw new Error('blocked') }, persist: async () => false },
+    } as unknown as Navigator
+    await expect(storagePersistence(nav)).resolves.toBe('unknown')
   })
 })

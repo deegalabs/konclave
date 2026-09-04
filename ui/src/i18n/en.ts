@@ -128,6 +128,8 @@ export const en: Record<string, string> = {
   'vaults.securedHint': 'A leaked link opens neither the books nor the signing room.',
   'vaults.openBadge': 'Open',
   'vaults.openHint': "Anyone with this vault's link can read its balance, history and members.",
+  'dashboard.evictionBanner': "This browser has not promised to keep your key share, so it can be deleted without warning. Download your backup now, and keep it somewhere only you can reach.",
+  'dashboard.evictionCta': "Back up this vault",
   'dashboard.openBanner': 'Open vault: anyone with the link can read this vault (balance, history, members) through the server. The blockchain itself stays encrypted. Protecting it means re-creating the vault and moving the funds with a signed send; not automatic.',
   'dashboard.securedNote': 'Private vault: a leaked link opens neither the books nor the signing room.',
   'vaults.membersCount': '{n} members',
