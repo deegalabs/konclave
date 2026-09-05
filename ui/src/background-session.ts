@@ -11,7 +11,7 @@ import { armIsLive } from './signing-gate'
 import { SigningSeats } from './signing-seats'
 import { BackgroundSigner, type GovernanceGate } from './background-signer'
 import type { SigningMaterial } from './signing-machine'
-import { signRejoin, rejoinIsProven } from './room-auth'
+import { signRejoin, rejoinIsProven, signArmed, armedIsProven, signUnarmed, unarmedIsProven } from './room-auth'
 import { bytesToHex } from './bytes'
 
 export interface BackgroundSessionDeps {
@@ -53,6 +53,9 @@ export interface ArmedMsg {
   /** When it was given (sender's clock, ms). Signatures expire on the wire the way they expire on
    *  the device, so the room cannot hold a payment hostage with signatures nobody remembers giving. */
   at: number
+  /** Signed by this seat's own share, over seat+vault+tag+at+proposal (#425). Optional on the wire
+   *  only so an older build's message parses; it is not counted without it. */
+  sig?: string
 }
 
 /** Withdraws every signature for a payment. Published when an attempt FAILED: nothing moved, so the
@@ -70,6 +73,11 @@ export interface UnarmedMsg {
   type: 'unarmed'
   proposal: string
   code?: FailureCode
+  /** The seat withdrawing. Present so the withdrawal can be attributed and therefore PROVEN: an
+   *  unsigned `unarmed` used to be enough for anyone in the room to zero every device (#425). */
+  seat?: number
+  /** Signed by that seat's own share, over seat+vault+tag+code+proposal. */
+  sig?: string
 }
 
 export class BackgroundSession {
@@ -83,6 +91,9 @@ export class BackgroundSession {
   private readonly onArmed?: (seats: number[], triggerTag: string | null) => void
   private readonly now: () => number
   private readonly onFailed?: (code: FailureCode) => void
+  /** The ceremony log line. `/net` shows it; the app path leaves it unwired today, so a dropped
+   *  tally message is not on screen there - see #425's note on the mixed-version window. */
+  private readonly onLog?: (line: string) => void
   /** Seat -> the tag that armed it, for `currentProposal`. Keyed by SEAT so a device that reloads
    *  (new tag, same seat) replaces its own arming instead of counting twice. */
   private readonly armed = new Map<number, string>()
@@ -105,6 +116,7 @@ export class BackgroundSession {
     this.myTag = deps.myTag
     this.threshold = deps.threshold
     this.onArmed = deps.onArmed
+    this.onLog = deps.onLog
     this.now = deps.now ?? (() => Date.now())
     this.onFailed = deps.onFailed
     this.seats = new SigningSeats(deps.myTag, deps.mySeat, deps.onSeatCount)
@@ -145,16 +157,38 @@ export class BackgroundSession {
     } catch {
       /* not JSON - hand to the signer, which ignores unparseable input */
     }
+    // The tally messages are now PROVEN or ignored (#425). Unsigned, they let anyone who could
+    // write to the room clear every device's count - repeatedly, so a payment never reached a
+    // quorum. A message that does not verify is dropped and SAID, never dropped in silence: a
+    // tally that quietly refuses to grow is the #356 failure, two members at "1 of 2" with both
+    // present and nothing wrong on screen.
     if (parsed?.type === 'unarmed' && typeof parsed.proposal === 'string') {
-      if (parsed.proposal === this.currentProposal) {
-        this.armed.clear()
-        this.onArmed?.([], null)
-        if (parsed.code) this.onFailed?.(parsed.code)
+      if (parsed.proposal !== this.currentProposal) return
+      const proven =
+        typeof parsed.seat === 'number' &&
+        unarmedIsProven(this.signingMaterial(), parsed.seat, from, parsed.proposal, parsed.code, parsed.sig)
+      if (!proven) {
+        this.onLog?.(`~ ignored an unproven withdrawal for seat ${String(parsed.seat)}`)
+        return
       }
+      this.armed.clear()
+      this.onArmed?.([], null)
+      if (parsed.code) this.onFailed?.(parsed.code)
       return
     }
     if (parsed?.type === 'armed' && typeof parsed.seat === 'number' && typeof parsed.proposal === 'string') {
-      this.handleArmed(from, parsed.seat, parsed.proposal, typeof parsed.at === 'number' ? parsed.at : null)
+      const at = typeof parsed.at === 'number' ? parsed.at : null
+      // The cheap gates run FIRST. A message for another payment, or one whose signature has
+      // already expired, is dropped without spending a verification on it - so a flood of forged
+      // armings costs a device parsing, not crypto. It also keeps the two rules separable: an
+      // expired arming is refused for being expired, not for being unproven.
+      if (parsed.proposal !== this.currentProposal) return
+      if (at === null || !armIsLive(at, this.now())) return
+      if (!armedIsProven(this.signingMaterial(), parsed.seat, from, at, parsed.proposal, parsed.sig)) {
+        this.onLog?.(`~ ignored an unproven arming for seat ${parsed.seat}`)
+        return
+      }
+      this.handleArmed(from, parsed.seat, parsed.proposal, at)
       return
     }
     if (parsed?.type === 'rejoin' && typeof parsed.seat === 'number') {
@@ -219,14 +253,21 @@ export class BackgroundSession {
    *  included, the relay echoes it back) sees the same ordered log and agrees on who sends. */
   async arm(proposal: string): Promise<void> {
     this.setProposal(proposal) // a no-op in the normal path; correct if the caller never scoped us
-    const msg: ArmedMsg = { type: 'armed', seat: this.seats.mySeat(), proposal, at: this.now() }
+    const at = this.now()
+    const seat = this.seats.mySeat()
+    const mat = this.signingMaterial()
+    const sig = signArmed(mat.keyPackage, seat, bytesToHex(mat.groupVk), this.myTag, at, proposal)
+    const msg: ArmedMsg = { type: 'armed', seat, proposal, at, sig }
     await this.send(JSON.stringify(msg))
   }
 
   /** Withdraw every signature for `proposal`: an attempt failed and nothing moved, so the payment
    *  goes back to unsigned on every device instead of looking signed by devices that have gone. */
   async unarm(proposal: string, code?: FailureCode): Promise<void> {
-    const msg: UnarmedMsg = { type: 'unarmed', proposal, ...(code ? { code } : {}) }
+    const seat = this.seats.mySeat()
+    const mat = this.signingMaterial()
+    const sig = signUnarmed(mat.keyPackage, seat, bytesToHex(mat.groupVk), this.myTag, proposal, code)
+    const msg: UnarmedMsg = { type: 'unarmed', proposal, seat, sig, ...(code ? { code } : {}) }
     await this.send(JSON.stringify(msg))
   }
 

@@ -11,6 +11,7 @@ import { dkgProvenPczt } from './demo-vector'
 import { parseAlphas } from './signing'
 import { bytesToHex } from './net-sign'
 import { BackgroundSession } from './background-session'
+import { signArmed } from './room-auth'
 import { ARM_TTL_MS } from './signing-gate'
 import type { GovernanceGate } from './background-signer'
 
@@ -386,10 +387,16 @@ describe('BackgroundSession - a failed attempt must not freeze the payment', () 
   const pair = (bus: Bus) => {
     const { s0, s1, groupVk, pubkeys } = dkg2of3()
     const open: GovernanceGate = () => true
-    return [
-      makeDev('a-tag', 1, bus, mat(s0.keyPackage(), groupVk, pubkeys), open),
-      makeDev('b-tag', 2, bus, mat(s1.keyPackage(), groupVk, pubkeys), open),
-    ] as const
+    // `keys` is handed back so a test can craft a room message that is AUTHENTIC, not merely
+    // well-shaped: since #425 the tally messages are verified, so an unsigned one proves nothing
+    // about expiry - it is just rejected for the other reason.
+    return Object.assign(
+      [
+        makeDev('a-tag', 1, bus, mat(s0.keyPackage(), groupVk, pubkeys), open),
+        makeDev('b-tag', 2, bus, mat(s1.keyPackage(), groupVk, pubkeys), open),
+      ] as const,
+      { keys: { s0, s1, groupVk, pubkeys } },
+    )
   }
 
   it('signatures expire on the wire, so a stale room cannot hold a payment hostage', async () => {
@@ -398,10 +405,21 @@ describe('BackgroundSession - a failed attempt must not freeze the payment', () 
     // as signed by ghosts and sendable by nobody: no button, no sender, no way out.
     const bus = new Bus()
     const stale = NOW - ARM_TTL_MS - 1
-    bus.post('gone-a', JSON.stringify({ type: 'armed', seat: 1, proposal: 'p1', at: stale }))
-    bus.post('gone-b', JSON.stringify({ type: 'armed', seat: 2, proposal: 'p1', at: stale }))
+    const p = pair(bus)
+    const [A, B] = p
+    // Genuine signatures from the seats that gave them - only the CLOCK is stale. Since #425 an
+    // unsigned message is refused for being unproven, so leaving these unsigned would have made
+    // this test pass without the expiry rule existing at all.
+    const gvk = bytesToHex(p.keys.groupVk)
+    bus.post('gone-a', JSON.stringify({
+      type: 'armed', seat: 1, proposal: 'p1', at: stale,
+      sig: signArmed(p.keys.s0.keyPackage(), 1, gvk, 'gone-a', stale, 'p1'),
+    }))
+    bus.post('gone-b', JSON.stringify({
+      type: 'armed', seat: 2, proposal: 'p1', at: stale,
+      sig: signArmed(p.keys.s1.keyPackage(), 2, gvk, 'gone-b', stale, 'p1'),
+    }))
 
-    const [A, B] = pair(bus)
     A.session.setProposal('p1'); B.session.setProposal('p1')
     await A.session.start(); await B.session.start(); await run([A, B], bus)
 
@@ -415,7 +433,11 @@ describe('BackgroundSession - a failed attempt must not freeze the payment', () 
     expect(A.namedSender).toBe('b-tag')
   })
 
-  it('a signature with no timestamp is always stale: it can only be a leftover', async () => {
+  it('a signature with no timestamp never counts', async () => {
+    // Two rules refuse this now and it is worth being straight about which: no real device can
+    // produce it any more (the timestamp is inside what `armed` signs), so since #425 it is
+    // refused for being unproven, and the timestamp rule below it never runs. The test stays
+    // because what must hold is that it NEVER counts - not which rule stops it.
     const bus = new Bus()
     bus.post('gone-a', JSON.stringify({ type: 'armed', seat: 1, proposal: 'p1' }))
     bus.post('gone-b', JSON.stringify({ type: 'armed', seat: 2, proposal: 'p1' }))
@@ -426,9 +448,16 @@ describe('BackgroundSession - a failed attempt must not freeze the payment', () 
   })
 
   it('a fresh signature still counts', async () => {
+    // The companion to the two tests above: the expiry rule must not swallow a LIVE signature read
+    // back from the room. Signed by seat 2's own share for the tag it is posted from, so what is
+    // being tested is the timestamp and nothing else (#425 made an unsigned one fail for a
+    // different reason entirely, which would have made this test lie about what it proves).
     const bus = new Bus()
-    bus.post('someone', JSON.stringify({ type: 'armed', seat: 2, proposal: 'p1', at: NOW - 1000 }))
-    const [A, B] = pair(bus)
+    const p = pair(bus)
+    const [A, B] = p
+    const at = NOW - 1000
+    const sig = signArmed(p.keys.s1.keyPackage(), 2, bytesToHex(p.keys.groupVk), 'someone', at, 'p1')
+    bus.post('someone', JSON.stringify({ type: 'armed', seat: 2, proposal: 'p1', at, sig }))
     A.session.setProposal('p1'); B.session.setProposal('p1')
     await A.session.start(); await B.session.start(); await run([A, B], bus)
     expect(A.armedSeats).toEqual([2])
@@ -474,10 +503,16 @@ describe('BackgroundSession - the whole vault learns a send failed, not only the
   const pair = (bus: Bus) => {
     const { s0, s1, groupVk, pubkeys } = dkg2of3()
     const open: GovernanceGate = () => true
-    return [
-      makeDev('a-tag', 1, bus, mat(s0.keyPackage(), groupVk, pubkeys), open),
-      makeDev('b-tag', 2, bus, mat(s1.keyPackage(), groupVk, pubkeys), open),
-    ] as const
+    // `keys` is handed back so a test can craft a room message that is AUTHENTIC, not merely
+    // well-shaped: since #425 the tally messages are verified, so an unsigned one proves nothing
+    // about expiry - it is just rejected for the other reason.
+    return Object.assign(
+      [
+        makeDev('a-tag', 1, bus, mat(s0.keyPackage(), groupVk, pubkeys), open),
+        makeDev('b-tag', 2, bus, mat(s1.keyPackage(), groupVk, pubkeys), open),
+      ] as const,
+      { keys: { s0, s1, groupVk, pubkeys } },
+    )
   }
 
   it('carries the reason to the devices that signed but did not send', async () => {
@@ -513,6 +548,154 @@ describe('BackgroundSession - the whole vault learns a send failed, not only the
     A.session.setProposal('p1'); B.session.setProposal('p1')
     await A.session.start(); await B.session.start(); await run([A, B], bus)
     await B.session.unarm('p-other', 'funds'); await run([A, B], bus)
+    expect(A.failure).toBeNull()
+  })
+})
+
+// #425: the two messages that carry the tally were left plain when `rejoin` was signed. Anyone who
+// could write to the room could clear every device's count - repeatedly, so a payment never reached
+// a quorum - or forge `armed` for absent seats until the panel named a sender that would never
+// send. No money moves either way; this is denial of send. These drive the real attack over the
+// same in-memory room the happy path uses.
+describe('BackgroundSession - the tally cannot be moved by someone without a share (#425)', () => {
+  const mat = (kp: Uint8Array, groupVk: Uint8Array, pubkeys: Uint8Array) => () => ({ keyPackage: kp, groupVk, pubkeys })
+  const pair = (bus: Bus) => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const open: GovernanceGate = () => true
+    return Object.assign(
+      [
+        makeDev('a-tag', 1, bus, mat(s0.keyPackage(), groupVk, pubkeys), open),
+        makeDev('b-tag', 2, bus, mat(s1.keyPackage(), groupVk, pubkeys), open),
+      ] as const,
+      { keys: { s0, s1, groupVk, pubkeys } },
+    )
+  }
+
+  /** Both devices sign `p1`, so the tally is full and a sender is named. */
+  async function armedQuorum(bus: Bus, p: ReturnType<typeof pair>) {
+    const [A, B] = p
+    A.session.setProposal('p1'); B.session.setProposal('p1')
+    await A.session.start(); await B.session.start(); await run([A, B], bus)
+    await A.session.arm('p1'); await B.session.arm('p1'); await run([A, B], bus)
+    expect(A.armedSeats).toEqual([1, 2])
+    return [A, B] as const
+  }
+
+  it('an outsider cannot zero the tally with a forged unarmed', async () => {
+    // The attack, exactly: post `unarmed` for the payment on screen and every device runs
+    // `armed.clear()`. Repeatable, so the payment could never accumulate a quorum.
+    const bus = new Bus()
+    const p = pair(bus)
+    const [A, B] = await armedQuorum(bus, p)
+
+    bus.post('attacker', JSON.stringify({ type: 'unarmed', proposal: 'p1' }))
+    bus.post('attacker', JSON.stringify({ type: 'unarmed', proposal: 'p1', seat: 1 }))
+    bus.post('attacker', JSON.stringify({ type: 'unarmed', proposal: 'p1', seat: 1, sig: 'ff'.repeat(64) }))
+    await run([A, B], bus)
+
+    expect(A.armedSeats, 'the tally must survive an unsigned withdrawal').toEqual([1, 2])
+    expect(B.armedSeats).toEqual([1, 2])
+  })
+
+  it('an outsider cannot replay a real unarmed from another tag', async () => {
+    // Seat 1 legitimately withdraws once. The attacker captures that message and re-sends it under
+    // their own tag to zero the tally again after the members have signed afresh.
+    const bus = new Bus()
+    const p = pair(bus)
+    const [A, B] = await armedQuorum(bus, p)
+    await A.session.unarm('p1'); await run([A, B], bus)
+    expect(A.armedSeats).toEqual([])
+    const captured = bus.msgs.filter((m) => m.data.includes('"unarmed"')).at(-1)!.data
+
+    // Both sign again, and the attacker replays what it captured.
+    await A.session.arm('p1'); await B.session.arm('p1'); await run([A, B], bus)
+    expect(A.armedSeats).toEqual([1, 2])
+    bus.post('attacker', captured)
+    await run([A, B], bus)
+
+    expect(A.armedSeats, 'a captured withdrawal must not work from another tag').toEqual([1, 2])
+  })
+
+  it('a real withdrawal by a seated member still works', async () => {
+    // The other half: making it strict must not take away the ability to withdraw, which is the
+    // whole point of `unarm` (an attempt failed, nothing moved, everyone decides again).
+    const bus = new Bus()
+    const p = pair(bus)
+    const [A, B] = await armedQuorum(bus, p)
+    await B.session.unarm('p1', 'ceremony'); await run([A, B], bus)
+    expect(A.armedSeats).toEqual([])
+    expect(B.armedSeats).toEqual([])
+    expect(A.failure).toBe('ceremony') // and the reason still reaches everyone
+  })
+
+  it('an outsider cannot forge an arming for a seat it does not hold', async () => {
+    // The other direction: park the payment by arming absent seats until the panel names a sender
+    // that will never send, and it sits for the full arm TTL.
+    const bus = new Bus()
+    const p = pair(bus)
+    const [A, B] = p
+    A.session.setProposal('p1'); B.session.setProposal('p1')
+    await A.session.start(); await B.session.start(); await run([A, B], bus)
+
+    bus.post('attacker', JSON.stringify({ type: 'armed', seat: 2, proposal: 'p1', at: NOW }))
+    bus.post('attacker', JSON.stringify({ type: 'armed', seat: 2, proposal: 'p1', at: NOW, sig: 'ab'.repeat(64) }))
+    await run([A, B], bus)
+
+    expect(A.armedSeats, 'no seat is armed by someone without its share').toEqual([])
+    expect(A.namedSender).toBeNull()
+  })
+
+  it('a member cannot arm a DIFFERENT seat than its own', async () => {
+    // Seat 1 is a real member with a real share. It still cannot sign seat 2's arming: the seat is
+    // inside the signed message and verified against THAT seat's verifying share.
+    const bus = new Bus()
+    const p = pair(bus)
+    const [A, B] = p
+    A.session.setProposal('p1'); B.session.setProposal('p1')
+    await A.session.start(); await B.session.start(); await run([A, B], bus)
+
+    const at = NOW
+    bus.post('a-tag', JSON.stringify({
+      type: 'armed', seat: 2, proposal: 'p1', at,
+      sig: signArmed(p.keys.s0.keyPackage(), 2, bytesToHex(p.keys.groupVk), 'a-tag', at, 'p1'),
+    }))
+    await run([A, B], bus)
+    expect(A.armedSeats).toEqual([])
+  })
+
+  it('an arming cannot be moved to a DIFFERENT payment', async () => {
+    // The proposal is inside the signed message, so a genuine arming for p1 cannot be re-posted as
+    // an arming for p2 - which would otherwise let a captured message complete a quorum on a
+    // payment its owner never looked at.
+    const bus = new Bus()
+    const p = pair(bus)
+    const [A, B] = p
+    A.session.setProposal('p1'); B.session.setProposal('p1')
+    await A.session.start(); await B.session.start(); await run([A, B], bus)
+    await B.session.arm('p1'); await run([A, B], bus)
+    const real = JSON.parse(bus.msgs.filter((m) => m.data.includes('"armed"')).at(-1)!.data) as Record<string, unknown>
+
+    A.session.setProposal('p2'); B.session.setProposal('p2')
+    await run([A, B], bus)
+    bus.post('b-tag', JSON.stringify({ ...real, proposal: 'p2' }))
+    await run([A, B], bus)
+
+    expect(A.armedSeats, 'an arming for another payment must not count here').toEqual([])
+  })
+
+  it('the withdrawal reason cannot be swapped in flight', async () => {
+    // `code` is inside what `unarmed` signs, so the relay (or anyone in the room) cannot turn
+    // "the ceremony failed" into "not enough funds" - each device writes its own sentence from it.
+    const bus = new Bus()
+    const p = pair(bus)
+    const [A, B] = await armedQuorum(bus, p)
+    await B.session.unarm('p1', 'ceremony')
+    const real = JSON.parse(bus.msgs.filter((m) => m.data.includes('"unarmed"')).at(-1)!.data) as Record<string, unknown>
+    bus.msgs.length = bus.msgs.length - 1 // drop the genuine one; deliver only the tampered copy
+    bus.post('b-tag', JSON.stringify({ ...real, code: 'funds' }))
+    await run([A, B], bus)
+
+    expect(A.armedSeats, 'a tampered withdrawal changes nothing').toEqual([1, 2])
     expect(A.failure).toBeNull()
   })
 })
