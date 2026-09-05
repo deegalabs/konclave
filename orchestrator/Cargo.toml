@@ -49,7 +49,11 @@ zcash_protocol = { git = "https://github.com/zcash/librustzcash", rev = "08334eb
 # #281 Passo 2: derive the vault's INTERNAL change receiver from its UFVK, so a signing device can
 # tell its own change from an attacker's output. Only the viewing side is needed - no spend key.
 zcash_keys = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3", features = ["orchard"] }
-orchard = { version = "0.15", default-features = false }
+# 0.14, NOT the 0.15 that konclave-signer and konclave-wasm use, and the difference is deliberate:
+# it must be the SAME orchard the `zcash_keys` rev above links, or this crate ends up with two of
+# them - the FullViewingKey we read and the Scope we hand it would come from different crates.
+# Matching it keeps exactly one orchard in this crate's graph. If that rev moves, this moves with it.
+orchard = { version = "0.14", default-features = false }
 
 # The `konclave serve` binary (the local bridge). The library stays the tested core.
 [[bin]]
