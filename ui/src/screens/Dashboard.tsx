@@ -19,6 +19,8 @@ import {
   type Vault, type Proposal, type Balance,
 } from '../api'
 import { storagePersistence, warnsAboutEviction, listVaults } from '../storage'
+import { getUnlockedShare } from '../session'
+import { needsUnlock, securedLocally } from '../vault-lock'
 import { useVaultSigner } from '../VaultSigner'
 import { useLoading } from '../loading'
 
@@ -176,9 +178,16 @@ export default function Dashboard() {
         if (!ok) return
         const v = await getVault()
         if (!on) return
-        // Locked vault not unlocked this session → send back to unlock. Only on first load, so a
-        // background poll never yanks the user off the dashboard.
-        if (first && v?.locked && !isVaultUnlocked(v.id)) { nav('/vaults'); return }
+        // Cannot read this vault yet → send back to unlock. Only on first load, so a background
+        // poll never yanks the user off the dashboard. The shared rule (#439): asking only the
+        // bridge's `locked` let a #388-protected vault through with no S, and every read below
+        // would 401 into a dashboard that showed nothing and said nothing.
+        if (first && v && needsUnlock({
+          bridgeLocked: v.locked,
+          unlockedThisSession: isVaultUnlocked(v.id),
+          securedLocally: await securedLocally(v.id),
+          hasAccessSecret: !!getUnlockedShare(v.id)?.accessSecret,
+        })) { nav('/vaults'); return }
         if (v) setVault(v)
         // FAST data first: proposals + ledger are plain file reads (no wallet sync). Render the
         // dashboard on these so it appears immediately, instead of waiting on the balance.
