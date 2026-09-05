@@ -741,6 +741,16 @@ pub struct VaultRegistration {
     pub threshold: u16,
     #[serde(default)]
     pub total: u16,
+    /// The vault's **internal** (change) receiver, from [`change_receiver`]. Public, view-only, and
+    /// FIXED for the vault's life (`address_at(0, Scope::Internal)`).
+    ///
+    /// It exists so a signing device can tell its own change from an attacker's output (#281). The
+    /// device cannot derive it - the addresses come from a random `sk` that `zcash-sign` discards -
+    /// so it is captured here once and stored on the device, which then refuses any later deviation.
+    /// Empty on registrations written before this field existed; those need a one-time backfill,
+    /// and an empty value must be treated as "unknown", never as "matches nothing".
+    #[serde(default)]
+    pub change_receiver: String,
 }
 
 /// Where a vault's persisted registration lives: `<vaults_dir>/<vault_id>/registration.json`.
@@ -851,6 +861,24 @@ pub fn register_vault(
         None,
     )?;
     let account = parse_account_uuid(&listed)?;
+    // Derived, not fetched: the change receiver comes from the UFVK we just generated, in the same
+    // breath, so it is impossible for it to disagree with the wallet this registration describes.
+    //
+    // A derivation failure must not fail the registration - the vault still works, its money gate
+    // just stays unarmed - so it degrades to empty, which downstream reads as "unknown" and never
+    // as "matches nothing". But it degrades OUT LOUD. Swallowing the reason is the defect #307 was
+    // about (a result requested and discarded), and an empty field with no explanation would leave
+    // whoever debugs an unarmed gate with nothing to go on. The vault is named because the failure
+    // is per-vault: one bad UFVK must not read as the whole helper being broken.
+    let change_receiver = match change_receiver(&ufvk, &cfg.network) {
+        Ok(addr) => addr,
+        Err(e) => {
+            eprintln!(
+                "vault {group_key}: no change receiver derived ({e:?}); its money gate stays unarmed"
+            );
+            String::new()
+        }
+    };
     let reg = VaultRegistration {
         vault_id: group_key.to_string(),
         address,
@@ -859,6 +887,7 @@ pub fn register_vault(
         account,
         threshold,
         total,
+        change_receiver,
     };
     // Persist so a restart keeps the vault + its now-fixed address. Best-effort: a write failure
     // (e.g. read-only FS) must not fail the registration - the in-memory state still serves it.
@@ -905,6 +934,58 @@ pub fn derive_identity(
         None,
     )?;
     parse_generate(&out)
+}
+
+/// The vault's **internal** (change) Orchard receiver, derived from its UFVK.
+///
+/// Why this has to exist at all: a signing device holds only its FROST share and the group's public
+/// key. The vault's addresses come from a `sk` that `zcash-sign generate` draws at RANDOM and throws
+/// away (its own doc-comment: *"different calls will generate different FullViewingKeys"*), so the
+/// device **cannot** derive them. Without being told, it reads the change output of every honest
+/// send as an unrecognised destination, and the money gate (#281) refuses real payments.
+///
+/// The diversifier is not a choice made here. `zcash_client_backend` sends change to
+/// `address_at(0u32, Scope::Internal)` (`data_api/wallet.rs:1684`), the only internal-scope
+/// derivation in that crate, so this reproduces what the wallet will actually do. That is also why
+/// the value is safe to capture once and store: it is fixed for the life of the vault, not rotated
+/// per send.
+///
+/// View-only throughout - a UFVK cannot spend, and nothing here touches a share.
+pub fn change_receiver(ufvk: &str, network: &str) -> Result<String, ToolError> {
+    use zcash_keys::keys::UnifiedFullViewingKey;
+    use zcash_protocol::consensus::Network;
+
+    let params = match network {
+        "main" | "mainnet" => Network::MainNetwork,
+        "test" | "testnet" => Network::TestNetwork,
+        other => {
+            return Err(ToolError::parse(
+                "change_receiver",
+                format!("network must be \"main\" or \"test\", got {other:?}"),
+            ))
+        }
+    };
+
+    let ufvk = UnifiedFullViewingKey::decode(&params, ufvk)
+        .map_err(|e| ToolError::parse("change_receiver", format!("UFVK does not decode: {e}")))?;
+    let fvk = ufvk.orchard().ok_or_else(|| {
+        ToolError::parse(
+            "change_receiver",
+            "the UFVK carries no Orchard key".to_string(),
+        )
+    })?;
+
+    let addr = fvk.address_at(0u32, orchard::keys::Scope::Internal);
+    Ok(
+        zcash_keys::address::UnifiedAddress::from_receivers(Some(addr), None)
+            .ok_or_else(|| {
+                ToolError::parse(
+                    "change_receiver",
+                    "the change receiver is not a valid UA".to_string(),
+                )
+            })?
+            .encode(&params),
+    )
 }
 
 /// In-memory registry of the vaults a hosted helper is operating, keyed by vault_id (the group
@@ -1040,6 +1121,7 @@ mod tests {
             account: format!("acct-{id}"),
             threshold: 2,
             total: 3,
+            change_receiver: format!("u1change{id}"),
         }
     }
 
@@ -1580,5 +1662,66 @@ mod tests {
         assert_eq!(send_cfg("main").network_type(), NetworkType::Main);
         // Anything unexpected defaults to mainnet (the safe, production default).
         assert_eq!(send_cfg("regtest").network_type(), NetworkType::Main);
+    }
+}
+
+#[cfg(test)]
+mod change_receiver_tests {
+    use super::*;
+
+    // A real UFVK, produced by `zcash-sign generate --ak <group key> --network main`. The pair is
+    // what registration stores for a vault, so the test operates on exactly the shape production
+    // holds.
+    const UFVK: &str = "uview1z2nst9y9367acqqykyws80hrc3df87ffnwvtvx3ggf3tvx342sncxxfztdgfk67a0xk4c0wptspqyc4k59ucqrtxgdka96ktjudm5gr65d8aaq6js0jpwrfryrafzu82axyezm9e6y5r96z7hk8a04zpvs5896xeze9pmpwwymh5h7xeae79wscp2c08j";
+    const EXTERNAL: &str = "u1cl9hwu3v580lgfuz9z9u8wp9scpy4c2yzcre7kvghtfuyyvsan33g0fgmkyx246mtq6s5x2qzraetalqfhkmul2agejjxynqxvz5e3el";
+
+    #[test]
+    fn the_change_receiver_is_not_the_address_funds_are_received_at() {
+        // The whole reason this exists: change comes back to the INTERNAL scope, an address the
+        // signing device has never seen and cannot derive. Reading change as "an output we do not
+        // recognise" is what made the money gate refuse every legitimate send (#281).
+        let change = change_receiver(UFVK, "main").expect("a real UFVK yields a change receiver");
+        assert_ne!(
+            change, EXTERNAL,
+            "internal scope must not collapse onto the external address"
+        );
+        assert!(
+            change.starts_with("u1"),
+            "a mainnet unified address, got {change}"
+        );
+    }
+
+    #[test]
+    fn the_same_vault_always_gets_the_same_change_receiver() {
+        // Load-bearing for the plan's decision to CAPTURE this once and store it immutably: if the
+        // derivation drifted between calls, a stored value would start rejecting real sends.
+        // librustzcash pins the diversifier (`address_at(0u32, Scope::Internal)`,
+        // zcash_client_backend/src/data_api/wallet.rs:1684), so this is fixed, not merely stable.
+        let a = change_receiver(UFVK, "main").unwrap();
+        let b = change_receiver(UFVK, "main").unwrap();
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn a_ufvk_that_does_not_decode_is_an_error_not_a_guess() {
+        assert!(
+            change_receiver("uview1x2w3", "main").is_err(),
+            "a truncated UFVK must not resolve"
+        );
+        assert!(change_receiver("", "main").is_err());
+    }
+
+    #[test]
+    fn the_network_must_be_declared_and_must_match_the_key() {
+        assert!(
+            change_receiver(UFVK, "bogus").is_err(),
+            "an unknown network must be rejected"
+        );
+        // A mainnet UFVK is not decodable under testnet parameters: the HRP differs, so a mismatch
+        // fails loudly instead of silently producing an address for the wrong chain.
+        assert!(
+            change_receiver(UFVK, "test").is_err(),
+            "a mainnet key must not decode as testnet"
+        );
     }
 }
