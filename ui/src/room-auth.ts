@@ -35,3 +35,29 @@ export function verifyRejoin(
     return false
   }
 }
+
+/** The public material a device needs to judge someone else's rejoin. Both drivers already hold
+ *  exactly this (their `signingMaterial()`), which is why the check can be shared whole. */
+export interface RoomMaterial {
+  groupVk: Uint8Array
+  pubkeys: Uint8Array
+}
+
+/**
+ * Is this rejoin PROVEN - carrying a real signature by that seat's own share?
+ *
+ * The whole decision lives here, hex conversion included, because the two ceremony drivers used to
+ * each own a piece of it and one of them never got the check at all (#424). A caller that only
+ * shared `verifyRejoin` could still pass the group key and the tag in the wrong order and be
+ * wrong in a way no test would see. Never throws: a malformed or absent signature is unproven,
+ * which is the safe side (an unproven rejoin may seat an EMPTY seat but never evicts a holder).
+ */
+export function rejoinIsProven(
+  mat: RoomMaterial,
+  seat: number,
+  tag: string,
+  sig: unknown,
+): boolean {
+  if (typeof sig !== 'string') return false
+  return verifyRejoin(mat.pubkeys, seat, bytesToHex(mat.groupVk), tag, sig)
+}

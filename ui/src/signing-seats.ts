@@ -7,6 +7,22 @@
 // It is deliberately tiny and pure: it maps relay tags to 1-based FROST seats and provides the
 // `seatOf`/`mySeat` lookups the SigningMachine needs. It never touches shares or crypto.
 
+/**
+ * The tag OTHER than `fromTag` that currently holds `seat`, if any.
+ *
+ * A rejoin naming an occupied seat is an EVICTION, and only a PROVEN one may do it (#392). This
+ * lives outside the class because `/net` keeps its own tag->seat map (it also carries the DKG's
+ * `encPub` per seat, which this class does not), and the two drifting apart is exactly how the
+ * hijack stayed open there after #401 closed it here (#424). One rule, one place.
+ */
+export function seatHolder(
+  byTag: ReadonlyMap<string, number>,
+  fromTag: string,
+  seat: number,
+): string | undefined {
+  return [...byTag.entries()].find(([tag, s]) => s === seat && tag !== fromTag)?.[0]
+}
+
 /** The wire message a device broadcasts to announce its seat when joining a signing room. */
 export interface RejoinMsg {
   type: 'rejoin'
@@ -43,7 +59,7 @@ export class SigningSeats {
     // Is this seat already held by a DIFFERENT tag? Taking it over is an eviction, and only a proven
     // rejoin (a real signature by this seat's share - a legit reload) may do it. An unproven claim on
     // an occupied seat is ignored, never evicting the holder (A4 seat-hijack, #392).
-    const heldBy = [...this.byTag.entries()].find(([tag, s]) => s === seat && tag !== fromTag)?.[0]
+    const heldBy = seatHolder(this.byTag, fromTag, seat)
     if (heldBy !== undefined) {
       if (!proven) return this.seatCount() // occupied + unproven -> never evict
       this.byTag.delete(heldBy) // proven takeover: the seat's own share-holder, reloaded

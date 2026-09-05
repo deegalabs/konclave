@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { SigningSeats } from './signing-seats'
+import { SigningSeats , seatHolder } from './signing-seats'
 
 // The rejoin/seating handshake for a signing session (#49 Stage 3), lifted from NetVault. Fixed
 // seats (from the DKG); each device announces its own, and stale tags for a seat are dropped so the
@@ -52,5 +52,30 @@ describe('SigningSeats - signing-room seating (rejoin handshake)', () => {
     const seats = new SigningSeats('a', 1)
     expect(seats.handleRejoin('b', 2, false)).toBe(2) // seat 2 was empty -> allowed
     expect(seats.seatOf('b')).toBe(2)
+  })
+})
+
+// `seatHolder` is the eviction rule itself, pulled out so `/net` and the background signer cannot
+// answer it differently - which is how the hijack stayed open on `/net` after #401 closed it here
+// (#424). If this is ever inlined again, it will drift again.
+describe('seatHolder — who would be evicted (#424)', () => {
+  const table = new Map([['tag-a', 1], ['tag-b', 2]])
+
+  it('names the other tag holding the seat: taking it is an eviction', () => {
+    expect(seatHolder(table, 'fresh-tag', 1)).toBe('tag-a')
+  })
+
+  it('is undefined for an EMPTY seat: taking it evicts nobody', () => {
+    expect(seatHolder(table, 'fresh-tag', 3)).toBeUndefined()
+  })
+
+  it('is undefined when the tag already holds that seat: a repeat is not an eviction', () => {
+    // A device re-announcing itself (a duplicate relay delivery) must not be read as taking over
+    // from itself, or a legitimate repeat would need a proof it has no reason to carry.
+    expect(seatHolder(table, 'tag-a', 1)).toBeUndefined()
+  })
+
+  it('is undefined on an empty table', () => {
+    expect(seatHolder(new Map(), 'tag-a', 1)).toBeUndefined()
   })
 })

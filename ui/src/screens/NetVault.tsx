@@ -12,6 +12,8 @@ import wasmUrl from '../wasm-pkg/konclave_wasm_bg.wasm?url'
 import { RelaySession, newRoomCode, deriveRoom, ephemeralTag, b64, unb64, bytesEqual, relayBase, type RelayMsg } from '../net'
 import { decodeBundle } from '../signing'
 import { SigningMachine } from '../signing-machine'
+import { seatHolder } from '../signing-seats'
+import { signRejoin, rejoinIsProven } from '../room-auth'
 import { unsealSignRequest } from '../net-sign'
 import { generateVaultSecret, deriveReadKey } from '../vault-secret'
 import { deviceCommsKey, devicePubHex } from '../device-key'
@@ -63,7 +65,9 @@ type Msg =
   | { type: 'vsec'; to: number; box: string }
   // rejoin (signing after restore): a restored device announces its ORIGINAL seat (its KeyPackage's
   // identifier is bound to it), so a signing session re-seats by declared seat, not by fresh tags.
-  | { type: 'rejoin'; seat: number }
+  // `sig` proves the announcement came from that seat's share-holder (#392/#424). Optional on the
+  // wire so a device on an older build still seats - it simply counts as unproven.
+  | { type: 'rejoin'; seat: number; sig?: string }
   // signing (Marco 4): all public material - the proven PCZT to verify, the sighash to sign,
   // commitments, signing package, seed, shares, sig.
   | { type: 'sreq'; msg: string; pczt?: string }
@@ -508,11 +512,27 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
 
       // ---- rejoin (signing after restore): re-seat by declared seat, not by fresh tags ----
       if (parsed.type === 'rejoin') {
-        // A device that reloads rejoins with a FRESH ephemeral tag but the SAME seat. Drop any
-        // stale tag for that seat first, so each seat has exactly one presence: the count is
-        // distinct SEATS (never > n), and the seat table has no duplicate seats to break signing.
-        for (const [tag, seat] of seatByTagRef.current.entries()) {
-          if (seat === parsed.seat && tag !== msg.from) seatByTagRef.current.delete(tag)
+        // A device that reloads rejoins with a FRESH ephemeral tag but the SAME seat, so a rejoin
+        // that names an OCCUPIED seat evicts its holder. Only the seat's own share-holder may do
+        // that (#392): the announcement is signed with the share and bound to seat+vault+tag, so a
+        // captured one cannot be replayed under another tag. An UNPROVEN rejoin may still take an
+        // EMPTY seat (an older build, and #399 covers that residual) but never evicts - which is
+        // the A4 seat-hijack this path was still open to after #401 closed it for the background
+        // signer (#424).
+        // `signingMaterial()` THROWS when there is neither a live DKG nor a restored vault - a
+        // rejoin can arrive before either exists. Not being able to verify is not the same as
+        // verifying: it counts as unproven, which is the safe side (it can seat an empty seat,
+        // never evict).
+        let proven = false
+        try {
+          proven = rejoinIsProven(signingMaterial(), parsed.seat, msg.from, parsed.sig)
+        } catch {
+          proven = false // no material yet: cannot verify, so not proven
+        }
+        const heldBy = seatHolder(seatByTagRef.current, msg.from, parsed.seat)
+        if (heldBy !== undefined) {
+          if (!proven) return true // occupied + unproven -> never evict
+          seatByTagRef.current.delete(heldBy) // proven takeover: the share-holder, reloaded
         }
         seatByTagRef.current.set(msg.from, parsed.seat)
         seatTableRef.current = [...seatByTagRef.current.entries()].map(([tag, seat]) => ({
@@ -670,7 +690,9 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
         const sess = new RelaySession(code, myTagRef.current, onMessage, (p) => setPeers(p))
         sessionRef.current = sess
         sess.start()
-        await sess.send(JSON.stringify({ type: 'rejoin', seat: r.seat } satisfies Msg))
+        // Signed, so peers can tell a real reload from an outsider claiming the seat (#424).
+        const sig = signRejoin(r.keyPackage, r.seat, hex(r.groupVk), myTagRef.current)
+        await sess.send(JSON.stringify({ type: 'rejoin', seat: r.seat, sig } satisfies Msg))
         addLog(tt('net.log.joined'))
         void advance()
       } catch (e) {
