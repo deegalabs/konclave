@@ -11,7 +11,7 @@ import { armIsLive } from './signing-gate'
 import { SigningSeats } from './signing-seats'
 import { BackgroundSigner, type GovernanceGate } from './background-signer'
 import type { SigningMaterial } from './signing-machine'
-import { signRejoin, verifyRejoin } from './room-auth'
+import { signRejoin, rejoinIsProven } from './room-auth'
 import { bytesToHex } from './bytes'
 
 export interface BackgroundSessionDeps {
@@ -160,10 +160,7 @@ export class BackgroundSession {
     if (parsed?.type === 'rejoin' && typeof parsed.seat === 'number') {
       // A rejoin is PROVEN only if it carries a valid signature by that seat's own share (#392); an
       // unproven one may seat an empty seat but never evicts the holder, closing the seat-hijack (A4).
-      const mat = this.signingMaterial()
-      const proven =
-        typeof parsed.sig === 'string' &&
-        verifyRejoin(mat.pubkeys, parsed.seat, bytesToHex(mat.groupVk), from, parsed.sig)
+      const proven = rejoinIsProven(this.signingMaterial(), parsed.seat, from, parsed.sig)
       this.seats.handleRejoin(from, parsed.seat, proven)
       await this.signer.retry() // a pending signing message may now know this sender's seat
       return
