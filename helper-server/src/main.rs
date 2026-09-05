@@ -8,6 +8,23 @@
 //!
 //! Bind on `0.0.0.0` with permissive CORS so browsers on any origin can reach it (like the relay).
 //! Config comes from the environment (see `HelperConfig::from_env`).
+//!
+//! # The helper deletes nothing but scratch
+//!
+//! There is no delete route here, and its absence is deliberate rather than a gap someone should
+//! fill. The only removal this service performs is [`sweep_send_work`], which takes `send-work`
+//! scratch directories and is written to be impossible to widen by accident.
+//!
+//! A vault's `registration.json` carries the address + UFVK that were minted **once, with
+//! randomness**, at registration. `zcash-sign generate --ak` is non-deterministic: re-registering
+//! the same group key mints a DIFFERENT address, so notes at the old one become undetectable
+//! without the old UFVK. The volume holds the only copy (`docs/RECOVERY.md`).
+//!
+//! And the record is **shared**. Since #426 a member can remove a vault from their own device;
+//! that must never reach the copy the other members read. So a vault record is removed only by a
+//! human operator, deliberately, per `docs/RECOVERY.md` procedure C - which moves it to
+//! `_retired/` rather than deleting it, precisely because the operation is not reversible any
+//! other way.
 
 mod concurrency;
 
