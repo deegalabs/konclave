@@ -1058,6 +1058,12 @@ fn main() {
     for reg in restored {
         state.insert(reg);
     }
+    // Record the wallet birthday on any registration still missing one (#434). Boot is where this
+    // belongs: the number lives only in `wallet/keys.toml`, which the ops backup excludes, so every
+    // deploy that runs without it is a deploy where a volume loss is unrecoverable. It only ADDS a
+    // field, never rewrites one, and never touches `wallet/`.
+    let birthdays = orchestrator::helper::backfill_birthdays(&cfg.vaults_dir);
+
     // Sweep every leftover send scratch directory before serving a single request (#297).
     //
     // Sends now wipe their own on the way out, but this volume is durable and every payroll ever
@@ -1070,7 +1076,7 @@ fn main() {
     let swept = sweep_send_work(&cfg.vaults_dir);
     let server = Server::http(&addr).expect("bind");
     eprintln!(
-        "konclave-helper listening on {addr} (network={}, {restored_n} vault(s) restored, {swept} scratch dir(s) swept)",
+        "konclave-helper listening on {addr} (network={}, {restored_n} vault(s) restored, {birthdays} birthday(s) recorded, {swept} scratch dir(s) swept)",
         cfg.network
     );
 
