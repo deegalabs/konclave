@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { startVisiblePoll } from '../usePoll'
 import { Link, useNavigate } from 'react-router-dom'
+import { useInstall } from '../use-install'
 import { Seal, Secret, RevealButton, Loading } from '../components'
 import { SkeletonStat, SkeletonRows } from '../skeleton'
 import { SpendBars, type SpendPoint } from '../charts'
@@ -96,6 +97,12 @@ export default function Dashboard() {
   // banner never flashes before we know. The answer is read here rather than stored at save time
   // because it can change under the member (a granted origin can be revoked in settings).
   const [evictable, setEvictable] = useState<boolean | undefined>(undefined)
+  // #307: is there a share on THIS device to lose? Without one the warning is pure noise, and it
+  // would greet every first-time visitor, which is the worst possible moment for a red banner:
+  // maximum alarm, nothing they can act on. `listVaults` reads the on-device records, so this is
+  // "do we hold a sealed share here", not "does the vault exist".
+  const [hasLocalShare, setHasLocalShare] = useState(false)
+  const { offer: installOffer, promptInstall } = useInstall()
   // For the members peek: this device's seat and the vault creator (on-device record). Loaded once
   // per vault id, not on every poll.
   const [me, setMe] = useState<string | null>(null)
@@ -144,7 +151,14 @@ export default function Dashboard() {
     const id = getSelectedVault()
     if (!id) return
     let on = true
-    void listVaults().then((l) => { if (on) setSecured(l.find((v) => v.id === id)?.secured) }).catch(() => {})
+    void listVaults()
+      .then((l) => {
+        if (!on) return
+        const mine = l.find((v) => v.id === id)
+        setSecured(mine?.secured)
+        setHasLocalShare(!!mine)
+      })
+      .catch(() => {})
     return () => { on = false }
   }, [])
 
@@ -387,10 +401,31 @@ export default function Dashboard() {
             browser storage works - but staying silent about it is how someone loses a seat with no
             warning and no recovery path (#58). The action sits in the banner because "download your
             backup" with nowhere to click is advice, not a fix. */}
-        {evictable === true && (
-          <div className="dash-openwarn" role="alert">
-            <span className="ow-ic" aria-hidden="true">⚠</span> {t('dashboard.evictionBanner')}{' '}
-            <Link to="/settings">{t('dashboard.evictionCta')}</Link>
+        {/* #307: this browser did not promise to keep the share. Not a bug in the app, it is how
+            browser storage works, but staying silent is how someone loses a seat unwarned.
+            Deliberately NOT an alert: it shows only when there is a share here to lose, and it
+            leads with the thing that actually FIXES it. Installing is what makes Chromium grant
+            persistence, so "install" is the remedy and "back up" is the fallback for iOS and for
+            anyone who would rather not. A red alarm on every first visit would be read once and
+            then never again. */}
+        {evictable === true && hasLocalShare && (
+          <div className="dash-persist">
+            <span className="dp-ic" aria-hidden="true">◆</span>
+            <span>
+              {t('dashboard.evictionBanner')}{' '}
+              {installOffer.kind === 'prompt' && <>{t('dashboard.evictionInstall')}{' '}</>}
+              {installOffer.kind === 'ios' && <>{t('dashboard.evictionIos')}{' '}</>}
+              {(installOffer.kind === 'installed' || installOffer.kind === 'none') && (
+                <>{t('dashboard.evictionBackup')}{' '}</>
+              )}
+              {installOffer.kind === 'prompt' ? (
+                <button type="button" className="dp-cta" onClick={() => void promptInstall()}>
+                  {t('dashboard.evictionInstallCta')}
+                </button>
+              ) : (
+                <Link to="/settings">{t('dashboard.evictionCta')}</Link>
+              )}
+            </span>
           </div>
         )}
 
