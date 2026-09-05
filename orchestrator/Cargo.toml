@@ -46,6 +46,10 @@ tiny_http = "0.12"
 # the repo (do not bump in isolation - see CLAUDE.md §11 / ADR-0002).
 zcash_address = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
 zcash_protocol = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
+# #281 Passo 2: derive the vault's INTERNAL change receiver from its UFVK, so a signing device can
+# tell its own change from an attacker's output. Only the viewing side is needed - no spend key.
+zcash_keys = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3", features = ["orchard"] }
+orchard = { version = "0.15", default-features = false }
 
 # The `konclave serve` binary (the local bridge). The library stays the tested core.
 [[bin]]
