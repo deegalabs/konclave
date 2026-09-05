@@ -175,7 +175,7 @@ bundle and converge on the same on-chain transaction (guaranteed by the §7 pari
   src-tauri/ wraps orchestrator/             ui/ served static + relay-server/
   backend = native (orchestrator +           backend = WASM in the page
     konclave-signer + engine)                  (konclave-wasm)
-  share custody = OS keychain                 share custody = IndexedDB + WebAuthn
+  share custody = OS keychain                 share custody = IndexedDB (passphrase)
   full flow incl. create/prove/broadcast      signs its own piece; needs the sighash + a
   → the vault OPERATOR's app (secure)           proven PCZT passed in
                                               → any MEMBER, any device, zero-install
@@ -214,7 +214,9 @@ bundle and converge on the same on-chain transaction (guaranteed by the §7 pari
    `pczt send` - a broadcast Orchard tx from the browser.
 2. **Desktop shell (Tauri):** shipped as v0.2.0 - a two-click app that embeds
    `orchestrator/` and moves share custody to the OS keychain.
-3. **On-device share persistence:** encrypted IndexedDB + WebAuthn (sign-after-restore).
+3. **On-device share persistence:** encrypted IndexedDB is what ships; **WebAuthn/passkey unlock
+   is the intended addition and is NOT built** (#57). Until it is, the share's protection at rest is
+   the passphrase plus whatever the browser's storage guarantees, which can be evicted (#307).
 4. **Multi-device reconciliation:** the "on-chain wins" rule + destructive test (the one open item
    of the destructive suite, §4).
 5. **Packaging & integrity:** engine binaries as Tauri sidecars per target-triple; CSP + SRI +
