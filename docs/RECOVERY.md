@@ -30,7 +30,7 @@ The share export by itself restores the signing seat but **not** the vault ident
 ### Why the share alone is not enough (verified live)
 
 The helper derives a vault's address + UFVK with `zcash-sign generate --ak <group_key>`
-(`orchestrator/src/helper.rs:841`), and that call is **non-deterministic**. Two runs with the same
+(`helper::derive_identity`), and that call is **non-deterministic**. Two runs with the same
 `--ak` produce two different addresses/UFVKs. So re-registering a vault (even with the correct group
 key and share) mints a **new** address. On-chain notes at the old address need the old UFVK (its
 `nk`) to be detected and spent, so they are unrecoverable without the old `registration.json`, even
