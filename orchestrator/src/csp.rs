@@ -7,9 +7,33 @@
 //! The one rule that matters is `script-src` with NO `'unsafe-inline'` (so an injected `<script>` or
 //! inline handler cannot run), plus `'wasm-unsafe-eval'` (the WASM signer needs it). `style-src`
 //! keeps `'unsafe-inline'` deliberately - React sets inline style attributes, and style injection
-//! cannot execute code, so it is a far lower risk than script injection. `connect-src` lists exactly
-//! what the app fetches: the hosted helper and relay, and CoinGecko for the USD price. Explorer and
+//! cannot execute code, so it is a far lower risk than script injection. `connect-src` lists what
+//! the app fetches: the hosted helper and relay, and CoinGecko for the USD price. Explorer and
 //! GitHub links are `<a target=_blank>`, not fetches, so they are not listed.
+//!
+//! # The staging hosts are a deliberate, named exception (#370)
+//!
+//! `connect-src` also admits `konclave-helper-staging` and `konclave-relay-staging`, which
+//! production itself never contacts. That is a real widening and it is recorded here rather than
+//! left to be discovered.
+//!
+//! **Why it is needed.** `VITE_RELAY_BASE` and `VITE_HELPER_BASE` already point the client at
+//! another coordination plane, so a staging environment is otherwise pure configuration. But the
+//! policy is a static string mirrored into `ui/vercel.json`, so a preview build aimed at staging
+//! would have its requests **blocked by the browser, silently** - a CSP refusal is not an error a
+//! `fetch` catch block reports as anything recognisable. Without this, the first person to try
+//! loses a day to it, which is the day #370 exists to prevent.
+//!
+//! **Why the cost is small.** These are our own hosts, and the property this file exists to
+//! guarantee is `script-src` without `'unsafe-inline'`: there is no injected script to exfiltrate
+//! *with*. A wider `connect-src` matters when an attacker already runs code on the origin, which is
+//! the thing prevented above.
+//!
+//! **What would be better.** Compute the policy per build, so production lists production and only
+//! a staging build lists staging. That needs the policy to stop being a literal mirrored into two
+//! static config files, and it needs the drift test below to stop comparing literal strings.
+//! Vercel's `vercel.ts` supports it. It is the right end state; it should not be what blocks a
+//! staging environment from existing.
 
 /// The canonical policy, verbatim, mirrored into `ui/vercel.json` and `src-tauri/tauri.conf.json`.
 pub const CSP: &str = "default-src 'self'; \
@@ -17,7 +41,7 @@ script-src 'self' 'wasm-unsafe-eval'; \
 style-src 'self' 'unsafe-inline'; \
 img-src 'self' data:; \
 font-src 'self'; \
-connect-src 'self' https://konclave-helper-production.up.railway.app https://konclave-relay-production.up.railway.app https://api.coingecko.com; \
+connect-src 'self' https://konclave-helper-production.up.railway.app https://konclave-relay-production.up.railway.app https://konclave-helper-staging.up.railway.app https://konclave-relay-staging.up.railway.app https://api.coingecko.com; \
 frame-ancestors 'none'; \
 base-uri 'self'; \
 object-src 'none'; \
@@ -86,6 +110,27 @@ mod tests {
         assert!(!blocks_inline_script(unsafe_csp));
     }
 
+    /// The staging hosts are admitted ON PURPOSE (#370), and this pins that so removing them breaks
+    /// a test rather than breaking a staging environment silently. A CSP refusal is not an error a
+    /// `fetch` reports as anything recognisable, so the failure it would cause is invisible until
+    /// someone spends a day on it. If the staging environment is ever retired, delete this test in
+    /// the same change that narrows the policy - deliberately, not by discovery.
+    #[test]
+    fn the_policy_admits_the_staging_coordination_plane() {
+        for host in [
+            "https://konclave-helper-staging.up.railway.app",
+            "https://konclave-relay-staging.up.railway.app",
+        ] {
+            assert!(
+                allows_connect(CSP, host),
+                "{host} must stay in connect-src: a preview aimed at staging fails silently without it"
+            );
+        }
+        // The widening is exactly two hosts of ours, and it does NOT touch the property this file
+        // exists for: an injected script still cannot run, so there is nothing to exfiltrate with.
+        assert!(blocks_inline_script(CSP));
+    }
+
     #[test]
     fn the_canonical_policy_allows_exactly_the_hosts_the_app_fetches() {
         assert!(allows_connect(
@@ -101,6 +146,8 @@ mod tests {
             allows_connect(CSP, "'self'"),
             "the local bridge is same-origin"
         );
+        // Production also admits the two staging hosts, which production never contacts. That is
+        // the deliberate exception in this module's docs, pinned by the test above.
         // A host we do NOT fetch must not be allowed (explorers/GitHub are links, not fetches).
         assert!(!allows_connect(CSP, "https://evil.example.com"));
     }
