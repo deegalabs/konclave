@@ -57,7 +57,22 @@ Precondition: an out-of-band backup of the vault's `registration.json` (see D).
 
 1. Restore the vault dir (at least `registration.json`) to `/data/vaults/<id>/` on the volume.
 2. Redeploy the helper so it reloads the registry from disk.
-3. The helper re-syncs `wallet/` from chain (the on-chain history and balance rebuild from the UFVK).
+3. **Rebuild `wallet/` by hand, passing the recorded birthday.** This step used to read *"the helper
+   re-syncs `wallet/` from chain"*. **It does not, and never did** (#434): `register_vault` returns
+   as soon as it finds a `registration.json`, before any wallet init, and never checks that the
+   wallet directory is still there. A restore that stops at step 2 leaves a vault whose reads fail.
+   ```
+   zcash-devtool wallet -w /data/vaults/<id>/wallet init-fvk \
+     --name <id> --fvk <ufvk from registration.json> \
+     --birthday <birthday from registration.json> \
+     -s zec.rocks:443 --connection direct
+   ```
+   **The `--birthday` is not optional.** Without it `init-fvk` starts scanning from roughly the
+   current height, and every note the vault already holds becomes invisible: the balance reads 0,
+   the history reads empty, and there is no rescan command to undo it (`wallet reset` needs a seed,
+   and these wallets are `init_without_mnemonic`). The number is in `registration.json` for vaults
+   registered since #434, and in the old `wallet/keys.toml` if you still have it. **If you have
+   neither, stop and ask before running `init-fvk`** - a wrong birthday is not recoverable in place.
 4. Members recover their shares per procedure A if needed.
 
 Without step 1, re-registration would produce a different address and orphan any funds.
@@ -74,8 +89,10 @@ Used on 2026-08-29 to retire 21 disposable test vaults without destroying them.
 
 ### D. Ops backup of vault identities (the out-of-band half)
 
-Pull a local copy of every vault's view-only metadata (the `registration.json` UFVK is the
-irreplaceable part; the `wallet/` cache is rebuildable and skipped):
+Pull a local copy of every vault's view-only metadata. `registration.json` carries the
+irreplaceable part - the UFVK, and since #434 the wallet **birthday** that a rebuild has to be given.
+The `wallet/` cache itself is skipped: it is rebuildable, but only *with that birthday* (see
+procedure B), which is why the number is kept outside it:
 
 ```
 railway ssh 'cd /data/vaults && tar czf - --exclude=*/wallet . | base64 -w0' \
