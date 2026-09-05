@@ -14,7 +14,22 @@ import { bytesToHex as hex, hexToBytes as unhex } from './bytes'
 const DB_NAME = 'konclave'
 const STORE = 'vaults'
 const DB_VERSION = 1
-const PBKDF2_ITERS = 210_000 // OWASP 2023 floor for PBKDF2-HMAC-SHA256
+/**
+ * The PBKDF2 count a record sealed **before** the parameter was stored must be opened with. It is
+ * history, not policy: never change it, or every such record stops opening.
+ */
+const PBKDF2_ITERS_LEGACY = 210_000
+
+/**
+ * The count NEW records are sealed with (#435).
+ *
+ * OWASP's current floor for PBKDF2-HMAC-SHA256 is 600,000 and this is deliberately still 210,000.
+ * Raising it is phase TWO of a two-phase migration, and doing it before every device can READ the
+ * stored parameter is destructive in both directions: a record written at the higher count cannot
+ * be opened by a build that assumes the lower one, and vice versa. Phase one - this - only makes
+ * the parameter travel with the ciphertext. Raise it once the reader has shipped, not sooner.
+ */
+const PBKDF2_ITERS = 210_000
 
 /**
  * Vault governance policy, set at creation and propagated to every device (public metadata).
@@ -90,6 +105,9 @@ interface VaultRecord {
   cipher: Uint8Array
   secretIv?: Uint8Array
   secretCipher?: Uint8Array
+  /** The PBKDF2 count this envelope was sealed with (#435). Absent means the legacy count: the
+   *  parameter has to travel with the ciphertext, or raising it locks every existing record. */
+  kdfIters?: number
 }
 
 
@@ -182,7 +200,12 @@ function reqDone<T>(req: IDBRequest<T>): Promise<T> {
   })
 }
 
-async function deriveKey(passphrase: string, salt: Uint8Array): Promise<CryptoKey> {
+/**
+ * Derive the AES key. `iters` is REQUIRED at every call site rather than defaulted, so a new site
+ * cannot silently inherit the wrong one: reads must pass what the record stores, writes must pass
+ * what we currently seal with, and those are allowed to differ (#435).
+ */
+async function deriveKey(passphrase: string, salt: Uint8Array, iters: number): Promise<CryptoKey> {
   const base = await crypto.subtle.importKey(
     'raw',
     new TextEncoder().encode(passphrase),
@@ -191,7 +214,7 @@ async function deriveKey(passphrase: string, salt: Uint8Array): Promise<CryptoKe
     ['deriveKey'],
   )
   return crypto.subtle.deriveKey(
-    { name: 'PBKDF2', salt: bufOf(salt), iterations: PBKDF2_ITERS, hash: 'SHA-256' },
+    { name: 'PBKDF2', salt: bufOf(salt), iterations: iters, hash: 'SHA-256' },
     base,
     { name: 'AES-GCM', length: 256 },
     false,
@@ -218,7 +241,7 @@ export async function saveVault(id: string, data: VaultData, passphrase: string)
 
   const salt = crypto.getRandomValues(new Uint8Array(16))
   const iv = crypto.getRandomValues(new Uint8Array(12))
-  const key = await deriveKey(passphrase, salt)
+  const key = await deriveKey(passphrase, salt, PBKDF2_ITERS)
   const cipherBuf = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: bufOf(iv) }, key, bufOf(data.sealedShare))
 
   // The #388 access secret is sealed under the same key with its OWN iv (GCM requires a unique iv
@@ -246,6 +269,8 @@ export async function saveVault(id: string, data: VaultData, passphrase: string)
     cipher: new Uint8Array(cipherBuf),
     secretIv,
     secretCipher,
+    // Sealed WITH this, so it must be stored WITH it (#435).
+    kdfIters: PBKDF2_ITERS,
   }
 
   const db = await openDb()
@@ -283,7 +308,9 @@ export async function loadVault(id: string, passphrase: string): Promise<VaultLo
   }
   if (!record) throw new Error('No saved vault with that id on this device')
 
-  const key = await deriveKey(passphrase, record.salt)
+  // What this record was sealed with. Absent on records written before the parameter travelled
+  // with the ciphertext (#435), and those are all at the legacy count by definition.
+  const key = await deriveKey(passphrase, record.salt, record.kdfIters ?? PBKDF2_ITERS_LEGACY)
   let plainBuf: ArrayBuffer
   try {
     plainBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bufOf(record.iv) }, key, bufOf(record.cipher))
@@ -336,6 +363,8 @@ export interface VaultExportV1 {
     secretIv?: string
     secretCipher?: string
     beneficiaries?: unknown[]
+    /** As on v2. We never WRITE v1 any more, but reading one must honour what it declares (#435). */
+    kdfIters?: number
   }
 }
 
@@ -350,6 +379,9 @@ export interface VaultExportV2 {
   salt: string
   iv: string
   cipher: string
+  /** The PBKDF2 count this envelope was sealed with (#435). Absent means the legacy count: the
+   *  parameter has to travel with the ciphertext, or raising it locks every existing record. */
+  kdfIters?: number
 }
 
 export type VaultExport = VaultExportV1 | VaultExportV2
@@ -429,13 +461,16 @@ export async function exportVault(id: string, passphrase: string): Promise<Vault
 
   const salt = crypto.getRandomValues(new Uint8Array(16))
   const iv = crypto.getRandomValues(new Uint8Array(12))
-  const key = await deriveKey(passphrase, salt)
+  const key = await deriveKey(passphrase, salt, PBKDF2_ITERS)
   const plaintext = new TextEncoder().encode(JSON.stringify(payload))
   const cipher = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: bufOf(iv) }, key, bufOf(plaintext))
 
   return {
     format: 'konclave-vault-export',
     version: 2,
+    // The parameter travels WITH the ciphertext. Without it, raising the count would make every
+    // export already in someone's backup unopenable (#435).
+    kdfIters: PBKDF2_ITERS,
     exportedAt: Date.now(),
     salt: hex(salt),
     iv: hex(iv),
@@ -499,7 +534,7 @@ interface DecodedImport {
 /** Decode a v2 opaque blob: decrypt the whole payload with the passphrase, then read the fields. */
 async function decodeV2(b: VaultExportV2, passphrase: string): Promise<DecodedImport> {
   if (!b.salt || !b.iv || !b.cipher) throw new Error('The export is incomplete or corrupt')
-  const key = await deriveKey(passphrase, unhex(b.salt))
+  const key = await deriveKey(passphrase, unhex(b.salt), b.kdfIters ?? PBKDF2_ITERS_LEGACY)
   let plainBuf: ArrayBuffer
   try {
     plainBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bufOf(unhex(b.iv)) }, key, bufOf(unhex(b.cipher)))
@@ -525,7 +560,7 @@ async function decodeV2(b: VaultExportV2, passphrase: string): Promise<DecodedIm
 async function decodeV1(b: VaultExportV1, passphrase: string): Promise<DecodedImport> {
   const v = b.vault
   if (!v || !v.id || !v.cipher || !v.salt || !v.iv) throw new Error('The export is incomplete or corrupt')
-  const key = await deriveKey(passphrase, unhex(v.salt))
+  const key = await deriveKey(passphrase, unhex(v.salt), v.kdfIters ?? PBKDF2_ITERS_LEGACY)
   let shareBuf: ArrayBuffer
   try {
     shareBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bufOf(unhex(v.iv)) }, key, bufOf(unhex(v.cipher)))
@@ -570,7 +605,7 @@ export async function importVault(
   // Re-encrypt the secrets at rest (fresh salt/iv), preserving the original createdAt.
   const salt = crypto.getRandomValues(new Uint8Array(16))
   const iv = crypto.getRandomValues(new Uint8Array(12))
-  const key = await deriveKey(passphrase, salt)
+  const key = await deriveKey(passphrase, salt, PBKDF2_ITERS)
   const cipher = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: bufOf(iv) }, key, bufOf(d.share)))
   let secretIv: Uint8Array | undefined
   let secretCipher: Uint8Array | undefined
@@ -582,7 +617,7 @@ export async function importVault(
   const record: VaultRecord = {
     id: d.id, name: d.name, governance: d.governance, myName: d.myName, creatorName: d.creatorName,
     groupKey: hex(d.groupKey), address: d.address, roster: d.roster, createdAt: d.createdAt,
-    salt, iv, cipher, secretIv, secretCipher,
+    salt, iv, cipher, secretIv, secretCipher, kdfIters: PBKDF2_ITERS,
   }
 
   const db = await openDb()
