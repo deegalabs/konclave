@@ -4,6 +4,8 @@ import { Mark } from './components'
 import { Identicon } from './avatar'
 import { useT, useI18n } from './i18n'
 import { getVault, health, isVaultUnlocked, setSelectedVault, type Vault } from './api'
+import { getUnlockedShare } from './session'
+import { needsUnlock, securedLocally } from './vault-lock'
 import { listVaults } from './storage'
 import { VaultSignerProvider } from './VaultSigner'
 import { LoadingProvider, TopProgress } from './loading'
@@ -59,8 +61,15 @@ export default function Layout() {
       if (!on || !ok) return
       const v = await getVault()
       if (!on) return
-      // A locked vault not unlocked this session → back to the unlock/picker.
-      if (v?.locked && !isVaultUnlocked(v.id)) { nav('/vaults'); return }
+      // Back to the unlock/picker when this device cannot read the vault yet. `needsUnlock` is
+      // the shared rule (#439): asking only the BRIDGE's `locked` here let a member walk into a
+      // #388-protected vault holding no S, where every private read 401s into a blank screen.
+      if (v && needsUnlock({
+        bridgeLocked: v.locked,
+        unlockedThisSession: isVaultUnlocked(v.id),
+        securedLocally: await securedLocally(v.id),
+        hasAccessSecret: !!getUnlockedShare(v.id)?.accessSecret,
+      })) { nav('/vaults'); return }
       if (v) setVault(v)
     })()
     return () => { on = false }
