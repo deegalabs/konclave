@@ -152,7 +152,10 @@ Facts (verified 2026-06-30):
     heights **TBD on both networks**, and the NU7 candidate list is 218, 231, 233, 234, 235, 2002,
     2003 - **ZIP 312 is not on it**, and does not need to be (Category: Wallet). `draft-arya-deploy-nu7` is **Draft
     with activation heights TBD**. **NU6.3 remains the consensus target**; NU7 is a thing to watch,
-    not to build against.
+    not to build against. **The date to watch, added 2026-09-05:** both consultations close
+    **2026-09-14 19:00 UTC**, and one of the questions is what to do with NU7 features not ready by a
+    **readiness deadline of 30 September**. That deadline is what decides whether the two candidates
+    below land, so it is the first thing here with a date and a consequence for this product.
   - Two NU7 candidates would touch this product if it lands: **ZIP 218** (its actual title is
     *"25-second Block Target Spacing"*, Draft, NU7) carries an anti-DoS limit of *"The total number of
     Orchard actions across all transactions in the **block** MUST NOT exceed ... 330"*. Note **per
@@ -169,9 +172,35 @@ Facts (verified 2026-06-30):
     What does matter: the Foundation's 2026 goals include finalising ZIP 312, **integrating FROST
     into `zcash-devtool`**, and publishing an **official DKG** - which would change our integration
     path, and is worth tracking rather than reacting to.
+  - **Who maintains the engine changed hands, and the shorthand for it is wrong. Verified 2026-09-05.**
+    "The ECC became ZODL" is the version that circulates and it is not what happened. Three separate,
+    primary-sourced events: in **January 2026** the *entire* ECC staff left after a dispute with
+    **Bootstrap**, the 501(c)(3) that governs the ECC, and formed the **Zcash Open Development Lab
+    (ZODL)** - a venture-funded private company, not a token, DAO or fund; in **February-March 2026**
+    the Zashi wallet was rebranded **Zodl**; and on **2026-03-04** Bootstrap announced a settlement
+    including an **IP sale**. So the ECC was neither renamed nor merged: the people and the IP left,
+    the legal entity and its nonprofit parent stayed. The mechanical proof is that the GitHub org was
+    *renamed* - `orgs/zodl-inc` carries `created_at: 2014-09-16` (the ECC's original org) and
+    `Electric-Coin-Company/zashi-android` 301s to `zodl-inc/zodl-android`.
+    **What this means for us, and it is mostly good news:** `engine/versions.lock` needs no change.
+    `zcash/librustzcash`, `zcash/zcash-devtool`, `ZcashFoundation/frost-tools` and
+    `ZcashFoundation/frost` are all still in their original orgs and actively pushed (§4 stands). What
+    moved is the badge on the maintainers: the recent `librustzcash` history is dominated by Kris
+    Nuttycombe, now at ZODL, in a repo ZODL does not own; `zcash-devtool` is led by a different group
+    (zecdev.org), which helps the bus factor. Also confirmed: **`zcash/zcash` is now literally
+    `archived: true`** on GitHub, which is the tidiest possible statement of the zcashd item above.
+    **Not verified, and do not infer it:** the ECC's legal disposition. No dissolution filing or
+    announcement was found, `electriccoin.co` returned HTTP 521 all of 2026-09-05, and its blog has
+    published nothing since 2025-12-04. A site being down is not a company being wound up.
+    **Search trap:** the ECC post *"Welcoming a new season at ECC: A message from the Bootstrap Board
+    of Directors"* surfaces as if it were the 2026 statement. It is from **December 2023**, about
+    Swihart becoming CEO.
   - **Not confirmed, do not repeat:** that a CFTC hearing named Zcash (the 2026-08-20 Innovation
     Advisory Committee meeting is real and Winklevoss is a member, but no CFTC document mentions
-    Zcash); that PGPZ *is* a 501(c)(4) (there is a grant application describing it as *planned*);
+    Zcash); that PGPZ *is* a 501(c)(4) (there is a grant application describing it as *planned*; re-checked
+    2026-09-05 and the caution stands - ZODL's own post says it *"is becoming"* one and is *applying*
+    for $750k from ZCG, with ZODL sponsoring it and Paul Brigner, ZODL's Chief Policy Officer, as the
+    principal);
     a Zaino-replaces-lightwalletd date; and the Zebra CVEs circulating without a primary advisory.
 - **(Honest) narrative angle for the README:** a trustworthy shared-custody tool right after
   the confidence shock - exactly what [CONCEITO §8](docs/CONCEITO_INICIAL.md) foresees as
@@ -401,8 +430,8 @@ to the relay). From `S`:
 - **The helper served one request at a time** (#375): a five-minute send made the whole service
   indistinguishable from dead, `/api/health` included, and it took the vault down on 2026-08-27
   (see [the postmortem](docs/incidents/2026-08-27-helper-unresponsive.md)). **Fixed 2026-08-28 by a
-  worker pool (#384)** - the relay twin the same way (#393). The issue is a close candidate pending a
-  confirmation glance; the postmortem still records the root cause as open and is the maintainer's to
+  worker pool (#384)** - the relay twin the same way (#393). **#375 is now closed** (verified
+  2026-09-05); the postmortem still records the root cause as open and is the maintainer's to
   reconcile.
 - **Write endpoints are unauthenticated** (#288, critical): anyone with a vault id can vote. The
   permanent damage is gone (a refusal can now be withdrawn), the authentication is not.
@@ -417,6 +446,14 @@ to the relay). From `S`:
   landed: **#392 is closed** (#401 authenticated signing-room seating, so an outsider can no longer
   hijack a seat or forge room messages); the residual ceremony-DoS vectors - an unproven rejoin
   grabbing an empty seat, or flooding the room - are tracked as **#399/#400**.
+  **That sentence was true of one driver only, and is true of both since 2026-09-05.** #401 authenticated
+  the background signer and nothing else: `/net`, a second ceremony driver that is still registered and
+  still signs real proposals, deleted whatever tag held an announced seat unconditionally and sent its
+  own rejoin unsigned. Closed by **#424**. The two messages carrying the arming tally were left plain
+  by the same work, so anyone who could write to the room could zero every device's count or forge a
+  sender; closed by **#425**. Both fixes share one function rather than adding a second copy of the
+  check, because two implementations of one rule, with only one of them fixed, is what produced the
+  gap in the first place.
 - **Read access is now gated by `S`** (#388/#402, was #267): the helper's private reads require the
   `readKey`, so a leaked id gets `401`. **Residual (open):** the ~5 legacy/open vaults created before
   #388 stay readable through the helper until re-created - there is no automatic migration; a guided
@@ -432,9 +469,13 @@ to the relay). From `S`:
   from `main`. CI is green, but it is **gated on a live round-trip and NOT merged to `main`** -
   `engine/versions.lock` on `main` intentionally keeps the older pins until then.
 - **Hosted blind helper deployed on mainnet, non-root.** The Architecture-B helper (ADR-0006 Rung A)
-  runs on Railway against mainnet, serving **5 active vaults** after a census that reversibly retired
-  21 disposable test vaults (26 -> 5, moved to `/data/vaults/_retired`, recoverable per
-  `docs/RECOVERY.md` C); a new-vault tripwire now watches the production volume. The container runs as
+  runs on Railway against mainnet. A census reversibly retired 21 disposable test vaults (26 -> 5,
+  moved to `/data/vaults/_retired`, recoverable per `docs/RECOVERY.md` C). **Re-counted 2026-09-05:
+  the volume now holds 8 active vaults**, and the number alone understates the exposure: only 3 carry
+  a `read-key.json` (#388), and the busiest vault in the product - 14 ceremonies, 17 proposals, used
+  the day of this count - is one of the **open** ones. There is also a stray **testnet** vault
+  (`utest1...`, no activity since 2026-08-20) sitting on the production volume, which is #370's
+  argument written into the volume itself. The container runs as
   a **non-root** `konclave` user: the entrypoint enters as root only to `chown` the durable Railway
   volume, then drops via `gosu` before running the share-blind helper (#265). It still never receives,
   derives, or stores a share.
