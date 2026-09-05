@@ -1208,3 +1208,14 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
   border-radius:var(--radius); font-size:13.5px; line-height:1.5; color:var(--warn-strong);
   background:var(--surface-1); border:1px solid var(--warn); }
 .dash-openwarn .ow-ic { flex:0 0 auto; color:var(--warn); font-weight:700; }
+
+/* #307: the persistence nudge. Deliberately NOT the warning treatment above: this is a thing the
+   member can fix in one tap, not a hazard they must absorb, and an alarm shown on every visit is
+   an alarm nobody reads. Accent border, normal ink, no red. */
+.dash-persist { display:flex; align-items:flex-start; gap:8px; margin:14px 0 4px; padding:11px 14px;
+  border-radius:var(--radius); font-size:13.5px; line-height:1.5; color:var(--text);
+  background:var(--surface-1); border:1px solid var(--line-strong); }
+.dash-persist .dp-ic { flex:0 0 auto; color:var(--accent); font-size:11px; line-height:1.6; }
+.dash-persist .dp-cta { background:none; border:0; padding:0; font:inherit; color:var(--accent);
+  text-decoration:underline; cursor:pointer; }
+.dash-persist .dp-cta:hover { opacity:.8; }

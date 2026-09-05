@@ -93,22 +93,42 @@ interface VaultRecord {
 }
 
 
+/** What this browser promises about the stored share. `unknown` is its own answer, not a `false`. */
+export type StoragePersistence = 'persisted' | 'evictable' | 'unknown'
+
 /**
  * Ask the browser to mark this origin's storage as persistent, so the encrypted share is NOT
  * evicted under storage pressure or the ~7-day inactivity clear (Safari ITP is the worst case).
- * Best-effort: Chromium/Firefox grant it based on engagement/PWA-install; iOS Safari usually
- * declines (there the safety net is social recovery, not persistence). Returns the granted state.
- * Never throws - a browser without the API just reports false. Call it from a user gesture
- * (e.g. right after the user protects a vault) for the best chance of a grant.
+ * Best-effort: Chromium/Firefox grant it on engagement/PWA-install; iOS Safari usually declines.
+ * Call it from a user gesture (right after the user commits a share) for the best chance.
+ *
+ * Returns THREE states, not a boolean, and that distinction is the point of #307: a browser with
+ * no Storage API has not refused, it has failed to answer. Collapsing that into `false` - or into
+ * a silently discarded result, which is what shipped - is how a member ends up on a browser that
+ * will quietly delete their key share while the app assures them nothing is wrong.
  */
-export async function requestPersistentStorage(): Promise<boolean> {
+export async function storagePersistence(
+  nav: Navigator | undefined = typeof navigator === 'undefined' ? undefined : navigator,
+): Promise<StoragePersistence> {
   try {
-    if (typeof navigator === 'undefined' || !navigator.storage?.persist) return false
-    if (await navigator.storage.persisted()) return true
-    return await navigator.storage.persist()
+    if (!nav?.storage?.persist) return 'unknown'
+    if (await nav.storage.persisted()) return 'persisted'
+    return (await nav.storage.persist()) ? 'persisted' : 'evictable'
   } catch {
-    return false
+    return 'unknown'
   }
+}
+
+/**
+ * Whether to tell the member their share can be deleted from under them.
+ *
+ * Anything but a granted persistence warns, `unknown` included. The costs are not symmetric: a
+ * missed warning loses a key share and there is no recovery path today (#58 has the primitive and
+ * neither the transport nor the UI), while a false warning is a banner someone reads twice. Same
+ * fail-closed rule the propose gate follows: "I do not know" is never "all clear".
+ */
+export function warnsAboutEviction(state: StoragePersistence): boolean {
+  return state !== 'persisted'
 }
 
 /** True when this browser has both IndexedDB and WebCrypto (AES-GCM/PBKDF2 live under subtle). */
@@ -238,8 +258,11 @@ export async function saveVault(id: string, data: VaultData, passphrase: string)
   }
 
   // The user just committed a share to this device: the strongest moment to ask the browser to
-  // keep it. Fire-and-forget - a decline never blocks the save (recovery covers a lost share).
-  void requestPersistentStorage()
+  // keep it. The request stays fire-and-forget, because a decline must not fail the save - but the
+  // ANSWER is no longer discarded (#307). The Dashboard reads it back and warns, because nothing
+  // else covers a share this browser deletes: recovery (#58) is a proven primitive with no
+  // transport and no UI, so it cannot be the safety net this comment used to claim it was.
+  void storagePersistence()
 }
 
 /**
@@ -572,7 +595,10 @@ export async function importVault(
   }
 
   if (d.beneficiaries) writeBeneficiaries(d.id, d.beneficiaries)
-  void requestPersistentStorage()
+  // Same as `saveVault`: ask on the strongest gesture and let the Dashboard surface the answer
+  // (#307). An import is exactly when someone is recovering from a lost device, so a browser that
+  // will evict again is the last thing to leave unsaid.
+  void storagePersistence()
 
   return {
     id: record.id, name: record.name, governance: record.governance, myName: record.myName,
