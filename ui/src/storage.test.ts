@@ -296,3 +296,100 @@ describe("forgetVault - removing this device's copy (#426)", () => {
     expect(await forgetVault('forget-3')).toBe(true) // the real delete still works afterwards
   })
 })
+
+// #435: the PBKDF2 count used to be a module constant that nothing recorded, so raising it - the
+// obvious, correct security improvement, invited by a comment reading "OWASP 2023 floor" - would
+// have made every stored vault and every existing backup unopenable at once. The parameter now
+// travels with the ciphertext. These pin the property that makes the future bump safe.
+describe('the KDF parameter travels with the ciphertext (#435)', () => {
+  /** Read a record straight out of IndexedDB, past the public API. */
+  async function raw(id: string): Promise<Record<string, unknown>> {
+    return await new Promise((resolve, reject) => {
+      const req = indexedDB.open('konclave', 1)
+      req.onerror = () => reject(req.error)
+      req.onsuccess = () => {
+        const g = req.result.transaction('vaults', 'readonly').objectStore('vaults').get(id)
+        g.onsuccess = () => resolve(g.result as Record<string, unknown>)
+        g.onerror = () => reject(g.error)
+      }
+    })
+  }
+
+  it('a saved record records what it was sealed with', async () => {
+    // Phase two (raising the count) has to change this number too, which is the point: the bump
+    // becomes a deliberate edit with a test in front of it, not a one-character change to a
+    // constant whose blast radius is invisible from the line itself.
+    await saveVault('kdf-1', data, 'pass')
+    expect(await raw('kdf-1').then((r) => r.kdfIters)).toBe(210_000)
+  })
+
+  it('an export carries it too, so a backup survives a future bump', async () => {
+    await saveVault('kdf-2', data, 'pass')
+    const blob = await exportVault('kdf-2', 'pass')
+    expect(blob.kdfIters).toBe(210_000)
+  })
+
+  it('THE POINT: a record sealed at a DIFFERENT count still opens, because the count is stored', async () => {
+    // The whole migration in one test. A record is sealed here at a count that is not the module's,
+    // exactly as one written by a future build would be, and `loadVault` opens it by reading the
+    // number off the record instead of assuming one. Without the stored parameter this throws
+    // "wrong passphrase" at a perfectly correct passphrase - which is what the one-line bump would
+    // have done to every vault on every device.
+    const ITERS = 310_000
+    const salt = crypto.getRandomValues(new Uint8Array(16))
+    const iv = crypto.getRandomValues(new Uint8Array(12))
+    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode('pass'), 'PBKDF2', false, ['deriveKey'])
+    const key = await crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt: salt.slice().buffer, iterations: ITERS, hash: 'SHA-256' },
+      base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'],
+    )
+    const cipher = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv.slice().buffer }, key, share.slice().buffer))
+
+    await new Promise<void>((resolve, reject) => {
+      const req = indexedDB.open('konclave', 1)
+      req.onerror = () => reject(req.error)
+      req.onsuccess = () => {
+        const tx = req.result.transaction('vaults', 'readwrite')
+        tx.objectStore('vaults').put({
+          id: 'kdf-future', name: 'Future', groupKey: hexOf(groupKey), address: 'u1x',
+          roster: ['A'], createdAt: Date.now(), salt, iv, cipher, kdfIters: ITERS,
+        })
+        tx.oncomplete = () => resolve()
+        tx.onerror = () => reject(tx.error)
+      }
+    })
+
+    const loaded = await loadVault('kdf-future', 'pass')
+    expect(Array.from(loaded.sealedShare)).toEqual(Array.from(share))
+  })
+
+  it('a record with NO stored count still opens: that is what every existing vault looks like', async () => {
+    // The other half, and the one that would break the 8 live vaults if it were wrong. Records
+    // written before this change carry no `kdfIters`, and absent must mean the legacy 210,000 -
+    // never "use whatever the constant is today".
+    await saveVault('kdf-legacy', data, 'pass')
+    await new Promise<void>((resolve, reject) => {
+      const req = indexedDB.open('konclave', 1)
+      req.onerror = () => reject(req.error)
+      req.onsuccess = () => {
+        const store = req.result.transaction('vaults', 'readwrite').objectStore('vaults')
+        const g = store.get('kdf-legacy')
+        g.onsuccess = () => {
+          const rec = g.result as Record<string, unknown>
+          delete rec.kdfIters // exactly the shape of a pre-#435 record
+          const put = store.put(rec)
+          put.onsuccess = () => resolve()
+          put.onerror = () => reject(put.error)
+        }
+        g.onerror = () => reject(g.error)
+      }
+    })
+    const loaded = await loadVault('kdf-legacy', 'pass')
+    expect(Array.from(loaded.sealedShare)).toEqual(Array.from(share))
+  })
+})
+
+/** Hex, local to the test so it does not depend on storage's private helper. */
+function hexOf(b: Uint8Array): string {
+  return Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('')
+}
