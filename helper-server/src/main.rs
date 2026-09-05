@@ -47,7 +47,21 @@ fn resp(status: u16, body: impl Into<String>) -> Resp {
 /// browser only needs the address (to receive) and the id.
 fn vault_value(r: &VaultRegistration) -> serde_json::Value {
     // Quorum (threshold/total) is public and drives the UI; the UFVK + account stay omitted (M1).
-    json!({ "vault_id": r.vault_id, "address": r.address, "threshold": r.threshold, "total": r.total })
+    //
+    // `change_receiver` is published for #281: a signing device cannot derive the vault's internal
+    // change address (it comes from a random `sk` that `zcash-sign` discards), so without being
+    // told it reads the change output of every honest send as an unrecognised destination and the
+    // money gate refuses real payments. It is an ADDRESS, the same class of public material as
+    // `address` above - it grants no viewing power, since detecting shielded notes needs the UFVK,
+    // which stays omitted. Empty for registrations written before the field existed; a client must
+    // read that as "unknown" and leave its gate unarmed, never as "matches nothing".
+    json!({
+        "vault_id": r.vault_id,
+        "address": r.address,
+        "threshold": r.threshold,
+        "total": r.total,
+        "change_receiver": r.change_receiver,
+    })
 }
 
 /// One value from a `k=v&k2=v2` query string (no percent-decoding needed for our ids/hex).
@@ -1147,6 +1161,24 @@ mod tests {
         }
     }
 
+    #[test]
+    fn the_vault_info_publishes_the_change_receiver_and_still_withholds_the_ufvk() {
+        // #281 needs the device to learn the vault's internal change address, because it cannot
+        // derive one. It must NOT learn the UFVK doing so: an address grants no ability to detect
+        // shielded notes, a viewing key does. Both halves are asserted here so a future widening of
+        // this payload has to break a test rather than slip through.
+        let st = HelperState::new();
+        seed(&st, "aaaa");
+        let v = vault_value(&st.get("aaaa").expect("seeded"));
+        assert_eq!(v["change_receiver"], "utest1changeaaaa");
+        assert_eq!(v["address"], "utest1aaaa");
+        assert!(v.get("ufvk").is_none(), "the UFVK must never be published");
+        assert!(
+            v.get("account").is_none(),
+            "the wallet account must never be published"
+        );
+    }
+
     fn seed(state: &HelperState, id: &str) {
         state.insert(VaultRegistration {
             vault_id: id.into(),
@@ -1156,6 +1188,7 @@ mod tests {
             account: format!("acct-{id}"),
             threshold: 2,
             total: 3,
+            change_receiver: format!("utest1change{id}"),
         });
     }
 
