@@ -863,9 +863,22 @@ pub fn register_vault(
     let account = parse_account_uuid(&listed)?;
     // Derived, not fetched: the change receiver comes from the UFVK we just generated, in the same
     // breath, so it is impossible for it to disagree with the wallet this registration describes.
-    // A derivation failure must not fail the registration (the vault still works, the money gate
-    // just stays unarmed for it), so it degrades to empty and is treated as unknown downstream.
-    let change_receiver = change_receiver(&ufvk, &cfg.network).unwrap_or_default();
+    //
+    // A derivation failure must not fail the registration - the vault still works, its money gate
+    // just stays unarmed - so it degrades to empty, which downstream reads as "unknown" and never
+    // as "matches nothing". But it degrades OUT LOUD. Swallowing the reason is the defect #307 was
+    // about (a result requested and discarded), and an empty field with no explanation would leave
+    // whoever debugs an unarmed gate with nothing to go on. The vault is named because the failure
+    // is per-vault: one bad UFVK must not read as the whole helper being broken.
+    let change_receiver = match change_receiver(&ufvk, &cfg.network) {
+        Ok(addr) => addr,
+        Err(e) => {
+            eprintln!(
+                "vault {group_key}: no change receiver derived ({e:?}); its money gate stays unarmed"
+            );
+            String::new()
+        }
+    };
     let reg = VaultRegistration {
         vault_id: group_key.to_string(),
         address,
