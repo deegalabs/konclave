@@ -393,3 +393,36 @@ describe('the KDF parameter travels with the ciphertext (#435)', () => {
 function hexOf(b: Uint8Array): string {
   return Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('')
 }
+
+// #214/#434: a share export could not rebuild a vault, because the viewing key exists only on the
+// helper's volume. `t` members could hold real spend authority over money none of them could SEE.
+// The export now carries the UFVK when the device has it, so the file is the vault, not the seat.
+describe('the export carries the viewing key, so it can rebuild the vault (#214)', () => {
+  it('round-trips the UFVK through export and import', async () => {
+    const UFVK = 'uview1testviewingkey'
+    await saveVault('ufvk-1', data, 'pass')
+    const blob = await exportVault('ufvk-1', 'pass', UFVK)
+    await importVault(blob, 'pass', { overwrite: true })
+    expect((await loadVault('ufvk-1', 'pass')).ufvk).toBe(UFVK)
+  })
+
+  it('the UFVK is INSIDE the encrypted blob, never in the envelope', async () => {
+    // It is the whole transaction history, amounts and memos included. A leaked export file must
+    // reveal nothing without the passphrase - which is the entire point of the v2 format.
+    const UFVK = 'uview1testviewingkey'
+    await saveVault('ufvk-2', data, 'pass')
+    const blob = await exportVault('ufvk-2', 'pass', UFVK)
+    expect(JSON.stringify(blob)).not.toContain(UFVK)
+  })
+
+  it('an export made without it still works: the vault is exportable before it is protected', async () => {
+    // An open (pre-#388) vault cannot fetch its own UFVK - the helper refuses by design. The export
+    // must still be possible, just incomplete, rather than failing outright.
+    await saveVault('ufvk-3', data, 'pass')
+    const blob = await exportVault('ufvk-3', 'pass')
+    await importVault(blob, 'pass', { overwrite: true })
+    const back = await loadVault('ufvk-3', 'pass')
+    expect(back.ufvk).toBeUndefined()
+    expect(Array.from(back.sealedShare)).toEqual(Array.from(share))
+  })
+})

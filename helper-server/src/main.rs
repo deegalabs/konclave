@@ -130,6 +130,26 @@ fn handle_with_token(
         "/api/vault/ledger.csv",
         "/api/vault/members",
     ];
+    // The UFVK is gated HARDER than the reads above: it is refused even when the vault has no
+    // readKey. Those stay open so pre-#388 vaults keep working, which is a bearer-by-id read -
+    // tolerable for a balance, not for the key that decrypts every payslip the vault ever sent. A
+    // legacy vault must protect itself (#406) before it can hand out its own viewing key.
+    if *method == Method::Get && p == "/api/vault/ufvk" {
+        let Some(reg) = query_param(query, "vault").and_then(|v| state.get(v)) else {
+            return resp(404, json!({ "error": "unknown vault" }).to_string());
+        };
+        let Some(expected) = orchestrator::helper::load_read_key(&cfg.vaults_dir, &reg.vault_id)
+        else {
+            return resp(
+                401,
+                json!({ "error": "this vault has no read key; protect it first" }).to_string(),
+            );
+        };
+        if read_token.map(str::trim) != Some(expected.trim()) {
+            return resp(401, json!({ "error": "read key required" }).to_string());
+        }
+        return resp(200, json!({ "ufvk": reg.ufvk }).to_string());
+    }
     if *method == Method::Get && GATED_READS.contains(&p) {
         if let Some(reg) = query_param(query, "vault").and_then(|v| state.get(v)) {
             if !read_authorized(&cfg.vaults_dir, &reg.vault_id, read_token) {
@@ -1240,6 +1260,73 @@ mod tests {
         assert!(!ok.body.contains("acct-"));
         let miss = handle(&st, &cfg(), &Method::Get, "/api/vault?vault=zzzz", b"");
         assert_eq!(miss.status, 404);
+    }
+
+    /// The vault's UFVK is the whole transaction history: amounts, memos, counterparties. It is
+    /// what makes an export self-sufficient (#214/#434 - today a share export cannot rebuild the
+    /// vault, because the viewing key exists only on this volume). Handing it out is therefore
+    /// worth doing and worth gating HARDER than the other reads.
+    ///
+    /// Unlike them, this route is NOT open for a vault with no readKey. Those stay open so pre-#388
+    /// vaults keep working, and that is a bearer-by-id read - acceptable for a balance, not for the
+    /// key that decrypts every payslip the vault ever sent. A legacy vault must protect itself
+    /// (#406) before it can hand out its own viewing key.
+    #[test]
+    fn the_ufvk_is_served_only_to_a_member_who_proves_the_read_key() {
+        let st = HelperState::new();
+        seed(&st, "ufvkopen");
+        seed(&st, "ufvkset");
+        let c = cfg();
+        let _ = std::fs::remove_file(c.vaults_dir.join("ufvkopen").join("read-key.json"));
+
+        // An OPEN vault must NOT hand out its UFVK, even though its other reads are open.
+        let open = handle(&st, &c, &Method::Get, "/api/vault/ufvk?vault=ufvkopen", b"");
+        assert_eq!(
+            open.status, 401,
+            "an unprotected vault cannot export its viewing key by id alone"
+        );
+
+        let tok = "cd".repeat(32);
+        set_read_key(&c.vaults_dir, "ufvkset", &tok).unwrap();
+
+        let no_tok = handle(&st, &c, &Method::Get, "/api/vault/ufvk?vault=ufvkset", b"");
+        assert_eq!(no_tok.status, 401, "no token is refused");
+
+        let wrong = "00".repeat(32);
+        let bad = handle_with_token(
+            &st,
+            &c,
+            &Method::Get,
+            "/api/vault/ufvk?vault=ufvkset",
+            b"",
+            Some(&wrong),
+        );
+        assert_eq!(bad.status, 401, "a wrong token is refused");
+
+        let good = handle_with_token(
+            &st,
+            &c,
+            &Method::Get,
+            "/api/vault/ufvk?vault=ufvkset",
+            b"",
+            Some(&tok),
+        );
+        assert_eq!(good.status, 200, "the seated member gets it");
+        let expected_ufvk = st.get("ufvkset").expect("seeded").ufvk;
+        assert!(
+            good.body.contains(&expected_ufvk),
+            "and it is the vault's own UFVK: {}",
+            good.body
+        );
+
+        // The OPEN read still withholds it, so this adds a door rather than widening one.
+        let public = handle(&st, &c, &Method::Get, "/api/vault?vault=ufvkset", b"");
+        assert_eq!(public.status, 200);
+        assert!(
+            !public.body.contains(&expected_ufvk),
+            "/api/vault must still never carry the UFVK: {}",
+            public.body
+        );
     }
 
     #[test]
