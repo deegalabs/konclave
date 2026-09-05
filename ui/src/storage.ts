@@ -655,6 +655,19 @@ export async function updateVaultMeta(
 }
 
 /** Remove a saved vault (and its encrypted share) from this device. */
+/**
+ * Drop this device's copy of a vault - the record, and with it the sealed share (#426).
+ *
+ * Returns whether the record is ACTUALLY gone. `deleteVault` no-ops when storage is unavailable,
+ * and telling a member their share is off the device while it is still there is worse than an
+ * error: they would hand the machine on believing it holds nothing.
+ */
+export async function forgetVault(id: string): Promise<boolean> {
+  await deleteVault(id)
+  const left = await listVaults()
+  return !left.some((v) => v.id === id)
+}
+
 export async function deleteVault(id: string): Promise<void> {
   if (!storageAvailable()) return
   const db = await openDb()

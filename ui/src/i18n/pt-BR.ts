@@ -77,7 +77,7 @@ export const ptBR: Record<string, string> = {
   'pwa.dismiss': 'Dispensar',
   'common.reveal': 'Revelar',
   'payroll.importSoonWhy': 'A leitura de CSV ainda roda só na versão local. Por enquanto, digite as linhas na tabela ou escolha do registro.',
-  'settings.removeSoonWhy': 'Remover o cofre deste aparelho ainda roda só na versão local. Na web, use a lista de cofres.',
+  'settings.removeNoLocal': 'Este aparelho não guarda nenhuma parte deste cofre, então não há o que remover aqui. Ele é lido pelo ajudante.',
   'ledger.exportSoonWhy': 'A exportação do livro ainda roda só na versão local.',
   'landing.downloadSoonWhy': 'O aplicativo de mesa existe e está assinado, mas ainda não foi validado em cada plataforma. Enquanto isso, o cofre roda inteiro no navegador.',
   'common.soon': 'em breve',

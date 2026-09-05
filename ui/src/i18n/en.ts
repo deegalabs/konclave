@@ -77,7 +77,7 @@ export const en: Record<string, string> = {
   'pwa.dismiss': 'Dismiss',
   'common.reveal': 'Reveal',
   'payroll.importSoonWhy': 'Reading a CSV still runs only in the local build. For now, type the lines in the table or pick from the registry.',
-  'settings.removeSoonWhy': 'Removing the vault from this device still runs only in the local build. On the web, use the vault list.',
+  'settings.removeNoLocal': 'This device holds no share of this vault, so there is nothing here to remove. It is read through the helper.',
   'ledger.exportSoonWhy': 'Exporting the book still runs only in the local build.',
   'landing.downloadSoonWhy': 'The desktop app exists and is signed, but has not been validated on each platform yet. Meanwhile the vault runs entirely in the browser.',
   'common.soon': 'soon',
