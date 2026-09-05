@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { getVaults, health, setSelectedVault, unlockVault, markVaultUnlocked, isVaultUnlocked, shortAddr, type Vault } from '../api'
+import { getVaults, health, setSelectedVault, getSelectedVault, clearSelectedVault, unlockVault, markVaultUnlocked, isVaultUnlocked, shortAddr, type Vault } from '../api'
 import { helperConfigured, getCustomHelper, setCoordMode, HELPER_BASE } from '../helper'
 import { isDesktop } from '../platform'
-import { listVaults, loadVault, importVault, parseVaultExport, type VaultExport } from '../storage'
-import { setUnlockedShare } from '../session'
+import { listVaults, loadVault, importVault, parseVaultExport, forgetVault, type VaultExport } from '../storage'
+import { setUnlockedShare, clearUnlockedShare } from '../session'
 import { Identicon } from '../avatar'
 import { Dialog, Letterhead, activateOnKey } from '../components'
 import NetVault from './NetVault'
@@ -29,6 +29,39 @@ export default function Vaults() {
   const [rows, setRows] = useState<Row[]>([])
   const [loaded, setLoaded] = useState(false)
   const [unlocking, setUnlocking] = useState<Row | null>(null)
+  // #426: removing a vault from THIS device. It was designed once (the copy has lived in both
+  // dictionaries, unused, including a typed-name confirmation) and never wired, while Settings
+  // named the control and left it disabled. Offered only for `src === 'net'`, because that is the
+  // case where this device actually holds a share to give up.
+  const [removing, setRemoving] = useState<Row | null>(null)
+  const [removeWord, setRemoveWord] = useState('')
+  const [removeBusy, setRemoveBusy] = useState(false)
+  const [removeErr, setRemoveErr] = useState(false)
+
+  /** Drop this device's copy of a vault: the sealed share and its public record. */
+  async function confirmRemove() {
+    const row = removing
+    if (!row) return
+    setRemoveBusy(true)
+    setRemoveErr(false)
+    try {
+      // `forgetVault` re-reads the store and reports whether the record is really gone. A delete
+      // that quietly did nothing must not close the dialog looking like a success.
+      if (!(await forgetVault(row.v.id))) { setRemoveErr(true); return }
+      clearUnlockedShare(row.v.id) // the in-memory share goes with the stored one
+      if (getSelectedVault() === row.v.id) clearSelectedVault() // do not leave the app pointing at it
+      setRows((prev) => prev.filter((r) => r.v.id !== row.v.id))
+      setRemoving(null)
+      setRemoveWord('')
+    } catch {
+      // Say so and leave the dialog open. Closing silently would look like it worked, and the
+      // member would believe a share is gone that is still on the device.
+      setRemoveErr(true)
+    } finally {
+      setRemoveBusy(false)
+    }
+  }
+
   const [creating, setCreating] = useState(false)
   const [joinMode, setJoinMode] = useState(false) // the Join door opens the create modal straight into join
   const [pass, setPass] = useState('')
@@ -245,6 +278,13 @@ export default function Vaults() {
                   <div className="rd-recv"><span className="lab">{t('vaults.receive')}&nbsp;</span><span className="val">{shortAddr(v.orchard_address)}</span></div>
                 )}
                 <span className="rd-enter">{t('vaults.enter')} <span className="arw">→</span></span>
+                {row.src === 'net' && (
+                  <button type="button" className="rd-remove"
+                    title={t('dashboard.deleteThisVaultDesc')}
+                    onClick={(e) => { e.stopPropagation(); setRemoving(row); setRemoveWord(''); setRemoveErr(false) }}>
+                    {t('dashboard.deleteThisVault')}
+                  </button>
+                )}
               </div>
             )
           })}
@@ -264,6 +304,36 @@ export default function Vaults() {
           </div>
         )}
       </main>
+
+      {removing && (
+        <Dialog className="unlock-overlay" cardClassName="unlock-card" labelledBy="remove-title"
+          onClose={() => { setRemoving(null); setRemoveWord(''); setRemoveErr(false) }}>
+          <h2 id="remove-title">{tr('dashboard.deleteConfirmTitle', { name: removing.v.name })}</h2>
+          <p>{tr('dashboard.deleteConfirmBody')}</p>
+          {/* The funds warning is unconditional. This screen does not hold a balance, and showing
+              a number we did not fetch would be worse than showing none: the member would trust
+              it. `dashboard.deleteSeesFunds` stays unused until a screen that knows the balance
+              offers this. */}
+          <p className="hint warn">{tr('dashboard.deleteFundsWarn')}</p>
+          <p className="hint">{tr('dashboard.deleteLocalHint')}</p>
+          <label className="unlock-lab">
+            {tr('dashboard.deleteTypeName', { name: removing.v.name })}
+            <input className="unlock-in" value={removeWord} autoFocus spellCheck={false}
+              onChange={(e) => { setRemoveWord(e.target.value); setRemoveErr(false) }} />
+          </label>
+          {removeErr && <p className="hint warn">{t('settings.removeFail')}</p>}
+          <div className="unlock-btns">
+            <button className="rd-enter" onClick={() => { setRemoving(null); setRemoveWord(''); setRemoveErr(false) }}>
+              {t('common.cancel')}
+            </button>
+            <button className="rd-enter danger"
+              disabled={removeBusy || removeWord.trim() !== removing.v.name}
+              onClick={() => void confirmRemove()}>
+              {t('dashboard.deletePermanently')}
+            </button>
+          </div>
+        </Dialog>
+      )}
 
       {importing && (
         <Dialog className="unlock-overlay" cardClassName="unlock-card" labelledBy="import-title" onClose={resetImport}>

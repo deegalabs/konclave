@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Seal, Loading, LangToggle, Soon } from '../components'
+import { Seal, Loading, LangToggle } from '../components'
 import { VersionBadge } from '../UpdatePrompt'
 import { PageHeader, PageFooter } from '../page'
 import { useT, useTr } from '../i18n'
-import { getVault, getSelectedVault, health, shortAddr, deleteVault, IS_NET, type Vault } from '../api'
-import { listVaults, exportVault, type Governance } from '../storage'
+import { getVault, getSelectedVault, clearSelectedVault, health, shortAddr, deleteVault, IS_NET, type Vault } from '../api'
+import { listVaults, exportVault, forgetVault, type Governance } from '../storage'
+import { clearUnlockedShare } from '../session'
 import { downloadText } from '../download'
 import { vaultFingerprint } from '../format'
 import { getTheme, setTheme, type Theme } from '../theme'
@@ -128,12 +129,22 @@ export default function Settings() {
   const network = (vault as unknown as { network?: string } | null)?.network
 
   async function removeFromDevice() {
-    // `deleteVault` posts to the local bridge's /api/vault/delete and has no web path, so on the
-    // web this could only ever fail. The control is hidden there rather than left to fail.
-    if (IS_NET) return
     if (!vault || confirmName.trim() !== vault.name) return
     setBusy(true)
     setErr(null)
+    // Two worlds, one control (#426). On the web the vault lives in THIS browser, so removing it
+    // is a local delete - the record carries the sealed share, so dropping it gives up this
+    // device's ability to sign. On the local bridge the orchestrator owns the record and deletes
+    // it. Either way the member typed the vault's name to get here.
+    if (IS_NET) {
+      const gone = await forgetVault(vault.id).catch(() => false)
+      setBusy(false)
+      if (!gone) { setErr(t('settings.removeFail')); return }
+      clearUnlockedShare(vault.id)
+      clearSelectedVault()
+      nav('/vaults')
+      return
+    }
     const res = await deleteVault(undefined, confirmName.trim())
     setBusy(false)
     if (res.ok) { nav('/vaults'); return }
@@ -278,12 +289,10 @@ export default function Settings() {
       <section className="set-danger mt">
         <h2 className="set-danger-title">{t('settings.danger')}</h2>
         <p className="set-danger-note">{t('settings.dangerNote')}</p>
-        {IS_NET ? (
-          /* `deleteVault` posts to the local bridge and has no web path. Named rather than removed:
-             a treasurer who wants to get rid of a vault should see that the product knows about it. */
-          <Soon reason={t('settings.removeSoonWhy')}>
-            <button type="button" className="btn danger" disabled>{t('settings.remove')}</button>
-          </Soon>
+        {IS_NET && !hasLocal ? (
+          /* Nothing of this vault is on this device - it is read through the helper. There is no
+             share to give up, so the honest thing is to say so rather than offer a dead button. */
+          <p className="set-danger-note">{t('settings.removeNoLocal')}</p>
         ) : !confirming ? (
           <button type="button" className="btn danger" onClick={() => setConfirming(true)}>
             {t('settings.remove')}

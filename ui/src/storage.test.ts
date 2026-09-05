@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto'
 import { describe, it, expect } from 'vitest'
 import {
-  saveVault, loadVault, listVaults, deleteVault, storageAvailable,
+  saveVault, loadVault, listVaults, deleteVault, forgetVault, storageAvailable,
   exportVault, importVault, parseVaultExport, type VaultData,
   warnsAboutEviction, storagePersistence,
 } from './storage'
@@ -258,5 +258,41 @@ describe('storage persistence - #307, a refusal must not be silent', () => {
       storage: { persisted: async () => { throw new Error('blocked') }, persist: async () => false },
     } as unknown as Navigator
     await expect(storagePersistence(nav)).resolves.toBe('unknown')
+  })
+})
+
+describe("forgetVault - removing this device's copy (#426)", () => {
+  it('removes the record and reports that it is really gone', async () => {
+    await saveVault('forget-1', data, 'pass')
+    expect((await listVaults()).some((v) => v.id === 'forget-1')).toBe(true)
+    expect(await forgetVault('forget-1')).toBe(true)
+    expect((await listVaults()).some((v) => v.id === 'forget-1')).toBe(false)
+  })
+
+  it('takes the sealed share with it - this device can no longer open the vault at all', async () => {
+    // The whole point of the control: after it, this device cannot sign for the vault. If the
+    // record survived, the share survived with it.
+    await saveVault('forget-2', data, 'pass')
+    await forgetVault('forget-2')
+    await expect(loadVault('forget-2', 'pass')).rejects.toThrow()
+  })
+
+  it('reports FALSE when the delete did not take, instead of claiming success', async () => {
+    // This is why it returns a boolean rather than void. `deleteVault` no-ops when storage is
+    // unavailable and ignores the delete request's own result, so a caller that assumed success
+    // would tell the member their share is off the device while it is still sitting there.
+    // Here the store's delete is made into a no-op: the transaction still completes cleanly, and
+    // only re-reading catches it.
+    await saveVault('forget-3', data, 'pass')
+    const realDelete = IDBObjectStore.prototype.delete
+    IDBObjectStore.prototype.delete = (() => undefined) as unknown as typeof realDelete
+    try {
+      expect(await forgetVault('forget-3')).toBe(false)
+    } finally {
+      IDBObjectStore.prototype.delete = realDelete
+    }
+    // And it is still there - the test's premise, not just its conclusion.
+    expect((await listVaults()).some((v) => v.id === 'forget-3')).toBe(true)
+    expect(await forgetVault('forget-3')).toBe(true) // the real delete still works afterwards
   })
 })
