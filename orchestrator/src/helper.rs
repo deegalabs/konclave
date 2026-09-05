@@ -751,6 +751,19 @@ pub struct VaultRegistration {
     /// and an empty value must be treated as "unknown", never as "matches nothing".
     #[serde(default)]
     pub change_receiver: String,
+    /// The block height the view-only wallet scans from, as WRITTEN by `init-fvk` (#434).
+    ///
+    /// It is read back from `<wallet_dir>/keys.toml` rather than assumed, because `init-fvk`
+    /// derives its own value (`chain_tip - 100` by default, then adjusted by
+    /// `get_wallet_birthday`) - so what we asked for and what it used are not the same thing.
+    ///
+    /// It lives here because `registration.json` is the half of a vault that gets BACKED UP, while
+    /// `wallet/` is excluded as "rebuildable". Rebuilding it needs this number: an `init-fvk` run
+    /// without it starts scanning from *now* and every note the vault already holds becomes
+    /// invisible, with no rescan to undo it. `None` on registrations written before this field, and
+    /// backfilled from `keys.toml` when the wallet dir is still there.
+    #[serde(default)]
+    pub birthday: Option<u64>,
 }
 
 /// Where a vault's persisted registration lives: `<vaults_dir>/<vault_id>/registration.json`.
@@ -761,6 +774,20 @@ pub fn registration_path(vaults_dir: &Path, group_key: &str) -> PathBuf {
 /// Persist a registration next to its view-only wallet, so a helper restart / redeploy keeps the
 /// vault (and its ALREADY-derived address - no re-derivation, so the address stays stable). Writes
 /// only public / view-only fields.
+/// The birthday `init-fvk` wrote into a view-only wallet, from `<wallet_dir>/keys.toml` (#434).
+///
+/// That file is two lines - `network` and `birthday` - so this parses the one line it needs rather
+/// than taking a TOML dependency for it. `None` when the file is missing, unreadable, or carries no
+/// birthday: not knowing is its own answer here, and must never be confused with a height of 0,
+/// which would ask a rebuild to rescan the entire chain.
+pub fn read_wallet_birthday(wallet_dir: &Path) -> Option<u64> {
+    let text = std::fs::read_to_string(wallet_dir.join("keys.toml")).ok()?;
+    text.lines()
+        .filter_map(|l| l.split_once('='))
+        .find(|(k, _)| k.trim() == "birthday")
+        .and_then(|(_, v)| v.trim().trim_matches('"').parse::<u64>().ok())
+}
+
 pub fn save_registration(vaults_dir: &Path, reg: &VaultRegistration) -> Result<(), ToolError> {
     let path = registration_path(vaults_dir, &reg.vault_id);
     if let Some(parent) = path.parent() {
@@ -832,7 +859,19 @@ pub fn register_vault(
     // Persisted-registration shortcut: if this vault was registered before (surviving a restart),
     // return the STORED registration - no re-derivation, so the address stays stable and the
     // heavy wallet init is not repeated.
-    if let Some(reg) = load_registration(&cfg.vaults_dir, group_key) {
+    if let Some(mut reg) = load_registration(&cfg.vaults_dir, group_key) {
+        // Backfill the birthday for a vault registered before the field existed (#434). The number
+        // lives only in `wallet/keys.toml`, which the documented ops backup EXCLUDES, so a vault
+        // that loses its volume before this runs cannot have its wallet rebuilt correctly. Reading
+        // it here captures it into the half that IS backed up, on the next registration touch.
+        // Idempotent, and best-effort: it never fails a registration.
+        if reg.birthday.is_none() {
+            if let Some(b) = read_wallet_birthday(Path::new(&reg.wallet_dir)) {
+                reg.birthday = Some(b);
+                let _ = save_registration(&cfg.vaults_dir, &reg);
+                eprintln!("vault {group_key}: birthday {b} recorded from keys.toml");
+            }
+        }
         return Ok(reg);
     }
     let (address, ufvk) = derive_identity(&cfg.zcash_sign, group_key, &cfg.network)?;
@@ -879,6 +918,15 @@ pub fn register_vault(
             String::new()
         }
     };
+    // Read back what `init-fvk` actually used, rather than assuming the default it computes. This
+    // is the number a rebuilt wallet has to be given, and `registration.json` is the half of a
+    // vault that gets backed up (#434).
+    let birthday = read_wallet_birthday(Path::new(&wallet_dir));
+    if birthday.is_none() {
+        eprintln!(
+            "vault {group_key}: no birthday read from keys.toml; a rebuilt wallet would scan from now"
+        );
+    }
     let reg = VaultRegistration {
         vault_id: group_key.to_string(),
         address,
@@ -888,6 +936,7 @@ pub fn register_vault(
         threshold,
         total,
         change_receiver,
+        birthday,
     };
     // Persist so a restart keeps the vault + its now-fixed address. Best-effort: a write failure
     // (e.g. read-only FS) must not fail the registration - the in-memory state still serves it.
@@ -1112,6 +1161,44 @@ mod tests {
         assert_eq!(d, "/srv/vaults/abcd/wallet");
     }
 
+    /// #434: the birthday lives ONLY in `wallet/keys.toml`, and the documented ops backup excludes
+    /// `wallet/` as "rebuildable". Rebuilding needs this number, so it has to be read back and kept
+    /// in `registration.json`, which IS backed up. These cover the read itself.
+    #[test]
+    fn the_wallet_birthday_is_read_back_from_keys_toml() {
+        let dir = std::env::temp_dir().join(format!("konclave-bday-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // The real shape, copied from a live vault's wallet: two lines, no quotes on the number.
+        std::fs::write(dir.join("keys.toml"), "network = \"main\"\nbirthday = 3459814\n").unwrap();
+        assert_eq!(read_wallet_birthday(&dir), Some(3_459_814));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_missing_or_birthdayless_keys_toml_reads_as_unknown_not_zero() {
+        // Zero would be a catastrophic default: it asks a rebuilt wallet to scan the entire chain,
+        // and worse, it reads as a real answer. Not knowing must stay not knowing.
+        let dir = std::env::temp_dir().join(format!("konclave-bday-none-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(read_wallet_birthday(&dir), None, "no keys.toml at all");
+        std::fs::write(dir.join("keys.toml"), "network = \"main\"\n").unwrap();
+        assert_eq!(read_wallet_birthday(&dir), None, "no birthday line");
+        std::fs::write(dir.join("keys.toml"), "network = \"main\"\nbirthday = later\n").unwrap();
+        assert_eq!(read_wallet_birthday(&dir), None, "unparseable birthday");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_registration_written_before_the_field_still_loads() {
+        // The 8 live vaults look exactly like this. If `birthday` were required, every one of them
+        // would fail to load on the next deploy and the helper would serve nothing.
+        let json = r#"{"vault_id":"ab","address":"u1ab","ufvk":"uview1ab","wallet_dir":"/tmp/ab",
+                       "account":"acct","threshold":2,"total":3}"#;
+        let reg: VaultRegistration = serde_json::from_str(json).expect("legacy registration loads");
+        assert_eq!(reg.birthday, None);
+        assert_eq!(reg.change_receiver, "");
+    }
+
     fn reg(id: &str) -> VaultRegistration {
         VaultRegistration {
             vault_id: id.into(),
@@ -1122,6 +1209,7 @@ mod tests {
             threshold: 2,
             total: 3,
             change_receiver: format!("u1change{id}"),
+            birthday: Some(3_400_000),
         }
     }
 

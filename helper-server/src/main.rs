@@ -1206,6 +1206,7 @@ mod tests {
             threshold: 2,
             total: 3,
             change_receiver: format!("utest1change{id}"),
+            birthday: Some(3_400_000),
         });
     }
 
