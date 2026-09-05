@@ -807,6 +807,47 @@ pub fn load_registration(vaults_dir: &Path, group_key: &str) -> Option<VaultRegi
     serde_json::from_str(&json).ok()
 }
 
+/// Record the wallet birthday on every registration that is missing one, reading it from the
+/// vault's own `wallet/keys.toml`. Returns how many were filled.
+///
+/// This exists because the number is **only** in `keys.toml`, and the documented ops backup
+/// excludes `wallet/` (#434). Until it is copied into `registration.json` - the half that IS backed
+/// up - a vault that loses its volume cannot have its wallet rebuilt at the right height, and there
+/// is no rescan to fix that afterwards.
+///
+/// Run at BOOT rather than only when a vault is re-registered. `register_vault` backfills too, but
+/// it is reached only when a browser registers again, which for a long-lived vault may be never -
+/// so relying on it alone would be a migration that mostly does not run.
+///
+/// Safe to run against a live volume: it only ever ADDS a field to a registration that lacks it,
+/// never touches `wallet/`, never rewrites one that already has a birthday, and is idempotent. A
+/// vault whose wallet dir is gone is left alone - there is nothing to read, and inventing a height
+/// would be worse than leaving the field absent.
+pub fn backfill_birthdays(vaults_dir: &Path) -> usize {
+    let mut n = 0;
+    for mut reg in load_registrations(vaults_dir) {
+        if reg.birthday.is_some() {
+            continue;
+        }
+        let Some(b) = read_wallet_birthday(Path::new(&reg.wallet_dir)) else {
+            eprintln!(
+                "vault {}: no birthday to record (no readable keys.toml); a rebuilt wallet would scan from now",
+                reg.vault_id
+            );
+            continue;
+        };
+        reg.birthday = Some(b);
+        match save_registration(vaults_dir, &reg) {
+            Ok(()) => {
+                eprintln!("vault {}: birthday {b} recorded", reg.vault_id);
+                n += 1;
+            }
+            Err(e) => eprintln!("vault {}: could not record birthday: {e:?}", reg.vault_id),
+        }
+    }
+    n
+}
+
 /// Load every persisted registration under `vaults_dir` (one `<id>/registration.json` each), so a
 /// restarting helper reseeds its in-memory registry from disk. Skips anything unreadable.
 pub fn load_registrations(vaults_dir: &Path) -> Vec<VaultRegistration> {
@@ -1205,6 +1246,81 @@ mod tests {
         let reg: VaultRegistration = serde_json::from_str(json).expect("legacy registration loads");
         assert_eq!(reg.birthday, None);
         assert_eq!(reg.change_receiver, "");
+    }
+
+    /// The boot backfill (#434). It runs against the live production volume, so what matters as
+    /// much as filling the field is everything it must NOT do.
+    #[test]
+    fn the_boot_backfill_fills_only_what_is_missing_and_leaves_the_rest_alone() {
+        let dir = std::env::temp_dir().join(format!("konclave-bf-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+
+        // Three vaults: one to fill, one already recorded, one whose wallet dir is gone.
+        let (id_a, id_b, id_c) = ("a".repeat(64), "b".repeat(64), "c".repeat(64));
+        let mut to_fill = reg(&id_a);
+        to_fill.birthday = None;
+        to_fill.wallet_dir = dir
+            .join(format!("{id_a}/wallet"))
+            .to_string_lossy()
+            .into_owned();
+        std::fs::create_dir_all(&to_fill.wallet_dir).unwrap();
+        std::fs::write(
+            Path::new(&to_fill.wallet_dir).join("keys.toml"),
+            "network = \"main\"\nbirthday = 3459814\n",
+        )
+        .unwrap();
+
+        let mut already = reg(&id_b);
+        already.birthday = Some(111);
+        already.wallet_dir = dir
+            .join(format!("{id_b}/wallet"))
+            .to_string_lossy()
+            .into_owned();
+        std::fs::create_dir_all(&already.wallet_dir).unwrap();
+        std::fs::write(
+            Path::new(&already.wallet_dir).join("keys.toml"),
+            "network = \"main\"\nbirthday = 999\n",
+        )
+        .unwrap();
+
+        let mut no_wallet = reg(&id_c);
+        no_wallet.birthday = None;
+        no_wallet.wallet_dir = dir
+            .join(format!("{id_c}/wallet"))
+            .to_string_lossy()
+            .into_owned();
+
+        for r in [&to_fill, &already, &no_wallet] {
+            save_registration(&dir, r).unwrap();
+        }
+
+        assert_eq!(backfill_birthdays(&dir), 1, "only the one that was missing");
+
+        let after = |id: &str| load_registration(&dir, id).expect("still loads");
+        assert_eq!(
+            after(&id_a).birthday,
+            Some(3_459_814),
+            "read from keys.toml"
+        );
+        assert_eq!(
+            after(&id_b).birthday,
+            Some(111),
+            "an existing birthday is never rewritten, even when keys.toml disagrees"
+        );
+        assert_eq!(
+            after(&id_c).birthday,
+            None,
+            "no wallet to read: leave it absent rather than invent a height"
+        );
+        // And nothing else about a registration is disturbed.
+        assert_eq!(after(&id_a).ufvk, to_fill.ufvk);
+        assert_eq!(after(&id_a).address, to_fill.address);
+
+        // Idempotent: a second boot fills nothing and changes nothing.
+        assert_eq!(backfill_birthdays(&dir), 0);
+        assert_eq!(after(&id_a).birthday, Some(3_459_814));
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     fn reg(id: &str) -> VaultRegistration {
