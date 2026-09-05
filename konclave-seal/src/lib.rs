@@ -79,6 +79,19 @@ pub fn seal(recipient_pub: &[u8; 32], plaintext: &[u8], aad: &[u8]) -> Result<Ve
     let eph = EphemeralSecret::random_from_rng(OsRng);
     let eph_pub = PublicKey::from(&eph);
     let shared = eph.diffie_hellman(&PublicKey::from(*recipient_pub));
+    // #421. `x25519-dalek` deliberately does NOT reject small-order peer keys; it exposes this
+    // check and leaves it to the caller. Skipping it is not a theoretical lapse: against such a
+    // key the shared secret is all zeros, so `derive_key` yields a CONSTANT anyone can compute,
+    // and under hybrid sealing that one box carries the body key shared with every other
+    // recipient. One bad registered key would unseal the request for the whole vault.
+    //
+    // The ecosystem does not agree here, which is why it is easy to miss: Noise discourages the
+    // check, libsodium performs it and fails, HPKE (RFC 9180 s7.1.4) requires it. For a key that
+    // arrives over an unauthenticated registration endpoint, refusing is the only defensible
+    // choice.
+    if !shared.was_contributory() {
+        return Err("seal: recipient public key has small order".to_string());
+    }
     let key = derive_key(shared.as_bytes());
     let cipher = XChaCha20Poly1305::new(Key::from_slice(&key));
     let mut nonce = [0u8; NONCE_LEN];
@@ -111,6 +124,13 @@ pub fn open(device: &DeviceKey, sealed: &[u8], aad: &[u8]) -> Result<Vec<u8>, St
     nonce.copy_from_slice(&sealed[EPH_LEN..EPH_LEN + NONCE_LEN]);
     let ct = &sealed[EPH_LEN + NONCE_LEN..];
     let shared = device.secret.diffie_hellman(&PublicKey::from(eph));
+    // The mirror of the check in `seal`, and it is not redundant. An attacker who cannot choose
+    // OUR key can still choose the EPHEMERAL one on a message it sends us, reaching the same
+    // constant key. The AEAD tag does not save us there: the attacker derives that key too, so
+    // its tag is correct and the message opens. Refuse before the tag, not after.
+    if !shared.was_contributory() {
+        return Err("open: the message's ephemeral key has small order".to_string());
+    }
     let key = derive_key(shared.as_bytes());
     let cipher = XChaCha20Poly1305::new(Key::from_slice(&key));
     cipher
@@ -139,7 +159,13 @@ pub fn seal_body(key: &[u8; 32], plaintext: &[u8]) -> Vec<u8> {
     let mut nonce = [0u8; NONCE_LEN];
     OsRng.fill_bytes(&mut nonce);
     let ct = cipher
-        .encrypt(XNonce::from_slice(&nonce), Payload { msg: plaintext, aad: b"" })
+        .encrypt(
+            XNonce::from_slice(&nonce),
+            Payload {
+                msg: plaintext,
+                aad: b"",
+            },
+        )
         .expect("xchacha20-poly1305 encryption never fails");
     let mut out = Vec::with_capacity(NONCE_LEN + ct.len());
     out.extend_from_slice(&nonce);
@@ -171,8 +197,15 @@ mod tests {
         let k = random_key();
         let plaintext = b"a large SignRequest body carrying the PCZT hex".as_slice();
         let sealed = seal_body(&k, plaintext);
-        assert_eq!(open_body(&k, &sealed).unwrap(), plaintext, "round-trips with its key");
-        assert!(open_body(&random_key(), &sealed).is_err(), "a different key cannot open it");
+        assert_eq!(
+            open_body(&k, &sealed).unwrap(),
+            plaintext,
+            "round-trips with its key"
+        );
+        assert!(
+            open_body(&random_key(), &sealed).is_err(),
+            "a different key cannot open it"
+        );
         assert!(
             !sealed.windows(plaintext.len()).any(|w| w == plaintext),
             "the plaintext never appears in the sealed body",
@@ -258,5 +291,108 @@ mod tests {
         let k = DeviceKey::generate();
         let restored = DeviceKey::from_secret_bytes(&k.secret_bytes());
         assert_eq!(k.public_bytes(), restored.public_bytes());
+    }
+}
+
+#[cfg(test)]
+mod low_order_tests {
+    use super::*;
+
+    /// The canonical small-order X25519 points. Any of these as a peer key drives the shared
+    /// secret to all zeros, so the derived key becomes a constant anyone can compute. They are
+    /// published (RFC 7748 s6.1 discusses the cofactor; these are the standard test vectors used
+    /// by libsodium and the "May the Fourth Be With You" analysis), which is the point: an
+    /// attacker does not have to find one.
+    const LOW_ORDER: [[u8; 32]; 6] = [
+        [0u8; 32],
+        {
+            let mut b = [0u8; 32];
+            b[0] = 1;
+            b
+        },
+        [
+            0xe0, 0xeb, 0x7a, 0x7c, 0x3b, 0x41, 0xb8, 0xae, 0x16, 0x56, 0xe3, 0xfa, 0xf1, 0x9f,
+            0xc4, 0x6a, 0xda, 0x09, 0x8d, 0xeb, 0x9c, 0x32, 0xb1, 0xfd, 0x86, 0x62, 0x05, 0x16,
+            0x5f, 0x49, 0xb8, 0x00,
+        ],
+        [
+            0x5f, 0x9c, 0x95, 0xbc, 0xa3, 0x50, 0x8c, 0x24, 0xb1, 0xd0, 0xb1, 0x55, 0x9c, 0x83,
+            0xef, 0x5b, 0x04, 0x44, 0x5c, 0xc4, 0x58, 0x1c, 0x8e, 0x86, 0xd8, 0x22, 0x4e, 0xdd,
+            0xd0, 0x9f, 0x11, 0xd7,
+        ],
+        // p-1 (order 2). NOT [0xff; 32]: X25519 clears the high bit, so that decodes to u = 18,
+        // an ordinary high-order point. Getting this wrong is easy and the test caught it.
+        [
+            0xec, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+            0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+            0xff, 0xff, 0xff, 0x7f,
+        ],
+        // p (decodes to zero)
+        [
+            0xed, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+            0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+            0xff, 0xff, 0xff, 0x7f,
+        ],
+    ];
+
+    #[test]
+    fn sealing_to_a_low_order_key_is_refused() {
+        // #421. x25519-dalek deliberately does NOT reject these; it exposes `was_contributory()`
+        // and leaves the check to the caller. Without it, the box addressed to such a key is
+        // encrypted under a CONSTANT, and in hybrid sealing that box carries the body key shared
+        // with every other recipient - so one bad registered key unseals the request for everyone.
+        for (i, bad) in LOW_ORDER.iter().enumerate() {
+            let out = seal(bad, b"the SignRequest body key", b"aad");
+            assert!(
+                out.is_err(),
+                "low-order point {i} was accepted; the box would use a key anyone can compute",
+            );
+        }
+    }
+
+    #[test]
+    fn sealing_to_an_honest_key_still_works() {
+        // The other half: the check must not break the path it guards. A device key derived from a
+        // real share has to keep round-tripping.
+        let device = device_key_from_share(b"a serialized KeyPackage stands in here");
+        let pubkey = device.public_bytes();
+        let sealed = seal(&pubkey, b"hello", b"aad").expect("an honest key seals");
+        assert_eq!(open(&device, &sealed, b"aad").unwrap(), b"hello");
+    }
+
+    #[test]
+    fn opening_a_message_forged_under_the_constant_key_is_refused() {
+        // The mirror image, and it has to be tested with a message that a NAIVE implementation
+        // would ACCEPT. Feeding `open` random bytes proves nothing: the AEAD tag rejects those on
+        // its own, so the test would pass without any contributory check at all.
+        //
+        // So this forges properly. With a low-order ephemeral the shared secret is all zeros for
+        // EVERY recipient, so the attacker derives the same key the device will derive, encrypts
+        // real content under it, and hands it over. No knowledge of the device's key is needed.
+        let device = DeviceKey::generate();
+
+        let key = derive_key(&[0u8; 32]); // what the device computes from a zero shared secret
+        let cipher = XChaCha20Poly1305::new(Key::from_slice(&key));
+        let nonce = [7u8; NONCE_LEN];
+        let ct = cipher
+            .encrypt(
+                XNonce::from_slice(&nonce),
+                Payload {
+                    msg: b"a forged SignRequest",
+                    aad: b"aad",
+                },
+            )
+            .expect("encrypting under the constant key never fails");
+
+        let mut forged = Vec::with_capacity(EPH_LEN + NONCE_LEN + ct.len());
+        forged.extend_from_slice(&[0u8; EPH_LEN]); // the low-order ephemeral
+        forged.extend_from_slice(&nonce);
+        forged.extend_from_slice(&ct);
+
+        assert!(
+            open(&device, &forged, b"aad").is_err(),
+            "a message forged under the all-zero shared secret must be refused, and the AEAD tag \
+             cannot refuse it because the tag is correct for that key",
+        );
     }
 }
