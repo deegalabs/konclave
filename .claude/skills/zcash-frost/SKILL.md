@@ -160,14 +160,48 @@ string (*"deemed unnecessary after further analysis"*). Three library calls, two
 
 The secret is never assembled anywhere. That is the whole point of preferring DKG over a dealer.
 
+## Every Orchard spend carries its own alpha
+
+The likeliest real integration bug, and this file used not to mention it at all.
+
+A rerandomized signature is verified under `rk = ak + [alpha]G`. The `alpha` is **not** something the
+coordinator invents: an Orchard spend carries its **own** randomizer, set by the Constructor and read
+from the PCZT. A transaction with N real spends has N different alphas.
+
+So the ceremony cannot sign "the transaction" once under a coordinator-chosen randomizer. It signs
+**per spend, under that spend's alpha**, or the signature fails to verify against that action's `rk`
+and the transaction is rejected. Code that derives a randomizer from the commitments (the shape
+`frost-rerandomized` offers for generic use) proves the maths and produces something unusable on
+chain.
+
+Related, and unresolved as of 2026-09-05: **ZIP 312 and the shipped crate disagree on how the
+randomizer is derived.** The ZIP hashes `rng_randomizer || encode_signing_package(commitment_list,
+msg)` - message included. `frost-rerandomized-3.0.0`'s `regenerate_from_seed_and_commitments` hashes
+`seed || encode_group_commitments(...)` - message absent. The ZIP-conformant function
+(`from_randomizer_and_signing_package`) is the one marked deprecated. This is not claimed to be a
+vulnerability; it is a divergence worth knowing about, and worth raising upstream.
+
 ## Repair (RTS) and refresh
 
 **Repair** (`frost_core::keys::repairable`, the Repairable Threshold Scheme from eprint 2017/1155) lets
-a threshold of *helpers* restore a lost share, or issue one to a **new** participant at the same
-threshold (2-of-3 → 2-of-4). Each helper runs `repair_share_part1` producing `delta` values for every
-helper, then `repair_share_part2` over the deltas it received producing a `sigma` for the recovering
-participant, who runs `repair_share_part3` over the sigmas plus the `PublicKeyPackage`. **No helper
-learns the repaired share.**
+a threshold of *helpers* restore a **lost** share. Each helper runs `repair_share_part1` producing
+`delta` values for every helper, then `repair_share_part2` over the deltas it received producing a
+`sigma` for the recovering participant, who runs `repair_share_part3` over the sigmas plus the
+`PublicKeyPackage`. **No helper learns the repaired share.**
+
+**Corrected 2026-09-05: this used to claim repair can also issue a share to a NEW participant
+(2-of-3 → 2-of-4). Do not rely on that.** `frost-core 3.0.0`'s `repairable` module documents only
+"repair their lost share". `repair_share_part3` does accept an arbitrary identifier without checking
+membership in the `PublicKeyPackage`, so it works arithmetically, but the crate never updates that
+package. It is a property the API fails to prevent, not a supported feature, and a vault whose
+`PublicKeyPackage` does not know a participant will not verify their share.
+
+**Two limits worth stating whenever repair is offered as a recovery story.** It needs `threshold`
+surviving helpers, so a **2-of-2 can never repair** - the very configuration a couple or a pair of
+co-founders reaches for first. And it **does not authenticate the claimant**: the maths will happily
+rebuild a share for whoever asks. Social recovery is worth exactly what the human verification around
+it is worth, which is why the repair should be a quorum-approved proposal like a payment, not an API
+call.
 
 **Refresh** rotates shares while keeping the same group verifying key, and can drop a participant. The
 Book's caveat is load-bearing: refresh **does not restore full security**. Security then depends on a

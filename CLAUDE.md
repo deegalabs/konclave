@@ -142,9 +142,15 @@ Facts (verified 2026-06-30):
     happens for a vault spend). [#341](https://github.com/deegalabs/konclave/issues/341) is rescoped
     accordingly. Note also that the consensus text (ZIP 2006) is still **Reserved and empty**, so the
     only citable rule today is this Draft, Wallet-category MUST NOT. Verified 2026-08-31.
-  - **NU7 is being polled, not scheduled. CONFIRMED with a large caveat.** The coinholder vote runs
-    2026-08-25 to 2026-09-14, snapshot block 3,459,350, legitimacy quorum 1,000,000 ZEC - and the
-    thread says plainly *"it is a sentiment poll, not a vote"*. `draft-arya-deploy-nu7` is **Draft
+  - **NU7 is being polled, not scheduled. CONFIRMED with a large caveat.** There were **two** August
+    consultations, not one (an earlier version of this line described only the first): a **coinholder
+    vote** (snapshot block 3,459,350, 2026-08-25 to 2026-09-14 19:00 UTC, legitimacy quorum 1,000,000
+    ZEC) and a separate **ZCAP poll** by the Foundation (2026-08-27 to 09-14). **Both non-binding**,
+    and the stated reason is worth keeping: *"There is no ZIP that approves making Zcash protocol
+    decisions by vote."* Note also an earlier round in **February 2026** whose results circulate
+    confused with August's. `draft-arya-deploy-nu7` exists (branch id `0x77190AD8`) with activation
+    heights **TBD on both networks**, and the NU7 candidate list is 218, 231, 233, 234, 235, 2002,
+    2003 - **ZIP 312 is not on it**, and does not need to be (Category: Wallet). `draft-arya-deploy-nu7` is **Draft
     with activation heights TBD**. **NU6.3 remains the consensus target**; NU7 is a thing to watch,
     not to build against.
   - Two NU7 candidates would touch this product if it lands: **ZIP 218** (its actual title is
@@ -154,10 +160,12 @@ Facts (verified 2026-06-30):
     latency concern, not the per-transaction ceiling an earlier version of this line described
     ([#295](https://github.com/deegalabs/konclave/issues/295)). Verified 2026-08-31. And **ZIP 2002
     (Explicit Fees)**
-    changes fee validation for v6+ transactions (touches our ZIP 317 work,
+    changes fee validation for **v7** transactions (the fee becomes an `mValuePoolDeltas` entry with
+    `bundleType = 5`; an earlier version of this line said v6+, which is wrong) and touches our ZIP 317 work (
     [#206](https://github.com/deegalabs/konclave/issues/206)).
   - **"FROST v3 ships in NU7" is misleading.** ZIP 312 is **Draft**, category **Wallet**, with no
-    target upgrade, and is not among the NU7 candidates; `frost-core v3.0.0` shipped in April 2025.
+    target upgrade, and is not among the NU7 candidates; `frost-core v3.0.0` shipped in **April 2026** (2026-04-23 on crates.io; an earlier version of this
+    line said 2025).
     What does matter: the Foundation's 2026 goals include finalising ZIP 312, **integrating FROST
     into `zcash-devtool`**, and publishing an **official DKG** - which would change our integration
     path, and is worth tracking rather than reacting to.

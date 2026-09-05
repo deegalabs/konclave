@@ -18,7 +18,7 @@ the rules below lives in a ZIP that has *no text at all* yet.
 | 258 | Deployment of the NU6.3 Network Upgrade | Draft | NU6.3 |
 | 229 | Version 6 Transaction Format | Draft | NU6.3 |
 | 2005 | Ironwood Quantum Recoverability | Proposed | NU6.3 |
-| 2006 | Restricting Transfers into the Orchard Pool | **Reserved - header only, no spec text** | NU6.3 |
+| 2006 | Restricting Transfers to the Orchard Pool | **Reserved - header only, no spec text** | NU6.3 |
 | 326 | NU6.3 Consequences for Wallets | Draft (Category: Wallet) | NU6.3 |
 | 318 | Orchard to Ironwood Migration | Draft (Category: Wallet) | NU6.3 |
 | 374 | Partially Created Zcash Transaction Format | Draft | - (Wallet) |
@@ -74,12 +74,22 @@ corresponding Orchard-protocol receivers or viewing keys before NU6.3 activation
 production wallet MUST NOT generate use_qsk = true keys at all before NU6.3 has activated on
 Mainnet."`
 
-**Honesty flag.** ZIP 326 states plainly that these `"concern only how a wallet generates and uses
-keys; they are not consensus rules."` The consensus-level restriction is ZIP 2006, whose status is
-**Reserved**: the file at zips.z.cash is a header block with **no specification text**. ZIP 229
-references its `enableCrossAddress` flag (bit 2 of `flagsOrchard`/`flagsIronwood`), and ZIP 326
-carries the same-address restriction on ZIP 2006's behalf, marked *"until that ZIP is written"*. So:
-enforce the ZIP 326 MUST NOT, and do **not** claim to know the consensus text - it does not exist yet.
+**Corrected 2026-09-05, and the earlier version of this paragraph was wrong.** It said the consensus
+text "does not exist yet". It does, and it is in **ZIP 258**, not ZIP 2006.
+
+ZIP 326 is right that its own rules `"concern only how a wallet generates and uses keys; they are not
+consensus rules."` And ZIP 2006 is genuinely **Reserved** and empty: 843 bytes, an eight-line
+preamble, no spec text. But ZIP 258 (*Deployment of NU6.3*), section *Consensus rules from NU6.3
+activation*, carries the real thing:
+
+- `enableCrossAddress` **MUST be 0** on every Orchard-pool Action, **enforced by the circuit
+  verifying key**, so it binds v5 transactions too.
+- `"No new value may enter the Orchard pool: for every transaction, v^OrchardPoolBalance >= 0."`
+
+So the correct framing is **not** "we follow a wallet convention". It is: the network refuses. Treat
+ZIP 258 as a source of consensus rules, not only of activation heights. And see **ZIP 209** for the
+turnstile that gave the pool lineage its shape in the first place - the reason a soundness bug in one
+pool cannot inflate the whole supply.
 
 ### 2. Do not spend in the Orchard pool without the fabricated same-address output
 
@@ -139,6 +149,22 @@ Before signing, verbatim:
 > spends and clears these fields; their presence means the Signer is being asked to parse spending
 > key material)."
 
+**Read that alongside the next paragraph or it will mislead you.** There are TWO kinds of zero-value
+spend and only one of them is the protocol's business:
+
+| | Ironwood pool | Orchard pool, post-NU6.3 |
+|---|---|---|
+| cross-address | permitted | **mandated off** (`bundle.rs`, `permits_cross_address_transfers` is false only for `(V3, Orchard)`) |
+| the fabricated spend | **protocol padding dummy**, carries `dummy_sk` | **wallet-controlled**, `dummy_sk: None` |
+| who signs it | the IO Finalizer, which then clears the key | **you do** |
+| arrives at the Signer | with a `spend_auth_sig` | **unsigned** |
+
+So "skip the zero-value spends" is wrong, and it is wrong in a way that loses money: the
+wallet-controlled one is yours to sign, and skipping it produces `MissingSpendAuthSig` at extraction.
+**Select on `spend_auth_sig().is_none()`, never on value.** That is the predicate upstream
+`zcash-sign` moved to when it became Ironwood-capable, and the one `zcash_client_backend` states as
+"if and only if" where it stamps derivations for external signers."
+
 > "MUST, for each output carrying a `user_address`, parse that address and confirm that it contains
 > the output's `recipient` (either directly, or e.g. as a receiver within a Unified Address)."
 
@@ -156,7 +182,7 @@ inputs"` or the merge fails.
 ### 5. Do not invent a fee - compute the ZIP 317 conventional fee
 
 **ZIP 317 Revision 0 is Active**; Revision 1 (NU6.3, adds Ironwood) and Revision 2 (memo bundles,
-needs ZIP 248) are Draft.
+needs **ZIP 231**, Memo Bundles) are Draft. There is no ZIP 248 in the index.
 
 ```
 conventional_fee = marginal_fee · max(grace_actions, logical_actions)
@@ -198,6 +224,10 @@ Spacing*; the action limits are a DoS side-effect of the faster blocks, and they
 not per transaction**: `"The total number of Orchard actions across all transactions in the block
 MUST NOT exceed 330"` (Sapling inputs+outputs 300; Sprout JoinSplits 25; combined shielded cost
 330). It imposes no per-transaction limit, and the existing 2 MB block size limit continues to apply.
+
+**And it never mentions Ironwood.** Zero occurrences: it was created 2026-03-13, before NU6.3, and
+its 330-per-block budget counts Orchard, Sapling and Sprout only. As drafted it does not bind the
+pool where new shielded value now lives.
 
 So today, the ceiling on a large payroll is **transaction size** (and ZIP 229's `"nActionsIronwood
 MUST be less than..."` bound), not ZIP 218. If NU7 activates, a 330-action *block* cap becomes a
