@@ -1169,7 +1169,11 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("konclave-bday-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         // The real shape, copied from a live vault's wallet: two lines, no quotes on the number.
-        std::fs::write(dir.join("keys.toml"), "network = \"main\"\nbirthday = 3459814\n").unwrap();
+        std::fs::write(
+            dir.join("keys.toml"),
+            "network = \"main\"\nbirthday = 3459814\n",
+        )
+        .unwrap();
         assert_eq!(read_wallet_birthday(&dir), Some(3_459_814));
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -1183,7 +1187,11 @@ mod tests {
         assert_eq!(read_wallet_birthday(&dir), None, "no keys.toml at all");
         std::fs::write(dir.join("keys.toml"), "network = \"main\"\n").unwrap();
         assert_eq!(read_wallet_birthday(&dir), None, "no birthday line");
-        std::fs::write(dir.join("keys.toml"), "network = \"main\"\nbirthday = later\n").unwrap();
+        std::fs::write(
+            dir.join("keys.toml"),
+            "network = \"main\"\nbirthday = later\n",
+        )
+        .unwrap();
         assert_eq!(read_wallet_birthday(&dir), None, "unparseable birthday");
         std::fs::remove_dir_all(&dir).ok();
     }
