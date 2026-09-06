@@ -923,6 +923,48 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 .set-row > .set-v{display:flex; align-items:center; justify-content:flex-end; gap:10px; flex-wrap:wrap}
 /* The actions of a settings row, as ONE block. Loose buttons inside the value wrapped into a pile
    of odd-width chips on a phone - each sized to its own label, none lining up with the next. */
+/* The segmented pill (#475): theme and language in the shell. One lit segment says the state and
+   the alternative at once, which a single flip button cannot - it can only be ambiguous about
+   whether its icon shows what you have or what you would get.
+
+   The lit segment is the ACCENT, and this is the one place that is right: it is a control state
+   the member is operating, which is what the accent is for alongside focus and quorum. It was
+   `.btn.ok` before, the same blue used for primary ACTIONS, which is what made the audit count
+   nine accent marks on one screen. */
+.seg{display:inline-flex; align-items:center; gap:2px; padding:2px; border-radius:9px;
+  background:var(--surface-2); border:1px solid var(--line-2)}
+.seg-btn{display:inline-flex; align-items:center; gap:5px; padding:4px 8px; border:0; border-radius:7px;
+  background:none; color:var(--text-muted); cursor:pointer;
+  font-family:var(--font-mono); font-size:10.5px; font-weight:600; letter-spacing:.08em;
+  transition:color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out)}
+.seg-btn.ico{padding:5px 7px}
+.seg-btn:hover{color:var(--text)}
+.seg-btn.on{background:var(--accent); color:var(--on-accent,#08121e)}
+.seg-btn.on:hover{color:var(--on-accent,#08121e)}
+.seg-btn .flag{border-radius:1.5px; display:block; flex:0 0 auto}
+/* The code beside the flag. `line-height:1` keeps the pill tight: the inherited 1.5 would pad the
+   segment taller than the flag needs and the two halves would sit off each other's centre. */
+.seg-txt{line-height:1}
+/* The flag keeps its own colours on the lit segment, so it needs an edge to sit on the accent. */
+.seg-btn.on .flag{outline:1px solid rgba(0,0,0,.28); outline-offset:-1px}
+
+.rail-prefs{display:flex; align-items:center; gap:8px; flex-wrap:wrap}
+/* The overflow sheet's copy of the cluster: full width, labels kept - there is room here, which is
+   the whole reason it moved. */
+.nav-more-prefs{display:flex; justify-content:space-between; align-items:center; gap:10px;
+  padding:12px 14px; border-top:1px solid var(--line-2); margin-top:4px}
+.nav-more-prefs .rail-prefs{flex-wrap:nowrap}
+@media(max-width:900px){
+  /* Out of the top bar entirely. Two segmented controls there squeezed the wordmark to "K", and
+     both are RARE actions - the bar's job is identity, current vault and liveness. They live in
+     the "More" sheet on a phone instead. */
+  .rail > .rail-prefs{display:none}
+}
+@media(min-width:901px){
+  /* ...and the sheet's copy does not exist on a desktop, where the rail holds the real one. */
+  .nav-more-prefs{display:none}
+}
+
 /* The copy control (#474). Icon-only: the value beside it is the point, and a button spelling out
    the verb next to a fingerprint spends more width on "Copiar" than on the code. 34px square, so it
    is a real target without being a slab. It goes SILVER on success, not accent - the blue means
@@ -1218,17 +1260,22 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 
 /* Passphrase field: strength meter + magic generate (#221). Style-agnostic wrapper. */
 .pf{width:100%}
-.pf-row{position:relative; display:flex; align-items:center}
-/* Reserve the far-right corner (~40px) for a browser password-manager icon (Kaspersky/1Password/etc.)
-   and keep our own controls to its left, so both are usable. */
+.pf-field{position:relative; display:flex; align-items:center}
+/* Reserve the far-right corner (~40px) for a browser password-manager icon (Kaspersky/1Password
+   etc.) and keep our own controls to its left, so both are usable. */
 .pf-input{flex:1; padding-right:112px !important; text-align:left !important}
-.pf-btn{position:absolute; top:50%; transform:translateY(-50%); background:none; border:none; cursor:pointer;
+/* The controls are a GROUP anchored to that reserve, not two buttons at hardcoded offsets. The
+   offsets were `right:76px` and `right:44px`, tuned for the two-button case - so a field with only
+   the reveal button (a passphrase being verified, not chosen) left it stranded 76px from the edge
+   with nothing beside it. Grouping makes one and two align to the same edge by construction. */
+.pf-tools{position:absolute; right:44px; top:50%; transform:translateY(-50%);
+  display:flex; align-items:center; gap:4px}
+.pf-btn{background:none; border:none; cursor:pointer;
   display:grid; place-items:center; width:28px; height:28px; padding:0; border-radius:8px;
   color:var(--text-muted,#8a97a6); transition:color .12s, background .12s}
 .pf-btn:hover{color:var(--text); background:var(--surface-2,rgba(127,127,127,.12))}
 .pf-btn:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
-.pf-btn:nth-of-type(1){right:76px}
-.pf-gen{right:44px; color:var(--accent)}
+.pf-gen{color:var(--accent)}
 .pf-gen:hover{color:var(--accent); background:var(--accent-soft,rgba(79,140,255,.14))}
 .pf-meter{display:flex; align-items:center; gap:9px; margin-top:8px}
 .pf-bars{display:flex; gap:4px; flex:1}

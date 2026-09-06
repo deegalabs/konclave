@@ -252,7 +252,10 @@ export function PassphraseField({
   const s = scorePassphrase(value)
   return (
     <div className="pf">
-      <div className="pf-row">
+      {/* `pf-field`, not `pf-row`: `.pf-row` already meant "past folhas row" in NewPayroll, so this
+          field was silently inheriting that list's padding, negative margin, pointer cursor and
+          hover gradient. Two components, one class prefix, different meanings. */}
+      <div className="pf-field">
         <input
           className={inputClassName + ' pf-input'}
           type={show ? 'text' : 'password'}
@@ -266,6 +269,7 @@ export function PassphraseField({
           aria-describedby={describedBy}
           aria-invalid={invalid || undefined}
         />
+        <span className="pf-tools">
         <button type="button" className="pf-btn" title={show ? t('pass.hide') : t('pass.show')}
           aria-label={show ? t('pass.hide') : t('pass.show')} onClick={() => setShow((v) => !v)}>
           {show ? (
@@ -289,6 +293,7 @@ export function PassphraseField({
             <path d="M18.5 12l.9 1.6 1.6.9-1.6.9-.9 1.6-.9-1.6-1.6-.9 1.6-.9z" fill="currentColor" stroke="none" />
           </svg>
         </button>}
+        </span>
       </div>
       {choosing && value && (
         <div className="pf-meter" aria-live="polite">

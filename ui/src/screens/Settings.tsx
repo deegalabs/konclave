@@ -340,14 +340,14 @@ export default function Settings() {
         <div className="set-row">
           <span className="set-k">{t('set.readRow')}</span>
           <span className="set-v">
-            <span className="set-val-txt">{hasPasskey ? t('set.readValueBoth') : t('set.readValuePass')}</span>
+            <span className="set-val-txt">{hasPasskey ? t('set.passkeyValue') : t('set.readValuePass')}</span>
             {(hasPasskey || canEnrol) && (
               <span className="set-actions">
                 {hasPasskey ? (
-                  <button type="button" className="btn ghost sm-btn" onClick={dropPasskey}>{t('settings.passkeyOff')}</button>
+                  <button type="button" className="btn ghost sm-btn" onClick={dropPasskey}>{t('set.passkeyOff')}</button>
                 ) : (
                   <button type="button" className="btn ghost sm-btn" disabled={pkBusy} onClick={() => void addPasskey()}>
-                    {pkBusy ? t('settings.passkeyBusy') : t('settings.passkeyOn')}
+                    {pkBusy ? t('settings.passkeyBusy') : t('set.passkeyOn')}
                   </button>
                 )}
               </span>
