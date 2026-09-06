@@ -4,7 +4,7 @@ import { Mark } from './components'
 import { Identicon } from './avatar'
 import { useT, useI18n } from './i18n'
 import { getVault, health, isVaultUnlocked, setSelectedVault, type Vault } from './api'
-import { getUnlockedShare } from './session'
+import { readSecretFor } from './session'
 import { needsUnlock, securedLocally } from './vault-lock'
 import { listVaults } from './storage'
 import { VaultSignerProvider } from './VaultSigner'
@@ -68,7 +68,7 @@ export default function Layout() {
         bridgeLocked: v.locked,
         unlockedThisSession: isVaultUnlocked(v.id),
         securedLocally: await securedLocally(v.id),
-        hasAccessSecret: !!getUnlockedShare(v.id)?.accessSecret,
+        hasAccessSecret: !!readSecretFor(v.id),
       })) {
         // Carry where we were, so unlocking returns you there instead of the dashboard (#446 D).
         // Router state, not storage: it must live exactly as long as this bounce, and a reload is

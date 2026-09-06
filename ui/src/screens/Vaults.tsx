@@ -4,7 +4,9 @@ import { getVaults, health, setSelectedVault, getSelectedVault, clearSelectedVau
 import { helperConfigured, getCustomHelper, setCoordMode, HELPER_BASE } from '../helper'
 import { isDesktop } from '../platform'
 import { listVaults, loadVault, importVault, parseVaultExport, forgetVault, type VaultExport } from '../storage'
-import { setUnlockedShare, clearUnlockedShare } from '../session'
+import { setUnlockedShare, clearUnlockedShare, setReadSecret, clearReadSecret } from '../session'
+import { loadPrfWrap, clearPrfWrap } from '../prf-store'
+import { openPrf } from '../prf-wrap'
 import { Identicon } from '../avatar'
 import { Dialog, Letterhead, activateOnKey } from '../components'
 import NetVault from './NetVault'
@@ -36,6 +38,28 @@ export default function Vaults() {
   const [rows, setRows] = useState<Row[]>([])
   const [loaded, setLoaded] = useState(false)
   const [unlocking, setUnlocking] = useState<Row | null>(null)
+  // #446 C: this device may hold a passkey-wrapped copy of the vault's read secret. Offered, never
+  // automatic - an authenticator prompt nobody asked for is worse than typing a passphrase.
+  const [prfBusy, setPrfBusy] = useState(false)
+
+  /** Open the vault's books with a touch. `S` only: signing still asks for the passphrase, which is
+   *  the separation this exists for. Any failure is silent and leaves the passphrase field as it
+   *  was, because a shortcut that fails must cost nothing. */
+  async function unlockWithPasskey(row: Row) {
+    const wrap = loadPrfWrap(row.v.id)
+    if (!wrap) return
+    setPrfBusy(true)
+    try {
+      const s = await openPrf(navigator.credentials, wrap, location.hostname)
+      if (!s) return
+      setReadSecret(row.v.id, s)
+      markVaultUnlocked(row.v.id)
+      setUnlocking(null)
+      nav(returnTo ?? '/dashboard')
+    } finally {
+      setPrfBusy(false)
+    }
+  }
   // #426: removing a vault from THIS device. It was designed once (the copy has lived in both
   // dictionaries, unused, including a typed-name confirmation) and never wired, while Settings
   // named the control and left it disabled. Offered only for `src === 'net'`, because that is the
@@ -56,6 +80,8 @@ export default function Vaults() {
       // that quietly did nothing must not close the dialog looking like a success.
       if (!(await forgetVault(row.v.id))) { setRemoveErr(true); return }
       clearUnlockedShare(row.v.id) // the in-memory share goes with the stored one
+      clearReadSecret(row.v.id)
+      clearPrfWrap(row.v.id) // a wrap outliving its vault can only confuse
       if (getSelectedVault() === row.v.id) clearSelectedVault() // do not leave the app pointing at it
       setRows((prev) => prev.filter((r) => r.v.id !== row.v.id))
       setRemoving(null)
@@ -436,6 +462,15 @@ export default function Vaults() {
           <p>{unlocking.src === 'net'
             ? t('vaults.netUnlockPrompt')
             : tr('vaults.unlockPrompt')}</p>
+          {/* The shortcut sits ABOVE the field, because when it works the field is not needed. It is
+              only rendered when this device actually holds a wrap, so it never advertises something
+              the member cannot use. */}
+          {loadPrfWrap(unlocking.v.id) && (
+            <button type="button" className="rm-backup" disabled={prfBusy}
+              onClick={() => void unlockWithPasskey(unlocking)}>
+              {prfBusy ? t('vaults.passkeyBusy') : t('vaults.passkeyUnlock')}
+            </button>
+          )}
           <input
             className="unlock-input mono" type="password" placeholder={unlocking.src === 'net' ? t('vaults.passphrase') : t('vaults.wordPlaceholder')}
             value={pass} onChange={(e) => setPass(e.target.value)}
