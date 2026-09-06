@@ -14,7 +14,7 @@ import { BackgroundSession } from './background-session'
 import { signingRoom, signingRoomFromSecret, acquireSigner, releaseSigner, type GovernanceGate } from './background-signer'
 import type { FailureCode } from './background-session'
 import { registerDeviceKey } from './helper'
-import { deviceCommsKey, devicePubHex } from './device-key'
+import { deviceCommsKey, devicePubHex, deviceWriteKeyHex } from './device-key'
 import { unsealSignRequest } from './net-sign'
 
 const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('')
@@ -120,7 +120,16 @@ export function useBackgroundSigner(
         // request stays the compat fallback until every device registers.
         const deviceKey = deviceCommsKey(b.keyPackage)
         const myPub = devicePubHex(b.keyPackage)
-        void registerDeviceKey(hex(loaded.groupKey), myPub)
+        // #288: the same call now also registers this device's Ed25519 WRITE key with its seat.
+        //
+        // Registering is what turns the vault's write gate ON: from the first registration, every
+        // governance write on that vault must be signed. That is deliberate and it is why it rides
+        // here - on unlock, where the device provably holds its share and can therefore sign from
+        // this moment on. A device that has not unlocked cannot vote anyway.
+        void registerDeviceKey(hex(loaded.groupKey), myPub, {
+          seat: b.seat,
+          pub: deviceWriteKeyHex(b.keyPackage),
+        })
         if (!acquireSigner(id)) {
           setError('another signer is already active for this vault on this device')
           return

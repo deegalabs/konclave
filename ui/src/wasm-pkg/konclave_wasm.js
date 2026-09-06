@@ -680,6 +680,30 @@ export function describeOutputs(pczt) {
 }
 
 /**
+ * This device's Ed25519 write-verifying key for a vault, hex (#288 / ADR-0011 D1).
+ *
+ * Derived from the FROST share under its own HKDF label, so it is reproduced on every unlock
+ * with nothing stored. This PUBLIC half is what the device registers with the helper; the
+ * secret half is derived on demand inside WASM to sign, and is never returned to JS.
+ * @param {Uint8Array} key_package
+ * @returns {string}
+ */
+export function deviceWritePubHex(key_package) {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        const ptr0 = passArray8ToWasm0(key_package, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.deviceWritePubHex(ptr0, len0);
+        deferred2_0 = ret[0];
+        deferred2_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+    }
+}
+
+/**
  * Read the `(action_index, alpha)` randomizers of the real Orchard spends from a proven PCZT.
  * Returns a flat buffer of 36-byte records: u32-LE index then 32-byte alpha.
  * @param {Uint8Array} pczt
@@ -933,6 +957,58 @@ export function signRoomMsg(key_package, msg) {
 }
 
 /**
+ * Sign a governance write with this device's Ed25519 key (#288 / ADR-0011).
+ *
+ * It BUILDS the canonical message itself, from `konclave_seal::write_message` - the same
+ * function the helper recomputes with. The bytes are therefore never assembled in TypeScript,
+ * which is the whole point: a second implementation of the format could drift, and the failure
+ * it produces in the field is "your vote was refused" with nothing pointing at the cause.
+ *
+ * `action` is "approve", "refuse" or "rename"; anything else is rejected here rather than
+ * silently signed as something the helper will not recognise. `target` is the proposal id, or
+ * `old\0new` for a rename.
+ *
+ * Returns the 64-byte signature as hex. The signing key exists only for this call and never
+ * reaches JS.
+ * @param {Uint8Array} key_package
+ * @param {string} vault_id
+ * @param {string} action
+ * @param {string} target
+ * @param {number} seat
+ * @param {number} ts
+ * @param {string} nonce
+ * @returns {string}
+ */
+export function signWrite(key_package, vault_id, action, target, seat, ts, nonce) {
+    let deferred7_0;
+    let deferred7_1;
+    try {
+        const ptr0 = passArray8ToWasm0(key_package, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(vault_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(action, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ptr3 = passStringToWasm0(target, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len3 = WASM_VECTOR_LEN;
+        const ptr4 = passStringToWasm0(nonce, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len4 = WASM_VECTOR_LEN;
+        const ret = wasm.signWrite(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, seat, ts, ptr4, len4);
+        var ptr6 = ret[0];
+        var len6 = ret[1];
+        if (ret[3]) {
+            ptr6 = 0; len6 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred7_0 = ptr6;
+        deferred7_1 = len6;
+        return getStringFromWasm0(ptr6, len6);
+    } finally {
+        wasm.__wbindgen_free(deferred7_0, deferred7_1, 1);
+    }
+}
+
+/**
  * Verify a group signature against the vault's key - so EVERY device confirms the result
  * for itself, not on the coordinator's word. All inputs are public (signing package, seed,
  * message, signature); the share never enters.
@@ -1163,6 +1239,43 @@ function passArray8ToWasm0(arg, malloc) {
     return ptr;
 }
 
+function passStringToWasm0(arg, malloc, realloc) {
+    if (realloc === undefined) {
+        const buf = cachedTextEncoder.encode(arg);
+        const ptr = malloc(buf.length, 1) >>> 0;
+        getUint8ArrayMemory0().subarray(ptr, ptr + buf.length).set(buf);
+        WASM_VECTOR_LEN = buf.length;
+        return ptr;
+    }
+
+    let len = arg.length;
+    let ptr = malloc(len, 1) >>> 0;
+
+    const mem = getUint8ArrayMemory0();
+
+    let offset = 0;
+
+    for (; offset < len; offset++) {
+        const code = arg.charCodeAt(offset);
+        if (code > 0x7F) break;
+        mem[ptr + offset] = code;
+    }
+    if (offset !== len) {
+        if (offset !== 0) {
+            arg = arg.slice(offset);
+        }
+        ptr = realloc(ptr, len, len = offset + arg.length * 3, 1) >>> 0;
+        const view = getUint8ArrayMemory0().subarray(ptr + offset, ptr + len);
+        const ret = cachedTextEncoder.encodeInto(arg, view);
+
+        offset += ret.written;
+        ptr = realloc(ptr, len, offset, 1) >>> 0;
+    }
+
+    WASM_VECTOR_LEN = offset;
+    return ptr;
+}
+
 function takeFromExternrefTable0(idx) {
     const value = wasm.__wbindgen_externrefs.get(idx);
     wasm.__externref_table_dealloc(idx);
@@ -1181,6 +1294,19 @@ function decodeText(ptr, len) {
         numBytesDecoded = len;
     }
     return cachedTextDecoder.decode(getUint8ArrayMemory0().subarray(ptr, ptr + len));
+}
+
+const cachedTextEncoder = new TextEncoder();
+
+if (!('encodeInto' in cachedTextEncoder)) {
+    cachedTextEncoder.encodeInto = function (arg, view) {
+        const buf = cachedTextEncoder.encode(arg);
+        view.set(buf);
+        return {
+            read: arg.length,
+            written: buf.length
+        };
+    };
 }
 
 let WASM_VECTOR_LEN = 0;
