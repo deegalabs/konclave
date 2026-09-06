@@ -89,15 +89,29 @@ Used on 2026-08-29 to retire 21 disposable test vaults without destroying them.
 
 ### D. Ops backup of vault identities (the out-of-band half)
 
-Pull a local copy of every vault's view-only metadata. `registration.json` carries the
-irreplaceable part - the UFVK, and since #434 the wallet **birthday** that a rebuild has to be given.
-The `wallet/` cache itself is skipped: it is rebuildable, but only *with that birthday* (see
-procedure B), which is why the number is kept outside it:
+Pull a local copy of every vault's view-only metadata. Two files per vault, and both are needed:
+
+- **`registration.json`** - the irreplaceable part: the UFVK and the address, minted once with
+  randomness and reproducible nowhere.
+- **`wallet/keys.toml`** - two lines, one of which is the **birthday**. The rest of `wallet/` is a
+  rebuildable cache and is excluded; this file is not, because rebuilding needs the number in it
+  (procedure B) and there is no rescan if you get it wrong.
+
+Since #444/#445 the helper also copies the birthday into `registration.json` on boot, so a vault
+touched by a deploy after that carries it in both places. **Take `keys.toml` anyway**: the copy in
+`registration.json` only exists for vaults the running helper has seen since that deploy, and a
+backup should not depend on knowing which those are.
 
 ```
-railway ssh 'cd /data/vaults && tar czf - --exclude=*/wallet . | base64 -w0' \
+railway ssh 'cd /data/vaults && tar czf - --exclude=*/wallet/[!k]* . | base64 -w0' \
   | grep -E '^[A-Za-z0-9+/=]+$' | base64 -d | tar xzf - -C <local-backup-dir>
 ```
+
+**Verified 2026-09-06** by taking exactly this backup of the live volume: 8 vaults, every one with
+its UFVK, address, quorum, network and birthday. Worth recording what the run showed, because the
+table is the point of the exercise: the birthdays range from 3,453,936 to 3,467,365, so a rebuild
+that guessed "recent" would have buried months of history on the older vaults - and one vault
+(`13136015…`) is on **testnet**, with a birthday from a different chain entirely.
 
 Store the result off the server. With this plus each member's share export, any vault is fully
 recoverable.
