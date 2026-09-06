@@ -12,6 +12,7 @@
 import { getUnlockedShare } from './session'
 import { deriveReadKey } from './vault-secret'
 import { bytesToHex } from './bytes'
+import type { WriteProof } from './device-key'
 
 const ENV = import.meta.env as Record<string, string | undefined>
 
@@ -205,10 +206,15 @@ export async function createProposal(args: {
 export async function registerDeviceKey(
   groupKeyHex: string,
   devicePubHex: string,
+  write?: { seat: number; pub: string },
 ): Promise<boolean | null> {
   const r = await postJson<{ ok: boolean; added: boolean }>('/api/vault/devicekey', {
     group_key: groupKeyHex,
     device_pub: devicePubHex,
+    // #288: the seat and its Ed25519 write key travel together or not at all. Sending them turns
+    // the vault's write gate ON - from then on every governance write must be signed - so this is
+    // only ever sent by a device that can actually sign, i.e. one holding the share.
+    ...(write ? { seat: write.seat, write_pub: write.pub } : {}),
   })
   return r ? r.added : null
 }
@@ -307,9 +313,17 @@ export async function voteProposal(
   proposalId: string,
   member: string,
   approve: boolean,
+  proof?: WriteProof,
 ): Promise<Proposal | null> {
   const action = approve ? 'approve' : 'refuse'
-  return postJson<Proposal>(`/api/vault/proposals/${q(proposalId)}/${action}`, { vault: groupKeyHex, member })
+  // #288: `proof` is present when this device holds its share unlocked, and the helper requires it
+  // once ANY device on the vault has registered a write key. Sent unconditionally when available so
+  // a vault migrates without a flag day: the helper ignores it while the vault is still open.
+  return postJson<Proposal>(`/api/vault/proposals/${q(proposalId)}/${action}`, {
+    vault: groupKeyHex,
+    member,
+    ...(proof ?? {}),
+  })
 }
 
 /** Fetch a registered vault's public view (address + id), or `null`. */

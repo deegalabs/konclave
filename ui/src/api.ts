@@ -26,6 +26,8 @@ import { fmtZecExact, zatToZec, parseZecToZat } from './format'
 import type { FailureCode } from './background-session'
 import { listVaults, updateVaultMeta } from './storage'
 import { getUnlockedShare, setUnlockedShare } from './session'
+import { signGovernanceWrite, type WriteProof } from './device-key'
+import { decodeBundle } from './signing'
 
 export type Member = { name: string; pubkey: string }
 
@@ -739,7 +741,22 @@ export async function voteProposal(
   if (NET) {
     const vid = getSelectedVault()
     if (!vid) return { ok: false, error: 'no vault' }
-    const p = await netVote(vid, id, member, approve)
+    // #288: sign the vote when this device holds its share unlocked. Absent (locked, or a vault
+    // whose share is not on this device) the vote goes unsigned, which the helper still accepts
+    // while the vault has no registered write key. So a member is never blocked by this arriving;
+    // they are blocked only if their vault HAS migrated and their device has not unlocked.
+    let proof: WriteProof | undefined
+    const share = getUnlockedShare(vid)
+    if (share) {
+      try {
+        const b = decodeBundle(share)
+        proof = signGovernanceWrite(b.keyPackage, vid, approve ? 'approve' : 'refuse', id, b.seat)
+      } catch {
+        // Signing must never take away the ability to vote: fall through unsigned and let the
+        // helper decide. A migrated vault answers 401 with a reason; an open one accepts.
+      }
+    }
+    const p = await netVote(vid, id, member, approve, proof)
     return p ? { ok: true, proposal: mapNetProposal(p) } : { ok: false, error: 'vote rejected' }
   }
   try {
