@@ -179,25 +179,14 @@ pub fn seal_request_wire(req: &SignRequest, device_pubs: &[String]) -> Result<St
         return serde_json::to_string(req).map_err(|e| format!("encode request: {e}"));
     }
     let plaintext = serde_json::to_string(req).map_err(|e| format!("encode request: {e}"))?;
-    // Encrypt the (PCZT-sized) body ONCE under a random key; seal only that key per device, so the
-    // wire stays ~one body regardless of the signer count (the fix for the 128 KiB relay cap, #63).
-    let key = konclave_seal::random_key();
-    let body = hexenc(&konclave_seal::seal_body(&key, plaintext.as_bytes()));
-    let mut boxes = std::collections::BTreeMap::new();
-    for ph in device_pubs {
-        let pk: [u8; 32] = hexdec(ph, "device pubkey")?
-            .try_into()
-            .map_err(|_| "device pubkey must be 32 bytes".to_string())?;
-        // AAD = the recipient pubkey, so a box cannot be replayed into a different device's slot.
-        let sealed_key = konclave_seal::seal(&pk, &key, &pk).map_err(|e| format!("seal: {e}"))?;
-        boxes.insert(ph.clone(), hexenc(&sealed_key));
-    }
-    serde_json::to_string(&SealedRequest {
-        kind: SEALED_REQUEST_KIND.to_string(),
-        body,
-        boxes,
-    })
-    .map_err(|e| format!("encode sealed request: {e}"))
+    // The hybrid envelope now lives in `orchestrator::envelope`, because sealing the viewing key
+    // (#481) needs the identical shape and two copies of a wire format is the worst kind to have:
+    // both ends must agree byte for byte, and a drift surfaces as "wrong key or tampering" with no
+    // way to tell which end is wrong.
+    let env =
+        crate::envelope::seal_to_devices(SEALED_REQUEST_KIND, plaintext.as_bytes(), device_pubs)?
+            .ok_or_else(|| "no devices to seal to".to_string())?;
+    serde_json::to_string(&env).map_err(|e| format!("encode sealed request: {e}"))
 }
 
 /// Publish a signing request into the relay room, sealed to `device_pubs` (or plaintext if none).

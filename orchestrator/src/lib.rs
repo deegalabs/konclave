@@ -39,6 +39,7 @@ pub mod wallet;
 pub mod server;
 
 // --- the blind mailbox: the konclave.xyz network transport (Milestone 1) ---
+pub mod envelope;
 pub mod relay;
 
 // --- inheritance / dead-man's-switch policy engine ---
