@@ -8,7 +8,7 @@ relay. It never receives, derives, or stores a share.
 
 It runs on **Zcash mainnet** (`KONCLAVE_NETWORK=main`, lightwalletd `zec.rocks:443`) on Railway
 alongside the blind relay (`konclave-relay` project, `konclave-helper` service), the same way the
-relay does. It currently serves ~23 live vaults.
+relay does. It currently serves 8 live vaults (re-counted 2026-09-06 from the boot log; the "~23" here was stale by a census).
 
 ## The image (`Dockerfile`)
 

@@ -330,6 +330,7 @@ export const en: Record<string, string> = {
   'rotate.finish': 'Finish',
   'export.open': 'Export…',
   'export.currentLabel': 'This vault\u2019s passphrase',
+  'export.howToOpen': 'How to open this file without Konclave \u2192',
   // #470: rotating the passphrase that seals this device's share. The copy carries the two things
   // the mechanics cannot say: it is per DEVICE, and nothing here helps a forgotten passphrase.
   'rotate.btn': 'Change passphrase',

@@ -330,6 +330,7 @@ export const ptBR: Record<string, string> = {
   'rotate.finish': 'Concluir',
   'export.open': 'Exportar…',
   'export.currentLabel': 'Frase-senha deste cofre',
+  'export.howToOpen': 'Como abrir este arquivo sem o Konclave \u2192',
   // #470: trocar a frase-senha que sela o pedaço da chave DESTE aparelho. A cópia diz as duas
   // coisas que a mecânica não diz: vale por APARELHO, e nada aqui salva uma frase esquecida.
   'rotate.btn': 'Trocar a frase-senha',

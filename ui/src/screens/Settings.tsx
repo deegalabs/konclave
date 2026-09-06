@@ -3,7 +3,7 @@ import { Skeleton } from '../skeleton'
 import { Dialog, PassphraseField, Secret } from '../components'
 import CopyButton from '../CopyButton'
 import { changePassphrase } from '../storage'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { Seal, Loading, LangToggle } from '../components'
 import { VersionBadge } from '../UpdatePrompt'
 import { PageHeader, PageFooter } from '../page'
@@ -560,6 +560,14 @@ export default function Settings() {
           <div className="rd-eyebrow">{t('vaults.protectedVault')}</div>
           <h2 id="xp-title">{t('export.title')}</h2>
           <p>{t('export.help')}</p>
+          {/* The moment a member is most likely to act on it: they have just made the file and are
+              deciding where to put it. The docs page tells them to save the instructions WITH it,
+              which is the part nobody does later (#486). */}
+          <p className="set-hint" style={{ margin: '0 0 12px' }}>
+            <Link to="/docs/recovery" onClick={() => { setXpOpen(false); setXpPass(''); setXpErr(null) }}>
+              {t('export.howToOpen')}
+            </Link>
+          </p>
           {xpErr && <div className="unlock-err" role="alert">{xpErr}</div>}
           <label className="field">
             <span>{t('export.currentLabel')}</span>
