@@ -9,6 +9,11 @@ description = "Konclave's hosted BLIND helper (ADR-0006, Rung A): registers vaul
 name = "helper-server"
 path = "src/main.rs"
 
+[dev-dependencies]
+# The vote-signing test reproduces the DEVICE side exactly.
+konclave-seal = { path = "../konclave-seal" }
+ed25519-dalek = "2"
+
 [dependencies]
 orchestrator = { path = "../orchestrator" }
 tiny_http = "0.12"

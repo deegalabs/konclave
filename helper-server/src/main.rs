@@ -34,13 +34,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use orchestrator::helper::{
-    add_device_key, append_ceremony, claim_members, is_valid_group_key, ledger_csv, list_proposals,
+    append_ceremony, claim_members, is_valid_group_key, ledger_csv, list_proposals,
     load_ceremonies, load_device_keys, load_members, load_proposal, payment_plan, read_authorized,
     register_vault, rename_member, save_proposal, send_config_for, set_read_key, vault_balance,
     vault_transactions, CeremonyRecord, HelperConfig, HelperProposal, HelperState, PayrollLine,
     RosterWrite, VaultRegistration,
 };
 use orchestrator::send::{funding_check, net_orchestrate_send, Funding, PayrollDest, SpendPlan};
+use orchestrator::write_auth::{authorize_write, SignedWrite, WriteAction, WriteAuth};
 use serde::Deserialize;
 use serde_json::json;
 use tiny_http::{Header, Method, Response, Server};
@@ -239,6 +240,13 @@ fn handle_with_token(
             struct Req {
                 group_key: String,
                 device_pub: String,
+                /// The FROST seat this device holds, and the Ed25519 key it signs governance
+                /// writes with (#288 / ADR-0011 D4). Both or neither - a seat with no key, or a
+                /// key with no seat, is not a registration, it is a half-written record.
+                #[serde(default)]
+                seat: Option<u16>,
+                #[serde(default)]
+                write_pub: Option<String>,
             }
             let req: Req = match serde_json::from_slice(body) {
                 Ok(r) => r,
@@ -258,12 +266,50 @@ fn handle_with_token(
                     json!({ "error": "device_pub must be 64 hex chars" }).to_string(),
                 );
             }
+            // The write key is optional (a device on an older build registers comms only), but the
+            // seat and the key travel together or not at all.
+            let write =
+                match (req.seat, req.write_pub.as_deref().map(str::trim)) {
+                    (None, None) => None,
+                    (Some(seat), Some(wp)) if seat > 0 => {
+                        if wp.len() != 64 || !wp.bytes().all(|b| b.is_ascii_hexdigit()) {
+                            return resp(
+                                400,
+                                json!({ "error": "write_pub must be 64 hex chars" }).to_string(),
+                            );
+                        }
+                        Some((seat, wp))
+                    }
+                    _ => return resp(
+                        400,
+                        json!({ "error": "seat and write_pub must be sent together, seat >= 1" })
+                            .to_string(),
+                    ),
+                };
             match state.get(&req.group_key) {
                 None => resp(404, json!({ "error": "no such vault" }).to_string()),
-                Some(reg) => match add_device_key(&cfg.vaults_dir, &reg.vault_id, dp) {
-                    Ok(added) => resp(200, json!({ "ok": true, "added": added }).to_string()),
-                    Err(e) => resp(500, json!({ "error": e.to_string() }).to_string()),
-                },
+                Some(reg) => {
+                    match orchestrator::helper::upsert_device(
+                        &cfg.vaults_dir,
+                        &reg.vault_id,
+                        dp,
+                        write,
+                    ) {
+                        Ok(added) => resp(200, json!({ "ok": true, "added": added }).to_string()),
+                        // A seat already held by ANOTHER device is a 409, not a 500: it is a
+                        // conflict with the world, not a failure of ours, and the caller can tell
+                        // the difference (#288 - never silently move a seat).
+                        Err(e) => {
+                            let msg = e.to_string();
+                            let code = if msg.contains("already claimed") {
+                                409
+                            } else {
+                                500
+                            };
+                            resp(code, json!({ "error": msg }).to_string())
+                        }
+                    }
+                }
             }
         }
         // Register the vault's read token (#388): readKey = HKDF(S, "read"), 32 bytes = 64 hex. Set
@@ -997,6 +1043,16 @@ fn handle_vote(state: &HelperState, cfg: &HelperConfig, path: &str, body: &[u8])
     struct Req {
         vault: String,
         member: String,
+        /// The signed-write envelope (#288 / ADR-0011 D2). Absent on a device that has not
+        /// registered a write key - which a vault with no registered keys still accepts.
+        #[serde(default)]
+        seat: Option<u16>,
+        #[serde(default)]
+        ts: Option<i64>,
+        #[serde(default)]
+        nonce: Option<String>,
+        #[serde(default)]
+        sig: Option<String>,
     }
     let req: Req = match serde_json::from_slice(body) {
         Ok(r) => r,
@@ -1020,6 +1076,53 @@ fn handle_vote(state: &HelperState, cfg: &HelperConfig, path: &str, body: &[u8])
             json!({ "error": "not a member of this vault" }).to_string(),
         );
     }
+
+    // #288: once ANY device on this vault has registered a write key, a vote must be signed by the
+    // device that holds the seat. Until then the vault stays open (ADR-0011 D5), because every live
+    // vault is in that state and requiring proof today would freeze all of them.
+    //
+    // The rule itself lives in `orchestrator::write_auth`, shared with the local bridge, so the two
+    // backends cannot answer differently for the same action (ADR-0011 D6).
+    let write_keys = orchestrator::helper::load_write_keys(&cfg.vaults_dir, &req.vault);
+    if !write_keys.is_empty() {
+        let action = if approve {
+            WriteAction::Approve
+        } else {
+            WriteAction::Refuse
+        };
+        let (Some(seat), Some(ts), Some(nonce), Some(sig)) =
+            (req.seat, req.ts, req.nonce.clone(), req.sig.clone())
+        else {
+            return resp(
+                401,
+                json!({ "error": "this vault requires a signed vote" }).to_string(),
+            );
+        };
+        let w = SignedWrite {
+            seat,
+            ts,
+            nonce,
+            sig,
+        };
+        // Replay: a nonce is single-use per vault. `seen_write_nonce` is the persisted set.
+        let seen = |n: &str| orchestrator::helper::write_nonce_seen(&cfg.vaults_dir, &req.vault, n);
+        match authorize_write(&write_keys, &req.vault, action, id, &w, seen) {
+            WriteAuth::Authorized { seat } => {
+                // Burn the nonce BEFORE applying the vote: a crash between the two must not leave a
+                // replayable signature, and re-recording a vote is harmless (it dedups) while
+                // replaying one is not.
+                let _ =
+                    orchestrator::helper::burn_write_nonce(&cfg.vaults_dir, &req.vault, &w.nonce);
+                let _ = seat;
+            }
+            WriteAuth::Open => {} // unreachable: keys were non-empty
+            WriteAuth::Refused(why) => {
+                eprintln!("vault {}: refused a write ({why:?})", req.vault);
+                return resp(401, json!({ "error": "signature required" }).to_string());
+            }
+        }
+    }
+
     let now = now_unix();
     let mut p = match load_proposal(&cfg.vaults_dir, &req.vault, id, now) {
         Some(p) => p,
@@ -1271,6 +1374,120 @@ mod tests {
     /// vaults keep working, and that is a bearer-by-id read - acceptable for a balance, not for the
     /// key that decrypts every payslip the vault ever sent. A legacy vault must protect itself
     /// (#406) before it can hand out its own viewing key.
+    /// #288: once a device has registered a write key, a vote must be SIGNED by the device that
+    /// holds that seat. Before this, the roster check stopped a fabricated NAME and nothing stopped
+    /// a real name presented by anyone.
+    ///
+    /// The migration half matters as much: a vault where nobody has registered keeps accepting
+    /// unsigned votes, because all 8 live vaults are in that state and requiring proof today would
+    /// freeze every one of them.
+    #[test]
+    fn a_vote_must_be_signed_once_the_vault_has_write_keys() {
+        use konclave_seal::{write_key_seed_from_share, write_message, WriteAction};
+        let st = HelperState::new();
+        seed(&st, "votegate");
+        let c = cfg();
+        let dir = &c.vaults_dir;
+        // `cfg()` points every test at the SAME fixed /tmp path, so state survives between runs and
+        // between tests. This one asserts a BEFORE state (no write keys), so it has to start from a
+        // clean vault or a previous run's registration makes it fail on its first line.
+        let _ = std::fs::remove_dir_all(dir.join("votegate"));
+
+        // The vault has a roster and an open proposal.
+        let _ =
+            orchestrator::helper::claim_members(dir, "votegate", &["alice".into(), "bob".into()]);
+        let now = now_unix();
+        let mut p = HelperProposal {
+            id: "p1".into(),
+            vault_id: "votegate".into(),
+            kind: "payment".into(),
+            to: "u1dest".into(),
+            amount_zat: 1000,
+            memo: None,
+            lines: vec![],
+            proposer: "alice".into(),
+            state: "pending".into(),
+            approvals: vec![],
+            refusals: vec![],
+            threshold: 2,
+            total: 2,
+            created_at_unix: now,
+            expiry_unix: now + 86_400,
+            txid: None,
+        };
+        p.recompute(now);
+        orchestrator::helper::save_proposal(dir, &p).unwrap();
+
+        let unsigned = |member: &str| {
+            handle(
+                &st,
+                &c,
+                &Method::Post,
+                "/api/vault/proposals/p1/approve",
+                format!(r#"{{"vault":"votegate","member":"{member}"}}"#).as_bytes(),
+            )
+        };
+
+        // MIGRATION: nobody registered -> the unsigned vote still works.
+        assert_eq!(
+            unsigned("alice").status,
+            200,
+            "an unmigrated vault keeps voting"
+        );
+
+        // Alice registers her write key for seat 1.
+        let share = b"alice's key package";
+        let sk = ed25519_dalek::SigningKey::from_bytes(&write_key_seed_from_share(share));
+        let pubhex: String = sk
+            .verifying_key()
+            .as_bytes()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        orchestrator::helper::upsert_device(dir, "votegate", "aa", Some((1, &pubhex))).unwrap();
+
+        // Now an UNSIGNED vote is refused - which is the whole point.
+        assert_eq!(
+            unsigned("alice").status,
+            401,
+            "a migrated vault refuses an unsigned vote"
+        );
+
+        // And a properly signed one is accepted.
+        let ts = 1_700_000_000_000i64;
+        let msg = write_message("votegate", WriteAction::Approve, "p1", 1, ts, "n1");
+        let sig: String = {
+            use ed25519_dalek::Signer;
+            sk.sign(&msg)
+                .to_bytes()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect()
+        };
+        let body = format!(
+            r#"{{"vault":"votegate","member":"alice","seat":1,"ts":{ts},"nonce":"n1","sig":"{sig}"}}"#
+        );
+        let ok = handle(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault/proposals/p1/approve",
+            body.as_bytes(),
+        );
+        assert_eq!(ok.status, 200, "a signed vote passes: {}", ok.body);
+
+        // And the SAME signed vote sent twice is refused: the nonce is burned. Without this a
+        // captured approve is an approve for every time it is replayed.
+        let again = handle(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault/proposals/p1/approve",
+            body.as_bytes(),
+        );
+        assert_eq!(again.status, 401, "a replayed signed vote is refused");
+    }
+
     #[test]
     fn the_ufvk_is_served_only_to_a_member_who_proves_the_read_key() {
         let st = HelperState::new();
