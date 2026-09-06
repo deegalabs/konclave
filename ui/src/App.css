@@ -626,6 +626,10 @@
 .center{justify-content:center}
 .mt{margin-top:16px}
 .mt-sm{margin-top:10px}
+/* The bottom half of the pair. `.mb-sm` was in use in two places and defined in none, so the
+   space it asked for silently never appeared - the failure mode that `css-classes-exist.test.ts`
+   now catches. Matched to `.mt-sm` so the scale stays one scale. */
+.mb-sm{margin-bottom:10px}
 .mt-xs{margin-top:8px}
 .ink{color:var(--text)}
 .pine{color:var(--success)}
