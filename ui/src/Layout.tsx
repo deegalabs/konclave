@@ -10,6 +10,18 @@ import { listVaults } from './storage'
 import { VaultSignerProvider } from './VaultSigner'
 import { LoadingProvider, TopProgress } from './loading'
 import SigningPanel from './screens/SigningPanel'
+import LockOverlay from './LockOverlay'
+import type { VaultSrc } from './unlock'
+
+/** What the in-vault screens get from `Layout` (#467).
+ *
+ *  `locked` exists so a screen does not fetch behind the unlock overlay: every private read would
+ *  401, and a 401 collapses to `null`, which renders identically to an empty vault. `unlockNonce`
+ *  is what tells it to load once the door opens. */
+export interface VaultLockContext {
+  locked: boolean
+  unlockNonce: number
+}
 
 // The money + governance spine shown directly in the mobile bottom bar; everything else folds into
 // "More". (On mobile the rail is a flat tab bar, so the desktop bands collapse away.)
@@ -28,6 +40,11 @@ export default function Layout() {
   // The vault-switch popover on the footer chip (names the current vault; lists the others).
   const [switchOpen, setSwitchOpen] = useState(false)
   const [vaults, setVaults] = useState<{ id: string; name: string }[]>([])
+  // #467: the vault is locked and the member stays where they are. `null` = open.
+  const [locked, setLocked] = useState<{ id: string; name: string; src: VaultSrc } | null>(null)
+  // Bumped on unlock so the screen underneath refetches. It counts rather than flags because two
+  // unlocks in one session must both be seen, and a boolean that is already `true` says nothing.
+  const [unlockNonce, setUnlockNonce] = useState(0)
 
   // Close the mobile "More" sheet and the vault-switch popover on any route change.
   useEffect(() => { setMoreOpen(false); setSwitchOpen(false) }, [loc.pathname])
@@ -61,19 +78,21 @@ export default function Layout() {
       if (!on || !ok) return
       const v = await getVault()
       if (!on) return
-      // Back to the unlock/picker when this device cannot read the vault yet. `needsUnlock` is
-      // the shared rule (#439): asking only the BRIDGE's `locked` here let a member walk into a
-      // #388-protected vault holding no S, where every private read 401s into a blank screen.
+      // This device cannot read the vault yet. `needsUnlock` is the shared rule (#439): asking only
+      // the BRIDGE's `locked` here let a member walk into a #388-protected vault holding no S,
+      // where every private read 401s into a blank screen.
       if (v && needsUnlock({
         bridgeLocked: v.locked,
         unlockedThisSession: isVaultUnlocked(v.id),
         securedLocally: await securedLocally(v.id),
         hasAccessSecret: !!readSecretFor(v.id),
       })) {
-        // Carry where we were, so unlocking returns you there instead of the dashboard (#446 D).
-        // Router state, not storage: it must live exactly as long as this bounce, and a reload is
-        // what sent you here in the first place.
-        nav('/vaults', { state: { from: loc.pathname } })
+        // Lock in place instead of routing away (#467). #446 D returned the member where they
+        // were, but the round trip still happened - the vault they were inside disappeared, they
+        // picked it out of a list again, and only then got the field. A reload shuts the door; it
+        // does not move them to another room. `src` is 'net' unless the bridge owns the lock.
+        setLocked({ id: v.id, name: v.name || t('settings.vault'), src: v.locked ? 'local' : 'net' })
+        setVault(v) // the rail still names the vault behind the overlay
         return
       }
       if (v) setVault(v)
@@ -264,9 +283,23 @@ export default function Layout() {
       </aside>
 
       <div className="railcontent">
-        <Outlet />
+        {/* The screens read `locked` so they do not fetch behind the overlay - every read would
+            401 - and `unlockNonce` so they refetch the moment it opens. Outlet context rather than
+            a new provider: this is one value going one level down. */}
+        <Outlet context={{ locked: !!locked, unlockNonce } satisfies VaultLockContext} />
       </div>
     </div>
+    {locked && (
+      <LockOverlay
+        vaultId={locked.id}
+        vaultName={locked.name}
+        src={locked.src}
+        onUnlocked={() => { setLocked(null); setUnlockNonce((n) => n + 1) }}
+        // Leaving is the only honest alternative: staying would show a screen whose every private
+        // read is refused, which is the blank-screen defect #439 exists to prevent.
+        onCancel={() => { setLocked(null); nav('/vaults') }}
+      />
+    )}
     <SigningPanel />
     </VaultSignerProvider>
     </LoadingProvider>

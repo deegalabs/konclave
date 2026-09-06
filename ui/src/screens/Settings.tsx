@@ -4,6 +4,9 @@ import { Seal, Loading, LangToggle } from '../components'
 import { VersionBadge } from '../UpdatePrompt'
 import { PageHeader, PageFooter } from '../page'
 import { useT, useTr } from '../i18n'
+import { loadPrfWrap, savePrfWrap, clearPrfWrap } from '../prf-store'
+import { enrolPrf } from '../prf-wrap'
+import { readSecretFor } from '../session'
 import { getVault, getSelectedVault, clearSelectedVault, health, shortAddr, deleteVault, IS_NET, type Vault } from '../api'
 import { listVaults, exportVault, forgetVault, type Governance } from '../storage'
 import { clearUnlockedShare } from '../session'
@@ -92,6 +95,43 @@ export default function Settings() {
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     } catch { /* clipboard blocked - the code is visible to read aloud anyway */ }
+  }
+
+  // #468: the passkey shortcut, enrolled from here. `S` only - signing still asks for the
+  // passphrase, which is the separation the whole thing exists for.
+  const vaultId = getSelectedVault()
+  const [hasPasskey, setHasPasskey] = useState(false)
+  const [pkBusy, setPkBusy] = useState(false)
+  const [pkErr, setPkErr] = useState<string | null>(null)
+  useEffect(() => { setHasPasskey(!!(vaultId && loadPrfWrap(vaultId))) }, [vaultId])
+  // Offered only when this device can actually do it: a vault selected, `S` in the session, and a
+  // browser with WebAuthn. Advertising a control that cannot work is worse than not offering it.
+  const canEnrol = !!vaultId && !!readSecretFor(vaultId) && typeof navigator !== 'undefined' && !!navigator.credentials
+
+  async function addPasskey() {
+    if (!vaultId) return
+    const s = readSecretFor(vaultId)
+    if (!s) { setPkErr(t('settings.passkeyNeedUnlock')); return }
+    setPkBusy(true); setPkErr(null)
+    try {
+      const label = vault?.name || t('settings.vault')
+      const wrap = await enrolPrf(navigator.credentials, vaultId, s, location.hostname, label)
+      // `enrolPrf` returns null on ANY failure, cancellation included. Nothing is stored, and the
+      // passphrase is untouched - a shortcut that fails must cost nothing.
+      if (!wrap) { setPkErr(t('settings.passkeyFail')); return }
+      savePrfWrap(vaultId, wrap)
+      setHasPasskey(true)
+    } finally {
+      setPkBusy(false)
+    }
+  }
+
+  /** Forget the wrap on THIS device. The vault is untouched: the passphrase still opens it. */
+  function dropPasskey() {
+    if (!vaultId) return
+    clearPrfWrap(vaultId)
+    setHasPasskey(false)
+    setPkErr(null)
   }
 
   async function runExport(): Promise<{ json: string; name: string } | null> {
@@ -249,12 +289,33 @@ export default function Settings() {
             <span className="set-v">{gov === 'quorum' ? t('settings.govQuorum') : t('settings.govOpen')}</span>
           </div>
         )}
+        {/* #468: this row used to render a FIXED string - "passphrase on this device" - regardless
+            of what the device actually held, so it was a label pretending to be state. It is also
+            the only sensible home for turning the passkey shortcut ON: enrolment needs `S`, which
+            exists only once the vault is unlocked, so it cannot be offered at the lock screen
+            before the first passphrase. Turn it on here once; the lock screen offers it from then
+            on. Per device, because the spec guarantees nothing about PRF output surviving a
+            passkey sync. */}
         <div className="set-row">
           <span className="set-k">{t('settings.unlock')}</span>
-          <span className="set-v">{t('settings.unlockValue')}</span>
+          <span className="set-v" style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            {hasPasskey ? t('settings.unlockBoth') : t('settings.unlockValue')}
+            {hasPasskey ? (
+              <button type="button" className="btn ghost" onClick={dropPasskey}>{t('settings.passkeyOff')}</button>
+            ) : canEnrol ? (
+              <button type="button" className="btn ok" disabled={pkBusy} onClick={() => void addPasskey()}>
+                {pkBusy ? t('settings.passkeyBusy') : t('settings.passkeyOn')}
+              </button>
+            ) : null}
+          </span>
         </div>
+        {pkErr && <div className="unlock-err" role="alert">{pkErr}</div>}
       </div>
       {gov && <p className="set-hint">{t('settings.govNote')}</p>}
+      {/* `settings.passkeyWhy` has existed in both dictionaries since the flow was designed and
+          dropped. It says the thing that matters - the passphrase always works, and sending money
+          still asks for it - so it is used rather than rewritten. */}
+      {canEnrol || hasPasskey ? <p className="set-hint">{t('settings.passkeyWhy')}</p> : null}
 
       {fp && (
         <div className="fp-card mt" role="note" aria-label={t('members.fpTitle')}>

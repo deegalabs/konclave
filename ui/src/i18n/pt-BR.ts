@@ -292,6 +292,12 @@ export const ptBR: Record<string, string> = {
   'gov.nudgeBeneficiaries': 'Cofre sob quórum: mudar beneficiários é uma decisão do grupo. Combinem com os membros antes de salvar.',
   'settings.unlock': 'Desbloqueio',
   'settings.unlockValue': 'senha neste aparelho',
+  // #468: só as chaves que a cópia de passkey ainda não tinha. O resto
+  // (`settings.passkeyOn/Off/Why/Fail`) foi escrito há tempos para um fluxo que nunca foi ligado -
+  // o mesmo padrão de cópia órfã do #426.
+  'settings.unlockBoth': 'senha + este aparelho',
+  'settings.passkeyBusy': 'Aguardando este aparelho\u2026',
+  'settings.passkeyNeedUnlock': 'Destrave o cofre primeiro, depois ligue isto.',
   'vaults.passkeyUnlock': 'Destravar com este aparelho',
   'vaults.passkeyBusy': 'Aguardando este aparelho\u2026',
   'settings.passkeyTitle': 'Destravar com este aparelho',
@@ -345,6 +351,11 @@ export const ptBR: Record<string, string> = {
   'proposal.ceremonyNote': 'Você assina lá, no seu aparelho, com o seu pedaço da chave. Quando o quórum assina, a proposta volta como Enviada.',
   'vaults.networkedVault': 'Cofre compartilhado',
   'vaults.networkedTag': 'Compartilhado',
+  // #467: o destravamento no lugar. Um F5 tranca a porta, não muda de sala - então a cópia diz que
+  // o cofre está trancado, nunca que a pessoa precisa ir a outro lugar ou recomeçar.
+  'lock.prompt': 'Este cofre está trancado. Digite a sua frase-senha deste aparelho para continuar de onde parou.',
+  'lock.unlock': 'Destravar',
+  'lock.leave': 'Sair do cofre',
   'vaults.netUnlockPrompt': 'Digite a sua frase-senha deste aparelho para abrir o seu pedaço da chave. A chave é decifrada só na memória.',
   'vaults.passphrase': 'Frase-senha',
   'members.nameThem': 'Nomeie os membros',

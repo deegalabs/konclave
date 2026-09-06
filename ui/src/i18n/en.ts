@@ -292,6 +292,12 @@ export const en: Record<string, string> = {
   'gov.nudgeBeneficiaries': 'Quorum-gated vault: changing beneficiaries is a group decision. Agree with the members before saving.',
   'settings.unlock': 'Unlock',
   'settings.unlockValue': 'passphrase on this device',
+  // #468: only the keys the existing passkey copy did not already have. The rest of it
+  // (`settings.passkeyOn/Off/Why/Fail`) was written long ago for a flow that was never wired - the
+  // same orphaned-copy pattern as #426.
+  'settings.unlockBoth': 'passphrase + this device',
+  'settings.passkeyBusy': 'Waiting for this device\u2026',
+  'settings.passkeyNeedUnlock': 'Unlock the vault first, then turn this on.',
   'vaults.passkeyUnlock': 'Unlock with this device',
   'vaults.passkeyBusy': 'Waiting for this device…',
   'settings.passkeyTitle': 'Unlock with this device',
@@ -345,6 +351,11 @@ export const en: Record<string, string> = {
   'proposal.ceremonyNote': 'You sign there, on your device, with your own share of the key. Once the quorum signs, the proposal returns as Sent.',
   'vaults.networkedVault': 'Shared vault',
   'vaults.networkedTag': 'Shared',
+  // #467: the in-place unlock. A reload locks the door, not the room - so the copy says the vault
+  // is locked, never that the member must go somewhere or start again.
+  'lock.prompt': 'This vault is locked. Type your passphrase for this device to carry on where you were.',
+  'lock.unlock': 'Unlock',
+  'lock.leave': 'Leave the vault',
   'vaults.netUnlockPrompt': 'Type your passphrase for this device to open your share of the key. The key is decrypted only in memory.',
   'vaults.passphrase': 'Passphrase',
   'members.nameThem': 'Name the members',
