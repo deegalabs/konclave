@@ -171,7 +171,11 @@
 
 /* Unlock protected vault (vault word) - overlay, so shadow is allowed here */
 .unlock-overlay {
-  position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 24px;
+  /* Above the rail (z-index 60) and the signing panel. It was 20, which was invisible while these
+     dialogs only ever rendered on standalone screens that have no rail - the vault picker. #467
+     puts one INSIDE the app shell, where a member could reach the nav behind a lock they had not
+     answered. A modal below the navigation is wrong everywhere; this is not a #467-only value. */
+  position: fixed; inset: 0; z-index: 90; display: grid; place-items: center; padding: 24px;
   background: rgba(8, 11, 15, 0.66); backdrop-filter: blur(4px);
 }
 .unlock-card {

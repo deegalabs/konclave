@@ -44,11 +44,30 @@ async function seed(page: import('@playwright/test').Page, opts: { secured: bool
 }
 
 test('a protected vault with no unlocked share does not open its dashboard', async ({ page }) => {
-  // The regression. Before the fix the app sat here on a blank dashboard while the console filled
-  // with 401s, and the only way out was guessing that the passphrase was the answer.
+  // The regression. Before #439 the app sat here on a blank dashboard while the console filled with
+  // 401s, and the only way out was guessing that the passphrase was the answer.
+  //
+  // It used to assert a bounce to /vaults. Since #467 the guard does not navigate at all: the vault
+  // is locked WHERE the member is, so the assertion is the overlay plus an unchanged URL. Both
+  // halves matter - an overlay that appeared after a redirect would satisfy the first alone, and a
+  // dashboard that simply failed to load would satisfy the second.
   await seed(page, { secured: true })
   await page.goto('/#/dashboard')
-  await expect(page).toHaveURL(/#\/vaults/, { timeout: 10_000 })
+  await expect(page.locator('.unlock-overlay input[type="password"]')).toBeVisible({ timeout: 10_000 })
+  await expect(page).toHaveURL(/#\/dashboard/)
+})
+
+test('the lock cannot be dismissed by accident', async ({ page }) => {
+  // Escape and a backdrop click close every other Dialog. Here they would throw the member out of
+  // the vault, and there is nothing usable behind the overlay to dismiss TO - every read is 401.
+  await seed(page, { secured: true })
+  await page.goto('/#/dashboard')
+  const field = page.locator('.unlock-overlay input[type="password"]')
+  await expect(field).toBeVisible({ timeout: 10_000 })
+  await page.keyboard.press('Escape')
+  await page.locator('.unlock-overlay').click({ position: { x: 5, y: 5 } })
+  await expect(field).toBeVisible()
+  await expect(page).toHaveURL(/#\/dashboard/)
 })
 
 test('an OPEN vault still opens: its reads never needed a token', async ({ page }) => {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, useLocation, Link } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { getVaults, health, setSelectedVault, getSelectedVault, clearSelectedVault, markVaultUnlocked, isVaultUnlocked, shortAddr, type Vault } from '../api'
 import { helperConfigured, getCustomHelper, setCoordMode, HELPER_BASE } from '../helper'
 import { isDesktop } from '../platform'
@@ -26,13 +26,12 @@ export default function Vaults() {
   const { locale } = useI18n()
   const pt = locale === 'pt-BR'
   const nav = useNavigate()
-  // Where a guard bounced the member off, if any. Router state only, so it lasts exactly as long as
-  // this bounce and never becomes a stale destination on a later visit.
-  const loc = useLocation()
-  const returnTo = (() => {
-    const from = (loc.state as { from?: unknown } | null)?.from
-    return typeof from === 'string' && from.startsWith('/') && from !== '/vaults' ? from : undefined
-  })()
+  // #446 D's `returnTo` is GONE, and deliberately so. It read a `from` that a guard set when it
+  // bounced the member here, and since #467 no guard bounces anyone: a locked vault is unlocked
+  // where the member already is. Nothing sets `from` any more, so every read of it was `undefined`
+  // and `returnTo ?? '/dashboard'` was always '/dashboard' - dead code that still looked live,
+  // which is the exact thing this repo keeps being bitten by. Staying put is strictly stronger than
+  // being returned, so the intent survives; only the mechanism is retired.
   // netMode still decides how a NEW vault is created (a hosted helper configured -> browser DKG
   // dialog; otherwise the local /create ceremony). It no longer gates the LIST - that's unified.
   const netMode = helperConfigured()
@@ -56,7 +55,7 @@ export default function Vaults() {
       setReadSecret(row.v.id, s)
       markVaultUnlocked(row.v.id)
       setUnlocking(null)
-      nav(returnTo ?? '/dashboard')
+      nav('/dashboard')
     } finally {
       setPrfBusy(false)
     }
@@ -191,7 +190,7 @@ export default function Vaults() {
       if (r.ok) {
         // Back where you were, when a guard sent you here (#446 D). `/vaults` itself is never a
         // destination: returning to the picker you just used would be a loop.
-        nav(src === 'net' ? (returnTo ?? '/dashboard') : '/dashboard')
+        nav('/dashboard')
         return
       }
       setUnlockErr(r.wrong ? t('vaults.unlockWrong') : t('vaults.unlockFail'))
