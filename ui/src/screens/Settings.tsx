@@ -180,8 +180,10 @@ export default function Settings() {
       // a device that cannot present one, so an open or locked vault gets `null` here. That export
       // is incomplete, and an incomplete export is far better than none - `docs/RECOVERY.md` still
       // describes the two halves.
-      const ufvk = (await getUfvk(id)) ?? undefined
-      const bundle = await exportVault(id, xpPass, ufvk)
+      // The viewing key AND the scan floor, from one gated call (#480). An export with the key but
+      // no floor rebuilds a wallet that starts at NOW and never sees the notes the vault holds.
+      const keys = await getUfvk(id)
+      const bundle = await exportVault(id, xpPass, keys?.ufvk, keys?.birthday)
       const json = JSON.stringify(bundle, null, 2)
       const safe = (vault?.name ?? 'konclave-vault').replace(/[^\w.-]+/g, '-').toLowerCase()
       return { json, name: `${safe}.konclave.json` }

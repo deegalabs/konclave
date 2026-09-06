@@ -20,12 +20,28 @@ Two consequences follow from this table and drive everything below:
 
 ## The complete recovery kit
 
-Recovering a vault so a member can **sign again against the same on-chain address** needs BOTH halves:
+Recovering a vault so a member can **sign again against the same on-chain address** needs the
+member's **share export** — and, since #447 and #480, that export carries what it used to be missing:
 
-- **Share export** (device half): the member's sealed share + public record, passphrase-encrypted.
-- **`registration.json`** (helper half): the vault's exact **UFVK + address**.
+| what a rebuild needs | where it comes from |
+|---|---|
+| the member's sealed share | the export |
+| the vault's **address** and **UFVK** | the export (#447 — before that, only `registration.json`) |
+| the **scan floor** (`birthday`) | the export (#480 — before that, nowhere the member had) |
+| the quorum (`t`/`n`) | decoded from the share bundle itself |
+| the change receiver | derivable from the UFVK |
 
-The share export by itself restores the signing seat but **not** the vault identity. See #214.
+**What is still only on the helper**, and is correctly not in the export: `wallet_dir` (a path on the
+helper's machine) and `account` (a uuid the helper's wallet database minted — a rebuild runs
+`init-fvk` and gets a new one).
+
+> **Why the scan floor is not optional.** A wallet rebuilt with the right viewing key but no
+> birthday starts scanning at the CURRENT height and never sees a single note the vault already
+> holds. There is no rescan. It does not look like a failure — it looks like an empty vault, and the
+> UI tells the treasurer to add funds. That is #434, and until #480 the export did not carry the
+> number even though the helper had it all along.
+
+### Why the share alone was not enough (verified live)
 
 ### Why the share alone is not enough (verified live)
 
@@ -160,10 +176,10 @@ console.log(JSON.stringify(JSON.parse(new TextDecoder().decode(plain)), null, 2)
 **A wrong passphrase throws.** AES-GCM authenticates, so it does not decrypt to garbage — it
 refuses. The same is true of a file that has been altered by a byte.
 
-**What this gets you, and what it does not.** The payload contains the share, so with it a member
-can rebuild their seat in any FROST tooling that speaks the same key package. It does **not** contain
-the helper's `registration.json`, which holds the vault's identity and wallet — see *The complete
-recovery kit* above. Both halves are needed to rebuild the vault rather than just the seat.
+**What this gets you.** The payload contains the share, the address, the viewing key and the scan
+floor — everything a rebuild needs (see *The complete recovery kit* above). What it does not contain
+is the helper's `wallet_dir` and `account`, and neither is portable: one is a path on another
+machine, the other a database id a rebuild re-mints.
 
 > **A v1 export** (no `version` field, or `version: 1`) is a different shape: the metadata is in the
 > clear and only the share is sealed. The same derivation opens it; the fields differ. #405 replaced

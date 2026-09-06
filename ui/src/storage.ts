@@ -83,6 +83,11 @@ export interface VaultData {
   /** The per-vault access secret S (#388): every seated member holds it, an id-only outsider does
    *  not. Sealed at rest like the share. Optional so vaults created before #388 still save/load. */
   accessSecret?: Uint8Array
+  /** The height the vault's wallet must scan FROM (#434/#480). Not a secret - a block number - but
+   *  losing it is expensive in one direction: a wallet rebuilt without it starts at NOW and never
+   *  sees the notes the vault already holds, and there is no rescan. `undefined` means "this device
+   *  never learned it", never "start at zero". */
+  birthday?: number
 }
 
 /** What loadVault returns after decrypting: the same shape, group key back as bytes. */
@@ -102,6 +107,7 @@ export interface VaultLoaded {
    *  whole history and cannot move a coin. Undefined until fetched, and for an open vault that
    *  cannot fetch it at all. */
   ufvk?: string
+  birthday?: number
 }
 
 // Internal on-disk record. `cipher`/`salt`/`iv` protect `sealedShare`; `secretCipher`/`secretIv`
@@ -129,6 +135,7 @@ interface VaultRecord {
    *  can rebuild the vault rather than only the seat. Kept beside `address` and `groupKey`: it
    *  is view-only material - it reads the vault's history and cannot move a coin, unlike a share. */
   ufvk?: string
+  birthday?: number
 }
 
 
@@ -290,6 +297,7 @@ export async function saveVault(id: string, data: VaultData, passphrase: string)
     cipher: new Uint8Array(cipherBuf),
     secretIv,
     secretCipher,
+    ...(data.birthday !== undefined ? { birthday: data.birthday } : {}),
     // Sealed WITH this, so it must be stored WITH it (#435).
     kdfIters: PBKDF2_ITERS,
   }
@@ -359,6 +367,7 @@ export async function loadVault(id: string, passphrase: string): Promise<VaultLo
     createdAt: record.createdAt,
     accessSecret,
     ufvk: record.ufvk,
+    birthday: record.birthday,
   }
 }
 
@@ -431,6 +440,7 @@ interface V2Payload {
    *  Absent on an export made before this, or made by a device that could not fetch it (an open
    *  vault cannot: the helper refuses to hand a viewing key out by id alone). */
   ufvk?: string
+  birthday?: number
 }
 
 /**
@@ -471,6 +481,7 @@ export async function exportVault(
   id: string,
   passphrase: string,
   ufvk?: string,
+  birthday?: number,
 ): Promise<VaultExportV2> {
   if (!storageAvailable()) throw new Error('This browser cannot read the vault (no IndexedDB/WebCrypto)')
   if (!passphrase) throw new Error('A passphrase is required to export the vault')
@@ -494,6 +505,11 @@ export async function exportVault(
     beneficiaries: readBeneficiaries(id),
     // Explicit wins (a fresh authenticated fetch), else whatever this device already recorded.
     ...(ufvk ?? loaded.ufvk ? { ufvk: ufvk ?? loaded.ufvk } : {}),
+    // The scan floor travels with the viewing key, for the same reason it is served with it:
+    // neither rebuilds a vault alone (#480).
+    ...((birthday ?? loaded.birthday) !== undefined
+      ? { birthday: birthday ?? loaded.birthday }
+      : {}),
   }
 
   const salt = crypto.getRandomValues(new Uint8Array(16))
@@ -569,6 +585,7 @@ interface DecodedImport {
   /** The vault's UFVK, when the export carried one. Absent on a v1 export and on any v2 written
    *  before #214, so an importer must treat it as "not in this file", never as "none exists". */
   ufvk?: string
+  birthday?: number
 }
 
 /** Decode a v2 opaque blob: decrypt the whole payload with the passphrase, then read the fields. */
@@ -594,6 +611,12 @@ async function decodeV2(b: VaultExportV2, passphrase: string): Promise<DecodedIm
     share: unhex(p.share), accessSecret: p.accessSecret ? unhex(p.accessSecret) : undefined,
     beneficiaries: Array.isArray(p.beneficiaries) ? p.beneficiaries : undefined,
     ufvk: typeof p.ufvk === 'string' && p.ufvk ? p.ufvk : undefined,
+    // A height, so it is validated as one: a string or a negative here would be a corrupt bundle,
+    // and a wrong scan floor is the one failure that looks like a successful restore (#480).
+    birthday:
+      typeof p.birthday === 'number' && Number.isInteger(p.birthday) && p.birthday >= 0
+        ? p.birthday
+        : undefined,
   }
 }
 
@@ -675,10 +698,11 @@ export async function changePassphrase(id: string, oldPassphrase: string, newPas
     groupKey: hex(loaded.groupKey),
     address: loaded.address,
     roster: loaded.roster,
-    // The two the careless version loses. Not a comment asking someone to remember: the tests
-    // assert both.
+    // The fields the careless version loses. Not a comment asking someone to remember: the tests
+    // assert each one.
     createdAt: loaded.createdAt,
     ...(loaded.ufvk ? { ufvk: loaded.ufvk } : {}),
+    ...(loaded.birthday !== undefined ? { birthday: loaded.birthday } : {}),
     salt,
     iv,
     cipher,
@@ -730,8 +754,10 @@ export async function importVault(
     groupKey: hex(d.groupKey), address: d.address, roster: d.roster, createdAt: d.createdAt,
     salt, iv, cipher, secretIv, secretCipher, kdfIters: PBKDF2_ITERS,
     // Whatever viewing key the export carried comes across with it: an import that decoded it and
-    // dropped it would restore the seat and quietly lose the vault (#214).
+    // dropped it would restore the seat and quietly lose the vault (#214). The scan floor is the
+    // same bargain (#480): decoding it and dropping it restores a wallet that starts at now.
     ...(d.ufvk ? { ufvk: d.ufvk } : {}),
+    ...(d.birthday !== undefined ? { birthday: d.birthday } : {}),
   }
 
   const db = await openDb()

@@ -332,8 +332,20 @@ export async function voteProposal(
  *  The helper serves it ONLY on an authenticated read, and refuses outright for a vault with no
  *  readKey - so an unprotected vault cannot hand out its viewing key by id alone. `null` covers
  *  every one of those cases, and the caller exports without it rather than failing. */
-export async function getUfvk(groupKeyHex: string): Promise<string | null> {
-  return (await getJson<{ ufvk: string }>(`/api/vault/ufvk?vault=${q(groupKeyHex)}`))?.ufvk ?? null
+export async function getUfvk(
+  groupKeyHex: string,
+): Promise<{ ufvk: string; birthday?: number } | null> {
+  // The scan floor comes back WITH the key, from the same gated call (#480). Two calls would be two
+  // chances for a restore path to make only one - which is how the birthday came to be missing from
+  // the export while sitting on the helper the whole time.
+  const r = await getJson<{ ufvk: string; birthday?: number | null }>(
+    `/api/vault/ufvk?vault=${q(groupKeyHex)}`,
+  )
+  if (!r?.ufvk) return null
+  return {
+    ufvk: r.ufvk,
+    birthday: typeof r.birthday === 'number' ? r.birthday : undefined,
+  }
 }
 
 /** Fetch a registered vault's public view (address + id), or `null`. */
