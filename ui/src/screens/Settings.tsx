@@ -338,20 +338,25 @@ export default function Settings() {
             passkey sync. */}
         <div className="set-row">
           <span className="set-k">{t('settings.unlock')}</span>
-          <span className="set-v" style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            {hasPasskey ? t('settings.unlockBoth') : t('settings.unlockValue')}
-            {hasPasskey ? (
-              <button type="button" className="btn ghost sm-btn" onClick={dropPasskey}>{t('settings.passkeyOff')}</button>
-            ) : canEnrol ? (
-              <button type="button" className="btn ok sm-btn" disabled={pkBusy} onClick={() => void addPasskey()}>
-                {pkBusy ? t('settings.passkeyBusy') : t('settings.passkeyOn')}
-              </button>
-            ) : null}
-            {hasLocal && (
-              <button type="button" className="btn ghost sm-btn" onClick={() => (rotOpen ? resetRotate() : setRotOpen(true))}>
-                {rotOpen ? t('common.cancel') : t('rotate.btn')}
-              </button>
-            )}
+          {/* The state and the actions are separate children, not loose siblings in one box. As
+              siblings they wrapped into a pile of odd-width chips on a phone; grouped, the actions
+              are one block that can go full-width there and inline on a desktop. */}
+          <span className="set-v">
+            <span className="set-val-txt">{hasPasskey ? t('settings.unlockBoth') : t('settings.unlockValue')}</span>
+            <span className="set-actions">
+              {hasPasskey ? (
+                <button type="button" className="btn ghost sm-btn" onClick={dropPasskey}>{t('settings.passkeyOff')}</button>
+              ) : canEnrol ? (
+                <button type="button" className="btn ok sm-btn" disabled={pkBusy} onClick={() => void addPasskey()}>
+                  {pkBusy ? t('settings.passkeyBusy') : t('settings.passkeyOn')}
+                </button>
+              ) : null}
+              {hasLocal && (
+                <button type="button" className="btn ghost sm-btn" onClick={() => (rotOpen ? resetRotate() : setRotOpen(true))}>
+                  {rotOpen ? t('common.cancel') : t('rotate.btn')}
+                </button>
+              )}
+            </span>
           </span>
         </div>
         {pkErr && <div className="unlock-err" role="alert">{pkErr}</div>}
