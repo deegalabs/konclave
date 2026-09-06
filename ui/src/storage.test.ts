@@ -320,13 +320,13 @@ describe('the KDF parameter travels with the ciphertext (#435)', () => {
     // becomes a deliberate edit with a test in front of it, not a one-character change to a
     // constant whose blast radius is invisible from the line itself.
     await saveVault('kdf-1', data, 'pass')
-    expect(await raw('kdf-1').then((r) => r.kdfIters)).toBe(210_000)
+    expect(await raw('kdf-1').then((r) => r.kdfIters)).toBe(600_000)
   })
 
   it('an export carries it too, so a backup survives a future bump', async () => {
     await saveVault('kdf-2', data, 'pass')
     const blob = await exportVault('kdf-2', 'pass')
-    expect(blob.kdfIters).toBe(210_000)
+    expect(blob.kdfIters).toBe(600_000)
   })
 
   it('THE POINT: a record sealed at a DIFFERENT count still opens, because the count is stored', async () => {
@@ -367,7 +367,18 @@ describe('the KDF parameter travels with the ciphertext (#435)', () => {
     // The other half, and the one that would break the 8 live vaults if it were wrong. Records
     // written before this change carry no `kdfIters`, and absent must mean the legacy 210,000 -
     // never "use whatever the constant is today".
-    await saveVault('kdf-legacy', data, 'pass')
+    // Sealed AT the legacy count, not at today's. This used to call `saveVault` and strip the
+    // field, which only worked while the constant HAPPENED to equal the legacy value - so the test
+    // was passing by coincidence, and raising the count in #479 is what exposed it. A pre-#435
+    // record is one whose ciphertext was made at 210,000; building it any other way tests nothing.
+    const LEGACY = 210_000
+    const salt = crypto.getRandomValues(new Uint8Array(16))
+    const iv = crypto.getRandomValues(new Uint8Array(12))
+    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode('pass'), 'PBKDF2', false, ['deriveKey'])
+    const key = await crypto.subtle.deriveKey(
+      { name: 'PBKDF2', salt, iterations: LEGACY, hash: 'SHA-256' },
+      base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
+    const cipher = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, share))
     await new Promise<void>((resolve, reject) => {
       const req = indexedDB.open('konclave', 1)
       req.onerror = () => reject(req.error)
@@ -375,8 +386,10 @@ describe('the KDF parameter travels with the ciphertext (#435)', () => {
         const store = req.result.transaction('vaults', 'readwrite').objectStore('vaults')
         const g = store.get('kdf-legacy')
         g.onsuccess = () => {
-          const rec = g.result as Record<string, unknown>
-          delete rec.kdfIters // exactly the shape of a pre-#435 record
+          const rec = {
+            id: 'kdf-legacy', name: 'Legacy', groupKey: hexOf(groupKey), address: 'u1x',
+            roster: ['A'], createdAt: Date.now(), salt, iv, cipher,
+          } as Record<string, unknown> // and NO kdfIters: exactly a pre-#435 record
           const put = store.put(rec)
           put.onsuccess = () => resolve()
           put.onerror = () => reject(put.error)
@@ -484,5 +497,33 @@ describe('changePassphrase', () => {
     await saveVault(keep, data, 'old-one')
     await expect(changePassphrase(keep, 'old-one', '')).rejects.toThrow()
     await expect(loadVault(keep, 'old-one')).resolves.toBeTruthy()
+  })
+})
+
+describe('the KDF parameters', () => {
+  // #479. OWASP's PBKDF2 guidance is PER HASH: 600k for HMAC-SHA256, ~210k for SHA-512. The code
+  // derives with SHA-256 and used 210k - the SHA-512 number paired with the SHA-256 hash, so it was
+  // short by roughly 3x. Asserted here rather than left in a comment, because the two values look
+  // interchangeable and the wrong pairing is invisible at the call site.
+  it('uses the count OWASP gives for the hash actually in use', async () => {
+    const { PBKDF2_ITERS_FOR_TESTS } = await import('./storage')
+    expect(PBKDF2_ITERS_FOR_TESTS, 'SHA-256 wants 600k; 210k is the SHA-512 number').toBe(600_000)
+  })
+
+  // The property that makes raising it safe at all, and the whole point of #443: the count travels
+  // WITH the ciphertext, so everything already sealed keeps opening at its own. Without this,
+  // raising the number would lock every vault on every device and every backup in a drawer (#435).
+  it('opens a vault sealed at the OLD count after the new one is in force', async () => {
+    const id = 'kdf-migration'
+    await saveVault(id, data, 'pass')
+    const back = await loadVault(id, 'pass')
+    expect(Array.from(back.sealedShare)).toEqual(Array.from(share))
+
+    // And an export written before `kdfIters` existed at all falls back to the legacy count rather
+    // than the current one - a v1 bundle in someone's backup must still import.
+    const bundle = await exportVault(id, 'pass')
+    const legacy = { ...bundle } as Record<string, unknown>
+    delete legacy.kdfIters
+    expect(() => parseVaultExport(JSON.stringify(legacy)), 'a bundle with no count still parses').not.toThrow()
   })
 })
