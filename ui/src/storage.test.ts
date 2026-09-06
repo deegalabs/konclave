@@ -462,7 +462,7 @@ describe('changePassphrase', () => {
     await saveVault(withKey, { ...data, accessSecret: new Uint8Array(32).fill(3) }, 'old-one')
     const before = await loadVault(withKey, 'old-one')
     // The UFVK reaches a record through import, so that is how it gets here.
-    const bundle = await exportVault(withKey, 'old-one', 'u1viewingkeyplaceholder')
+    const bundle = await exportVault(withKey, 'old-one', 'u1viewingkeyplaceholder', 3_470_000)
     await importVault(bundle, 'old-one', { overwrite: true })
     const seeded = await loadVault(withKey, 'old-one')
     expect(seeded.ufvk, 'precondition: the record carries a viewing key').toBeTruthy()
@@ -470,6 +470,10 @@ describe('changePassphrase', () => {
     await changePassphrase(withKey, 'old-one', 'new-one')
     const after = await loadVault(withKey, 'new-one')
     expect(after.ufvk, 'the viewing key must survive a passphrase change').toBe(seeded.ufvk)
+    // Same trap, second field (#480). The careless re-seal drops whatever `saveVault` does not
+    // persist, and the scan floor is exactly that kind of field: losing it is silent until the day
+    // someone restores and finds an empty vault.
+    expect(after.birthday, 'and so must the scan floor').toBe(seeded.birthday)
     expect(after.createdAt, 'the creation date is not "now"').toBe(seeded.createdAt)
     expect(before.createdAt).toBeTruthy()
   })
@@ -525,5 +529,37 @@ describe('the KDF parameters', () => {
     const legacy = { ...bundle } as Record<string, unknown>
     delete legacy.kdfIters
     expect(() => parseVaultExport(JSON.stringify(legacy)), 'a bundle with no count still parses').not.toThrow()
+  })
+})
+
+describe('the export carries the scan floor (#480)', () => {
+  // #434 was entirely about this number: without it a rebuilt wallet starts scanning at NOW and
+  // buries every note the vault already holds, with no rescan to undo it. The fix recorded it on
+  // the helper's `registration.json` (#434), then backfilled it on re-registration (#444), then
+  // moved that to boot because re-registration mostly never runs (#445).
+  //
+  // Nobody checked whether the EXPORT carried it. `grep -c birthday storage.ts` was 0, so a member
+  // restoring from their own backup rebuilt a vault that could not see its own money - the exact
+  // failure, in the second place. One rule, two homes, one of them updated: the shape of the week.
+  const withKey = 'birthday-export'
+
+  it('a restore gets the scan floor, not just the viewing key', async () => {
+    await saveVault(withKey, data, 'pass')
+    const bundle = await exportVault(withKey, 'pass', 'uview1example', 3_459_814)
+    await importVault(bundle, 'pass', { overwrite: true })
+    const back = await loadVault(withKey, 'pass')
+    expect(back.ufvk, 'the viewing key survives').toBe('uview1example')
+    expect(back.birthday, 'and the height it must scan from').toBe(3_459_814)
+  })
+
+  it('an export from a device that never learned it says so, rather than inventing one', async () => {
+    // A device that could not reach the helper has no birthday to record. Absent must stay absent:
+    // a fabricated height is worse than none, because a TOO-HIGH one silently skips real notes
+    // while looking like a successful restore.
+    const noKey = 'birthday-absent'
+    await saveVault(noKey, data, 'pass')
+    const bundle = await exportVault(noKey, 'pass')
+    await importVault(bundle, 'pass', { overwrite: true })
+    expect((await loadVault(noKey, 'pass')).birthday).toBeUndefined()
   })
 })

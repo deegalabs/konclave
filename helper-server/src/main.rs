@@ -149,7 +149,15 @@ fn handle_with_token(
         if read_token.map(str::trim) != Some(expected.trim()) {
             return resp(401, json!({ "error": "read key required" }).to_string());
         }
-        return resp(200, json!({ "ufvk": reg.ufvk }).to_string());
+        // The birthday rides with the viewing key (#480), because neither rebuilds a vault alone:
+        // a wallet restored with the key but no scan floor starts at NOW and never sees the notes
+        // the vault already holds, and there is no rescan to undo it. Same gate, same response -
+        // the alternative is a second call that a restore path can forget to make, which is how the
+        // birthday went missing from the export in the first place.
+        return resp(
+            200,
+            json!({ "ufvk": reg.ufvk, "birthday": reg.birthday }).to_string(),
+        );
     }
     if *method == Method::Get && GATED_READS.contains(&p) {
         if let Some(reg) = query_param(query, "vault").and_then(|v| state.get(v)) {
@@ -1781,6 +1789,15 @@ mod tests {
         assert!(
             good.body.contains(&expected_ufvk),
             "and it is the vault's own UFVK: {}",
+            good.body
+        );
+        // The BIRTHDAY rides with it (#480). A restore that gets the viewing key without the scan
+        // floor rebuilds a wallet that starts at NOW and buries every note the vault holds - the
+        // exact failure #434 exists to prevent, arrived at from the export instead of the volume.
+        // They are served together because they are needed together: neither rebuilds a vault alone.
+        assert!(
+            good.body.contains("3400000"),
+            "and the scan floor, or the rebuilt wallet sees nothing: {}",
             good.body
         );
 
