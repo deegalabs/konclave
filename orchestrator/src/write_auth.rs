@@ -17,6 +17,11 @@
 //! It performs no I/O and knows nothing about HTTP. Callers supply the registered keys and a way to
 //! ask whether a nonce has been seen.
 
+// The action and the canonical bytes live in `konclave-seal`, the crate the DEVICE also uses to
+// sign. One implementation of the format, shared, so the two sides cannot drift: a second copy
+// here would fail in the field as "your vote was refused" with nothing pointing at the cause.
+pub use konclave_seal::{write_message, WriteAction};
+
 /// A device registered to write for a seat: ADR-0011 D4's extension of `device-keys.json`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WriteKey {
@@ -24,25 +29,6 @@ pub struct WriteKey {
     pub seat: u16,
     /// Its Ed25519 write-verifying key, hex. Public material.
     pub pubkey: String,
-}
-
-/// What is being written. Part of the signed message, so a signature for one action can never be
-/// replayed as another.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WriteAction {
-    Approve,
-    Refuse,
-    Rename,
-}
-
-impl WriteAction {
-    fn tag(self) -> &'static str {
-        match self {
-            WriteAction::Approve => "approve",
-            WriteAction::Refuse => "refuse",
-            WriteAction::Rename => "rename",
-        }
-    }
 }
 
 /// The proof a device presents with its write.
@@ -80,33 +66,6 @@ pub enum WriteRefusal {
     Malformed,
     /// This nonce was already used on this vault.
     Replay,
-}
-
-/// The canonical bytes a governance write signs.
-///
-/// `target` is the proposal id for a vote, or `old\0new` for a rename. Binding the vault, the
-/// action, the target, the timestamp and the nonce means a captured signature cannot be replayed
-/// as a different action, on a different proposal, or in a different vault. The variable-length
-/// fields are length-prefixed rather than joined, so no two distinct field sets can encode to the
-/// same bytes - the ambiguity that `armed`/`unarmed` avoided by ordering (#425), done properly here
-/// because `target` can itself contain a separator.
-pub fn write_message(
-    vault_id: &str,
-    action: WriteAction,
-    target: &str,
-    seat: u16,
-    ts: i64,
-    nonce: &str,
-) -> Vec<u8> {
-    let mut out = Vec::new();
-    out.extend_from_slice(b"konclave-write-v1\0");
-    for field in [vault_id, action.tag(), target, nonce] {
-        out.extend_from_slice(&(field.len() as u32).to_be_bytes());
-        out.extend_from_slice(field.as_bytes());
-    }
-    out.extend_from_slice(&seat.to_be_bytes());
-    out.extend_from_slice(&ts.to_be_bytes());
-    out
 }
 
 /// Decide whether a governance write is authentic.
@@ -216,6 +175,44 @@ mod tests {
     const V: &str = "vault-1";
     fn never_seen(_: &str) -> bool {
         false
+    }
+
+    /// End to end across the crates: derive the key the way the DEVICE derives it, sign, verify.
+    ///
+    /// Worth being precise about what this does and does not prove. It CANNOT catch the two sides
+    /// drifting on the message format or the HKDF label - because after moving both into
+    /// `konclave-seal`, which the device signs from and this verifies with, there is only ONE
+    /// implementation and drift is impossible rather than detectable. An earlier version of this
+    /// test claimed to catch it and did not: it built the message with the same function it
+    /// verified with, so it was self-consistent by construction and passed whatever I changed.
+    ///
+    /// What it proves is the COMPOSITION: seed -> signing key -> registered pubkey -> canonical
+    /// bytes -> verification all line up, so a wrong seat, a mis-assembled message or a key taken
+    /// from the wrong place fails here.
+    #[test]
+    fn a_signature_made_the_way_the_device_makes_it_verifies_here() {
+        let share = b"a serialized key package, for the test";
+        // Exactly what `konclave-seal::write_key_seed_from_share` does.
+        let seed = konclave_seal::write_key_seed_from_share(share);
+        let sk = SigningKey::from_bytes(&seed);
+
+        let keys = [WriteKey {
+            seat: 2,
+            pubkey: hexs(sk.verifying_key().as_bytes()),
+        }];
+        let ts = 1_700_000_000_000;
+        let msg = write_message(V, WriteAction::Refuse, "prop-9", 2, ts, "n-cross");
+        let w = SignedWrite {
+            seat: 2,
+            ts,
+            nonce: "n-cross".into(),
+            sig: hexs(&sk.sign(&msg).to_bytes()),
+        };
+
+        assert_eq!(
+            authorize_write(&keys, V, WriteAction::Refuse, "prop-9", &w, never_seen),
+            WriteAuth::Authorized { seat: 2 }
+        );
     }
 
     #[test]

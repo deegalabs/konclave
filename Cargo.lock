@@ -2632,6 +2632,7 @@ name = "konclave-wasm"
 version = "0.1.0"
 dependencies = [
  "blake2b_simd",
+ "ed25519-dalek",
  "ff",
  "frost-rerandomized",
  "getrandom 0.2.17",
