@@ -429,6 +429,15 @@ reports of it differing by direction. The passphrase stays the root, every failu
 `S` now lives in the session apart from the share so **reading a vault stops costing what spending
 does**.
 
+> **That paragraph was true of the code and false of the product until 2026-09-06.** `enrolPrf` and
+> `savePrfWrap` were called only from `prf-wrap.test.ts` - no screen ever created a wrap, so
+> `loadPrfWrap` always returned null and the "Unlock with this device" button could never render.
+> The feature shipped, was tested, sat in the production bundle, and was unreachable, because the
+> tests called the enrolment directly and skipped the screens. Fixed in #468 (Settings enrols it,
+> which is where it has to be: wrapping needs `S`, and `S` exists only after the first passphrase
+> unlock). The guard is a source scan - a capability the UI offers to USE must be offered somewhere
+> to CREATE - and it excludes test files on purpose, since counting them rebuilds the blind spot.
+
 **H1 is DONE and live, in BOTH rounds since 2026-08-27.** Every device recomputes the ZIP-244 sighash
 from **its own** PCZT and signs that, refusing the ceremony if it disagrees with the requested one,
 and it decodes and shows what the transaction pays before contributing a share. `SigningMachine` is
@@ -463,11 +472,38 @@ to the relay). From `S`:
   auto-migration.
 - **Encrypted export v2 (PR #405 / #214):** a vault export is now a **single opaque blob** (metadata +
   share + `S` + beneficiaries, all under the passphrase) - a leaked backup reveals nothing, not even
-  the vault id; import reads v1 + v2. `docs/RECOVERY.md`: the export restores the **share**, not the
-  vault identity/UFVK (random at creation, not reproducible), so the full kit is the share export
-  **plus** the helper's `registration.json`.
+  the vault id; import reads v1 + v2. **The export is self-sufficient since 2026-09-06**: it used to
+  restore the seat but not the vault, because the UFVK is minted once at random and lived only on the
+  helper. #447 put the viewing key in it, and #480 the wallet **birthday** - which had been recorded
+  on the helper three times (#434, #444, #445) while nobody checked whether the export carried it, so
+  a restore rebuilt a wallet that scanned from NOW and saw none of the vault's own notes. It opens
+  with no Konclave at all: `scripts/open-export.mjs` (#484), plain PBKDF2 + AES-GCM, and it REPORTS
+  whether the backup is complete rather than dumping it.
 - **First protected vault in the wild:** an external user (not the maintainer) created a #388 family
   vault (`882bde37…`) on 2026-08-30 - the protection holds outside the lab.
+
+**2026-09-06, and the pattern it repeated all day.** Twenty-eight commits (#456-#485). What is worth
+carrying forward is not the list but the shape: **the shared thing existed and one caller went its
+own way**, over and over, and the caller that went its own way was usually the one that mattered.
+
+- The **helper served no reads at all** for part of the morning (#466). `Access-Control-Allow-Headers`
+  never named `X-Konclave-Read`, so the browser refused to send it. The fix had reached the DEPLOYED
+  binary in #403 and never `main` - so the container was correct for a week while the source was
+  wrong, and rebuilding surfaced it. A second implementation living in an *artifact* is nastier than
+  one living in a second file: the repo looks self-consistent.
+- **Five hand-rolled `init(wasmUrl)`** (#483). Every WASM call worked because some screen happened to
+  run first; the export was the sixth path that needed it and had none. Now `ensureWasm()`, with a
+  source scan that only `wasm-ready.ts` may load it.
+- **Opening a share had four implementations** (#468), one of which had already diverged - the lab's
+  never called `markVaultUnlocked`, so its signer was inert while the screen looked unlocked.
+- **The migrations ran after the registry was read** (#482), so the helper logged "recorded" and
+  served the old values for the life of the process, healing on the next restart. Caught by
+  deploying, not by testing.
+
+Also landed: unlock **in place** on reload (#467, the vault no longer disappears into a list),
+passphrase **rotation** (#470/#471), the Settings **redesign** after two GSP audits (#473), PBKDF2 to
+**600k** - the SHA-256 number, where 210k was the SHA-512 one (#479) - and the viewing key now goes
+out **sealed** to the vault's devices, with the plaintext path closing per vault (#476/#481).
 
 **Honest debts still open (§6.15).** Ordered by what they cost:
 
