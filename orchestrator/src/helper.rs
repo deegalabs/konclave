@@ -531,13 +531,71 @@ fn device_keys_path(vaults_dir: &Path, vault: &str) -> PathBuf {
     vaults_dir.join(vault).join("device-keys.json")
 }
 
+/// One registered device: its #63 comms key, and - once it has registered one - the seat it holds
+/// and the Ed25519 key it signs governance writes with (ADR-0011 D4).
+///
+/// It is ONE record, not two registries. Two files answering "which device belongs to this vault"
+/// would drift, and the #63 consumer already reads this one.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DeviceRecord {
+    /// X25519 comms pubkey, hex. The seal-set for a SignRequest (#63).
+    pub comms: String,
+    /// The 1-based FROST seat this device holds. `None` until it registers a write key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seat: Option<u16>,
+    /// Ed25519 write-verifying key, hex (#288 / ADR-0011). `None` until registered.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub write: Option<String>,
+}
+
+/// Every device registered on this vault.
+///
+/// Reads BOTH shapes: the current list of records, and the original flat `["hex", ...]` array of
+/// comms keys that the live vaults still carry. A flat entry becomes a record with no seat and no
+/// write key, which is exactly what it is - a device that registered for sealing before write
+/// authentication existed. Nothing on the volume has to be migrated for this to be read correctly.
+pub fn load_device_records(vaults_dir: &Path, vault: &str) -> Vec<DeviceRecord> {
+    let Ok(json) = std::fs::read_to_string(device_keys_path(vaults_dir, vault)) else {
+        return Vec::new();
+    };
+    if let Ok(recs) = serde_json::from_str::<Vec<DeviceRecord>>(&json) {
+        return recs;
+    }
+    serde_json::from_str::<Vec<String>>(&json)
+        .map(|flat| {
+            flat.into_iter()
+                .map(|comms| DeviceRecord {
+                    comms,
+                    seat: None,
+                    write: None,
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// The vault's registered device comms pubkeys (hex), the seal-set for a SignRequest (#63). Empty
 /// when none registered yet - in which case the request is posted UNSEALED (compat during rollout).
 pub fn load_device_keys(vaults_dir: &Path, vault: &str) -> Vec<String> {
-    std::fs::read_to_string(device_keys_path(vaults_dir, vault))
-        .ok()
-        .and_then(|j| serde_json::from_str::<Vec<String>>(&j).ok())
-        .unwrap_or_default()
+    load_device_records(vaults_dir, vault)
+        .into_iter()
+        .map(|r| r.comms)
+        .collect()
+}
+
+/// The write keys registered on this vault, in the shape [`crate::write_auth::authorize_write`]
+/// wants. Empty means no device has registered one, which keeps the vault on the fail-open path
+/// (ADR-0011 D5) rather than freezing it.
+pub fn load_write_keys(vaults_dir: &Path, vault: &str) -> Vec<crate::write_auth::WriteKey> {
+    load_device_records(vaults_dir, vault)
+        .into_iter()
+        .filter_map(|r| {
+            Some(crate::write_auth::WriteKey {
+                seat: r.seat?,
+                pubkey: r.write?,
+            })
+        })
+        .collect()
 }
 
 /// Register a device's PERSISTENT comms pubkey (hex of its X25519 public, derived from its share) so
@@ -550,18 +608,69 @@ pub fn load_device_keys(vaults_dir: &Path, vault: &str) -> Vec<String> {
 /// against the relay operator and a room-holder who lacks the group key; authenticating the registrant
 /// is the #392/#288 layer, tracked separately.
 pub fn add_device_key(vaults_dir: &Path, vault: &str, device_pub: &str) -> Result<bool, ToolError> {
-    let device_pub = device_pub.trim();
-    let mut keys = load_device_keys(vaults_dir, vault);
-    if keys.iter().any(|k| k == device_pub) {
-        return Ok(false); // already registered: idempotent no-op
+    upsert_device(vaults_dir, vault, device_pub, None)
+}
+
+/// Register (or complete) a device: its comms key, and optionally the seat + Ed25519 write key it
+/// will sign governance writes with (ADR-0011 D4). Returns whether anything changed.
+///
+/// A device is identified by its COMMS key, which is derived from its share - so a caller cannot
+/// attach a write key to someone else's device by guessing, only by holding that share. Writing a
+/// seat that another device already claims is REFUSED rather than overwritten: silently moving a
+/// seat is the rename-hijack (#288) in a different file, and an overwrite here would hand an
+/// attacker the seat by simply registering after the real holder.
+pub fn upsert_device(
+    vaults_dir: &Path,
+    vault: &str,
+    comms: &str,
+    write: Option<(u16, &str)>,
+) -> Result<bool, ToolError> {
+    let comms = comms.trim();
+    let mut recs = load_device_records(vaults_dir, vault);
+
+    if let Some((seat, _)) = write {
+        if recs
+            .iter()
+            .any(|r| r.seat == Some(seat) && r.comms != comms)
+        {
+            return Err(ToolError::parse(
+                "device-keys",
+                format!("seat {seat} is already claimed by another device"),
+            ));
+        }
     }
-    keys.push(device_pub.to_string());
+
+    let mut changed = false;
+    match recs.iter_mut().find(|r| r.comms == comms) {
+        Some(existing) => {
+            if let Some((seat, wk)) = write {
+                let wk = wk.trim().to_string();
+                if existing.seat != Some(seat) || existing.write.as_deref() != Some(wk.as_str()) {
+                    existing.seat = Some(seat);
+                    existing.write = Some(wk);
+                    changed = true;
+                }
+            }
+        }
+        None => {
+            recs.push(DeviceRecord {
+                comms: comms.to_string(),
+                seat: write.map(|(s, _)| s),
+                write: write.map(|(_, w)| w.trim().to_string()),
+            });
+            changed = true;
+        }
+    }
+    if !changed {
+        return Ok(false); // idempotent no-op
+    }
+
     let path = device_keys_path(vaults_dir, vault);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(ToolError::Io)?;
     }
     let json =
-        serde_json::to_string(&keys).map_err(|e| ToolError::parse("device-keys", e.to_string()))?;
+        serde_json::to_string(&recs).map_err(|e| ToolError::parse("device-keys", e.to_string()))?;
     std::fs::write(&path, json).map_err(ToolError::Io)?;
     Ok(true)
 }
@@ -1320,6 +1429,98 @@ mod tests {
         assert_eq!(backfill_birthdays(&dir), 0);
         assert_eq!(after(&id_a).birthday, Some(3_459_814));
 
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// ADR-0011 D4: the write key rides in the record that already exists, so there is never a
+    /// second answer to "which device belongs to this vault". These cover the migration and the
+    /// one place an attacker would push.
+    #[test]
+    fn the_live_flat_device_key_file_still_reads() {
+        // Every vault on the volume today carries `["hex", "hex"]`. If this stopped reading, the
+        // #63 seal-set would come back empty and SignRequests would silently go out UNSEALED.
+        let dir = std::env::temp_dir().join(format!("konclave-dev-flat-{}", std::process::id()));
+        let v = "a".repeat(64);
+        std::fs::create_dir_all(dir.join(&v)).unwrap();
+        std::fs::write(dir.join(&v).join("device-keys.json"), r#"["aabb","ccdd"]"#).unwrap();
+
+        assert_eq!(load_device_keys(&dir, &v), vec!["aabb", "ccdd"]);
+        let recs = load_device_records(&dir, &v);
+        assert_eq!(recs.len(), 2);
+        assert_eq!(recs[0].seat, None, "a flat entry has no seat");
+        assert_eq!(recs[0].write, None, "and no write key - which is the truth");
+        assert!(
+            load_write_keys(&dir, &v).is_empty(),
+            "so the vault stays on the fail-open path, not frozen"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_write_key_attaches_to_the_device_and_leaves_the_comms_set_intact() {
+        let dir = std::env::temp_dir().join(format!("konclave-dev-up-{}", std::process::id()));
+        let v = "b".repeat(64);
+        std::fs::create_dir_all(dir.join(&v)).unwrap();
+        std::fs::write(dir.join(&v).join("device-keys.json"), r#"["aabb","ccdd"]"#).unwrap();
+
+        assert!(upsert_device(&dir, &v, "aabb", Some((1, "11"))).unwrap());
+        assert_eq!(
+            load_device_keys(&dir, &v),
+            vec!["aabb", "ccdd"],
+            "the #63 seal-set is unchanged"
+        );
+        assert_eq!(
+            load_write_keys(&dir, &v),
+            vec![crate::write_auth::WriteKey {
+                seat: 1,
+                pubkey: "11".into()
+            }]
+        );
+        // Idempotent: the same registration again changes nothing.
+        assert!(!upsert_device(&dir, &v, "aabb", Some((1, "11"))).unwrap());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn another_device_cannot_take_a_seat_that_is_already_claimed() {
+        // The attack this file is exposed to: register after the real holder and inherit the seat.
+        // Refusing is the point - an overwrite would hand it over for free, which is the
+        // rename-hijack (#288) wearing a different file.
+        let dir = std::env::temp_dir().join(format!("konclave-dev-seat-{}", std::process::id()));
+        let v = "c".repeat(64);
+        std::fs::create_dir_all(dir.join(&v)).unwrap();
+
+        upsert_device(&dir, &v, "alice", Some((1, "aa"))).unwrap();
+        let err = upsert_device(&dir, &v, "mallory", Some((1, "ff")));
+        assert!(err.is_err(), "seat 1 is taken");
+        assert_eq!(
+            load_write_keys(&dir, &v),
+            vec![crate::write_auth::WriteKey {
+                seat: 1,
+                pubkey: "aa".into()
+            }],
+            "and the real holder still has it"
+        );
+        // A different seat is fine.
+        assert!(upsert_device(&dir, &v, "mallory", Some((2, "ff"))).unwrap());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_device_may_rotate_its_own_write_key() {
+        // Same comms key - which is derived from the share, so only that device can present it.
+        let dir = std::env::temp_dir().join(format!("konclave-dev-rot-{}", std::process::id()));
+        let v = "d".repeat(64);
+        std::fs::create_dir_all(dir.join(&v)).unwrap();
+        upsert_device(&dir, &v, "alice", Some((1, "aa"))).unwrap();
+        assert!(upsert_device(&dir, &v, "alice", Some((1, "bb"))).unwrap());
+        assert_eq!(
+            load_write_keys(&dir, &v),
+            vec![crate::write_auth::WriteKey {
+                seat: 1,
+                pubkey: "bb".into()
+            }]
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 
