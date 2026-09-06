@@ -152,26 +152,39 @@ the vault id, name, governance, your member name, the creator, the group key, th
 roster, the creation date, **your share**, the vault's access secret `S`, the beneficiaries, and the
 **viewing key**. Nothing identifies the vault from outside the ciphertext — not even its id.
 
-```js
-// abrir.mjs — opens a v2 export with nothing but Node's own crypto.
-//   node abrir.mjs export.json 'your passphrase'
-import { readFileSync } from 'node:fs'
-import { webcrypto as c } from 'node:crypto'
-
-const [file, passphrase] = process.argv.slice(2)
-const b = JSON.parse(readFileSync(file, 'utf8'))
-const unhex = (h) => Uint8Array.from(h.match(/../g).map((x) => parseInt(x, 16)))
-
-const base = await c.subtle.importKey('raw', new TextEncoder().encode(passphrase),
-  'PBKDF2', false, ['deriveKey'])
-const key = await c.subtle.deriveKey(
-  // `kdfIters` comes FROM THE FILE. An export written before that field existed has none, and
-  // 210000 is what it was sealed with (#435).
-  { name: 'PBKDF2', salt: unhex(b.salt), iterations: b.kdfIters ?? 210000, hash: 'SHA-256' },
-  base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
-const plain = await c.subtle.decrypt({ name: 'AES-GCM', iv: unhex(b.iv) }, key, unhex(b.cipher))
-console.log(JSON.stringify(JSON.parse(new TextDecoder().decode(plain)), null, 2))
+```sh
+node scripts/open-export.mjs export.json
 ```
+
+It asks for the passphrase on the terminal (so it never lands in shell history), and reports the
+fields a rebuild needs rather than dumping the payload — because the question after taking a backup
+is not "does it decrypt" but **"is everything I need in there"**:
+
+```
+  Konclave export · v2 · sealed 2026-09-06 · PBKDF2 600000
+
+  Vault      Collective Zcash 2.0
+  You        Daniel
+  Members    Zka, Daniel, Bob
+  Address    u1w5cr43t0nye74cfudyv06dm845nq0v0pr3mu9yxqrmuh4zvr56nzuad46h
+
+  What a rebuild needs
+    your share                    yes
+    the vault's address           yes
+    the viewing key (#447)        yes
+    the scan floor (#480)         yes   (block 3459814)
+```
+
+A backup missing either of the last two says so, and says what it costs. `--show-secrets` prints the
+share and the keys themselves; without it they stay out of the terminal buffer, because checking a
+backup is the common reason to run this and printing a share for that is a bad trade.
+
+Exit codes are usable from a script: `0` it opened, `1` it did not, `2` you called it wrong.
+
+**The script depends on nothing.** Node's own `crypto`, no packages, no network — if Node runs, the
+file opens. That is the point: it has to work on a machine that has never had Konclave on it. The
+whole derivation is PBKDF2-HMAC-SHA256 to an AES-256-GCM key, so any language with those two
+primitives can do the same in about fifteen lines.
 
 **A wrong passphrase throws.** AES-GCM authenticates, so it does not decrypt to garbage — it
 refuses. The same is true of a file that has been altered by a byte.
