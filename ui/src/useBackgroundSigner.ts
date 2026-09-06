@@ -5,8 +5,7 @@
 // singleton lock so two tabs never double-sign. The Dashboard will consume this; /lab validates it.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import init from './wasm-pkg/konclave_wasm.js'
-import wasmUrl from './wasm-pkg/konclave_wasm_bg.wasm?url'
+import { ensureWasm } from './wasm-ready'
 import { RelaySession, relayPost, ephemeralTag } from './net'
 import { getUnlockedShare } from './session'
 import { decodeBundle } from './signing'
@@ -112,7 +111,7 @@ export function useBackgroundSigner(
     let acquired = false
     void (async () => {
       try {
-        await init(wasmUrl)
+        await ensureWasm()
         const b = decodeBundle(loaded)
         // This device's persistent comms identity (#63): derived from its share, used to register
         // with the helper (so it can seal SignRequests to us) and to OPEN the sealed request off the
