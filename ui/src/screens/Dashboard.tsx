@@ -187,7 +187,7 @@ export default function Dashboard() {
           unlockedThisSession: isVaultUnlocked(v.id),
           securedLocally: await securedLocally(v.id),
           hasAccessSecret: !!getUnlockedShare(v.id)?.accessSecret,
-        })) { nav('/vaults'); return }
+        })) { nav('/vaults', { state: { from: '/dashboard' } }); return }
         if (v) setVault(v)
         // FAST data first: proposals + ledger are plain file reads (no wallet sync). Render the
         // dashboard on these so it appears immediately, instead of waiting on the balance.
