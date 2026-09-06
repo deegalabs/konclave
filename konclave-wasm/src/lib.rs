@@ -1900,6 +1900,59 @@ mod js_dkg {
         }
     }
 
+    /// This device's Ed25519 write-verifying key for a vault, hex (#288 / ADR-0011 D1).
+    ///
+    /// Derived from the FROST share under its own HKDF label, so it is reproduced on every unlock
+    /// with nothing stored. This PUBLIC half is what the device registers with the helper; the
+    /// secret half is derived on demand inside WASM to sign, and is never returned to JS.
+    #[wasm_bindgen(js_name = deviceWritePubHex)]
+    pub fn device_write_pub_hex(key_package: &[u8]) -> String {
+        let seed = seal::write_key_seed_from_share(key_package);
+        let vk = ed25519_dalek::SigningKey::from_bytes(&seed).verifying_key();
+        vk.as_bytes().iter().map(|b| format!("{b:02x}")).collect()
+    }
+
+    /// Sign a governance write with this device's Ed25519 key (#288 / ADR-0011).
+    ///
+    /// It BUILDS the canonical message itself, from `konclave_seal::write_message` - the same
+    /// function the helper recomputes with. The bytes are therefore never assembled in TypeScript,
+    /// which is the whole point: a second implementation of the format could drift, and the failure
+    /// it produces in the field is "your vote was refused" with nothing pointing at the cause.
+    ///
+    /// `action` is "approve", "refuse" or "rename"; anything else is rejected here rather than
+    /// silently signed as something the helper will not recognise. `target` is the proposal id, or
+    /// `old\0new` for a rename.
+    ///
+    /// Returns the 64-byte signature as hex. The signing key exists only for this call and never
+    /// reaches JS.
+    #[wasm_bindgen(js_name = signWrite)]
+    pub fn sign_write(
+        key_package: &[u8],
+        vault_id: &str,
+        action: &str,
+        target: &str,
+        seat: u16,
+        ts: f64,
+        nonce: &str,
+    ) -> Result<String, JsValue> {
+        use ed25519_dalek::Signer;
+        let action = match action {
+            "approve" => seal::WriteAction::Approve,
+            "refuse" => seal::WriteAction::Refuse,
+            "rename" => seal::WriteAction::Rename,
+            other => return Err(JsValue::from_str(&format!("unknown write action: {other}"))),
+        };
+        let msg = seal::write_message(vault_id, action, target, seat, ts as i64, nonce);
+        let seed = seal::write_key_seed_from_share(key_package);
+        let sk = ed25519_dalek::SigningKey::from_bytes(&seed);
+        Ok(sk
+            .sign(&msg)
+            .to_bytes()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect())
+    }
+
     /// Seal `plaintext` to a recipient's 32-byte public key (used on each round-2 package so the
     /// relay only ever carries ciphertext). `aad` binds context (sender+recipient) into the tag.
     #[wasm_bindgen(js_name = sealTo)]

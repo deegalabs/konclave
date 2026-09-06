@@ -64,6 +64,82 @@ pub fn device_key_from_share(key_package: &[u8]) -> DeviceKey {
     DeviceKey::from_secret_bytes(&okm)
 }
 
+/// What a governance write is (#288 / ADR-0011). Part of the signed message, so a signature for
+/// one action can never be replayed as another.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WriteAction {
+    Approve,
+    Refuse,
+    Rename,
+}
+
+impl WriteAction {
+    /// The tag that goes into the signed bytes. Changing one of these invalidates every signature
+    /// made with the old spelling, on both sides at once.
+    pub fn tag(self) -> &'static str {
+        match self {
+            WriteAction::Approve => "approve",
+            WriteAction::Refuse => "refuse",
+            WriteAction::Rename => "rename",
+        }
+    }
+}
+
+/// The canonical bytes a governance write signs.
+///
+/// It lives HERE, in the crate both sides already share, and not in either of them: the device
+/// signs these bytes (via konclave-wasm) and the helper recomputes them to verify (via
+/// orchestrator). Two implementations of this, however well tested, is a format that can drift -
+/// and the failure it produces in the field is "your vote was refused", with nothing pointing at
+/// the cause. One implementation makes the drift impossible instead of detectable.
+///
+/// `target` is the proposal id for a vote, or `old\0new` for a rename. Binding the vault, the
+/// action, the target, the seat, the timestamp and the nonce means a captured signature cannot be
+/// replayed as a different action, on a different proposal, or in a different vault. Variable-length
+/// fields are LENGTH-PREFIXED rather than joined: `target` can itself contain a separator, so
+/// ordering alone would let two distinct writes encode to the same bytes.
+pub fn write_message(
+    vault_id: &str,
+    action: WriteAction,
+    target: &str,
+    seat: u16,
+    ts: i64,
+    nonce: &str,
+) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(b"konclave-write-v1\0");
+    for field in [vault_id, action.tag(), target, nonce] {
+        out.extend_from_slice(&(field.len() as u32).to_be_bytes());
+        out.extend_from_slice(field.as_bytes());
+    }
+    out.extend_from_slice(&seat.to_be_bytes());
+    out.extend_from_slice(&ts.to_be_bytes());
+    out
+}
+
+/// A device's Ed25519 key for signing governance writes, derived from the same FROST share under
+/// its OWN HKDF label (#288 / ADR-0011 D1).
+///
+/// One device identity, two sub-keys: X25519 for sealing (above), Ed25519 for signing. The FROST
+/// share itself stays reserved for the threshold signature and nothing else - the hygiene
+/// `frost-client` follows, where a participant's CommunicationKey authenticates coordination and
+/// the key_package signs transactions.
+///
+/// The label differs from the comms one, so the two keys are cryptographically independent: an
+/// attacker who somehow obtained one learns nothing about the other, and neither reveals the share
+/// (HKDF is one-way). Nothing new is stored - like the comms key, this is reproduced on every
+/// unlock from the already-sealed share.
+///
+/// Returns the 32-byte seed. The caller builds the signing key from it; only the PUBLIC half is
+/// ever registered or transmitted.
+pub fn write_key_seed_from_share(key_package: &[u8]) -> [u8; 32] {
+    let hk = Hkdf::<Sha256>::new(None, key_package);
+    let mut okm = [0u8; 32];
+    hk.expand(b"konclave-device-write-v1", &mut okm)
+        .expect("hkdf expand 32 bytes never fails");
+    okm
+}
+
 fn derive_key(shared: &[u8; 32]) -> [u8; 32] {
     let hk = Hkdf::<Sha256>::new(None, shared);
     let mut okm = [0u8; 32];
@@ -189,6 +265,35 @@ pub fn open_body(key: &[u8; 32], sealed: &[u8]) -> Result<Vec<u8>, String> {
 
 #[cfg(test)]
 mod tests {
+
+    /// #288 / ADR-0011 D1. Nothing is stored, so the key MUST be reproducible from the share alone -
+    /// and it must be independent of the comms key, or one identity's compromise is both.
+    #[test]
+    fn the_write_seed_is_deterministic_and_independent_of_the_comms_key() {
+        let share = b"a serialized key package, for the test";
+        let other = b"a different device's share";
+
+        assert_eq!(
+            write_key_seed_from_share(share),
+            write_key_seed_from_share(share),
+            "same share, same seed - it is reproduced on every unlock, never stored"
+        );
+        assert_ne!(
+            write_key_seed_from_share(share),
+            write_key_seed_from_share(other),
+            "a different device gets a different key"
+        );
+        assert_ne!(
+            write_key_seed_from_share(share).to_vec(),
+            device_key_from_share(share).secret_bytes().to_vec(),
+            "the write key and the comms key are different keys from the same share"
+        );
+        assert_ne!(
+            write_key_seed_from_share(share).to_vec(),
+            share.to_vec(),
+            "and neither is the share itself"
+        );
+    }
     use super::*;
 
     #[test]

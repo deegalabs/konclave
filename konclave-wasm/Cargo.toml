@@ -18,6 +18,9 @@ frost-rerandomized = "=3.0.0"
 # Orchard action verification + digest surface (proven wasm-clean: wasm-orchard-probe).
 # Ironwood: bumped 0.14 -> 0.15 to match the engine's NU6.3 pin so the PCZT wire format (v2) parses.
 orchard = { version = "0.15", default-features = false, features = ["unstable-frost"] }
+# ADR-0011 D1: the device signs governance writes with an Ed25519 key derived from its share.
+# The secret half never leaves WASM; only the public half is registered.
+ed25519-dalek = { version = "2", default-features = false }
 # ZIP-244 sig_digest recompute (proven wasm-clean: wasm-sighash-probe)
 blake2b_simd = "1"
 # PCZT parse + FROST signature injection (the FROST<->PCZT bridge, ported from konclave-signer).
