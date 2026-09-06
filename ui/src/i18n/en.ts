@@ -303,7 +303,13 @@ export const en: Record<string, string> = {
   'set.fingerprint': 'Fingerprint',
   'set.readRow': 'Open the books',
   'set.readValuePass': 'passphrase',
-  'set.readValueBoth': 'passphrase or this device',
+  // #475: "Ativar neste aparelho" never said WHAT it activates - the row read "Open the books:
+  // passphrase" beside a button that could have meant anything. `passkey` is the word Apple,
+  // Google and Microsoft all put in front of people, so it is the rare crypto-adjacent term that
+  // makes the control CLEARER rather than more technical. Avoiding it here bought vagueness.
+  'set.passkeyValue': 'frase-senha ou passkey',
+  'set.passkeyOn': 'Criar passkey',
+  'set.passkeyOff': 'Remover passkey',
   'set.spendRow': 'Approve and send',
   'set.spendValue': 'always the passphrase',
   'set.accessNote': 'The shortcut works on this device only. The passphrase always works.',
@@ -336,8 +342,6 @@ export const en: Record<string, string> = {
   'vaults.passkeyUnlock': 'Unlock with this device',
   'vaults.passkeyBusy': 'Waiting for this device…',
   'settings.passkeyTitle': 'Unlock with this device',
-  'settings.passkeyOn': 'Turn on for this device',
-  'settings.passkeyOff': 'Turn off on this device',
   'settings.passkeyFail': 'This device could not set that up. The passphrase still works.',
   'settings.remove': 'Remove from this device',
   'settings.removing': 'Removing…',

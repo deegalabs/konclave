@@ -303,7 +303,13 @@ export const ptBR: Record<string, string> = {
   'set.fingerprint': 'Impressão',
   'set.readRow': 'Abrir os livros',
   'set.readValuePass': 'frase-senha',
-  'set.readValueBoth': 'frase-senha ou este aparelho',
+  // #475: "Ativar neste aparelho" nunca dizia O QUE ativa - a linha lia "Abrir os livros:
+  // frase-senha" ao lado de um botão que podia significar qualquer coisa. `passkey` é a palavra
+  // que Apple, Google e Microsoft põem na frente das pessoas, então é o raro termo de cripto que
+  // deixa o controle MAIS claro em vez de mais técnico. Evitá-lo aqui só comprou vagueza.
+  'set.passkeyValue': 'frase-senha ou passkey',
+  'set.passkeyOn': 'Criar passkey',
+  'set.passkeyOff': 'Remover passkey',
   'set.spendRow': 'Aprovar e enviar',
   'set.spendValue': 'sempre a frase-senha',
   'set.accessNote': 'O atalho vale só neste aparelho. A frase-senha sempre funciona.',
@@ -336,8 +342,6 @@ export const ptBR: Record<string, string> = {
   'vaults.passkeyUnlock': 'Destravar com este aparelho',
   'vaults.passkeyBusy': 'Aguardando este aparelho\u2026',
   'settings.passkeyTitle': 'Destravar com este aparelho',
-  'settings.passkeyOn': 'Ativar neste aparelho',
-  'settings.passkeyOff': 'Desativar neste aparelho',
   'settings.passkeyFail': 'Este aparelho n\u00e3o conseguiu configurar. A senha continua funcionando.',
   'settings.remove': 'Remover deste aparelho',
   'settings.removing': 'Removendo…',

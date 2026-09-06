@@ -10,6 +10,7 @@ import { listVaults } from './storage'
 import { VaultSignerProvider } from './VaultSigner'
 import { LoadingProvider, TopProgress } from './loading'
 import SigningPanel from './screens/SigningPanel'
+import AppPrefs from './AppPrefs'
 import LockOverlay from './LockOverlay'
 import type { VaultSrc } from './unlock'
 
@@ -169,6 +170,12 @@ export default function Layout() {
           </div>
         </Link>
 
+        {/* Per-device app preferences, in the app chrome. On desktop the rail is a column, so this
+            sits under the brand - the top. On mobile the rail IS the top bar, so it lands beside
+            the vault chip. Either way it is reachable from every screen instead of three taps into
+            one vault's settings, which is where a per-VAULT setting would belong and these are not. */}
+        <AppPrefs />
+
         <nav className="railnav" aria-label="Konclave">
           {/* Desktop: three labelled bands. Mobile: `.rail-band` becomes display:contents and the
               labels hide, so these flatten into the tab bar (primary items) + a "More" sheet. */}
@@ -211,6 +218,11 @@ export default function Layout() {
                   {icon}<span>{label}</span>
                 </NavLink>
               ))}
+              {/* On a phone the top bar has the brand, the vault chip and the live dot to fit, and
+                  two segmented controls squeezed the wordmark down to "K". Both are RARE actions -
+                  the bar's job is identity, current vault and liveness - so they live in the
+                  overflow the app already has. On desktop they stay in the rail, under the brand. */}
+              <div className="nav-more-prefs"><AppPrefs /></div>
             </div>
           </>
         )}
