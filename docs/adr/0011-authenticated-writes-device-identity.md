@@ -92,6 +92,35 @@ FROST signing share, matching the Zcash Foundation's frost-client pattern.
   to register the write keys, so read-gate (#388) and write-auth (#288) migrate in one guided flow.
   No key change, no re-creation, funds untouched.
 
+### Amendment, 2026-09-05: D6 does not apply to the local bridge
+
+D6 says the rule lives once and **both** backends call it, so web and desktop cannot answer
+differently for the same action. The first half stands and is implemented. The second half assumed a
+symmetry the two paths do not have, and building it would add a check that checks nothing.
+
+**The helper authenticates a remote device that holds a share.** That is what the Ed25519 identity is
+for: the helper cannot see who is on the other end of an HTTP request, so the device proves it.
+
+**The bridge IS the device.** It listens on loopback, it is already behind a session and a CSRF gate,
+and its `vault_members.pubkey` is the FROST comm key, not a write key. There is no second party to
+authenticate: whoever reaches it is already on the machine that holds the vault. Registering a
+"device key" there would be the process authenticating itself to itself.
+
+Wiring `authorize_write` into `orchestrator::server::vote_proposal` today would therefore add a call
+that always returns `Open` (no registered keys, nothing to verify) while making the issue **look**
+closed on both paths. That is worse than not doing it: a security control that is present and inert
+is one nobody re-examines.
+
+**So the decision is amended.** What D6 requires, and what holds, is that the RULE is not written
+twice: it lives in `orchestrator::write_auth` and is callable by both. What it does not require is
+that a loopback backend invent a second actor in order to authenticate it. If the bridge ever grows
+one - a remote device pairing with a desktop vault, say - the rule is already there to call.
+
+The drift D6 exists to prevent (#349, #215) is *two implementations of one rule*. That is avoided.
+Two surfaces with genuinely different threat models answering differently is not drift; it is the
+threat models being different, and saying so in writing is what keeps the next person from
+"fixing" it.
+
 **Rejected alternatives.**
 
 - **B (symmetric writeKey).** The helper would hold the secret it verifies against, so a compromised

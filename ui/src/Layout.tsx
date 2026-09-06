@@ -69,7 +69,13 @@ export default function Layout() {
         unlockedThisSession: isVaultUnlocked(v.id),
         securedLocally: await securedLocally(v.id),
         hasAccessSecret: !!getUnlockedShare(v.id)?.accessSecret,
-      })) { nav('/vaults'); return }
+      })) {
+        // Carry where we were, so unlocking returns you there instead of the dashboard (#446 D).
+        // Router state, not storage: it must live exactly as long as this bounce, and a reload is
+        // what sent you here in the first place.
+        nav('/vaults', { state: { from: loc.pathname } })
+        return
+      }
       if (v) setVault(v)
     })()
     return () => { on = false }
