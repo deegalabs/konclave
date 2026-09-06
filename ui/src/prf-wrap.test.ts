@@ -106,4 +106,22 @@ describe('the PRF wrap (#446 C)', () => {
     const ext = create.mock.calls[0]![0].publicKey?.extensions as { prf?: unknown }
     expect(ext.prf, 'PRF is requested at creation').toBeDefined()
   })
+
+  // The shortcut is per-device by design: the spec guarantees nothing about PRF output surviving a
+  // passkey sync, and Apple's own forums carry reports of it differing by sync direction. Enrolling
+  // a roaming authenticator - a security key, or another phone over QR - would bind the wrap to
+  // something this browser may not reach next reload, which is the case the design refuses to rely
+  // on. Asserted on what is REQUESTED, since only the browser can honour it.
+  it('asks for this device, not any authenticator the browser can reach', async () => {
+    let asked: CredentialCreationOptions | undefined
+    const auth = fakeAuth('A')
+    const spy: Authenticator = {
+      create: (o) => { asked = o; return auth.create(o) },
+      get: (o) => auth.get(o),
+    }
+    await enrolPrf(spy, 'ab'.repeat(32), S, RP, 'member')
+    const sel = asked?.publicKey?.authenticatorSelection
+    expect(sel?.authenticatorAttachment, 'a roaming authenticator must not be enrolled').toBe('platform')
+    expect(sel?.userVerification, 'the member must be verified, not merely present').toBe('required')
+  })
 })
