@@ -135,6 +135,13 @@ export default function Docs() {
   const isPT = loc === 'pt-BR'
   const [expanded, setExpanded] = useState<{ src: string; alt: string } | null>(null)
 
+  const navRef = useRef<HTMLElement>(null)
+  useEffect(() => {
+    navRef.current
+      ?.querySelector('.docs-navlink.active')
+      ?.scrollIntoView({ block: 'nearest', inline: 'center' })
+  }, [cur.id])
+
   return (
     <div className="docs">
       <Letterhead
@@ -143,7 +150,10 @@ export default function Docs() {
       <div className="docs-body">
         <aside className="docs-side" aria-label={isPT ? 'Documentação' : 'Documentation'}>
           <div className="docs-side-label">{isPT ? 'Documentação' : 'Documentation'}</div>
-          <nav>
+          {/* The active link is scrolled into view on the mobile strip: a one-row nav that opens
+              showing the FIRST section, when you are reading the ninth, answers the wrong question.
+              `nearest` so a desktop sidebar, where everything is already visible, never jumps. */}
+          <nav ref={navRef}>
             {SECTIONS.map((s) => (
               <Link
                 key={s.id}

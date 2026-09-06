@@ -320,9 +320,24 @@
     border-bottom: 1px solid var(--line);
     padding: 18px 16px;
   }
-  .docs-side nav { flex-direction: row; flex-wrap: wrap; gap: 6px; }
-  .docs-navlink { border-left: none; padding: 7px 11px; font-size: 13px; }
-  .docs-navlink.active { border-left: none; }
+  /* One row that scrolls, not five that wrap. Thirteen sections wrapping took ~500px - more than
+     half a phone screen - before the reader met a single word of the page they asked for. The strip
+     bleeds to both edges so it reads as scrollable rather than as a list that happens to be cut. */
+  .docs-side { padding: 14px 0; overflow: hidden; }
+  .docs-side-label { padding-inline: 16px; }
+  .docs-side nav {
+    flex-direction: row; flex-wrap: nowrap; gap: 6px;
+    overflow-x: auto; scroll-snap-type: x proximity;
+    padding-inline: 16px; -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .docs-side nav::-webkit-scrollbar { display: none; }
+  .docs-navlink {
+    border-left: none; padding: 7px 12px; font-size: 13px;
+    flex: 0 0 auto; white-space: nowrap; scroll-snap-align: start;
+    border: 1px solid var(--line-2); border-radius: 999px;
+  }
+  .docs-navlink.active { border-left: none; border-color: var(--accent-line); }
   .docs-main { padding: 26px 20px 60px; }
   .docs-title { font-size: 27px; }
 }
