@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Skeleton } from '../skeleton'
+import Hint from '../Hint'
 import { Dialog, PassphraseField, Secret } from '../components'
 import CopyButton from '../CopyButton'
 import { changePassphrase } from '../storage'
 import { useNavigate, Link } from 'react-router-dom'
-import { Seal, Loading, LangToggle } from '../components'
+import { Seal, Loading } from '../components'
 import { VersionBadge } from '../UpdatePrompt'
 import { PageHeader, PageFooter } from '../page'
 import { useT, useTr } from '../i18n'
@@ -19,7 +20,6 @@ import { listVaults, exportVault, forgetVault, type Governance } from '../storag
 import { clearUnlockedShare } from '../session'
 import { downloadText } from '../download'
 import { vaultFingerprint } from '../format'
-import { getTheme, setTheme, type Theme } from '../theme'
 import { getCoordMode, setCoordMode, getCustomHelper, HELPER_BASE, getUfvk, type CoordMode } from '../helper'
 import { isDesktop } from '../platform'
 
@@ -33,8 +33,6 @@ export default function Settings() {
   const t = useT()
   const tr = useTr()
   const nav = useNavigate()
-  const [theme, setThemeState] = useState<Theme>(getTheme())
-  const pickTheme = (v: Theme) => { setTheme(v); setThemeState(v) }
   // Coordination mode (desktop): our helper / your own / local. Persist + reload so netMode
   // recomputes app-wide. The helper stays blind in every mode.
   const [coord, setCoord] = useState<CoordMode>(getCoordMode())
@@ -273,7 +271,7 @@ export default function Settings() {
         <>
           <section className="set-list mt">
             <div className="set-row">
-              <span className="set-k">{t('settings.coordination')}</span>
+              <span className="set-k">{t('settings.coordination')}<Hint>{t('settings.coordHint')}</Hint></span>
               <span className="set-v" style={{ display: 'inline-flex', gap: 8, flexWrap: 'wrap' }}>
                 {HELPER_BASE && (
                   <button type="button" className={'btn' + (coord === 'ours' ? ' ok' : ' ghost')} onClick={() => applyCoord('ours')}>{t('settings.coordHosted')}</button>
@@ -289,7 +287,6 @@ export default function Settings() {
               </div>
             )}
           </section>
-          <p className="set-hint">{t('settings.coordHint')}</p>
         </>
       )}
 
@@ -299,6 +296,18 @@ export default function Settings() {
       {live === null && <Loading />}
 
       {live !== null && <>
+      {/* #488: a section index, the way a settings screen with named sections earns one. Only where
+          there is room BESIDE the content - the app already has a rail, and a second one on a laptop
+          is two navigations competing for the same job. Below that width the page is short enough to
+          scroll, which is the honest reason to hide it rather than shrink it. */}
+      <nav className="set-index" aria-label={t('settings.title')}>
+        <a href="#s-vault">{t('set.secVault')}</a>
+        <a href="#s-access">{t('set.secAccess')}</a>
+        {gov && <a href="#s-gov">{t('set.secGov')}</a>}
+        {settled && hasLocal && <a href="#s-keys">{t('set.secKeys')}</a>}
+        <a href="#s-remove">{t('set.secRemove')}</a>
+      </nav>
+      <div className="set-body">
       <h2 className="set-sec">{t('set.secVault')}</h2>
       <div className="set-list">
         {network && (
@@ -394,14 +403,13 @@ export default function Settings() {
           <h2 className="set-sec">{t('set.secGov')}</h2>
           <div className="set-list">
             <div className="set-row">
-              <span className="set-k">{t('settings.governance')}</span>
+              <span className="set-k">{t('settings.governance')}<Hint>{t('settings.govNote')}</Hint></span>
               {/* "Aberto" already means "anyone with the link reads your books" on the vault list.
                   One word, two meanings, on adjacent screens - so the governance one is renamed.
                   And an absent field is "no record", never an asserted policy. */}
               <span className="set-v">{gov === 'quorum' ? t('settings.govQuorum') : t('set.govNoQuorum')}</span>
             </div>
           </div>
-          <p className="set-hint">{t('settings.govNote')}</p>
         </>
       )}
 
@@ -418,7 +426,7 @@ export default function Settings() {
               them. Both are `…` because both now open a dialog - the ellipsis was already there,
               describing a pattern the code did not have. */}
           <div className="set-row">
-            <span className="set-k">{t('export.title')}</span>
+            <span className="set-k">{t('export.title')}<Hint>{t('export.note')}</Hint></span>
             <span className="set-v"><span className="set-actions">
               <button type="button" className="btn ghost sm-btn" onClick={() => { setXpOpen(true); setXpErr(null) }}>
                 {t('export.open')}
@@ -435,7 +443,6 @@ export default function Settings() {
           </div>
         </div>
       ) : null}
-      {settled && hasLocal && <p className="set-hint">{t('export.note')}</p>}
 
       <h2 className="set-sec">{t('set.secRemove')}</h2>
       <section className="set-danger">
@@ -489,6 +496,7 @@ export default function Settings() {
           </div>
         )}
       </section>
+      </div>
       </>}
 
       {/* Both disclosures are DIALOGS now. As inline cards they pushed the page ~260px, so the
@@ -563,7 +571,7 @@ export default function Settings() {
           {/* The moment a member is most likely to act on it: they have just made the file and are
               deciding where to put it. The docs page tells them to save the instructions WITH it,
               which is the part nobody does later (#486). */}
-          <p className="set-hint" style={{ margin: '0 0 12px' }}>
+          <p className="dlg-link">
             <Link to="/docs/recovery" onClick={() => { setXpOpen(false); setXpPass(''); setXpErr(null) }}>
               {t('export.howToOpen')}
             </Link>
@@ -585,28 +593,6 @@ export default function Settings() {
         </Dialog>
       )}
 
-      {/* LAST, and under its own name. These are per-DEVICE app preferences, not vault settings,
-          and they used to occupy the first screenful above the vault's own identity. Moving them
-          into the shell is the fuller change and touches the rail; this is the reversible half. */}
-      <h2 className="set-sec">{t('set.secApp')}</h2>
-      <section className="set-list">
-        <div className="set-row">
-          <span className="set-k">{t('settings.appearance')}</span>
-          {/* `aria-pressed`, so the selected option is exposed at all - the state was conveyed
-              only by swapping the accent fill, which a screen reader cannot see. `LangToggle` in
-              components.tsx already does this correctly; this is the same rule, second copy.
-              And `.btn.ok` is gone: the blue means focus, primary action and QUORUM, never "this
-              is the one you picked". */}
-          <span className="set-v" role="group" aria-label={t('settings.appearance')}>
-            <button type="button" aria-pressed={theme === 'light'} className={'btn sm-btn' + (theme === 'light' ? ' sel' : ' ghost')} onClick={() => pickTheme('light')}>{t('settings.light')}</button>
-            <button type="button" aria-pressed={theme === 'dark'} className={'btn sm-btn' + (theme === 'dark' ? ' sel' : ' ghost')} onClick={() => pickTheme('dark')}>{t('settings.dark')}</button>
-          </span>
-        </div>
-        <div className="set-row">
-          <span className="set-k">{t('settings.language')}</span>
-          <span className="set-v"><LangToggle /></span>
-        </div>
-      </section>
 
       <PageFooter>{t('settings.footer')} · <VersionBadge /></PageFooter>
     </main>

@@ -88,6 +88,7 @@ export const ptBR: Record<string, string> = {
   'common.backProposals': '← Propostas',
   'common.remove': 'remover',
   'common.loading': 'Carregando…',
+  'common.whatIsThis': 'O que é isto?',
   'common.vaultUnreachable': 'Sem conexão com o cofre agora.',
   'receive.qrAlt': 'QR do endereço de recebimento do cofre',
 
