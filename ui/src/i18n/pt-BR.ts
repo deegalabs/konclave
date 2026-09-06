@@ -345,6 +345,11 @@ export const ptBR: Record<string, string> = {
   'proposal.ceremonyNote': 'Você assina lá, no seu aparelho, com o seu pedaço da chave. Quando o quórum assina, a proposta volta como Enviada.',
   'vaults.networkedVault': 'Cofre compartilhado',
   'vaults.networkedTag': 'Compartilhado',
+  // #467: o destravamento no lugar. Um F5 tranca a porta, não muda de sala - então a cópia diz que
+  // o cofre está trancado, nunca que a pessoa precisa ir a outro lugar ou recomeçar.
+  'lock.prompt': 'Este cofre está trancado. Digite a sua frase-senha deste aparelho para continuar de onde parou.',
+  'lock.unlock': 'Destravar',
+  'lock.leave': 'Sair do cofre',
   'vaults.netUnlockPrompt': 'Digite a sua frase-senha deste aparelho para abrir o seu pedaço da chave. A chave é decifrada só na memória.',
   'vaults.passphrase': 'Frase-senha',
   'members.nameThem': 'Nomeie os membros',

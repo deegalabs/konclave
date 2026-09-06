@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useLocation, Link } from 'react-router-dom'
-import { getVaults, health, setSelectedVault, getSelectedVault, clearSelectedVault, unlockVault, markVaultUnlocked, isVaultUnlocked, shortAddr, type Vault } from '../api'
+import { getVaults, health, setSelectedVault, getSelectedVault, clearSelectedVault, markVaultUnlocked, isVaultUnlocked, shortAddr, type Vault } from '../api'
 import { helperConfigured, getCustomHelper, setCoordMode, HELPER_BASE } from '../helper'
 import { isDesktop } from '../platform'
-import { listVaults, loadVault, importVault, parseVaultExport, forgetVault, type VaultExport } from '../storage'
-import { setUnlockedShare, clearUnlockedShare, setReadSecret, clearReadSecret } from '../session'
+import { listVaults, importVault, parseVaultExport, forgetVault, type VaultExport } from '../storage'
+import { clearUnlockedShare, setReadSecret, clearReadSecret } from '../session'
 import { loadPrfWrap, clearPrfWrap } from '../prf-store'
 import { openPrf } from '../prf-wrap'
+import { unlockOnDevice } from '../unlock'
 import { Identicon } from '../avatar'
 import { Dialog, Letterhead, activateOnKey } from '../components'
 import NetVault from './NetVault'
@@ -184,19 +185,16 @@ export default function Vaults() {
     const { v, src } = unlocking
     setUnlockBusy(true); setUnlockErr(null)
     try {
-      if (src === 'net') {
-        // Browser-native: decrypt this device's share into the session store, then open.
-        const share = await loadVault(v.id, pass)
-        setUnlockedShare(v.id, share)
-        markVaultUnlocked(v.id)
+      // The same `unlockWith` the in-place overlay calls (#467). It used to be written out here,
+      // which would have made the overlay a second copy of it.
+      const r = await unlockOnDevice(v.id, src, pass)
+      if (r.ok) {
         // Back where you were, when a guard sent you here (#446 D). `/vaults` itself is never a
         // destination: returning to the picker you just used would be a loop.
-        nav(returnTo ?? '/dashboard')
+        nav(src === 'net' ? (returnTo ?? '/dashboard') : '/dashboard')
         return
       }
-      const r = await unlockVault(pass)
-      if (r.ok) { markVaultUnlocked(v.id); nav('/dashboard') }
-      else setUnlockErr(r.wrong ? t('vaults.unlockWrong') : t('vaults.unlockFail'))
+      setUnlockErr(r.wrong ? t('vaults.unlockWrong') : t('vaults.unlockFail'))
     } catch {
       setUnlockErr(t('vaults.unlockWrong'))
     } finally {

@@ -345,6 +345,11 @@ export const en: Record<string, string> = {
   'proposal.ceremonyNote': 'You sign there, on your device, with your own share of the key. Once the quorum signs, the proposal returns as Sent.',
   'vaults.networkedVault': 'Shared vault',
   'vaults.networkedTag': 'Shared',
+  // #467: the in-place unlock. A reload locks the door, not the room - so the copy says the vault
+  // is locked, never that the member must go somewhere or start again.
+  'lock.prompt': 'This vault is locked. Type your passphrase for this device to carry on where you were.',
+  'lock.unlock': 'Unlock',
+  'lock.leave': 'Leave the vault',
   'vaults.netUnlockPrompt': 'Type your passphrase for this device to open your share of the key. The key is decrypted only in memory.',
   'vaults.passphrase': 'Passphrase',
   'members.nameThem': 'Name the members',
