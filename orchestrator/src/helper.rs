@@ -1049,6 +1049,24 @@ pub fn backfill_change_receivers(vaults_dir: &Path, network: &str) -> usize {
     n
 }
 
+/// What a booting helper needs from its volume: the registrations, with every migration ALREADY
+/// applied (#482).
+///
+/// The order is the whole point, and getting it wrong is invisible. `main` used to seed the
+/// in-memory registry from disk and then run the backfills, so the backfills corrected the FILES
+/// while the running process kept serving the values it had already read - `/api/vault` returned an
+/// empty change receiver and `/api/vault/ufvk` a null birthday, for the entire life of that
+/// process, after a log line that said "recorded". It self-healed on the next restart, which is the
+/// worst kind of bug: it looks fixed by the time anyone looks.
+///
+/// Fixing it by moving two lines in `main` would leave the next person free to move them back. This
+/// makes the order a property of a function with a test in front of it.
+pub fn boot_registry(vaults_dir: &Path, network: &str) -> (Vec<VaultRegistration>, usize, usize) {
+    let birthdays = backfill_birthdays(vaults_dir);
+    let receivers = backfill_change_receivers(vaults_dir, network);
+    (load_registrations(vaults_dir), birthdays, receivers)
+}
+
 /// Load every persisted registration under `vaults_dir` (one `<id>/registration.json` each), so a
 /// restarting helper reseeds its in-memory registry from disk. Skips anything unreadable.
 pub fn load_registrations(vaults_dir: &Path) -> Vec<VaultRegistration> {
@@ -1447,6 +1465,51 @@ mod tests {
         let reg: VaultRegistration = serde_json::from_str(json).expect("legacy registration loads");
         assert_eq!(reg.birthday, None);
         assert_eq!(reg.change_receiver, "");
+    }
+
+    /// A real, decodable mainnet UFVK, so `change_receiver` has something to derive from.
+    const UFVK_FOR_BOOT: &str = "uview1z2nst9y9367acqqykyws80hrc3df87ffnwvtvx3ggf3tvx342sncxxfztdgfk67a0xk4c0wptspqyc4k59ucqrtxgdka96ktjudm5gr65d8aaq6js0jpwrfryrafzu82axyezm9e6y5r96z7hk8a04zpvs5896xeze9pmpwwymh5h7xeae79wscp2c08j";
+
+    /// #482. The backfills must run BEFORE the registry is read, or the process serves the values
+    /// it loaded first and the correction only appears after a restart - having already logged that
+    /// it happened.
+    #[test]
+    fn boot_returns_registrations_with_the_backfills_already_applied() {
+        let dir = std::env::temp_dir().join(format!("konclave-boot-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let id = "a".repeat(64);
+        let mut r = reg(&id);
+        r.birthday = None;
+        r.change_receiver = String::new();
+        r.ufvk = UFVK_FOR_BOOT.to_string();
+        r.wallet_dir = dir
+            .join(format!("{id}/wallet"))
+            .to_string_lossy()
+            .into_owned();
+        std::fs::create_dir_all(&r.wallet_dir).unwrap();
+        std::fs::write(
+            Path::new(&r.wallet_dir).join("keys.toml"),
+            "network = \"main\"\nbirthday = 3459814\n",
+        )
+        .unwrap();
+        save_registration(&dir, &r).unwrap();
+
+        let (regs, birthdays, receivers) = boot_registry(&dir, "main");
+        assert_eq!((birthdays, receivers), (1, 1), "both migrations ran");
+        let got = regs.iter().find(|x| x.vault_id == id).expect("loaded");
+        assert_eq!(
+            got.birthday,
+            Some(3_459_814),
+            "the registry a booting helper serves already HAS the birthday"
+        );
+        assert!(
+            !got.change_receiver.is_empty(),
+            "and the change receiver, rather than only the file on disk"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// The boot backfill (#434). It runs against the live production volume, so what matters as
