@@ -1306,20 +1306,19 @@ fn main() {
     let state = Arc::new(HelperState::new());
     // Reseed the registry from disk (a restart / redeploy keeps every vault when vaults_dir is on a
     // persistent volume). Only public / view-only material is loaded - never a share.
-    let restored = orchestrator::helper::load_registrations(&cfg.vaults_dir);
+    //
+    // Migrations run FIRST, then the read - `boot_registry` owns that order (#482). This used to
+    // seed the registry and then back-fill, so the corrections landed on DISK while the running
+    // process kept serving what it had already read: an empty change receiver from `/api/vault` and
+    // a null birthday from `/api/vault/ufvk`, for the life of that process, right after a log line
+    // saying "recorded". It healed on the next restart, which is the worst kind of bug - it looks
+    // fixed by the time anyone goes to check.
+    let (restored, birthdays, receivers) =
+        orchestrator::helper::boot_registry(&cfg.vaults_dir, &cfg.network);
     let restored_n = restored.len();
     for reg in restored {
         state.insert(reg);
     }
-    // Record the wallet birthday on any registration still missing one (#434). Boot is where this
-    // belongs: the number lives only in `wallet/keys.toml`, which the ops backup excludes, so every
-    // deploy that runs without it is a deploy where a volume loss is unrecoverable. It only ADDS a
-    // field, never rewrites one, and never touches `wallet/`.
-    let birthdays = orchestrator::helper::backfill_birthdays(&cfg.vaults_dir);
-    // The same migration for the money gate's change receiver (#476). It is computed at
-    // registration, and registration is a thing browsers do rarely - so without this the field
-    // stays empty on every vault that was created before it existed, which is all of them.
-    let receivers = orchestrator::helper::backfill_change_receivers(&cfg.vaults_dir, &cfg.network);
 
     // Sweep every leftover send scratch directory before serving a single request (#297).
     //
