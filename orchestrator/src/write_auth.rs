@@ -165,7 +165,7 @@ fn unhex32x2(h: &str) -> Option<[u8; 64]> {
 }
 
 fn unhex(h: &str) -> Option<Vec<u8>> {
-    if h.len() % 2 != 0 {
+    if !h.len().is_multiple_of(2) {
         return None;
     }
     (0..h.len())
