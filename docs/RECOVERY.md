@@ -116,6 +116,59 @@ that guessed "recent" would have buried months of history on the older vaults - 
 Store the result off the server. With this plus each member's share export, any vault is fully
 recoverable.
 
+## Opening an export without Konclave
+
+The encrypted export is the only spare key a member has, so it must be openable when Konclave is
+not there to open it — a dead laptop, a browser that will not start, or the project itself gone.
+It is deliberately plain cryptography with no custom format, so a standard library is enough.
+
+The file has five fields outside the ciphertext, and none of them is a secret:
+
+| field | what it is |
+|---|---|
+| `format`, `version` | how to read the file |
+| `kdfIters`, `salt`, `iv` | **public parameters** of the KDF and the cipher — they must travel with the ciphertext or nothing opens |
+| `exportedAt` | when it was written |
+| `cipher` | everything else |
+
+Inside `cipher`, under AES-256-GCM with a key derived from the passphrase by **PBKDF2-HMAC-SHA256**:
+the vault id, name, governance, your member name, the creator, the group key, the address, the
+roster, the creation date, **your share**, the vault's access secret `S`, the beneficiaries, and the
+**viewing key**. Nothing identifies the vault from outside the ciphertext — not even its id.
+
+```js
+// abrir.mjs — opens a v2 export with nothing but Node's own crypto.
+//   node abrir.mjs export.json 'your passphrase'
+import { readFileSync } from 'node:fs'
+import { webcrypto as c } from 'node:crypto'
+
+const [file, passphrase] = process.argv.slice(2)
+const b = JSON.parse(readFileSync(file, 'utf8'))
+const unhex = (h) => Uint8Array.from(h.match(/../g).map((x) => parseInt(x, 16)))
+
+const base = await c.subtle.importKey('raw', new TextEncoder().encode(passphrase),
+  'PBKDF2', false, ['deriveKey'])
+const key = await c.subtle.deriveKey(
+  // `kdfIters` comes FROM THE FILE. An export written before that field existed has none, and
+  // 210000 is what it was sealed with (#435).
+  { name: 'PBKDF2', salt: unhex(b.salt), iterations: b.kdfIters ?? 210000, hash: 'SHA-256' },
+  base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
+const plain = await c.subtle.decrypt({ name: 'AES-GCM', iv: unhex(b.iv) }, key, unhex(b.cipher))
+console.log(JSON.stringify(JSON.parse(new TextDecoder().decode(plain)), null, 2))
+```
+
+**A wrong passphrase throws.** AES-GCM authenticates, so it does not decrypt to garbage — it
+refuses. The same is true of a file that has been altered by a byte.
+
+**What this gets you, and what it does not.** The payload contains the share, so with it a member
+can rebuild their seat in any FROST tooling that speaks the same key package. It does **not** contain
+the helper's `registration.json`, which holds the vault's identity and wallet — see *The complete
+recovery kit* above. Both halves are needed to rebuild the vault rather than just the seat.
+
+> **A v1 export** (no `version` field, or `version: 1`) is a different shape: the metadata is in the
+> clear and only the share is sealed. The same derivation opens it; the fields differ. #405 replaced
+> it precisely so a leaked backup would reveal nothing, including which vault it belongs to.
+
 ## Open work
 
 - **#214** wants the fix: the export should also carry the UFVK + address, and the helper should gain

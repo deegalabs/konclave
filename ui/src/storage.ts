@@ -29,7 +29,20 @@ const PBKDF2_ITERS_LEGACY = 210_000
  * be opened by a build that assumes the lower one, and vice versa. Phase one - this - only makes
  * the parameter travel with the ciphertext. Raise it once the reader has shipped, not sooner.
  */
-const PBKDF2_ITERS = 210_000
+// OWASP's PBKDF2 guidance is per HASH, and the two numbers look interchangeable: 600k for
+// HMAC-SHA256, ~210k for SHA-512. `deriveKey` uses SHA-256 and this was 210k - the SHA-512 number
+// paired with the SHA-256 hash, so it was short by roughly 3x (#479).
+//
+// Raising it is safe only because #443 made the count travel WITH the ciphertext: every vault and
+// every backup already sealed keeps opening at its own count, and only new writes use this one. A
+// member migrates by rotating their passphrase (#470), which re-seals at whatever is current.
+//
+// Measured before choosing: 27ms at 210k, 71ms at 600k on a laptop - so a few hundred ms on a
+// phone, once per unlock. That is a fair price for three times the work an attacker must do.
+const PBKDF2_ITERS = 600_000
+/** Exposed for the test that checks the count matches the HASH in use - the two OWASP numbers look
+ *  interchangeable and the wrong pairing is invisible at `deriveKey`'s call site. */
+export const PBKDF2_ITERS_FOR_TESTS = PBKDF2_ITERS
 
 /**
  * Vault governance policy, set at creation and propagated to every device (public metadata).
