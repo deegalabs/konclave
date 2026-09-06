@@ -10,6 +10,7 @@ import { openPrf } from '../prf-wrap'
 import { unlockOnDevice } from '../unlock'
 import { Identicon } from '../avatar'
 import { Dialog, Letterhead, activateOnKey } from '../components'
+import PasskeyButton from '../PasskeyButton'
 import NetVault from './NetVault'
 import { useT, useTr, useI18n } from '../i18n'
 import '../redesign.css'
@@ -463,10 +464,7 @@ export default function Vaults() {
               only rendered when this device actually holds a wrap, so it never advertises something
               the member cannot use. */}
           {loadPrfWrap(unlocking.v.id) && (
-            <button type="button" className="rm-backup" disabled={prfBusy}
-              onClick={() => void unlockWithPasskey(unlocking)}>
-              {prfBusy ? t('vaults.passkeyBusy') : t('vaults.passkeyUnlock')}
-            </button>
+            <PasskeyButton busy={prfBusy} onClick={() => void unlockWithPasskey(unlocking)} />
           )}
           <input
             className="unlock-input mono" type="password" placeholder={unlocking.src === 'net' ? t('vaults.passphrase') : t('vaults.wordPlaceholder')}

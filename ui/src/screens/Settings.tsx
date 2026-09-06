@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Skeleton } from '../skeleton'
 import { useNavigate } from 'react-router-dom'
 import { Seal, Loading, LangToggle } from '../components'
 import { VersionBadge } from '../UpdatePrompt'
@@ -44,6 +45,12 @@ export default function Settings() {
   // The vault fingerprint: a PUBLIC anti-impostor code members compare out of band. It lives here in
   // Settings (with the other vault-identity facts), not on the Signers roster (#160).
   const [fp, setFp] = useState<string | null>(null)
+  // #469: everything below the vault card is gated on an async chain (health -> getVault ->
+  // listVaults -> fingerprint), and until it lands the sections are simply ABSENT - they pop in one
+  // by one. Worse, the danger zone renders `removeNoLocal` meanwhile, which asserts this device
+  // holds nothing of the vault. That is not slowness, it is a wrong answer shown confidently, so
+  // the fix is to say "loading" rather than to say the wrong thing faster.
+  const [settled, setSettled] = useState(false)
   const [copied, setCopied] = useState(false)
   // Export this vault (#214): only for vaults with a local encrypted record on this device (the
   // browser-native/relay path). The export is the sealed share + public record; never plaintext.
@@ -85,6 +92,7 @@ export default function Settings() {
         } catch { /* WebCrypto unavailable - skip the fingerprint callout */ }
       }
     })()
+      .finally(() => { if (on) setSettled(true) })
     return () => { on = false }
   }, [])
 
@@ -301,9 +309,9 @@ export default function Settings() {
           <span className="set-v" style={{ display: 'inline-flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             {hasPasskey ? t('settings.unlockBoth') : t('settings.unlockValue')}
             {hasPasskey ? (
-              <button type="button" className="btn ghost" onClick={dropPasskey}>{t('settings.passkeyOff')}</button>
+              <button type="button" className="btn ghost sm-btn" onClick={dropPasskey}>{t('settings.passkeyOff')}</button>
             ) : canEnrol ? (
-              <button type="button" className="btn ok" disabled={pkBusy} onClick={() => void addPasskey()}>
+              <button type="button" className="btn ok sm-btn" disabled={pkBusy} onClick={() => void addPasskey()}>
                 {pkBusy ? t('settings.passkeyBusy') : t('settings.passkeyOn')}
               </button>
             ) : null}
@@ -317,11 +325,19 @@ export default function Settings() {
           still asks for it - so it is used rather than rewritten. */}
       {canEnrol || hasPasskey ? <p className="set-hint">{t('settings.passkeyWhy')}</p> : null}
 
-      {fp && (
+      {!settled && (
+        <div className="fp-card mt" role="status" aria-label={t('common.loading')}>
+          <div className="fp-head"><Skeleton width={130} height={11} /></div>
+          <Skeleton width="58%" height={30} radius={8} style={{ marginTop: 10 }} />
+          <Skeleton width="90%" height={11} style={{ marginTop: 12 }} />
+        </div>
+      )}
+
+      {settled && fp && (
         <div className="fp-card mt" role="note" aria-label={t('members.fpTitle')}>
           <div className="fp-head">
             <span className="klab">{t('members.fpTitle')}</span>
-            <button className="btn ghost xs-btn" onClick={() => void copyFp()}>
+            <button className="btn ghost sm-btn" onClick={() => void copyFp()}>
               {copied ? t('members.fpCopied') : t('members.fpCopy')}
             </button>
           </div>
@@ -330,14 +346,23 @@ export default function Settings() {
         </div>
       )}
 
-      {hasLocal && (
+      {!settled && (
+        <section className="set-list mt" role="status" aria-label={t('common.loading')}>
+          <div className="set-row">
+            <Skeleton width={120} height={12} />
+            <Skeleton width={104} height={34} radius={10} />
+          </div>
+        </section>
+      )}
+
+      {settled && hasLocal && (
         <section className="set-list mt">
           <div className="set-row">
             <span className="set-k">{t('export.title')}</span>
             <span className="set-v">
               {!xpOpen
-                ? <button type="button" className="btn ghost" onClick={() => { setXpOpen(true); setXpErr(null) }}>{t('export.btn')}</button>
-                : <button type="button" className="btn ghost" onClick={() => { setXpOpen(false); setXpPass(''); setXpErr(null) }}>{t('common.cancel')}</button>}
+                ? <button type="button" className="btn ghost sm-btn" onClick={() => { setXpOpen(true); setXpErr(null) }}>{t('export.btn')}</button>
+                : <button type="button" className="btn ghost sm-btn" onClick={() => { setXpOpen(false); setXpPass(''); setXpErr(null) }}>{t('common.cancel')}</button>}
             </span>
           </div>
           {xpOpen && (
@@ -354,12 +379,16 @@ export default function Settings() {
           )}
         </section>
       )}
-      {hasLocal && <p className="set-hint">{t('export.note')}</p>}
+      {settled && hasLocal && <p className="set-hint">{t('export.note')}</p>}
 
       <section className="set-danger mt">
         <h2 className="set-danger-title">{t('settings.danger')}</h2>
         <p className="set-danger-note">{t('settings.dangerNote')}</p>
-        {IS_NET && !hasLocal ? (
+        {!settled ? (
+          /* NOT `removeNoLocal`. Until `listVaults` answers, "this device holds nothing of the
+             vault" is a guess, and it is the alarming one - so the row waits instead. */
+          <Skeleton width={180} height={38} radius={10} />
+        ) : IS_NET && !hasLocal ? (
           /* Nothing of this vault is on this device - it is read through the helper. There is no
              share to give up, so the honest thing is to say so rather than offer a dead button. */
           <p className="set-danger-note">{t('settings.removeNoLocal')}</p>

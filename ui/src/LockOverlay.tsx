@@ -12,6 +12,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { Dialog } from './components'
+import PasskeyButton from './PasskeyButton'
 import { useT } from './i18n'
 import { unlockOnDevice, type VaultSrc } from './unlock'
 import { loadPrfWrap } from './prf-store'
@@ -76,11 +77,7 @@ export default function LockOverlay({ vaultId, vaultName, src, onUnlocked, onCan
       <div className="rd-eyebrow">{t('vaults.protectedVault')}</div>
       <h2 id="relock-title">{vaultName}</h2>
       <p>{t('lock.prompt')}</p>
-      {loadPrfWrap(vaultId) && (
-        <button type="button" className="rm-backup" disabled={prfBusy} onClick={() => void withPasskey()}>
-          {prfBusy ? t('vaults.passkeyBusy') : t('vaults.passkeyUnlock')}
-        </button>
-      )}
+      {loadPrfWrap(vaultId) && <PasskeyButton busy={prfBusy} onClick={() => void withPasskey()} />}
       <input
         ref={inputRef}
         className="unlock-input mono"
