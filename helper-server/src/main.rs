@@ -462,6 +462,16 @@ fn handle_with_token(
                 vault: String,
                 old: String,
                 new: String,
+                /// The signed-write envelope (#288 / ADR-0011). Required once the vault has any
+                /// registered write key.
+                #[serde(default)]
+                seat: Option<u16>,
+                #[serde(default)]
+                ts: Option<i64>,
+                #[serde(default)]
+                nonce: Option<String>,
+                #[serde(default)]
+                sig: Option<String>,
             }
             let req: Req = match serde_json::from_slice(body) {
                 Ok(r) => r,
@@ -471,6 +481,71 @@ fn handle_with_token(
                 Some(r) => r,
                 None => return resp(404, json!({ "error": "no such vault" }).to_string()),
             };
+            // #288: renaming a seat you do not own is the hijack - rename someone else's seat away,
+            // rename yours into theirs, and their future approvals dedup into yours. The "only your
+            // own seat" rule lived ONLY in the client, which is not a rule. The signature binds
+            // `old\0new`, so it cannot be replayed onto a different pair.
+            let write_keys = orchestrator::helper::load_write_keys(&cfg.vaults_dir, &reg.vault_id);
+            if !write_keys.is_empty() {
+                let target = format!("{}\0{}", req.old, req.new);
+                let (Some(seat), Some(ts), Some(nonce), Some(sig)) =
+                    (req.seat, req.ts, req.nonce.clone(), req.sig.clone())
+                else {
+                    return resp(
+                        401,
+                        json!({ "error": "this vault requires a signed rename" }).to_string(),
+                    );
+                };
+                let w = SignedWrite {
+                    seat,
+                    ts,
+                    nonce,
+                    sig,
+                };
+                let seen = |n: &str| {
+                    orchestrator::helper::write_nonce_seen(&cfg.vaults_dir, &reg.vault_id, n)
+                };
+                match authorize_write(
+                    &write_keys,
+                    &reg.vault_id,
+                    WriteAction::Rename,
+                    &target,
+                    &w,
+                    seen,
+                ) {
+                    WriteAuth::Authorized { seat } => {
+                        // A valid signature proves WHO asked, not WHOSE seat it is. Without this
+                        // check a real member signs correctly for their own seat and renames
+                        // someone else's - which IS the hijack, just with a signature attached.
+                        // Seats are positional (the DKG assigns them), so seat N is roster[N-1].
+                        let roster = load_members(&cfg.vaults_dir, &reg.vault_id);
+                        let owns = seat
+                            .checked_sub(1)
+                            .and_then(|i| roster.get(i as usize))
+                            .is_some_and(|name| name == &req.old);
+                        if !owns {
+                            eprintln!(
+                                "vault {}: seat {seat} tried to rename {:?}, which is not its own",
+                                reg.vault_id, req.old
+                            );
+                            return resp(
+                                403,
+                                json!({ "error": "you can only rename your own seat" }).to_string(),
+                            );
+                        }
+                        let _ = orchestrator::helper::burn_write_nonce(
+                            &cfg.vaults_dir,
+                            &reg.vault_id,
+                            &w.nonce,
+                        );
+                    }
+                    WriteAuth::Open => {}
+                    WriteAuth::Refused(why) => {
+                        eprintln!("vault {}: refused a rename ({why:?})", reg.vault_id);
+                        return resp(401, json!({ "error": "signature required" }).to_string());
+                    }
+                }
+            }
             match rename_member(
                 &cfg.vaults_dir,
                 &reg.vault_id,
@@ -1381,6 +1456,122 @@ mod tests {
     /// The migration half matters as much: a vault where nobody has registered keeps accepting
     /// unsigned votes, because all 8 live vaults are in that state and requiring proof today would
     /// freeze every one of them.
+    /// #288: renaming a seat you do not own is the hijack the issue names - rename Bob's seat away,
+    /// rename yours into "Bob", and Bob's future approvals dedup into yours. The "only your own
+    /// seat" rule lived ONLY in the client (`Members.tsx`), which is not a rule at all.
+    ///
+    /// The signature binds `old\0new`, so a rename cannot be replayed onto a different pair, and
+    /// the SEAT that signed is the one being renamed.
+    #[test]
+    fn a_rename_must_be_signed_by_the_seat_it_renames() {
+        use ed25519_dalek::Signer;
+        use konclave_seal::{write_key_seed_from_share, write_message, WriteAction};
+        let st = HelperState::new();
+        seed(&st, "renamegate");
+        let c = cfg();
+        let dir = &c.vaults_dir;
+        let _ = std::fs::remove_dir_all(dir.join("renamegate"));
+
+        let _ =
+            orchestrator::helper::claim_members(dir, "renamegate", &["alice".into(), "bob".into()]);
+
+        let plain = |old: &str, new: &str| {
+            handle(
+                &st,
+                &c,
+                &Method::Post,
+                "/api/vault/members/rename",
+                format!(r#"{{"vault":"renamegate","old":"{old}","new":"{new}"}}"#).as_bytes(),
+            )
+        };
+
+        // MIGRATION: nobody registered -> an unsigned rename still works.
+        assert_eq!(
+            plain("bob", "robert").status,
+            200,
+            "an unmigrated vault renames"
+        );
+
+        // Alice registers for seat 1.
+        let sk = ed25519_dalek::SigningKey::from_bytes(&write_key_seed_from_share(b"alice share"));
+        let pubhex: String = sk
+            .verifying_key()
+            .as_bytes()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        orchestrator::helper::upsert_device(dir, "renamegate", "aa", Some((1, &pubhex))).unwrap();
+
+        // THE HIJACK: an unsigned rename of someone else's seat is now refused.
+        assert_eq!(
+            plain("robert", "mallory").status,
+            401,
+            "a migrated vault refuses an unsigned rename"
+        );
+
+        // Alice renames HER OWN seat, signed. `target` is `old\0new`.
+        let ts = 1_700_000_000_000i64;
+        let target = "alice\u{0}alicia";
+        let msg = write_message("renamegate", WriteAction::Rename, target, 1, ts, "rn1");
+        let sig: String = sk
+            .sign(&msg)
+            .to_bytes()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        let ok = handle(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault/members/rename",
+            format!(
+                r#"{{"vault":"renamegate","old":"alice","new":"alicia","seat":1,"ts":{ts},"nonce":"rn1","sig":"{sig}"}}"#
+            )
+            .as_bytes(),
+        );
+        assert_eq!(
+            ok.status, 200,
+            "a signed rename of your own seat passes: {}",
+            ok.body
+        );
+        assert!(
+            ok.body.contains("alicia"),
+            "and it took effect: {}",
+            ok.body
+        );
+
+        // THE REAL HIJACK, and the reason a signature alone is not enough: Alice signs correctly,
+        // for HER seat - and renames BOB. The signature proves who asked, not whose seat it is.
+        let target2 = "robert\u{0}mallory";
+        let msg2 = write_message("renamegate", WriteAction::Rename, target2, 1, ts, "rn2");
+        let sig2: String = sk
+            .sign(&msg2)
+            .to_bytes()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        let hijack = handle(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault/members/rename",
+            format!(
+                r#"{{"vault":"renamegate","old":"robert","new":"mallory","seat":1,"ts":{ts},"nonce":"rn2","sig":"{sig2}"}}"#
+            )
+            .as_bytes(),
+        );
+        assert_eq!(
+            hijack.status, 403,
+            "seat 1 must not rename another seat, however well it signs: {}",
+            hijack.body
+        );
+        let after = orchestrator::helper::load_members(dir, "renamegate");
+        assert!(
+            after.iter().any(|m| m == "robert"),
+            "and bob keeps his seat: {after:?}"
+        );
+    }
+
     #[test]
     fn a_vote_must_be_signed_once_the_vault_has_write_keys() {
         use konclave_seal::{write_key_seed_from_share, write_message, WriteAction};
