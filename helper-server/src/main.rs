@@ -1279,6 +1279,10 @@ fn main() {
     // deploy that runs without it is a deploy where a volume loss is unrecoverable. It only ADDS a
     // field, never rewrites one, and never touches `wallet/`.
     let birthdays = orchestrator::helper::backfill_birthdays(&cfg.vaults_dir);
+    // The same migration for the money gate's change receiver (#476). It is computed at
+    // registration, and registration is a thing browsers do rarely - so without this the field
+    // stays empty on every vault that was created before it existed, which is all of them.
+    let receivers = orchestrator::helper::backfill_change_receivers(&cfg.vaults_dir, &cfg.network);
 
     // Sweep every leftover send scratch directory before serving a single request (#297).
     //
@@ -1292,7 +1296,7 @@ fn main() {
     let swept = sweep_send_work(&cfg.vaults_dir);
     let server = Server::http(&addr).expect("bind");
     eprintln!(
-        "konclave-helper listening on {addr} (network={}, {restored_n} vault(s) restored, {birthdays} birthday(s) recorded, {swept} scratch dir(s) swept)",
+        "konclave-helper listening on {addr} (network={}, {restored_n} vault(s) restored, {birthdays} birthday(s) recorded, {receivers} change receiver(s) recorded, {swept} scratch dir(s) swept)",
         cfg.network
     );
 

@@ -1005,6 +1005,50 @@ pub fn backfill_birthdays(vaults_dir: &Path) -> usize {
     n
 }
 
+/// Record the change receiver on every registration missing one, deriving it from that vault's own
+/// UFVK (#476).
+///
+/// It exists for the same reason [`backfill_birthdays`] does, and against the same trap:
+/// `register_vault` computes this field, but `register_vault` runs only when a browser registers.
+/// For a vault that has been alive for weeks that may be never - so every vault on the production
+/// volume still carries an empty one, and the #281 money gate has nothing to compare a device's
+/// change against.
+///
+/// Safe on a live volume: it only ever ADDS the field to a registration that lacks it, never
+/// rewrites one that has it, and is idempotent. A UFVK that does not decode is LEFT EMPTY on
+/// purpose - an empty value means "unknown", which a device already treats as "do not judge",
+/// while a wrong receiver would make the gate refuse the vault's own change.
+pub fn backfill_change_receivers(vaults_dir: &Path, network: &str) -> usize {
+    let mut n = 0;
+    for mut reg in load_registrations(vaults_dir) {
+        if !reg.change_receiver.is_empty() {
+            continue;
+        }
+        let receiver = match change_receiver(&reg.ufvk, network) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!(
+                    "vault {}: no change receiver to record ({e:?}); the money gate stays unable to judge this vault's change",
+                    reg.vault_id
+                );
+                continue;
+            }
+        };
+        reg.change_receiver = receiver;
+        match save_registration(vaults_dir, &reg) {
+            Ok(()) => {
+                eprintln!("vault {}: change receiver recorded", reg.vault_id);
+                n += 1;
+            }
+            Err(e) => eprintln!(
+                "vault {}: could not record the change receiver: {e:?}",
+                reg.vault_id
+            ),
+        }
+    }
+    n
+}
+
 /// Load every persisted registration under `vaults_dir` (one `<id>/registration.json` each), so a
 /// restarting helper reseeds its in-memory registry from disk. Skips anything unreadable.
 pub fn load_registrations(vaults_dir: &Path) -> Vec<VaultRegistration> {
@@ -2128,6 +2172,81 @@ mod tests {
 
 #[cfg(test)]
 mod change_receiver_tests {
+    use super::{
+        backfill_change_receivers, load_registration, save_registration, VaultRegistration,
+    };
+
+    fn creg(id: &str, ufvk: &str, change: &str) -> VaultRegistration {
+        VaultRegistration {
+            vault_id: id.to_string(),
+            address: format!("u1addr{id}"),
+            ufvk: ufvk.to_string(),
+            wallet_dir: format!("/tmp/{id}/wallet"),
+            account: "acct".into(),
+            threshold: 2,
+            total: 3,
+            change_receiver: change.to_string(),
+            birthday: Some(1),
+        }
+    }
+
+    /// The boot backfill for the money gate (#281/#476). `register_vault` computes the change
+    /// receiver, but only when a browser registers - which for a long-lived vault may be never, so
+    /// every vault on the production volume still carries an empty one. The birthday hit exactly
+    /// this and got a boot backfill in #445; this is the same fix for the same reason.
+    ///
+    /// Like that one it runs against a live volume, so what it must NOT do matters as much.
+    #[test]
+    fn the_change_receiver_backfill_fills_only_what_is_missing() {
+        let dir = std::env::temp_dir().join(format!("konclave-cr-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let (a, b, c) = ("a".repeat(64), "b".repeat(64), "c".repeat(64));
+        save_registration(&dir, &creg(&a, UFVK, "")).unwrap();
+        save_registration(&dir, &creg(&b, UFVK, "u1already")).unwrap();
+        // A UFVK that does not decode: there is nothing to derive, and inventing a receiver would
+        // be worse than an empty one - an empty value means "unknown", which the device already
+        // treats as "do not judge", while a wrong one would make the gate refuse real change.
+        save_registration(&dir, &creg(&c, "uview1nonsense", "")).unwrap();
+
+        assert_eq!(
+            backfill_change_receivers(&dir, "main"),
+            1,
+            "only the derivable missing one"
+        );
+
+        let after = |id: &str| load_registration(&dir, id).expect("still loads");
+        let filled = after(&a).change_receiver;
+        assert!(!filled.is_empty(), "derived from the UFVK");
+        assert_eq!(
+            filled,
+            change_receiver(UFVK, "main").unwrap(),
+            "and it is THE change receiver"
+        );
+        assert_ne!(filled, after(&a).address, "never the receiving address");
+        assert_eq!(
+            after(&b).change_receiver,
+            "u1already",
+            "an existing one is never rewritten"
+        );
+        assert_eq!(
+            after(&c).change_receiver,
+            "",
+            "undecodable: left unknown, not invented"
+        );
+
+        // Nothing else about a registration is disturbed.
+        assert_eq!(after(&a).ufvk, UFVK);
+        assert_eq!(after(&a).birthday, Some(1));
+
+        // Idempotent: a second boot fills nothing.
+        assert_eq!(backfill_change_receivers(&dir, "main"), 0);
+        assert_eq!(after(&a).change_receiver, filled);
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     use super::*;
 
     // A real UFVK, produced by `zcash-sign generate --ak <group key> --network main`. The pair is
