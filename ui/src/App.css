@@ -914,7 +914,11 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
   box-shadow:0 14px 36px -28px rgba(16,24,40,.20)}
 
 /* - /settings (redesign Phase 0): per-vault info list + danger zone - */
-.set-list{border:1px solid var(--line-soft); border-radius:var(--radius); overflow:hidden}
+/* NOT `overflow:hidden`. The radius was clipped that way, and it also clipped anything a row wanted
+   to float - which made the `?` popover (#487) invisible: the icon opened, the panel rendered, and
+   the card cut it off. The rows carry no background, only a hairline bottom border, so clipping was
+   buying almost nothing; the last row's border is already removed, which is what the radius needed. */
+.set-list{border:1px solid var(--line-soft); border-radius:var(--radius)}
 .set-row{display:flex; align-items:center; justify-content:space-between; gap:16px;
   padding:13px 16px; border-bottom:1px solid var(--line-soft); font-size:14px; flex-wrap:wrap}
 /* A row whose value carries a CONTROL needs room the label does not. Without this the label and
@@ -933,11 +937,14 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
    nine accent marks on one screen. */
 .seg{display:inline-flex; align-items:center; gap:2px; padding:2px; border-radius:9px;
   background:var(--surface-2); border:1px solid var(--line-2)}
-.seg-btn{display:inline-flex; align-items:center; gap:5px; padding:4px 8px; border:0; border-radius:7px;
+/* One height for every segment, so the theme pill and the language pill match: a flag is 11px tall
+   and an icon 15px, and left to themselves the two pills came out different sizes side by side. */
+.seg-btn{display:inline-flex; align-items:center; justify-content:center; gap:5px;
+  min-height:26px; padding:4px 8px; border:0; border-radius:7px;
   background:none; color:var(--text-muted); cursor:pointer;
   font-family:var(--font-mono); font-size:10.5px; font-weight:600; letter-spacing:.08em;
   transition:color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out)}
-.seg-btn.ico{padding:5px 7px}
+.seg-btn.ico{padding:4px 8px}
 .seg-btn:hover{color:var(--text)}
 .seg-btn.on{background:var(--accent); color:var(--on-accent,#08121e)}
 .seg-btn.on:hover{color:var(--on-accent,#08121e)}
@@ -976,6 +983,30 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 .copy-btn:hover{color:var(--text); border-color:var(--line-strong)}
 .copy-btn.done{color:var(--silver); border-color:var(--silver)}
 
+/* The section index (#488). A settings screen with named sections earns one, but the app already
+   has a rail - so this appears only where there is genuinely room beside the content, and below
+   that the page is short enough to scroll. Hiding it is the honest answer; shrinking it into the
+   content column would be two navigations fighting over one job. */
+.set-index{display:none}
+.set-body{min-width:0}
+@media(min-width:1180px){
+  .page:has(.set-index){display:grid; grid-template-columns:1fr 176px;
+    grid-template-areas:'head head' 'body nav'; column-gap:40px; align-items:start}
+  .page:has(.set-index) > .page-header{grid-area:head}
+  .page:has(.set-index) > .set-body{grid-area:body}
+  .page:has(.set-index) > .page-footer{grid-column:1 / -1}
+  .set-index{grid-area:nav; display:flex; flex-direction:column; gap:2px;
+    position:sticky; top:24px; padding-top:6px}
+  .set-index a{font-family:var(--font-mono); font-size:10.5px; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--text-muted); text-decoration:none;
+    padding:7px 10px; border-radius:7px; border-left:2px solid transparent;
+    transition:color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out)}
+  .set-index a:hover{color:var(--text); background:var(--surface-2)}
+  .set-index a:target, .set-index a:focus-visible{color:var(--accent)}
+}
+/* An anchored heading must not land under the sticky top bar on the way down. */
+.set-sec{scroll-margin-top:88px}
+
 /* Section headings (#473). The screen had exactly ONE heading in the whole document - h1
    "Ajustes", then h2 "Danger zone" at the very bottom - so everything between them was unnamed and
    heading navigation jumped straight from one to the other. Mono ALL-CAPS with a letterhead rule,
@@ -990,6 +1021,33 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 .set-list + .set-hint{margin-top:9px}
 
 /* Dialog notices. The warning is a box ABOVE the fields, not a caption below the confirm button. */
+/* A quiet aside inside a dialog: it points somewhere useful but must not compete with the field
+   below it. Small, muted, and underlined so it still reads as a link at that size. */
+/* The `?` and what it opens (#487). A <details>, so the browser owns the state, the keyboard and the
+   announcement - a hand-rolled tooltip gets all three wrong, and hover excludes touch entirely. */
+.hintbox{display:inline-block; vertical-align:middle; margin-left:6px; position:relative}
+.hintbox > summary{list-style:none; display:grid; place-items:center; width:18px; height:18px;
+  border-radius:50%; color:var(--text-muted); cursor:pointer;
+  transition:color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out)}
+.hintbox > summary::-webkit-details-marker{display:none}
+.hintbox > summary:hover, .hintbox[open] > summary{color:var(--accent); background:var(--accent-soft)}
+.hintbox > summary:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+/* Anchored to the `?` and floated, so opening one does not shove the row below it down the page -
+   which is the reason the prose was moved out of the flow in the first place. */
+/* Opens to the RIGHT. Every `?` in this screen sits beside a left-aligned label, so anchoring the
+   panel's right edge to the icon sent it off the left of the card. */
+.hintbox-body{position:absolute; z-index:70; top:calc(100% + 7px); left:0; width:max-content;
+  max-width:min(320px, 78vw); padding:11px 13px; border-radius:10px;
+  background:var(--surface-1); border:1px solid var(--line); box-shadow:var(--shadow-sm);
+  font-family:var(--font-sans); font-size:12.5px; line-height:1.55; color:var(--silver);
+  text-align:left; font-weight:400; white-space:normal}
+@media(max-width:560px){ .hintbox-body{max-width:min(300px, 84vw)} }
+
+.dlg-link{margin:0 0 14px; font-size:11.5px; line-height:1.4}
+.dlg-link a{color:var(--text-muted); text-decoration:underline; text-underline-offset:3px;
+  text-decoration-thickness:1px}
+.dlg-link a:hover{color:var(--silver)}
+
 .dlg-warn{background:var(--warn-soft,rgba(255,207,135,.09)); border:1px solid var(--warn-line,rgba(255,207,135,.30));
   border-radius:9px; padding:11px 12px; margin:0 0 14px; font-size:12.5px; line-height:1.5; color:var(--text)}
 .dlg-warn b{color:var(--warn); font-weight:600}
@@ -1261,15 +1319,16 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 /* Passphrase field: strength meter + magic generate (#221). Style-agnostic wrapper. */
 .pf{width:100%}
 .pf-field{position:relative; display:flex; align-items:center}
-/* Reserve the far-right corner (~40px) for a browser password-manager icon (Kaspersky/1Password
-   etc.) and keep our own controls to its left, so both are usable. */
-.pf-input{flex:1; padding-right:112px !important; text-align:left !important}
-/* The controls are a GROUP anchored to that reserve, not two buttons at hardcoded offsets. The
-   offsets were `right:76px` and `right:44px`, tuned for the two-button case - so a field with only
-   the reveal button (a passphrase being verified, not chosen) left it stranded 76px from the edge
-   with nothing beside it. Grouping makes one and two align to the same edge by construction. */
-.pf-tools{position:absolute; right:44px; top:50%; transform:translateY(-50%);
-  display:flex; align-items:center; gap:4px}
+/* Room for the controls themselves and nothing more: two 28px buttons plus the gaps. The old 112px
+   also reserved the password-manager corner, which is why the text stopped so far short of the edge. */
+.pf-input{flex:1; padding-right:70px !important; text-align:left !important}
+/* Flush to the field's inner edge. This used to sit at `right:44px`, reserving room for a browser
+   password-manager's own icon - which made every field look wrong for the many members who have no
+   such extension: one eye, marooned 44px from the edge with nothing beside it. A manager that draws
+   inside the field offsets itself around existing controls, which is what every other site on the
+   web relies on. */
+.pf-tools{position:absolute; right:7px; top:50%; transform:translateY(-50%);
+  display:flex; align-items:center; gap:2px}
 .pf-btn{background:none; border:none; cursor:pointer;
   display:grid; place-items:center; width:28px; height:28px; padding:0; border-radius:8px;
   color:var(--text-muted,#8a97a6); transition:color .12s, background .12s}

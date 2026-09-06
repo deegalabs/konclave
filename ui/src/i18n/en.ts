@@ -88,6 +88,7 @@ export const en: Record<string, string> = {
   'common.backProposals': '← Proposals',
   'common.remove': 'remove',
   'common.loading': 'Loading…',
+  'common.whatIsThis': 'What is this?',
   'common.vaultUnreachable': 'Can’t reach your vault right now.',
   'receive.qrAlt': 'QR code for the vault receive address',
 
