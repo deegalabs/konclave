@@ -446,6 +446,90 @@ export const SECTIONS: Section[] = [
     ],
   },
   {
+    // #485. Deliberately NOT written as reference: the moment a member needs this, the app that
+    // holds it is the thing that is gone. So its job is to get the instructions saved WITH the
+    // backup while everything still works, not to be read at the moment of the loss.
+    id: 'recovery',
+    nav: { 'pt-BR': 'Recuperação', en: 'Recovery' },
+    title: { 'pt-BR': 'Se você perder o aparelho', en: 'If you lose your device' },
+    lead: {
+      'pt-BR': 'A exportação cifrada é a sua única cópia reserva. Vale conferir hoje que ela abre - e guardar junto com ela como abrir, porque no dia em que precisar, este app pode ser exatamente o que sumiu.',
+      en: 'The encrypted export is your only spare key. Check today that it opens - and save the instructions with it, because on the day you need it, this app may be exactly what is gone.',
+    },
+    blocks: [
+      {
+        k: 'p',
+        t: {
+          'pt-BR': 'O seu pedaço da chave vive só neste aparelho, cifrado sob a sua frase-senha. Nem o cofre, nem os outros membros, nem o servidor têm uma cópia. Isso é o desenho: ninguém pode gastar por você. E é também o risco: se este aparelho sumir e você não tiver uma exportação, o seu assento acaba ali.',
+          en: 'Your share of the key lives on this device alone, encrypted under your passphrase. Not the vault, not the other members, not the server holds a copy. That is the design: nobody can spend for you. It is also the risk: if this device is gone and you have no export, your seat ends there.',
+        },
+      },
+      { k: 'h', t: { 'pt-BR': 'O que a exportação carrega', en: 'What the export carries' } },
+      {
+        k: 'ul',
+        items: [
+          {
+            'pt-BR': 'O seu pedaço da chave, para voltar a assinar.',
+            en: 'Your share of the key, so you can sign again.',
+          },
+          {
+            'pt-BR': 'O endereço do cofre e a chave de visualização, para a carteira reconstruída enxergar o dinheiro.',
+            en: "The vault's address and viewing key, so a rebuilt wallet can see the money.",
+          },
+          {
+            'pt-BR': 'A altura de onde varrer. Sem ela a carteira começa a olhar a partir de hoje e não vê nada do que o cofre já tem - e não há como mandar varrer de novo.',
+            en: 'The height to scan from. Without it a wallet starts looking from today and sees nothing the vault already holds - and there is no way to make it look again.',
+          },
+        ],
+      },
+      {
+        k: 'p',
+        t: {
+          'pt-BR': 'Tudo isso fica dentro de um único bloco cifrado. Um arquivo vazado não revela nem de qual cofre ele é.',
+          en: 'All of it sits inside a single encrypted blob. A leaked file does not reveal even which vault it belongs to.',
+        },
+      },
+      { k: 'h', t: { 'pt-BR': 'Confira agora, não depois', en: 'Check it now, not later' } },
+      {
+        k: 'p',
+        t: {
+          'pt-BR': 'Um backup que você nunca abriu é uma suposição. Salve a exportação como export.json e rode:',
+          en: 'A backup you have never opened is an assumption. Save the export as export.json and run:',
+        },
+      },
+      { k: 'code', t: 'node scripts/open-export.mjs export.json' },
+      {
+        k: 'p',
+        t: {
+          'pt-BR': 'Ele pede a frase-senha e responde a pergunta que importa - se está tudo lá dentro - sem imprimir os segredos. Não usa nada além do Node: nem pacote, nem rede, nem o Konclave. É de propósito, porque ele precisa funcionar numa máquina que nunca teve este app.',
+          en: 'It asks for your passphrase and answers the question that matters - whether everything is in there - without printing the secrets. It uses nothing but Node: no package, no network, no Konclave. That is deliberate: it has to work on a machine that has never had this app.',
+        },
+      },
+      {
+        k: 'note',
+        t: {
+          'pt-BR': 'Guarde estas instruções JUNTO com o arquivo. No dia em que precisar delas, este texto pode estar exatamente tão indisponível quanto o aparelho que você perdeu. O procedimento completo, com a explicação de cada campo, está em docs/RECOVERY.md no repositório.',
+          en: 'Save these instructions WITH the file. On the day you need them, this page may be exactly as unavailable as the device you lost. The full procedure, with every field explained, is in docs/RECOVERY.md in the repository.',
+        },
+      },
+      { k: 'h', t: { 'pt-BR': 'O limite honesto', en: 'The honest limit' } },
+      {
+        k: 'p',
+        t: {
+          'pt-BR': 'Não existe recuperar uma frase-senha esquecida. Nenhuma. Ela não está no servidor nem com os outros membros, e o arquivo é inútil sem ela - que é a mesma propriedade que o torna seguro guardar em qualquer lugar. Use um gerenciador de senhas, e troque a frase pelos Ajustes se desconfiar dela.',
+          en: 'There is no recovering a forgotten passphrase. None. It is not on the server and not with the other members, and the file is useless without it - the same property that makes it safe to store anywhere. Use a password manager, and change the passphrase from Settings if you ever doubt it.',
+        },
+      },
+      {
+        k: 'p',
+        t: {
+          'pt-BR': 'E se você perder o aparelho mas o cofre seguir: os outros membros continuam com os pedaços deles. O cofre não morre por causa de um assento - mas ele não pode devolver o seu.',
+          en: 'And if you lose the device while the vault carries on: the other members still hold their shares. A vault does not die from one lost seat - but it cannot give yours back.',
+        },
+      },
+    ],
+  },
+  {
     id: 'run-it',
     nav: { 'pt-BR': 'Rodar localmente', en: 'Run it' },
     title: { 'pt-BR': 'Rodar localmente', en: 'Run it locally' },
