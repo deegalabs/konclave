@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Letterhead, Stepper } from '../components'
+import CopyButton from '../CopyButton'
 import { useT, useTr } from '../i18n'
 import { createVaultDkg, setSelectedVault, markVaultUnlocked, shortAddr, humanError, type Vault } from '../api'
 import { vaultFingerprint } from '../format'
@@ -28,7 +29,6 @@ export default function Ceremony() {
   // at creation - the moment it matters most (confirm everyone joined the SAME vault) - and again in
   // Settings (#160). Fingerprints the group verifying key, matching the identity Settings uses.
   const [fp, setFp] = useState<string | null>(null)
-  const [fpCopied, setFpCopied] = useState(false)
 
   useEffect(() => {
     if (!vault) return
@@ -37,10 +37,6 @@ export default function Ceremony() {
     return () => { on = false }
   }, [vault])
 
-  async function copyFp() {
-    if (!fp) return
-    try { await navigator.clipboard.writeText(fp); setFpCopied(true); setTimeout(() => setFpCopied(false), 1500) } catch { /* clipboard blocked - readable aloud anyway */ }
-  }
 
   const names = members.map((m) => m.trim()).filter(Boolean)
   const n = members.length
@@ -124,9 +120,7 @@ export default function Ceremony() {
             <div className="fp-card mt" role="note" aria-label={t('members.fpTitle')}>
               <div className="fp-head">
                 <span className="klab">{t('members.fpTitle')}</span>
-                <button className="btn ghost xs-btn" onClick={() => void copyFp()}>
-                  {fpCopied ? t('members.fpCopied') : t('members.fpCopy')}
-                </button>
+                  <CopyButton value={fp} />
               </div>
               <div className="fp-code mono">{fp}</div>
               <div className="fp-help dim">{tr('ceremony.fpHelp')}</div>

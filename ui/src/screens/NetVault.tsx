@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { setSelectedVault, getSelectedVault } from '../api'
+import CopyButton from '../CopyButton'
 import { getUnlockedShare, clearUnlockedShare, setUnlockedShare } from '../session'
 import init, {
   DkgSession,
@@ -169,7 +170,6 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
   // human-comparable code of the group verifying key). Shown on the create-done step - the moment
   // it matters most across devices - and again in Settings (#160). Same identity Settings uses.
   const [fp, setFp] = useState<string | null>(null)
-  const [fpCopied, setFpCopied] = useState(false)
   const [error, setError] = useState('')
   // Hosted-helper registration (ADR-0006 Rung A): after DKG, register the vault with the blind
   // helper so it derives the vault's real Orchard address (view-only). Only runs when a helper is
@@ -946,10 +946,6 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
     return () => { on = false }
   }, [groupVk])
 
-  const copyFp = useCallback(async () => {
-    if (!fp) return
-    try { await navigator.clipboard.writeText(fp); setFpCopied(true); setTimeout(() => setFpCopied(false), 1500) } catch { /* clipboard blocked - readable aloud anyway */ }
-  }, [fp])
 
   // ---- render ----
 
@@ -1423,9 +1419,7 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
               <div className="fp-card" role="note" aria-label={tt('members.fpTitle')} style={{ marginBottom: 16 }}>
                 <div className="fp-head">
                   <span className="klab">{tt('members.fpTitle')}</span>
-                  <button className="btn ghost xs-btn" onClick={() => void copyFp()}>
-                    {fpCopied ? tt('members.fpCopied') : tt('members.fpCopy')}
-                  </button>
+                  <CopyButton value={fp} />
                 </div>
                 <div className="fp-code mono">{fp}</div>
                 <div className="fp-help dim">{ttr('ceremony.fpHelp')}</div>
