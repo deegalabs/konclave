@@ -229,14 +229,6 @@
 .doclink { font-size: 13px; font-weight: 600; color: var(--silver); text-decoration: none; letter-spacing: .01em; transition: color .15s; }
 .doclink:hover { color: var(--accent); }
 .doclink:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
-.lang-toggle { display: inline-flex; border: 1px solid var(--line-soft); border-radius: var(--radius-sm); overflow: hidden;
-  /* A control never pays for a tight row. `overflow:hidden` rounds the corners, so any
-     shrink here would crop a label instead of the box growing: refuse to shrink, and let
-     the wordmark beside it absorb the squeeze (see .lh-right min-width:0 in lacre.css). */
-  flex: 0 0 auto; }
-.lang-btn { background: transparent; color: var(--silver); border: none; padding: 3px 9px; font: inherit; font-size: 11px; letter-spacing: .04em; cursor: pointer; flex: 0 0 auto; white-space: nowrap; }
-.lang-btn.on { background: var(--accent); color: var(--on-accent); font-weight: 700; }
-.lang-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 
 /* Create-vault modal (redesign #6.2): the DKG creation flow hosted in a Dialog on /vaults,
    so "create new vault" opens inline instead of navigating to /net. Wider than unlock, scrolls. */
