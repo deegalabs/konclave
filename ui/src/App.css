@@ -921,12 +921,26 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
    the control fight for one line on a narrow screen and the value wraps under its own label,
    which reads as two unrelated rows. Wrapping the whole value keeps them together. */
 .set-row > .set-v{display:flex; align-items:center; justify-content:flex-end; gap:10px; flex-wrap:wrap}
+/* The actions of a settings row, as ONE block. Loose buttons inside the value wrapped into a pile
+   of odd-width chips on a phone - each sized to its own label, none lining up with the next. */
+.set-actions{display:flex; align-items:center; gap:8px; flex-wrap:wrap}
+.set-val-txt{white-space:nowrap}
 @media(max-width:560px){
   /* ONLY rows that carry a control. A plain value ("2 de 3", an address) still belongs on the
      label's line - moving those too would stack the whole card and waste a screen of height for
      nothing. `:has()` is what makes "row with a button" expressible without a marker class. */
   .set-row:has(button){align-items:flex-start}
   .set-row:has(button) > .set-v{flex-basis:100%; justify-content:flex-start; text-align:left}
+  /* Only a row whose actions are GROUPED stacks them. Scoping this to `:has(button)` also caught
+     the theme and language toggles - two-state pairs that belong side by side - and stretched them
+     into full-width stacked buttons, which is worse than what it replaced. `.set-actions` is the
+     marker for "a list of things to do", and a toggle pair is not that. */
+  .set-row:has(.set-actions) > .set-v{flex-direction:column; align-items:stretch; gap:10px}
+  /* Full width and stacked, so they read as a list of actions rather than a pile. A phone has the
+     width to spare and nothing to gain from buttons that each stop at their own label. */
+  .set-actions{flex-direction:column; align-items:stretch; width:100%; gap:8px}
+  .set-actions .btn{width:100%; text-align:center}
+  .set-val-txt{white-space:normal}
 }
 .set-row:last-child{border-bottom:none}
 .set-k{color:var(--text-muted)}
