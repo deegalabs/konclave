@@ -1219,12 +1219,30 @@ fn header(name: &str, value: &str) -> Header {
     Header::from_bytes(name.as_bytes(), value.as_bytes()).expect("valid header")
 }
 
+/// The read token header (#388). A browser sends a custom header only after a preflight says it
+/// may, so this name MUST reach `Access-Control-Allow-Headers` - which is why the allow-list is
+/// DERIVED from [`CUSTOM_REQUEST_HEADERS`] below instead of being written out a second time.
+///
+/// #403 fixed exactly this and the fix reached the deployed binary but never `main`, so rebuilding
+/// the helper from source on 2026-09-06 silently dropped the header again and took every private
+/// read down. One list, one source: the allow-list cannot disagree with the reads any more.
+const READ_TOKEN_HEADER: &str = "X-Konclave-Read";
+
+/// Every custom request header a browser may send the helper. The CORS allow-list is built from it.
+const CUSTOM_REQUEST_HEADERS: [&str; 2] = [READ_TOKEN_HEADER, "X-Konclave-Session"];
+
+fn cors_allow_headers() -> String {
+    let mut names = vec!["Content-Type"];
+    names.extend_from_slice(&CUSTOM_REQUEST_HEADERS);
+    names.join(", ")
+}
+
 fn with_cors(mut r: Response<std::io::Cursor<Vec<u8>>>) -> Response<std::io::Cursor<Vec<u8>>> {
     r.add_header(header("Access-Control-Allow-Origin", "*"));
     r.add_header(header("Access-Control-Allow-Methods", "GET, POST, OPTIONS"));
     r.add_header(header(
         "Access-Control-Allow-Headers",
-        "Content-Type, X-Konclave-Session",
+        &cors_allow_headers(),
     ));
     r.add_header(header("Content-Type", "application/json"));
     r
@@ -1319,7 +1337,7 @@ fn main() {
             let read_token = req
                 .headers()
                 .iter()
-                .find(|h| h.field.equiv("X-Konclave-Read"))
+                .find(|h| h.field.equiv(READ_TOKEN_HEADER))
                 .map(|h| h.value.as_str().to_string());
             let mut body = Vec::new();
             let _ = req.as_reader().read_to_end(&mut body);
@@ -1346,6 +1364,28 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+
+    /// The preflight must ANNOUNCE the read token, or a browser never sends it and every private
+    /// read fails before it reaches a handler - which is what production did on 2026-09-06: the
+    /// dashboard showed a vault with no balance, no proposals and no members.
+    ///
+    /// It asserts against the response `with_cors` actually emits, and against the header name as a
+    /// LITERAL rather than the constant, so renaming or dropping the constant fails here instead of
+    /// quietly agreeing with itself.
+    #[test]
+    fn the_preflight_announces_the_read_token_header() {
+        let r = with_cors(Response::from_data(Vec::new()));
+        let allow = r
+            .headers()
+            .iter()
+            .find(|h| h.field.equiv("Access-Control-Allow-Headers"))
+            .map(|h| h.value.as_str().to_string())
+            .expect("with_cors sets Access-Control-Allow-Headers");
+        assert!(
+            allow.contains("X-Konclave-Read"),
+            "a browser will not send the read token the helper requires: {allow}"
+        );
+    }
     use super::*;
 
     #[test]
