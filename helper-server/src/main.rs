@@ -1378,7 +1378,25 @@ mod tests {
             lightwalletd: "testnet.zec.rocks:443".into(),
             network: "test".into(),
             konclave_signer: PathBuf::from("/nonexistent/konclave-signer"),
-            vaults_dir: PathBuf::from("/tmp/helper-vaults"),
+            // A FRESH directory per call, so no test can see what another wrote - and, more to
+            // the point, so no test can see what a PREVIOUS RUN wrote. Every test shared
+            // `/tmp/helper-vaults`, which made anything asserting a "before" state fail on its
+            // first line once an earlier run had registered something. That cost me twice today
+            // and looked like a bug in the code under test both times.
+            //
+            // A test calling `cfg()` twice therefore gets two directories; the few that did were
+            // hoisted to call it once.
+            vaults_dir: {
+                use std::sync::atomic::{AtomicU64, Ordering};
+                static N: AtomicU64 = AtomicU64::new(0);
+                let dir = std::env::temp_dir().join(format!(
+                    "konclave-helper-test-{}-{}",
+                    std::process::id(),
+                    N.fetch_add(1, Ordering::Relaxed)
+                ));
+                let _ = std::fs::create_dir_all(&dir);
+                dir
+            },
         }
     }
 
@@ -1470,7 +1488,6 @@ mod tests {
         seed(&st, "renamegate");
         let c = cfg();
         let dir = &c.vaults_dir;
-        let _ = std::fs::remove_dir_all(dir.join("renamegate"));
 
         let _ =
             orchestrator::helper::claim_members(dir, "renamegate", &["alice".into(), "bob".into()]);
@@ -1579,10 +1596,6 @@ mod tests {
         seed(&st, "votegate");
         let c = cfg();
         let dir = &c.vaults_dir;
-        // `cfg()` points every test at the SAME fixed /tmp path, so state survives between runs and
-        // between tests. This one asserts a BEFORE state (no write keys), so it has to start from a
-        // clean vault or a previous run's registration makes it fail on its first line.
-        let _ = std::fs::remove_dir_all(dir.join("votegate"));
 
         // The vault has a roster and an open proposal.
         let _ =
@@ -1921,11 +1934,15 @@ mod tests {
         let gk = "1111111111111111111111111111111111111111111111111111111111111111";
         let pub_hex = "aa".repeat(32); // 64 hex chars = a 32-byte X25519 pubkey
         let st = HelperState::new();
+        // One config for the whole test: it asserts that a registration PERSISTS from one request
+        // to the next, so every call has to see the same vaults_dir. `cfg()` now hands out a fresh
+        // one per call (test isolation), which is exactly what this test must not have.
+        let c = cfg();
 
         // Unknown vault → 404 (must register the vault before its devices).
         let unknown = handle(
             &st,
-            &cfg(),
+            &c,
             &Method::Post,
             "/api/vault/devicekey",
             format!(r#"{{"group_key":"{gk}","device_pub":"{pub_hex}"}}"#).as_bytes(),
@@ -1933,13 +1950,13 @@ mod tests {
         assert_eq!(unknown.status, 404);
 
         seed(&st, gk);
-        let dir = cfg().vaults_dir.join(gk);
+        let dir = c.vaults_dir.join(gk);
         let _ = std::fs::remove_dir_all(&dir);
 
         // A malformed device_pub is rejected at the boundary.
         let bad = handle(
             &st,
-            &cfg(),
+            &c,
             &Method::Post,
             "/api/vault/devicekey",
             format!(r#"{{"group_key":"{gk}","device_pub":"nothex"}}"#).as_bytes(),
@@ -1950,7 +1967,7 @@ mod tests {
         let body = format!(r#"{{"group_key":"{gk}","device_pub":"{pub_hex}"}}"#);
         let first = handle(
             &st,
-            &cfg(),
+            &c,
             &Method::Post,
             "/api/vault/devicekey",
             body.as_bytes(),
@@ -1959,7 +1976,7 @@ mod tests {
         assert!(first.body.contains("\"added\":true"));
         let second = handle(
             &st,
-            &cfg(),
+            &c,
             &Method::Post,
             "/api/vault/devicekey",
             body.as_bytes(),
@@ -1967,7 +1984,7 @@ mod tests {
         assert!(second.body.contains("\"added\":false"));
 
         assert_eq!(
-            orchestrator::helper::load_device_keys(&cfg().vaults_dir, gk),
+            orchestrator::helper::load_device_keys(&c.vaults_dir, gk),
             vec![pub_hex],
             "the pubkey is persisted in the vault's seal-set",
         );
