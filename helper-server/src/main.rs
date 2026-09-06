@@ -154,10 +154,35 @@ fn handle_with_token(
         // the vault already holds, and there is no rescan to undo it. Same gate, same response -
         // the alternative is a second call that a restore path can forget to make, which is how the
         // birthday went missing from the export in the first place.
-        return resp(
-            200,
-            json!({ "ufvk": reg.ufvk, "birthday": reg.birthday }).to_string(),
-        );
+        let payload = json!({ "ufvk": reg.ufvk, "birthday": reg.birthday }).to_string();
+
+        // #481: TLS covers the wire, but the browser's own extensions and any TLS-terminating proxy
+        // read the plaintext HERE - and this is the key that decrypts every payslip the vault ever
+        // sent. Once the vault has a registered device the key goes out SEALED to those devices and
+        // the plaintext path closes, so asking without being one of them stops working.
+        //
+        // Per vault, turning on the moment a device registers: the #388 / ADR-0011 D5 shape. A vault
+        // whose members are all on older builds keeps its plaintext path rather than losing access
+        // to its own viewing key, and nobody is ever locked out of something they already hold.
+        let pubs: Vec<String> =
+            orchestrator::helper::load_device_records(&cfg.vaults_dir, &reg.vault_id)
+                .into_iter()
+                .map(|d| d.comms)
+                .collect();
+        return match orchestrator::envelope::seal_to_devices(
+            SEALED_UFVK_KIND,
+            payload.as_bytes(),
+            &pubs,
+        ) {
+            Ok(Some(env)) => resp(200, serde_json::to_string(&env).unwrap_or(payload)),
+            Ok(None) => resp(200, payload),
+            // A vault WITH devices whose seal fails must not fall back to plaintext: that would
+            // turn the control into a preference an attacker can trigger by corrupting a pubkey.
+            Err(e) => resp(
+                500,
+                json!({ "error": format!("could not seal: {e}") }).to_string(),
+            ),
+        };
     }
     if *method == Method::Get && GATED_READS.contains(&p) {
         if let Some(reg) = query_param(query, "vault").and_then(|v| state.get(v)) {
@@ -1271,6 +1296,10 @@ fn config_from_env() -> HelperConfig {
     }
 }
 
+/// The `kind` a sealed viewing-key response carries, so a reader tells an envelope from the
+/// plaintext it replaced without guessing (#481).
+const SEALED_UFVK_KIND: &str = "konclave-ufvk-sealed";
+
 fn main() {
     let addr = std::env::var("KONCLAVE_HELPER_ADDR").unwrap_or_else(|_| "0.0.0.0:4780".to_string());
     let cfg = Arc::new(config_from_env());
@@ -1742,6 +1771,88 @@ mod tests {
             body.as_bytes(),
         );
         assert_eq!(again.status, 401, "a replayed signed vote is refused");
+    }
+
+    /// #481. TLS covers the wire, but the browser's own extensions and any TLS-terminating proxy
+    /// read the plaintext at the endpoint - and this endpoint serves the key that decrypts every
+    /// payslip the vault ever sent. So once a vault has a registered device, the viewing key goes
+    /// out SEALED to those devices and the plaintext path closes.
+    ///
+    /// Per vault, turning on the moment a device registers, which is the #388 / ADR-0011 D5 shape:
+    /// the vaults that exist keep working until one of their devices migrates, and nobody is ever
+    /// locked out of a key they already hold.
+    #[test]
+    fn the_viewing_key_goes_out_sealed_once_the_vault_has_a_device() {
+        let st = HelperState::new();
+        seed(&st, "sealufvk");
+        let c = cfg();
+        let tok = "ef".repeat(32);
+        set_read_key(&c.vaults_dir, "sealufvk", &tok).unwrap();
+
+        let ask = || {
+            handle_with_token(
+                &st,
+                &c,
+                &Method::Get,
+                "/api/vault/ufvk?vault=sealufvk",
+                b"",
+                Some(&tok),
+            )
+        };
+
+        // No device registered yet: the plaintext compat path, exactly like #63's fallback. A vault
+        // whose members are all on older builds must not lose access to its own viewing key.
+        let before = ask();
+        assert_eq!(before.status, 200);
+        assert!(
+            before.body.contains("uviewtest1sealufvk"),
+            "an unmigrated vault still gets it: {}",
+            before.body
+        );
+
+        // A device registers its comms key (#63).
+        let dk = konclave_seal::DeviceKey::generate();
+        let pubhex: String = dk
+            .public_bytes()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        orchestrator::helper::upsert_device(&c.vaults_dir, "sealufvk", &pubhex, None).unwrap();
+
+        let after = ask();
+        assert_eq!(after.status, 200);
+        assert!(
+            !after.body.contains("uviewtest1sealufvk"),
+            "THE POINT: the key is no longer in the clear, so an extension reading the response \
+             learns nothing: {}",
+            after.body
+        );
+        assert!(
+            after.body.contains(&pubhex),
+            "and it is sealed to that device"
+        );
+
+        // And the device opens it, which is what makes closing the plaintext path safe to do.
+        let env: serde_json::Value = serde_json::from_str(&after.body).expect("an envelope");
+        let unhex = |s: &str| -> Vec<u8> {
+            (0..s.len())
+                .step_by(2)
+                .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+                .collect()
+        };
+        let mine = env["boxes"][&pubhex].as_str().expect("my box");
+        let body_key: [u8; 32] = konclave_seal::open(&dk, &unhex(mine), &unhex(&pubhex))
+            .expect("my own box opens")
+            .try_into()
+            .expect("32 bytes");
+        let opened =
+            konclave_seal::open_body(&body_key, &unhex(env["body"].as_str().expect("body")))
+                .expect("and the body");
+        let inner = String::from_utf8(opened).expect("utf8");
+        assert!(
+            inner.contains("uviewtest1sealufvk") && inner.contains("3400000"),
+            "the key AND the scan floor are inside: {inner}"
+        );
     }
 
     #[test]

@@ -1,3 +1,8 @@
+import { asEnvelope, openEnvelope, type Opener } from './envelope'
+
+/** The `kind` the helper stamps on a sealed viewing-key response (#481), matching
+ *  `SEALED_UFVK_KIND` in `helper-server`. */
+const SEALED_UFVK_KIND = 'konclave-ufvk-sealed'
 // Client for the hosted BLIND helper (orchestrator/src/helper.rs + helper-server, ADR-0006
 // Rung A). The helper turns a browser-DKG group key into an operable vault: it derives the
 // vault's Orchard address + UFVK (public material only), keeps a view-only wallet per vault,
@@ -334,14 +339,33 @@ export async function voteProposal(
  *  every one of those cases, and the caller exports without it rather than failing. */
 export async function getUfvk(
   groupKeyHex: string,
+  device?: { key: Opener; pubHex: string },
 ): Promise<{ ufvk: string; birthday?: number } | null> {
   // The scan floor comes back WITH the key, from the same gated call (#480). Two calls would be two
   // chances for a restore path to make only one - which is how the birthday came to be missing from
   // the export while sitting on the helper the whole time.
-  const r = await getJson<{ ufvk: string; birthday?: number | null }>(
-    `/api/vault/ufvk?vault=${q(groupKeyHex)}`,
-  )
-  if (!r?.ufvk) return null
+  const raw = await getJson<unknown>(`/api/vault/ufvk?vault=${q(groupKeyHex)}`)
+  if (!raw) return null
+
+  // #481: once the vault has a registered device the helper seals this, so an extension or a
+  // TLS-terminating proxy reading the response learns nothing. `device` is what opens it; without
+  // one we can still read the plaintext an UNMIGRATED vault returns, which is the compat path that
+  // keeps a vault whose members are all on older builds from losing its own viewing key.
+  const env = asEnvelope(raw, SEALED_UFVK_KIND)
+  let body: unknown = raw
+  if (env) {
+    if (!device) return null // sealed, and this caller brought no key to open it
+    const plain = openEnvelope(env, device.key, device.pubHex)
+    if (!plain) return null
+    try {
+      body = JSON.parse(new TextDecoder().decode(plain))
+    } catch {
+      return null
+    }
+  }
+
+  const r = body as { ufvk?: unknown; birthday?: unknown }
+  if (typeof r.ufvk !== 'string' || !r.ufvk) return null
   return {
     ufvk: r.ufvk,
     birthday: typeof r.birthday === 'number' ? r.birthday : undefined,

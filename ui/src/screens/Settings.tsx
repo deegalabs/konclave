@@ -10,7 +10,9 @@ import { PageHeader, PageFooter } from '../page'
 import { useT, useTr } from '../i18n'
 import { loadPrfWrap, savePrfWrap, clearPrfWrap } from '../prf-store'
 import { enrolPrf } from '../prf-wrap'
-import { readSecretFor } from '../session'
+import { readSecretFor, getUnlockedShare } from '../session'
+import { deviceCommsKey, devicePubHex } from '../device-key'
+import { decodeBundle } from '../signing'
 import { getVault, getSelectedVault, clearSelectedVault, health, shortAddr, deleteVault, IS_NET, type Vault } from '../api'
 import { listVaults, exportVault, forgetVault, type Governance } from '../storage'
 import { clearUnlockedShare } from '../session'
@@ -182,7 +184,19 @@ export default function Settings() {
       // describes the two halves.
       // The viewing key AND the scan floor, from one gated call (#480). An export with the key but
       // no floor rebuilds a wallet that starts at NOW and never sees the notes the vault holds.
-      const keys = await getUfvk(id)
+      //
+      // The device key opens it (#481): the helper seals this response once the vault has a
+      // registered device, so nothing on this machine that is not the vault's own device can read
+      // it off the wire. The share is in session here - the member just typed their passphrase to
+      // export - and `undefined` degrades to the plaintext compat path for an unmigrated vault.
+      const loadedShare = getUnlockedShare(id)
+      const device = loadedShare
+        ? (() => {
+            const kp = decodeBundle(loadedShare).keyPackage
+            return { key: deviceCommsKey(kp), pubHex: devicePubHex(kp) }
+          })()
+        : undefined
+      const keys = await getUfvk(id, device)
       const bundle = await exportVault(id, xpPass, keys?.ufvk, keys?.birthday)
       const json = JSON.stringify(bundle, null, 2)
       const safe = (vault?.name ?? 'konclave-vault').replace(/[^\w.-]+/g, '-').toLowerCase()
