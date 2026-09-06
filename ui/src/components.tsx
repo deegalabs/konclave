@@ -1,7 +1,8 @@
+import { LangToggle } from './AppPrefs'
 import { useEffect, useRef, useState, type ReactNode, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useReveal } from './reveal'
-import { useI18n, useT } from './i18n'
+import { useT } from './i18n'
 import { scorePassphrase, generatePassphrase } from './passphrase'
 
 /** The loading affordance: a centered spinning ring (the accent on a faint track) with the label
@@ -89,18 +90,6 @@ export function Soon({ children, reason }: { children: ReactNode; reason: string
 }
 
 /** Language toggle (PT / EN). Keyboard-operable buttons; the choice persists per device. */
-export function LangToggle() {
-  const { locale, setLocale, t } = useI18n()
-  return (
-    <span className="lang-toggle" role="group" aria-label={t('lang.label')}>
-      <button type="button" className={'lang-btn' + (locale === 'pt-BR' ? ' on' : '')}
-        aria-pressed={locale === 'pt-BR'} onClick={() => setLocale('pt-BR')}>{t('lang.pt')}</button>
-      <button type="button" className={'lang-btn' + (locale === 'en' ? ' on' : '')}
-        aria-pressed={locale === 'en'} onClick={() => setLocale('en')}>{t('lang.en')}</button>
-    </span>
-  )
-}
-
 /** Konclave mark - the radial-key emblem (silver spokes + blue keyhole), matching the logo. */
 export function Mark() {
   const spokes = Array.from({ length: 12 }, (_, i) => i * 30)

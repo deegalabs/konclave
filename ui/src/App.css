@@ -966,6 +966,12 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
      both are RARE actions - the bar's job is identity, current vault and liveness. They live in
      the "More" sheet on a phone instead. */
   .rail > .rail-prefs{display:none}
+  /* The letterhead (docs, intro) has no "More" sheet to hide in, so the language control stays -
+     and sheds its CODE instead. It is wider than the pill it replaced, and at 320px that width was
+     the difference between fitting and scrolling the page sideways. Each button carries its own
+     `aria-label`, so losing the visible text costs nothing to a screen reader. */
+  .lh-right .seg-txt{display:none}
+  .lh-right .seg-btn{padding:5px 7px}
 }
 @media(min-width:901px){
   /* ...and the sheet's copy does not exist on a desktop, where the rail holds the real one. */
