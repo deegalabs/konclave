@@ -14,12 +14,12 @@ import { useT } from '../i18n'
 import { useToast } from '../toast'
 import { fmtZec, fmtZecExact, parseZecToZat, shortAddr } from '../format'
 import { useVaultSigner } from '../VaultSigner'
+import { unlockOnDevice } from '../unlock'
 import { executeProposal, listProposals } from '../helper'
-import { errorCode, getBalance, getProposalDetail, humanError, markVaultUnlocked } from '../api'
+import { errorCode, getBalance, getProposalDetail, humanError } from '../api'
 import { relayBase } from '../net'
 import { resolveOutcome, RESOLVE_ATTEMPTS } from '../send-outcome'
-import { getUnlockedShare, setUnlockedShare } from '../session'
-import { loadVault } from '../storage'
+import { getUnlockedShare } from '../session'
 import { usdEnabled, cachedRate, fetchRate, zecToUsd, type Rate } from '../price'
 
 export default function SigningPanel() {
@@ -346,13 +346,13 @@ export default function SigningPanel() {
     setUnlocking(true)
     setUnlockErr('')
     try {
-      const share = await loadVault(vault.id, pass)
-      setUnlockedShare(vault.id, share)
-      markVaultUnlocked(vault.id)
+      // The same `unlockOnDevice` the picker and the lock overlay call. This was a THIRD copy of
+      // loadVault -> setUnlockedShare -> markVaultUnlocked; #467 folded the first two together and
+      // missed this one, which is how one rule ends up with three implementations.
+      const r = await unlockOnDevice(vault.id, 'net', pass)
+      if (!r.ok) { setUnlockErr(t('vaults.unlockWrong')); return }
       setPass('')
       reseat() // the signer re-runs now that the share is in session
-    } catch {
-      setUnlockErr(t('vaults.unlockWrong'))
     } finally {
       setUnlocking(false)
     }

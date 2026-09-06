@@ -8,8 +8,9 @@ import { Link } from 'react-router-dom'
 import { Letterhead } from '../components'
 import init, { pcztSighash } from '../wasm-pkg/konclave_wasm.js'
 import wasmUrl from '../wasm-pkg/konclave_wasm_bg.wasm?url'
-import { listVaults, loadVault, type VaultPublic } from '../storage'
-import { setUnlockedShare, getUnlockedShare } from '../session'
+import { listVaults, type VaultPublic } from '../storage'
+import { getUnlockedShare } from '../session'
+import { unlockOnDevice } from '../unlock'
 import { parseAlphas } from '../signing'
 import { bytesToHex } from '../net-sign'
 import { dkgProvenPczt } from '../demo-vector'
@@ -50,8 +51,11 @@ export default function BackgroundSignerLab() {
     if (!selected) return
     setMsg('')
     try {
-      const v = await loadVault(selected, pass)
-      setUnlockedShare(selected, v)
+      // `unlockOnDevice`, not a fourth copy of it. The copy that was here diverged: it never called
+      // `markVaultUnlocked`, so `isVaultUnlocked` stayed false - and `VaultSigner` gates the signer
+      // on exactly that, which left this lab's signer inert while looking unlocked.
+      const r = await unlockOnDevice(selected, 'net', pass)
+      if (!r.ok) { setMsg('Could not unlock: wrong passphrase'); return }
       setUnlocked({ id: selected })
       setPass('')
     } catch (e) {

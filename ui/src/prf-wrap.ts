@@ -97,7 +97,17 @@ export async function enrolPrf(
         // ArrayBuffer does.
         user: { id: hexToBytes(vaultId.slice(0, 64)).slice().buffer, name: userLabel, displayName: userLabel },
         pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
-        authenticatorSelection: { userVerification: 'required', residentKey: 'required' },
+        authenticatorSelection: {
+          // THIS device, not any authenticator the browser can reach. Without it the prompt also
+          // offers a security key or "use another phone" over QR - and the wrap that comes back is
+          // then bound to a thing the member may not have next time they reload this browser. The
+          // whole design is per-device precisely because the spec guarantees nothing about PRF
+          // output surviving a passkey sync, so accepting a roaming authenticator here would enrol
+          // exactly the case the design refuses to rely on.
+          authenticatorAttachment: 'platform',
+          userVerification: 'required',
+          residentKey: 'required',
+        },
         extensions: { prf: {} } as AuthenticationExtensionsClientInputs,
       },
     })
