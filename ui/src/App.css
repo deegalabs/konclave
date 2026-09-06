@@ -916,7 +916,18 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 /* - /settings (redesign Phase 0): per-vault info list + danger zone - */
 .set-list{border:1px solid var(--line-soft); border-radius:var(--radius); overflow:hidden}
 .set-row{display:flex; align-items:center; justify-content:space-between; gap:16px;
-  padding:13px 16px; border-bottom:1px solid var(--line-soft); font-size:14px}
+  padding:13px 16px; border-bottom:1px solid var(--line-soft); font-size:14px; flex-wrap:wrap}
+/* A row whose value carries a CONTROL needs room the label does not. Without this the label and
+   the control fight for one line on a narrow screen and the value wraps under its own label,
+   which reads as two unrelated rows. Wrapping the whole value keeps them together. */
+.set-row > .set-v{display:flex; align-items:center; justify-content:flex-end; gap:10px; flex-wrap:wrap}
+@media(max-width:560px){
+  /* ONLY rows that carry a control. A plain value ("2 de 3", an address) still belongs on the
+     label's line - moving those too would stack the whole card and waste a screen of height for
+     nothing. `:has()` is what makes "row with a button" expressible without a marker class. */
+  .set-row:has(button){align-items:flex-start}
+  .set-row:has(button) > .set-v{flex-basis:100%; justify-content:flex-start; text-align:left}
+}
 .set-row:last-child{border-bottom:none}
 .set-k{color:var(--text-muted)}
 .set-v{color:var(--text); font-weight:600; text-align:right}
@@ -1177,12 +1188,24 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
   z-index:60; display:flex; align-items:center; gap:12px; max-width:calc(100vw - 24px); width:max-content;
   background:var(--surface-1,#171d25); color:var(--text); border:1px solid var(--accent-line,rgba(79,140,255,.4));
   border-radius:14px; padding:12px 12px 12px 16px; box-shadow:0 12px 40px rgba(0,0,0,.4)}
-.pwa-update-txt{display:flex; flex-direction:column; gap:2px; min-width:0}
+/* Absorbs the slack so the actions sit AT the right edge. On mobile the bar stretches
+   (left/right:12px) while the children keep their natural widths, which left ~45px of dead space
+   after the dismiss - the actions floated mid-bar. On desktop the bar is `width:max-content`, so
+   there is no slack and this changes nothing. */
+.pwa-update-txt{display:flex; flex-direction:column; gap:2px; min-width:0; flex:1 1 auto}
 .pwa-update-txt b{font-size:13.5px}
 .pwa-update-ver{font-size:10.5px; color:var(--text-muted)}
-.pwa-update-x{background:none; border:none; color:var(--text-muted); font-size:18px; line-height:1; cursor:pointer; padding:4px 6px; border-radius:8px}
+/* A square target, not a glyph with padding. At 18px + 4px/6px it was a ~26px box next to a ~34px
+   button, so it read as misaligned even though flexbox centred it - and it was under the 44px a
+   thumb needs. Grid-centring also fixes the "x" glyph, which sits high on its own baseline. */
+.pwa-update-x{background:none; border:none; color:var(--text-muted); font-size:17px; line-height:1;
+  cursor:pointer; border-radius:8px; padding:0; flex:0 0 auto; width:34px; height:34px;
+  display:grid; place-items:center}
 .pwa-update-x:hover{color:var(--text); background:var(--surface-2,rgba(127,127,127,.12))}
-@media(max-width:640px){ .pwa-update{left:12px; right:12px; transform:none; width:auto} }
+@media(max-width:640px){
+  .pwa-update{left:12px; right:12px; transform:none; width:auto; gap:10px; padding:12px 10px 12px 14px}
+  .pwa-update-x{width:40px; height:40px}
+}
 
 /* Version badge (footer). */
 .version-badge{font-size:11px; color:var(--text-muted)}
@@ -1265,3 +1288,18 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 }
 .rm-backup:hover, .rm-backup:focus-visible { border-color: var(--accent); background: var(--accent-line); }
 .rm-why { margin: 0 0 18px !important; }
+
+/* The passkey shortcut (#469). It used to borrow `.rm-backup` - the "back up before removing"
+   button - so the most reassuring control in the product wore an unrelated one's styling.
+   Centred with its icon, because it is read as a single offer ("your fingerprint opens this")
+   rather than as a labelled row; and tinted rather than solid, because the passphrase below it is
+   the key and this is only a shortcut. */
+.passkey-btn {
+  display: flex; align-items: center; justify-content: center; gap: 9px;
+  width: 100%; margin: 0 0 12px; padding: 12px 14px; font: inherit; font-size: 13.5px; font-weight: 600;
+  color: var(--accent); background: var(--accent-line); border: 1px solid var(--accent-line);
+  border-radius: var(--radius); cursor: pointer;
+}
+.passkey-btn:hover:not(:disabled), .passkey-btn:focus-visible { border-color: var(--accent); }
+.passkey-btn:disabled { opacity: .6; cursor: default; }
+.passkey-btn svg { flex: 0 0 auto; }
