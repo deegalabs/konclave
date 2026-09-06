@@ -2,5 +2,10 @@
   "name": "konclave-workspace",
   "private": true,
   "packageManager": "pnpm@9.15.0",
-  "engines": { "node": ">=24" }
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "check-deployed": "node scripts/check-deployed.mjs"
+  }
 }
