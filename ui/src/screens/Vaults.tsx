@@ -309,19 +309,36 @@ export default function Vaults() {
         <Dialog className="unlock-overlay" cardClassName="unlock-card" labelledBy="remove-title"
           onClose={() => { setRemoving(null); setRemoveWord(''); setRemoveErr(false) }}>
           <h2 id="remove-title">{tr('dashboard.deleteConfirmTitle', { name: removing.v.name })}</h2>
-          <p>{tr('dashboard.deleteConfirmBody')}</p>
-          {/* The funds warning is unconditional. This screen does not hold a balance, and showing
-              a number we did not fetch would be worse than showing none: the member would trust
-              it. `dashboard.deleteSeesFunds` stays unused until a screen that knows the balance
-              offers this. */}
-          <p className="hint warn">{tr('dashboard.deleteFundsWarn')}</p>
-          <p className="hint">{tr('dashboard.deleteLocalHint')}</p>
-          <label className="unlock-lab">
-            {tr('dashboard.deleteTypeName', { name: removing.v.name })}
-            <input className="unlock-in" value={removeWord} autoFocus spellCheck={false}
+          <p className="rm-lead">{tr('dashboard.deleteConfirmBody')}</p>
+          {/* The money consequence is the only thing here that cannot be undone by re-importing,
+              so it gets the weight. The other two lines are context; this one is the decision.
+              Unconditional: this screen holds no balance, and a number we did not fetch would be
+              worse than none, because the member would trust it. `dashboard.deleteSeesFunds` stays
+              unused until a screen that knows the balance offers this. */}
+          <div className="rm-funds">
+            <span className="rm-ic" aria-hidden="true">!</span>
+            <p>{tr('dashboard.deleteFundsWarn')}</p>
+          </div>
+          <p className="rm-quiet">{tr('dashboard.deleteLocalHint')}</p>
+          {/* The warning above names a loss; this is the one action that makes it recoverable, so it
+              belongs next to it rather than in a help page. It routes to the vault's own export -
+              locked, that bounces through unlock and comes back (#446 D), which is the same
+              passphrase the export needs anyway. Deleting is never urgent; leaving and returning
+              costs nothing. */}
+          <button type="button" className="rm-backup" onClick={() => {
+            setSelectedVault(removing.v.id)
+            nav('/settings')
+          }}>
+            {t('dashboard.deleteBackupFirst')}
+          </button>
+          <p className="rm-quiet rm-why">{tr('dashboard.deleteBackupWhy')}</p>
+          <label className="rm-field">
+            <span>{tr('dashboard.deleteTypeName', { name: removing.v.name })}</span>
+            <input className="unlock-input" value={removeWord} autoFocus spellCheck={false}
+              autoComplete="off" placeholder={removing.v.name}
               onChange={(e) => { setRemoveWord(e.target.value); setRemoveErr(false) }} />
           </label>
-          {removeErr && <p className="hint warn">{t('settings.removeFail')}</p>}
+          {removeErr && <p className="unlock-err">{t('settings.removeFail')}</p>}
           <div className="unlock-btns">
             <button className="rd-enter" onClick={() => { setRemoving(null); setRemoveWord(''); setRemoveErr(false) }}>
               {t('common.cancel')}

@@ -459,6 +459,8 @@ export const ptBR: Record<string, string> = {
   'dashboard.deleteSeesFunds': 'Este dispositivo vê um saldo de **{amt} ZEC**.',
   'dashboard.deleteLocalHint': 'Isto não apaga nada na rede Zcash nem no aparelho dos outros membros · é só a sua cópia local.',
   'dashboard.deleteTypeWord': 'Digite a palavra do cofre para confirmar',
+  'dashboard.deleteBackupFirst': 'Exportar a sua parte da chave antes',
+  'dashboard.deleteBackupWhy': 'A exportação é uma cópia selada da sua parte. Com ela você usa este cofre de novo, neste aparelho ou em outro. Sem ela, remover aqui é definitivo para você.',
   'dashboard.deleteTypeName': 'Digite o nome do cofre (**{name}**) para confirmar',
   'dashboard.deleting': 'Excluindo…',
   'dashboard.deletePermanently': 'Excluir definitivamente',

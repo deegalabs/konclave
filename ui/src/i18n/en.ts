@@ -459,6 +459,8 @@ export const en: Record<string, string> = {
   'dashboard.deleteSeesFunds': 'This device sees a balance of **{amt} ZEC**.',
   'dashboard.deleteLocalHint': 'This erases nothing on the Zcash network or on the other members’ devices · it’s only your local copy.',
   'dashboard.deleteTypeWord': 'Type the vault word to confirm',
+  'dashboard.deleteBackupFirst': 'Export your key share first',
+  'dashboard.deleteBackupWhy': 'An export is a sealed copy of your share. With it you can use this vault again, on this device or another one. Without it, removing here is final for you.',
   'dashboard.deleteTypeName': 'Type the vault name (**{name}**) to confirm',
   'dashboard.deleting': 'Deleting…',
   'dashboard.deletePermanently': 'Delete permanently',
