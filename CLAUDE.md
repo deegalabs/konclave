@@ -385,6 +385,50 @@ code (Tauri shell over the `orchestrator`) tagged **`v0.2.0`**, with Windows/mac
 The web app stays the primary delivery (ADR-0005); desktop is the optional native shell. **Still open:**
 live **per-platform hardware** validation (the GTK/WSLg window does not render here, ADR-0004).
 
+**The failure that repeated most, and is now a working rule.** Four separate defects this week were
+the same shape: **one rule, two implementations, and only one of them updated.** #424 (`/net` never
+got #401's rejoin check), #425 (the tally messages left plain when `rejoin` was signed), #439 (the
+route guard kept the bridge's notion of "unlocked" after #388 gave the reads a new one), and #349
+before them. The answer that works is not a better test - it is to make the second implementation
+impossible: `rejoinIsProven`, `seatHolder`, `needsUnlock`, `write_auth`, and the canonical write
+message living in `konclave-seal` where BOTH the signer and the verifier read it. When a check can
+only be written once, drift stops being something to notice.
+
+The near-miss worth remembering: a cross-crate test that *claimed* to catch that drift caught
+nothing, because it built the message with the same function it verified with. Self-consistent by
+construction. It only showed up because the fix was red-checked, which is also how a `className`
+test was found to be satisfied by its own comment.
+
+**Recoverability, and the two places the product was quietly lying (2026-09-05).** Both found by
+following a question rather than a bug report, and both are the same shape: a promise nobody had
+checked against the code.
+
+- **A restored vault could not be rebuilt** (#434). The wallet birthday lived only in
+  `wallet/keys.toml`, which the documented ops backup EXCLUDES; `RECOVERY.md` promised the helper
+  re-synced it, which no code did; and the obvious repair - a hand-run `init-fvk` - sets the scan
+  floor to *now* and buries every note the vault holds, with **no rescan** to undo it. The birthday
+  is now recorded in `registration.json` (the half that IS backed up), backfilled at BOOT for the
+  live vaults (#444, #445 - the first version only ran on re-registration, i.e. mostly never), and
+  `RECOVERY.md` carries the real command with `--birthday` marked not optional. Still open: there is
+  no rescan path, and `balance --json` carries no scanned height, so a wallet that scanned nothing
+  is indistinguishable from one fully synced - and the UI tells the treasurer to *"add funds"*.
+- **The export restored the SEAT, not the vault** (#214/#447). `grep ufvk ui/src/storage.ts` was
+  zero: the device never had the viewing key. So `t` members could hold real spend authority over
+  money **none of them could see**. The helper now serves the UFVK on a strictly gated read (refused
+  outright for a vault with no readKey - a balance may be bearer-by-id, the key that decrypts every
+  payslip may not), it rides INSIDE the encrypted export, and Settings fetches it (#458).
+
+**Unlocking after a reload (#446), decided on measurement rather than argument.** Four options, each
+tested before being chosen: `sessionStorage` works and stops at the tab; a **SharedWorker does NOT
+survive a lone reload** (collected during the zero-client moment - measured, and the finding is
+committed as a passing test that fails the day a browser changes it); **WebAuthn PRF works and its
+output is stable**; and returning the member where they were persists nothing at all. What shipped
+is the last one (#456) plus PRF as a **per-device** shortcut (#458, #459) - per device because the
+spec guarantees nothing about PRF output surviving a passkey sync and Apple's own forums carry open
+reports of it differing by direction. The passphrase stays the root, every failure is silent, and
+`S` now lives in the session apart from the share so **reading a vault stops costing what spending
+does**.
+
 **H1 is DONE and live, in BOTH rounds since 2026-08-27.** Every device recomputes the ZIP-244 sighash
 from **its own** PCZT and signs that, refusing the ceremony if it disagrees with the requested one,
 and it decodes and shows what the transaction pays before contributing a share. `SigningMachine` is
@@ -433,8 +477,17 @@ to the relay). From `S`:
   worker pool (#384)** - the relay twin the same way (#393). **#375 is now closed** (verified
   2026-09-05); the postmortem still records the root cause as open and is the maintainer's to
   reconcile.
-- **Write endpoints are unauthenticated** (#288, critical): anyone with a vault id can vote. The
-  permanent damage is gone (a refusal can now be withdrawn), the authentication is not.
+- **Write endpoints are authenticated on the helper since 2026-09-05** (#288, was critical). Six
+  slices implementing ADR-0011: the rule (#448), the registry (#450), the device's Ed25519 key
+  derived from its share (#452), the vote (#453), the rename (#454), and the UI that registers and
+  signs (#455). A governance write from someone who does not hold the seat's share is refused, from
+  the first device on that vault that unlocks - the gate is per vault and turns on at that moment
+  (ADR-0011 D5), so the vaults that exist keep working until a member migrates them.
+  Two things the ADR asked for are NOT built, deliberately, and both are written down rather than
+  left as gaps: the **local bridge** does not call the rule (it is loopback, already behind session
+  and CSRF, and IS the device - so the call would always answer `Open` while making the issue look
+  closed; ADR-0011 amendment, #456), and the **first-claim race** is dominated by #67/#68 and the
+  fix D3 names would be self-attested, proving possession of a key nobody vouched for.
 - **`/net` never got the replay mitigation** (#363): `NetVault.tsx` is a second, diverged ceremony
   driver whose wire type erases the ceremony tag and whose `onMessage` ignores history.
 - **H2 CONFIDENTIALITY is DONE (#63), merged and proven live (2026-08-29).** The device-key handshake
@@ -458,8 +511,16 @@ to the relay). From `S`:
   `readKey`, so a leaked id gets `401`. **Residual (open):** the ~5 legacy/open vaults created before
   #388 stay readable through the helper until re-created - there is no automatic migration; a guided
   "Protect this vault" flow is designed in **#406**.
-- **No staging** (#370). Every fix this week was validated by spending real ZEC on mainnet, and a
-  preview shares the production helper, so "try it" still means "try it on the live vaults".
+- **Staging is HALF built** (#370). The **relay** is live and isolated as of 2026-09-05:
+  `konclave-relay-staging.up.railway.app`, its own Railway project (`konclave-staging`), empty room
+  space, and the CSP admits it (#440). That is the axis the maintainer defined - isolate the
+  coordination plane, stay on mainnet - so pointing a preview at it is now `VITE_RELAY_BASE` alone.
+  The **helper** is not built, and the reason is worth keeping: its image COPYs four binaries built
+  out of band (~100 MB, not in git), and the DEPLOYED helper runs the **Ironwood-bump engine from
+  the unmerged #259 branch** - so a staging helper built from `main`'s pins would run a different
+  engine than production, which is the opposite of what staging is for. Either extract the exact
+  binaries from the running container (read-only, hashes recorded on #370) or treat #259 as the
+  prerequisite. Until then a preview still shares the production helper for balances and proposals.
 - **`/net` multi-note over the live relay** (unit-tested; single-spend is live-proven), and **Tauri**
   live per-platform hardware validation (above).
 
