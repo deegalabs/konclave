@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Skeleton } from '../skeleton'
 import { Dialog, PassphraseField, Secret } from '../components'
+import CopyButton from '../CopyButton'
 import { changePassphrase } from '../storage'
 import { useNavigate } from 'react-router-dom'
 import { Seal, Loading, LangToggle } from '../components'
@@ -53,7 +54,6 @@ export default function Settings() {
   // holds nothing of the vault. That is not slowness, it is a wrong answer shown confidently, so
   // the fix is to say "loading" rather than to say the wrong thing faster.
   const [settled, setSettled] = useState(false)
-  const [copied, setCopied] = useState(false)
   // Export this vault (#214): only for vaults with a local encrypted record on this device (the
   // browser-native/relay path). The export is the sealed share + public record; never plaintext.
   const [hasLocal, setHasLocal] = useState(false)
@@ -97,15 +97,6 @@ export default function Settings() {
       .finally(() => { if (on) setSettled(true) })
     return () => { on = false }
   }, [])
-
-  async function copyFp() {
-    if (!fp) return
-    try {
-      await navigator.clipboard.writeText(fp)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    } catch { /* clipboard blocked - the code is visible to read aloud anyway */ }
-  }
 
   // #468: the passkey shortcut, enrolled from here. `S` only - signing still asks for the
   // passphrase, which is the separation the whole thing exists for.
@@ -324,11 +315,7 @@ export default function Settings() {
             <span className="set-k">{t('set.fingerprint')}</span>
             <span className="set-v">
               <span className="set-val-txt mono">{fp}</span>
-              <span className="set-actions">
-                <button className="btn ghost sm-btn" onClick={() => void copyFp()}>
-                  {copied ? t('members.fpCopied') : t('members.fpCopy')}
-                </button>
-              </span>
+              <CopyButton value={fp} />
             </span>
           </div>
         )}

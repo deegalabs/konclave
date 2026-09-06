@@ -923,6 +923,17 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 .set-row > .set-v{display:flex; align-items:center; justify-content:flex-end; gap:10px; flex-wrap:wrap}
 /* The actions of a settings row, as ONE block. Loose buttons inside the value wrapped into a pile
    of odd-width chips on a phone - each sized to its own label, none lining up with the next. */
+/* The copy control (#474). Icon-only: the value beside it is the point, and a button spelling out
+   the verb next to a fingerprint spends more width on "Copiar" than on the code. 34px square, so it
+   is a real target without being a slab. It goes SILVER on success, not accent - the blue means
+   focus, primary action and quorum, and "your clipboard has it" is none of those. */
+.copy-btn{display:grid; place-items:center; width:34px; height:34px; flex:0 0 auto; padding:0;
+  border:1px solid var(--line); border-radius:9px; background:var(--surface-2);
+  color:var(--text-muted); cursor:pointer;
+  transition:color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out)}
+.copy-btn:hover{color:var(--text); border-color:var(--line-strong)}
+.copy-btn.done{color:var(--silver); border-color:var(--silver)}
+
 /* Section headings (#473). The screen had exactly ONE heading in the whole document - h1
    "Ajustes", then h2 "Danger zone" at the very bottom - so everything between them was unnamed and
    heading navigation jumped straight from one to the other. Mono ALL-CAPS with a letterhead rule,
