@@ -34,7 +34,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use orchestrator::helper::{
-    add_device_key, append_ceremony, claim_members, is_valid_group_key, ledger_csv, list_proposals,
+    append_ceremony, claim_members, is_valid_group_key, ledger_csv, list_proposals,
     load_ceremonies, load_device_keys, load_members, load_proposal, payment_plan, read_authorized,
     register_vault, rename_member, save_proposal, send_config_for, set_read_key, vault_balance,
     vault_transactions, CeremonyRecord, HelperConfig, HelperProposal, HelperState, PayrollLine,
