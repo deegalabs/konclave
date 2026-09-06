@@ -1,6 +1,7 @@
+import { ensureWasm } from '../wasm-ready'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import init, {
+import {
   TestVault,
   RecoveryHelper,
   RecoveryCombiner,
@@ -8,7 +9,6 @@ import init, {
   participantRound2,
   Coordinator,
 } from '../wasm-pkg/konclave_wasm.js'
-import wasmUrl from '../wasm-pkg/konclave_wasm_bg.wasm?url'
 import { useI18n } from '../i18n'
 import { Letterhead } from '../components'
 import '../redesign.css'
@@ -112,7 +112,7 @@ export default function Recovery() {
     setDone(0)
     try {
       const t0 = performance.now()
-      await init(wasmUrl)
+      await ensureWasm()
 
       // A demo 2-of-3 vault. The key packages stand in for each device's unlocked share.
       const v = new TestVault()

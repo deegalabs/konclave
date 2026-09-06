@@ -13,6 +13,7 @@ import { enrolPrf } from '../prf-wrap'
 import { readSecretFor, getUnlockedShare } from '../session'
 import { deviceCommsKey, devicePubHex } from '../device-key'
 import { decodeBundle } from '../signing'
+import { ensureWasm } from '../wasm-ready'
 import { getVault, getSelectedVault, clearSelectedVault, health, shortAddr, deleteVault, IS_NET, type Vault } from '../api'
 import { listVaults, exportVault, forgetVault, type Governance } from '../storage'
 import { clearUnlockedShare } from '../session'
@@ -189,6 +190,10 @@ export default function Settings() {
       // registered device, so nothing on this machine that is not the vault's own device can read
       // it off the wire. The share is in session here - the member just typed their passphrase to
       // export - and `undefined` degrades to the plaintext compat path for an unmigrated vault.
+      // The WASM has to be up before any of this: deriving the device key and opening the envelope
+      // both call into it, and the export runs on a screen the background signer never touches - so
+      // nothing had loaded it here (#483).
+      await ensureWasm()
       const loadedShare = getUnlockedShare(id)
       const device = loadedShare
         ? (() => {

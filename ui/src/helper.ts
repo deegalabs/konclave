@@ -1,4 +1,5 @@
 import { asEnvelope, openEnvelope, type Opener } from './envelope'
+import { ensureWasm } from './wasm-ready'
 
 /** The `kind` the helper stamps on a sealed viewing-key response (#481), matching
  *  `SEALED_UFVK_KIND` in `helper-server`. */
@@ -355,6 +356,9 @@ export async function getUfvk(
   let body: unknown = raw
   if (env) {
     if (!device) return null // sealed, and this caller brought no key to open it
+    // Belt and braces with the caller (#483): opening goes through WASM, and this is the async
+    // boundary where it is needed - so a future caller that forgets still works.
+    await ensureWasm()
     const plain = openEnvelope(env, device.key, device.pubHex)
     if (!plain) return null
     try {

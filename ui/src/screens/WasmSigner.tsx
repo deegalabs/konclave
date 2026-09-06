@@ -1,6 +1,7 @@
+import { ensureWasm } from '../wasm-ready'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import init, {
+import {
   TestVault,
   participantRound1,
   participantRound2,
@@ -9,7 +10,6 @@ import init, {
   extractRandomizers,
   injectSigs,
 } from '../wasm-pkg/konclave_wasm.js'
-import wasmUrl from '../wasm-pkg/konclave_wasm_bg.wasm?url'
 import { useT, useTr, useI18n } from '../i18n'
 import { Letterhead } from '../components'
 import {
@@ -49,7 +49,7 @@ export default function WasmSigner() {
     setBusy(true); setResult(null)
     try {
       const t0 = performance.now()
-      await init(wasmUrl)
+      await ensureWasm()
       const message = new TextEncoder().encode('konclave: an Orchard sighash would go here (demo)')
       const v = new TestVault() // trusted-dealer 2-of-3, standing in for the unlocked device shares
       // two devices, round 1 - nonces stay local, commitments go to the coordinator
@@ -79,7 +79,7 @@ export default function WasmSigner() {
   async function runReal() {
     setRealBusy(true); setReal(null)
     try {
-      await init(wasmUrl)
+      await ensureWasm()
       const proven = dkgProvenPczt()
       const outs = JSON.parse(describeOutputs(proven)) as { address: string | null; value: number | null }[]
       const recipient = outs.find((o) => o.address !== null)

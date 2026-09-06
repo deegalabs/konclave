@@ -1,3 +1,4 @@
+import { ensureWasm } from '../wasm-ready'
 // /lab/background-signer - a laboratory surface to watch Stage 3 (issue #49) run live: unlock a
 // saved vault, and its share signs a payment IN THE BACKGROUND (no /net screen). Two browser tabs
 // on the same saved vault seat each other over the vault's signing room, and an injected test
@@ -6,8 +7,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Letterhead } from '../components'
-import init, { pcztSighash } from '../wasm-pkg/konclave_wasm.js'
-import wasmUrl from '../wasm-pkg/konclave_wasm_bg.wasm?url'
+import { pcztSighash } from '../wasm-pkg/konclave_wasm.js'
 import { listVaults, type VaultPublic } from '../storage'
 import { getUnlockedShare } from '../session'
 import { unlockOnDevice } from '../unlock'
@@ -39,7 +39,7 @@ export default function BackgroundSignerLab() {
 
   useEffect(() => {
     void (async () => {
-      await init(wasmUrl)
+      await ensureWasm()
       const vs = await listVaults()
       setVaults(vs)
       const already = vs.find((v) => getUnlockedShare(v.id))

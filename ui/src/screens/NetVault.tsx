@@ -1,15 +1,15 @@
+import { ensureWasm } from '../wasm-ready'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { setSelectedVault, getSelectedVault } from '../api'
 import CopyButton from '../CopyButton'
 import { getUnlockedShare, clearUnlockedShare, setUnlockedShare } from '../session'
-import init, {
+import {
   DkgSession,
   DeviceKey,
   sealTo,
   identifierBytes,
 } from '../wasm-pkg/konclave_wasm.js'
-import wasmUrl from '../wasm-pkg/konclave_wasm_bg.wasm?url'
 import { RelaySession, newRoomCode, deriveRoom, ephemeralTag, b64, unb64, bytesEqual, relayBase, type RelayMsg } from '../net'
 import { decodeBundle } from '../signing'
 import { SigningMachine } from '../signing-machine'
@@ -620,7 +620,7 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
       if (startGuardRef.current) return
       startGuardRef.current = true
       try {
-        await init(wasmUrl)
+        await ensureWasm()
         deviceKeyRef.current = new DeviceKey()
         isCreatorRef.current = asRole === 'create' // #388: the creator mints S
         accessSecretRef.current = null
@@ -674,7 +674,7 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
       if (startGuardRef.current) return
       startGuardRef.current = true
       try {
-        await init(wasmUrl)
+        await ensureWasm()
         myTagRef.current = ephemeralTag()
         configRef.current = { n: r.n, t: r.t }
         mySeatRef.current = r.seat
