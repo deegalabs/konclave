@@ -85,6 +85,10 @@ export interface VaultLoaded {
   createdAt: number
   /** The per-vault access secret S (#388), or undefined for a vault saved before #388. */
   accessSecret?: Uint8Array
+  /** The vault's UFVK, when this device has learned it (#214). View-only: it reads the vault's
+   *  whole history and cannot move a coin. Undefined until fetched, and for an open vault that
+   *  cannot fetch it at all. */
+  ufvk?: string
 }
 
 // Internal on-disk record. `cipher`/`salt`/`iv` protect `sealedShare`; `secretCipher`/`secretIv`
@@ -108,6 +112,10 @@ interface VaultRecord {
   /** The PBKDF2 count this envelope was sealed with (#435). Absent means the legacy count: the
    *  parameter has to travel with the ciphertext, or raising it locks every existing record. */
   kdfIters?: number
+  /** The vault's UFVK once this device has it (#214), so an export can carry it and a restore
+   *  can rebuild the vault rather than only the seat. Kept beside `address` and `groupKey`: it
+   *  is view-only material - it reads the vault's history and cannot move a coin, unlike a share. */
+  ufvk?: string
 }
 
 
@@ -337,6 +345,7 @@ export async function loadVault(id: string, passphrase: string): Promise<VaultLo
     sealedShare: new Uint8Array(plainBuf),
     createdAt: record.createdAt,
     accessSecret,
+    ufvk: record.ufvk,
   }
 }
 
@@ -400,6 +409,15 @@ interface V2Payload {
   share: string
   accessSecret: string | null
   beneficiaries: unknown[]
+  /** The vault's UFVK, when this device could get it (#214/#434).
+   *
+   *  Without it an export restores the SEAT, not the vault: `t` members would hold real spend
+   *  authority over money none of them can see, because detecting notes needs the viewing key and
+   *  it is minted once, randomly, and kept only on the helper's volume. It lives INSIDE the
+   *  encrypted blob, never the envelope - it is the whole transaction history, memos included.
+   *  Absent on an export made before this, or made by a device that could not fetch it (an open
+   *  vault cannot: the helper refuses to hand a viewing key out by id alone). */
+  ufvk?: string
 }
 
 /**
@@ -436,7 +454,11 @@ function writeBeneficiaries(id: string, list: unknown[]): void {
  * vault id, address, or member names. Verifies the passphrase unlocks the share before exporting, so
  * the bundle is guaranteed importable.
  */
-export async function exportVault(id: string, passphrase: string): Promise<VaultExportV2> {
+export async function exportVault(
+  id: string,
+  passphrase: string,
+  ufvk?: string,
+): Promise<VaultExportV2> {
   if (!storageAvailable()) throw new Error('This browser cannot read the vault (no IndexedDB/WebCrypto)')
   if (!passphrase) throw new Error('A passphrase is required to export the vault')
 
@@ -457,6 +479,8 @@ export async function exportVault(id: string, passphrase: string): Promise<Vault
     share: hex(loaded.sealedShare),
     accessSecret: loaded.accessSecret ? hex(loaded.accessSecret) : null,
     beneficiaries: readBeneficiaries(id),
+    // Explicit wins (a fresh authenticated fetch), else whatever this device already recorded.
+    ...(ufvk ?? loaded.ufvk ? { ufvk: ufvk ?? loaded.ufvk } : {}),
   }
 
   const salt = crypto.getRandomValues(new Uint8Array(16))
@@ -529,6 +553,9 @@ interface DecodedImport {
   share: Uint8Array
   accessSecret?: Uint8Array
   beneficiaries?: unknown[]
+  /** The vault's UFVK, when the export carried one. Absent on a v1 export and on any v2 written
+   *  before #214, so an importer must treat it as "not in this file", never as "none exists". */
+  ufvk?: string
 }
 
 /** Decode a v2 opaque blob: decrypt the whole payload with the passphrase, then read the fields. */
@@ -553,6 +580,7 @@ async function decodeV2(b: VaultExportV2, passphrase: string): Promise<DecodedIm
     groupKey: unhex(p.groupKey), address: p.address, roster: p.roster, createdAt: p.createdAt || Date.now(),
     share: unhex(p.share), accessSecret: p.accessSecret ? unhex(p.accessSecret) : undefined,
     beneficiaries: Array.isArray(p.beneficiaries) ? p.beneficiaries : undefined,
+    ufvk: typeof p.ufvk === 'string' && p.ufvk ? p.ufvk : undefined,
   }
 }
 
@@ -618,6 +646,9 @@ export async function importVault(
     id: d.id, name: d.name, governance: d.governance, myName: d.myName, creatorName: d.creatorName,
     groupKey: hex(d.groupKey), address: d.address, roster: d.roster, createdAt: d.createdAt,
     salt, iv, cipher, secretIv, secretCipher, kdfIters: PBKDF2_ITERS,
+    // Whatever viewing key the export carried comes across with it: an import that decoded it and
+    // dropped it would restore the seat and quietly lose the vault (#214).
+    ...(d.ufvk ? { ufvk: d.ufvk } : {}),
   }
 
   const db = await openDb()
