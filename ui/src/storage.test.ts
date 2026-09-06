@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto'
 import { describe, it, expect } from 'vitest'
 import {
   saveVault, loadVault, listVaults, deleteVault, forgetVault, storageAvailable,
-  exportVault, importVault, parseVaultExport, type VaultData,
+  exportVault, importVault, parseVaultExport, changePassphrase, type VaultData,
   warnsAboutEviction, storagePersistence,
 } from './storage'
 
@@ -424,5 +424,65 @@ describe('the export carries the viewing key, so it can rebuild the vault (#214)
     const back = await loadVault('ufvk-3', 'pass')
     expect(back.ufvk).toBeUndefined()
     expect(Array.from(back.sealedShare)).toEqual(Array.from(share))
+  })
+})
+
+describe('changePassphrase', () => {
+  // The one credential in the product with no way to rotate (#470). It is local, per device, and
+  // three lines - which is exactly why the careless version is the likely one.
+  const id = 'rotate-me'
+
+  it('the new passphrase opens the vault and the old one no longer does', async () => {
+    await saveVault(id, data, 'old-one')
+    await changePassphrase(id, 'old-one', 'new-one')
+    const back = await loadVault(id, 'new-one')
+    expect(Array.from(back.sealedShare)).toEqual(Array.from(share))
+    await expect(loadVault(id, 'old-one')).rejects.toThrow()
+  })
+
+  // THE TRAP. `saveVault` writes `createdAt: Date.now()` and does not persist `ufvk`, so the
+  // obvious load-then-save would reset the creation date and silently DELETE the viewing key that
+  // #447/#458 put on this device - leaving `t` members with spend authority over money none of them
+  // can see. Asserted rather than left to a comment asking someone to remember.
+  it('keeps the viewing key and the creation date', async () => {
+    const withKey = 'rotate-keeps'
+    await saveVault(withKey, { ...data, accessSecret: new Uint8Array(32).fill(3) }, 'old-one')
+    const before = await loadVault(withKey, 'old-one')
+    // The UFVK reaches a record through import, so that is how it gets here.
+    const bundle = await exportVault(withKey, 'old-one', 'u1viewingkeyplaceholder')
+    await importVault(bundle, 'old-one', { overwrite: true })
+    const seeded = await loadVault(withKey, 'old-one')
+    expect(seeded.ufvk, 'precondition: the record carries a viewing key').toBeTruthy()
+
+    await changePassphrase(withKey, 'old-one', 'new-one')
+    const after = await loadVault(withKey, 'new-one')
+    expect(after.ufvk, 'the viewing key must survive a passphrase change').toBe(seeded.ufvk)
+    expect(after.createdAt, 'the creation date is not "now"').toBe(seeded.createdAt)
+    expect(before.createdAt).toBeTruthy()
+  })
+
+  it('carries the access secret S across', async () => {
+    const withS = 'rotate-s'
+    const S = new Uint8Array(32).fill(9)
+    await saveVault(withS, { ...data, accessSecret: S }, 'old-one')
+    await changePassphrase(withS, 'old-one', 'new-one')
+    const after = await loadVault(withS, 'new-one')
+    expect(after.accessSecret && Array.from(after.accessSecret)).toEqual(Array.from(S))
+  })
+
+  it('refuses a wrong current passphrase and leaves the record alone', async () => {
+    const keep = 'rotate-refuse'
+    await saveVault(keep, data, 'old-one')
+    await expect(changePassphrase(keep, 'not-it', 'new-one')).rejects.toThrow()
+    // Still openable with the original: a failed rotation must not be a lost share.
+    const back = await loadVault(keep, 'old-one')
+    expect(Array.from(back.sealedShare)).toEqual(Array.from(share))
+  })
+
+  it('refuses an empty new passphrase', async () => {
+    const keep = 'rotate-empty'
+    await saveVault(keep, data, 'old-one')
+    await expect(changePassphrase(keep, 'old-one', '')).rejects.toThrow()
+    await expect(loadVault(keep, 'old-one')).resolves.toBeTruthy()
   })
 })

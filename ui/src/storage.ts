@@ -614,6 +614,76 @@ async function decodeV1(b: VaultExportV1, passphrase: string): Promise<DecodedIm
  * re-encrypted at rest under the passphrase with a fresh salt/iv; the beneficiaries are restored.
  * Refuses to clobber a different vault with the same id unless `overwrite`.
  */
+/**
+ * Re-seal this device's copy of a vault under a NEW passphrase (#470).
+ *
+ * Local, and per DEVICE: each device seals its own copy, so rotating here does not rotate the
+ * member's other machines. Nothing leaves the browser - no quorum, no relay, no helper, no chain.
+ *
+ * It does NOT go through `saveVault`, deliberately. `saveVault` stamps `createdAt: Date.now()` and
+ * does not persist `ufvk`, so the obvious load-then-save would reset the creation date and silently
+ * DELETE the viewing key #447/#458 put on this device - leaving `t` members with spend authority
+ * over money none of them could see. This follows `importVault`, which already gets that right.
+ *
+ * The new record is built and PROVEN openable in memory before anything is written, so a failure
+ * cannot leave a share sealed under a passphrase nobody has. The write itself is a single
+ * IndexedDB `put`: the record is either the old one or the new one, never half of each.
+ */
+export async function changePassphrase(id: string, oldPassphrase: string, newPassphrase: string): Promise<void> {
+  if (!storageAvailable()) throw new Error('This browser cannot store the vault (no IndexedDB/WebCrypto)')
+  if (!newPassphrase) throw new Error('A new passphrase is required')
+  if (newPassphrase === oldPassphrase) throw new Error('The new passphrase is the same as the current one')
+
+  // Throws on a wrong current passphrase, which is also the proof that the member can still open
+  // the vault. A rotation must never be a way to re-seal a share you cannot read.
+  const loaded = await loadVault(id, oldPassphrase)
+
+  const salt = crypto.getRandomValues(new Uint8Array(16))
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const key = await deriveKey(newPassphrase, salt, PBKDF2_ITERS)
+  const cipher = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: bufOf(iv) }, key, bufOf(loaded.sealedShare)))
+  let secretIv: Uint8Array | undefined
+  let secretCipher: Uint8Array | undefined
+  if (loaded.accessSecret) {
+    secretIv = crypto.getRandomValues(new Uint8Array(12))
+    secretCipher = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv: bufOf(secretIv) }, key, bufOf(loaded.accessSecret)))
+  }
+
+  // Prove it opens BEFORE replacing anything. AES-GCM authenticates, so a successful decrypt is a
+  // real check and not a formality.
+  await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bufOf(iv) }, key, bufOf(cipher))
+
+  const record: VaultRecord = {
+    id,
+    name: loaded.name,
+    governance: loaded.governance,
+    myName: loaded.myName,
+    creatorName: loaded.creatorName,
+    groupKey: hex(loaded.groupKey),
+    address: loaded.address,
+    roster: loaded.roster,
+    // The two the careless version loses. Not a comment asking someone to remember: the tests
+    // assert both.
+    createdAt: loaded.createdAt,
+    ...(loaded.ufvk ? { ufvk: loaded.ufvk } : {}),
+    salt,
+    iv,
+    cipher,
+    secretIv,
+    secretCipher,
+    kdfIters: PBKDF2_ITERS,
+  }
+
+  const db = await openDb()
+  try {
+    const tx = db.transaction(STORE, 'readwrite')
+    tx.objectStore(STORE).put(record)
+    await txDone(tx)
+  } finally {
+    db.close()
+  }
+}
+
 export async function importVault(
   bundle: VaultExport,
   passphrase: string,

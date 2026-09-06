@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Skeleton } from '../skeleton'
+import { changePassphrase } from '../storage'
 import { useNavigate } from 'react-router-dom'
 import { Seal, Loading, LangToggle } from '../components'
 import { VersionBadge } from '../UpdatePrompt'
@@ -140,6 +141,37 @@ export default function Settings() {
     clearPrfWrap(vaultId)
     setHasPasskey(false)
     setPkErr(null)
+  }
+
+  // #470: rotating the passphrase that seals this device's share. Local and per DEVICE - the
+  // member's other machines keep theirs, which the copy says because the mechanics cannot.
+  const [rotOpen, setRotOpen] = useState(false)
+  const [rotOld, setRotOld] = useState('')
+  const [rotNew, setRotNew] = useState('')
+  const [rotNew2, setRotNew2] = useState('')
+  const [rotBusy, setRotBusy] = useState(false)
+  const [rotErr, setRotErr] = useState<string | null>(null)
+  const [rotDone, setRotDone] = useState(false)
+
+  function resetRotate() {
+    setRotOpen(false); setRotOld(''); setRotNew(''); setRotNew2(''); setRotErr(null); setRotDone(false)
+  }
+
+  async function doRotate() {
+    if (!vaultId) return
+    if (rotNew !== rotNew2) { setRotErr(t('rotate.errMismatch')); return }
+    setRotBusy(true); setRotErr(null)
+    try {
+      await changePassphrase(vaultId, rotOld, rotNew)
+      setRotDone(true)
+      setRotOld(''); setRotNew(''); setRotNew2('')
+    } catch (e) {
+      // `changePassphrase` proves the new seal opens before it writes, so a failure here means the
+      // record was NOT touched - which is what the message promises.
+      setRotErr(String(e).includes('same as') ? t('rotate.errSame') : t('rotate.errWrong'))
+    } finally {
+      setRotBusy(false)
+    }
   }
 
   async function runExport(): Promise<{ json: string; name: string } | null> {
@@ -315,6 +347,11 @@ export default function Settings() {
                 {pkBusy ? t('settings.passkeyBusy') : t('settings.passkeyOn')}
               </button>
             ) : null}
+            {hasLocal && (
+              <button type="button" className="btn ghost sm-btn" onClick={() => (rotOpen ? resetRotate() : setRotOpen(true))}>
+                {rotOpen ? t('common.cancel') : t('rotate.btn')}
+              </button>
+            )}
           </span>
         </div>
         {pkErr && <div className="unlock-err" role="alert">{pkErr}</div>}
@@ -324,6 +361,34 @@ export default function Settings() {
           dropped. It says the thing that matters - the passphrase always works, and sending money
           still asks for it - so it is used rather than rewritten. */}
       {canEnrol || hasPasskey ? <p className="set-hint">{t('settings.passkeyWhy')}</p> : null}
+
+      {rotOpen && (
+        <section className="set-list mt">
+          <div className="set-row" style={{ display: 'block' }}>
+            {rotDone ? (
+              <p className="set-hint" style={{ margin: 0 }} role="status">{t('rotate.done')}</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <p className="set-hint" style={{ margin: 0 }}>{t('rotate.help')}</p>
+                <input className="input mono" type="password" autoFocus placeholder={t('rotate.oldPlaceholder')}
+                  value={rotOld} onChange={(e) => { setRotOld(e.target.value); setRotErr(null) }} />
+                <input className="input mono" type="password" placeholder={t('rotate.newPlaceholder')}
+                  value={rotNew} onChange={(e) => { setRotNew(e.target.value); setRotErr(null) }} />
+                <input className="input mono" type="password" placeholder={t('rotate.new2Placeholder')}
+                  value={rotNew2} onChange={(e) => { setRotNew2(e.target.value); setRotErr(null) }} />
+                {rotErr && <p className="set-err">{rotErr}</p>}
+                <div>
+                  <button type="button" className="btn ok sm-btn" disabled={rotBusy || !rotOld || !rotNew || !rotNew2}
+                    onClick={() => void doRotate()}>
+                    {rotBusy ? t('vaults.verifying') : t('rotate.confirm')}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+      {rotOpen && !rotDone && <p className="set-hint">{t('rotate.note')}</p>}
 
       {!settled && (
         <div className="fp-card mt" role="status" aria-label={t('common.loading')}>
