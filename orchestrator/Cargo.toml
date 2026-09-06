@@ -24,6 +24,9 @@ argon2 = "0.5"
 # derived sealing key, and cleartext configs are held in `Zeroizing` so freed memory
 # does not linger with private key bytes.
 zeroize = "1"
+# ADR-0011 D3: verify the per-device Ed25519 write signature. Verification only in this crate;
+# the signing side lives on the device.
+ed25519-dalek = "2"
 # OS keychain for the per-vault sealing key (audit C2): Windows Credential Manager /
 # macOS Keychain / Linux Secret Service, behind the `KeyStore` trait. Pinned with NO
 # backend feature here so the crate builds anywhere with zero system libs (the tests use
