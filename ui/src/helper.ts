@@ -9,7 +9,7 @@
 // railway.app). When unset, every call degrades to `null` and `/net` stays a pure two-device
 // ceremony with no hosted vault - the local-first path is unchanged.
 
-import { getUnlockedShare } from './session'
+import { readSecretFor } from './session'
 import { deriveReadKey } from './vault-secret'
 import { bytesToHex } from './bytes'
 import type { WriteProof } from './device-key'
@@ -74,7 +74,7 @@ export function helperConfigured(): boolean {
 async function readAuthHeaders(path: string): Promise<Record<string, string>> {
   const id = /[?&]vault=([0-9a-fA-F]{64})/.exec(path)?.[1]
   if (!id) return {}
-  const s = getUnlockedShare(id)?.accessSecret
+  const s = readSecretFor(id)
   if (!s) return {}
   try {
     return { 'X-Konclave-Read': bytesToHex(await deriveReadKey(s)) }

@@ -19,7 +19,7 @@ import {
   type Vault, type Proposal, type Balance,
 } from '../api'
 import { storagePersistence, warnsAboutEviction, listVaults } from '../storage'
-import { getUnlockedShare } from '../session'
+import { readSecretFor } from '../session'
 import { needsUnlock, securedLocally } from '../vault-lock'
 import { useVaultSigner } from '../VaultSigner'
 import { useLoading } from '../loading'
@@ -186,7 +186,7 @@ export default function Dashboard() {
           bridgeLocked: v.locked,
           unlockedThisSession: isVaultUnlocked(v.id),
           securedLocally: await securedLocally(v.id),
-          hasAccessSecret: !!getUnlockedShare(v.id)?.accessSecret,
+          hasAccessSecret: !!readSecretFor(v.id),
         })) { nav('/vaults', { state: { from: '/dashboard' } }); return }
         if (v) setVault(v)
         // FAST data first: proposals + ledger are plain file reads (no wallet sync). Render the
