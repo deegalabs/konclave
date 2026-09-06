@@ -40,7 +40,7 @@ for (const { id: locale, dict } of [
   { id: 'en', dict: en },
   { id: 'pt-BR', dict: ptBR },
 ] as const) {
-  const card = (page: import('@playwright/test').Page) => page.getByRole('heading', { name: VAULT_NAME })
+  const card = (page: import('@playwright/test').Page) => page.getByRole('heading', { name: VAULT_NAME, exact: true })
   const removeBtn = (page: import('@playwright/test').Page) =>
     page.getByRole('button', { name: dict['dashboard.deleteThisVault'], exact: true })
   const confirmBtn = (page: import('@playwright/test').Page) =>
@@ -86,6 +86,22 @@ for (const { id: locale, dict } of [
       await confirmBtn(page).click()
       await expect(page.getByText(dict['settings.removeFail'])).toBeVisible()
       await expect(confirmBtn(page)).toBeVisible() // still open, not dismissed
+    })
+
+    test('offers the export first, because that is what makes the loss recoverable', async ({ page }) => {
+      // The dialog warns that removing costs you access. Naming a loss without offering the one
+      // action that prevents it is half a product, so the backup route sits next to the warning.
+      await seed(page, locale)
+      await page.goto('/#/vaults')
+      await removeBtn(page).click()
+      const backup = page.getByRole('button', { name: dict['dashboard.deleteBackupFirst'], exact: true })
+      await expect(backup).toBeVisible()
+      await backup.click()
+      // It leaves the picker for the vault's own export. Locked, that bounces through unlock and
+      // comes back (#446 D); either way the delete dialog is gone and nothing was removed.
+      await expect(page).not.toHaveURL(/#\/vaults$/, { timeout: 10_000 })
+      await page.goto('/#/vaults')
+      await expect(card(page), 'the vault is still here: backing up must never delete').toBeVisible()
     })
 
     test('cancelling leaves the vault where it was', async ({ page }) => {

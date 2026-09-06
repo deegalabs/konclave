@@ -1229,3 +1229,35 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 .rd-remove:hover, .rd-remove:focus-visible { opacity:1; color:var(--warn-strong); }
 .rd-enter.danger { color:var(--warn-strong); border-color:var(--warn); }
 .rd-enter.danger:disabled { opacity:.45; cursor:not-allowed; }
+
+/* The remove-from-this-device dialog (#426). Rebuilt after the first version shipped with two class
+   names that did not exist (`.unlock-lab`, `.unlock-in`), so the field rendered unstyled and jammed
+   against its label, and with prose in `.hint` - which `lacre.css` sets to the MONO face, so two of
+   the three paragraphs disagreed with the first for no reason.
+   The shape now says what the reader should weigh: one line of what happens, then the money
+   consequence with the weight, then the reassurance kept deliberately quiet. */
+.rm-lead { margin: 6px 0 14px !important; }
+.rm-funds {
+  display: flex; gap: 10px; align-items: flex-start; margin: 0 0 14px;
+  padding: 12px 14px; border-radius: var(--radius);
+  background: var(--warn-soft, var(--surface-1)); border: 1px solid var(--warn);
+}
+.rm-funds p { margin: 0 !important; color: var(--warn-strong) !important; font-size: 13px !important; }
+.rm-funds .rm-ic {
+  flex: 0 0 auto; width: 18px; height: 18px; border-radius: 50%; margin-top: 1px;
+  display: grid; place-items: center; font-size: 12px; font-weight: 700;
+  color: var(--warn-strong); border: 1px solid var(--warn);
+}
+.rm-quiet { font-size: 12.5px !important; color: var(--text-muted) !important; margin: 0 0 18px !important; }
+.rm-field { display: block; }
+.rm-field > span {
+  display: block; margin-bottom: 7px; font-size: 13px; color: var(--text); line-height: 1.45;
+}
+.rm-field > span b, .rm-field > span strong { font-family: var(--font-mono); font-weight: 600; }
+.rm-backup {
+  display: block; width: 100%; margin: 0 0 8px; padding: 11px 14px; font: inherit; font-size: 13.5px;
+  color: var(--accent); background: var(--surface-0); border: 1px solid var(--accent-line);
+  border-radius: var(--radius); cursor: pointer; text-align: left;
+}
+.rm-backup:hover, .rm-backup:focus-visible { border-color: var(--accent); background: var(--accent-line); }
+.rm-why { margin: 0 0 18px !important; }
