@@ -675,6 +675,54 @@ pub fn upsert_device(
     Ok(true)
 }
 
+fn write_nonces_path(vaults_dir: &Path, vault: &str) -> PathBuf {
+    vaults_dir.join(vault).join("write-nonces.json")
+}
+
+/// Has this vault already accepted `nonce` on a governance write (#288)?
+///
+/// A signature is bound to its nonce, so accepting the same one twice is accepting the same write
+/// twice - which is how a captured approve becomes two approves. Reading the file every time is
+/// deliberate: the helper serves requests from a worker pool, so an in-memory set would be per
+/// worker and a replay could simply land on a different one.
+pub fn write_nonce_seen(vaults_dir: &Path, vault: &str, nonce: &str) -> bool {
+    load_write_nonces(vaults_dir, vault)
+        .iter()
+        .any(|n| n == nonce)
+}
+
+fn load_write_nonces(vaults_dir: &Path, vault: &str) -> Vec<String> {
+    std::fs::read_to_string(write_nonces_path(vaults_dir, vault))
+        .ok()
+        .and_then(|j| serde_json::from_str::<Vec<String>>(&j).ok())
+        .unwrap_or_default()
+}
+
+/// Record `nonce` as used. Best-effort by design: the caller has already verified the signature,
+/// and a write that succeeds but fails to burn its nonce is a replay window, not a lost vote - so
+/// it must never fail the vote itself. Bounded, so a vault cannot be grown without limit by an
+/// attacker who can reach the endpoint: the oldest entries fall off.
+pub fn burn_write_nonce(vaults_dir: &Path, vault: &str, nonce: &str) -> Result<(), ToolError> {
+    const KEEP: usize = 2_000;
+    let mut nonces = load_write_nonces(vaults_dir, vault);
+    if nonces.iter().any(|n| n == nonce) {
+        return Ok(());
+    }
+    nonces.push(nonce.to_string());
+    if nonces.len() > KEEP {
+        let drop = nonces.len() - KEEP;
+        nonces.drain(0..drop);
+    }
+    let path = write_nonces_path(vaults_dir, vault);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(ToolError::Io)?;
+    }
+    let json = serde_json::to_string(&nonces)
+        .map_err(|e| ToolError::parse("write-nonces", e.to_string()))?;
+    std::fs::write(&path, json).map_err(ToolError::Io)?;
+    Ok(())
+}
+
 fn read_key_path(vaults_dir: &Path, vault: &str) -> PathBuf {
     vaults_dir.join(vault).join("read-key.json")
 }
