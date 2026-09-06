@@ -292,6 +292,12 @@ export const en: Record<string, string> = {
   'gov.nudgeBeneficiaries': 'Quorum-gated vault: changing beneficiaries is a group decision. Agree with the members before saving.',
   'settings.unlock': 'Unlock',
   'settings.unlockValue': 'passphrase on this device',
+  // #468: only the keys the existing passkey copy did not already have. The rest of it
+  // (`settings.passkeyOn/Off/Why/Fail`) was written long ago for a flow that was never wired - the
+  // same orphaned-copy pattern as #426.
+  'settings.unlockBoth': 'passphrase + this device',
+  'settings.passkeyBusy': 'Waiting for this device\u2026',
+  'settings.passkeyNeedUnlock': 'Unlock the vault first, then turn this on.',
   'vaults.passkeyUnlock': 'Unlock with this device',
   'vaults.passkeyBusy': 'Waiting for this device…',
   'settings.passkeyTitle': 'Unlock with this device',

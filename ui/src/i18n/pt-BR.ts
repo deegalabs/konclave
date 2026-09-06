@@ -292,6 +292,12 @@ export const ptBR: Record<string, string> = {
   'gov.nudgeBeneficiaries': 'Cofre sob quórum: mudar beneficiários é uma decisão do grupo. Combinem com os membros antes de salvar.',
   'settings.unlock': 'Desbloqueio',
   'settings.unlockValue': 'senha neste aparelho',
+  // #468: só as chaves que a cópia de passkey ainda não tinha. O resto
+  // (`settings.passkeyOn/Off/Why/Fail`) foi escrito há tempos para um fluxo que nunca foi ligado -
+  // o mesmo padrão de cópia órfã do #426.
+  'settings.unlockBoth': 'senha + este aparelho',
+  'settings.passkeyBusy': 'Aguardando este aparelho\u2026',
+  'settings.passkeyNeedUnlock': 'Destrave o cofre primeiro, depois ligue isto.',
   'vaults.passkeyUnlock': 'Destravar com este aparelho',
   'vaults.passkeyBusy': 'Aguardando este aparelho\u2026',
   'settings.passkeyTitle': 'Destravar com este aparelho',
