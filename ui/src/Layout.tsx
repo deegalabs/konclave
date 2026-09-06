@@ -9,6 +9,7 @@ import { needsUnlock, securedLocally } from './vault-lock'
 import { listVaults } from './storage'
 import { VaultSignerProvider } from './VaultSigner'
 import { LoadingProvider, TopProgress } from './loading'
+import { startVisiblePoll } from './usePoll'
 import SigningPanel from './screens/SigningPanel'
 import AppPrefs from './AppPrefs'
 import LockOverlay from './LockOverlay'
@@ -22,6 +23,9 @@ import type { VaultSrc } from './unlock'
 export interface VaultLockContext {
   locked: boolean
   unlockNonce: number
+  /** Whether the bridge/helper answered. The shell owns ONE liveness poll and hands the answer
+   *  down (#476); a screen that polls for itself just doubles the traffic for the same fact. */
+  live: boolean | null
 }
 
 // The money + governance spine shown directly in the mobile bottom bar; everything else folds into
@@ -109,13 +113,15 @@ export default function Layout() {
     let on = true
     const check = () => { void health().then((ok) => { if (on) setLive(ok) }) }
     check()
-    const id = window.setInterval(check, 20_000)
-    window.addEventListener('focus', check)
+    // `startVisiblePoll`, not a bare `setInterval`. The helper existed and five screens used it;
+    // this one did not, so the shell kept pinging every 20s with the tab in the background - and
+    // it is the poll that runs on EVERY screen. It also refreshes on return, which is what the
+    // `focus` listener was hand-rolling.
+    const stop = startVisiblePoll(check, 20_000)
     window.addEventListener('online', check)
     return () => {
       on = false
-      window.clearInterval(id)
-      window.removeEventListener('focus', check)
+      stop()
       window.removeEventListener('online', check)
     }
   }, [])
@@ -298,7 +304,7 @@ export default function Layout() {
         {/* The screens read `locked` so they do not fetch behind the overlay - every read would
             401 - and `unlockNonce` so they refetch the moment it opens. Outlet context rather than
             a new provider: this is one value going one level down. */}
-        <Outlet context={{ locked: !!locked, unlockNonce } satisfies VaultLockContext} />
+        <Outlet context={{ locked: !!locked, unlockNonce, live } satisfies VaultLockContext} />
       </div>
     </div>
     {locked && (

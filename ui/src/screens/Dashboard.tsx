@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { startVisiblePoll } from '../usePoll'
 import { Link, useOutletContext } from 'react-router-dom'
 import { useInstall } from '../use-install'
@@ -15,7 +15,7 @@ import { usdEnabled, setUsdEnabled, cachedRate, rateIsStale, fetchRate, zecToUsd
 import { CONFIRMATIONS_UNTRUSTED, getTransactions, getSelectedVault } from '../api'
 import { useT, useTr } from '../i18n'
 import {
-  getVault, getProposals, getBalance, getLedger, health, shortAddr, isVaultUnlocked,
+  getVault, getProposals, getBalance, getLedger, shortAddr, isVaultUnlocked,
   type Vault, type Proposal, type Balance,
 } from '../api'
 import { storagePersistence, warnsAboutEviction, listVaults } from '../storage'
@@ -91,7 +91,6 @@ export default function Dashboard() {
   const [proposals, setProposals] = useState<Proposal[]>([])
   const [ledger, setLedger] = useState<Proposal[] | null>(null)
   const [balance, setBalance] = useState<Balance | null>(null)
-  const [live, setLive] = useState<boolean | null>(null)
   // #388: whether this vault holds S (gated) or is legacy/open. Read from listVaults (the record's
   // sealed-S presence), so it is robust to the in-session unlock state; undefined = unknown -> no banner.
   const [secured, setSecured] = useState<boolean | undefined>(undefined)
@@ -166,7 +165,12 @@ export default function Dashboard() {
 
   // #467: `Layout` owns the lock and shows the overlay; this screen only needs to know when the
   // door opens, so it can load the data it deliberately did not fetch while locked.
-  const { unlockNonce } = useOutletContext<VaultLockContext>()
+  const { unlockNonce, live } = useOutletContext<VaultLockContext>()
+
+  // The poll closure is created once; a ref lets it read today's liveness without tearing the
+  // interval down and rebuilding it on every change.
+  const liveRef = useRef<boolean | null>(null)
+  liveRef.current = live
 
   useEffect(() => {
     let on = true
@@ -176,10 +180,11 @@ export default function Dashboard() {
       inFlight = true
       if (first) begin()
       try {
-        const ok = await health()
-        if (!on) return
-        setLive(ok)
-        if (!ok) return
+        // Liveness comes from the shell (#476). This used to call `health()` itself on a 12s poll,
+        // on top of the shell's own 20s one, so the dashboard asked the same question twice for the
+        // same answer - the network tab was 26 of 44 requests `health`. The shell's poll pauses
+        // with the tab; this one never did.
+        if (liveRef.current === false) return
         const v = await getVault()
         if (!on) return
         // Cannot read this vault yet → stop here and let `Layout` ask for the passphrase over this
