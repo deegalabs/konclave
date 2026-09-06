@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Skeleton } from '../skeleton'
+import { Dialog, PassphraseField, Secret } from '../components'
 import { changePassphrase } from '../storage'
 import { useNavigate } from 'react-router-dom'
 import { Seal, Loading, LangToggle } from '../components'
@@ -242,31 +243,17 @@ export default function Settings() {
 
   return (
     <main className="page">
+      {/* No invented quorum. `thr`/`n` fall back to 2 and 3, so until `getVault` answered, every
+          vault in the world was announced as 2/3 - in the subtitle AND stamped into the 90px seal.
+          That is the exact defect the sections below were fixed for. The quorum is also stated once
+          now, in the vault table, instead of three times in three renderings. */}
       <PageHeader
         eyebrow={t('settings.eyebrow')}
         title={t('settings.title')}
-        subtitle={<>
-          {vault?.name ?? t('settings.vault')} · {t('settings.quorumWord')} {thr}/{n}
-        </>}
-        actions={<Seal t={thr} n={n} />}
+        subtitle={vault?.name ?? t('settings.vault')}
+        actions={vault ? <Seal t={vault.threshold} n={vault.total} /> : undefined}
       />
 
-      {/* Appearance - a per-device theme choice (white-first; dark opt-in). Not per-vault, so it
-          renders regardless of vault/live state. */}
-      <section className="set-list mt">
-        <div className="set-row">
-          <span className="set-k">{t('settings.appearance')}</span>
-          <span className="set-v" style={{ display: 'inline-flex', gap: 8 }}>
-            <button type="button" className={'btn' + (theme === 'light' ? ' ok' : ' ghost')} onClick={() => pickTheme('light')}>{t('settings.light')}</button>
-            <button type="button" className={'btn' + (theme === 'dark' ? ' ok' : ' ghost')} onClick={() => pickTheme('dark')}>{t('settings.dark')}</button>
-          </span>
-        </div>
-        <div className="set-row">
-          <span className="set-k">{t('settings.language')}</span>
-          <span className="set-v"><LangToggle /></span>
-        </div>
-      </section>
-      <p className="set-hint">{t('settings.appearanceHint')}</p>
 
       {/* Coordination - WHERE the blind ceremony helper lives (desktop). Our hosted helper, your
           own, or fully local (no helper). The helper never sees a share in any mode. */}
@@ -300,7 +287,8 @@ export default function Settings() {
       {live === null && <Loading />}
 
       {live !== null && <>
-      <div className="set-list mt">
+      <h2 className="set-sec">{t('set.secVault')}</h2>
+      <div className="set-list">
         {network && (
           <div className="set-row">
             <span className="set-k">{t('settings.network')}</span>
@@ -309,26 +297,52 @@ export default function Settings() {
         )}
         <div className="set-row">
           <span className="set-k">{t('settings.quorum')}</span>
-          <span className="set-v">{thr} {t('settings.of')} {n}</span>
+          {/* Figures are mono. The contract has no exception for small ones. */}
+          <span className="set-v mono">{thr} / {n}</span>
         </div>
         <div className="set-row">
           <span className="set-k">{t('settings.members')}</span>
-          <span className="set-v">{vault?.member_list?.length ?? n}</span>
+          {/* `?? n` reported the CONFIGURED total as the seated count when the list was missing -
+              a number standing in for a different number. It says nothing until it knows. */}
+          <span className="set-v mono">{vault?.member_list?.length ?? '-'}</span>
         </div>
         <div className="set-row">
           <span className="set-k">{t('settings.address')}</span>
-          <span className="set-v mono">{vault ? shortAddr(vault.orchard_address) : '-'}</span>
+          {/* The tarja. This is the value that ties the vault to the chain, and Settings may be on
+              screen while someone is looking over a shoulder. The app already veils it elsewhere
+              through the same global reveal, so showing it in clear HERE was the inconsistency. */}
+          <span className="set-v mono">
+            {vault ? <Secret sm>{shortAddr(vault.orchard_address)}</Secret> : '-'}
+          </span>
         </div>
-        <div className="set-row">
-          <span className="set-k">{t('settings.group')}</span>
-          <span className="set-v mono">{vault ? vault.group_pubkey.slice(0, 10) + '…' : '-'}</span>
-        </div>
-        {gov && (
+        {/* The "Chave do grupo" row is GONE. It printed a truncated public key in hex on a screen
+            whose rule is that the member sees vault, members, approval, payment - and the
+            fingerprint below is derived from that same material, which is the speakable form of
+            the identical fact. One of the two was redundant, and it was this one. */}
+        {settled && fp && (
           <div className="set-row">
-            <span className="set-k">{t('settings.governance')}</span>
-            <span className="set-v">{gov === 'quorum' ? t('settings.govQuorum') : t('settings.govOpen')}</span>
+            <span className="set-k">{t('set.fingerprint')}</span>
+            <span className="set-v">
+              <span className="set-val-txt mono">{fp}</span>
+              <span className="set-actions">
+                <button className="btn ghost sm-btn" onClick={() => void copyFp()}>
+                  {copied ? t('members.fpCopied') : t('members.fpCopy')}
+                </button>
+              </span>
+            </span>
           </div>
         )}
+        {!settled && (
+          <div className="set-row">
+            <Skeleton width={90} height={12} />
+            <Skeleton width={150} height={12} />
+          </div>
+        )}
+      </div>
+      <p className="set-hint">{tr('members.fpHelp')}</p>
+
+      <h2 className="set-sec">{t('set.secAccess')}</h2>
+      <div className="set-list">
         {/* #468: this row used to render a FIXED string - "passphrase on this device" - regardless
             of what the device actually held, so it was a label pretending to be state. It is also
             the only sensible home for turning the passkey shortcut ON: enrolment needs `S`, which
@@ -337,123 +351,89 @@ export default function Settings() {
             on. Per device, because the spec guarantees nothing about PRF output surviving a
             passkey sync. */}
         <div className="set-row">
-          <span className="set-k">{t('settings.unlock')}</span>
-          {/* The state and the actions are separate children, not loose siblings in one box. As
-              siblings they wrapped into a pile of odd-width chips on a phone; grouped, the actions
-              are one block that can go full-width there and inline on a desktop. */}
+          <span className="set-k">{t('set.readRow')}</span>
           <span className="set-v">
-            <span className="set-val-txt">{hasPasskey ? t('settings.unlockBoth') : t('settings.unlockValue')}</span>
-            <span className="set-actions">
-              {hasPasskey ? (
-                <button type="button" className="btn ghost sm-btn" onClick={dropPasskey}>{t('settings.passkeyOff')}</button>
-              ) : canEnrol ? (
-                <button type="button" className="btn ok sm-btn" disabled={pkBusy} onClick={() => void addPasskey()}>
-                  {pkBusy ? t('settings.passkeyBusy') : t('settings.passkeyOn')}
-                </button>
-              ) : null}
-              {hasLocal && (
-                <button type="button" className="btn ghost sm-btn" onClick={() => (rotOpen ? resetRotate() : setRotOpen(true))}>
-                  {rotOpen ? t('common.cancel') : t('rotate.btn')}
-                </button>
-              )}
-            </span>
+            <span className="set-val-txt">{hasPasskey ? t('set.readValueBoth') : t('set.readValuePass')}</span>
+            {(hasPasskey || canEnrol) && (
+              <span className="set-actions">
+                {hasPasskey ? (
+                  <button type="button" className="btn ghost sm-btn" onClick={dropPasskey}>{t('settings.passkeyOff')}</button>
+                ) : (
+                  <button type="button" className="btn ghost sm-btn" disabled={pkBusy} onClick={() => void addPasskey()}>
+                    {pkBusy ? t('settings.passkeyBusy') : t('settings.passkeyOn')}
+                  </button>
+                )}
+              </span>
+            )}
           </span>
+        </div>
+        {/* Two rows, not one with a "+". "passphrase + this device" reads as a requirement for
+            both; the truth is the opposite - the shortcut opens the BOOKS, and spending still
+            demands the passphrase. A row that cannot be acted on is the honest way to say a rule
+            that has no setting. */}
+        <div className="set-row">
+          <span className="set-k">{t('set.spendRow')}</span>
+          <span className="set-v"><span className="set-val-txt">{t('set.spendValue')}</span></span>
         </div>
         {pkErr && <div className="unlock-err" role="alert">{pkErr}</div>}
       </div>
-      {gov && <p className="set-hint">{t('settings.govNote')}</p>}
-      {/* `settings.passkeyWhy` has existed in both dictionaries since the flow was designed and
-          dropped. It says the thing that matters - the passphrase always works, and sending money
-          still asks for it - so it is used rather than rewritten. */}
-      {canEnrol || hasPasskey ? <p className="set-hint">{t('settings.passkeyWhy')}</p> : null}
+      {/* Unconditional. It used to render only when this device could use a passkey, so a device
+          that cannot never learned the rule it is subject to. */}
+      <p className="set-hint">{t('set.accessNote')}</p>
 
-      {rotOpen && (
-        <section className="set-list mt">
-          <div className="set-row" style={{ display: 'block' }}>
-            {rotDone ? (
-              <p className="set-hint" style={{ margin: 0 }} role="status">{t('rotate.done')}</p>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <p className="set-hint" style={{ margin: 0 }}>{t('rotate.help')}</p>
-                <input className="input mono" type="password" autoFocus placeholder={t('rotate.oldPlaceholder')}
-                  value={rotOld} onChange={(e) => { setRotOld(e.target.value); setRotErr(null) }} />
-                <input className="input mono" type="password" placeholder={t('rotate.newPlaceholder')}
-                  value={rotNew} onChange={(e) => { setRotNew(e.target.value); setRotErr(null) }} />
-                <input className="input mono" type="password" placeholder={t('rotate.new2Placeholder')}
-                  value={rotNew2} onChange={(e) => { setRotNew2(e.target.value); setRotErr(null) }} />
-                {rotErr && <p className="set-err">{rotErr}</p>}
-                <div>
-                  <button type="button" className="btn ok sm-btn" disabled={rotBusy || !rotOld || !rotNew || !rotNew2}
-                    onClick={() => void doRotate()}>
-                    {rotBusy ? t('vaults.verifying') : t('rotate.confirm')}
-                  </button>
-                </div>
-              </div>
-            )}
+      {gov && (
+        <>
+          <h2 className="set-sec">{t('set.secGov')}</h2>
+          <div className="set-list">
+            <div className="set-row">
+              <span className="set-k">{t('settings.governance')}</span>
+              {/* "Aberto" already means "anyone with the link reads your books" on the vault list.
+                  One word, two meanings, on adjacent screens - so the governance one is renamed.
+                  And an absent field is "no record", never an asserted policy. */}
+              <span className="set-v">{gov === 'quorum' ? t('settings.govQuorum') : t('set.govNoQuorum')}</span>
+            </div>
           </div>
-        </section>
+          <p className="set-hint">{t('settings.govNote')}</p>
+        </>
       )}
-      {rotOpen && !rotDone && <p className="set-hint">{t('rotate.note')}</p>}
 
-      {!settled && (
-        <div className="fp-card mt" role="status" aria-label={t('common.loading')}>
-          <div className="fp-head"><Skeleton width={130} height={11} /></div>
-          <Skeleton width="58%" height={30} radius={8} style={{ marginTop: 10 }} />
-          <Skeleton width="90%" height={11} style={{ marginTop: 12 }} />
+      <h2 className="set-sec">{t('set.secKeys')}</h2>
+      {!settled ? (
+        <div className="set-list">
+          <div className="set-row"><Skeleton width={130} height={12} /><Skeleton width={96} height={34} radius={10} /></div>
+          <div className="set-row"><Skeleton width={150} height={12} /><Skeleton width={96} height={34} radius={10} /></div>
         </div>
-      )}
-
-      {settled && fp && (
-        <div className="fp-card mt" role="note" aria-label={t('members.fpTitle')}>
-          <div className="fp-head">
-            <span className="klab">{t('members.fpTitle')}</span>
-            <button className="btn ghost sm-btn" onClick={() => void copyFp()}>
-              {copied ? t('members.fpCopied') : t('members.fpCopy')}
-            </button>
-          </div>
-          <div className="fp-code mono">{fp}</div>
-          <div className="fp-help dim">{tr('members.fpHelp')}</div>
-        </div>
-      )}
-
-      {!settled && (
-        <section className="set-list mt" role="status" aria-label={t('common.loading')}>
-          <div className="set-row">
-            <Skeleton width={120} height={12} />
-            <Skeleton width={104} height={34} radius={10} />
-          </div>
-        </section>
-      )}
-
-      {settled && hasLocal && (
-        <section className="set-list mt">
+      ) : hasLocal ? (
+        <div className="set-list">
+          {/* Export comes FIRST because rotating depends on it: the rotation dialog tells the
+              member to make one, and it used to live in a different section with no link between
+              them. Both are `…` because both now open a dialog - the ellipsis was already there,
+              describing a pattern the code did not have. */}
           <div className="set-row">
             <span className="set-k">{t('export.title')}</span>
-            <span className="set-v">
-              {!xpOpen
-                ? <button type="button" className="btn ghost sm-btn" onClick={() => { setXpOpen(true); setXpErr(null) }}>{t('export.btn')}</button>
-                : <button type="button" className="btn ghost sm-btn" onClick={() => { setXpOpen(false); setXpPass(''); setXpErr(null) }}>{t('common.cancel')}</button>}
-            </span>
+            <span className="set-v"><span className="set-actions">
+              <button type="button" className="btn ghost sm-btn" onClick={() => { setXpOpen(true); setXpErr(null) }}>
+                {t('export.open')}
+              </button>
+            </span></span>
           </div>
-          {xpOpen && (
-            <div className="set-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 10 }}>
-              <p className="set-hint" style={{ margin: 0 }}>{t('export.help')}</p>
-              <input className="input mono" type="password" autoFocus placeholder={t('export.passPlaceholder')}
-                value={xpPass} onChange={(e) => { setXpPass(e.target.value); setXpErr(null) }} />
-              {xpErr && <p className="set-err">{xpErr}</p>}
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <button type="button" className="btn ok" disabled={xpBusy || !xpPass} onClick={() => void exportDownload()}>{xpBusy ? '…' : t('export.download')}</button>
-                <button type="button" className="btn ghost" disabled={xpBusy || !xpPass} onClick={() => void exportCopy()}>{xpCopied ? t('members.fpCopied') : t('export.copy')}</button>
-              </div>
-            </div>
-          )}
-        </section>
-      )}
+          <div className="set-row">
+            <span className="set-k">{t('rotate.btn')}</span>
+            <span className="set-v"><span className="set-actions">
+              <button type="button" className="btn ghost sm-btn" onClick={() => setRotOpen(true)}>
+                {t('rotate.open')}
+              </button>
+            </span></span>
+          </div>
+        </div>
+      ) : null}
       {settled && hasLocal && <p className="set-hint">{t('export.note')}</p>}
 
-      <section className="set-danger mt">
-        <h2 className="set-danger-title">{t('settings.danger')}</h2>
-        <p className="set-danger-note">{t('settings.dangerNote')}</p>
+      <h2 className="set-sec">{t('set.secRemove')}</h2>
+      <section className="set-danger">
+        {/* The old note said what is NOT lost ("nothing is deleted from the network"), which is
+            true and hides the part that matters. This says the cost. */}
+        <p className="set-danger-note">{t('set.removeCost')}</p>
         {!settled ? (
           /* NOT `removeNoLocal`. Until `listVaults` answers, "this device holds nothing of the
              vault" is a guess, and it is the alarming one - so the row waits instead. */
@@ -469,18 +449,22 @@ export default function Settings() {
         ) : (
           <div className="set-confirm">
             {/* Same funds-loss warning the Dashboard delete path shows — consistent risk disclosure. */}
-            <div className="hint warn mt-xs">{tr('dashboard.deleteFundsWarn')}</div>
+            <div className="hint warn mt-xs" id="rm-warn">{tr('dashboard.deleteFundsWarn')}</div>
             <label className="field">
-              <span>{t('settings.confirmPrompt')}</span>
+              {/* The name is in the LABEL. It used to be the `placeholder`, so the gate that exists
+                  to force an act of recall printed the answer inside the box - a transcription
+                  exercise, not a confirmation. `aria-describedby` ties the funds warning to the
+                  field, because `autoFocus` lands past it and it is never read otherwise. */}
+              <span>{t('set.confirmLabel').replace('{name}', vault?.name ?? '')}</span>
               <input
                 className="input mono"
                 value={confirmName}
                 onChange={(e) => setConfirmName(e.target.value)}
-                placeholder={vault?.name ?? ''}
+                aria-describedby="rm-warn"
                 autoFocus
               />
             </label>
-            {err && <p className="set-err">{err}</p>}
+            {err && <p className="set-err" role="alert">{err}</p>}
             <div className="set-confirm-actions">
               <button
                 type="button"
@@ -498,6 +482,115 @@ export default function Settings() {
         )}
       </section>
       </>}
+
+      {/* Both disclosures are DIALOGS now. As inline cards they pushed the page ~260px, so the
+          member lost their place; the dismiss lived in the row ABOVE the form, off-screen on a
+          phone; and after success the only way out was a button labelled "Cancel". `Dialog` brings
+          the focus trap, Escape, and focus return that were all missing. */}
+      {rotOpen && (
+        <Dialog className="unlock-overlay" cardClassName="unlock-card" labelledBy="rot-title"
+          onClose={resetRotate}>
+          <div className="rd-eyebrow">{t('vaults.protectedVault')}</div>
+          <h2 id="rot-title">{t('rotate.btn')}</h2>
+          {rotDone ? (
+            <>
+              <div className="dlg-ok" role="status">
+                <b>{t('rotate.doneTitle')}</b> {t('rotate.doneBody')}
+              </div>
+              {/* The reminder belongs HERE, because this is the moment the old export went stale. */}
+              <p className="set-hint" style={{ margin: '0 0 4px' }}>{t('rotate.doneExport')}</p>
+              <div className="unlock-btns">
+                <button className="rd-enter" onClick={() => { resetRotate(); setXpOpen(true) }}>
+                  {t('rotate.exportNow')}
+                </button>
+                {/* "Concluir", never "Cancelar". The member just rotated the passphrase that seals
+                    their share; an exit that reads as "undo" is the wrong last word. */}
+                <button className="rd-enter primary" onClick={resetRotate}>{t('rotate.finish')}</button>
+              </div>
+            </>
+          ) : (
+            <>
+              {/* The warning comes BEFORE the fields. It used to render below the confirm button,
+                  and error prevention past the commit point prevents nothing. */}
+              <div className="dlg-warn">
+                <b>{t('rotate.note')}</b>{' '}
+                <button type="button" className="lnk" onClick={() => { resetRotate(); setXpOpen(true) }}>
+                  {t('rotate.exportFirst')}
+                </button>
+              </div>
+              {rotErr && <div className="unlock-err" role="alert">{rotErr}</div>}
+              <label className="field">
+                <span>{t('rotate.currentLabel')}</span>
+                <PassphraseField value={rotOld} onChange={(v) => { setRotOld(v); setRotErr(null) }}
+                  placeholder={t('rotate.currentPlaceholder')} autoFocus
+                  autoComplete="current-password" choosing={false} invalid={!!rotErr} />
+              </label>
+              <label className="field">
+                <span>{t('rotate.newLabel')}</span>
+                <PassphraseField value={rotNew} onChange={(v) => { setRotNew(v); setRotErr(null) }} />
+              </label>
+              <label className="field">
+                <span>{t('rotate.new2Label')}</span>
+                <PassphraseField value={rotNew2} onChange={(v) => { setRotNew2(v); setRotErr(null) }}
+                  choosing={false} />
+              </label>
+              <div className="unlock-btns">
+                <button className="rd-enter" onClick={resetRotate}>{t('common.cancel')}</button>
+                <button className="rd-enter primary" disabled={rotBusy || !rotOld || !rotNew || !rotNew2}
+                  onClick={() => void doRotate()}>
+                  {rotBusy ? t('vaults.verifying') : t('rotate.confirm')}
+                </button>
+              </div>
+            </>
+          )}
+        </Dialog>
+      )}
+
+      {xpOpen && (
+        <Dialog className="unlock-overlay" cardClassName="unlock-card" labelledBy="xp-title"
+          onClose={() => { setXpOpen(false); setXpPass(''); setXpErr(null) }}>
+          <div className="rd-eyebrow">{t('vaults.protectedVault')}</div>
+          <h2 id="xp-title">{t('export.title')}</h2>
+          <p>{t('export.help')}</p>
+          {xpErr && <div className="unlock-err" role="alert">{xpErr}</div>}
+          <label className="field">
+            <span>{t('export.currentLabel')}</span>
+            <PassphraseField value={xpPass} onChange={(v) => { setXpPass(v); setXpErr(null) }}
+              autoFocus autoComplete="current-password" choosing={false} invalid={!!xpErr} />
+          </label>
+          <div className="unlock-btns">
+            <button className="rd-enter" onClick={() => void exportCopy()} disabled={xpBusy || !xpPass}>
+              {xpCopied ? t('members.fpCopied') : t('export.copy')}
+            </button>
+            <button className="rd-enter primary" disabled={xpBusy || !xpPass} onClick={() => void exportDownload()}>
+              {xpBusy ? t('settings.removing') : t('export.download')}
+            </button>
+          </div>
+        </Dialog>
+      )}
+
+      {/* LAST, and under its own name. These are per-DEVICE app preferences, not vault settings,
+          and they used to occupy the first screenful above the vault's own identity. Moving them
+          into the shell is the fuller change and touches the rail; this is the reversible half. */}
+      <h2 className="set-sec">{t('set.secApp')}</h2>
+      <section className="set-list">
+        <div className="set-row">
+          <span className="set-k">{t('settings.appearance')}</span>
+          {/* `aria-pressed`, so the selected option is exposed at all - the state was conveyed
+              only by swapping the accent fill, which a screen reader cannot see. `LangToggle` in
+              components.tsx already does this correctly; this is the same rule, second copy.
+              And `.btn.ok` is gone: the blue means focus, primary action and QUORUM, never "this
+              is the one you picked". */}
+          <span className="set-v" role="group" aria-label={t('settings.appearance')}>
+            <button type="button" aria-pressed={theme === 'light'} className={'btn sm-btn' + (theme === 'light' ? ' sel' : ' ghost')} onClick={() => pickTheme('light')}>{t('settings.light')}</button>
+            <button type="button" aria-pressed={theme === 'dark'} className={'btn sm-btn' + (theme === 'dark' ? ' sel' : ' ghost')} onClick={() => pickTheme('dark')}>{t('settings.dark')}</button>
+          </span>
+        </div>
+        <div className="set-row">
+          <span className="set-k">{t('settings.language')}</span>
+          <span className="set-v"><LangToggle /></span>
+        </div>
+      </section>
 
       <PageFooter>{t('settings.footer')} · <VersionBadge /></PageFooter>
     </main>

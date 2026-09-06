@@ -923,6 +923,36 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 .set-row > .set-v{display:flex; align-items:center; justify-content:flex-end; gap:10px; flex-wrap:wrap}
 /* The actions of a settings row, as ONE block. Loose buttons inside the value wrapped into a pile
    of odd-width chips on a phone - each sized to its own label, none lining up with the next. */
+/* Section headings (#473). The screen had exactly ONE heading in the whole document - h1
+   "Ajustes", then h2 "Danger zone" at the very bottom - so everything between them was unnamed and
+   heading navigation jumped straight from one to the other. Mono ALL-CAPS with a letterhead rule,
+   which is the app's own section vocabulary and appeared here only once, on the fingerprint. */
+.set-sec{font-family:var(--font-mono); font-size:10.5px; letter-spacing:.18em; text-transform:uppercase;
+  color:var(--silver); font-weight:600; margin:30px 0 9px; padding-bottom:7px;
+  border-bottom:1px solid var(--line)}
+.set-sec:first-of-type{margin-top:22px}
+/* A caption belongs to the section ABOVE it, so it sits closer to that than to the next section.
+   At 14px below and 16px above, the gap that groups and the gap that separates were the same
+   distance - which is the mechanical cause of the screen reading as a pile. */
+.set-list + .set-hint{margin-top:9px}
+
+/* Dialog notices. The warning is a box ABOVE the fields, not a caption below the confirm button. */
+.dlg-warn{background:var(--warn-soft,rgba(255,207,135,.09)); border:1px solid var(--warn-line,rgba(255,207,135,.30));
+  border-radius:9px; padding:11px 12px; margin:0 0 14px; font-size:12.5px; line-height:1.5; color:var(--text)}
+.dlg-warn b{color:var(--warn); font-weight:600}
+.dlg-ok{background:var(--success-soft,rgba(87,208,138,.08)); border:1px solid var(--success-line,rgba(87,208,138,.40));
+  border-radius:9px; padding:13px 14px; margin:0 0 12px; font-size:13px; line-height:1.55; color:var(--text)}
+.dlg-ok b{color:var(--success); font-weight:600}
+/* A button that reads as a link: it sits inside a sentence and navigates rather than commits. */
+.lnk{background:none; border:0; padding:0; font:inherit; color:var(--accent); cursor:pointer;
+  text-decoration:underline; text-underline-offset:3px}
+
+/* A chosen option, in SILVER - the working metal - not in the accent. The blue is reserved for
+   focus, the primary action and quorum; spending it on "this is the one you picked" is what made
+   it stop meaning anything (nine non-quorum marks on this screen alone). */
+.btn.sel{background:var(--surface-3); border-color:var(--line-strong); color:var(--text)}
+.btn.sel:hover{border-color:var(--silver)}
+
 .set-actions{display:flex; align-items:center; gap:8px; flex-wrap:wrap}
 .set-val-txt{white-space:nowrap}
 @media(max-width:560px){

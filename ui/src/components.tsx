@@ -225,12 +225,27 @@ export function Stepper({ step }: { step: number }) {
  */
 export function PassphraseField({
   value, onChange, placeholder, inputClassName = 'input', autoFocus,
+  /** `current-password` for a passphrase being VERIFIED, `new-password` for one being chosen.
+   *  Without it a password manager cannot tell a rotation from a login and will not offer to
+   *  update the stored entry - which matters most on the one vault whose only spare key is an
+   *  encrypted export (#470). */
+  autoComplete = 'new-password',
+  /** The strength meter and the generator belong to a passphrase being CHOSEN. Scoring the one
+   *  the member already has just tells them their existing key is weak at the moment they cannot
+   *  act on it, and a generator there would overwrite what they came to type. */
+  choosing = true,
+  id, describedBy, invalid,
 }: {
   value: string
   onChange: (v: string) => void
   placeholder?: string
   inputClassName?: string
   autoFocus?: boolean
+  autoComplete?: 'new-password' | 'current-password'
+  choosing?: boolean
+  id?: string
+  describedBy?: string
+  invalid?: boolean
 }) {
   const t = useT()
   const [show, setShow] = useState(false)
@@ -245,8 +260,11 @@ export function PassphraseField({
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
           autoFocus={autoFocus}
-          autoComplete="new-password"
+          autoComplete={autoComplete}
           spellCheck={false}
+          id={id}
+          aria-describedby={describedBy}
+          aria-invalid={invalid || undefined}
         />
         <button type="button" className="pf-btn" title={show ? t('pass.hide') : t('pass.show')}
           aria-label={show ? t('pass.hide') : t('pass.show')} onClick={() => setShow((v) => !v)}>
@@ -263,16 +281,16 @@ export function PassphraseField({
             </svg>
           )}
         </button>
-        <button type="button" className="pf-btn pf-gen" title={t('pass.generate')}
+        {choosing && <button type="button" className="pf-btn pf-gen" title={t('pass.generate')}
           aria-label={t('pass.generate')} onClick={() => { onChange(generatePassphrase()); setShow(true) }}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M4 20L14 10" />
             <path d="M13 5.5l1.6.9.9 1.6.9-1.6L18 5.5l-1.6-.9-.9-1.6-.9 1.6z" fill="currentColor" stroke="none" />
             <path d="M18.5 12l.9 1.6 1.6.9-1.6.9-.9 1.6-.9-1.6-1.6-.9 1.6-.9z" fill="currentColor" stroke="none" />
           </svg>
-        </button>
+        </button>}
       </div>
-      {value && (
+      {choosing && value && (
         <div className="pf-meter" aria-live="polite">
           <div className="pf-bars" aria-hidden="true">
             {[1, 2, 3, 4].map((i) => (
