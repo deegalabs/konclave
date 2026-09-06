@@ -18,6 +18,11 @@ dist/
 
 # Compiled engine binaries (we version the pin, not the binaries)
 engine/bin/
+# The helper's deploy context: ~110 MB of engine binaries assembled out of band before
+# `railway up`. `deploy/helper/README.md` has said since August that this is "not in git", and it
+# was true only because nobody had run `git add -A` while it existed. Staging a deploy today made
+# it show up as untracked, which is one keystroke from committing the whole engine.
+deploy/helper/bin/
 
 # Secrets and local state - NEVER version
 # (key shares, seeds, vault config, sensitive data)
