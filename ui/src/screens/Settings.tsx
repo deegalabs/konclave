@@ -10,7 +10,7 @@ import { clearUnlockedShare } from '../session'
 import { downloadText } from '../download'
 import { vaultFingerprint } from '../format'
 import { getTheme, setTheme, type Theme } from '../theme'
-import { getCoordMode, setCoordMode, getCustomHelper, HELPER_BASE, type CoordMode } from '../helper'
+import { getCoordMode, setCoordMode, getCustomHelper, HELPER_BASE, getUfvk, type CoordMode } from '../helper'
 import { isDesktop } from '../platform'
 
 /**
@@ -100,7 +100,16 @@ export default function Settings() {
     if (!id) { setXpErr(t('export.errNoVault')); return null }
     if (xpPass.length < 1) { setXpErr(t('export.errPass')); return null }
     try {
-      const bundle = await exportVault(id, xpPass)
+      // #214/#434: fetch the viewing key so the export can REBUILD the vault, not just restore the
+      // seat. Without it, `t` members hold real spend authority over money none of them can see:
+      // detecting notes needs the UFVK, and it is minted once, randomly, and kept on the helper.
+      //
+      // Best-effort by design. The helper refuses it for a vault with no readKey, and refuses it to
+      // a device that cannot present one, so an open or locked vault gets `null` here. That export
+      // is incomplete, and an incomplete export is far better than none - `docs/RECOVERY.md` still
+      // describes the two halves.
+      const ufvk = (await getUfvk(id)) ?? undefined
+      const bundle = await exportVault(id, xpPass, ufvk)
       const json = JSON.stringify(bundle, null, 2)
       const safe = (vault?.name ?? 'konclave-vault').replace(/[^\w.-]+/g, '-').toLowerCase()
       return { json, name: `${safe}.konclave.json` }

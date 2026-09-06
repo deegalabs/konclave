@@ -326,6 +326,16 @@ export async function voteProposal(
   })
 }
 
+/** The vault's UFVK, for an export that can actually rebuild the vault (#214/#434).
+ *
+ *  It is a viewing key: it reads the vault's whole history, memos included, and cannot move a coin.
+ *  The helper serves it ONLY on an authenticated read, and refuses outright for a vault with no
+ *  readKey - so an unprotected vault cannot hand out its viewing key by id alone. `null` covers
+ *  every one of those cases, and the caller exports without it rather than failing. */
+export async function getUfvk(groupKeyHex: string): Promise<string | null> {
+  return (await getJson<{ ufvk: string }>(`/api/vault/ufvk?vault=${q(groupKeyHex)}`))?.ufvk ?? null
+}
+
 /** Fetch a registered vault's public view (address + id), or `null`. */
 export async function getVault(groupKeyHex: string): Promise<HelperVault | null> {
   return (await getJson<{ vault: HelperVault }>(`/api/vault?vault=${q(groupKeyHex)}`))?.vault ?? null
