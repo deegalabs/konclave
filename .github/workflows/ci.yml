@@ -71,7 +71,12 @@ jobs:
           exit 1
 
   rust:
-    name: Rust (orchestrator · konclave-signer · konclave-wasm · relay-server · helper-server · konclave-http · konclave-seal)
+    # The job NAME is short and fixed on purpose. GitHub truncates a check-run name at 95 characters,
+    # and branch protection matches the stored (truncated) string - so naming the crates here meant
+    # that adding one moved the cut point, the required check stopped existing under its old name,
+    # and every pull request would block on a check that never reports. The crates are listed in the
+    # steps below, which is where they can change freely.
+    name: Rust (workspace crates)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
