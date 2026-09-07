@@ -38,6 +38,15 @@ explicitly accepted.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A vault that already existed kept its blank address, even after 0.4.0 fixed the cause.** That
+  release made the create screen record the vault's address; it did nothing for the vaults already
+  on a device, because `saveVault` runs only at creation and nothing ever revisits a record. So
+  every vault made before it went on reporting the address missing however many times its member
+  re-exported. It is backfilled now from the helper, which is the only other place it exists, the
+  first time any screen loads the vault. (#501)
+
 ## [0.4.0] 2026-09-07
 
 ### Security

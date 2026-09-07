@@ -171,6 +171,22 @@ export async function health(): Promise<boolean> {
   return h?.status === 'ok'
 }
 
+/** Write the helper's address into a local record that has none. Idempotent and silent.
+ *
+ *  Separate from `getVault` so the condition is testable without a network: the bug it repairs was
+ *  a literal `address: ''` that nothing ever revisited, and the repair must not become the same
+ *  kind of thing - a branch nobody can exercise. */
+export async function backfillAddress(id: string, address: string): Promise<boolean> {
+  try {
+    const rec = (await listVaults()).find((v) => v.id === id)
+    if (!rec || (rec.address ?? '').trim()) return false
+    await updateVaultMeta(id, { address })
+    return true
+  } catch {
+    return false
+  }
+}
+
 export async function getVault(): Promise<Vault | null> {
   if (NET) {
     const id = getSelectedVault()
@@ -193,6 +209,14 @@ export async function getVault(): Promise<Vault | null> {
       const rec = saved.find((s) => s.id === id)
       if (rec?.name && rec.name.trim()) vaultName = rec.name
     } catch { /* local-bridge mode / no on-device record - keep the neutral fallback */ }
+    // Heal a record written before the create screen recorded the address (#501). Those hold `''`
+    // forever: `saveVault` runs only at creation, so nothing revisits them, and the device cannot
+    // re-derive an address - `zcash-sign` mints it from a random `sk` it discards. The helper is the
+    // only other place it exists, and this call already has it in hand.
+    //
+    // Fire-and-forget on purpose: it is one IndexedDB write, once, on a screen that must not wait
+    // for it, and a vault that never opens a screen loses nothing it had.
+    if (v.address) void backfillAddress(id, v.address)
     return {
       id: v.vault_id,
       name: vaultName,
