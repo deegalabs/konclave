@@ -38,6 +38,8 @@ explicitly accepted.
 
 ## [Unreleased]
 
+## [0.3.0] 2026-09-07
+
 ### Security
 
 - **The viewing key was served in plaintext to the browser.** It decrypts every payslip a vault has
