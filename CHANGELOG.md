@@ -49,6 +49,22 @@ explicitly accepted.
   body read that has none. The worker pool deliberately stays per-server: the two sizings look like
   one duplicated rule and are not, and sharing them would have shrunk the helper's pool. (#269)
 
+- **The backup handed to you when a vault is created did not carry the viewing key.** It is the copy
+  most members keep, and it restored the seat and not the vault: real spend authority over money the
+  rebuilt device could not detect. `exportVault` has taken the viewing key and the scan floor since
+  #447 and #480, and the create screen was the one caller passing neither, so
+  **the 0.3.0 notes saying the export carried both were true of the Settings export alone.**
+  It now fetches them the same way Settings does, and when it cannot - registration and the read key
+  land asynchronously, so this copy can be written before there is a key to fetch - the screen
+  **says the backup is incomplete** and sends you to Settings, instead of handing over a file that
+  looks whole. A test refuses any `exportVault` call that omits them. (#447, #480)
+
+- **A vault created on the web recorded a blank address, permanently.** `saveVault` was called with
+  `address: ''`, literally, for both create and join, and nothing ever filled it in, so every backup
+  reported the address missing. The device cannot re-derive it - `zcash-sign` mints it from a random
+  `sk` it discards - so the record had no second source but the helper, which had already handed the
+  address back at registration and was being ignored.
+
 ### Fixed
 
 - **The recovery script printed a Node stack trace instead of an answer.** A missing file, a
@@ -56,12 +72,14 @@ explicitly accepted.
   `Error: ENOENT ... at readFileSync`. That tool runs when the laptop is dead or the browser will
   not start, so a stack trace at that moment says the last resort is broken too. Every failure is a
   sentence now, and the exit code separates "could not start" (2) from "did not open" (1).
+
 - **The recovery script could not open a v1 backup at all.** v1 keeps `salt`/`iv`/`cipher` under
   `vault` and encrypts only the share, so the script threw on hex it never found, before reaching
   the notice that would have explained the format. It reads both now, and tells a v1 holder the part
   that matters: their metadata was never encrypted, and anyone with the file can read the vault
   name, the members and the address without the passphrase. Legacy vaults still exist, so this was
   refusing exactly the backups most likely to be old. (#484)
+
 ## [0.3.0] 2026-09-07
 
 ### Security
