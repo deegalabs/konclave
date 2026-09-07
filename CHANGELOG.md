@@ -16,6 +16,12 @@ belong here.
 Grouped by what a member notices, not by pull request. The PR numbers are there so anyone can go and
 check, which is the point of citing them.
 
+**How it is kept.** Every PR that touches source a member meets updates the `Unreleased` section, and
+CI refuses the PR otherwise - a `no-changelog` label is the deliberate way out, for changes a member
+genuinely cannot see. At release time `node scripts/release.mjs <version>` renames the section and
+`--notes` prints it as the desktop release body, so the tag, the installer and the in-app version
+badge all say the same thing.
+
 Dates are UTC. Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
 [SemVer](https://semver.org/).
 
