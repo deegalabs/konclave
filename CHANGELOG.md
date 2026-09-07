@@ -1,129 +1,130 @@
 # Changelog
 
-What changed, written for the person who has to live with it — a treasurer holding real ZEC, not a
-reader of commit messages. If an entry does not answer *"what is different for me now"*, it does not
-belong here.
+Written for the person who has to live with it: a treasurer holding real ZEC, not a reader of commit
+messages. If an entry does not answer "what is different for me now", it does not belong here.
 
-**Three rules this file keeps**, which are the same three the product keeps ([CLAUDE.md §6](CLAUDE.md)):
+Format: [Keep a Changelog](https://keepachangelog.com/). Versions: [SemVer](https://semver.org/).
+Dates are UTC.
 
-- **A fix that closes a hole says what the hole was.** "Improved security" tells a member nothing
-  about whether they were exposed, for how long, or whether they need to act.
-- **What is NOT done stays visible.** A roadmap is a roadmap. If something works in one place and
-  not another, the entry says which.
-- **Nothing here is a promise.** Where a claim is proven on mainnet, the txid is the proof and it is
-  linked.
+## The categories decide what gets announced
 
-Grouped by what a member notices, not by pull request. The PR numbers are there so anyone can go and
-check, which is the point of citing them.
+This is the reason the file is categorised rather than written as prose. Without the categories,
+nobody can tell a closed security hole from a polished button, and both end up in the same post or
+neither does.
 
-**How it is kept.** Every PR that touches source a member meets updates the `Unreleased` section, and
-CI refuses the PR otherwise - a `no-changelog` label is the deliberate way out, for changes a member
-genuinely cannot see. At release time `node scripts/release.mjs <version>` renames the section and
-`--notes` prints it as the desktop release body, so the tag, the installer and the in-app version
-badge all say the same thing.
+| Category | What goes in it | Announced |
+|---|---|---|
+| `Security` | A hole that was open, closed. Always says what was exposed and for how long. | Always. Forum post, and a MINOR release at minimum. |
+| `Added` | Something a member can now do that they could not before. | Yes, in the release post. |
+| `Changed` | Same capability, different behaviour a member will notice. | Only if it changes a habit. |
+| `Fixed` | It was broken, now it is not. | Only if a member hit it, or could have. |
+| `Known limits` | What is still not done. Survives the release, never a draft note. | Always. |
 
-Dates are UTC. Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
-[SemVer](https://semver.org/).
+Anything a member cannot notice (refactor, test, CI, dependency bump) does not go in at all. CI
+enforces the reverse: a PR touching source a member meets must update this file or carry the
+`no-changelog` label.
+
+At release time `node scripts/release.mjs <version>` renames `Unreleased` to the version, and
+`--notes` prints that section as the desktop release body, so the tag, the installer and the in-app
+version badge agree.
+
+### Versioning while pre-1.0
+
+`0.MINOR.PATCH`. Anything under `Security` or `Added` takes a MINOR. A release with only `Fixed`
+takes a PATCH. There is no 1.0 while items remain under `Known limits` that have not been closed or
+explicitly accepted.
 
 ---
 
 ## [Unreleased]
 
-### Your backup is now the whole vault
+### Security
 
-An export used to restore your **seat** and not the vault. It carried your share, but not the
-viewing key — which is minted once at random and lived only on the helper — so a rebuilt wallet held
-real spend authority over money it could not see. It now carries the viewing key (#447) and the
-block height to scan from (#480); without that height a rebuilt wallet starts looking from today and
-never finds the notes the vault already holds, and there is no rescan.
+- **The viewing key was served in plaintext to the browser.** It decrypts every payslip a vault has
+  ever sent. TLS covered the wire, but any browser extension with host permissions, and any
+  TLS-terminating proxy, could read it at the endpoint. The helper now seals that response to the
+  vault's registered devices and refuses to serve it unsealed. The plaintext path stays open only
+  for vaults with no registered device, so nobody is locked out of a key they already hold.
+  (#476, #481)
+- **Governance writes were unauthenticated.** A vote or a rename from anyone who could reach the
+  helper was accepted. A write is now signed by an Ed25519 key derived from the seat's FROST share,
+  and refused otherwise. Per vault, turning on at the first device that unlocks, so existing vaults
+  keep working. (#288, #448, #450, #452, #453, #454, #455)
+- **PBKDF2 ran at 210,000 iterations with SHA-256**, the count OWASP gives for SHA-512. Raised to
+  600,000. Vaults and backups already sealed keep opening at their own count, which travels with the
+  ciphertext; changing your passphrase re-seals at the new one. (#479)
+- **A share export restored the seat but not the vault.** It omitted the viewing key, so a member
+  rebuilding from their own backup held spend authority over money they could not detect. It now
+  carries the viewing key and the wallet birthday, without which a rebuilt wallet scans from the
+  current height and finds nothing. (#447, #480)
+- **The passphrase could not be rotated.** The one credential with no way to change it, and the one
+  whose compromise costs most. Local and per device. (#470, #471)
 
-`scripts/open-export.mjs` opens a backup with **no Konclave at all** — Node's own crypto, no
-packages, no network — and reports whether the file is complete rather than dumping it (#484). The
-same story is in the app under **Documentation → Recovery**, written to be saved *with* the file,
-because the day you need it is the day the app is gone (#485).
+### Added
 
-### You can change your passphrase
+- **Open an export without Konclave.** `scripts/open-export.mjs` uses Node's own crypto, no packages
+  and no network, and reports whether a backup is complete instead of printing its contents. The
+  same procedure is in the app under Documentation > Recovery. (#484, #485)
+- **A passkey can open the books.** Face ID, Windows Hello or Touch ID in place of the passphrase
+  for reading a vault, enrolled per device from Settings. Sending money still requires the
+  passphrase. The feature had shipped unreachable: nothing enrolled a passkey, so the unlock button
+  could never render. (#468)
+- **Unlock happens where you are.** A reload used to send you back to the vault list to pick the
+  vault you were already inside. (#467)
 
-The one credential in the product with no way to rotate, and the one whose compromise costs most
-(#470, #471). Local and per device: your other machines keep the passphrase they have. There is
-still no recovering a forgotten one — the encrypted export remains the only spare key.
+### Changed
 
-### Reading a vault stops costing what spending does
-
-A reload used to send you back to the vault list to pick the vault you were already inside. The
-passphrase is now asked **on the screen you were on** (#467). A passkey — Face ID, Windows Hello,
-Touch ID — can stand in for it when opening the books, per device, and **sending money still asks
-for the passphrase** (#468). That shortcut had shipped unreachable: nothing in the product ever
-enrolled one.
-
-### The viewing key no longer travels in the clear
-
-TLS always covered the wire, but the browser's own extensions and any TLS-terminating proxy could
-read the key that decrypts every payslip the vault ever sent. Once a vault has a registered device,
-the helper seals that response to those devices and **the plaintext path closes** (#476, #481).
-Vaults whose members are all on older builds keep working until one of them migrates.
-
-### Governance writes are authenticated
-
-A vote or a rename from someone who does not hold the seat's share is refused, from the first device
-on that vault that unlocks (#448, #450, #452, #453, #454, #455). The gate is per vault and turns on
-at that moment, so existing vaults keep working.
-
-### Settings was rebuilt
-
-Named sections, the two forms that used to expand inline are dialogs, and the long explanations moved
-behind a `?` (#473, #487). Theme and language moved into the app shell, where per-device preferences
-belong (#475). The delete confirmation stopped printing the vault name in its own placeholder — the
-gate that exists to force an act of recall was showing the answer.
-
-### Also
-
-- The documentation's section menu on a phone took about 500px — five wrapped rows — before the page
-  itself began. It is one row that scrolls, and it opens showing the section you are reading (#488).
-- One language toggle instead of two (#489). The version in the docs header was the older one, with
-  22px targets and the accent colour used as a selected state.
+- Settings rebuilt: named sections, dialogs instead of forms that expand inline, long explanations
+  behind a `?`. Theme and language moved to the app shell. (#473, #475, #487)
+- The documentation menu on a phone is one scrolling row instead of five wrapped ones, about 60px
+  instead of 500. (#488)
 
 ### Fixed
 
-- **The helper served no private reads for part of 2026-09-06** (#466). The CORS preflight never
-  named `X-Konclave-Read`, so browsers refused to send it and every balance, proposal and member
-  list failed. The fix had reached the deployed binary in #403 and never the source, so rebuilding
-  from `main` reintroduced it.
-- **PBKDF2 raised to 600,000 iterations** (#479) — the number OWASP gives for SHA-256, where 210,000
-  is the SHA-512 one. Existing vaults and backups keep opening at whatever they were sealed with;
-  changing your passphrase re-seals at the new count.
-- **The helper asked liveness twice** (#477), and the shell's poll never paused with the tab. Six
-  requests in 26 seconds became three.
-- The wallet birthday and the change receiver are recorded at **boot** (#445, #478), because the
-  registration path that recorded them runs rarely; and those migrations now run **before** the
-  registry is read (#482), so the process serves the corrected values instead of healing on the
-  next restart.
-- The WASM module is loaded in one place (#483). Five screens had their own initialiser, and the
-  export was the sixth path that needed one and had none.
+- **The helper served no private reads for part of 2026-09-06.** The CORS preflight did not name
+  `X-Konclave-Read`, so browsers refused to send it and every balance, proposal and member list
+  failed. The fix had reached the deployed binary in #403 and never the source, so rebuilding from
+  `main` reintroduced it. (#466)
+- Text and control edges did not meet WCAG AA in either theme. Muted text ran 4.07:1 to 4.43:1,
+  passphrase placeholders 3.36:1, and no control had a perceptible edge at 1.31:1. The ratios are
+  computed by a test from the tokens now. (#494)
+- The wallet birthday and the change receiver are recorded at boot, and those migrations run before
+  the registry is read, so the process serves the corrected values instead of healing on the next
+  restart. (#445, #478, #482)
+- The WASM module is loaded in one place. Five screens had their own initialiser, and the export was
+  the sixth path that needed one and had none. (#483)
+- Liveness is polled once by the shell instead of twice, and pauses with the tab. Six requests in 26
+  seconds became three. (#477)
 
 ### Known limits
 
-- `/api/vault` is outside the read gate: a leaked vault id still reveals the vault's address and
-  quorum. The books stay closed (#388).
-- Sealing covers the viewing key. The member list and the remaining private reads are still served
-  in the clear to the browser — [#476](https://github.com/deegalabs/konclave/issues/476).
-- ~~Contrast~~ — fixed in #494, and the audit's summary was too kind: it reported every failure as
-  light-theme, and computing the pairs the app actually renders found two in **dark** as well.
+- The member list and the remaining private reads still reach the browser in plaintext. Sealing
+  covers the viewing key only. ([#476](https://github.com/deegalabs/konclave/issues/476))
+- `/api/vault` sits outside the read gate: a leaked vault id reveals the vault's address and quorum.
+  The books stay closed ([#388](https://github.com/deegalabs/konclave/issues/388)).
 - Passkey enrolment fails on Windows Hello before 25H2, which does not support the PRF extension.
-  The message does not yet say so.
+  The error message does not say so.
+- The desktop build has never been validated on real per-platform hardware.
+- The `/net` ceremony driver never received the replay mitigation
+  ([#363](https://github.com/deegalabs/konclave/issues/363)).
 
 ---
 
-## [0.2.0] — 2026-08-02
+## [0.2.0] 2026-08-02
 
-The desktop line: a Tauri shell over the orchestrator, with Windows, macOS and Linux installers. The
-web app stays the primary delivery ([ADR-0005](docs/adr/)); desktop is the optional native shell.
+### Added
 
-**Not done:** live per-platform hardware validation.
+- The desktop line: a Tauri shell over the orchestrator, with Windows, macOS and Linux installers.
+  The web app stays the primary delivery (ADR-0005); desktop is the optional native shell.
 
-## [0.1.0] — 2026-08-02
+### Known limits
 
-Browser-native FROST treasury on Zcash mainnet. Real DKG across devices over a blind relay, signing
-in WASM on the device, and a hosted helper that builds and broadcasts without ever seeing a share.
+- No live per-platform hardware validation.
 
-Proven on mainnet, with verifiable txids in [docs/PROOF.md](docs/PROOF.md).
+## [0.1.0] 2026-08-02
+
+### Added
+
+- Browser-native FROST treasury on Zcash mainnet. Real DKG across devices over a blind relay,
+  signing in WASM on the device, and a hosted helper that builds and broadcasts without ever seeing
+  a share. Verifiable txids in [docs/PROOF.md](docs/PROOF.md).
