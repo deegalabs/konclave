@@ -245,7 +245,7 @@
 .live.offline{color:var(--warn-strong); border-color:var(--warn);
   background:var(--danger-soft); text-align:left; line-height:1.35; align-items:flex-start}
 .live.offline i{background:var(--danger); box-shadow:0 0 0 3px var(--danger-soft); margin-top:4px; flex:0 0 auto}
-.hint.warn{color:var(--warn)}
+.hint.warn{color:var(--warn-strong)}
 .hint.err{color:var(--danger-text); font-family:var(--font-mono); font-size:12.5px;
   background:var(--danger-soft); border-left:3px solid var(--danger); border-radius:var(--radius-sm); padding:11px 14px}
 .ns.over{color:var(--danger-text); font-weight:600}
@@ -1098,7 +1098,7 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
   color:var(--text-muted); line-height:1.5; max-width:70ch}
 .set-v.mono{font-family:var(--font-mono); font-weight:500; letter-spacing:.01em}
 .set-badge{font-family:var(--font-mono); font-size:11px; letter-spacing:.05em; text-transform:uppercase;
-  color:var(--accent); background:var(--accent-soft); border-radius:var(--radius-pill); padding:3px 10px}
+  color:var(--accent-on-soft); background:var(--accent-soft); border-radius:var(--radius-pill); padding:3px 10px}
 .set-danger{border:1px solid var(--danger-line); border-radius:var(--radius); padding:18px 18px 20px;
   background:var(--danger-soft)}
 .set-danger-title{margin:0 0 4px; font-size:15px; color:var(--danger-text)}
@@ -1141,7 +1141,7 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 .rcb.open .rcb-field, .rcb-field:focus-within{border-color:var(--accent); background:var(--surface-1); box-shadow:0 0 0 3px var(--accent-soft)}
 .rcb-lupa{flex:none; color:var(--text-muted)}
 .rcb-input{flex:1; min-width:0; border:0; background:transparent; outline:none; font-size:14px; color:var(--text); padding:11px 0}
-.rcb-input::placeholder{color:var(--text-muted); opacity:.85}
+.rcb-input::placeholder{color:var(--text-muted)}
 .rcb-picked{display:flex; align-items:center; gap:9px; flex:1; min-width:0; padding:8px 0}
 .rcb-picked .idc{border-radius:6px; flex:none}
 /* One line, always. When the cell is tight the address gives way first, then the name truncates -

@@ -107,8 +107,8 @@ gate that exists to force an act of recall was showing the answer.
   quorum. The books stay closed (#388).
 - Sealing covers the viewing key. The member list and the remaining private reads are still served
   in the clear to the browser — [#476](https://github.com/deegalabs/konclave/issues/476).
-- Every contrast failure the accessibility audit found is in the **light** theme, which is the
-  default. Four token values clear them; not yet applied.
+- ~~Contrast~~ — fixed in #494, and the audit's summary was too kind: it reported every failure as
+  light-theme, and computing the pairs the app actually renders found two in **dark** as well.
 - Passkey enrolment fails on Windows Hello before 25H2, which does not support the PRF extension.
   The message does not yet say so.
 
