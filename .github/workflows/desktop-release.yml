@@ -61,10 +61,20 @@ jobs:
         run: pnpm -C ui run build
 
       # Pull the release notes for this tag from CHANGELOG.md so the GitHub release matches the
-      # in-app version. Runs once (Linux) and feeds every platform's upload of the same release.
+      # in-app version.
+      #
+      # Runs on EVERY platform, not just Linux. Each matrix job is a separate job with its own
+      # `steps` context, and all three call tauri-action against the same release - so whichever
+      # finishes first is the one whose body sticks. Scoped to Linux, the other two passed the
+      # `Desktop installers...` fallback, and v0.3.0 shipped a draft with no notes at all because
+      # Windows won. Computing it three times costs one `node` call per job and removes the race
+      # instead of betting on the ordering.
+      #
+      # `shell: bash` because the Windows runner defaults to pwsh, where the heredoc and
+      # `>> "$GITHUB_OUTPUT"` below are not syntax. That default is why this was Linux-only.
       - name: Release notes from CHANGELOG
         id: notes
-        if: matrix.platform == 'ubuntu-22.04'
+        shell: bash
         # The tag is untrusted input (a crafted tag/branch name could inject shell). Pass it through
         # an env var so the shell treats it as data, never interpolate ${{...}} into the run: script.
         env:
