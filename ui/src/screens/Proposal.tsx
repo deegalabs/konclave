@@ -291,7 +291,7 @@ export default function Proposal() {
 
         {isReady && (
           <>
-            <div className="confirm mt ready">
+            <div className="confirm mt quorum">
               {isPayroll ? tr('proposal.readyPayroll') : tr('proposal.readyPayment')}
             </div>
             {IS_NET ? (
@@ -322,7 +322,7 @@ export default function Proposal() {
 
         {isSent && (
           <>
-            <div className="confirm mt ready">{tr('proposal.sentConfirm')}</div>
+            <div className="confirm mt quorum">{tr('proposal.sentConfirm')}</div>
             {p.txid && (
               <div className="p-meta mt">
                 <div>{t('proposal.txid')}</div>

@@ -249,7 +249,13 @@
 .hint.err{color:var(--danger-text); font-family:var(--font-mono); font-size:12.5px;
   background:var(--danger-soft); border-left:3px solid var(--danger); border-radius:var(--radius-sm); padding:11px 14px}
 .ns.over{color:var(--danger-text); font-weight:600}
-.confirm.ready{border-left-color:var(--success); color:var(--success); background:var(--success-soft)}
+/* `.ready` (below) is the Dashboard's readiness CARD: a flex column with its own padding, gradient
+   and border. This is a confirm STRIP on the proposal screen, and for a while it was written
+   `confirm ready` - so it inherited all of that, every `<b>` became a flex item, and the sentence
+   "Quorum reached. The proposal is ready." rendered on four lines with the full stop stranded on its
+   own. Measured, not guessed: the container computed to `display:flex` and the bold to `display:block`.
+   One class name meaning two things is this repo's usual defect, in CSS. */
+.confirm.quorum{border-left-color:var(--success); color:var(--success); background:var(--success-soft)}
 .csv-area{width:100%; resize:vertical; line-height:1.5; padding:12px 14px; font-size:12.5px}
 /* New payroll - editable document */
 .doc-head{display:flex; gap:22px; flex-wrap:wrap; margin-top:14px}

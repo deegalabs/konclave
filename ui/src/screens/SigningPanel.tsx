@@ -421,7 +421,7 @@ export default function SigningPanel() {
         <div className="sign-state">
           {sent ? (
             <div className="sign-ok">
-              <div className="confirm ready">{t('signing.sentTitle')}</div>
+              <div className="confirm quorum">{t('signing.sentTitle')}</div>
               {(result as { txid: string }).txid && (
                 <div className="p-meta mt-sm">
                   <div className="sign-txid mono"><code>{(result as { txid: string }).txid}</code></div>
@@ -501,7 +501,7 @@ export default function SigningPanel() {
             </>
           ) : armed ? (
             <>
-              <div className="confirm ready">{quorumSigned ? t('signing.othersSending') : t('signing.youSigned')}</div>
+              <div className="confirm quorum">{quorumSigned ? t('signing.othersSending') : t('signing.youSigned')}</div>
               <div className="hint mt-sm">{t('signing.signedCount', { n: signedCount, t: threshold })}</div>
               {armLeft > 0 && <div className="hint mt-sm dim">{t('signing.armExpires', { mins: armLeft })}</div>}
             </>
@@ -512,7 +512,7 @@ export default function SigningPanel() {
             // nobody at all. Signing again is safe - the tally is keyed by seat, and a seat that
             // re-announces provably does not fire the send a second time.
             <>
-              <div className="confirm ready">{t('signing.readyToSend')}</div>
+              <div className="confirm quorum">{t('signing.readyToSend')}</div>
               <div className="hint mt-sm">{t('signing.signedCount', { n: signedCount, t: threshold })}</div>
               {shortZat > 0
                 ? <div className="hint warn mt-sm" role="status">{t('signing.blockedShort', { short: fmtZecExact(shortZat / 1e8) })}</div>
