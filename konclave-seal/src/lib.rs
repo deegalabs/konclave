@@ -71,6 +71,13 @@ pub enum WriteAction {
     Approve,
     Refuse,
     Rename,
+    /// Creating a proposal or a payroll. Until #288's second half these were open: a vault id was
+    /// enough to fill a vault's desk with proposals the members then had to read and refuse.
+    Propose,
+    /// Triggering the broadcast of a proposal that already reached quorum. The money goes where the
+    /// members decided either way - what was open is the deliberate human confirm the money gate is
+    /// built on, which an outsider could fire from outside the room.
+    Send,
 }
 
 impl WriteAction {
@@ -81,6 +88,8 @@ impl WriteAction {
             WriteAction::Approve => "approve",
             WriteAction::Refuse => "refuse",
             WriteAction::Rename => "rename",
+            WriteAction::Propose => "propose",
+            WriteAction::Send => "send",
         }
     }
 }
@@ -262,6 +271,19 @@ pub fn open_body(key: &[u8; 32], sealed: &[u8]) -> Result<Vec<u8>, String> {
         .decrypt(XNonce::from_slice(&nonce), Payload { msg: ct, aad: b"" })
         .map_err(|_| "open_body: wrong key or tampered message".to_string())
 }
+
+/// Every action, so a caller cannot iterate a list that is missing one.
+///
+/// The tags are the signed bytes: a verifier that does not know a tag rejects every signature made
+/// with it, and a signer that does not know one cannot make it. Two lists in two crates is how that
+/// pair drifts, so the list lives here and the tests below walk it.
+pub const ALL_WRITE_ACTIONS: [WriteAction; 5] = [
+    WriteAction::Approve,
+    WriteAction::Refuse,
+    WriteAction::Rename,
+    WriteAction::Propose,
+    WriteAction::Send,
+];
 
 #[cfg(test)]
 mod tests {

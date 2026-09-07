@@ -16,7 +16,7 @@ import { fmtZec, fmtZecExact, parseZecToZat, shortAddr } from '../format'
 import { useVaultSigner } from '../VaultSigner'
 import { unlockOnDevice } from '../unlock'
 import { executeProposal, listProposals } from '../helper'
-import { errorCode, getBalance, getProposalDetail, humanError } from '../api'
+import { errorCode, getBalance, getProposalDetail, humanError, writeProof } from '../api'
 import { relayBase } from '../net'
 import { resolveOutcome, RESOLVE_ATTEMPTS } from '../send-outcome'
 import { getUnlockedShare } from '../session'
@@ -264,6 +264,9 @@ export default function SigningPanel() {
       relayBase: relayBase(),
       room: bg.room,
       dryRun: false,
+      // #288: firing the broadcast is a governance write, bound to this proposal's id. Undefined on
+      // a locked device, which the helper still accepts while the vault has no write keys.
+      proof: writeProof(vault.group_pubkey, 'send', active!.id),
     }
     // Breadcrumbs for a failure a user reports later: what we asked for, and what came back. No
     // secret is logged (the group key and the proposal id are public vault material).

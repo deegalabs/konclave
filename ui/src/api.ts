@@ -283,6 +283,32 @@ export type CreateResult =
   | { ok: false; error: string; detail?: string }
 
 /** POST a new payment proposal. Returns a typed success or a readable error. */
+/** The #288 proof for a governance write, when this device can make one.
+ *
+ *  Signing must never take away the ability to act: a locked device, or one that does not hold this
+ *  vault's share, returns `undefined` and the write goes unsigned. The helper still accepts that
+ *  while the vault has no registered write key (ADR-0011 D5), so nobody is blocked by this arriving
+ *  - only by their vault having migrated while their device has not unlocked.
+ *
+ *  One function rather than the same twelve lines at each call site: there are four writes now
+ *  (vote, rename, propose, send), and this repo's dominant defect is one rule written several times
+ *  with only some copies updated.
+ */
+export function writeProof(
+  vaultId: string,
+  action: 'approve' | 'refuse' | 'rename' | 'propose' | 'send',
+  target: string,
+): WriteProof | undefined {
+  const share = getUnlockedShare(vaultId)
+  if (!share) return undefined
+  try {
+    const b = decodeBundle(share)
+    return signGovernanceWrite(b.keyPackage, vaultId, action, target, b.seat)
+  } catch {
+    return undefined
+  }
+}
+
 export async function createProposal(input: NewProposal): Promise<CreateResult> {
   if (NET) {
     const id = getSelectedVault()
@@ -295,6 +321,8 @@ export async function createProposal(input: NewProposal): Promise<CreateResult> 
       to: input.to_address,
       amountZat: zat,
       memo: input.memo,
+      // Bound to the proposer's name, which the helper checks against the signing seat (#288).
+      proof: writeProof(id, 'propose', input.proposer.trim()),
     })
     return p
       ? { ok: true, proposal: mapNetProposal(p) }
@@ -545,7 +573,7 @@ export async function createPayroll(
       if (zat == null || zat <= 0) return { ok: false, error: 'invalid amount' }
       mapped.push({ label: l.label, to: l.address, amount_zat: zat, memo: l.memo })
     }
-    const p = await netCreatePayroll({ vault: id, proposer, lines: mapped })
+    const p = await netCreatePayroll({ vault: id, proposer, lines: mapped, proof: writeProof(id, 'propose', proposer.trim()) })
     return p
       ? { ok: true, proposal: mapNetProposal(p) }
       : { ok: false, error: 'invalid address', detail: 'the coordinator rejected a payroll line' }

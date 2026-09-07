@@ -59,6 +59,17 @@ explicitly accepted.
   checks that catch a file whose share disagrees with its own metadata rather than one that is
   merely missing a field. (#484)
 
+### Security
+
+- **Creating a proposal and firing a send were unauthenticated.** A vault id was enough to fill a
+  vault's desk with proposals its members then had to read and refuse, and to trigger the broadcast
+  of a payment that had already reached quorum - the funds go where the members decided either way,
+  but the deliberate human confirm the money gate is built on could be fired from outside the room.
+  Both are signed writes now, by the same Ed25519 key derived from the seat's FROST share that the
+  vote and the rename already used: the send bound to the proposal id, the proposal bound to the
+  proposer's name, which was a free string until now. Per vault, turning on at the first device that
+  unlocks, so existing vaults keep working. (#288)
+
 ## [0.4.0] 2026-09-07
 
 ### Security

@@ -787,6 +787,63 @@ fn refuse_if_unfunded(
 /// money gate is the ceremony itself, which needs the real quorum of browser shares to produce a
 /// valid signature, so a forged "ready" cannot move funds on its own. Non-ready proposals are
 /// refused (409); `dry_run` defaults true so a broadcast is always explicit.
+/// The #288 gate, in ONE place (ADR-0011).
+///
+/// Returns `Some(refusal)` when the write must not proceed, `None` when it may. Four endpoints need
+/// this - vote, rename, propose, send - and the first two grew their own copies of the same twenty
+/// lines. A third and fourth copy is how #424, #425 and #439 happened: one rule, several
+/// implementations, and only some of them updated.
+///
+/// The per-vault shape is deliberate (ADR-0011 D5). A vault where no device has registered a write
+/// key stays open, because every vault that existed when this shipped was in that state and
+/// requiring proof on day one would have frozen all of them. The gate turns on for a vault the
+/// moment one of its devices unlocks.
+///
+/// The nonce is burned on success BEFORE the caller applies anything: a crash between the two must
+/// not leave a replayable signature, and re-applying an idempotent write is harmless where replaying
+/// one is not.
+#[allow(clippy::too_many_arguments)]
+fn gate_write(
+    cfg: &HelperConfig,
+    vault: &str,
+    action: WriteAction,
+    target: &str,
+    seat: Option<u16>,
+    ts: Option<i64>,
+    nonce: Option<String>,
+    sig: Option<String>,
+    refusal: &'static str,
+) -> Option<Resp> {
+    let write_keys = orchestrator::helper::load_write_keys(&cfg.vaults_dir, vault);
+    if write_keys.is_empty() {
+        return None; // open vault (D5)
+    }
+    let (Some(seat), Some(ts), Some(nonce), Some(sig)) = (seat, ts, nonce, sig) else {
+        return Some(resp(401, json!({ "error": refusal }).to_string()));
+    };
+    let w = SignedWrite {
+        seat,
+        ts,
+        nonce,
+        sig,
+    };
+    let seen = |n: &str| orchestrator::helper::write_nonce_seen(&cfg.vaults_dir, vault, n);
+    match authorize_write(&write_keys, vault, action, target, &w, seen) {
+        WriteAuth::Authorized { .. } => {
+            let _ = orchestrator::helper::burn_write_nonce(&cfg.vaults_dir, vault, &w.nonce);
+            None
+        }
+        WriteAuth::Open => None, // unreachable: keys were non-empty
+        WriteAuth::Refused(why) => {
+            eprintln!("vault {vault}: refused a write ({why:?})");
+            Some(resp(
+                401,
+                json!({ "error": "signature required" }).to_string(),
+            ))
+        }
+    }
+}
+
 fn handle_proposal_send(state: &HelperState, cfg: &HelperConfig, path: &str, body: &[u8]) -> Resp {
     let id = path
         .trim_start_matches("/api/vault/proposals/")
@@ -800,6 +857,12 @@ fn handle_proposal_send(state: &HelperState, cfg: &HelperConfig, path: &str, bod
         dry_run: bool,
         #[serde(default = "psend_max_polls")]
         max_polls: u32,
+        /// The signed-write envelope (#288 / ADR-0011 D2). Absent on a device with no registered
+        /// write key, which a vault with no registered keys still accepts.
+        seat: Option<u16>,
+        ts: Option<i64>,
+        nonce: Option<String>,
+        sig: Option<String>,
     }
     fn psend_dry_run() -> bool {
         true
@@ -815,6 +878,25 @@ fn handle_proposal_send(state: &HelperState, cfg: &HelperConfig, path: &str, bod
         Some(r) => r,
         None => return resp(404, json!({ "error": "no such vault" }).to_string()),
     };
+    // #288's second half. Until now this endpoint checked only that the proposal was `ready`, so a
+    // vault id was enough to fire the broadcast of an already-approved payment from outside the room.
+    // The funds go where the quorum decided either way - what was open is the deliberate human
+    // confirm the money gate is built on, and firing it is not a stranger's to do.
+    //
+    // Bound to the proposal id, so a signature for one send cannot fire another.
+    if let Some(refused) = gate_write(
+        cfg,
+        &req.vault,
+        WriteAction::Send,
+        id,
+        req.seat,
+        req.ts,
+        req.nonce.clone(),
+        req.sig.clone(),
+        "this vault requires a signed send",
+    ) {
+        return refused;
+    }
     let now = now_unix();
     let mut p = match load_proposal(&cfg.vaults_dir, &req.vault, id, now) {
         Some(p) => p,
@@ -958,6 +1040,11 @@ fn handle_create_proposal(state: &HelperState, cfg: &HelperConfig, body: &[u8]) 
         memo: Option<String>,
         #[serde(default)]
         expiry_unix: u64,
+        /// The signed-write envelope (#288 / ADR-0011 D2).
+        seat: Option<u16>,
+        ts: Option<i64>,
+        nonce: Option<String>,
+        sig: Option<String>,
     }
     let req: Req = match serde_json::from_slice(body) {
         Ok(r) => r,
@@ -970,6 +1057,22 @@ fn handle_create_proposal(state: &HelperState, cfg: &HelperConfig, body: &[u8]) 
         Some(r) => r,
         None => return resp(404, json!({ "error": "no such vault" }).to_string()),
     };
+    // #288's second half. A vault id used to be enough to fill a vault's desk with proposals the
+    // members then had to read and refuse. Bound to the PROPOSER's name, which was a free string:
+    // a device can no longer propose under another member's name either.
+    if let Some(refused) = gate_write(
+        cfg,
+        &req.vault,
+        WriteAction::Propose,
+        req.proposer.trim(),
+        req.seat,
+        req.ts,
+        req.nonce.clone(),
+        req.sig.clone(),
+        "this vault requires a signed proposal",
+    ) {
+        return refused;
+    }
     // Reuse the send-path validation (authoritative address + amount) so a proposal can only name a
     // destination the vault could actually pay.
     if let Err(e) = payment_plan(
@@ -1047,6 +1150,11 @@ fn handle_create_payroll(state: &HelperState, cfg: &HelperConfig, body: &[u8]) -
         lines: Vec<Line>,
         #[serde(default)]
         expiry_unix: u64,
+        /// The signed-write envelope (#288 / ADR-0011 D2).
+        seat: Option<u16>,
+        ts: Option<i64>,
+        nonce: Option<String>,
+        sig: Option<String>,
     }
     let req: Req = match serde_json::from_slice(body) {
         Ok(r) => r,
@@ -1062,6 +1170,21 @@ fn handle_create_payroll(state: &HelperState, cfg: &HelperConfig, body: &[u8]) -
         Some(r) => r,
         None => return resp(404, json!({ "error": "no such vault" }).to_string()),
     };
+    // #288's second half, same rule as the single payment: a vault id is no longer enough to put a
+    // payroll on the desk, and the signature is bound to the proposer's name.
+    if let Some(refused) = gate_write(
+        cfg,
+        &req.vault,
+        WriteAction::Propose,
+        req.proposer.trim(),
+        req.seat,
+        req.ts,
+        req.nonce.clone(),
+        req.sig.clone(),
+        "this vault requires a signed proposal",
+    ) {
+        return refused;
+    }
     // Validate every line (authoritative address + amount) and sum the total, with overflow guard.
     let mut total: u64 = 0;
     let mut lines = Vec::with_capacity(req.lines.len());
