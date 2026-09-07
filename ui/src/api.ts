@@ -196,21 +196,32 @@ export async function getVault(): Promise<Vault | null> {
     const v = await netGetVault(id)
     if (!v) return null
     const total = v.total ?? 0
-    // Members: use the stored names (Members screen) when set; otherwise "member N" seats, so the
-    // vote UI always has options and a vote from the PWA matches one from /net (same member id).
+    // The device's own record, read once: it carries both the vault's name and its roster.
+    let rec: { name?: string; roster?: string[] } | undefined
+    try {
+      rec = (await listVaults()).find((s) => s.id === id)
+    } catch { /* local-bridge mode / no on-device record */ }
+
+    // Members, in seat order. THREE sources, and the order matters: the helper's list, then this
+    // device's own roster, then a placeholder.
+    //
+    // The roster used to be skipped, so any failure to read the helper's list - a 401 before the
+    // vault is unlocked, an offline moment - turned every signer in the ceremony drawer into
+    // "member 1", "member 2". The device knew their names the whole time: identity in this product
+    // IS the name, seats are positional, and that roster is what the create/join ceremony agreed on.
+    // Showing a placeholder while holding the answer is worse than a stale name.
     const names = (await netListMembers(id)) ?? []
+    const local = rec?.roster ?? []
     const member_list = Array.from({ length: total }, (_, i) => {
-      const name = names[i] && names[i].trim() ? names[i] : `member ${i + 1}`
+      const name =
+        (names[i] && names[i].trim()) ||
+        (local[i] && local[i].trim()) ||
+        `member ${i + 1}`
       return { name, pubkey: name }
     })
     // The vault's real name is the one the operator chose at create/join, kept on this device.
     // Use it instead of a generic 'Networked vault' label; fall back only when there is no record.
-    let vaultName = 'Vault'
-    try {
-      const saved = await listVaults()
-      const rec = saved.find((s) => s.id === id)
-      if (rec?.name && rec.name.trim()) vaultName = rec.name
-    } catch { /* local-bridge mode / no on-device record - keep the neutral fallback */ }
+    const vaultName = rec?.name && rec.name.trim() ? rec.name : 'Vault'
     // Heal a record written before the create screen recorded the address (#501). Those hold `''`
     // forever: `saveVault` runs only at creation, so nothing revisits them, and the device cannot
     // re-derive an address - `zcash-sign` mints it from a random `sk` it discards. The helper is the

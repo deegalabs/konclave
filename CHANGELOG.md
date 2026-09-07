@@ -84,6 +84,17 @@ explicitly accepted.
   was told the server needed a signature their own browser had failed to make. Found on a live
   vault. (#288, #483)
 
+- **The quorum and signing panels broke their own sentences across four lines.** They reused the
+  class name of the Dashboard's readiness card, a flex column, so every bold run became a flex item
+  and "Quorum reached. The proposal is ready." rendered with the full stop stranded on a line of its
+  own. Measured rather than guessed: the container computed to `display:flex`, the bold to
+  `display:block`. Four occurrences across two screens.
+- **The ceremony drawer called the other signers "member 1", "member 2".** It read the roster from
+  the helper alone, so a read that failed - a 401 before the vault is unlocked, an offline moment -
+  replaced everyone's name with a seat number, while the device held the names all along. Identity
+  here IS the name, so a screen asking you to approve a payment had removed the only thing saying
+  who is in the room.
+
 ## [0.4.0] 2026-09-07
 
 ### Security
