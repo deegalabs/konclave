@@ -28,6 +28,7 @@ import type { FailureCode } from './background-session'
 import { listVaults, updateVaultMeta } from './storage'
 import { getUnlockedShare, setUnlockedShare } from './session'
 import { signGovernanceWrite, type WriteProof } from './device-key'
+import { ensureWasm } from './wasm-ready'
 import { decodeBundle } from './signing'
 
 export type Member = { name: string; pubkey: string }
@@ -295,17 +296,27 @@ export type CreateResult =
  *  (vote, rename, propose, send), and this repo's dominant defect is one rule written several times
  *  with only some copies updated.
  */
-export function writeProof(
+export async function writeProof(
   vaultId: string,
   action: 'approve' | 'refuse' | 'rename' | 'propose' | 'send',
   target: string,
-): WriteProof | undefined {
+): Promise<WriteProof | undefined> {
   const share = getUnlockedShare(vaultId)
   if (!share) return undefined
   try {
+    // `signGovernanceWrite` calls into WASM, and nothing on a proposal screen had loaded it. The
+    // call threw, the catch below swallowed it, the vote went out unsigned, and the helper answered
+    // "this vault requires a signed vote" - which is true and tells the member nothing they can act
+    // on. #483 put loading in one place for exactly this reason; signing was the path that still
+    // had none.
+    await ensureWasm()
     const b = decodeBundle(share)
     return signGovernanceWrite(b.keyPackage, vaultId, action, target, b.seat)
-  } catch {
+  } catch (e) {
+    // Still non-fatal - an unsigned write is refused by a migrated vault and accepted by an open
+    // one, which is the right shape - but no longer INVISIBLE. A silent catch here cost a live
+    // vault an afternoon, because the failure was indistinguishable from a locked device.
+    console.error('[konclave] could not sign a governance write', { action, vaultId, error: e })
     return undefined
   }
 }
@@ -323,7 +334,7 @@ export async function createProposal(input: NewProposal): Promise<CreateResult> 
       amountZat: zat,
       memo: input.memo,
       // Bound to the proposer's name, which the helper checks against the signing seat (#288).
-      proof: writeProof(id, 'propose', input.proposer.trim()),
+      proof: await writeProof(id, 'propose', input.proposer.trim()),
     })
     return p
       ? { ok: true, proposal: mapNetProposal(p) }
@@ -575,7 +586,7 @@ export async function createPayroll(
       if (zat == null || zat <= 0) return { ok: false, error: 'invalid amount' }
       mapped.push({ label: l.label, to: l.address, amount_zat: zat, memo: l.memo })
     }
-    const p = await netCreatePayroll({ vault: id, proposer, lines: mapped, proof: writeProof(id, 'propose', proposer.trim()) })
+    const p = await netCreatePayroll({ vault: id, proposer, lines: mapped, proof: await writeProof(id, 'propose', proposer.trim()) })
     return p
       ? { ok: true, proposal: mapNetProposal(p) }
       : { ok: false, error: 'invalid address', detail: 'the coordinator rejected a payroll line' }
@@ -799,17 +810,11 @@ export async function voteProposal(
     // whose share is not on this device) the vote goes unsigned, which the helper still accepts
     // while the vault has no registered write key. So a member is never blocked by this arriving;
     // they are blocked only if their vault HAS migrated and their device has not unlocked.
-    let proof: WriteProof | undefined
-    const share = getUnlockedShare(vid)
-    if (share) {
-      try {
-        const b = decodeBundle(share)
-        proof = signGovernanceWrite(b.keyPackage, vid, approve ? 'approve' : 'refuse', id, b.seat)
-      } catch {
-        // Signing must never take away the ability to vote: fall through unsigned and let the
-        // helper decide. A migrated vault answers 401 with a reason; an open one accepts.
-      }
-    }
+    // One signer for every governance write (#288): it ensures the WASM, signs, and returns
+    // undefined only when this device genuinely cannot - locked, or holding no share for this
+    // vault. The old version wrapped a bare `signGovernanceWrite` in a silent catch, so a WASM
+    // module that had never been loaded looked exactly like a locked device.
+    const proof = await writeProof(vid, approve ? 'approve' : 'refuse', id)
     const p = await netVote(vid, id, member, approve, proof)
     if (p) return { ok: true, proposal: mapNetProposal(p) }
     // Not every failure is a conflict, and saying so when it is not sends the member looking for a

@@ -734,7 +734,7 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
           room,
           dryRun: false,
           // #288, same rule as the app's signing panel: firing a broadcast is a governance write.
-          proof: writeProof(groupVk, 'send', id),
+          proof: await writeProof(groupVk, 'send', id),
         })
         if (!r) {
           setPropMsg(pe('Falha ao executar: não foi possível falar com o coordenador.', 'Execute failed: could not reach the coordinator.'))
