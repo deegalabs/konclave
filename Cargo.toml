@@ -3,6 +3,7 @@ resolver = "2"
 members = [
   "orchestrator",
   "helper-server",
+  "konclave-http",
   "konclave-seal",
   "konclave-signer",
   "konclave-wasm",
