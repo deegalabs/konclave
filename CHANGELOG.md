@@ -1,79 +1,116 @@
 # Changelog
 
-All notable changes to Konclave are recorded here. The format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
-for [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+What changed, written for the person who has to live with it — a treasurer holding real ZEC, not a
+reader of commit messages. If an entry does not answer *"what is different for me now"*, it does not
+belong here.
 
-A single version drives every surface: `ui/package.json` (shown in the in-app
-version badge), `src-tauri/tauri.conf.json` (the desktop installer), and the git
-tag. Bump them together with `node scripts/release.mjs <version>`, move the
-entries below from **Unreleased** into a dated section, then tag `v<version>`.
-Pushing the tag builds the desktop installers and uses that section as the
-release notes (see `.github/workflows/desktop-release.yml`).
+**Three rules this file keeps**, which are the same three the product keeps ([CLAUDE.md §6](CLAUDE.md)):
+
+- **A fix that closes a hole says what the hole was.** "Improved security" tells a member nothing
+  about whether they were exposed, for how long, or whether they need to act.
+- **What is NOT done stays visible.** A roadmap is a roadmap. If something works in one place and
+  not another, the entry says which.
+- **Nothing here is a promise.** Where a claim is proven on mainnet, the txid is the proof and it is
+  linked.
+
+Grouped by what a member notices, not by pull request. The PR numbers are there so anyone can go and
+check, which is the point of citing them.
+
+Dates are UTC. Format follows [Keep a Changelog](https://keepachangelog.com/); versions follow
+[SemVer](https://semver.org/).
+
+---
 
 ## [Unreleased]
 
-### Added
-- Backup card on the create-done step: download or copy the encrypted portable
-  copy of the just-created vault before opening it, reusing the passphrase you
-  just set (no second prompt).
-- PWA version-update prompt: a "new version available" banner (checked every
-  60s) lets a member finish mid-ceremony, then tap to update. Version badge
-  (version and commit) in the Settings footer.
-- Passphrase strength meter and one-tap strong-passphrase generator on every
-  passphrase field.
-- Vault export/import: an encrypted, portable copy of a vault that unlocks with
-  its passphrase on any device.
-- Onboarding redesign: three equal doors (Create, Join, Import), a stepped
-  mobile-first create flow, and validate-then-unlock import.
-- Recipient combobox that recognizes a known address and offers to save it.
-- Vault fingerprint shown at the ceremony and on create-done.
-- Live exchange rate and full-page loaders on Pay and Payroll; two-column
-  Payroll redesign mirroring Pay.
-- Blind relay: per-IP rate limiting. Hosted helper: capacity guard with a clear
-  over-capacity message.
-- Hosted blind helper (`helper-server`) live on Railway mainnet: it registers a browser-DKG vault by its FROST group key, keeps a view-only wallet, and builds/proves/broadcasts a spend while the browsers sign over the blind relay, never receiving, deriving, or storing a share (ADR-0006 Rung A, Architecture B).
+### Your backup is now the whole vault
 
-### Changed
-- Default quorum is now 2-of-3, with a non-blocking warning badge when the
-  signing quorum equals the device count (no recovery margin). See
-  [ADR-0010](docs/adr/0010-quorum-redundancy-default.md).
-- The in-vault embedded create modal (from the Vaults screen) is the create
-  flow; the standalone `/net` route is legacy/diagnostics.
-- The vault switcher opens to the right of the rail, over the page, and closes
-  on outside click.
-- Passphrase field icons are clean inline SVGs; the generate button no longer
-  collides with the input edge.
-- Removed em-dashes from user-facing copy.
-- The hosted blind helper container now runs as a non-root user: the entrypoint enters as root only to chown the Railway volume, then drops to a dedicated `konclave` system user via `gosu` before running the (share-blind) helper.
-- MCP server and SDK brought current with the shipped reality; SDK example clarified to sign the seed path, not an Orchard spend.
-- Passphrase strength is now scored by complexity, with a stronger vault-grade generator and room for a password manager.
+An export used to restore your **seat** and not the vault. It carried your share, but not the
+viewing key — which is minted once at random and lived only on the helper — so a rebuilt wallet held
+real spend authority over money it could not see. It now carries the viewing key (#447) and the
+block height to scan from (#480); without that height a rebuilt wallet starts looking from today and
+never finds the notes the vault already holds, and there is no rescan.
+
+`scripts/open-export.mjs` opens a backup with **no Konclave at all** — Node's own crypto, no
+packages, no network — and reports whether the file is complete rather than dumping it (#484). The
+same story is in the app under **Documentation → Recovery**, written to be saved *with* the file,
+because the day you need it is the day the app is gone (#485).
+
+### You can change your passphrase
+
+The one credential in the product with no way to rotate, and the one whose compromise costs most
+(#470, #471). Local and per device: your other machines keep the passphrase they have. There is
+still no recovering a forgotten one — the encrypted export remains the only spare key.
+
+### Reading a vault stops costing what spending does
+
+A reload used to send you back to the vault list to pick the vault you were already inside. The
+passphrase is now asked **on the screen you were on** (#467). A passkey — Face ID, Windows Hello,
+Touch ID — can stand in for it when opening the books, per device, and **sending money still asks
+for the passphrase** (#468). That shortcut had shipped unreachable: nothing in the product ever
+enrolled one.
+
+### The viewing key no longer travels in the clear
+
+TLS always covered the wire, but the browser's own extensions and any TLS-terminating proxy could
+read the key that decrypts every payslip the vault ever sent. Once a vault has a registered device,
+the helper seals that response to those devices and **the plaintext path closes** (#476, #481).
+Vaults whose members are all on older builds keep working until one of them migrates.
+
+### Governance writes are authenticated
+
+A vote or a rename from someone who does not hold the seat's share is refused, from the first device
+on that vault that unlocks (#448, #450, #452, #453, #454, #455). The gate is per vault and turns on
+at that moment, so existing vaults keep working.
+
+### Settings was rebuilt
+
+Named sections, the two forms that used to expand inline are dialogs, and the long explanations moved
+behind a `?` (#473, #487). Theme and language moved into the app shell, where per-device preferences
+belong (#475). The delete confirmation stopped printing the vault name in its own placeholder — the
+gate that exists to force an act of recall was showing the answer.
 
 ### Fixed
-- Create modal no longer auto-restores a selected vault when logged in (which
-  had forced a cache clear).
-- Vault roster stores member names, not throwaway relay tags.
-- Self-rename heals member identity and migrates votes.
 
-### Security
-- CI hardening: GitHub Actions pinned to commit SHAs and `curl | sh` installers removed from workflows.
-- Fixed a script-injection vector in the desktop-release release-notes workflow step.
-- pnpm supply-chain policies: minimum release age, dependency trust policy, and a block on exotic sub-dependencies.
+- **The helper served no private reads for part of 2026-09-06** (#466). The CORS preflight never
+  named `X-Konclave-Read`, so browsers refused to send it and every balance, proposal and member
+  list failed. The fix had reached the deployed binary in #403 and never the source, so rebuilding
+  from `main` reintroduced it.
+- **PBKDF2 raised to 600,000 iterations** (#479) — the number OWASP gives for SHA-256, where 210,000
+  is the SHA-512 one. Existing vaults and backups keep opening at whatever they were sealed with;
+  changing your passphrase re-seals at the new count.
+- **The helper asked liveness twice** (#477), and the shell's poll never paused with the tab. Six
+  requests in 26 seconds became three.
+- The wallet birthday and the change receiver are recorded at **boot** (#445, #478), because the
+  registration path that recorded them runs rarely; and those migrations now run **before** the
+  registry is read (#482), so the process serves the corrected values instead of healing on the
+  next restart.
+- The WASM module is loaded in one place (#483). Five screens had their own initialiser, and the
+  export was the sixth path that needed one and had none.
 
-## [0.2.0] - 2026-08-02
+### Known limits
 
-### Added
-- Desktop application (Tauri): Windows, macOS, and Linux installers, built and
-  attached to a GitHub release from a version tag. The device key share lives in
-  the OS secure store. Live per-platform hardware validation is still ongoing.
+- `/api/vault` is outside the read gate: a leaked vault id still reveals the vault's address and
+  quorum. The books stay closed (#388).
+- Sealing covers the viewing key. The member list and the remaining private reads are still served
+  in the clear to the browser — [#476](https://github.com/deegalabs/konclave/issues/476).
+- Every contrast failure the accessibility audit found is in the **light** theme, which is the
+  default. Four token values clear them; not yet applied.
+- Passkey enrolment fails on Windows Hello before 25H2, which does not support the PRF extension.
+  The message does not yet say so.
 
-## [0.1.0] - 2026-08-02
+---
 
-### Added
-- First tagged release: the browser-native collective vault (real DKG across
-  devices over a blind relay, FROST signing) and the local-first bridge, proven
-  on Zcash mainnet.
+## [0.2.0] — 2026-08-02
 
-[Unreleased]: https://github.com/deegalabs/konclave/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/deegalabs/konclave/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/deegalabs/konclave/releases/tag/v0.1.0
+The desktop line: a Tauri shell over the orchestrator, with Windows, macOS and Linux installers. The
+web app stays the primary delivery ([ADR-0005](docs/adr/)); desktop is the optional native shell.
+
+**Not done:** live per-platform hardware validation.
+
+## [0.1.0] — 2026-08-02
+
+Browser-native FROST treasury on Zcash mainnet. Real DKG across devices over a blind relay, signing
+in WASM on the device, and a hosted helper that builds and broadcasts without ever seeing a share.
+
+Proven on mainnet, with verifiable txids in [docs/PROOF.md](docs/PROOF.md).
