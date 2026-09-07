@@ -1940,6 +1940,8 @@ mod js_dkg {
             "approve" => seal::WriteAction::Approve,
             "refuse" => seal::WriteAction::Refuse,
             "rename" => seal::WriteAction::Rename,
+            "propose" => seal::WriteAction::Propose,
+            "send" => seal::WriteAction::Send,
             other => return Err(JsValue::from_str(&format!("unknown write action: {other}"))),
         };
         let msg = seal::write_message(vault_id, action, target, seat, ts as i64, nonce);

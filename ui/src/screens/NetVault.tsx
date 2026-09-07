@@ -18,6 +18,7 @@ import { signRejoin, rejoinIsProven } from '../room-auth'
 import { unsealSignRequest } from '../net-sign'
 import { generateVaultSecret, deriveReadKey } from '../vault-secret'
 import { deviceCommsKey, devicePubHex } from '../device-key'
+import { writeProof } from '../api'
 import { useT, useTr, useI18n } from '../i18n'
 import { Letterhead, PassphraseField } from '../components'
 import {
@@ -732,6 +733,8 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
           relayBase: relayBase(),
           room,
           dryRun: false,
+          // #288, same rule as the app's signing panel: firing a broadcast is a governance write.
+          proof: writeProof(groupVk, 'send', id),
         })
         if (!r) {
           setPropMsg(pe('Falha ao executar: não foi possível falar com o coordenador.', 'Execute failed: could not reach the coordinator.'))

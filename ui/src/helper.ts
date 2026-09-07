@@ -193,6 +193,9 @@ export async function createProposal(args: {
   amountZat: number
   memo?: string
   expiryUnix?: number
+  /** #288: present when this device can sign. Spread like the vote's, so a vault migrates without a
+   *  flag day - the helper ignores it while the vault is still open. */
+  proof?: WriteProof
 }): Promise<Proposal | null> {
   return postJson<Proposal>('/api/vault/proposals', {
     vault: args.vault,
@@ -201,6 +204,7 @@ export async function createProposal(args: {
     amount_zat: args.amountZat,
     memo: args.memo,
     expiry_unix: args.expiryUnix ?? Math.floor(Date.now() / 1000) + PROPOSAL_TTL_SECONDS,
+    ...(args.proof ?? {}),
   })
 }
 
@@ -295,12 +299,15 @@ export async function createPayroll(args: {
   proposer: string
   lines: PayrollLine[]
   expiryUnix?: number
+  /** #288, as on `createProposal`. */
+  proof?: WriteProof
 }): Promise<Proposal | null> {
   return postJson<Proposal>('/api/vault/payroll', {
     vault: args.vault,
     proposer: args.proposer,
     lines: args.lines.map((l) => ({ label: l.label ?? '', to: l.to, amount_zat: l.amount_zat, memo: l.memo })),
     expiry_unix: args.expiryUnix ?? Math.floor(Date.now() / 1000) + PROPOSAL_TTL_SECONDS,
+    ...(args.proof ?? {}),
   })
 }
 
@@ -429,6 +436,8 @@ export async function executeProposal(args: {
   relayBase: string
   room: string
   dryRun?: boolean
+  /** #288: firing a broadcast is a governance write. Bound to the proposal id. */
+  proof?: WriteProof
 }): Promise<
   | { txid: string | null; dry_run: boolean; state: string }
   | { error: string }
@@ -451,6 +460,7 @@ export async function executeProposal(args: {
         relay_base: args.relayBase,
         room: args.room,
         dry_run: args.dryRun ?? true,
+        ...(args.proof ?? {}),
       }),
     })
     const data = (await res.json().catch(() => null)) as

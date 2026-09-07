@@ -45,8 +45,8 @@ export interface WriteProof {
 }
 
 /**
- * Sign a governance write. `action` is 'approve' | 'refuse' | 'rename'; `target` is the proposal id,
- * or `old\0new` for a rename.
+ * Sign a governance write. `target` is the proposal id, the proposer's name for a proposal, or
+ * `old\u0000new` for a rename. The action list is the one in `konclave-seal`, walked by a test there.
  *
  * The canonical bytes are built inside WASM, by the same Rust function the helper verifies with, so
  * the format cannot drift between the two. Nothing here assembles it - deliberately.
@@ -54,7 +54,7 @@ export interface WriteProof {
 export function signGovernanceWrite(
   keyPackage: Uint8Array,
   vaultId: string,
-  action: 'approve' | 'refuse' | 'rename',
+  action: 'approve' | 'refuse' | 'rename' | 'propose' | 'send',
   target: string,
   seat: number,
 ): WriteProof {
