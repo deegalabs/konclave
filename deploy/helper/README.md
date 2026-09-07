@@ -22,7 +22,7 @@ maintainer's machine, instead of compiling them in-image:
 | `konclave-signer` | send: extract the sighash / inject the browsers' aggregate signature |
 
 **Engine pins - deployed vs `engine/versions.lock`.** The **deployed** helper runs the
-Ironwood-bump engine: **pczt 0.9.1 / `zcash_client_backend` 0.24.0-rc.6** (librustzcash) for
+Ironwood-bump engine: the deployed binaries measure **pczt 0.9.3 / `zcash_client_backend` 0.24.0** (the #259 branch itself pins 0.8.0-rc.1 / 0.24.0-rc.1) (librustzcash) for
 `zcash-devtool` + `konclave-signer`, and **`zcash-sign` from frost-tools #593**, with
 `zcash-devtool` from librustzcash `main`. That bump is not yet merged to `main` (it lives on
 branch `feat/engine-ironwood-bump`, #259, gated on a live round-trip), so
