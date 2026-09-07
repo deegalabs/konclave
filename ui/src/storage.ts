@@ -805,10 +805,15 @@ export async function listVaults(): Promise<VaultPublic[]> {
 
 /** Patch a saved vault's PUBLIC metadata (never touches the sealed share, so no passphrase needed).
  *  Used when this device renames its own seat: the on-device `myName` must follow the roster so the
- *  UI keeps recognizing which member "you" are. A no-op if the vault or IndexedDB is unavailable. */
+ *  UI keeps recognizing which member "you" are. A no-op if the vault or IndexedDB is unavailable.
+ *
+ *  `address` is here for the same reason and a different cause: records written before the create
+ *  screen recorded it hold `''` forever, and the device cannot re-derive one - `zcash-sign` mints it
+ *  from a random `sk` it discards. So it is backfilled from the helper on first sight (#501), which
+ *  is the only other place it exists. */
 export async function updateVaultMeta(
   id: string,
-  patch: Partial<Pick<VaultRecord, 'name' | 'myName' | 'creatorName'>>,
+  patch: Partial<Pick<VaultRecord, 'name' | 'myName' | 'creatorName' | 'address'>>,
 ): Promise<void> {
   if (!storageAvailable()) return
   const db = await openDb()
