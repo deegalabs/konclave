@@ -11,6 +11,59 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The changelog is what the forum posts and the desktop release notes are written from
+  # (`scripts/release.mjs --notes`). "Remember to update it" is not a mechanism - it decays on the
+  # first busy day - so the machine remembers instead.
+  #
+  # It asks only whether the file was TOUCHED, never what was written. A gate that tried to judge
+  # the prose would either be trivially satisfiable or wrong, and the judgement belongs in review.
+  #
+  # The escape hatch is a `no-changelog` label, for the changes a member genuinely cannot notice:
+  # refactors, tests, CI, dependency bumps. Requiring a deliberate label makes skipping a decision
+  # someone made rather than a step nobody took.
+  changelog:
+    name: Changelog (a member-visible change says so)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+      - name: Did this change anything a member can see?
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: |
+          set -euo pipefail
+          if printf '%s' "$LABELS" | tr ',' '\n' | grep -qx 'no-changelog'; then
+            echo "Labelled no-changelog - skipping, deliberately."
+            exit 0
+          fi
+          changed="$(git diff --name-only "$BASE".."$HEAD")"
+          # Source a member meets. Tests, e2e and CI are excluded: they change no behaviour, and
+          # counting them would train everyone to reach for the label.
+          visible="$(printf '%s\n' "$changed" | grep -E '^(ui/src/|orchestrator/src/|helper-server/src/|relay-server/src/|konclave-signer/src/|konclave-wasm/src/|konclave-seal/src/)' | grep -vE '\.test\.|/e2e/' || true)"
+          if [ -z "$visible" ]; then
+            echo "No member-visible source touched."
+            exit 0
+          fi
+          if printf '%s\n' "$changed" | grep -qx 'CHANGELOG.md'; then
+            echo "CHANGELOG.md updated."
+            exit 0
+          fi
+          echo "::error::This PR changes source a member meets but does not touch CHANGELOG.md."
+          echo
+          echo "Add an entry under ## [Unreleased], grouped by what a member NOTICES - the forum"
+          echo "posts and the desktop release notes are written from that section."
+          echo
+          echo "If the change is genuinely invisible to a member (refactor, test, CI, dependency),"
+          echo "add the 'no-changelog' label."
+          echo
+          echo "Files that triggered this:"
+          printf '  %s\n' $visible
+          exit 1
+
   rust:
     name: Rust (orchestrator · konclave-signer · konclave-wasm · relay-server · helper-server)
     runs-on: ubuntu-latest
