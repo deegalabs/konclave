@@ -27,3 +27,5 @@ export function setTheme(t: Theme): void {
   }
   applyTheme(t)
 }
+
+// red-check for the changelog gate (#491); reverted in the next commit.
