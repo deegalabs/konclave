@@ -213,7 +213,7 @@ export function newRoomCode(): string {
 export async function deriveRoom(code: string, pin: string): Promise<string> {
   const p = pin.trim()
   if (!p) return code
-  const data = new TextEncoder().encode(`konclave-room ${code} ${p}`)
+  const data = new TextEncoder().encode(`konclave-room\u0000${code}\u0000${p}`)
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', data))
   return Array.from(digest.slice(0, 16), (b) => b.toString(16).padStart(2, '0')).join('') // 128-bit hex room id
 }

@@ -1,0 +1,63 @@
+# The desktop shell, compiled on the pull requests that touch it.
+#
+# `src-tauri` is a workspace member that CI never built. Its 12 tests never ran, and a break in it
+# was discovered when a `v*` tag was pushed and the release workflow tried to build installers - the
+# worst possible moment to find out, and the reason this exists.
+#
+# It is NOT in the main `rust` job because building it needs the GTK/WebKit development headers, and
+# installing those on every pull request would add minutes to changes that cannot possibly affect
+# the desktop shell. So it runs on the paths that can: the crate itself, and the workspace manifests
+# that decide what it compiles against.
+name: Desktop (src-tauri)
+
+on:
+  pull_request:
+    paths:
+      - 'src-tauri/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/desktop-check.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src-tauri/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+
+jobs:
+  check:
+    name: Desktop shell (fmt · clippy · test)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Rust
+        uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable @ 2026-08-05
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri -> target
+
+      # The same set the release workflow installs. Without them the crate does not even configure:
+      # its build scripts fail at `glib-sys`, long before any code of ours is compiled.
+      - name: GTK/WebKit headers
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      # Tauri's build script expects the frontend bundle to exist; it is not read by these checks,
+      # but its absence fails configuration.
+      - name: Frontend bundle (so the Tauri build script can resolve it)
+        run: mkdir -p ui/dist && echo '<!doctype html>' > ui/dist/index.html
+
+      - name: Format check
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+
+      - name: Clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --manifest-path src-tauri/Cargo.toml
