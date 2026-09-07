@@ -38,6 +38,17 @@ explicitly accepted.
 
 ## [Unreleased]
 
+### Security
+
+- **The hosted helper read request bodies with no ceiling.** One POST could make it buffer without
+  limit, on the service every vault's balance, proposal and send goes through, and which already had
+  an outage from a related cause on 2026-08-27. Open since the helper existed; filed as #269 on
+  2026-08-23. The relay has capped since #390.
+  **The 0.3.0 notes said both servers had a bounded body read. That was true of the relay only.**
+  The ceiling now lives in one crate, `konclave-http`, that both servers read, and a test refuses a
+  body read that has none. The worker pool deliberately stays per-server: the two sizings look like
+  one duplicated rule and are not, and sharing them would have shrunk the helper's pool. (#269)
+
 ### Fixed
 
 - **The recovery script printed a Node stack trace instead of an answer.** A missing file, a
@@ -51,7 +62,6 @@ explicitly accepted.
   that matters: their metadata was never encrypted, and anyone with the file can read the vault
   name, the members and the address without the passphrase. Legacy vaults still exist, so this was
   refusing exactly the backups most likely to be old. (#484)
-
 ## [0.3.0] 2026-09-07
 
 ### Security

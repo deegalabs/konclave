@@ -2023,6 +2023,7 @@ name = "helper-server"
 version = "0.1.0"
 dependencies = [
  "ed25519-dalek",
+ "konclave-http",
  "konclave-seal",
  "orchestrator",
  "serde",
@@ -2584,6 +2585,10 @@ dependencies = [
  "log",
  "zeroize",
 ]
+
+[[package]]
+name = "konclave-http"
+version = "0.1.0"
 
 [[package]]
 name = "konclave-seal"
@@ -3972,6 +3977,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 name = "relay-server"
 version = "0.1.0"
 dependencies = [
+ "konclave-http",
  "serde",
  "serde_json",
  "tiny_http",

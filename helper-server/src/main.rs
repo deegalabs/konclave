@@ -28,6 +28,7 @@
 
 mod concurrency;
 
+use std::io::Read;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -1379,8 +1380,20 @@ fn main() {
                 .iter()
                 .find(|h| h.field.equiv(READ_TOKEN_HEADER))
                 .map(|h| h.value.as_str().to_string());
+            // A public POST with no ceiling is memory exhaustion by one request (#269). The relay
+            // has capped since #390; the helper did not, because the rule lived in the relay's own
+            // file. It lives in `konclave-http` now, so there is one ceiling and both servers read it.
             let mut body = Vec::new();
-            let _ = req.as_reader().read_to_end(&mut body);
+            match konclave_http::body_read_cap(req.body_length().map(|n| n as u64)) {
+                konclave_http::ReadPlan::Read(limit) => {
+                    // Bound to a local first: `as_reader()` hands back `&mut dyn Read`, and
+                    // `take` needs a sized receiver, so calling it inline resolves against the
+                    // trait object itself and does not compile.
+                    let reader = req.as_reader();
+                    let _ = reader.take(limit).read_to_end(&mut body);
+                }
+                konclave_http::ReadPlan::Skip => { /* over the cap: handle an empty body */ }
+            }
 
             // Held for the whole request, and only when the request names a vault - so health and
             // anything unrouted never wait for a lock at all.

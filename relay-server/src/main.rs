@@ -323,11 +323,11 @@ fn main() {
                 let mut buf = Vec::new();
                 // Read with a hard ceiling - including when there is NO Content-Length, which used
                 // to be read unbounded (#390). `take` caps a dribbling or chunked body.
-                match concurrency::body_read_cap(req.body_length().map(|n| n as u64)) {
-                    concurrency::ReadPlan::Read(limit) => {
+                match konclave_http::body_read_cap(req.body_length().map(|n| n as u64)) {
+                    konclave_http::ReadPlan::Read(limit) => {
                         let _ = req.as_reader().take(limit).read_to_end(&mut buf);
                     }
-                    concurrency::ReadPlan::Skip => { /* over the cap: handle an empty body */ }
+                    konclave_http::ReadPlan::Skip => { /* over the cap: handle an empty body */ }
                 }
                 state.handle(&method, &path, &url, &buf, now_unix(), &ip)
             } else if path == "/" || path == "/health" {
