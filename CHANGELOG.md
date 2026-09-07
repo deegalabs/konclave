@@ -76,6 +76,14 @@ explicitly accepted.
   owner looking for a conflict that did not exist. Found live, on a real vault, mid-approval. The
   message now says what actually happened and what to do about it. (#288)
 
+- **A vote could not be signed on a screen that had not loaded the WASM, and said nothing.**
+  `signGovernanceWrite` calls into WASM; the vote path called it without ensuring the module was
+  loaded. On a proposal screen nothing else had loaded it, so the call threw, a catch written to
+  keep signing from ever blocking a vote swallowed it, the vote went out unsigned, and the helper
+  refused with "this vault requires a signed vote". A member who had just typed their passphrase
+  was told the server needed a signature their own browser had failed to make. Found on a live
+  vault. (#288, #483)
+
 ## [0.4.0] 2026-09-07
 
 ### Security

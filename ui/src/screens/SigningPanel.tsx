@@ -266,7 +266,7 @@ export default function SigningPanel() {
       dryRun: false,
       // #288: firing the broadcast is a governance write, bound to this proposal's id. Undefined on
       // a locked device, which the helper still accepts while the vault has no write keys.
-      proof: writeProof(vault.group_pubkey, 'send', active!.id),
+      proof: await writeProof(vault.group_pubkey, 'send', active!.id),
     }
     // Breadcrumbs for a failure a user reports later: what we asked for, and what came back. No
     // secret is logged (the group key and the proposal id are public vault material).
