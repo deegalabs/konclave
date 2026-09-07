@@ -15,6 +15,14 @@
 //
 // Secrets are withheld unless asked for. The common reason to run this is to check a backup, and
 // printing a share into a terminal buffer for that is a bad trade.
+//
+// It reads BOTH formats. v2 is one opaque blob; v1 (pre-#405) left the metadata in the clear and
+// encrypted only the share. Legacy vaults still exist, so a tool that refuses their backups is a
+// tool that fails exactly the person it was written for.
+//
+// And every failure here is a SENTENCE, not a stack trace. This runs when the laptop is dead or the
+// browser will not start; a `node:fs` trace at that moment tells the reader their last resort is
+// broken too. The reader is not debugging this script, they are trying to open their money.
 
 import { readFileSync } from 'node:fs'
 import { webcrypto as crypto } from 'node:crypto'
@@ -41,17 +49,54 @@ function askPassphrase() {
   })
 }
 
-const unhex = (h) => {
+const unhex = (h, what) => {
   if (typeof h !== 'string' || h.length % 2 !== 0 || /[^0-9a-f]/i.test(h)) {
-    throw new Error('malformed hex in the export')
+    stop(`The export's ${what} is not valid hex, so the file has been altered or truncated.`)
   }
   return Uint8Array.from(h.match(/../g).map((x) => parseInt(x, 16)))
 }
 
-const bundle = JSON.parse(readFileSync(file, 'utf8'))
-if (bundle.format !== 'konclave-vault-export') {
-  console.error('This does not look like a Konclave vault export.')
-  process.exit(1)
+/** Die with one sentence and no stack. `code` 2 = could not even start, 1 = it did not open. */
+function stop(msg, code = 1) {
+  console.error(`\n${msg}\n`)
+  process.exit(code)
+}
+
+let raw
+try {
+  raw = readFileSync(file, 'utf8')
+} catch (e) {
+  if (e.code === 'ENOENT') stop(`No file at ${file}\n\nCheck the path. The export is the .konclave.json you downloaded when the vault was created, or from Settings.`, 2)
+  if (e.code === 'EISDIR') stop(`${file} is a directory, not an export file.`, 2)
+  if (e.code === 'EACCES') stop(`No permission to read ${file}.`, 2)
+  stop(`Could not read ${file}: ${e.message}`, 2)
+}
+
+let bundle
+try {
+  bundle = JSON.parse(raw)
+} catch {
+  // A truncated download and a wrong file both land here, and the difference matters to the reader.
+  const head = raw.trim().slice(0, 40).replace(/\s+/g, ' ')
+  stop(`${file} is not valid JSON, so it is not an export.\n\nIt starts with: ${head || '(empty file)'}`, 2)
+}
+
+if (bundle === null || typeof bundle !== 'object' || bundle.format !== 'konclave-vault-export') {
+  stop('This does not look like a Konclave vault export.\n\nAn export is a JSON object whose "format" is "konclave-vault-export".')
+}
+
+// v1 kept salt/iv/cipher one level down, under `vault`, with the metadata beside them in the clear.
+// Normalising here means the decrypt below has one shape to handle instead of two.
+const v1 = bundle.version === 1
+const env = v1 ? bundle.vault : bundle
+if (!env || typeof env !== 'object') {
+  stop('The export declares version 1 but carries no "vault" object. The file is incomplete.')
+}
+if (bundle.version !== 1 && bundle.version !== 2) {
+  stop(`Unsupported export version: ${JSON.stringify(bundle.version)}. This tool reads v1 and v2.`)
+}
+for (const f of ['salt', 'iv', 'cipher']) {
+  if (typeof env[f] !== 'string' || !env[f]) stop(`The export is missing "${f}". The file is incomplete or corrupt.`)
 }
 
 const passphrase = await askPassphrase()
@@ -66,10 +111,10 @@ const base = await crypto.subtle.importKey(
 const key = await crypto.subtle.deriveKey(
   {
     name: 'PBKDF2',
-    salt: unhex(bundle.salt),
+    salt: unhex(env.salt, 'salt'),
     // The count comes FROM THE FILE. An export written before that field existed has none, and
     // 210000 is what it was sealed with (#435). Assuming today's number would fail on old backups.
-    iterations: bundle.kdfIters ?? 210_000,
+    iterations: env.kdfIters ?? 210_000,
     hash: 'SHA-256',
   },
   base,
@@ -78,22 +123,43 @@ const key = await crypto.subtle.deriveKey(
   ['encrypt', 'decrypt'],
 )
 
+const hex = (u) => [...u].map((b) => b.toString(16).padStart(2, '0')).join('')
+
+async function open(ivHex, cipherHex, what) {
+  return crypto.subtle.decrypt({ name: 'AES-GCM', iv: unhex(ivHex, 'iv') }, key, unhex(cipherHex, what))
+}
+
 let payload
 try {
-  const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unhex(bundle.iv) }, key, unhex(bundle.cipher))
-  payload = JSON.parse(new TextDecoder().decode(plain))
+  const plain = await open(env.iv, env.cipher, 'cipher')
+  // The two formats differ in WHAT is encrypted, not how. v2 seals the whole payload as JSON; v1
+  // sealed only the share and left the metadata beside it in the clear, which is the flaw #405
+  // closed. So v1 is reassembled here into the shape the report below already expects.
+  payload = v1
+    ? {
+        name: env.name, myName: env.myName, creatorName: env.creatorName,
+        governance: env.governance, groupKey: env.groupKey, address: env.address,
+        roster: env.roster, createdAt: env.createdAt, beneficiaries: env.beneficiaries,
+        share: hex(new Uint8Array(plain)),
+        // v1 predates both, so they are absent by construction, never merely missing.
+        accessSecret: null,
+      }
+    : JSON.parse(new TextDecoder().decode(plain))
+  if (v1 && env.secretCipher && env.secretIv) {
+    try {
+      payload.accessSecret = hex(new Uint8Array(await open(env.secretIv, env.secretCipher, 'secretCipher')))
+    } catch { /* S is optional on v1; its absence is not a failure to open the backup */ }
+  }
 } catch {
   // AES-GCM authenticates, so this is not "decrypted to garbage" - it refused. Wrong passphrase or
   // an altered file, and there is no way to tell which, which is the point of an authenticated mode.
-  console.error('\nIt did not open: wrong passphrase, or the file has been altered.')
-  process.exit(1)
+  stop('It did not open: wrong passphrase, or the file has been altered.')
 }
 
 const yes = (v) => (v ? '  yes' : '  NO')
-const v1 = bundle.version !== 2
 
 console.log(`
-  Konclave export · v${bundle.version} · sealed ${new Date(bundle.exportedAt).toISOString().slice(0, 10)} · PBKDF2 ${bundle.kdfIters ?? 210_000}
+  Konclave export · v${bundle.version} · sealed ${new Date(bundle.exportedAt).toISOString().slice(0, 10)} · PBKDF2 ${env.kdfIters ?? 210_000}
 
   Vault      ${payload.name ?? '(unnamed)'}
   You        ${payload.myName ?? '(unrecorded)'}
@@ -118,7 +184,10 @@ if (!payload.ufvk || payload.birthday === undefined) {
 `)
 }
 if (v1) {
-  console.log('  This is a v1 export: its metadata was NOT encrypted. #405 replaced that format.\n')
+  console.log(`  This is a v1 export. Its metadata - the vault name, the members, the address -
+  was NOT encrypted: anyone holding this file can read all of it without the passphrase.
+  #405 replaced that format, and a fresh export from Settings is one opaque blob.
+`)
 }
 if (showSecrets) {
   console.log('  --- secrets ---')

@@ -38,6 +38,20 @@ explicitly accepted.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The recovery script printed a Node stack trace instead of an answer.** A missing file, a
+  directory, an unreadable file or a truncated download all reached the reader as
+  `Error: ENOENT ... at readFileSync`. That tool runs when the laptop is dead or the browser will
+  not start, so a stack trace at that moment says the last resort is broken too. Every failure is a
+  sentence now, and the exit code separates "could not start" (2) from "did not open" (1).
+- **The recovery script could not open a v1 backup at all.** v1 keeps `salt`/`iv`/`cipher` under
+  `vault` and encrypts only the share, so the script threw on hex it never found, before reaching
+  the notice that would have explained the format. It reads both now, and tells a v1 holder the part
+  that matters: their metadata was never encrypted, and anyone with the file can read the vault
+  name, the members and the address without the passphrase. Legacy vaults still exist, so this was
+  refusing exactly the backups most likely to be old. (#484)
+
 ## [0.3.0] 2026-09-07
 
 ### Security
