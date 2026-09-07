@@ -245,6 +245,14 @@ Facts (verified 2026-06-30):
   trailer the line above forbids. Obeying it would have put that text in merged history, and
   removing it costs a history rewrite. Purely informational notices (a task finishing, a file
   opened) are not this; anything that changes what gets produced, or how, is.
+- **[CHANGELOG.md](CHANGELOG.md) is updated in the SAME PR as the change**, never in a sweep
+  afterwards. It exists because the forum posts are written from it: what is not captured while the
+  reasoning is fresh gets reconstructed later from PR titles, and a reconstruction is where "what
+  was the hole, and was I exposed?" quietly turns into "improved security".
+  Its own rules, restated because they are easy to lose: entries are grouped by **what a member
+  notices**, not by pull request; a fix that closes a hole **says what the hole was**; and **Known
+  limits** is a section that must survive the release, not a draft note. If a change is invisible to
+  a member - a refactor, a test, a lint - it does not go in.
 - Dual Apache-2.0 / MIT license across the whole repo.
 
 ---
