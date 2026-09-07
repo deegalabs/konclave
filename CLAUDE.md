@@ -253,9 +253,12 @@ Facts (verified 2026-06-30):
   (`scripts/release.mjs --notes`, which reads the `## [Unreleased]` section). What is not captured
   while the reasoning is fresh gets reconstructed later from PR titles, and a reconstruction is
   where "what was the hole, and was I exposed?" quietly becomes "improved security".
-  Its own rules, restated because they are easy to lose: entries are grouped by **what a member
-  notices**, not by pull request; a fix that closes a hole **says what the hole was**; and **Known
-  limits** is a section that must survive the release, not a draft note.
+  Its own rules, restated because they are easy to lose: a fix that closes a hole **says what the
+  hole was**, and **Known limits** survives the release rather than being a draft note.
+  **The categories are what decide what gets announced**, which is why the file is categorised at
+  all: `Security` always means a forum post and at least a MINOR; `Added` goes in the release post;
+  `Changed` only if it changes a habit; `Fixed` only if a member could have hit it. Pre-1.0 the
+  version is `0.MINOR.PATCH`, and anything under `Security` or `Added` takes the MINOR.
 - Dual Apache-2.0 / MIT license across the whole repo.
 
 ---
