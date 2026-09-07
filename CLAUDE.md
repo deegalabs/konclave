@@ -359,7 +359,7 @@ whoever approved, sealed at rest) → account (ledger + itemized CSV). Browser-n
 vault by **real DKG across devices over a blind relay** and signs over it; a **hosted blind helper**
 builds/proves/broadcasts the tx without ever seeing a share (Architecture B, ADR-0006).
 
-**Proven on mainnet.** **15 verifiable txids** (`docs/PROOF.md` / `scripts/verify-proof.mjs`),
+**Proven on mainnet.** **16 verifiable txids** (`docs/PROOF.md` / `scripts/verify-proof.mjs`),
 including the Orchard→Ironwood migration + the first Ironwood-pool spend (V6/NU6.3), a send from a
 real-DKG vault, a **browser-signed** send, a **3-of-4** vault operated by someone other than the
 maintainer, and - since 2026-08-26 - a **private payroll on the web path** (2 beneficiaries in one V6
@@ -394,7 +394,7 @@ desktop" as the original intent and ADR-0005 as the delivery that carries it tod
 (#67, primitive proven byte-exact vs the signer). PIN-gated admission + vault fingerprint close the
 invite-as-bearer concern (#67 prevention / #68 detection, both live-validated 2-tab).
 
-**Desktop (Tauri) - RELEASED as v0.2.0 (2026-08-03).** The desktop line shipped: real `src-tauri/`
+**Desktop (Tauri) - RELEASED, latest v0.4.0 (2026-09-07); the line opened at v0.2.0 (2026-08-03).** The desktop line shipped: real `src-tauri/`
 code (Tauri shell over the `orchestrator`) tagged **`v0.2.0`**, with Windows/macOS/Linux installers.
 The web app stays the primary delivery (ADR-0005); desktop is the optional native shell. **Still open:**
 live **per-platform hardware** validation (the GTK/WSLg window does not render here, ADR-0004).
@@ -527,10 +527,17 @@ out **sealed** to the vault's devices, with the plaintext path closing per vault
   worker pool (#384)** - the relay twin the same way (#393). **#375 is now closed** (verified
   2026-09-05); the postmortem still records the root cause as open and is the maintainer's to
   reconcile.
-- **Write endpoints are authenticated on the helper since 2026-09-05** (#288, was critical). Six
-  slices implementing ADR-0011: the rule (#448), the registry (#450), the device's Ed25519 key
+- **The VOTE and the RENAME are authenticated on the helper since 2026-09-05** (#288, was critical).
+  Six slices implementing ADR-0011: the rule (#448), the registry (#450), the device's Ed25519 key
   derived from its share (#452), the vote (#453), the rename (#454), and the UI that registers and
-  signs (#455). A governance write from someone who does not hold the seat's share is refused, from
+  signs (#455).
+  **This line used to say "write endpoints", and that generalisation was false.** `authorize_write`
+  has exactly two non-test call sites (`helper-server/src/main.rs:541` and `:1217`). Creating a
+  proposal and TRIGGERING THE SEND go through neither: the send checks only `p.state != "ready"`.
+  So anyone holding a vault id can fill the desk with proposals and fire the broadcast of an
+  already-approved one - not spend money that was not approved, but enough to bypass the deliberate
+  human confirm the money gate is built on. Verified 2026-09-07; the CHANGELOG's wording (`a vote or
+  a rename`) was the accurate one all along. A governance write from someone who does not hold the seat's share is refused, from
   the first device on that vault that unlocks - the gate is per vault and turns on at that moment
   (ADR-0011 D5), so the vaults that exist keep working until a member migrates them.
   Two things the ADR asked for are NOT built, deliberately, and both are written down rather than
@@ -561,22 +568,26 @@ out **sealed** to the vault's devices, with the plaintext path closing per vault
   `readKey`, so a leaked id gets `401`. **Residual (open):** the ~5 legacy/open vaults created before
   #388 stay readable through the helper until re-created - there is no automatic migration; a guided
   "Protect this vault" flow is designed in **#406**.
-- **Staging is HALF built** (#370). The **relay** is live and isolated as of 2026-09-05:
-  `konclave-relay-staging.up.railway.app`, its own Railway project (`konclave-staging`), empty room
-  space, and the CSP admits it (#440). That is the axis the maintainer defined - isolate the
-  coordination plane, stay on mainnet - so pointing a preview at it is now `VITE_RELAY_BASE` alone.
-  The **helper** is not built, and the reason is worth keeping: its image COPYs four binaries built
-  out of band (~100 MB, not in git), and the DEPLOYED helper runs the **Ironwood-bump engine from
-  the unmerged #259 branch** - so a staging helper built from `main`'s pins would run a different
-  engine than production, which is the opposite of what staging is for. Either extract the exact
-  binaries from the running container (read-only, hashes recorded on #370) or treat #259 as the
-  prerequisite. Until then a preview still shares the production helper for balances and proposals.
+- **Staging is BUILT, both halves** (#370), and this entry said otherwise for two days. Verified
+  2026-09-07: `konclave-relay-staging.up.railway.app/health` and
+  `konclave-helper-staging.up.railway.app/api/health` both answer `200`, in their own Railway project
+  (`konclave-staging`), on mainnet, with the helper's `/data/vaults` empty - properly isolated. The
+  CSP admits both (#440), so pointing a preview at it is `VITE_RELAY_BASE` alone.
+  The objection this entry recorded was real and was answered rather than removed: a staging helper
+  built from `main`'s pins would run a different engine than production, which runs the Ironwood-bump
+  binaries from the unmerged #259 branch. It was solved by reusing the SAME out-of-band binaries
+  instead of rebuilding, so both environments run one engine. That the entry did not notice is worth
+  more than the entry: nothing here is checked against the thing it describes unless someone looks.
 - **`/net` multi-note over the live relay** (unit-tested; single-spend is live-proven), and **Tauri**
   live per-platform hardware validation (above).
 
 **Ops + hardening (2026-08).**
-- **Ironwood finals engine bump prepared (#259, branch `feat/engine-ironwood-bump`).** pczt 0.9.1 /
-  `zcash_client_backend` 0.24.0-rc.6 (librustzcash) + `zcash-sign` frost-tools #593 + `zcash-devtool`
+- **Ironwood finals engine bump prepared (#259, branch `feat/engine-ironwood-bump`).** The branch
+  pins **pczt 0.8.0-rc.1 / `zcash_client_backend` 0.24.0-rc.1** in `engine/versions.lock`, read from
+  the branch on 2026-09-07; this line said 0.9.1 / 0.24.0-rc.6, which is neither what the branch pins
+  nor what production runs. The binaries actually deployed measure `pczt-0.9.3` /
+  `zcash_client_backend-0.24.0` - the released line - so the deployed engine is not reproducible from
+  anything committed to `main`, and that is the real content of this debt. (librustzcash) + `zcash-sign` frost-tools #593 + `zcash-devtool`
   from `main`. CI is green, but it is **gated on a live round-trip and NOT merged to `main`** -
   `engine/versions.lock` on `main` intentionally keeps the older pins until then.
 - **Hosted blind helper deployed on mainnet, non-root.** The Architecture-B helper (ADR-0006 Rung A)

@@ -75,7 +75,7 @@ upgrade on mainnet.
 
 ## Proven on Zcash mainnet
 
-This is not a mock. **15 verifiable mainnet transactions**, every one a real FROST ceremony with
+This is not a mock. **16 verifiable mainnet transactions**, every one a real FROST ceremony with
 the key never reconstituted - quorums of 2-of-2, 2-of-3 and 3-of-4. The flagship is an application-driven **quorum payment** - proposed
 and approved in the app, signed by a FROST ceremony, broadcast to mainnet:
 
