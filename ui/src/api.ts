@@ -14,6 +14,7 @@ import {
   listProposals as netListProposals,
   createProposal as netCreateProposal,
   createPayroll as netCreatePayroll,
+  lastHelperPostFailure,
   voteProposal as netVote,
   listMembers as netListMembers,
   setMembers as netSetMembers,
@@ -408,6 +409,7 @@ export function humanError(t: TFn, error?: string, detail?: string): string {
     return t('error.ceremony')
   if (has('signature') || has('apply_signature') || has('share')) return t('error.share')
   if (has('expiry') || has('expired') || e === 'expired') return t('error.expired')
+  if (e === 'write not authorized') return t('error.writeNotAuthorized')
   if (e === 'vote rejected') return t('error.voteRejected')
   if (e === 'not ready') return t('error.notReady')
   if (e === 'invalid address' || has('unrecognized address')) return t('error.invalidAddress')
@@ -809,7 +811,13 @@ export async function voteProposal(
       }
     }
     const p = await netVote(vid, id, member, approve, proof)
-    return p ? { ok: true, proposal: mapNetProposal(p) } : { ok: false, error: 'vote rejected' }
+    if (p) return { ok: true, proposal: mapNetProposal(p) }
+    // Not every failure is a conflict, and saying so when it is not sends the member looking for a
+    // vote that does not exist. A 401 here means this device could not prove it holds the seat:
+    // it is locked, or it never registered a write key for its seat on this vault (#288).
+    const f = lastHelperPostFailure()
+    if (f?.status === 401) return { ok: false, error: 'write not authorized' }
+    return { ok: false, error: 'vote rejected' }
   }
   try {
     const res = await fetch(`${BASE}/api/proposals/${encodeURIComponent(id)}/${approve ? 'approve' : 'refuse'}`, {
