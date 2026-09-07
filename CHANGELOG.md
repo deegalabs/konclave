@@ -38,6 +38,8 @@ explicitly accepted.
 
 ## [Unreleased]
 
+## [0.4.0] 2026-09-07
+
 ### Security
 
 - **The hosted helper read request bodies with no ceiling.** One POST could make it buffer without
