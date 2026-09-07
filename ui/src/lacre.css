@@ -10,11 +10,20 @@
   /* surfaces - cool off-white canvas + pure-white cards */
   --surface-0:#F5F7FA; --surface-1:#FFFFFF; --surface-2:#EEF2F8; --surface-3:#E4E9F2;
   /* text - near-black ink, never pure #000 */
-  --text:#101828; --text-muted:#667085; --silver:#475467;
+  /* #494: `--text-muted` was #667085, which fell short of 4.5:1 on every surface this app puts it
+     on - 4.43 on a ghost button, 4.15 on the fingerprint card, 4.07 on the danger card, where it
+     labels the field that confirms deleting a vault. Computed, not eyeballed: the test in
+     `contrast.test.ts` recomputes each pair. */
+  --text:#101828; --text-muted:#596579; --silver:#475467;
   /* lines - hairlines */
-  --line:#E4E8EF; --line-2:#EEF1F5; --line-strong:#D3DAE3; --line-soft:rgba(16,24,40,.06);
+  --line:#E4E8EF; --line-2:#EEF1F5; --line-strong:#7E8A9E; /* 1.4.11 wants 3:1 for a control's edge; #D3DAE3 gave 1.31, and the
+    audit's suggested #B9C2CF only 1.68 - recomputed rather than taken on trust. */ --line-soft:rgba(16,24,40,.06);
   /* accent (blue - must pass AA on white, so darker than the dark-theme sky blue) */
   --accent:#2F6FE0; --accent-ink:#2559BE; --accent-bright:#2559BE;
+  /* The accent READ ON accent-soft, which is not the same colour as the accent used as a fill:
+     in light the wash is pale and needs the darker ink, in dark it is deep and needs the brighter
+     accent. One name, opposite ends of the ramp - which is what makes it a role and not a shade. */
+  --accent-on-soft:#2559BE;
   --accent-soft:rgba(47,111,208,.09); --accent-line:rgba(47,111,208,.30);
   --on-accent:#FFFFFF;
   /* rgba parts for theme-correct halos/glows - use as rgba(var(--accent-glow),.x) */
@@ -52,8 +61,9 @@
 :root[data-theme="dark"]{
   --surface-0:#0f141a; --surface-1:#151b22; --surface-2:#1a212a; --surface-3:#202832;
   --text:#e7edf3; --text-muted:#9aa6b2; --silver:#c6cfd9;
-  --line:#28313c; --line-2:#20272f; --line-strong:#37424e; --line-soft:rgba(180,205,235,.08);
+  --line:#28313c; --line-2:#20272f; --line-strong:#5d6d82; --line-soft:rgba(180,205,235,.08);
   --accent:#57a6ff; --accent-ink:#3f86e0; --accent-bright:#6cb2ff;
+  --accent-on-soft:#57a6ff;
   --accent-soft:rgba(87,166,255,.10); --accent-line:rgba(87,166,255,.32);
   --on-accent:#0f141a;
   --accent-glow:87,166,255;
@@ -127,11 +137,16 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
   border:1.5px solid var(--line); border-radius:var(--radius-sm); padding:11px 13px;
   transition:border-color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out)}
 .input:hover{border-color:var(--surface-3)}
-.input::placeholder{color:var(--text-muted); opacity:.85}
+/* No `opacity`. At 85% even a darker token composites below 4.5:1, so the transparency - not the
+   colour - was the thing failing. The placeholder is a hint, and a hint nobody can read is not one. */
+.input::placeholder{color:var(--text-muted)}
 /* focus keeps a visible ring - never strip the outline without a replacement */
-.input:focus{border-color:var(--accent); background:var(--surface-1); outline:2px solid var(--accent-line); outline-offset:1px}
+/* The same ring every other control gets. This used `--accent-line` (30% alpha, ~1.5:1 against the
+   page), and its specificity beat `:focus-visible` - so the four password fields had the weakest
+   focus indicator in the app. */
+.input:focus{border-color:var(--accent); background:var(--surface-1); outline:2px solid var(--accent); outline-offset:1px}
 .hint{font-family:var(--font-mono); font-size:11.5px; color:var(--text-muted); margin-top:6px}
-.hint.warn{color:var(--warn)}
+.hint.warn{color:var(--warn-strong)}
 
 /* buttons */
 .btn{font-family:var(--font-sans); font-weight:600; font-size:13.5px; padding:11px 17px; cursor:pointer; border:1px solid var(--line-strong);
@@ -146,7 +161,7 @@ body::before{content:""; position:fixed; inset:0; pointer-events:none; z-index:0
 .btn:disabled, .btn:disabled:hover{opacity:.42; cursor:not-allowed; background:var(--surface-2);
   border-color:var(--line); color:var(--text-muted)}
 .btn.ok:disabled, .btn.ok:disabled:hover{background:var(--surface-2); border-color:var(--line); color:var(--text-muted)}
-.btn.ghost{border-color:var(--line); color:var(--text-muted)}
+.btn.ghost{border-color:var(--line-strong); color:var(--text-muted)}
 .btn.ghost:hover{background:transparent; border-color:var(--text); color:var(--text)}
 /* the single canonical destructive treatment - bordered, warmed, filled on hover (never accent) */
 .btn.danger{border-color:var(--danger-line); color:var(--danger-text); background:transparent}
