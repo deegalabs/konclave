@@ -38,6 +38,12 @@ browsers run the FROST ceremony over the relay).
 
 ## Build the deploy context
 
+> **The deploy context is `~/konclave-helper-deploy/`, never `deploy/helper/` in this repo.** The
+> Dockerfile lives here; the binaries do not. A `bin/` under this directory is a leftover, and on
+> 2026-09-07 one was found holding a `helper-server` older than #466 - the CORS fix whose absence
+> took every private read down that morning. A `railway up` from here would have shipped it. Assemble
+> the context fresh each time from the commands below; do not reuse a directory you find lying about.
+
 The `bin/` the Dockerfile copies is **not** in git (the binaries are ~100 MB and are built out
 of repo, matching the pin-not-vendor policy). Assemble it from local builds:
 

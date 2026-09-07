@@ -47,6 +47,11 @@ explicitly accepted.
   re-exported. It is backfilled now from the helper, which is the only other place it exists, the
   first time any screen loads the vault. (#501)
 
+- **The relay room a pinned ceremony lands in had no test.** Change that derivation's input by one
+  byte and every device computes a different room, so the members simply never meet. It is covered
+  by golden vectors now, taken from the code before the escaping change that prompted them, so they
+  pin the behaviour across it.
+
 ## [0.4.0] 2026-09-07
 
 ### Security
