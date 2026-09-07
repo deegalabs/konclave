@@ -27,3 +27,5 @@ export function setTheme(t: Theme): void {
   }
   applyTheme(t)
 }
+
+// throwaway: proving the changelog gate refuses this. Branch deleted after.
