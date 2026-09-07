@@ -40,7 +40,13 @@ jobs:
             echo "Labelled no-changelog - skipping, deliberately."
             exit 0
           fi
-          changed="$(git diff --name-only "$BASE".."$HEAD")"
+          # The MERGE BASE, not `base.sha`. They differ whenever the base branch moved on - or when
+          # a PR's base is changed - and diffing from `base.sha` then attributes every commit the
+          # base gained to this PR. Found by red-checking this gate: it reported "CHANGELOG.md
+          # updated" for a PR whose only file was `ui/src/theme.ts`, because the diff had swept in
+          # the base branch's own changelog commit.
+          merge_base="$(git merge-base "$BASE" "$HEAD")"
+          changed="$(git diff --name-only "$merge_base".."$HEAD")"
           # Source a member meets. Tests, e2e and CI are excluded: they change no behaviour, and
           # counting them would train everyone to reach for the label.
           visible="$(printf '%s\n' "$changed" | grep -E '^(ui/src/|orchestrator/src/|helper-server/src/|relay-server/src/|konclave-signer/src/|konclave-wasm/src/|konclave-seal/src/)' | grep -vE '\.test\.|/e2e/' || true)"
