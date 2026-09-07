@@ -158,6 +158,24 @@ try {
 
 const yes = (v) => (v ? '  yes' : '  NO')
 
+// The share is a JSON bundle the create screen wrote: the key package, the seat, and the (n, t) the
+// ceremony agreed on. Reading it back is the only check here that can catch an export whose SHARE
+// disagrees with its own metadata - a corrupted or hand-edited file - rather than one that is merely
+// missing a field.
+function shareFacts(hex) {
+  try {
+    const bytes = Uint8Array.from(hex.match(/../g).map((x) => parseInt(x, 16)))
+    const b = JSON.parse(new TextDecoder().decode(bytes))
+    return typeof b === 'object' && b ? b : null
+  } catch {
+    return null
+  }
+}
+
+const bundle_ = payload.share ? shareFacts(payload.share) : null
+const gov = payload.governance ?? {}
+const quorum = gov.threshold && gov.total ? `${gov.threshold} of ${gov.total}` : null
+
 console.log(`
   Konclave export · v${bundle.version} · sealed ${new Date(bundle.exportedAt).toISOString().slice(0, 10)} · PBKDF2 ${env.kdfIters ?? 210_000}
 
@@ -166,14 +184,46 @@ console.log(`
   Members    ${(payload.roster ?? []).join(', ') || '(none recorded)'}
   Address    ${payload.address ?? '(none)'}
 
+  Quorum     ${quorum ?? '(not recorded)'}
+
   What a rebuild needs
-    your share                  ${yes(payload.share)}
+    your share                  ${yes(payload.share)}${bundle_?.seat !== undefined ? `   (seat ${bundle_.seat})` : ''}
+    the quorum it belongs to    ${yes(quorum)}
     the vault's address         ${yes(payload.address)}
     the viewing key (#447)      ${yes(payload.ufvk)}
     the scan floor (#480)       ${yes(payload.birthday !== undefined)}${
   payload.birthday !== undefined ? `   (block ${payload.birthday})` : ''
 }
+    the read secret (#388)      ${yes(payload.accessSecret)}
 `)
+
+// The two failures that are NOT "a field is missing", and that nothing else here would notice.
+const problems = []
+if (bundle_ === null && payload.share) {
+  problems.push(`The share does not decode. The file opened - the passphrase is right and the
+    ciphertext is intact - but what came out is not the bundle this device wrote. Do not rely on
+    this backup; take a fresh one.`)
+}
+if (bundle_ && quorum && (bundle_.t !== gov.threshold || bundle_.n !== gov.total)) {
+  problems.push(`The share says ${bundle_.t} of ${bundle_.n}; the metadata says ${quorum}. They must
+    agree - the share was made by a ceremony that fixed those numbers - so one of the two is wrong
+    and this file cannot be trusted to rebuild anything.`)
+}
+if (bundle_?.seat !== undefined && Array.isArray(payload.roster) && payload.roster.length
+    && (bundle_.seat < 0 || bundle_.seat >= payload.roster.length)) {
+  problems.push(`The share holds seat ${bundle_.seat}, but the roster lists ${payload.roster.length}
+    members. A seat outside the roster cannot be restored.`)
+}
+for (const p of problems) console.log(`  INCONSISTENT: ${p.replace(/\s+/g, ' ')}\n`)
+
+if (!payload.accessSecret) {
+  console.log(`  No read secret. This vault is OPEN, or this device never received one.
+
+    A restore from this file can SIGN but cannot READ: every private read on a protected
+    vault answers 401, and the signing room cannot be derived. If the vault IS protected,
+    this backup is not enough on its own.
+`)
+}
 
 if (!payload.ufvk || payload.birthday === undefined) {
   console.log(`  This backup restores the SEAT but not the whole vault.

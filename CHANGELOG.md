@@ -52,6 +52,13 @@ explicitly accepted.
   by golden vectors now, taken from the code before the escaping change that prompted them, so they
   pin the behaviour across it.
 
+- **The backup checker did not mention the one thing that lets a restore READ the vault.** It
+  reported the share, the address, the viewing key and the scan floor, and said nothing about the
+  per-vault read secret - so a backup that restores a device able to sign but not to see anything
+  passed as complete. It is reported now, along with the quorum and the seat, and two consistency
+  checks that catch a file whose share disagrees with its own metadata rather than one that is
+  merely missing a field. (#484)
+
 ## [0.4.0] 2026-09-07
 
 ### Security
