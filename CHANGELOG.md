@@ -95,6 +95,14 @@ explicitly accepted.
   here IS the name, so a screen asking you to approve a payment had removed the only thing saying
   who is in the room.
 
+### Added
+
+- **Proof that a governance write is authenticated, on mainnet.** A 2-of-3 vault where the
+  proposal, the approval and the send were each signed by a key derived from the seat's FROST
+  share. The chain cannot show that, and the entry says so: what attests it is the same helper
+  refusing the identical request made without a signature. 17 verifiable txids now
+  ([docs/PROOF.md](docs/PROOF.md)). (#288)
+
 ## [0.4.0] 2026-09-07
 
 ### Security
