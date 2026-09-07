@@ -36,6 +36,7 @@ import {
   helperConfigured,
   registerVault,
   registerReadKey,
+  getUfvk,
   setMembers,
   vaultBalance,
   listProposals,
@@ -207,7 +208,7 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
   // Backup-on-create (create-done step): the encrypted portable copy is built at save time (reusing
   // the just-entered passphrase) so the operator can download/copy it before opening the vault. The
   // file is useless without the passphrase; the share never travels in the clear.
-  const [backup, setBackup] = useState<{ json: string; name: string } | null>(null)
+  const [backup, setBackup] = useState<{ json: string; name: string; complete: boolean } | null>(null)
   const [backupCopied, setBackupCopied] = useState(false)
   const [savedVaults, setSavedVaults] = useState<VaultPublic[]>([])
   const [restorePass, setRestorePass] = useState<Record<string, string>>({})
@@ -824,16 +825,43 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
       // every device agrees. A real fixed fact, unlike the per-ceremony FROST coordinator role.
       const creator = cfg?.cn || undefined
       const vaultId = hex(gvk)
-      await saveVault(vaultId, { name: nm, governance: gov, myName: mine, creatorName: creator, groupKey: gvk, address: '', roster, sealedShare: bundle, accessSecret: accessSecretRef.current ?? undefined }, savePass)
+      // The helper handed this back at registration and it was being thrown away: `saveVault` was
+      // called with `address: ''`, literally, for both create and join, and nothing ever filled it
+      // in afterwards. So every vault made on the web had a blank address in its record forever,
+      // and every backup taken from it reported "the vault's address: NO". The device cannot derive
+      // it - `zcash-sign` mints the address from a random `sk` it discards - so a record without it
+      // has no second source but the helper.
+      const addr = hostedAddress || ''
+      await saveVault(vaultId, { name: nm, governance: gov, myName: mine, creatorName: creator, groupKey: gvk, address: addr, roster, sealedShare: bundle, accessSecret: accessSecretRef.current ?? undefined }, savePass)
       // Also keep the just-created share unlocked in memory for this session, so the operator can
       // sign from the app immediately without re-entering the passphrase (the access model).
-      setUnlockedShare(vaultId, { name: nm, governance: gov, myName: mine, creatorName: creator, groupKey: gvk, address: '', roster, sealedShare: bundle, createdAt: 0, accessSecret: accessSecretRef.current ?? undefined })
+      setUnlockedShare(vaultId, { name: nm, governance: gov, myName: mine, creatorName: creator, groupKey: gvk, address: addr, roster, sealedShare: bundle, createdAt: 0, accessSecret: accessSecretRef.current ?? undefined })
       // Build the portable backup NOW, while we still hold the passphrase, so the create-done step can
       // offer download/copy without a second prompt. A backup failure must never block opening the vault.
       try {
-        const exp = await exportVault(vaultId, savePass)
+        // The viewing key and the scan floor, the same way Settings fetches them (#447/#480). Without
+        // the key a rebuilt wallet cannot detect the vault's notes at all; without the floor it scans
+        // from NOW and never sees the ones the vault already holds, and there is no rescan.
+        //
+        // This is the copy most members keep - it is handed to them the moment the vault exists - and
+        // it was the ONLY caller of `exportVault` passing neither. The 0.3.0 notes said the export
+        // carried both; that was true of the Settings export alone.
+        await ensureWasm()
+        // The key package straight from the DKG - the same bytes the bundle above encodes, without
+        // a decode round-trip that would need a VaultLoaded we do not have yet at this point.
+        const kp = dkg.keyPackage()
+        const keys = await getUfvk(vaultId, { key: deviceCommsKey(kp), pubHex: devicePubHex(kp) })
+        const exp = await exportVault(vaultId, savePass, keys?.ufvk, keys?.birthday)
         const safe = (nm ?? 'konclave-vault').replace(/[^\w.-]+/g, '-').toLowerCase()
-        setBackup({ json: JSON.stringify(exp, null, 2), name: `${safe}.konclave.json` })
+        // Registration and the readKey both land asynchronously, so at this instant either may not
+        // be there yet and the fetch returns null. That is a race we cannot remove here, only stop
+        // hiding: an incomplete backup that SAYS it is incomplete costs a trip to Settings, and one
+        // that stays quiet costs the vault.
+        setBackup({
+          json: JSON.stringify(exp, null, 2),
+          name: `${safe}.konclave.json`,
+          complete: Boolean(addr && keys?.ufvk && keys?.birthday !== undefined),
+        })
       } catch { /* backup is optional; the vault is already saved on this device */ }
       setSaveState('saved')
       setSavePass('')
@@ -842,7 +870,7 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
       setSaveState('idle')
       setSaveErr(L.saveErr + String(e))
     }
-  }, [savePass, L, refreshSaved])
+  }, [savePass, L, refreshSaved, hostedAddress])
 
   const doBackupDownload = useCallback(() => {
     if (backup) downloadText(backup.name, backup.json)
@@ -1405,6 +1433,18 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
                 </button>
               </div>
             </div>
+            {!backup.complete && (
+              // Silence here is what the fix is FOR. The vault registers and its read key lands
+              // asynchronously, so this copy can be written before the viewing key exists to fetch -
+              // and a backup that quietly restores the seat and not the vault leaves a member holding
+              // real spend authority over money they cannot see. Saying so costs a trip to Settings.
+              <p className="cv-warn" role="status">
+                {pe(
+                  'Esta cópia saiu incompleta: falta a chave de visualização do cofre, então ela restaura o seu assento mas não o cofre. Guarde este arquivo mesmo assim e, com o cofre aberto, tire outra em Ajustes → Exportar.',
+                  'This copy came out incomplete: it is missing the vault\'s viewing key, so it restores your seat but not the vault. Keep this file anyway, then take another from Settings → Export once the vault is open.',
+                )}
+              </p>
+            )}
             <button type="button" className="cv-linkbtn" onClick={openDashboard}>
               {pe('Já guardei, abrir o cofre →', 'Saved it, open the vault →')}
             </button>
