@@ -101,8 +101,27 @@ async function getJson<T>(path: string): Promise<T | null> {
   }
 }
 
+/** The reason the last `postJson` failed, when the helper gave one.
+ *
+ *  `postJson` collapses every failure to `null`, and the callers then invent a reason for the UI.
+ *  That is how a 401 came to be shown as "the proposal already changed state, or there is a
+ *  conflicting vote" - a sentence about consensus, for a device that simply could not prove it holds
+ *  the seat. Wrong on a money screen is worse than silent: it sends someone to look for a conflict
+ *  that does not exist.
+ *
+ *  Rather than change `postJson`'s signature at forty call sites, the last failure is recorded here
+ *  and read by the one caller that needs it. Single-threaded and read immediately after the await,
+ *  so there is no interleaving to worry about. */
+let lastPostFailure: { status: number; error?: string } | null = null
+
+/** The failure from the most recent `postJson`, or null. Cleared by the next call. */
+export function lastHelperPostFailure(): { status: number; error?: string } | null {
+  return lastPostFailure
+}
+
 async function postJson<T>(path: string, body: unknown): Promise<T | null> {
   const base = helperBase()
+  lastPostFailure = null
   if (!base) return null
   try {
     const res = await fetch(`${base}${path}`, {
@@ -110,7 +129,11 @@ async function postJson<T>(path: string, body: unknown): Promise<T | null> {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })
-    if (!res.ok) return null
+    if (!res.ok) {
+      const j = (await res.json().catch(() => null)) as { error?: string } | null
+      lastPostFailure = { status: res.status, error: j?.error }
+      return null
+    }
     return (await res.json()) as T
   } catch {
     return null

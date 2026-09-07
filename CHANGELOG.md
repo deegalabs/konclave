@@ -70,6 +70,12 @@ explicitly accepted.
   proposer's name, which was a free string until now. Per vault, turning on at the first device that
   unlocks, so existing vaults keep working. (#288)
 
+- **A refused vote said there was a conflicting vote, and there was not.** Every failure to record a
+  vote was reported as "the proposal already changed state, or there is a conflicting vote", so a
+  device that could not prove it holds its seat - locked, or never registered a write key - sent its
+  owner looking for a conflict that did not exist. Found live, on a real vault, mid-approval. The
+  message now says what actually happened and what to do about it. (#288)
+
 ## [0.4.0] 2026-09-07
 
 ### Security

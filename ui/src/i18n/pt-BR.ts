@@ -46,6 +46,7 @@ export const ptBR: Record<string, string> = {
   'error.ceremony': 'Não foi possível concluir o envio. Verifique sua conexão e tente de novo em instantes; nada foi enviado.',
   'error.share': 'Uma das partes da chave falhou ao assinar. Confira se os membros do quórum estão disponíveis.',
   'error.expired': 'A proposta expirou. Crie uma nova.',
+  'error.writeNotAuthorized': 'Este aparelho não conseguiu provar que tem o assento · destrave o cofre neste aparelho e tente de novo. Se você entrou por outro aparelho, é ele que precisa votar.',
   'error.voteRejected': 'Este voto não vale agora · a proposta já mudou de estado, ou há um voto conflitante.',
   'error.notReady': 'A proposta ainda não atingiu o quórum necessário para ser enviada.',
   'error.invalidAddress': 'Endereço de destino não reconhecido. Confira o endereço Zcash.',
