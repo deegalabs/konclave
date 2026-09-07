@@ -76,6 +76,13 @@ behind a `?` (#473, #487). Theme and language moved into the app shell, where pe
 belong (#475). The delete confirmation stopped printing the vault name in its own placeholder — the
 gate that exists to force an act of recall was showing the answer.
 
+### Also
+
+- The documentation's section menu on a phone took about 500px — five wrapped rows — before the page
+  itself began. It is one row that scrolls, and it opens showing the section you are reading (#488).
+- One language toggle instead of two (#489). The version in the docs header was the older one, with
+  22px targets and the accent colour used as a selected state.
+
 ### Fixed
 
 - **The helper served no private reads for part of 2026-09-06** (#466). The CORS preflight never
