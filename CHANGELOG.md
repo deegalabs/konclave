@@ -109,8 +109,13 @@ explicitly accepted.
   falls back to whatever the device already had, which is nothing. Those exports still restore the
   seat and not the vault. It lands per vault, when the vault is protected
   ([#406](https://github.com/deegalabs/konclave/issues/406)).
-- Passkey enrolment fails on Windows Hello before 25H2, which does not support the PRF extension.
-  The error message does not say so.
+- **Passkey enrolment says nothing when the authenticator has no PRF.** Every failure in that path
+  is silent on purpose, because a shortcut that fails must cost nothing, and the price of that is a
+  member whose authenticator lacks the extension watching the option quietly not work. Measured
+  working on Windows 11 25H2 (build 26200.8457) and on Android through the installed PWA. Windows
+  Hello did not support the extension as of Microsoft's own answer in April 2024; the build where
+  that changed is NOT established (a vendor blog names the February 2026 cumulative update, whose
+  own release notes mention neither WebAuthn nor Windows Hello), so no version boundary is claimed.
 - The desktop build has never been validated on real per-platform hardware.
 - The `/net` ceremony driver never received the replay mitigation
   ([#363](https://github.com/deegalabs/konclave/issues/363)).
