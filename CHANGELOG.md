@@ -38,6 +38,8 @@ explicitly accepted.
 
 ## [Unreleased]
 
+## [0.3.0] 2026-09-07
+
 ### Security
 
 - **The viewing key was served in plaintext to the browser.** It decrypts every payslip a vault has
@@ -102,6 +104,11 @@ explicitly accepted.
   covers the viewing key only. ([#476](https://github.com/deegalabs/konclave/issues/476))
 - `/api/vault` sits outside the read gate: a leaked vault id reveals the vault's address and quorum.
   The books stay closed ([#388](https://github.com/deegalabs/konclave/issues/388)).
+- **A vault created before #388 cannot fetch its own viewing key**, so the export fix above does
+  not reach it: the helper refuses that read outright for a vault with no read key, and the export
+  falls back to whatever the device already had, which is nothing. Those exports still restore the
+  seat and not the vault. It lands per vault, when the vault is protected
+  ([#406](https://github.com/deegalabs/konclave/issues/406)).
 - Passkey enrolment fails on Windows Hello before 25H2, which does not support the PRF extension.
   The error message does not say so.
 - The desktop build has never been validated on real per-platform hardware.
