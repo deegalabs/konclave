@@ -8,8 +8,11 @@
 // happened when that member APPROVED the proposal (K4). See ADR-0009 and the ceremony design.
 
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { getVault, isVaultUnlocked, IS_NET, type Proposal, type Vault } from './api'
+import { getVault, getProposalDetail, isVaultUnlocked, IS_NET, type Proposal, type Vault } from './api'
 import { listVaults } from './storage'
+import { matchesApprovedPayment, type ApprovedLine, type PcztOutput } from './approved-payment'
+import { ensureWasm } from './wasm-ready'
+import { uaReceiver } from './wasm-pkg/konclave_wasm.js'
 import { useBackgroundSigner, type BackgroundSignerState } from './useBackgroundSigner'
 import { ARM_TTL_MS, armIsLive, makeSigningGate } from './signing-gate'
 import type { FailureCode } from './background-session'
@@ -95,6 +98,62 @@ export function VaultSignerProvider({ children }: { children: ReactNode }) {
   armedAtRef.current = armedAt
   const activeIdRef = useRef<string | null>(null)
   activeIdRef.current = active?.id ?? null
+  // #281: what did the quorum actually approve, in the bytes the note is bound to?
+  //
+  // The device holds this locally and compares against the PCZT it is asked to sign, because the
+  // party that assembles the PCZT is the party the check exists to distrust. Two halves:
+  //
+  //  - `approved`: the proposal's destinations, each unified address decoded to its raw Orchard
+  //    receiver so it is comparable to an output's `recipient`.
+  //  - `ourReceivers`: this vault's own receivers - the external receive address and the pinned
+  //    internal change receiver. Change is the reason this is needed at all: every honest send
+  //    returns the leftover to an address the device cannot derive, and without recognising it the
+  //    gate reads the change of every legitimate payment as money going to a stranger.
+  //
+  // Null means "I could not work out what was approved", and the gate REFUSES on null. That is
+  // deliberate: a device that does not know what was approved cannot confirm the request matches
+  // it, and signing anyway is exactly the state #281 exists to end. The visible cost is that a
+  // vault whose change receiver was never pinned will not sign until it has been - which is why
+  // `getVault` pins it on the first screen that reads the vault.
+  const approvalRef = useRef<{ approved: ApprovedLine[]; ourReceivers: string[] } | null>(null)
+  useEffect(() => {
+    let live = true
+    approvalRef.current = null // a proposal change invalidates the old context immediately
+    if (!active || !vault) return
+    void (async () => {
+      try {
+        await ensureWasm() // the decode below is a WASM call (#483)
+        const pinned = (await listVaults()).find((v) => v.id === vault.id)?.changeReceiver
+        if (!pinned) return // unknown change receiver -> stay refusing, never guess
+        const ourReceivers = [uaReceiver(vault.orchard_address), uaReceiver(pinned)]
+        const detail = await getProposalDetail(active.id)
+        if (!detail) return
+        const approved: ApprovedLine[] =
+          detail.lines.length > 0
+            ? detail.lines.map((l) => ({ toReceiver: uaReceiver(l.address), amountZat: l.value_zat }))
+            : detail.proposal.to_address
+              ? [{ toReceiver: uaReceiver(detail.proposal.to_address), amountZat: detail.proposal.value_zat }]
+              : []
+        if (approved.length === 0) return // nothing to compare against -> keep refusing
+        if (live) approvalRef.current = { approved, ourReceivers }
+      } catch {
+        // A decode or fetch failure leaves the context null, and null refuses. Failing closed on a
+        // money path is the whole point; a caught error must never widen what this device will sign.
+      }
+    })()
+    return () => { live = false }
+  }, [active, vault])
+
+  /** Does this request pay exactly what the quorum approved? Refuses until the context is known. */
+  const paysWhatWasApproved = useMemo(
+    () => (outputs: PcztOutput[]): boolean => {
+      const ctx = approvalRef.current
+      if (!ctx) return false
+      return matchesApprovedPayment(outputs, ctx.approved, ctx.ourReceivers)
+    },
+    [],
+  )
+
   const gate = useMemo(
     () => makeSigningGate({
       mode: () => 'manual',
@@ -118,7 +177,7 @@ export function VaultSignerProvider({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(id)
   }, [armedAt])
 
-  const bg = useBackgroundSigner(unlocked, gate)
+  const bg = useBackgroundSigner(unlocked, gate, paysWhatWasApproved)
 
   // Scope the signer to the payment on screen. Without this the room's whole history counts: it is
   // permanent, so the previous payment's signatures replayed as a full quorum for the new one.

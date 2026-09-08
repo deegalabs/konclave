@@ -60,12 +60,15 @@ interface Device {
   sig: { hex: string; ok: boolean } | null
   errors: string[]
   bus: Bus // the CURRENT signing room (a re-armed device moves to a fresh one per payment)
+  /** #281: does the request pay what this device's owner approved? Flip it to false to make the
+   *  device refuse, which is what the money-gate test does. */
+  paysApproved: boolean
 }
 
 const SEATS: Record<string, number> = { A: 1, B: 2 }
 
 function makeDevice(tag: string, bus: Bus, mat: () => { keyPackage: Uint8Array; groupVk: Uint8Array; pubkeys: Uint8Array }): Device {
-  const dev: Device = { tag, machine: null as unknown as SigningMachine, consumed: new Set(), sig: null, errors: [], bus }
+  const dev: Device = { tag, machine: null as unknown as SigningMachine, consumed: new Set(), sig: null, errors: [], bus, paysApproved: true }
   const deps: SigningDeps = {
     signingMaterial: mat,
     seatOf: (t) => SEATS[t],
@@ -80,6 +83,9 @@ function makeDevice(tag: string, bus: Bus, mat: () => { keyPackage: Uint8Array; 
     onWhat: () => {},
     onSignature: (hex, ok) => { dev.sig = { hex, ok } },
     tt: (k) => k,
+    // #281: this harness exercises the CEREMONY, not the money gate. Permissive by default; the
+    // refusal is asserted in its own test below, which overrides this.
+    paysWhatWasApproved: () => dev.paysApproved,
   }
   dev.machine = new SigningMachine(deps)
   return dev
@@ -212,6 +218,51 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     expect(A.sig).toBeNull()
     expect(B.sig).toBeNull()
     expect(B.errors.length).toBeGreaterThan(0)
+  })
+
+  it('the money gate refuses a request that does not pay what the quorum approved (#281)', async () => {
+    // The other half of H1, and the one that was stubbed `() => true` on the path that ships.
+    //
+    // H1 proves a device signs the sighash of the PCZT it holds. It says NOTHING about whether that
+    // PCZT is the approved one - a coordinator that assembles a valid transaction to its own
+    // address produces a request every H1 check passes. The only thing standing there was a human
+    // noticing an address in a preview.
+    //
+    // Here the request is internally consistent: real PCZT, correct sighash, honest wire. It simply
+    // is not what this device's owner approved. Both devices must refuse, and neither may emit a
+    // share - a refusal that still contributed one is not a refusal.
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    A.paysApproved = false
+    B.paysApproved = false
+
+    const pczt = dkgProvenPczt()
+    bus.post('helper', signRequestFor(pczt).json)
+    await runCeremony(A, B, bus)
+
+    expect(A.sig).toBeNull()
+    expect(B.sig).toBeNull()
+    expect(A.machine.isDone()).toBe(false)
+    expect(A.errors.length).toBeGreaterThan(0)
+    // Nothing this device sent may carry a share: refusing after contributing is not refusing.
+    expect(bus.msgs.some((m) => m.from === 'A' && m.data.includes('"s1"'))).toBe(false)
+  })
+
+  it('and it signs the same request once that device DOES approve it (#281)', async () => {
+    // The companion, so the refusal above cannot pass by simply breaking the ceremony. Same PCZT,
+    // same wire, same devices - only the approval answer differs.
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+
+    const pczt = dkgProvenPczt()
+    bus.post('helper', signRequestFor(pczt).json)
+    await runCeremony(A, B, bus)
+
+    expect(A.sig?.ok).toBe(true)
   })
 
   it('H1 round 2: a coordinator cannot swap the message in the SigningPackage (#354)', async () => {

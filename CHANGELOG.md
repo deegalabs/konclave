@@ -38,6 +38,36 @@ explicitly accepted.
 
 ## [Unreleased]
 
+### Security
+
+- **A device signed whatever transaction it was handed, as long as its owner had some payment armed.**
+  The check that was supposed to ask "is this the payment the group approved?" was wired to answer
+  yes, always - the code said so in a comment - and the only other check compared a proposal's
+  *name*, not what the transaction pays. So a helper that had been taken over could put a different
+  destination inside the same proposal, and every device would have contributed its share to it. The
+  one thing standing in the way was a member reading the address in the preview and noticing.
+
+  Each device now decodes what the transaction actually pays and refuses unless it matches the
+  approved payment exactly - the destination, the amount, and every beneficiary of a payroll. It
+  compares the raw receiver the money is really bound to, not the address label shown beside it,
+  because the label is written by the same party the check exists to distrust. A device that cannot
+  read the transaction, or cannot tell what was approved, refuses instead of signing.
+
+  Open for as long as the browser signer has existed. No evidence it was used; the exposure needed a
+  compromised helper, and the vaults in use are the maintainer's and two others. (#281)
+
+### Added
+
+- **A device can now recognise its own vault's change, which is what the money gate needs to work
+  at all.** Every real payment sends the leftover back to the vault on an internal address, and a
+  signing device cannot work out what that address is - it is minted from a random key the tool
+  throws away, so it is not derivable from anything the device holds. Without being told, a device
+  reads the change of every honest payment as money going to a stranger. The helper publishes it,
+  the device records it **once**, and the export carries it so a restored device does not have to
+  ask again. Recording it once is the point: whoever tells you is trusted at that moment only, and a
+  later answer - from a helper that has since been taken over - is refused rather than believed.
+  (#281)
+
 ### Fixed
 
 - **A vault that already existed kept its blank address, even after 0.4.0 fixed the cause.** That

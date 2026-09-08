@@ -2651,6 +2651,8 @@ dependencies = [
  "rand",
  "reddsa",
  "wasm-bindgen",
+ "zcash_address 0.13.0",
+ "zcash_protocol 0.10.0",
 ]
 
 [[package]]

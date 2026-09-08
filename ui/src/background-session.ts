@@ -11,6 +11,7 @@ import { armIsLive } from './signing-gate'
 import { SigningSeats } from './signing-seats'
 import { BackgroundSigner, type GovernanceGate } from './background-signer'
 import type { SigningMaterial } from './signing-machine'
+import type { PcztOutput } from './approved-payment'
 import { signRejoin, rejoinIsProven, signArmed, armedIsProven, signUnarmed, unarmedIsProven } from './room-auth'
 import { bytesToHex } from './bytes'
 
@@ -25,6 +26,9 @@ export interface BackgroundSessionDeps {
   threshold: () => number
   /** Send a raw string into the signing room (RelaySession.send). */
   send: (data: string) => Promise<boolean>
+  /** Does a request pay EXACTLY what the quorum approved (#281)? Threaded to the machine, which
+   *  calls it once per ceremony right after its own sighash check and before any share moves. */
+  paysWhatWasApproved: (outputs: PcztOutput[]) => boolean
   /** Governance gate: whether this device signs this payment (policy lives in the caller). */
   gate: GovernanceGate
   onLog?: (line: string) => void
@@ -126,6 +130,7 @@ export class BackgroundSession {
       mySeat: () => this.seats.mySeat(),
       threshold: deps.threshold,
       hasVault: () => true, // an unlocked, restored vault always exists
+      paysWhatWasApproved: deps.paysWhatWasApproved,
       send: async (m) => { await this.send(JSON.stringify(m)) },
       rawSend: (data) => this.send(data),
       onLog: deps.onLog ?? (() => {}),

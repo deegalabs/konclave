@@ -1061,11 +1061,18 @@ pub mod pczt_bridge {
     /// "what am I signing?" check before a device joins the ceremony.
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct OutputInfo {
-        /// The user-facing address the funds go to (the UA string the Constructor/Updater set),
-        /// if present. The signer must confirm this matches the approved proposal.
+        /// The user-facing address label (the `user_address` an Updater set), if present. ADVISORY:
+        /// shown to the human, but NOT trusted for the approval decision - the party that builds the
+        /// PCZT controls it, and the orchard PCZT spec requires a Signer to confirm it contains
+        /// `recipient` rather than trust it. Change outputs carry `None`.
         pub address: Option<String>,
         /// The output value in zatoshis, if the PCZT exposes it (it does for our shielded sends).
         pub value: Option<u64>,
+        /// The raw 43-byte Orchard/Ironwood receiver, hex-encoded - the GROUND TRUTH of who gets paid,
+        /// bound into the note commitment the sighash covers. This is what the on-device money gate
+        /// (#281) compares against the approved recipients; `user_address` is only a label over it.
+        /// `None` only if the PCZT omits it (unverifiable, fails closed downstream).
+        pub recipient: Option<String>,
     }
 
     /// Read every Orchard output of a proven PCZT as `(address, value)` - what this transaction
@@ -1085,6 +1092,10 @@ pub mod pczt_bridge {
                     OutputInfo {
                         address: o.user_address().clone(),
                         value: o.value().map(|v| v.inner()),
+                        recipient: o
+                            .recipient()
+                            .as_ref()
+                            .map(|a| hex::encode(a.to_raw_address_bytes())),
                     }
                 })
                 .collect()
@@ -1107,6 +1118,62 @@ pub mod pczt_bridge {
         };
         res.map_err(|e| format!("parse: {:?}", e))?;
         Ok(out)
+    }
+
+    /// The raw Orchard receiver of a unified address, hex-encoded - directly comparable to an
+    /// output's `recipient` from `describe_outputs`.
+    ///
+    /// This is the other half of the money gate (#281). The gate decides in RECIPIENT BYTES, because
+    /// that is the only field the note commitment (and so the sighash) is bound to; the approved
+    /// destination, however, is stored as the unified address a human typed. Something has to bring
+    /// the two into the same space, and it has to be the device doing it - asking the coordinator to
+    /// supply the approved receiver would hand the decision back to the party the gate exists to
+    /// distrust.
+    ///
+    /// One decode covers both pools. Per ZIP 326 a receiver "is scoped to the Orchard protocol, not
+    /// to a pool", and an exposed Orchard receiver takes funds in either pool - which is why an
+    /// Ironwood send's outputs carry Orchard-shaped 43-byte receivers and match an Orchard receiver
+    /// decoded here.
+    ///
+    /// Errors rather than guessing: an address with no Orchard receiver (a bare Sapling or
+    /// transparent one) cannot be paid by a shielded vault spend, and returning something for it
+    /// would let the gate "match" a destination the vault can never actually reach.
+    pub fn ua_receiver(ua: &str) -> Result<String, String> {
+        use zcash_address::unified::{Container, Receiver};
+        use zcash_address::{unified, ConversionError, TryFromAddress, ZcashAddress};
+
+        /// Carries out the ONE thing wanted: the Orchard receiver's raw bytes. Every other address
+        /// kind is refused, so a Sapling or transparent destination cannot silently decode to
+        /// nothing and be read as "matches".
+        struct OrchardOnly([u8; 43]);
+        impl TryFromAddress for OrchardOnly {
+            type Error = String;
+            fn try_from_unified(
+                _: zcash_protocol::consensus::NetworkType,
+                ua: unified::Address,
+            ) -> Result<Self, ConversionError<Self::Error>> {
+                ua.items()
+                    .into_iter()
+                    .find_map(|r| match r {
+                        Receiver::Orchard(bytes) => Some(OrchardOnly(bytes)),
+                        _ => None,
+                    })
+                    .ok_or_else(|| {
+                        ConversionError::User(
+                            "this unified address has no Orchard receiver, so a shielded vault \
+                             spend cannot pay it"
+                                .into(),
+                        )
+                    })
+            }
+        }
+
+        let addr = ZcashAddress::try_from_encoded(ua.trim())
+            .map_err(|e| format!("not a Zcash address: {e}"))?;
+        let OrchardOnly(bytes) = addr
+            .convert::<OrchardOnly>()
+            .map_err(|e| format!("no Orchard receiver: {e}"))?;
+        Ok(hex::encode(bytes))
     }
 
     /// Apply external redpallas signatures to the given Orchard spend action indices and return the
@@ -1451,6 +1518,81 @@ pub mod pczt_bridge {
                 outs.iter().any(|o| o.value.is_some()),
                 "at least one output exposes a value",
             );
+        }
+
+        #[test]
+        fn describe_outputs_exposes_recipient_bytes_for_the_money_gate() {
+            // The on-device money gate (#281) decides on `recipient`, not the advisory `user_address`.
+            // Every real output of this proven send must expose its 43-byte receiver as 86 hex chars,
+            // so the gate has the ground truth to compare against the approved recipients.
+            let outs = describe_outputs(IW_PROVEN).unwrap();
+            for o in &outs {
+                let r = o
+                    .recipient
+                    .as_ref()
+                    .expect("every real output exposes a recipient");
+                assert_eq!(
+                    r.len(),
+                    86,
+                    "a raw Orchard receiver is 43 bytes = 86 hex chars"
+                );
+                assert!(r.bytes().all(|b| b.is_ascii_hexdigit()), "recipient is hex");
+            }
+            // This send's shape, decoded: a payment output that carries a user_address, and a change
+            // output that does NOT (it pays the vault's internal scope). The gate cannot tell change
+            // from the external receive address, which is exactly why `ourReceivers` is supplied.
+            let payment = outs
+                .iter()
+                .find(|o| o.address.is_some())
+                .expect("a payment output carries a user_address label");
+            assert!(payment.value.unwrap_or(0) > 0);
+            let change = outs
+                .iter()
+                .find(|o| o.address.is_none() && o.value.unwrap_or(0) > 0)
+                .expect("a change output has value but no user_address");
+            assert_ne!(
+                change.recipient, payment.recipient,
+                "change pays the vault's internal scope, a different receiver than the payment",
+            );
+        }
+
+        #[test]
+        fn ua_receiver_reproduces_what_the_prover_bound_into_the_note() {
+            // The strongest form this test can take, and the reason it is worth having: both sides
+            // come from the SAME mainnet-proven send. The `user_address` is the label a human typed
+            // and an Updater stored; the `recipient` is what the Prover actually bound into the note
+            // commitment the sighash covers. If `ua_receiver` reproduces one from the other, the
+            // money gate is comparing the approved destination against the paid destination in a
+            // single space - which is the whole claim of #281.
+            //
+            // It is deliberately NOT a round-trip through our own encoder. A test that built the
+            // address with the same code it verifies would be self-consistent by construction, which
+            // is the near-miss recorded in CLAUDE.md: a cross-crate test that caught nothing because
+            // it made the message with the function it checked.
+            let outs = describe_outputs(IW_PROVEN).unwrap();
+            let payment = outs
+                .iter()
+                .find(|o| o.address.is_some() && o.value.unwrap_or(0) > 0)
+                .expect("the proven send has a labelled payment output");
+            let ua = payment.address.as_ref().unwrap();
+            let decoded =
+                ua_receiver(ua).expect("the approved address decodes to an Orchard receiver");
+            assert_eq!(
+                &decoded,
+                payment.recipient.as_ref().unwrap(),
+                "the decoded receiver must equal the one the prover bound into the note",
+            );
+        }
+
+        #[test]
+        fn ua_receiver_refuses_what_a_shielded_vault_cannot_pay() {
+            // Refusing is the safe answer. An address with no Orchard receiver cannot be paid by a
+            // vault spend at all, so decoding it to anything would let the gate "match" a
+            // destination the money can never reach - and a gate that matches is a gate that signs.
+            assert!(ua_receiver("").is_err());
+            assert!(ua_receiver("not an address").is_err());
+            // A transparent address: syntactically real, decodable, and unpayable here.
+            assert!(ua_receiver("t1KsBQjhRZ1Y3vFPnGjbn6h9gK8FBS3W6xr").is_err());
         }
 
         #[test]
@@ -2177,6 +2319,17 @@ mod js_pczt {
     /// number|null}, ...]`. The UI shows this and confirms it against the approved proposal BEFORE
     /// the device signs - the "what am I signing?" check. Addressed entries are real recipients;
     /// `address: null` entries are change. Values are zatoshis.
+    /// The raw Orchard receiver of a unified address, hex - the approved destination in the same
+    /// space as an output's `recipient`, so the money gate can compare them (#281).
+    ///
+    /// Errors for an address a shielded vault spend cannot pay. The caller must let that error
+    /// through rather than treating it as "no match": a gate that cannot decode what was approved
+    /// does not know what it is signing, and must refuse rather than guess in either direction.
+    #[wasm_bindgen(js_name = uaReceiver)]
+    pub fn ua_receiver(ua: &str) -> Result<String, JsValue> {
+        pczt_bridge::ua_receiver(ua).map_err(je)
+    }
+
     #[wasm_bindgen(js_name = describeOutputs)]
     pub fn describe_outputs(pczt: &[u8]) -> Result<String, JsValue> {
         let outs = pczt_bridge::describe_outputs(pczt).map_err(je)?;
@@ -2196,7 +2349,15 @@ mod js_pczt {
                 Some(v) => v.to_string(),
                 None => "null".to_string(),
             };
-            s.push_str(&format!("{{\"address\":{},\"value\":{}}}", addr, val));
+            // recipient is hex ([a-f0-9]), always JSON-safe.
+            let recip = match &o.recipient {
+                Some(r) => format!("\"{}\"", r),
+                None => "null".to_string(),
+            };
+            s.push_str(&format!(
+                "{{\"address\":{},\"value\":{},\"recipient\":{}}}",
+                addr, val, recip
+            ));
         }
         s.push(']');
         Ok(s)

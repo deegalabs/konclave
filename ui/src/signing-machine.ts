@@ -11,6 +11,7 @@
 // relies on (`false` = "not ready, re-apply me later"; `true` = "consumed").
 
 import { Coordinator, identifierBytes, participantRound1, participantRound2WithRandomizer, describeOutputs, pcztSighash } from './wasm-pkg/konclave_wasm.js'
+import type { PcztOutput } from './approved-payment'
 import { b64, unb64, bytesEqual } from './net'
 import { parseSignRequest, buildSignResponse, hexToBytes as hexBytes, bytesToHex, type SignRequest } from './net-sign'
 import { parseAlphas } from './signing'
@@ -68,6 +69,16 @@ export interface SigningDeps {
   onError: (msg: string) => void
   onPhase: (p: 'signing' | 'signed') => void
   onWhat: (w: { zec: string; addr: string } | null) => void
+  /** Does this PCZT pay EXACTLY what the quorum approved (#281)?
+   *
+   *  Called once per ceremony, right after the local sighash check and BEFORE any share is
+   *  contributed. Refusing aborts: the device signs nothing and says so.
+   *
+   *  REQUIRED, not optional, on purpose. An optional check is one a caller forgets, and there are
+   *  two ceremony drivers in this codebase - the background signer and `/net` - which have now
+   *  diverged three times (#424, #425, #363) because a rule existed in one and not the other.
+   *  Making every construction site supply it turns "did you remember?" into a compile error. */
+  paysWhatWasApproved: (outputs: PcztOutput[]) => boolean
   onSignature: (hex: string, ok: boolean) => void
   /** i18n lookup for log/error strings (net.log.* / net.err.*). */
   tt: (key: string, params?: Record<string, string | number>) => string
@@ -229,16 +240,33 @@ export class SigningMachine {
       this.spends = parseAlphas(pczt)
       this.sigs = []
       this.startedSpends = new Set()
-      // "What am I signing?" - confirm what the tx pays before contributing any signature.
+      // What does this transaction actually pay? Read the outputs ONCE and use them for both jobs:
+      // the money gate's decision (#281) and the human preview.
+      //
+      // This used to be display-only, inside a catch that let the ceremony run when the PCZT could
+      // not be read. That is the wrong default on a money path: a device that cannot see what it
+      // signs cannot confirm it is the approved payment, and "show no preview, sign anyway" is
+      // precisely the state where only human vigilance stood between a swapped destination and a
+      // signature. It now fails closed.
+      let outs: PcztOutput[]
       try {
-        const outs = JSON.parse(describeOutputs(pczt)) as { address: string | null; value: number | null }[]
-        const recip = outs.find((o) => o.address !== null)
-        if (recip && recip.address && recip.value != null) {
-          this.d.onWhat({ zec: fmtZec(recip.value), addr: recip.address })
-          this.d.onLog(`~ ${fmtZec(recip.value)} ZEC -> ${shortId(recip.address)}`)
-        }
+        outs = JSON.parse(describeOutputs(pczt)) as PcztOutput[]
       } catch {
-        /* if the PCZT can't be read, the UI simply shows no preview; the ceremony still runs */
+        this.d.onError(this.d.tt('net.err.unreadablePczt'))
+        return true
+      }
+      // The gate, before any share moves. H1 proved this device signs the sighash of the PCZT it
+      // holds; this proves that PCZT pays what the quorum approved. Both are needed: without the
+      // first a hostile coordinator swaps the bytes under the signature, without the second it
+      // swaps the payment under the approval.
+      if (!this.d.paysWhatWasApproved(outs)) {
+        this.d.onError(this.d.tt('net.err.notApproved'))
+        return true
+      }
+      const recip = outs.find((o) => o.address !== null)
+      if (recip && recip.address && recip.value != null) {
+        this.d.onWhat({ zec: fmtZec(recip.value), addr: recip.address })
+        this.d.onLog(`~ ${fmtZec(recip.value)} ZEC -> ${shortId(recip.address)}`)
       }
       this.d.onPhase('signing')
       await this.beginSpend(0) // the first (and, for a single-spend tx, the only) ceremony

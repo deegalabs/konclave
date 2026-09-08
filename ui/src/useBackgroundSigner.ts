@@ -12,6 +12,7 @@ import { decodeBundle } from './signing'
 import { BackgroundSession } from './background-session'
 import { signingRoom, signingRoomFromSecret, acquireSigner, releaseSigner, type GovernanceGate } from './background-signer'
 import type { FailureCode } from './background-session'
+import type { PcztOutput } from './approved-payment'
 import { registerDeviceKey } from './helper'
 import { deviceCommsKey, devicePubHex, deviceWriteKeyHex } from './device-key'
 import { unsealSignRequest } from './net-sign'
@@ -59,6 +60,10 @@ export function useBackgroundSigner(
   // changing the vault id.
   vault: { id: string; nonce?: number } | null,
   gate: GovernanceGate = () => false,
+  // #281: does a request pay EXACTLY what the quorum approved? Defaults to REFUSE, the same
+  // direction as `gate` above: a caller that forgets to supply it gets a device that signs nothing,
+  // which is visible and safe, rather than one that signs anything, which is neither.
+  paysWhatWasApproved: (outputs: PcztOutput[]) => boolean = () => false,
 ): BackgroundSignerState {
   const [room, setRoom] = useState('')
   const [ready, setReady] = useState(false)
@@ -148,6 +153,7 @@ export function useBackgroundSigner(
         // arming completes the quorum is named the trigger, and every device computes the same name.
         // So two people signing at the same instant still produce exactly ONE send.
         const session = new BackgroundSession({
+      paysWhatWasApproved,
           myTag,
           mySeat: b.seat,
           signingMaterial: () => ({ keyPackage: b.keyPackage, groupVk: b.groupVk, pubkeys: b.pubkeys }),

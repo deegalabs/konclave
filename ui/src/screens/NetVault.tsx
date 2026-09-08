@@ -402,6 +402,16 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
   if (!machineRef.current) {
     machineRef.current = new SigningMachine({
       signingMaterial,
+      // #281, stated rather than silently skipped. This driver signs a ceremony that is not bound
+      // to a proposal at all (#363), so it has no approved payment to compare an output against -
+      // there is nothing here that could answer the question honestly. Returning true says "this
+      // driver does not gate on content", which is the truth and is now visible at the call site;
+      // returning false would refuse every /net signature, including vault creation.
+      //
+      // The reason the dep is REQUIRED rather than optional is exactly this: /net and the
+      // background signer have diverged three times (#424, #425, #363) because a rule lived in one
+      // and not the other. It cannot silently miss this one - it has to say so, here.
+      paysWhatWasApproved: () => true,
       seatOf: (tag) => seatByTagRef.current.get(tag),
       mySeat: () => mySeatRef.current,
       threshold: () => configRef.current?.t ?? 0,

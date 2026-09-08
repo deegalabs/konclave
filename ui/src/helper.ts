@@ -154,8 +154,21 @@ async function getText(path: string): Promise<string | null> {
 
 const q = (v: string) => encodeURIComponent(v)
 
-/** A vault's PUBLIC view as the helper returns it (never the UFVK or account). */
-export type HelperVault = { vault_id: string; address: string; threshold?: number; total?: number }
+/** A vault's PUBLIC view as the helper returns it (never the UFVK or account).
+ *
+ *  `change_receiver` is the vault's INTERNAL address (#281). A signing device cannot derive it -
+ *  the viewing key it comes from is minted from a random key `zcash-sign` discards - so without it
+ *  the money gate reads the change output of every honest payment as an unrecognised destination.
+ *  It is an address, the same class of public material as `address`, and grants no viewing power.
+ *  Optional and possibly empty: a registration written before the field existed has none, and that
+ *  must be read as UNKNOWN, never as "matches nothing". */
+export type HelperVault = {
+  vault_id: string
+  address: string
+  threshold?: number
+  total?: number
+  change_receiver?: string
+}
 
 /** Helper liveness: the registered-vault count, or `null` if no/unreachable helper. */
 export async function helperHealth(): Promise<{ status?: string } | null> {
