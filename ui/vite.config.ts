@@ -52,7 +52,12 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff,woff2,wasm}'],
         // The Orchard/Ironwood WASM core + a couple of large chunks; raise the per-file cap so they
         // are precached (offline + a consistent snapshot).
-        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+        // Headroom over the wasm, which is the only file near this ceiling. Workbox drops an
+        // oversized file from the precache SILENTLY - no error, no warning - so the app would keep
+        // building and start failing offline for exactly the file it cannot work without. Raised
+        // from 4 MB because adding the Orchard prover measures at 2.34 MB (#516), which leaves too
+        // little room to notice the cliff before falling off it.
+        maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
         cleanupOutdatedCaches: true,
         navigateFallback: 'index.html',
         // Never serve the SPA shell (or cache) the live bridge / mailbox.

@@ -40,6 +40,14 @@ explicitly accepted.
 
 ### Fixed
 
+- **Every visit re-checked files that can never change.** The app's code and its WASM are served
+  under names that already contain a hash of their contents, so a changed file gets a new name and
+  the old one is never right to reuse. The browser was told to ask the server about them anyway, on
+  every load. They are now marked as permanent, so a return visit uses what it already has.
+
+
+### Fixed
+
 - **A vault that already existed kept its blank address, even after 0.4.0 fixed the cause.** That
   release made the create screen record the vault's address; it did nothing for the vaults already
   on a device, because `saveVault` runs only at creation and nothing ever revisits a record. So
