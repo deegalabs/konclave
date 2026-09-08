@@ -43,7 +43,7 @@ describe('storage - encrypted IndexedDB persistence', () => {
     const v = list.find((x) => x.id === 'v1')
     expect(v).toBeTruthy()
     expect(v).not.toHaveProperty('sealedShare')
-    expect(Object.keys(v!).sort()).toEqual(['address', 'createdAt', 'creatorName', 'governance', 'groupKey', 'id', 'myName', 'name', 'roster', 'secured'])
+    expect(Object.keys(v!).sort()).toEqual(['address', 'changeReceiver', 'createdAt', 'creatorName', 'governance', 'groupKey', 'id', 'myName', 'name', 'roster', 'secured'])
     expect(v!.name).toBe('Test vault')
     expect(v!.governance).toBe('quorum')
     expect(v!.myName).toBe('Alice')

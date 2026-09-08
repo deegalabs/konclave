@@ -128,6 +128,18 @@ explicitly accepted.
   seat nobody vouched for is not picked while a real one is still on its way. A vault whose members
   all run an older version, where nothing can prove itself, still signs exactly as before. (#399)
 
+### Added
+
+- **A device can now recognise its own vault's change, which is what the money gate needs to work
+  at all.** Every real payment sends the leftover back to the vault on an internal address, and a
+  signing device cannot work out what that address is - it is minted from a random key the tool
+  throws away, so it is not derivable from anything the device holds. Without being told, a device
+  reads the change of every honest payment as money going to a stranger. The helper publishes it,
+  the device records it **once**, and the export carries it so a restored device does not have to
+  ask again. Recording it once is the point: whoever tells you is trusted at that moment only, and a
+  later answer - from a helper that has since been taken over - is refused rather than believed.
+  (#281)
+
 ### Fixed
 
 - **Every visit re-checked files that can never change.** The app's code and its WASM are served
