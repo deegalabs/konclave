@@ -986,6 +986,8 @@ export const ptBR: Record<string, string> = {
   'net.err.notCoordinator': 'Recusei assinar: esta rodada de assinatura foi aberta por alguém que não ocupa assento neste cofre. Nada foi assinado. Peça a quem propôs o pagamento para disparar de novo.',
   'net.err.unreadableSpends': 'Recusei assinar: este dispositivo não conseguiu ler quais partes da transação precisam da assinatura dele. Nada foi assinado. O motivo vem a seguir.',
   'net.err.relayDown': 'Não consegui falar com o relay (a rede caiu). Recarregue as duas abas e refaça.',
+  'net.err.notApproved': 'Recusei assinar: esta transação não paga o que o grupo aprovou. Nada foi assinado. Confira o pagamento na tela contra a proposta - se diferirem, não repita.',
+  'net.err.unreadablePczt': 'Recusei assinar: este dispositivo não conseguiu ler o que a transação paga, então não pode confirmar que ela bate com o pagamento aprovado. Nada foi assinado.',
   'net.err.sighashMismatch': 'Recusei assinar: a transação que este dispositivo recomputou não bate com a pedida. Nada foi assinado. Pode ser um pedido adulterado - não repita com o mesmo pedido.',
   'net.err.roomFull': 'Esta sala já está cheia (o cofre tem o número de dispositivos definido). Gere um novo convite.',
   'net.err.stepFailed': 'Uma etapa da cerimônia falhou. Se as abas travarem, recarregue e refaça.',

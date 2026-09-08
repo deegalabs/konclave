@@ -651,10 +651,6 @@ export class TestVault {
 if (Symbol.dispose) TestVault.prototype[Symbol.dispose] = TestVault.prototype.free;
 
 /**
- * Read every Orchard output of a proven PCZT as JSON: `[{"address": string|null, "value":
- * number|null}, ...]`. The UI shows this and confirms it against the approved proposal BEFORE
- * the device signs - the "what am I signing?" check. Addressed entries are real recipients;
- * `address: null` entries are change. Values are zatoshis.
  * @param {Uint8Array} pczt
  * @returns {string}
  */
@@ -1005,6 +1001,41 @@ export function signWrite(key_package, vault_id, action, target, seat, ts, nonce
         return getStringFromWasm0(ptr6, len6);
     } finally {
         wasm.__wbindgen_free(deferred7_0, deferred7_1, 1);
+    }
+}
+
+/**
+ * Read every Orchard output of a proven PCZT as JSON: `[{"address": string|null, "value":
+ * number|null}, ...]`. The UI shows this and confirms it against the approved proposal BEFORE
+ * the device signs - the "what am I signing?" check. Addressed entries are real recipients;
+ * `address: null` entries are change. Values are zatoshis.
+ * The raw Orchard receiver of a unified address, hex - the approved destination in the same
+ * space as an output's `recipient`, so the money gate can compare them (#281).
+ *
+ * Errors for an address a shielded vault spend cannot pay. The caller must let that error
+ * through rather than treating it as "no match": a gate that cannot decode what was approved
+ * does not know what it is signing, and must refuse rather than guess in either direction.
+ * @param {string} ua
+ * @returns {string}
+ */
+export function uaReceiver(ua) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(ua, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.uaReceiver(ptr0, len0);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
     }
 }
 
