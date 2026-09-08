@@ -41,6 +41,8 @@ getrandom = { version = "0.2", features = ["js"] }
 # carries only ciphertext. Extracted to a shared crate so the hosted helper seals with the SAME code
 # (#63); getrandom's `js` feature above unifies into it for the wasm build.
 konclave-seal = { path = "../konclave-seal" }
+zcash_address = "0.13"
+zcash_protocol = { version = "0.10", default-features = false }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
