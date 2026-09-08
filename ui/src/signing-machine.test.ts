@@ -39,8 +39,8 @@ function dkg2of3() {
     }
   })
   sessions.forEach((s) => s.part3())
-  const [s0, s1] = sessions as [DkgSession, DkgSession, DkgSession]
-  return { s0, s1, groupVk: s0.groupVk(), pubkeys: s0.pubkeys() }
+  const [s0, s1, s2] = sessions as [DkgSession, DkgSession, DkgSession]
+  return { s0, s1, s2, groupVk: s0.groupVk(), pubkeys: s0.pubkeys() }
 }
 
 // An in-memory relay room: opaque messages, each tagged with its sender. A device receives EVERY
@@ -60,15 +60,22 @@ interface Device {
   sig: { hex: string; ok: boolean } | null
   errors: string[]
   bus: Bus // the CURRENT signing room (a re-armed device moves to a fresh one per payment)
+  /** #399: tags this device treats as UNPROVEN, i.e. an outsider that claimed an empty seat. */
+  unprovenTags: Set<string>
 }
 
-const SEATS: Record<string, number> = { A: 1, B: 2 }
+// A and B are the two devices most tests use. C is seat 3, used only by the #399 test, where the
+// point is that seat 2 is held by a tag whose rejoin was never proven.
+const SEATS: Record<string, number> = { A: 1, B: 2, C: 3 }
 
 function makeDevice(tag: string, bus: Bus, mat: () => { keyPackage: Uint8Array; groupVk: Uint8Array; pubkeys: Uint8Array }): Device {
-  const dev: Device = { tag, machine: null as unknown as SigningMachine, consumed: new Set(), sig: null, errors: [], bus }
+  const dev: Device = { tag, machine: null as unknown as SigningMachine, consumed: new Set(), sig: null, errors: [], bus, unprovenTags: new Set() }
   const deps: SigningDeps = {
     signingMaterial: mat,
     seatOf: (t) => SEATS[t],
+    // #399: proven unless this device's harness says otherwise, so the existing ceremonies behave
+    // exactly as before. The poison test flips one tag to unproven.
+    seatIsProven: (t) => !dev.unprovenTags.has(t),
     mySeat: () => SEATS[tag]!,
     threshold: () => 2,
     hasVault: () => true,
@@ -193,6 +200,61 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     expect(A.sig?.ok).toBe(true)
     expect(B.sig?.ok).toBe(true) // the participant signed using the PCZT it already held
     expect(A.sig?.hex).toBe(B.sig?.hex)
+  })
+
+  it('an unproven seat is still chosen over a proven one: the #399 race is open, and here is why', async () => {
+    // Written to fail the day this is closed, and to stop the test above being read as more than it
+    // is.
+    //
+    // The coordinator builds its package the moment it holds `t` commitments, so when the unproven
+    // seat commits first the preference never sees the proven seat and the poisoned set goes out.
+    // The issue calls its own fix a heuristic; this is exactly where the heuristic ends.
+    //
+    // A deferral was tried here and reverted. Returning the message unconsumed does let the drain
+    // finish and does close this case, but nothing wakes the coordinator afterwards: a vault where
+    // NO seat can prove itself (every member on a build that does not sign its rejoin) waits for a
+    // message that never comes. Trading a transient DoS for a permanent one is not a fix.
+    //
+    // What would close it: a way for the machine to ask its driver for one more pass after the
+    // drain, or signing the ceremony messages themselves (#399 option b), which needs a migration
+    // gate like #63's so an older build is not stranded.
+    const { s0, s1, s2, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    const C = makeDevice('C', bus, () => ({ keyPackage: s2.keyPackage(), groupVk, pubkeys }))
+    A.unprovenTags.add('B')
+
+    const pczt = dkgProvenPczt()
+    bus.post('helper', signRequestFor(pczt).json)
+    await pump(B, bus)          // the unproven seat commits first
+    await pump(A, bus)          // the coordinator reaches threshold and picks, with only 1 and 2 in hand
+    for (let i = 0; i < 6; i++) for (const d of [A, B, C]) await pump(d, bus)
+
+    const sp = bus.msgs.map((m) => { try { return JSON.parse(m.data) as { type?: string; signers?: number[] } } catch { return {} } })
+      .find((m) => m.type === 'sp')
+    expect(sp!.signers, 'documents the open race, not the desired behaviour').toEqual([1, 2])
+  })
+
+  it('and a vault where NOTHING can prove itself still signs (#399)', async () => {
+    // The guard that made the deferral above unshippable, kept because it is the constraint any
+    // future fix has to satisfy.
+    //
+    // A vault whose members all run a build that does not sign its rejoin has NO proven seats. Any
+    // scheme that waits for one hangs such a vault forever, turning a transient denial of service
+    // into a permanent one. This test failed against the deferral, which is why it was reverted.
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    A.unprovenTags.add('A')
+    A.unprovenTags.add('B')
+
+    const pczt = dkgProvenPczt()
+    bus.post('helper', signRequestFor(pczt).json)
+    await runCeremony(A, B, bus)
+
+    expect(A.sig?.ok, 'an all-unproven vault must still produce a verifying signature').toBe(true)
   })
 
   it('the H1 sighash-binding refusal fires when the wire sighash does not match the PCZT', async () => {
