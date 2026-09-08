@@ -25,7 +25,7 @@ import {
 } from './helper'
 import { fmtZecExact, zatToZec, parseZecToZat } from './format'
 import type { FailureCode } from './background-session'
-import { listVaults, updateVaultMeta } from './storage'
+import { listVaults, updateVaultMeta, recordChangeReceiver } from './storage'
 import { getUnlockedShare, setUnlockedShare } from './session'
 import { signGovernanceWrite, type WriteProof } from './device-key'
 import { ensureWasm } from './wasm-ready'
@@ -230,6 +230,16 @@ export async function getVault(): Promise<Vault | null> {
     // Fire-and-forget on purpose: it is one IndexedDB write, once, on a screen that must not wait
     // for it, and a vault that never opens a screen loses nothing it had.
     if (v.address) void backfillAddress(id, v.address)
+    // Pin the vault's change receiver the first time any screen reads the vault (#281). Same shape
+    // as the address backfill above and for the same reason: `saveVault` runs once at creation, so
+    // a field added later reaches an existing vault only if something revisits the record.
+    //
+    // `recordChangeReceiver` is write-once and refuses a blank, so this is safe to call on every
+    // read: the first non-empty answer wins and every later one is refused. That refusal is the
+    // security property - it is what makes a helper taken over AFTER capture unable to relabel an
+    // attacker's output as this vault's change. Deliberately NOT wrapped in a guard here: a second
+    // copy of "only if absent" is how one rule with two implementations starts.
+    if (v.change_receiver) void recordChangeReceiver(id, v.change_receiver)
     return {
       id: v.vault_id,
       name: vaultName,

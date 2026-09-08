@@ -148,6 +148,21 @@ describe('nothing else may write the change receiver', () => {
     expect(offenders, `these assign changeReceiver directly instead of calling recordChangeReceiver`).toEqual([])
   })
 
+  it('SOMETHING outside the tests actually captures it', () => {
+    // #468's guard, in the other direction. There the failure was a capability the UI offered to
+    // USE with no screen that could CREATE it; `enrolPrf` was called only from its own test, so the
+    // feature shipped, passed, and was unreachable. Here the same hole would be quieter still: the
+    // gate would read `changeReceiver`, find it forever absent, stay unarmed on every vault, and
+    // look exactly like a gate that is working.
+    //
+    // Test files are excluded on purpose - counting them is what rebuilds the blind spot.
+    const callers = sources(SRC)
+      .filter((p) => !p.endsWith('storage.ts'))
+      .filter((p) => /recordChangeReceiver\s*\(/.test(readFileSync(p, 'utf8')))
+      .map((p) => p.slice(SRC.length))
+    expect(callers.length, 'nothing calls recordChangeReceiver, so the pin is never captured').toBeGreaterThan(0)
+  })
+
   it('the metadata patch type cannot carry it', () => {
     // `updateVaultMeta` takes `Partial<Pick<VaultRecord, ...>>`. If the receiver is ever added to
     // that Pick, the write-once rule is bypassable through a rename, in one line, with no test
