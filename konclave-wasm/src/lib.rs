@@ -1139,8 +1139,8 @@ pub mod pczt_bridge {
     /// transparent one) cannot be paid by a shielded vault spend, and returning something for it
     /// would let the gate "match" a destination the vault can never actually reach.
     pub fn ua_receiver(ua: &str) -> Result<String, String> {
-        use zcash_address::{unified, ConversionError, TryFromAddress, ZcashAddress};
         use zcash_address::unified::{Container, Receiver};
+        use zcash_address::{unified, ConversionError, TryFromAddress, ZcashAddress};
 
         /// Carries out the ONE thing wanted: the Orchard receiver's raw bytes. Every other address
         /// kind is refused, so a Sapling or transparent destination cannot silently decode to
@@ -1527,8 +1527,15 @@ pub mod pczt_bridge {
             // so the gate has the ground truth to compare against the approved recipients.
             let outs = describe_outputs(IW_PROVEN).unwrap();
             for o in &outs {
-                let r = o.recipient.as_ref().expect("every real output exposes a recipient");
-                assert_eq!(r.len(), 86, "a raw Orchard receiver is 43 bytes = 86 hex chars");
+                let r = o
+                    .recipient
+                    .as_ref()
+                    .expect("every real output exposes a recipient");
+                assert_eq!(
+                    r.len(),
+                    86,
+                    "a raw Orchard receiver is 43 bytes = 86 hex chars"
+                );
                 assert!(r.bytes().all(|b| b.is_ascii_hexdigit()), "recipient is hex");
             }
             // This send's shape, decoded: a payment output that carries a user_address, and a change
@@ -1568,7 +1575,8 @@ pub mod pczt_bridge {
                 .find(|o| o.address.is_some() && o.value.unwrap_or(0) > 0)
                 .expect("the proven send has a labelled payment output");
             let ua = payment.address.as_ref().unwrap();
-            let decoded = ua_receiver(ua).expect("the approved address decodes to an Orchard receiver");
+            let decoded =
+                ua_receiver(ua).expect("the approved address decodes to an Orchard receiver");
             assert_eq!(
                 &decoded,
                 payment.recipient.as_ref().unwrap(),
