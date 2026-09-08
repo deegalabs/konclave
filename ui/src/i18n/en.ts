@@ -983,6 +983,8 @@ export const en: Record<string, string> = {
   'net.log.msgFailed': 'warning: a ceremony message failed and was ignored',
   // ceremony errors
   'net.err.relayDown': 'Could not reach the relay (the network went down). Reload both tabs and try again.',
+  'net.err.notApproved': 'Refused to sign: this transaction does not pay what the group approved. Nothing was signed. Check the payment on screen against the proposal - if they differ, do not retry.',
+  'net.err.unreadablePczt': 'Refused to sign: this device could not read what the transaction pays, so it cannot confirm it matches the approved payment. Nothing was signed.',
   'net.err.sighashMismatch': 'Refused to sign: the transaction this device recomputed does not match the requested one. Nothing was signed. This can mean a tampered request - do not retry with the same request.',
   'net.err.roomFull': 'This room is already full (the vault has its number of devices set). Generate a new invite.',
   'net.err.stepFailed': 'A ceremony step failed. If the tabs freeze, reload and try again.',

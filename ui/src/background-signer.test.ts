@@ -61,6 +61,9 @@ function makeDev(tag: string, bus: Bus, mat: () => { keyPackage: Uint8Array; gro
   const dev: Dev = { tag, signer: null as unknown as BackgroundSigner, delivered: new Set(), sig: null, errors: [], bus }
   dev.signer = new BackgroundSigner({
     signingMaterial: mat,
+    // #281 is asserted in signing-machine.test.ts, where the ceremony's own refusal lives. This
+    // file exercises the GOVERNANCE gate (approve/arm), so the money gate is permissive here.
+    paysWhatWasApproved: () => true,
     seatOf: (t) => SEATS[t],
     mySeat: () => SEATS[tag]!,
     threshold: () => 2,

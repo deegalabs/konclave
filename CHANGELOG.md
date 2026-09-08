@@ -38,6 +38,24 @@ explicitly accepted.
 
 ## [Unreleased]
 
+### Security
+
+- **A device signed whatever transaction it was handed, as long as its owner had some payment armed.**
+  The check that was supposed to ask "is this the payment the group approved?" was wired to answer
+  yes, always - the code said so in a comment - and the only other check compared a proposal's
+  *name*, not what the transaction pays. So a helper that had been taken over could put a different
+  destination inside the same proposal, and every device would have contributed its share to it. The
+  one thing standing in the way was a member reading the address in the preview and noticing.
+
+  Each device now decodes what the transaction actually pays and refuses unless it matches the
+  approved payment exactly - the destination, the amount, and every beneficiary of a payroll. It
+  compares the raw receiver the money is really bound to, not the address label shown beside it,
+  because the label is written by the same party the check exists to distrust. A device that cannot
+  read the transaction, or cannot tell what was approved, refuses instead of signing.
+
+  Open for as long as the browser signer has existed. No evidence it was used; the exposure needed a
+  compromised helper, and the vaults in use are the maintainer's and two others. (#281)
+
 ### Added
 
 - **A device can now recognise its own vault's change, which is what the money gate needs to work
