@@ -608,6 +608,8 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
             }
           }
         }
+        // The drain is done: let the machine act on the whole of it, not on each message (#399).
+        await machineRef.current?.afterDrain()
       } while (rerunRef.current)
     } finally {
       advancingRef.current = false

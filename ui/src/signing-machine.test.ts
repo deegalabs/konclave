@@ -121,6 +121,8 @@ async function pump(dev: Device, bus: Bus) {
       }
     }
   }
+  // Mirrors both drivers: the drain is done, so let the machine act on all of it (#399).
+  await dev.machine.afterDrain()
 }
 
 // Drive both devices until the bus stops growing (the ceremony quiesces).
@@ -202,22 +204,18 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     expect(A.sig?.hex).toBe(B.sig?.hex)
   })
 
-  it('an unproven seat is still chosen over a proven one: the #399 race is open, and here is why', async () => {
-    // Written to fail the day this is closed, and to stop the test above being read as more than it
-    // is.
+  it('a proven seat wins even when it commits AFTER the unproven one (#399)', async () => {
+    // The ordering a sort alone does NOT survive, and the reason the fix is not just a sort.
     //
-    // The coordinator builds its package the moment it holds `t` commitments, so when the unproven
-    // seat commits first the preference never sees the proven seat and the poisoned set goes out.
-    // The issue calls its own fix a heuristic; this is exactly where the heuristic ends.
+    // The coordinator would otherwise build its package the moment it holds `t` commitments, so when
+    // the unproven seat commits first the preference never sees the proven one. Deferring once and
+    // retrying at the END of the drain is what closes it: by then every commitment that arrived in
+    // the same sweep has landed.
     //
-    // A deferral was tried here and reverted. Returning the message unconsumed does let the drain
-    // finish and does close this case, but nothing wakes the coordinator afterwards: a vault where
-    // NO seat can prove itself (every member on a build that does not sign its rejoin) waits for a
-    // message that never comes. Trading a transient DoS for a permanent one is not a fix.
-    //
-    // What would close it: a way for the machine to ask its driver for one more pass after the
-    // drain, or signing the ceremony messages themselves (#399 option b), which needs a migration
-    // gate like #63's so an older build is not stranded.
+    // The retry cannot be "return the message unconsumed". That relies on some OTHER message
+    // progressing in the same drain, and the commitment that reaches threshold usually arrives
+    // alone - the loop then exits with nothing to retry and the ceremony dies waiting. That version
+    // was written, and the all-unproven test below is what caught it.
     const { s0, s1, s2, groupVk, pubkeys } = dkg2of3()
     const bus = new Bus()
     const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
@@ -233,16 +231,16 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
 
     const sp = bus.msgs.map((m) => { try { return JSON.parse(m.data) as { type?: string; signers?: number[] } } catch { return {} } })
       .find((m) => m.type === 'sp')
-    expect(sp!.signers, 'documents the open race, not the desired behaviour').toEqual([1, 2])
+    expect(sp!.signers, 'the proven seat wins even arriving late').toEqual([1, 3])
   })
 
   it('and a vault where NOTHING can prove itself still signs (#399)', async () => {
-    // The guard that made the deferral above unshippable, kept because it is the constraint any
-    // future fix has to satisfy.
+    // The constraint the fix above has to satisfy, and the test that caught the first attempt.
     //
     // A vault whose members all run a build that does not sign its rejoin has NO proven seats. Any
-    // scheme that waits for one hangs such a vault forever, turning a transient denial of service
-    // into a permanent one. This test failed against the deferral, which is why it was reverted.
+    // scheme that WAITS for one hangs such a vault forever, turning a transient denial of service
+    // into a permanent one. The deferral is therefore bounded at one, after which the coordinator
+    // proceeds with whatever it has - exactly the behaviour that shipped before this change.
     const { s0, s1, groupVk, pubkeys } = dkg2of3()
     const bus = new Bus()
     const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))

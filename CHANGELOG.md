@@ -38,15 +38,18 @@ explicitly accepted.
 
 ## [Unreleased]
 
-### Known limits
+### Security
 
-- **A ceremony can still be stalled by someone who took an empty seat.** In a vault that can sign
-  with fewer members than it has, a seat whose device is offline can be claimed by an outsider, who
-  then sends a bogus contribution. The signature fails to verify and the payment does not go out.
-  No money moves and nobody else's money is reachable; the send has to be tried again, and it
-  succeeds once the real member is present. The device now records which seats proved they hold
-  their share, which is the half both candidate fixes need, but the coordinator still picks before
-  it has seen everyone, so the race is open. (#399)
+- **Someone who took an empty seat could stall a payment.** In a vault that signs with fewer members
+  than it has, a seat whose device was offline could be claimed by an outsider, who then sent a
+  contribution nobody's share had made. The signature failed to verify and the payment did not go
+  out; it had to be tried again, and succeeded once the real member was present. No money could be
+  moved and nobody else's money was reachable.
+
+  Devices now record which seats proved they hold their share, and the member that assembles the
+  round waits until the whole batch of contributions has arrived before choosing whose to use, so a
+  seat nobody vouched for is not picked while a real one is still on its way. A vault whose members
+  all run an older version, where nothing can prove itself, still signs exactly as before. (#399)
 
 ### Fixed
 

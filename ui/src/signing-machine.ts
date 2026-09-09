@@ -98,6 +98,7 @@ export class SigningMachine {
   /** Seats whose committing tag proved it holds that seat's share (#399). Reset wherever `commits`
    *  is, or a seat proven in one ceremony would still count as proven in the next. */
   private provenSeats = new Set<number>()
+  private deferredForProof = false
   private coord: Coordinator | null = null
   private spSent = false
   private sp: Uint8Array | null = null
@@ -137,6 +138,7 @@ export class SigningMachine {
     this.nonces = null
     this.commits = new Map()
     this.provenSeats = new Set()
+    this.deferredForProof = false
     this.coord = null
     this.spSent = false
     this.sp = null
@@ -195,6 +197,7 @@ export class SigningMachine {
     this.alpha = this.spends[k]?.alpha ?? null
     this.commits = new Map()
     this.provenSeats = new Set()
+    this.deferredForProof = false
     this.spSent = false
     this.sp = null
     this.sentS2 = false
@@ -287,6 +290,30 @@ export class SigningMachine {
     // follows whoever last committed for it.
     if (this.d.seatIsProven(fromTag)) this.provenSeats.add(seat)
     else this.provenSeats.delete(seat)
+    await this.coordinateIfReady()
+    return true
+  }
+
+  /** Called by the driver when a drain has nothing left to process (#399).
+   *
+   *  The one thing the fixpoint loop cannot do on its own: a coordinator that deferred to look for a
+   *  proven seat has consumed its message, so no retry is scheduled by the loop itself. This is that
+   *  retry, and it runs exactly once per drain rather than per message.
+   *
+   *  Safe to call at any time: `coordinateIfReady` re-checks every precondition, and `spSent` makes
+   *  it idempotent. */
+  async afterDrain(): Promise<void> {
+    if (!this.started) return
+    await this.coordinateIfReady()
+  }
+
+  /** Build and broadcast the SigningPackage once this device (seat 1) holds enough commitments.
+   *
+   *  Split out of `onS1` so `afterDrain` can run it again (#399). The deferral inside CONSUMES its
+   *  message rather than returning it unread, so something else has to retry - and it cannot be
+   *  another `s1`, because the commitment that reaches threshold usually arrives alone and the
+   *  driver's fixpoint loop then exits with nothing left to progress. */
+  private async coordinateIfReady(): Promise<void> {
     const t = this.d.threshold()
     if (this.d.mySeat() === 1 && this.commits.size >= t && !this.spSent) {
       // Prefer PROVEN seats, falling back to unproven only to reach threshold (#399).
@@ -311,6 +338,20 @@ export class SigningMachine {
       // Preference and not exclusion, because excluding unproven seats outright would stop a vault
       // whose members run an older build from signing at all. When every committing seat is proven,
       // this picks exactly what it picked before.
+      // Defer ONCE if the set we would pick still needs an unproven seat (#399).
+      //
+      // Consumed, not returned false. Returning it unconsumed relies on ANOTHER message progressing
+      // in the same drain to trigger a retry - and the t-th commit usually arrives alone, so the
+      // loop exits and the ceremony dies waiting. `afterDrain()` is what actually retries, and the
+      // drivers call it when there is nothing left to process.
+      //
+      // Bounded at one deferral, deliberately: a vault whose members all run a build that does not
+      // sign its rejoin has NO proven seats and must still be able to sign.
+      const provenNow = [...this.commits.keys()].filter((x) => this.provenSeats.has(x)).length
+      if (provenNow < t && !this.deferredForProof) {
+        this.deferredForProof = true
+        return // `afterDrain` picks this up once the rest of the drain has landed
+      }
       const committed = [...this.commits.keys()].sort((a, b) => a - b)
       const chosen = [
         ...committed.filter((x) => this.provenSeats.has(x)),
@@ -328,7 +369,6 @@ export class SigningMachine {
       await this.d.send({ type: 'sp', signers: chosen, sp: b64(this.sp), msg: b64(this.msg), k: this.cur, h: this.tag() })
       this.d.onLog(this.d.tt('net.log.signCoord', { seats: chosen.join(', ') }))
     }
-    return true
   }
 
   private async onSp(parsed: Extract<SignWireMsg, { type: 'sp' }>): Promise<boolean> {
