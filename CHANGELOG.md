@@ -38,6 +38,19 @@ explicitly accepted.
 
 ## [Unreleased]
 
+### Security
+
+- **Someone who took an empty seat could stall a payment.** In a vault that signs with fewer members
+  than it has, a seat whose device was offline could be claimed by an outsider, who then sent a
+  contribution nobody's share had made. The signature failed to verify and the payment did not go
+  out; it had to be tried again, and succeeded once the real member was present. No money could be
+  moved and nobody else's money was reachable.
+
+  Devices now record which seats proved they hold their share, and the member that assembles the
+  round waits until the whole batch of contributions has arrived before choosing whose to use, so a
+  seat nobody vouched for is not picked while a real one is still on its way. A vault whose members
+  all run an older version, where nothing can prove itself, still signs exactly as before. (#399)
+
 ### Fixed
 
 - **A vault that already existed kept its blank address, even after 0.4.0 fixed the cause.** That

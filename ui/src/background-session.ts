@@ -123,6 +123,7 @@ export class BackgroundSession {
     this.signer = new BackgroundSigner({
       signingMaterial: deps.signingMaterial,
       seatOf: (tag) => this.seats.seatOf(tag),
+      seatIsProven: (tag) => this.seats.isProven(tag),
       mySeat: () => this.seats.mySeat(),
       threshold: deps.threshold,
       hasVault: () => true, // an unlocked, restored vault always exists

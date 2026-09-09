@@ -157,6 +157,11 @@ export class BackgroundSigner {
             }
           }
         }
+        // Nothing left to process. Give the machine its one chance to act on what the whole drain
+        // delivered rather than on what each message delivered (#399) - the commitment that reaches
+        // threshold usually arrives alone, so a coordinator that waited for a proven seat has
+        // nothing to wake it otherwise.
+        await this.machine.afterDrain()
       } while (this.rerun)
     } finally {
       this.pumping = false

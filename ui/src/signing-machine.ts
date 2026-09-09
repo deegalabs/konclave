@@ -54,6 +54,14 @@ export interface SigningDeps {
   signingMaterial: () => SigningMaterial
   /** 1-based seat of a relay tag, or undefined if not seated yet. */
   seatOf: (tag: string) => number | undefined
+  /** Did this tag PROVE it holds its seat's share (#392)? The coordinator prefers proven seats when
+   *  it picks the threshold set (#399).
+   *
+   *  Required rather than optional, for the reason #281 made `paysWhatWasApproved` required: there
+   *  are two ceremony drivers here and they have diverged three times (#424, #425, #363). A driver
+   *  that cannot tell proven from unproven must SAY so by answering false, not by omitting the
+   *  question. Answering false everywhere restores the old lowest-seats behaviour exactly. */
+  seatIsProven: (tag: string) => boolean
   /** This device's own 1-based seat (0 = unseated). */
   mySeat: () => number
   /** The quorum threshold `t`. */
@@ -87,6 +95,10 @@ export class SigningMachine {
   private msg: Uint8Array = new Uint8Array()
   private nonces: Uint8Array | null = null
   private commits = new Map<number, Uint8Array>()
+  /** Seats whose committing tag proved it holds that seat's share (#399). Reset wherever `commits`
+   *  is, or a seat proven in one ceremony would still count as proven in the next. */
+  private provenSeats = new Set<number>()
+  private deferredForProof = false
   private coord: Coordinator | null = null
   private spSent = false
   private sp: Uint8Array | null = null
@@ -125,6 +137,8 @@ export class SigningMachine {
     this.msg = new Uint8Array()
     this.nonces = null
     this.commits = new Map()
+    this.provenSeats = new Set()
+    this.deferredForProof = false
     this.coord = null
     this.spSent = false
     this.sp = null
@@ -182,6 +196,8 @@ export class SigningMachine {
     this.cur = k
     this.alpha = this.spends[k]?.alpha ?? null
     this.commits = new Map()
+    this.provenSeats = new Set()
+    this.deferredForProof = false
     this.spSent = false
     this.sp = null
     this.sentS2 = false
@@ -269,9 +285,80 @@ export class SigningMachine {
     const seat = this.d.seatOf(fromTag)
     if (seat === undefined) return false
     this.commits.set(seat, unb64(parsed.commit))
+    // Proven-ness belongs to the TAG and this set is keyed by seat, so record it here while both are
+    // in hand. A later commit for the same seat from a different tag overwrites: the seat's standing
+    // follows whoever last committed for it.
+    if (this.d.seatIsProven(fromTag)) this.provenSeats.add(seat)
+    else this.provenSeats.delete(seat)
+    await this.coordinateIfReady()
+    return true
+  }
+
+  /** Called by the driver when a drain has nothing left to process (#399).
+   *
+   *  The one thing the fixpoint loop cannot do on its own: a coordinator that deferred to look for a
+   *  proven seat has consumed its message, so no retry is scheduled by the loop itself. This is that
+   *  retry, and it runs exactly once per drain rather than per message.
+   *
+   *  Safe to call at any time: `coordinateIfReady` re-checks every precondition, and `spSent` makes
+   *  it idempotent. */
+  async afterDrain(): Promise<void> {
+    if (!this.started) return
+    await this.coordinateIfReady()
+  }
+
+  /** Build and broadcast the SigningPackage once this device (seat 1) holds enough commitments.
+   *
+   *  Split out of `onS1` so `afterDrain` can run it again (#399). The deferral inside CONSUMES its
+   *  message rather than returning it unread, so something else has to retry - and it cannot be
+   *  another `s1`, because the commitment that reaches threshold usually arrives alone and the
+   *  driver's fixpoint loop then exits with nothing left to progress. */
+  private async coordinateIfReady(): Promise<void> {
     const t = this.d.threshold()
     if (this.d.mySeat() === 1 && this.commits.size >= t && !this.spSent) {
-      const chosen = [...this.commits.keys()].sort((a, b) => a - b).slice(0, t)
+      // Prefer PROVEN seats, falling back to unproven only to reach threshold (#399).
+      //
+      // GROUNDWORK, and it does not fire yet. Say so here rather than let a sort that never runs
+      // read as a security control. The coordinator picks on the t-th commit it PROCESSES, so a
+      // proven seat later in the same drain is not in `commits` when this runs, and the order below
+      // is over a set that is already decided. `signing-machine.test.ts` asserts that open race and
+      // records what would close it: a way to ask the driver for one more pass after the drain, or
+      // signing the ceremony messages (#399 option b) behind a migration gate.
+      //
+      // Kept because it is correct the moment the set is complete, and because the tracking it
+      // reads (`seatIsProven`) is the half both candidate fixes need.
+      //
+      // This used to be the lowest `t` seats, full stop. An unproven rejoin may still take a truly
+      // EMPTY seat - deliberately, so older builds keep working - so in a `t < n` vault with a low
+      // seat offline, an outsider could take that seat, post a bogus commitment, and be chosen
+      // simply for being low. The aggregate then references a commitment no share made, the
+      // signature does not verify, and the send fails. No funds move: the ceremony dies, which is
+      // the whole of the attack.
+      //
+      // Preference and not exclusion, because excluding unproven seats outright would stop a vault
+      // whose members run an older build from signing at all. When every committing seat is proven,
+      // this picks exactly what it picked before.
+      // Defer ONCE if the set we would pick still needs an unproven seat (#399).
+      //
+      // Consumed, not returned false. Returning it unconsumed relies on ANOTHER message progressing
+      // in the same drain to trigger a retry - and the t-th commit usually arrives alone, so the
+      // loop exits and the ceremony dies waiting. `afterDrain()` is what actually retries, and the
+      // drivers call it when there is nothing left to process.
+      //
+      // Bounded at one deferral, deliberately: a vault whose members all run a build that does not
+      // sign its rejoin has NO proven seats and must still be able to sign.
+      const provenNow = [...this.commits.keys()].filter((x) => this.provenSeats.has(x)).length
+      if (provenNow < t && !this.deferredForProof) {
+        this.deferredForProof = true
+        return // `afterDrain` picks this up once the rest of the drain has landed
+      }
+      const committed = [...this.commits.keys()].sort((a, b) => a - b)
+      const chosen = [
+        ...committed.filter((x) => this.provenSeats.has(x)),
+        ...committed.filter((x) => !this.provenSeats.has(x)),
+      ]
+        .slice(0, t)
+        .sort((a, b) => a - b)
       const mat = this.d.signingMaterial()
       const coord = new Coordinator(mat.groupVk, mat.pubkeys, this.msg)
       for (const s of chosen) coord.addCommitment(identifierBytes(s), this.commits.get(s)!)
@@ -282,7 +369,6 @@ export class SigningMachine {
       await this.d.send({ type: 'sp', signers: chosen, sp: b64(this.sp), msg: b64(this.msg), k: this.cur, h: this.tag() })
       this.d.onLog(this.d.tt('net.log.signCoord', { seats: chosen.join(', ') }))
     }
-    return true
   }
 
   private async onSp(parsed: Extract<SignWireMsg, { type: 'sp' }>): Promise<boolean> {
