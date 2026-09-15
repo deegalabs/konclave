@@ -12,7 +12,7 @@ import {
 import { listVaults } from '../storage'
 import { RecipientCombobox } from '../RecipientCombobox'
 import { usdEnabled, setUsdEnabled, cachedRate, rateIsStale, fetchRate, zecToUsd, type Rate } from '../price'
-import { proposeBlock, blockMessageKey } from '../propose-guard'
+import { proposeBlock, blockMessageKey, poolsOf } from '../propose-guard'
 
 const MEMO_MAX = 512
 
@@ -30,6 +30,9 @@ export default function NewPayment() {
   const [memo, setMemo] = useState('')
   const [threshold, setThreshold] = useState(2)
   const [available, setAvailable] = useState<string | null>(null)
+  // #427: the two shielded pools separately. `spendable` is their sum, and one payment cannot
+  // always spend the sum.
+  const [pools, setPools] = useState<ReturnType<typeof poolsOf>>(undefined)
   const [benefs, setBenefs] = useState<Beneficiary[]>([])
   // Neutral placeholder while the real vault name loads - never a fake name flashed to a real
   // user (the real name replaces this as soon as getVault resolves).
@@ -67,6 +70,7 @@ export default function NewPayment() {
       // "available" and the balance-after preview must be against spendable to catch amount+fee
       // overspend BEFORE a proposal is created (the helper rejected 0.0120 on a 0.01213 spendable).
       if (b?.configured) setAvailable(b.spendable_zec ?? b.total_zec ?? null)
+      if (b?.configured) setPools(poolsOf(b))
       if (bs) setBenefs(bs)
     })()
     return () => { on = false }
@@ -123,7 +127,7 @@ export default function NewPayment() {
   // used to live inline in both and FAIL OPEN in both: any figure that would not parse made the
   // over-balance test false, which the screen read as "all clear". A balance we cannot read and an
   // amount we cannot parse now block instead of waving the payment through.
-  const block = proposeBlock({ amountZat, availableZat, feeZat, memoOver })
+  const block = proposeBlock({ amountZat, availableZat, feeZat, memoOver, pools })
   const overBalance = block === 'over-balance'
 
   async function submit() {

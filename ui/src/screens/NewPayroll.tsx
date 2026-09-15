@@ -12,7 +12,7 @@ import {
 import { listVaults } from '../storage'
 import { RecipientCombobox } from '../RecipientCombobox'
 import { usdEnabled, setUsdEnabled, cachedRate, rateIsStale, fetchRate, zecToUsd, type Rate } from '../price'
-import { proposeBlock, blockMessageKey } from '../propose-guard'
+import { proposeBlock, blockMessageKey, poolsOf } from '../propose-guard'
 
 const DRAFT_KEY = 'konclave.folha.rascunho'
 
@@ -43,6 +43,9 @@ export default function NewPayroll() {
   const [showImport, setShowImport] = useState(false)
   const [csv, setCsv] = useState('')
   const [balanceZat, setBalanceZat] = useState<number | null>(null)
+  // #427: the two shielded pools separately. `spendable` is their sum, and one payment cannot
+  // always spend the sum.
+  const [pools, setPools] = useState<ReturnType<typeof poolsOf>>(undefined)
   const [benefs, setBenefs] = useState<Beneficiary[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -82,6 +85,7 @@ export default function NewPayroll() {
         // Spendable, not total: only confirmed spendable funds can be sent, so the balance-after
         // and the over-balance block are against spendable (catches amount+fee overspend at propose).
         if (b?.configured) setBalanceZat(b.spendable_zat ?? b.total_zat ?? null)
+      if (b?.configured) setPools(poolsOf(b))
         if (bs) setBenefs(bs)
         if (led) setPastFolhas(led.filter((x) => x.kind === 'payroll'))
         if (v) {
@@ -173,7 +177,7 @@ export default function NewPayroll() {
   // Same pure gate as the payment screen (`propose-guard.ts`). This screen had the identical
   // fail-open: a balance we could not read left `overBalance` false, and the payroll submitted
   // against an unknown balance.
-  const block = proposeBlock({ amountZat: totalZat, availableZat: balanceZat, feeZat })
+  const block = proposeBlock({ amountZat: totalZat, availableZat: balanceZat, feeZat, pools })
   const overBalance = block === 'over-balance'
   const anyBadTouched = rows.some((r) => rowTouched(r) && rowIssue(r) !== null)
   const canSubmit = count > 0 && !anyBadTouched && !busy && block === null

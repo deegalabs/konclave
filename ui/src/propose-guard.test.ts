@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { proposeBlock } from './propose-guard'
+import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { join, relative } from 'node:path'
+import { proposeBlock, poolsOf } from './propose-guard'
 
 // The submit gate for a payment or a payroll, as a pure rule.
 //
@@ -61,5 +63,117 @@ describe('proposeBlock - money fails closed', () => {
     // #282: at spendable 0 every amount tripped `over-balance`, whose remedy ("lower the amount")
     // is impossible. The honest answer is that there is nothing to spend.
     expect(proposeBlock({ amountZat: ZEC, availableZat: 0, feeZat: FEE })).toBe('no-funds')
+  })
+})
+
+describe('proposeBlock: the sum of two pools is not what one payment can move (#427)', () => {
+  // The vault holds 0.6 in one pool and 0.5 in the other. `spendable` says 1.1.
+  const SPLIT = { orchard: 60_000_000, ironwood: 50_000_000 }
+  const SUM = SPLIT.orchard + SPLIT.ironwood
+
+  it('blocks the amounts that cross pools: above the larger pool, within the total', () => {
+    // This is the whole defect. The note selector spends ONE pool when one covers amount+fee and
+    // crosses only when neither does, and the signing bridge refuses a crossed transaction. So this
+    // amount used to be accepted, sent to a quorum for approval, and die at signing.
+    expect(proposeBlock({ amountZat: 70_000_000, availableZat: SUM, feeZat: FEE, pools: SPLIT }))
+      .toBe('crosses-pools')
+  })
+
+  it('allows an amount the larger pool covers on its own', () => {
+    expect(proposeBlock({ amountZat: 50_000_000, availableZat: SUM, feeZat: FEE, pools: SPLIT }))
+      .toBe(null)
+  })
+
+  it('counts the fee, because the selector does', () => {
+    // Exactly the larger pool, so the fee is what pushes it over. Off by one fee is off by a failed
+    // payment.
+    expect(proposeBlock({ amountZat: SPLIT.orchard, availableZat: SUM, feeZat: FEE, pools: SPLIT }))
+      .toBe('crosses-pools')
+    expect(proposeBlock({ amountZat: SPLIT.orchard - FEE, availableZat: SUM, feeZat: FEE, pools: SPLIT }))
+      .toBe(null)
+  })
+
+  it('still reports over-balance when the amount exceeds the TOTAL, not the pool split', () => {
+    // The two blocks have different remedies: "send it as two payments" versus "you do not have it".
+    // Telling a member to split a payment they cannot afford is a worse message than the old one.
+    expect(proposeBlock({ amountZat: SUM + ZEC, availableZat: SUM, feeZat: FEE, pools: SPLIT }))
+      .toBe('over-balance')
+  })
+
+  it('a single-pool vault is never blocked by this', () => {
+    // Every vault measured in production is single-pool. If this rule touched them it would be a
+    // worse defect than the one it closes.
+    const ONLY_IRONWOOD = { orchard: 0, ironwood: SUM }
+    expect(proposeBlock({ amountZat: SUM - FEE, availableZat: SUM, feeZat: FEE, pools: ONLY_IRONWOOD }))
+      .toBe(null)
+  })
+
+  it('and a backend that reports no split at all is not blocked either', () => {
+    // No Ironwood figure means a helper from before the pool existed, so the vault is single-pool by
+    // construction. Unlike the other unknowns in this file, this absence is information: there is
+    // nothing to cross. Blocking here would break every vault to protect a case that cannot occur.
+    expect(proposeBlock({ amountZat: SUM - FEE, availableZat: SUM, feeZat: FEE })).toBe(null)
+  })
+})
+
+describe('poolsOf: one derivation, not one per screen (#427)', () => {
+  it('reads the split off a balance', () => {
+    expect(poolsOf({ orchard_spendable_zat: 7, ironwood_spendable_zat: 11 }))
+      .toEqual({ orchard: 7, ironwood: 11 })
+  })
+
+  it('treats a missing Ironwood figure as "no split to speak of", not as zero', () => {
+    // Zero would be a LIE that blocks: it would say the vault holds everything in Orchard and
+    // nothing in Ironwood, which is indistinguishable from a real 100%-Orchard vault only by luck.
+    expect(poolsOf({ orchard_spendable_zat: 7 })).toBeUndefined()
+    expect(poolsOf(null)).toBeUndefined()
+    expect(poolsOf(undefined)).toBeUndefined()
+  })
+
+  it('defaults a missing Orchard figure to zero, which is safe in the other direction', () => {
+    expect(poolsOf({ ironwood_spendable_zat: 11 })).toEqual({ orchard: 0, ironwood: 11 })
+  })
+})
+
+describe('every screen that asks the gate also tells it about the pools (#427)', () => {
+  // `pools` is OPTIONAL, because a backend can legitimately not report a split - so a screen that
+  // forgets it COMPILES, and silently goes back to gating on the sum. That is the shape this repo
+  // produces most: one rule, two callers, one of them updated. #468 answered the same problem the
+  // same way, and the reason it is a source scan rather than a type is that the optionality is real.
+  //
+  // Test files are excluded deliberately: most of them exercise the non-pool branches on purpose,
+  // and counting them would rebuild the blind spot this is meant to close.
+  const SRC = new URL('.', import.meta.url).pathname
+
+  function sources(dir: string, out: string[] = []): string[] {
+    for (const name of readdirSync(dir)) {
+      const p = join(dir, name)
+      if (statSync(p).isDirectory()) { sources(p, out); continue }
+      if (/\.(ts|tsx)$/.test(name) && !/\.test\.tsx?$/.test(name)) out.push(p)
+    }
+    return out
+  }
+
+  it('no production caller of proposeBlock omits pools', () => {
+    const offenders = sources(SRC)
+      .filter((p) => !p.endsWith('propose-guard.ts'))
+      .filter((p) => {
+        const src = readFileSync(p, 'utf8')
+        // Every `proposeBlock({ ... })` in the file must name `pools` inside its own braces.
+        const calls = src.match(/proposeBlock\(\{[^}]*\}/g) ?? []
+        return calls.some((c) => !c.includes('pools'))
+      })
+      .map((p) => relative(SRC, p))
+
+    expect(
+      offenders,
+      `these gate on the SUM of both pools, which one payment cannot always spend: ${offenders.join(', ')}`,
+    ).toEqual([])
+  })
+
+  it('and at least one screen actually asks it, so the rule is reachable', () => {
+    // The #468 lesson: a rule the product never invokes ships, passes its tests, and does nothing.
+    const callers = sources(SRC).filter((p) => /proposeBlock\(/.test(readFileSync(p, 'utf8')))
+    expect(callers.length, 'no screen calls proposeBlock at all').toBeGreaterThan(0)
   })
 })
