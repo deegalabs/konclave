@@ -38,6 +38,14 @@ explicitly accepted.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Every page load printed a deprecation warning to the console.** The cryptography module was
+  started with a call shape its own loader marks as obsolete, so it warned on each load, in
+  everyone's browser, sitting next to the diagnostics that actually mean something. Nothing
+  misbehaved; the noise is the defect, because a console that always has a warning in it is a
+  console nobody reads.
+
 ### Security
 
 - **Someone who took an empty seat could stall a payment.** In a vault that signs with fewer members

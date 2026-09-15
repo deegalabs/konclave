@@ -27,7 +27,12 @@ let started: Promise<unknown> | null = null
  */
 export function ensureWasm(): Promise<unknown> {
   if (!started) {
-    started = init(wasmUrl).catch((e) => {
+    // `init(wasmUrl)` - a bare URL - is the DEPRECATED wasm-bindgen signature. The generated glue
+    // still accepts it, and warns on every load: "using deprecated parameters for the initialization
+    // function; pass a single object instead" (konclave_wasm.js:1391). It shows up in the console of
+    // anyone using the product, next to the real diagnostics, which is how a warning that means
+    // something gets missed. The object form is what the glue destructures.
+    started = init({ module_or_path: wasmUrl }).catch((e) => {
       started = null
       throw e
     })
