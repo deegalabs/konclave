@@ -79,3 +79,51 @@ describe('seatHolder — who would be evicted (#424)', () => {
     expect(seatHolder(new Map(), 'tag-a', 1)).toBeUndefined()
   })
 })
+
+// Whether a seat was PROVEN is remembered, not just used and thrown away (#399).
+//
+// `handleRejoin` already receives `proven` and already uses it for the one decision it was written
+// for: only a proven rejoin may evict an established seat (#392's A4). What it did not do is keep
+// the answer, and the residual A4 does not leave is a coordinator problem rather than a seating one.
+//
+// A truly EMPTY seat may still be taken by an unproven rejoin, deliberately, so older builds keep
+// working. The coordinator then builds its threshold set from the lowest `t` seats that commited,
+// so an outsider holding a low empty seat gets picked and its bogus commitment lands in the
+// aggregate. The signature does not verify and the send fails. No funds move; the ceremony dies.
+//
+// The coordinator can only prefer proven seats if someone remembers which ones they are.
+describe('the seating remembers which seats proved themselves', () => {
+  it('a proven rejoin is recorded as proven', () => {
+    const s = new SigningSeats('me', 2)
+    s.handleRejoin('peer', 1, true)
+    expect(s.isProven('peer')).toBe(true)
+  })
+
+  it('an unproven rejoin seats but is NOT recorded as proven', () => {
+    const s = new SigningSeats('me', 2)
+    s.handleRejoin('outsider', 1, false)
+    expect(s.seatOf('outsider')).toBe(1) // still seated: empty seats stay open for old builds
+    expect(s.isProven('outsider')).toBe(false)
+  })
+
+  it('this device counts as proven to itself', () => {
+    // It holds the share. Anything else would make a device deprioritise its own commitment.
+    const s = new SigningSeats('me', 3)
+    expect(s.isProven('me')).toBe(true)
+  })
+
+  it('a proven takeover carries the proof to the new tag and drops the old one', () => {
+    // A reloaded device rejoins with a FRESH tag. The evicted tag must not keep counting as proven,
+    // or a stale entry outlives the seat it described.
+    const s = new SigningSeats('me', 2)
+    s.handleRejoin('old', 1, true)
+    s.handleRejoin('fresh', 1, true)
+    expect(s.isProven('fresh')).toBe(true)
+    expect(s.isProven('old')).toBe(false)
+    expect(s.seatOf('old')).toBeUndefined()
+  })
+
+  it('an unknown tag is not proven', () => {
+    expect(new SigningSeats('me', 1).isProven('nobody')).toBe(false)
+  })
+})

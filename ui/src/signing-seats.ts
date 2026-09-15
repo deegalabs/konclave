@@ -33,12 +33,21 @@ export class SigningSeats {
   private readonly myTag: string
   private readonly mySeatNum: number
   private readonly byTag = new Map<string, number>() // relay tag -> 1-based seat
+  /** Tags whose rejoin was PROVEN by a signature from that seat's own share (#392).
+   *
+   *  `proven` was already computed on every rejoin and then thrown away, because the only decision
+   *  it fed was eviction. Keeping it is what lets the coordinator prefer proven seats when it builds
+   *  the threshold set (#399): an unproven rejoin may still take a truly EMPTY seat, on purpose, so
+   *  older builds keep working, and a coordinator that picks the lowest seats can then pick an
+   *  outsider's bogus commitment and produce a signature that does not verify. */
+  private readonly proven = new Set<string>()
   private readonly onCount?: (n: number) => void
 
   constructor(myTag: string, mySeat: number, onCount?: (n: number) => void) {
     this.myTag = myTag
     this.mySeatNum = mySeat
     this.byTag.set(myTag, mySeat) // seat myself immediately
+    this.proven.add(myTag) // this device holds the share; anything else deprioritises its own commit
     this.onCount = onCount
     onCount?.(1)
   }
@@ -63,8 +72,11 @@ export class SigningSeats {
     if (heldBy !== undefined) {
       if (!proven) return this.seatCount() // occupied + unproven -> never evict
       this.byTag.delete(heldBy) // proven takeover: the seat's own share-holder, reloaded
+      this.proven.delete(heldBy) // and the evicted tag stops counting as proven with it
     }
     this.byTag.set(fromTag, seat)
+    if (proven) this.proven.add(fromTag)
+    else this.proven.delete(fromTag)
     const count = this.seatCount()
     this.onCount?.(count)
     return count
@@ -73,6 +85,13 @@ export class SigningSeats {
   /** 1-based seat of a relay tag, or undefined if that tag has not announced yet. */
   seatOf(tag: string): number | undefined {
     return this.byTag.get(tag)
+  }
+
+  /** Did this tag prove it holds its seat's share (#392/#399)? False for a tag that only claimed an
+   *  empty seat, and false for one that never announced. The coordinator prefers these when it picks
+   *  the threshold set, so an unproven claim on an empty low seat cannot poison the aggregate. */
+  isProven(tag: string): boolean {
+    return this.proven.has(tag)
   }
 
   /** This device's own 1-based seat. */

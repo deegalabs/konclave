@@ -62,6 +62,8 @@ function makeDev(tag: string, bus: Bus, mat: () => { keyPackage: Uint8Array; gro
   dev.signer = new BackgroundSigner({
     signingMaterial: mat,
     seatOf: (t) => SEATS[t],
+    seatIsProven: () => true, // #399 is exercised in signing-machine.test.ts; all seats real here
+
     mySeat: () => SEATS[tag]!,
     threshold: () => 2,
     hasVault: () => true,

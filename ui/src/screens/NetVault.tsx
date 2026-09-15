@@ -403,6 +403,12 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
     machineRef.current = new SigningMachine({
       signingMaterial,
       seatOf: (tag) => seatByTagRef.current.get(tag),
+      // #399: this driver has no notion of a proven seat. Its map is tag -> seat and nothing here
+      // ever verified a rejoin signature, so the honest answer is false for every tag, which makes
+      // the coordinator fall back to the lowest-seats order it has always used. Stated rather than
+      // omitted, so the gap is visible at the call site instead of hiding behind a default. Closing
+      // it properly is #363 (this driver never got the replay mitigation either).
+      seatIsProven: () => false,
       mySeat: () => mySeatRef.current,
       threshold: () => configRef.current?.t ?? 0,
       hasVault: () => part3DoneRef.current,
@@ -602,6 +608,8 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
             }
           }
         }
+        // The drain is done: let the machine act on the whole of it, not on each message (#399).
+        await machineRef.current?.afterDrain()
       } while (rerunRef.current)
     } finally {
       advancingRef.current = false
