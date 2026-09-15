@@ -75,7 +75,7 @@ upgrade on mainnet.
 
 ## Proven on Zcash mainnet
 
-This is not a mock. **18 verifiable mainnet transactions**, every one a real FROST ceremony with
+This is not a mock. **19 verifiable mainnet transactions**, every one a real FROST ceremony with
 the key never reconstituted - quorums of 2-of-2, 2-of-3 and 3-of-4. The flagship is an application-driven **quorum payment** - proposed
 and approved in the app, signed by a FROST ceremony, broadcast to mainnet:
 
@@ -219,7 +219,7 @@ not promise what we do not deliver.
 
 **Proven vs pending, the honest ladder:**
 
-- ✅ **On mainnet, 18 independently verifiable txids** (`node scripts/verify-proof.mjs`, or the
+- ✅ **On mainnet, 19 independently verifiable txids** (`node scripts/verify-proof.mjs`, or the
   [/proof](https://konclave-demo.vercel.app/#/proof) page): a **2-of-3 quorum payment** (proposed and
   approved in the app, FROST-signed, shares **sealed** at rest); a **private
   payroll**, one shielded Orchard transaction with **three outputs, each carrying its own encrypted

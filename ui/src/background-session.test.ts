@@ -52,6 +52,8 @@ function makeDev(tag: string, seat: number, bus: Bus, mat: () => { keyPackage: U
   dev.session = new BackgroundSession({
     myTag: tag,
     mySeat: seat,
+    // #281 is asserted in signing-machine.test.ts; permissive here, where the subject is seating.
+    paysWhatWasApproved: () => true,
     signingMaterial: mat,
     threshold: () => 2,
     send: async (data) => { bus.post(tag, data); return true },

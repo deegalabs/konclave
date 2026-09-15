@@ -68,6 +68,10 @@ export interface VaultPublic {
    *  `false` = a legacy/open vault (a leaked id can read its books). Derived from the presence of the
    *  sealed S, never the secret itself, so it is safe to expose without unlocking. */
   secured?: boolean
+  /** The vault's internal (change) receiver, captured once (#281). Present means the money gate can
+   *  tell this vault's own change from a stranger; absent means UNKNOWN, and the gate must stay
+   *  unarmed rather than read it as an empty allowlist. */
+  changeReceiver?: string
 }
 
 /** Plaintext payload handed to saveVault; `sealedShare` is the secret to be encrypted at rest. */
@@ -108,6 +112,8 @@ export interface VaultLoaded {
    *  cannot fetch it at all. */
   ufvk?: string
   birthday?: number
+  /** The pinned internal (change) receiver (#281), when this device captured one. */
+  changeReceiver?: string
 }
 
 // Internal on-disk record. `cipher`/`salt`/`iv` protect `sealedShare`; `secretCipher`/`secretIv`
@@ -136,6 +142,12 @@ interface VaultRecord {
    *  is view-only material - it reads the vault's history and cannot move a coin, unlike a share. */
   ufvk?: string
   birthday?: number
+  /** The vault's internal (change) receiver, as the helper published it (#281). WRITE-ONCE: only
+   *  `recordChangeReceiver` sets it, and only when the slot is empty. The device cannot derive this
+   *  - `zcash-sign generate` mints the viewing key from a random `sk` it discards - so it is told,
+   *  once, and pinned. Pinning is the whole point: a helper that turns hostile later cannot re-answer
+   *  with an attacker's receiver and have the gate accept it as "our change". */
+  changeReceiver?: string
 }
 
 
@@ -367,6 +379,7 @@ export async function loadVault(id: string, passphrase: string): Promise<VaultLo
     createdAt: record.createdAt,
     accessSecret,
     ufvk: record.ufvk,
+    changeReceiver: record.changeReceiver,
     birthday: record.birthday,
   }
 }
@@ -441,6 +454,11 @@ interface V2Payload {
    *  vault cannot: the helper refuses to hand a viewing key out by id alone). */
   ufvk?: string
   birthday?: number
+  /** The pinned internal (change) receiver (#281). It rides inside the encrypted blob for the same
+   *  reason the viewing key does: a restore that dropped it would have to re-ask the helper, and
+   *  that re-opens the exact window the pin exists to close - by then the helper may be the thing
+   *  being defended against. Absent on an export written before this. */
+  changeReceiver?: string
 }
 
 /**
@@ -510,6 +528,7 @@ export async function exportVault(
     ...((birthday ?? loaded.birthday) !== undefined
       ? { birthday: birthday ?? loaded.birthday }
       : {}),
+    ...(loaded.changeReceiver ? { changeReceiver: loaded.changeReceiver } : {}),
   }
 
   const salt = crypto.getRandomValues(new Uint8Array(16))
@@ -586,6 +605,8 @@ interface DecodedImport {
    *  before #214, so an importer must treat it as "not in this file", never as "none exists". */
   ufvk?: string
   birthday?: number
+  /** The pinned change receiver (#281), when the export carried one. */
+  changeReceiver?: string
 }
 
 /** Decode a v2 opaque blob: decrypt the whole payload with the passphrase, then read the fields. */
@@ -611,6 +632,8 @@ async function decodeV2(b: VaultExportV2, passphrase: string): Promise<DecodedIm
     share: unhex(p.share), accessSecret: p.accessSecret ? unhex(p.accessSecret) : undefined,
     beneficiaries: Array.isArray(p.beneficiaries) ? p.beneficiaries : undefined,
     ufvk: typeof p.ufvk === 'string' && p.ufvk ? p.ufvk : undefined,
+    changeReceiver:
+      typeof p.changeReceiver === 'string' && p.changeReceiver.trim() ? p.changeReceiver.trim() : undefined,
     // A height, so it is validated as one: a string or a negative here would be a corrupt bundle,
     // and a wrong scan floor is the one failure that looks like a successful restore (#480).
     birthday:
@@ -758,6 +781,7 @@ export async function importVault(
     // same bargain (#480): decoding it and dropping it restores a wallet that starts at now.
     ...(d.ufvk ? { ufvk: d.ufvk } : {}),
     ...(d.birthday !== undefined ? { birthday: d.birthday } : {}),
+    ...(d.changeReceiver ? { changeReceiver: d.changeReceiver } : {}),
   }
 
   const db = await openDb()
@@ -796,7 +820,7 @@ export async function listVaults(): Promise<VaultPublic[]> {
     const records = await reqDone(tx.objectStore(STORE).getAll() as IDBRequest<VaultRecord[]>)
     await txDone(tx)
     return records
-      .map((r) => ({ id: r.id, name: r.name, governance: r.governance, myName: r.myName, creatorName: r.creatorName, groupKey: r.groupKey, address: r.address, roster: r.roster, createdAt: r.createdAt, secured: !!r.secretCipher }))
+      .map((r) => ({ id: r.id, name: r.name, governance: r.governance, myName: r.myName, creatorName: r.creatorName, groupKey: r.groupKey, address: r.address, roster: r.roster, createdAt: r.createdAt, secured: !!r.secretCipher, changeReceiver: r.changeReceiver }))
       .sort((a, b) => b.createdAt - a.createdAt)
   } finally {
     db.close()
@@ -811,6 +835,53 @@ export async function listVaults(): Promise<VaultPublic[]> {
  *  screen recorded it hold `''` forever, and the device cannot re-derive one - `zcash-sign` mints it
  *  from a random `sk` it discards. So it is backfilled from the helper on first sight (#501), which
  *  is the only other place it exists. */
+/**
+ * Pin the vault's internal (change) receiver, once (#281).
+ *
+ * The money gate decides on recipient BYTES, so it has to tell the vault's own change output from a
+ * stranger's. It cannot work that out: `zcash-sign generate` derives the full viewing key from a
+ * random `sk` it then throws away, so the internal address is not a function of any public material
+ * the device holds. The helper knows it and publishes it; this records it.
+ *
+ * WRITE-ONCE, and that is the security property rather than a storage nicety. Capturing it trusts
+ * the helper at that one moment - the same trust the external `address` already gets. Refusing every
+ * later write is what buys something: a helper that turns hostile AFTER capture cannot re-answer
+ * `/api/vault` with the attacker's receiver and have the gate wave its output through as change.
+ * Without the refusal the gate would only ever trust whatever the helper said most recently, which
+ * is the hole #281 exists to close.
+ *
+ * An empty or blank value is REFUSED rather than stored: the helper answers `""` for registrations
+ * written before the field existed, and storing that would burn the one slot on a value meaning
+ * "unknown", after which the real receiver could never be captured.
+ *
+ * @returns true if this call wrote it; false if one was already pinned, the value was unusable, or
+ *          the vault is not on this device. Callers must not read a `false` as a success.
+ */
+export async function recordChangeReceiver(id: string, receiver: string): Promise<boolean> {
+  if (!storageAvailable()) return false
+  const value = (receiver ?? '').trim()
+  if (!value) return false
+  const db = await openDb()
+  try {
+    // Read and write in SEPARATE transactions: awaiting a get inside a readwrite tx lets it
+    // auto-commit before the put runs, and the write silently vanishes (the bug behind the stale
+    // `myName`, see updateVaultMeta).
+    const readTx = db.transaction(STORE, 'readonly')
+    const rec = await reqDone(readTx.objectStore(STORE).get(id) as IDBRequest<VaultRecord | undefined>)
+    await txDone(readTx)
+    if (!rec) return false
+    if (rec.changeReceiver) return false // already pinned - never overwrite
+    const writeTx = db.transaction(STORE, 'readwrite')
+    writeTx.objectStore(STORE).put({ ...rec, changeReceiver: value })
+    await txDone(writeTx)
+    return true
+  } catch {
+    return false
+  } finally {
+    db.close()
+  }
+}
+
 export async function updateVaultMeta(
   id: string,
   patch: Partial<Pick<VaultRecord, 'name' | 'myName' | 'creatorName' | 'address'>>,
