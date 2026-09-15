@@ -40,6 +40,25 @@ describe('the WASM is initialised in one place', () => {
     ).toEqual([])
   })
 
+  it('and the one call that exists uses the supported signature', () => {
+    // wasm-bindgen deprecated the positional form. The glue still honours it and warns every single
+    // load ("using deprecated parameters for the initialization function; pass a single object
+    // instead"), so the warning reached the console of everyone using the product - sitting next to
+    // the real diagnostics, which is how a warning that means something gets missed. Pinned here
+    // because the generated glue is REGENERATED on every wasm build: nothing else would notice the
+    // day it stops accepting the old form, and the failure then is a blank screen, not a warning.
+    // Comments are stripped FIRST. The file explains what was replaced, so it necessarily contains
+    // the deprecated form as prose - and a guard satisfied (or broken) by the comment beside it
+    // measures nothing. This repo has hit that both ways: a className test passed on its own comment.
+    const code = readFileSync(join(SRC, 'wasm-ready.ts'), 'utf8')
+      .split('\n')
+      .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
+      .join('\n')
+
+    expect(code, 'init must be passed an object').toMatch(/init\(\s*\{\s*module_or_path:/)
+    expect(/init\(\s*wasmUrl\s*\)/.test(code), 'the deprecated positional form is back').toBe(false)
+  })
+
   it('and nothing else reaches for the raw .wasm url', () => {
     // The url import is the other half of a hand-rolled init. Keeping it in one file is what makes
     // the rule above checkable at all.
