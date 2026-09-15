@@ -40,6 +40,19 @@ explicitly accepted.
 
 ### Fixed
 
+- **A payment that could never be signed was still put to a vote.** When the amount needed funds
+  from both of the vault's internal pools, the transaction was built, the proposal was created, the
+  quorum read it and approved it, and only then did the signing step refuse it, with a message
+  about something else. Everyone's attention had already been spent, and the proposal could not be
+  retried: it failed the same way every time.
+
+  The question is now asked while the proposal is being composed, which is the moment it can still
+  be answered cheaply, and the answer says what to do: send it as two payments, or consolidate the
+  vault first. Nothing about signing changed, and vaults holding their funds in a single pool are
+  unaffected.
+
+### Fixed
+
 - **Every page load printed a deprecation warning to the console.** The cryptography module was
   started with a call shape its own loader marks as obsolete, so it warned on each load, in
   everyone's browser, sitting next to the diagnostics that actually mean something. Nothing
