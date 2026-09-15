@@ -615,7 +615,7 @@ export const en: Record<string, string> = {
   'payment.rateAgo': '{m}m ago',
   'payment.memoLabel': 'Memo · receipt/payslip · only the recipient reads it',
   'payment.memoDisabledPlaceholder': 'no memo on a transparent address',
-  'payment.feeEstimate': 'Estimated fee **0.0001 ZEC** · confirmed when the transaction is built',
+  'payment.feeEstimate': 'Estimated fee **{fee} ZEC** · confirmed when the transaction is built',
   'payment.reviewTag': 'The draft your co-signers will review',
   'payment.pvProposes': 'Proposes',
   'payment.pvPays': 'Pays',

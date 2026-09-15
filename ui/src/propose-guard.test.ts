@@ -177,3 +177,39 @@ describe('every screen that asks the gate also tells it about the pools (#427)',
     expect(callers.length, 'no screen calls proposeBlock at all').toBeGreaterThan(0)
   })
 })
+
+describe('the fee a member is SHOWN is the fee they are BLOCKED by (#427 follow-up)', () => {
+  // Found by a member on a real vault on 2026-09-15, which is the only reason it was found at all.
+  // The screen said "Estimated fee 0.0001 ZEC" from a hardcoded i18n string while the gate
+  // subtracted 15000 (0.00015). So a vault holding exactly the announced fee was told it could not
+  // afford a payment that the arithmetic printed beside it said it could, and the member reasonably
+  // concluded the gate was broken rather than the copy.
+  //
+  // The number now comes from SINGLE_PAYMENT_FEE_ZAT in both places. This asserts the copy cannot
+  // hardcode it again, which is how it drifted in the first place: a fee in prose is a fee nobody
+  // updates when the constant moves.
+  const SRC = new URL('.', import.meta.url).pathname
+
+  it('the fee copy is a placeholder, never a number', () => {
+    for (const locale of ['i18n/en.ts', 'i18n/pt-BR.ts']) {
+      const line = readFileSync(join(SRC, locale), 'utf8')
+        .split('\n')
+        .find((l) => l.includes('payment.feeEstimate'))
+      expect(line, `${locale} has no payment.feeEstimate`).toBeTruthy()
+      expect(line, `${locale} must interpolate the fee`).toContain('{fee}')
+      expect(
+        /\d+\.\d+/.test(line ?? ''),
+        `${locale} hardcodes a fee amount in prose: ${line}`,
+      ).toBe(false)
+    }
+  })
+
+  it('and the payment screen subtracts that same constant', () => {
+    const screen = readFileSync(join(SRC, 'screens/NewPayment.tsx'), 'utf8')
+    expect(screen, 'the gate must use the shared constant').toContain('SINGLE_PAYMENT_FEE_ZAT')
+    expect(
+      /const feeZat = \d+/.test(screen),
+      'a bare numeric fee is back, and the copy will not follow it',
+    ).toBe(false)
+  })
+})

@@ -12,7 +12,7 @@ import {
 import { listVaults } from '../storage'
 import { RecipientCombobox } from '../RecipientCombobox'
 import { usdEnabled, setUsdEnabled, cachedRate, rateIsStale, fetchRate, zecToUsd, type Rate } from '../price'
-import { proposeBlock, blockMessageKey, poolsOf } from '../propose-guard'
+import { proposeBlock, blockMessageKey, poolsOf, SINGLE_PAYMENT_FEE_ZAT } from '../propose-guard'
 
 const MEMO_MAX = 512
 
@@ -121,7 +121,7 @@ export default function NewPayment() {
   // ZIP-317 conservative estimate covering the change output (the real single-payment fee observed
   // on mainnet was 15000). Better to slightly over-estimate so we never let an unsendable amount
   // through to a dead-end proposal.
-  const feeZat = 15000
+  const feeZat = SINGLE_PAYMENT_FEE_ZAT
   const afterZat = availableZat == null || amountZat == null ? null : availableZat - amountZat - feeZat
   // The submit gate is a pure rule (`propose-guard.ts`) shared with the payroll screen, because it
   // used to live inline in both and FAIL OPEN in both: any figure that would not parse made the
@@ -242,7 +242,7 @@ export default function NewPayment() {
             {memo.trim() && !publicDest && <div className="pv-row"><span className="pv-k">{t('payment.pvMemo')}</span><span className="pv-v">“{memo.trim()}”</span></div>}
             <div className="pv-row"><span className="pv-k">{t('payment.pvApprovals')}</span><span className="pv-v"><b>{threshold}</b> {t('payment.includingYours')}</span></div>
             <div className="pv-row"><span className="pv-k">{t('payroll.pvAfter')}</span><span className="pv-v">{afterZat === null ? <b className="dim">-</b> : <b className="num">{fmtZecExact(afterZat / 1e8)}</b>}</span></div>
-            <div className="pv-fee mono dim">{tr('payment.feeEstimate')}</div>
+            <div className="pv-fee mono dim">{tr('payment.feeEstimate', { fee: fmtZecExact(feeZat / 1e8) })}</div>
           </div>
 
           {overBalance && <div className="hint warn mt-sm">{t('payment.warnOverBalance')}</div>}
