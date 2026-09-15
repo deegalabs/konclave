@@ -38,6 +38,15 @@ explicitly accepted.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The payment screen announced one network fee and refused you with another.** It printed
+  "Estimated fee 0.0001 ZEC" beside the amount, and then blocked the proposal using a figure half
+  again as large. A vault holding exactly the announced fee was told it could not afford a payment
+  that the arithmetic on the same screen said it could, so the reasonable conclusion was that the
+  block was broken rather than the sentence. The fee shown is now the fee applied, from one place,
+  and the copy can no longer carry a number of its own.
+
 ### Security
 
 - **On a transaction that spent from both shielded pools, a device signed half of it and said
