@@ -40,6 +40,25 @@ explicitly accepted.
 
 ### Security
 
+- **Anyone who could write to a vault's signing room could make a payment fail.** The second round
+  of a signature is opened by one member handing the others a package to sign. Each device checked
+  that the package was for the transaction it had approved, and that its own seat was listed - but
+  never checked WHO sent it. The round is readable by design, so a single message assembled from
+  what is already in it was enough: every device would sign that package, spend the one-time value
+  it may only use once, and have nothing left when the real member's package arrived. The payment
+  then failed and could not be retried in that attempt.
+
+  No money could be moved to anywhere it was not approved to go: a device still refuses any
+  transaction other than the one it recomputed for itself, so the worst outcome was a payment that
+  did not go out. What the sender did obtain was the finished signature for the approved payment,
+  without the deliberate confirm the send is built on.
+
+  A device now refuses a package from a member that does not hold the seat that opens the round. A
+  sender it has not placed YET is held rather than refused, because a device learns its peers'
+  seats from their own announcements and one can legitimately arrive after the package; refusing
+  those would have traded this hole for payments that silently stop. Nothing needs to be migrated
+  and no vault is stranded. (#519)
+
 - **Someone who took an empty seat could stall a payment.** In a vault that signs with fewer members
   than it has, a seat whose device was offline could be claimed by an outsider, who then sent a
   contribution nobody's share had made. The signature failed to verify and the payment did not go
