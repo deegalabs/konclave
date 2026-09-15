@@ -20,6 +20,15 @@ import { readFileSync } from "node:fs";
 //
 // Requirements: Node 18+ (uses global fetch). No npm install needed.
 // Usage: node scripts/verify-proof.mjs
+//
+// EXIT CODES, because the three answers are not the same answer:
+//   0  every txid verified on mainnet
+//   1  at least one txid was NOT found or not mined - a statement about the chain
+//   2  inconclusive: nothing refuted, but an explorer could not be reached for at least one txid
+//   3  docs/PROOF.md could not be parsed (usage/format problem, not a result)
+// 1 and 2 shared an exit code until 2026-09-15, so "the wifi dropped" and "this transaction does
+// not exist" were indistinguishable to anything calling this - including a person reading the tail
+// of the output.
 
 // The list is READ FROM docs/PROOF.md, not duplicated here. It used to be a hard-coded array, and
 // it drifted: the document said eleven transactions while the script checked eight - so the very
@@ -34,11 +43,17 @@ const TXIDS = readFileSync(PROOF, "utf8")
 
 if (TXIDS.length === 0) {
   console.error("No transactions found in docs/PROOF.md - has the table format changed?");
-  process.exit(2);
+  process.exit(3); // a usage/parse problem, distinct from both a failed proof (1) and a flaky network (2)
 }
 
 
 const TIMEOUT_MS = 15000;
+/** How many times to re-ask the whole explorer set for one txid before calling it unreachable. */
+const RETRIES = 4;
+/** Linear backoff between those attempts (attempt N waits N * this). Linear, not exponential: the
+ *  failure being waited out is a per-minute rate window, not a struggling server. */
+const BACKOFF_MS = 4000;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function fetchJson(url) {
   const controller = new AbortController();
@@ -141,18 +156,29 @@ async function verifyOne(entry) {
   console.log(`\n── ${txid}`);
   console.log(`   ${label}`);
 
+  // Both explorers are public and rate-limited, and a long run WILL hit that: they answer the first
+  // dozen txids and start refusing. Before this, the first refusal made the whole run inconclusive -
+  // so the command offered as "don't trust us, check" reported nothing about the chain, and did it
+  // in a way that looked like a failure. A rate limit is a reason to WAIT, not a verdict.
   const adapters = [viaBlockchair, viaZcashExplorer];
   let result = null;
   const errors = [];
-  for (const adapter of adapters) {
-    const r = await adapter(txid);
-    if (r.error) {
-      errors.push(r.error);
-      console.log(`   … ${r.error} (trying next explorer)`);
-      continue;
+  for (let attempt = 0; attempt < RETRIES && !result; attempt++) {
+    if (attempt > 0) {
+      const wait = BACKOFF_MS * attempt;
+      console.log(`   … every explorer refused; waiting ${wait}ms before retry ${attempt}/${RETRIES - 1}`);
+      await sleep(wait);
     }
-    result = r;
-    break;
+    for (const adapter of adapters) {
+      const r = await adapter(txid);
+      if (r.error) {
+        errors.push(r.error);
+        if (attempt === 0) console.log(`   … ${r.error} (trying next explorer)`);
+        continue;
+      }
+      result = r;
+      break;
+    }
   }
 
   if (!result) {
@@ -200,21 +226,69 @@ async function main() {
   }
 
   console.log("\n───────────────────────────────────────────────");
-  const anyNetworkFailure = results.some((r) => r.networkFailure);
-  const allConfirmed = results.every((r) => r.ok);
+  const verified = results.filter((r) => r.ok).length;
+  const unreachable = results.filter((r) => r.networkFailure).length;
+  const refuted = results.length - verified - unreachable;
 
-  if (anyNetworkFailure) {
-    console.log("VERDICT: INCONCLUSIVE - a public explorer could not be reached.");
-    console.log("The network appears unavailable. Re-run when online; this is not a");
-    console.log("statement about the transactions, only about connectivity.");
+  // THE COUNT IS PRINTED, because it is the thing people quote. Every public number about this
+  // project's proof - the README, CLAUDE.md, a forum post - is supposed to come from this command,
+  // and until now the command did not state one: you had to grep its log, which is how the README
+  // ended up saying "eight" while the document it checks listed seventeen.
+  console.log(`CHECKED: ${results.length} txids from docs/PROOF.md`);
+  console.log(`  verified on mainnet: ${verified}`);
+  if (refuted > 0) console.log(`  NOT found or not mined: ${refuted}`);
+  if (unreachable > 0) console.log(`  no explorer could be reached for: ${unreachable}`);
+  console.log("");
+
+  // Three different answers, three different exit codes. They used to share exit 1, so a caller
+  // could not tell "the chain says this transaction does not exist" from "the wifi dropped" - and
+  // those two deserve opposite reactions. A flaky explorer must never read as a failed proof.
+  if (refuted > 0) {
+    console.log("VERDICT: FAILED - at least one txid was not confirmed as found+mined.");
+    console.log("This IS a statement about the transactions. Investigate before publishing anything.");
     process.exit(1);
   }
 
-  if (allConfirmed) {
-    console.log("VERDICT: VERIFIED - the txids are real, mined Zcash mainnet transactions.");
-  } else {
-    console.log("VERDICT: FAILED - at least one txid was not confirmed as found+mined.");
+  if (unreachable > 0) {
+    console.log("VERDICT: INCONCLUSIVE - a public explorer could not be reached for every txid.");
+    console.log(`Nothing was refuted: ${verified} of ${results.length} verified, ${unreachable} unreachable.`);
+    console.log("Public explorers rate-limit long runs. Re-run later; this is a statement about");
+    console.log("connectivity, not about the transactions.");
+    process.exit(2);
   }
+
+  // DOES THE REST OF THE REPO AGREE WITH THIS NUMBER?
+  //
+  // The script's own header records this drifting once already: "the document said eleven
+  // transactions while the script checked eight - so the very command offered as 'don't trust us,
+  // check' disagreed with the claim it was meant to verify." Fixing the list did not stop it
+  // happening again: on 2026-09-15 the README said EIGHT while this table held seventeen.
+  //
+  // Checked here rather than in a test because this is the command someone runs immediately before
+  // quoting the number - in a forum post, a README, a grant application. A warning at that moment is
+  // read; a failing test in a suite nobody runs before writing prose is not.
+  const claims = [];
+  for (const doc of ["../README.md", "../CLAUDE.md", "../docs/ARCHITECTURE.md"]) {
+    let text;
+    try {
+      text = readFileSync(new URL(doc, import.meta.url), "utf8");
+    } catch {
+      continue; // a missing doc is not this script's problem to report
+    }
+    for (const m of text.matchAll(/\b(\d+)\s+(?:independently\s+)?verifiable\s+mainnet\s+(?:txids|transactions)|\b(\d+)\s+(?:independently\s+)?verifiable\s+txids/g)) {
+      const n = Number(m[1] ?? m[2]);
+      if (Number.isFinite(n) && n !== results.length) {
+        claims.push(`${doc.replace("../", "")} says ${n}`);
+      }
+    }
+  }
+  if (claims.length > 0) {
+    console.log(`WARNING: ${results.length} txids are listed here, but ${claims.join("; ")}.`);
+    console.log("Whichever is wrong, do not publish a number until they agree.");
+    console.log("");
+  }
+
+  console.log("VERDICT: VERIFIED - the txids are real, mined Zcash mainnet transactions.");
 
   console.log("\nHonest scope: this proves existence + mined state on mainnet. Being");
   console.log("shielded, these transactions reveal nothing on-chain about amounts or");
@@ -223,7 +297,7 @@ async function main() {
   console.log("single-signer one - that indistinguishability is the privacy property.");
   console.log("The threshold nature is attested by the build and ceremony, not the chain.");
 
-  process.exit(allConfirmed ? 0 : 1);
+  process.exit(0);
 }
 
 main().catch((err) => {
