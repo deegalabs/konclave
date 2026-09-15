@@ -251,9 +251,22 @@ export class SigningMachine {
       }
       this.started = true
       this.msg = localSighash // sign what our own PCZT commits to, never the wire value
-      // Every device reads ALL real Orchard spends (index + alpha) from the proven PCZT it holds
-      // - it signs only what it can independently see. One ceremony per spend, in order.
-      this.spends = parseAlphas(pczt)
+      // Every device reads ALL real spends (index + alpha) from the proven PCZT it holds - it signs
+      // only what it can independently see. One ceremony per spend, in order.
+      //
+      // This is wrapped because #364 gave it a reason to THROW that it did not have before. It used
+      // to answer the pool question itself and, on a transaction spending from both pools, quietly
+      // return only the Orchard half. Now it refuses. Unwrapped, that refusal would travel up
+      // through `pump()` (try/finally, no catch) and out of the relay subscription as an unhandled
+      // rejection: the member would see nothing at all, which trades a wrong signature for a silent
+      // stall. The engine's own sentence is appended because "which transaction, and why" is the
+      // whole value of the refusal.
+      try {
+        this.spends = parseAlphas(pczt)
+      } catch (e) {
+        this.d.onError(this.d.tt('net.err.unreadableSpends') + ' ' + String(e))
+        return true
+      }
       this.sigs = []
       this.startedSpends = new Set()
       // "What am I signing?" - confirm what the tx pays before contributing any signature.

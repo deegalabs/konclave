@@ -1034,27 +1034,52 @@ pub mod pczt_bridge {
         Ok(r)
     }
 
-    /// Which pool this transaction's FROST spends live in (Orchard pre-NU6.3, Ironwood post-NU6.3).
-    fn active_pool(pczt: &Pczt) -> Result<bool, String> {
-        let has_orchard = !orchard_spends(pczt)?.is_empty();
-        let has_ironwood = !ironwood_spends(pczt)?.is_empty();
+    /// The pool decision itself, over nothing but the two answers.
+    ///
+    /// Pulled out as a pure function for two reasons. It is the rule three callers need, and it is
+    /// the only part of the rule that can be TESTED without a mixed PCZT - which does not exist in
+    /// this repo and is not cheap to build. Taking booleans means every branch, including the mixed
+    /// one that has never run against a fixture, is exercised.
+    ///
+    /// `Ok(true)` = Ironwood, `Ok(false)` = Orchard.
+    fn decide_pool(has_orchard: bool, has_ironwood: bool) -> Result<bool, String> {
         match (has_orchard, has_ironwood) {
             (true, false) => Ok(false),
             (false, true) => Ok(true),
             (false, false) => Err("no real shielded spends to sign in this PCZT".into()),
-            (true, true) => Err("mixed Orchard+Ironwood spends are not supported".into()),
+            // Worded to match konclave-signer's refusal exactly. A member who hits this on one
+            // runtime and then the other must not be told two different things about one cause.
+            (true, true) => {
+                Err("mixed Orchard+Ironwood spends are not supported by this bridge".into())
+            }
         }
+    }
+
+    /// Which pool this transaction's FROST spends live in (Orchard pre-NU6.3, Ironwood post-NU6.3).
+    fn active_pool(pczt: &Pczt) -> Result<bool, String> {
+        decide_pool(
+            !orchard_spends(pczt)?.is_empty(),
+            !ironwood_spends(pczt)?.is_empty(),
+        )
     }
 
     /// Parse a proven PCZT and return the `(action_index, alpha)` randomizers of the real spends
     /// that need a FROST signature, from whichever pool the tx spends from.
+    ///
+    /// This used to answer the pool question ITSELF - `if !orchard.is_empty() { return orchard }`,
+    /// falling through to Ironwood - four lines below an `active_pool` it did not call (#364). Its
+    /// two siblings in this module, `describe_outputs` and `inject_sigs`, did call it. So on a mixed
+    /// PCZT the browser returned only the ORCHARD SUBSET and raised nothing, while the native signer
+    /// refused: the device would contribute signatures for half the spends and stay quiet about the
+    /// rest. It is the repo's most repeated defect (one rule, two implementations, one of them
+    /// diverged) and the diverged copy was the one the live ceremony consumes.
     pub fn extract_randomizers(pczt_bytes: &[u8]) -> Result<Vec<(usize, [u8; 32])>, String> {
         let pczt = Pczt::parse(pczt_bytes).map_err(|e| format!("failed to parse PCZT: {:?}", e))?;
-        let orchard = orchard_spends(&pczt)?;
-        if !orchard.is_empty() {
-            return Ok(orchard);
+        if active_pool(&pczt)? {
+            ironwood_spends(&pczt)
+        } else {
+            orchard_spends(&pczt)
         }
-        ironwood_spends(&pczt)
     }
 
     /// One Orchard output as the device can read it from a proven PCZT, for the
@@ -1323,6 +1348,95 @@ pub mod pczt_bridge {
         // v2 PCZT the engine produces post-Ironwood (a 4-spend `create-max` Ironwood tx).
         const IW_PROVEN: &[u8] =
             include_bytes!("../tests/vectors/ironwood_single_spend.proven.pczt");
+
+        // #364. The pool decision used to live TWICE in this module: once in `active_pool`, which
+        // `describe_outputs` and `inject_sigs` call, and once inline in `extract_randomizers`, which
+        // is the function the live browser ceremony consumes. They disagreed on exactly one input.
+        //
+        // These take booleans on purpose. A mixed PCZT does not exist in this repo and is not cheap
+        // to build, so every behaviour test here is blind to the one case that matters. Testing the
+        // DECISION instead of the parse makes the mixed branch reachable, and it is the branch that
+        // had never run.
+        #[test]
+        fn decide_pool_answers_every_combination() {
+            assert_eq!(decide_pool(true, false), Ok(false), "orchard only");
+            assert_eq!(decide_pool(false, true), Ok(true), "ironwood only");
+
+            let empty = decide_pool(false, false).unwrap_err();
+            assert!(
+                empty.contains("no real shielded spends"),
+                "nothing to sign must say so, got: {empty}"
+            );
+
+            let mixed = decide_pool(true, true).unwrap_err();
+            assert!(
+                mixed.contains("mixed Orchard+Ironwood"),
+                "a mix must be refused, not silently resolved to one pool, got: {mixed}"
+            );
+        }
+
+        // The refusal a member reads must not depend on which runtime they hit. The native signer
+        // says this exact sentence; a browser saying something else about one cause is how a wrong
+        // failure costs hours (#364's own words).
+        #[test]
+        fn the_mixed_refusal_is_worded_exactly_as_the_native_signers() {
+            assert_eq!(
+                decide_pool(true, true).unwrap_err(),
+                "mixed Orchard+Ironwood spends are not supported by this bridge"
+            );
+        }
+
+        // THE GUARD THAT ACTUALLY CATCHES THIS, and the reason it is a source scan.
+        //
+        // Every behaviour test in this module is blind to #364, and that is worth stating rather
+        // than discovering later: the only fixture is Ironwood-only, and on an Ironwood-only PCZT
+        // the diverged implementation and the correct one return the SAME thing. Restoring the old
+        // `if !orchard.is_empty() { return orchard }` leaves all 22 tests green - measured, not
+        // assumed. A test that looks like a guard and is not is worse than no test, and this repo
+        // has already shipped one (a cross-crate test that built the message with the same function
+        // it verified, self-consistent by construction).
+        //
+        // So the rule is checked where it is written: the pool question has ONE answer in this
+        // module, and the ceremony's reader must ask it rather than answer it.
+        #[test]
+        fn the_pool_question_is_answered_in_one_place() {
+            let src = include_str!("lib.rs");
+            let body = src
+                .split("pub fn extract_randomizers")
+                .nth(1)
+                .expect("extract_randomizers exists")
+                .split("\n    }")
+                .next()
+                .expect("its body is delimited");
+
+            assert!(
+                body.contains("active_pool("),
+                "extract_randomizers must ASK active_pool, not decide the pool itself (#364)"
+            );
+            assert!(
+                !body.contains("is_empty()"),
+                "deciding the pool by emptiness here is the #364 divergence, restored: {body}"
+            );
+        }
+
+        // The regression this closes, stated as the property rather than the fix: the function the
+        // ceremony calls and the function the preview calls must agree on EVERY PCZT. Before #364
+        // they disagreed on the mixed one, and only the preview refused.
+        #[test]
+        fn the_ceremony_and_the_preview_agree_on_the_pool() {
+            let pczt = Pczt::parse(IW_PROVEN).expect("fixture parses");
+            let via_active_pool = active_pool(&pczt).expect("the fixture has real spends");
+            assert!(via_active_pool, "the fixture is an Ironwood tx");
+
+            // extract_randomizers must now reach the SAME answer, and return that pool's spends.
+            let spends = extract_randomizers(IW_PROVEN).expect("extraction succeeds");
+            let ironwood = ironwood_spends(&pczt).expect("ironwood parse");
+            assert_eq!(
+                spends, ironwood,
+                "the ceremony must read the pool active_pool named"
+            );
+            assert!(!spends.is_empty(), "and it must find the real spends");
+        }
         const IW_SIGNED: &[u8] =
             include_bytes!("../tests/vectors/ironwood_single_spend.signed.pczt");
         const IW_SIG0: &[u8] = include_bytes!("../tests/vectors/ironwood_single_spend.sig0.raw");
