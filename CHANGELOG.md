@@ -69,6 +69,18 @@ explicitly accepted.
 
 ### Fixed
 
+- **The vault offered more than it could send in one payment.** The balance a member proposes
+  against is the sum of two internal pools the funds can sit in, and a single payment draws on one
+  of them. So an amount larger than the bigger pool but no larger than the total was accepted,
+  collected approvals from the quorum, and then failed at the moment of signing, with a message
+  about something else. The money was always there; it just was not reachable in one go.
+
+  Such an amount is now refused while it is being typed, and the message says what to do about it:
+  send it as two payments, or consolidate the vault first. Vaults holding their funds in a single
+  pool, which is every vault in use today, see no change.
+
+### Fixed
+
 - **Every page load printed a deprecation warning to the console.** The cryptography module was
   started with a call shape its own loader marks as obsolete, so it warned on each load, in
   everyone's browser, sitting next to the diagnostics that actually mean something. Nothing

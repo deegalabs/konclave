@@ -78,6 +78,18 @@ export type Balance = {
   spendable_zec?: string
   pending_zat?: number
   pending_zec?: string
+  /** The two shielded pools, separately (#427).
+   *
+   *  `spendable_zat` is their SUM, and the sum is a promise the builder cannot always keep: a single
+   *  payment is built from ONE pool whenever one covers it, and crosses pools only when neither
+   *  does - which the signing bridge then refuses. So a payment landing between "more than the
+   *  larger pool" and "no more than the total" is accepted, approved by a quorum, and dies at
+   *  signing. Screens gate on these to stop offering money that cannot be spent in one payment.
+   *
+   *  Both backends have always emitted them; this type simply never carried them. Absent means an
+   *  older helper that predates the Ironwood pool, which is by construction a single-pool vault. */
+  orchard_spendable_zat?: number
+  ironwood_spendable_zat?: number
 }
 
 const ENV = import.meta.env as Record<string, string | undefined>
@@ -272,6 +284,11 @@ export async function getBalance(): Promise<Balance | null> {
       spendable_zat: spendable,
       spendable_zec: zatToZec(spendable),
       chain_tip_height: b.chain_tip_height,
+      // Carried through rather than collapsed (#427). This adapter is where the per-pool split was
+      // lost: both backends emit it and `HelperBalance` declares it, and everything downstream saw
+      // one number because these two lines were missing.
+      orchard_spendable_zat: b.orchard_spendable_zat,
+      ironwood_spendable_zat: b.ironwood_spendable_zat,
     }
   }
   return await getJson<Balance>(withVault('/api/balance'))

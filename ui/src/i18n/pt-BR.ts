@@ -632,6 +632,7 @@ export const ptBR: Record<string, string> = {
   'payment.proposeBtn': 'Propor pagamento',
   'money.blockAmount': "Esse valor não é um número que o cofre consiga pagar. Use ponto no decimal, por exemplo 0.5.",
   'money.blockBalanceUnknown': "Não foi possível ler o saldo do cofre, então isso ainda não dá para conferir. Tente de novo em instantes.",
+  'money.blockCrossesPools': "Este valor é maior do que cabe em um único pagamento. O cofre tem o saldo, mas dividido em dois grupos internos, e um pagamento usa um deles. Envie em dois pagamentos, ou peça a um membro para consolidar o cofre antes.",
   'money.blockNoFunds': "Este cofre ainda não tem saldo gastável. Fundos recebidos há pouco podem estar confirmando.",
   'payment.warnOverBalance': 'O valor mais a taxa de rede passa do que o cofre pode gastar agora. Reduza o valor.',
 
