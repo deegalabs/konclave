@@ -68,15 +68,51 @@ interface Device {
 // point is that seat 2 is held by a tag whose rejoin was never proven.
 const SEATS: Record<string, number> = { A: 1, B: 2, C: 3 }
 
-function makeDevice(tag: string, bus: Bus, mat: () => { keyPackage: Uint8Array; groupVk: Uint8Array; pubkeys: Uint8Array }): Device {
+function makeDevice(
+  tag: string,
+  bus: Bus,
+  mat: () => { keyPackage: Uint8Array; groupVk: Uint8Array; pubkeys: Uint8Array },
+  // The tag -> seat map as THIS device knows it. It defaults to the full roster, which is what every
+  // ceremony test wants; the #519 companion passes a partial one, because the live map is fed by each
+  // peer's `rejoin` and a device genuinely does not know a peer's seat until that rejoin is processed.
+  seats: Record<string, number> = SEATS,
+): Device {
   const dev: Device = { tag, machine: null as unknown as SigningMachine, consumed: new Set(), sig: null, errors: [], bus, unprovenTags: new Set() }
   const deps: SigningDeps = {
     signingMaterial: mat,
-    seatOf: (t) => SEATS[t],
+    seatOf: (t) => seats[t],
     // #399: proven unless this device's harness says otherwise, so the existing ceremonies behave
     // exactly as before. The poison test flips one tag to unproven.
     seatIsProven: (t) => !dev.unprovenTags.has(t),
     mySeat: () => SEATS[tag]!,
+    threshold: () => 2,
+    hasVault: () => true,
+    send: async (m) => { dev.bus.post(tag, JSON.stringify(m)) },
+    rawSend: async (data) => { dev.bus.post(tag, data); return true },
+    onLog: () => {},
+    onError: (msg) => dev.errors.push(msg),
+    onPhase: () => {},
+    onWhat: () => {},
+    onSignature: (hex, ok) => { dev.sig = { hex, ok } },
+    tt: (k) => k,
+  }
+  dev.machine = new SigningMachine(deps)
+  return dev
+}
+
+// A device that BEHAVES as the coordinator but whose relay tag holds no seat in anyone else's map.
+// This is the #519 attacker: it can read the public round-1 commitments off the room, assemble a
+// perfectly well-formed SigningPackage over them, and post it. Nothing about the package is wrong -
+// the sighash is the honest one and the commitments are the live ones, so frost-core's own
+// IncorrectCommitment check passes. The only thing wrong with it is who sent it.
+function makeUnseatedCoordinator(tag: string, bus: Bus, mat: () => { keyPackage: Uint8Array; groupVk: Uint8Array; pubkeys: Uint8Array }): Device {
+  const dev: Device = { tag, machine: null as unknown as SigningMachine, consumed: new Set(), sig: null, errors: [], bus, unprovenTags: new Set() }
+  const deps: SigningDeps = {
+    signingMaterial: mat,
+    // In ITS OWN view it holds seat 1. No peer map contains its tag, which is the whole point.
+    seatOf: (t) => (t === tag ? 1 : SEATS[t]),
+    seatIsProven: () => true,
+    mySeat: () => 1, // it thinks it is the coordinator; no peer agrees
     threshold: () => 2,
     hasVault: () => true,
     send: async (m) => { dev.bus.post(tag, JSON.stringify(m)) },
@@ -274,6 +310,99 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     expect(B.errors.length).toBeGreaterThan(0)
   })
 
+  it('an sp from a tag that holds no seat is refused, and no share leaves (#519)', async () => {
+    // Round 2 accepted a SigningPackage from anyone who could write to the room.
+    //
+    // `handle` passes `fromTag` to `onS1` and `onS2` and dropped it for `onSp`, so the only things
+    // checked were the ceremony tag, the spend index, that the wire msg equalled the locally derived
+    // sighash (#355, which holds), and that this seat was listed. Never WHO sent it.
+    //
+    // Replaying an OLD package does not work, and that is worth knowing: frost-core refuses it with
+    // IncorrectCommitment, because the nonces of a fresh ceremony produce a different commitment. So
+    // the attack is not a replay. It is an outsider assembling a package over the commitments that
+    // are PUBLIC in the room right now - which is what `makeUnseatedCoordinator` does here.
+    //
+    // No theft: the transaction stays the approved one, because #355 refuses a msg this device did
+    // not derive itself. What it costs is the ceremony. The single-use nonce is spent on the
+    // attacker's package, `sentS2` then blocks a second share, and the honest coordinator arrives to
+    // a device with nothing left to give. The legitimate send dies.
+    //
+    // The last assertion is the one that matters. A refusal that has already emitted a share is not
+    // a refusal.
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys })) // seat 2
+    const X = makeUnseatedCoordinator('X', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+
+    const pczt = dkgProvenPczt()
+    bus.post('helper', signRequestFor(pczt).json)
+
+    // B starts and publishes its commitment. X reads it and coordinates over the live commitments.
+    for (let i = 0; i < 6; i++) { await pump(B, bus); await pump(X, bus) }
+
+    const sp = bus.msgs.find((m) => m.data.includes('"sp"'))
+    expect(sp, 'the unseated tag did assemble and post a SigningPackage').toBeTruthy()
+    expect(sp?.from, 'and it came from a tag that holds no seat').toBe('X')
+
+    const shares = bus.msgs.filter((m) => m.from === 'B' && m.data.includes('"s2"')).length
+    expect(shares, 'B must not contribute a share to a package from a tag that holds no seat').toBe(0)
+  })
+
+  it('an sp whose sender is not seated YET is held, not refused, and signs once it is (#519)', async () => {
+    // The false positive the fix has to avoid, and it is not hypothetical: `seatOf` is fed by the
+    // peer's `rejoin`, NOT by its `s1`, so a legitimate coordinator's package can reach a device
+    // before the rejoin that seats it. `background-session` re-drives the signer after every rejoin
+    // precisely for this ("a pending signing message may now know this sender's seat"), which only
+    // works if the message was returned UNCONSUMED. Refusing an unknown sender outright would
+    // consume it and lose the honest send for good - trading #519 for an outage.
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys })) // seat 1, coordinates
+    // B's map does not contain A. Everything else about B is normal.
+    const bSeats: Record<string, number> = { B: 2, C: 3 }
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }), bSeats)
+
+    const req = signRequestFor(dkgProvenPczt())
+    bus.post('helper', req.json)
+    for (let i = 0; i < 6; i++) { await pump(A, bus); await pump(B, bus) }
+
+    // A has coordinated and posted its package; B has seen it and done nothing with it.
+    expect(bus.msgs.some((m) => m.from === 'A' && m.data.includes('"sp"')), 'the coordinator did post a package').toBe(true)
+    expect(bus.msgs.filter((m) => m.from === 'B' && m.data.includes('"s2"')).length, 'B has not signed a sender it cannot place').toBe(0)
+    expect(B.errors, 'and it did not ERROR either - the sender is unknown, not wrong').toEqual([])
+
+    // A's rejoin lands: B now knows the sender's seat, and the driver re-drives the signer.
+    bSeats.A = 1
+    await runCeremony(A, B, bus)
+
+    // One share per spend: each real Orchard spend is its own ceremony, so a two-spend transaction
+    // legitimately produces two `s2` from the same device.
+    expect(bus.msgs.filter((m) => m.from === 'B' && m.data.includes('"s2"')).length, 'B signs every spend once it can place the sender').toBe(req.spendCount)
+    expect(A.sig?.ok, 'and the ceremony completes to a VERIFYING signature').toBe(true)
+  })
+
+  it('a seated peer that is not the coordinator cannot open round 2 either (#519)', async () => {
+    // The attack test uses a tag seated NOWHERE. This one is the other half: a tag every peer HAS
+    // seated, just not at the coordinator's seat. It is the stronger case - the sender is a real
+    // member of the vault - and it is the one that says the check reads the seat rather than merely
+    // asking whether the sender is known.
+    const { s1, s2, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys })) // seat 2
+    // C holds seat 3 in everyone's map, and behaves as though it coordinates. The real seat 1 never
+    // joins, so the only package in the room is C's - B has no honest one to prefer over it.
+    const C = makeDevice('C', bus, () => ({ keyPackage: s2.keyPackage(), groupVk, pubkeys }))
+    Object.defineProperty(C.machine, 'd', { value: { ...(C.machine as unknown as { d: SigningDeps }).d, mySeat: () => 1 } })
+
+    bus.post('helper', signRequestFor(dkgProvenPczt()).json)
+    for (let i = 0; i < 8; i++) { await pump(B, bus); await pump(C, bus) }
+
+    const sp = bus.msgs.find((m) => m.data.includes('"sp"'))
+    expect(sp?.from, 'the seated non-coordinator did post a package').toBe('C')
+    expect(bus.msgs.filter((m) => m.from === 'B' && m.data.includes('"s2"')).length, 'and B refused it').toBe(0)
+    expect(B.errors, 'refused out loud, because a known sender at the wrong seat is a real refusal').toContain('net.err.notCoordinator')
+  })
+
   it('H1 round 2: a coordinator cannot swap the message in the SigningPackage (#354)', async () => {
     // The `sreq` check binds round 1 to the sighash this device computed from its OWN PCZT. Round 2
     // used to hand that back: `onSp` overwrote the local sighash with the coordinator's wire value,
@@ -370,5 +499,27 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     expect(B.sig?.ok).toBe(true)
     expect(A.sig?.hex).toBe(B.sig?.hex) // the two devices agree on payment 2's signature
     expect(A.sig!.hex).not.toBe(sig1) // fresh nonces -> a genuinely new ceremony, not a replay
+  })
+})
+
+describe('who coordinates is asked in one place (#519)', () => {
+  // The defect this repo produces most is one rule with two implementations and only one of them
+  // updated (#424, #425, #439, #349). #519 is its purest form: the coordinator's seat was written
+  // into `coordinateIfReady` and simply never written into `onSp`, so for two rounds of hardening
+  // every device answered "yes" to a package from anyone. The rule now has a name, and this asserts
+  // the name is the only way to ask - a second bare literal is how the drift starts again.
+  const SRC = readFileSync(new URL('./signing-machine.ts', import.meta.url), 'utf8')
+
+  it('no seat is compared against a bare literal 1', () => {
+    const offenders = SRC.split('\n')
+      .map((line, i) => ({ line: line.trim(), n: i + 1 }))
+      .filter(({ line }) => /\w*[sS]eat\w*\s*(\(\))?\s*[!=]==\s*1\b/.test(line))
+      .map(({ line, n }) => `signing-machine.ts:${n}  ${line}`)
+
+    expect(offenders, `these ask who coordinates with a literal instead of COORDINATOR_SEAT:\n${offenders.join('\n')}`).toEqual([])
+  })
+
+  it('and both the coordinator and the verifier read the same constant', () => {
+    expect(SRC.match(/COORDINATOR_SEAT/g)?.length ?? 0, 'the declaration plus BOTH readers').toBeGreaterThanOrEqual(3)
   })
 })

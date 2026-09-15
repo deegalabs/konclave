@@ -87,6 +87,17 @@ function hex(bytes: Uint8Array): string {
 const shortId = (s: string) => (s.length > 24 ? `${s.slice(0, 14)}…${s.slice(-6)}` : s)
 const fmtZec = (zat: number) => (zat / 1e8).toFixed(8).replace(/0+$/, '').replace(/\.$/, '')
 
+/**
+ * The seat that coordinates: assembles the SigningPackage and aggregates the shares.
+ *
+ * It lives here as a named constant because it is read TWICE - once by the device deciding it should
+ * coordinate (`coordinateIfReady`) and once by the device deciding whether to believe a package it
+ * was sent (`onSp`) - and those two answering differently is exactly #519: for as long as `onSp` did
+ * not ask at all, every device believed a package from anyone. The repeated failure in this codebase
+ * is one rule with two implementations and only one of them updated, so this one is written once.
+ */
+const COORDINATOR_SEAT = 1
+
 export class SigningMachine {
   private readonly d: SigningDeps
 
@@ -162,7 +173,7 @@ export class SigningMachine {
     // The coordinator (seat 1) kicks the ceremony over the helper's real PCZT. `sreq` carries the
     // sighash + PCZT; each device reads ALL real spends' alphas from that PCZT and signs them one
     // ceremony at a time, so single- and multi-note transactions take the same path.
-    if (this.d.mySeat() === 1 && !this.sigDone && helperReq.spends.length >= 1) {
+    if (this.d.mySeat() === COORDINATOR_SEAT && !this.sigDone && helperReq.spends.length >= 1) {
       await this.d.send({
         type: 'sreq',
         msg: b64(hexBytes(helperReq.sighash)),
@@ -181,7 +192,7 @@ export class SigningMachine {
     switch (parsed.type) {
       case 'sreq': return this.onSreq(parsed)
       case 's1': return this.onS1(parsed, fromTag)
-      case 'sp': return this.onSp(parsed)
+      case 'sp': return this.onSp(parsed, fromTag)
       case 's2': return this.onS2(parsed, fromTag)
       case 'signed': return this.onSigned(parsed)
     }
@@ -315,7 +326,7 @@ export class SigningMachine {
    *  driver's fixpoint loop then exits with nothing left to progress. */
   private async coordinateIfReady(): Promise<void> {
     const t = this.d.threshold()
-    if (this.d.mySeat() === 1 && this.commits.size >= t && !this.spSent) {
+    if (this.d.mySeat() === COORDINATOR_SEAT && this.commits.size >= t && !this.spSent) {
       // Prefer PROVEN seats, falling back to unproven only to reach threshold (#399).
       //
       // GROUNDWORK, and it does not fire yet. Say so here rather than let a sort that never runs
@@ -371,7 +382,34 @@ export class SigningMachine {
     }
   }
 
-  private async onSp(parsed: Extract<SignWireMsg, { type: 'sp' }>): Promise<boolean> {
+  private async onSp(parsed: Extract<SignWireMsg, { type: 'sp' }>, fromTag: string): Promise<boolean> {
+    // Only the coordinator may open round 2 (#519).
+    //
+    // `handle` hands `fromTag` to every other handler and used to drop it here, so the checks below
+    // asked what the package contained and never who sent it. The round-1 commitments are public in
+    // the room, so anyone who can write to it could assemble a well-formed package over the LIVE
+    // commitments and post it - frost-core's own IncorrectCommitment check does not help, because
+    // the commitments are the real ones. Every device would then spend its single-use nonce on that
+    // package, `sentS2` would block a second share, and the honest coordinator would arrive to a
+    // device with nothing left to give.
+    //
+    // Not theft: #355 already refuses a `msg` this device did not derive from its own PCZT, so the
+    // transaction stays the approved one. What it costs is the ceremony.
+    //
+    // Seat 1 is the coordinator by the same rule `onS1` uses to decide who coordinates, so this asks
+    // the one question that was missing rather than adding a second notion of who is in charge.
+    // NOT-YET-SEATED IS NOT THE SAME AS NOT-THE-COORDINATOR, and conflating the two would trade this
+    // hole for an outage. `seatOf` is fed by the peer's `rejoin`, not by its `s1`, so a legitimate
+    // coordinator's package can land before this device has processed the rejoin that seats it.
+    // `onS1` already answers that with `return false` - unconsumed, and `background-session` re-drives
+    // the signer after every rejoin precisely so a message that arrived before its sender was seated
+    // proceeds. Refusing here instead would consume the package and drop the honest send for good.
+    const senderSeat = this.d.seatOf(fromTag)
+    if (senderSeat === undefined) return false
+    if (senderSeat !== COORDINATOR_SEAT) {
+      this.d.onError(this.d.tt('net.err.notCoordinator'))
+      return true
+    }
     if (!this.started) return false
     if (this.otherCeremony(parsed)) return true
     if (parsed.k !== this.cur) return parsed.k > this.cur ? false : true
@@ -403,7 +441,7 @@ export class SigningMachine {
   private async onS2(parsed: Extract<SignWireMsg, { type: 's2' }>, fromTag: string): Promise<boolean> {
     if (!this.started) return false
     if (this.otherCeremony(parsed)) return true
-    if (this.d.mySeat() !== 1) return true // only the coordinator aggregates
+    if (this.d.mySeat() !== COORDINATOR_SEAT) return true // only the coordinator aggregates
     if (parsed.k !== this.cur) return parsed.k > this.cur ? false : true
     if (!this.coord) return false
     const seat = this.d.seatOf(fromTag)
@@ -460,7 +498,7 @@ export class SigningMachine {
     this.d.onPhase('signed')
     this.d.onLog(ok ? this.d.tt('net.log.verifyOk') : this.d.tt('net.log.verifyFail'))
     const req = this.helperReq
-    if (req && this.d.mySeat() === 1 && this.sigs.length === total) {
+    if (req && this.d.mySeat() === COORDINATOR_SEAT && this.sigs.length === total) {
       const resp = buildSignResponse(this.sigs)
       await this.d.rawSend(resp)
       this.d.onLog(`-> ${total} signature(s) handed to the helper`)
