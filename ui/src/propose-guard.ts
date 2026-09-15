@@ -14,6 +14,21 @@
 // proposal anyway - this exists so a member is told which field to fix instead of meeting a dead
 // button or a proposal that dies later.
 
+/**
+ * The fee a single payment is gated against, in zatoshis.
+ *
+ * It lives here, with the rule that subtracts it, because it is also the number the SCREEN shows the
+ * member - and those two were different. The screen said "Estimated fee 0.0001 ZEC" from a hardcoded
+ * i18n string while the gate subtracted 15000 (0.00015), so a vault holding exactly the announced fee
+ * was told it could not afford a payment the arithmetic on screen said it could. Reported by a member
+ * hitting it on a real vault, 2026-09-15.
+ *
+ * Deliberately a slight over-estimate of the 15000 observed on mainnet's single-payment path: the
+ * engine decides the real fee when it selects notes, and it is better to refuse an amount that would
+ * have fit than to accept one that turns into a dead proposal after the quorum has read it.
+ */
+export const SINGLE_PAYMENT_FEE_ZAT = 15000
+
 /** Why proposing is blocked, or `null` when it is clear. */
 export type ProposeBlock =
   | 'memo'
