@@ -983,6 +983,7 @@ export const ptBR: Record<string, string> = {
   'net.log.msgFailed': 'aviso: uma mensagem da cerimônia falhou e foi ignorada',
   // ceremony errors
   'net.err.notCoordinator': 'Recusei assinar: esta rodada de assinatura foi aberta por alguém que não ocupa assento neste cofre. Nada foi assinado. Peça a quem propôs o pagamento para disparar de novo.',
+  'net.err.unreadableSpends': 'Recusei assinar: este dispositivo não conseguiu ler quais partes da transação precisam da assinatura dele. Nada foi assinado. O motivo vem a seguir.',
   'net.err.relayDown': 'Não consegui falar com o relay (a rede caiu). Recarregue as duas abas e refaça.',
   'net.err.sighashMismatch': 'Recusei assinar: a transação que este dispositivo recomputou não bate com a pedida. Nada foi assinado. Pode ser um pedido adulterado - não repita com o mesmo pedido.',
   'net.err.roomFull': 'Esta sala já está cheia (o cofre tem o número de dispositivos definido). Gere um novo convite.',

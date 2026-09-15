@@ -38,6 +38,22 @@ explicitly accepted.
 
 ## [Unreleased]
 
+### Security
+
+- **On a transaction that spent from both shielded pools, a device signed half of it and said
+  nothing.** A vault that still held funds in the older pool while receiving into the newer one
+  could produce a payment that draws on both. The part of the app that decides which parts of such
+  a payment need this device's signature answered that question on its own instead of asking the
+  one place that knows, and its answer was to take the older pool and ignore the rest. The parts it
+  ignored were never signed and no warning was raised; the payment then failed later, with a
+  message about the wrong thing. Nothing could be sent anywhere it was not approved to go, and no
+  funds were reachable - the cost was a payment that failed for a reason nobody could see.
+
+  There is now one answer to that question and every part of the app asks it. A payment drawing on
+  both pools is refused before anything is signed, with the same wording everywhere, and the reason
+  reaches the member instead of being swallowed. Vaults holding funds in a single pool, which is
+  every vault in use today, are unaffected.
+
 ### Fixed
 
 - **Every page load printed a deprecation warning to the console.** The cryptography module was

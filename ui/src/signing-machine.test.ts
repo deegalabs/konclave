@@ -7,7 +7,7 @@
 // helper sign-request, exactly as Architecture B drives it - proving the extracted machine keeps
 // the proven money path's behavior, off the browser.
 import { readFileSync } from 'node:fs'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
 import init, {
   DkgSession,
   identifierBytes,
@@ -66,6 +66,24 @@ interface Device {
 
 // A and B are the two devices most tests use. C is seat 3, used only by the #399 test, where the
 // point is that seat 2 is held by a tag whose rejoin was never proven.
+// #364 gave `parseAlphas` a reason to THROW that it did not have before: it used to answer the pool
+// question itself and, on a transaction spending from both Orchard and Ironwood, quietly return only
+// the Orchard half. It refuses now. The mixed PCZT that produces that refusal does not exist as a
+// fixture and is not cheap to build, so the THROW is injected here instead - the machine's handling
+// of it is the thing under test, not the wasm's decision, which is tested in Rust over all four
+// pool combinations.
+const alphaFault = vi.hoisted(() => ({ message: null as string | null }))
+vi.mock('./signing', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./signing')>()
+  return {
+    ...actual,
+    parseAlphas: (pczt: Uint8Array) => {
+      if (alphaFault.message) throw new Error(alphaFault.message)
+      return actual.parseAlphas(pczt)
+    },
+  }
+})
+
 const SEATS: Record<string, number> = { A: 1, B: 2, C: 3 }
 
 function makeDevice(
@@ -401,6 +419,39 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     expect(sp?.from, 'the seated non-coordinator did post a package').toBe('C')
     expect(bus.msgs.filter((m) => m.from === 'B' && m.data.includes('"s2"')).length, 'and B refused it').toBe(0)
     expect(B.errors, 'refused out loud, because a known sender at the wrong seat is a real refusal').toContain('net.err.notCoordinator')
+  })
+
+  it('an unreadable set of spends is refused OUT LOUD, never thrown into the void (#364)', async () => {
+    // `pump()` is try/FINALLY with no catch, and nothing above it catches either - not
+    // `background-signer.feed`, not `background-session.onMessage`. So an uncaught throw here leaves
+    // the relay subscription with an unhandled rejection and the member with NOTHING on screen.
+    // Trading a wrong signature for a silent stall is not a fix, which is why the refusal has to be
+    // reported rather than raised.
+    const { s0, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    // Built BEFORE the fault is armed: the helper's request is assembled with the same reader, and
+    // a request that could not be built is a different test.
+    bus.post('helper', signRequestFor(dkgProvenPczt()).json)
+
+    alphaFault.message = 'mixed Orchard+Ironwood spends are not supported by this bridge'
+    try {
+
+      // The assertion that matters: this must not reject.
+      await expect(pump(A, bus)).resolves.toBeUndefined()
+
+      expect(A.errors.length, 'the device must say it refused').toBeGreaterThan(0)
+      expect(
+        A.errors.join(' '),
+        'and the engine reason must reach the member - "a refusal that does not say why costs hours"',
+      ).toContain('mixed Orchard+Ironwood')
+      expect(
+        bus.msgs.some((m) => m.from === 'A' && m.data.includes('"s1"')),
+        'and no commitment may leave a device that refused',
+      ).toBe(false)
+    } finally {
+      alphaFault.message = null
+    }
   })
 
   it('H1 round 2: a coordinator cannot swap the message in the SigningPackage (#354)', async () => {
