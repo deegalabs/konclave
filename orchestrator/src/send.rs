@@ -133,6 +133,28 @@ pub enum Funding {
     Ok,
     /// It cannot, and these are the two figures that decide it, in zatoshis.
     Short { available: u64, required: u64 },
+    /// The wallet CAN build it, and the signing bridge will refuse to sign it: the amount needed
+    /// notes from both shielded pools (#427).
+    ///
+    /// Separate from `Short` because the money is there. The remedy is a different one - two
+    /// payments, or consolidating the vault - and reporting it as a shortfall would send a member
+    /// looking for funds they already have.
+    CrossesPools,
+}
+
+/// Does this engine error mean "this transaction spends from both shielded pools"?
+///
+/// Matched on text because that is what crossing a process boundary leaves us: `konclave-signer`
+/// reports it as `anyhow!("mixed Orchard+Ironwood spends are not supported by this bridge")`. The
+/// match is deliberately on the two pool names rather than the whole sentence, so a reworded
+/// refusal still reads as the same refusal - the failure mode of an exact match here is silently
+/// going back to the old behaviour, which is the thing being fixed.
+///
+/// `konclave-wasm` was made to emit this exact sentence too (#364), so the browser and the native
+/// bridge tell a member the same thing about one cause.
+fn is_mixed_pool(text: &str) -> bool {
+    let t = text.to_ascii_lowercase();
+    t.contains("mixed") && t.contains("orchard") && t.contains("ironwood")
 }
 
 /// Read `available` / `required` out of a wallet error, in either shape the engine emits.
@@ -200,7 +222,37 @@ pub fn funding_check(sc: &SendConfig, plan: &SpendPlan) -> Result<Funding, ToolE
         ..sc.clone()
     };
     let outcome = build_unproven(&probe, plan);
+    // #427. Building is necessary and not sufficient: the wallet will happily select notes from
+    // BOTH shielded pools when neither covers the amount alone, and the signing bridge refuses a
+    // transaction that spends from both. Until now that refusal ran at `signer::extract` inside the
+    // SEND (send.rs step 2), which is after the proposal exists, after the quorum approved it and
+    // after everyone's attention was spent. Asking the same question here costs one more invocation
+    // of a binary this function already located, and turns a post-quorum death into a refusal at
+    // compose.
+    //
+    // `extract` is the question, not a new subcommand: it routes through `active_pool` and already
+    // refuses a mix. That also means this works against the binary already deployed - nothing in
+    // konclave-signer has to change or be rebuilt for it (#522).
+    let crossed = match &outcome {
+        Ok(bytes) => {
+            let probe_pczt = format!("{probe_dir}/funding-check.pczt");
+            match std::fs::write(&probe_pczt, bytes) {
+                Ok(()) => matches!(
+                    signer::extract(&probe.konclave_signer, &probe_pczt),
+                    Err(e) if is_mixed_pool(&e.to_string())
+                ),
+                // Could not write the probe. Say nothing rather than report a refusal we did not
+                // measure: the send path asks the same question again, so a miss here costs the
+                // old behaviour, not a wrong answer.
+                Err(_) => false,
+            }
+        }
+        Err(_) => false,
+    };
     let _ = std::fs::remove_dir_all(&probe_dir);
+    if crossed {
+        return Ok(Funding::CrossesPools);
+    }
     match outcome {
         Ok(_) => Ok(Funding::Ok),
         Err(e) => {
@@ -721,5 +773,43 @@ mod funding_tests {
             ),
             Some((0, 10_000))
         );
+    }
+
+    // #427. The refusal that used to arrive AFTER the quorum approved.
+    //
+    // `funding_check` needs the real binaries, so what is pinned here is the decision it rests on:
+    // recognising the bridge's refusal in the text that crosses the process boundary. Getting this
+    // wrong in the FALSE direction is silent - the check simply goes back to the old behaviour and
+    // the payment dies at signing again - which is why the match is on the two pool names rather
+    // than on the exact sentence.
+    #[test]
+    fn the_bridges_mixed_pool_refusal_is_recognised() {
+        assert!(is_mixed_pool(
+            "mixed Orchard+Ironwood spends are not supported by this bridge"
+        ));
+        // As it arrives through ToolError, wrapped in the runner's own formatting.
+        assert!(is_mixed_pool(
+            "/usr/local/bin/konclave-signer exited with 1: Error: mixed Orchard+Ironwood spends are not supported by this bridge"
+        ));
+        // Reworded upstream, same cause. An exact match would fail open here.
+        assert!(is_mixed_pool(
+            "refusing a mixed transaction: it spends Orchard and Ironwood notes together"
+        ));
+    }
+
+    #[test]
+    fn and_other_engine_failures_are_not_mistaken_for_it() {
+        // These must reach the caller as themselves. Reporting a pool problem for any of them would
+        // tell a member to split a payment that has a different thing wrong with it.
+        assert!(!is_mixed_pool(
+            "no real shielded spends to sign in this PCZT"
+        ));
+        assert!(!is_mixed_pool(
+            "Insufficient balance (have 501000, need 900010000 including fee)"
+        ));
+        assert!(!is_mixed_pool("failed to parse PCZT: Io(Custom)"));
+        // Names one pool only: an Orchard-only or Ironwood-only failure is not a crossing.
+        assert!(!is_mixed_pool("orchard parse: MissingSpendAuthSig"));
+        assert!(!is_mixed_pool(""));
     }
 }

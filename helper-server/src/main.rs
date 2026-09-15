@@ -759,6 +759,22 @@ fn refuse_if_unfunded(
     let sc = send_config_for(cfg, reg, work_dir);
     match funding_check(&sc, plan) {
         Ok(Funding::Ok) => Ok(None),
+        // #427. The vault HOLDS the money; it just cannot move it in one payment, because the
+        // amount needs notes from both shielded pools and the signing bridge refuses to sign such a
+        // transaction. 422 like the shortfall, because the request is well-formed and cannot be
+        // satisfied - but with its own error code and its own remedy, since "you are short" would
+        // send a member hunting for funds they already have.
+        //
+        // This refusal used to arrive at the SEND, after the proposal existed and the quorum had
+        // approved it. Here it arrives while the proposal is being created.
+        Ok(Funding::CrossesPools) => Ok(Some(resp(
+            422,
+            json!({
+                "error": "crosses shielded pools",
+                "detail": "the vault holds this amount, but split across two shielded pools, and one payment can only draw on one of them. Send it as two smaller payments, or consolidate the vault first.",
+            })
+            .to_string(),
+        ))),
         Ok(Funding::Short {
             available,
             required,
