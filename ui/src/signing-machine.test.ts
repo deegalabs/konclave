@@ -130,7 +130,7 @@ function makeDevice(
 // the sighash is the honest one and the commitments are the live ones, so frost-core's own
 // IncorrectCommitment check passes. The only thing wrong with it is who sent it.
 function makeUnseatedCoordinator(tag: string, bus: Bus, mat: () => { keyPackage: Uint8Array; groupVk: Uint8Array; pubkeys: Uint8Array }): Device {
-  const dev: Device = { tag, machine: null as unknown as SigningMachine, consumed: new Set(), sig: null, errors: [], bus, unprovenTags: new Set() }
+  const dev: Device = { tag, machine: null as unknown as SigningMachine, consumed: new Set(), sig: null, errors: [], bus, unprovenTags: new Set(), paysApproved: true }
   const deps: SigningDeps = {
     signingMaterial: mat,
     // In ITS OWN view it holds seat 1. No peer map contains its tag, which is the whole point.
@@ -146,6 +146,10 @@ function makeUnseatedCoordinator(tag: string, bus: Bus, mat: () => { keyPackage:
     onPhase: () => {},
     onWhat: () => {},
     onSignature: (hex, ok) => { dev.sig = { hex, ok } },
+    // #281: the attacker is not changing WHAT is paid - the package pays the approved transaction,
+    // which is the point. Answering true keeps this test measuring the sender check and nothing else;
+    // a refusal here would make it pass for the wrong reason.
+    paysWhatWasApproved: () => dev.paysApproved,
     tt: (k) => k,
   }
   dev.machine = new SigningMachine(deps)
@@ -425,6 +429,7 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     expect(sp?.from, 'the seated non-coordinator did post a package').toBe('C')
     expect(bus.msgs.filter((m) => m.from === 'B' && m.data.includes('"s2"')).length, 'and B refused it').toBe(0)
     expect(B.errors, 'refused out loud, because a known sender at the wrong seat is a real refusal').toContain('net.err.notCoordinator')
+  })
 
   it('the money gate refuses a request that does not pay what the quorum approved (#281)', async () => {
     // The other half of H1, and the one that was stubbed `() => true` on the path that ships.
