@@ -532,11 +532,14 @@ out **sealed** to the vault's devices, with the plaintext path closing per vault
   derived from its share (#452), the vote (#453), the rename (#454), and the UI that registers and
   signs (#455).
   **This line used to say "write endpoints", and that generalisation was false.** `authorize_write`
-  has exactly two non-test call sites (`helper-server/src/main.rs:541` and `:1217`). Creating a
-  proposal and TRIGGERING THE SEND go through neither: the send checks only `p.state != "ready"`.
-  So anyone holding a vault id can fill the desk with proposals and fire the broadcast of an
-  already-approved one - not spend money that was not approved, but enough to bypass the deliberate
-  human confirm the money gate is built on. Verified 2026-09-07; the CHANGELOG's wording (`a vote or
+  covered two of the four writes a member makes. That was true when it was written and stopped being
+  true 22 minutes later, on the same day, which is the cost of a note that counts call sites: #507
+  corrected this line at 18:11 and #508 landed at 18:33 and made it stale in the other direction.
+  As of 2026-09-16 the helper authenticates `Rename`, `Send`, `Propose`, `Approve` and `Refuse`.
+  What the correction was about still stands as history: creating a proposal and triggering the send
+  went through no check at all, so anyone holding a vault id could fill the desk with proposals and
+  fire the broadcast of an already-approved one - not spend money that was not approved, but enough
+  to bypass the deliberate human confirm the money gate is built on. Verified 2026-09-16; the CHANGELOG's wording (`a vote or
   a rename`) was the accurate one all along. A governance write from someone who does not hold the seat's share is refused, from
   the first device on that vault that unlocks - the gate is per vault and turns on at that moment
   (ADR-0011 D5), so the vaults that exist keep working until a member migrates them.

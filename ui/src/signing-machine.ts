@@ -370,15 +370,16 @@ export class SigningMachine {
     if (this.d.mySeat() === COORDINATOR_SEAT && this.commits.size >= t && !this.spSent) {
       // Prefer PROVEN seats, falling back to unproven only to reach threshold (#399).
       //
-      // GROUNDWORK, and it does not fire yet. Say so here rather than let a sort that never runs
-      // read as a security control. The coordinator picks on the t-th commit it PROCESSES, so a
-      // proven seat later in the same drain is not in `commits` when this runs, and the order below
-      // is over a set that is already decided. `signing-machine.test.ts` asserts that open race and
-      // records what would close it: a way to ask the driver for one more pass after the drain, or
-      // signing the ceremony messages (#399 option b) behind a migration gate.
+      // THIS FIRES. It did not when the sort was first written, and the comment that said so
+      // outlived the fix by long enough to be worth calling out: for a while this block described a
+      // live security control as inert groundwork, which is the kind of note that makes a reader
+      // conclude the wrong thing about what is protecting them.
       //
-      // Kept because it is correct the moment the set is complete, and because the tracking it
-      // reads (`seatIsProven`) is the half both candidate fixes need.
+      // What changed is the deferral below plus `afterDrain()` (#515). The coordinator used to pick
+      // on the t-th commit it PROCESSED, so a proven seat arriving later in the same drain was not
+      // in `commits` when this ran and the sort was over a set already decided. Now, when the set it
+      // would pick still needs an unvouched seat, it defers once and `afterDrain` re-drives it after
+      // the whole drain has landed, so the sort runs over the complete batch.
       //
       // This used to be the lowest `t` seats, full stop. An unproven rejoin may still take a truly
       // EMPTY seat - deliberately, so older builds keep working - so in a `t < n` vault with a low
