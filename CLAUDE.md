@@ -471,10 +471,24 @@ same day. Each seated member holds a fresh **random** per-vault secret `S`, mint
 the DKG and sealed to members over the #63 encrypted channel, persisted sealed at rest like the share
 (**not** DKG-derived - that material is public or relay-observable, so a derived secret would be known
 to the relay). From `S`:
-- **Reads are gated (PR #402):** the helper's private reads (balance, transactions, ceremonies,
-  proposals, ledger, members) require `readKey = HKDF(S, "read")` in an `X-Konclave-Read` header
-  (never the URL, §6.3) - `401` once a readKey is registered, open until then so migration is
-  per-vault. Live on mainnet: leaked id -> `401`, member -> `200`.
+- **Reads are gated (PR #402):** the helper's private reads require `readKey = HKDF(S, "read")` in an
+  `X-Konclave-Read` header (never the URL, §6.3) - `401` once a readKey is registered, open until
+  then so migration is per-vault. The gate covers a NAMED LIST, and the helper keeps it as one
+  (`GATED_READS`): `/api/vault/balance`, `/api/vault/transactions`, `/api/vault/ceremonies`,
+  `/api/vault/proposals`, `/api/vault/ledger`, `/api/vault/ledger.csv`, `/api/vault/members`. The
+  UFVK is gated HARDER: refused even on a vault with no readKey, because a balance may be
+  bearer-by-id and the key that decrypts every payslip may not.
+  **What an id STILL opens, which this entry did not say for nine days.** `/api/vault` is
+  deliberately outside that list, and the helper says so at the route: *"This closes DISCOVERY, not
+  authorization: whoever has an id can still read that vault."* So a 256-bit id is a bearer
+  credential for the vault's METADATA - quorum shape (`threshold`/`total`), receive address, and
+  change receiver - while the readKey is what buys its CONTENTS. Two reasons it stays that way, both
+  checked 2026-09-16 rather than assumed: the change receiver is an address of the same class as the
+  published one and grants no viewing power (both shielded, neither readable without the UFVK); and
+  `Layout.tsx` calls `getVault()` BEFORE it evaluates `needsUnlock`, so gating the route would make
+  a locked protected vault answer `null`, skip the unlock decision entirely, and land the member on
+  the blank screen #439 exists to prevent. The route being open is load-bearing, not an oversight.
+  Live on mainnet: leaked id -> `401` on the listed reads, `200` on the metadata.
 - **The signing room is from `S`, not the group key (PR #403):** `SHA-256("konclave-sign-s " + S)[:16]`,
   so an id-only outsider can neither compute nor observe it. Proven by a real mainnet 2-of-2 S-vault
   sweep, SignRequest sealed (#63), nothing in cleartext (`34e2a51c…`); a CORS fix (allow
