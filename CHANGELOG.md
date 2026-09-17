@@ -40,6 +40,13 @@ explicitly accepted.
 
 ### Added
 
+- **The relay now says which sources it is running.** Like the coordinator, it had no way to tell
+  whether the service answering was built from the code the repository holds. It cannot report a
+  revision the way the coordinator does, because of how it is built, so it reports a fingerprint of
+  its own sources instead, which answers the more useful question directly: is this the same code.
+  Anyone can check by building it and comparing. This detects a stale deployment; it is not proof
+  of anything to someone who could replace the service.
+
 - **The coordinator now says which build is answering.** Until now there was no way to tell whether
   the service running in production was the one the source said it should be, except by trusting
   that whoever last deployed it followed every step. That has been wrong before, for a week, with

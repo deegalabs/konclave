@@ -283,6 +283,14 @@ fn with_cors<R: Read>(mut resp: Response<R>, json: bool) -> Response<R> {
 }
 
 fn main() {
+    // `relay-server --digest` prints the same value `/health` reports, so checking what production
+    // runs is: build this crate, run it with the flag, compare to the live endpoint. One
+    // implementation, read two ways. A second copy of the hashing in a script would be the exact
+    // shape of defect this repo keeps finding - one rule, two implementations, one of them stale.
+    if std::env::args().any(|a| a == "--digest") {
+        println!("{}", env!("KONCLAVE_SOURCE_DIGEST"));
+        return;
+    }
     let port: u16 = std::env::var("PORT")
         .ok()
         .and_then(|p| p.parse().ok())
@@ -331,9 +339,15 @@ fn main() {
                 }
                 state.handle(&method, &path, &url, &buf, now_unix(), &ip)
             } else if path == "/" || path == "/health" {
+                // Which sources this relay is running (#522). Not an attestation: whoever can
+                // replace the binary can report any digest. It catches a stale deploy, which is the
+                // thing that has actually happened here, twice.
                 (
                     200,
-                    r#"{"status":"ok","service":"konclave-relay"}"#.to_string(),
+                    format!(
+                        r#"{{"status":"ok","service":"konclave-relay","source_digest":"{}"}}"#,
+                        env!("KONCLAVE_SOURCE_DIGEST")
+                    ),
                 )
             } else {
                 (404, r#"{"error":"not found"}"#.to_string())
@@ -350,6 +364,27 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+
+    // #522. The relay is built by Railway from an uploaded directory, so there is no commit to
+    // stamp: no GitHub connection, no RAILWAY_GIT_COMMIT_SHA, and the Dockerfile copies no `.git`.
+    // A digest of the sources answers the question better anyway - not "which commit" but "is the
+    // running relay built from THIS source" - and needs nothing anyone has to remember at deploy.
+    //
+    // What this does NOT do is attest anything. Whoever can replace the binary can report any
+    // digest. It catches a stale deploy, which is what has actually happened here.
+    #[test]
+    fn the_relay_says_which_sources_it_was_built_from() {
+        let d = env!("KONCLAVE_SOURCE_DIGEST");
+        assert_eq!(d.len(), 16, "expected a 16-char FNV-1a digest, got {d:?}");
+        assert!(
+            d.chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+            "digest must be lowercase hex: {d:?}"
+        );
+        // All-zero is what a hash of nothing would look like if the build script ever silently
+        // stopped reading the files it is supposed to read.
+        assert_ne!(d, "0000000000000000", "the build script digested nothing");
+    }
     use super::*;
 
     #[test]
