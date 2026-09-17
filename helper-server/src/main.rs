@@ -111,6 +111,43 @@ fn handle(
 
 /// Like `handle`, plus the #388 read token from the request's `X-Konclave-Read` header. Split out so
 /// the many existing tests keep calling `handle` (token = None = the pre-#388 open gate).
+/// The build timestamp as `YYYY-MM-DDTHH:MM:SSZ`, from the epoch seconds `build.rs` stamped in.
+///
+/// Hand-rolled rather than pulling a date crate in for one line on one route: the helper's
+/// dependency surface is something an auditor reads, and a formatting crate is a poor trade for it.
+fn build_time_iso() -> String {
+    iso_from_epoch(env!("KONCLAVE_BUILD_EPOCH").parse().unwrap_or(0))
+}
+
+/// The arithmetic, taking the instant rather than reading it, so a test can exercise THIS function
+/// instead of a copy of it. The first version of that test re-implemented the algorithm and
+/// compared it to itself: self-consistent by construction, which this repo has shipped once before
+/// and caught once before.
+fn iso_from_epoch(secs: i64) -> String {
+    let days = secs.div_euclid(86_400);
+    let tod = secs.rem_euclid(86_400);
+    // Civil-from-days (Howard Hinnant's algorithm), shifted to an era beginning 0000-03-01.
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        y,
+        m,
+        d,
+        tod / 3600,
+        (tod % 3600) / 60,
+        tod % 60
+    )
+}
+
 fn handle_with_token(
     state: &HelperState,
     cfg: &HelperConfig,
@@ -199,9 +236,25 @@ fn handle_with_token(
         // Health carries no vault data. It used to report `state.len()`, which no client ever read
         // and which told any caller how many vaults the helper holds - transmitted without need
         // (#6.2, data minimization).
+        // The build this process is running, so "is production what main says?" has an ANSWER and
+        // not a procedure (#522). It covers THIS BINARY ONLY, and the field names say so: the image
+        // also carries `konclave-signer`, `zcash-devtool` and `zcash-sign`, built separately from a
+        // different tree, and a marker that implied otherwise would be a new false claim of exactly
+        // the kind this one exists to end.
+        //
+        // Not a data-minimization problem (§6.2). The line above removed a vault COUNT from this
+        // route because it was a fact about the members. A commit is a fact about the software, it
+        // is already public in an open repository, and withholding it buys nobody privacy while
+        // costing everybody the ability to check what is deployed.
         (Method::Get, "/api/health") => resp(
             200,
-            json!({ "status": "ok", "name": "konclave-helper" }).to_string(),
+            json!({
+                "status": "ok",
+                "name": "konclave-helper",
+                "helper_commit": env!("KONCLAVE_BUILD_COMMIT"),
+                "helper_built_at": build_time_iso(),
+            })
+            .to_string(),
         ),
         // `GET /api/vaults` is GONE (#267). It enumerated every registered vault id, and since the
         // id IS the group verifying key, that one unauthenticated call handed a stranger the key to
@@ -1662,6 +1715,53 @@ mod tests {
             change_receiver: format!("utest1change{id}"),
             birthday: Some(3_400_000),
         });
+    }
+
+    // #522. "Is what production runs what main says?" had no answer that did not rest on someone
+    // remembering the procedure. On 2026-09-16 the deployed helper was nine days behind main and
+    // nothing said so; the next day a fix was deployed and the only evidence it arrived was the
+    // sequence of steps taken. #466 is the same gap with money on it.
+    #[test]
+    fn health_says_which_build_is_answering() {
+        let st = HelperState::new();
+        let r = handle(&st, &cfg(), &Method::Get, "/api/health", b"");
+        assert_eq!(r.status, 200);
+        assert!(
+            r.body.contains("helper_commit"),
+            "health must name the build it is running: {}",
+            r.body
+        );
+        assert!(
+            r.body.contains("helper_built_at"),
+            "and when it was built, since a commit alone does not distinguish two builds of it"
+        );
+        // The stamp must be a real answer. `unknown` is what build.rs reports when git is absent,
+        // and a test that accepts it would pass on a binary that cannot say what it is - which is
+        // the state this whole change exists to end.
+        // No closing quote in the needle, on purpose. build.rs appends `-dirty` when the tree has
+        // changes, so the real failure reads `unknown-dirty` and an exact match for `unknown` sails
+        // past it. The first version of this assertion did exactly that, and only a red-check that
+        // PRINTED the body caught it: the test passed while the binary said it did not know what it
+        // was. A guard that holds only on a clean tree is not a guard.
+        assert!(
+            !r.body.contains("\"helper_commit\":\"unknown"),
+            "the build stamp did not reach the binary: {}",
+            r.body
+        );
+    }
+
+    // The formatter is hand-rolled to keep a date crate out of a dependency surface an auditor
+    // reads, so it carries the burden that choice implies: it is tested against known instants,
+    // including the leap-year cases that are the whole reason civil-from-days is not obvious.
+    #[test]
+    fn the_build_time_formatter_agrees_with_known_instants() {
+        assert_eq!(iso_from_epoch(0), "1970-01-01T00:00:00Z");
+        assert_eq!(iso_from_epoch(1), "1970-01-01T00:00:01Z");
+        // 2000-02-29: a leap year because 400 divides it, the case a naive rule gets wrong.
+        assert_eq!(iso_from_epoch(951_782_400), "2000-02-29T00:00:00Z");
+        // 2100-03-01: NOT a leap year, because 100 divides it and 400 does not.
+        assert_eq!(iso_from_epoch(4_107_542_400), "2100-03-01T00:00:00Z");
+        assert_eq!(iso_from_epoch(1_789_629_713), "2026-09-17T07:21:53Z");
     }
 
     #[test]
