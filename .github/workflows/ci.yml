@@ -141,6 +141,42 @@ jobs:
         working-directory: konclave-wasm
         run: wasm-pack build --target web --out-dir /tmp/pkg
 
+  relay-image:
+    name: Relay image (the deploy recipe still builds)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      # The relay was IMPOSSIBLE TO DEPLOY for ten days and nothing said so (#533). #500 gave it a
+      # path dependency on `konclave-http`, which sat outside the Docker build context, so every
+      # build failed on `failed to read /konclave-http/Cargo.toml`. Deterministically, from that day.
+      #
+      # Nobody knew because A BUILD ONLY RUNS WHEN SOMEONE DEPLOYS, and the relay had not needed one
+      # since 2026-08-28. It was waiting for whoever next had to ship a relay fix in a hurry, which
+      # for a relay is the usual reason to deploy one.
+      #
+      # `cargo build` cannot catch this: the workspace build succeeds, because in the workspace the
+      # sibling crate is right there. Only building the IMAGE exercises the context. So the image is
+      # built here, on every push, which is the difference between finding this by accident and being
+      # told.
+      #
+      # It builds and does not push: the deploy still goes out by hand. What this answers is "would
+      # it build if we tried", which is the question that had no answer.
+      - name: Build the relay image from the repository root
+        run: docker build -f relay-server/Dockerfile -t konclave-relay:ci .
+      # Building only proves the recipe parses. The digest proves the container compiled THIS source:
+      # build.rs fingerprints the files it was given, so a `.dockerignore` that quietly dropped one,
+      # or a COPY that missed it, produces a different answer here than a local build of the same
+      # tree. Compared rather than merely printed.
+      - name: The image compiled the sources in this checkout
+        run: |
+          set -euo pipefail
+          in_image="$(docker run --rm konclave-relay:ci relay-server --digest)"
+          cargo build --release -p relay-server
+          on_disk="$(./target/release/relay-server --digest)"
+          echo "image: $in_image"
+          echo "repo:  $on_disk"
+          test "$in_image" = "$on_disk"
+
   ui:
     name: UI (Vite/React frontend)
     runs-on: ubuntu-latest

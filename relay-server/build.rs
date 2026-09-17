@@ -18,6 +18,26 @@
 
 use std::fs;
 
+/// Every file under `dir`, recursively, as paths relative to the crate root.
+///
+/// An unreadable directory contributes nothing rather than failing the build, for the same reason a
+/// missing file does: the digest's job is to DIFFER when the sources differ, not to refuse to
+/// compile. A build that cannot read its own sources will fail a line later anyway.
+fn walk(dir: &str, out: &mut Vec<String>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for e in entries.flatten() {
+        let path = e.path();
+        let Some(p) = path.to_str() else { continue };
+        if path.is_dir() {
+            walk(p, out);
+        } else {
+            out.push(p.to_string());
+        }
+    }
+}
+
 /// FNV-1a, 64-bit. Chosen because this is a drift check and the code should not pretend otherwise.
 fn fnv1a(bytes: &[u8]) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
@@ -29,14 +49,24 @@ fn fnv1a(bytes: &[u8]) -> u64 {
 }
 
 fn main() {
-    // The files the Dockerfile copies, in a fixed order so the digest is reproducible. Adding a
-    // source file here without adding it to the Dockerfile would produce a digest that can never
-    // match what runs, so the two lists are the same list on purpose.
-    const PARTS: &[&str] = &["Cargo.toml", "src/main.rs", "src/concurrency.rs"];
+    // `src/` is WALKED, not listed. A hardcoded list digests the files someone remembered, and this
+    // repo's recurring defect is precisely the thing someone did not remember. A new module happens
+    // to change the digest anyway, because Rust makes you declare it in `main.rs` - but EDITING that
+    // module afterwards would not, and a fingerprint that misses edits to half the crate is worse
+    // than none, because it reports a match that means nothing.
+    //
+    // Sorted, so the digest does not depend on the order the filesystem hands them back.
+    let mut parts: Vec<String> = vec!["Cargo.toml".into()];
+    walk("src", &mut parts);
+    parts.sort();
 
     let mut blob = Vec::new();
-    for p in PARTS {
+    for p in &parts {
         println!("cargo:rerun-if-changed={p}");
+        // The NAME is digested too. Otherwise renaming a file, or moving its contents into another,
+        // leaves the fingerprint unchanged while the crate is no longer the same crate.
+        blob.extend_from_slice(&(p.len() as u64).to_le_bytes());
+        blob.extend_from_slice(p.as_bytes());
         match fs::read(p) {
             Ok(mut b) => {
                 // Length-prefixed, so moving a byte from one file to the next changes the digest.
