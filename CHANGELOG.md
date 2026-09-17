@@ -38,6 +38,15 @@ explicitly accepted.
 
 ## [Unreleased]
 
+### Added
+
+- **The coordinator now says which build is answering.** Until now there was no way to tell whether
+  the service running in production was the one the source said it should be, except by trusting
+  that whoever last deployed it followed every step. That has been wrong before, for a week, with
+  nobody able to see it. Its status endpoint now reports the exact revision it was built from and
+  when, and says so out loud when it was built from a working copy that had uncommitted changes,
+  because a build made from a modified tree cannot be reproduced from the revision it names.
+
 ### Fixed
 
 - **The payment screen announced one network fee and refused you with another.** It printed
