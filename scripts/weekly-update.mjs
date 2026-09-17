@@ -32,7 +32,19 @@ if (process.argv.includes('--posted')) {
   const { writeFileSync } = await import('node:fs')
   const { dirname, join } = await import('node:path')
   const { fileURLToPath } = await import('node:url')
-  const stamp = join(dirname(dirname(fileURLToPath(import.meta.url))), '.weekly-update-stamp')
+  // `temp/.weekly-update-stamp`, because that is the file the SessionStart hook reads
+  // (`temp/tools/weekly-update-hook.mjs` resolves it from its own directory). #518 moved this
+  // generator out of `temp/tools` and into the repo, and the stamp path came along with it, so
+  // `--posted` wrote to the REPO ROOT and the hook went on reading the old path. The window never
+  // moved: the command printed "Window moved" and the next session still reported the same week as
+  // due. Caught the first time it was run for real, on 2026-09-17, by noticing an untracked file
+  // where none belonged.
+  //
+  // The stamp lives under `temp/` on purpose and not in the repo: it is one operator's record of
+  // when THEY last posted, not a fact about the project. `temp/` is gitignored, which is also why
+  // the stray root copy showed up as untracked rather than blending in.
+  const repo = dirname(dirname(fileURLToPath(import.meta.url)))
+  const stamp = join(repo, 'temp', '.weekly-update-stamp')
   const day = new Date().toISOString().slice(0, 10)
   writeFileSync(stamp, day + '\n')
   console.log(`Window moved: the next weekly update starts at ${day}.`)
