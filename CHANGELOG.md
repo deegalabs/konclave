@@ -38,6 +38,15 @@ explicitly accepted.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The relay could not be deployed at all, and had not been able to since 7 September.** Nothing
+  about the running service was wrong, and nothing said anything was: the recipe for building a new
+  one had been broken for ten days, and the only way to discover that was to attempt a deployment.
+  Nobody had needed one. It would have surfaced the next time someone was shipping an urgent fix,
+  which is the worst moment to learn it. The recipe is corrected and verified by building and
+  running the result, not by reading it.
+
 ### Added
 
 - **The relay now says which sources it is running.** Like the coordinator, it had no way to tell

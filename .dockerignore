@@ -1,0 +1,17 @@
+# The relay's image builds from the REPOSITORY ROOT, because its crate depends on `konclave-http`
+# and a Docker build cannot reach outside its context (see relay-server/Dockerfile). Without this
+# file that context is the whole tree, including an 18 GB `target/`.
+#
+# Deny everything, then re-admit only what the build reads. Written this way round on purpose: a new
+# directory appearing at the root is excluded by default, so the context cannot quietly grow. The
+# cost is that a genuinely new dependency must be added here as well as to the Dockerfile, and that
+# cost is the point - it fails at build time rather than shipping something nobody meant to send.
+*
+
+!konclave-http
+!relay-server
+
+# Build output inside the admitted crates. `target/` is gitignored, so `railway up` never uploads it,
+# but a local `docker build` has no such filter and would otherwise copy gigabytes per attempt.
+konclave-http/target
+relay-server/target
