@@ -161,8 +161,25 @@ jobs:
       #
       # It builds and does not push: the deploy still goes out by hand. What this answers is "would
       # it build if we tried", which is the question that had no answer.
+      # Retried, because the step depends on Docker Hub and Docker Hub rate-limits anonymous pulls.
+      # The first run of this job failed on `failed to fetch oauth token ... connection reset by
+      # peer` while resolving `debian:stable-slim` - nothing to do with the code it is checking.
+      #
+      # That matters more than the minute it costs: a check that cries wolf is a check people learn
+      # to scroll past, and this one exists precisely to be believed the day it means something. A
+      # registry blip must not be able to say the deploy recipe is broken.
       - name: Build the relay image from the repository root
-        run: docker build -f relay-server/Dockerfile -t konclave-relay:ci .
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if docker build -f relay-server/Dockerfile -t konclave-relay:ci .; then
+              exit 0
+            fi
+            echo "attempt $attempt failed; the registry is the usual reason. waiting $((attempt * 20))s"
+            sleep $((attempt * 20))
+          done
+          echo "three attempts failed: this is the recipe, not the registry"
+          exit 1
       # Building only proves the recipe parses. The digest proves the container compiled THIS source:
       # build.rs fingerprints the files it was given, so a `.dockerignore` that quietly dropped one,
       # or a COPY that missed it, produces a different answer here than a local build of the same

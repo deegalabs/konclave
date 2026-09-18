@@ -374,9 +374,22 @@ export async function createProposal(input: NewProposal): Promise<CreateResult> 
       // Bound to the proposer's name, which the helper checks against the signing seat (#288).
       proof: await writeProof(id, 'propose', input.proposer.trim()),
     })
-    return p
-      ? { ok: true, proposal: mapNetProposal(p) }
-      : { ok: false, error: 'invalid address', detail: 'the coordinator rejected the destination or amount' }
+    if (p) return { ok: true, proposal: mapNetProposal(p) }
+    // EVERY failure used to be reported as `invalid address`, whatever went wrong: a locked device
+    // that could not sign the write, a vault that could not afford the amount, a coordinator that
+    // was restarting. The member was told to check an address that was fine, which on a money
+    // screen is worse than saying nothing, because it sends them to fix something that is not
+    // broken and hides the thing that is.
+    //
+    // This is the SAME defect #509 fixed for the vote, in the other caller: `postJson` collapses
+    // every failure to `null` and the caller invents a reason. The machinery #509 built to stop
+    // that is right here and was simply not used. One rule, two callers, one of them fixed.
+    const f = lastHelperPostFailure()
+    if (f?.status === 401) return { ok: false, error: 'write not authorized' }
+    // The coordinator's own sentence, which names the real cause. `humanError` translates the ones
+    // it recognises and shows the rest verbatim, which is still better than a wrong translation.
+    if (f?.error) return { ok: false, error: f.error }
+    return { ok: false, error: 'proposal rejected', detail: 'the coordinator did not say why' }
   }
   try {
     const res = await fetch(`${BASE}${withVault('/api/proposals')}`, {
@@ -461,9 +474,21 @@ export function humanError(t: TFn, error?: string, detail?: string): string {
   if (e === 'write not authorized') return t('error.writeNotAuthorized')
   if (e === 'vote rejected') return t('error.voteRejected')
   if (e === 'not ready') return t('error.notReady')
-  if (e === 'invalid address' || has('unrecognized address')) return t('error.invalidAddress')
+  // The coordinator's own wordings, matched because they are what it actually sends. Before this,
+  // none of the three reached here: `payment_plan` says "this is not a valid Zcash address", and
+  // the client was matching a code (`invalid address`) that only the LOCAL BRIDGE produces. So the
+  // helper path fell through to the raw English at the bottom of this function.
+  if (has('not a valid zcash address') || e === 'invalid address' || has('unrecognized address'))
+    return t('error.invalidAddress')
+  if (has('testnet address')) return t('error.wrongNetwork')
+  // Distinct from "unrecognized" on purpose: the address is fine, it just cannot hold the kind of
+  // money this vault sends. Telling someone to check an address they typed correctly is the defect
+  // this whole block exists to end.
+  if (has('cannot receive shielded')) return t('error.notOrchard')
+  if (has('crosses shielded pools')) return t('error.crossesPools')
   if (e === 'invalid memo' || has('transparent')) return t('error.invalidMemo')
   if (e === 'invalid amount') return t('error.invalidAmount')
+  if (e === 'proposal rejected') return t('error.proposalRejected')
   if (e === 'no vault') return t('error.noVault')
   if (e === 'no destination') return t('error.noDestination')
   if (e === 'empty payroll' || has('payroll has no lines')) return t('error.emptyPayroll')
