@@ -16,7 +16,7 @@
 // already on screen, and a console line so the failure can be DIAGNOSED. Neither costs the member
 // anything, and the second one is the difference between a bug report and a screenshot.
 import { loadPrfWrap } from './prf-store'
-import { openPrf } from './prf-wrap'
+import { openPrf, isPrfOpenDenial, type PrfOpenDenial } from './prf-wrap'
 import { setReadSecret } from './session'
 import { markVaultUnlocked } from './api'
 
@@ -34,8 +34,10 @@ export type PasskeyUnlock =
   | 'unlocked'
   /** No wrap on this device - the caller should not have offered the button. */
   | 'no-wrap'
-  /** The authenticator refused, was cancelled, never answered, or produced different output. */
-  | 'refused'
+  /** It did not open, and WHICH of the four it was. The screen still shows one quiet sentence;
+   *  this is what sits behind the "details" tap, because the device that fails is a phone and a
+   *  phone has no console. */
+  | PrfOpenDenial
 
 export interface PasskeyUnlockDeps {
   loadPrfWrap: typeof loadPrfWrap
@@ -55,15 +57,14 @@ export async function unlockWithPasskeyUsing(
   const wrap = deps.loadPrfWrap(vaultId)
   if (!wrap) return 'no-wrap'
   const s = await deps.openPrf(auth, wrap, rpId, UNLOCK_TIMEOUT_MS)
-  if (!s) {
-    // Developer-facing only. `openPrf` collapses every cause to null on purpose - a cancelled
-    // prompt, a credential the browser no longer has, PRF output that changed because the passkey
-    // synced to another device - and the member must not have to tell those apart. Whoever is
-    // DEBUGGING it should at least know it happened.
+  if (isPrfOpenDenial(s)) {
+    // Logged as well as returned. The console is the right place when there IS one; the returned
+    // reason is what a phone can show, and a phone is where this always fails - the shortcut is
+    // per device by design.
     console.error('[konclave] the passkey did not open this vault; the passphrase still does', {
-      vaultId, rpId, waitedMs: UNLOCK_TIMEOUT_MS,
+      vaultId, rpId, reason: s, waitedMs: UNLOCK_TIMEOUT_MS,
     })
-    return 'refused'
+    return s
   }
   deps.setReadSecret(vaultId, s)
   deps.markVaultUnlocked(vaultId)

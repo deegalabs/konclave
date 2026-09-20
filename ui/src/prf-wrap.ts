@@ -60,6 +60,23 @@ export interface PrfWrap {
  */
 export type PrfDenial = 'cancelled' | 'no-prf' | 'unanswered' | 'already-enrolled'
 
+/**
+ * Why a wrap did not open.
+ *
+ * `openPrf` used to answer `null` for all of these, and that was defensible while the only consumer
+ * was a screen that must not alarm anyone. It stopped being defensible the moment someone had to
+ * DIAGNOSE it: the shortcut is per DEVICE by design, so the device that fails is a phone, and a
+ * phone's browser has no console. Remote debugging over a cable is not a reasonable thing to ask of
+ * a treasurer.
+ *
+ * The screen still says one quiet sentence. This is what sits behind a "details" tap, and
+ * `different-key` is the one worth the whole exercise: it means the authenticator DID produce PRF
+ * output and the output no longer matches what enrolment used. That is the synced-passkey hazard
+ * the per-device rule exists for, and it is indistinguishable from a cancelled prompt until it is
+ * named.
+ */
+export type PrfOpenDenial = 'cancelled' | 'no-prf' | 'unanswered' | 'different-key'
+
 /** The slice of `navigator.credentials` used here, so tests can drive it without a browser. */
 export interface Authenticator {
   create(o: CredentialCreationOptions): Promise<Credential | null>
@@ -232,11 +249,12 @@ export async function openPrf(
   wrap: PrfWrap,
   rpId: string,
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
-): Promise<Uint8Array | null> {
+): Promise<Uint8Array | PrfOpenDenial> {
+  let out: Uint8Array | null
   try {
     // Bounded for the same reason the enrolment is: this path has its own busy button
     // (`vaults.passkeyBusy`), so a ceremony that never answers freezes the unlock exactly as it
-    // froze the enrolment. Silent still, per rule 3 - only no longer endless.
+    // froze the enrolment.
     const asserted = await answered(auth.get({
       publicKey: {
         timeout: timeoutMs,
@@ -247,8 +265,15 @@ export async function openPrf(
         extensions: { prf: { eval: { first: hexToBytes(wrap.salt) } } } as AuthenticationExtensionsClientInputs,
       },
     }), timeoutMs)
-    const out = prfOutput(asserted)
-    if (!out) return null
+    out = prfOutput(asserted)
+  } catch (e) {
+    // A cancelled prompt, a credential the browser no longer has, an origin that does not match.
+    return e instanceof Unanswered ? 'unanswered' : 'cancelled'
+  }
+  // The ceremony completed and produced nothing: this authenticator does not implement PRF.
+  if (!out) return 'no-prf'
+
+  try {
     const plain = await crypto.subtle.decrypt(
       { name: 'AES-GCM', iv: hexToBytes(wrap.iv).slice().buffer },
       await keyFrom(out),
@@ -256,11 +281,18 @@ export async function openPrf(
     )
     return new Uint8Array(plain)
   } catch {
-    // Includes the case that matters most: different PRF output produces a key that fails GCM
-    // authentication. That is a wrap made on another device, and it must read as "ask for the
-    // passphrase", never as an error the member has to interpret.
-    return null
+    // THE CASE THIS SPLIT EXISTS FOR, and it was hidden inside the same catch as a cancellation.
+    // The authenticator answered and produced output; that output no longer derives the key the
+    // wrap was sealed with. A passkey that synced to another device, or one whose PRF the platform
+    // does not keep stable - the hazard the per-device rule is built around. Reaching this means
+    // the shortcut will not work here again, and only the member re-enrolling changes that.
+    return 'different-key'
   }
+}
+
+/** Did `openPrf` hand back the secret, or a reason it did not? */
+export function isPrfOpenDenial(r: Uint8Array | PrfOpenDenial): r is PrfOpenDenial {
+  return typeof r === 'string'
 }
 
 function b64url(b: Uint8Array): string {

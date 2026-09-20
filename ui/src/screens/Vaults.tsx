@@ -7,6 +7,8 @@ import { listVaults, parseVaultExport, forgetVault, type VaultExport } from '../
 import { clearUnlockedShare, clearReadSecret } from '../session'
 import { loadPrfWrap, clearPrfWrap } from '../prf-store'
 import { unlockWithPasskey } from '../passkey-unlock'
+import { OPEN_DENIAL_COPY } from '../prf-denial-copy'
+import type { PrfOpenDenial } from '../prf-wrap'
 import { unlockOnDevice, importAndUnlock } from '../unlock'
 import { Identicon } from '../avatar'
 import { Dialog, Letterhead, activateOnKey } from '../components'
@@ -42,17 +44,17 @@ export default function Vaults() {
   // #446 C: this device may hold a passkey-wrapped copy of the vault's read secret. Offered, never
   // automatic - an authenticator prompt nobody asked for is worse than typing a passphrase.
   const [prfBusy, setPrfBusy] = useState(false)
-  const [prfMiss, setPrfMiss] = useState(false)
+  const [prfMiss, setPrfMiss] = useState<PrfOpenDenial | null>(null)
 
   /** Open the vault's books with a touch. `S` only: signing still asks for the passphrase, which is
    *  the separation this exists for. A failure costs nothing, and since #545 it no longer says
    *  nothing either - the handler is shared with the in-place lock rather than copied into it. */
   async function unlockWithPasskeyRow(row: Row) {
     setPrfBusy(true)
-    setPrfMiss(false)
+    setPrfMiss(null)
     try {
       const r = await unlockWithPasskey(row.v.id)
-      if (r !== 'unlocked') { if (r === 'refused') setPrfMiss(true); return }
+      if (r !== 'unlocked') { if (r !== 'no-wrap') setPrfMiss(r); return }
       setUnlocking(null)
       nav('/dashboard')
     } finally {
@@ -465,7 +467,7 @@ export default function Vaults() {
           {loadPrfWrap(unlocking.v.id) && (
             <PasskeyButton busy={prfBusy} onClick={() => void unlockWithPasskeyRow(unlocking)} />
           )}
-          {prfMiss && <p className="unlock-prf-miss">{t('lock.passkeyMiss')}</p>}
+          {prfMiss && <p className="unlock-prf-miss">{t(OPEN_DENIAL_COPY[prfMiss])}</p>}
           <input
             className="unlock-input mono" type="password" placeholder={unlocking.src === 'net' ? t('vaults.passphrase') : t('vaults.wordPlaceholder')}
             value={pass} onChange={(e) => setPass(e.target.value)}

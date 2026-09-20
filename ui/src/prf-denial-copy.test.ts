@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { DENIAL_COPY } from './prf-denial-copy'
+import { DENIAL_COPY, OPEN_DENIAL_COPY } from './prf-denial-copy'
 
 // A denial the member cannot read is the defect this whole change exists to remove.
 //
@@ -28,7 +28,7 @@ describe('every enrolment denial has copy the member can read (#538)', () => {
         .flatMap((l) => Array.from(l.matchAll(/'([\w.]+)'\s*:/g), (m) => m[1]!)),
     )
 
-    for (const [denial, key] of Object.entries(DENIAL_COPY)) {
+    for (const [denial, key] of Object.entries({ ...DENIAL_COPY, ...OPEN_DENIAL_COPY })) {
       it(`${locale} defines the message for "${denial}"`, () => {
         expect(defined.has(key), `${locale} is missing ${key}, so the member would read the key itself`).toBe(true)
       })

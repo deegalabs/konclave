@@ -17,6 +17,8 @@ import { useT } from './i18n'
 import { unlockOnDevice, type VaultSrc } from './unlock'
 import { loadPrfWrap } from './prf-store'
 import { unlockWithPasskey } from './passkey-unlock'
+import { OPEN_DENIAL_COPY } from './prf-denial-copy'
+import type { PrfOpenDenial } from './prf-wrap'
 
 export interface LockOverlayProps {
   vaultId: string
@@ -35,7 +37,7 @@ export default function LockOverlay({ vaultId, vaultName, src, onUnlocked, onCan
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [prfBusy, setPrfBusy] = useState(false)
-  const [prfMiss, setPrfMiss] = useState(false)
+  const [prfMiss, setPrfMiss] = useState<PrfOpenDenial | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   // The member did not navigate here - the lock appeared under them - so the field takes focus and
@@ -57,13 +59,13 @@ export default function LockOverlay({ vaultId, vaultName, src, onUnlocked, onCan
    *  `passkey-unlock.ts`, shared with the vault list, because it used to be copied into both. */
   async function withPasskey() {
     setPrfBusy(true)
-    setPrfMiss(false)
+    setPrfMiss(null)
     try {
       const r = await unlockWithPasskey(vaultId)
       if (r === 'unlocked') { onUnlocked(); return }
       // Quiet, and pointing at the field that IS on screen. Saying nothing at all was the old
       // behaviour and it read as broken: a minute of "waiting", then the same locked dialog.
-      if (r === 'refused') setPrfMiss(true)
+      if (r !== 'no-wrap') setPrfMiss(r)
     } finally {
       setPrfBusy(false)
     }
@@ -78,7 +80,7 @@ export default function LockOverlay({ vaultId, vaultName, src, onUnlocked, onCan
       <h2 id="relock-title">{vaultName}</h2>
       <p>{t('lock.prompt')}</p>
       {loadPrfWrap(vaultId) && <PasskeyButton busy={prfBusy} onClick={() => void withPasskey()} />}
-      {prfMiss && <p className="unlock-prf-miss">{t('lock.passkeyMiss')}</p>}
+      {prfMiss && <p className="unlock-prf-miss">{t(OPEN_DENIAL_COPY[prfMiss])}</p>}
       <input
         ref={inputRef}
         className="unlock-input mono"

@@ -355,6 +355,11 @@ export const en: Record<string, string> = {
   // Quiet on purpose, and it names the way in rather than the failure. The old behaviour said
   // nothing at all, which on a locked dialog reads as broken rather than as "use your passphrase".
   'lock.passkeyMiss': 'That did not open it this time. Your passphrase below still does.',
+  // The one that is permanent AND fixable, so it names the fix. Reaching it means the
+  // authenticator answered and its key no longer matches the one this wrap was sealed with.
+  'lock.passkeyChanged': 'This device\u2019s passkey no longer opens this vault \u00b7 remove it in Settings and create it again. Your passphrase below still works.',
+  'lock.passkeyNoPrf': 'This device cannot offer the shortcut \u00b7 its passkeys do not support it. Your passphrase below is the way in.',
+  'lock.passkeyNoAnswer': 'This device did not answer \u00b7 try again, or use your passphrase below.',
   'settings.passkeyTitle': 'Unlock with this device',
   // One message for four causes is what turned a single defect into two days of guessing,
   // and the cause the member had actually hit could not be reported at all. Kept as the fallback.

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { enrolPrf, openPrf, type Authenticator, type PrfDenial, type PrfWrap } from './prf-wrap'
+import { enrolPrf, openPrf, isPrfOpenDenial, type Authenticator, type PrfDenial, type PrfOpenDenial, type PrfWrap } from './prf-wrap'
 
 // #446 option C. The authenticator is injected, so these drive the REAL crypto path (HKDF over the
 // PRF output, AES-GCM over `S`) without a browser. What is faked is only the authenticator, which
@@ -39,6 +39,12 @@ function fakeAuth(device = 'A'): Authenticator {
 
 /** The wrap, or a failed test. Narrows `PrfWrap | PrfDenial` at the one place that cares, so a
  *  denial can never be silently spread into an object and assert nothing. */
+/** The secret, or a failed test. Mirrors `wrapOf` for the other direction. */
+function secretOf(r: Uint8Array | PrfOpenDenial): Uint8Array {
+  if (isPrfOpenDenial(r)) throw new Error(`expected the secret, got the denial "${r}"`)
+  return r
+}
+
 function wrapOf(r: PrfWrap | PrfDenial): PrfWrap {
   if (typeof r === 'string') throw new Error(`expected a wrap, got the denial "${r}"`)
   return r
@@ -48,7 +54,7 @@ describe('the PRF wrap (#446 C)', () => {
   it('round-trips the secret on the device that enrolled', async () => {
     const auth = fakeAuth('A')
     const wrap = wrapOf(await enrolPrf(auth, 'ab'.repeat(32), S, RP, 'member'))
-    expect(Array.from((await openPrf(auth, wrap, RP))!)).toEqual(Array.from(S))
+    expect(Array.from(secretOf(await openPrf(auth, wrap, RP)))).toEqual(Array.from(S))
   })
 
   it('does NOT open on a device whose PRF output differs, and says so by returning null', async () => {
@@ -58,7 +64,10 @@ describe('the PRF wrap (#446 C)', () => {
     // would make the member read a stack trace. It returns null, and the caller asks for the
     // passphrase.
     const wrap = wrapOf(await enrolPrf(fakeAuth('A'), 'ab'.repeat(32), S, RP, 'member'))
-    expect(await openPrf(fakeAuth('B'), wrap, RP)).toBeNull()
+    // Named now, and this is the one the per-device rule exists for: the authenticator ANSWERED
+    // and its output no longer derives the key the wrap was sealed with. It used to be reported
+    // identically to a cancelled prompt.
+    expect(await openPrf(fakeAuth('B'), wrap, RP)).toBe('different-key')
   })
 
   it('never stores a wrap it could not open: no PRF output means no enrolment', async () => {
@@ -81,14 +90,14 @@ describe('the PRF wrap (#446 C)', () => {
     }
     expect(await enrolPrf(cancels, 'ab'.repeat(32), S, RP, 'member')).toBe('cancelled')
     const wrap: PrfWrap = { credentialId: 'AQID', salt: 'aa'.repeat(32), iv: 'bb'.repeat(12), cipher: 'cc'.repeat(48) }
-    expect(await openPrf(cancels, wrap, RP)).toBeNull()
+    expect(await openPrf(cancels, wrap, RP)).toBe('cancelled')
   })
 
   it('a tampered wrap does not open', async () => {
     const auth = fakeAuth('A')
     const wrap = wrapOf(await enrolPrf(auth, 'ab'.repeat(32), S, RP, 'member'))
     const tampered = { ...wrap, cipher: wrap.cipher.replace(/^../, 'ff') }
-    expect(await openPrf(auth, tampered, RP)).toBeNull()
+    expect(await openPrf(auth, tampered, RP)).toBe('different-key')
   })
 
   it('two vaults on one device derive different keys', async () => {
@@ -99,7 +108,7 @@ describe('the PRF wrap (#446 C)', () => {
     const b = wrapOf(await enrolPrf(auth, 'cd'.repeat(32), S, RP, 'member'))
     expect(a.salt).not.toBe(b.salt)
     const crossed = { ...b, salt: a.salt }
-    expect(await openPrf(auth, crossed, RP)).toBeNull()
+    expect(await openPrf(auth, crossed, RP)).toBe('different-key')
   })
 
   it('the enrolment asks for PRF at create AND evaluates it before storing', async () => {

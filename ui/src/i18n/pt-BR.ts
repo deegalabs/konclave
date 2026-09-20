@@ -351,6 +351,11 @@ export const ptBR: Record<string, string> = {
   // Silencioso de prop\u00f3sito, e aponta o caminho em vez da falha. Antes n\u00e3o dizia nada, o que num
   // di\u00e1logo trancado se l\u00ea como quebrado, n\u00e3o como "use a sua frase-senha".
   'lock.passkeyMiss': 'N\u00e3o abriu desta vez. A sua frase-senha abaixo continua abrindo.',
+  // A \u00fanica permanente E resol\u00favel, ent\u00e3o ela diz a solu\u00e7\u00e3o. Chegar aqui significa que o
+  // autenticador respondeu e a chave dele n\u00e3o abre mais o que foi selado no cadastro.
+  'lock.passkeyChanged': 'A passkey deste aparelho n\u00e3o abre mais este cofre \u00b7 remova nos ajustes e crie de novo. A sua frase-senha abaixo continua funcionando.',
+  'lock.passkeyNoPrf': 'Este aparelho n\u00e3o oferece o atalho \u00b7 as passkeys dele n\u00e3o t\u00eam suporte. A sua frase-senha abaixo \u00e9 o caminho.',
+  'lock.passkeyNoAnswer': 'Este aparelho n\u00e3o respondeu \u00b7 tente de novo, ou use a sua frase-senha abaixo.',
   'settings.passkeyTitle': 'Destravar com este aparelho',
   // Uma mensagem s\u00f3 para quatro causas foi o que transformou um defeito em dois dias de
   // adivinha\u00e7\u00e3o - e a causa que o membro tinha encontrado nem era report\u00e1vel. Fica como fallback.
