@@ -6,6 +6,19 @@ messages. If an entry does not answer "what is different for me now", it does no
 Format: [Keep a Changelog](https://keepachangelog.com/). Versions: [SemVer](https://semver.org/).
 Dates are UTC.
 
+## This file covers the web app, the desktop shell and the shared crates
+
+Since 2026-09-20 the two hand-deployed services keep their own, because they ship on their own clock
+and a shared `Unreleased` section cannot say which of them an entry has actually reached:
+
+- [helper-server/CHANGELOG.md](helper-server/CHANGELOG.md) - the coordinator
+- [relay-server/CHANGELOG.md](relay-server/CHANGELOG.md) - the blind relay
+
+Neither carries a version number; both report a build identity instead, and their files say why.
+Entries from before that date were NOT moved out of this file - rewriting history to tidy it is how
+context gets lost. `scripts/changelog-gate.mjs` decides which file a given change must touch, and
+has tests.
+
 ## The categories decide what gets announced
 
 This is the reason the file is categorised rather than written as prose. Without the categories,
