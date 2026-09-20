@@ -40,6 +40,16 @@ explicitly accepted.
 
 ### Fixed
 
+- **Creating a passkey asked for two prompts, and failed on the second.** Turning the shortcut on
+  ran two device ceremonies back to back, because the key material was only read from the second.
+  Browsers have returned it from the first since early 2026, so the common case now needs one
+  prompt and the fragile second ceremony does not happen at all. When a device still needs it, it
+  runs as before.
+- **"That was not finished" stood for every refusal, including ones the member could act on.** The
+  most useful is a passkey for this vault ALREADY on the device: nothing in Konclave can clear it,
+  so the message now says to remove it in the device's own passkey settings. A device that refuses
+  the request outright is reported as the permanent case instead of inviting another attempt.
+
 - **Creating a passkey could wait forever, and never said why.** On Android the button sat on
   "Waiting for this device..." with no error and no passkey, however many times it was tried.
   Turning the shortcut on runs two device prompts back to back; when the second one never answered -

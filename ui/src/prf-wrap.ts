@@ -58,7 +58,7 @@ export interface PrfWrap {
  * `no-prf` is the one that is permanent - this authenticator does not implement the extension and
  * never will - so the copy for it must not invite retrying forever.
  */
-export type PrfDenial = 'cancelled' | 'no-prf' | 'unanswered'
+export type PrfDenial = 'cancelled' | 'no-prf' | 'unanswered' | 'already-enrolled'
 
 /** The slice of `navigator.credentials` used here, so tests can drive it without a browser. */
 export interface Authenticator {
@@ -163,16 +163,22 @@ export async function enrolPrf(
           userVerification: 'required',
           residentKey: 'required',
         },
-        extensions: { prf: {} } as AuthenticationExtensionsClientInputs,
+        // The salt is evaluated HERE, not only at the assertion below. Chrome and Safari have
+        // returned PRF output at creation since early 2026, and when they do the second ceremony is
+        // not needed at all - which matters because firing it immediately after the first is what
+        // Android could not survive (#538). One ceremony also means one prompt, which is what a
+        // member expects from a button that says "create a passkey".
+        extensions: { prf: { eval: { first: salt } } } as AuthenticationExtensionsClientInputs,
       },
     }), timeoutMs)
     const cred = created as PublicKeyCredential | null
     if (!cred) return 'cancelled'
 
-    // The output is generally NOT available at create(), so this asserts immediately to get it.
-    // Doing it here rather than at first use means a device that cannot actually produce output
-    // never stores a wrap it could not open.
-    const asserted = await answered(auth.get({
+    // The fallback, for a browser that accepts the extension at creation but returns nothing there.
+    // Asserting at enrolment rather than at first use means a device that cannot actually produce
+    // output never stores a wrap it could not open.
+    const atCreate = prfOutput(cred)
+    const asserted = atCreate ? cred : await answered(auth.get({
       publicKey: {
         timeout: timeoutMs,
         challenge: crypto.getRandomValues(new Uint8Array(32)),
@@ -198,7 +204,21 @@ export async function enrolPrf(
       cipher: bytesToHex(cipher),
     }
   } catch (e) {
-    return e instanceof Unanswered ? 'unanswered' : 'cancelled'
+    if (e instanceof Unanswered) return 'unanswered'
+    // The platform DOES say which of these happened, and the first version of this catch threw that
+    // away by answering "cancelled" for all of them - the same one-sentence-for-many-causes mistake
+    // this function had just been fixed for, reintroduced by its own fix.
+    switch ((e as DOMException | null)?.name) {
+      // A passkey for this vault already exists on this authenticator. The only denial whose remedy
+      // is somewhere else entirely: the member has to remove it in their system's passkey manager.
+      case 'InvalidStateError': return 'already-enrolled'
+      // The options were refused outright - no platform authenticator, or no PRF. Permanent, and it
+      // shares the permanent message rather than earning a fifth one nobody could act on differently.
+      case 'NotSupportedError': return 'no-prf'
+      // `NotAllowedError` (a cancelled or timed-out prompt) and anything else. Still a catch-all,
+      // and deliberately the smallest one: its copy claims nothing beyond "nothing changed".
+      default: return 'cancelled'
+    }
   }
 }
 

@@ -357,6 +357,8 @@ export const ptBR: Record<string, string> = {
   'settings.passkeyNoPrf': 'Este aparelho n\u00e3o oferece o atalho - as passkeys dele n\u00e3o t\u00eam suporte. Aqui a entrada \u00e9 a frase-senha.',
   'settings.passkeyNoAnswer': 'Este aparelho n\u00e3o respondeu. Tente de novo.',
   'settings.passkeyCancelled': 'N\u00e3o foi conclu\u00eddo. Nada mudou - pode tentar de novo.',
+  // Diz o LUGAR, porque esta \u00e9 a \u00fanica recusa que o membro n\u00e3o resolve dentro do Konclave.
+  'settings.passkeyExists': 'Este aparelho j\u00e1 tem uma passkey deste cofre. Remova ela nos ajustes de passkey do aparelho e crie de novo aqui.',
   'settings.remove': 'Remover deste aparelho',
   'settings.removing': 'Removendo…',
   'settings.confirmRemove': 'Confirmar remoção',
