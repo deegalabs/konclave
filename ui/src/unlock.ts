@@ -8,6 +8,7 @@
 // itself, and a shared function that also routed would force one of them to lie.
 
 import { unlockVault, markVaultUnlocked } from './api'
+import { importVault, type VaultExport, type VaultPublic } from './storage'
 import { loadVault } from './storage'
 import { setUnlockedShare } from './session'
 
@@ -72,4 +73,24 @@ const REAL: UnlockDeps = { loadVault, setUnlockedShare, markVaultUnlocked, unloc
 /** `unlockWith` against the real storage/session/bridge. What the app calls. */
 export function unlockOnDevice(id: string, src: VaultSrc, pass: string): Promise<UnlockResult> {
   return unlockWith(REAL, id, src, pass)
+}
+
+/**
+ * Import an exported vault and leave it USABLE, which is one step, not two.
+ *
+ * The member has just proved possession of the passphrase - the export could not have decrypted
+ * without it - so asking for it again a second later is not caution, it is a bug with manners. And
+ * until they gave it, the imported seat was inert: the signer needs the share and every private
+ * read needs `S`, and both live only in the session.
+ *
+ * This exists as ONE function, and a test holds `importVault` to this file, because the first
+ * attempt at fixing it left the two calls side by side in the screen and guarded them with a scan
+ * that the screen satisfied by ALREADY calling `unlockOnDevice` somewhere else entirely. An
+ * omission cannot be guarded reliably; a uniqueness rule can. So the pairing is made structural
+ * rather than asserted.
+ */
+export async function importAndUnlock(bundle: VaultExport, passphrase: string): Promise<VaultPublic> {
+  const meta = await importVault(bundle, passphrase)
+  await unlockOnDevice(meta.id, 'net', passphrase)
+  return meta
 }

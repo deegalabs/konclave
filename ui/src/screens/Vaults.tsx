@@ -3,11 +3,11 @@ import { useNavigate, Link } from 'react-router-dom'
 import { getVaults, health, setSelectedVault, getSelectedVault, clearSelectedVault, markVaultUnlocked, isVaultUnlocked, shortAddr, type Vault } from '../api'
 import { helperConfigured, getCustomHelper, setCoordMode, HELPER_BASE } from '../helper'
 import { isDesktop } from '../platform'
-import { listVaults, importVault, parseVaultExport, forgetVault, type VaultExport } from '../storage'
+import { listVaults, parseVaultExport, forgetVault, type VaultExport } from '../storage'
 import { clearUnlockedShare, setReadSecret, clearReadSecret } from '../session'
 import { loadPrfWrap, clearPrfWrap } from '../prf-store'
 import { openPrf } from '../prf-wrap'
-import { unlockOnDevice } from '../unlock'
+import { unlockOnDevice, importAndUnlock } from '../unlock'
 import { Identicon } from '../avatar'
 import { Dialog, Letterhead, activateOnKey } from '../components'
 import PasskeyButton from '../PasskeyButton'
@@ -143,7 +143,7 @@ export default function Vaults() {
     if (!impPass) { setImpErr(t('import.errPass')); return }
     setImpErr(null); setImpBusy(true)
     try {
-      const meta = await importVault(impParsed, impPass)
+      const meta = await importAndUnlock(impParsed, impPass)
       const row: Row = {
         src: 'net',
         v: {
