@@ -11,6 +11,7 @@ import { unlockVault, markVaultUnlocked } from './api'
 import { importVault, type VaultExport, type VaultPublic } from './storage'
 import { loadVault } from './storage'
 import { setUnlockedShare } from './session'
+import { registerThisDevice } from './device-registration'
 
 /** Where a vault lives, and therefore how its unlock works. Mirrors the picker's `Src`. */
 export type VaultSrc = 'net' | 'local'
@@ -30,6 +31,7 @@ export interface UnlockDeps {
   setUnlockedShare: typeof setUnlockedShare
   markVaultUnlocked: typeof markVaultUnlocked
   unlockVault: typeof unlockVault
+  registerThisDevice: typeof registerThisDevice
 }
 
 /**
@@ -51,6 +53,14 @@ export async function unlockWith(
       const share = await deps.loadVault(id, pass)
       deps.setUnlockedShare(id, share)
       deps.markVaultUnlocked(id)
+      // The seat's write key registers HERE, and nowhere else. This is the one moment the device
+      // provably holds its share, which is exactly the claim the registration makes. It used to
+      // ride inside the background signer, which only runs while a proposal is OPEN - a deadlock,
+      // since acting on a proposal is what the key is for.
+      //
+      // Not awaited: unlocking must not wait on the network, and the member can already read and
+      // sign locally. `registerThisDevice` never throws and reports its own failure.
+      void deps.registerThisDevice(id, share)
       return { ok: true }
     }
     const r = await deps.unlockVault(pass)
@@ -68,7 +78,7 @@ export async function unlockWith(
   }
 }
 
-const REAL: UnlockDeps = { loadVault, setUnlockedShare, markVaultUnlocked, unlockVault }
+const REAL: UnlockDeps = { loadVault, setUnlockedShare, markVaultUnlocked, unlockVault, registerThisDevice }
 
 /** `unlockWith` against the real storage/session/bridge. What the app calls. */
 export function unlockOnDevice(id: string, src: VaultSrc, pass: string): Promise<UnlockResult> {
