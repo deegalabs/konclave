@@ -40,6 +40,20 @@ explicitly accepted.
 
 ### Fixed
 
+- **A proposal that failed for any reason blamed the address.** Whatever actually went wrong, the
+  screen said the destination was not recognized and told the member to check it. A device that
+  could not prove it holds its seat, a vault that could not afford the amount, a coordinator that
+  was restarting: all of them read as a bad address, next to a draft showing the recipient's saved
+  name and the address resolved correctly. On a money screen a wrong reason is worse than none,
+  because it sends someone to fix what is not broken and hides what is. Found by a member on a real
+  vault, and it is the same fault that was fixed for approvals earlier this month, left standing in
+  the other place it lives. The screen now says what the coordinator actually refused, and the
+  reasons that used to look identical have their own sentences: an address on the wrong network, an
+  address that cannot hold this kind of shielded money, and an amount that cannot be sent in one
+  payment are three different problems with three different answers.
+
+### Fixed
+
 - **The relay could not be deployed at all, and had not been able to since 7 September.** Nothing
   about the running service was wrong, and nothing said anything was: the recipe for building a new
   one had been broken for ten days, and the only way to discover that was to attempt a deployment.
