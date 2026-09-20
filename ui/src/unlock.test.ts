@@ -15,6 +15,7 @@ function deps(over: Partial<UnlockDeps> = {}) {
     setUnlockedShare: (id: string) => { calls.push(`setUnlockedShare:${id}`) },
     markVaultUnlocked: (id: string) => { calls.push(`markVaultUnlocked:${id}`) },
     unlockVault: async () => ({ ok: true }) as never,
+    registerThisDevice: async (id: string) => { calls.push(`registerThisDevice:${id}`); return true },
   }
   return { ...base, ...over } as UnlockDeps & { calls: string[] }
 }
@@ -54,5 +55,39 @@ describe('unlockOnDevice', () => {
   it('passes a bridge rejection through as wrong', async () => {
     const d = deps({ unlockVault: async () => ({ ok: false, wrong: true }) as never })
     expect(await unlockWith(d, ID, 'local', 'anything')).toEqual({ ok: false, wrong: true })
+  })
+
+  // #288's write key decides whether this member can VOTE AT ALL, and it used to register inside
+  // the background signer - which only runs while a proposal is OPEN. That is a deadlock, not a
+  // delay: acting on a proposal is what the key is for, so a seat that had not registered before
+  // the vault's write gate came on could never register and could never vote. A live 2-of-3 vault
+  // spent a fortnight there, with one member's seat absent from the coordinator's key list and
+  // nothing anywhere saying so.
+  //
+  // Unlocking is the moment the claim the registration makes - this device holds its share - is
+  // actually true, so it belongs here and the test says so.
+  it('registers this seat with the coordinator, because unlocking is when it can', async () => {
+    const d = deps()
+    await unlockWith(d, ID, 'net', 'right')
+    expect(d.calls).toContain(`registerThisDevice:${ID}`)
+  })
+
+  it('does not wait on the network, and a failed registration does not fail the unlock', async () => {
+    // The member can already read and sign locally; blocking on the coordinator would make an
+    // offline moment look like a wrong passphrase.
+    //
+    // This test does DOUBLE DUTY, and the second job is the one worth naming: the rejection it
+    // throws must not escape. A bare `void promise` leaves an unhandled rejection behind, which
+    // vitest reports as an error ALONGSIDE a green "634 passed" - so it is invisible to anyone
+    // grepping for failures. That is exactly how it shipped once; CI caught it, a local run had
+    // not. Keep the throw.
+    const d = deps({ registerThisDevice: async () => { throw new Error('offline') } })
+    expect(await unlockWith(d, ID, 'net', 'right')).toEqual({ ok: true })
+  })
+
+  it('does not register on the desktop-bridge path, which holds no share here', async () => {
+    const d = deps()
+    await unlockWith(d, ID, 'local', 'anything')
+    expect(d.calls.some((c) => c.startsWith('registerThisDevice'))).toBe(false)
   })
 })

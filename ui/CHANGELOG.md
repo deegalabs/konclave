@@ -39,3 +39,16 @@ history to tidy it is how context gets lost.
 ---
 
 ## [Unreleased]
+
+### Fixed
+
+- **A member could be locked out of voting entirely, with no way back in.** Approving or refusing
+  anything answered "this device could not prove it holds the seat", however many times the vault
+  was unlocked, removed and imported again. The device registers itself with the coordinator the
+  first time it can prove it holds its share, and that registration was happening only while a
+  proposal was already open on screen - so a member who had not been through a signing ceremony
+  before the vault started requiring signed votes could never register, and could never take part in
+  the proposal that would have let them. Registering now happens when the vault is unlocked, which
+  is the moment it is actually true, and a registration that fails now says so instead of passing in
+  silence. Found on a live 2-of-3 vault where one of three members had been unable to approve
+  anything for a fortnight.

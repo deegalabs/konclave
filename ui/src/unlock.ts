@@ -11,6 +11,7 @@ import { unlockVault, markVaultUnlocked } from './api'
 import { importVault, type VaultExport, type VaultPublic } from './storage'
 import { loadVault } from './storage'
 import { setUnlockedShare } from './session'
+import { registerThisDevice } from './device-registration'
 
 /** Where a vault lives, and therefore how its unlock works. Mirrors the picker's `Src`. */
 export type VaultSrc = 'net' | 'local'
@@ -30,6 +31,7 @@ export interface UnlockDeps {
   setUnlockedShare: typeof setUnlockedShare
   markVaultUnlocked: typeof markVaultUnlocked
   unlockVault: typeof unlockVault
+  registerThisDevice: typeof registerThisDevice
 }
 
 /**
@@ -51,6 +53,23 @@ export async function unlockWith(
       const share = await deps.loadVault(id, pass)
       deps.setUnlockedShare(id, share)
       deps.markVaultUnlocked(id)
+      // The seat's write key registers HERE, and nowhere else. This is the one moment the device
+      // provably holds its share, which is exactly the claim the registration makes. It used to
+      // ride inside the background signer, which only runs while a proposal is OPEN - a deadlock,
+      // since acting on a proposal is what the key is for.
+      //
+      // Not awaited: unlocking must not wait on the network, and the member can already read and
+      // sign locally.
+      //
+      // The `.catch` is not redundant with the try/catch inside `registerThisDevice`. A bare `void`
+      // on a promise lets a rejection escape as an UNHANDLED one - a console error in a browser, a
+      // failed run under vitest - and the caller must not depend on the callee's internals to stay
+      // that way. This exact line shipped without it and CI caught the escape; the local run
+      // reported "634 passed" alongside "1 error", and the grep that checked it did not include
+      // the second line.
+      void deps.registerThisDevice(id, share).catch((error) => {
+        console.error('[konclave] this device could not register its seat', { id, error })
+      })
       return { ok: true }
     }
     const r = await deps.unlockVault(pass)
@@ -68,7 +87,7 @@ export async function unlockWith(
   }
 }
 
-const REAL: UnlockDeps = { loadVault, setUnlockedShare, markVaultUnlocked, unlockVault }
+const REAL: UnlockDeps = { loadVault, setUnlockedShare, markVaultUnlocked, unlockVault, registerThisDevice }
 
 /** `unlockWith` against the real storage/session/bridge. What the app calls. */
 export function unlockOnDevice(id: string, src: VaultSrc, pass: string): Promise<UnlockResult> {

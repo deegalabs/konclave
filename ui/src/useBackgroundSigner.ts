@@ -13,8 +13,7 @@ import { BackgroundSession } from './background-session'
 import { signingRoom, signingRoomFromSecret, acquireSigner, releaseSigner, type GovernanceGate } from './background-signer'
 import type { FailureCode } from './background-session'
 import type { PcztOutput } from './approved-payment'
-import { registerDeviceKey } from './helper'
-import { deviceCommsKey, devicePubHex, deviceWriteKeyHex } from './device-key'
+import { deviceCommsKey, devicePubHex } from './device-key'
 import { unsealSignRequest } from './net-sign'
 
 const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('')
@@ -118,22 +117,17 @@ export function useBackgroundSigner(
       try {
         await ensureWasm()
         const b = decodeBundle(loaded)
-        // This device's persistent comms identity (#63): derived from its share, used to register
-        // with the helper (so it can seal SignRequests to us) and to OPEN the sealed request off the
-        // relay. Best-effort and idempotent registration; never blocks signing, and an unsealed
-        // request stays the compat fallback until every device registers.
+        // This device's persistent comms identity (#63): derived from its share, used to OPEN a
+        // sealed request off the relay.
+        //
+        // REGISTERING these keys does NOT happen here any more, and the reason is worth keeping.
+        // This effect runs only while a proposal is OPEN, and registration is what lets a member
+        // ACT on a proposal - so a seat that had not registered before the vault's write gate came
+        // on could never register, and could never vote. That deadlock cost a live 2-of-3 vault a
+        // fortnight. It now rides on unlock, in `device-registration.ts`, which is the moment the
+        // claim it makes - this device holds its share - is actually true.
         const deviceKey = deviceCommsKey(b.keyPackage)
         const myPub = devicePubHex(b.keyPackage)
-        // #288: the same call now also registers this device's Ed25519 WRITE key with its seat.
-        //
-        // Registering is what turns the vault's write gate ON: from the first registration, every
-        // governance write on that vault must be signed. That is deliberate and it is why it rides
-        // here - on unlock, where the device provably holds its share and can therefore sign from
-        // this moment on. A device that has not unlocked cannot vote anyway.
-        void registerDeviceKey(hex(loaded.groupKey), myPub, {
-          seat: b.seat,
-          pub: deviceWriteKeyHex(b.keyPackage),
-        })
         if (!acquireSigner(id)) {
           setError('another signer is already active for this vault on this device')
           return
