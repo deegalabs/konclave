@@ -75,6 +75,12 @@ describe('unlockOnDevice', () => {
   it('does not wait on the network, and a failed registration does not fail the unlock', async () => {
     // The member can already read and sign locally; blocking on the coordinator would make an
     // offline moment look like a wrong passphrase.
+    //
+    // This test does DOUBLE DUTY, and the second job is the one worth naming: the rejection it
+    // throws must not escape. A bare `void promise` leaves an unhandled rejection behind, which
+    // vitest reports as an error ALONGSIDE a green "634 passed" - so it is invisible to anyone
+    // grepping for failures. That is exactly how it shipped once; CI caught it, a local run had
+    // not. Keep the throw.
     const d = deps({ registerThisDevice: async () => { throw new Error('offline') } })
     expect(await unlockWith(d, ID, 'net', 'right')).toEqual({ ok: true })
   })

@@ -59,8 +59,17 @@ export async function unlockWith(
       // since acting on a proposal is what the key is for.
       //
       // Not awaited: unlocking must not wait on the network, and the member can already read and
-      // sign locally. `registerThisDevice` never throws and reports its own failure.
-      void deps.registerThisDevice(id, share)
+      // sign locally.
+      //
+      // The `.catch` is not redundant with the try/catch inside `registerThisDevice`. A bare `void`
+      // on a promise lets a rejection escape as an UNHANDLED one - a console error in a browser, a
+      // failed run under vitest - and the caller must not depend on the callee's internals to stay
+      // that way. This exact line shipped without it and CI caught the escape; the local run
+      // reported "634 passed" alongside "1 error", and the grep that checked it did not include
+      // the second line.
+      void deps.registerThisDevice(id, share).catch((error) => {
+        console.error('[konclave] this device could not register its seat', { id, error })
+      })
       return { ok: true }
     }
     const r = await deps.unlockVault(pass)
