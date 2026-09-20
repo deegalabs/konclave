@@ -42,6 +42,13 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **When a passkey did not open a vault, the screen could not say which of four things happened.**
+  It now says, in one calm sentence each: the passkey no longer matches this vault and should be
+  removed and created again, this device cannot offer the shortcut at all, it did not answer, or it
+  was not finished. The one that matters most is the first - it means the device answered and its
+  key changed, which no amount of retrying fixes - and it was previously indistinguishable from
+  pressing cancel. This is readable on the phone itself, which is the point: the shortcut is
+  per device, so the device that fails is a phone, and a phone has no console.
 - **Unlocking with a passkey could sit on "Waiting for this device" for a minute and then do
   nothing.** However it ended - the prompt never appeared, it was cancelled, the device's passkey no
   longer produces the same key - the button went quiet and the vault stayed locked, with nothing

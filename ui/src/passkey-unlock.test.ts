@@ -50,8 +50,8 @@ describe('opening a vault with the passkey', () => {
     // the screen used to do NOTHING with that: the button said "waiting" for up to a minute and
     // then went back to normal, leaving the member on the same locked dialog with no idea whether
     // anything had happened. Silent must mean "no alarming copy", not "no answer".
-    const d = deps({ openPrf: async () => null })
-    expect(await unlockWithPasskeyUsing(d, 'V', 'konclave.xyz', {} as never)).toBe('refused')
+    const d = deps({ openPrf: async () => 'cancelled' as const })
+    expect(await unlockWithPasskeyUsing(d, 'V', 'konclave.xyz', {} as never)).toBe('cancelled')
     expect(d.calls, 'a refusal must not half-unlock the vault').toEqual([])
   })
 
@@ -64,7 +64,7 @@ describe('opening a vault with the passkey', () => {
     // Enrolling asks the member to read a system sheet and decide; opening is a touch they either
     // give at once or do not give at all. A minute of a spinning button is not patience.
     const seen: number[] = []
-    const d = deps({ openPrf: async (_a, _w, _r, ms?: number) => { seen.push(ms ?? -1); return null } })
+    const d = deps({ openPrf: async (_a, _w, _r, ms?: number) => { seen.push(ms ?? -1); return 'cancelled' as const } })
     await unlockWithPasskeyUsing(d, 'V', 'konclave.xyz', {} as never)
     expect(seen).toEqual([UNLOCK_TIMEOUT_MS])
     expect(UNLOCK_TIMEOUT_MS).toBeLessThan(60_000)
@@ -74,7 +74,7 @@ describe('opening a vault with the passkey', () => {
     // Asked for directly: "tem como eu ver no console?" The answer used to be no, because every
     // cause collapsed to null and nothing logged it.
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    await unlockWithPasskeyUsing(deps({ openPrf: async () => null }), 'V', 'konclave.xyz', {} as never)
+    await unlockWithPasskeyUsing(deps({ openPrf: async () => 'cancelled' as const }), 'V', 'konclave.xyz', {} as never)
     expect(spy).toHaveBeenCalled()
     spy.mockRestore()
   })
@@ -85,5 +85,15 @@ describe('opening a vault with the passkey', () => {
       offenders.map((p) => p.replace(SRC, '')),
       'a second passkey-unlock handler, which is how the first one drifted',
     ).toEqual([])
+  })
+
+  it('passes the REASON through, because the phone is the only place it can be read', () => {
+    // The shortcut is per DEVICE by design, so the device that fails is a phone, and Chrome on
+    // Android has no inspector. A console line serves whoever has a console; the returned reason
+    // is what the person holding the phone gets, as four distinct sentences.
+    return Promise.all((['different-key', 'no-prf', 'unanswered', 'cancelled'] as const).map(async (why) => {
+      const d = deps({ openPrf: async () => why })
+      expect(await unlockWithPasskeyUsing(d, 'V', 'konclave.xyz', {} as never)).toBe(why)
+    }))
   })
 })
