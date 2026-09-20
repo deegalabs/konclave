@@ -349,7 +349,14 @@ export const ptBR: Record<string, string> = {
   'vaults.passkeyUnlock': 'Destravar com este aparelho',
   'vaults.passkeyBusy': 'Aguardando este aparelho\u2026',
   'settings.passkeyTitle': 'Destravar com este aparelho',
+  // Uma mensagem s\u00f3 para quatro causas foi o que transformou um defeito em dois dias de
+  // adivinha\u00e7\u00e3o - e a causa que o membro tinha encontrado nem era report\u00e1vel. Fica como fallback.
   'settings.passkeyFail': 'Este aparelho n\u00e3o conseguiu configurar. A senha continua funcionando.',
+  // Permanente. O autenticador deste aparelho n\u00e3o implementa a extens\u00e3o PRF, ent\u00e3o a c\u00f3pia n\u00e3o
+  // pode convidar a uma terceira tentativa de algo que nunca vai funcionar.
+  'settings.passkeyNoPrf': 'Este aparelho n\u00e3o oferece o atalho - as passkeys dele n\u00e3o t\u00eam suporte. Aqui a entrada \u00e9 a frase-senha.',
+  'settings.passkeyNoAnswer': 'Este aparelho n\u00e3o respondeu. Tente de novo.',
+  'settings.passkeyCancelled': 'N\u00e3o foi conclu\u00eddo. Nada mudou - pode tentar de novo.',
   'settings.remove': 'Remover deste aparelho',
   'settings.removing': 'Removendo…',
   'settings.confirmRemove': 'Confirmar remoção',

@@ -40,6 +40,18 @@ explicitly accepted.
 
 ### Fixed
 
+- **Creating a passkey could wait forever, and never said why.** On Android the button sat on
+  "Waiting for this device..." with no error and no passkey, however many times it was tried.
+  Turning the shortcut on runs two device prompts back to back; when the second one never answered -
+  which is what happens if the first is still closing - the app waited for a reply that was not
+  coming. Nothing was stored and the passphrase was untouched, but the screen gave no way to tell
+  that from a vault that had broken. It now stops waiting, and says which of four things happened:
+  this device cannot offer the shortcut at all (permanent, so it no longer invites another attempt),
+  it did not answer, it was cancelled, or it could not be set up. Unlocking with a passkey could
+  wait the same way and now also stops. Reported from a real vault on 2026-09-20.
+- **Three controls in the English app were written in Portuguese.** In Settings: "Create a passkey",
+  "Remove passkey", and the row that now reads "passphrase or passkey".
+
 - **A proposal that failed for any reason blamed the address.** Whatever actually went wrong, the
   screen said the destination was not recognized and told the member to check it. A device that
   could not prove it holds its seat, a vault that could not afford the amount, a coordinator that

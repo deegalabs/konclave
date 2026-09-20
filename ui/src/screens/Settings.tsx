@@ -11,6 +11,7 @@ import { PageHeader, PageFooter } from '../page'
 import { useT, useTr } from '../i18n'
 import { loadPrfWrap, savePrfWrap, clearPrfWrap } from '../prf-store'
 import { enrolPrf } from '../prf-wrap'
+import { DENIAL_COPY } from '../prf-denial-copy'
 import { readSecretFor, getUnlockedShare } from '../session'
 import { deviceCommsKey, devicePubHex } from '../device-key'
 import { decodeBundle } from '../signing'
@@ -117,11 +118,13 @@ export default function Settings() {
     setPkBusy(true); setPkErr(null)
     try {
       const label = vault?.name || t('settings.vault')
-      const wrap = await enrolPrf(navigator.credentials, vaultId, s, location.hostname, label)
-      // `enrolPrf` returns null on ANY failure, cancellation included. Nothing is stored, and the
-      // passphrase is untouched - a shortcut that fails must cost nothing.
-      if (!wrap) { setPkErr(t('settings.passkeyFail')); return }
-      savePrfWrap(vaultId, wrap)
+      const r = await enrolPrf(navigator.credentials, vaultId, s, location.hostname, label)
+      // `enrolPrf` returns a denial rather than a wrap on ANY failure, cancellation included.
+      // Nothing is stored, and the passphrase is untouched - a shortcut that fails must cost
+      // nothing. What it must NOT do is fail namelessly: the 2026-09-20 enrolment hang was two days of guessing because
+      // this screen said the same sentence whichever of them had happened.
+      if (typeof r === 'string') { setPkErr(t(DENIAL_COPY[r])); return }
+      savePrfWrap(vaultId, r)
       setHasPasskey(true)
     } finally {
       setPkBusy(false)
