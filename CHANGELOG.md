@@ -163,6 +163,13 @@ explicitly accepted.
 
 ### Fixed
 
+- **Importing a vault left the seat unable to sign or read it.** The import asked for the vault's
+  passphrase, decrypted the backup with it and saved the vault - then behaved as though it had never
+  been given. Until the member typed the same passphrase a second time, that seat could not
+  contribute a signature and every private read of the vault was refused, while the vault itself
+  looked present and fine in the list. Importing now leaves the vault open, which is what handing
+  over the passphrase was for.
+
 - **Creating a passkey asked for two prompts, and failed on the second.** Turning the shortcut on
   ran two device ceremonies back to back, because the key material was only read from the second.
   Browsers have returned it from the first since early 2026, so the common case now needs one
