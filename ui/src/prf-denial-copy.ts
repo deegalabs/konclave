@@ -19,4 +19,7 @@ export const DENIAL_COPY: Record<PrfDenial, string> = {
   unanswered: 'settings.passkeyNoAnswer',
   // Including the member pressing Escape, which is a choice, not an error.
   cancelled: 'settings.passkeyCancelled',
+  // The remedy is OUTSIDE this app - the system's passkey manager - so this is the one message that
+  // has to tell the member where to go, not just what happened.
+  'already-enrolled': 'settings.passkeyExists',
 }

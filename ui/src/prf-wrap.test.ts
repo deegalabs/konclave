@@ -162,3 +162,61 @@ describe('an enrolment that is never answered (#538)', () => {
     expect(raced).toBe('unanswered')
   })
 })
+
+describe('one ceremony where the browser allows it (follow-on to #538)', () => {
+  // #538 stopped the enrolment hanging. It did not remove the thing that hangs: two WebAuthn
+  // ceremonies fired back to back, which is what Android could not survive. Chrome and Safari have
+  // returned PRF output at CREATION since early 2026, so on those the second ceremony is not needed
+  // at all - and one prompt is also what a member expects from one button.
+  const atCreate = (): Authenticator => ({
+    create: async (o) => {
+      const ext = o.publicKey?.extensions as { prf?: { eval?: { first?: BufferSource } } } | undefined
+      const first = ext?.prf?.eval?.first as Uint8Array | undefined
+      const out = new Uint8Array(32)
+      if (first) for (let i = 0; i < 32; i++) out[i] = first[i % first.length]!
+      return {
+        rawId: new Uint8Array([1, 2, 3, 4]).buffer,
+        getClientExtensionResults: () => ({ prf: { results: { first: out.buffer } } }),
+      } as unknown as Credential
+    },
+    get: async () => { throw new Error('the second ceremony must not run when creation answered') },
+  })
+
+  it('does not assert again when creation already produced the output', async () => {
+    const auth = atCreate()
+    const get = vi.spyOn(auth, 'get')
+    const wrap = wrapOf(await enrolPrf(auth, 'ab'.repeat(32), S, RP, 'member'))
+    expect(get, 'the enrolment fired a second prompt it did not need').not.toHaveBeenCalled()
+    expect(wrap.cipher.length, 'it still wrapped the secret').toBeGreaterThan(0)
+  })
+
+  it('asks for the salt at creation, not only at the assertion', async () => {
+    let asked: CredentialCreationOptions | undefined
+    const inner = atCreate()
+    await enrolPrf({ create: (o) => { asked = o; return inner.create(o) }, get: inner.get },
+      'ab'.repeat(32), S, RP, 'member')
+    const ext = asked?.publicKey?.extensions as { prf?: { eval?: { first?: unknown } } }
+    expect(ext.prf?.eval?.first, 'without eval at create there is nothing to return there').toBeDefined()
+  })
+})
+
+describe('the platform says WHICH refusal it was (follow-on to #538)', () => {
+  // #538's own catch answered "cancelled" for every rejection - the same one-sentence-for-many-causes
+  // mistake it had just been written to fix, reintroduced by the fix. The platform does name them.
+  const throwing = (name: string): Authenticator => ({
+    create: async () => { throw new DOMException('', name) },
+    get: async () => { throw new DOMException('', name) },
+  })
+
+  it('reports an existing passkey as such, since its remedy is outside this app', async () => {
+    expect(await enrolPrf(throwing('InvalidStateError'), 'ab'.repeat(32), S, RP, 'm')).toBe('already-enrolled')
+  })
+
+  it('reports refused options as the permanent case', async () => {
+    expect(await enrolPrf(throwing('NotSupportedError'), 'ab'.repeat(32), S, RP, 'm')).toBe('no-prf')
+  })
+
+  it('keeps a cancelled prompt as a cancellation', async () => {
+    expect(await enrolPrf(throwing('NotAllowedError'), 'ab'.repeat(32), S, RP, 'm')).toBe('cancelled')
+  })
+})

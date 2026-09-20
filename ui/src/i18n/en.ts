@@ -361,6 +361,8 @@ export const en: Record<string, string> = {
   'settings.passkeyNoPrf': 'This device cannot offer the shortcut - its passkeys do not support it. The passphrase is the way in here.',
   'settings.passkeyNoAnswer': 'This device did not answer. Try again.',
   'settings.passkeyCancelled': 'That was not finished. Nothing changed - you can try again.',
+  // Names the place, because this is the only denial the member cannot resolve inside Konclave.
+  'settings.passkeyExists': 'This device already holds a passkey for this vault. Remove it in your device\u2019s passkey settings, then create it again here.',
   'settings.remove': 'Remove from this device',
   'settings.removing': 'Removing…',
   'settings.confirmRemove': 'Confirm removal',
