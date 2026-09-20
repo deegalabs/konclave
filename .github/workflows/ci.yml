@@ -47,28 +47,14 @@ jobs:
           # the base branch's own changelog commit.
           merge_base="$(git merge-base "$BASE" "$HEAD")"
           changed="$(git diff --name-only "$merge_base".."$HEAD")"
-          # Source a member meets. Tests, e2e and CI are excluded: they change no behaviour, and
-          # counting them would train everyone to reach for the label.
-          visible="$(printf '%s\n' "$changed" | grep -E '^(ui/src/|orchestrator/src/|helper-server/src/|relay-server/src/|konclave-signer/src/|konclave-wasm/src/|konclave-seal/src/)' | grep -vE '\.test\.|/e2e/' || true)"
-          if [ -z "$visible" ]; then
-            echo "No member-visible source touched."
-            exit 0
-          fi
-          if printf '%s\n' "$changed" | grep -qx 'CHANGELOG.md'; then
-            echo "CHANGELOG.md updated."
-            exit 0
-          fi
-          echo "::error::This PR changes source a member meets but does not touch CHANGELOG.md."
-          echo
-          echo "Add an entry under ## [Unreleased], grouped by what a member NOTICES - the forum"
-          echo "posts and the desktop release notes are written from that section."
-          echo
-          echo "If the change is genuinely invisible to a member (refactor, test, CI, dependency),"
-          echo "add the 'no-changelog' label."
-          echo
-          echo "Files that triggered this:"
-          printf '  %s\n' $visible
-          exit 1
+          # The RULE lives in scripts/changelog-gate.mjs, not here, and has tests. This gate has
+          # already shipped one real bug (the merge-base one above), and shell inside a workflow is
+          # the one kind of code nobody can run before merging it.
+          #
+          # Per product since 2026-09-20: the coordinator and the relay keep their own changelogs,
+          # because they deploy by hand on their own clock and a shared `Unreleased` section cannot
+          # say which of them a given entry has actually reached.
+          printf '%s\n' "$changed" | node scripts/changelog-gate.mjs
 
   rust:
     # The job NAME is short and fixed on purpose. GitHub truncates a check-run name at 95 characters,
