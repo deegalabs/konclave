@@ -348,6 +348,9 @@ export const ptBR: Record<string, string> = {
   'rotate.note': 'Não existe como recuperar uma frase-senha esquecida - a exportação cifrada é a única cópia reserva. Faça uma antes de trocar e guarde em lugar seguro.',
   'vaults.passkeyUnlock': 'Destravar com este aparelho',
   'vaults.passkeyBusy': 'Aguardando este aparelho\u2026',
+  // Silencioso de prop\u00f3sito, e aponta o caminho em vez da falha. Antes n\u00e3o dizia nada, o que num
+  // di\u00e1logo trancado se l\u00ea como quebrado, n\u00e3o como "use a sua frase-senha".
+  'lock.passkeyMiss': 'N\u00e3o abriu desta vez. A sua frase-senha abaixo continua abrindo.',
   'settings.passkeyTitle': 'Destravar com este aparelho',
   // Uma mensagem s\u00f3 para quatro causas foi o que transformou um defeito em dois dias de
   // adivinha\u00e7\u00e3o - e a causa que o membro tinha encontrado nem era report\u00e1vel. Fica como fallback.

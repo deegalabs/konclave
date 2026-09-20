@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { getVaults, health, setSelectedVault, getSelectedVault, clearSelectedVault, markVaultUnlocked, isVaultUnlocked, shortAddr, type Vault } from '../api'
+import { getVaults, health, setSelectedVault, getSelectedVault, clearSelectedVault, isVaultUnlocked, shortAddr, type Vault } from '../api'
 import { helperConfigured, getCustomHelper, setCoordMode, HELPER_BASE } from '../helper'
 import { isDesktop } from '../platform'
 import { listVaults, parseVaultExport, forgetVault, type VaultExport } from '../storage'
-import { clearUnlockedShare, setReadSecret, clearReadSecret } from '../session'
+import { clearUnlockedShare, clearReadSecret } from '../session'
 import { loadPrfWrap, clearPrfWrap } from '../prf-store'
-import { openPrf } from '../prf-wrap'
+import { unlockWithPasskey } from '../passkey-unlock'
 import { unlockOnDevice, importAndUnlock } from '../unlock'
 import { Identicon } from '../avatar'
 import { Dialog, Letterhead, activateOnKey } from '../components'
@@ -42,25 +42,24 @@ export default function Vaults() {
   // #446 C: this device may hold a passkey-wrapped copy of the vault's read secret. Offered, never
   // automatic - an authenticator prompt nobody asked for is worse than typing a passphrase.
   const [prfBusy, setPrfBusy] = useState(false)
+  const [prfMiss, setPrfMiss] = useState(false)
 
   /** Open the vault's books with a touch. `S` only: signing still asks for the passphrase, which is
-   *  the separation this exists for. Any failure is silent and leaves the passphrase field as it
-   *  was, because a shortcut that fails must cost nothing. */
-  async function unlockWithPasskey(row: Row) {
-    const wrap = loadPrfWrap(row.v.id)
-    if (!wrap) return
+   *  the separation this exists for. A failure costs nothing, and since #545 it no longer says
+   *  nothing either - the handler is shared with the in-place lock rather than copied into it. */
+  async function unlockWithPasskeyRow(row: Row) {
     setPrfBusy(true)
+    setPrfMiss(false)
     try {
-      const s = await openPrf(navigator.credentials, wrap, location.hostname)
-      if (!s) return
-      setReadSecret(row.v.id, s)
-      markVaultUnlocked(row.v.id)
+      const r = await unlockWithPasskey(row.v.id)
+      if (r !== 'unlocked') { if (r === 'refused') setPrfMiss(true); return }
       setUnlocking(null)
       nav('/dashboard')
     } finally {
       setPrfBusy(false)
     }
   }
+
   // #426: removing a vault from THIS device. It was designed once (the copy has lived in both
   // dictionaries, unused, including a typed-name confirmation) and never wired, while Settings
   // named the control and left it disabled. Offered only for `src === 'net'`, because that is the
@@ -464,8 +463,9 @@ export default function Vaults() {
               only rendered when this device actually holds a wrap, so it never advertises something
               the member cannot use. */}
           {loadPrfWrap(unlocking.v.id) && (
-            <PasskeyButton busy={prfBusy} onClick={() => void unlockWithPasskey(unlocking)} />
+            <PasskeyButton busy={prfBusy} onClick={() => void unlockWithPasskeyRow(unlocking)} />
           )}
+          {prfMiss && <p className="unlock-prf-miss">{t('lock.passkeyMiss')}</p>}
           <input
             className="unlock-input mono" type="password" placeholder={unlocking.src === 'net' ? t('vaults.passphrase') : t('vaults.wordPlaceholder')}
             value={pass} onChange={(e) => setPass(e.target.value)}

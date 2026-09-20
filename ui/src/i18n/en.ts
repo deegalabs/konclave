@@ -352,6 +352,9 @@ export const en: Record<string, string> = {
   'rotate.note': 'There is no way to recover a forgotten passphrase - the encrypted export is the only spare key. Make one before you change this, and keep it somewhere safe.',
   'vaults.passkeyUnlock': 'Unlock with this device',
   'vaults.passkeyBusy': 'Waiting for this device…',
+  // Quiet on purpose, and it names the way in rather than the failure. The old behaviour said
+  // nothing at all, which on a locked dialog reads as broken rather than as "use your passphrase".
+  'lock.passkeyMiss': 'That did not open it this time. Your passphrase below still does.',
   'settings.passkeyTitle': 'Unlock with this device',
   // One message for four causes is what turned a single defect into two days of guessing,
   // and the cause the member had actually hit could not be reported at all. Kept as the fallback.
