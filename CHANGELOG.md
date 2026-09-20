@@ -6,13 +6,17 @@ messages. If an entry does not answer "what is different for me now", it does no
 Format: [Keep a Changelog](https://keepachangelog.com/). Versions: [SemVer](https://semver.org/).
 Dates are UTC.
 
-## This file covers the web app, the desktop shell and the shared crates
+## This file covers the desktop shell and the shared crates
 
-Since 2026-09-20 the two hand-deployed services keep their own, because they ship on their own clock
-and a shared `Unreleased` section cannot say which of them an entry has actually reached:
+Since 2026-09-20 each of the other parts keeps its own, because they ship on different clocks and a
+single `Unreleased` section cannot say which of them an entry has actually reached:
 
+- [ui/CHANGELOG.md](ui/CHANGELOG.md) - the app, which the web and the desktop BOTH ship
 - [helper-server/CHANGELOG.md](helper-server/CHANGELOG.md) - the coordinator
 - [relay-server/CHANGELOG.md](relay-server/CHANGELOG.md) - the blind relay
+
+A desktop release body is ASSEMBLED from this file and `ui/CHANGELOG.md`, because a desktop release
+ships both. `scripts/release.mjs --notes` does that, and cuts both sections when a version is cut.
 
 Neither carries a version number; both report a build identity instead, and their files say why.
 Entries from before that date were NOT moved out of this file - rewriting history to tidy it is how
