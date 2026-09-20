@@ -1,4 +1,4 @@
-// Which sentence each enrolment denial gets (the 2026-09-20 enrolment hang).
+// Which sentence each enrolment denial gets (#538).
 //
 // Its own module, and not a literal inside `Settings.tsx`, for the reason this repo keeps
 // relearning: a copy key is one rule with TWO implementations - the screen that names it and the

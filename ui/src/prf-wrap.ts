@@ -22,7 +22,7 @@
 //     for the passphrase exactly as it does today. The downside is bounded at zero: it either saves
 //     typing or it does not, and it can never lose anything.
 //
-//     Enrolment is the other way round, and the 2026-09-20 enrolment hang is why. The member pressed a button and is owed an
+//     Enrolment is the other way round, and #538 is why. The member pressed a button and is owed an
 //     answer, and "this device could not set that up" for four different causes is what turned one
 //     defect into two days of guessing. It returns a `PrfDenial`.
 //
@@ -95,7 +95,7 @@ class Unanswered extends Error {}
  * the one where the platform does not honour it: on Android the second ceremony of an enrolment can
  * neither resolve nor reject, because the system sheet will not reopen while the first is still
  * tearing down. A bare `catch` is no defence - a pending promise is not a rejection - so the caller
- * sat on a busy button forever with nothing to show (the 2026-09-20 enrolment hang).
+ * sat on a busy button forever with nothing to show (#538).
  */
 function answered<T>(p: Promise<T>, ms: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -130,7 +130,7 @@ async function keyFrom(out: Uint8Array): Promise<CryptoKey> {
  * It used to return a bare `null` for all of it. That collapsed four different situations into one
  * screen that said "this device could not set that up", so two days were spent guessing which one a
  * member had hit - and the one they had actually hit was a FIFTH that this function could not
- * report at all, because it never returned (the 2026-09-20 enrolment hang).
+ * report at all, because it never returned (#538).
  */
 export async function enrolPrf(
   auth: Authenticator,

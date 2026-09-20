@@ -316,7 +316,7 @@ export const en: Record<string, string> = {
   //
   // These three shipped in Portuguese IN THE ENGLISH FILE, so an English member read the rest of
   // Settings in English and this one control in another language. Found 2026-09-20 while fixing
-  // the 2026-09-20 enrolment hang, three lines below the comment that explains why the word `passkey` was chosen.
+  // #538, three lines below the comment that explains why the word `passkey` was chosen.
   'set.passkeyValue': 'passphrase or passkey',
   'set.passkeyOn': 'Create a passkey',
   'set.passkeyOff': 'Remove passkey',

@@ -134,7 +134,7 @@ describe('the PRF wrap (#446 C)', () => {
   })
 })
 
-describe('an enrolment that is never answered (the 2026-09-20 enrolment hang)', () => {
+describe('an enrolment that is never answered (#538)', () => {
   // The failure Bob hit on 2026-09-20, and the one this file could not express until now.
   //
   // `enrolPrf` runs TWO ceremonies: `create()`, then `get()` immediately after, because the PRF
