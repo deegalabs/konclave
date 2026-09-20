@@ -38,76 +38,6 @@ explicitly accepted.
 
 ## [Unreleased]
 
-### Fixed
-
-- **Creating a passkey asked for two prompts, and failed on the second.** Turning the shortcut on
-  ran two device ceremonies back to back, because the key material was only read from the second.
-  Browsers have returned it from the first since early 2026, so the common case now needs one
-  prompt and the fragile second ceremony does not happen at all. When a device still needs it, it
-  runs as before.
-- **"That was not finished" stood for every refusal, including ones the member could act on.** The
-  most useful is a passkey for this vault ALREADY on the device: nothing in Konclave can clear it,
-  so the message now says to remove it in the device's own passkey settings. A device that refuses
-  the request outright is reported as the permanent case instead of inviting another attempt.
-
-- **Creating a passkey could wait forever, and never said why.** On Android the button sat on
-  "Waiting for this device..." with no error and no passkey, however many times it was tried.
-  Turning the shortcut on runs two device prompts back to back; when the second one never answered -
-  which is what happens if the first is still closing - the app waited for a reply that was not
-  coming. Nothing was stored and the passphrase was untouched, but the screen gave no way to tell
-  that from a vault that had broken. It now stops waiting, and says which of four things happened:
-  this device cannot offer the shortcut at all (permanent, so it no longer invites another attempt),
-  it did not answer, it was cancelled, or it could not be set up. Unlocking with a passkey could
-  wait the same way and now also stops. Reported from a real vault on 2026-09-20.
-- **Three controls in the English app were written in Portuguese.** In Settings: "Create a passkey",
-  "Remove passkey", and the row that now reads "passphrase or passkey".
-
-- **A proposal that failed for any reason blamed the address.** Whatever actually went wrong, the
-  screen said the destination was not recognized and told the member to check it. A device that
-  could not prove it holds its seat, a vault that could not afford the amount, a coordinator that
-  was restarting: all of them read as a bad address, next to a draft showing the recipient's saved
-  name and the address resolved correctly. On a money screen a wrong reason is worse than none,
-  because it sends someone to fix what is not broken and hides what is. Found by a member on a real
-  vault, and it is the same fault that was fixed for approvals earlier this month, left standing in
-  the other place it lives. The screen now says what the coordinator actually refused, and the
-  reasons that used to look identical have their own sentences: an address on the wrong network, an
-  address that cannot hold this kind of shielded money, and an amount that cannot be sent in one
-  payment are three different problems with three different answers.
-
-### Fixed
-
-- **The relay could not be deployed at all, and had not been able to since 7 September.** Nothing
-  about the running service was wrong, and nothing said anything was: the recipe for building a new
-  one had been broken for ten days, and the only way to discover that was to attempt a deployment.
-  Nobody had needed one. It would have surfaced the next time someone was shipping an urgent fix,
-  which is the worst moment to learn it. The recipe is corrected and verified by building and
-  running the result, not by reading it.
-
-### Added
-
-- **The relay now says which sources it is running.** Like the coordinator, it had no way to tell
-  whether the service answering was built from the code the repository holds. It cannot report a
-  revision the way the coordinator does, because of how it is built, so it reports a fingerprint of
-  its own sources instead, which answers the more useful question directly: is this the same code.
-  Anyone can check by building it and comparing. This detects a stale deployment; it is not proof
-  of anything to someone who could replace the service.
-
-- **The coordinator now says which build is answering.** Until now there was no way to tell whether
-  the service running in production was the one the source said it should be, except by trusting
-  that whoever last deployed it followed every step. That has been wrong before, for a week, with
-  nobody able to see it. Its status endpoint now reports the exact revision it was built from and
-  when, and says so out loud when it was built from a working copy that had uncommitted changes,
-  because a build made from a modified tree cannot be reproduced from the revision it names.
-
-### Fixed
-
-- **The payment screen announced one network fee and refused you with another.** It printed
-  "Estimated fee 0.0001 ZEC" beside the amount, and then blocked the proposal using a figure half
-  again as large. A vault holding exactly the announced fee was told it could not afford a payment
-  that the arithmetic on the same screen said it could, so the reasonable conclusion was that the
-  block was broken rather than the sentence. The fee shown is now the fee applied, from one place,
-  and the copy can no longer carry a number of its own.
-
 ### Security
 
 - **On a transaction that spent from both shielded pools, a device signed half of it and said
@@ -123,41 +53,6 @@ explicitly accepted.
   both pools is refused before anything is signed, with the same wording everywhere, and the reason
   reaches the member instead of being swallowed. Vaults holding funds in a single pool, which is
   every vault in use today, are unaffected.
-
-### Fixed
-
-- **A payment that could never be signed was still put to a vote.** When the amount needed funds
-  from both of the vault's internal pools, the transaction was built, the proposal was created, the
-  quorum read it and approved it, and only then did the signing step refuse it, with a message
-  about something else. Everyone's attention had already been spent, and the proposal could not be
-  retried: it failed the same way every time.
-
-  The question is now asked while the proposal is being composed, which is the moment it can still
-  be answered cheaply, and the answer says what to do: send it as two payments, or consolidate the
-  vault first. Nothing about signing changed, and vaults holding their funds in a single pool are
-  unaffected.
-
-### Fixed
-
-- **The vault offered more than it could send in one payment.** The balance a member proposes
-  against is the sum of two internal pools the funds can sit in, and a single payment draws on one
-  of them. So an amount larger than the bigger pool but no larger than the total was accepted,
-  collected approvals from the quorum, and then failed at the moment of signing, with a message
-  about something else. The money was always there; it just was not reachable in one go.
-
-  Such an amount is now refused while it is being typed, and the message says what to do about it:
-  send it as two payments, or consolidate the vault first. Vaults holding their funds in a single
-  pool, which is every vault in use today, see no change.
-
-### Fixed
-
-- **Every page load printed a deprecation warning to the console.** The cryptography module was
-  started with a call shape its own loader marks as obsolete, so it warned on each load, in
-  everyone's browser, sitting next to the diagnostics that actually mean something. Nothing
-  misbehaved; the noise is the defect, because a console that always has a warning in it is a
-  console nobody reads.
-
-### Security
 
 - **Anyone who could write to a vault's signing room could make a payment fail.** The second round
   of a signature is opened by one member handing the others a package to sign. Each device checked
@@ -205,49 +100,6 @@ explicitly accepted.
   Open for as long as the browser signer has existed. No evidence it was used; the exposure needed a
   compromised helper, and the vaults in use are the maintainer's and two others. (#281)
 
-### Added
-
-- **A device can now recognise its own vault's change, which is what the money gate needs to work
-  at all.** Every real payment sends the leftover back to the vault on an internal address, and a
-  signing device cannot work out what that address is - it is minted from a random key the tool
-  throws away, so it is not derivable from anything the device holds. Without being told, a device
-  reads the change of every honest payment as money going to a stranger. The helper publishes it,
-  the device records it **once**, and the export carries it so a restored device does not have to
-  ask again. Recording it once is the point: whoever tells you is trusted at that moment only, and a
-  later answer - from a helper that has since been taken over - is refused rather than believed.
-  (#281)
-
-### Fixed
-
-- **Every visit re-checked files that can never change.** The app's code and its WASM are served
-  under names that already contain a hash of their contents, so a changed file gets a new name and
-  the old one is never right to reuse. The browser was told to ask the server about them anyway, on
-  every load. They are now marked as permanent, so a return visit uses what it already has.
-
-
-### Fixed
-
-- **A vault that already existed kept its blank address, even after 0.4.0 fixed the cause.** That
-  release made the create screen record the vault's address; it did nothing for the vaults already
-  on a device, because `saveVault` runs only at creation and nothing ever revisits a record. So
-  every vault made before it went on reporting the address missing however many times its member
-  re-exported. It is backfilled now from the helper, which is the only other place it exists, the
-  first time any screen loads the vault. (#501)
-
-- **The relay room a pinned ceremony lands in had no test.** Change that derivation's input by one
-  byte and every device computes a different room, so the members simply never meet. It is covered
-  by golden vectors now, taken from the code before the escaping change that prompted them, so they
-  pin the behaviour across it.
-
-- **The backup checker did not mention the one thing that lets a restore READ the vault.** It
-  reported the share, the address, the viewing key and the scan floor, and said nothing about the
-  per-vault read secret - so a backup that restores a device able to sign but not to see anything
-  passed as complete. It is reported now, along with the quorum and the seat, and two consistency
-  checks that catch a file whose share disagrees with its own metadata rather than one that is
-  merely missing a field. (#484)
-
-### Security
-
 - **Creating a proposal and firing a send were unauthenticated.** A vault id was enough to fill a
   vault's desk with proposals its members then had to read and refuse, and to trigger the broadcast
   of a payment that had already reached quorum - the funds go where the members decided either way,
@@ -271,11 +123,6 @@ explicitly accepted.
   was told the server needed a signature their own browser had failed to make. Found on a live
   vault. (#288, #483)
 
-- **The quorum and signing panels broke their own sentences across four lines.** They reused the
-  class name of the Dashboard's readiness card, a flex column, so every bold run became a flex item
-  and "Quorum reached. The proposal is ready." rendered with the full stop stranded on a line of its
-  own. Measured rather than guessed: the container computed to `display:flex`, the bold to
-  `display:block`. Four occurrences across two screens.
 - **The ceremony drawer called the other signers "member 1", "member 2".** It read the roster from
   the helper alone, so a read that failed - a 401 before the vault is unlocked, an offline moment -
   replaced everyone's name with a seat number, while the device held the names all along. Identity
@@ -284,11 +131,144 @@ explicitly accepted.
 
 ### Added
 
+- **The relay now says which sources it is running.** Like the coordinator, it had no way to tell
+  whether the service answering was built from the code the repository holds. It cannot report a
+  revision the way the coordinator does, because of how it is built, so it reports a fingerprint of
+  its own sources instead, which answers the more useful question directly: is this the same code.
+  Anyone can check by building it and comparing. This detects a stale deployment; it is not proof
+  of anything to someone who could replace the service.
+
+- **The coordinator now says which build is answering.** Until now there was no way to tell whether
+  the service running in production was the one the source said it should be, except by trusting
+  that whoever last deployed it followed every step. That has been wrong before, for a week, with
+  nobody able to see it. Its status endpoint now reports the exact revision it was built from and
+  when, and says so out loud when it was built from a working copy that had uncommitted changes,
+  because a build made from a modified tree cannot be reproduced from the revision it names.
+
+- **A device can now recognise its own vault's change, which is what the money gate needs to work
+  at all.** Every real payment sends the leftover back to the vault on an internal address, and a
+  signing device cannot work out what that address is - it is minted from a random key the tool
+  throws away, so it is not derivable from anything the device holds. Without being told, a device
+  reads the change of every honest payment as money going to a stranger. The helper publishes it,
+  the device records it **once**, and the export carries it so a restored device does not have to
+  ask again. Recording it once is the point: whoever tells you is trusted at that moment only, and a
+  later answer - from a helper that has since been taken over - is refused rather than believed.
+  (#281)
+
 - **Proof that a governance write is authenticated, on mainnet.** A 2-of-3 vault where the
   proposal, the approval and the send were each signed by a key derived from the seat's FROST
   share. The chain cannot show that, and the entry says so: what attests it is the same helper
   refusing the identical request made without a signature. 17 verifiable txids now
   ([docs/PROOF.md](docs/PROOF.md)). (#288)
+
+### Fixed
+
+- **Creating a passkey asked for two prompts, and failed on the second.** Turning the shortcut on
+  ran two device ceremonies back to back, because the key material was only read from the second.
+  Browsers have returned it from the first since early 2026, so the common case now needs one
+  prompt and the fragile second ceremony does not happen at all. When a device still needs it, it
+  runs as before.
+
+- **"That was not finished" stood for every refusal, including ones the member could act on.** The
+  most useful is a passkey for this vault ALREADY on the device: nothing in Konclave can clear it,
+  so the message now says to remove it in the device's own passkey settings. A device that refuses
+  the request outright is reported as the permanent case instead of inviting another attempt.
+
+- **Creating a passkey could wait forever, and never said why.** On Android the button sat on
+  "Waiting for this device..." with no error and no passkey, however many times it was tried.
+  Turning the shortcut on runs two device prompts back to back; when the second one never answered -
+  which is what happens if the first is still closing - the app waited for a reply that was not
+  coming. Nothing was stored and the passphrase was untouched, but the screen gave no way to tell
+  that from a vault that had broken. It now stops waiting, and says which of four things happened:
+  this device cannot offer the shortcut at all (permanent, so it no longer invites another attempt),
+  it did not answer, it was cancelled, or it could not be set up. Unlocking with a passkey could
+  wait the same way and now also stops. Reported from a real vault on 2026-09-20.
+
+- **Three controls in the English app were written in Portuguese.** In Settings: "Create a passkey",
+  "Remove passkey", and the row that now reads "passphrase or passkey".
+
+- **A proposal that failed for any reason blamed the address.** Whatever actually went wrong, the
+  screen said the destination was not recognized and told the member to check it. A device that
+  could not prove it holds its seat, a vault that could not afford the amount, a coordinator that
+  was restarting: all of them read as a bad address, next to a draft showing the recipient's saved
+  name and the address resolved correctly. On a money screen a wrong reason is worse than none,
+  because it sends someone to fix what is not broken and hides what is. Found by a member on a real
+  vault, and it is the same fault that was fixed for approvals earlier this month, left standing in
+  the other place it lives. The screen now says what the coordinator actually refused, and the
+  reasons that used to look identical have their own sentences: an address on the wrong network, an
+  address that cannot hold this kind of shielded money, and an amount that cannot be sent in one
+  payment are three different problems with three different answers.
+
+- **The relay could not be deployed at all, and had not been able to since 7 September.** Nothing
+  about the running service was wrong, and nothing said anything was: the recipe for building a new
+  one had been broken for ten days, and the only way to discover that was to attempt a deployment.
+  Nobody had needed one. It would have surfaced the next time someone was shipping an urgent fix,
+  which is the worst moment to learn it. The recipe is corrected and verified by building and
+  running the result, not by reading it.
+
+- **The payment screen announced one network fee and refused you with another.** It printed
+  "Estimated fee 0.0001 ZEC" beside the amount, and then blocked the proposal using a figure half
+  again as large. A vault holding exactly the announced fee was told it could not afford a payment
+  that the arithmetic on the same screen said it could, so the reasonable conclusion was that the
+  block was broken rather than the sentence. The fee shown is now the fee applied, from one place,
+  and the copy can no longer carry a number of its own.
+
+- **A payment that could never be signed was still put to a vote.** When the amount needed funds
+  from both of the vault's internal pools, the transaction was built, the proposal was created, the
+  quorum read it and approved it, and only then did the signing step refuse it, with a message
+  about something else. Everyone's attention had already been spent, and the proposal could not be
+  retried: it failed the same way every time.
+
+  The question is now asked while the proposal is being composed, which is the moment it can still
+  be answered cheaply, and the answer says what to do: send it as two payments, or consolidate the
+  vault first. Nothing about signing changed, and vaults holding their funds in a single pool are
+  unaffected.
+
+- **The vault offered more than it could send in one payment.** The balance a member proposes
+  against is the sum of two internal pools the funds can sit in, and a single payment draws on one
+  of them. So an amount larger than the bigger pool but no larger than the total was accepted,
+  collected approvals from the quorum, and then failed at the moment of signing, with a message
+  about something else. The money was always there; it just was not reachable in one go.
+
+  Such an amount is now refused while it is being typed, and the message says what to do about it:
+  send it as two payments, or consolidate the vault first. Vaults holding their funds in a single
+  pool, which is every vault in use today, see no change.
+
+- **Every page load printed a deprecation warning to the console.** The cryptography module was
+  started with a call shape its own loader marks as obsolete, so it warned on each load, in
+  everyone's browser, sitting next to the diagnostics that actually mean something. Nothing
+  misbehaved; the noise is the defect, because a console that always has a warning in it is a
+  console nobody reads.
+
+- **Every visit re-checked files that can never change.** The app's code and its WASM are served
+  under names that already contain a hash of their contents, so a changed file gets a new name and
+  the old one is never right to reuse. The browser was told to ask the server about them anyway, on
+  every load. They are now marked as permanent, so a return visit uses what it already has.
+
+- **A vault that already existed kept its blank address, even after 0.4.0 fixed the cause.** That
+  release made the create screen record the vault's address; it did nothing for the vaults already
+  on a device, because `saveVault` runs only at creation and nothing ever revisits a record. So
+  every vault made before it went on reporting the address missing however many times its member
+  re-exported. It is backfilled now from the helper, which is the only other place it exists, the
+  first time any screen loads the vault. (#501)
+
+- **The relay room a pinned ceremony lands in had no test.** Change that derivation's input by one
+  byte and every device computes a different room, so the members simply never meet. It is covered
+  by golden vectors now, taken from the code before the escaping change that prompted them, so they
+  pin the behaviour across it.
+
+- **The backup checker did not mention the one thing that lets a restore READ the vault.** It
+  reported the share, the address, the viewing key and the scan floor, and said nothing about the
+  per-vault read secret - so a backup that restores a device able to sign but not to see anything
+  passed as complete. It is reported now, along with the quorum and the seat, and two consistency
+  checks that catch a file whose share disagrees with its own metadata rather than one that is
+  merely missing a field. (#484)
+
+- **The quorum and signing panels broke their own sentences across four lines.** They reused the
+  class name of the Dashboard's readiness card, a flex column, so every bold run became a flex item
+  and "Quorum reached. The proposal is ready." rendered with the full stop stranded on a line of its
+  own. Measured rather than guessed: the container computed to `display:flex`, the bold to
+  `display:block`. Four occurrences across two screens.
 
 ## [0.4.0] 2026-09-07
 
