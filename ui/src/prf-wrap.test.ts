@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { enrolPrf, openPrf, type Authenticator, type PrfWrap } from './prf-wrap'
+import { enrolPrf, openPrf, type Authenticator, type PrfDenial, type PrfWrap } from './prf-wrap'
 
 // #446 option C. The authenticator is injected, so these drive the REAL crypto path (HKDF over the
 // PRF output, AES-GCM over `S`) without a browser. What is faked is only the authenticator, which
@@ -37,12 +37,18 @@ function fakeAuth(device = 'A'): Authenticator {
   }
 }
 
+/** The wrap, or a failed test. Narrows `PrfWrap | PrfDenial` at the one place that cares, so a
+ *  denial can never be silently spread into an object and assert nothing. */
+function wrapOf(r: PrfWrap | PrfDenial): PrfWrap {
+  if (typeof r === 'string') throw new Error(`expected a wrap, got the denial "${r}"`)
+  return r
+}
+
 describe('the PRF wrap (#446 C)', () => {
   it('round-trips the secret on the device that enrolled', async () => {
     const auth = fakeAuth('A')
-    const wrap = await enrolPrf(auth, 'ab'.repeat(32), S, RP, 'member')
-    expect(wrap, 'enrolment produced a wrap').not.toBeNull()
-    expect(Array.from((await openPrf(auth, wrap!, RP))!)).toEqual(Array.from(S))
+    const wrap = wrapOf(await enrolPrf(auth, 'ab'.repeat(32), S, RP, 'member'))
+    expect(Array.from((await openPrf(auth, wrap, RP))!)).toEqual(Array.from(S))
   })
 
   it('does NOT open on a device whose PRF output differs, and says so by returning null', async () => {
@@ -51,8 +57,8 @@ describe('the PRF wrap (#446 C)', () => {
     // asymmetry. A wrap that silently opened with the wrong key would be worse; a wrap that throws
     // would make the member read a stack trace. It returns null, and the caller asks for the
     // passphrase.
-    const wrap = await enrolPrf(fakeAuth('A'), 'ab'.repeat(32), S, RP, 'member')
-    expect(await openPrf(fakeAuth('B'), wrap!, RP)).toBeNull()
+    const wrap = wrapOf(await enrolPrf(fakeAuth('A'), 'ab'.repeat(32), S, RP, 'member'))
+    expect(await openPrf(fakeAuth('B'), wrap, RP)).toBeNull()
   })
 
   it('never stores a wrap it could not open: no PRF output means no enrolment', async () => {
@@ -62,7 +68,9 @@ describe('the PRF wrap (#446 C)', () => {
       create: async () => ({ rawId: new Uint8Array([1]).buffer, getClientExtensionResults: () => ({}) }) as unknown as Credential,
       get: async () => ({ rawId: new Uint8Array([1]).buffer, getClientExtensionResults: () => ({}) }) as unknown as Credential,
     }
-    expect(await enrolPrf(noPrf, 'ab'.repeat(32), S, RP, 'member')).toBeNull()
+    // And it names the cause. This is the one denial the member cannot fix by trying again, so
+    // the screen has to be able to say so instead of inviting a third attempt.
+    expect(await enrolPrf(noPrf, 'ab'.repeat(32), S, RP, 'member')).toBe('no-prf')
   })
 
   it('a cancelled prompt is silent, on both paths', async () => {
@@ -71,15 +79,15 @@ describe('the PRF wrap (#446 C)', () => {
       create: async () => { throw new DOMException('NotAllowedError') },
       get: async () => { throw new DOMException('NotAllowedError') },
     }
-    expect(await enrolPrf(cancels, 'ab'.repeat(32), S, RP, 'member')).toBeNull()
+    expect(await enrolPrf(cancels, 'ab'.repeat(32), S, RP, 'member')).toBe('cancelled')
     const wrap: PrfWrap = { credentialId: 'AQID', salt: 'aa'.repeat(32), iv: 'bb'.repeat(12), cipher: 'cc'.repeat(48) }
     expect(await openPrf(cancels, wrap, RP)).toBeNull()
   })
 
   it('a tampered wrap does not open', async () => {
     const auth = fakeAuth('A')
-    const wrap = await enrolPrf(auth, 'ab'.repeat(32), S, RP, 'member')!
-    const tampered = { ...wrap!, cipher: wrap!.cipher.replace(/^../, 'ff') }
+    const wrap = wrapOf(await enrolPrf(auth, 'ab'.repeat(32), S, RP, 'member'))
+    const tampered = { ...wrap, cipher: wrap.cipher.replace(/^../, 'ff') }
     expect(await openPrf(auth, tampered, RP)).toBeNull()
   })
 
@@ -87,10 +95,10 @@ describe('the PRF wrap (#446 C)', () => {
     // The salt is per vault, so one vault's wrap can never open another's, even on the same
     // credential and the same authenticator.
     const auth = fakeAuth('A')
-    const a = await enrolPrf(auth, 'ab'.repeat(32), S, RP, 'member')
-    const b = await enrolPrf(auth, 'cd'.repeat(32), S, RP, 'member')
-    expect(a!.salt).not.toBe(b!.salt)
-    const crossed = { ...b!, salt: a!.salt }
+    const a = wrapOf(await enrolPrf(auth, 'ab'.repeat(32), S, RP, 'member'))
+    const b = wrapOf(await enrolPrf(auth, 'cd'.repeat(32), S, RP, 'member'))
+    expect(a.salt).not.toBe(b.salt)
+    const crossed = { ...b, salt: a.salt }
     expect(await openPrf(auth, crossed, RP)).toBeNull()
   })
 
@@ -123,5 +131,34 @@ describe('the PRF wrap (#446 C)', () => {
     const sel = asked?.publicKey?.authenticatorSelection
     expect(sel?.authenticatorAttachment, 'a roaming authenticator must not be enrolled').toBe('platform')
     expect(sel?.userVerification, 'the member must be verified, not merely present').toBe('required')
+  })
+})
+
+describe('an enrolment that is never answered (#538)', () => {
+  // The failure Bob hit on 2026-09-20, and the one this file could not express until now.
+  //
+  // `enrolPrf` runs TWO ceremonies: `create()`, then `get()` immediately after, because the PRF
+  // output is generally not available at create. On Android the second call can neither resolve nor
+  // reject - the system sheet does not reopen while the first is still tearing down, and the request
+  // simply sits there. A bare `catch` does not help: a pending promise is not a rejection.
+  //
+  // What the member saw was the button stuck on "Waiting for this device...", forever, with no
+  // error - because the caller's `finally` never ran. Every one of the eight tests above drives an
+  // authenticator that ALWAYS answers, so the suite covered every way the ceremony can FAIL and no
+  // way for it to go quiet. That gap is the bug, not just the symptom.
+  const stuck = (): Authenticator => ({
+    create: fakeAuth('A').create,
+    get: () => new Promise<Credential>(() => {}),
+  })
+
+  it('gives up instead of hanging, and says it was never answered', async () => {
+    const raced = await Promise.race([
+      enrolPrf(stuck(), 'ab'.repeat(32), S, RP, 'member', 50),
+      new Promise((r) => setTimeout(() => r('hung'), 1000)),
+    ])
+    expect(raced, 'enrolPrf must settle on its own rather than wait forever').not.toBe('hung')
+    // And it must not be reported as a cancellation: the member did nothing, the platform went
+    // quiet, and telling them to try again is only honest if that is what actually happened.
+    expect(raced).toBe('unanswered')
   })
 })

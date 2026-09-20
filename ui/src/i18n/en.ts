@@ -313,9 +313,13 @@ export const en: Record<string, string> = {
   // passphrase" beside a button that could have meant anything. `passkey` is the word Apple,
   // Google and Microsoft all put in front of people, so it is the rare crypto-adjacent term that
   // makes the control CLEARER rather than more technical. Avoiding it here bought vagueness.
-  'set.passkeyValue': 'frase-senha ou passkey',
-  'set.passkeyOn': 'Criar passkey',
-  'set.passkeyOff': 'Remover passkey',
+  //
+  // These three shipped in Portuguese IN THE ENGLISH FILE, so an English member read the rest of
+  // Settings in English and this one control in another language. Found 2026-09-20 while fixing
+  // #538, three lines below the comment that explains why the word `passkey` was chosen.
+  'set.passkeyValue': 'passphrase or passkey',
+  'set.passkeyOn': 'Create a passkey',
+  'set.passkeyOff': 'Remove passkey',
   'set.spendRow': 'Approve and send',
   'set.spendValue': 'always the passphrase',
   'set.accessNote': 'The shortcut works on this device only. The passphrase always works.',
@@ -349,7 +353,14 @@ export const en: Record<string, string> = {
   'vaults.passkeyUnlock': 'Unlock with this device',
   'vaults.passkeyBusy': 'Waiting for this device…',
   'settings.passkeyTitle': 'Unlock with this device',
+  // One message for four causes is what turned a single defect into two days of guessing,
+  // and the cause the member had actually hit could not be reported at all. Kept as the fallback.
   'settings.passkeyFail': 'This device could not set that up. The passphrase still works.',
+  // Permanent. This authenticator does not implement the PRF extension, so the copy must not
+  // invite a third attempt at something that will never work.
+  'settings.passkeyNoPrf': 'This device cannot offer the shortcut - its passkeys do not support it. The passphrase is the way in here.',
+  'settings.passkeyNoAnswer': 'This device did not answer. Try again.',
+  'settings.passkeyCancelled': 'That was not finished. Nothing changed - you can try again.',
   'settings.remove': 'Remove from this device',
   'settings.removing': 'Removing…',
   'settings.confirmRemove': 'Confirm removal',

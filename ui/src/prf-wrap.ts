@@ -17,10 +17,19 @@
 //     passes in one direction. So a wrap made here is only ever opened here, and the stored record
 //     is never treated as portable.
 //
-//  3. EVERY FAILURE IS SILENT. No authenticator, no PRF, a cancelled prompt, a changed output - all
-//     of it returns "no", and the caller asks for the passphrase exactly as it does today. The
-//     downside is bounded at zero: it either saves typing or it does not, and it can never lose
-//     anything.
+//  3. FAILING TO OPEN IS SILENT; FAILING TO ENROL IS REPORTED. No authenticator, no PRF, a
+//     cancelled prompt, a changed output - opening returns "no" for all of it, and the caller asks
+//     for the passphrase exactly as it does today. The downside is bounded at zero: it either saves
+//     typing or it does not, and it can never lose anything.
+//
+//     Enrolment is the other way round, and #538 is why. The member pressed a button and is owed an
+//     answer, and "this device could not set that up" for four different causes is what turned one
+//     defect into two days of guessing. It returns a `PrfDenial`.
+//
+//  4. NEITHER CEREMONY MAY WAIT FOREVER. `publicKey.timeout` is advisory, and Android's enrolment
+//     hang is precisely a case where it is not honoured, so the bound is enforced here as well. A
+//     promise that never settles is not caught by any `catch`, and what it produces is a busy
+//     button with no error - which reads as a broken product, not a failed shortcut.
 //
 // Detection reads `results.first`, not `enabled`: Firefox returns `{}` where Chrome returns
 // `enabled: false`, so the presence of output is the only portable signal.
@@ -38,6 +47,18 @@ export interface PrfWrap {
   /** `S`, encrypted under the PRF-derived key. Hex. */
   cipher: string
 }
+
+/**
+ * Why an enrolment produced no wrap.
+ *
+ * Enrolment REPORTS; opening stays silent (rule 3). The asymmetry is deliberate: a member who just
+ * pressed "create" asked for this and is owed an answer, while a shortcut that fails to OPEN must
+ * cost nothing and fall through to the passphrase without a word.
+ *
+ * `no-prf` is the one that is permanent - this authenticator does not implement the extension and
+ * never will - so the copy for it must not invite retrying forever.
+ */
+export type PrfDenial = 'cancelled' | 'no-prf' | 'unanswered'
 
 /** The slice of `navigator.credentials` used here, so tests can drive it without a browser. */
 export interface Authenticator {
@@ -60,6 +81,32 @@ function prfOutput(c: Credential | null): Uint8Array | null {
   return first ? new Uint8Array(first) : null
 }
 
+/** How long to wait for the platform before giving up. Generous: a real member is reading a system
+ *  prompt, and cutting that short would invent a failure. */
+const DEFAULT_TIMEOUT_MS = 60_000
+
+/** Thrown by `answered` alone, so the catch can tell "never replied" from "replied no". */
+class Unanswered extends Error {}
+
+/**
+ * Bound a ceremony that may never settle.
+ *
+ * `publicKey.timeout` is set as well, but it is ADVISORY and the case this exists for is precisely
+ * the one where the platform does not honour it: on Android the second ceremony of an enrolment can
+ * neither resolve nor reject, because the system sheet will not reopen while the first is still
+ * tearing down. A bare `catch` is no defence - a pending promise is not a rejection - so the caller
+ * sat on a busy button forever with nothing to show (#538).
+ */
+function answered<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Unanswered()), ms)
+    p.then(
+      (v) => { clearTimeout(timer); resolve(v) },
+      (e) => { clearTimeout(timer); reject(e) },
+    )
+  })
+}
+
 async function keyFrom(out: Uint8Array): Promise<CryptoKey> {
   // HKDF over the PRF output rather than using it raw: the browser already hashes our salt into it,
   // and a distinct label keeps this key from being interchangeable with anything else derived here.
@@ -76,8 +123,14 @@ async function keyFrom(out: Uint8Array): Promise<CryptoKey> {
 /**
  * Enrol this device: create a PRF credential and wrap `S` under what it derives.
  *
- * Returns `null` on ANY failure, including the member cancelling. An enrolment that half-worked
- * must never be stored: a wrap we cannot open is worse than no wrap, because it looks like a way in.
+ * Returns a `PrfDenial` rather than a wrap on ANY failure, the member cancelling included. An
+ * enrolment that half-worked must never be stored: a wrap we cannot open is worse than no wrap,
+ * because it looks like a way in.
+ *
+ * It used to return a bare `null` for all of it. That collapsed four different situations into one
+ * screen that said "this device could not set that up", so two days were spent guessing which one a
+ * member had hit - and the one they had actually hit was a FIFTH that this function could not
+ * report at all, because it never returned (#538).
  */
 export async function enrolPrf(
   auth: Authenticator,
@@ -85,11 +138,13 @@ export async function enrolPrf(
   secret: Uint8Array,
   rpId: string,
   userLabel: string,
-): Promise<PrfWrap | null> {
+  timeoutMs: number = DEFAULT_TIMEOUT_MS,
+): Promise<PrfWrap | PrfDenial> {
   try {
     const salt = crypto.getRandomValues(new Uint8Array(32))
-    const created = await auth.create({
+    const created = await answered(auth.create({
       publicKey: {
+        timeout: timeoutMs,
         challenge: crypto.getRandomValues(new Uint8Array(32)),
         rp: { id: rpId, name: 'Konclave' },
         // `.slice().buffer` for the same reason `bufOf` exists in storage.ts: TS 5.7's
@@ -110,24 +165,27 @@ export async function enrolPrf(
         },
         extensions: { prf: {} } as AuthenticationExtensionsClientInputs,
       },
-    })
+    }), timeoutMs)
     const cred = created as PublicKeyCredential | null
-    if (!cred) return null
+    if (!cred) return 'cancelled'
 
     // The output is generally NOT available at create(), so this asserts immediately to get it.
     // Doing it here rather than at first use means a device that cannot actually produce output
     // never stores a wrap it could not open.
-    const asserted = await auth.get({
+    const asserted = await answered(auth.get({
       publicKey: {
+        timeout: timeoutMs,
         challenge: crypto.getRandomValues(new Uint8Array(32)),
         rpId,
         allowCredentials: [{ type: 'public-key', id: cred.rawId }],
         userVerification: 'required',
         extensions: { prf: { eval: { first: salt } } } as AuthenticationExtensionsClientInputs,
       },
-    })
+    }), timeoutMs)
     const out = prfOutput(asserted)
-    if (!out || out.length === 0) return null
+    // The ceremony completed and produced nothing: this authenticator does not implement PRF. That
+    // is permanent, and the only denial here the member cannot fix by trying again.
+    if (!out || out.length === 0) return 'no-prf'
 
     const iv = crypto.getRandomValues(new Uint8Array(12))
     const cipher = new Uint8Array(
@@ -139,8 +197,8 @@ export async function enrolPrf(
       iv: bytesToHex(iv),
       cipher: bytesToHex(cipher),
     }
-  } catch {
-    return null
+  } catch (e) {
+    return e instanceof Unanswered ? 'unanswered' : 'cancelled'
   }
 }
 
@@ -153,17 +211,22 @@ export async function openPrf(
   auth: Authenticator,
   wrap: PrfWrap,
   rpId: string,
+  timeoutMs: number = DEFAULT_TIMEOUT_MS,
 ): Promise<Uint8Array | null> {
   try {
-    const asserted = await auth.get({
+    // Bounded for the same reason the enrolment is: this path has its own busy button
+    // (`vaults.passkeyBusy`), so a ceremony that never answers freezes the unlock exactly as it
+    // froze the enrolment. Silent still, per rule 3 - only no longer endless.
+    const asserted = await answered(auth.get({
       publicKey: {
+        timeout: timeoutMs,
         challenge: crypto.getRandomValues(new Uint8Array(32)),
         rpId,
         allowCredentials: [{ type: 'public-key', id: unb64url(wrap.credentialId).slice().buffer }],
         userVerification: 'required',
         extensions: { prf: { eval: { first: hexToBytes(wrap.salt) } } } as AuthenticationExtensionsClientInputs,
       },
-    })
+    }), timeoutMs)
     const out = prfOutput(asserted)
     if (!out) return null
     const plain = await crypto.subtle.decrypt(
