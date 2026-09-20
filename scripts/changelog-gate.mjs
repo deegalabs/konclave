@@ -19,8 +19,14 @@
 export const OWNERS = [
   ['helper-server/src/', 'helper-server/CHANGELOG.md'],
   ['relay-server/src/', 'relay-server/CHANGELOG.md'],
-  // Everything else a member meets: the web app, the desktop shell, and the shared crates.
-  ['ui/src/', 'CHANGELOG.md'],
+  // The app itself, which the web and the desktop BOTH ship. One entry, where the change lives.
+  ['ui/src/', 'ui/CHANGELOG.md'],
+  // The desktop shell. It was in no owner list at all until now, so changing it required no
+  // changelog entry of any kind - a gap nobody had noticed because the shell moves rarely.
+  ['src-tauri/src/', 'CHANGELOG.md'],
+  ['src-tauri/tauri.conf.json', 'CHANGELOG.md'],
+  // Shared crates, which can reach the desktop, the coordinator and the browser at once. Naming one
+  // product would be a guess, so they stay with the shell in the root file.
   ['orchestrator/src/', 'CHANGELOG.md'],
   ['konclave-signer/src/', 'CHANGELOG.md'],
   ['konclave-wasm/src/', 'CHANGELOG.md'],

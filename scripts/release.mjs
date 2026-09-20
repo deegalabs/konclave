@@ -16,12 +16,26 @@ import { dirname, join } from 'node:path'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const CHANGELOG = join(root, 'CHANGELOG.md')
+const UI_CHANGELOG = join(root, 'ui', 'CHANGELOG.md')
+
+// A desktop release ships the app AND the shell it runs in, so its notes are assembled from both
+// files rather than picked from one. The web ships only the app, and ships it continuously - which
+// is exactly why `ui/CHANGELOG.md` exists as its own file. The tension is real and deliberate: the
+// two products share a UI, so an entry about the app reaches the web on merge and the desktop at
+// the next tag. Recording it once, where the change lives, beats writing it twice.
+const SOURCES = [
+  [UI_CHANGELOG, 'The app'],
+  [CHANGELOG, 'The desktop shell and shared parts'],
+]
 
 const semver = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/
 
-// Return the CHANGELOG body under `## [<version>]` (or `## [Unreleased]`), without the heading.
-function notes(version) {
-  const md = readFileSync(CHANGELOG, 'utf8')
+// Return one file's body under `## [<version>]` (or `## [Unreleased]`), without the heading.
+function sectionOf(file, version) {
+  let md
+  // A source that does not exist yet contributes nothing rather than failing the release. Cutting a
+  // release is the worst moment to discover a missing file.
+  try { md = readFileSync(file, 'utf8') } catch { return '' }
   const lines = md.split('\n')
   const head = (s) => s.startsWith('## ')
   let start = lines.findIndex((l) => head(l) && l.includes(`[${version}]`))
@@ -32,6 +46,22 @@ function notes(version) {
   // Trim the `---` that separates versions in the file: it belongs to the CHANGELOG's layout,
   // not to this release, and it rendered as a stray rule at the foot of the GitHub release body.
   return lines.slice(start + 1, end).join('\n').trim().replace(/\n*-{3,}$/, '').trimEnd()
+}
+
+/**
+ * Every source's section for `version`, assembled.
+ *
+ * Labelled only when more than one source has anything to say. With a single source the output is
+ * byte-identical to what this printed before the split, which is what keeps an existing desktop
+ * release body from changing shape for a reason nobody asked for.
+ */
+function notes(version) {
+  const parts = SOURCES
+    .map(([file, label]) => [label, sectionOf(file, version)])
+    .filter(([, body]) => body)
+  if (parts.length === 0) return ''
+  if (parts.length === 1) return parts[0][1]
+  return parts.map(([label, body]) => `## ${label}\n\n${body}`).join('\n\n')
 }
 
 function bumpJson(path, version) {
@@ -71,26 +101,27 @@ if (!semver.test(version)) {
 // the rename to whoever read the error. A doc promising a step nobody performs is how the section
 // ends up dated by hand, dated wrong, or not at all - so the script now does what the file claims.
 // Cutting a release is exactly when nobody wants a second thing to remember.
-function cutSection(version) {
-  const md = readFileSync(CHANGELOG, 'utf8')
+function cutOne(file, version) {
+  let md
+  try { md = readFileSync(file, 'utf8') } catch { return false }
   // Already cut: re-running must be a no-op, not a second empty section.
   if (new RegExp(`^## \\[${version.replace(/\./g, '\\.')}\\]`, 'm').test(md)) return false
-  if (!/^## \[Unreleased\]/m.test(md)) {
-    console.error('CHANGELOG.md has no "## [Unreleased]" section to cut.')
-    process.exit(1)
-  }
+  // A source with nothing unreleased is skipped, not fatal. The shell can be untouched for a
+  // release that is all app, and the reverse happens too.
+  if (!/^## \[Unreleased\]/m.test(md)) return false
   const day = new Date().toISOString().slice(0, 10)
-  writeFileSync(
-    CHANGELOG,
-    md.replace(/^## \[Unreleased\]/m, `## [Unreleased]\n\n## [${version}] ${day}`),
-  )
+  writeFileSync(file, md.replace(/^## \[Unreleased\]/m, `## [Unreleased]\n\n## [${version}] ${day}`))
   return true
+}
+
+function cutSection(version) {
+  return SOURCES.map(([file]) => cutOne(file, version)).some(Boolean)
 }
 
 // Read BEFORE the cut: `notes` falls back to Unreleased, which is what this version's body still is.
 const section = notes(version)
 if (!section) {
-  console.error('CHANGELOG.md has no "## [Unreleased]" section with anything in it.')
+  console.error('No changelog has a "## [Unreleased]" section with anything in it.')
   console.error('A release with no entries is a release nobody can read.')
   process.exit(1)
 }

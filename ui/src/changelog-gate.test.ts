@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 // @ts-expect-error - a plain .mjs script, deliberately not part of the app's TS build
 import { requiredChangelogs, missingChangelogs, OWNERS } from '../../scripts/changelog-gate.mjs'
 
@@ -14,16 +16,29 @@ describe('which changelog a change must touch', () => {
     expect(requiredChangelogs(['relay-server/src/main.rs'])).toEqual(['relay-server/CHANGELOG.md'])
   })
 
-  it('sends the web, the desktop shell and the shared crates to the root file', () => {
+  it('sends the app to its own file', () => {
+    // The web and the desktop both ship it. One entry, where the change lives, rather than two that
+    // drift - which is the failure this repo keeps meeting in other forms.
+    expect(requiredChangelogs(['ui/src/api.ts'])).toEqual(['ui/CHANGELOG.md'])
+  })
+
+  it('sends the desktop shell and the shared crates to the root file', () => {
     // Shared crates map to the root deliberately. A change in `konclave-seal` can reach the
     // desktop, the coordinator and the browser at once, and naming one product would be a guess.
-    expect(requiredChangelogs(['ui/src/api.ts', 'konclave-seal/src/lib.rs', 'orchestrator/src/send.rs']))
+    expect(requiredChangelogs(['src-tauri/src/main.rs', 'konclave-seal/src/lib.rs', 'orchestrator/src/send.rs']))
       .toEqual(['CHANGELOG.md'])
+  })
+
+  it('the desktop shell is covered at all, which it was not', () => {
+    // `src-tauri/` appeared in no owner list before this, so changing the shell required no
+    // changelog of any kind. Nobody had noticed, because the shell moves rarely - which is exactly
+    // the kind of gap that is found the once it matters.
+    expect(requiredChangelogs(['src-tauri/src/main.rs'])).not.toEqual([])
   })
 
   it('asks for BOTH when a PR crosses products', () => {
     expect(requiredChangelogs(['ui/src/api.ts', 'helper-server/src/main.rs']))
-      .toEqual(['CHANGELOG.md', 'helper-server/CHANGELOG.md'])
+      .toEqual(['helper-server/CHANGELOG.md', 'ui/CHANGELOG.md'])
   })
 
   it('the root changelog does not satisfy a service change', () => {
@@ -48,6 +63,21 @@ describe('which changelog a change must touch', () => {
     // Cheap, and it catches the typo that would silently require a file nobody will ever create.
     for (const [prefix, file] of OWNERS) {
       expect(file, `${prefix} points at something that is not a changelog`).toMatch(/(^|\/)CHANGELOG\.md$/)
+    }
+  })
+
+  it('every changelog it names exists, and in the form the release script reads', () => {
+    // A guard against a failure that is SILENT in both directions. `scripts/release.mjs` finds a
+    // section with `l.includes('[Unreleased]')` - brackets included - and returns an empty string
+    // when it finds nothing. So a file written with `## Unreleased` contributes nothing to a
+    // release body and says so nowhere.
+    //
+    // This is not hypothetical: all three new changelogs were written that way and caught by
+    // running `--notes` rather than by reading them. A missing file fails the same way, quietly.
+    const repo = join(new URL('.', import.meta.url).pathname, '..', '..')
+    for (const [, file] of OWNERS) {
+      const md = readFileSync(join(repo, file), 'utf8')
+      expect(md.includes('[Unreleased]'), `${file} has no "## [Unreleased]" the release script can find`).toBe(true)
     }
   })
 })
