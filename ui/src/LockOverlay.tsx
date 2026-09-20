@@ -16,9 +16,7 @@ import PasskeyButton from './PasskeyButton'
 import { useT } from './i18n'
 import { unlockOnDevice, type VaultSrc } from './unlock'
 import { loadPrfWrap } from './prf-store'
-import { openPrf } from './prf-wrap'
-import { setReadSecret } from './session'
-import { markVaultUnlocked } from './api'
+import { unlockWithPasskey } from './passkey-unlock'
 
 export interface LockOverlayProps {
   vaultId: string
@@ -37,6 +35,7 @@ export default function LockOverlay({ vaultId, vaultName, src, onUnlocked, onCan
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [prfBusy, setPrfBusy] = useState(false)
+  const [prfMiss, setPrfMiss] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   // The member did not navigate here - the lock appeared under them - so the field takes focus and
@@ -53,17 +52,18 @@ export default function LockOverlay({ vaultId, vaultName, src, onUnlocked, onCan
   }
 
   /** The passkey shortcut, when this device holds a wrap. `S` only - signing still asks for the
-   *  passphrase. Any failure is silent: a shortcut that fails must cost nothing. */
+   *  passphrase. A failure costs nothing and alarms nobody, but it no longer says NOTHING: the
+   *  member is pointed at the field already on screen. The handler itself lives in
+   *  `passkey-unlock.ts`, shared with the vault list, because it used to be copied into both. */
   async function withPasskey() {
-    const wrap = loadPrfWrap(vaultId)
-    if (!wrap) return
     setPrfBusy(true)
+    setPrfMiss(false)
     try {
-      const s = await openPrf(navigator.credentials, wrap, location.hostname)
-      if (!s) return
-      setReadSecret(vaultId, s)
-      markVaultUnlocked(vaultId)
-      onUnlocked()
+      const r = await unlockWithPasskey(vaultId)
+      if (r === 'unlocked') { onUnlocked(); return }
+      // Quiet, and pointing at the field that IS on screen. Saying nothing at all was the old
+      // behaviour and it read as broken: a minute of "waiting", then the same locked dialog.
+      if (r === 'refused') setPrfMiss(true)
     } finally {
       setPrfBusy(false)
     }
@@ -78,6 +78,7 @@ export default function LockOverlay({ vaultId, vaultName, src, onUnlocked, onCan
       <h2 id="relock-title">{vaultName}</h2>
       <p>{t('lock.prompt')}</p>
       {loadPrfWrap(vaultId) && <PasskeyButton busy={prfBusy} onClick={() => void withPasskey()} />}
+      {prfMiss && <p className="unlock-prf-miss">{t('lock.passkeyMiss')}</p>}
       <input
         ref={inputRef}
         className="unlock-input mono"

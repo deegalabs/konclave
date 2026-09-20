@@ -42,6 +42,13 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **Unlocking with a passkey could sit on "Waiting for this device" for a minute and then do
+  nothing.** However it ended - the prompt never appeared, it was cancelled, the device's passkey no
+  longer produces the same key - the button went quiet and the vault stayed locked, with nothing
+  said either way. Failing was always meant to cost nothing and send the member to their passphrase;
+  saying nothing at all does not do that, it reads as broken. It now waits a shorter and more
+  honest time, and when it does not work it says so in one quiet line pointing at the passphrase
+  field already on screen. The passphrase was never affected.
 - **A member could be locked out of voting entirely, with no way back in.** Approving or refusing
   anything answered "this device could not prove it holds the seat", however many times the vault
   was unlocked, removed and imported again. The device registers itself with the coordinator the
