@@ -55,6 +55,13 @@ explicitly accepted.
 
 ## [Unreleased]
 
+## [0.5.0] 2026-09-21
+
+> **Services deployed when this was cut (2026-09-21):** coordinator `9487cdc`, relay `03bb736890c63e86`.
+> The web app is this release's own commit. The two services are deployed by hand and may be
+> older than it - recording what they were ANSWERING is the point, not what they should have been.
+
+
 ### Security
 
 - **On a transaction that spent from both shielded pools, a device signed half of it and said

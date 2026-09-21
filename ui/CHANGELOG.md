@@ -40,6 +40,8 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+## [0.5.0] 2026-09-21
+
 ### Fixed
 
 - **When a passkey did not open a vault, the screen could not say which of four things happened.**
