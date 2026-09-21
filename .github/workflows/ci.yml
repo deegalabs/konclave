@@ -24,6 +24,11 @@ jobs:
   changelog:
     name: Changelog (a member-visible change says so)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # To read this PR's labels live (see below). Read-only: the gate must never be able to
+      # label its way past itself.
+      pull-requests: read
     if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -33,10 +38,17 @@ jobs:
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
-          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          PR: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if printf '%s' "$LABELS" | tr ',' '\n' | grep -qx 'no-changelog'; then
+          # Labels are read LIVE, not from the event payload. `github.event.pull_request.labels`
+          # is a snapshot of the moment the run was triggered, so the obvious way to use the escape
+          # hatch - see the gate fail, add the label, re-run - CANNOT work: a re-run replays the
+          # original payload and the label is not in it. The hatch existed and was unusable exactly
+          # when someone needed it, which was found by needing it.
+          if gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/labels" -q '.[].name' \
+             | grep -qx 'no-changelog'; then
             echo "Labelled no-changelog - skipping, deliberately."
             exit 0
           fi
