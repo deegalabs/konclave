@@ -55,6 +55,14 @@ explicitly accepted.
 
 ## [Unreleased]
 
+### Changed
+
+- **The app is now allowed to reach the coordinator and relay at `konclave.xyz` addresses**, as well
+  as the ones it already used. Nothing moves yet - this only makes the move possible without a break
+  in the middle. A device keeps calling whatever address the copy of the app it is running was built
+  with, and an installed app can keep its copy for hours, so both addresses have to work at once or
+  the switch would cut off everyone who had not reloaded, with no error they could see.
+
 ## [0.5.0] 2026-09-21
 
 > **Services deployed when this was cut (2026-09-21):** coordinator `9487cdc`, relay `03bb736890c63e86`.

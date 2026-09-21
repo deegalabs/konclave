@@ -29,6 +29,22 @@
 //! *with*. A wider `connect-src` matters when an attacker already runs code on the origin, which is
 //! the thing prevented above.
 //!
+//! # Both the old and the new service origins are admitted, on purpose
+//!
+//! `helper.konclave.xyz` and `relay.konclave.xyz` sit here BESIDE the `*.up.railway.app` pair, and
+//! the overlap is the whole point rather than an oversight to tidy later.
+//!
+//! A client calls whatever base URL it was BUILT with. An installed PWA keeps its build until every
+//! tab closes and a new service worker takes over, which on a real device has taken hours - it did
+//! on 2026-09-20, watched. So the moment the build switches to the new origin there are two
+//! populations live at once, and a policy naming only one of them breaks the other. Silently: a CSP
+//! refusal is not something a `fetch` catch block reports as anything recognisable.
+//!
+//! The order this has to happen in, because getting it wrong breaks the app rather than a preview:
+//! this policy admits both FIRST, then the domains are minted and pointed, and only then does the
+//! build's `VITE_HELPER_BASE` / `VITE_RELAY_BASE` change. Narrowing back to one pair is a later,
+//! deliberate change - when no build old enough to call the railway hosts can still be running.
+//!
 //! **What would be better.** Compute the policy per build, so production lists production and only
 //! a staging build lists staging. That needs the policy to stop being a literal mirrored into two
 //! static config files, and it needs the drift test below to stop comparing literal strings.
@@ -41,7 +57,7 @@ script-src 'self' 'wasm-unsafe-eval'; \
 style-src 'self' 'unsafe-inline'; \
 img-src 'self' data:; \
 font-src 'self'; \
-connect-src 'self' https://konclave-helper-production.up.railway.app https://konclave-relay-production.up.railway.app https://konclave-helper-staging.up.railway.app https://konclave-relay-staging.up.railway.app https://api.coingecko.com; \
+connect-src 'self' https://helper.konclave.xyz https://relay.konclave.xyz https://konclave-helper-production.up.railway.app https://konclave-relay-production.up.railway.app https://konclave-helper-staging.up.railway.app https://konclave-relay-staging.up.railway.app https://api.coingecko.com; \
 frame-ancestors 'none'; \
 base-uri 'self'; \
 object-src 'none'; \
@@ -129,6 +145,25 @@ mod tests {
         // The widening is exactly two hosts of ours, and it does NOT touch the property this file
         // exists for: an injected script still cannot run, so there is nothing to exfiltrate with.
         assert!(blocks_inline_script(CSP));
+    }
+
+    /// Both origins for each service, at once. The old pair cannot be dropped while any build that
+    /// names them may still be running - an installed PWA keeps its build for hours - and the new
+    /// pair has to be admitted BEFORE the build switches, or the switch blocks every request with
+    /// no error anyone can read. Deleting either half is a decision, so it breaks a test.
+    #[test]
+    fn the_policy_admits_both_the_old_and_the_new_service_origins() {
+        for host in [
+            "https://helper.konclave.xyz",
+            "https://relay.konclave.xyz",
+            "https://konclave-helper-production.up.railway.app",
+            "https://konclave-relay-production.up.railway.app",
+        ] {
+            assert!(
+                allows_connect(CSP, host),
+                "{host} must stay in connect-src: a client built against it fails silently without it"
+            );
+        }
     }
 
     #[test]
