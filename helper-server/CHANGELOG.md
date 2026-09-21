@@ -42,6 +42,18 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Security
 
+- **Anyone holding a vault's link could lock its own members out of their books.** The key that
+  proves a device may read a vault could be REPLACED by whoever had the vault's id, on any vault,
+  including a protected one. Nothing leaked and no money could move - what it did was shut the
+  members out: balance, ledger, proposals, members and history all refused, for everyone, on their
+  own vault. And it would not have healed on its own, because nothing in the app ever re-registers
+  that key after a vault is created; recovery would have been a hand-made request by someone who
+  knew. Changing the key now requires the current one. Setting the FIRST one still requires nothing,
+  which is what lets a new vault be protected at all. Open since the read protection shipped on
+  2026-08-28; no vault was affected.
+
+### Security
+
 - **Anyone holding a vault's link could take over a seat nobody had claimed yet.** Registering a
   device with the coordinator asked for no proof at all, so whoever had the vault id could claim any
   seat whose own member had not yet unlocked on a device - and from then on could vote as that
