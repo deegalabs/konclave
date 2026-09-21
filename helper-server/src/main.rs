@@ -2290,7 +2290,10 @@ mod tests {
             &body(&gated, &pub_hex),
             Some(&tok),
         );
-        assert_eq!(good.status, 200, "the member holding S must be able to register");
+        assert_eq!(
+            good.status, 200,
+            "the member holding S must be able to register"
+        );
         assert!(good.body.contains("\"added\":true"));
     }
 
