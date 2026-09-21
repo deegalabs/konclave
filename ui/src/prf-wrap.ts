@@ -17,6 +17,13 @@
 //     passes in one direction. So a wrap made here is only ever opened here, and the stored record
 //     is never treated as portable.
 //
+//     OBSERVED, not just feared. On 2026-09-21 an Android phone stopped opening a wrap it had
+//     enrolled itself - same device, same origin, no sync involved - and enrolling the same vault
+//     through a DIFFERENT platform authenticator on that phone worked immediately. So the output is
+//     not guaranteed stable even without a sync, and `different-key` is the right thing to report:
+//     the remedy is to re-enrol, never to keep retrying. It is also why the member must always have
+//     the passphrase, and why this is a shortcut and not a door.
+//
 //  3. FAILING TO OPEN IS SILENT; FAILING TO ENROL IS REPORTED. No authenticator, no PRF, a
 //     cancelled prompt, a changed output - opening returns "no" for all of it, and the caller asks
 //     for the passphrase exactly as it does today. The downside is bounded at zero: it either saves
