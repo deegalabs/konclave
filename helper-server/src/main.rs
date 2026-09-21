@@ -376,6 +376,38 @@ fn handle_with_token(
             match state.get(&req.group_key) {
                 None => resp(404, json!({ "error": "no such vault" }).to_string()),
                 Some(reg) => {
+                    // CLAIMING A SEAT REQUIRES THE VAULT'S READ KEY (#388), for the same reason the
+                    // private reads do and using the same check.
+                    //
+                    // Until now this endpoint asked for nothing. `upsert_device` refuses to move a
+                    // seat another device already holds - but an UNCLAIMED seat was free to anyone
+                    // who had the vault id, and the id is a bearer credential by design. Whoever
+                    // claimed it could then sign governance writes AS that member (propose, approve,
+                    // refuse, rename, trigger a send) and, worse, the real holder's registration
+                    // would be refused from then on: locked out of their own seat, permanently.
+                    //
+                    // No funds were reachable - signing is FROST and needs real shares - but the
+                    // deliberate human confirm the money gate rests on is exactly what this
+                    // defeats: a vault could show "approved by Bob" with Bob having done nothing.
+                    //
+                    // ADR-0011 deferred this because a fix "would be self-attested, proving
+                    // possession of a key nobody vouched for". True of a signature made with a key
+                    // the claimer chose. NOT true of `readKey`: it is `HKDF(S, "read")`, `S` is
+                    // minted at the DKG and sealed to the seated devices over the #63 channel, and
+                    // the coordinator verifies it against what IT stored. An outsider holding only
+                    // the id cannot produce it - which is already why the same token gates balance
+                    // and ledger.
+                    //
+                    // Open while the vault has no readKey, exactly like the reads: migration stays
+                    // per vault, and a pre-#388 vault keeps working rather than losing the ability
+                    // to register its own devices.
+                    if !read_authorized(&cfg.vaults_dir, &reg.vault_id, read_token) {
+                        return resp(
+                            401,
+                            json!({ "error": "read key required to register a device on this vault" })
+                                .to_string(),
+                        );
+                    }
                     match orchestrator::helper::upsert_device(
                         &cfg.vaults_dir,
                         &reg.vault_id,
@@ -2171,6 +2203,98 @@ mod tests {
             "/api/vault must still never carry the UFVK: {}",
             public.body
         );
+    }
+
+    #[test]
+    fn claiming_a_seat_requires_the_vaults_read_key() {
+        // The hole: this endpoint asked for NOTHING. `upsert_device` refuses to move a seat another
+        // device already holds, but an UNCLAIMED seat was free to whoever had the vault id - and the
+        // id is a bearer credential by design. The claimer could then sign governance writes AS that
+        // member, and the real holder's registration would be refused from then on: locked out of
+        // their own seat, permanently. No funds were reachable (signing is FROST and needs real
+        // shares); what it defeats is the deliberate human confirm the money gate rests on.
+        //
+        // ADR-0011 deferred it as "self-attested". That is true of a signature made with a key the
+        // claimer chose, and NOT true of `readKey`: `HKDF(S, "read")`, with `S` minted at the DKG,
+        // sealed to the seated devices, and verified by the coordinator against what IT stored.
+        let pub_hex = "aa".repeat(32);
+        let other_pub = "bb".repeat(32);
+        // 64-hex ids: the endpoint validates `group_key` before it looks anything up, so the
+        // seed names the other tests use would be rejected as malformed rather than reaching the
+        // gate this test is about.
+        let gated = "33".repeat(32);
+        let unmigrated = "44".repeat(32);
+        let st = HelperState::new();
+        seed(&st, &gated);
+        seed(&st, &unmigrated);
+        let c = cfg();
+        let _ = std::fs::remove_file(c.vaults_dir.join(&gated).join("read-key.json"));
+        let _ = std::fs::remove_file(c.vaults_dir.join(&unmigrated).join("read-key.json"));
+
+        let body = |gk: &str, dp: &str| {
+            format!(
+                r#"{{"group_key":"{gk}","device_pub":"{dp}","seat":1,"write_pub":"{}"}}"#,
+                "cc".repeat(32)
+            )
+            .into_bytes()
+        };
+
+        // A vault with NO readKey stays open, exactly as its reads do: migration is per vault and a
+        // pre-#388 vault must keep being able to register its own devices.
+        let open = handle(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault/devicekey",
+            &body(&unmigrated, &pub_hex),
+        );
+        assert_eq!(
+            open.status, 200,
+            "an unmigrated vault must still register devices"
+        );
+
+        // Migrated: the id alone is no longer enough.
+        let tok = "ab".repeat(32);
+        set_read_key(&c.vaults_dir, &gated, &tok).unwrap();
+
+        let no_tok = handle(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault/devicekey",
+            &body(&gated, &pub_hex),
+        );
+        assert_eq!(
+            no_tok.status, 401,
+            "an outsider holding only the vault id claimed a seat"
+        );
+
+        let wrong = "00".repeat(32);
+        let bad = handle_with_token(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault/devicekey",
+            &body(&gated, &other_pub),
+            Some(&wrong),
+        );
+        assert_eq!(bad.status, 401, "a wrong token must not claim a seat");
+
+        // And the seat is still FREE afterwards - a refused claim must not have taken it, or the
+        // refusal would lock the real holder out exactly as the hole did.
+        let good = handle_with_token(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault/devicekey",
+            &body(&gated, &pub_hex),
+            Some(&tok),
+        );
+        assert_eq!(
+            good.status, 200,
+            "the member holding S must be able to register"
+        );
+        assert!(good.body.contains("\"added\":true"));
     }
 
     #[test]
