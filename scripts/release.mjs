@@ -83,56 +83,111 @@ function bumpTauri(path, version) {
   writeFileSync(path, src.replace(m[0], `${m[1]}${version}${m[3]}`))
 }
 
-const [arg, arg2] = process.argv.slice(2)
+// WHICH SERVICES WERE LIVE WHEN THIS WAS CUT.
+//
+// Asked for as an audit question and it had no answer: the web app is whatever `main` is, the
+// desktop is whatever the tag is, and the coordinator and relay are whatever someone last pushed by
+// hand. Reconstructing that months later is guesswork, and the services do not carry a version to
+// guess FROM - by design, because a number nobody bumps lies.
+//
+// They do each report a build identity, so the release records what they were ANSWERING at the
+// moment it was cut. Not what they should have been: what they were.
+const SERVICES = [
+  ['coordinator', 'https://konclave-helper-production.up.railway.app/api/health', (j) => j.helper_commit],
+  ['relay', 'https://konclave-relay-production.up.railway.app/health', (j) => j.source_digest],
+]
 
-if (arg === '--notes') {
-  process.stdout.write(notes(arg2 && arg2.replace(/^v/, '')) + '\n')
-  process.exit(0)
+/**
+ * Ask each service what it is running.
+ *
+ * A service that cannot be reached is recorded as `unreachable`, never omitted and never guessed.
+ * An audit line that silently drops the half nobody could check is worse than one that says so -
+ * and a release must not fail because a deploy target is having a bad minute.
+ */
+async function serviceBuilds() {
+  return Promise.all(SERVICES.map(async ([name, url, pick]) => {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(10_000) })
+      if (!r.ok) return [name, `unreachable (HTTP ${r.status})`]
+      const v = pick(await r.json())
+      return [name, v || 'unreachable (no build identity in the reply)']
+    } catch {
+      return [name, 'unreachable']
+    }
+  }))
 }
 
-const version = (arg || '').replace(/^v/, '')
-if (!semver.test(version)) {
-  console.error('usage: node scripts/release.mjs <version>   (e.g. 0.3.0)')
-  console.error('       node scripts/release.mjs --notes <version>')
-  process.exit(1)
+/** The line written into the cut section. Kept to one paragraph: it is a record, not a report. */
+export function buildsNote(builds, day) {
+  const parts = builds.map(([n, v]) => `${n} \`${v}\``).join(', ')
+  return [
+    `> **Services deployed when this was cut (${day}):** ${parts}.`,
+    '> The web app is this release\'s own commit. The two services are deployed by hand and may be',
+    '> older than it - recording what they were ANSWERING is the point, not what they should have been.',
+    '',
+  ].join('\n')
 }
 
-// CHANGELOG.md said this script renames `Unreleased`, and it did not: it checked, failed, and left
-// the rename to whoever read the error. A doc promising a step nobody performs is how the section
-// ends up dated by hand, dated wrong, or not at all - so the script now does what the file claims.
-// Cutting a release is exactly when nobody wants a second thing to remember.
-function cutOne(file, version) {
-  let md
-  try { md = readFileSync(file, 'utf8') } catch { return false }
-  // Already cut: re-running must be a no-op, not a second empty section.
-  if (new RegExp(`^## \\[${version.replace(/\./g, '\\.')}\\]`, 'm').test(md)) return false
-  // A source with nothing unreleased is skipped, not fatal. The shell can be untouched for a
-  // release that is all app, and the reverse happens too.
-  if (!/^## \[Unreleased\]/m.test(md)) return false
+// Only when RUN, never when imported. A test that imports this to check one pure function must
+// not trip the argument parsing and call `process.exit` on the way in.
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const [arg, arg2] = process.argv.slice(2)
+
+  if (arg === '--notes') {
+    process.stdout.write(notes(arg2 && arg2.replace(/^v/, '')) + '\n')
+    process.exit(0)
+  }
+
+  const version = (arg || '').replace(/^v/, '')
+  if (!semver.test(version)) {
+    console.error('usage: node scripts/release.mjs <version>   (e.g. 0.3.0)')
+    console.error('       node scripts/release.mjs --notes <version>')
+    process.exit(1)
+  }
+
+  // CHANGELOG.md said this script renames `Unreleased`, and it did not: it checked, failed, and left
+  // the rename to whoever read the error. A doc promising a step nobody performs is how the section
+  // ends up dated by hand, dated wrong, or not at all - so the script now does what the file claims.
+  // Cutting a release is exactly when nobody wants a second thing to remember.
+  function cutOne(file, version, note = '') {
+    let md
+    try { md = readFileSync(file, 'utf8') } catch { return false }
+    // Already cut: re-running must be a no-op, not a second empty section.
+    if (new RegExp(`^## \\[${version.replace(/\./g, '\\.')}\\]`, 'm').test(md)) return false
+    // A source with nothing unreleased is skipped, not fatal. The shell can be untouched for a
+    // release that is all app, and the reverse happens too.
+    if (!/^## \[Unreleased\]/m.test(md)) return false
+    const day = new Date().toISOString().slice(0, 10)
+    const head = `## [Unreleased]\n\n## [${version}] ${day}` + (note ? `\n\n${note}` : '')
+    writeFileSync(file, md.replace(/^## \[Unreleased\]/m, head))
+    return true
+  }
+
+  function cutSection(version, note) {
+    // The record goes in the ROOT file only. It describes the release, not the app - repeating it in
+    // every changelog would be four copies of one fact, which is the shape this repo keeps paying for.
+    return SOURCES.map(([file]) => cutOne(file, version, file === CHANGELOG ? note : '')).some(Boolean)
+  }
+
+  // Read BEFORE the cut: `notes` falls back to Unreleased, which is what this version's body still is.
+  const section = notes(version)
+  if (!section) {
+    console.error('No changelog has a "## [Unreleased]" section with anything in it.')
+    console.error('A release with no entries is a release nobody can read.')
+    process.exit(1)
+  }
   const day = new Date().toISOString().slice(0, 10)
-  writeFileSync(file, md.replace(/^## \[Unreleased\]/m, `## [Unreleased]\n\n## [${version}] ${day}`))
-  return true
+  const builds = await serviceBuilds()
+  for (const [n, v] of builds) console.log(`  ${n}: ${v}`)
+  const cut = cutSection(version, buildsNote(builds, day))
+
+  bumpJson(join(root, 'ui', 'package.json'), version)
+  bumpTauri(join(root, 'src-tauri', 'tauri.conf.json'), version)
+
+  console.log(cut
+    ? `Cut CHANGELOG [Unreleased] to [${version}], and bumped ui/package.json and src-tauri/tauri.conf.json.`
+    : `CHANGELOG already has [${version}]; bumped ui/package.json and src-tauri/tauri.conf.json.`)
+  console.log('Next:')
+  console.log(`  git commit -am "release: v${version}"`)
+  console.log(`  git tag v${version} && git push origin main --tags`)
 }
-
-function cutSection(version) {
-  return SOURCES.map(([file]) => cutOne(file, version)).some(Boolean)
-}
-
-// Read BEFORE the cut: `notes` falls back to Unreleased, which is what this version's body still is.
-const section = notes(version)
-if (!section) {
-  console.error('No changelog has a "## [Unreleased]" section with anything in it.')
-  console.error('A release with no entries is a release nobody can read.')
-  process.exit(1)
-}
-const cut = cutSection(version)
-
-bumpJson(join(root, 'ui', 'package.json'), version)
-bumpTauri(join(root, 'src-tauri', 'tauri.conf.json'), version)
-
-console.log(cut
-  ? `Cut CHANGELOG [Unreleased] to [${version}], and bumped ui/package.json and src-tauri/tauri.conf.json.`
-  : `CHANGELOG already has [${version}]; bumped ui/package.json and src-tauri/tauri.conf.json.`)
-console.log('Next:')
-console.log(`  git commit -am "release: v${version}"`)
-console.log(`  git tag v${version} && git push origin main --tags`)
