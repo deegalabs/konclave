@@ -459,10 +459,37 @@ fn handle_with_token(
             }
             match state.get(&req.group_key) {
                 None => resp(404, json!({ "error": "no such vault" }).to_string()),
-                Some(reg) => match set_read_key(&cfg.vaults_dir, &reg.vault_id, rk) {
-                    Ok(()) => resp(200, json!({ "ok": true }).to_string()),
-                    Err(e) => resp(500, json!({ "error": e.to_string() }).to_string()),
-                },
+                Some(reg) => {
+                    // CHANGING a vault's read key requires the current one. Setting the FIRST one
+                    // does not, which is what `read_authorized` already answers: it returns true
+                    // while no key is registered.
+                    //
+                    // `set_read_key` overwrites unconditionally, and this endpoint asked for
+                    // nothing - so a vault id, which is a bearer credential by design, was enough
+                    // to REPLACE the key of any vault, including a protected one. The members'
+                    // devices then derive the right key, present it, and are refused: 401 on
+                    // balance, ledger, proposals, members, transactions. Their own books.
+                    //
+                    // It leaks nothing and moves no money; it locks people out. And it does not
+                    // heal: `registerReadKey` runs only at the DKG, from the creator, so no screen
+                    // would ever re-register the true key. Recovery was a hand-made request by
+                    // someone who knew.
+                    //
+                    // The same shape as the seat claim this repo closed the same day, and the same
+                    // one-line answer - which is the argument for the rule living in
+                    // `read_authorized` rather than being restated per endpoint.
+                    if !read_authorized(&cfg.vaults_dir, &reg.vault_id, read_token) {
+                        return resp(
+                            401,
+                            json!({ "error": "changing this vault's read key requires the current one" })
+                                .to_string(),
+                        );
+                    }
+                    match set_read_key(&cfg.vaults_dir, &reg.vault_id, rk) {
+                        Ok(()) => resp(200, json!({ "ok": true }).to_string()),
+                        Err(e) => resp(500, json!({ "error": e.to_string() }).to_string()),
+                    }
+                }
             }
         }
         (Method::Get, "/api/vault/balance") => {
@@ -2202,6 +2229,85 @@ mod tests {
             !public.body.contains(&expected_ufvk),
             "/api/vault must still never carry the UFVK: {}",
             public.body
+        );
+    }
+
+    #[test]
+    fn changing_a_read_key_requires_the_current_one() {
+        // `set_read_key` overwrites unconditionally and this endpoint asked for nothing, so a vault
+        // id - a bearer credential by design - was enough to REPLACE the key of any vault, a
+        // protected one included. The members' devices then derive the right key, present it, and
+        // are refused: 401 on balance, ledger, proposals, members, transactions. Their own books.
+        //
+        // It leaks nothing and moves no money. It locks people out, and it does not heal:
+        // `registerReadKey` runs only at the DKG from the creator, so no screen re-registers the
+        // true key.
+        let st = HelperState::new();
+        let fresh = "55".repeat(32);
+        let armed = "66".repeat(32);
+        seed(&st, &fresh);
+        seed(&st, &armed);
+        let c = cfg();
+        let _ = std::fs::remove_file(c.vaults_dir.join(&fresh).join("read-key.json"));
+        let _ = std::fs::remove_file(c.vaults_dir.join(&armed).join("read-key.json"));
+
+        let body = |gk: &str, rk: &str| {
+            format!(r#"{{"group_key":"{gk}","read_key":"{rk}"}}"#).into_bytes()
+        };
+        let mine = "ab".repeat(32);
+        let theirs = "cd".repeat(32);
+
+        // A vault with no key accepts its FIRST one from anyone. That is the migration path and the
+        // only way a new vault can ever be protected - there is nothing yet to prove possession of.
+        let first = handle(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault/readkey",
+            &body(&fresh, &mine),
+        );
+        assert_eq!(
+            first.status, 200,
+            "a new vault must be able to register its first read key"
+        );
+
+        // Now armed. An id alone must not be able to change it.
+        set_read_key(&c.vaults_dir, &armed, &mine).unwrap();
+        let hijack = handle(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault/readkey",
+            &body(&armed, &theirs),
+        );
+        assert_eq!(
+            hijack.status, 401,
+            "an id alone replaced a protected vault's read key, locking its members out"
+        );
+        // And it must not have taken effect. A refusal that wrote anyway would be the whole bug
+        // with a different status code.
+        assert_eq!(
+            orchestrator::helper::load_read_key(&c.vaults_dir, &armed).as_deref(),
+            Some(mine.as_str()),
+            "the refusal still overwrote the key"
+        );
+
+        // Whoever holds the current key can rotate it.
+        let rotate = handle_with_token(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault/readkey",
+            &body(&armed, &theirs),
+            Some(&mine),
+        );
+        assert_eq!(
+            rotate.status, 200,
+            "the holder of the current key must be able to rotate it"
+        );
+        assert_eq!(
+            orchestrator::helper::load_read_key(&c.vaults_dir, &armed).as_deref(),
+            Some(theirs.as_str())
         );
     }
 

@@ -279,10 +279,14 @@ export async function registerDeviceKey(
  *  gate for this vault. Idempotent (same S -> same readKey). Best-effort: returns false on any
  *  failure (a helper without the endpoint just 404s, and the vault stays open until it lands). */
 export async function registerReadKey(groupKeyHex: string, readKeyHex: string): Promise<boolean> {
+  // The current key rides along, so ROTATING one works: the coordinator accepts the first
+  // registration from anyone (a new vault has no key to prove) and a change only from whoever holds
+  // the present one. At the DKG, where this is called today, there is nothing to send and nothing
+  // to prove - the header is simply absent.
   const r = await postJson<{ ok: boolean }>('/api/vault/readkey', {
     group_key: groupKeyHex,
     read_key: readKeyHex,
-  })
+  }, await readAuthFor(groupKeyHex))
   return r?.ok ?? false
 }
 
