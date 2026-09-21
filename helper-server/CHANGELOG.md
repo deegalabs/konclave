@@ -39,3 +39,17 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 ---
 
 ## [Unreleased]
+
+### Security
+
+- **Anyone holding a vault's link could take over a seat nobody had claimed yet.** Registering a
+  device with the coordinator asked for no proof at all, so whoever had the vault id could claim any
+  seat whose own member had not yet unlocked on a device - and from then on could vote as that
+  member, while the real member's own device was refused with "that seat is taken". No money was
+  ever reachable: signing needs the real key shares and always did. What it broke is the part that
+  matters most, which is that an approval on screen is that member's approval. Claiming a seat now
+  requires the key only a seated member's device can derive, the same one the private reads already
+  ask for. A vault that has never been protected still registers devices as before. Checked on the
+  live vaults: none was in the state where this could have been used - every one either had all its
+  seats claimed or had none - but the window opens whenever members join at different times, and on
+  one vault it had been open for two weeks.

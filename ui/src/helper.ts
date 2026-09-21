@@ -77,9 +77,7 @@ export function helperConfigured(): boolean {
 /** The #388 read token header for a request whose `?vault=<id>` names a vault this device has
  *  UNLOCKED (its access secret S is in memory). Absent otherwise, so an unmigrated or locked vault
  *  simply reads open - the helper keeps the gate open until a readKey is registered. */
-async function readAuthHeaders(path: string): Promise<Record<string, string>> {
-  const id = /[?&]vault=([0-9a-fA-F]{64})/.exec(path)?.[1]
-  if (!id) return {}
+async function readAuthFor(id: string): Promise<Record<string, string>> {
   const s = readSecretFor(id)
   if (!s) return {}
   try {
@@ -87,6 +85,14 @@ async function readAuthHeaders(path: string): Promise<Record<string, string>> {
   } catch {
     return {}
   }
+}
+
+/** The same token for a request that names its vault in the QUERY. A POST names it in the body and
+ *  calls `readAuthFor` directly - one derivation, two ways of finding the id, rather than two
+ *  derivations that can drift. */
+async function readAuthHeaders(path: string): Promise<Record<string, string>> {
+  const id = /[?&]vault=([0-9a-fA-F]{64})/.exec(path)?.[1]
+  return id ? readAuthFor(id) : {}
 }
 
 async function getJson<T>(path: string): Promise<T | null> {
@@ -119,14 +125,14 @@ export function lastHelperPostFailure(): { status: number; error?: string } | nu
   return lastPostFailure
 }
 
-async function postJson<T>(path: string, body: unknown): Promise<T | null> {
+async function postJson<T>(path: string, body: unknown, extra: Record<string, string> = {}): Promise<T | null> {
   const base = helperBase()
   lastPostFailure = null
   if (!base) return null
   try {
     const res = await fetch(`${base}${path}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...extra },
       body: JSON.stringify(body),
     })
     if (!res.ok) {
@@ -254,6 +260,10 @@ export async function registerDeviceKey(
   devicePubHex: string,
   write?: { seat: number; pub: string },
 ): Promise<boolean | null> {
+  // The vault's readKey rides along: claiming a seat now requires it, because an unclaimed seat
+  // used to be free to anyone holding the vault id. This device has `S` - registration runs on
+  // unlock, right after the share is seated - so the token is derivable here. A vault with no
+  // readKey registered stays open, exactly as its reads do.
   const r = await postJson<{ ok: boolean; added: boolean }>('/api/vault/devicekey', {
     group_key: groupKeyHex,
     device_pub: devicePubHex,
@@ -261,7 +271,7 @@ export async function registerDeviceKey(
     // the vault's write gate ON - from then on every governance write must be signed - so this is
     // only ever sent by a device that can actually sign, i.e. one holding the share.
     ...(write ? { seat: write.seat, write_pub: write.pub } : {}),
-  })
+  }, await readAuthFor(groupKeyHex))
   return r ? r.added : null
 }
 
