@@ -528,7 +528,12 @@ export const en: Record<string, string> = {
   'dashboard.agoMin': '{n} min ago',
   'dashboard.agoHours': '{n} h ago',
   'dashboard.verify': 'verify ↗',
+  // `confirmed` alone was the whole defect: it was shown for a transaction still in the mempool,
+  // because the state it read can never say otherwise. The word now comes with the block that
+  // earns it, and there is a separate word for the step before.
   'dashboard.confirmed': 'confirmed',
+  'dashboard.confirmedAt': 'confirmed \u00b7 block {height}',
+  'dashboard.broadcast': 'sent \u00b7 awaiting a block',
   'dashboard.dangerZone': 'Danger zone',
   'dashboard.deleteThisVault': 'Delete this vault',
   'dashboard.deleteThisVaultDesc': 'Removes the vault from this device. Does not affect the Zcash network or the other members.',
