@@ -80,3 +80,49 @@ function split100(parts: number[], total: number): number[] {
   }
   return out
 }
+
+
+// ---- what a payment may actually draw on ----
+//
+// The Dashboard and the payment screen disagreed about the word "available", and the screen that
+// CREATES payments held the more permissive meaning.
+//
+//   Dashboard `canPay`   ->  parts.freeZat   = spendable MINUS what open proposals hold
+//   NewPayment           ->  b.spendable_zec = spendable, full stop
+//
+// So the Dashboard could say the vault cannot pay while the payment screen accepted the amount,
+// took it to a quorum, and let it die at signing - or worse, killed the earlier proposal that had
+// the funds first. Two members proposing on the same day is not an edge case, it is the product.
+//
+// Reservation is a PRODUCT lock, not a protocol one (§6.14): the funds are real and the engine
+// would spend them. Konclave holds them back so two approved payments cannot both be signed. That
+// is why the block has to show its arithmetic - the member is being stopped by OUR rule, and is
+// owed the name of the proposal holding their money.
+//
+// One function, because the alternative is the subtraction copied into the second screen, which is
+// how it drifted in the first place.
+import { isOpen } from './desk'
+import type { Proposal } from './api'
+
+/** What every proposal that is still able to move has committed. */
+export function reservedZatOf(proposals: readonly Proposal[] | null): number {
+  if (!proposals) return 0
+  return proposals.filter(isOpen).reduce((a, p) => a + (p.value_zat ?? 0), 0)
+}
+
+/**
+ * What a NEW payment may draw on: confirmed funds, less what open proposals already hold.
+ *
+ * `null` when the balance is unknown - never zero, which would read as "the vault is empty" and
+ * send the member looking for money that is there. The guard treats the two differently and the
+ * copy says different things.
+ */
+export function freeZatOf(
+  bal: { total_zat?: number | null; spendable_zat?: number | null } | null,
+  proposals: readonly Proposal[] | null,
+): number | null {
+  const total = bal?.total_zat
+  if (bal == null || total == null) return null
+  const spendable = bal.spendable_zat ?? total
+  return balanceParts(total, spendable, reservedZatOf(proposals)).freeZat
+}

@@ -6,9 +6,11 @@ import { PageHeader } from '../page'
 import { useT, useTr } from '../i18n'
 import { useToast } from '../toast'
 import { fmtZecExact, parseZecToZat, zatToZec } from '../format'
+import { freeZatOf, reservedZatOf } from '../balance-parts'
+import { isOpen } from '../desk'
 import {
-  createProposal, getBalance, getVault, getBeneficiaries, health, shortAddr, classifyAddress, humanError,
-  type Beneficiary, type Member,
+  createProposal, getBalance, getVault, getBeneficiaries, getProposals, health, shortAddr, classifyAddress, humanError,
+  type Balance, type Beneficiary, type Member, type Proposal,
 } from '../api'
 import { listVaults } from '../storage'
 import { RecipientCombobox } from '../RecipientCombobox'
@@ -30,7 +32,12 @@ export default function NewPayment() {
   const [value, setValue] = useState('') // never prefill an amount — the one field with financial consequence
   const [memo, setMemo] = useState('')
   const [threshold, setThreshold] = useState(2)
-  const [available, setAvailable] = useState<string | null>(null)
+  // The balance object and the ledger, kept RAW so "available" is derived rather than stored.
+  // Storing a single string was how this screen came to mean something different by "available"
+  // than the Dashboard did: the Dashboard subtracts what open proposals hold, this one did not,
+  // and the screen that CREATES payments held the more permissive meaning.
+  const [bal, setBal] = useState<Balance | null>(null)
+  const [openProps, setOpenProps] = useState<Proposal[] | null>(null)
   // #427: the two shielded pools separately. `spendable` is their sum, and one payment cannot
   // always spend the sum.
   const [pools, setPools] = useState<ReturnType<typeof poolsOf>>(undefined)
@@ -70,8 +77,8 @@ export default function NewPayment() {
       // Spendable (not total): the send can only draw on confirmed, spendable funds, so the
       // "available" and the balance-after preview must be against spendable to catch amount+fee
       // overspend BEFORE a proposal is created (the helper rejected 0.0120 on a 0.01213 spendable).
-      if (b?.configured) setAvailable(b.spendable_zec ?? b.total_zec ?? null)
-      if (b?.configured) setPools(poolsOf(b))
+      if (b?.configured) { setBal(b); setPools(poolsOf(b)) }
+      void getProposals().then((ps) => { if (on) setOpenProps(ps) })
       if (bs) setBenefs(bs)
     })()
     return () => { on = false }
@@ -89,9 +96,12 @@ export default function NewPayment() {
   usePoll(() => {
     void getBalance().then((b) => {
       if (!b?.configured) return
-      setAvailable(b.spendable_zec ?? b.total_zec ?? null)
+      setBal(b)
       setPools(poolsOf(b))
     })
+    // The ledger too: funds are released when someone else's proposal is sent or refused, and a
+    // member blocked by a reservation must see it lift without reloading.
+    void getProposals().then(setOpenProps)
   }, 12_000)
 
   // Refresh the payee list after one is added inline from the recipient field.
@@ -131,11 +141,19 @@ export default function NewPayment() {
   const kind = to.trim().length > 1 ? classifyAddress(to.trim()) : null
   const publicDest = kind === 'transparent' // still drives the memo-disable (transparent = no memo)
   // A real available balance when we have it; a neutral dash otherwise - never a fake number.
-  const shownAvailable = available ?? '-'
+  // What a NEW payment may draw on, from the ONE function the Dashboard also uses. Not
+  // `spendable`: that is the number this screen used to show while the Dashboard was telling the
+  // member the vault could not pay.
+  const reservedZat = reservedZatOf(openProps)
+  // Named, not counted: "0.0004 held by Zka's proposal" tells the member who to go and ask. A bare
+  // number tells them only that they are stuck.
+  const openHolding = (openProps ?? []).filter(isOpen).map((x) => x.proposer).join(', ')
+  const freeZat = freeZatOf(bal, openProps)
+  const shownAvailable = freeZat == null ? '-' : fmtZecExact(freeZat / 1e8)
   // Preview the balance after this payment (like the payroll screen). Display only - the backend
   // stays authoritative on the real fee; ~0.0001 ZEC is a reasonable single-payment estimate.
   const amountZat = parseZecToZat(value)
-  const availableZat = parseZecToZat(shownAvailable)
+  const availableZat = freeZat
   // ZIP-317 conservative estimate covering the change output (the real single-payment fee observed
   // on mainnet was 15000). Better to slightly over-estimate so we never let an unsendable amount
   // through to a dead-end proposal.
@@ -148,7 +166,7 @@ export default function NewPayment() {
   // used to live inline in both and FAIL OPEN in both: any figure that would not parse made the
   // over-balance test false, which the screen read as "all clear". A balance we cannot read and an
   // amount we cannot parse now block instead of waving the payment through.
-  const block = proposeBlock({ amountZat, availableZat, feeZat, memoOver, pools })
+  const block = proposeBlock({ amountZat, availableZat, feeZat, memoOver, pools, reservedZat })
   const overBalance = block === 'over-balance'
 
   async function submit() {
@@ -276,7 +294,11 @@ export default function NewPayment() {
               screen used to stay silent about. Say which one - but never on an untouched form:
               an empty amount also parses to null, and a warning on a blank field is noise. */}
           {value.trim() !== '' && blockMessageKey(block) && (
-            <div className="hint warn mt-sm">{t(blockMessageKey(block)!)}</div>
+            <div className="hint warn mt-sm">{t(blockMessageKey(block)!, {
+              free: fmtZecExact((freeZat ?? 0) / 1e8),
+              reserved: fmtZecExact(reservedZat / 1e8),
+              held: String(openHolding),
+            })}</div>
           )}
           <div className="hint mt-sm">{tr('payment.approvalHint', { proposer, threshold, rest: threshold > 1 ? t('payment.approvalHintMore', { n: threshold - 1 }) : t('payment.approvalHintReady'), aval: threshold === 1 ? t('payment.avalSingular') : t('payment.avalPlural') })}</div>
           {error && <div className="hint err mt-sm" role="alert">{error}</div>}
