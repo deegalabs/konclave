@@ -698,7 +698,12 @@ export default function Dashboard() {
                   {/* The amount already sits in the composition legend above; repeating it here
                       just made the same number appear twice. What this line adds is the WAIT: how
                       far the chain has buried it and how far there is to go. */}
-                  {!parts && <span className="pd">{t('dashboard.confirming', { amt: `+${fmt4(String(pendNum))}` })}</span>}
+                  {/* No leading `+`. The headline above is the TOTAL, which already contains this
+                      amount, so "0.0006" with "+0.0006 confirming" under it read as 0.0012 - the
+                      same money counted twice, on the balance card. The composition bar (when
+                      `parts` is available) shows the split honestly; this is its fallback and has
+                      to be equally honest. */}
+                  {!parts && <span className="pd">{t('dashboard.confirming', { amt: fmt4(String(pendNum)) })}</span>}
                   {parts && <span className="pd">{t('dashboard.spendableIn')}</span>}
                   {/* A count, not a promise. The vault decides when a note is spendable; this only
                       shows how far the chain has buried it, so the wait stops being a blank pause.

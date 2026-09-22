@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { usePoll } from '../usePoll'
 import { useNavigate } from 'react-router-dom'
 import { Loading } from '../components'
 import { PageHeader } from '../page'
@@ -76,6 +77,23 @@ export default function NewPayment() {
     return () => { on = false }
   }, [])
 
+  // The balance refreshes on its own, on the shared cadence the other screens use.
+  //
+  // Without this the screen read the balance ONCE, at mount. Every block it can show - no funds,
+  // not enough, balance unknown - was therefore permanent until the member thought to reload, and
+  // the screen gave them no reason to think so. Someone waiting for a deposit to confirm sat in
+  // front of a Propose button that would have worked minutes ago.
+  //
+  // A disabled money control has to watch the condition that disabled it, or it is not a block, it
+  // is a dead end.
+  usePoll(() => {
+    void getBalance().then((b) => {
+      if (!b?.configured) return
+      setAvailable(b.spendable_zec ?? b.total_zec ?? null)
+      setPools(poolsOf(b))
+    })
+  }, 12_000)
+
   // Refresh the payee list after one is added inline from the recipient field.
   const reloadBenefs = () => { void getBeneficiaries().then((b) => { if (b) setBenefs(b) }) }
 
@@ -123,6 +141,9 @@ export default function NewPayment() {
   // through to a dead-end proposal.
   const feeZat = SINGLE_PAYMENT_FEE_ZAT
   const afterZat = availableZat == null || amountZat == null ? null : availableZat - amountZat - feeZat
+  // A fraction of the balance is only a real offer when a fraction of it can actually be sent:
+  // known, above zero, and with room for the fee that 100% has to leave behind.
+  const canTakeFraction = availableZat != null && availableZat > feeZat
   // The submit gate is a pure rule (`propose-guard.ts`) shared with the payroll screen, because it
   // used to live inline in both and FAIL OPEN in both: any figure that would not parse made the
   // over-balance test false, which the screen read as "all clear". A balance we cannot read and an
@@ -212,11 +233,16 @@ export default function NewPayment() {
                 {t('payment.available')} <b className="num">{shownAvailable}</b> ZEC
               </span>
               <span className="payamt-quick">
+                {/* Disabled when there is NOTHING to take a fraction of, not merely when the
+                    balance is unknown. At zero spendable these four stayed live and did nothing:
+                    `setFraction` computed a target of zero (or minus the fee) and set no amount.
+                    Four controls that respond to a click by doing nothing, on a money screen, is
+                    worse than four that are visibly unavailable. */}
                 {[25, 50, 75].map((p) => (
-                  <button key={p} type="button" className="payamt-max" disabled={availableZat == null}
+                  <button key={p} type="button" className="payamt-max" disabled={!canTakeFraction}
                     onClick={() => setFraction(p)}>{p}%</button>
                 ))}
-                <button type="button" className="payamt-max" disabled={availableZat == null}
+                <button type="button" className="payamt-max" disabled={!canTakeFraction}
                   onClick={() => setFraction(100)}>{t('payment.max')}</button>
               </span>
             </div>
