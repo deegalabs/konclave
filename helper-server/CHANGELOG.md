@@ -40,14 +40,6 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
-### Changed
-
-- **Changing a vault's member list now needs the key that proves you can read the vault.** The list
-  was already set once and never replaceable, which is what protected it; this closes the remaining
-  sliver - the moments during a vault's creation before it is protected at all. Creating a vault is
-  unaffected, because the list is claimed before the protection exists and the coordinator knows to
-  allow that.
-
 ### Security
 
 - **Anyone holding a vault's link could lock its own members out of their books.** The key that
@@ -60,8 +52,6 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   which is what lets a new vault be protected at all. Open since the read protection shipped on
   2026-08-28; no vault was affected.
 
-### Security
-
 - **Anyone holding a vault's link could take over a seat nobody had claimed yet.** Registering a
   device with the coordinator asked for no proof at all, so whoever had the vault id could claim any
   seat whose own member had not yet unlocked on a device - and from then on could vote as that
@@ -73,3 +63,11 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   live vaults: none was in the state where this could have been used - every one either had all its
   seats claimed or had none - but the window opens whenever members join at different times, and on
   one vault it had been open for two weeks.
+
+### Changed
+
+- **Changing a vault's member list now needs the key that proves you can read the vault.** The list
+  was already set once and never replaceable, which is what protected it; this closes the remaining
+  sliver - the moments during a vault's creation before it is protected at all. Creating a vault is
+  unaffected, because the list is claimed before the protection exists and the coordinator knows to
+  allow that.
