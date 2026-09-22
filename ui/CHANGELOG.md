@@ -40,6 +40,8 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+## [0.6.0] 2026-09-22
+
 ### Security
 
 - **Anyone holding a vault's link could lock its own members out of their books.** The key that

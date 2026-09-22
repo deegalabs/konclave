@@ -55,6 +55,13 @@ explicitly accepted.
 
 ## [Unreleased]
 
+## [0.6.0] 2026-09-22
+
+> **Services deployed when this was cut (2026-09-22):** coordinator `33968c4`, relay `03bb736890c63e86`.
+> The web app is this release's own commit. The two services are deployed by hand and may be
+> older than it - recording what they were ANSWERING is the point, not what they should have been.
+
+
 ### Changed
 
 - **The app is now allowed to reach the coordinator and relay at `konclave.xyz` addresses**, as well
