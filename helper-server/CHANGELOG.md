@@ -40,6 +40,14 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Changed
+
+- **Changing a vault's member list now needs the key that proves you can read the vault.** The list
+  was already set once and never replaceable, which is what protected it; this closes the remaining
+  sliver - the moments during a vault's creation before it is protected at all. Creating a vault is
+  unaffected, because the list is claimed before the protection exists and the coordinator knows to
+  allow that.
+
 ### Security
 
 - **Anyone holding a vault's link could lock its own members out of their books.** The key that
