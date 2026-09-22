@@ -40,56 +40,6 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
-### Fixed
-
-- **The payment screen offered money another proposal had already claimed.** The dashboard subtracts
-  what open proposals are holding before saying the vault can pay; the payment screen did not, so it
-  would accept an amount the dashboard had just said was impossible - and that payment could reach a
-  quorum and then fail, or take the funds from the proposal that asked first. Two people proposing
-  on the same day is not a corner case. Both screens now mean the same thing by "available".
-- **Being blocked by a colleague's proposal now says so.** It used to read as "not enough", which is
-  not true and sends you looking for money you have. It now shows the sum: what the vault holds,
-  what is committed and to whose proposal, what is free right now - and that the funds come back
-  when those are sent or refused. This is Konclave's own rule holding the money, not the network, so
-  the screen says what is happening rather than implying the chain refused.
-
-### Fixed
-
-- **The payment screen never noticed that money had arrived.** It read the vault's balance once,
-  when it opened, so anyone who got there a moment too early - a deposit still confirming, a
-  payment still settling - was told they could not send and stayed told, however long they waited,
-  until they thought to reload the page. Nothing on the screen suggested reloading. It now keeps
-  looking, and the block lifts by itself.
-- **The 25/50/75/Max buttons did nothing when the vault had nothing to send.** They looked
-  available and answered a click with silence. They are now visibly unavailable, which is the
-  honest version of the same information.
-- **The balance card counted the same money twice.** Under a total of 0.0006 it said
-  "+0.0006 confirming", which reads as 0.0012 - but the total already includes it. The plus sign
-  is gone.
-
-### Fixed
-
-- **The dashboard called a payment confirmed while it was still waiting to be mined.** The green
-  "confirmed" mark went up the moment a payment was broadcast, and it could never have been right:
-  it read the proposal's own record, and that record has no way to learn that a block arrived. So
-  the mark said confirmed for a payment sitting in the queue, on the page a treasurer uses to check
-  the books. It now reads the vault's own transactions and says **confirmed with the block number**
-  only when there is one, and **"sent, awaiting a block"** until then - and if it cannot tell, it
-  says the lesser of the two rather than guessing. Being slow to call something confirmed costs
-  nothing; being early tells someone their money arrived when it has not.
-- **An open payment page asked the coordinator for news every eight seconds, forever.** It was
-  waiting for a change to a sent payment that nothing was ever going to make, so the request
-  repeated for as long as the page stayed open. Confirmation now comes from the transactions, which
-  is where it lives.
-
-### Changed
-
-- **Changing a vault's member list now needs the key that proves you can read the vault.** The list
-  was already set once and never replaceable, which is what protected it; this closes the remaining
-  sliver - the moments during a vault's creation before it is protected at all. Creating a vault is
-  unaffected, because the list is claimed before the protection exists and the coordinator knows to
-  allow that.
-
 ### Security
 
 - **Anyone holding a vault's link could lock its own members out of their books.** The key that
@@ -102,8 +52,6 @@ history to tidy it is how context gets lost.
   which is what lets a new vault be protected at all. Open since the read protection shipped on
   2026-08-28; no vault was affected.
 
-### Security
-
 - **Anyone holding a vault's link could take over a seat nobody had claimed yet.** Registering a
   device with the coordinator asked for no proof at all, so whoever had the vault id could claim any
   seat whose own member had not yet unlocked on a device - and from then on could vote as that
@@ -115,6 +63,56 @@ history to tidy it is how context gets lost.
   live vaults: none was in the state where this could have been used - every one either had all its
   seats claimed or had none - but the window opens whenever members join at different times, and on
   one vault it had been open for two weeks.
+
+### Changed
+
+- **Changing a vault's member list now needs the key that proves you can read the vault.** The list
+  was already set once and never replaceable, which is what protected it; this closes the remaining
+  sliver - the moments during a vault's creation before it is protected at all. Creating a vault is
+  unaffected, because the list is claimed before the protection exists and the coordinator knows to
+  allow that.
+
+### Fixed
+
+- **The payment screen offered money another proposal had already claimed.** The dashboard subtracts
+  what open proposals are holding before saying the vault can pay; the payment screen did not, so it
+  would accept an amount the dashboard had just said was impossible - and that payment could reach a
+  quorum and then fail, or take the funds from the proposal that asked first. Two people proposing
+  on the same day is not a corner case. Both screens now mean the same thing by "available".
+
+- **Being blocked by a colleague's proposal now says so.** It used to read as "not enough", which is
+  not true and sends you looking for money you have. It now shows the sum: what the vault holds,
+  what is committed and to whose proposal, what is free right now - and that the funds come back
+  when those are sent or refused. This is Konclave's own rule holding the money, not the network, so
+  the screen says what is happening rather than implying the chain refused.
+
+- **The payment screen never noticed that money had arrived.** It read the vault's balance once,
+  when it opened, so anyone who got there a moment too early - a deposit still confirming, a
+  payment still settling - was told they could not send and stayed told, however long they waited,
+  until they thought to reload the page. Nothing on the screen suggested reloading. It now keeps
+  looking, and the block lifts by itself.
+
+- **The 25/50/75/Max buttons did nothing when the vault had nothing to send.** They looked
+  available and answered a click with silence. They are now visibly unavailable, which is the
+  honest version of the same information.
+
+- **The balance card counted the same money twice.** Under a total of 0.0006 it said
+  "+0.0006 confirming", which reads as 0.0012 - but the total already includes it. The plus sign
+  is gone.
+
+- **The dashboard called a payment confirmed while it was still waiting to be mined.** The green
+  "confirmed" mark went up the moment a payment was broadcast, and it could never have been right:
+  it read the proposal's own record, and that record has no way to learn that a block arrived. So
+  the mark said confirmed for a payment sitting in the queue, on the page a treasurer uses to check
+  the books. It now reads the vault's own transactions and says **confirmed with the block number**
+  only when there is one, and **"sent, awaiting a block"** until then - and if it cannot tell, it
+  says the lesser of the two rather than guessing. Being slow to call something confirmed costs
+  nothing; being early tells someone their money arrived when it has not.
+
+- **An open payment page asked the coordinator for news every eight seconds, forever.** It was
+  waiting for a change to a sent payment that nothing was ever going to make, so the request
+  repeated for as long as the page stayed open. Confirmation now comes from the transactions, which
+  is where it lives.
 
 ## [0.5.0] 2026-09-21
 
