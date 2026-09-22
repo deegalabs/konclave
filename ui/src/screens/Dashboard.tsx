@@ -12,7 +12,8 @@ import { rankDesk, type Band } from '../desk'
 import { balanceParts } from '../balance-parts'
 import { participation } from '../participation'
 import { usdEnabled, setUsdEnabled, cachedRate, rateIsStale, fetchRate, zecToUsd, type Rate } from '../price'
-import { CONFIRMATIONS_UNTRUSTED, getTransactions, getSelectedVault } from '../api'
+import { CONFIRMATIONS_UNTRUSTED, getTransactions, getSelectedVault, type WalletTx } from '../api'
+import { settlementOf, type Settlement } from '../settlement'
 import { useT, useTr } from '../i18n'
 import {
   getVault, getProposals, getBalance, getLedger, shortAddr, isVaultUnlocked,
@@ -25,7 +26,7 @@ import type { VaultLockContext } from '../Layout'
 import { useVaultSigner } from '../VaultSigner'
 import { useLoading } from '../loading'
 
-type Movimento = { date: string; title: string; by?: string; value: string; dir: 'out' | 'in'; status: string }
+type Movimento = { date: string; title: string; by?: string; value: string; dir: 'out' | 'in'; settlement: Settlement }
 
 // Locale helpers for the few neutral labels this screen renders outside the i18n table. `dl` reads
 // the persisted locale per access, so it re-resolves when the language toggles.
@@ -112,6 +113,9 @@ export default function Dashboard() {
   // How far the newest note has confirmed. Only fetched while something IS confirming, so a settled
   // vault pays nothing for it.
   const [newestHeight, setNewestHeight] = useState<number | null>(null)
+  // The vault's transactions, kept so a movement's settlement can be DERIVED from the chain rather
+  // than read off the proposal - which cannot know it (see settlement.ts).
+  const [txs, setTxs] = useState<WalletTx[] | null>(null)
   const [usdOn, setUsdOn] = useState<boolean>(usdEnabled())
   const [rateBusy, setRateBusy] = useState(false)
 
@@ -291,7 +295,9 @@ export default function Dashboard() {
         by: t('dashboard.movBy', { proposer: p.proposer }) + (p.approvals.length ? t('dashboard.movApprovedBy', { who: p.approvals.join(', ') }) : ''),
         value: `−${fmt4(p.value_zec)}`,
         dir: 'out',
-        status: p.state === 'sent' || p.state === 'confirmed' ? 'confirmado' : 'verificar',
+        // Derived from the CHAIN, never from the proposal: the coordinator never writes
+        // `confirmed`, so reading the state meant calling a mempool transaction confirmed.
+        settlement: settlementOf(p, txs),
       }))
     : null
   // A vault with an empty ledger (e.g. a fresh /net vault, no proposals yet) shows the empty state
@@ -305,15 +311,22 @@ export default function Dashboard() {
   // pending figure when present; otherwise derive it as total - spendable so the card never shows a
   // stray "+-".
   const pendZatNow = hasBal ? Math.max(0, parseZ(balance!.total_zec) - parseZ(balance!.spendable_zec)) : 0
+  // Fetched when there is a pending balance (for the confirmation counter) OR when any proposal
+  // has been broadcast (to say whether it reached a block). The second reason is new: the list was
+  // previously pulled only while funds were arriving, so an outgoing payment had nothing to check
+  // itself against and the screen fell back to the proposal's own state.
+  const anyBroadcast = (ledger ?? []).some((p) => p.state === 'sent' || p.state === 'confirmed')
   useEffect(() => {
-    if (pendZatNow <= 0) { setNewestHeight(null); return }
+    if (pendZatNow <= 0 && !anyBroadcast) { setNewestHeight(null); setTxs(null); return }
     let on = true
-    void getTransactions().then((txs) => {
-      const h = txs?.[0]?.mined_height
-      if (on && typeof h === 'number' && h > 0) setNewestHeight(h)
+    void getTransactions().then((list) => {
+      if (!on) return
+      setTxs(list)
+      const h = list?.[0]?.mined_height
+      if (typeof h === 'number' && h > 0) setNewestHeight(h)
     })
     return () => { on = false }
-  }, [pendZatNow])
+  }, [pendZatNow, anyBroadcast])
 
   const pendNum = hasBal
     ? (balance!.pending_zec != null
@@ -587,9 +600,11 @@ export default function Dashboard() {
                         <td className="what">{m.title}</td>
                         <td className="who">{m.by}</td>
                         <td className="n"><Secret sm><span>{m.value}</span></Secret></td>
-                        <td>{m.status === 'verificar'
-                          ? <Link className="chip pend" to="/ledger">{t('dashboard.verify')}</Link>
-                          : <span className="chip ok">{t('dashboard.confirmed')}</span>}</td>
+                        <td>{m.settlement.kind === 'confirmed'
+                          ? <span className="chip ok">{t('dashboard.confirmedAt', { height: m.settlement.height })}</span>
+                          : m.settlement.kind === 'broadcast'
+                            ? <span className="chip pend">{t('dashboard.broadcast')}</span>
+                            : <Link className="chip pend" to="/ledger">{t('dashboard.verify')}</Link>}</td>
                       </tr>
                     ))}
                   </tbody>

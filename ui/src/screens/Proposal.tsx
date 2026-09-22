@@ -70,9 +70,18 @@ export default function Proposal() {
   }, [loc.state])
 
   // Live refresh: re-fetch the proposal so approvals/refusals from other members appear on their own
-  // (and a Sent proposal flips to Confirmed) without a manual reload. Paused while the tab is hidden;
-  // suspended for a terminal proposal and while THIS device is mid-action (voting/sending). (#123)
-  const terminal = !!p && ['confirmed', 'rejected', 'expired', 'cancelled', 'superseded'].includes(p.state)
+  // without a manual reload. Paused while the tab is hidden; suspended for a terminal proposal and
+  // while THIS device is mid-action (voting/sending). (#123)
+  //
+  // `sent` IS terminal here, and the comment this replaces said the opposite: "a Sent proposal
+  // flips to Confirmed". It does not. `HelperProposal::recompute` early-returns on `"sent"` and
+  // nothing in the coordinator ever writes `"confirmed"`, so the poll ran every 8 seconds for as
+  // long as the screen stayed open, waiting for a transition that cannot happen - a request every
+  // 8s per open tab, at a service with no rate limit (#558).
+  //
+  // Confirmation is not lost by stopping: it is a fact about the CHAIN, and `settlement.ts` derives
+  // it from the transaction list. Polling the proposal for it was asking the wrong source.
+  const terminal = !!p && ['sent', 'confirmed', 'rejected', 'expired', 'cancelled', 'superseded'].includes(p.state)
   usePoll(() => {
     if (busy || sending) return
     void (async () => {

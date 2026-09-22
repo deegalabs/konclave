@@ -40,6 +40,21 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The dashboard called a payment confirmed while it was still waiting to be mined.** The green
+  "confirmed" mark went up the moment a payment was broadcast, and it could never have been right:
+  it read the proposal's own record, and that record has no way to learn that a block arrived. So
+  the mark said confirmed for a payment sitting in the queue, on the page a treasurer uses to check
+  the books. It now reads the vault's own transactions and says **confirmed with the block number**
+  only when there is one, and **"sent, awaiting a block"** until then - and if it cannot tell, it
+  says the lesser of the two rather than guessing. Being slow to call something confirmed costs
+  nothing; being early tells someone their money arrived when it has not.
+- **An open payment page asked the coordinator for news every eight seconds, forever.** It was
+  waiting for a change to a sent payment that nothing was ever going to make, so the request
+  repeated for as long as the page stayed open. Confirmation now comes from the transactions, which
+  is where it lives.
+
 ### Changed
 
 - **Changing a vault's member list now needs the key that proves you can read the vault.** The list

@@ -524,7 +524,12 @@ export const ptBR: Record<string, string> = {
   'dashboard.agoMin': 'há {n} min',
   'dashboard.agoHours': 'há {n} h',
   'dashboard.verify': 'verificar ↗',
+  // O `confirmado` sozinho era o defeito inteiro: aparecia para transa\u00e7\u00e3o ainda no mempool, porque
+  // o estado que ele lia nunca pode dizer outra coisa. Agora a palavra vem com o bloco que a
+  // sustenta, e o passo anterior tem nome pr\u00f3prio.
   'dashboard.confirmed': 'confirmado',
+  'dashboard.confirmedAt': 'confirmado \u00b7 bloco {height}',
+  'dashboard.broadcast': 'enviado \u00b7 aguardando bloco',
   'dashboard.dangerZone': 'Zona de perigo',
   'dashboard.deleteThisVault': 'Excluir este cofre',
   'dashboard.deleteThisVaultDesc': 'Remove o cofre deste aparelho. Não afeta a rede Zcash nem os outros membros.',
