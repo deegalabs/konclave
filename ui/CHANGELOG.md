@@ -42,6 +42,20 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **The payment screen never noticed that money had arrived.** It read the vault's balance once,
+  when it opened, so anyone who got there a moment too early - a deposit still confirming, a
+  payment still settling - was told they could not send and stayed told, however long they waited,
+  until they thought to reload the page. Nothing on the screen suggested reloading. It now keeps
+  looking, and the block lifts by itself.
+- **The 25/50/75/Max buttons did nothing when the vault had nothing to send.** They looked
+  available and answered a click with silence. They are now visibly unavailable, which is the
+  honest version of the same information.
+- **The balance card counted the same money twice.** Under a total of 0.0006 it said
+  "+0.0006 confirming", which reads as 0.0012 - but the total already includes it. The plus sign
+  is gone.
+
+### Fixed
+
 - **The dashboard called a payment confirmed while it was still waiting to be mined.** The green
   "confirmed" mark went up the moment a payment was broadcast, and it could never have been right:
   it read the proposal's own record, and that record has no way to learn that a block arrived. So
