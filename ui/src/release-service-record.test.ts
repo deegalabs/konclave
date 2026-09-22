@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error - a plain .mjs script, deliberately not part of the app's TS build
-import { buildsNote } from '../../scripts/release.mjs'
+import { buildsNote, versionsToReport } from '../../scripts/release.mjs'
 
 // "Which coordinator and which relay were live when this shipped?" had no answer. The web app is
 // whatever `main` was, the desktop whatever the tag was, and the two services are whatever someone
@@ -34,5 +34,30 @@ describe('the release records which services were live', () => {
 
   it('is a blockquote, so it cannot be mistaken for a changelog entry', () => {
     expect(buildsNote([['coordinator', 'a'], ['relay', 'b']], '2026-09-21').startsWith('> ')).toBe(true)
+  })
+})
+
+describe('a release body describes the installer, not its own section', () => {
+  // v0.5.0 was cut into the changelog and then superseded before it was ever published - the
+  // draft did not carry two security fixes, so it was discarded and 0.6.0 took its place.
+  //
+  // A body built from the 0.6.0 section alone would have described ELEVEN entries while the
+  // installer carried FORTY-TWO, and nine `Security` entries from the orphaned section would have
+  // reached desktop users unannounced. The notes have to cover everything since the last version
+  // anyone actually received.
+  it('includes a section that was cut but never tagged', () => {
+    // Real numbers from the day it happened: 0.5.0 exists in the changelog, has no tag.
+    const reported = versionsToReport('0.6.0')
+    expect(reported[0]).toBe('0.6.0')
+    expect(reported, 'the superseded section is silently dropped from the release body')
+      .toContain('0.5.0')
+  })
+
+  it('stops at the last version that shipped, rather than reporting everything ever', () => {
+    // Self-correcting: in the normal case the previous release IS tagged, so the walk stops at
+    // once and this returns a single version. Without that it would re-announce the whole history
+    // on every release.
+    const reported = versionsToReport('0.6.0')
+    expect(reported, 'the walk ran past a version that was actually released').not.toContain('0.4.0')
   })
 })

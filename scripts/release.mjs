@@ -11,6 +11,7 @@
 // builds the installers and uses the printed notes as the release body. Vercel deploys the web from
 // the same commit, so the in-app version badge, the desktop installer, and the tag all agree.
 import { readFileSync, writeFileSync } from 'node:fs'
+import { execSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
@@ -48,6 +49,56 @@ function sectionOf(file, version) {
   return lines.slice(start + 1, end).join('\n').trim().replace(/\n*-{3,}$/, '').trimEnd()
 }
 
+/** The versions this repo actually released, newest first. A section with no tag was cut and then
+ *  superseded before it shipped, which is a thing that happens and must not silently swallow its
+ *  entries. */
+function taggedVersions() {
+  try {
+    return new Set(
+      execSync('git tag', { encoding: 'utf8' })
+        .split('\n')
+        .map((t) => t.trim().replace(/^v/, ''))
+        .filter(Boolean),
+    )
+  } catch {
+    // No git, no tags: fall back to "everything is released", which prints the single section -
+    // the behaviour before this existed. Never MORE than asked for when we cannot tell.
+    return null
+  }
+}
+
+/** The version headings in a changelog, in file order (newest first). */
+function versionsIn(file) {
+  let md
+  try { md = readFileSync(file, 'utf8') } catch { return [] }
+  return [...md.matchAll(/^## \[(\d+\.\d+\.\d+[^\]]*)\]/gm)].map((m) => m[1])
+}
+
+/**
+ * `version`, plus any section beneath it that was never tagged.
+ *
+ * A release body has to describe what the INSTALLER contains, not what its own section says. When
+ * 0.5.0 was cut and then superseded before publication, a v0.6.0 body built from its own section
+ * alone would have described 11 entries while the installer carried 42 - and nine `Security`
+ * entries from the orphaned section would have shipped unannounced.
+ *
+ * Walking DOWN and stopping at the first tagged version is self-correcting: in the normal case the
+ * previous release is tagged, the walk stops immediately, and this returns exactly one version.
+ */
+export function versionsToReport(version) {
+  const tagged = taggedVersions()
+  if (!tagged) return [version]
+  const all = versionsIn(CHANGELOG)
+  const start = all.indexOf(version)
+  if (start === -1) return [version]
+  const out = [version]
+  for (const v of all.slice(start + 1)) {
+    if (tagged.has(v)) break
+    out.push(v)
+  }
+  return out
+}
+
 /**
  * Every source's section for `version`, assembled.
  *
@@ -56,8 +107,9 @@ function sectionOf(file, version) {
  * release body from changing shape for a reason nobody asked for.
  */
 function notes(version) {
+  const versions = versionsToReport(version)
   const parts = SOURCES
-    .map(([file, label]) => [label, sectionOf(file, version)])
+    .map(([file, label]) => [label, versions.map((v) => sectionOf(file, v)).filter(Boolean).join('\n\n')])
     .filter(([, body]) => body)
   if (parts.length === 0) return ''
   if (parts.length === 1) return parts[0][1]
