@@ -42,6 +42,19 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **The payment screen offered money another proposal had already claimed.** The dashboard subtracts
+  what open proposals are holding before saying the vault can pay; the payment screen did not, so it
+  would accept an amount the dashboard had just said was impossible - and that payment could reach a
+  quorum and then fail, or take the funds from the proposal that asked first. Two people proposing
+  on the same day is not a corner case. Both screens now mean the same thing by "available".
+- **Being blocked by a colleague's proposal now says so.** It used to read as "not enough", which is
+  not true and sends you looking for money you have. It now shows the sum: what the vault holds,
+  what is committed and to whose proposal, what is free right now - and that the funds come back
+  when those are sent or refused. This is Konclave's own rule holding the money, not the network, so
+  the screen says what is happening rather than implying the chain refused.
+
+### Fixed
+
 - **The payment screen never noticed that money had arrived.** It read the vault's balance once,
   when it opened, so anyone who got there a moment too early - a deposit still confirming, a
   payment still settling - was told they could not send and stayed told, however long they waited,

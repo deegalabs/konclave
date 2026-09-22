@@ -663,6 +663,10 @@ export const en: Record<string, string> = {
   'money.blockAmount': "That amount is not a number the vault can pay. Use a dot for the decimal, for example 0.5.",
   'money.blockBalanceUnknown': "The vault balance could not be read, so this cannot be checked yet. Try again in a moment.",
   'money.blockCrossesPools': "This amount is more than can be sent in a single payment. The vault holds it, but split across two internal pools, and one payment draws on one of them. Send it as two payments, or ask a member to consolidate the vault first.",
+  // Reservation is OUR rule, not the network's (\u00a76.14) - the funds are real and the engine would
+  // spend them. So the message owes the member the arithmetic and the name of whoever is holding
+  // it: "you are short" would be a lie, and it would hide the one thing they can act on.
+  'money.blockReserved': 'The vault has the funds, but {reserved} ZEC is committed to open proposals ({held}). {free} ZEC is free to propose right now \u00b7 it is released when those are sent or refused.',
   'money.blockNoFunds': "This vault has nothing spendable yet. Funds received recently may still be confirming.",
   'payment.warnOverBalance': 'Amount plus the network fee is more than the vault can spend right now. Lower the amount.',
 

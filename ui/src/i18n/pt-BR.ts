@@ -659,6 +659,10 @@ export const ptBR: Record<string, string> = {
   'money.blockAmount': "Esse valor não é um número que o cofre consiga pagar. Use ponto no decimal, por exemplo 0.5.",
   'money.blockBalanceUnknown': "Não foi possível ler o saldo do cofre, então isso ainda não dá para conferir. Tente de novo em instantes.",
   'money.blockCrossesPools': "Este valor é maior do que cabe em um único pagamento. O cofre tem o saldo, mas dividido em dois grupos internos, e um pagamento usa um deles. Envie em dois pagamentos, ou peça a um membro para consolidar o cofre antes.",
+  // Reserva \u00e9 regra NOSSA, n\u00e3o da rede (\u00a76.14) - o dinheiro existe e o engine gastaria. Ent\u00e3o a
+  // mensagem deve a aritm\u00e9tica e o nome de quem est\u00e1 segurando: "voc\u00ea n\u00e3o tem saldo" seria mentira,
+  // e esconderia a \u00fanica coisa em que o membro pode agir.
+  'money.blockReserved': 'O cofre tem o valor, mas {reserved} ZEC est\u00e3o comprometidos em propostas abertas ({held}). Livre para propor agora: {free} ZEC \u00b7 libera quando aquelas forem enviadas ou recusadas.',
   'money.blockNoFunds': "Este cofre ainda não tem saldo gastável. Fundos recebidos há pouco podem estar confirmando.",
   'payment.warnOverBalance': 'O valor mais a taxa de rede passa do que o cofre pode gastar agora. Reduza o valor.',
 

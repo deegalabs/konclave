@@ -36,14 +36,23 @@ export type ProposeBlock =
   | 'balance-unknown'
   | 'no-funds'
   | 'over-balance'
+  /** The vault holds enough, but open proposals have already committed it. A PRODUCT lock (§6.14),
+   *  not the engine refusing - so its message owes the member the arithmetic and the name of what
+   *  is holding their money, never a bare "not enough". */
+  | 'reserved'
   | 'crosses-pools'
   | null
 
 export interface ProposeInput {
   /** The amount in zatoshis, already parsed with `parseZecToZat`. `null` = unparseable. */
   amountZat: number | null
-  /** Spendable balance in zatoshis. `null` = we could not read it. */
+  /** What a NEW payment may draw on: spendable MINUS what open proposals hold (`freeZatOf`).
+   *  `null` = we could not read it. Not the raw spendable: the payment screen used that, and
+   *  disagreed with the Dashboard about whether the vault could pay. */
   availableZat: number | null
+  /** Held by open proposals, for telling "the vault is short" apart from "your colleagues got
+   *  there first". Omitted where there is no ledger to consult. */
+  reservedZat?: number
   /** The fee estimate this screen applies. */
   feeZat: number
   /** Memo over the 512-byte limit. */
@@ -81,6 +90,8 @@ export function blockMessageKey(b: ProposeBlock): string | null {
       return 'money.blockBalanceUnknown'
     case 'no-funds':
       return 'money.blockNoFunds'
+    case 'reserved':
+      return 'money.blockReserved'
     case 'crosses-pools':
       return 'money.blockCrossesPools'
     default:
@@ -107,13 +118,20 @@ export function poolsOf(
 }
 
 export function proposeBlock(input: ProposeInput): ProposeBlock {
-  const { amountZat, availableZat, feeZat, memoOver = false, pools } = input
+  const { amountZat, availableZat, feeZat, memoOver = false, pools, reservedZat = 0 } = input
 
   if (memoOver) return 'memo'
   if (amountZat === null || amountZat <= 0) return 'amount'
   if (availableZat === null) return 'balance-unknown'
-  if (availableZat === 0) return 'no-funds'
-  if (availableZat - amountZat - feeZat < 0) return 'over-balance'
+  if (availableZat === 0) return reservedZat > 0 ? 'reserved' : 'no-funds'
+  if (availableZat - amountZat - feeZat < 0) {
+    // Which of the two it is decides what the member can DO. Short of funds, they wait or send
+    // less; short because a colleague's proposal holds the difference, they can also go and get
+    // that one resolved - and only the second message can tell them so.
+    return reservedZat > 0 && availableZat + reservedZat - amountZat - feeZat >= 0
+      ? 'reserved'
+      : 'over-balance'
+  }
 
   // #427. `availableZat` is the sum of the two shielded pools, and the sum overstates what ONE
   // payment can move. The note selector spends a single pool whenever one covers amount+fee, and
