@@ -578,12 +578,28 @@ fn handle_with_token(
                 Some(r) => r,
                 None => return resp(404, json!({ "error": "no such vault" }).to_string()),
             };
-            // Write-ONCE. This endpoint is unauthenticated, and it used to overwrite: anyone
+            // Write-ONCE, and now also behind the read key once a vault has one.
+            //
+            // The write-once rule is what actually protects this: it used to overwrite, so anyone
             // holding a vault id could replace the roster with names of their own and then vote as
             // them, which made the roster check on `handle_vote` cosmetic (#288). The roster is
             // decided by the DKG and never changes wholesale afterwards - later edits go one seat
             // at a time through /members/rename. A repeat of the SAME list is accepted because
             // that is the real flow: at DKG completion every device posts it.
+            //
+            // THE GATE HERE IS BELT-AND-BRACES, NOT A HOLE BEING CLOSED, and saying so matters so
+            // nobody reads this as the fix for something. What remains without it is a race of
+            // milliseconds during the ceremony, against someone who would need the vault id from
+            // INSIDE that ceremony to use it. The gate costs one line, because `read_authorized`
+            // already answers "open while unmigrated" - which is also what keeps vault creation
+            // working, since the roster is claimed BEFORE the creator registers the read key.
+            if !read_authorized(&cfg.vaults_dir, &reg.vault_id, read_token) {
+                return resp(
+                    401,
+                    json!({ "error": "this vault's roster is set; changing it requires its read key" })
+                        .to_string(),
+                );
+            }
             match claim_members(&cfg.vaults_dir, &reg.vault_id, &req.names) {
                 Ok(RosterWrite::Claimed) | Ok(RosterWrite::Unchanged) => {
                     resp(200, json!({ "members": req.names }).to_string())
@@ -2229,6 +2245,47 @@ mod tests {
             !public.body.contains(&expected_ufvk),
             "/api/vault must still never carry the UFVK: {}",
             public.body
+        );
+    }
+
+    #[test]
+    fn a_roster_claim_still_works_before_a_read_key_exists() {
+        // The ordering that makes the gate safe, pinned so a later change cannot break vault
+        // creation quietly. At the DKG the roster is claimed BEFORE the creator registers the read
+        // key, so gating this endpoint would deadlock creation if `read_authorized` did not answer
+        // "open while unmigrated". It does, and this is what proves the two halves agree.
+        let st = HelperState::new();
+        let gk = "77".repeat(32);
+        seed(&st, &gk);
+        let c = cfg();
+        let _ = std::fs::remove_file(c.vaults_dir.join(&gk).join("read-key.json"));
+
+        let claim = handle(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault/members",
+            format!(r#"{{"vault":"{gk}","names":["Zka","Daniel","Bob"]}}"#).as_bytes(),
+        );
+        assert_eq!(
+            claim.status, 200,
+            "a vault with no read key must still be able to claim its roster, or the DKG deadlocks"
+        );
+
+        // Once armed, changing it needs the key. The write-once rule already refuses a DIFFERENT
+        // list with 409, so this only bites a caller who has both a new list and no key - but the
+        // order of the two checks is itself a decision, and it is this one.
+        set_read_key(&c.vaults_dir, &gk, &"ab".repeat(32)).unwrap();
+        let after = handle(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault/members",
+            format!(r#"{{"vault":"{gk}","names":["Mallory"]}}"#).as_bytes(),
+        );
+        assert_eq!(
+            after.status, 401,
+            "an armed vault must not take a roster from an id alone"
         );
     }
 

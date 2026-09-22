@@ -306,7 +306,11 @@ export async function listTransactions(groupKeyHex: string): Promise<WalletTx[] 
  *  Used once at DKG completion, where every device writes the same self-declared roster. For later
  *  edits use {@link renameMember}, which changes only one seat and migrates that member's votes. */
 export async function setMembers(groupKeyHex: string, names: string[]): Promise<string[] | null> {
-  return (await postJson<{ members: string[] }>('/api/vault/members', { vault: groupKeyHex, names }))?.members ?? null
+  // The read key rides along for the same reason it does on the other writes: once a vault has
+  // one, changing its roster needs it. At the DKG there is none yet - the roster is claimed before
+  // the creator registers the key - so the header is simply absent and the first claim goes
+  // through, which is what keeps vault creation working.
+  return (await postJson<{ members: string[] }>('/api/vault/members', { vault: groupKeyHex, names }, await readAuthFor(groupKeyHex)))?.members ?? null
 }
 
 /** Rename ONE seat (`old` -> `new`) and migrate that member's votes across every proposal, so a
