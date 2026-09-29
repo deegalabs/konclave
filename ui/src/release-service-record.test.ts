@@ -82,4 +82,16 @@ describe('a release body describes the installer, not its own section', () => {
   it('reports the version alone when there is no git to ask', () => {
     expect(versionsToReport('0.6.0', null)).toEqual(['0.6.0'])
   })
+
+  // "Another tag exists" is not "an earlier release is known". Each of these is another tag, and
+  // with the first version of this fix each one sent the walk through the whole file.
+  it('does not take a release candidate, or a tag that is no version, for an earlier release', () => {
+    expect(versionsToReport('0.6.0', new Set(['0.6.0', '0.7.0-rc.1']))).toEqual(['0.6.0'])
+    expect(versionsToReport('0.6.0', new Set(['vault-demo']))).toEqual(['0.6.0'])
+  })
+
+  it('reports an old version alone when only newer ones are tagged', () => {
+    // Rebuilding an old tag by hand, in a checkout that knows a later release and nothing earlier.
+    expect(versionsToReport('0.4.0', new Set(['0.6.0']))).toEqual(['0.4.0'])
+  })
 })
