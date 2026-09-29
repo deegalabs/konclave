@@ -7,8 +7,9 @@ document ever asserts something another contradicts.
 
 The ZecHub Hackathon 3.0 submission used to be one of those surfaces. It was archived on
 2026-09-29 at `docs/archive/zechub-3.0-submission.md`, under a banner that says its numbers are
-the ones that were true when it was delivered. It is a record now, so it is no longer kept in
-step with the others, and nothing should cite it as the current state.
+those of its last edit, on 2026-08-27, and that it is not the text as submitted. It is a record
+now, so it is no longer kept in step with the others, and nothing should cite it as the current
+state.
 
 ## The canonical sources
 - **`scripts/verify-proof.mjs`** and **`docs/PROOF.md`** are authoritative for the mainnet

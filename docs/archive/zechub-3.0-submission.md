@@ -1,9 +1,11 @@
 # Konclave: ZecHub Hackathon 3.0 submission
 
-> **Archived.** This is the ZecHub Hackathon 3.0 submission, kept as a record of what was delivered.
-> It was last edited on 2026-08-27 and is not maintained: it cites eight mainnet transactions and
-> desktop v0.2.0, which is what was true then. For the current state read the
-> [README](../../README.md) and [docs/PROOF.md](../PROOF.md).
+> **Archived.** This is the page written for the ZecHub Hackathon 3.0 submission, in its last state,
+> from 2026-08-27. It went on being edited after the 2026-07-15 deadline, so it is NOT the text as
+> submitted; every earlier version is in this file's git history. It is kept as a record and is
+> not maintained: it cites eight mainnet transactions and desktop v0.2.0, which is what was true
+> on that date. For the current state read the [README](../../README.md) and
+> [docs/PROOF.md](../PROOF.md).
 
 > **The vault that decides together.** A local-first app that makes **FROST threshold
 > vaults usable for ordinary treasurers** on Zcash. Private on the outside, transparent on

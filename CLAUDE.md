@@ -401,7 +401,7 @@ desktop" as the original intent and ADR-0005 as the delivery that carries it tod
 (#67, primitive proven byte-exact vs the signer). PIN-gated admission + vault fingerprint close the
 invite-as-bearer concern (#67 prevention / #68 detection, both live-validated 2-tab).
 
-**Desktop (Tauri) - RELEASED, latest v0.4.0 (2026-09-07); the line opened at v0.2.0 (2026-08-03).** The desktop line shipped: real `src-tauri/`
+**Desktop (Tauri) - RELEASED, latest v0.6.0 (2026-09-22); the line opened at v0.2.0 (2026-08-03).** The desktop line shipped: real `src-tauri/`
 code (Tauri shell over the `orchestrator`) tagged **`v0.2.0`**, with Windows/macOS/Linux installers.
 The web app stays the primary delivery (ADR-0005); desktop is the optional native shell. **Still open:**
 live **per-platform hardware** validation (the GTK/WSLg window does not render here, ADR-0004).
@@ -575,7 +575,8 @@ out **sealed** to the vault's devices, with the plaintext path closing per vault
   under a name from the request body, so a member could approve in another member's name and take a
   2-of-2 proposal to `ready` alone. The rename had the check, in its own copy of the gate; the vote
   and the proposal did not. Same shape as the four defects under "the failure that repeated most".
-  The fix is #569, and it reaches production only when the coordinator is redeployed.
+  A fix is proposed in #569. Until it is merged AND the coordinator is redeployed, the defect is
+  live in production: merging changes what `main` says, not what the service runs.
 - **`/net` never got the replay mitigation** (#363): `NetVault.tsx` is a second, diverged ceremony
   driver whose wire type erases the ceremony tag and whose `onMessage` ignores history.
 - **H2 CONFIDENTIALITY is DONE (#63), merged and proven live (2026-08-29).** The device-key handshake
