@@ -40,6 +40,8 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+## [0.7.0] 2026-09-29
+
 ### Security
 
 - **A device could be made to sign a payment other than the one on its screen.** Before it signs,

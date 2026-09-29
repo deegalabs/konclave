@@ -55,6 +55,13 @@ explicitly accepted.
 
 ## [Unreleased]
 
+## [0.7.0] 2026-09-29
+
+> **Services deployed when this was cut (2026-09-29):** coordinator `80e3a18`, relay `03bb736890c63e86`.
+> The web app is this release's own commit. The two services are deployed by hand and may be
+> older than it - recording what they were ANSWERING is the point, not what they should have been.
+
+
 ### Security
 
 - **The signer refuses a package that signs anything but the payment the device worked out.**
