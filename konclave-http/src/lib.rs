@@ -109,12 +109,19 @@ impl RateLimiter {
 /// can forge the header only by reaching the server without passing the proxy, which the platform
 /// prevents.
 ///
+/// `forwarded` is EVERY value of that header, in order, because a request may carry more than one.
+/// The first value whose first hop is not empty wins, which is what the relay has always done.
+///
 /// Takes strings, not a request, so this crate stays free of any HTTP library.
-pub fn client_address(forwarded_for: Option<&str>, remote: Option<&str>) -> String {
-    let first_hop = forwarded_for
-        .and_then(|v| v.split(',').next())
+pub fn client_address<'a>(
+    forwarded: impl IntoIterator<Item = &'a str>,
+    remote: Option<&str>,
+) -> String {
+    let first_hop = forwarded
+        .into_iter()
+        .filter_map(|value| value.split(',').next())
         .map(str::trim)
-        .filter(|hop| !hop.is_empty());
+        .find(|hop| !hop.is_empty());
     first_hop
         .or_else(|| remote.map(str::trim).filter(|r| !r.is_empty()))
         .unwrap_or("unknown")
@@ -185,11 +192,11 @@ mod tests {
     #[test]
     fn the_first_forwarded_hop_is_the_client() {
         assert_eq!(
-            client_address(Some("203.0.113.7, 10.0.0.1, 10.0.0.2"), Some("10.0.0.2")),
+            client_address(["203.0.113.7, 10.0.0.1, 10.0.0.2"], Some("10.0.0.2")),
             "203.0.113.7"
         );
         assert_eq!(
-            client_address(Some("  203.0.113.7  "), Some("10.0.0.2")),
+            client_address(["  203.0.113.7  "], Some("10.0.0.2")),
             "203.0.113.7",
             "surrounding space is not part of the address"
         );
@@ -197,16 +204,31 @@ mod tests {
 
     #[test]
     fn without_a_forwarded_header_the_socket_is_the_client() {
-        assert_eq!(client_address(None, Some("198.51.100.9")), "198.51.100.9");
+        assert_eq!(client_address([], Some("198.51.100.9")), "198.51.100.9");
         assert_eq!(
-            client_address(Some(""), Some("198.51.100.9")),
+            client_address([""], Some("198.51.100.9")),
             "198.51.100.9",
             "an empty header is an absent one"
         );
         assert_eq!(
-            client_address(Some(" , 10.0.0.1"), Some("198.51.100.9")),
+            client_address([" , 10.0.0.1"], Some("198.51.100.9")),
             "198.51.100.9",
             "an empty first hop is not an address"
+        );
+    }
+
+    /// A request may carry the header more than once. The first value that names a client wins, and
+    /// one that names nobody is skipped rather than ending the search.
+    #[test]
+    fn a_second_forwarded_header_is_read_when_the_first_names_nobody() {
+        assert_eq!(
+            client_address(["", "203.0.113.7, 10.0.0.1"], Some("10.0.0.2")),
+            "203.0.113.7"
+        );
+        assert_eq!(
+            client_address(["198.51.100.9", "203.0.113.7"], Some("10.0.0.2")),
+            "198.51.100.9",
+            "and the first that does name one is the answer"
         );
     }
 
@@ -214,7 +236,7 @@ mod tests {
     /// must still be limited, and must not get a key of its own to be counted alone under.
     #[test]
     fn a_client_with_no_address_at_all_is_still_a_key() {
-        assert_eq!(client_address(None, None), "unknown");
+        assert_eq!(client_address([], None), "unknown");
     }
 
     #[test]

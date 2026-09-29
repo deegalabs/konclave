@@ -1738,13 +1738,14 @@ fn main() {
                 .map(|h| h.value.as_str().to_string());
             // Who is asking, for the limits below (#558). Behind the platform's proxy the socket is
             // the proxy, so the forwarded header names the real client.
-            let forwarded = req
-                .headers()
-                .iter()
-                .find(|h| h.field.equiv("X-Forwarded-For"))
-                .map(|h| h.value.as_str().to_string());
             let remote = req.remote_addr().map(|a| a.ip().to_string());
-            let client = konclave_http::client_address(forwarded.as_deref(), remote.as_deref());
+            let client = konclave_http::client_address(
+                req.headers()
+                    .iter()
+                    .filter(|h| h.field.equiv("X-Forwarded-For"))
+                    .map(|h| h.value.as_str()),
+                remote.as_deref(),
+            );
             // A public POST with no ceiling is memory exhaustion by one request (#269). The relay
             // has capped since #390; the helper did not, because the rule lived in the relay's own
             // file. It lives in `konclave-http` now, so there is one ceiling and both servers read it.
