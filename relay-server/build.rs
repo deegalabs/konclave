@@ -55,9 +55,17 @@ fn main() {
     // module afterwards would not, and a fingerprint that misses edits to half the crate is worse
     // than none, because it reports a match that means nothing.
     //
+    // `konclave-http` is digested as well, because it is part of what this relay IS: the request
+    // body ceiling has lived there since #500 and the flood limiter since #558. Until then an edit
+    // to either changed what the relay does and left this fingerprint exactly as it was - checked
+    // by editing the crate and watching the digest not move. The path is the same in the image and
+    // in a checkout (`relay-server/` and `konclave-http/` are siblings in both), so the two builds
+    // still agree, which is what CI compares.
+    //
     // Sorted, so the digest does not depend on the order the filesystem hands them back.
-    let mut parts: Vec<String> = vec!["Cargo.toml".into()];
+    let mut parts: Vec<String> = vec!["Cargo.toml".into(), "../konclave-http/Cargo.toml".into()];
     walk("src", &mut parts);
+    walk("../konclave-http/src", &mut parts);
     parts.sort();
 
     let mut blob = Vec::new();
