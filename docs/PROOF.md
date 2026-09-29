@@ -6,7 +6,8 @@ plainly what on-chain data can and cannot prove, so nothing here is overclaimed.
 
 ## What the proof shows
 
-Konclave claims 17 real Zcash **mainnet** transactions.
+Konclave claims 19 real Zcash **mainnet** transactions, one for each row of the table below.
+The table is the record. Every other count in this repository is a description of it.
 
 Each row below is a **first**: the first time one capability was proven on the live network.
 It is not a log of every send. The vaults have made more transactions than this, and the ones
@@ -48,39 +49,24 @@ Requires Node 18 or newer (uses the built-in `fetch`, no dependencies, no
 node scripts/verify-proof.mjs
 ```
 
-The script exits `0` only if the transactions are confirmed found and mined. It
-exits `1` on a verification failure, and also exits `1` (with an INCONCLUSIVE
-verdict) if the network is unavailable, so a connectivity problem is never
-mistaken for a proof failure.
+The script exits `0` only if every transaction is confirmed found and mined. It
+exits `1` when at least one was not found or not mined, which is a statement about
+the chain. It exits `2`, with an INCONCLUSIVE verdict, when an explorer could not be
+reached, so a connectivity problem is never mistaken for a proof failure. It exits
+`3` when it cannot read the table in this document.
 
 ## Explorer links
 
-Verify by hand as well as by script:
+Verify by hand as well as by script. Every transaction in the table opens at either of
+these addresses, with its id in place of `<txid>`:
 
-- Application-driven payment `43433a10...c522360`
-  - zcashexplorer: https://mainnet.zcashexplorer.app/transactions/43433a109d3f2a078c0a9269ccb156392ade7a1f7ac1532981611eda1e59a572
-  - Blockchair: https://blockchair.com/zcash/transaction/43433a109d3f2a078c0a9269ccb156392ade7a1f7ac1532981611eda1e59a572
-- Gate-1 slice payment `f63ee64d...c522360`
-  - zcashexplorer: https://mainnet.zcashexplorer.app/transactions/f63ee64d7bc086a8286631d03936ec2ca2ca57f4e4c63712fc95c1f02c522360
-  - Blockchair: https://blockchair.com/zcash/transaction/f63ee64d7bc086a8286631d03936ec2ca2ca57f4e4c63712fc95c1f02c522360
-- Fresh-vault payment `6c898239...d4fd35f`
-  - zcashexplorer: https://mainnet.zcashexplorer.app/transactions/6c898239e05fdd1ccce5d650fa25eeabb10d1645a3fdbc36ab5fd3ac8d4fd35f
-  - Blockchair: https://blockchair.com/zcash/transaction/6c898239e05fdd1ccce5d650fa25eeabb10d1645a3fdbc36ab5fd3ac8d4fd35f
-- Private multi-output payroll `b1e24c07...94d0e1b4`
-  - zcashexplorer: https://mainnet.zcashexplorer.app/transactions/b1e24c07fcd629e6e6ea6809ffeb5d2e311054781740c6a5db73dabc94d0e1b4
-  - Blockchair: https://blockchair.com/zcash/transaction/b1e24c07fcd629e6e6ea6809ffeb5d2e311054781740c6a5db73dabc94d0e1b4
-- DKG-vault FROST send `aab00f90...3e230ff3`
-  - zcashexplorer: https://mainnet.zcashexplorer.app/transactions/aab00f903b65e32d1adac317820a85fc97d15c2dcd788b3657ce36773e230ff3
-  - Blockchair: https://blockchair.com/zcash/transaction/aab00f903b65e32d1adac317820a85fc97d15c2dcd788b3657ce36773e230ff3
-- Orchard→Ironwood migration `54266f47...c2e5c494`
-  - zcashexplorer: https://mainnet.zcashexplorer.app/transactions/54266f478505160adfb039c7c76f5615f1536a34059ab30e9f24781ec2e5c494
-  - Blockchair: https://blockchair.com/zcash/transaction/54266f478505160adfb039c7c76f5615f1536a34059ab30e9f24781ec2e5c494
-- Ironwood-pool FROST spend `36c60f1e...57226c95`
-  - zcashexplorer: https://mainnet.zcashexplorer.app/transactions/36c60f1e3f602c2ac13c9f5b0687f248522499fc5a8b69311605336457226c95
-  - Blockchair: https://blockchair.com/zcash/transaction/36c60f1e3f602c2ac13c9f5b0687f248522499fc5a8b69311605336457226c95
-- Browser-signed broadcast `3022420a...3f04ccee`
-  - zcashexplorer: https://mainnet.zcashexplorer.app/transactions/3022420a8bcf17ffd5511163c18ee9b5996a3ba44747e4eff6794bdd3f04ccee
-  - Blockchair: https://blockchair.com/zcash/transaction/3022420a8bcf17ffd5511163c18ee9b5996a3ba44747e4eff6794bdd3f04ccee
+- zcashexplorer: `https://mainnet.zcashexplorer.app/transactions/<txid>`
+- Blockchair: `https://blockchair.com/zcash/transaction/<txid>`
+
+This section used to list the links one by one. It stopped at eight while the table grew to
+nineteen, and one of the eight carried the short id of a different transaction. A pattern
+cannot fall behind the table, so the pattern replaces the list. The `/proof` screen of the app
+links every row, and a test holds that screen to this table.
 
 The script uses Blockchair's API as its primary source
 (`https://api.blockchair.com/zcash/dashboards/transaction/<txid>`) and
@@ -113,14 +99,22 @@ indistinguishability is itself a privacy property: an observer cannot tell that
 funds are under shared custody, how many participants exist, or what the threshold
 is.
 
-Because of that, the threshold nature is attested by artifacts **off-chain**:
+Because of that, the threshold nature is attested by artifacts **off-chain**, and so is
+the way each vault's key was made:
 
-- exactly one of these is attested as coming from a **real Distributed Key Generation**
-  vault, where the key was never reconstituted on any one machine: the dedicated DKG-vault
-  send `aab00f90...` (whose 2-of-3 group key was produced by a live DKG ceremony among three
-  participants, then funded and spent by a FROST ceremony). The other four evidence
-  transactions, including the application-driven payment, used a trusted-dealer 2-of-3 vault,
-  stated plainly;
+- six of them came from vaults split by a **trusted dealer**, stated plainly: the
+  application-driven payment, the Gate-1 slice, the fresh-vault payment, the payroll with
+  three outputs, and both sends of the Ironwood cycle (`43433a10…`, `f63ee64d…`,
+  `6c898239…`, `b1e24c07…`, `54266f47…`, `36c60f1e…`). In those vaults the whole key
+  existed on one machine at creation and was split afterwards;
+- the others came from vaults created by **Distributed Key Generation**, where the key was
+  never whole on any machine. One is the dedicated DKG-vault send `aab00f90…`, whose 2-of-3
+  group key was produced by a live DKG ceremony among three participants with the
+  command-line tools, then funded and spent by a FROST ceremony. The rest are the sends from
+  `3022420a…` onward, from vaults created in the browser. Five of those rows (`ef80a181…`,
+  `3fa08dce…`, `47e4e5dd…`, `7d6b3dec…`, `075ecfe9…`) do not name the key origin in the
+  table: they were made through the web app, which creates a vault by DKG and in no other
+  way;
 - the signature was assembled by a FROST ceremony among the members who approved
   the proposal, coordinated through a blind relay that sees only public material;
 - the build and ceremony paths are covered by the repository's test suite.
@@ -128,16 +122,19 @@ Because of that, the threshold nature is attested by artifacts **off-chain**:
 One honest note on the evidence, stated plainly. The first **seven** mainnet sends were
 signed on a **single machine**: the participants' shares were co-located as separate
 processes at signing time. The ceremony was real; its distribution across independent
-devices was not part of those broadcasts. The **eighth** send (`3022420a…`) closes that
-gap: it was signed **across two independent browser devices** over a blind relay (the
-`/net` page), each contributing only its own share, and then broadcast - the ceremony run
-distributed AND settled on-chain in one motion. The honest remaining edge is that this
-live browser-signed broadcast is proven **single-spend**; multi-spend over the live relay
-is still test-only.
+devices was not part of those broadcasts. The **eighth** send (`3022420a…`) was signed in
+the browser over a blind relay (the `/net` page), each tab contributing only its own share,
+and then broadcast. It was still one machine: two tabs, as its row says. An earlier version
+of this note called them two independent devices, which the row never claimed. A ceremony
+across **separate physical machines** came later, with `aec83baf…` (two people in two
+places) and `2d861b8f…` (the closing signature made on a phone), and where the signers were
+rests on the operators and the ceremony trail, not on the chain. The honest remaining edge
+is that the live browser-signed broadcast is proven **single-spend**; multi-spend over the
+live relay is still test-only.
 
 The honest claim is therefore layered: the **chain** proves these are real, mined,
 shielded mainnet transactions; the **build and ceremony** establish that they were
-produced by a 2-of-3 FROST quorum, and that one of them (the dedicated DKG-vault send) came
-from a vault whose key was generated by real DKG and never reconstituted. This document does
-not ask a judge to take the threshold nature on
-faith from the chain, because the chain cannot show it, by design.
+produced by FROST quorums of 2-of-2, 2-of-3 and 3-of-4, that six of them came from vaults
+a trusted dealer split, and that the others came from vaults whose key was generated by
+DKG and never existed whole. This document does not ask a judge to take the threshold
+nature on faith from the chain, because the chain cannot show it, by design.

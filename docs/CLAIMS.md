@@ -32,8 +32,15 @@ all documents:
    - `trusted-dealer` - a dealer briefly held the whole key at setup, then split it.
 
 ## Mainnet transactions (authoritative attribution)
-As of this writing, fifteen verifiable mainnet txids. **Nine** are from real DKG vaults (one CLI
-DKG-vault send and eight browser-DKG browser-signed sends); the other six are trusted-dealer.
+As of 2026-09-29, 19 verifiable mainnet txids, which is the number of rows in the table of
+`docs/PROOF.md`. **Thirteen** are from real DKG vaults (one CLI DKG-vault send and twelve
+browser-signed sends from vaults created in the browser); the other **six** are trusted-dealer.
+
+This section said fifteen until that date, and the table below stopped at fifteen rows, while the
+record held nineteen. Both are checked now, by one rule (`scripts/proof-table.mjs`) read in two
+places: `scripts/verify-proof.mjs` warns when a count stated in this file differs from the rows it
+verified, and `ui/src/proof-record.test.ts` fails in CI for the same reason, and also when a row of
+the record has no row in the table below.
 
 | Transaction | Evidence | Key origin |
 |---|---|---|
@@ -52,11 +59,26 @@ DKG-vault send and eight browser-DKG browser-signed sends); the other six are tr
 | Signed from a phone via the PWA (`2d861b8f…`) | proven on-chain | **DKG** (browser) |
 | Survived a live bogus-response injection, #394 (`ef80a181…`) | proven on-chain | **DKG** (browser) |
 | Relay blind to the payment, #63 (`047fe6ca…`) | proven on-chain | **DKG** (browser) |
+| Opaque from the outside with a live payment inside, #476 (`3fa08dce…`) | proven on-chain | **DKG** (browser) |
+| Every governance write authenticated, #288 (`47e4e5dd…`) | proven on-chain | **DKG** (browser) |
+| 2-of-3 signed with one seat absent, #399/#515 (`7d6b3dec…`) | proven on-chain | **DKG** (browser) |
+| The device checked the payment before signing, #281 (`075ecfe9…`) | proven on-chain | **DKG** (browser) |
 
 Any statement of the form "the app payment used DKG" is **false**. The DKG-born sends are `aab00f90…`
-(CLI DKG) and the eight browser-DKG sends (`3022420a…`, `64f94d29…`, `b496fc3c…`, `7c4c1dd5…`,
-`aec83baf…`, `2d861b8f…`, `ef80a181…`, `047fe6ca…`); the app-payment, CLI-slice, fresh-vault, payroll
-and both Ironwood-migration sends are trusted-dealer.
+(CLI DKG) and the twelve browser-DKG sends (`3022420a…`, `64f94d29…`, `b496fc3c…`, `7c4c1dd5…`,
+`aec83baf…`, `2d861b8f…`, `ef80a181…`, `047fe6ca…`, `3fa08dce…`, `47e4e5dd…`, `7d6b3dec…`,
+`075ecfe9…`); the app-payment, CLI-slice, fresh-vault, payroll and both Ironwood-migration sends are
+trusted-dealer.
+
+Any statement of the form "every one of them came from a key that was never whole" is **false**
+for the same reason: six of them are trusted-dealer, and in a trusted-dealer vault the whole key
+existed on one machine at creation. The README said it that way until 2026-09-29.
+
+**What the attribution of five rows rests on.** The rows for `ef80a181…`, `3fa08dce…`, `47e4e5dd…`,
+`7d6b3dec…` and `075ecfe9…` do not name the key origin in `docs/PROOF.md`. They are attributed to
+DKG because each was made through the web app and the hosted coordinator, and the only screen that
+registers a vault with the coordinator is the one that creates it by DKG (`registerVault` has one
+caller, `ui/src/screens/NetVault.tsx`). That is a statement about the product, not about the chain.
 
 ## Honest limits to keep stated (never hide)
 - **Signing-path transaction-swap defense (H1) - SHIPPED on the primary path (#62 closed, live since
@@ -201,7 +223,8 @@ and both Ironwood-migration sends are trusted-dealer.
     vaults, serves **5 active vaults** (was ~26). Architecture B is now **proven on mainnet**, not only
     on testnet: browser-signed sends over the hosted, public, share-blind helper, including **across
     separate physical machines** (`aec83baf…`) and with the **relay blind to the payment**
-    (`047fe6ca…`). The mainnet proof set stands at **15 txids** (`docs/PROOF.md`).
+    (`047fe6ca…`). The mainnet proof set stood at fifteen on that date; it is
+    19 verifiable mainnet txids as of 2026-09-29 (`docs/PROOF.md`).
   - Two hosted-helper bugs were found and fixed in the process: the helper image shipped without
     `curl` (its relay transport shells out to curl, so the publish step failed at "curl spawn"); and
     the helper's signing-collection window (`max_polls`) was too short for the browser ceremony over
@@ -213,8 +236,9 @@ and both Ironwood-migration sends are trusted-dealer.
     gives a different viewing key), so the persisted registration's stored UFVK is authoritative and
     a freshly re-derived view-only wallet sees nothing.
 - **Ironwood (NU6.3) - PROVEN on mainnet (2026-07-28, activation day).** After activation
-  (block 3,428,144) the #10 port was merged and the rebuilt engine was validated live. Two real,
-  mined, **V6/NU6.3** mainnet transactions, each a FROST 2-of-3 ceremony:
+  (block 3,428,143, the mainnet activation height in [ZIP 258](https://zips.z.cash/zip-0258); this
+  line said 3,428,144 until 2026-09-29) the #10 port was merged and the rebuilt engine was validated
+  live. Two real, mined, **V6/NU6.3** mainnet transactions, each a FROST 2-of-3 ceremony:
   - **`54266f478505160adfb039c7c76f5615f1536a34059ab30e9f24781ec2e5c494`** (block 3,428,205) - an
     **Orchard→Ironwood migration**: it spends all of the vault's legacy Orchard notes and lands the
     funds in the Ironwood pool, seeding it.
@@ -233,8 +257,9 @@ and both Ironwood-migration sends are trusted-dealer.
     librustzcash `main` by commit `51385a15` (2026-07-27). `create-max` is our interim workaround for
     the current engine pin; the proper fix arrives with an engine pin bump.
   - The testnet Ironwood spend (`069f4260…`, block 4,202,966) remains the earlier proof-of-concept;
-    mainnet is now the authoritative proof. Konclave has **8** `proven on-chain` mainnet txids
-  (the eighth, `3022420a…`, is the first browser-signed broadcast - see the honest-limits section).
+    mainnet is now the authoritative proof. Konclave had eight `proven on-chain` mainnet txids when
+    this bullet was written, the eighth (`3022420a…`) being the first browser-signed broadcast
+    (see the honest-limits section). It has 19 verifiable mainnet txids as of 2026-09-29.
 
 ## Rules for changes
 1. When the proven-vs-pending state of anything changes, update `scripts/verify-proof.mjs`

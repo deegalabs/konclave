@@ -8,7 +8,7 @@
 
 - [ ] `cargo fmt --check` + `cargo clippy -- -D warnings` pass (orchestrator, konclave-signer)
 - [ ] `cargo test` passes (the destructive suite in `orchestrator/`)
-- [ ] `ui/`: `npm run lint` + `npm run build` (tsc + vite) pass
+- [ ] `ui/`: `pnpm -C ui run lint` + `pnpm -C ui run test` (vitest) + `pnpm -C ui run build` (tsc + vite) pass
 - [ ] No secret, key share, seed, or passphrase in code, logs, URLs, or query strings
 - [ ] Every fund-moving path keeps preview + explicit confirmation
 - [ ] If this touches the FROST signer, PCZT, or the loopback bridge: security impact considered and, if relevant, logged in `SECURITY_AUDIT.md`
