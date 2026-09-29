@@ -42,6 +42,21 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Security
 
+- **A member could approve a payment in another member's name.** Once a vault requires signed
+  actions, every vote carries a signature that proves which seat sent it. The coordinator checked
+  that signature and then recorded the vote under the name written in the request, which the
+  signature does not cover. So a member signing correctly for their own seat could send a second
+  vote carrying a colleague's name, and it was recorded as that colleague's approval. On a vault
+  that needs two approvals, one person could make a payment show as approved by both. Creating a
+  payment or a payroll had the same fault: it could be recorded as proposed by someone else. No
+  money could move this way - signing a payment needs the real key shares, and each device still
+  asks its owner to confirm that specific payment. What it broke is what that confirmation rests
+  on: the owner was being asked to sign something the screen said the group had approved. A vote, a
+  payment and a payroll are now recorded under the name of the seat that signed them, and refused
+  otherwise. Open since signed votes shipped on 2026-09-05. It needed a member of the vault, not an
+  outsider, and the only vaults with signed actions turned on were the maintainer's own test vaults.
+  Takes effect when this build is deployed.
+
 - **Anyone holding a vault's link could lock its own members out of their books.** The key that
   proves a device may read a vault could be REPLACED by whoever had the vault's id, on any vault,
   including a protected one. Nothing leaked and no money could move - what it did was shut the

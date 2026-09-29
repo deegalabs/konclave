@@ -110,6 +110,31 @@ pub fn authorize_write(
     }
 }
 
+/// The member who holds `seat`, or `None` when the roster cannot say.
+///
+/// Seats are positional. The DKG assigns them, the roster is written in seat order when the vault is
+/// created, and a rename changes a name in place - so seat N is `roster[N-1]` for the life of the
+/// vault. Seat 0 does not exist: FROST identifiers start at 1.
+pub fn seat_holder(roster: &[String], seat: u16) -> Option<&str> {
+    let i = usize::from(seat).checked_sub(1)?;
+    roster.get(i).map(String::as_str)
+}
+
+/// Whether the device that PROVED `seat` may act under `name`.
+///
+/// [`authorize_write`] answers who asked. It cannot answer whose name they may use, because the name
+/// is not in the signed bytes for a vote and is the signer's own choice for a proposal. Every write
+/// that records a name has to ask this as well, and until #568 only the rename did: a member signed
+/// correctly for their own seat and the vote was recorded under whichever roster name the request
+/// carried.
+///
+/// An empty roster, or a seat past its end, answers `false`. A seat cannot be bound to a name that
+/// was never recorded, and answering `true` there would be the defect again for exactly the vaults
+/// least able to show it.
+pub fn seat_acts_as(roster: &[String], seat: u16, name: &str) -> bool {
+    seat_holder(roster, seat).is_some_and(|holder| holder == name)
+}
+
 /// Exactly 32 bytes from hex, or `None`. Length is part of the check: a short key is malformed, not
 /// something to pad.
 fn unhex32(h: &str) -> Option<[u8; 32]> {
@@ -175,6 +200,54 @@ mod tests {
     const V: &str = "vault-1";
     fn never_seen(_: &str) -> bool {
         false
+    }
+
+    fn roster(names: &[&str]) -> Vec<String> {
+        names.iter().map(|n| n.to_string()).collect()
+    }
+
+    /// #568. The binding the vote and the proposal never had.
+    #[test]
+    fn a_seat_acts_only_under_the_name_the_roster_gives_it() {
+        let r = roster(&["alice", "bob", "carol"]);
+        assert_eq!(seat_holder(&r, 1), Some("alice"));
+        assert_eq!(seat_holder(&r, 3), Some("carol"));
+        assert!(seat_acts_as(&r, 2, "bob"));
+        assert!(
+            !seat_acts_as(&r, 1, "bob"),
+            "seat 1 signs perfectly and is still not bob"
+        );
+    }
+
+    /// The edges are where a positional rule goes wrong: an index that underflows, one that runs
+    /// past the end, and a roster that was never written.
+    #[test]
+    fn a_seat_the_roster_cannot_name_acts_as_nobody() {
+        let r = roster(&["alice", "bob"]);
+        assert_eq!(
+            seat_holder(&r, 0),
+            None,
+            "there is no seat 0, and it must not wrap to the last"
+        );
+        assert_eq!(seat_holder(&r, 3), None, "past the end of the roster");
+        assert!(!seat_acts_as(&r, 3, "alice"));
+        assert!(
+            !seat_acts_as(&[], 1, "alice"),
+            "no roster, no binding: fail closed"
+        );
+        assert!(
+            !seat_acts_as(&[], 1, ""),
+            "and an empty name does not match an empty roster"
+        );
+    }
+
+    /// Names are compared as written. A near match is a different member, not a typo to forgive.
+    #[test]
+    fn a_name_that_almost_matches_is_a_different_member() {
+        let r = roster(&["alice", "bob"]);
+        assert!(!seat_acts_as(&r, 1, "Alice"));
+        assert!(!seat_acts_as(&r, 1, "alice "));
+        assert!(!seat_acts_as(&r, 1, ""));
     }
 
     /// End to end across the crates: derive the key the way the DEVICE derives it, sign, verify.

@@ -55,6 +55,15 @@ explicitly accepted.
 
 ## [Unreleased]
 
+### Security
+
+- **A member's name is tied to their seat in one place now.** The check that a signed action comes
+  from the seat whose name it carries existed only in the coordinator's rename, in a copy of its
+  own, so the vote and the proposal never asked it. It is part of the shared rule now, and every
+  action that records a name goes through it. What that closed, and for whom, is in
+  [helper-server/CHANGELOG.md](helper-server/CHANGELOG.md). The desktop app's own local service is
+  unchanged: it serves the one device it runs on and takes no signed actions.
+
 ## [0.6.0] 2026-09-22
 
 > **Services deployed when this was cut (2026-09-22):** coordinator `33968c4`, relay `03bb736890c63e86`.
