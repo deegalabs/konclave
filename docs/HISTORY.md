@@ -224,7 +224,8 @@ two browser tabs. Submitted to ZecHub Hackathon 3.0 (FROST + Accounting) on the 
 - Real-transaction browser signing (a broadcast Orchard tx, not a test digest); real payroll
   broadcast; sending from a freshly-created DKG vault; **C6** signer tests (funds-blocked).
 
-**Submission (ZecHub 3.0):** `SUBMISSION.md` (judge-facing one-pager), repo public at
+**Submission (ZecHub 3.0):** `SUBMISSION.md` (judge-facing one-pager, archived since 2026-09-29 at
+`docs/archive/zechub-3.0-submission.md`), repo public at
 `github.com/deegalabs/konclave`, hosted demo `konclave-demo.vercel.app` (mock + `/signer`),
 mainnet txid `43433a10…`. No pitch required (functional demo + docs satisfy the rules).
 

@@ -1,5 +1,10 @@
 # Konclave: ZecHub Hackathon 3.0 submission
 
+> **Archived.** This is the ZecHub Hackathon 3.0 submission, kept as a record of what was delivered.
+> It was last edited on 2026-08-27 and is not maintained: it cites eight mainnet transactions and
+> desktop v0.2.0, which is what was true then. For the current state read the
+> [README](../../README.md) and [docs/PROOF.md](../PROOF.md).
+
 > **The vault that decides together.** A local-first app that makes **FROST threshold
 > vaults usable for ordinary treasurers** on Zcash. Private on the outside, transparent on
 > the inside.
@@ -152,7 +157,7 @@ Shielded-first (Orchard); the coordination server is blind (public/encrypted mat
 secrets never persist outside the OS vault (sealed with XChaCha20-Poly1305, key in the OS
 keychain); the loopback bridge is guarded against CSRF/DNS-rebinding; destinations are
 validated with an authoritative `zcash_address` decode before any send. See
-[`SECURITY.md`](SECURITY.md).
+[`SECURITY.md`](../../SECURITY.md).
 
 **Tests:** 227 (orchestrator) + 7 (konclave-wasm) + the `helper-server` crate + UI (~236+ across
-the Rust crates). Documentation: [`README.md`](README.md), [`docs/`](docs/), [`CLAUDE.md`](CLAUDE.md).
+the Rust crates). Documentation: [`README.md`](../../README.md), [`docs/`](../), [`CLAUDE.md`](../../CLAUDE.md).

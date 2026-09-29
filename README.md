@@ -9,12 +9,12 @@
 **Create and operate a shielded, threshold-signed fund vault on Zcash mainnet (quorum-approved payments and private payroll) without a command line, and without any single person ever able to move the funds or reconstruct the key.**
 
 [![Zcash mainnet](https://img.shields.io/badge/Zcash-mainnet%20(NU6.3%20Ironwood)-e5a00d?logo=zcash&logoColor=white)](#proven-on-zcash-mainnet)
-[![FROST + Accounting](https://img.shields.io/badge/ZecHub%203.0-FROST%20%2B%20Accounting-6f42c1)](#why-we-built-this)
+[![Built on FROST](https://img.shields.io/badge/built%20on-FROST-6f42c1)](#why-we-built-this)
 [![License: Apache-2.0 OR MIT](https://img.shields.io/badge/license-Apache--2.0%20OR%20MIT-blue.svg)](#license)
 [![Tests: 315 Rust + 245 UI](https://img.shields.io/badge/tests-315%20Rust%20%2B%20245%20UI-2ea44f.svg)](#status)
 [![CI](https://github.com/deegalabs/konclave/actions/workflows/ci.yml/badge.svg)](https://github.com/deegalabs/konclave/actions/workflows/ci.yml)
 
-Submission for **ZecHub Hackathon 3.0** · FROST + Accounting
+Started at **ZecHub Hackathon 3.0** in July 2026, and built as a product since.
 
 The cryptography is the Zcash Foundation's; Konclave is the **human layer** on top. A FROST
 signature looks, on-chain, like an ordinary single-signer transaction, so a group gets
@@ -341,7 +341,7 @@ accounting layer on top. Thank you to the Zcash Foundation and the wider Zcash c
 ## Documentation
 
 - **[docs/GUIDE.md](docs/GUIDE.md): the complete guide** - use cases, domain model, state machine, sequence diagrams, step-by-step, process explanations, and tips
-- [SUBMISSION.md](SUBMISSION.md): the hackathon submission write-up · [DEPLOY.md](DEPLOY.md): hosting and CI
+- [DEPLOY.md](DEPLOY.md): hosting and CI · [docs/archive/zechub-3.0-submission.md](docs/archive/zechub-3.0-submission.md): the ZecHub Hackathon 3.0 submission, archived as delivered
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): the three layers · [docs/ROADMAP.md](docs/ROADMAP.md): build plan
 - [docs/DIAGRAMS.md](docs/DIAGRAMS.md): system flow in Mermaid · [docs/VERTICAL_SLICE.md](docs/VERTICAL_SLICE.md): the first mainnet transaction
 - [SECURITY.md](SECURITY.md): posture and reporting · [CLAUDE.md](CLAUDE.md): project memory and context
@@ -352,5 +352,5 @@ Dual **Apache-2.0** / **MIT**, at your choice (mirrors the Rust/Zcash ecosystem)
 See [LICENSE-APACHE](LICENSE-APACHE) and [LICENSE-MIT](LICENSE-MIT).
 
 <div align="center">
-<sub>Built on Zcash and FROST · ZecHub Hackathon 3.0 · Private outside, transparent inside</sub>
+<sub>Built on Zcash and FROST · Private outside, transparent inside</sub>
 </div>
