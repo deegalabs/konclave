@@ -2,61 +2,22 @@ import { useState } from 'react'
 import { Letterhead } from '../components'
 import { useI18n } from '../i18n'
 import { useToast } from '../toast'
+import { PROOF_RECORD_URL, PROOF_TXS, proofOriginCounts } from '../proof-record'
 import '../proof.css'
 
-// Judge-facing proof page. Konclave claims eight REAL Zcash mainnet transactions; this screen
-// is the browser equivalent of scripts/verify-proof.mjs. It shows each txid with explorer links
-// anyone can open, offers a client-side "verify on-chain now" check against a public explorer
-// API, and states plainly what on-chain data can and cannot prove (mirrors docs/PROOF.md).
+// Judge-facing proof page: the browser equivalent of scripts/verify-proof.mjs. It shows each txid
+// of the record with explorer links anyone can open, offers a client-side "verify on-chain now"
+// check against a public explorer API, and states plainly what on-chain data can and cannot prove
+// (mirrors docs/PROOF.md).
 // Everything is client-side. The honest scope note is load-bearing: the chain proves the txs
 // are real, mined and shielded, but a FROST-aggregated Orchard signature is indistinguishable
-// on-chain from a single-signer one, so the 2-of-3 nature is attested off-chain (code + ceremony).
+// on-chain from a single-signer one, so the threshold nature is attested off-chain (code + ceremony).
+//
+// THE LIST IS NOT KEPT HERE. It lived in this file as an array of eight, and this comment said
+// "eight", while docs/PROOF.md grew to nineteen. It is `../proof-record` now, which a test holds to
+// the table in docs/PROOF.md, and no count is written on this screen or in its comments.
 
 type Locale = 'pt-BR' | 'en'
-
-// The eight mainnet transactions. Block heights are the known, on-chain heights.
-const TXS = [
-  {
-    txid: '43433a109d3f2a078c0a9269ccb156392ade7a1f7ac1532981611eda1e59a572',
-    block: 3397342,
-    kind: 'app' as const,
-  },
-  {
-    txid: 'f63ee64d7bc086a8286631d03936ec2ca2ca57f4e4c63712fc95c1f02c522360',
-    block: 3396616,
-    kind: 'slice' as const,
-  },
-  {
-    txid: '6c898239e05fdd1ccce5d650fa25eeabb10d1645a3fdbc36ab5fd3ac8d4fd35f',
-    block: 3413636,
-    kind: 'fresh' as const,
-  },
-  {
-    txid: 'b1e24c07fcd629e6e6ea6809ffeb5d2e311054781740c6a5db73dabc94d0e1b4',
-    block: 3413648,
-    kind: 'payroll' as const,
-  },
-  {
-    txid: 'aab00f903b65e32d1adac317820a85fc97d15c2dcd788b3657ce36773e230ff3',
-    block: 3413792,
-    kind: 'dkg' as const,
-  },
-  {
-    txid: '54266f478505160adfb039c7c76f5615f1536a34059ab30e9f24781ec2e5c494',
-    block: 3428205,
-    kind: 'migrate' as const,
-  },
-  {
-    txid: '36c60f1e3f602c2ac13c9f5b0687f248522499fc5a8b69311605336457226c95',
-    block: 3428246,
-    kind: 'ironwood' as const,
-  },
-  {
-    txid: '3022420a8bcf17ffd5511163c18ee9b5996a3ba44747e4eff6794bdd3f04ccee',
-    block: 3429922,
-    kind: 'browser' as const,
-  },
-]
 
 const explorerZec = (txid: string) => `https://mainnet.zcashexplorer.app/transactions/${txid}`
 const explorerBlockchair = (txid: string) => `https://blockchair.com/zcash/transaction/${txid}`
@@ -66,14 +27,6 @@ const TXT = {
     eyebrow: 'Konclave · Prova',
     title: 'Confira nossa prova de mainnet',
     lead: 'Transações reais na mainnet do Zcash. Confira você mesmo, por exploradores públicos independentes. Nada aqui pede confiança cega.',
-    labelApp: 'Pagamento por quórum 2-de-3 conduzido pelo app (assinado por FROST, transmitido)',
-    labelSlice: 'Pagamento do Gate 1, fatia vertical pela CLI',
-    labelFresh: 'Pagamento 2-de-3 FROST de um cofre criado e financiado do zero (reproduzido ponta a ponta)',
-    labelPayroll: 'Folha privada multi-saída (3 saídas, um memo criptografado cada), 2-de-3 FROST',
-    labelDkg: 'Envio 2-de-3 FROST de um cofre gerado por DKG real (chave nunca reconstituída), transmitido à mainnet',
-    labelMigrate: 'Migração Orchard→Ironwood (NU6.3/V6), 2-de-3 FROST, semeia o pool Ironwood',
-    labelIronwood: 'Primeiro gasto DO pool Ironwood na mainnet (NU6.3/V6), 2-de-3 FROST',
-    labelBrowser: 'Primeiro broadcast na mainnet assinado NO NAVEGADOR: cofre 2-de-2 nascido de DKG no navegador, cada dispositivo assinando com só o seu share pelo relay cego (Arquitetura B), pool Ironwood',
     txidLabel: 'ID da transação',
     blockLabel: 'Bloco',
     copy: 'Copiar',
@@ -96,19 +49,18 @@ const TXT = {
       'Os dados on-chain provam que a transação existe, foi minerada em um bloco e é blindada (Orchard). Não revela valores nem partes, e essa ausência de detalhe é a privacidade funcionando.',
     scopeCannot:
       'Os dados on-chain NÃO provam, sozinhos, a natureza de limiar (t-de-n) do FROST. Uma assinatura Orchard agregada por FROST é indistinguível de uma assinatura de signatário único na cadeia, e essa indistinguibilidade é justamente a propriedade de privacidade. A natureza de limiar é atestada pelo código e pela cerimônia, fora da cadeia.',
+    originDealer: 'Cofre dividido por um trusted dealer (a chave existiu inteira na criação)',
+    originDkg: 'Cofre criado por DKG (a chave nunca existiu inteira)',
+    scopeOrigin:
+      'Como a chave de cada cofre foi feita também é algo que a cadeia não mostra. Das transações acima, {dealer} vieram de cofres divididos por um trusted dealer, em que a chave inteira existiu numa máquina na criação, e {dkg} vieram de cofres criados por DKG, em que a chave nunca existiu inteira. Cada cartão diz qual.',
+    scopeRecord:
+      'Esta lista é uma cópia da tabela em docs/PROOF.md, que é o registro. O registro diz, linha a linha, o que se apoia no bloco e o que se apoia na palavra de quem executou.',
+    recordLink: 'Abrir o registro (docs/PROOF.md)',
   },
   en: {
     eyebrow: 'Konclave · Proof',
     title: 'Verify our mainnet proof yourself',
     lead: 'Real transactions on the Zcash mainnet. Confirm them yourself, through independent public explorers. Nothing here asks you to take it on faith.',
-    labelApp: 'Application-driven 2-of-3 quorum payment (FROST-signed, broadcast)',
-    labelSlice: 'Gate-1 CLI-driven vertical-slice payment',
-    labelFresh: '2-of-3 FROST payment from a freshly created and funded vault (reproduced end to end)',
-    labelPayroll: 'Private multi-output payroll (3 outputs, one encrypted memo each), 2-of-3 FROST',
-    labelDkg: '2-of-3 FROST send from a real DKG-generated vault (key never reconstituted), broadcast to mainnet',
-    labelMigrate: 'Orchard→Ironwood migration (NU6.3/V6), 2-of-3 FROST, seeds the Ironwood pool',
-    labelIronwood: 'First spend FROM the Ironwood pool on mainnet (NU6.3/V6), 2-of-3 FROST',
-    labelBrowser: 'First browser-signed mainnet broadcast: a browser-DKG 2-of-2 vault, each device signing in the browser with only its own share over the blind relay (Architecture B), Ironwood pool',
     txidLabel: 'Transaction ID',
     blockLabel: 'Block',
     copy: 'Copy',
@@ -131,6 +83,13 @@ const TXT = {
       'On-chain data proves the transaction exists, is mined in a block, and is shielded (Orchard). It reveals nothing about amounts or parties, and that absence of detail is the privacy working as intended.',
     scopeCannot:
       'On-chain data does NOT, by itself, prove the threshold (t-of-n) FROST nature. A FROST-aggregated Orchard signature is indistinguishable on-chain from a single-signer one, and that indistinguishability is precisely the privacy property. The threshold nature is attested by the code and the ceremony, off-chain.',
+    originDealer: 'Vault split by a trusted dealer (the whole key existed at creation)',
+    originDkg: 'Vault created by DKG (the key was never whole)',
+    scopeOrigin:
+      'How the key of each vault was made is also something the chain cannot show. Of the transactions above, {dealer} came from vaults split by a trusted dealer, where the whole key existed on one machine at creation, and {dkg} came from vaults created by DKG, where the key was never whole. Each card says which.',
+    scopeRecord:
+      'This list is a copy of the table in docs/PROOF.md, which is the record. The record says, row by row, what rests on the block and what rests on the word of whoever ran it.',
+    recordLink: 'Open the record (docs/PROOF.md)',
   },
 }
 
@@ -171,42 +130,37 @@ export default function Proof() {
 
   const [checks, setChecks] = useState<Record<string, CheckState>>({})
 
-  const labelFor = (
-    kind: 'app' | 'slice' | 'fresh' | 'payroll' | 'dkg' | 'migrate' | 'ironwood' | 'browser',
-  ) =>
-    kind === 'app' ? T.labelApp
-    : kind === 'slice' ? T.labelSlice
-    : kind === 'fresh' ? T.labelFresh
-    : kind === 'dkg' ? T.labelDkg
-    : kind === 'migrate' ? T.labelMigrate
-    : kind === 'ironwood' ? T.labelIronwood
-    : kind === 'browser' ? T.labelBrowser
-    : T.labelPayroll
+  const origins = proofOriginCounts()
+  const scopeOrigin = T.scopeOrigin
+    .replace('{dealer}', String(origins.dealer))
+    .replace('{dkg}', String(origins.dkg))
 
   const copy = (text: string) => {
     void navigator.clipboard?.writeText(text)
     toast.ok(T.copied)
   }
 
-  // Verify every txid at once. On ANY error (CORS is the common one in a browser), the check
-  // resolves to 'blocked' and the calm fallback is shown; we never render a false failure.
-  const verifyAll = () => {
-    setChecks(Object.fromEntries(TXS.map((t) => [t.txid, { s: 'checking' as const }])))
-    TXS.forEach((t) => {
-      checkBlockchair(t.txid)
-        .then((r) => {
-          setChecks((prev) => ({
-            ...prev,
-            [t.txid]: r.found ? { s: 'found', confirmations: r.confirmations } : { s: 'blocked' },
-          }))
-        })
-        .catch(() => {
-          setChecks((prev) => ({ ...prev, [t.txid]: { s: 'blocked' } }))
-        })
-    })
+  // Verify every txid. On ANY error (CORS is the common one in a browser), the check resolves to
+  // 'blocked' and the calm fallback is shown; we never render a false failure.
+  //
+  // One after the other, not all at once. The list was eight when this fired them together; a
+  // public explorer answers a burst the size of the whole record by refusing part of it, and a
+  // refusal reads here as "blocked" for a transaction that is perfectly fine.
+  const verifyAll = async () => {
+    setChecks(Object.fromEntries(PROOF_TXS.map((t) => [t.txid, { s: 'checking' as const }])))
+    for (const t of PROOF_TXS) {
+      let next: CheckState
+      try {
+        const r = await checkBlockchair(t.txid)
+        next = r.found ? { s: 'found', confirmations: r.confirmations } : { s: 'blocked' }
+      } catch {
+        next = { s: 'blocked' }
+      }
+      setChecks((prev) => ({ ...prev, [t.txid]: next }))
+    }
   }
 
-  const anyState = TXS.map((t) => checks[t.txid]?.s)
+  const anyState = PROOF_TXS.map((t) => checks[t.txid]?.s)
   const isChecking = anyState.some((s) => s === 'checking')
   const hasRun = anyState.some((s) => s && s !== 'idle')
   const anyBlocked = anyState.some((s) => s === 'blocked')
@@ -221,17 +175,17 @@ export default function Proof() {
           <p className="proof-lead">{T.lead}</p>
 
           <div className="proof-actions">
-            <button type="button" className="proof-verify" onClick={verifyAll} disabled={isChecking}>
+            <button type="button" className="proof-verify" onClick={() => void verifyAll()} disabled={isChecking}>
               {isChecking ? T.verifying : hasRun ? T.reverify : T.verify}
             </button>
           </div>
 
           <div className="proof-cards">
-            {TXS.map((t) => {
+            {PROOF_TXS.map((t) => {
               const st = checks[t.txid] ?? { s: 'idle' as const }
               return (
                 <section className="proof-card" key={t.txid}>
-                  <p className="proof-card-label">{labelFor(t.kind)}</p>
+                  <p className="proof-card-label">{t.label[loc]}</p>
 
                   <span className="proof-field-label">{T.txidLabel}</span>
                   <div className="proof-txid-row">
@@ -250,6 +204,7 @@ export default function Proof() {
                     <span className="proof-block">
                       {T.blockLabel} <strong>{t.block.toLocaleString(loc === 'pt-BR' ? 'pt-BR' : 'en-US')}</strong>
                     </span>
+                    <span className="proof-block">{t.origin === 'dealer' ? T.originDealer : T.originDkg}</span>
                     <ProofStatus st={st} T={T} />
                   </div>
 
@@ -282,6 +237,13 @@ export default function Proof() {
             <h2 className="proof-scope-title">{T.scopeTitle}</h2>
             <p className="proof-scope-can">{T.scopeCan}</p>
             <p className="proof-scope-cannot">{T.scopeCannot}</p>
+            <p className="proof-scope-can">{scopeOrigin}</p>
+            <p className="proof-scope-can">{T.scopeRecord}</p>
+            <div className="proof-links">
+              <a className="proof-link" href={PROOF_RECORD_URL} target="_blank" rel="noreferrer noopener">
+                {T.recordLink}
+              </a>
+            </div>
           </section>
         </article>
       </main>

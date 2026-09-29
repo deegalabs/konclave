@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
+import { proofRows, statedCounts, COUNT_DOCS } from "./proof-table.mjs";
 // verify-proof.mjs - independent, judge-runnable proof that Konclave's claimed
 // mainnet transactions are real, mined Zcash transactions.
 //
@@ -34,12 +35,11 @@ import { readFileSync } from "node:fs";
 // it drifted: the document said eleven transactions while the script checked eight - so the very
 // command offered as "don't trust us, check" disagreed with the claim it was meant to verify.
 // One source, one answer.
+//
+// The parser lives in scripts/proof-table.mjs since 2026-09-29, so that the test which holds the
+// app's proof screen to this table reads it with the same pattern this script does.
 const PROOF = new URL("../docs/PROOF.md", import.meta.url);
-const TXIDS = readFileSync(PROOF, "utf8")
-  .split("\n")
-  .map((line) => /^\|\s*(.+?)\s*\|\s*`([0-9a-f]{64})`\s*\|/.exec(line))
-  .filter(Boolean)
-  .map((m) => ({ txid: m[2], label: m[1].replace(/\*\*/g, "").replace(/\s+/g, " ").trim() }));
+const TXIDS = proofRows(readFileSync(PROOF, "utf8"));
 
 if (TXIDS.length === 0) {
   console.error("No transactions found in docs/PROOF.md - has the table format changed?");
@@ -267,19 +267,27 @@ async function main() {
   // Checked here rather than in a test because this is the command someone runs immediately before
   // quoting the number - in a forum post, a README, a grant application. A warning at that moment is
   // read; a failing test in a suite nobody runs before writing prose is not.
+  //
+  // IT READ THREE DOCUMENTS AND DIGITS ONLY, and on 2026-09-29 that was the whole gap. The three it
+  // read all said nineteen. The ones it did not read said seventeen (this table's own document, in
+  // the sentence above the table), fifteen and eight (docs/CLAIMS.md) and twelve and eight
+  // (docs/ROADMAP.md), and two of those were spelled out, which a pattern for digits cannot see.
+  // So the list is every current document that states the count, and a number may be a word.
+  //
+  // The warning stays here, for the reason above. The same rule now also runs as a test
+  // (ui/src/proof-record.test.ts), because a warning is only read by whoever runs this command,
+  // and four documents were wrong for weeks without anyone running it. Both read the rule from
+  // scripts/proof-table.mjs.
   const claims = [];
-  for (const doc of ["../README.md", "../CLAUDE.md", "../docs/ARCHITECTURE.md"]) {
+  for (const doc of COUNT_DOCS) {
     let text;
     try {
-      text = readFileSync(new URL(doc, import.meta.url), "utf8");
+      text = readFileSync(new URL(`../${doc}`, import.meta.url), "utf8");
     } catch {
       continue; // a missing doc is not this script's problem to report
     }
-    for (const m of text.matchAll(/\b(\d+)\s+(?:independently\s+)?verifiable\s+mainnet\s+(?:txids|transactions)|\b(\d+)\s+(?:independently\s+)?verifiable\s+txids/g)) {
-      const n = Number(m[1] ?? m[2]);
-      if (Number.isFinite(n) && n !== results.length) {
-        claims.push(`${doc.replace("../", "")} says ${n}`);
-      }
+    for (const { said, n } of statedCounts(text)) {
+      if (n !== results.length) claims.push(`${doc} says ${said}`);
     }
   }
   if (claims.length > 0) {

@@ -55,6 +55,16 @@ history to tidy it is how context gets lost.
   failed. It is signed now, like the others, and the Members screen explains a refusal in the
   same words as the rest of the app.
 
+- **The proof screen showed eight transactions when the record has nineteen.** The Proof screen and
+  the in-app docs kept a list of their own, written when there were eight, and nothing tied it to
+  the record in `docs/PROOF.md`, which went on growing. The screen now lists every transaction in
+  the record, in the same order, and each one says how the key of its vault was made. That matters
+  because the docs described the first payment as made with a key that was never whole, and its
+  vault was one of six that a trusted dealer split, where the whole key existed on one machine at
+  creation. The docs also still called a payment signed on two separate computers an open
+  milestone, more than a month after it was made. Checking all of them from the screen now asks
+  the public explorer for one at a time, since asking for nineteen at once gets some refused.
+
 ## [0.6.0] 2026-09-22
 
 ### Security

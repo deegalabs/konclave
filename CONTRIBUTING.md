@@ -37,8 +37,11 @@ cargo fmt --manifest-path orchestrator/Cargo.toml -- --check
 cargo clippy --manifest-path orchestrator/Cargo.toml --all-targets -- -D warnings
 cargo test  --manifest-path orchestrator/Cargo.toml
 
-# Frontend
-cd ui && npm run lint && npm run build
+# Frontend. The repository is a pnpm workspace: run `pnpm install` once at the root.
+# `build` type-checks and bundles, and it does not run the tests, so run `test` as well.
+pnpm -C ui run lint
+pnpm -C ui run test
+pnpm -C ui run build
 ```
 
 ## Tests

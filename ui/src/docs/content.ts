@@ -3,8 +3,17 @@
 // i18n dictionary. Content is drawn from the cleaned public docs (README, ARCHITECTURE,
 // SUBMISSION) and stays honest about what is proven vs pending.
 
+import { PROOF_TXS, proofOriginCounts } from '../proof-record'
+
 export type Locale = 'pt-BR' | 'en'
 type L = { 'pt-BR': string; en: string }
+
+// How many mainnet transactions the record holds, and how many came from each kind of vault.
+// Read from the list the /proof screen renders, which a test holds to docs/PROOF.md. These docs
+// stated the count in words of their own, and it stayed at eight while the record grew to
+// nineteen. So the number is no longer written here: it is counted.
+const PROOF_COUNT = PROOF_TXS.length
+const PROOF_ORIGINS = proofOriginCounts()
 
 export type Block =
   | { k: 'p'; t: L }
@@ -68,9 +77,9 @@ export const SECTIONS: Section[] = [
         k: 'p',
         t: {
           'pt-BR':
-            'Não é maquete. Um **pagamento por quórum 2-de-3**, proposto e aprovado no app, assinado por uma cerimônia FROST real e transmitido para a **mainnet da Zcash**, com a chave nunca reconstituída:',
+            'Não é maquete. Um **pagamento por quórum 2-de-3**, proposto e aprovado no app, assinado por uma cerimônia FROST real e transmitido para a **mainnet da Zcash**. O cofre dele foi dividido por um trusted dealer, como os primeiros foram: a chave existiu inteira na criação. Os cofres que o app cria hoje nascem por DKG, e neles a chave nunca existe inteira. A transação:',
           en:
-            'This is not a mock. A **2-of-3 quorum payment**, proposed and approved in the app, signed by a real FROST ceremony, and broadcast to **Zcash mainnet**, with the key never reconstituted:',
+            'This is not a mock. A **2-of-3 quorum payment**, proposed and approved in the app, signed by a real FROST ceremony, and broadcast to **Zcash mainnet**. Its vault was split by a trusted dealer, as the first ones were: the whole key existed at creation. The vaults the app creates today are born by DKG, and in those the key is never whole. The transaction:',
         },
       },
       { k: 'code', t: 'txid 43433a109d3f2a078c0a9269ccb156392ade7a1f7ac1532981611eda1e59a572' },
@@ -421,24 +430,24 @@ export const SECTIONS: Section[] = [
         k: 'ul',
         items: [
           {
-            'pt-BR': '**Na mainnet, 8 txids verificáveis** (`node scripts/verify-proof.mjs` ou a tela /proof): um pagamento por quórum 2-de-3 (proposto/aprovado no app, assinado por FROST, shares lacrados em repouso); uma folha privada (uma tx Orchard blindada com 3 saídas, cada uma com memo criptografado, 2-de-3 FROST); um pagamento reproduzido ponta a ponta de um cofre criado e financiado do zero; um **envio a partir de um cofre gerado por DKG real** (cerimônia DKG de 3 participantes, chave nunca reconstituída), financiado e gasto por FROST; no dia da ativação do NU6.3/Ironwood, uma **migração Orchard→Ironwood** mais o **primeiro gasto DO pool Ironwood** (ambas V6/NU6.3, 2-de-3 FROST); e o **primeiro broadcast assinado NO NAVEGADOR** - um cofre 2-de-2 nascido de DKG no navegador, cada dispositivo assinando com só o seu share pelo relay cego (Arquitetura B), e transmitido. Nota honesta: o pagamento por quórum, a folha e o cofre-novo usaram trusted-dealer; o envio do cofre DKG e o broadcast assinado-no-navegador vieram de chaves nascidas por DKG real.',
-            en: '**On mainnet, 8 verifiable txids** (`node scripts/verify-proof.mjs` or the /proof page): a 2-of-3 quorum payment (proposed/approved in the app, FROST-signed, shares sealed at rest); a private payroll (one shielded Orchard tx with 3 outputs, each with an encrypted memo, 2-of-3 FROST); a payment reproduced end to end from a freshly created and funded vault; a **send from a real DKG-generated vault** (three-participant DKG ceremony, key never reconstituted), funded and spent by FROST; on NU6.3/Ironwood activation day, an **Orchard→Ironwood migration** plus the **first spend FROM the Ironwood pool** (both V6/NU6.3, 2-of-3 FROST); and the **first browser-signed broadcast** - a browser-DKG 2-of-2 vault, each device signing IN THE BROWSER with only its own share over the blind relay (Architecture B), then broadcast. Honest note: the quorum payment, payroll, and fresh vault used trusted-dealer; the DKG-vault send and the browser-signed broadcast came from keys born by real DKG.',
+            'pt-BR': `**Na mainnet, ${PROOF_COUNT} txids verificáveis** (\`node scripts/verify-proof.mjs\` ou a tela [/proof](#/proof), que lista todos): um pagamento por quórum 2-de-3 (proposto/aprovado no app, assinado por FROST, shares lacrados em repouso); uma folha privada (uma tx Orchard blindada com 3 saídas, cada uma com memo criptografado, 2-de-3 FROST); um pagamento reproduzido ponta a ponta de um cofre criado e financiado do zero; um **envio a partir de um cofre gerado por DKG real** (cerimônia DKG de 3 participantes, chave nunca reconstituída), financiado e gasto por FROST; no dia da ativação do NU6.3/Ironwood, uma **migração Orchard→Ironwood** mais o **primeiro gasto DO pool Ironwood** (ambas V6/NU6.3, 2-de-3 FROST); o **primeiro broadcast assinado NO NAVEGADOR**, de um cofre 2-de-2 nascido de DKG no navegador, duas abas numa máquina só, cada uma assinando com só o seu share pelo relay cego (Arquitetura B); e, depois dele, envios assinados **entre máquinas físicas separadas**, **de um celular** e por um cofre **3-de-4**. Nota honesta: ${PROOF_ORIGINS.dealer} dos ${PROOF_COUNT} usaram um cofre trusted-dealer, em que a chave existiu inteira numa máquina na criação (o pagamento por quórum, a fatia do Gate 1, o cofre-novo, a folha e os dois envios do ciclo Ironwood); os outros ${PROOF_ORIGINS.dkg} vieram de chaves nascidas por DKG real.`,
+            en: `**On mainnet, ${PROOF_COUNT} verifiable txids** (\`node scripts/verify-proof.mjs\` or the [/proof](#/proof) page, which lists them all): a 2-of-3 quorum payment (proposed/approved in the app, FROST-signed, shares sealed at rest); a private payroll (one shielded Orchard tx with 3 outputs, each with an encrypted memo, 2-of-3 FROST); a payment reproduced end to end from a freshly created and funded vault; a **send from a real DKG-generated vault** (three-participant DKG ceremony, key never reconstituted), funded and spent by FROST; on NU6.3/Ironwood activation day, an **Orchard→Ironwood migration** plus the **first spend FROM the Ironwood pool** (both V6/NU6.3, 2-of-3 FROST); the **first browser-signed broadcast**, from a browser-DKG 2-of-2 vault, two tabs on one machine, each signing IN THE BROWSER with only its own share over the blind relay (Architecture B); and, after it, sends signed **across separate physical machines**, **from a phone**, and by a **3-of-4** vault. Honest note: ${PROOF_ORIGINS.dealer} of the ${PROOF_COUNT} used a trusted-dealer vault, where the whole key existed on one machine at creation (the quorum payment, the Gate-1 slice, the fresh vault, the payroll, and both sends of the Ironwood cycle); the other ${PROOF_ORIGINS.dkg} came from keys born by real DKG.`,
           },
           {
             'pt-BR': '**Por dry-run** (assina, ainda não transmite): o caminho de assinatura totalmente lacrado (configs abertos só em tmpfs).',
             en: '**By dry-run** (it signs, it does not yet broadcast): the fully-sealed signing path (configs unsealed only to tmpfs).',
           },
           {
-            'pt-BR': '**No navegador, ao vivo - broadcast PROVADO na mainnet:** DKG multi-dispositivo e assinatura FROST por um relay cego hospedado, sobre um **sighash real** **sob o alpha da própria transação** (o mecanismo Orchard correto, `ak+alpha`), com verificação `describeOutputs` em cada dispositivo, e então transmitido pelo **helper cego hospedado** (Arquitetura B) - txid `3022420a…`. Limite honesto: até agora foram duas abas numa máquina só; o broadcast entre dispositivos separados é o marco em aberto.',
-            en: '**In the browser, live - broadcast PROVEN on mainnet:** multi-device DKG and FROST signing over a hosted blind relay, over a **real sighash** **under the transaction’s own alpha** (the correct Orchard mechanism, `ak+alpha`), with per-device `describeOutputs` verification, then broadcast by the **hosted blind helper** (Architecture B) - txid `3022420a…`. Honest limit: so far two tabs on one machine; a broadcast across separate devices is the open milestone.',
+            'pt-BR': '**No navegador, ao vivo - broadcast PROVADO na mainnet:** DKG multi-dispositivo e assinatura FROST por um relay cego hospedado, sobre um **sighash real** **sob o alpha da própria transação** (o mecanismo Orchard correto, `ak+alpha`), com verificação `describeOutputs` em cada dispositivo, e então transmitido pelo **helper cego hospedado** (Arquitetura B). Provado na mainnet primeiro com duas abas numa máquina só (txid `3022420a…`) e depois entre máquinas físicas separadas, pela internet (txid `aec83baf…`), duas pessoas em dois lugares, cada navegador com só o seu share.',
+            en: '**In the browser, live - broadcast PROVEN on mainnet:** multi-device DKG and FROST signing over a hosted blind relay, over a **real sighash** **under the transaction’s own alpha** (the correct Orchard mechanism, `ak+alpha`), with per-device `describeOutputs` verification, then broadcast by the **hosted blind helper** (Architecture B). Proven on mainnet first with two tabs on one machine (txid `3022420a…`), then across separate physical machines over the internet (txid `aec83baf…`), two people in two places, each browser holding only its own share.',
           },
           {
             'pt-BR': '**Provado por teste:** recuperação social (reparo de share RTS) e o motor de política de herança.',
             en: '**Proven by test:** social recovery (RTS share repair) and the inheritance policy engine.',
           },
           {
-            'pt-BR': '**Roadmap, não entregue:** um broadcast entre **dispositivos físicos separados** (até agora, duas abas numa máquina só), o **multi-nota** ao vivo pelo relay, e recuperação social / herança ligadas a um cofre vivo. Já **entregues** (não são mais roadmap): o broadcast assinado no navegador, a persistência do share no dispositivo com assinatura-após-restore, e o app desktop (Tauri **v0.2.0**, ainda em validação por plataforma em hardware real).',
-            en: '**Roadmap, not shipped:** a broadcast across **separate physical devices** (so far, two tabs on one machine), live **multi-note** over the relay, and social recovery / inheritance wired into a live vault. Already **shipped** (no longer roadmap): the browser-signed broadcast, on-device share persistence with sign-after-restore, and the desktop app (Tauri **v0.2.0**, live per-platform hardware validation still open).',
+            'pt-BR': '**Roadmap, não entregue:** o **multi-nota** ao vivo pelo relay, e recuperação social / herança ligadas a um cofre vivo. Já **entregues** (não são mais roadmap): o broadcast assinado no navegador, o broadcast entre dispositivos físicos separados, a persistência do share no dispositivo com assinatura-após-restore, e o app desktop (Tauri **v0.2.0**, ainda em validação por plataforma em hardware real).',
+            en: '**Roadmap, not shipped:** live **multi-note** over the relay, and social recovery / inheritance wired into a live vault. Already **shipped** (no longer roadmap): the browser-signed broadcast, a broadcast across separate physical devices, on-device share persistence with sign-after-restore, and the desktop app (Tauri **v0.2.0**, live per-platform hardware validation still open).',
           },
         ],
       },

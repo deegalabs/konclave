@@ -11,7 +11,7 @@
 [![Zcash mainnet](https://img.shields.io/badge/Zcash-mainnet%20(NU6.3%20Ironwood)-e5a00d?logo=zcash&logoColor=white)](#proven-on-zcash-mainnet)
 [![Built on FROST](https://img.shields.io/badge/built%20on-FROST-6f42c1)](#why-we-built-this)
 [![License: Apache-2.0 OR MIT](https://img.shields.io/badge/license-Apache--2.0%20OR%20MIT-blue.svg)](#license)
-[![Tests: 315 Rust + 245 UI](https://img.shields.io/badge/tests-315%20Rust%20%2B%20245%20UI-2ea44f.svg)](#status)
+[![Tests: Rust + UI, gated in CI](https://img.shields.io/badge/tests-Rust%20%2B%20UI%2C%20gated%20in%20CI-2ea44f.svg)](#status)
 [![CI](https://github.com/deegalabs/konclave/actions/workflows/ci.yml/badge.svg)](https://github.com/deegalabs/konclave/actions/workflows/ci.yml)
 
 Started for **ZecHub Hackathon 3.0** in mid-2026, and built as a product since.
@@ -75,13 +75,22 @@ upgrade on mainnet.
 
 ## Proven on Zcash mainnet
 
-This is not a mock. **19 verifiable mainnet transactions**, every one a real FROST ceremony with
-the key never reconstituted - quorums of 2-of-2, 2-of-3 and 3-of-4. The flagship is an application-driven **quorum payment** - proposed
-and approved in the app, signed by a FROST ceremony, broadcast to mainnet:
+This is not a mock. **19 verifiable mainnet transactions**, each signed by a FROST quorum
+(2-of-2, 2-of-3 and 3-of-4). **Six of them came from vaults split by a trusted dealer**, where the
+whole key existed on one machine at creation: those are the early ones, the flagship below
+included. The rest came from vaults created by Distributed Key Generation, where the key was never
+whole on any machine. The first seven were signed with every share on one machine, and the eighth
+in two browser tabs on one machine. Signing across separate machines came after that. The chain
+shows that each transaction is real, mined and shielded. It cannot show how a transaction was
+signed, and [docs/PROOF.md](docs/PROOF.md) says, row by row, what rests on the block and what rests
+on the operators' word.
+
+The flagship is an application-driven **quorum payment**, proposed and approved in the app, signed
+by a FROST ceremony, broadcast to mainnet:
 
 > **txid** [`43433a109d3f2a078c0a9269ccb156392ade7a1f7ac1532981611eda1e59a572`](https://mainnet.zcashexplorer.app/transactions/43433a109d3f2a078c0a9269ccb156392ade7a1f7ac1532981611eda1e59a572)
 
-They also prove, on-chain: a **private payroll** (one shielded transaction, N encrypted
+They also include: a **private payroll** (one shielded transaction, N encrypted
 memos), a send from a **real DKG vault** (the key born distributed, never assembled), a
 **browser-signed** broadcast (each browser holding only its own share over the blind relay,
 *including one signed across separate physical machines, over the internet, by two people in two
@@ -230,8 +239,10 @@ not promise what we do not deliver.
   the Ironwood pool** (both **V6/NU6.3**, 2-of-3 FROST); and a **browser-signed broadcast** - a
   browser-DKG vault whose two tabs each signed **in the browser** with only their own share over the
   blind relay, injected and broadcast by the blind helper (txid `3022420a…`, V6/NU6.3 Ironwood).
-  Honest note: the quorum payment, payroll, and fresh-vault txids used a **trusted-dealer** vault;
-  the DKG-vault send and the browser-signed broadcast came from keys born by real **DKG**.
+  Honest note: six of them used a **trusted-dealer** vault (the quorum payment, the Gate-1 slice,
+  the fresh-vault payment, the payroll, and both sends of the Ironwood cycle); the others, which
+  are the DKG-vault send and every browser-signed send, came from keys born by real **DKG**.
+  [docs/PROOF.md](docs/PROOF.md) lists every one, and the list above is not all of them.
 - 🔬 **By dry-run** (it *signs*, it does not yet *broadcast*): the fully-sealed local signing path
   (sealed configs unsealed only to ephemeral tmpfs files).
 - 🌐 **In the browser, live over the internet - broadcast PROVEN on mainnet:** multi-device DKG and

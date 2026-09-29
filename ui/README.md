@@ -30,8 +30,8 @@ brand pipeline (see `.design/branding/konclave/` and `STYLE.md`).
 ## Data
 Wired to live data only, through `ui/src/api.ts` (the loopback `/api/*` bridge) or the hosted
 blind helper for `/net` vaults. There is no mock/demo dataset: a screen with no data renders its
-empty state. Run: `npm run dev` (Vite dev server, `/api` proxied to the bridge) ·
-`npm run build` · `npm run lint`.
+empty state. Run: `pnpm run dev` (Vite dev server, `/api` proxied to the bridge) ·
+`pnpm run build` · `pnpm run lint` · `pnpm run test`.
 
 ## Environment (build-time `VITE_*`)
 - `VITE_RELAY_BASE` - hosted blind relay for `/net` (empty = the local bridge, same origin).
