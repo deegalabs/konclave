@@ -2,8 +2,14 @@
 
 This file is the **single source of truth for what Konclave claims** about on-chain
 activity and about what is proven versus pending. Its purpose is to keep every surface
-(README, SUBMISSION, `docs/PROOF.md`, the in-app `/docs`, CLAUDE.md) consistent, so no
+(README, `docs/PROOF.md`, the in-app `/docs`, CLAUDE.md) consistent, so no
 document ever asserts something another contradicts.
+
+The ZecHub Hackathon 3.0 submission used to be one of those surfaces. It was archived on
+2026-09-29 at `docs/archive/zechub-3.0-submission.md`, under a banner that says its numbers are
+those of its last edit, on 2026-08-27, and that it is not the text as submitted. It is a record
+now, so it is no longer kept in step with the others, and nothing should cite it as the current
+state.
 
 ## The canonical sources
 - **`scripts/verify-proof.mjs`** and **`docs/PROOF.md`** are authoritative for the mainnet
