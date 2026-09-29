@@ -40,6 +40,25 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Security
+
+- **A device could be made to sign a payment other than the one on its screen.** Before it signs,
+  each device works out for itself what the transaction is, and refuses a request that names a
+  different one. In the second step of a signature the device receives a package from the member
+  coordinating the round, and it checked the label on that package and not the package. The label
+  and the contents travel as two separate things, and the signature is made over the contents. So
+  the coordinating member, or anyone who took the coordinator's seat while it stood empty, could
+  label a package with the approved payment and fill it with another, and an honest device would
+  add its part to that other payment while its screen showed the approved one. Turning that into
+  a payment still took a complete transaction spending the vault's funds, built with the vault's
+  viewing key, which every member holds. This is the protection a group vault exists for, so it
+  is the most serious fault recorded in this file. The device now hands the payment it worked
+  out to the step that signs, and that step refuses a package made over anything else. There is
+  no longer a way to ask for a signature without it. Open since the first signature made in a
+  browser: the correction of 2026-08-27 closed the label and left the contents. Found on
+  2026-09-29 by a review of our own claims, not by a report. We have no sign that it was used.
+  Live on the web with this change, and on the desktop at its next release.
+
 ### Fixed
 
 - **A refused vote or payroll named the wrong problem.** When the coordinator refused a vote because

@@ -824,13 +824,18 @@ export function participantRound2(sp, nonces_bytes, kp_bytes, seed) {
  * Participant device, round 2 (JS), REAL-TRANSACTION path: sign with the given Orchard
  * randomizer (the 32-byte alpha from pczt_bridge.extractRandomizers) instead of a seed, so the
  * signature can be injected into the PCZT and broadcast.
+ *
+ * `message` is the sighash THIS device computed from its own copy of the transaction. The
+ * share is refused unless the signing package signs exactly that message, so a device cannot
+ * be handed a package built over something else.
  * @param {Uint8Array} sp
  * @param {Uint8Array} nonces_bytes
  * @param {Uint8Array} kp_bytes
  * @param {Uint8Array} randomizer
+ * @param {Uint8Array} message
  * @returns {Uint8Array}
  */
-export function participantRound2WithRandomizer(sp, nonces_bytes, kp_bytes, randomizer) {
+export function participantRound2WithRandomizer(sp, nonces_bytes, kp_bytes, randomizer, message) {
     const ptr0 = passArray8ToWasm0(sp, wasm.__wbindgen_malloc);
     const len0 = WASM_VECTOR_LEN;
     const ptr1 = passArray8ToWasm0(nonces_bytes, wasm.__wbindgen_malloc);
@@ -839,13 +844,15 @@ export function participantRound2WithRandomizer(sp, nonces_bytes, kp_bytes, rand
     const len2 = WASM_VECTOR_LEN;
     const ptr3 = passArray8ToWasm0(randomizer, wasm.__wbindgen_malloc);
     const len3 = WASM_VECTOR_LEN;
-    const ret = wasm.participantRound2WithRandomizer(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3);
+    const ptr4 = passArray8ToWasm0(message, wasm.__wbindgen_malloc);
+    const len4 = WASM_VECTOR_LEN;
+    const ret = wasm.participantRound2WithRandomizer(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4);
     if (ret[3]) {
         throw takeFromExternrefTable0(ret[2]);
     }
-    var v5 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    var v6 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
     wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
-    return v5;
+    return v6;
 }
 
 /**

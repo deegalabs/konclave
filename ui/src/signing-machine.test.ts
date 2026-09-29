@@ -9,11 +9,12 @@
 import { readFileSync } from 'node:fs'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import init, {
+  Coordinator,
   DkgSession,
   identifierBytes,
   pcztSighash,
 } from './wasm-pkg/konclave_wasm.js'
-import { bytesEqual, b64 } from './net'
+import { bytesEqual, b64, unb64 } from './net'
 import { dkgProvenPczt } from './demo-vector'
 import { parseAlphas } from './signing'
 import { bytesToHex, RESPONSE_KIND } from './net-sign'
@@ -538,6 +539,72 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     // B refuses rather than signing a message its own PCZT does not commit to.
     expect(B.errors.length).toBeGreaterThan(0)
     expect(bus.msgs.some((m) => { try { return (JSON.parse(m.data) as { type?: string }).type === 's2' && m.from === 'B' } catch { return false } })).toBe(false)
+  })
+
+  it('H1 round 2: a SigningPackage built over ANOTHER message is refused, though the claim beside it is right', async () => {
+    // The test above changes the CLAIM (`msg`) and leaves the package alone. This is the other half,
+    // and the one that matters: `msg` and `sp` travel as two independent fields, and the share is
+    // computed over the message INSIDE `sp`. Checking the claim says nothing about the package. So a
+    // coordinator that leaves `msg` honest and builds `sp` over a transaction of its own got a share
+    // from an honest device, over a message that device never derived and never showed its owner.
+    //
+    // The forged package is built the way only the coordinator seat can build one: over the LIVE
+    // round-1 commitments, which are public in the room, so frost-core's own check of the signer's
+    // commitment passes. Nothing about it is malformed. The only thing wrong is what it signs.
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+
+    const pczt = dkgProvenPczt()
+    bus.post('helper', signRequestFor(pczt).json)
+    await pump(A, bus)  // A binds to the request and posts its round-1 commitment
+    await pump(B, bus)  // B does the same
+    await pump(A, bus)  // A now has both commitments and posts the SigningPackage
+
+    const typeOf = (m: Wire) => { try { return (JSON.parse(m.data) as { type?: string }).type } catch { return undefined } }
+    const sp = bus.msgs.find((m) => typeOf(m) === 'sp')
+    expect(sp).toBeDefined()
+    const body = JSON.parse(sp!.data) as { sp: string; msg: string; signers: number[] }
+    const honestMsg = body.msg
+
+    const other = new Uint8Array(32).fill(9)
+    const forged = new Coordinator(groupVk, pubkeys, other)
+    for (const seat of body.signers) {
+      const tag = Object.keys(SEATS).find((t) => SEATS[t] === seat)!
+      const s1msg = bus.msgs.find((m) => m.from === tag && typeOf(m) === 's1')!
+      forged.addCommitment(identifierBytes(seat), unb64((JSON.parse(s1msg.data) as { commit: string }).commit))
+    }
+    forged.prepare()
+    body.sp = b64(forged.signingPackage())
+    sp!.data = JSON.stringify(body)
+    // The claim is untouched, and it is the sighash B derived from its own PCZT.
+    expect(body.msg).toBe(honestMsg)
+    expect(bytesEqual(unb64(body.msg), pcztSighash(pczt))).toBe(true)
+
+    // Only B is driven from here. It is the device under test, and A would try to aggregate a
+    // share made over a package it did not build, which fails for a reason this test is not about.
+    await pump(B, bus)
+
+    expect(
+      bus.msgs.some((m) => m.from === 'B' && typeOf(m) === 's2'),
+      'B must not contribute a share to a package that signs something else',
+    ).toBe(false)
+    expect(B.errors.length, 'and B must say it refused').toBeGreaterThan(0)
+  })
+
+  it('the machine has ONE way to make a share, and it is the one that binds the message', () => {
+    // The wasm exports two round-2 functions. The seed one signs whatever package it is given and
+    // exists for the self-contained demos; the randomizer one takes the message and refuses a
+    // package over anything else. The money path must only ever reach the second. Comments are
+    // stripped before looking, since a scan that can be satisfied by a comment checks nothing.
+    const code = readFileSync(new URL('./signing-machine.ts', import.meta.url), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/.*$/gm, '')
+    expect(code).not.toMatch(/\bparticipantRound2\(/)
+    const calls = code.match(/\bparticipantRound2WithRandomizer\(([\s\S]*?)\)\n/g) ?? []
+    expect(calls.length, 'one call site').toBe(1)
+    expect(calls[0], 'and it hands over the locally derived message').toContain('this.msg')
   })
 
   it('a message tagged for a DIFFERENT transaction is dropped, an untagged one is not (#354)', async () => {

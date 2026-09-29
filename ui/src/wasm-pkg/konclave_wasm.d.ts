@@ -218,8 +218,12 @@ export function participantRound2(sp: Uint8Array, nonces_bytes: Uint8Array, kp_b
  * Participant device, round 2 (JS), REAL-TRANSACTION path: sign with the given Orchard
  * randomizer (the 32-byte alpha from pczt_bridge.extractRandomizers) instead of a seed, so the
  * signature can be injected into the PCZT and broadcast.
+ *
+ * `message` is the sighash THIS device computed from its own copy of the transaction. The
+ * share is refused unless the signing package signs exactly that message, so a device cannot
+ * be handed a package built over something else.
  */
-export function participantRound2WithRandomizer(sp: Uint8Array, nonces_bytes: Uint8Array, kp_bytes: Uint8Array, randomizer: Uint8Array): Uint8Array;
+export function participantRound2WithRandomizer(sp: Uint8Array, nonces_bytes: Uint8Array, kp_bytes: Uint8Array, randomizer: Uint8Array, message: Uint8Array): Uint8Array;
 
 /**
  * Recompute the ZIP-244 shielded sig_digest from THIS device's own proven PCZT, returning the
@@ -302,11 +306,6 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
-    readonly describeOutputs: (a: number, b: number) => [number, number, number, number];
-    readonly extractRandomizers: (a: number, b: number) => [number, number, number, number];
-    readonly injectSigs: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
-    readonly pcztSighash: (a: number, b: number) => [number, number, number, number];
-    readonly uaReceiver: (a: number, b: number) => [number, number, number, number];
     readonly selftest: () => [number, number];
     readonly __wbg_coordinator_free: (a: number, b: number) => void;
     readonly __wbg_round1_free: (a: number, b: number) => void;
@@ -323,7 +322,7 @@ export interface InitOutput {
     readonly coordinator_verifyWithRandomizer: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly participantRound1: (a: number, b: number) => [number, number, number];
     readonly participantRound2: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
-    readonly participantRound2WithRandomizer: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
+    readonly participantRound2WithRandomizer: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number, number];
     readonly round1_commitment: (a: number) => [number, number];
     readonly round1_nonces: (a: number) => [number, number];
     readonly testvault_groupVk: (a: number) => [number, number];
@@ -331,6 +330,11 @@ export interface InitOutput {
     readonly testvault_key_package: (a: number, b: number) => [number, number];
     readonly testvault_new: () => [number, number, number];
     readonly testvault_pubkeys: (a: number) => [number, number];
+    readonly describeOutputs: (a: number, b: number) => [number, number, number, number];
+    readonly extractRandomizers: (a: number, b: number) => [number, number, number, number];
+    readonly injectSigs: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
+    readonly pcztSighash: (a: number, b: number) => [number, number, number, number];
+    readonly uaReceiver: (a: number, b: number) => [number, number, number, number];
     readonly __wbg_devicekey_free: (a: number, b: number) => void;
     readonly __wbg_dkgsession_free: (a: number, b: number) => void;
     readonly deviceWritePubHex: (a: number, b: number) => [number, number];

@@ -57,6 +57,14 @@ explicitly accepted.
 
 ### Security
 
+- **The signer refuses a package that signs anything but the payment the device worked out.**
+  The second step of a signature used to sign whatever package it was given. The check that the
+  package was the right one lived beside it, in the app, and compared the wrong thing (the app's
+  changelog has the account). The message the device derived is now an argument of the function
+  that signs, which refuses a package made over any other. For anyone building on the SDK:
+  `participantRound2WithRandomizer` takes a fifth argument, the sighash your device computed,
+  and a call without it is refused.
+
 - **A member's name is tied to their seat in one place now.** The check that a signed action comes
   from the seat whose name it carries existed only in the coordinator's rename, in a copy of its
   own, so the vote and the proposal never asked it. It is part of the shared rule now, and every
