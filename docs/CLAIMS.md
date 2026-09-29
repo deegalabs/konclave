@@ -85,16 +85,21 @@ caller, `ui/src/screens/NetVault.tsx`). That is a statement about the product, n
   2026-08-27).** Keep two things distinct:
   - **Shipped and live:** the app's background signer drives `SigningMachine`, which recomputes the
     ZIP-244 sighash **on-device from its own PCZT** and refuses the ceremony if it disagrees with what
-    it is asked to sign - in **both** rounds (round 2's gap, where `onSp` overwrote the local sighash
-    unchecked, was closed in #355), and it decodes and shows what the transaction pays before
-    contributing a share. Plus ([ADR-0007](adr/0007-ceremony-security-invariants.md), #67 / #68,
+    it is asked to sign - in **both** rounds - and it decodes and shows what the transaction pays
+    before contributing a share. Round 2 was closed twice. #355 (2026-08-27) stopped `onSp` from
+    overwriting the local sighash with the wire value, but it compared the `msg` field and then signed
+    the `sp` field, and the share is computed over the message inside `sp`. Since 2026-09-29 the
+    function that signs takes the locally derived sighash and refuses a package over any other
+    message. Plus ([ADR-0007](adr/0007-ceremony-security-invariants.md), #67 / #68,
     live-validated 2-tab): PIN-gated room admission + a vault fingerprint each signer checks, which
     close the invite-as-bearer / wrong-room concern. So on the path the app actually sends over, a
     hostile helper or coordinator **cannot** swap the transaction under a signer.
-  - **Residual (open, #363):** the legacy standalone `/net` route (`NetVault.tsx`) is a **diverged**
-    ceremony driver that does **not** recompute the sighash. That is #363, not #62. Do not drive a
-    real-money send through that legacy route under a helper you do not control; the shipped
-    background-signer path is the one the app uses. (Zkool ships the recompute defense too.)
+  - **Residual (open, #363):** the legacy standalone `/net` route (`NetVault.tsx`) drives the same
+    `SigningMachine`, so it recomputes the sighash like the background signer. What it lacks is the
+    replay mitigation: its wire type drops the ceremony tag and it ignores history. That is #363, not
+    #62. This bullet said until 2026-09-29 that `/net` did not recompute the sighash, which stopped
+    being true when the ceremony moved into the shared machine. The background-signer path is still
+    the one the app uses. (Zkool ships the recompute defense too.)
 - **Signing-request metadata leak (H2) - SHIPPED (#63), proven live 2026-08-29.** This bullet used to
   read: the `/net` signing request (`sighash`, `alpha`, `pczt_hex`) was posted to the relay in
   **plaintext**, so a curious relay operator or room-code holder could read who a shielded vault pays

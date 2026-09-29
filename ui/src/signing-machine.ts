@@ -465,14 +465,31 @@ export class SigningMachine {
       this.d.onError(this.d.tt('net.err.sighashMismatch'))
       return true
     }
-    this.sp = unb64(parsed.sp)
+    // The line above checks a CLAIM. `msg` and `sp` are two independent fields, and the share is
+    // computed over the message inside `sp`: a coordinator that leaves `msg` honest and builds the
+    // package over a transaction of its own used to get a share from this device, over a message
+    // it never derived and never showed its owner. So the message is handed to the function that
+    // signs, which refuses a package that signs anything else. It cannot be skipped from here,
+    // because there is no longer a way to ask for the share without it.
+    const sp = unb64(parsed.sp)
     if (parsed.signers.includes(this.d.mySeat()) && !this.sentS2 && this.nonces && this.alpha) {
-      const share = participantRound2WithRandomizer(
-        this.sp,
-        this.nonces,
-        this.d.signingMaterial().keyPackage,
-        this.alpha, // the current spend's alpha (set by beginSpend)
-      )
+      let share: Uint8Array
+      try {
+        share = participantRound2WithRandomizer(
+          sp,
+          this.nonces,
+          this.d.signingMaterial().keyPackage,
+          this.alpha, // the current spend's alpha (set by beginSpend)
+          this.msg, // what THIS device derived from its own PCZT, never the wire value
+        )
+      } catch (e) {
+        // Reported, never thrown: `pump()` is try/finally with no catch (#364), so a throw here
+        // would leave the member with nothing on screen. The engine's reason follows, because a
+        // package over another message and a malformed package are different events.
+        this.d.onError(this.d.tt('net.err.sighashMismatch') + ' ' + String(e))
+        return true
+      }
+      this.sp = sp
       this.sentS2 = true
       await this.d.send({ type: 's2', share: b64(share), k: this.cur, h: this.tag() })
       this.d.onLog(this.d.tt('net.log.signShare'))

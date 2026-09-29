@@ -252,6 +252,11 @@ pub mod ceremony {
         x.to_string()
     }
 
+    /// What round 2 answers when the package it was handed signs something other than the message
+    /// this device derived. The app matches on it to tell this refusal from a malformed package.
+    pub const PACKAGE_SIGNS_ANOTHER_MESSAGE: &str =
+        "the signing package signs a different message than the one this device derived";
+
     /// Participant device, round 1: produce local secret nonces + a public commitment (bytes).
     /// The nonces are kept in the browser session; only the commitment goes to the relay.
     pub fn participant_round1(kp: &KeyPackage) -> (SigningNonces, Vec<u8>) {
@@ -361,14 +366,27 @@ pub mod ceremony {
     // coordinator generates - but an Orchard spend's alpha is FIXED by the transaction (read from the
     // PCZT), not freely chosen, so the seed path cannot express it. Signing under this exact
     // randomizer is required and correct here.
+    //
+    // `message` is what THIS device derived for itself (the ZIP-244 sighash of its own copy of the
+    // transaction), and the share is refused unless the package signs exactly that. It is a
+    // parameter of the function that signs, and not a check the caller makes beside it, because
+    // the caller's check is the one that was missing: `frost_rerandomized::sign` signs the message
+    // INSIDE the package, the package arrives from the coordinator, and a device that compared the
+    // sighash it was TOLD about and then signed the package it was HANDED had verified one thing
+    // and signed another. With the message required here there is no way to reach the signature
+    // on the real-transaction path without binding it.
     #[allow(deprecated)]
     pub fn participant_round2_with_randomizer(
         sp_bytes: &[u8],
         nonces: &SigningNonces,
         kp: &KeyPackage,
         randomizer: &[u8],
+        message: &[u8],
     ) -> Result<Vec<u8>, E> {
         let sp = SigningPackage::deserialize(sp_bytes).map_err(e)?;
+        if sp.message().as_slice() != message {
+            return Err(PACKAGE_SIGNS_ANOTHER_MESSAGE.to_string());
+        }
         let r = rerandomized::Randomizer::deserialize(randomizer).map_err(e)?;
         let share = frost_rerandomized::sign(&sp, nonces, kp, r).map_err(e)?;
         Ok(share.serialize())
@@ -463,6 +481,56 @@ pub mod ceremony {
             );
         }
 
+        /// The package is the coordinator's; the message is the device's. A package built over any
+        /// other message gets no share, however well formed it is.
+        #[test]
+        fn a_package_over_another_message_gets_no_share() {
+            let alpha =
+                hex::decode("b2ad61e8bf0de877dd01c52356526adf39b036ffed2e0217ece19407e1717624")
+                    .unwrap();
+            let (shares, _pubkeys) = frost::keys::generate_with_dealer(
+                3,
+                2,
+                frost::keys::IdentifierList::Default,
+                OsRng,
+            )
+            .unwrap();
+            let kps: std::collections::BTreeMap<_, _> = shares
+                .into_iter()
+                .map(|(id, s)| (id, KeyPackage::try_from(s).unwrap()))
+                .collect();
+            let derived = b"the sighash this device derived from its own copy";
+            let handed = b"the sighash of a transaction nobody here approved";
+
+            let signers: Vec<_> = kps.iter().take(2).collect();
+            let mut local_nonces = Vec::new();
+            let mut wire_commitments = Vec::new();
+            for (id, kp) in &signers {
+                let (nonces, commit_bytes) = participant_round1(kp);
+                local_nonces.push(nonces);
+                wire_commitments.push((id.serialize(), commit_bytes));
+            }
+            // Built over the LIVE commitments, so nothing about it is malformed.
+            let forged = coordinator_signing_package(&wire_commitments, handed).unwrap();
+            let honest = coordinator_signing_package(&wire_commitments, derived).unwrap();
+
+            let (_, kp) = signers[0];
+            let refused =
+                participant_round2_with_randomizer(&forged, &local_nonces[0], kp, &alpha, derived);
+            assert_eq!(
+                refused.unwrap_err(),
+                PACKAGE_SIGNS_ANOTHER_MESSAGE,
+                "a package over another message must be refused, and for this reason"
+            );
+            // The same device, the same nonces, the honest package: the refusal above is about the
+            // message and nothing else.
+            assert!(
+                participant_round2_with_randomizer(&honest, &local_nonces[0], kp, &alpha, derived)
+                    .is_ok(),
+                "the package over the derived message is signed"
+            );
+        }
+
         #[test]
         fn signs_with_a_real_orchard_randomizer() {
             // The alpha of Konclave's real mainnet DKG-vault spend (aab00f90…) - a valid Orchard
@@ -499,7 +567,8 @@ pub mod ceremony {
             let mut wire_shares = Vec::new();
             for ((id, kp), (_id2, nonces)) in signers.iter().zip(local_nonces.iter()) {
                 let share =
-                    participant_round2_with_randomizer(&sp_bytes, nonces, kp, &alpha).unwrap();
+                    participant_round2_with_randomizer(&sp_bytes, nonces, kp, &alpha, message)
+                        .unwrap();
                 wire_shares.push((id.serialize(), share));
             }
             let sig = coordinator_aggregate_with_randomizer(
@@ -1867,16 +1936,22 @@ mod js {
     /// Participant device, round 2 (JS), REAL-TRANSACTION path: sign with the given Orchard
     /// randomizer (the 32-byte alpha from pczt_bridge.extractRandomizers) instead of a seed, so the
     /// signature can be injected into the PCZT and broadcast.
+    ///
+    /// `message` is the sighash THIS device computed from its own copy of the transaction. The
+    /// share is refused unless the signing package signs exactly that message, so a device cannot
+    /// be handed a package built over something else.
     #[wasm_bindgen(js_name = participantRound2WithRandomizer)]
     pub fn participant_round2_with_randomizer(
         sp: &[u8],
         nonces_bytes: &[u8],
         kp_bytes: &[u8],
         randomizer: &[u8],
+        message: &[u8],
     ) -> Result<Vec<u8>, JsValue> {
         let nonces = SigningNonces::deserialize(nonces_bytes).map_err(je)?;
         let kp = KeyPackage::deserialize(kp_bytes).map_err(je)?;
-        ceremony::participant_round2_with_randomizer(sp, &nonces, &kp, randomizer).map_err(je)
+        ceremony::participant_round2_with_randomizer(sp, &nonces, &kp, randomizer, message)
+            .map_err(je)
     }
 
     /// Coordinator (JS): accumulates the public wire material and produces the signature.

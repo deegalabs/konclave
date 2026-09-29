@@ -190,7 +190,9 @@ for (let off = 0; off + 36 <= rand.length; off += 36) {
   const sp = coord.signingPackage()
 
   // Round 2 (per device): sign with THIS spend's alpha, not a seed.
-  const share = participantRound2WithRandomizer(sp, a.nonces(), myKeyPackage, alpha)
+  // The last argument is the sighash THIS device computed. A package that signs anything else
+  // is refused, so a device cannot be handed a package built over another transaction.
+  const share = participantRound2WithRandomizer(sp, a.nonces(), myKeyPackage, alpha, sighash)
   // coord.addShare(identifierBytes(seat), shareBytes)  // for each chosen seat
 
   // Aggregate + verify UNDER the same alpha - the exact check the chain runs.

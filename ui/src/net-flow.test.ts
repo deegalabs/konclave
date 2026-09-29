@@ -94,8 +94,8 @@ describe('/net multi-device flow (DKG → sign → verify)', () => {
     coord.addCommitment(id1, b.commitment())
     coord.prepare()
     const sp = coord.signingPackage()
-    coord.addShare(id0, participantRound2WithRandomizer(sp, a.nonces(), s0.keyPackage(), DKG_ALPHA))
-    coord.addShare(id1, participantRound2WithRandomizer(sp, b.nonces(), s1.keyPackage(), DKG_ALPHA))
+    coord.addShare(id0, participantRound2WithRandomizer(sp, a.nonces(), s0.keyPackage(), DKG_ALPHA, msg))
+    coord.addShare(id1, participantRound2WithRandomizer(sp, b.nonces(), s1.keyPackage(), DKG_ALPHA, msg))
     const sig = coord.aggregateWithRandomizer(DKG_ALPHA)
 
     // Verifies under the key randomized by this alpha...
@@ -127,8 +127,8 @@ describe('/net multi-device flow (DKG → sign → verify)', () => {
     coord.addCommitment(id1, b.commitment())
     coord.prepare()
     const sp = coord.signingPackage()
-    coord.addShare(id0, participantRound2WithRandomizer(sp, a.nonces(), r0.kp, DKG_ALPHA))
-    coord.addShare(id1, participantRound2WithRandomizer(sp, b.nonces(), r1.kp, DKG_ALPHA))
+    coord.addShare(id0, participantRound2WithRandomizer(sp, a.nonces(), r0.kp, DKG_ALPHA, msg))
+    coord.addShare(id1, participantRound2WithRandomizer(sp, b.nonces(), r1.kp, DKG_ALPHA, msg))
     const sig = coord.aggregateWithRandomizer(DKG_ALPHA)
     expect(coord.verifyWithRandomizer(DKG_ALPHA, sig)).toBe(true)
   })
@@ -168,8 +168,8 @@ describe('/net multi-device flow (DKG → sign → verify)', () => {
     coord.addCommitment(idB, r1b.commitment())
     coord.prepare()
     const sp = coord.signingPackage()
-    coord.addShare(idA, participantRound2WithRandomizer(sp, r1a.nonces(), a.kp, DKG_ALPHA))
-    coord.addShare(idB, participantRound2WithRandomizer(sp, r1b.nonces(), b.kp, DKG_ALPHA))
+    coord.addShare(idA, participantRound2WithRandomizer(sp, r1a.nonces(), a.kp, DKG_ALPHA, msg))
+    coord.addShare(idB, participantRound2WithRandomizer(sp, r1b.nonces(), b.kp, DKG_ALPHA, msg))
     const sig = coord.aggregateWithRandomizer(DKG_ALPHA)
 
     // A verifying Orchard signature from two reloaded devices - no DKG redo.
@@ -213,8 +213,8 @@ describe('/net multi-device flow (DKG → sign → verify)', () => {
     coord.addCommitment(id1, b.commitment())
     coord.prepare()
     const sp = coord.signingPackage()
-    coord.addShare(id0, participantRound2WithRandomizer(sp, a.nonces(), s0.keyPackage(), alpha))
-    coord.addShare(id1, participantRound2WithRandomizer(sp, b.nonces(), s1.keyPackage(), alpha))
+    coord.addShare(id0, participantRound2WithRandomizer(sp, a.nonces(), s0.keyPackage(), alpha, msg))
+    coord.addShare(id1, participantRound2WithRandomizer(sp, b.nonces(), s1.keyPackage(), alpha, msg))
     const sig = coord.aggregateWithRandomizer(alpha)
     expect(coord.verifyWithRandomizer(alpha, sig)).toBe(true)
 
@@ -250,8 +250,8 @@ describe('/net multi-device flow (DKG → sign → verify)', () => {
       coord.addCommitment(id1, b.commitment())
       coord.prepare()
       const sp = coord.signingPackage()
-      coord.addShare(id0, participantRound2WithRandomizer(sp, a.nonces(), s0.keyPackage(), alpha))
-      coord.addShare(id1, participantRound2WithRandomizer(sp, b.nonces(), s1.keyPackage(), alpha))
+      coord.addShare(id0, participantRound2WithRandomizer(sp, a.nonces(), s0.keyPackage(), alpha, msg))
+      coord.addShare(id1, participantRound2WithRandomizer(sp, b.nonces(), s1.keyPackage(), alpha, msg))
       const sig = coord.aggregateWithRandomizer(alpha)
       // Each spend verifies under its OWN alpha, and not the other's - the randomizer binds each
       // signature to its specific spend.

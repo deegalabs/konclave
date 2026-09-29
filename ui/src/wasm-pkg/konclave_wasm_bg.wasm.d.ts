@@ -1,11 +1,6 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
-export const describeOutputs: (a: number, b: number) => [number, number, number, number];
-export const extractRandomizers: (a: number, b: number) => [number, number, number, number];
-export const injectSigs: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
-export const pcztSighash: (a: number, b: number) => [number, number, number, number];
-export const uaReceiver: (a: number, b: number) => [number, number, number, number];
 export const selftest: () => [number, number];
 export const __wbg_coordinator_free: (a: number, b: number) => void;
 export const __wbg_round1_free: (a: number, b: number) => void;
@@ -22,7 +17,7 @@ export const coordinator_verify: (a: number, b: number, c: number) => [number, n
 export const coordinator_verifyWithRandomizer: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
 export const participantRound1: (a: number, b: number) => [number, number, number];
 export const participantRound2: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
-export const participantRound2WithRandomizer: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
+export const participantRound2WithRandomizer: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number, number];
 export const round1_commitment: (a: number) => [number, number];
 export const round1_nonces: (a: number) => [number, number];
 export const testvault_groupVk: (a: number) => [number, number];
@@ -30,6 +25,11 @@ export const testvault_id: (a: number, b: number) => [number, number];
 export const testvault_key_package: (a: number, b: number) => [number, number];
 export const testvault_new: () => [number, number, number];
 export const testvault_pubkeys: (a: number) => [number, number];
+export const describeOutputs: (a: number, b: number) => [number, number, number, number];
+export const extractRandomizers: (a: number, b: number) => [number, number, number, number];
+export const injectSigs: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
+export const pcztSighash: (a: number, b: number) => [number, number, number, number];
+export const uaReceiver: (a: number, b: number) => [number, number, number, number];
 export const __wbg_devicekey_free: (a: number, b: number) => void;
 export const __wbg_dkgsession_free: (a: number, b: number) => void;
 export const deviceWritePubHex: (a: number, b: number) => [number, number];
