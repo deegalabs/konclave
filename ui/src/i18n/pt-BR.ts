@@ -48,6 +48,7 @@ export const ptBR: Record<string, string> = {
   'error.expired': 'A proposta expirou. Crie uma nova.',
   'error.writeNotAuthorized': 'Este aparelho não conseguiu provar que tem o assento · destrave o cofre neste aparelho e tente de novo. Se você entrou por outro aparelho, é ele que precisa votar.',
   'error.notYourSeat': 'Isto foi enviado com um nome que não é o assento deste aparelho, então nada foi gravado. Use o aparelho que tem o seu assento. Se é este, a lista de membros do cofre não bate com os assentos: avise quem opera o seu coordenador.',
+  'error.notAMember': 'Este nome não está na lista de membros do cofre, então nada foi gravado. Se você trocou de nome em outro aparelho, abra Membros aqui e defina de novo.',
   'error.voteRejected': 'Este voto não vale agora · a proposta já mudou de estado, ou há um voto conflitante.',
   'error.notReady': 'A proposta ainda não atingiu o quórum necessário para ser enviada.',
   'error.invalidAddress': 'Endereço de destino não reconhecido. Confira o endereço Zcash.',

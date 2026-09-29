@@ -131,8 +131,17 @@ pub fn seat_holder(roster: &[String], seat: u16) -> Option<&str> {
 /// An empty roster, or a seat past its end, answers `false`. A seat cannot be bound to a name that
 /// was never recorded, and answering `true` there would be the defect again for exactly the vaults
 /// least able to show it.
+///
+/// Whitespace at the edges is ignored on BOTH sides, and nothing else is. The device signs and
+/// sends its name trimmed, while a roster keeps names as they arrived, so a roster entry stored as
+/// `"bob "` would otherwise lock seat 2 out of every write, the rename that could repair it
+/// included. Case, inner spaces and look-alike characters are different names.
+///
+/// What is RECORDED is never decided here. The caller records [`seat_holder`], the roster's own
+/// spelling, so this tolerance cannot turn one member into two.
 pub fn seat_acts_as(roster: &[String], seat: u16, name: &str) -> bool {
-    seat_holder(roster, seat).is_some_and(|holder| holder == name)
+    let name = name.trim();
+    !name.is_empty() && seat_holder(roster, seat).is_some_and(|holder| holder.trim() == name)
 }
 
 /// Exactly 32 bytes from hex, or `None`. Length is part of the check: a short key is malformed, not
@@ -241,13 +250,44 @@ mod tests {
         );
     }
 
-    /// Names are compared as written. A near match is a different member, not a typo to forgive.
+    /// A near match is a different member, not a typo to forgive.
     #[test]
     fn a_name_that_almost_matches_is_a_different_member() {
         let r = roster(&["alice", "bob"]);
         assert!(!seat_acts_as(&r, 1, "Alice"));
-        assert!(!seat_acts_as(&r, 1, "alice "));
+        assert!(!seat_acts_as(&r, 1, "al ice"));
+        assert!(
+            !seat_acts_as(&r, 1, "alice\u{200b}"),
+            "a zero-width space is not whitespace"
+        );
         assert!(!seat_acts_as(&r, 1, ""));
+        assert!(!seat_acts_as(&r, 1, "   "));
+    }
+
+    /// Found in review: the claim was trimmed and the roster entry was not, so a roster that
+    /// stored `"bob "` refused seat 2 under both spellings, and refused the rename that could have
+    /// repaired it. A roster keeps names as they arrived, so this is a state a vault can be in.
+    #[test]
+    fn whitespace_at_the_edges_is_ignored_on_both_sides() {
+        let r = roster(&["alice", "bob ", " carol"]);
+        assert!(seat_acts_as(&r, 2, "bob"));
+        assert!(seat_acts_as(&r, 2, "bob "));
+        assert!(seat_acts_as(&r, 3, "carol"));
+        assert!(seat_acts_as(&r, 1, " alice\u{00a0}"));
+        // And the roster's own spelling is what the caller is given to record.
+        assert_eq!(seat_holder(&r, 2), Some("bob "));
+        // Forgiving the edges does not let one seat act as another.
+        assert!(!seat_acts_as(&r, 1, "bob"));
+        assert!(!seat_acts_as(&r, 2, "carol"));
+    }
+
+    /// An empty roster entry names nobody, so nothing matches it, an empty claim included.
+    #[test]
+    fn a_seat_whose_roster_entry_is_blank_acts_as_nobody() {
+        let r = roster(&["alice", "  "]);
+        assert!(!seat_acts_as(&r, 2, ""));
+        assert!(!seat_acts_as(&r, 2, "  "));
+        assert!(!seat_acts_as(&r, 2, "alice"));
     }
 
     /// End to end across the crates: derive the key the way the DEVICE derives it, sign, verify.

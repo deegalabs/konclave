@@ -3,7 +3,7 @@ import { Seal, Loading } from '../components'
 import { PageHeader, PageFooter } from '../page'
 import { Identicon } from '../avatar'
 import { useT, useTr } from '../i18n'
-import { getVault, health, shortAddr, IS_NET, renameSelf, adoptSelfName, type Vault } from '../api'
+import { getVault, health, humanError, shortAddr, IS_NET, renameSelf, adoptSelfName, type Vault } from '../api'
 import { listVaults, type Governance } from '../storage'
 
 
@@ -153,7 +153,7 @@ export default function Members() {
               {saving ? '…' : t('members.yourNameSave')}
             </button>
             {renamed && <div className="hint ready mt-sm">{t('members.yourNameSaved')}</div>}
-            {renameErr && <div className="hint err mt-sm" role="alert">{t('members.renameErr')}: {renameErr}</div>}
+            {renameErr && <div className="hint err mt-sm" role="alert">{t('members.renameErr')}: {humanError(t, renameErr)}</div>}
           </div>
         )}
 

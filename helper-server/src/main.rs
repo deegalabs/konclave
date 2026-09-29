@@ -1465,7 +1465,9 @@ fn handle_vote(state: &HelperState, cfg: &HelperConfig, path: &str, body: &[u8])
     // unsigned writes: once a write key is registered the gate below binds the seat to a roster
     // name, and with no roster there is no name to bind, so it refuses (#568).
     let roster = load_members(&cfg.vaults_dir, &req.vault);
-    if !roster.is_empty() && !roster.iter().any(|m| m == &req.member) {
+    // Compared trimmed on both sides, like the binding in the gate: a roster keeps names as they
+    // arrived, and a device sends its own trimmed.
+    if !roster.is_empty() && !roster.iter().any(|m| m.trim() == req.member.trim()) {
         return resp(
             403,
             json!({ "error": "not a member of this vault" }).to_string(),
@@ -2315,6 +2317,87 @@ mod tests {
             after.refusals.is_empty(),
             "bob refused nothing: {:?}",
             after.refusals
+        );
+    }
+
+    /// A roster keeps names as they arrived, so it can hold `"bob "`. Bob's device sends `bob`.
+    ///
+    /// Two things have to be true at once, and the second review found neither was tested: the
+    /// seat is NOT locked out by its own roster entry, and what is recorded is the roster's
+    /// spelling, not the request's - for the vote and for the rename, which record in handlers of
+    /// their own. Reverting either handler to the request's string fails here.
+    #[test]
+    fn a_vote_and_a_rename_record_the_rosters_spelling_not_the_requests() {
+        use ed25519_dalek::Signer;
+        use konclave_seal::{write_key_seed_from_share, write_message, WriteAction};
+        let st = HelperState::new();
+        seed(&st, "spelling");
+        let c = cfg();
+        let dir = &c.vaults_dir;
+        let _ =
+            orchestrator::helper::claim_members(dir, "spelling", &["alice".into(), "bob ".into()]);
+        an_open_two_of_two_proposal(dir, "spelling");
+
+        let bob =
+            ed25519_dalek::SigningKey::from_bytes(&write_key_seed_from_share(b"bob's key package"));
+        let pubhex: String = bob
+            .verifying_key()
+            .as_bytes()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        orchestrator::helper::upsert_device(dir, "spelling", "bb", Some((2, &pubhex))).unwrap();
+        let envelope = |action: WriteAction, target: &str, nonce: &str| {
+            let ts = 1_700_000_000_000i64;
+            let msg = write_message("spelling", action, target, 2, ts, nonce);
+            let sig: String = bob
+                .sign(&msg)
+                .to_bytes()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect();
+            format!(r#""seat":2,"ts":{ts},"nonce":"{nonce}","sig":"{sig}""#)
+        };
+
+        // The vote: sent as `bob`, recorded as the roster spells it.
+        let env = envelope(WriteAction::Approve, "p1", "n1");
+        let voted = handle(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault/proposals/p1/approve",
+            format!(r#"{{"vault":"spelling","member":"bob",{env}}}"#).as_bytes(),
+        );
+        assert_eq!(
+            voted.status, 200,
+            "seat 2 is not locked out: {}",
+            voted.body
+        );
+        let p = orchestrator::helper::load_proposal(dir, "spelling", "p1", now_unix()).unwrap();
+        assert_eq!(
+            p.approvals,
+            vec!["bob ".to_string()],
+            "recorded as the roster spells it"
+        );
+
+        // The rename: `old` sent as `bob`. `rename_member` looks the old name up exactly, so it
+        // only finds the seat if it is handed the roster's spelling.
+        let env = envelope(WriteAction::Rename, "bob\0robert", "n2");
+        let renamed = handle(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault/members/rename",
+            format!(r#"{{"vault":"spelling","old":"bob","new":"robert",{env}}}"#).as_bytes(),
+        );
+        assert_eq!(
+            renamed.status, 200,
+            "and it can repair its own name: {}",
+            renamed.body
+        );
+        assert_eq!(
+            orchestrator::helper::load_members(dir, "spelling"),
+            vec!["alice".to_string(), "robert".to_string()]
         );
     }
 

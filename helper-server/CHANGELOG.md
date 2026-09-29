@@ -52,15 +52,14 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   money could move this way - signing a payment needs the real key shares, and each device still
   asks its owner to confirm that specific payment. What it broke is what that confirmation rests
   on: the owner was being asked to sign something the screen said the group had approved. A vote, a
-  payment and a payroll are now recorded under the name the member list gives the seat that signed
-  them, never under the name the request carried, and refused when the two differ. A first version
-  of this fix compared the name and then recorded it as typed, so a name with a space after it
-  passed as that member and counted as a second person; it was caught in review before it shipped.
-  Votes have been signed since 2026-09-06, payments and payrolls since 2026-09-07, and this was open
-  from the start. It needed a device holding the key of a seat: a member, or, until 2026-09-21,
-  anyone holding the vault's link who had claimed a seat nobody else had yet, which is the fault
-  recorded two entries below. On 2026-09-28 signed actions were on in two vaults on the production
-  service, both of them the project's own test vaults. Takes effect when this build is deployed.
+  payment, a payroll and a rename are now recorded under the name the member list gives the seat
+  that signed them, never under the name the request carried. A request under another member's
+  name is refused; one that differs from the list only by a space at its edge is accepted and
+  recorded as the list spells it. Signed votes were merged on 2026-09-06 and signed payments and
+  payrolls on 2026-09-07, and this was open from the start. On 2026-09-28 signed actions were on in
+  two vaults on the production service, both of them the project's own test vaults. Takes effect
+  when this build is deployed. **It closes this route and not every route to the same result: see
+  Known limits.**
 
 - **Anyone holding a vault's link could lock its own members out of their books.** The key that
   proves a device may read a vault could be REPLACED by whoever had the vault's id, on any vault,
@@ -83,6 +82,18 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   live vaults: none was in the state where this could have been used - every one either had all its
   seats claimed or had none - but the window opens whenever members join at different times, and on
   one vault it had been open for two weeks.
+
+### Known limits
+
+- **One member can still make a payment read as approved by the group, by three other routes.**
+  Found while reviewing the fix above, and none of them is closed by it. An approval recorded while
+  a vault still took unsigned actions keeps counting once it requires signatures, under whatever
+  name it was given (#575). A vote and a rename sent at the same instant, in a particular way, can
+  leave the same member approving under both names (#576). And a member can register a device for
+  a colleague's seat if that colleague has not opened the app since signed actions began, and then
+  approve as them (#577). In all three no money can move: each device still asks its owner to
+  confirm the specific payment, and signing needs the real key shares. What is not yet trustworthy
+  on its own is the line that says who approved.
 
 ### Changed
 

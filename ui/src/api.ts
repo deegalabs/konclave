@@ -476,6 +476,7 @@ export function humanError(t: TFn, error?: string, detail?: string): string {
   // the seat which signed it.
   if (has('you can only vote for your own seat') || has('you can only propose under your own name') || has('you can only rename your own seat'))
     return t('error.notYourSeat')
+  if (has('not a member of this vault')) return t('error.notAMember')
   if (e === 'vote rejected') return t('error.voteRejected')
   if (e === 'not ready') return t('error.notReady')
   // The coordinator's own wordings, matched because they are what it actually sends. Before this,

@@ -56,6 +56,12 @@ describe('a refused proposal says what the coordinator actually refused (#509, o
       'you can only rename your own seat',
     ]) expect(humanError(t, sentence), sentence).toBe('error.notYourSeat')
   })
+
+  // The other 403 a vote can get, and the one a name with stray whitespace used to meet first:
+  // the roster check runs before the seat is even looked at.
+  it('a name the roster does not hold says that, not "conflicting vote"', () => {
+    expect(humanError(t, 'not a member of this vault')).toBe('error.notAMember')
+  })
 })
 
 describe('no caller invents a reason the coordinator did not give', () => {
@@ -93,10 +99,21 @@ describe('no caller invents a reason the coordinator did not give', () => {
   it('a rename is signed like every other write', () => {
     const fn = CODE.split('export async function renameSelf')[1]?.split('\nexport ')[0] ?? ''
     expect(fn, 'renameSelf not found').toBeTruthy()
-    expect(fn, 'the rename goes out with no proof').toContain("writeProof(id, 'rename'")
+    // The target has to be the pair the coordinator verifies, `old\0new`, built from the SAME two
+    // strings that go in the body. The first version of this test looked for the word `proof`,
+    // which the parameter's own name satisfied: it passed with the proof dropped from the body.
+    expect(fn, 'the rename goes out with no proof, or signs something else')
+      .toContain("writeProof(id, 'rename', `${old}\\u0000${next}`)")
+    expect(fn, 'the proof must be handed to the call that sends').toMatch(/netRenameMember\(id, old, next, await writeProof/)
     const helper = readFileSync(join(new URL('.', import.meta.url).pathname, 'helper.ts'), 'utf8')
     const send = helper.split('export async function renameMember')[1]?.split('\nexport ')[0] ?? ''
-    expect(send, 'and the helper client must put it in the body').toContain('proof')
+    expect(send, 'and the helper client must SPREAD it into the body').toContain('...(proof ?? {})')
+    expect(send, 'beside the same old and new it signed').toContain('old, new: next')
+  })
+
+  it('the Members screen shows a refused rename through the same translation as everything else', () => {
+    const screen = readFileSync(join(new URL('.', import.meta.url).pathname, 'screens', 'Members.tsx'), 'utf8')
+    expect(screen, 'it prints the coordinator\'s raw English').toContain('humanError(t, renameErr)')
   })
 
   it('a refused vote passes the coordinator\'s reason on instead of calling it a conflict', () => {
