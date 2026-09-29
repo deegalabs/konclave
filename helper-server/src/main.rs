@@ -43,7 +43,7 @@ use orchestrator::helper::{
 };
 use orchestrator::send::{funding_check, net_orchestrate_send, Funding, PayrollDest, SpendPlan};
 use orchestrator::write_auth::{
-    authorize_write, seat_acts_as, SignedWrite, WriteAction, WriteAuth,
+    authorize_write, seat_acts_as, seat_holder, SignedWrite, WriteAction, WriteAuth,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -654,7 +654,7 @@ fn handle_with_token(
             // the seat which signed holds the name being changed. This handler was the only one
             // that did, in a copy of its own; the check lives in the shared gate since #568.
             let target = format!("{}\0{}", req.old, req.new);
-            if let Some(refused) = gate_write(
+            let old = match gate_write(
                 cfg,
                 &reg.vault_id,
                 WriteAction::Rename,
@@ -666,15 +666,10 @@ fn handle_with_token(
                 req.sig.clone(),
                 "this vault requires a signed rename",
             ) {
-                return refused;
-            }
-            match rename_member(
-                &cfg.vaults_dir,
-                &reg.vault_id,
-                &req.old,
-                &req.new,
-                now_unix(),
-            ) {
+                Ok(proven) => proven.unwrap_or_else(|| req.old.clone()),
+                Err(refused) => return refused,
+            };
+            match rename_member(&cfg.vaults_dir, &reg.vault_id, &old, &req.new, now_unix()) {
                 Ok(members) => resp(200, json!({ "members": members }).to_string()),
                 Err(e) => resp(400, json!({ "error": e.to_string() }).to_string()),
             }
@@ -916,6 +911,16 @@ fn refuse_if_unfunded(
 /// the rename kept its own copy of this gate. There is one copy now, and the binding is in it.
 ///
 /// A refused binding burns no nonce: refusing is not an accepted write.
+///
+/// WHAT COMES BACK IS THE NAME TO RECORD. On a proven write that is the roster's own spelling of
+/// the seat's name, never the request's. The first version of this fix compared the trimmed name
+/// and then let the handler record the untrimmed one, so `"alice "` passed as alice, was stored as
+/// `"alice "`, and her later vote as `alice` was a second approval: one member at quorum again, by
+/// a trailing space. Checking one string and recording another is the defect this function exists
+/// to end, so the string it checked is the only one it hands back.
+///
+/// `Ok(None)` means there is no proven name: the vault is open (ADR-0011 D5) or the write records
+/// none. The caller then records what it always did.
 #[allow(clippy::too_many_arguments)]
 fn gate_write(
     cfg: &HelperConfig,
@@ -928,13 +933,13 @@ fn gate_write(
     nonce: Option<String>,
     sig: Option<String>,
     refusal: &'static str,
-) -> Option<Resp> {
+) -> Result<Option<String>, Resp> {
     let write_keys = orchestrator::helper::load_write_keys(&cfg.vaults_dir, vault);
     if write_keys.is_empty() {
-        return None; // open vault (D5)
+        return Ok(None); // open vault (D5)
     }
     let (Some(seat), Some(ts), Some(nonce), Some(sig)) = (seat, ts, nonce, sig) else {
-        return Some(resp(401, json!({ "error": refusal }).to_string()));
+        return Err(resp(401, json!({ "error": refusal }).to_string()));
     };
     let w = SignedWrite {
         seat,
@@ -945,26 +950,33 @@ fn gate_write(
     let seen = |n: &str| orchestrator::helper::write_nonce_seen(&cfg.vaults_dir, vault, n);
     match authorize_write(&write_keys, vault, action, target, &w, seen) {
         WriteAuth::Authorized { seat } => {
-            if let Some(name) = acts_as {
-                let roster = load_members(&cfg.vaults_dir, vault);
-                if !seat_acts_as(&roster, seat, name) {
-                    eprintln!(
-                        "vault {vault}: seat {seat} tried to {} as {name:?}, which is not its own",
-                        action.tag()
-                    );
-                    return Some(resp(
-                        403,
-                        json!({ "error": not_your_seat(action) }).to_string(),
-                    ));
+            let recorded = match acts_as {
+                None => None,
+                Some(claimed) => {
+                    let roster = load_members(&cfg.vaults_dir, vault);
+                    // Compared trimmed, because the device signs the trimmed name. Recorded from
+                    // the ROSTER, so the comparison's tolerance never reaches the record.
+                    let claimed = claimed.trim();
+                    if !seat_acts_as(&roster, seat, claimed) {
+                        eprintln!(
+                            "vault {vault}: seat {seat} tried to {} as {claimed:?}, which is not its own",
+                            action.tag()
+                        );
+                        return Err(resp(
+                            403,
+                            json!({ "error": not_your_seat(action) }).to_string(),
+                        ));
+                    }
+                    seat_holder(&roster, seat).map(str::to_string)
                 }
-            }
+            };
             let _ = orchestrator::helper::burn_write_nonce(&cfg.vaults_dir, vault, &w.nonce);
-            None
+            Ok(recorded)
         }
-        WriteAuth::Open => None, // unreachable: keys were non-empty
+        WriteAuth::Open => Ok(None), // unreachable: keys were non-empty
         WriteAuth::Refused(why) => {
             eprintln!("vault {vault}: refused a write ({why:?})");
-            Some(resp(
+            Err(resp(
                 401,
                 json!({ "error": "signature required" }).to_string(),
             ))
@@ -1024,7 +1036,7 @@ fn handle_proposal_send(state: &HelperState, cfg: &HelperConfig, path: &str, bod
     // confirm the money gate is built on, and firing it is not a stranger's to do.
     //
     // Bound to the proposal id, so a signature for one send cannot fire another.
-    if let Some(refused) = gate_write(
+    if let Err(refused) = gate_write(
         cfg,
         &req.vault,
         WriteAction::Send,
@@ -1202,7 +1214,7 @@ fn handle_create_proposal(state: &HelperState, cfg: &HelperConfig, body: &[u8]) 
     // members then had to read and refuse. The signature covers the PROPOSER's name, and since #568
     // the gate also checks that the seat which signed holds that name. Until then this comment
     // claimed a device could not propose under another member's name, and nothing enforced it.
-    if let Some(refused) = gate_write(
+    let proposer = match gate_write(
         cfg,
         &req.vault,
         WriteAction::Propose,
@@ -1214,8 +1226,10 @@ fn handle_create_proposal(state: &HelperState, cfg: &HelperConfig, body: &[u8]) 
         req.sig.clone(),
         "this vault requires a signed proposal",
     ) {
-        return refused;
-    }
+        // The roster's spelling on a proven write. On an open vault, the request's, as before.
+        Ok(proven) => proven.unwrap_or_else(|| req.proposer.clone()),
+        Err(refused) => return refused,
+    };
     // Reuse the send-path validation (authoritative address + amount) so a proposal can only name a
     // destination the vault could actually pay.
     if let Err(e) = payment_plan(
@@ -1256,9 +1270,9 @@ fn handle_create_proposal(state: &HelperState, cfg: &HelperConfig, body: &[u8]) 
         amount_zat: req.amount_zat,
         memo: req.memo,
         lines: vec![],
-        proposer: req.proposer.clone(),
+        proposer: proposer.clone(),
         state: "pending".into(),
-        approvals: vec![req.proposer],
+        approvals: vec![proposer],
         refusals: vec![],
         threshold: reg.threshold,
         total: reg.total,
@@ -1316,7 +1330,7 @@ fn handle_create_payroll(state: &HelperState, cfg: &HelperConfig, body: &[u8]) -
     // #288's second half, same rule as the single payment: a vault id is no longer enough to put a
     // payroll on the desk, the signature covers the proposer's name, and the seat that signed must
     // hold that name (#568).
-    if let Some(refused) = gate_write(
+    let proposer = match gate_write(
         cfg,
         &req.vault,
         WriteAction::Propose,
@@ -1328,8 +1342,10 @@ fn handle_create_payroll(state: &HelperState, cfg: &HelperConfig, body: &[u8]) -
         req.sig.clone(),
         "this vault requires a signed proposal",
     ) {
-        return refused;
-    }
+        // The roster's spelling on a proven write. On an open vault, the request's, as before.
+        Ok(proven) => proven.unwrap_or_else(|| req.proposer.clone()),
+        Err(refused) => return refused,
+    };
     // Validate every line (authoritative address + amount) and sum the total, with overflow guard.
     let mut total: u64 = 0;
     let mut lines = Vec::with_capacity(req.lines.len());
@@ -1385,9 +1401,9 @@ fn handle_create_payroll(state: &HelperState, cfg: &HelperConfig, body: &[u8]) -
         amount_zat: total,
         memo: None,
         lines,
-        proposer: req.proposer.clone(),
+        proposer: proposer.clone(),
         state: "pending".into(),
-        approvals: vec![req.proposer],
+        approvals: vec![proposer],
         refusals: vec![],
         threshold: reg.threshold,
         total: reg.total,
@@ -1443,9 +1459,11 @@ fn handle_vote(state: &HelperState, cfg: &HelperConfig, path: &str, body: &[u8])
     // an arbitrary name, which is what let a stranger fill the refusal list with seats that do not
     // exist and push the proposal past its quorum.
     //
-    // A vault with no saved roster is allowed through deliberately: older vaults registered before
-    // members were recorded would otherwise lose the ability to vote at all. That is a fail-open
-    // and it is named here rather than hidden.
+    // A vault with no saved roster is allowed through THIS check deliberately: older vaults
+    // registered before members were recorded would otherwise lose the ability to vote at all. That
+    // is a fail-open and it is named here rather than hidden. It holds only while the vault takes
+    // unsigned writes: once a write key is registered the gate below binds the seat to a roster
+    // name, and with no roster there is no name to bind, so it refuses (#568).
     let roster = load_members(&cfg.vaults_dir, &req.vault);
     if !roster.is_empty() && !roster.iter().any(|m| m == &req.member) {
         return resp(
@@ -1466,7 +1484,7 @@ fn handle_vote(state: &HelperState, cfg: &HelperConfig, path: &str, body: &[u8])
     } else {
         WriteAction::Refuse
     };
-    if let Some(refused) = gate_write(
+    let voter = match gate_write(
         cfg,
         &req.vault,
         action,
@@ -1478,15 +1496,16 @@ fn handle_vote(state: &HelperState, cfg: &HelperConfig, path: &str, body: &[u8])
         req.sig.clone(),
         "this vault requires a signed vote",
     ) {
-        return refused;
-    }
+        Ok(proven) => proven.unwrap_or_else(|| req.member.clone()),
+        Err(refused) => return refused,
+    };
 
     let now = now_unix();
     let mut p = match load_proposal(&cfg.vaults_dir, &req.vault, id, now) {
         Some(p) => p,
         None => return resp(404, json!({ "error": "no such proposal" }).to_string()),
     };
-    if !p.vote(&req.member, approve, now) {
+    if !p.vote(&voter, approve, now) {
         return resp(
             409,
             json!({ "error": "proposal is no longer open", "state": p.state }).to_string(),
@@ -2180,6 +2199,122 @@ mod tests {
             "her own payroll must clear the gate, got {}: {}",
             own.status,
             own.body
+        );
+    }
+
+    /// Found in review of the first version of this fix, and it is #568 again by another door.
+    /// The gate compared the TRIMMED proposer and the handler recorded the UNTRIMMED one. So
+    /// `"alice "` passed as alice and was stored, auto-approving, as `"alice "`; her vote as
+    /// `alice` was then a second approval, since approvals dedup by exact string. One member, two
+    /// approvals, `ready`. A non-breaking space does it too and cannot be seen on screen.
+    ///
+    /// Both the payment and the payroll, because they record in two different handlers.
+    #[test]
+    fn a_padded_name_is_recorded_as_the_roster_spells_it_and_counts_once() {
+        use konclave_seal::WriteAction;
+        for (route, body_of) in [
+            (
+                "/api/vault/proposals",
+                (|proposer: &str, env: &str| {
+                    format!(
+                        r#"{{"vault":"padded","proposer":"{proposer}","to":"{TESTNET_ORCHARD_UA}","amount_zat":1000,{env}}}"#
+                    )
+                }) as fn(&str, &str) -> String,
+            ),
+            ("/api/vault/payroll", |proposer: &str, env: &str| {
+                format!(
+                    r#"{{"vault":"padded","proposer":"{proposer}","lines":[{{"to":"{TESTNET_ORCHARD_UA}","amount_zat":1000}}],{env}}}"#
+                )
+            }),
+        ] {
+            for padded in ["alice ", " alice", "alice\u{00a0}"] {
+                let st = HelperState::new();
+                seed(&st, "padded");
+                let c = cfg();
+                let dir = &c.vaults_dir;
+                let _ = orchestrator::helper::claim_members(
+                    dir,
+                    "padded",
+                    &["alice".into(), "bob".into()],
+                );
+                let sk = alice_registers_seat_one(dir, "padded");
+
+                // Signed over the trimmed name, which is what the device signs.
+                let env = signed_as_seat_one(&sk, "padded", WriteAction::Propose, "alice", "n1");
+                let created = handle(
+                    &st,
+                    &c,
+                    &Method::Post,
+                    route,
+                    body_of(padded, &env).as_bytes(),
+                );
+                assert_eq!(created.status, 200, "{route} {padded:?}: {}", created.body);
+                let id = created
+                    .body
+                    .split("\"id\":\"")
+                    .nth(1)
+                    .unwrap()
+                    .split('"')
+                    .next()
+                    .unwrap()
+                    .to_string();
+
+                let env = signed_as_seat_one(&sk, "padded", WriteAction::Approve, &id, "n2");
+                let voted = handle(
+                    &st,
+                    &c,
+                    &Method::Post,
+                    &format!("/api/vault/proposals/{id}/approve"),
+                    format!(r#"{{"vault":"padded","member":"alice",{env}}}"#).as_bytes(),
+                );
+                assert_eq!(voted.status, 200, "{}", voted.body);
+
+                let p =
+                    orchestrator::helper::load_proposal(dir, "padded", &id, now_unix()).unwrap();
+                assert_eq!(
+                    p.proposer, "alice",
+                    "{route} {padded:?}: recorded as the roster spells it"
+                );
+                assert_eq!(
+                    p.approvals,
+                    vec!["alice".to_string()],
+                    "{route} {padded:?}: one member is one approval"
+                );
+                assert_ne!(
+                    p.state, "ready",
+                    "{route} {padded:?}: and never a quorum of one"
+                );
+            }
+        }
+    }
+
+    /// A refusal is forged as readily as an approval, and a forged refusal kills a payment.
+    #[test]
+    fn a_signed_refusal_cannot_be_cast_in_another_members_name() {
+        use konclave_seal::WriteAction;
+        let st = HelperState::new();
+        seed(&st, "refname");
+        let c = cfg();
+        let dir = &c.vaults_dir;
+        let _ =
+            orchestrator::helper::claim_members(dir, "refname", &["alice".into(), "bob".into()]);
+        an_open_two_of_two_proposal(dir, "refname");
+        let sk = alice_registers_seat_one(dir, "refname");
+
+        let env = signed_as_seat_one(&sk, "refname", WriteAction::Refuse, "p1", "n1");
+        let forged = handle(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault/proposals/p1/refuse",
+            format!(r#"{{"vault":"refname","member":"bob",{env}}}"#).as_bytes(),
+        );
+        assert_eq!(forged.status, 403, "{}", forged.body);
+        let after = orchestrator::helper::load_proposal(dir, "refname", "p1", now_unix()).unwrap();
+        assert!(
+            after.refusals.is_empty(),
+            "bob refused nothing: {:?}",
+            after.refusals
         );
     }
 

@@ -472,6 +472,10 @@ export function humanError(t: TFn, error?: string, detail?: string): string {
   if (has('signature') || has('apply_signature') || has('share')) return t('error.share')
   if (has('expiry') || has('expired') || e === 'expired') return t('error.expired')
   if (e === 'write not authorized') return t('error.writeNotAuthorized')
+  // The coordinator's three wordings for one refusal (#568): the write carries a name that is not
+  // the seat which signed it.
+  if (has('you can only vote for your own seat') || has('you can only propose under your own name') || has('you can only rename your own seat'))
+    return t('error.notYourSeat')
   if (e === 'vote rejected') return t('error.voteRejected')
   if (e === 'not ready') return t('error.notReady')
   // The coordinator's own wordings, matched because they are what it actually sends. Before this,
@@ -530,7 +534,10 @@ export async function renameSelf(
   if (!NET) return { error: 'not available' }
   const id = getSelectedVault()
   if (!id) return { error: 'no vault selected' }
-  const res = await netRenameMember(id, old, next)
+  // Signed like every other governance write (#288). This was the one the app never signed: the
+  // coordinator has required it since #454, so on a vault with signed actions turned on a rename
+  // answered 401 every time. The target is `old\0new`, which is what the coordinator verifies.
+  const res = await netRenameMember(id, old, next, await writeProof(id, 'rename', `${old}\u0000${next}`))
   if ('members' in res) {
     const nm = next.trim()
     try { await updateVaultMeta(id, { myName: nm }) } catch { /* record absent - roster still renamed */ }
@@ -650,9 +657,13 @@ export async function createPayroll(
       mapped.push({ label: l.label, to: l.address, amount_zat: zat, memo: l.memo })
     }
     const p = await netCreatePayroll({ vault: id, proposer, lines: mapped, proof: await writeProof(id, 'propose', proposer.trim()) })
-    return p
-      ? { ok: true, proposal: mapNetProposal(p) }
-      : { ok: false, error: 'invalid address', detail: 'the coordinator rejected a payroll line' }
+    if (p) return { ok: true, proposal: mapNetProposal(p) }
+    // The third caller of the same defect. The vote was fixed in #509 and the payment after it;
+    // the payroll went on reporting every failure as a bad address, a refused seat included.
+    const f = lastHelperPostFailure()
+    if (f?.status === 401) return { ok: false, error: 'write not authorized' }
+    if (f?.error) return { ok: false, error: f.error }
+    return { ok: false, error: 'proposal rejected', detail: 'the coordinator did not say why' }
   }
   try {
     const res = await fetch(`${BASE}${withVault('/api/payroll')}`, {
@@ -885,6 +896,10 @@ export async function voteProposal(
     // it is locked, or it never registered a write key for its seat on this vault (#288).
     const f = lastHelperPostFailure()
     if (f?.status === 401) return { ok: false, error: 'write not authorized' }
+    // A 403 is a refusal WITH a reason: the name is not on the roster, or it is not the seat that
+    // signed (#568). Calling it a conflicting vote sent the member looking for a vote that does
+    // not exist.
+    if (f?.status === 403 && f.error) return { ok: false, error: f.error }
     return { ok: false, error: 'vote rejected' }
   }
   try {

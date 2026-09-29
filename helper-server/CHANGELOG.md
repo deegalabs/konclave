@@ -52,10 +52,15 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   money could move this way - signing a payment needs the real key shares, and each device still
   asks its owner to confirm that specific payment. What it broke is what that confirmation rests
   on: the owner was being asked to sign something the screen said the group had approved. A vote, a
-  payment and a payroll are now recorded under the name of the seat that signed them, and refused
-  otherwise. Open since signed votes shipped on 2026-09-05. It needed a member of the vault, not an
-  outsider, and the only vaults with signed actions turned on were the maintainer's own test vaults.
-  Takes effect when this build is deployed.
+  payment and a payroll are now recorded under the name the member list gives the seat that signed
+  them, never under the name the request carried, and refused when the two differ. A first version
+  of this fix compared the name and then recorded it as typed, so a name with a space after it
+  passed as that member and counted as a second person; it was caught in review before it shipped.
+  Votes have been signed since 2026-09-06, payments and payrolls since 2026-09-07, and this was open
+  from the start. It needed a device holding the key of a seat: a member, or, until 2026-09-21,
+  anyone holding the vault's link who had claimed a seat nobody else had yet, which is the fault
+  recorded two entries below. On 2026-09-28 signed actions were on in two vaults on the production
+  service, both of them the project's own test vaults. Takes effect when this build is deployed.
 
 - **Anyone holding a vault's link could lock its own members out of their books.** The key that
   proves a device may read a vault could be REPLACED by whoever had the vault's id, on any vault,

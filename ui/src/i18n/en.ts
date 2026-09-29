@@ -47,6 +47,7 @@ export const en: Record<string, string> = {
   'error.share': 'One of the key shares failed to sign. Make sure the quorum members are available.',
   'error.expired': 'The proposal has expired. Create a new one.',
   'error.writeNotAuthorized': 'This device could not prove it holds the seat · unlock the vault on this device and try again. If you joined on another device, that is the one that can vote.',
+  'error.notYourSeat': 'This was sent under a name that is not this device\'s seat, so nothing was recorded. Use the device that holds your seat. If this is that device, the vault\'s member list does not match its seats: tell whoever runs your coordinator.',
   'error.voteRejected': 'This vote no longer applies · the proposal already changed state, or there is a conflicting vote.',
   'error.notReady': 'The proposal has not reached the required quorum to be sent.',
   'error.invalidAddress': 'Unrecognized destination address. Check the Zcash address.',

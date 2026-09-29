@@ -40,6 +40,20 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A refused vote or payroll named the wrong problem.** When the coordinator refused a vote because
+  it carried a name that was not the seat which signed it, the screen said the vote no longer
+  applied or conflicted with another. When it refused a payroll, for any reason at all, the screen
+  said the address was not recognized. Both now say what was actually refused. It is the fault that
+  was already fixed for the vote and then for the payment, left standing in the third place it
+  lived.
+
+- **Changing your own name failed on any vault with signed actions turned on.** The app signed
+  votes, payments and sends, and never the rename, which the coordinator has required to be signed
+  since early September. So the rename was refused every time, and the screen said only that it had
+  failed. It is signed now, like the others.
+
 ## [0.6.0] 2026-09-22
 
 ### Security

@@ -45,6 +45,17 @@ describe('a refused proposal says what the coordinator actually refused (#509, o
   it('and a refusal with no reason says THAT, rather than inventing one', () => {
     expect(humanError(t, 'proposal rejected')).toBe('error.proposalRejected')
   })
+
+  // #568. The coordinator refuses a write whose name is not the seat that signed it. The vote
+  // showed that as "this vote no longer applies" and the payroll as "unrecognized address",
+  // which told a member with a real problem to go and look at something else.
+  it('a write under a name that is not the seat says so, in all three wordings', () => {
+    for (const sentence of [
+      'you can only vote for your own seat',
+      'you can only propose under your own name',
+      'you can only rename your own seat',
+    ]) expect(humanError(t, sentence), sentence).toBe('error.notYourSeat')
+  })
 })
 
 describe('no caller invents a reason the coordinator did not give', () => {
@@ -62,5 +73,35 @@ describe('no caller invents a reason the coordinator did not give', () => {
       /error:\s*'invalid address'/.test(fn),
       'createProposal is asserting "invalid address" again, whatever went wrong',
     ).toBe(false)
+  })
+
+  // The third caller. #509 fixed the vote, the fix above fixed the payment, and the payroll went
+  // on calling every failure a bad address - a refused seat included (#568).
+  it('createPayroll reads the recorded failure too', () => {
+    const fn = CODE.split('export async function createPayroll')[1]?.split('\nexport ')[0] ?? ''
+    expect(fn, 'createPayroll not found').toBeTruthy()
+    expect(fn, 'it must read what actually failed').toContain('lastHelperPostFailure')
+    expect(
+      /error:\s*'invalid address'/.test(fn.split('try {')[0] ?? ''),
+      'createPayroll is asserting "invalid address", whatever went wrong',
+    ).toBe(false)
+  })
+
+  // The rename was the one write the app never signed. The coordinator has required a signed
+  // rename since #454, so on every vault with signed actions turned on, renaming answered 401 and
+  // the member was told only that it failed.
+  it('a rename is signed like every other write', () => {
+    const fn = CODE.split('export async function renameSelf')[1]?.split('\nexport ')[0] ?? ''
+    expect(fn, 'renameSelf not found').toBeTruthy()
+    expect(fn, 'the rename goes out with no proof').toContain("writeProof(id, 'rename'")
+    const helper = readFileSync(join(new URL('.', import.meta.url).pathname, 'helper.ts'), 'utf8')
+    const send = helper.split('export async function renameMember')[1]?.split('\nexport ')[0] ?? ''
+    expect(send, 'and the helper client must put it in the body').toContain('proof')
+  })
+
+  it('a refused vote passes the coordinator\'s reason on instead of calling it a conflict', () => {
+    const fn = CODE.split('export async function voteProposal')[1]?.split('\nexport ')[0] ?? ''
+    expect(fn, 'voteProposal not found').toBeTruthy()
+    expect(fn, 'a 403 carries a reason and it must reach the member').toContain('403')
   })
 })
