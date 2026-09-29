@@ -459,7 +459,7 @@ does**.
 > unlock). The guard is a source scan - a capability the UI offers to USE must be offered somewhere
 > to CREATE - and it excludes test files on purpose, since counting them rebuilds the blind spot.
 
-**H1 is DONE and live, in BOTH rounds since 2026-08-27.** Every device recomputes the ZIP-244 sighash
+**H1 is DONE and live, in BOTH rounds since 2026-09-29** (see the two corrections below). Every device recomputes the ZIP-244 sighash
 from **its own** PCZT and signs that, refusing the ceremony if it disagrees with the requested one,
 and it decodes and shows what the transaction pays before contributing a share. `SigningMachine` is
 what the background signer drives, so this is the live path, not a lab one. #62 is closed.
@@ -471,6 +471,16 @@ what the background signer drives, so this is the live path, not a lab one. #62 
 > displayed the transaction it had verified and signed the one it was handed. Fixed in #355: `onSp`
 > now refuses a mismatch and never overwrites the local sighash. Only with that does "a hostile
 > helper cannot swap the transaction under a signer" hold as written.
+>
+> **And it overstated it a second time, until 2026-09-29.** #355 compared the `msg` FIELD of the
+> round-2 message with the local sighash, and then signed the `sp` field. The two travel
+> independently, and the share is computed over the message inside `sp`, so the check bound the
+> label and not the package: whoever held seat 1 could leave `msg` honest and build `sp` over
+> another message. The fix moved the message INTO the function that signs:
+> `participant_round2_with_randomizer` in `konclave-wasm` takes the locally derived sighash and
+> refuses a package over anything else, so there is no call that skips it. Found by checking one
+> sentence of the ZCG application against the code, not by a report. The same shape as the rule
+> above: a check that lives beside the thing it protects is a second implementation.
 
 **Privacy: a leaked vault id no longer opens the books (#388) - DONE and LIVE (2026-08-30).**
 Shipped to production (`konclave-demo.vercel.app` / `www.konclave.xyz`) and validated on mainnet the
