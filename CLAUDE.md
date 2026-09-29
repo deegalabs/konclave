@@ -28,7 +28,14 @@ terminals, and manual copying of hex. Konclave is the human layer on top of the 
 tools.
 
 **Context:** ZecHub Hackathon 3.0 (2026), FROST + Accounting tracks (equal weight).
-Submission deadline: **2026-07-15 UTC**. Development is **solo**.
+Submission deadline: **2026-07-15 UTC**, delivered. It has been built as a product since, with no
+deadline (the submission is archived at
+[docs/archive/zechub-3.0-submission.md](docs/archive/zechub-3.0-submission.md)).
+
+**Team.** DeegaLabs has two co-founders. **Daniel Gorgonha writes the code.** Dayane Bismark built
+most of the early screens during the hackathon and runs the project's narrative and
+communications. This line said "Development is solo" until 2026-09-29, which described who commits
+and erased who else the project is.
 
 ---
 
@@ -48,7 +55,7 @@ From [CONCEITO_INICIAL.md §13](docs/CONCEITO_INICIAL.md) + the logistics conver
 | Privacy | **Shielded-first** (Orchard); no telemetry; secrets never in log/disk/URL |
 | Scope | Untouchable core + 3 promoted extras (memo-payslip, accounting, proposal desk) |
 | License | **Dual Apache-2.0 / MIT** |
-| Team | **Solo** → scope locked to the core; extras only if there is room; stretch out of scope |
+| Team | **One person writes the code** → scope locked to the core; extras only if there is room; stretch out of scope |
 
 > **Note on "Receive only in Orchard" (post-NU6.3).** Since NU6.3 "Ironwood" activated on
 > mainnet (§5), new shielded receives land in the **Ironwood** pool at the protocol level (Orchard
@@ -394,7 +401,7 @@ desktop" as the original intent and ADR-0005 as the delivery that carries it tod
 (#67, primitive proven byte-exact vs the signer). PIN-gated admission + vault fingerprint close the
 invite-as-bearer concern (#67 prevention / #68 detection, both live-validated 2-tab).
 
-**Desktop (Tauri) - RELEASED, latest v0.4.0 (2026-09-07); the line opened at v0.2.0 (2026-08-03).** The desktop line shipped: real `src-tauri/`
+**Desktop (Tauri) - RELEASED, latest v0.6.0 (2026-09-22); the line opened at v0.2.0 (2026-08-03).** The desktop line shipped: real `src-tauri/`
 code (Tauri shell over the `orchestrator`) tagged **`v0.2.0`**, with Windows/macOS/Linux installers.
 The web app stays the primary delivery (ADR-0005); desktop is the optional native shell. **Still open:**
 live **per-platform hardware** validation (the GTK/WSLg window does not render here, ADR-0004).
@@ -562,6 +569,14 @@ out **sealed** to the vault's devices, with the plaintext path closing per vault
   and CSRF, and IS the device - so the call would always answer `Open` while making the issue look
   closed; ADR-0011 amendment, #456), and the **first-claim race** is dominated by #67/#68 and the
   fix D3 names would be self-attested, proving possession of a key nobody vouched for.
+  **#288 was closed on 2026-09-28, as a mechanism.** What it left is coverage, and one defect found
+  the next day. Coverage: the gate is on in 2 of the 9 vaults on the production volume, the two in
+  use. The defect (#568): the helper verified a vote for the seat that signed it and recorded it
+  under a name from the request body, so a member could approve in another member's name and take a
+  2-of-2 proposal to `ready` alone. The rename had the check, in its own copy of the gate; the vote
+  and the proposal did not. Same shape as the four defects under "the failure that repeated most".
+  A fix is proposed in #569. Until it is merged AND the coordinator is redeployed, the defect is
+  live in production: merging changes what `main` says, not what the service runs.
 - **`/net` never got the replay mitigation** (#363): `NetVault.tsx` is a second, diverged ceremony
   driver whose wire type erases the ceremony tag and whose `onMessage` ignores history.
 - **H2 CONFIDENTIALITY is DONE (#63), merged and proven live (2026-08-29).** The device-key handshake
@@ -583,8 +598,11 @@ out **sealed** to the vault's devices, with the plaintext path closing per vault
   gap in the first place.
 - **Read access is now gated by `S`** (#388/#402, was #267): the helper's private reads require the
   `readKey`, so a leaked id gets `401`. **Residual (open):** the ~5 legacy/open vaults created before
-  #388 stay readable through the helper until re-created - there is no automatic migration; a guided
-  "Protect this vault" flow is designed in **#406**.
+  #388 stay readable through the helper until re-created - there is no automatic migration.
+  **#406 was re-scoped on 2026-09-28** from a guided "re-create and sweep" to an in-place upgrade,
+  because three pieces of work ask an existing vault for the same thing: the write keys (which
+  already register themselves on unlock), `S` with the read key, and the viewing key leaving the
+  coordinator (#516). Adding `S` in place is believed feasible and is NOT verified.
 - **Staging is BUILT, both halves** (#370), and this entry said otherwise for two days. Verified
   2026-09-07: `konclave-relay-staging.up.railway.app/health` and
   `konclave-helper-staging.up.railway.app/api/health` both answer `200`, in their own Railway project
@@ -614,7 +632,13 @@ out **sealed** to the vault's devices, with the plaintext path closing per vault
   a `read-key.json` (#388), and the busiest vault in the product - 14 ceremonies, 17 proposals, used
   the day of this count - is one of the **open** ones. There is also a stray **testnet** vault
   (`utest1...`, no activity since 2026-08-20) sitting on the production volume, which is #370's
-  argument written into the volume itself. The container runs as
+  argument written into the volume itself.
+  **Re-counted 2026-09-28: 9 active vaults, 4 with a read key, the write gate on in 2.** Eight of
+  the nine are the maintainer's or the pilot group's tests, and one belongs to an outside user who
+  never transacted. So "the busiest vault is an open one" above was true of a test vault, and the
+  four open mainnet vaults read a balance of zero that day. Six are approved to be retired at the
+  next coordinator deploy (the five open ones and one protected test vault), which leaves three.
+  The container runs as
   a **non-root** `konclave` user: the entrypoint enters as root only to `chown` the durable Railway
   volume, then drops via `gosu` before running the share-blind helper (#265). It still never receives,
   derives, or stores a share.

@@ -37,7 +37,7 @@ Out of scope: the upstream Zcash Foundation tools (`frostd`, `frost-client`, `zc
 
 ## Known limitations
 
-This is hackathon-stage software under active hardening. Do not custody significant
+This is early-stage software, not independently audited, under active hardening. Do not custody significant
 funds with it yet. The current threat model and open items are tracked in our internal
 audit log; headline residual risks (e.g. the local bridge's request authentication) are
 being addressed before any "production-ready" claim.
