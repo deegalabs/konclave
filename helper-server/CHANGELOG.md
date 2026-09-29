@@ -70,10 +70,18 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   creating a vault the coordinator had never seen ran its heaviest work and wrote to its disk every
   time, with no ceiling. Nothing could be read and no money could move this way: what was exposed
   is the service itself, which one source could slow down for everyone. Both now have a limit per
-  source address: 300 requests every 10 seconds, and 5 new vaults an hour. The health check is never
-  limited. A group creating its vault, or a member using the app, does not come near either number.
-  A ceiling on the disk as a whole is still open. Open since the coordinator was first hosted.
-  Takes effect when this build is deployed.
+  source address: 300 requests every 10 seconds, and 5 new vaults an hour. What is counted is the
+  vault, not the request, because every member's device registers the vault at the same moment
+  when it is created: a group of any size creating a vault counts once, however many devices take
+  part. The health check is never limited. A ceiling on the disk as a whole is still open. Open
+  since the coordinator was first hosted. Takes effect when this build is deployed.
+
+### Known limits
+
+- **If a limit is ever reached, the app does not say so.** It treats the refusal like a missing
+  answer, so a screen can come up empty or name the wrong problem until it is reloaded. Nobody
+  reaches either limit by using the product: one member sends about 4 requests every 10 seconds
+  and an office of five with two tabs each about 42, against a limit of 300.
 
 ### Changed
 

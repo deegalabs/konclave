@@ -26,6 +26,7 @@
 //! `_retired/` rather than deleting it, precisely because the operation is not reversible any
 //! other way.
 
+mod admission;
 mod concurrency;
 
 use std::io::Read;
@@ -272,39 +273,10 @@ fn handle_with_token(
             None => resp(404, json!({ "error": "no such vault" }).to_string()),
         },
         (Method::Post, "/api/vault") => {
-            #[derive(Deserialize)]
-            struct Req {
-                group_key: String,
-                name: Option<String>,
-                // The vault's approval quorum, which the browser knows from the DKG. Optional so an
-                // older client still registers (0/0 = unknown, proposals then can't reach `ready`).
-                #[serde(default)]
-                threshold: u16,
-                #[serde(default)]
-                total: u16,
-            }
-            let req: Req = match serde_json::from_slice(body) {
+            let req = match parse_registration(body) {
                 Ok(r) => r,
-                Err(_) => return resp(400, json!({ "error": "invalid json" }).to_string()),
+                Err(refused) => return refused,
             };
-            if !is_valid_group_key(&req.group_key) {
-                return resp(
-                    400,
-                    json!({ "error": "group_key must be 64 hex chars" }).to_string(),
-                );
-            }
-            // A quorum of 0 is not "unknown", it is unusable: `recompute` never reaches `ready`
-            // with `threshold == 0`, so the vault registers and every proposal it will ever hold
-            // stays pending forever, with nothing on screen saying why (#288). The fields are
-            // `#[serde(default)]` for older clients, so this rejects the value rather than the
-            // absence: 0/0 still registers (legacy), but a caller that sends a quorum must send a
-            // usable one.
-            if (req.threshold == 0) != (req.total == 0) || req.threshold > req.total {
-                return resp(
-                    400,
-                    json!({ "error": "threshold must be between 1 and total" }).to_string(),
-                );
-            }
             // Idempotent: if already registered, return it without re-running the tooling.
             if let Some(r) = state.get(&req.group_key) {
                 return resp(200, vault_value(&r).to_string());
@@ -1568,91 +1540,88 @@ fn config_from_env() -> HelperConfig {
 /// plaintext it replaced without guessing (#481).
 const SEALED_UFVK_KIND: &str = "konclave-ufvk-sealed";
 
-// ---- admission (#558) -------------------------------------------------------------------------
-//
-// The relay has refused floods since #64. The coordinator had no limit of any kind, because the
-// limiter lived in the relay's own file. It is in `konclave-http` now, and both servers read it.
-
-/// Requests one client address may make per window, on every route but health. These are the
-/// relay's numbers: a dashboard polls a handful of reads every few seconds and an office behind one
-/// address may hold several members, so this sits far above real use and far below a flood.
-const FLOOD_WINDOW_SECS: i64 = 10;
-const FLOOD_MAX: u32 = 300;
-
-/// NEW vaults one client address may register per hour.
-///
-/// Registration is idempotent for a group key the coordinator already knows, and costs nothing. For
-/// one it has never seen it spawns the engine and writes a wallet to the durable volume, and had no
-/// ceiling at all. A group creates one vault at a time, from one device, so five an hour is not a
-/// limit anyone meets by using the product.
-const NEW_VAULT_WINDOW_SECS: i64 = 3600;
-const NEW_VAULT_MAX: u32 = 5;
-
-/// Distinct client addresses tracked at once, per limiter, before ended windows are reclaimed.
-const MAX_RATE_KEYS: usize = 4096;
-
-struct Limits {
-    flood: konclave_http::RateLimiter,
-    new_vaults: konclave_http::RateLimiter,
+/// A vault registration, as the coordinator will act on it.
+struct Registration {
+    group_key: String,
+    name: Option<String>,
+    threshold: u16,
+    total: u16,
 }
 
-impl Limits {
-    fn new() -> Self {
-        Limits {
-            flood: konclave_http::RateLimiter::new(FLOOD_WINDOW_SECS, MAX_RATE_KEYS),
-            new_vaults: konclave_http::RateLimiter::new(NEW_VAULT_WINDOW_SECS, MAX_RATE_KEYS),
-        }
+/// Read and validate a `POST /api/vault` body. `Err` carries the answer to send.
+///
+/// ONE function, read by the handler and by admission (#558). Admission has to know whether a
+/// registration will reach the engine, and the only honest way to know is to ask the code that
+/// decides: a second, looser parse counted bodies the handler goes on to refuse for free, so
+/// anyone behind the same address could spend another group's allowance with garbage.
+fn parse_registration(body: &[u8]) -> Result<Registration, Resp> {
+    #[derive(Deserialize)]
+    struct Req {
+        group_key: String,
+        name: Option<String>,
+        // The vault's approval quorum, which the browser knows from the DKG. Optional so an
+        // older client still registers (0/0 = unknown, proposals then can't reach `ready`).
+        #[serde(default)]
+        threshold: u16,
+        #[serde(default)]
+        total: u16,
     }
+    let req: Req = serde_json::from_slice(body)
+        .map_err(|_| resp(400, json!({ "error": "invalid json" }).to_string()))?;
+    if !is_valid_group_key(&req.group_key) {
+        return Err(resp(
+            400,
+            json!({ "error": "group_key must be 64 hex chars" }).to_string(),
+        ));
+    }
+    // A quorum of 0 is not "unknown", it is unusable: `recompute` never reaches `ready`
+    // with `threshold == 0`, so the vault registers and every proposal it will ever hold
+    // stays pending forever, with nothing on screen saying why (#288). The fields are
+    // `#[serde(default)]` for older clients, so this rejects the value rather than the
+    // absence: 0/0 still registers (legacy), but a caller that sends a quorum must send a
+    // usable one.
+    if (req.threshold == 0) != (req.total == 0) || req.threshold > req.total {
+        return Err(resp(
+            400,
+            json!({ "error": "threshold must be between 1 and total" }).to_string(),
+        ));
+    }
+    Ok(Registration {
+        group_key: req.group_key,
+        name: req.name,
+        threshold: req.threshold,
+        total: req.total,
+    })
 }
 
-/// Whether this request may be handled at all. `Some(refusal)` when it may not.
+/// The response for a request admission refused.
+fn refusal(why: admission::Refused) -> Response<std::io::Cursor<Vec<u8>>> {
+    Response::from_data(json!({ "error": why.message() }).to_string().into_bytes())
+        .with_status_code(429)
+}
+
+/// Whether this request is a registration that WILL reach the engine, and is over its limit.
 ///
-/// Runs before the per-vault lock is taken and before any handler, so a flood costs a map lookup
-/// and not a worker.
-fn admit(
-    limits: &Limits,
+/// A vault the coordinator already knows is returned as stored and costs nothing; a body
+/// `parse_registration` refuses never reaches the engine either. Neither is counted.
+fn new_vault_refusal(
+    limits: &admission::Limits,
     state: &HelperState,
     client: &str,
     method: &Method,
     path: &str,
     body: &[u8],
     now: i64,
-) -> Option<Resp> {
+) -> Option<admission::Refused> {
     let (route, _) = path.split_once('?').unwrap_or((path, ""));
-    // Health is how anyone tells "busy" from "dead" (2026-08-27). It is never refused and never
-    // counted, so a monitor cannot be locked out and cannot use up the allowance of whoever shares
-    // its address.
-    if route == "/api/health" {
+    if method != &Method::Post || route != "/api/vault" {
         return None;
     }
-    let key = format!("ip:{client}");
-    if !limits.flood.allow(&key, now, FLOOD_MAX) {
-        return Some(resp(429, json!({ "error": "rate limited" }).to_string()));
+    let reg = parse_registration(body).ok()?;
+    if state.contains(&reg.group_key) {
+        return None;
     }
-    if method == &Method::Post
-        && route == "/api/vault"
-        && registers_a_new_vault(state, body)
-        && !limits.new_vaults.allow(&key, now, NEW_VAULT_MAX)
-    {
-        return Some(resp(
-            429,
-            json!({ "error": "too many new vaults from this address, try again later" })
-                .to_string(),
-        ));
-    }
-    None
-}
-
-/// Whether this registration would reach the engine: a well-formed group key the coordinator has
-/// never seen. Anything else is answered by the handler without running anything - a known vault is
-/// returned as stored, a malformed body is refused - and costs nothing worth counting.
-fn registers_a_new_vault(state: &HelperState, body: &[u8]) -> bool {
-    #[derive(Deserialize)]
-    struct Key {
-        group_key: String,
-    }
-    serde_json::from_slice::<Key>(body)
-        .is_ok_and(|k| is_valid_group_key(&k.group_key) && !state.contains(&k.group_key))
+    limits.new_vault(client, &reg.group_key, now).err()
 }
 
 fn main() {
@@ -1709,7 +1678,7 @@ fn main() {
     eprintln!("konclave-helper serving with {workers} worker(s)");
 
     let server = Arc::new(server);
-    let limits = Arc::new(Limits::new());
+    let limits = Arc::new(admission::Limits::new());
     let mut pool = Vec::with_capacity(workers);
     for _ in 0..workers {
         let (server, state, cfg, locks, limits) = (
@@ -1746,6 +1715,15 @@ fn main() {
                     .map(|h| h.value.as_str()),
                 remote.as_deref(),
             );
+            let now = i64::try_from(now_unix()).unwrap_or(i64::MAX);
+            // BEFORE the body is read. A refused request should cost a map lookup, not two
+            // megabytes of buffering and the worker that reads them. Refusals are deliberately not
+            // logged: a line per refused request would turn a flood of requests into a flood of
+            // log, and would write client addresses to disk, which nothing here needs.
+            if let Some(refused) = admission::refuse_flood(&limits, &client, &path, now) {
+                let _ = req.respond(with_cors(refusal(refused)));
+                continue;
+            }
             // A public POST with no ceiling is memory exhaustion by one request (#269). The relay
             // has capped since #390; the helper did not, because the rule lived in the relay's own
             // file. It lives in `konclave-http` now, so there is one ceiling and both servers read it.
@@ -1761,16 +1739,12 @@ fn main() {
                 konclave_http::ReadPlan::Skip => { /* over the cap: handle an empty body */ }
             }
 
-            // Before the vault's lock and before any handler, so a flood costs a map lookup and not
-            // a worker, and never queues behind a vault that is busy signing.
-            let now = i64::try_from(now_unix()).unwrap_or(i64::MAX);
-            if let Some(refused) = admit(&limits, &state, &client, &method, &path, &body, now) {
-                // Deliberately not logged. A line per refused request would turn a flood of
-                // requests into a flood of log, and it would write client addresses to disk,
-                // which nothing here needs (the limiter keeps them in memory, for one window).
-                let out =
-                    Response::from_data(refused.body.into_bytes()).with_status_code(refused.status);
-                let _ = req.respond(with_cors(out));
+            // Before the vault's lock, so a registration that will be refused never queues behind
+            // a vault that is busy signing.
+            if let Some(refused) =
+                new_vault_refusal(&limits, &state, &client, &method, &path, &body, now)
+            {
+                let _ = req.respond(with_cors(refusal(refused)));
                 continue;
             }
 
@@ -3425,158 +3399,110 @@ mod tests {
         assert_eq!(r.status, 404);
     }
 
-    // ---- #558: admission -----------------------------------------------------------------------
+    // ---- #558: which registrations admission counts ----------------------------------------------
+    //
+    // The counting itself is tested in `admission.rs`. These are about WHAT gets counted: only a
+    // registration that will reach the engine.
 
     const T0: i64 = 1_800_000_000;
 
-    /// A registration body for a group key the coordinator has never seen. 64 hex chars, distinct
-    /// per `n`.
-    fn new_vault_body(n: u32) -> Vec<u8> {
-        format!(r#"{{"group_key":"{n:064x}","name":"v","threshold":2,"total":2}}"#).into_bytes()
+    fn register_body(n: u32, threshold: u16, total: u16) -> Vec<u8> {
+        format!(r#"{{"group_key":"{n:064x}","name":"v","threshold":{threshold},"total":{total}}}"#)
+            .into_bytes()
     }
 
-    fn register_from(l: &Limits, st: &HelperState, client: &str, n: u32, now: i64) -> Option<Resp> {
-        admit(
-            l,
-            st,
-            client,
-            &Method::Post,
-            "/api/vault",
-            &new_vault_body(n),
-            now,
-        )
+    fn registering(
+        l: &admission::Limits,
+        st: &HelperState,
+        client: &str,
+        body: &[u8],
+    ) -> Option<admission::Refused> {
+        new_vault_refusal(l, st, client, &Method::Post, "/api/vault", body, T0)
     }
 
-    /// The expensive path: an unknown group key runs the engine and writes to the durable volume.
-    #[test]
-    fn the_sixth_new_vault_from_one_address_in_an_hour_is_refused() {
-        let (l, st) = (Limits::new(), HelperState::new());
-        for n in 0..NEW_VAULT_MAX {
-            assert!(
-                register_from(&l, &st, "203.0.113.7", n, T0).is_none(),
-                "new vault {n} is within the limit"
-            );
-        }
-        let refused = register_from(&l, &st, "203.0.113.7", 99, T0).expect("the sixth is refused");
-        assert_eq!(refused.status, 429, "{}", refused.body);
-
-        // Someone else is not made to pay for it.
-        assert!(register_from(&l, &st, "198.51.100.9", 100, T0).is_none());
-        // And an hour later the same address starts over.
-        assert!(register_from(&l, &st, "203.0.113.7", 101, T0 + NEW_VAULT_WINDOW_SECS).is_none());
-    }
-
-    /// Registering a vault the coordinator already knows is what every device of a group does, and
-    /// it runs nothing. It must never use up the allowance for new ones.
+    /// Registering a vault the coordinator already knows is what every device of a group does
+    /// after the first one, and it runs nothing. It must never use up the allowance for new ones.
     #[test]
     fn a_vault_the_coordinator_already_knows_is_never_counted() {
-        let (l, st) = (Limits::new(), HelperState::new());
+        let (l, st) = (admission::Limits::new(), HelperState::new());
         let known = format!("{:064x}", 7);
         seed(&st, &known);
         let body = format!(r#"{{"group_key":"{known}","threshold":2,"total":3}}"#);
-        for i in 0..50 {
-            assert!(
-                admit(
-                    &l,
-                    &st,
-                    "203.0.113.7",
-                    &Method::Post,
-                    "/api/vault",
-                    body.as_bytes(),
-                    T0
-                )
-                .is_none(),
+        for i in 0..200 {
+            assert_eq!(
+                registering(&l, &st, "203.0.113.7", body.as_bytes()),
+                None,
                 "registration {i} of a known vault"
             );
         }
-        // The allowance for NEW vaults is untouched.
-        for n in 0..NEW_VAULT_MAX {
-            assert!(register_from(&l, &st, "203.0.113.7", 1000 + n, T0).is_none());
-        }
-    }
-
-    /// A body the handler will refuse before it reaches the engine costs nothing, so it is not
-    /// counted either. Counting it would let anyone spend a stranger's allowance with garbage sent
-    /// from behind the same address.
-    #[test]
-    fn a_registration_that_cannot_reach_the_engine_is_not_counted() {
-        let (l, st) = (Limits::new(), HelperState::new());
-        for body in [
-            &b"not json"[..],
-            &br#"{"group_key":"short"}"#[..],
-            &br#"{"name":"no key at all"}"#[..],
-        ] {
-            for _ in 0..10 {
-                assert!(admit(
-                    &l,
-                    &st,
-                    "203.0.113.7",
-                    &Method::Post,
-                    "/api/vault",
-                    body,
-                    T0
-                )
-                .is_none());
-            }
-        }
-        for n in 0..NEW_VAULT_MAX {
-            assert!(register_from(&l, &st, "203.0.113.7", n, T0).is_none());
-        }
-    }
-
-    #[test]
-    fn a_flood_from_one_address_is_refused_and_the_next_window_starts_over() {
-        let (l, st) = (Limits::new(), HelperState::new());
-        let read = |client: &str, now: i64| {
-            admit(
-                &l,
-                &st,
-                client,
-                &Method::Get,
-                "/api/vault/balance?vault=zzzz",
-                b"",
-                now,
-            )
-        };
-        for i in 0..FLOOD_MAX {
-            assert!(read("203.0.113.7", T0).is_none(), "request {i}");
-        }
-        let refused = read("203.0.113.7", T0).expect("one past the limit is refused");
-        assert_eq!(refused.status, 429);
-        assert!(
-            read("198.51.100.9", T0).is_none(),
-            "another address is unaffected"
-        );
-        assert!(
-            read("203.0.113.7", T0 + FLOOD_WINDOW_SECS).is_none(),
-            "the next window starts over"
-        );
-    }
-
-    /// Health is how anyone tells "busy" from "dead", which is the lesson of 2026-08-27. A monitor
-    /// polling it must never be refused, and must not use up the allowance of whoever shares its
-    /// address.
-    #[test]
-    fn health_is_never_limited_and_never_counted() {
-        let (l, st) = (Limits::new(), HelperState::new());
-        for i in 0..(FLOOD_MAX * 3) {
-            assert!(
-                admit(&l, &st, "203.0.113.7", &Method::Get, "/api/health", b"", T0).is_none(),
-                "health check {i}"
+        for n in 0..admission::NEW_VAULTS_MAX as u32 {
+            assert_eq!(
+                registering(&l, &st, "203.0.113.7", &register_body(1000 + n, 2, 2)),
+                None,
+                "and the allowance for new vaults is untouched"
             );
         }
-        assert!(
-            admit(
-                &l,
-                &st,
-                "203.0.113.7",
-                &Method::Get,
-                "/api/vault?vault=zzzz",
-                b"",
-                T0
-            )
-            .is_none(),
-            "and the same address still has its whole allowance"
+    }
+
+    /// A body the handler refuses never reaches the engine, so it costs nothing worth counting.
+    /// Counting it would let anyone behind the same address spend a group's allowance with
+    /// garbage. The first version parsed the key alone and counted every one of these.
+    #[test]
+    fn a_registration_the_handler_will_refuse_is_not_counted() {
+        let (l, st) = (admission::Limits::new(), HelperState::new());
+        let refused_by_the_handler: Vec<Vec<u8>> = vec![
+            b"not json".to_vec(),
+            br#"{"group_key":"short"}"#.to_vec(),
+            br#"{"name":"no key at all"}"#.to_vec(),
+            register_body(1, 3, 2), // threshold above total
+            register_body(2, 0, 3), // a quorum of zero
+            register_body(3, 2, 0), // a total of zero
+            format!(r#"{{"group_key":"{:064x}","name":7}}"#, 4).into_bytes(),
+            format!(r#"{{"group_key":"{:064x}","threshold":70000}}"#, 5).into_bytes(),
+        ];
+        for body in &refused_by_the_handler {
+            // The premise, checked rather than assumed: the handler does refuse each of these.
+            let answer = handle(&st, &cfg(), &Method::Post, "/api/vault", body);
+            assert_eq!(
+                answer.status,
+                400,
+                "the handler must refuse {:?}",
+                String::from_utf8_lossy(body)
+            );
+            for _ in 0..10 {
+                assert_eq!(registering(&l, &st, "203.0.113.7", body), None);
+            }
+        }
+        for n in 0..admission::NEW_VAULTS_MAX as u32 {
+            assert_eq!(
+                registering(&l, &st, "203.0.113.7", &register_body(100 + n, 2, 2)),
+                None,
+                "the whole allowance is still there"
+            );
+        }
+        assert_eq!(
+            registering(&l, &st, "203.0.113.7", &register_body(999, 2, 2)),
+            Some(admission::Refused::TooManyNewVaults)
         );
+    }
+
+    /// Only a registration is counted as one. A vote or a read that happens to carry a group key
+    /// is not.
+    #[test]
+    fn only_a_registration_counts_against_new_vaults() {
+        let (l, st) = (admission::Limits::new(), HelperState::new());
+        let body = register_body(1, 2, 2);
+        for (method, path) in [
+            (Method::Get, "/api/vault"),
+            (Method::Post, "/api/vault/devicekey"),
+            (Method::Post, "/api/vault/proposals"),
+        ] {
+            for _ in 0..20 {
+                assert_eq!(
+                    new_vault_refusal(&l, &st, "203.0.113.7", &method, path, &body, T0),
+                    None
+                );
+            }
+        }
     }
 }

@@ -110,20 +110,25 @@ impl RateLimiter {
 /// prevents.
 ///
 /// `forwarded` is EVERY value of that header, in order, because a request may carry more than one.
-/// The first value whose first hop is not empty wins, which is what the relay has always done.
+/// The first value whose first hop is an address wins. The relay has always walked every header;
+/// requiring an address is new with #558, and stricter than what it did.
 ///
 /// Takes strings, not a request, so this crate stays free of any HTTP library.
 pub fn client_address<'a>(
     forwarded: impl IntoIterator<Item = &'a str>,
     remote: Option<&str>,
 ) -> String {
+    // Only something that PARSES as an address is used. The value becomes a key in a map, so a
+    // header carrying thirty thousand bytes of anything would otherwise be stored as one, and a
+    // value that is not an address names no client anyway.
+    let is_address = |s: &&str| s.parse::<std::net::IpAddr>().is_ok();
     let first_hop = forwarded
         .into_iter()
         .filter_map(|value| value.split(',').next())
         .map(str::trim)
-        .find(|hop| !hop.is_empty());
+        .find(is_address);
     first_hop
-        .or_else(|| remote.map(str::trim).filter(|r| !r.is_empty()))
+        .or_else(|| remote.map(str::trim).filter(is_address))
         .unwrap_or("unknown")
         .to_string()
 }
@@ -230,6 +235,28 @@ mod tests {
             "198.51.100.9",
             "and the first that does name one is the answer"
         );
+    }
+
+    /// The value becomes a key in a map. Anything that is not an address is skipped, however long,
+    /// and the search goes on to the next header and then to the socket.
+    #[test]
+    fn a_forwarded_value_that_is_not_an_address_is_never_the_key() {
+        let junk = "x".repeat(30_000);
+        assert_eq!(
+            client_address([junk.as_str()], Some("198.51.100.9")),
+            "198.51.100.9"
+        );
+        assert_eq!(
+            client_address(["not-an-address", "203.0.113.7"], Some("10.0.0.2")),
+            "203.0.113.7"
+        );
+        assert_eq!(
+            client_address(["203.0.113.7:4780"], Some("198.51.100.9")),
+            "198.51.100.9",
+            "an address with a port is not an address"
+        );
+        assert_eq!(client_address(["2001:db8::1"], None), "2001:db8::1");
+        assert_eq!(client_address(["junk"], Some("also junk")), "unknown");
     }
 
     /// Every unknown client shares one key. That is deliberate: a request with no address at all
