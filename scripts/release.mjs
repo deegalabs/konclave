@@ -84,15 +84,30 @@ function versionsIn(file) {
  *
  * Walking DOWN and stopping at the first tagged version is self-correcting: in the normal case the
  * previous release is tagged, the walk stops immediately, and this returns exactly one version.
+ *
+ * `tagged` is a parameter so a test can state which versions shipped instead of inheriting the
+ * answer from the machine it runs on. The tests read the machine's tags until #573, which is how
+ * they passed on a laptop and failed in CI.
  */
-export function versionsToReport(version) {
-  const tagged = taggedVersions()
+export function versionsToReport(version, tagged = taggedVersions()) {
+  // "Cannot tell" is wider than "git is missing". A shallow checkout has git and NO tags, and the
+  // release workflow's has at most the tag being released - an empty answer, not an error, so it
+  // never reached the `catch` above. With no earlier tag to stop at, the walk reported every
+  // section in the file: the whole history, as one release's notes. With nothing beneath this
+  // version tagged, nothing says what shipped before it, so the rule is the one written above:
+  // never more than asked for when we cannot tell.
+  //
+  // The question is whether a version BENEATH this one is tagged, not whether any other tag
+  // exists. A release candidate, a tag that is not a version at all, or a newer release when an old
+  // tag is rebuilt are all "another tag", and none of them is a place for the walk to stop.
   if (!tagged) return [version]
   const all = versionsIn(CHANGELOG)
   const start = all.indexOf(version)
   if (start === -1) return [version]
+  const beneath = all.slice(start + 1)
+  if (!beneath.some((v) => tagged.has(v))) return [version]
   const out = [version]
-  for (const v of all.slice(start + 1)) {
+  for (const v of beneath) {
     if (tagged.has(v)) break
     out.push(v)
   }

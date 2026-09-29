@@ -26,6 +26,12 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # The whole history, which brings every tag. `release.mjs --notes` covers this version
+          # plus any section beneath it that never shipped, and it learns what shipped from the
+          # tags. The default checkout carries at most the tag being released, which says nothing
+          # about the versions before it (#573).
+          fetch-depth: 0
 
       - name: pnpm
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
