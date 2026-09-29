@@ -80,11 +80,20 @@ impl Room {
     }
 }
 
-#[derive(Default)]
 struct RelayState {
     rooms: Mutex<HashMap<String, Room>>,
-    // Source key -> (window_start_unix, count_in_window). A fixed-window flood limiter.
-    limiter: Mutex<HashMap<String, (i64, u32)>>,
+    // The fixed-window flood limiter. It was written here and lived here until #558; it is in
+    // `konclave-http` now, so the coordinator applies the same rule instead of none.
+    limiter: konclave_http::RateLimiter,
+}
+
+impl Default for RelayState {
+    fn default() -> Self {
+        RelayState {
+            rooms: Mutex::default(),
+            limiter: konclave_http::RateLimiter::new(RATE_WINDOW, MAX_RATE_KEYS),
+        }
+    }
 }
 
 impl RelayState {
@@ -118,18 +127,10 @@ impl RelayState {
     }
 
     /// Fixed-window per-key rate check. Returns `true` if the request is within budget.
-    /// O(1) amortized; the key map is pruned of stale windows only when it grows large.
+    /// The rule is `konclave_http::RateLimiter`; this keeps the name the call sites and the tests
+    /// below have always used, so the tests that pinned the old behaviour pin the shared one.
     fn rate_ok(&self, key: &str, now: i64, max: u32) -> bool {
-        let mut lim = self.limiter.lock().unwrap_or_else(|e| e.into_inner());
-        if lim.len() > MAX_RATE_KEYS {
-            lim.retain(|_, (start, _)| now.saturating_sub(*start) < RATE_WINDOW);
-        }
-        let entry = lim.entry(key.to_string()).or_insert((now, 0));
-        if now.saturating_sub(entry.0) >= RATE_WINDOW {
-            *entry = (now, 0);
-        }
-        entry.1 += 1;
-        entry.1 <= max
+        self.limiter.allow(key, now, max)
     }
 
     fn post(&self, room_id: &str, body: &[u8], now: i64) -> (u16, String) {
@@ -243,19 +244,14 @@ fn query(raw: &str, key: &str) -> Option<String> {
 /// the first hop of `X-Forwarded-For` (the real client); fall back to `remote_addr` for a direct
 /// connection. An attacker can spoof XFF only if they bypass the proxy, which the platform prevents.
 fn client_ip(req: &tiny_http::Request) -> String {
-    for h in req.headers() {
-        if h.field.equiv("X-Forwarded-For") {
-            if let Some(first) = h.value.as_str().split(',').next() {
-                let ip = first.trim();
-                if !ip.is_empty() {
-                    return ip.to_string();
-                }
-            }
-        }
-    }
-    req.remote_addr()
-        .map(|a| a.ip().to_string())
-        .unwrap_or_else(|| "unknown".to_string())
+    let remote = req.remote_addr().map(|a| a.ip().to_string());
+    konclave_http::client_address(
+        req.headers()
+            .iter()
+            .filter(|h| h.field.equiv("X-Forwarded-For"))
+            .map(|h| h.value.as_str()),
+        remote.as_deref(),
+    )
 }
 
 fn now_unix() -> i64 {
