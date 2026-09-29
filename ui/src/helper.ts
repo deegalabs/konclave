@@ -320,6 +320,7 @@ export async function renameMember(
   groupKeyHex: string,
   old: string,
   next: string,
+  proof?: WriteProof,
 ): Promise<{ members: string[] } | { error: string }> {
   const base = helperBase()
   if (!base) return { error: 'no helper' }
@@ -329,7 +330,9 @@ export async function renameMember(
     const res = await fetch(`${base}/api/vault/members/rename`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ vault: groupKeyHex, old, new: next }),
+      // `proof` is present when this device holds its share unlocked, and the coordinator
+      // requires it once the vault has a registered write key.
+      body: JSON.stringify({ vault: groupKeyHex, old, new: next, ...(proof ?? {}) }),
     })
     const data = (await res.json().catch(() => null)) as { members?: string[]; error?: string } | null
     if (res.ok && data?.members) return { members: data.members }
