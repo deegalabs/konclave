@@ -64,6 +64,17 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   seats claimed or had none - but the window opens whenever members join at different times, and on
   one vault it had been open for two weeks.
 
+- **The coordinator had no limit on how fast, or how often, anyone could ask it for things.** The
+  relay has refused floods since August; the coordinator never did, because the limit lived in the
+  relay's own code. Two things were open. Anyone could send requests as fast as they liked. And
+  creating a vault the coordinator had never seen ran its heaviest work and wrote to its disk every
+  time, with no ceiling. Nothing could be read and no money could move this way: what was exposed
+  is the service itself, which one source could slow down for everyone. Both now have a limit per
+  source address: 300 requests every 10 seconds, and 5 new vaults an hour. The health check is never
+  limited. A group creating its vault, or a member using the app, does not come near either number.
+  A ceiling on the disk as a whole is still open. Open since the coordinator was first hosted.
+  Takes effect when this build is deployed.
+
 ### Changed
 
 - **Changing a vault's member list now needs the key that proves you can read the vault.** The list
