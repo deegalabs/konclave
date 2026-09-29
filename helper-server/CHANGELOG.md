@@ -83,10 +83,23 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   seats claimed or had none - but the window opens whenever members join at different times, and on
   one vault it had been open for two weeks.
 
+- **The coordinator had no limit on how fast, or how often, anyone could ask it for things.** The
+  relay has refused floods since August; the coordinator never did, because the limit lived in the
+  relay's own code. Two things were open. Anyone could send requests as fast as they liked. And
+  creating a vault the coordinator had never seen ran its heaviest work and wrote to its disk every
+  time, with no ceiling. Nothing could be read and no money could move this way: what was exposed
+  is the service itself, which one source could slow down for everyone. Both now have a limit per
+  source address: 300 requests every 10 seconds, and 5 new vaults an hour. What is counted is the
+  vault, not the request, because every member's device registers the vault at the same moment
+  when it is created: a group of any size creating a vault counts once, however many devices take
+  part. The health check is never limited. A ceiling on the disk as a whole is still open. Open
+  since the coordinator was first hosted. Takes effect when this build is deployed.
+
 ### Known limits
 
 - **One member can still make a payment read as approved by the group, by three other routes.**
-  Found while reviewing the fix above, and none of them is closed by it. An approval recorded while
+  Found while reviewing the fix for a vote recorded under another member's name, and none of them
+  is closed by it. An approval recorded while
   a vault still took unsigned actions keeps counting once it requires signatures, under whatever
   name it was given (#575). A vote and a rename sent at the same instant, in a particular way, can
   leave the same member approving under both names (#576). And a member can register a device for
@@ -94,6 +107,11 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   approve as them (#577). In all three no money can move: each device still asks its owner to
   confirm the specific payment, and signing needs the real key shares. What is not yet trustworthy
   on its own is the line that says who approved.
+
+- **If a limit is ever reached, the app does not say so.** It treats the refusal like a missing
+  answer, so a screen can come up empty or name the wrong problem until it is reloaded. Nobody
+  reaches either limit by using the product: one member sends about 4 requests every 10 seconds
+  and an office of five with two tabs each about 42, against a limit of 300.
 
 ### Changed
 
