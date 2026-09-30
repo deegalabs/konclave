@@ -40,6 +40,8 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+## [0.8.0] 2026-09-30
+
 ### Security
 
 - **Changing your passphrase undid part of the check a device makes before it signs.** Each device
@@ -57,8 +59,8 @@ history to tidy it is how context gets lost.
   keeps everything else the device had recorded. Open since 2026-09-15, when the record was
   introduced, on devices where the passphrase was changed after that. A device that already changed
   it keeps the address it took afterwards, which is the right one unless the coordinator was
-  compromised at that moment. We have no sign that it was used. Live on the web with this change,
-  and on the desktop at its next release.
+  compromised at that moment. We have no sign that it was used. Live on the web since 2026-09-30,
+  and in desktop v0.8.0.
 
 ### Fixed
 
@@ -68,23 +70,23 @@ history to tidy it is how context gets lost.
   about a password it had just chosen. The app now keeps drawing until the meter rates the password
   strong, and the meter is unchanged.
 
-- **The documentation described features that do not exist yet, and said the coordinator could
-  not read what it can.** Member recovery and inheritance were listed as features; they are demos
-  on a throwaway vault, and a lost seat cannot be rebuilt or replaced yet. A "quorum by value" was
+- **The documentation described features that do not exist yet, and said the coordinator could not
+  read what it can.** Member recovery and inheritance were listed as features; they are demos on a
+  throwaway vault, and a lost seat cannot be rebuilt or replaced yet. A "quorum by value" was
   described that was never built. The coordinator was called blind, and payslip memos were said to
   be readable only by their recipient; in fact the coordinator holds each vault's viewing key and
-  can read the balance, the payments, the amounts, the memos and the members' names, though it
-  never holds anyone's part of the key and cannot spend. The docs also said votes were not
-  authenticated, when every vote, proposal, payroll, rename and send is signed by the member's
-  device and checked; and that a vault never dies from one lost seat, which is false in a 2 of 2.
-  The docs, the landing screen and the payment screen now say what is true, including that the
-  desktop app is v0.7.0, a pre-release that is not code-signed, with no Intel Mac build. The
-  quorum on the web's create screen can no longer be set to 1, since the signing library refuses a
-  quorum of 1 when the vault's key is made. The older standalone `/net` and `/create` screens still
-  offer it, and the coordinator still accepts it at registration (#589).
-  The docs also gain a FAQ, a step-by-step guide to backing up your seat and one to restoring it on
-  a new device, and a plain account of what to do when a seat is lost for good: create a new vault
-  and move the funds with a signed payment while the remaining members still reach the quorum.
+  can read the balance, the payments, the amounts, the memos and the members' names, though it never
+  holds anyone's part of the key and cannot spend. The docs also said votes were not authenticated,
+  when every vote, proposal, payroll, rename and send is signed by the member's device and checked;
+  and that a vault never dies from one lost seat, which is false in a 2 of 2. The docs, the landing
+  screen and the payment screen now say what is true, including which desktop release is the latest,
+  and that it is a pre-release that is not code-signed, with no Intel Mac build. The quorum on the
+  web's create screen can no longer be set to 1, since the signing library refuses a quorum of 1
+  when the vault's key is made. The older standalone `/net` and `/create` screens still offer it,
+  and the coordinator still accepts it at registration (#589). The docs also gain a FAQ, a step-by-
+  step guide to backing up your seat and one to restoring it on a new device, and a plain account of
+  what to do when a seat is lost for good: create a new vault and move the funds with a signed
+  payment while the remaining members still reach the quorum.
 
 ## [0.7.0] 2026-09-29
 
