@@ -1,11 +1,12 @@
 # Security Policy
 
 Konclave is a self-custody tool for collective Zcash vaults using FROST threshold
-signatures. Key shares never leave a member's device. The relay carries only sealed or
-public ceremony material; the hosted coordinator never receives a share and cannot spend,
-but it holds each vault's viewing key and sees its payments. Because it can move real
-funds, we take security seriously and audit before publishing and whenever
-authentication, key custody, or fund-movement paths change.
+signatures. Key shares never leave a member's device. The relay carries sealed or public
+ceremony material: it never sees a share or who a payment pays, but it does see member
+names and the quorum while a vault is being created; the hosted coordinator never receives
+a share and cannot spend, but it holds each vault's viewing key and sees its payments.
+Because it can move real funds, we take security seriously and audit before publishing and
+whenever authentication, key custody, or fund-movement paths change.
 
 ## Reporting a vulnerability
 
@@ -32,10 +33,12 @@ Out of scope: the upstream Zcash Foundation tools (`frostd`, `frost-client`, `zc
 
 - Key shares are sealed at rest (XChaCha20-Poly1305); for DKG vaults the sealing key is
   derived from a passphrase via Argon2id and never stored. In the browser, shares are
-  stored in IndexedDB under AES-256-GCM with a key derived by PBKDF2-HMAC-SHA256 (600,000
-  iterations) from the member's passphrase.
-- `frostd` (local build) and the relay see only public or sealed protocol material; the
-  hosted coordinator is view-only (see above).
+  stored in IndexedDB under AES-256-GCM with a key derived by PBKDF2-HMAC-SHA256 from the
+  member's passphrase: 600,000 iterations for anything sealed since 2026-09-06 (#479); records
+  and exports sealed before that keep 210,000 until the passphrase is changed.
+- `frostd` (local build) and the relay see only public or sealed protocol material, plus, on the
+  relay, the member names and the quorum exchanged while a vault is created; the hosted
+  coordinator is view-only (see above).
 - Shielded-first: receiving is shielded-only (the Ironwood pool since NU6.3); transparent
   destinations are an explicit, warned exception.
 - The local bridge binds `127.0.0.1` only; no telemetry; secrets never in logs/URLs.

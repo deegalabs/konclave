@@ -195,9 +195,11 @@ We distinguish **what the cryptography guarantees** from **what the product enfo
 not promise what we do not deliver.
 
 - **Guaranteed by the cryptography:** the key is never reconstituted; a quorum signature is
-  required to spend; your share never leaves your device. The relay carries only sealed or public
-  ceremony messages; the coordinator never receives a share but does hold the vault's viewing key
-  (next bullet).
+  required to spend; your share never leaves your device.
+- **Guaranteed by how the services are built (product, not protocol):** the relay carries sealed or
+  public ceremony messages, never who a payment pays, though it sees member names and the quorum
+  while a vault is created; the coordinator never receives a share but does hold the vault's
+  viewing key (see *Who coordinates* below).
 - **Enforced by the product (not the chain):** balance reservation and proposal expiry (72 hours)
   are application policy, not on-chain rules. We say so plainly. There is no quorum-by-value: the
   quorum is the one number fixed when the vault is created.
@@ -215,8 +217,9 @@ not promise what we do not deliver.
   **no tool to approve, sign, or broadcast**. A drafted proposal is created *awaiting approval* and
   moves zero funds until humans act on it. The coordinator is the hosted helper, not the MCP server:
   the assistant proposes and informs, the human quorum decides, and the shares sign on the devices.
-- **Security posture:** in the browser, the share is stored encrypted (AES-256-GCM, PBKDF2-SHA256
-  with 600,000 iterations) and decrypted only in memory; on the desktop and local build it is sealed
+- **Security posture:** in the browser, the share is stored encrypted (AES-256-GCM under a
+  PBKDF2-SHA256 key: 600,000 iterations for anything sealed since 2026-09-06, while older records
+  and older backups keep 210,000 until the passphrase is changed) and decrypted only in memory; on the desktop and local build it is sealed
   with XChaCha20-Poly1305 under an Argon2id key in the OS keychain and unsealed only to ephemeral
   `0600` tmpfs files during signing; the local bridge is guarded against CSRF/DNS-rebinding; secret
   material is zeroized in memory; destinations

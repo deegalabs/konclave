@@ -57,7 +57,7 @@ into the browser. See §8 for how those become the two delivery shells.
 | Per-vault access secret **S** (sealed at rest, #388; sent to the other members only sealed) | Partial signatures |
 | The act of signing | The final transaction (goes to mainnet) |
 | | `readKey = HKDF-SHA256(S)` (a one-way derived token, to the helper) |
-| | The vault's viewing key (to the coordinator, once, at registration; it decrypts the memos too) |
+| | The vault's viewing key: minted by the coordinator when the vault is registered (`zcash-sign generate --ak`) and kept there; sent by the coordinator to the vault's devices, sealed, so the export can carry it (#447, #481). It decrypts the memos too |
 | | Proposals: destination, amount, labels, memo text, member names (to the coordinator) |
 
 `frostd` and the `relay-server` are **blind couriers**: they carry public/encrypted envelopes and

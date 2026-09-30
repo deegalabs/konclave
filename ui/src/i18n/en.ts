@@ -955,7 +955,7 @@ export const en: Record<string, string> = {
   'net.frame.note': 'The network cryptography running for real: the vault is born by DKG and each device signs with its own share. No server ever holds a share of the key.',
   'net.idle.title': 'Create a shared vault',
   'net.idle.lead': 'Two or more tabs (or devices) create **one** vault together, by a real DKG over the blind relay. Each one leaves with its own share of the key. The whole key is never assembled, and the relay only sees public or already-encrypted material.',
-  'net.idle.purpose': 'This is Konclave operating a real vault from **any device** over a blind relay: the DKG and the signatures are real cryptography. Each device keeps its **own share** of the key, the whole key is never assembled, and no server ever sees a secret.',
+  'net.idle.purpose': 'This is Konclave operating a real vault from **any device** over a blind relay: the DKG and the signatures are real cryptography. Each device keeps its **own share** of the key, the whole key is never assembled, and no server ever holds a share.',
   'net.idle.createTitle': 'Create',
   'net.idle.createDesc': 'You open the vault and generate an invite code.',
   'net.idle.devices': 'Devices',

@@ -389,7 +389,7 @@ Cross-cutting guarantees that hold across every use case:
   broadcasts. On success the proposal becomes `sent` with the `txid` + explorer link.
 - **Postcondition:** `sent` (later `confirmed` via reconcile); only the approvers' shares signed.
 - **Honest limits:** in the local build `frostd` is started fresh per call, killed on drop, and the
-  ceremony can take 30-60s; on the web, signing takes seconds once the signers are online.
+  ceremony can take 30-60s; on the web, the signatures themselves take seconds once the signers are online, and the whole send takes a few minutes, most of it building and proving the transaction.
 
 ### UC-7 - Private payroll
 - **Flow:** build the document (accrual period + description); add rows manually, from the
@@ -567,7 +567,7 @@ sequenceDiagram
     O->>Z: pczt send (single shielded transaction)
     Z-->>O: txid
     O-->>U: state sent + txid (ledger itemizes N entries)
-    Note over O,Z: Key never reassembled. Each memo readable only by its recipient UFVK
+    Note over O,Z: Key never reassembled. Each memo is encrypted, readable by its recipient and by the vault's viewing key
 ```
 
 ### 5.4 Multi-device signing - Architecture B
@@ -684,8 +684,9 @@ real per the README's **Try it** section; the same walkthrough is in-app under `
   broadcast - use it to verify a proposal signs, with zero funds moved. (Note: the dry-run's
   inject verifies the FROST signature it applied, not the full bundle - see the Ironwood note.)
 - **In the local build the ceremony takes 30-60s.** `frostd` is started fresh and killed on drop;
-  there is no client timeout, so let it finish. On the web, signing takes seconds once the signers
-  are online.
+  there is no client timeout, so let it finish. On the web, the signatures themselves take seconds
+  once the signers are online, and the whole send takes a few minutes, most of it building and
+  proving the transaction.
 - **Post-Ironwood spends.** Spending a single legacy Orchard note can produce an
   Orchard→Ironwood migration whose dummy spend the FROST inject does not sign; the interim
   workaround is `pczt create-max` (spend all notes, so every action is real). The proper fix
