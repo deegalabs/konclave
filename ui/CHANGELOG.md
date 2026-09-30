@@ -40,6 +40,12 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The landing named the previous desktop release.** It said v0.7.0 after v0.8.0 shipped. It now
+  names v0.8.0, and the sentence reads the version from the same constant as the installer links,
+  so the two cannot disagree.
+
 ## [0.8.0] 2026-09-30
 
 ### Security
