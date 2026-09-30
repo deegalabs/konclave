@@ -55,6 +55,17 @@ explicitly accepted.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The backup checker reported every backup's quorum as missing, and the last member's backup as
+  damaged.** `scripts/open-export.mjs` opens a backup without Konclave and says whether it holds
+  what a rebuild needs. It looked for the vault's quorum in a field that holds the vault's policy,
+  not its numbers, so every backup read "the quorum it belongs to: NO", and the check that the
+  share agrees with the rest of the file never ran. It also counted seats from 0, so the backup of
+  whoever held the last seat was reported INCONSISTENT. The backups were complete; the checker was
+  wrong about them. It now reads the quorum from the share, where a backup keeps it, checks the
+  share's member count against the member list, and counts seats from 1.
+
 ## [0.7.0] 2026-09-29
 
 > **Services deployed when this was cut (2026-09-29):** coordinator `80e3a18`, relay `03bb736890c63e86`.
