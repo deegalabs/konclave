@@ -145,7 +145,7 @@ export default function Docs() {
   return (
     <div className="docs">
       <Letterhead
-        right={<Link className="docs-toapp" to="/">{isPT ? 'Abrir o app' : 'Open the app'}</Link>}
+        right={<Link className="docs-toapp" to="/vaults">{isPT ? 'Abrir o app' : 'Open the app'}</Link>}
       />
       <div className="docs-body">
         <aside className="docs-side" aria-label={isPT ? 'Documentação' : 'Documentation'}>

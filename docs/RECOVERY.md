@@ -2,6 +2,9 @@
 
 > What can be lost, what restores it, and the exact procedures. Written after a live audit
 > (2026-08-29) that proved the client export alone is not a complete backup.
+>
+> Update (2026-09-06): on a Private vault the export now carries the viewing key and the scan height
+> (#447, #480); the gap remains for Open vaults and for moving a vault to another coordinator.
 
 ## Where each secret lives (the trust boundary)
 
@@ -31,6 +34,10 @@ member's **share export** — and, since #447 and #480, that export carries what
 | the quorum (`t`/`n`) | decoded from the share bundle itself |
 | the change receiver | derivable from the UFVK |
 
+The address travels in every export; the viewing key and the scan floor only on a **Private**
+vault. An Open vault cannot fetch its viewing key (the helper refuses it to a vault with no read
+key), so its export restores the seat and not the vault.
+
 **What is still only on the helper**, and is correctly not in the export: `wallet_dir` (a path on the
 helper's machine) and `account` (a uuid the helper's wallet database minted — a rebuild runs
 `init-fvk` and gets a new one).
@@ -40,8 +47,6 @@ helper's machine) and `account` (a uuid the helper's wallet database minted — 
 > holds. There is no rescan. It does not look like a failure — it looks like an empty vault, and the
 > UI tells the treasurer to add funds. That is #434, and until #480 the export did not carry the
 > number even though the helper had it all along.
-
-### Why the share alone was not enough (verified live)
 
 ### Why the share alone is not enough (verified live)
 
@@ -149,8 +154,10 @@ The file has five fields outside the ciphertext, and none of them is a secret:
 
 Inside `cipher`, under AES-256-GCM with a key derived from the passphrase by **PBKDF2-HMAC-SHA256**:
 the vault id, name, governance, your member name, the creator, the group key, the address, the
-roster, the creation date, **your share**, the vault's access secret `S`, the beneficiaries, and the
-**viewing key**. Nothing identifies the vault from outside the ciphertext — not even its id.
+roster, the creation date, **your share**, the vault's access secret `S`, the beneficiaries, the
+**viewing key**, the scan floor (`birthday`, #480) and the pinned change receiver (#281). The
+viewing key and the scan floor are present only when the export was made on a Private vault.
+Nothing identifies the vault from outside the ciphertext, not even its id.
 
 ```sh
 node scripts/open-export.mjs export.json
@@ -200,9 +207,10 @@ machine, the other a database id a rebuild re-mints.
 
 ## Open work
 
-- **#214** wants the fix: the export should also carry the UFVK + address, and the helper should gain
-  a **restore/adopt** path that accepts a client-provided UFVK instead of re-deriving. Until then,
-  procedure D is mandatory for any funded vault.
+- **#214**: the export now carries the viewing key, the address and the scan height. Still
+  missing: a restore/adopt path in the coordinator that accepts an existing viewing key instead of
+  deriving a new one. Until it exists, procedure D remains the only way to rebuild a vault on a new
+  coordinator.
 - **#308** tracks the recovery-claim honesty pass (member-recovery / inheritance are not shipped).
-- **#388** will make a leaked vault id no longer grant read access; unrelated to fund recovery but
-  part of the same trust story.
+- **#388** (done 2026-08-30): a leaked vault id no longer opens the reads on a Private vault; Open
+  vaults stay readable until re-created (#406).

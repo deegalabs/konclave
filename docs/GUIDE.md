@@ -388,8 +388,8 @@ Cross-cutting guarantees that hold across every use case:
   sighash with no funds moved. **Sign & send** requires the explicit danger-dialog confirm, then
   broadcasts. On success the proposal becomes `sent` with the `txid` + explorer link.
 - **Postcondition:** `sent` (later `confirmed` via reconcile); only the approvers' shares signed.
-- **Honest limits:** `frostd` is started fresh per call, killed on drop; the ceremony can take
-  30-60s.
+- **Honest limits:** in the local build `frostd` is started fresh per call, killed on drop, and the
+  ceremony can take 30-60s; on the web, the signatures themselves take seconds once the signers are online, and the whole send takes a few minutes, most of it building and proving the transaction.
 
 ### UC-7 - Private payroll
 - **Flow:** build the document (accrual period + description); add rows manually, from the
@@ -567,14 +567,15 @@ sequenceDiagram
     O->>Z: pczt send (single shielded transaction)
     Z-->>O: txid
     O-->>U: state sent + txid (ledger itemizes N entries)
-    Note over O,Z: Key never reassembled. Each memo readable only by its recipient UFVK
+    Note over O,Z: Key never reassembled. Each memo is encrypted, readable by its recipient and by the vault's viewing key
 ```
 
 ### 5.4 Multi-device signing - Architecture B
 
 The browser devices keep the shares and sign; a **helper** builds, proves, injects, and
-broadcasts - and never sees a share. Fits "internal transparency, external privacy". The helper
-comes in two forms, same blind contract either way: the **hosted blind `helper-server`** (a real
+broadcasts - and never sees a share. It does hold the vault's viewing key, so it reads the
+payments, the amounts, the memos and the member names. The helper comes in two forms, the same
+share-blind contract either way: the **hosted `helper-server`** (a real
 CI-tested crate deployed on Railway, ADR-0006 Rung A) for the web/browser-native path, or the
 **native `orchestrator`** (`konclave serve`) as the equivalent **local-mode** helper.
 
@@ -656,7 +657,7 @@ The everyday flow, route by route:
 1. **Create or join a vault** - open the create modal from `/vaults` (the embedded
    `<NetVault embedded />` flow; standalone `/create` and `/net` are legacy/diagnostics). Members +
    quorum (defaults to 2-of-3); key born by DKG, never whole.
-2. **Fund it** (`/receive`) - share the Orchard address (QR + ZIP-321) and receive ZEC.
+2. **Fund it** (`/receive`) - share the shielded address (QR + ZIP-321) and receive ZEC.
 3. **Propose a payment** (`/pay`) - amount + recipient; address + balance validated up front.
 4. **Approve to quorum** (`/proposals` → a proposal) - approve/refuse; nothing moves until `t`;
    proposals expire.
@@ -682,16 +683,18 @@ real per the README's **Try it** section; the same walkthrough is in-app under `
 - **Dry-run first.** The send path has a dry-run that runs the whole ceremony and stops *before*
   broadcast - use it to verify a proposal signs, with zero funds moved. (Note: the dry-run's
   inject verifies the FROST signature it applied, not the full bundle - see the Ironwood note.)
-- **The ceremony takes 30-60s.** `frostd` is started fresh and killed on drop; there is no client
-  timeout, so let it finish.
+- **In the local build the ceremony takes 30-60s.** `frostd` is started fresh and killed on drop;
+  there is no client timeout, so let it finish. On the web, the signatures themselves take seconds
+  once the signers are online, and the whole send takes a few minutes, most of it building and
+  proving the transaction.
 - **Post-Ironwood spends.** Spending a single legacy Orchard note can produce an
   Orchard→Ironwood migration whose dummy spend the FROST inject does not sign; the interim
   workaround is `pczt create-max` (spend all notes, so every action is real). The proper fix
   lands with the engine bump to a librustzcash including upstream `#2777`.
 - **A reload can lose an unsaved `/net` share.** Save it (encrypted IndexedDB) if you want to
   restore without redoing the DKG.
-- **The hosted demo is mock data.** The real proof is on-chain - run `node scripts/verify-proof.mjs`
-  or see [PROOF.md](PROOF.md).
+- **The hosted app has no mock data.** It shows only vaults you created. The proof is on-chain -
+  run `node scripts/verify-proof.mjs` or see [PROOF.md](PROOF.md).
 
 ---
 
@@ -705,18 +708,18 @@ What is shipped, dry-run-only, or roadmap - validated against the code (not just
 | Private payroll (one shielded tx, N memos) | **Proven on mainnet** (txid `b1e24c07…`) |
 | Send from a **real DKG** vault | **Proven on mainnet** (txid `aab00f90…`) |
 | **Browser-signed** broadcast (each tab signs in-browser over the relay) | **Proven on mainnet** (txid `3022420a…`) - *two tabs on one machine* |
-| Broadcast across **separate physical devices** (carried to a confirmed txid) | **Open milestone** (the distributed protocol is proven; separate-device hardware is not yet) |
+| Broadcast across **separate physical devices** (carried to a confirmed txid) | **Proven on mainnet** (`aec83baf…`, separate machines over the internet; `2d861b8f…`, from a phone) |
 | **Ironwood / NU6.3** (Orchard→Ironwood migration + first Ironwood-pool spend) | **Proven on mainnet** (`54266f47…`, `36c60f1e…`) |
 | C6 signer tests (extract/inject vectors) | **Closed** (real Ironwood PCZT vectors, tests green) |
 | `/net` multi-device - single-spend live | **Done** (part of the browser-signed broadcast) |
 | `/net` multi-device - **multi-note over the live relay** | **Wired + unit-tested; live proof pending** |
 | On-device share persistence + sign-after-restore | **Wired + live-exercised; `storage.ts` lacks a direct unit test** |
 | Social recovery (RTS) / Inheritance policy engine | **Core proven by tests; not yet wired into a live vault UI** |
-| Tauri single desktop binary | **Shipped** (desktop app **v0.2.0**, 2026-08-03, `src-tauri/`: Windows/macOS/Linux installers). Open: live per-platform hardware validation. The loopback bridge remains the local delivery form; see [ADR-0004](adr/0004-local-http-bridge.md) |
+| Tauri single desktop binary | **Shipped** (first released as **v0.2.0** on 2026-08-03, latest **v0.7.0**, a pre-release; `src-tauri/`: Windows, Linux and Apple Silicon macOS installers, not code-signed or notarized). Open: live per-platform hardware validation. The loopback bridge remains the local delivery form; see [ADR-0004](adr/0004-local-http-bridge.md) |
 
 See [CLAIMS.md](CLAIMS.md) and [PROOF.md](PROOF.md) for the authoritative, evidence-linked ladder.
 
 ---
 
-*This guide is generated from the code and kept honest. If something here disagrees with the
+*This guide is checked against the code and kept honest. If something here disagrees with the
 code, the code wins - please open an issue.*

@@ -9,14 +9,15 @@ import { useInstall } from '../use-install'
 
 const REPO = 'https://github.com/deegalabs/konclave'
 const RELEASES = `${REPO}/releases`
-const VER = '0.2.0'
+const VER = '0.7.0'
 // Kept, unused for now: the installers exist at these URLs and the buttons go live again the
 // moment per-platform validation lands (#212). Deleting it would lose the mapping.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const dl = (file: string) => `${REPO}/releases/download/v${VER}/${file}`
 void dl
-// One-click installers → the real v0.2.0 assets (GitHub serves them as attachments, so the
-// click downloads directly). macOS ships Apple-Silicon; Intel / .deb / .rpm live under RELEASES.
+// One-click installers → the real v0.7.0 assets (GitHub serves them as attachments, so the
+// click downloads directly). macOS ships Apple Silicon only; there is no Intel build. The .deb,
+// .rpm and .exe live under RELEASES. None of them is code-signed or notarized yet.
 const BUILDS = {
   Windows: { ext: '.msi', file: `Konclave_${VER}_x64_en-US.msi` },
   macOS: { ext: '.dmg (Apple Silicon)', file: `Konclave_${VER}_aarch64.dmg` },
@@ -32,8 +33,8 @@ export default function Intro() {
   const pt = locale === 'pt-BR'
   // The landing has its own copy (it predates the i18n dictionary), so the reason lives here.
   const soonWhy = pt
-    ? 'O aplicativo de mesa existe e está assinado, mas ainda não foi validado em cada plataforma. Enquanto isso, o cofre roda inteiro no navegador.'
-    : 'The desktop app exists and is signed, but has not been validated on each platform yet. Meanwhile the vault runs entirely in the browser.'
+    ? 'O aplicativo de mesa existe (v0.7.0, uma pré-release), mas ainda não é assinado por um editor verificado nem foi validado em cada plataforma. Enquanto isso, o cofre roda inteiro no navegador.'
+    : 'The desktop app exists (v0.7.0, a pre-release), but it is not yet signed by a verified publisher nor validated on each platform. Meanwhile the vault runs entirely in the browser.'
   const vid = useRef<HTMLVideoElement>(null)
   const [theme, setTh] = useState<Theme>(getTheme())
   const [install, setInstall] = useState(false)
@@ -115,7 +116,7 @@ export default function Intro() {
 
           <div className="lv-trust">
             <span><b>Local-first</b> · {pt ? 'sua chave nunca sai do aparelho' : 'your key never leaves the device'}</span><i />
-            <span><b>{pt ? 'Sem telemetria' : 'No telemetry'}</b> · {pt ? 'nada rastreado ou enviado' : 'nothing tracked or uploaded'}</span><i />
+            <span><b>{pt ? 'Sem telemetria' : 'No telemetry'}</b> · {pt ? 'sem análise, sem rastreadores' : 'no analytics, no trackers'}</span><i />
             <span><b>{pt ? 'ZEC real' : 'Real ZEC'}</b> · {pt ? 'provado na mainnet, txids verificáveis' : 'proven on mainnet, verifiable txids'}</span><i />
             <span><b>{pt ? 'Código aberto' : 'Open source'}</b> · Apache-2.0 / MIT</span>
           </div>
@@ -168,9 +169,10 @@ export default function Intro() {
               <div className="lv-d">{pt ? 'Um app de janela única; nada roda na nuvem.' : 'A single-window app; nothing runs in the cloud.'}</div>
               <div className="lv-ver">v{VER} · {BUILDS[os].ext}</div>
             </div>
-            {/* The desktop line is built and signed (v0.2.0) but not yet validated per platform
-                (#212, ADR-0004). Offering an untested installer for a tool that holds money is a
-                worse promise than saying "not yet" - so the option stays visible and inert. */}
+            {/* The desktop line is built (v0.7.0, a pre-release, not code-signed or notarized) but
+                not yet validated per platform (#212, ADR-0004). Offering an untested installer for
+                a tool that holds money is a worse promise than saying "not yet" - so the option
+                stays visible and inert. */}
             <Soon reason={soonWhy}>
               <span className="lv-btn dl sm">{pt ? 'Baixar' : 'Download'}</span>
             </Soon>
@@ -192,7 +194,7 @@ export default function Intro() {
                 </div>
               ))}
               <a className="lv-more" href={RELEASES} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: 4 }}>
-                {pt ? 'Todas as versões (.deb · .rpm · Mac Intel · .exe) →' : 'All builds (.deb · .rpm · Intel Mac · .exe) →'}
+                {pt ? 'Todas as versões (.deb · .rpm · .exe) →' : 'All builds (.deb · .rpm · .exe) →'}
               </a>
             </>
           )}
@@ -203,7 +205,7 @@ export default function Intro() {
               <div className="lv-t">{pt ? 'Celular - instale como PWA' : 'Mobile - install as PWA'}</div>
               <div className="lv-d">{pt ? 'Adicione à tela inicial. Abre como um app.' : 'Add to home screen. Opens as an app.'}</div>
             </div>
-            <Link className="lv-btn dl sm" to="/docs" onClick={() => setInstall(false)}>{pt ? 'Como' : 'How'}</Link>
+            <Link className="lv-btn dl sm" to="/docs/faq" onClick={() => setInstall(false)}>{pt ? 'Como' : 'How'}</Link>
           </div>
 
           <div className="lv-plat road">

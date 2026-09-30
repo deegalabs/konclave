@@ -2,9 +2,10 @@
 
 The human experience. **Vite + React + TypeScript** as a static bundle
 ([ADR-0003](../docs/adr/0003-vite-over-nextjs.md) revised the originally considered
-Next.js - inapplicable to a local-first app with no server). Served locally by the
-Orchestrator's loopback HTTP bridge (`konclave serve`, [ADR-0004](../docs/adr/0004-local-http-bridge.md)),
-not by Tauri (packaging as a single desktop binary is a roadmap item). Master principle:
+Next.js - inapplicable to a local-first app with no server). Served as a static site on the web
+(the delivery members use), locally by the Orchestrator's loopback HTTP bridge (`konclave serve`,
+[ADR-0004](../docs/adr/0004-local-http-bridge.md)), and inside the Tauri desktop shell (latest
+v0.7.0, a pre-release not yet validated on real hardware). Master principle:
 **hide the cryptography, expose the trust**. The user sees vault, members, approval,
 payment; never "FROST", "DKG", "SIGHASH". The interface is **bilingual** (PT-BR default + EN,
 a dependency-free i18n with a language toggle).
@@ -29,14 +30,14 @@ brand pipeline (see `.design/branding/konclave/` and `STYLE.md`).
 
 ## Data
 Wired to live data only, through `ui/src/api.ts` (the loopback `/api/*` bridge) or the hosted
-blind helper for `/net` vaults. There is no mock/demo dataset: a screen with no data renders its
+coordinator (the helper) for browser-created vaults. There is no mock/demo dataset: a screen with no data renders its
 empty state. Run: `pnpm run dev` (Vite dev server, `/api` proxied to the bridge) ·
 `pnpm run build` · `pnpm run lint` · `pnpm run test`.
 
 ## Environment (build-time `VITE_*`)
 - `VITE_RELAY_BASE` - hosted blind relay for `/net` (empty = the local bridge, same origin).
-- `VITE_HELPER_BASE` - hosted **blind helper** (ADR-0006 Rung A) for `/net`. When set, a
-  finished browser-DKG vault is registered with the helper, which derives its real Orchard
-  address (view-only) and can later drive sends over Architecture B. Empty = `/net` stays a
+- `VITE_HELPER_BASE` - the hosted **coordinator** (the helper, ADR-0006 Rung A). When set, a
+  finished browser-DKG vault is registered with the helper, which derives its real shielded
+  address and viewing key (it never holds a share) and can later drive sends over Architecture B. Empty = `/net` stays a
   pure device-to-device ceremony with no hosted vault (`ui/src/helper.ts` degrades to `null`).
   The hosted build points it at the Railway helper (`konclave-helper-production.up.railway.app`).

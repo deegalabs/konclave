@@ -1095,7 +1095,9 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
               <div className="cv-field">
                 <span className="cv-k">{pe('Quórum para assinar', 'Signing quorum')}</span>
                 <div className="cv-stepper">
-                  <button type="button" className="cv-step" disabled={t <= 1} aria-label={pe('menos', 'fewer')}
+                  {/* Never below 2: the threshold library refuses a quorum of 1, and the sentence
+                      under this control promises that no one sends alone. */}
+                  <button type="button" className="cv-step" disabled={t <= 2} aria-label={pe('menos', 'fewer')}
                     onClick={() => setT(t - 1)}>−</button>
                   <span className="cv-num">{t} <em>{pe('de', 'of')} {n}</em></span>
                   <button type="button" className="cv-step" disabled={t >= n} aria-label={pe('mais', 'more')}

@@ -23,7 +23,7 @@ be a claim you can check, not evidence of volume.
 | 2-of-3 FROST send from a **real DKG-generated vault** (key never reconstituted) | `aab00f903b65e32d1adac317820a85fc97d15c2dcd788b3657ce36773e230ff3` | 3,413,792 |
 | Post-Ironwood (NU6.3) **V6** tx: 2-of-3 FROST **Orchard→Ironwood migration** (seeds the Ironwood pool) | `54266f478505160adfb039c7c76f5615f1536a34059ab30e9f24781ec2e5c494` | 3,428,205 |
 | First **Ironwood-pool spend** on mainnet: 2-of-3 FROST spend **from** the Ironwood pool (V6/NU6.3) | `36c60f1e3f602c2ac13c9f5b0687f248522499fc5a8b69311605336457226c95` | 3,428,246 |
-| First **browser-signed** mainnet broadcast: browser-DKG 2-of-2 vault, each **tab** signing **in the browser** with only its own share over the blind relay (Architecture B), Ironwood pool. *Two tabs on one machine* - the cross-device broadcast is the open milestone. | `3022420a8bcf17ffd5511163c18ee9b5996a3ba44747e4eff6794bdd3f04ccee` | 3,429,922 |
+| First **browser-signed** mainnet broadcast: browser-DKG 2-of-2 vault, each **tab** signing **in the browser** with only its own share over the blind relay (Architecture B), Ironwood pool. *Two tabs on one machine*; the cross-device milestone was closed later (`aec83baf…`, below). | `3022420a8bcf17ffd5511163c18ee9b5996a3ba44747e4eff6794bdd3f04ccee` | 3,429,922 |
 | Browser-signed send under the **everyone-signs / last-signer-sends** model: 2-of-2 browser-DKG vault, each device signing its own share, the device that closed the quorum broadcasting | `64f94d290f409f0e80b7985213bf0089a82b5c8de13e587d096ad57be7ae7f32` | 3,460,108 |
 | **3-of-4** browser-DKG vault, browser-signed, operated by someone other than the maintainer - the largest quorum proven | `b496fc3ce0b728f840b5346127a7757c670b4e38f55f0f7198b4a2e43a902898` | 3,460,538 |
 | **Private payroll on the web path, post-Ironwood**: 2 beneficiaries in ONE V6 transaction, browser-DKG 2-of-2 vault, approved once and signed by both devices under the everyone-signs / last-signer-sends model | `7c4c1dd5d8522dc14a77b4a37ebb0846d5a3b7ed0c507c9cede2de09480490ea` | 3,461,704 |
@@ -79,8 +79,9 @@ verification.
   chain, retrievable by any independent explorer.
 - **Mined.** It is included in a block at a known height, with confirmations
   accumulating on top of it. It is not a local mock or a dry-run.
-- **Shielded / indistinguishable.** Being an Orchard shielded transaction, it
-  reveals nothing on-chain about amounts, senders, or recipients. That absence of
+- **Shielded / indistinguishable.** Being a shielded transaction (Orchard for the
+  first five rows, the Ironwood pool from the sixth on), it reveals nothing on-chain
+  about amounts, senders, or recipients. That absence of
   detail is the privacy guarantee working as intended, not missing data.
 
 ## What on-chain verification CANNOT prove alone
@@ -94,8 +95,9 @@ The reason is structural, not a gap in the tooling. FROST produces a single
 aggregated signature that is valid under the group's public key. For Orchard
 (rerandomized FROST / redpallas), that aggregated signature is
 **cryptographically indistinguishable** from a signature produced by one person
-holding one key. The chain sees one valid Orchard signature either way. This
-indistinguishability is itself a privacy property: an observer cannot tell that
+holding one key. The chain sees one valid Orchard signature either way. Orchard and
+Ironwood use the same spend-authorization signature, so the same holds for every row.
+This indistinguishability is itself a privacy property: an observer cannot tell that
 funds are under shared custody, how many participants exist, or what the threshold
 is.
 
@@ -116,7 +118,8 @@ the way each vault's key was made:
   table: they were made through the web app, which creates a vault by DKG and in no other
   way;
 - the signature was assembled by a FROST ceremony among the members who approved
-  the proposal, coordinated through a blind relay that sees only public material;
+  the proposal (the first seven through `frostd` on one machine, the rest over the
+  blind relay, which since #63 carries the signing request sealed);
 - the build and ceremony paths are covered by the repository's test suite.
 
 One honest note on the evidence, stated plainly. The first **seven** mainnet sends were

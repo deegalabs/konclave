@@ -46,7 +46,7 @@ const TXT = {
       'O navegador pode bloquear a chamada ao explorador (CORS). Isso não é uma falha da transação. Abra os links de explorador acima, ou rode `node scripts/verify-proof.mjs` para uma verificação independente.',
     scopeTitle: 'O que esta prova mostra (e o que não mostra)',
     scopeCan:
-      'Os dados on-chain provam que a transação existe, foi minerada em um bloco e é blindada (Orchard). Não revela valores nem partes, e essa ausência de detalhe é a privacidade funcionando.',
+      'Os dados on-chain provam que a transação existe, foi minerada em um bloco e é blindada (Orchard, ou o pool Ironwood desde o NU6.3). Não revela valores nem partes, e essa ausência de detalhe é a privacidade funcionando.',
     scopeCannot:
       'Os dados on-chain NÃO provam, sozinhos, a natureza de limiar (t-de-n) do FROST. Uma assinatura Orchard agregada por FROST é indistinguível de uma assinatura de signatário único na cadeia, e essa indistinguibilidade é justamente a propriedade de privacidade. A natureza de limiar é atestada pelo código e pela cerimônia, fora da cadeia.',
     originDealer: 'Cofre dividido por um trusted dealer (a chave existiu inteira na criação)',
@@ -80,7 +80,7 @@ const TXT = {
       'The browser may block the explorer call (CORS). That is not a failure of the transaction. Open the explorer links above, or run `node scripts/verify-proof.mjs` for an independent check.',
     scopeTitle: 'What this proof shows (and what it does not)',
     scopeCan:
-      'On-chain data proves the transaction exists, is mined in a block, and is shielded (Orchard). It reveals nothing about amounts or parties, and that absence of detail is the privacy working as intended.',
+      'On-chain data proves the transaction exists, is mined in a block, and is shielded (Orchard, or the Ironwood pool since NU6.3). It reveals nothing about amounts or parties, and that absence of detail is the privacy working as intended.',
     scopeCannot:
       'On-chain data does NOT, by itself, prove the threshold (t-of-n) FROST nature. A FROST-aggregated Orchard signature is indistinguishable on-chain from a single-signer one, and that indistinguishability is precisely the privacy property. The threshold nature is attested by the code and the ceremony, off-chain.',
     originDealer: 'Vault split by a trusted dealer (the whole key existed at creation)',
