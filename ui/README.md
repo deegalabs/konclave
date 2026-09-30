@@ -5,7 +5,7 @@ The human experience. **Vite + React + TypeScript** as a static bundle
 Next.js - inapplicable to a local-first app with no server). Served as a static site on the web
 (the delivery members use), locally by the Orchestrator's loopback HTTP bridge (`konclave serve`,
 [ADR-0004](../docs/adr/0004-local-http-bridge.md)), and inside the Tauri desktop shell (latest
-v0.7.0, a pre-release not yet validated on real hardware). Master principle:
+v0.8.0, a pre-release not yet validated on real hardware). Master principle:
 **hide the cryptography, expose the trust**. The user sees vault, members, approval,
 payment; never "FROST", "DKG", "SIGHASH". The interface is **bilingual** (PT-BR default + EN,
 a dependency-free i18n with a language toggle).
