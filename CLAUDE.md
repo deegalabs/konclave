@@ -222,7 +222,11 @@ Facts (verified 2026-06-30):
 1. Shielded-first (Orchard). A transparent destination is an explicit, warned exception.
 2. Data minimization. No telemetry. Nothing collected/logged/transmitted without need.
 3. Secrets never persist outside the OS secure vault. Never in plaintext on disk, log, URL, query string.
-4. The coordination server is **blind** (public material only). Documented and demonstrable.
+4. The relay is **blind** (sealed or public material only). The hosted coordinator is
+   **share-blind**: it never receives, derives or stores a share and cannot spend, but it holds
+   each vault's viewing key and reads its books; moving that key to the devices is #516.
+   Documented and demonstrable. (This line said "the coordination server is blind" until
+   2026-09-30. The hosted coordinator never was, and the docs say so since #595.)
 5. Encrypted memos (payslip) = sensitive data; only the recipient/UFVK reads them.
 6. Internal transparency, external privacy.
 
@@ -363,8 +367,9 @@ Full plan: [docs/ROADMAP.md](docs/ROADMAP.md).
 **Where it runs.** The collective vault runs end to end for **payment and payroll**: propose →
 validate (continuous) → approve/refuse (real quorum, expiry) → **sign** (FROST with the shares of
 whoever approved, sealed at rest) → account (ledger + itemized CSV). Browser-native `/net` creates a
-vault by **real DKG across devices over a blind relay** and signs over it; a **hosted blind helper**
-builds/proves/broadcasts the tx without ever seeing a share (Architecture B, ADR-0006).
+vault by **real DKG across devices over a blind relay** and signs over it; a **hosted, share-blind
+helper** builds/proves/broadcasts the tx without ever seeing a share, holding the vault's viewing
+key (Architecture B, ADR-0006).
 
 **Proven on mainnet.** **19 verifiable txids** (`docs/PROOF.md` / `scripts/verify-proof.mjs`),
 including the Orchard→Ironwood migration + the first Ironwood-pool spend (V6/NU6.3), a send from a
@@ -635,7 +640,7 @@ out **sealed** to the vault's devices, with the plaintext path closing per vault
   anything committed to `main`, and that is the real content of this debt. (librustzcash) + `zcash-sign` frost-tools #593 + `zcash-devtool`
   from `main`. CI is green, but it is **gated on a live round-trip and NOT merged to `main`** -
   `engine/versions.lock` on `main` intentionally keeps the older pins until then.
-- **Hosted blind helper deployed on mainnet, non-root.** The Architecture-B helper (ADR-0006 Rung A)
+- **Hosted share-blind helper deployed on mainnet, non-root.** The Architecture-B helper (ADR-0006 Rung A)
   runs on Railway against mainnet. A census reversibly retired 21 disposable test vaults (26 -> 5,
   moved to `/data/vaults/_retired`, recoverable per `docs/RECOVERY.md` C). **Re-counted 2026-09-05:
   the volume now holds 8 active vaults**, and the number alone understates the exposure: only 3 carry
