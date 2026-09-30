@@ -401,7 +401,7 @@ desktop" as the original intent and ADR-0005 as the delivery that carries it tod
 (#67, primitive proven byte-exact vs the signer). PIN-gated admission + vault fingerprint close the
 invite-as-bearer concern (#67 prevention / #68 detection, both live-validated 2-tab).
 
-**Desktop (Tauri) - RELEASED, latest v0.6.0 (2026-09-22); the line opened at v0.2.0 (2026-08-03).** The desktop line shipped: real `src-tauri/`
+**Desktop (Tauri) - RELEASED, latest v0.8.0 (2026-09-30); the line opened at v0.2.0 (2026-08-03).** The desktop line shipped: real `src-tauri/`
 code (Tauri shell over the `orchestrator`) tagged **`v0.2.0`**, with Windows/macOS/Linux installers.
 The web app stays the primary delivery (ADR-0005); desktop is the optional native shell. **Still open:**
 live **per-platform hardware** validation (the GTK/WSLg window does not render here, ADR-0004).

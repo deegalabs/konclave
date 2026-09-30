@@ -47,7 +47,7 @@ into the browser. See §8 for how those become the two delivery shells.
 | `sdk/` | `@konclave/frost` - the WASM core packaged as a reusable browser SDK. | - |
 | `mcp-server/` | MCP "AI treasurer": reads + proposes, deliberately **no** sign/send tool (single-agent-proof). | - |
 | `helper-server/` | The hosted **view-only helper** (Architecture B, ADR-0006): registers a browser-DKG vault by its group key, keeps a view-only wallet, and builds/proves/broadcasts while the browsers sign. Deployed on Railway. It never receives, derives or stores a share, and since #388 gates its reads behind the per-vault `readKey`. | 2 |
-| `src-tauri/` | The desktop shell (Tauri), latest release **v0.7.0** (a pre-release, not code-signed or notarized). Optional native shell; the web app is the primary delivery (ADR-0005). Per-platform hardware validation is still open (#212). | - |
+| `src-tauri/` | The desktop shell (Tauri), latest release **v0.8.0** (a pre-release, not code-signed or notarized). Optional native shell; the web app is the primary delivery (ADR-0005). Per-platform hardware validation is still open (#212). | - |
 
 ## 3. What travels vs. what stays (trust model)
 
@@ -188,7 +188,7 @@ bundle and converge on the same on-chain transaction (guaranteed by the §7 pari
                                                 (participate / approve / demo)
 ```
 
-- **Desktop (Tauri)** is the optional native shell (latest v0.7.0, not yet validated on real
+- **Desktop (Tauri)** is the optional native shell (latest v0.8.0, not yet validated on real
   hardware); the web shell is what members use today. It matches the original §2 closed decision
   ("local-first desktop, share in the OS secure vault") and reuses the tested `orchestrator/`;
   Tauri is an **additive** shell in `src-tauri/`, not a rewrite (it hosts the same `ui/` in the
@@ -223,7 +223,7 @@ bundle and converge on the same on-chain transaction (guaranteed by the §7 pari
 - **Multi-device reconciliation:** the "on-chain wins" rule, implemented and tested (§4).
 
 **Intend to build (roadmap; details in [`ROADMAP.md`](ROADMAP.md)):**
-1. **Desktop shell (Tauri):** released (latest v0.7.0) as a two-click app that embeds
+1. **Desktop shell (Tauri):** released (latest v0.8.0) as a two-click app that embeds
    `orchestrator/` and moves share custody to the OS keychain; per-platform hardware validation and
    code signing are still open (#212).
 2. **Seat changes:** replacing a lost seat, or changing the members or the quorum of an existing

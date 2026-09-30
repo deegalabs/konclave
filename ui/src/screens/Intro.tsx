@@ -9,13 +9,13 @@ import { useInstall } from '../use-install'
 
 const REPO = 'https://github.com/deegalabs/konclave'
 const RELEASES = `${REPO}/releases`
-const VER = '0.7.0'
+const VER = '0.8.0'
 // Kept, unused for now: the installers exist at these URLs and the buttons go live again the
 // moment per-platform validation lands (#212). Deleting it would lose the mapping.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const dl = (file: string) => `${REPO}/releases/download/v${VER}/${file}`
 void dl
-// One-click installers → the real v0.7.0 assets (GitHub serves them as attachments, so the
+// One-click installers → the real assets of release VER (GitHub serves them as attachments, so the
 // click downloads directly). macOS ships Apple Silicon only; there is no Intel build. The .deb,
 // .rpm and .exe live under RELEASES. None of them is code-signed or notarized yet.
 const BUILDS = {
@@ -33,8 +33,8 @@ export default function Intro() {
   const pt = locale === 'pt-BR'
   // The landing has its own copy (it predates the i18n dictionary), so the reason lives here.
   const soonWhy = pt
-    ? 'O aplicativo de mesa existe (v0.7.0, uma pré-release), mas ainda não é assinado por um editor verificado nem foi validado em cada plataforma. Enquanto isso, o cofre roda inteiro no navegador.'
-    : 'The desktop app exists (v0.7.0, a pre-release), but it is not yet signed by a verified publisher nor validated on each platform. Meanwhile the vault runs entirely in the browser.'
+    ? `O aplicativo de mesa existe (v${VER}, uma pré-release), mas ainda não é assinado por um editor verificado nem foi validado em cada plataforma. Enquanto isso, o cofre roda inteiro no navegador.`
+    : `The desktop app exists (v${VER}, a pre-release), but it is not yet signed by a verified publisher nor validated on each platform. Meanwhile the vault runs entirely in the browser.`
   const vid = useRef<HTMLVideoElement>(null)
   const [theme, setTh] = useState<Theme>(getTheme())
   const [install, setInstall] = useState(false)
@@ -169,7 +169,7 @@ export default function Intro() {
               <div className="lv-d">{pt ? 'Um app de janela única; nada roda na nuvem.' : 'A single-window app; nothing runs in the cloud.'}</div>
               <div className="lv-ver">v{VER} · {BUILDS[os].ext}</div>
             </div>
-            {/* The desktop line is built (v0.7.0, a pre-release, not code-signed or notarized) but
+            {/* The desktop line is built (v0.8.0, a pre-release, not code-signed or notarized) but
                 not yet validated per platform (#212, ADR-0004). Offering an untested installer for
                 a tool that holds money is a worse promise than saying "not yet" - so the option
                 stays visible and inert. */}

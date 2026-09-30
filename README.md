@@ -277,7 +277,7 @@ not promise what we do not deliver.
   lost seat, or changing the members or the quorum of an existing vault (#154). *(Now shipped, no
   longer roadmap: the browser broadcast; on-device share persistence with sign-after-restore; and
   the installable desktop binary - Tauri, first released as **v0.2.0** on 2026-08-03, latest
-  **v0.7.0**, a pre-release that is not code-signed or notarized and not yet validated on real
+  **v0.8.0**, a pre-release that is not code-signed or notarized and not yet validated on real
   per-platform hardware, so the website does not offer the download yet; see
   [ADR-0004](docs/adr/0004-local-http-bridge.md).)*
 
@@ -357,7 +357,7 @@ konclave/
 A working, mainnet-proven prototype. The core runs through the UI for **payment and payroll**:
 propose → validate (continuous) → approve/refuse (real quorum, with expiry) → **sign (FROST with the
 shares of whoever approved, sealed at rest)** → account (ledger + itemized CSV). A desktop app also
-ships, on **Tauri**, since v0.2.0 (latest v0.7.0, a pre-release; Windows, Linux and Apple Silicon
+ships, on **Tauri**, since v0.2.0 (latest v0.8.0, a pre-release; Windows, Linux and Apple Silicon
 macOS installers, none of them code-signed or notarized; live per-platform hardware validation is the
 open item, so the website does not offer the download yet). CI gates the whole repo on every push
 (fmt + clippy `-D warnings` + tests across the Rust workspace crates, a wasm browser build, and the UI lint/test/build). What is shipped, dry-run, or
