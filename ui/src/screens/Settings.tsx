@@ -590,7 +590,7 @@ export default function Settings() {
               {xpCopied ? t('members.fpCopied') : t('export.copy')}
             </button>
             <button className="rd-enter primary" disabled={xpBusy || !xpPass} onClick={() => void exportDownload()}>
-              {xpBusy ? t('settings.removing') : t('export.download')}
+              {xpBusy ? t('export.busy') : t('export.download')}
             </button>
           </div>
         </Dialog>

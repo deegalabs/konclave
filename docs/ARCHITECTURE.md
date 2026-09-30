@@ -47,16 +47,18 @@ into the browser. See §8 for how those become the two delivery shells.
 | `sdk/` | `@konclave/frost` - the WASM core packaged as a reusable browser SDK. | - |
 | `mcp-server/` | MCP "AI treasurer": reads + proposes, deliberately **no** sign/send tool (single-agent-proof). | - |
 | `helper-server/` | The hosted **view-only helper** (Architecture B, ADR-0006): registers a browser-DKG vault by its group key, keeps a view-only wallet, and builds/proves/broadcasts while the browsers sign. Deployed on Railway. It never receives, derives or stores a share, and since #388 gates its reads behind the per-vault `readKey`. | 2 |
-| `src-tauri/` | The desktop shell (Tauri), released as **v0.2.0**. Optional native shell; the web app is the primary delivery (ADR-0005). Per-platform hardware validation is still open (#212). | - |
+| `src-tauri/` | The desktop shell (Tauri), latest release **v0.7.0** (a pre-release, not code-signed or notarized). Optional native shell; the web app is the primary delivery (ADR-0005). Per-platform hardware validation is still open (#212). | - |
 
 ## 3. What travels vs. what stays (trust model)
 
-| Stays **on the device only** (never leaves) | **Travels over the network** (public) |
+| Stays **on the device only** (never leaves) | **Travels over the network** |
 |---|---|
 | Key share, seed, secrets | DKG round packages, nonce commitments |
-| Per-vault access secret **S** (sealed at rest, #388) | Partial signatures |
-| Decrypted memos | The final transaction (goes to mainnet) |
-| The act of signing | `readKey = HKDF-SHA256(S)` (a one-way derived token, to the helper) |
+| Per-vault access secret **S** (sealed at rest, #388; sent to the other members only sealed) | Partial signatures |
+| The act of signing | The final transaction (goes to mainnet) |
+| | `readKey = HKDF-SHA256(S)` (a one-way derived token, to the helper) |
+| | The vault's viewing key (to the coordinator, once, at registration; it decrypts the memos too) |
+| | Proposals: destination, amount, labels, memo text, member names (to the coordinator) |
 
 `frostd` and the `relay-server` are **blind couriers**: they carry public/encrypted envelopes and
 open none of them. Compromising either reveals no secrets and grants no ability to spend; at worst
@@ -64,11 +66,12 @@ it disrupts coordination (hence the QR/copy-paste fallback on the roadmap).
 
 **The coordinator role, named.** Pure FROST specifies the signing rounds but not message transport,
 member identity, or who assembles the transaction - RFC 9591 only requires that the channel be
-authenticated. Something must therefore coordinate, and here that is the **blind helper**: it builds
-and proves the PCZT, hosts the signing round, injects the aggregate signature and broadcasts. It is
-trusted for **availability only** - never for secrets (it never receives a share) and never for
-authority (it cannot spend without a quorum). Two consequences worth stating because they are easy to
-assume wrongly: the **relay is not the coordinator** (it is a mailbox, and since #63 the signing
+authenticated. Something must therefore coordinate, and here that is the **hosted coordinator**
+(the helper): it builds and proves the PCZT, hosts the signing round, injects the aggregate
+signature and broadcasts. It is trusted for **availability** and for the **privacy of the books** -
+it holds each vault's viewing key, so it reads balances, payments, amounts, memos and member names -
+and never for shares (it never receives one) or for authority (it cannot spend without a quorum).
+Two consequences worth stating because they are easy to assume wrongly: the **relay is not the coordinator** (it is a mailbox, and since #63 the signing
 request is sealed to the members' device keys, so it carries ciphertext rather than recipient and
 amount), and the **MCP server is not the coordinator either** - `mcp-server/` is a read-and-draft
 assistant with deliberately no approve/sign/broadcast tool, so an AI never sits on the critical path
@@ -86,8 +89,9 @@ vault's signing room is derived from S (`SHA-256("konclave-sign-s " + S)[:16]`) 
 group key, so an id-only outsider can neither read the books nor find the room. The gate is per-vault
 and opt-in on registration (a vault with no registered `readKey` stays open, so pre-#388 vaults keep
 working; migrating the rest is #406). This is an access-control lock on the **helper**, not a change
-to the chain, which is always shielded. **Write** endpoints stay unauthenticated for now (#288; the
-signing-room seat-hijack #392 was closed in #401, residual DoS #399/#400).
+to the chain, which is always shielded. Governance writes are signed by a per-device key derived
+from the share and checked by the coordinator (#288, ADR-0011); the signing-room seat-hijack #392
+was closed in #401, residual DoS #400.
 The vault backup **export** is now one opaque blob too (v2, #214/#405): metadata, share, S and
 beneficiaries are all encrypted under a passphrase, so a leaked backup reveals nothing, not even the
 vault id (recovery detail in [`RECOVERY.md`](RECOVERY.md)).
@@ -95,7 +99,8 @@ vault id (recovery detail in [`RECOVERY.md`](RECOVERY.md)).
 ## 4. Sources of truth
 
 - **On-chain (mainnet):** final truth about funds. **On-chain always wins.** (Multi-device
-  reconciliation - local cache diverging from on-chain - is an open debt, see §9.)
+  reconciliation is implemented: `reconcile` promotes a sent proposal by its mined txid and
+  invalidates a reservation a fresh sync can no longer fund.)
 - **Local state (per device):** share, vaults, labels, cache, in-progress proposals.
 - **`frostd` / relay:** ephemeral transport of **public** material; not a source of truth.
 
@@ -145,7 +150,8 @@ pczt create ─> prove (Halo2) ─> EXTRACT ─> FROST ceremony ─> INJECT ─>
 1. `wallet` builds the plan → **PCZT**; `prove` adds the Halo2 proofs.
 2. **EXTRACT** the shielded sighash + per-spend randomizers (α). The real Orchard spend can sit at
    **any** action index (index 0 is often a dummy pad), so all randomizer lines are parsed.
-3. Signing ceremony (`-C redpallas`, Rerandomized FROST) coordinated by `frostd` → one FROST
+3. Signing ceremony (`-C redpallas`, Rerandomized FROST) coordinated by `frostd` (native path; the
+   browser path runs the ceremony over the relay, coordinated by the hosted helper) → one FROST
    signature per real spend. The key is **never reconstituted**.
 4. **INJECT** the signatures into the PCZT; injection **verifies** each against the sighash → signed
    tx → broadcast → confirmation.
@@ -182,42 +188,45 @@ bundle and converge on the same on-chain transaction (guaranteed by the §7 pari
                                                 (participate / approve / demo)
 ```
 
-- **Desktop (Tauri)** is the secure primary custody for the person operating the vault - matches the
-  §2 closed decision ("local-first desktop, share in the OS secure vault"). It reuses the tested
-  `orchestrator/` (7 real mainnet txids); Tauri is an **additive** shell in `src-tauri/`, not a
-  rewrite (it hosts the same `ui/` in the system webview and embeds `konclave serve`).
-- **Web (browser)** is the reach layer: a member approves/signs from a phone or laptop with no
-  install, via the WASM core over the blind relay. Security is by **role**: the browser is for
-  participation, not long-term custody; every device verifies **what it is signing** on-device
-  (recipient/amount vs. the approved proposal) and the share is sealed at rest in IndexedDB under a
-  passphrase-derived key. **WebAuthn/passkey unlock is NOT implemented** - it is listed under §9 as
-  intended work (#57), and until it lands the share's protection at rest is the passphrase and
-  whatever the browser's storage guarantees, which can be evicted (#307).
+- **Desktop (Tauri)** is the optional native shell (latest v0.7.0, not yet validated on real
+  hardware); the web shell is what members use today. It matches the original §2 closed decision
+  ("local-first desktop, share in the OS secure vault") and reuses the tested `orchestrator/`;
+  Tauri is an **additive** shell in `src-tauri/`, not a rewrite (it hosts the same `ui/` in the
+  system webview and embeds `konclave serve`).
+- **Web (browser)** is the shell in daily use: a member creates, approves and signs from a phone or
+  laptop with no install, via the WASM core over the blind relay. Every device verifies **what it
+  is signing** on-device (recipient/amount vs. the approved proposal) and the share is sealed at
+  rest in IndexedDB under a passphrase-derived key. A passkey shortcut (WebAuthn PRF, #57) can
+  unlock the vault's books on the device where it was created; approving and sending always require
+  the passphrase. The browser is asked to keep the storage persistent, and the dashboard says when
+  it refused (#307).
 
 ## 9. Status and what we intend to build
 
 **Built and proven (19 verifiable mainnet txids incl. the Ironwood cycle, the first browser-signed broadcast, a cross-device send across separate physical machines, and a phone-signed send; see `docs/PROOF.md`):**
 - Real DKG vaults (key never reconstituted) and trusted-dealer vaults, quorum payment + private
   payroll, all via the native path (orchestrator + konclave-signer + engine).
-- The web/WASM core: multi-device DKG + FROST signing over the hosted blind relay (the signed
-  message is still a **test digest**), social recovery (RTS), inheritance policy engine.
-- The FROST↔PCZT bridge in WASM (`pczt_bridge`), byte-for-byte equal to native (branch
-  `feat/wasm-pczt-bridge`).
+- The web/WASM core: multi-device DKG + FROST signing over the hosted blind relay, over the real
+  sighash of the vault's own PCZT under the transaction's randomizer; social recovery (RTS) and the
+  inheritance policy engine, proven by tests and not yet wired into a live vault (#58).
+- The FROST↔PCZT bridge in WASM (`pczt_bridge`), byte-for-byte equal to native.
+- **Real browser transaction:** on-device "what am I signing" verification, then a broadcast from
+  the browser path (`3022420a…`, 2026-07-30), since repeated across separate machines and from a
+  phone.
 - **Per-vault read access + S-derived signing room + fully-encrypted v2 export (#388/#214, live).**
   A leaked vault id no longer opens the helper's reads or the ceremony room (see §3); the export is
-  one opaque passphrase-encrypted blob. Open: migrating the remaining legacy vaults (#406) and
-  authenticating the write endpoints (#288).
+  one opaque passphrase-encrypted blob. Open: migrating the remaining legacy vaults (#406).
+- **Authenticated governance writes (#288):** vote, proposal, payroll, send and rename are signed by
+  a key derived from the seat's share and checked by the coordinator, per vault.
+- **On-device share persistence** in encrypted IndexedDB, plus a per-device passkey shortcut
+  (WebAuthn PRF, #57) that opens the books; spending always asks for the passphrase.
+- **Multi-device reconciliation:** the "on-chain wins" rule, implemented and tested (§4).
 
-**Intend to build (roadmap; details in `temp/PROXIMOS-PASSOS.md`):**
-1. **Real browser transaction (slice 2):** on-device "what am I signing" verification + the
-   create/prove boundary, then wire `pczt_bridge` into the `/net` ceremony and close with a real
-   `pczt send` - a broadcast Orchard tx from the browser.
-2. **Desktop shell (Tauri):** shipped as v0.2.0 - a two-click app that embeds
-   `orchestrator/` and moves share custody to the OS keychain.
-3. **On-device share persistence:** encrypted IndexedDB is what ships; **WebAuthn/passkey unlock
-   is the intended addition and is NOT built** (#57). Until it is, the share's protection at rest is
-   the passphrase plus whatever the browser's storage guarantees, which can be evicted (#307).
-4. **Multi-device reconciliation:** the "on-chain wins" rule + destructive test (the one open item
-   of the destructive suite, §4).
-5. **Packaging & integrity:** engine binaries as Tauri sidecars per target-triple; CSP + SRI +
+**Intend to build (roadmap; details in [`ROADMAP.md`](ROADMAP.md)):**
+1. **Desktop shell (Tauri):** released (latest v0.7.0) as a two-click app that embeds
+   `orchestrator/` and moves share custody to the OS keychain; per-platform hardware validation and
+   code signing are still open (#212).
+2. **Seat changes:** replacing a lost seat, or changing the members or the quorum of an existing
+   vault (#154); social recovery and inheritance on a live vault (#58).
+3. **Packaging & integrity:** engine binaries as Tauri sidecars per target-triple; CSP + SRI +
    reproducible WASM build for the web shell.

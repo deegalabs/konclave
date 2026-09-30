@@ -40,6 +40,21 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The documentation described features that do not exist yet, and said the coordinator could
+  not read what it can.** Member recovery and inheritance were listed as features; they are demos
+  on a throwaway vault, and a lost seat cannot be rebuilt or replaced yet. A "quorum by value" was
+  described that was never built. The coordinator was called blind, and payslip memos were said to
+  be readable only by their recipient; in fact the coordinator holds each vault's viewing key and
+  can read the balance, the payments, the amounts, the memos and the members' names, though it
+  never holds anyone's part of the key and cannot spend. The docs also said votes were not
+  authenticated, when every vote, proposal, payroll, rename and send is signed by the member's
+  device and checked; and that a vault never dies from one lost seat, which is false in a 2 of 2.
+  The docs, the landing screen and the payment screen now say what is true, including that the
+  desktop app is v0.7.0, a pre-release that is not code-signed, with no Intel Mac build. The
+  quorum can no longer be set to 1 when creating a vault, since a quorum of 1 was always refused.
+
 ## [0.7.0] 2026-09-29
 
 ### Security

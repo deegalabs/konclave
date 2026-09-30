@@ -109,11 +109,13 @@ caller, `ui/src/screens/NetVault.tsx`). That is a statement about the product, n
   The relay is blind to the payment - proof `047fe6ca…` (block 3,464,505), attested by the captured
   room trace (`docs/proof/2026-08-29-relay-blind.md`), not by the block. **Origin authentication of the
   signing room has since landed (#392, closed in #401):** an id-only outsider can no longer hijack a
-  seat or forge room messages; residual ceremony-DoS vectors are #399/#400. Separately, the helper's
-  write endpoints (voting) remain unauthenticated (#288).
+  seat or forge room messages; the residual ceremony-DoS vector is #400 (#399 is closed). Separately, the helper's
+  governance writes (vote, proposal, payroll, send, rename) are authenticated since 2026-09-07
+  (#288 closed; `47e4e5dd…`).
 - **A leaked vault id no longer opens the books or the signing room (#388, shipped and live).** Keep
   the nuance exact, because it is easy to overstate:
-  - **What was leaking was never the chain.** A Konclave vault's on-chain data is Orchard-shielded:
+  - **What was leaking was never the chain.** A Konclave vault's on-chain data is shielded (Orchard,
+    and the Ironwood pool since NU6.3):
     amounts, parties and memos are encrypted on mainnet and always were. The exposure was at the
     **helper**, which holds a *view-only* decryption of the vault (its UFVK) and used to answer reads
     - balance, transactions, ceremonies, proposals, ledger, members - to anyone who presented the
@@ -133,19 +135,24 @@ caller, `ui/src/screens/NetVault.tsx`). That is a statement about the product, n
     inside" now holds for the helper's view too, not only for the chain.
   - **Still open, do not claim closed:** the gate is **per-vault and opt-in on registration** - a
     vault with no registered `readKey` stays **open** so the pre-#388 live vaults keep working, and
-    migrating the remaining legacy vaults is #406. **Write** endpoints are still unauthenticated
-    (anyone with a vault id can still vote): that is #288, a different axis from this read gate. (The
-    signing-room seat-hijack #392 was closed in #401; residual ceremony-DoS is #399/#400.) A live
-    external user created a #388-protected vault on 2026-08-30.
+    migrating the remaining legacy vaults is #406. (The signing-room seat-hijack #392 was closed in
+    #401; residual ceremony-DoS is #400.) A live external user created a #388-protected vault on
+    2026-08-30.
 - **The vault export is one opaque encrypted blob (#214/#405, shipped).** v1 left the vault's identity
   in the clear (id/group key, address, member names, beneficiaries) even though the share was
   encrypted, so a leaked backup doxxed the vault. v2 encrypts the **entire** payload - metadata, share,
   the #388 secret S, and the beneficiaries - under the passphrase; only a non-sensitive envelope
   (format, version, salt, IV) is cleartext, so a leaked v2 backup reveals nothing, not even the vault
-  id. Import reads both v1 (legacy) and v2. Honest limit unchanged: the share export restores the
-  **signing seat**, not the vault's on-chain **identity** (the address/UFVK are random at registration
-  and not reproducible from the share); the full kit is the share export **plus** the helper's
-  `registration.json` (see [`RECOVERY.md`](RECOVERY.md), #214).
+  id. Import reads both v1 (legacy) and v2. Since #447/#480 the export of a Private vault carries
+  the viewing key, the address and the scan height, so it rebuilds the vault too. The limit that
+  remains: an Open vault's export lacks the viewing key, and there is no path yet to hand an existing
+  vault to a different coordinator (see [`RECOVERY.md`](RECOVERY.md), #214).
+- **There is no quorum-by-value.** The quorum is the `t` fixed at creation; no rule changes it with
+  the amount. Balance reservation and proposal expiry (72 hours) are the product locks that exist.
+- **The coordinator is not blind.** It never receives a share and cannot spend, but it holds each
+  vault's viewing key and receives the proposals, so it reads balances, payments, amounts, memos
+  (payslips included) and member names. What is blind to the payment is the relay (#63,
+  `047fe6ca…`).
 - **"Audited" needs its scope, and the scope excludes our variant.** The Zcash Foundation's
   `ZcashFoundation/frost` README says the code base has been *"partially audited by NCC"* and states
   the exclusion explicitly: *"This does not include frost-secp256k1-tr and **rerandomized FROST**."*
@@ -164,7 +171,7 @@ caller, `ui/src/screens/NetVault.tsx`). That is a statement about the product, n
   human should refuse, and if the quorum approves it, the money moves. The defence there is the same
   as for any proposal: the preview, the explicit confirmation, and the on-device sighash check (H1) -
   not the MCP boundary. Related, and worth saying because outside readers assume otherwise: the MCP
-  server is **not** the coordinator of the FROST ceremony (that is the blind helper); an AI is never
+  server is **not** the coordinator of the FROST ceremony (that is the hosted helper); an AI is never
   on the critical path of a spend.
 - **The cross-device milestone is now closed on mainnet.** The first eight mainnet sends were signed
   on a single machine (seven with co-located CLI shares; the eighth, `3022420a…`, two browser tabs on
@@ -179,7 +186,7 @@ caller, `ui/src/screens/NetVault.tsx`). That is a statement about the product, n
   live in two browser tabs - both on one machine - over the hosted relay, key never reconstituted)
   was funded, restored on-device by both seats, and **signed a real Ironwood transaction IN THE
   BROWSER** - each **tab** contributing only its own share over the blind relay - after which the
-  blind helper (`orchestrator::net_send`, Architecture B) injected and broadcast it. Mined: txid
+  share-blind helper (`orchestrator::net_send`, Architecture B) injected and broadcast it. Mined: txid
   `3022420a8bcf17ffd5511163c18ee9b5996a3ba44747e4eff6794bdd3f04ccee` (block 3,429,922, V6/NU6.3).
   It was two tabs on **one machine**; the separate-physical-devices milestone was closed later on
   mainnet (`aec83baf…`, `2d861b8f…`, above).
@@ -206,7 +213,7 @@ caller, `ui/src/screens/NetVault.tsx`). That is a statement about the product, n
   alpha, and the helper broadcasts (txid `3022420a…` above). The old "sample PCZT belongs to a
   different vault, not broadcastable" caveat applied to the `/signer` demo vector and no longer
   describes the live `/net` path.
-- **Hosted browser-native vault (self-service blind helper) - PROVEN on TESTNET (2026-07-31).**
+- **Hosted browser-native vault (self-service share-blind helper) - PROVEN on TESTNET (2026-07-31).**
   The `3022420a…` proof above used the *local* orchestrator bridge as the helper. This milestone
   proves the same Architecture B over the **hosted, public, share-blind helper** (`helper-server`,
   deployed on Railway, ADR-0006 Rung A) plus the hosted blind relay. A browser-DKG **2-of-2** vault,

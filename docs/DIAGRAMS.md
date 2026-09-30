@@ -14,7 +14,7 @@ flowchart TB
   Orch["Layer 2, Orchestrator (Rust): state machine, validation, store (SQLCipher), sealed custody, FROST-to-PCZT bridge"]
   Eng["Layer 1, Engine (Zcash Foundation): frostd, frost-client, zcash-sign, zcash-devtool, librustzcash"]
   Relay["Blind relay (loopback and hosted)"]
-  Chain["Zcash mainnet (Orchard, shielded)"]
+  Chain["Zcash mainnet (shielded)"]
 
   A --> UI
   UI -->|"JSON, loopback only"| Orch
@@ -71,7 +71,7 @@ sequenceDiagram
   Note over O: vault-binding guard, proposal vault must match the ceremony
   O->>E: PCZT create and prove
   Note over E: FROST ceremony over frostd, shares of who approved
-  E->>C: inject signature, finalize, broadcast (Orchard)
+  E->>C: inject signature, finalize, broadcast (shielded)
   C->>O: txid
   O->>U: Sent, txid recorded in the ledger
 ```
@@ -109,10 +109,10 @@ sequenceDiagram
   TA->>HR: DKG round 2 (sealed to recipient)
   TB->>HR: DKG round 2 (sealed to recipient)
   Note over TA,TB: both derive the same group key, each keeps only its share
-  TA->>HR: sign request (test digest)
+  TA->>HR: sign request (the vault's own tx)
   TA->>HR: commitment (round 1)
   TB->>HR: commitment (round 1)
-  TA->>HR: signing package and seed
+  TA->>HR: signing package (tx randomizer)
   TA->>HR: signature share (round 2)
   TB->>HR: signature share (round 2)
   Note over TA,TB: aggregate, each device verifies the group signature itself
