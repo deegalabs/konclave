@@ -59,11 +59,36 @@ function randInt(max: number): number {
 }
 
 /**
- * A strong password for a digital vault: 20 characters drawn from every class (lower, upper, digit,
- * symbol), with at least one of each guaranteed, then shuffled. All entropy comes from
- * crypto.getRandomValues; no wordlist to ship. ~120+ bits, reads "strong" on the meter.
+ * How many passwords the generator draws before it gives up. About 3 draws in 1,000 are rated below
+ * strong, so 32 in a row is below one chance in 10^80: the bound is there so the loop cannot run
+ * forever, not because anyone should expect to reach it.
  */
-export function generatePassphrase(): string {
+const MAX_DRAWS = 32
+
+/**
+ * A strong password for a digital vault, and one the meter on the same screen rates strong.
+ *
+ * Twenty random characters sometimes contain a character three times in a row, or a run like
+ * "defg", and `scorePassphrase` marks both down, so about 3 in 1,000 draws read "fair" or "good" on
+ * the password the app chose. Those draws are discarded and drawn again. The meter is not relaxed to
+ * make them pass. Discarding them costs well under a hundredth of a bit.
+ *
+ * `draw` is replaceable only so a test can reach the bound; the app always uses the default.
+ */
+export function generatePassphrase(draw: () => string = drawPassword): string {
+  for (let i = 0; i < MAX_DRAWS; i++) {
+    const candidate = draw()
+    if (scorePassphrase(candidate).score === 4) return candidate
+  }
+  throw new Error(`No strong password after ${MAX_DRAWS} draws; the generator or the meter is broken`)
+}
+
+/**
+ * One draw: 20 characters from every class (lower, upper, digit, symbol), with at least one of each
+ * guaranteed, then shuffled. All entropy comes from crypto.getRandomValues; no wordlist to ship.
+ * About 120 bits.
+ */
+function drawPassword(): string {
   const lower = 'abcdefghijkmnopqrstuvwxyz'
   const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ'
   const digit = '23456789'

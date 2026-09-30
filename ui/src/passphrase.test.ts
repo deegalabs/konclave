@@ -35,4 +35,31 @@ describe('generatePassphrase', () => {
     expect(a).toMatch(/[^A-Za-z0-9]/)
     expect(scorePassphrase(a).score).toBe(4)
   })
+
+  // The test above checked ONE password, and about 3 in 1,000 generated ones scored 2 or 3: 20
+  // random characters sometimes hold a character three times in a row, or a run like "defg", and
+  // the meter marks both down. So the member saw "fair" on the password the app chose for them,
+  // and CI went red at random (2026-09-29). One sample cannot see a rate like that; thousands can.
+  it('every generated password is rated strong by the meter the screen shows', () => {
+    const N = 10_000
+    const notStrong: string[] = []
+    const malformed: string[] = []
+    for (let i = 0; i < N; i++) {
+      const p = generatePassphrase()
+      const everyClass = /[a-z]/.test(p) && /[A-Z]/.test(p) && /[0-9]/.test(p) && /[^A-Za-z0-9]/.test(p)
+      if (p.length !== 20 || !everyClass) malformed.push(p)
+      if (scorePassphrase(p).score !== 4) notStrong.push(p)
+    }
+    expect(malformed, 'every password is 20 characters and uses every class').toEqual([])
+    expect(notStrong.length, `${notStrong.length} of ${N} were not rated strong, e.g. ${notStrong.slice(0, 3).join(' ')}`)
+      .toBe(0)
+  })
+
+  it('stops after a bounded number of draws and says so, instead of looping forever', () => {
+    let draws = 0
+    const neverStrong = () => { draws++; return 'aaaaaaaaaaaaaaaaaaaa' }
+    expect(() => generatePassphrase(neverStrong)).toThrow(/strong/)
+    expect(draws).toBeGreaterThan(1)
+    expect(draws).toBeLessThanOrEqual(64)
+  })
 })
