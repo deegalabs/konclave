@@ -40,6 +40,26 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Security
+
+- **Changing your passphrase undid part of the check a device makes before it signs.** Each device
+  keeps the address its vault uses for its own change, so that when it is asked to sign it can tell
+  the vault's change from a payment to someone else. It is told that address once and refuses to be
+  told again, so that a coordinator taken over later cannot label a stranger's output as change.
+  Changing the passphrase on a device erased that record. The device did not refuse to sign because
+  of it: the next screen that opened the vault found the record empty and took the coordinator's
+  answer at that moment as the new one. So on that device the answer that counted was the
+  coordinator's latest, not its first. A coordinator taken over at that moment could have named an
+  address of its own as the vault's change, and the device would then have added its part to a
+  payment that sends the leftover there, while its screen showed only the approved payment. That
+  needed the coordinator to be compromised at the moment the record was refilled, on as many
+  devices as the vault needs to sign. Changing the passphrase now replaces only the encryption and
+  keeps everything else the device had recorded. Open since 2026-09-15, when the record was
+  introduced, on devices where the passphrase was changed after that. A device that already changed
+  it keeps the address it took afterwards, which is the right one unless the coordinator was
+  compromised at that moment. We have no sign that it was used. Live on the web with this change,
+  and on the desktop at its next release.
+
 ### Fixed
 
 - **A password the app generated for you could be rated "fair".** About 3 in every 1,000 generated
