@@ -60,6 +60,14 @@ history to tidy it is how context gets lost.
   compromised at that moment. We have no sign that it was used. Live on the web with this change,
   and on the desktop at its next release.
 
+### Fixed
+
+- **A password the app generated for you could be rated "fair".** About 3 in every 1,000 generated
+  passwords had a character three times in a row, or a run like "defg", and the strength meter on
+  the same screen marks both down. The password was still strong, but the screen said otherwise
+  about a password it had just chosen. The app now keeps drawing until the meter rates the password
+  strong, and the meter is unchanged.
+
 ## [0.7.0] 2026-09-29
 
 ### Security
