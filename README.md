@@ -238,7 +238,7 @@ not promise what we do not deliver.
   metadata, share, S and beneficiaries all encrypted under a passphrase, only a non-sensitive envelope
   in the clear - so a stolen backup file does not even disclose the vault id. Restoring it brings back
   the signing seat, and on a Private vault the export also carries the viewing key and the scan
-  height a rebuild needs (#447, #480). An export made while a vault was Open lacks the viewing key.
+  height a rebuild needs (#447, #480). The export of a vault marked Open lacks the viewing key.
   What is still missing is a way to hand an existing vault to a different coordinator (see
   [`docs/RECOVERY.md`](docs/RECOVERY.md)).
 

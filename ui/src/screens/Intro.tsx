@@ -205,7 +205,7 @@ export default function Intro() {
               <div className="lv-t">{pt ? 'Celular - instale como PWA' : 'Mobile - install as PWA'}</div>
               <div className="lv-d">{pt ? 'Adicione à tela inicial. Abre como um app.' : 'Add to home screen. Opens as an app.'}</div>
             </div>
-            <Link className="lv-btn dl sm" to="/docs" onClick={() => setInstall(false)}>{pt ? 'Como' : 'How'}</Link>
+            <Link className="lv-btn dl sm" to="/docs/faq" onClick={() => setInstall(false)}>{pt ? 'Como' : 'How'}</Link>
           </div>
 
           <div className="lv-plat road">

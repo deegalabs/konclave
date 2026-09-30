@@ -420,8 +420,8 @@ export const SECTIONS: Section[] = [
             en: '**Read access is gated, not just spending:** a vault’s on-chain data is shielded, but the coordinator holds the viewing key and used to answer reads to anyone holding the public vault link. Now every member holds a per-vault secret, minted at creation and sent to the other members sealed (never in the clear); the coordinator gates its reads - balance, history, members, ledger - and the signing room behind a token derived from it. A leaked link opens neither the books nor the room. The vault list marks each vault Private or Open. Every vote, proposal, payroll, rename and send is signed by the member’s device and checked by the coordinator, from the moment a member of that vault unlocks it. Honest limits: the gate is per vault (older vaults stay Open until re-created; upgrading them in place is planned, #406), and a leaked link still shows the vault’s address, how many members it has and how many must approve.',
           },
           {
-            'pt-BR': '**Um backup vazado não revela nada:** a exportação de um cofre é um único blob opaco - metadados, o seu pedaço da chave, o segredo por cofre e os beneficiários, tudo cifrado sob a sua frase-senha, só um envelope não-sensível em claro - então um arquivo de backup roubado não revela nem o id do cofre. Num cofre Privado ela carrega tudo que uma reconstrução precisa: o seu pedaço da chave, o endereço do cofre, a chave de visualização e a altura de onde varrer. Um backup feito enquanto o cofre era Aberto não tem a chave de visualização; faça um novo quando o cofre for Privado.',
-            en: '**A leaked backup reveals nothing:** a vault’s export is one opaque blob - metadata, your part of the key, the per-vault secret and the beneficiaries all encrypted under your passphrase, only a non-sensitive envelope in the clear - so a stolen backup file does not even disclose the vault id. On a Private vault it carries everything needed to rebuild: your part of the key, the vault’s address, its viewing key and the height to scan from. A backup made while a vault was Open lacks the viewing key; make a new one once the vault is Private.',
+            'pt-BR': '**Um backup vazado não revela nada:** a exportação de um cofre é um único blob opaco - metadados, o seu pedaço da chave, o segredo por cofre e os beneficiários, tudo cifrado sob a sua frase-senha, só um envelope não-sensível em claro - então um arquivo de backup roubado não revela nem o id do cofre. Num cofre Privado ela carrega tudo que uma reconstrução precisa: o seu pedaço da chave, o endereço do cofre, a chave de visualização e a altura de onde varrer. Num cofre marcado Aberto a exportação não tem a chave de visualização, e um cofre Aberto ainda não vira Privado no lugar (#406): protegê-lo hoje significa criar um cofre novo e mover os fundos.',
+            en: '**A leaked backup reveals nothing:** a vault’s export is one opaque blob - metadata, your part of the key, the per-vault secret and the beneficiaries all encrypted under your passphrase, only a non-sensitive envelope in the clear - so a stolen backup file does not even disclose the vault id. On a Private vault it carries everything needed to rebuild: your part of the key, the vault’s address, its viewing key and the height to scan from. On a vault marked Open the export lacks the viewing key, and an Open vault cannot become Private in place yet (#406): protecting it today means creating a new vault and moving the funds.',
           },
           {
             'pt-BR': '**Sem auditoria:** o Konclave não foi auditado de forma independente. A biblioteca FROST da Zcash Foundation passou por uma auditoria parcial, e ela exclui o FROST rerandomizado, a variante que a Zcash usa. Não guarde valores significativos nele ainda.',
@@ -493,8 +493,8 @@ export const SECTIONS: Section[] = [
             en: 'Your share of the key, so you can sign again.',
           },
           {
-            'pt-BR': 'O endereço do cofre e a chave de visualização, para a carteira reconstruída enxergar o dinheiro. A chave de visualização só vem num cofre marcado Privado: uma exportação feita enquanto o cofre era Aberto não a tem.',
-            en: "The vault's address and viewing key, so a rebuilt wallet can see the money. The viewing key comes only with a vault marked Private: an export made while the vault was Open does not have it.",
+            'pt-BR': 'O endereço do cofre e a chave de visualização, para a carteira reconstruída enxergar o dinheiro. A chave de visualização só vem num cofre marcado Privado: a exportação de um cofre marcado Aberto não a tem.',
+            en: "The vault's address and viewing key, so a rebuilt wallet can see the money. The viewing key comes only with a vault marked Private: the export of a vault marked Open does not have it.",
           },
           {
             'pt-BR': 'A altura de onde varrer. Sem ela a carteira começa a olhar a partir de hoje e não vê nada do que o cofre já tem - e não há como mandar varrer de novo.',
@@ -545,6 +545,306 @@ export const SECTIONS: Section[] = [
         t: {
           'pt-BR': 'E se você perder o aparelho mas o cofre seguir: os outros membros continuam com os pedaços deles. Enquanto sobrarem membros suficientes para o quórum, eles seguem pagando; num cofre em que todos precisam assinar (2 de 2), um assento perdido sem exportação trava o dinheiro para sempre. Nos dois casos, o cofre não consegue devolver o seu assento.',
           en: 'And if you lose the device while the vault carries on: the other members still hold their parts. As long as enough of them remain to reach the quorum, they can keep paying; in a vault where everyone must sign (2 of 2), one lost seat without an export locks the money for good. Either way the vault cannot give your seat back.',
+        },
+      },
+      { k: 'h', t: { 'pt-BR': 'Um assento perdido ainda não pode ser trocado', en: 'A lost seat cannot be replaced yet' } },
+      {
+        k: 'p',
+        t: {
+          'pt-BR': 'Se um membro perde o aparelho sem ter uma exportação, ou esquece a frase-senha, o assento dele acabou. O Konclave ainda não consegue reconstruí-lo nem passá-lo para outra pessoa: trocar os membros ou o quórum de um cofre está planejado (#154), e reconstruir o pedaço da chave de quem o perdeu existe só como demonstração (#58).',
+          en: 'If a member loses their device without an export, or forgets their passphrase, their seat is gone. Konclave cannot rebuild it or hand it to someone else yet: changing a vault’s members or its quorum is planned (#154), and rebuilding a lost part of the key exists only as a demo (#58).',
+        },
+      },
+      {
+        k: 'p',
+        t: {
+          'pt-BR': 'O que fazer no lugar: o cofre antigo continua funcionando enquanto os membros que restam alcançam o quórum dele. Enquanto alcançam, criem um cofre novo com as pessoas que devem guardá-lo e movam o dinheiro para o endereço dele com um pagamento comum, aprovado e assinado pelo quórum do cofre antigo. Se os membros que restam não alcançam mais o quórum, o dinheiro daquele cofre não se move mais. É por isso que cada membro guarda a própria exportação.',
+          en: 'What to do instead: the old vault keeps working while the members who remain can still reach its quorum. While they can, create a new vault with the people who should hold it, and move the money to its address with an ordinary payment that the old vault’s quorum approves and signs. If the members who remain can no longer reach the quorum, the money in that vault cannot be moved again. This is why every member keeps their own export.',
+        },
+      },
+    ],
+  },
+  {
+    id: 'backup',
+    nav: { 'pt-BR': 'Backup', en: 'Back up' },
+    title: { 'pt-BR': 'Faça backup do seu assento', en: 'Back up your seat' },
+    lead: {
+      'pt-BR': 'O seu pedaço da chave do cofre vive só neste aparelho. A exportação é a sua única cópia reserva, e leva um minuto.',
+      en: 'Your part of the vault’s key lives only on this device. The export is your only spare copy, and it takes a minute.',
+    },
+    blocks: [
+      {
+        k: 'ul',
+        items: [
+          {
+            'pt-BR': '**1. Abra o cofre.** Em **Seus cofres**, toque no cartão do cofre; se ele pedir, digite a sua frase-senha e toque em **Entrar →**.',
+            en: '**1. Open the vault.** In **Your vaults**, press the vault’s card; if it asks, type your passphrase and press **Enter →**.',
+          },
+          {
+            'pt-BR': '**2. Vá em Ajustes.** No computador fica na barra lateral; no celular, em **Mais**.',
+            en: '**2. Go to Settings.** On a computer it is in the side bar; on a phone, under **More**.',
+          },
+          {
+            'pt-BR': '**3.** Na seção **Chaves e cópia reserva**, na linha **Exportar este cofre**, toque em **Exportar…**.',
+            en: '**3.** In the section **Keys and spare copy**, on the row **Export this vault**, press **Export…**.',
+          },
+          {
+            'pt-BR': '**4.** Na janela **Exportar este cofre**, digite a frase-senha no campo **Frase-senha deste cofre**.',
+            en: '**4.** In the **Export this vault** window, type your passphrase in the field **This vault’s passphrase**.',
+          },
+          {
+            'pt-BR': '**5.** Toque em **Baixar arquivo**. O navegador salva um arquivo com o nome do cofre, terminado em `.konclave.json`, onde ele costuma salvar os downloads. Ou toque em **Copiar** e cole o texto numa nota do seu gerenciador de senhas.',
+            en: '**5.** Press **Download file**. Your browser saves a file named after the vault, ending in `.konclave.json`, wherever it keeps downloads. Or press **Copy** and paste the text into a note in your password manager.',
+          },
+          {
+            'pt-BR': '**6.** Guarde o arquivo em dois lugares que não sejam este aparelho, por exemplo um gerenciador de senhas e um pendrive. Guarde a frase-senha em outro lugar, não junto do arquivo.',
+            en: '**6.** Keep the file in two places that are not this device, for example a password manager and a USB stick. Keep the passphrase somewhere else, not next to the file.',
+          },
+          {
+            'pt-BR': '**7.** Na mesma janela, o link **Como abrir este arquivo sem o Konclave →** leva à página [Recuperação](#/docs/recovery), que mostra como conferir que o arquivo abre em qualquer computador com Node, sem o Konclave. Guarde essas instruções junto do arquivo.',
+            en: '**7.** In the same window, the link **How to open this file without Konclave →** leads to the [Recovery](#/docs/recovery) page, which shows how to check that the file opens on any computer with Node, without Konclave. Keep those instructions with the file.',
+          },
+        ],
+      },
+      {
+        k: 'note',
+        t: {
+          'pt-BR': 'A primeira cópia vem na criação: o último passo de um cofre novo, **Guarde uma cópia do cofre**, oferece o mesmo arquivo. Se ele disser que a cópia saiu incompleta, faça outra por Ajustes quando o cofre estiver aberto.',
+          en: 'The first copy comes at creation: the last step of a new vault, **Save a copy of the vault**, offers the same file. If it says the copy came out incomplete, make another from Settings once the vault is open.',
+        },
+      },
+      { k: 'h', t: { 'pt-BR': 'O que protege o arquivo', en: 'What protects the file' } },
+      {
+        k: 'p',
+        t: {
+          'pt-BR': 'A frase-senha. O arquivo inteiro é cifrado com ela: sem ela, ele não diz nem de qual cofre é, e uma frase errada é recusada, nunca vira lixo decifrado. Com ela, o arquivo é o seu assento. Por isso os dois ficam em lugares diferentes.',
+          en: 'The passphrase. The whole file is encrypted with it: without it the file does not even say which vault it belongs to, and a wrong passphrase is refused, it never decrypts to garbage. With it, the file is your seat. That is why the two live in different places.',
+        },
+      },
+      { k: 'h', t: { 'pt-BR': 'Faça uma exportação nova quando', en: 'Make a new export when' } },
+      {
+        k: 'ul',
+        items: [
+          {
+            'pt-BR': 'Você trocar a frase-senha. O app lembra, e o arquivo antigo continua abrindo com a frase antiga, então apague as cópias antigas.',
+            en: 'You change your passphrase. The app reminds you, and the old file still opens with the old passphrase, so delete the old copies.',
+          },
+          {
+            'pt-BR': 'Você adicionar ou mudar beneficiários, ou renomear o seu assento. O arquivo guarda a lista e o seu nome como estavam quando foi feito.',
+            en: 'You add or change beneficiaries, or rename your seat. The file keeps the list and your name as they were when you made it.',
+          },
+          {
+            'pt-BR': 'A cópia disse que saiu incompleta. Num cofre marcado **Privado**, uma exportação nova por Ajustes traz a chave de visualização que faltou. Num cofre marcado **Aberto**, nenhuma cópia consegue trazê-la; proteger esse cofre hoje significa criar um novo e mover os fundos.',
+            en: 'A copy said it came out incomplete. On a vault marked **Private**, a new export from Settings carries the viewing key that was missing. On a vault marked **Open**, no copy can carry it; protecting such a vault today means creating a new one and moving the funds.',
+          },
+        ],
+      },
+      {
+        k: 'note',
+        t: {
+          'pt-BR': '**Não** junte a exportação de todos os membros num lugar só. Quem tiver os arquivos e as frases-senha de um quórum tem o cofre.',
+          en: '**Do not** collect every member’s export in one place. Whoever holds the files and passphrases of a quorum holds the vault.',
+        },
+      },
+    ],
+  },
+  {
+    id: 'restore',
+    nav: { 'pt-BR': 'Restaurar', en: 'Restore' },
+    title: { 'pt-BR': 'Restaure o seu assento', en: 'Restore your seat' },
+    lead: {
+      'pt-BR': 'Você precisa do arquivo de exportação (ou do texto dele) e da frase-senha que usou quando o gerou.',
+      en: 'You need your export file (or its text) and the passphrase you used when you made it.',
+    },
+    blocks: [
+      {
+        k: 'ul',
+        items: [
+          {
+            'pt-BR': '**1.** No aparelho novo, abra o Konclave no navegador e vá em **Seus cofres** (na página inicial, **Criar um cofre** abre a mesma tela).',
+            en: '**1.** On the new device, open Konclave in the browser and go to **Your vaults** (on the home page, **Create a vault** opens the same screen).',
+          },
+          {
+            'pt-BR': '**2.** Toque em **Importar cofre** (Traga um cofre de outro aparelho (arquivo)). Não em **Entrar por convite**: esse é só para entrar num cofre enquanto ele está sendo criado.',
+            en: '**2.** Press **Import a vault** (Bring a vault from another device (a file)). Not **Join by invite**: that is only for joining a vault while it is being created.',
+          },
+          {
+            'pt-BR': '**3.** Solte o arquivo `.konclave.json` na caixa, toque em **ou escolher um arquivo…**, ou cole o texto da exportação.',
+            en: '**3.** Drop the `.konclave.json` file into the box, press **or choose a file…**, or paste the export text.',
+          },
+          {
+            'pt-BR': '**4.** Quando a janela mostrar **Backup cifrado do cofre** com **✓ válido**, digite a frase-senha no campo **A frase-senha do cofre** e toque em **Importar**.',
+            en: '**4.** When the window shows **Encrypted vault backup** with **✓ valid**, type the passphrase in the field **The vault’s passphrase** and press **Import**.',
+          },
+          {
+            'pt-BR': '**5.** O cofre aparece em **Neste aparelho**, com a etiqueta **Compartilhado**, já destravado. Toque no cartão para entrar. Daqui em diante, este aparelho abre o cofre com a frase-senha que você acabou de digitar.',
+            en: '**5.** The vault appears under **On this device**, tagged **Shared**, already unlocked. Press its card to go in. From now on, this device opens the vault with the passphrase you just typed.',
+          },
+          {
+            'pt-BR': '**6.** Confira que é o mesmo cofre: em Ajustes, na seção **Este cofre**, leia o código da linha **Impressão** para outro membro. Os dois devem ver o mesmo código.',
+            en: '**6.** Check it is the same vault: in Settings, in the section **This vault**, read the code on the **Fingerprint** row to another member. You should both see the same code.',
+          },
+          {
+            'pt-BR': '**7.** Opcional: em Ajustes, em **Acesso neste aparelho**, toque de novo em **Criar passkey**. A passkey nunca vai junto na exportação.',
+            en: '**7.** Optional: in Settings, under **Access on this device**, press **Create a passkey** again. A passkey never travels with the export.',
+          },
+        ],
+      },
+      { k: 'h', t: { 'pt-BR': 'Se algo der errado', en: 'If something goes wrong' } },
+      {
+        k: 'ul',
+        items: [
+          {
+            'pt-BR': '**"Wrong passphrase for this export"** (esta mensagem aparece em inglês): é a frase-senha que você usava quando gerou aquele arquivo, que pode ser uma antiga.',
+            en: '**"Wrong passphrase for this export"**: it is the passphrase you had when you made that file, which may be an older one.',
+          },
+          {
+            'pt-BR': '**"A vault with this id already exists on this device"** (também em inglês): o cofre já está aqui. Abra pela lista.',
+            en: '**"A vault with this id already exists on this device"**: the vault is already here. Open it from the list.',
+          },
+          {
+            'pt-BR': 'Se o aparelho antigo ainda funciona: sugerimos manter o assento num aparelho só. Quando o novo abrir o cofre, use **Remover deste aparelho** em Ajustes no antigo.',
+            en: 'If the old device still works: we suggest keeping your seat on one device. Once the new one opens the vault, use **Remove from this device** in Settings on the old one.',
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'faq',
+    nav: { 'pt-BR': 'Perguntas frequentes', en: 'FAQ' },
+    title: { 'pt-BR': 'Perguntas frequentes', en: 'Frequently asked questions' },
+    lead: {
+      'pt-BR': 'As perguntas que um membro faz com o app aberto no celular, respondidas como o produto é hoje.',
+      en: 'The questions a member asks with the app open on their phone, answered as the product is today.',
+    },
+    blocks: [
+      { k: 'h', t: { 'pt-BR': 'O que é um cofre, um assento e um quórum?', en: 'What is a vault, a seat and a quorum?' } },
+      {
+        k: 'p',
+        t: {
+          'pt-BR': 'Um cofre é um fundo compartilhado na rede Zcash que um grupo cuida junto. Cada membro tem um assento: o seu pedaço da chave do cofre, guardado só no seu aparelho e trancado com a sua frase-senha. O quórum é quantos membros precisam aprovar e assinar antes de o dinheiro sair, por exemplo 2 de 3. Nenhum membro move o dinheiro sozinho.',
+          en: 'A vault is a shared fund on the Zcash network that a group looks after together. Each member holds a seat: their own part of the vault’s key, kept only on their device and locked with their passphrase. The quorum is how many members must approve and sign before money leaves, for example 2 of 3. No member can move the funds alone.',
+        },
+      },
+      { k: 'h', t: { 'pt-BR': 'Por que 2 de 3 é o padrão?', en: 'Why is 2 of 3 the default?' } },
+      {
+        k: 'p',
+        t: {
+          'pt-BR': 'Porque sobrevive a um aparelho perdido. Com 2 de 3, quaisquer dois membros continuam pagando se o terceiro perder o celular; com 2 de 2, um aparelho perdido sem backup trava o dinheiro para sempre, e o app avisa quando o quórum é igual ao número de membros. Um cofre tem de 2 a 5 membros, e o quórum é pelo menos 2.',
+          en: 'Because it survives one lost device. With 2 of 3, any two members can still pay if the third loses their phone; with 2 of 2, one lost device without a backup locks the money for good, and the app warns you when the quorum equals the number of members. A vault has 2 to 5 members, and the quorum is at least 2.',
+        },
+      },
+      { k: 'h', t: { 'pt-BR': 'Como faço backup do meu assento?', en: 'How do I back up my seat?' } },
+      {
+        k: 'p',
+        t: {
+          'pt-BR': 'Abra o cofre, vá em **Ajustes** e, em **Chaves e cópia reserva**, toque em **Exportar…**. Digite a frase-senha deste cofre e toque em **Baixar arquivo**, ou em **Copiar** para colar num gerenciador de senhas. O arquivo fica trancado com essa frase-senha: sem ela o arquivo não serve para ninguém, e com ela o arquivo é o seu assento, então guarde os dois em lugares diferentes. O [guia de backup](#/docs/backup) tem cada passo.',
+          en: 'Open the vault, go to **Settings**, and under **Keys and spare copy** press **Export…**. Type this vault’s passphrase and press **Download file**, or **Copy** to paste it into a password manager. The file is locked with that passphrase: without it the file is useless to anyone, and with it the file is your seat, so keep the two in different places. The [backup guide](#/docs/backup) has every step.',
+        },
+      },
+      { k: 'h', t: { 'pt-BR': 'Quando devo fazer um backup novo?', en: 'When should I make a new backup?' } },
+      {
+        k: 'p',
+        t: {
+          'pt-BR': 'Depois de trocar a frase-senha, porque o arquivo antigo continua abrindo com a antiga. Depois de adicionar ou mudar beneficiários, ou renomear o seu assento, porque o arquivo guarda tudo como estava quando foi feito. E quando uma cópia disser que saiu incompleta, o que pode acontecer com a cópia oferecida logo na criação do cofre: faça outra por Ajustes com o cofre aberto. Num cofre marcado **Aberto**, nenhuma cópia traz a chave de visualização, que é o que uma carteira reconstruída precisa para enxergar o dinheiro; proteger esse cofre hoje significa criar um novo e mover os fundos.',
+          en: 'After you change your passphrase, because the old file still opens with the old one. After you add or change beneficiaries, or rename your seat, because the file keeps them as they were when you made it. And when a copy says it came out incomplete, which can happen with the copy offered right after a vault is created: make another from Settings once the vault is open. On a vault marked **Open** no copy carries the viewing key, which is what a rebuilt wallet needs to see the money; protecting such a vault today means creating a new one and moving the funds.',
+        },
+      },
+      { k: 'h', t: { 'pt-BR': 'Como restauro o meu assento num celular ou computador novo?', en: 'How do I restore my seat on a new phone or computer?' } },
+      {
+        k: 'p',
+        t: {
+          'pt-BR': 'Abra o Konclave no aparelho novo e vá em **Seus cofres**. Toque em **Importar cofre**, solte ou escolha o arquivo de backup (ou cole o texto dele), digite a frase-senha que você usou ao gerar o arquivo e toque em **Importar**. O cofre aparece em **Neste aparelho**, já destravado, e daí em diante este aparelho o abre com essa frase-senha. O [guia de restauração](#/docs/restore) tem cada passo.',
+          en: 'Open Konclave on the new device and go to **Your vaults**. Press **Import a vault**, drop in or choose your backup file (or paste its text), type the passphrase you used when you made it, and press **Import**. The vault appears under **On this device**, already unlocked, and from then on this device opens it with that passphrase. The [restore guide](#/docs/restore) has every step.',
+        },
+      },
+      { k: 'h', t: { 'pt-BR': 'Perdi o aparelho. O que acontece com o dinheiro?', en: 'I lost my device. What happens to the money?' } },
+      {
+        k: 'p',
+        t: {
+          'pt-BR': 'O dinheiro não está no seu aparelho; ele continua no cofre. Se você tem backup, restaure num aparelho novo e siga. Se não tem, o seu assento acabou: os outros continuam pagando enquanto sobrarem membros suficientes para o quórum, mas ninguém consegue devolver o seu assento. Apagar os dados do site neste navegador tem o mesmo efeito que perder o aparelho.',
+          en: 'The money is not on your device; it stays in the vault. If you have a backup, restore it on a new device and carry on. If you do not, your seat is gone: the others can keep paying as long as enough of them remain to reach the quorum, but nobody can give your seat back. Clearing this browser’s site data has the same effect as losing the device.',
+        },
+      },
+      { k: 'h', t: { 'pt-BR': 'Esqueci a minha frase-senha. Alguém pode ajudar?', en: 'I forgot my passphrase. Can anyone help?' } },
+      {
+        k: 'p',
+        t: {
+          'pt-BR': 'Não. Ela não está em nenhum servidor, nenhum outro membro tem, e o seu arquivo de backup só abre com ela, então sem ela o seu assento se perde como num aparelho perdido. Duas coisas ainda salvam o assento: outro aparelho seu que ainda abra o cofre (cada aparelho guarda a sua própria frase-senha, então exporte de lá), ou um backup feito antes de uma troca de frase-senha, que abre com a frase que você usava na época.',
+          en: 'No. It is not on any server, no other member has it, and your backup file opens only with it, so without it your seat is lost just as with a lost device. Two things can still save the seat: another of your devices that still opens the vault (each device keeps its own passphrase, so export from there), or a backup made before a passphrase change, which opens with the passphrase you had then.',
+        },
+      },
+      { k: 'h', t: { 'pt-BR': 'Dois de nós perderam o acesso num cofre 2 de 3. Ainda dá para pagar?', en: 'Two of us lost access in a 2-of-3 vault. Can we still pay?' } },
+      {
+        k: 'p',
+        t: {
+          'pt-BR': 'Só se um de vocês restaurar um backup. Um único assento restante não alcança um quórum de 2, e ainda não existe como reconstruir assentos perdidos, então sem backup o dinheiro desse cofre não se move mais. É por isso que cada membro guarda o próprio backup.',
+          en: 'Not unless one of you restores a backup. A single remaining seat cannot reach a quorum of 2, and there is no way yet to rebuild lost seats, so without a backup the money in that vault cannot be moved again. This is why every member keeps their own backup.',
+        },
+      },
+      { k: 'h', t: { 'pt-BR': 'Dá para trocar um membro ou mudar o quórum sem mover o dinheiro?', en: 'Can we replace a member or change the quorum without moving the money?' } },
+      {
+        k: 'p',
+        t: {
+          'pt-BR': 'Ainda não: os membros e o quórum de um cofre ficam fixos na criação, e mudá-los está planejado mas não foi construído. O que fazer hoje: enquanto vocês ainda alcançam o quórum, criem um cofre novo com as pessoas certas e movam os fundos para ele com um pagamento aprovado comum.',
+          en: 'Not yet: a vault’s members and quorum are fixed when it is created, and changing them is planned but not built. What to do today: while you still reach the quorum, create a new vault with the right people and move the funds to it with an ordinary approved payment.',
+        },
+      },
+      { k: 'h', t: { 'pt-BR': 'O que os servidores do Konclave veem?', en: 'What can Konclave’s servers see?' } },
+      {
+        k: 'p',
+        t: {
+          'pt-BR': 'Dois serviços ajudam o grupo: um relay, que passa mensagens entre os aparelhos dos membros, e um coordenador, que prepara e transmite os pagamentos. O relay só vê mensagens seladas ou públicas. O coordenador guarda a chave de visualização do cofre, então vê o saldo, os pagamentos, os valores, os memos e os nomes dos membros; ele nunca recebe o pedaço da chave de ninguém, e cada aparelho confere que o pagamento é exatamente o que o grupo aprovou antes de assinar. Os dois veem o seu endereço de internet, como qualquer site.',
+          en: 'Two services help your group: a relay that passes messages between members’ devices, and a coordinator that prepares and broadcasts payments. The relay sees only sealed or public messages. The coordinator holds the vault’s viewing key, so it can see the balance, the payments, the amounts, the memos and the members’ names; it never receives anyone’s part of the key, and each device checks that a payment is exactly what the group approved before it signs. Both see your internet address, as any website does.',
+        },
+      },
+      { k: 'h', t: { 'pt-BR': 'Quem tem o link do nosso cofre vê o nosso dinheiro?', en: 'Can someone with our vault link see our money?' } },
+      {
+        k: 'p',
+        t: {
+          'pt-BR': 'Não num cofre marcado **Privado** na sua lista: o coordenador se recusa a mostrar saldo, histórico, propostas ou membros sem um segredo que só os membros têm. O link ainda revela o endereço do cofre, quantos membros ele tem e quantos precisam aprovar. Num cofre antigo marcado **Aberto**, quem tem o link lê os livros pelo coordenador. A blockchain, nos dois casos, não mostra nada disso.',
+          en: 'Not on a vault marked **Private** in your list: the coordinator refuses to show its balance, history, proposals or members without a secret only members hold. The link still reveals the vault’s address, how many members it has and how many must approve. On an older vault marked **Open**, anyone with the link can read its books through the coordinator. The blockchain shows none of it either way.',
+        },
+      },
+      { k: 'h', t: { 'pt-BR': 'Quanto custa um pagamento, e quanto tempo leva?', en: 'What does a payment cost, and how long does it take?' } },
+      {
+        k: 'p',
+        t: {
+          'pt-BR': 'O único custo é a taxa da rede Zcash, uma fração pequena de um ZEC: a tela de pagamento mostra a estimativa antes de você propor (0,00015 ZEC para um pagamento simples), e uma folha custa um pouco mais por linha. O Konclave não cobra taxa própria. Depois que o quórum aprova e assina, o pagamento costuma entrar num bloco em poucos minutos. Uma proposta que não alcança o quórum expira em 72 horas.',
+          en: 'The only cost is the Zcash network fee, a small fraction of a ZEC: the payment screen shows the estimate before you propose (0.00015 ZEC for a single payment), and a payroll costs a little more per line. Konclave adds no fee of its own. Once the quorum approves and signs, the payment usually lands in a block within minutes. A proposal that does not reach its quorum expires after 72 hours.',
+        },
+      },
+      { k: 'h', t: { 'pt-BR': 'Como confiro um pagamento na blockchain, e por que não vejo o valor?', en: 'How do I check a payment on the blockchain, and why can’t I see the amount?' } },
+      {
+        k: 'p',
+        t: {
+          'pt-BR': 'Abra o pagamento enviado e toque em **ver no explorador ↗** (ou no estado dele no **Registro**) para vê-lo num explorador público da Zcash. O explorador mostra que a transação existe e em que bloco está, mas não o valor, quem enviou ou quem recebeu, porque o pagamento é blindado: essa ausência é a privacidade funcionando. Dentro do cofre, o **Registro** mostra os detalhes para os membros.',
+          en: 'Open the sent payment and press **view in explorer ↗** (or its status in the **Ledger**) to see it on a public Zcash explorer. The explorer shows that the transaction exists and which block it is in, but not the amount, the sender or the recipient, because the payment is shielded: that missing detail is the privacy working. Inside the vault, the **Ledger** shows the details to the members.',
+        },
+      },
+      { k: 'h', t: { 'pt-BR': 'Uso o app web ou o app de mesa? Como coloco no celular e como atualizo?', en: 'Should I use the web app or the desktop app? How do I put it on my phone, and how do I update?' } },
+      {
+        k: 'p',
+        t: {
+          'pt-BR': 'Use o app web: é a versão usada no dia a dia. Para tê-lo no celular, abra a página inicial, toque em **Baixar** e depois em **Instalar no aparelho**, quando o navegador oferecer; no iPhone, use **Compartilhar → Adicionar à Tela de Início**. Existe um app de mesa (v0.7.0 no GitHub, uma pré-release), mas ele ainda não foi validado em computadores reais e não é assinado, por isso o site mantém o botão de download desligado. Não há nada para atualizar à mão: quando sai uma versão nova, aparece a barra **Nova versão disponível** com o botão **Atualizar**.',
+          en: 'Use the web app: it is the version in daily use. To keep it on your phone, open the home page, press **Download** and then **Install on this device** when your browser offers it; on an iPhone, use **Share → Add to Home Screen**. A desktop app exists (v0.7.0 on GitHub, a pre-release), but it has not been validated on real computers yet and it is not code-signed, so the website keeps its download button off. There is nothing to update by hand: when a new version is out, a **New version available** bar appears with an **Update** button.',
+        },
+      },
+      { k: 'h', t: { 'pt-BR': 'O que faz "Destravar com este aparelho"?', en: 'What does "Unlock with this device" do?' } },
+      {
+        k: 'p',
+        t: {
+          'pt-BR': 'É um atalho que você liga em **Ajustes**, em **Acesso neste aparelho**, com **Criar passkey**, para este aparelho abrir os livros do cofre do mesmo jeito que você destrava o próprio aparelho. Ele só deixa ler: aprovar e enviar sempre pedem a frase-senha. Vale só no aparelho onde foi criado e não vai junto no backup, então configure de novo depois de restaurar num aparelho novo.',
+          en: 'It is a shortcut you turn on in **Settings**, under **Access on this device**, with **Create a passkey**, so this device opens the vault’s books the way you unlock the device itself. It only lets you read: approving and sending always ask for your passphrase. It works only on the device where you created it and does not travel in a backup, so set it up again after restoring on a new device.',
+        },
+      },
+      { k: 'h', t: { 'pt-BR': 'O Konclave é auditado? O que ainda não está pronto?', en: 'Is Konclave audited? What is not done yet?' } },
+      {
+        k: 'p',
+        t: {
+          'pt-BR': 'Não. O Konclave não passou por auditoria independente, e a auditoria parcial da Zcash Foundation na biblioteca de base não cobre a variante que a Zcash usa, então não guarde valores significativos nele ainda. Ainda não existem: troca de um assento perdido ou dos membros, recuperação de membro e herança (só como demonstração), leitura de folha por arquivo CSV no app web, e um app de mesa validado.',
+          en: 'No. Konclave has not been independently audited, and the Zcash Foundation’s partial audit of the underlying library does not cover the variant Zcash uses, so do not keep significant funds in it yet. Not built yet: replacing a lost seat or changing the members, member recovery and inheritance (they exist only as demos), reading a payroll from a CSV file in the web app, and a validated desktop app.',
         },
       },
     ],

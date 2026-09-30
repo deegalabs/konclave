@@ -54,6 +54,9 @@ history to tidy it is how context gets lost.
   The docs, the landing screen and the payment screen now say what is true, including that the
   desktop app is v0.7.0, a pre-release that is not code-signed, with no Intel Mac build. The
   quorum can no longer be set to 1 when creating a vault, since a quorum of 1 was always refused.
+  The docs also gain a FAQ, a step-by-step guide to backing up your seat and one to restoring it on
+  a new device, and a plain account of what to do when a seat is lost for good: create a new vault
+  and move the funds with a signed payment while the remaining members still reach the quorum.
 
 ## [0.7.0] 2026-09-29
 
