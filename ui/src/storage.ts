@@ -331,6 +331,19 @@ export async function saveVault(id: string, data: VaultData, passphrase: string)
   void storagePersistence()
 }
 
+/** The record for `id` exactly as it is stored, envelope and all, or undefined if there is none. */
+async function readRecord(id: string): Promise<VaultRecord | undefined> {
+  const db = await openDb()
+  try {
+    const tx = db.transaction(STORE, 'readonly')
+    const record = await reqDone(tx.objectStore(STORE).get(id) as IDBRequest<VaultRecord | undefined>)
+    await txDone(tx)
+    return record
+  } finally {
+    db.close()
+  }
+}
+
 /**
  * Decrypt and return a saved vault. Throws a clear error on a wrong passphrase or tampering
  * (AES-GCM authentication fails), and a distinct one when no such vault exists.
@@ -338,15 +351,7 @@ export async function saveVault(id: string, data: VaultData, passphrase: string)
 export async function loadVault(id: string, passphrase: string): Promise<VaultLoaded> {
   if (!storageAvailable()) throw new Error('This browser cannot read the vault (no IndexedDB/WebCrypto)')
 
-  const db = await openDb()
-  let record: VaultRecord | undefined
-  try {
-    const tx = db.transaction(STORE, 'readonly')
-    record = await reqDone(tx.objectStore(STORE).get(id) as IDBRequest<VaultRecord | undefined>)
-    await txDone(tx)
-  } finally {
-    db.close()
-  }
+  const record = await readRecord(id)
   if (!record) throw new Error('No saved vault with that id on this device')
 
   // What this record was sealed with. Absent on records written before the parameter travelled
@@ -682,7 +687,8 @@ async function decodeV1(b: VaultExportV1, passphrase: string): Promise<DecodedIm
  * It does NOT go through `saveVault`, deliberately. `saveVault` stamps `createdAt: Date.now()` and
  * does not persist `ufvk`, so the obvious load-then-save would reset the creation date and silently
  * DELETE the viewing key #447/#458 put on this device - leaving `t` members with spend authority
- * over money none of them could see. This follows `importVault`, which already gets that right.
+ * over money none of them could see. Nor does it list the fields to keep: it re-seals the share and
+ * `S`, and every other field of the stored record is carried as it is.
  *
  * The new record is built and PROVEN openable in memory before anything is written, so a failure
  * cannot leave a share sealed under a passphrase nobody has. The write itself is a single
@@ -712,20 +718,15 @@ export async function changePassphrase(id: string, oldPassphrase: string, newPas
   // real check and not a formality.
   await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bufOf(iv) }, key, bufOf(cipher))
 
+  // The STORED record with only the envelope replaced. This used to rebuild the record from a list
+  // of the fields to keep, and the list missed the pinned change receiver (#281). Dropping it did
+  // not make the device refuse: the next screen to read the vault found the slot empty and pinned
+  // whatever the helper answered then, so a rotation reopened the write-once slot the money gate
+  // depends on. Carrying the record whole means a field added later cannot be lost here either.
+  const stored = await readRecord(id)
+  if (!stored) throw new Error('No saved vault with that id on this device')
   const record: VaultRecord = {
-    id,
-    name: loaded.name,
-    governance: loaded.governance,
-    myName: loaded.myName,
-    creatorName: loaded.creatorName,
-    groupKey: hex(loaded.groupKey),
-    address: loaded.address,
-    roster: loaded.roster,
-    // The fields the careless version loses. Not a comment asking someone to remember: the tests
-    // assert each one.
-    createdAt: loaded.createdAt,
-    ...(loaded.ufvk ? { ufvk: loaded.ufvk } : {}),
-    ...(loaded.birthday !== undefined ? { birthday: loaded.birthday } : {}),
+    ...stored,
     salt,
     iv,
     cipher,

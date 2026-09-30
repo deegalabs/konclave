@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto'
 import { describe, it, expect } from 'vitest'
 import {
   saveVault, loadVault, listVaults, deleteVault, forgetVault, storageAvailable,
-  exportVault, importVault, parseVaultExport, changePassphrase, type VaultData,
+  exportVault, importVault, parseVaultExport, changePassphrase, recordChangeReceiver, type VaultData,
   warnsAboutEviction, storagePersistence,
 } from './storage'
 
@@ -476,6 +476,25 @@ describe('changePassphrase', () => {
     expect(after.birthday, 'and so must the scan floor').toBe(seeded.birthday)
     expect(after.createdAt, 'the creation date is not "now"').toBe(seeded.createdAt)
     expect(before.createdAt).toBeTruthy()
+  })
+
+  // The third field of the same trap (#281), and the one the list above missed. Losing it does not
+  // make the device refuse: the next screen that reads the vault finds the slot empty and pins
+  // whatever the helper answers THEN. So a rotation quietly turned a write-once pin back into
+  // "trust the helper's latest answer", which is the hole the pin exists to close. Hence the second
+  // half: after a rotation the slot must still refuse a new value.
+  it('keeps the pinned change receiver, and keeps it write-once', async () => {
+    const pinned = 'rotate-change'
+    const OURS = 'aa'.repeat(43)
+    const ATTACKER = 'bb'.repeat(43)
+    await saveVault(pinned, data, 'old-one')
+    expect(await recordChangeReceiver(pinned, OURS), 'precondition: the pin is captured').toBe(true)
+
+    await changePassphrase(pinned, 'old-one', 'new-one')
+    expect((await loadVault(pinned, 'new-one')).changeReceiver, 'the pin must survive a passphrase change')
+      .toBe(OURS)
+    expect(await recordChangeReceiver(pinned, ATTACKER), 'a rotation must not reopen the slot').toBe(false)
+    expect((await listVaults()).find((v) => v.id === pinned)?.changeReceiver).toBe(OURS)
   })
 
   it('carries the access secret S across', async () => {
