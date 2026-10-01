@@ -48,6 +48,13 @@ history to tidy it is how context gets lost.
   The titles are kept with the page, so reading the roadmap sends nothing to GitHub until you open
   an issue. It is a plan, not a promise, and it carries no amounts.
 
+### Changed
+
+- **The signer in your browser is built on the published Zcash libraries.** pczt 0.9.3 and orchard
+  0.15.5, the same releases as the coordinator's engine, in place of a July development snapshot
+  (#120). Nothing changes on screen; the code that reads and signs a payment is now the released
+  library.
+
 ### Fixed
 
 - **The landing named the previous desktop release.** It said v0.7.0 after v0.8.0 shipped. It now

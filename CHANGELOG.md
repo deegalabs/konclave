@@ -55,6 +55,19 @@ explicitly accepted.
 
 ## [Unreleased]
 
+### Changed
+
+- **The engine is built on the published Zcash libraries, not a pinned snapshot.** The signing
+  bridge and the coordinator's wallet code now use pczt 0.9.3, zcash_client_backend 0.24.0,
+  zcash_primitives 0.30.1 and orchard 0.15.5, straight from crates.io, with no git pins left in the
+  lockfile. Until now `main` described a July snapshot of those libraries, while the coordinator ran
+  the released ones from 2026-08-24 and, since its deploy steps copied July builds back on
+  2026-09-21, the July snapshot again (#120, #522). Nothing changes for a vault until the
+  coordinator is redeployed from this.
+- **An engine change can no longer take every balance offline.** Before each sync, the coordinator
+  now brings the vault's wallet database to the schema its engine expects. In August a newer engine
+  met databases written by an older one, and every balance failed until the engine was rolled back.
+
 ## [0.8.0] 2026-09-30
 
 > **Services deployed when this was cut (2026-09-30):** coordinator `80e3a18`, relay `03bb736890c63e86`.

@@ -45,18 +45,20 @@ tiny_http = "0.12"
 # Authoritative Zcash address validation (audit M2): a real bech32m/base58 decode with
 # receiver-pool inspection before the send path, so a malformed / wrong-network /
 # Sapling-only destination cannot reach the builder and lock funds (§8). Pure Rust, no
-# proving. Pinned to the SAME librustzcash rev as konclave-signer for type parity across
-# the repo (do not bump in isolation - see CLAUDE.md §11 / ADR-0002).
-zcash_address = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
-zcash_protocol = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3" }
+# proving. Released crates.io versions, on the SAME librustzcash line konclave-signer resolves,
+# for type parity across the repo. Declaring these by git rev bypassed the workspace and split the
+# graph (a git zcash_protocol beside a crates.io one). Do not bump in isolation - move them with
+# konclave-signer / konclave-wasm (see CLAUDE.md §11 / ADR-0002).
+zcash_address = "0.13.0"
+zcash_protocol = "0.10.6"
 # #281 Passo 2: derive the vault's INTERNAL change receiver from its UFVK, so a signing device can
 # tell its own change from an attacker's output. Only the viewing side is needed - no spend key.
-zcash_keys = { git = "https://github.com/zcash/librustzcash", rev = "08334ebeddd15516385070296c6fdeb09c4620c3", features = ["orchard"] }
-# 0.14, NOT the 0.15 that konclave-signer and konclave-wasm use, and the difference is deliberate:
-# it must be the SAME orchard the `zcash_keys` rev above links, or this crate ends up with two of
-# them - the FullViewingKey we read and the Scope we hand it would come from different crates.
-# Matching it keeps exactly one orchard in this crate's graph. If that rev moves, this moves with it.
-orchard = { version = "0.14", default-features = false }
+zcash_keys = { version = "0.16.1", features = ["orchard"] }
+# It must be the SAME orchard that `zcash_keys` above links (0.16.1 requires ^0.15), or this crate
+# ends up with two of them - the FullViewingKey we read and the Scope we hand it would come from
+# different crates. Matching it keeps exactly one orchard in the graph, and it is now also the one
+# konclave-signer and konclave-wasm use. If `zcash_keys` moves, this moves with it.
+orchard = { version = "0.15.5", default-features = false }
 
 # The `konclave serve` binary (the local bridge). The library stays the tested core.
 [[bin]]
