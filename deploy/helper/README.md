@@ -21,15 +21,13 @@ maintainer's machine, instead of compiling them in-image:
 | `zcash-devtool` | register: view-only wallet init; send: PCZT create/prove/broadcast |
 | `konclave-signer` | send: extract the sighash / inject the browsers' aggregate signature |
 
-**Engine pins - deployed vs `engine/versions.lock`.** The **deployed** helper runs the
-Ironwood-bump engine: the deployed binaries measure **pczt 0.9.3 / `zcash_client_backend` 0.24.0** (the #259 branch itself pins 0.8.0-rc.1 / 0.24.0-rc.1) (librustzcash) for
-`zcash-devtool` + `konclave-signer`, and **`zcash-sign` from frost-tools #593**, with
-`zcash-devtool` from librustzcash `main`. That bump is not yet merged to `main` (it lives on
-branch `feat/engine-ironwood-bump`, #259, gated on a live round-trip), so
-[`engine/versions.lock`](../../engine/versions.lock) on `main` still shows the **older** pins
-(`zcash-sign` frost-tools `3d2985c`, `zcash-devtool`/`konclave-signer` librustzcash `42ffd0d`)
-until #259 merges. Both are true at once: read the lockfile as the repo's committed pin and this
-note as what the running image carries.
+**Engine pins - deployed vs `engine/versions.lock`.** Measured inside the container on
+2026-10-01, the **deployed** helper runs the **July** engine: `zcash-devtool` (2026-07-26) and
+`konclave-signer` (2026-07-28) built on librustzcash `42ffd0d` (pczt 0.7), and `zcash-sign`
+(2026-07-09) from frost-tools #587. The released line (pczt 0.9.3 / `zcash_client_backend` 0.24.0)
+ran from 2026-08-24 to 2026-09-21 and was replaced by the `cp` steps below, which copy from
+directories that still hold July builds (#522). Moving `main` and then production onto the released
+line is #120; until it is deployed, do not treat this image as being on the released line.
 
 A from-source multi-stage build (librustzcash + orchard + halo2) would exceed Railway's build
 limits, so the binaries are built out of band. They are glibc-2.39 (Ubuntu 24.04), so the runtime
@@ -51,7 +49,11 @@ of repo, matching the pin-not-vendor policy). Assemble it from local builds:
 # helper-server (this repo)
 CARGO_TARGET_DIR=~/ktarget cargo build --release --manifest-path helper-server/Cargo.toml
 
-# then gather the four binaries into a deploy context next to this Dockerfile:
+# then gather the four binaries into a deploy context next to this Dockerfile.
+# WARNING (2026-10-01): the three ENGINE lines below copy JULY builds (#522). Following them on
+# 2026-09-21 is what put the July engine back in production. Keep them only for a helper-only
+# deploy before #120 lands, since that is what production runs today; #120 replaces them with
+# binaries built from the commit being deployed and checked against engine/versions.lock.
 mkdir -p ~/konclave-helper-deploy/bin
 cp ~/ktarget/release/helper-server            ~/konclave-helper-deploy/bin/
 cp ~/ktarget-engine/release/zcash-sign        ~/konclave-helper-deploy/bin/
