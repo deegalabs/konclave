@@ -5,9 +5,10 @@
 
 import { PROOF_TXS, proofOriginCounts } from '../proof-record'
 import { DESKTOP_VERSION } from '../desktop-release'
+import { ROADMAP_AS_OF, ROADMAP_LATER, ROADMAP_STEPS, type Stage } from './roadmap'
 
 export type Locale = 'pt-BR' | 'en'
-type L = { 'pt-BR': string; en: string }
+export type L = { 'pt-BR': string; en: string }
 
 // How many mainnet transactions the record holds, and how many came from each kind of vault.
 // Read from the list the /proof screen renders, which a test holds to docs/PROOF.md. These docs
@@ -23,6 +24,7 @@ export type Block =
   | { k: 'code'; t: string }
   | { k: 'note'; t: L }
   | { k: 'img'; src: string; alt: L }
+  | { k: 'stages'; numbered: boolean; items: Stage[] }
 
 export type Section = {
   id: string
@@ -846,6 +848,95 @@ export const SECTIONS: Section[] = [
         t: {
           'pt-BR': 'Não. O Konclave não passou por auditoria independente, e a auditoria parcial da Zcash Foundation na biblioteca de base não cobre a variante que a Zcash usa, então não guarde valores significativos nele ainda. Ainda não existem: troca de um assento perdido ou dos membros, recuperação de membro e herança (só como demonstração), leitura de folha por arquivo CSV no app web, e um app de mesa validado.',
           en: 'No. Konclave has not been independently audited, and the Zcash Foundation’s partial audit of the underlying library does not cover the variant Zcash uses, so do not keep significant funds in it yet. Not built yet: replacing a lost seat or changing the members, member recovery and inheritance (they exist only as demos), reading a payroll from a CSV file in the web app, and a validated desktop app.',
+        },
+      },
+    ],
+  },
+  {
+    id: 'roadmap',
+    nav: { 'pt-BR': 'Roteiro', en: 'Roadmap' },
+    title: { 'pt-BR': 'Para onde o Konclave vai', en: 'Where Konclave is going' },
+    lead: {
+      'pt-BR':
+        'O caminho do Konclave, um passo de cada vez. Cada etapa aponta para as issues do GitHub onde o trabalho é acompanhado. É um plano, não uma promessa: a ordem pode mudar com o que aprendermos.',
+      en:
+        'Konclave’s path, one step at a time. Each step points at the GitHub issues where the work is tracked. It is a plan, not a promise: the order can change with what we learn.',
+    },
+    blocks: [
+      {
+        k: 'p',
+        t: {
+          'pt-BR': `Situação em ${ROADMAP_AS_OF['pt-BR']}.`,
+          en: `As of ${ROADMAP_AS_OF.en}.`,
+        },
+      },
+      {
+        k: 'p',
+        t: {
+          'pt-BR':
+            'As etapas estão na ordem em que pretendemos trabalhar, e uma começa quando a anterior termina. Quando uma etapa espera por alguém de fora do time (uma revisão, quem mantém uma biblioteca), dizemos aqui o que ela espera. Os nossos próprios defeitos vêm antes de qualquer coisa nova. Quando uma etapa toca uma biblioteca que a comunidade usa, primeiro oferecemos a melhoria a quem a mantém.',
+          en:
+            'The steps are in the order we intend to work on them, and each starts once the one before it is done. When a step waits on someone outside the team (a reviewer, a library’s maintainers), we say here what it is waiting for. Our own defects come before anything new. When a step touches a library the community uses, we first offer the improvement to the people who maintain it.',
+        },
+      },
+      {
+        k: 'p',
+        t: {
+          'pt-BR':
+            'Três termos aparecem muito aqui. A **chave de visualização** deixa ler o saldo, os pagamentos e os memos de um cofre, e não deixa gastar. O **coordenador** é o servidor que monta e transmite as transações do cofre; ele nunca recebe um pedaço da chave. O **relay** só repassa mensagens entre os aparelhos dos membros. Mais em [Coordenação](#/docs/coordination) e [Segurança e confiança](#/docs/security).',
+          en:
+            'Three terms come up often here. The **viewing key** lets someone read a vault’s balance, payments and memos, and does not let them spend. The **coordinator** is the server that builds and broadcasts the vault’s transactions; it never receives a part of the key. The **relay** only passes messages between the members’ devices. More in [Coordination](#/docs/coordination) and [Security and trust](#/docs/security).',
+        },
+      },
+      {
+        k: 'p',
+        t: {
+          'pt-BR':
+            'Cada etapa aponta para as issues do GitHub onde o trabalho é acompanhado. Passe o mouse sobre um número, ou chegue nele pelo teclado, para ver o título; no celular, os títulos aparecem embaixo de cada etapa. Ler esta página não faz nenhum pedido ao GitHub; só abrir uma issue faz.',
+          en:
+            'Each step points at the GitHub issues where the work is tracked. Hover over a number, or reach it with the keyboard, to see the title; on a phone, the titles are listed under each step. Reading this page makes no request to GitHub; only opening an issue does.',
+        },
+      },
+      { k: 'h', t: { 'pt-BR': 'As etapas', en: 'The steps' } },
+      { k: 'stages', numbered: true, items: ROADMAP_STEPS },
+      { k: 'h', t: { 'pt-BR': 'Mais adiante', en: 'Further ahead' } },
+      {
+        k: 'p',
+        t: {
+          'pt-BR': 'Trabalho já mapeado que ainda não tem lugar na ordem.',
+          en: 'Work already mapped that has no place in the order yet.',
+        },
+      },
+      { k: 'stages', numbered: false, items: ROADMAP_LATER },
+      { k: 'h', t: { 'pt-BR': 'Devolver às bibliotecas', en: 'Giving back to the libraries' } },
+      {
+        k: 'ul',
+        items: [
+          {
+            'pt-BR': '[WebZjs](https://github.com/ZcashCommunityGrants/WebZjs): a varredura e o gasto na Ironwood, e sincronizar sem threads, oferecidos a quem o mantém.',
+            en: '[WebZjs](https://github.com/ZcashCommunityGrants/WebZjs): Ironwood scanning and spending, and syncing without threads, offered to its maintainers.',
+          },
+          {
+            'pt-BR': '[zcash_client_memory](https://github.com/zcash/zcash_client_memory): testar o suporte a Ironwood com os dados de um cofre real e relatar o que encontrarmos.',
+            en: '[zcash_client_memory](https://github.com/zcash/zcash_client_memory): test its Ironwood support against a real vault’s data and report what we find.',
+          },
+          {
+            'pt-BR': '[librustzcash](https://github.com/zcash/librustzcash): cada lacuna de WebAssembly que aparecer, sempre com uma reprodução.',
+            en: '[librustzcash](https://github.com/zcash/librustzcash): every WebAssembly gap we hit, always with a reproduction.',
+          },
+          {
+            'pt-BR': '[FROST da Zcash Foundation](https://github.com/ZcashFoundation/frost): mostrar um pedaço perdido da chave sendo reconstruído, funcionando para pessoas comuns, e documentar um formato de backup, que hoje não tem padrão.',
+            en: '[The Zcash Foundation’s FROST](https://github.com/ZcashFoundation/frost): show a lost part of the key being rebuilt, working for ordinary people, and document a backup format, which has no standard today.',
+          },
+        ],
+      },
+      {
+        k: 'note',
+        t: {
+          'pt-BR':
+            'Discorda da ordem, ou quer ajudar numa etapa? Comente na issue, ou no [tópico do Konclave no fórum](https://forum.zcashcommunity.com/t/konclave-a-group-vault-on-zcash-frost/57218).',
+          en:
+            'Disagree with the order, or want to help with a step? Comment on the issue, or on [Konclave’s forum thread](https://forum.zcashcommunity.com/t/konclave-a-group-vault-on-zcash-frost/57218).',
         },
       },
     ],
