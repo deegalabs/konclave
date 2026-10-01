@@ -113,6 +113,23 @@ for (const theme of ['light', 'dark'] as const) {
       }
     })
 
+    // The docs roadmap, read from docs.css the same way: the issue numbers on the well and, hovered, on the
+    // accent wash over a step's card; the "now" pill on that wash; the card's title and hint on the card.
+    it('the roadmap numbers, pills and card text clear AA', () => {
+      const stageCard = t('surface-1')
+      const washOnCard = over(t('accent-soft'), stageCard)
+      const chip = t(docsTextToken('.docs-ref-chip'))
+      for (const [name, fg, bg] of [
+        ['number on the well', chip, well()],
+        ['number on the wash, hovered', chip, washOnCard],
+        ['"now" pill on its wash', t(docsTextToken('.docs-stage[data-status="now"] .docs-stage-status')), washOnCard],
+        ['title on the card', t(docsTextToken('.docs-ref-title')), stageCard],
+        ['hint on the card', t(docsTextToken('.docs-ref-hint')), stageCard],
+      ] as const) {
+        expect(ratio(fg, bg), name).toBeGreaterThanOrEqual(4.5)
+      }
+    })
+
     // 1.4.11: the edge that says "this is a control". The audit proposed a value for this that
     // reached 1.68, not the 3.05 it claimed - which is the reason this file exists.
     it('a control has a perceptible edge (1.4.11)', () => {

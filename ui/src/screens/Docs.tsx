@@ -3,12 +3,38 @@ import { Link, useParams } from 'react-router-dom'
 import { Letterhead } from '../components'
 import { useI18n } from '../i18n'
 import { SECTIONS, type Block, type Locale } from '../docs/content'
+import IssueRef from '../docs/IssueRef'
+import type { StageStatus } from '../docs/roadmap'
 import '../docs.css'
 
 // Locale-aware inline labels (kept here to avoid touching the shared i18n files).
-const LABELS: Record<Locale, { expand: string; close: string }> = {
-  'pt-BR': { expand: 'Ampliar diagrama', close: 'Fechar' },
-  en: { expand: 'Expand diagram', close: 'Close' },
+const LABELS: Record<
+  Locale,
+  {
+    expand: string
+    close: string
+    step: string
+    tracked: string
+    status: Record<StageStatus, string>
+    ref: { issue: string; pull: string; newTab: string; hint: string }
+  }
+> = {
+  'pt-BR': {
+    expand: 'Ampliar diagrama',
+    close: 'Fechar',
+    step: 'Etapa',
+    tracked: 'No GitHub',
+    status: { now: 'Agora', next: 'Próximo', planned: 'Planejado', later: 'Mais adiante' },
+    ref: { issue: 'Issue', pull: 'Pull request', newTab: 'GitHub, nova aba', hint: 'O número abre no GitHub, numa aba nova.' },
+  },
+  en: {
+    expand: 'Expand diagram',
+    close: 'Close',
+    step: 'Step',
+    tracked: 'On GitHub',
+    status: { now: 'Now', next: 'Next', planned: 'Planned', later: 'Later' },
+    ref: { issue: 'Issue', pull: 'Pull request', newTab: 'GitHub, new tab', hint: 'The number opens it on GitHub, in a new tab.' },
+  },
 }
 
 // Inline formatter: renders **bold** and `code` spans inside a plain string.
@@ -102,6 +128,33 @@ function renderBlock(b: Block, loc: Locale, i: number, onExpand: (src: string, a
       return <pre key={i} className="docs-code"><code>{b.t}</code></pre>
     case 'note':
       return <aside key={i} className="docs-note">{rich(b.t[loc])}</aside>
+    case 'stages': {
+      const L = LABELS[loc]
+      const items = b.items.map((st) => (
+        <li key={st.id} className="docs-stage" data-status={st.status}>
+          {/* The step and its state are said once, inside the heading, for whoever moves by headings;
+              this row only shows them, above the title. */}
+          <div className="docs-stage-head" aria-hidden="true">
+            {st.n !== undefined && <span className="docs-stage-n">{L.step} {st.n}</span>}
+            <span className="docs-stage-status">{L.status[st.status]}</span>
+          </div>
+          <h3 className="docs-stage-title">
+            {st.title[loc]}
+            <span className="visually-hidden">
+              {st.n !== undefined ? `, ${L.step.toLowerCase()} ${st.n}` : ''}, {L.status[st.status].toLowerCase()}
+            </span>
+          </h3>
+          <p className="docs-stage-body">{rich(st.body[loc])}</p>
+          <div className="docs-stage-refs">
+            <span className="docs-stage-refs-label">{L.tracked}</span>
+            {st.refs.map((r) => <IssueRef key={`${r.kind}:${r.n}`} r={r} labels={L.ref} />)}
+          </div>
+        </li>
+      ))
+      return b.numbered
+        ? <ol key={i} className="docs-stages">{items}</ol>
+        : <ul key={i} className="docs-stages">{items}</ul>
+    }
     case 'img': {
       const alt = b.alt[loc]
       const src = b.src

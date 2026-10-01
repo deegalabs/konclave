@@ -128,7 +128,7 @@
 
 .docs-link { color: var(--accent-on-soft); text-decoration: none; border-bottom: 1px solid var(--accent-line); }
 .docs-link:hover { border-bottom-color: var(--accent); }
-.docs-p code, .docs-ul code, .docs-lead code {
+.docs-p code, .docs-ul code, .docs-lead code, .docs-stage-body code {
   font-family: var(--font-mono);
   font-size: .88em;
   background: var(--surface-2);
@@ -311,6 +311,114 @@
   color: var(--text-muted);
 }
 .docs-pager-link span { font-size: 15px; font-weight: 600; color: var(--text); }
+
+/* Roadmap: the steps, each pointing at the GitHub issues that track it. */
+.docs-stages { list-style: none; margin: 18px 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.docs-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-1);
+}
+.docs-stage[data-status="now"] { border-color: var(--accent-line); }
+.docs-stage-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.docs-stage-n {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.docs-stage-status {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--text-muted);
+}
+.docs-stage[data-status="now"] .docs-stage-status { color: var(--accent-on-soft); border-color: var(--accent-line); background: var(--accent-soft); }
+.docs-stage[data-status="next"] .docs-stage-status { color: var(--accent-on-soft); border-color: var(--accent-line); }
+.docs-stage-title { margin: 0; font-size: 17px; font-weight: 600; line-height: 1.35; color: var(--text); text-wrap: balance; }
+.docs-stage-body { margin: 0; font-size: 15px; line-height: 1.65; color: var(--silver); }
+.docs-stage-refs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding-top: 2px; }
+.docs-stage-refs-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-right: 2px;
+}
+.docs-ref { position: relative; display: inline-flex; }
+.docs-ref-chip {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent-on-soft);
+  text-decoration: none;
+  padding: 3px 9px;
+  border: 1px solid var(--accent-line);
+  border-radius: 999px;
+  background: var(--surface-2);
+  transition: background .15s, border-color .15s;
+}
+.docs-ref-chip:hover { background: var(--accent-soft); border-color: var(--accent); }
+.docs-ref-num { white-space: nowrap; }
+/* The title rides in the link's name for screen readers; on a pointer device it is shown in the card,
+   on a touch device under the step (see the hover: none block). */
+.docs-ref-name {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+.docs-ref-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.docs-ref-card {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: max-content;
+  max-width: min(320px, calc(100vw - 24px));
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  box-shadow: var(--shadow-overlay);
+}
+/* The class sets display, which would otherwise beat the hidden attribute. */
+.docs-ref-card[hidden] { display: none; }
+/* A bridge over the gap, so moving the pointer from the chip to the card does not close it. */
+.docs-ref-card::before { content: ''; position: absolute; left: 0; right: 0; top: -9px; height: 9px; }
+.docs-ref-kind {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.docs-ref-title { font-size: 14px; line-height: 1.45; color: var(--text); }
+.docs-ref-hint { font-size: 12.5px; line-height: 1.4; color: var(--text-muted); }
+/* No hover on a touch screen: list each issue as a line with its title, the link filling the line. */
+@media (hover: none) {
+  .docs-stage-refs { flex-direction: column; align-items: stretch; gap: 6px; }
+  .docs-ref { display: block; }
+  .docs-ref-chip { display: block; padding: 9px 12px; border-radius: var(--radius-sm); line-height: 1.45; }
+  .docs-ref-name {
+    position: static; width: auto; height: auto; margin: 0;
+    overflow: visible; clip: auto; white-space: normal; color: var(--text);
+    font-family: var(--font-sans); font-size: 14px;
+  }
+  .docs-ref-card { display: none !important; }
+}
+@media (prefers-reduced-motion: reduce) { .docs-ref-chip { transition: none; } }
 
 @media (max-width: 780px) {
   .docs-body { grid-template-columns: 1fr; }

@@ -40,6 +40,14 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Added
+
+- **A roadmap in the docs.** Under Roadmap, the steps Konclave plans to take, in order, each with
+  the GitHub issues where the work is tracked. Hover over an issue number, or reach it with the
+  keyboard, to read its title; Escape closes it. On a phone the titles are listed under each step.
+  The titles are kept with the page, so reading the roadmap sends nothing to GitHub until you open
+  an issue. It is a plan, not a promise, and it carries no amounts.
+
 ### Fixed
 
 - **The landing named the previous desktop release.** It said v0.7.0 after v0.8.0 shipped. It now
