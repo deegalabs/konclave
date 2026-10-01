@@ -60,10 +60,10 @@ From [CONCEITO_INICIAL.md §13](docs/CONCEITO_INICIAL.md) + the logistics conver
 > **Note on "Receive only in Orchard" (post-NU6.3).** Since NU6.3 "Ironwood" activated on
 > mainnet (§5), new shielded receives land in the **Ironwood** pool at the protocol level (Orchard
 > is withdraw-only going forward). The decision stands as **shielded-first, shielded-receive-only**;
-> the concrete retarget of the receive path to Ironwood rides on the engine slice
-> (`feat/engine-ironwood-bump`, #259), which is prepared and green but **gated on a live round-trip
-> and not yet merged to `main`**. Treat the Orchard wording above as the historical framing and this
-> note as the current, gated target.
+> the concrete retarget of the receive path to Ironwood rides on the engine re-cut
+> ([#120](https://github.com/deegalabs/konclave/issues/120), which replaces the unmerged #259),
+> **gated on a staging run and a live round-trip** before it is deployed. Treat the Orchard wording
+> above as the historical framing and this note as the current, gated target.
 
 Technical decisions assumed in logistics:
 - **Dev OS:** start native on **Windows**; **WSL2** only if the tooling breaks.
@@ -144,9 +144,14 @@ Facts (verified 2026-06-30):
     Orchard-protocol receiver has been exposed, no party can be prevented from sending funds to it in
     either pool."* So our destination validation asking for an Orchard receiver is **correct** - that
     receiver also receives Ironwood-pool notes - and rejecting such addresses would break valid
-    payments. What matters is that outputs and change land in **Ironwood**, which they do
+    payments. What matters is that outputs land in **Ironwood**, which they do. **Change does not
+    always:** in the released backend (0.24.0), the change of a spend funded from Orchard notes
+    returns to the Orchard pool as an internal (change) receiver, under the turnstile rule (only while
+    it is strictly less than the Orchard value the transaction removes), and change from Ironwood
+    notes stays in Ironwood (`zcash_client_backend-0.24.0/src/fees/common.rs:175-207`, read on
+    2026-10-01 for #604). An earlier version of this line said change always lands in Ironwood.
     (`fallback_change_pool` is only used when a transaction has no shielded inputs, which never
-    happens for a vault spend). [#341](https://github.com/deegalabs/konclave/issues/341) is rescoped
+    happens for a vault spend.) [#341](https://github.com/deegalabs/konclave/issues/341) is rescoped
     accordingly. Note also that the consensus text (ZIP 2006) is still **Reserved and empty**, so the
     only citable rule today is this Draft, Wallet-category MUST NOT. Verified 2026-08-31.
   - **NU7 is being polled, not scheduled. CONFIRMED with a large caveat.** There were **two** August
@@ -624,22 +629,28 @@ out **sealed** to the vault's devices, with the plaintext path closing per vault
   (`konclave-staging`), on mainnet, with the helper's `/data/vaults` empty - properly isolated. The
   CSP admits both (#440), so pointing a preview at it is `VITE_RELAY_BASE` alone.
   The objection this entry recorded was real and was answered rather than removed: a staging helper
-  built from `main`'s pins would run a different engine than production, which runs the Ironwood-bump
-  binaries from the unmerged #259 branch. It was solved by reusing the SAME out-of-band binaries
-  instead of rebuilding, so both environments run one engine. That the entry did not notice is worth
+  built from `main`'s pins would run a different engine than production. It was solved by reusing the
+  SAME out-of-band binaries instead of rebuilding, so both environments run one engine (the two deploy
+  contexts hard-link the same files). Since 2026-09-21 that one engine is the July build, in both: see
+  the engine entry below. That the entry did not notice is worth
   more than the entry: nothing here is checked against the thing it describes unless someone looks.
 - **`/net` multi-note over the live relay** (unit-tested; single-spend is live-proven), and **Tauri**
   live per-platform hardware validation (above).
 
 **Ops + hardening (2026-08).**
-- **Ironwood finals engine bump prepared (#259, branch `feat/engine-ironwood-bump`).** The branch
-  pins **pczt 0.8.0-rc.1 / `zcash_client_backend` 0.24.0-rc.1** in `engine/versions.lock`, read from
-  the branch on 2026-09-07; this line said 0.9.1 / 0.24.0-rc.6, which is neither what the branch pins
-  nor what production runs. The binaries actually deployed measure `pczt-0.9.3` /
-  `zcash_client_backend-0.24.0` - the released line - so the deployed engine is not reproducible from
-  anything committed to `main`, and that is the real content of this debt. (librustzcash) + `zcash-sign` frost-tools #593 + `zcash-devtool`
-  from `main`. CI is green, but it is **gated on a live round-trip and NOT merged to `main`** -
-  `engine/versions.lock` on `main` intentionally keeps the older pins until then.
+- **The engine: production runs the July build, and the released line is re-cut onto `main` (#120).**
+  Measured inside the coordinator container on 2026-10-01 (read-only `stat`): `konclave-signer`
+  (2026-07-28) and `zcash-devtool` (2026-07-26) on librustzcash `42ffd0d` (pczt 0.7), and `zcash-sign`
+  (2026-07-09, frost-tools #587). The released line (pczt 0.9.3 / `zcash_client_backend` 0.24.0 /
+  `zcash_primitives` 0.30.1 / orchard 0.15.5) ran in production only from 2026-08-24 to 2026-09-21,
+  built from #259's branch. The `cp` steps in `deploy/helper/README.md` copy from build directories
+  that still hold July builds, and reassembling the deploy context from them on 2026-09-21 put the
+  July engine back (#522). This entry said production ran the released line until 2026-10-01, and so
+  did comments on #120 and #522 that day, corrected the same day. #259 will not be merged (221
+  commits behind `main`, and its committed wasm predates #364 and #281): #120 re-cuts the same line
+  onto `main`, and its deploy is an engine upgrade for production, gated on a staging run and a live
+  mainnet send. The pczt 0.8.0-rc.1 / 0.24.0-rc.1 an earlier version of this line attributed to the
+  branch are the pins of `zcash-sign` at frost-tools #593, not of our crates.
 - **Hosted share-blind helper deployed on mainnet, non-root.** The Architecture-B helper (ADR-0006 Rung A)
   runs on Railway against mainnet. A census reversibly retired 21 disposable test vaults (26 -> 5,
   moved to `/data/vaults/_retired`, recoverable per `docs/RECOVERY.md` C). **Re-counted 2026-09-05:
