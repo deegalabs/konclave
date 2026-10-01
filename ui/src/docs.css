@@ -62,7 +62,7 @@
 .docs-navlink:hover { background: var(--surface-2); color: var(--text); }
 .docs-navlink.active {
   background: var(--accent-soft);
-  color: var(--accent);
+  color: var(--accent-on-soft);
   border-left-color: var(--accent);
   font-weight: 600;
 }
@@ -77,7 +77,7 @@
   font-size: 11px;
   letter-spacing: .12em;
   text-transform: uppercase;
-  color: var(--accent);
+  color: var(--accent-on-soft);
 }
 .docs-title {
   font-size: 34px;
@@ -126,7 +126,7 @@
   opacity: .7;
 }
 
-.docs-link { color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--accent-line); }
+.docs-link { color: var(--accent-on-soft); text-decoration: none; border-bottom: 1px solid var(--accent-line); }
 .docs-link:hover { border-bottom-color: var(--accent); }
 .docs-p code, .docs-ul code, .docs-lead code {
   font-family: var(--font-mono);

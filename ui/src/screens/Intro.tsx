@@ -6,10 +6,11 @@ import { getTheme, setTheme, type Theme } from '../theme'
 import '../redesign.css'
 import '../landing-vault.css'
 import { useInstall } from '../use-install'
+import { DESKTOP_VERSION } from '../desktop-release'
 
 const REPO = 'https://github.com/deegalabs/konclave'
 const RELEASES = `${REPO}/releases`
-const VER = '0.8.0'
+const VER = DESKTOP_VERSION
 // Kept, unused for now: the installers exist at these URLs and the buttons go live again the
 // moment per-platform validation lands (#212). Deleting it would lose the mapping.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars

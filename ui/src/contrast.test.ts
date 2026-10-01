@@ -15,6 +15,15 @@ import { readFileSync } from 'node:fs'
 // and neither is assumed, which is the only reason those two were found.
 
 const css = readFileSync(new URL('./lacre.css', import.meta.url), 'utf8')
+const docsCss = readFileSync(new URL('./docs.css', import.meta.url), 'utf8')
+
+/** The token a docs.css rule paints its TEXT with (`color:`, not `border-left-color:`). */
+function docsTextToken(selector: string): string {
+  const esc = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const m = new RegExp(`${esc}\\s*\\{[^}]*?(?:^|[;{\\s])color:\\s*var\\(--([a-z0-9-]+)\\)`, 'm').exec(docsCss)
+  if (!m) throw new Error(`no text colour token for ${selector} in docs.css`)
+  return m[1]!
+}
 
 /** Pull `--name` out of a `:root`-ish block. `light` reads the bare block, `dark` the stamped one. */
 function token(name: string, theme: 'light' | 'dark'): string {
@@ -89,6 +98,19 @@ for (const theme of ['light', 'dark'] as const) {
 
     it('the network pill clears AA on its own wash', () => {
       expect(ratio(t('accent-on-soft'), accentCard())).toBeGreaterThanOrEqual(4.5)
+    })
+
+    // The docs read the colour straight from docs.css, so the rule that ships is the rule that is
+    // measured. --accent as text measured 4.38:1 on the page and 3.91:1 on the active section's wash.
+    it('the docs links, title labels and active section clear AA', () => {
+      const activeWash = over(t('accent-soft'), page())
+      for (const [selector, bg] of [
+        ['.docs-link', page()],
+        ['.docs-eyebrow', page()],
+        ['.docs-navlink.active', activeWash],
+      ] as const) {
+        expect(ratio(t(docsTextToken(selector)), bg), selector).toBeGreaterThanOrEqual(4.5)
+      }
     })
 
     // 1.4.11: the edge that says "this is a control". The audit proposed a value for this that
