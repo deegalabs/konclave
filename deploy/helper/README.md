@@ -43,24 +43,43 @@ browsers run the FROST ceremony over the relay).
 > the context fresh each time from the commands below; do not reuse a directory you find lying about.
 
 The `bin/` the Dockerfile copies is **not** in git (the binaries are ~100 MB and are built out
-of repo, matching the pin-not-vendor policy). Assemble it from local builds:
+of repo, matching the pin-not-vendor policy). Our two binaries are built from the commit being
+deployed, in a target directory named after it, so nothing comes from a directory that outlived the
+build it holds. That is the mistake #522 records: until #120 the engine was copied from long-lived
+target directories, and on 2026-09-21 that put a July engine back in production.
 
 ```sh
-# helper-server (this repo)
-CARGO_TARGET_DIR=~/ktarget cargo build --release --manifest-path helper-server/Cargo.toml
+# Our binaries, from the commit being deployed (run in this repo, on a clean tree).
+REV=$(git rev-parse --short HEAD)
+CARGO_TARGET_DIR=~/ktarget-$REV cargo build --release --manifest-path helper-server/Cargo.toml
+CARGO_TARGET_DIR=~/ktarget-$REV cargo build --release --manifest-path konclave-signer/Cargo.toml
 
-# then gather the four binaries into a deploy context next to this Dockerfile.
-# WARNING (2026-10-01): the three ENGINE lines below copy JULY builds (#522). Following them on
-# 2026-09-21 is what put the July engine back in production. Keep them only for a helper-only
-# deploy before #120 lands, since that is what production runs today; #120 replaces them with
-# binaries built from the commit being deployed and checked against engine/versions.lock.
 mkdir -p ~/konclave-helper-deploy/bin
-cp ~/ktarget/release/helper-server            ~/konclave-helper-deploy/bin/
-cp ~/ktarget-engine/release/zcash-sign        ~/konclave-helper-deploy/bin/
-cp ~/ktarget-ironwood/release/zcash-devtool   ~/konclave-helper-deploy/bin/
-cp ~/ktarget-ironwood-signer/release/konclave-signer ~/konclave-helper-deploy/bin/
-cp deploy/helper/Dockerfile                   ~/konclave-helper-deploy/Dockerfile
+cp ~/ktarget-$REV/release/helper-server   ~/konclave-helper-deploy/bin/
+cp ~/ktarget-$REV/release/konclave-signer ~/konclave-helper-deploy/bin/
+
+# The two external tools are pinned in engine/versions.lock ([source.zcash-devtool],
+# [source.frost-tools]), each with the sha256 of the build that is allowed to ship. Copy the binary
+# whose sha256 matches that record; if none on this host does, rebuild it from the recorded source.
+cp <zcash-devtool whose sha256 engine/versions.lock records> ~/konclave-helper-deploy/bin/zcash-devtool
+cp <zcash-sign whose sha256 engine/versions.lock records>    ~/konclave-helper-deploy/bin/zcash-sign
+cp deploy/helper/Dockerfile ~/konclave-helper-deploy/Dockerfile
+
+# Before `railway up`: every binary must be the one you meant.
+sha256sum ~/konclave-helper-deploy/bin/{helper-server,konclave-signer,zcash-devtool,zcash-sign}
+strings ~/konclave-helper-deploy/bin/konclave-signer | grep -oE 'pczt-[0-9.]+|zcash_client_backend-[0-9.]+' | sort -u
 ```
+
+The `strings` line must name the line `engine/versions.lock` pins (today `pczt-0.9.3` and
+`zcash_client_backend-0.24.0`). A signer built on a git rev prints paths under `checkouts/` instead,
+and that is the July engine. After the deploy, record the four sha256 under `[deploy_build]` in
+`engine/versions.lock` in the same pull request that deployed them, and check the container:
+
+```sh
+railway ssh -- stat -c %s /usr/local/bin/konclave-signer /usr/local/bin/zcash-devtool /usr/local/bin/zcash-sign /usr/local/bin/helper-server
+```
+
+Those are read-only, and the sizes must equal the files you uploaded.
 
 Validate locally before deploying:
 
