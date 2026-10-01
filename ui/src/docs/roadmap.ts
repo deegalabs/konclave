@@ -28,7 +28,6 @@ export type Stage = {
 }
 
 const issue = (n: number): Ref => ({ kind: 'issue', n })
-const pull = (n: number): Ref => ({ kind: 'pull', n })
 
 export const refKey = (r: Ref): string => `${r.kind}:${r.n}`
 
@@ -42,8 +41,9 @@ export const REF_TITLES: Record<string, string> = {
   'issue:577': "A member can claim a colleague's unclaimed seat, and then vote as them",
   'issue:575': 'An approval planted while a vault took unsigned writes keeps counting after it requires signatures',
   'issue:576': 'Two requests for one vault run unserialised when their query strings name another',
+  'issue:120': 'Engine: bring main onto the released pczt 0.9.3 / backend 0.24.0 line that production runs (re-cut of #259)',
   'issue:522': 'The deployed engine binaries are 22 days stale, so a Rust fix merged to main ships zero bytes',
-  'pull:259': 'feat(engine): bump to the Ironwood pczt 0.9.1 / backend 0.24 line (v6 signing + Orchard #2778 fix)',
+  'issue:605': 'Let anyone check that the web app is a published release, and refuse updates that are not',
   'issue:516': 'Prove on the device: remove the viewing key from the server, and measure what it costs',
   'issue:583': 'Remember whether this device has a backup, and keep asking until it does',
   'issue:584': 'Check a backup file on this device without importing it',
@@ -89,11 +89,11 @@ export const ROADMAP_STEPS: Stage[] = [
     title: { 'pt-BR': 'Consertar os nossos defeitos', en: 'Fix our own defects' },
     body: {
       'pt-BR':
-        'Antes de qualquer coisa nova: a chave de visualização que fica sem cifra no navegador depois de restaurar um backup; a aprovação, que ainda não fica presa ao que a proposta diz; um assento ainda livre que outro membro consegue ocupar para votar como o colega; dois defeitos do coordenador achados em revisão; e o motor do servidor, que ainda não é compilado da versão principal do código, por isso uma correção mesclada não chega à produção.',
+        'Antes de qualquer coisa nova: a chave de visualização que fica sem cifra no navegador depois de restaurar um backup; a aprovação, que ainda não fica presa ao que a proposta diz; um assento ainda livre que outro membro consegue ocupar para votar como o colega; dois defeitos do coordenador achados em revisão; o motor do servidor, que ainda não é compilado da versão principal do código, por isso uma correção mesclada não chega à produção; e nada ainda deixa um membro conferir que o app que o nosso servidor entrega é uma versão publicada.',
       en:
-        'Before anything new: the viewing key left unencrypted in the browser after restoring a backup; approvals, which are not yet tied to what the proposal says; an unclaimed seat another member can take and then vote as its owner; two coordinator defects found in review; and the server’s engine, which is not yet built from the main line of the code, so a merged fix does not reach production.',
+        'Before anything new: the viewing key left unencrypted in the browser after restoring a backup; approvals, which are not yet tied to what the proposal says; an unclaimed seat another member can take and then vote as its owner; two coordinator defects found in review; the server’s engine, which is not yet built from the main line of the code, so a merged fix does not reach production; and nothing yet lets a member check that the app our server sends is a published release.',
     },
-    refs: [issue(599), issue(567), issue(577), issue(575), issue(576), issue(522), pull(259)],
+    refs: [issue(599), issue(567), issue(577), issue(575), issue(576), issue(120), issue(522), issue(605)],
   },
   {
     id: 'measure-design-review',
