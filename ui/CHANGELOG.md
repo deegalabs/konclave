@@ -45,6 +45,13 @@ history to tidy it is how context gets lost.
 - **The landing named the previous desktop release.** It said v0.7.0 after v0.8.0 shipped. It now
   names v0.8.0, and the sentence reads the version from the same constant as the installer links,
   so the two cannot disagree.
+- **The docs still named the previous desktop release.** The FAQ and the security page said v0.7.0
+  after v0.8.0 shipped, because the landing was corrected and the docs were not. Both now read the
+  version from one constant, and a test fails if the docs name any other.
+- **Links in the docs were below the contrast WCAG asks for.** In the light theme, the blue of a
+  link, of the label above each title and of the current section in the menu measured 3.9 to 4.4
+  to 1, under 4.5 to 1. They now use the darker blue the app already uses on its own washes, and a
+  test reads the colours from the stylesheet and measures them.
 
 ## [0.8.0] 2026-09-30
 

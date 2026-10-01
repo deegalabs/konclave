@@ -4,6 +4,7 @@
 // SUBMISSION) and stays honest about what is proven vs pending.
 
 import { PROOF_TXS, proofOriginCounts } from '../proof-record'
+import { DESKTOP_VERSION } from '../desktop-release'
 
 export type Locale = 'pt-BR' | 'en'
 type L = { 'pt-BR': string; en: string }
@@ -450,8 +451,8 @@ export const SECTIONS: Section[] = [
             en: '**Proven by test:** social recovery (RTS share repair) and the inheritance policy engine.',
           },
           {
-            'pt-BR': '**Roadmap, não entregue:** o **multi-nota** ao vivo pelo relay; recuperação social e herança ligadas a um cofre vivo (#58); trocar um assento perdido, os membros ou o quórum de um cofre existente (#154); ler a folha de um CSV no app web. Já **entregues** (não são mais roadmap): o broadcast assinado no navegador, o broadcast entre dispositivos físicos separados, a persistência do share no dispositivo com assinatura-após-restore, e o app de mesa (Tauri, última versão **v0.7.0**, uma pré-release; ainda não validado em hardware real, por isso o botão de download do site fica desligado).',
-            en: '**Roadmap, not shipped:** live **multi-note** over the relay; social recovery and inheritance wired into a live vault (#58); replacing a lost seat, or changing the members or the quorum of an existing vault (#154); reading a payroll from a CSV in the web app. Already **shipped** (no longer roadmap): the browser-signed broadcast, a broadcast across separate physical devices, on-device share persistence with sign-after-restore, and the desktop app (Tauri, latest **v0.7.0**, a pre-release; not yet validated on real hardware, so the site’s download button stays off).',
+            'pt-BR': `**Roadmap, não entregue:** o **multi-nota** ao vivo pelo relay; recuperação social e herança ligadas a um cofre vivo (#58); trocar um assento perdido, os membros ou o quórum de um cofre existente (#154); ler a folha de um CSV no app web. Já **entregues** (não são mais roadmap): o broadcast assinado no navegador, o broadcast entre dispositivos físicos separados, a persistência do share no dispositivo com assinatura-após-restore, e o app de mesa (Tauri, última versão **v${DESKTOP_VERSION}**, uma pré-release; ainda não validado em hardware real, por isso o botão de download do site fica desligado).`,
+            en: `**Roadmap, not shipped:** live **multi-note** over the relay; social recovery and inheritance wired into a live vault (#58); replacing a lost seat, or changing the members or the quorum of an existing vault (#154); reading a payroll from a CSV in the web app. Already **shipped** (no longer roadmap): the browser-signed broadcast, a broadcast across separate physical devices, on-device share persistence with sign-after-restore, and the desktop app (Tauri, latest **v${DESKTOP_VERSION}**, a pre-release; not yet validated on real hardware, so the site’s download button stays off).`,
           },
         ],
       },
@@ -827,8 +828,8 @@ export const SECTIONS: Section[] = [
       {
         k: 'p',
         t: {
-          'pt-BR': 'Use o app web: é a versão usada no dia a dia. Para tê-lo no celular, abra a página inicial, toque em **Baixar** e depois em **Instalar no aparelho**, quando o navegador oferecer; no iPhone, use **Compartilhar → Adicionar à Tela de Início**. Existe um app de mesa (v0.7.0 no GitHub, uma pré-release), mas ele ainda não foi validado em computadores reais e não é assinado, por isso o site mantém o botão de download desligado. Não há nada para atualizar à mão: quando sai uma versão nova, aparece a barra **Nova versão disponível** com o botão **Atualizar**.',
-          en: 'Use the web app: it is the version in daily use. To keep it on your phone, open the home page, press **Download** and then **Install on this device** when your browser offers it; on an iPhone, use **Share → Add to Home Screen**. A desktop app exists (v0.7.0 on GitHub, a pre-release), but it has not been validated on real computers yet and it is not code-signed, so the website keeps its download button off. There is nothing to update by hand: when a new version is out, a **New version available** bar appears with an **Update** button.',
+          'pt-BR': `Use o app web: é a versão usada no dia a dia. Para tê-lo no celular, abra a página inicial, toque em **Baixar** e depois em **Instalar no aparelho**, quando o navegador oferecer; no iPhone, use **Compartilhar → Adicionar à Tela de Início**. Existe um app de mesa (v${DESKTOP_VERSION} no GitHub, uma pré-release), mas ele ainda não foi validado em computadores reais e não é assinado, por isso o site mantém o botão de download desligado. Não há nada para atualizar à mão: quando sai uma versão nova, aparece a barra **Nova versão disponível** com o botão **Atualizar**.`,
+          en: `Use the web app: it is the version in daily use. To keep it on your phone, open the home page, press **Download** and then **Install on this device** when your browser offers it; on an iPhone, use **Share → Add to Home Screen**. A desktop app exists (v${DESKTOP_VERSION} on GitHub, a pre-release), but it has not been validated on real computers yet and it is not code-signed, so the website keeps its download button off. There is nothing to update by hand: when a new version is out, a **New version available** bar appears with an **Update** button.`,
         },
       },
       { k: 'h', t: { 'pt-BR': 'O que faz "Destravar com este aparelho"?', en: 'What does "Unlock with this device" do?' } },
