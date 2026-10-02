@@ -50,6 +50,9 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **The roadmap gave issue 120 a title that was not true.** It said production runs the released
+  Zcash libraries. Production runs a July build of them; issue 120 is what moves `main` and production
+  onto the released ones. The issue and the roadmap now both say so.
 - **The landing named the previous desktop release.** It said v0.7.0 after v0.8.0 shipped. It now
   names v0.8.0, and the sentence reads the version from the same constant as the installer links,
   so the two cannot disagree.
