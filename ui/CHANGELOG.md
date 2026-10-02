@@ -50,6 +50,11 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **The help page told you to check the recipient on the signing screen.** The address shown
+  there is a label the coordinator writes when it builds the payment, and nothing yet checks it
+  against what the payment actually pays (#610). The help page now says to compare the amount, which
+  the device reads from the transaction itself, and not to rely on the address shown. Making the
+  screen show the address that is really paid is #610's own fix.
 - **The proof page called two transactions the first on mainnet.** They were Konclave's first spend
   from the Ironwood pool and Konclave's first browser-signed broadcast, not the first on Zcash. The
   page and `docs/PROOF.md` now say so, and the README names the other projects that run FROST.
