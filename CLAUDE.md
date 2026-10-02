@@ -331,7 +331,7 @@ mistake in different places, and the third was introduced by the fix for the fir
 is visible from the code.
 
 - [2026-08-26 · no vault could sign a second payment](docs/incidents/2026-08-26-signing-replay.md) — one defect in three readers, plus a regression from its own fix
-- [2026-08-27 · the helper stopped answering](docs/incidents/2026-08-27-helper-unresponsive.md) — serial request loop; root cause fixed 2026-08-28 by a worker pool (#384; #375 pending close, postmortem still to reconcile)
+- [2026-08-27 · the helper stopped answering](docs/incidents/2026-08-27-helper-unresponsive.md) — serial request loop; root cause fixed 2026-08-28 by a worker pool (#384), #375 closed 2026-08-30, postmortem reconciled 2026-10-02 (the five-minute hold of a send is still open)
 
 ---
 
@@ -566,8 +566,8 @@ out **sealed** to the vault's devices, with the plaintext path closing per vault
   indistinguishable from dead, `/api/health` included, and it took the vault down on 2026-08-27
   (see [the postmortem](docs/incidents/2026-08-27-helper-unresponsive.md)). **Fixed 2026-08-28 by a
   worker pool (#384)** - the relay twin the same way (#393). **#375 is now closed** (verified
-  2026-09-05); the postmortem still records the root cause as open and is the maintainer's to
-  reconcile.
+  2026-09-05), and the postmortem was reconciled on 2026-10-02. What it still lists as open: a send
+  holds its vault and one worker for as long as the quorum takes.
 - **The VOTE and the RENAME are authenticated on the helper since 2026-09-05** (#288, was critical).
   Six slices implementing ADR-0011: the rule (#448), the registry (#450), the device's Ed25519 key
   derived from its share (#452), the vote (#453), the rename (#454), and the UI that registers and
