@@ -108,8 +108,12 @@ caller, `ui/src/screens/NetVault.tsx`). That is a statement about the product, n
   ceremony no longer re-broadcasts the PCZT ([ADR-0007](adr/0007-ceremony-security-invariants.md) I3).
   The relay is blind to the payment - proof `047fe6ca…` (block 3,464,505), attested by the captured
   room trace (`docs/proof/2026-08-29-relay-blind.md`), not by the block. **Origin authentication of the
-  signing room has since landed (#392, closed in #401):** an id-only outsider can no longer hijack a
-  seat or forge room messages; the residual ceremony-DoS vector is #400 (#399 is closed). Separately, the helper's
+  signing room has since landed (#392, closed in #401):** an id-only outsider can no longer take a seat a
+  member holds or fake that member's ready-to-sign message, because both are signed. The ceremony's
+  own messages are not signed one by one: what stops a forged one is that each device signs only the
+  transaction it worked out itself (#579). (This line said "forge room messages" until 2026-10-01; the
+  forum post of 2026-09-17 had already corrected the same sentence.) The residual ceremony-DoS vector
+  is #400 (#399 is closed). Separately, the helper's
   governance writes (vote, proposal, payroll, send, rename) are authenticated since 2026-09-07
   (#288 closed; `47e4e5dd…`).
 - **A leaked vault id no longer opens the books or the signing room (#388, shipped and live).** Keep
