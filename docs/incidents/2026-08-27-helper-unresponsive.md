@@ -2,7 +2,9 @@
 
 **Date:** 2026-08-27 · **Duration:** at least 11 minutes unresponsive (13:45-13:56 BRT), of which 4 minutes measured continuously
 **Impact:** every one of the 26 vaults on the hosted helper. No funds at risk, no data lost, no transaction affected.
-**Status:** service restored by restart. Root cause **still present** (#375).
+**Status:** service restored by restart. Root cause **fixed on 2026-08-28** by a worker pool with a lock per vault (#384); #375 closed on 2026-08-30. One item below is still open: a send still holds its vault for as long as the quorum takes.
+
+> **Reconciled on 2026-10-02.** Until then this line said "Root cause **still present** (#375)", a month after the fix shipped. A postmortem that keeps an alarm up after the hazard is gone misleads as much as one that drops it early. The original text below is kept; the status of each open item is added under it.
 
 ---
 
@@ -58,13 +60,17 @@ The maintainer imported a vault on a **preview** deployment. Preview and product
 ## What is still open
 
 1. **Answer `/api/health` without entering the queue.** The cheapest change on the list and the one that ends "cannot tell busy from dead" permanently.
+   **Done by #384:** health names no vault, so any free worker answers it while a send waits.
 2. **One thread per request**, with a **per-vault lock** — without that lock, two sends for the same vault would fight over the same wallet directory.
+   **Done by #384:** a pool of 16 to 64 workers, and every request that names a vault takes that vault's lock, held only for that request.
 3. **Stop holding a request open for five minutes.** The send blocks because it polls the relay inline; a queued job with a status endpoint removes the class. Bigger, and it changes the client contract.
+   **Still open.** A send still holds its vault, and one worker, for as long as the quorum takes. The comment of 2026-08-28 on #375 describes how enough stuck sends could drain the pool; registration has no rate limit yet (#558).
 4. **Staging (#370)**, so "try it" stops meaning "try it on the vaults holding real ZEC".
+   **Built:** a staging relay and coordinator run in their own project (verified 2026-09-07); #370 stays open for the rest of its scope.
 
 ## Honest notes
 
-- **The restart was a remedy, not a fix.** The same freeze will happen on the next long send. Nothing has changed except that we now know why.
+- **The restart was a remedy, not a fix.** The same freeze will happen on the next long send. Nothing has changed except that we now know why. (True when written; #384 removed the freeze the next day.)
 - **I did not know the server was serial** before today, despite having changed that file three times in the previous 24 hours. I read the handlers and never the loop that calls them.
 - **Adding the funding gate made this more likely** and I did not think about it at the time. It was the right fix for the right problem, and it put another blocking call on the busiest path.
 - **The four-minute wait was necessary and cost four minutes.** With a health endpoint that answered, it would have taken one request to know the process was alive and busy rather than crashed.
