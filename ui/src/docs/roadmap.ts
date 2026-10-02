@@ -41,7 +41,7 @@ export const REF_TITLES: Record<string, string> = {
   'issue:577': "A member can claim a colleague's unclaimed seat, and then vote as them",
   'issue:575': 'An approval planted while a vault took unsigned writes keeps counting after it requires signatures',
   'issue:576': 'Two requests for one vault run unserialised when their query strings name another',
-  'issue:120': 'Engine: bring main onto the released pczt 0.9.3 / backend 0.24.0 line that production runs (re-cut of #259)',
+  'issue:120': 'Engine: move main and production onto the released pczt 0.9.3 / backend 0.24.0 line (re-cut of #259)',
   'issue:522': 'The deployed engine binaries are 22 days stale, so a Rust fix merged to main ships zero bytes',
   'issue:605': 'Let anyone check that the web app is a published release, and refuse updates that are not',
   'issue:516': 'Prove on the device: remove the viewing key from the server, and measure what it costs',
