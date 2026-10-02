@@ -41,6 +41,7 @@ export const REF_TITLES: Record<string, string> = {
   'issue:577': "A member can claim a colleague's unclaimed seat, and then vote as them",
   'issue:575': 'An approval planted while a vault took unsigned writes keeps counting after it requires signatures',
   'issue:576': 'Two requests for one vault run unserialised when their query strings name another',
+  'issue:610': 'A signing device checks recipients and amounts, not the fee or the memos',
   'issue:120': 'Engine: move main and production onto the released pczt 0.9.3 / backend 0.24.0 line (re-cut of #259)',
   'issue:522': 'The deployed engine binaries are 22 days stale, so a Rust fix merged to main ships zero bytes',
   'issue:605': 'Let anyone check that the web app is a published release, and refuse updates that are not',
@@ -89,11 +90,11 @@ export const ROADMAP_STEPS: Stage[] = [
     title: { 'pt-BR': 'Consertar os nossos defeitos', en: 'Fix our own defects' },
     body: {
       'pt-BR':
-        'Antes de qualquer coisa nova: a chave de visualização que fica sem cifra no navegador depois de restaurar um backup; a aprovação, que ainda não fica presa ao que a proposta diz; um assento ainda livre que outro membro consegue ocupar para votar como o colega; dois defeitos do coordenador achados em revisão; o motor do servidor, que ainda não é compilado da versão principal do código, por isso uma correção mesclada não chega à produção; e nada ainda deixa um membro conferir que o app que o nosso servidor entrega é uma versão publicada.',
+        'Antes de qualquer coisa nova: a chave de visualização que fica sem cifra no navegador depois de restaurar um backup; a aprovação, que ainda não fica presa ao que a proposta diz; um assento ainda livre que outro membro consegue ocupar para votar como o colega; dois defeitos do coordenador achados em revisão; um aparelho que, ao assinar, confere destinatários e valores, mas não a taxa nem os memos; o motor do servidor, que ainda não é compilado da versão principal do código, por isso uma correção mesclada não chega à produção; e nada ainda deixa um membro conferir que o app que o nosso servidor entrega é uma versão publicada.',
       en:
-        'Before anything new: the viewing key left unencrypted in the browser after restoring a backup; approvals, which are not yet tied to what the proposal says; an unclaimed seat another member can take and then vote as its owner; two coordinator defects found in review; the server’s engine, which is not yet built from the main line of the code, so a merged fix does not reach production; and nothing yet lets a member check that the app our server sends is a published release.',
+        'Before anything new: the viewing key left unencrypted in the browser after restoring a backup; approvals, which are not yet tied to what the proposal says; an unclaimed seat another member can take and then vote as its owner; two coordinator defects found in review; a signing device that checks recipients and amounts but not the fee or the memos; the server’s engine, which is not yet built from the main line of the code, so a merged fix does not reach production; and nothing yet lets a member check that the app our server sends is a published release.',
     },
-    refs: [issue(599), issue(567), issue(577), issue(575), issue(576), issue(120), issue(522), issue(605)],
+    refs: [issue(599), issue(567), issue(577), issue(575), issue(576), issue(610), issue(120), issue(522), issue(605)],
   },
   {
     id: 'measure-design-review',

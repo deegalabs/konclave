@@ -50,6 +50,9 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **The proof page called two transactions the first on mainnet.** They were Konclave's first spend
+  from the Ironwood pool and Konclave's first browser-signed broadcast, not the first on Zcash. The
+  page and `docs/PROOF.md` now say so, and the README names the other projects that run FROST.
 - **The roadmap gave issue 120 a title that was not true.** It said production runs the released
   Zcash libraries. Production runs a July build of them; issue 120 is what moves `main` and production
   onto the released ones. The issue and the roadmap now both say so.

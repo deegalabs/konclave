@@ -2,6 +2,8 @@
 
 - **Status:** accepted
 - **Date:** 2026-08-02
+- **Amended 2026-10-01:** we describe Zkool and other projects as peers, not competitors. The comparison
+  below is kept as the record of the decision as it was taken.
 - **Context:**
   A security audit of the blind relay and the browser FROST ceremonies (DKG + signing) found that
   three security properties the product *claims* are not yet *enforced on-device*. All three live on
