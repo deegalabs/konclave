@@ -212,9 +212,29 @@ pub fn get_info(devtool: &Path, wallet_dir: &str, server: &str) -> Result<ChainI
     parse_chain_info(&run_text(devtool, &args, None)?)
 }
 
+/// `zcash-devtool wallet -w <dir> upgrade` - bring an existing wallet database up to the schema
+/// the CURRENT engine expects. Idempotent: a wallet already at the current schema is a no-op.
+///
+/// Why it exists: a wallet file created by an older engine keeps that engine's schema, and a newer
+/// `zcash_client_sqlite` fails the moment it touches a table it added. The observed failure after an
+/// engine bump was `DbError(SqliteFailure(..., "no such table: orchard_ironwood_migrations"))`,
+/// which takes every vault's balance and history offline until the database is migrated.
+///
+/// The migration is ONE-WAY: once it has run, an older engine can no longer sync the wallet (see
+/// deploy/helper/README.md). The error is returned so the caller can log it; whether a failure is
+/// fatal is the caller's decision ([`crate::helper::vault_balance`] logs it and lets the read that
+/// follows report a real schema problem).
+pub fn upgrade(devtool: &Path, wallet_dir: &str) -> Result<(), ToolError> {
+    let args = ["wallet", "-w", wallet_dir, "upgrade"];
+    crate::tools::run(devtool, &args, None).map(|_| ())
+}
+
 /// `zcash-devtool wallet -w <dir> sync -s <server> --connection direct` - bring the wallet's
 /// view current against lightwalletd so a following `balance` / `list-tx` is up to date. The
 /// stdout is progress noise (not JSON); only success/failure matters here.
+///
+/// Does NOT migrate the wallet: the caller runs [`upgrade`] once, before it touches the wallet at
+/// all ([`crate::helper::vault_balance`]), so a synced read starts one devtool process, not two.
 pub fn sync(devtool: &Path, wallet_dir: &str, server: &str) -> Result<(), ToolError> {
     let s = server_args(server);
     let args = ["wallet", "-w", wallet_dir, "sync", s[0], s[1], s[2], s[3]];
@@ -244,6 +264,31 @@ pub fn list_transactions(devtool: &Path, wallet_dir: &str) -> Result<Vec<WalletT
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A failed migration must reach the caller, so it can be logged. Swallowing it here left the
+    /// operator with nothing but the raw sqlite error of the read that followed.
+    #[cfg(unix)]
+    #[test]
+    fn upgrade_reports_a_failed_migration() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir =
+            std::env::temp_dir().join(format!("konclave-upgrade-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let wallet = dir.to_str().expect("utf8 dir");
+        let fake = |name: &str, code: i32| {
+            let path = dir.join(name);
+            std::fs::write(&path, format!("#!/bin/sh\nexit {code}\n")).expect("write");
+            let mut p = std::fs::metadata(&path).expect("stat").permissions();
+            p.set_mode(0o755);
+            std::fs::set_permissions(&path, p).expect("chmod");
+            path
+        };
+
+        assert!(upgrade(&fake("ok-devtool", 0), wallet).is_ok());
+        assert!(upgrade(&fake("failing-devtool", 1), wallet).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     // Real output captured during the vertical slice.
     const GET_INFO: &str = r#"2026-06-30T20:12:45Z  INFO zcash_devtool::remote: Connecting to zec.rocks:443
