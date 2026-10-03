@@ -228,8 +228,10 @@ Facts (verified 2026-06-30):
 2. Data minimization. No telemetry. Nothing collected/logged/transmitted without need.
 3. Secrets never persist outside the OS secure vault. Never in plaintext on disk, log, URL, query string.
 4. The relay is **blind** (sealed or public material only). The hosted coordinator is
-   **share-blind**: it never receives, derives or stores a share and cannot spend, but it holds
-   each vault's viewing key and reads its books; moving that key to the devices is #516.
+   **share-blind**: it never receives, derives or stores a share and cannot move funds on its own,
+   but it builds the transactions the quorum signs (until #567 and #610 are fixed, a payment the
+   quorum signs is only as safe as the coordinator), and it holds each vault's viewing key and
+   reads its books; moving that key to the devices is #516.
    Documented and demonstrable. (This line said "the coordination server is blind" until
    2026-09-30. The hosted coordinator never was, and the docs say so since #595.)
 5. Encrypted memos (payslip) = sensitive data; only the recipient/UFVK reads them.
@@ -471,7 +473,8 @@ does**.
 
 **H1 is DONE and live, in BOTH rounds since 2026-09-29** (see the two corrections below). Every device recomputes the ZIP-244 sighash
 from **its own** PCZT and signs that, refusing the ceremony if it disagrees with the requested one,
-and it decodes and shows what the transaction pays before contributing a share. `SigningMachine` is
+and it shows a payment before contributing a share, though what it shows is not yet checked
+against what it signs (#610). `SigningMachine` is
 what the background signer drives, so this is the live path, not a lab one. #62 is closed.
 
 > **This paragraph overstated the guarantee until 2026-08-27, and the correction is worth keeping.**
@@ -632,7 +635,7 @@ out **sealed** to the vault's devices, with the plaintext path closing per vault
   built from `main`'s pins would run a different engine than production. It was answered by reusing
   the SAME out-of-band binaries instead of rebuilding, which makes staging ABLE to run production's
   engine, not a guarantee that it does. While an engine change is under test (#608 is the first,
-  from 2026-10-02), staging switches between production's set and the candidate, and its relay can
+  under test since 2026-10-02), staging switches between production's set and the candidate, and its relay can
   run a different commit from production's. So before reading a staging result as a fact about
   production, check what staging answers at that moment: the relay's `/health` reports a
   `source_digest`, and the engine binaries are checked inside the container. Production's engine is

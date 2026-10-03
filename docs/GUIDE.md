@@ -595,8 +595,8 @@ sequenceDiagram
     BR-->>DA: poll - sign request
     BR-->>DB: poll - sign request
 
-    DA->>DA: describeOutputs(pczt) confirms amount + destination
-    DB->>DB: describeOutputs(pczt) confirms amount + destination
+    DA->>DA: shows the payment (not yet a check on the coordinator, #610)
+    DB->>DB: shows the payment (not yet a check on the coordinator, #610)
     loop per spend k (fresh nonces, alpha_k)
         DA->>BR: s1 (commit, k)
         DB->>BR: s1 (commit, k)

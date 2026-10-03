@@ -92,10 +92,13 @@ caller, `ui/src/screens/NetVault.tsx`). That is a statement about the product, n
     function that signs takes the locally derived sighash and refuses a package over any other
     message. Plus ([ADR-0007](adr/0007-ceremony-security-invariants.md), #67 / #68,
     live-validated 2-tab): PIN-gated room admission + a vault fingerprint each signer checks, which
-    close the invite-as-bearer / wrong-room concern. So on the path the app actually sends over, a
-    hostile helper or coordinator **cannot** swap the transaction under a signer. What it can still
-    do, until #567 and #610 are fixed, is build the transaction the quorum is asked to sign, so a
-    payment the quorum signs is only as safe as the coordinator (see `SECURITY.md`).
+    close the invite-as-bearer / wrong-room concern. So on the path the app actually sends over,
+    once a device has derived the message from its own copy of the transaction, no one in the
+    signing room can make it sign a different one. That guards against a member, not against the
+    coordinator: the coordinator builds that transaction, what the signing screen shows is not yet
+    checked against what the device signs (#610), and an approval is not yet tied to the exact
+    content of the proposal (#567). Until both are fixed, a payment the quorum signs is only as
+    safe as the coordinator (see `SECURITY.md`).
   - **Residual (open, #363):** the legacy standalone `/net` route (`NetVault.tsx`) drives the same
     `SigningMachine`, so it recomputes the sighash like the background signer. What it lacks is the
     replay mitigation: its wire type drops the ceremony tag and it ignores history. That is #363, not

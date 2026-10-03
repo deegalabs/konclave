@@ -116,8 +116,8 @@ that had not reloaded.
 **The deployed engine is not reproducible from `main`.** `zcash-sign`, `zcash-devtool` and
 `konclave-signer` are built out of repo and copied into the image. Since 2026-09-21 production runs
 a July build of them: the same library line that `engine/versions.lock` pins on `main` (librustzcash
-`42ffd0d`, pczt 0.7; frost-tools at #587), but built before Rust changes merged to `main` since, so
-those changes do not reach production (#522). From 2026-08-24 to 2026-09-21 the opposite held:
+`42ffd0d`, pczt 0.7; frost-tools at #587), but built before later changes to `konclave-signer` on
+`main` (such as #417, merged 2026-09-03), which therefore do not reach production (#522). From 2026-08-24 to 2026-09-21 the opposite held:
 production ran the released line built from #259's branch, newer than `main`'s pins, and this
 paragraph described that until 2026-10-03. Bringing `main` and production onto one line is #120
 (#608). Either way it is why the release record (`## [x.y.z]` in `CHANGELOG.md`) writes down what

@@ -1,18 +1,18 @@
-# Changelog — the app
+# Changelog: the app
 
 Written for the person who has to live with it: a treasurer holding real ZEC, not a reader of commit
 messages. If an entry does not answer "what is different for me now", it does not belong here.
 
 ## What this file covers, and what it does not
 
-This is the app itself — screens, the ceremony, the money gate, everything a member touches. It is
+This is the app itself: screens, the ceremony, the money gate, everything a member touches. It is
 **not** a product; it is what two products ship.
 
 - **The web** publishes it on every merge to `main`. There is no waiting and no version to install.
 - **The desktop** bundles the same app inside a native shell and publishes on a tag.
 
 So an entry here reaches the web immediately and the desktop at its next release. Recording it once,
-where the change lives, beats writing it in two files and letting them drift — which is the failure
+where the change lives, beats writing it in two files and letting them drift, which is the failure
 this repo keeps meeting in other forms.
 
 The desktop shell (`src-tauri/`) and the shared Rust crates stay in the root
@@ -54,16 +54,27 @@ history to tidy it is how context gets lost.
   It said to check the recipient there, and then, from 2 October, the amount. The coordinator
   builds what that screen shows, so neither is yet a check on the coordinator (#610), and a vote is
   not yet tied to the exact content of a proposal (#567). The help page now says that, until both
-  are fixed, a payment the quorum signs is only as safe as the coordinator, which is why we ask you
-  not to keep significant funds in Konclave yet. It also said the safety of spending lies in who
-  signs and never in who assembles the transaction. It now says that only the devices that sign can
-  spend, but they cannot yet fully check that whoever assembles the transaction built what was
-  approved.
-- **The help page said the desktop app keeps your part of the key in the system keychain.** It does
-  not. The desktop app runs the same app as the browser, in a native window, and keeps your part of
-  the key the same way: encrypted under your passphrase, in the app's own storage. Keeping it in the
-  system keychain is planned. The same page said the coordinator cannot spend. It now says the
-  coordinator cannot move funds on its own, and that it builds every transaction the quorum signs.
+  are fixed, a payment the quorum signs is only as safe as the coordinator, and a new question in
+  the FAQ says what that means. What to do: keep only small amounts in Konclave until #567 and
+  #610 are fixed.
+- **The help page said the coordinator cannot spend, and that the safety of spending lies only in
+  who signs.** The coordinator cannot move funds on its own, but it builds every transaction the
+  quorum signs, and the devices that sign cannot yet check that it built what was approved. The
+  help page now says so, and lists it as not guaranteed yet rather than under what is guaranteed.
+- **The help page did not say what happens if our servers go down.** A new question in the FAQ
+  does: no payment can be made while they are down, and if we lost a vault's data for good, only
+  a member's backup made on a Private vault since 6 September 2026 would bring it back.
+- **The help page said the desktop app seals your part of the key under a key held in the system
+  keychain.** It does not. The desktop app uses the same app code as the browser, in a native
+  window, and keeps your part of the key the same way: encrypted under your passphrase, in the
+  app's own storage. Keeping it in the system keychain is planned.
+- **The help page said the desktop app can use your own coordinator or run with none.** It
+  offers both, but it does not include the local orchestrator yet (#212), and its security policy
+  most likely blocks a coordinator other than ours (#612). The help page now says which modes are
+  not confirmed to work there.
+- **The help page said each device checks the payment before it signs.** It shows the payment, and
+  what it shows is not yet checked against what it signs (#610). The proof section and the dry-run
+  note now say so.
 - **The roadmap said a signing device already checks recipients and amounts.** Step 0 now says
   that a signing device does not yet check what it shows against what it signs, nor the fee or the
   memos (#610), and the titles of #610 and #583 read as they do on GitHub.

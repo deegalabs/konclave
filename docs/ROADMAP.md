@@ -50,7 +50,7 @@ This cycle's work:
 ## Shipped since (2026-08-22)
 
 - **Desktop app RELEASED as v0.2.0** (2026-08-03, git tag `v0.2.0`): a real Tauri shell
-  (`src-tauri/`) wrapping the orchestrator, with Windows/macOS/Linux installers. Only the
+  (`src-tauri/`) around the same `ui/` (it does not embed the orchestrator yet, #212), with Windows/macOS/Linux installers. Only the
   live per-platform hardware validation stays open (above); the shell itself is no longer roadmap.
 - **Hosted blind helper is a real crate** (`helper-server/`, CI-gated): the Architecture-B
   helper (ADR-0006 Rung A) deployed on Railway, blind to shares. The native `orchestrator`
@@ -292,14 +292,14 @@ One UI (`ui/`) and one crypto core (`konclave-wasm`) behind the relay:
 - **Web** - browser + WASM + hosted relay (done; verified across separate machines). **Now
   installable as a PWA** (web app manifest + a network-first, update-safe service worker - the
   `/api` and `/relay` responses are never cached; the share lives only in encrypted IndexedDB).
-- **Desktop (RELEASED, v0.2.0)** - a Tauri shell (`src-tauri/`) wrapping the `orchestrator`,
+- **Desktop (RELEASED, v0.2.0)** - a Tauri shell (`src-tauri/`) around the same `ui/` (embedding the `orchestrator` is #212),
   shipped as native installers (Windows / macOS / Linux) at git tag `v0.2.0` (2026-08-03). What
   remains is live **per-platform hardware** validation (the dev machine's GTK/WSLg window won't
   render, [ADR-0004](adr/0004-local-http-bridge.md)). Not Wails/Go: the backend is Rust and Wails
   hits the same WebKitGTK wall.
 - **Mobile = the browser / PWA** - the same UI + WASM core; the device holds its share (encrypted
   IndexedDB) and signs, while build/prove/broadcast stay off-device via the helper (Architecture B),
-  trustless and unable to move funds without the quorum. Sign-after-restore in `/net` is **wired end
+  holding no share and unable to move funds without the quorum. Sign-after-restore in `/net` is **wired end
   to end** (the saved bundle carries the KeyPackage + group key + seat; a reloaded device rejoins a
   signing room, re-announces its original seat, and signs with the restored share - no DKG redo;
   covered by a bundle+seat test). **Remaining:** a live two-browser proof.
@@ -337,8 +337,8 @@ secp256k1/C deps on purpose).
 > ZecHub FROST projects (2026-07-29) named as the meaningful one, and which none of the six had
 > reached.
 
-**Three stages for the helper (each strictly more decentralized, all trustless - the helper never
-sees a share and cannot move funds without the quorum's signatures):**
+**Three stages for the helper (each strictly more decentralized; in none of them does the helper
+see a share or move funds without the quorum's signatures):**
 1. **Manual CLI (today):** `konclave net-send` builds + proves + broadcasts; the browser devices sign
    over the blind relay. Simplest form; proves the loop.
 2. **Blind service / daemon:** the same helper runs as a service that watches the relay for a
@@ -364,13 +364,13 @@ sees a share and cannot move funds without the quorum's signatures):**
   is the likely speedup path.
 - **Sync** (light client in WASM) - largest: compact-block sync, trial-decryption, witness updates.
 
-**Security invariant, unchanged at every stage:** the share stays encrypted on the device, the
-vault's viewing key lives in the browser (the member already owns it), and no operator or service
-ever sees a secret. Only **the devices that sign** can spend, but until #567 and #610 are fixed
-they cannot fully check that whoever assembles the transaction built what was approved.
+**Security goal, at every stage:** the share stays encrypted on the device and no operator or
+service ever sees it. The viewing key is meant to live only on the members' devices; today the
+coordinator holds it too (#516). Only **the devices that sign** can spend, but until #567 and #610
+are fixed they cannot yet check that whoever assembles the transaction built what was approved.
 
 **Fallback:** if in-WASM proving is not viable yet, stage 2 (blind service) already delivers a
-no-manual-step, trustless flow while the WASM proving path matures.
+no-manual-step flow, in which the helper holds no share, while the WASM proving path matures.
 
 ---
 
@@ -382,8 +382,8 @@ no-manual-step, trustless flow while the WASM proving path matures.
 > The design below is what landed.
 
 On desktop (Tauri) the coordination backend is decided at **build time** today
-(`helperConfigured()` reads `VITE_HELPER_BASE`). Make it the **user's runtime choice** - all three
-trustless (the helper never sees a share, never moves funds without the quorum):
+(`helperConfigured()` reads `VITE_HELPER_BASE`). Make it the **user's runtime choice** - in all
+three the helper never sees a share and never moves funds without the quorum:
 
 1. **Our hosted helper** (default) - the blind Architecture-B helper.
 2. **Your own helper** - a self-hosted helper URL (Settings field + localStorage override, so

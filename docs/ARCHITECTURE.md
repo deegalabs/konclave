@@ -68,11 +68,11 @@ it disrupts coordination (hence the QR/copy-paste fallback on the roadmap).
 member identity, or who assembles the transaction - RFC 9591 only requires that the channel be
 authenticated. Something must therefore coordinate, and here that is the **hosted coordinator**
 (the helper): it builds and proves the PCZT, hosts the signing round, injects the aggregate
-signature and broadcasts. It is trusted for **availability** and for the **privacy of the books** -
-it holds each vault's viewing key, so it reads balances, payments, amounts, memos and member names -
-and never for shares (it never receives one). It cannot move funds on its own, because every payment
-needs a quorum's signatures, but it builds the transaction the quorum signs: until #567 and #610 are
-fixed, a payment the quorum signs is only as safe as the coordinator.
+signature and broadcasts. It is trusted for **availability**, for the **privacy of the books** (it
+holds each vault's viewing key, so it reads balances, payments, amounts, memos and member names)
+and, until #567 and #610 are fixed, for **building what the quorum signs**; never for shares (it
+never receives one). It cannot move funds on its own, because every payment needs a quorum's
+signatures, but until both are fixed a payment the quorum signs is only as safe as the coordinator.
 Two consequences worth stating because they are easy to assume wrongly: the **relay is not the coordinator** (it is a mailbox, and since #63 the signing
 request is sealed to the members' device keys, so it carries ciphertext rather than recipient and
 amount), and the **MCP server is not the coordinator either** - `mcp-server/` is a read-and-draft
@@ -195,12 +195,13 @@ bundle and converge on the same on-chain transaction (guaranteed by the §7 pari
   is meant to match the original §2 closed decision ("local-first desktop, share in the OS secure
   vault") by reusing the tested `orchestrator/`. The released app does not do that yet. It hosts
   the same `ui/` in the system webview and nothing more: it does not embed `konclave serve`, and
-  the share is kept as in the browser, because no screen calls the keychain commands yet
-  ([`NATIVE-STORAGE-BRIDGE.md`](NATIVE-STORAGE-BRIDGE.md)). Tauri is an **additive** shell in
+  the share is kept as in the browser, because no screen calls the keychain commands yet and the
+  released build enables no platform keychain ([`NATIVE-STORAGE-BRIDGE.md`](NATIVE-STORAGE-BRIDGE.md)). Tauri is an **additive** shell in
   `src-tauri/`, not a rewrite.
 - **Web (browser)** is the shell in daily use: a member creates, approves and signs from a phone or
-  laptop with no install, via the WASM core over the blind relay. Every device verifies **what it
-  is signing** on-device (recipient/amount vs. the approved proposal) and the share is sealed at
+  laptop with no install, via the WASM core over the blind relay. Every device shows the payment it
+  is about to sign, though what it shows is not yet checked against what it signs (#610), and the
+  share is sealed at
   rest in IndexedDB under a passphrase-derived key. A passkey shortcut (WebAuthn PRF, #57) can
   unlock the vault's books on the device where it was created; approving and sending always require
   the passphrase. The browser is asked to keep the storage persistent, and the dashboard says when
@@ -215,7 +216,8 @@ bundle and converge on the same on-chain transaction (guaranteed by the §7 pari
   sighash of the vault's own PCZT under the transaction's randomizer; social recovery (RTS) and the
   inheritance policy engine, proven by tests and not yet wired into a live vault (#58).
 - The FROST↔PCZT bridge in WASM (`pczt_bridge`), byte-for-byte equal to native.
-- **Real browser transaction:** on-device "what am I signing" verification, then a broadcast from
+- **Real browser transaction:** the payment shown on each device before it signs (not yet a check
+  on the coordinator, #610), then a broadcast from
   the browser path (`3022420a…`, 2026-07-30), since repeated across separate machines and from a
   phone.
 - **Per-vault read access + S-derived signing room + fully-encrypted v2 export (#388/#214, live).**
