@@ -64,6 +64,9 @@ history to tidy it is how context gets lost.
   are fixed, a payment the quorum signs is only as safe as the coordinator, and a new question in
   the FAQ says what that means. What to do: keep only small amounts in Konclave. It has not been
   independently audited, and #567 and #610 are still open.
+- **The signing desk said you check the destination and the amount before signing.** What you
+  confirm there is the payment as the proposal records it, and that is not yet a check on the
+  coordinator (#567, #610). The note now says what you confirm.
 - **The help page said the coordinator cannot spend, and that the safety of spending lies only in
   who signs.** The coordinator cannot move funds on its own, but it builds every transaction the
   quorum signs, and the devices that sign cannot yet check that it built what was approved. The

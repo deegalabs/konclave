@@ -652,7 +652,8 @@ out **sealed** to the vault's devices, with the plaintext path closing per vault
   **Tauri** open items above (#212, #606, per-platform hardware validation).
 
 **Ops + hardening (2026-08).**
-- **The engine: production runs the July build, and the released line is re-cut onto `main` (#120).**
+- **The engine: until the release that carries #608 is deployed, production runs the July build; #608
+  re-cut the released line onto `main` (#120).**
   Measured inside the coordinator container on 2026-10-01 (read-only `stat`): `konclave-signer`
   (2026-07-28) and `zcash-devtool` (2026-07-26) on librustzcash `42ffd0d` (pczt 0.7), and `zcash-sign`
   (2026-07-09, frost-tools #587). The released line (pczt 0.9.3 / `zcash_client_backend` 0.24.0 /

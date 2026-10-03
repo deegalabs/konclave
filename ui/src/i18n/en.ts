@@ -508,7 +508,7 @@ export const en: Record<string, string> = {
   'desk.view': 'View details',
   'desk.openCount': '{n} open',
   'desk.seeAll': 'See all ({n})',
-  'desk.noteSign': 'You check the destination and the amount before signing. Nothing leaves here without that confirmation.',
+  'desk.noteSign': 'Before signing, you confirm the payment as the proposal records it. Nothing leaves here without that confirmation.',
   'desk.noteVote': 'Approving reserves the amount in the vault until the proposal is sent or expires.',
   'desk.noteWait': 'The amount is already reserved. Whoever approved is who signs.',
   'desk.noteVoted': 'Nothing to do for now. It moves when the quorum closes.',
