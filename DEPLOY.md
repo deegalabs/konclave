@@ -120,10 +120,13 @@ have to name the new origin - **with the old one still allowed**, because an ins
 calling whatever URL it was built with until it updates. A hard switch would cut off every device
 that had not reloaded.
 
-**The deployed engine is not fully reproducible from this repository.** `konclave-signer` is
-built from the commit being deployed, but `zcash-devtool` comes from an upstream rev plus a local
-patch that is not committed anywhere (see `[source.zcash-devtool]` in `engine/versions.lock`), and
-`zcash-sign` from frost-tools at a recorded rev. Since #120 the lock pins the released crate line,
+**The deployed engine is reproducible from recorded sources, not bit for bit.** `konclave-signer`
+is built from the commit being deployed; `zcash-devtool` from an upstream rev plus the patch in
+`engine/patches/` (committed on 2026-10-03, after the build that ships, and checked to reproduce
+that build's source tree; see `[source.zcash-devtool]` in `engine/versions.lock`); and `zcash-sign`
+from frost-tools at a recorded rev. Build paths end up in the binaries, so a rebuild on another
+host compiles the same source and hashes differently; the hash that ships is the one the lock
+records. Since #120 the lock pins the released crate line,
 and until the coordinator is redeployed from it, production runs the OLDER (July) engine. That is
 why the release record (`## [x.y.z]` in `CHANGELOG.md`) writes down what each service was ANSWERING
 when a version was cut rather than what it should have been.
