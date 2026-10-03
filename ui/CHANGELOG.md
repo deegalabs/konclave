@@ -100,13 +100,12 @@ history to tidy it is how context gets lost.
   so.
 - **The roadmap said a signing device already checks recipients and amounts.** Step 0 now says
   that a signing device does not yet check what it shows against what it signs, nor the fee or the
-  memos (#610), and the titles of #610 and #583 read as they do on GitHub.
+  memos (#610), and the titles of #610 and #583 read as they do on GitHub. It no longer lists the
+  server's engine among our defects: this release moves the coordinator onto the engine built from
+  the code's main line (#120).
 - **The proof page called two transactions the first on mainnet.** They were Konclave's first spend
   from the Ironwood pool and Konclave's first browser-signed broadcast, not the first on Zcash. The
   page and `docs/PROOF.md` now say so, and the README names the other projects that run FROST.
-- **The roadmap gave issue 120 a title that was not true.** It said production runs the released
-  Zcash libraries. Production runs a July build of them; issue 120 is what moves `main` and production
-  onto the released ones. The issue and the roadmap now both say so.
 - **The landing named the previous desktop release.** It said v0.7.0 after v0.8.0 shipped. It now
   names v0.8.0, and the sentence reads the version from the same constant as the installer links,
   so the two cannot disagree.
