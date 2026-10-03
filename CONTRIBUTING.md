@@ -24,7 +24,8 @@ correctness, privacy, and honesty matter more than speed.
 
 ## Workflow
 
-1. Branch off `main`. One coherent change per PR.
+1. Branch off `staging`; PRs target `staging`, and `main` takes releases only. One coherent change
+   per PR.
 2. Commits: Conventional Commits in English, `type(scope): summary` (e.g.
    `fix(ui): guard the no-expiry sentinel (#123)`). The summary is lower case, with no final
    period, and says what changes; an optional body says why.
