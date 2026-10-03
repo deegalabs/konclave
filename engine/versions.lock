@@ -72,8 +72,9 @@ rev  = "06c0dbdbb1bac9b99cd255e74ba2f387c295e660"                 # zcash-sign I
 # EXTERNAL binary, so this differs from our linked-library pin above; interoperation is at the
 # PCZT wire level (pczt 0.9 <-> 0.8 V6 envelopes), not at the Rust API level.
 
-# The reference Ironwood PCZT tool. Not invoked as a binary here — recorded so the librustzcash /
-# orchard pins above can be checked against it (their patch set must match, ADR-0002).
+# The reference Ironwood PCZT tool. The coordinator invokes it as an external binary; it is recorded
+# so the librustzcash / orchard pins above can be checked against it (their patch set must match,
+# ADR-0002).
 [source.zcash-devtool]
 repo = "https://github.com/zcash/zcash-devtool"
 rev  = "539ae81d6e793d15ea6ed3fb4157973545e27326"                 # main HEAD as of 2026-08-22
@@ -98,9 +99,9 @@ rev  = "539ae81d6e793d15ea6ed3fb4157973545e27326"                 # main HEAD as
 # is recorded as an OBSERVATION, not as the authoritative pin. Rebuild from a committed, reproducible
 # source state (upstream rev + a committed patch, or a fork rev) and record that sha256 here.
 
-# Binaries produced from the frost-tools source above (sha256 of THIS build — see NOTE).
+# Binaries produced from the frost-tools source above (sha256 of THIS build; see NOTE).
 # Rebuilt on the build host 2026-08-22 at frost-tools 06c0dbdbb1ba; the sha256 below are the real
-# values of that build (not bit-reproducible across machines — see NOTE):
+# values of that build (not bit-reproducible across machines; see NOTE):
 [[binary]]
 name    = "frostd"
 version = "0.1.0"
@@ -148,6 +149,13 @@ zcash_client_backend = "0.24.0-rc.1"
 # at long-lived target directories that still hold July builds. The 2026-08-24 artifacts below ran in
 # production until then. The first deploy from `main` after #120 records its own hashes here, and the
 # deploy is checked against them before `railway up`.
+#
+# THE ENGINE THIS LINE SHIPS: zcash-devtool 8c41afd3... (the same build the 2026-08-24 deploy
+# shipped, [[deploy_binary]] below) and zcash-sign 27f58e7c... ([[binary]] above, frost-tools #593).
+# helper-server and konclave-signer are built from the deployed commit and recorded at deploy.
+# Because the 2026-08-24 deploy shipped this zcash-devtool, every wallet created between 2026-08-24
+# and 2026-09-21 is already on its database schema, which the July engine cannot sync once a new
+# transaction arrives (deploy/helper/README.md, "the upgrade is one-way").
 #
 # DEPLOY ARTIFACTS - the stable-line build used to assemble the hosted helper image (2026-08-24).
 # HISTORICAL since 2026-09-21 (see above); kept so those binaries stay identifiable.
