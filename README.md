@@ -207,9 +207,11 @@ not promise what we do not deliver.
   transport, member identity, or who assembles the transaction, so *something* has to coordinate.
   Here that is the **hosted coordinator** (the helper): it builds and proves the transaction, hosts
   the signing round, and broadcasts the result. It is trusted for **availability** and for the
-  **privacy of the books**, never for authority: it holds each vault's viewing key, so it can read
-  the balance, the payments, the amounts, the memos (payslips included) and the members' names, but
-  it never receives a share and it cannot spend without a quorum. The relay is a blind mailbox: since
+  **privacy of the books**: it holds each vault's viewing key, so it can read the balance, the
+  payments, the amounts, the memos (payslips included) and the members' names. It never receives a
+  share and cannot move funds on its own, because every payment needs a quorum's signatures. But it
+  builds the transaction the quorum signs, so until #567 and #610 are fixed a payment the quorum
+  signs is only as safe as the coordinator. The relay is a blind mailbox: since
   #63 the signing request is sealed to the members' device keys, so it carries ciphertext, not the
   recipient or the amount.
 - **The AI assistant is off the money path, structurally:** [`mcp-server/`](mcp-server/) exposes a
@@ -217,14 +219,16 @@ not promise what we do not deliver.
   **no tool to approve, sign, or broadcast**. A drafted proposal is created *awaiting approval* and
   moves zero funds until humans act on it. The coordinator is the hosted helper, not the MCP server:
   the assistant proposes and informs, the human quorum decides, and the shares sign on the devices.
-- **Security posture:** in the browser, the share is stored encrypted (AES-256-GCM under a
-  PBKDF2-SHA256 key: 600,000 iterations for anything sealed since 2026-09-06, while older records
-  and older backups keep 210,000 until the passphrase is changed) and decrypted only in memory; on the desktop and local build it is sealed
-  with XChaCha20-Poly1305 under an Argon2id key in the OS keychain and unsealed only to ephemeral
-  `0600` tmpfs files during signing; the local bridge is guarded against CSRF/DNS-rebinding; secret
-  material is zeroized in memory; destinations
-  are validated with an authoritative `zcash_address` decode before any send. See
-  [`SECURITY.md`](SECURITY.md).
+- **Security posture:** in the browser and in the desktop app (which runs the same web app in a
+  native window), the share is stored encrypted (AES-256-GCM under a PBKDF2-SHA256 key: 600,000
+  iterations for anything sealed since 2026-09-06, while older records and older backups keep
+  210,000 until the passphrase is changed) and decrypted only in memory. Moving the desktop's copy
+  into the OS keychain is written but not wired to any screen yet
+  ([`docs/NATIVE-STORAGE-BRIDGE.md`](docs/NATIVE-STORAGE-BRIDGE.md)). The local build seals it with
+  XChaCha20-Poly1305 under a key derived from the vault passphrase with Argon2id, never stored, and
+  unseals it only to ephemeral `0600` tmpfs files during signing; the local bridge is guarded against
+  CSRF/DNS-rebinding; secret material is zeroized in memory; destinations are validated with an
+  authoritative `zcash_address` decode before any send. See [`SECURITY.md`](SECURITY.md).
 - **Read access is gated, not just the spend (#388, live):** a Konclave vault's on-chain data is
   shielded, but the hosted coordinator holds its viewing key and used to answer reads to anyone who
   had the public vault id. Now every member holds a per-vault secret **S** (minted at the DKG, sent to

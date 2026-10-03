@@ -366,7 +366,8 @@ sees a share and cannot move funds without the quorum's signatures):**
 
 **Security invariant, unchanged at every stage:** the share stays encrypted on the device, the
 vault's viewing key lives in the browser (the member already owns it), and no operator or service
-ever sees a secret. Security is in **who signs** (the devices), never in who assembles the tx.
+ever sees a secret. Only **the devices that sign** can spend, but until #567 and #610 are fixed
+they cannot fully check that whoever assembles the transaction built what was approved.
 
 **Fallback:** if in-WASM proving is not viable yet, stage 2 (blind service) already delivers a
 no-manual-step, trustless flow while the WASM proving path matures.

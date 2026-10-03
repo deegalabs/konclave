@@ -70,7 +70,9 @@ authenticated. Something must therefore coordinate, and here that is the **hoste
 (the helper): it builds and proves the PCZT, hosts the signing round, injects the aggregate
 signature and broadcasts. It is trusted for **availability** and for the **privacy of the books** -
 it holds each vault's viewing key, so it reads balances, payments, amounts, memos and member names -
-and never for shares (it never receives one) or for authority (it cannot spend without a quorum).
+and never for shares (it never receives one). It cannot move funds on its own, because every payment
+needs a quorum's signatures, but it builds the transaction the quorum signs: until #567 and #610 are
+fixed, a payment the quorum signs is only as safe as the coordinator.
 Two consequences worth stating because they are easy to assume wrongly: the **relay is not the coordinator** (it is a mailbox, and since #63 the signing
 request is sealed to the members' device keys, so it carries ciphertext rather than recipient and
 amount), and the **MCP server is not the coordinator either** - `mcp-server/` is a read-and-draft
@@ -189,10 +191,13 @@ bundle and converge on the same on-chain transaction (guaranteed by the §7 pari
 ```
 
 - **Desktop (Tauri)** is the optional native shell (latest v0.8.0, not yet validated on real
-  hardware); the web shell is what members use today. It matches the original §2 closed decision
-  ("local-first desktop, share in the OS secure vault") and reuses the tested `orchestrator/`;
-  Tauri is an **additive** shell in `src-tauri/`, not a rewrite (it hosts the same `ui/` in the
-  system webview and embeds `konclave serve`).
+  hardware); the web shell is what members use today. The desktop column above is the design: it
+  is meant to match the original §2 closed decision ("local-first desktop, share in the OS secure
+  vault") by reusing the tested `orchestrator/`. The released app does not do that yet. It hosts
+  the same `ui/` in the system webview and nothing more: it does not embed `konclave serve`, and
+  the share is kept as in the browser, because no screen calls the keychain commands yet
+  ([`NATIVE-STORAGE-BRIDGE.md`](NATIVE-STORAGE-BRIDGE.md)). Tauri is an **additive** shell in
+  `src-tauri/`, not a rewrite.
 - **Web (browser)** is the shell in daily use: a member creates, approves and signs from a phone or
   laptop with no install, via the WASM core over the blind relay. Every device verifies **what it
   is signing** on-device (recipient/amount vs. the approved proposal) and the share is sealed at
@@ -223,9 +228,9 @@ bundle and converge on the same on-chain transaction (guaranteed by the §7 pari
 - **Multi-device reconciliation:** the "on-chain wins" rule, implemented and tested (§4).
 
 **Intend to build (roadmap; details in [`ROADMAP.md`](ROADMAP.md)):**
-1. **Desktop shell (Tauri):** released (latest v0.8.0) as a two-click app that embeds
-   `orchestrator/` and moves share custody to the OS keychain; per-platform hardware validation and
-   code signing are still open (#212).
+1. **Desktop shell (Tauri):** released (latest v0.8.0) as a two-click app that opens the same `ui/`
+   in a native window. Embedding `orchestrator/`, moving share custody to the OS keychain,
+   per-platform hardware validation and code signing are still open (#212).
 2. **Seat changes:** replacing a lost seat, or changing the members or the quorum of an existing
    vault (#154); social recovery and inheritance on a live vault (#58).
 3. **Packaging & integrity:** engine binaries as Tauri sidecars per target-triple; CSP + SRI +

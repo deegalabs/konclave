@@ -629,10 +629,15 @@ out **sealed** to the vault's devices, with the plaintext path closing per vault
   (`konclave-staging`), on mainnet, with the helper's `/data/vaults` empty - properly isolated. The
   CSP admits both (#440), so pointing a preview at it is `VITE_RELAY_BASE` alone.
   The objection this entry recorded was real and was answered rather than removed: a staging helper
-  built from `main`'s pins would run a different engine than production. It was solved by reusing the
-  SAME out-of-band binaries instead of rebuilding, so both environments run one engine (the two deploy
-  contexts hard-link the same files). Since 2026-09-21 that one engine is the July build, in both: see
-  the engine entry below. That the entry did not notice is worth
+  built from `main`'s pins would run a different engine than production. It was answered by reusing
+  the SAME out-of-band binaries instead of rebuilding, which makes staging ABLE to run production's
+  engine, not a guarantee that it does. While an engine change is under test (#608 is the first,
+  from 2026-10-02), staging switches between production's set and the candidate, and its relay can
+  run a different commit from production's. So before reading a staging result as a fact about
+  production, check what staging answers at that moment: the relay's `/health` reports a
+  `source_digest`, and the engine binaries are checked inside the container. Production's engine is
+  in the engine entry below. This line said "both environments run one engine" until 2026-10-03.
+  That the entry did not notice is worth
   more than the entry: nothing here is checked against the thing it describes unless someone looks.
 - **`/net` multi-note over the live relay** (unit-tested; single-spend is live-proven), and **Tauri**
   live per-platform hardware validation (above).

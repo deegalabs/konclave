@@ -50,11 +50,23 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
-- **The help page told you to check the recipient on the signing screen.** The address shown
-  there is a label the coordinator writes when it builds the payment, and nothing yet checks it
-  against what the payment actually pays (#610). The help page now says to compare the amount, which
-  the device reads from the transaction itself, and not to rely on the address shown. Making the
-  screen show the address that is really paid is #610's own fix.
+- **The help page told you what to check on the signing screen, and neither version was a check.**
+  It said to check the recipient there, and then, from 2 October, the amount. The coordinator
+  builds what that screen shows, so neither is yet a check on the coordinator (#610), and a vote is
+  not yet tied to the exact content of a proposal (#567). The help page now says that, until both
+  are fixed, a payment the quorum signs is only as safe as the coordinator, which is why we ask you
+  not to keep significant funds in Konclave yet. It also said the safety of spending lies in who
+  signs and never in who assembles the transaction. It now says that only the devices that sign can
+  spend, but they cannot yet fully check that whoever assembles the transaction built what was
+  approved.
+- **The help page said the desktop app keeps your part of the key in the system keychain.** It does
+  not. The desktop app runs the same app as the browser, in a native window, and keeps your part of
+  the key the same way: encrypted under your passphrase, in the app's own storage. Keeping it in the
+  system keychain is planned. The same page said the coordinator cannot spend. It now says the
+  coordinator cannot move funds on its own, and that it builds every transaction the quorum signs.
+- **The roadmap said a signing device already checks recipients and amounts.** Step 0 now says
+  that a signing device does not yet check what it shows against what it signs, nor the fee or the
+  memos (#610), and the titles of #610 and #583 read as they do on GitHub.
 - **The proof page called two transactions the first on mainnet.** They were Konclave's first spend
   from the Ironwood pool and Konclave's first browser-signed broadcast, not the first on Zcash. The
   page and `docs/PROOF.md` now say so, and the README names the other projects that run FROST.

@@ -85,15 +85,17 @@ caller, `ui/src/screens/NetVault.tsx`). That is a statement about the product, n
   2026-08-27).** Keep two things distinct:
   - **Shipped and live:** the app's background signer drives `SigningMachine`, which recomputes the
     ZIP-244 sighash **on-device from its own PCZT** and refuses the ceremony if it disagrees with what
-    it is asked to sign - in **both** rounds - and it decodes and shows what the transaction pays
-    before contributing a share. Round 2 was closed twice. #355 (2026-08-27) stopped `onSp` from
+    it is asked to sign - in **both** rounds - and it shows a payment before contributing a share,
+    though what it shows is not yet checked against what it signs (#610). Round 2 was closed twice. #355 (2026-08-27) stopped `onSp` from
     overwriting the local sighash with the wire value, but it compared the `msg` field and then signed
     the `sp` field, and the share is computed over the message inside `sp`. Since 2026-09-29 the
     function that signs takes the locally derived sighash and refuses a package over any other
     message. Plus ([ADR-0007](adr/0007-ceremony-security-invariants.md), #67 / #68,
     live-validated 2-tab): PIN-gated room admission + a vault fingerprint each signer checks, which
     close the invite-as-bearer / wrong-room concern. So on the path the app actually sends over, a
-    hostile helper or coordinator **cannot** swap the transaction under a signer.
+    hostile helper or coordinator **cannot** swap the transaction under a signer. What it can still
+    do, until #567 and #610 are fixed, is build the transaction the quorum is asked to sign, so a
+    payment the quorum signs is only as safe as the coordinator (see `SECURITY.md`).
   - **Residual (open, #363):** the legacy standalone `/net` route (`NetVault.tsx`) drives the same
     `SigningMachine`, so it recomputes the sighash like the background signer. What it lacks is the
     replay mitigation: its wire type drops the ceremony tag and it ignores history. That is #363, not
@@ -153,7 +155,7 @@ caller, `ui/src/screens/NetVault.tsx`). That is a statement about the product, n
   vault to a different coordinator (see [`RECOVERY.md`](RECOVERY.md), #214).
 - **There is no quorum-by-value.** The quorum is the `t` fixed at creation; no rule changes it with
   the amount. Balance reservation and proposal expiry (72 hours) are the product locks that exist.
-- **The coordinator is not blind.** It never receives a share and cannot spend, but it holds each
+- **The coordinator is not blind.** It never receives a share and cannot move funds on its own, but it holds each
   vault's viewing key and receives the proposals, so it reads balances, payments, amounts, memos
   (payslips included) and member names. What is blind to the payment is the relay (#63,
   `047fe6ca…`).
