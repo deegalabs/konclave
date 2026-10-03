@@ -324,7 +324,7 @@ without overstatement.
 | UI | Vite + React + TypeScript (HashRouter static bundle), dependency-free i18n (PT-BR + EN) |
 | Orchestrator | Rust: proposal state machine, ZIP-317/address validation, payroll, SQLite/**SQLCipher** store, XChaCha20-Poly1305 + Argon2id sealing (an OS-keychain store exists, with no platform backend enabled yet) |
 | Browser signer | `konclave-wasm`: rerandomized-redpallas FROST + DKG + ECIES sealing + recovery, compiled to WebAssembly |
-| Blind relay | `relay-server`: standalone `tiny_http` mailbox (CORS, opaque messages), hosted on Railway |
+| Blind relay | `relay-server`: standalone `tiny_http` mailbox (CORS, forwards messages it never parses), hosted on Railway |
 | Coordinator (helper) | `helper-server`: the Architecture-B helper ([ADR-0006](docs/adr/0006-browser-native-vault.md) Rung A) - given a vault's view-only UFVK + a signing request it builds/proves the PCZT, waits for the browsers' signatures, injects and broadcasts; it **never holds a share**, but its viewing key reads the vault's payments and memos; hosted on Railway as a **non-root** container (the native `orchestrator` is the local-mode equivalent) |
 | Engine (not reimplemented) | ZF `frostd` · `frost-client` · `zcash-sign` · `zcash-devtool` · `librustzcash` (`zcash_client_backend` linked) |
 | Deploy | Vercel (UI, git auto-deploy) · Railway (relay and coordinator) · Zcash mainnet (the real path) |
@@ -362,7 +362,7 @@ konclave/
 │                    secrets · the loopback HTTP bridge · the blind relay
 ├── konclave-wasm/   FROST redpallas + DKG + ECIES sealing + RTS recovery → WebAssembly (the browser)
 ├── konclave-signer/ the FROST↔PCZT bridge (resolves the pczt 0.5↔0.7 gap; born in the slice)
-├── relay-server/    the standalone, hosted blind relay (CORS, opaque messages)
+├── relay-server/    the standalone, hosted blind relay (CORS, never parses what it forwards)
 ├── helper-server/   the hosted, share-blind Architecture-B helper (build/prove/broadcast; ADR-0006 Rung A)
 ├── src-tauri/       the Tauri desktop shell: the same ui/ in a native window (released since v0.2.0; embedding the orchestrator is #212)
 ├── ui/              Vite + React: Dashboard · Payment · Payroll · Proposal · Ledger · Members · /net · /signer

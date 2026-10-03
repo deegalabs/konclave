@@ -63,7 +63,8 @@ history to tidy it is how context gets lost.
   help page now says so, and lists it as not guaranteed yet rather than under what is guaranteed.
 - **The help page did not say what happens if our servers go down.** A new question in the FAQ
   does: no payment can be made while they are down, and if we lost a vault's data for good, only a
-  member's backup made on a Private vault since 6 September 2026 would still hold what a rebuild
+  member's backup made on a Private vault since 6 September 2026, while our coordinator was
+  reachable, would still hold what a rebuild
   needs. The rebuild itself is not built yet (#214, #613).
 - **The help page said the desktop app seals your part of the key under a key held in the system
   keychain.** It does not. The desktop app uses the same app code as the browser, in a native
@@ -82,7 +83,8 @@ history to tidy it is how context gets lost.
   what it shows is not yet checked against what it signs (#610). The proof section and the dry-run
   note now say so.
 - **The proof page said a device checked that a payment was the approved one before signing it.**
-  The transaction it points to shows the device recognising the vault's own change. What a device
+  The transaction it points to is the one where the device recognised the vault's own change, which
+  the chain itself cannot show. What a device
   shows is not yet checked against what it signs (#610), and an approval is not yet tied to the
   exact content of the proposal (#567). The proof page, `docs/PROOF.md` and `docs/CLAIMS.md` now say
   so.

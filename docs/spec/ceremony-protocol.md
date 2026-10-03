@@ -96,7 +96,7 @@ REQUIRES **authenticated admission**:
   3. reads each spend's `alpha` from that PCZT (not from an untrusted field);
   4. displays the PCZT outputs (`describeOutputs`) that correspond to the digest it will sign.
   The bytes signed are derived locally; a wire-supplied `sighash` is only ever *compared*, never
-  trusted. This defeats the transaction-swap: a mismatched benign-display/evil-digest is rejected.
+  trusted. This is designed to defeat the transaction-swap; see the status note in §5.
 - Multi-spend: one re-randomized FROST ceremony per spend (fresh nonces, that spend's `alpha`),
   sequential; N signatures mapped by action index for the helper's `into_sigs`.
 - The **coordinator** (seat 1) aggregates; the aggregate signature is posted back for the (share-blind)

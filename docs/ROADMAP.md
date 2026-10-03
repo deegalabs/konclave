@@ -95,11 +95,12 @@ production (`konclave-demo.vercel.app` / `www.konclave.xyz`) and validated on ma
 
 **Still roadmap after #388 (§6.15)**
 - ~~**Write auth (#288)**~~ **Done 2026-09-28:** every vote, proposal, payroll, rename and send is
-  signed and checked; what is open is #575, #576 and #577. The signing-room seat-hijack half was closed in #401 (#392 done); residual
-  ceremony-DoS vectors are #399/#400.
-- **Migrating the ~5 legacy/open vaults (#406):** a guided "Protect this vault" flow; no auto-migration.
-- **Helper single-request outage (#375)** - fixed 2026-08-28 by a worker pool (#384), pending close;
-  **no staging (#370)**.
+  signed and checked, on each vault from the first time a member unlocks it; what is open is #575,
+  #576 and #577. The signing-room seat-hijack half was closed in #401 (#392 done); the residual
+  ceremony-DoS vector is #400 (#399 closed 2026-09-15).
+- **Upgrading the legacy/open vaults in place (#406):** no auto-migration yet.
+- **Helper single-request outage (#375)** - fixed 2026-08-28 by a worker pool (#384), closed
+  2026-08-30. **Staging (#370)** is built (CLAUDE.md §11).
 - **Portability is Konclave-web to Konclave-web only (#214 / #126):** desktop / `frost-client` import
   is not wired; the relay is self-hostable and, once every seat has registered its device key, blind to the payment, but there is still **no relay-free ceremony**
   (QR / copy-paste planned, not built).
