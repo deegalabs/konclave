@@ -81,6 +81,11 @@ history to tidy it is how context gets lost.
 - **The help page said each device checks the payment before it signs.** It shows the payment, and
   what it shows is not yet checked against what it signs (#610). The proof section and the dry-run
   note now say so.
+- **The proof page said a device checked that a payment was the approved one before signing it.**
+  The transaction it points to shows the device recognising the vault's own change. What a device
+  shows is not yet checked against what it signs (#610), and an approval is not yet tied to the
+  exact content of the proposal (#567). The proof page, `docs/PROOF.md` and `docs/CLAIMS.md` now say
+  so.
 - **The roadmap said a signing device already checks recipients and amounts.** Step 0 now says
   that a signing device does not yet check what it shows against what it signs, nor the fee or the
   memos (#610), and the titles of #610 and #583 read as they do on GitHub.

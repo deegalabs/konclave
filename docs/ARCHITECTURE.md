@@ -46,7 +46,7 @@ into the browser. See §8 for how those become the two delivery shells.
 | `engine/` | Official Zcash Foundation binaries, pinned by SHA in `engine/versions.lock`. Not reimplemented. | 1 |
 | `sdk/` | `@konclave/frost` - the WASM core packaged as a reusable browser SDK. | - |
 | `mcp-server/` | MCP "AI treasurer": reads + proposes, deliberately **no** sign/send tool (single-agent-proof). | - |
-| `helper-server/` | The hosted **view-only helper** (Architecture B, ADR-0006): registers a browser-DKG vault by its group key, keeps a view-only wallet, and builds/proves/broadcasts while the browsers sign. Deployed on Railway. It never receives, derives or stores a share, and since #388 gates its reads behind the per-vault `readKey`. | 2 |
+| `helper-server/` | The hosted **coordinator** (the helper; Architecture B, ADR-0006): registers a browser-DKG vault by its group key, keeps a view-only wallet, and builds/proves/broadcasts while the browsers sign. Deployed on Railway. It never receives, derives or stores a share; it holds the vault's viewing key and builds what the quorum signs; since #388 it gates its reads behind the per-vault `readKey`. | 2 |
 | `src-tauri/` | The desktop shell (Tauri), latest release **v0.8.0** (a pre-release, not code-signed or notarized). Optional native shell; the web app is the primary delivery (ADR-0005). Per-platform hardware validation is still open (#212). | - |
 
 ## 3. What travels vs. what stays (trust model)
@@ -62,7 +62,7 @@ into the browser. See §8 for how those become the two delivery shells.
 
 `frostd` and the `relay-server` are **blind couriers**: they carry public or encrypted envelopes and
 open none of them, except that the relay carries a vault's signing request unsealed until every seat
-has registered its device key (#63). Compromising either reveals no secrets and grants no ability to spend; at worst
+has registered its device key (#63). Compromising either reveals no key material and grants no ability to spend; at worst
 it disrupts coordination (hence the QR/copy-paste fallback on the roadmap).
 
 **The coordinator role, named.** Pure FROST specifies the signing rounds but not message transport,
@@ -119,7 +119,7 @@ vault id (recovery detail in [`RECOVERY.md`](RECOVERY.md)).
 | `secrets` | Seal shares at rest (XChaCha20-Poly1305); a `KeyStore` trait whose OS-keychain store no build yet enables a platform backend for |
 | `store` | Local state in SQLite/SQLCipher |
 | `server` / `relay` | The loopback HTTP bridge (`/api/*`) and the in-process blind relay |
-| `helper` | Everything the hosted view-only helper needs: registration, its proposals, members, the ceremony trail. Private reads are gated behind the per-vault `readKey` (#388: `load_read_key`/`set_read_key`, open until a vault registers one). `helper-server/` is a thin shell over this. |
+| `helper` | Everything the hosted, share-blind helper needs: registration, its proposals, members, the ceremony trail. Private reads are gated behind the per-vault `readKey` (#388: `load_read_key`/`set_read_key`, open until a vault registers one). `helper-server/` is a thin shell over this. |
 | `net_send` / `relay_client` | Architecture B: publish the sign request into the vault's relay room and collect the browsers' aggregate signature |
 | `money` | Zatoshi arithmetic - money is never summed in floating point |
 | `reconcile` | On-chain wins: promote a `sent` proposal whose txid confirmed, invalidate reservations a fresh sync can no longer fund |

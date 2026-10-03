@@ -170,8 +170,9 @@ browser, live over the internet**, with no server ever holding a share.
 The crate [`konclave-wasm`](konclave-wasm/) compiles rerandomized-redpallas (Orchard) FROST to
 WebAssembly. Two separate devices **create one vault by a real DKG** and then **produce a verifying
 FROST group signature together**, each keeping only its own share, routed through a **hosted blind
-relay** ([`relay-server/`](relay-server/), on Railway) that carries only public or already-encrypted
-bytes and holds no key. The one secret piece of the DKG (the round-2 packages) is **sealed
+relay** ([`relay-server/`](relay-server/), on Railway) that holds no key and carries public or
+encrypted messages, with one exception: a payment's signing request crosses it unsealed until every
+member's device has registered its public device key (see the trust model below). The one secret piece of the DKG (the round-2 packages) is **sealed
 end-to-end** (X25519 → HKDF-SHA256 → XChaCha20-Poly1305), so the relay stays blind. Try it by
 creating a vault at [konclave-demo.vercel.app](https://konclave-demo.vercel.app) and joining it from
 a second device.
@@ -255,7 +256,8 @@ not promise what we do not deliver.
   metadata, share, S and beneficiaries all encrypted under a passphrase, only a non-sensitive envelope
   in the clear - so a stolen backup file does not even disclose the vault id. Restoring it brings back
   the signing seat, and on a Private vault the export also carries the viewing key and the scan
-  height a rebuild needs (#447, #480). The export of a vault marked Open lacks the viewing key.
+  height a rebuild needs (#447, #480), if our coordinator answered when it was made. The export of a
+  vault marked Open lacks the viewing key.
   What is still missing is a way to hand an existing vault to a different coordinator (see
   [`docs/RECOVERY.md`](docs/RECOVERY.md)).
 

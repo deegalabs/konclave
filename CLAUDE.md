@@ -227,7 +227,8 @@ Facts (verified 2026-06-30):
 1. Shielded-first (Orchard). A transparent destination is an explicit, warned exception.
 2. Data minimization. No telemetry. Nothing collected/logged/transmitted without need.
 3. Secrets never persist outside the OS secure vault. Never in plaintext on disk, log, URL, query string.
-4. The relay is **blind** (sealed or public material only). The hosted coordinator is
+4. The relay is **blind** (sealed or public material only; until every seat of a vault has registered
+   its device key, that vault's signing request crosses it unsealed, #63). The hosted coordinator is
    **share-blind**: it never receives, derives or stores a share and cannot move funds on its own,
    but it builds the transactions the quorum signs (until #567 and #610 are fixed, a payment the
    quorum signs is only as safe as the coordinator), and it holds each vault's viewing key and
@@ -391,7 +392,9 @@ Ironwood: **proven on mainnet**. The cross-device broadcast is **no longer an op
 local-first *desktop* app, and the desktop shell exists (v0.2.0). What ships and is used is the
 browser path, and that is not a retreat from the principle: the key share still never leaves the
 device (sealed in the browser's own storage, signed in WASM on the device), the relay is a blind
-mailbox and the helper is **view-only** and never receives, derives or stores a share. What moved is
+mailbox (for a payment's content, once every seat has registered its device key) and the helper is
+**share-blind**: it never receives, derives or stores a share, though it holds each vault's viewing
+key and builds what the quorum signs. What moved is
 the *delivery* - a browser instead of a binary - not where the secret lives. Read §2's "local-first
 desktop" as the original intent and ADR-0005 as the delivery that carries it today.
 
@@ -413,10 +416,12 @@ desktop" as the original intent and ADR-0005 as the delivery that carries it tod
 (#67, primitive proven byte-exact vs the signer). PIN-gated admission + vault fingerprint close the
 invite-as-bearer concern (#67 prevention / #68 detection, both live-validated 2-tab).
 
-**Desktop (Tauri) - RELEASED, latest v0.8.0 (2026-09-30); the line opened at v0.2.0 (2026-08-03).** The desktop line shipped: real `src-tauri/`
-code (Tauri shell over the `orchestrator`) tagged **`v0.2.0`**, with Windows/macOS/Linux installers.
-The web app stays the primary delivery (ADR-0005); desktop is the optional native shell. **Still open:**
-live **per-platform hardware** validation (the GTK/WSLg window does not render here, ADR-0004).
+**Desktop (Tauri) - RELEASED, latest v0.8.0 (2026-09-30); the line opened at v0.2.0 (2026-08-03).** The desktop line shipped: a Tauri
+shell (`src-tauri/`) around the same `ui/` (it does not embed the `orchestrator` yet, #212), tagged
+**`v0.2.0`**, with Windows/macOS/Linux installers. The web app stays the primary delivery (ADR-0005);
+desktop is the optional native shell. **Still open:** embedding the orchestrator and the OS keychain
+(#212), live **per-platform hardware** validation (the GTK/WSLg window does not render here,
+ADR-0004), and signed installers (#606).
 
 **The failure that repeated most, and is now a working rule.** Four separate defects this week were
 the same shape: **one rule, two implementations, and only one of them updated.** #424 (`/net` never
@@ -609,8 +614,8 @@ out **sealed** to the vault's devices, with the plaintext path closing per vault
   until then the helper sends the request unsealed (proof: `047fe6ca`, room trace). Live validation
   caught two defects unit tests missed (the `sreq` still leaked the PCZT; sealing per-device overflowed
   the relay's 128 KiB cap - fixed by hybrid sealing). The **ORIGIN-AUTHENTICATION** follow-on has since
-  landed: **#392 is closed** (#401 authenticated signing-room seating, so an outsider can no longer
-  hijack a seat or forge the arming tally); the residual ceremony-DoS vectors - an unproven rejoin
+  landed: **#392 is closed** (#401 authenticated signing-room seating and #425 the arming tally, so an outsider can no
+  longer hijack a seat or forge the tally); the residual ceremony-DoS vectors - an unproven rejoin
   grabbing an empty seat, or flooding the room - are tracked as **#399/#400**.
   **That sentence was true of one driver only, and is true of both since 2026-09-05.** #401 authenticated
   the background signer and nothing else: `/net`, a second ceremony driver that is still registered and
@@ -643,8 +648,8 @@ out **sealed** to the vault's devices, with the plaintext path closing per vault
   in the engine entry below. This line said "both environments run one engine" until 2026-10-03.
   That the entry did not notice is worth
   more than the entry: nothing here is checked against the thing it describes unless someone looks.
-- **`/net` multi-note over the live relay** (unit-tested; single-spend is live-proven), and **Tauri**
-  live per-platform hardware validation (above).
+- **`/net` multi-note over the live relay** (unit-tested; single-spend is live-proven), and the
+  **Tauri** open items above (#212, #606, per-platform hardware validation).
 
 **Ops + hardening (2026-08).**
 - **The engine: production runs the July build, and the released line is re-cut onto `main` (#120).**

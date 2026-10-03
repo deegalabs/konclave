@@ -62,7 +62,7 @@ the record has no row in the table below.
 | Opaque from the outside with a live payment inside, #476 (`3fa08dce…`) | proven on-chain | **DKG** (browser) |
 | Every governance write authenticated, #288 (`47e4e5dd…`) | proven on-chain | **DKG** (browser) |
 | 2-of-3 signed with one seat absent, #399/#515 (`7d6b3dec…`) | proven on-chain | **DKG** (browser) |
-| The device checked the payment before signing, #281 (`075ecfe9…`) | proven on-chain | **DKG** (browser) |
+| The device recognised the vault's own change before signing, #281 (`075ecfe9…`) | proven on-chain | **DKG** (browser) |
 
 Any statement of the form "the app payment used DKG" is **false**. The DKG-born sends are `aab00f90…`
 (CLI DKG) and the twelve browser-DKG sends (`3022420a…`, `64f94d29…`, `b496fc3c…`, `7c4c1dd5…`,

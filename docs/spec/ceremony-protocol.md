@@ -99,14 +99,15 @@ REQUIRES **authenticated admission**:
   trusted. This defeats the transaction-swap: a mismatched benign-display/evil-digest is rejected.
 - Multi-spend: one re-randomized FROST ceremony per spend (fresh nonces, that spend's `alpha`),
   sequential; N signatures mapped by action index for the helper's `into_sigs`.
-- The **coordinator** (seat 1) aggregates; the aggregate signature is posted back for the (blind)
+- The **coordinator** (seat 1) aggregates; the aggregate signature is posted back for the (share-blind)
   helper to inject + broadcast. The helper never holds a share.
 
 ## 5. Invariants checklist (must all hold before real-money `/net` broadcast)
 
 > Status note (2026-10-03): I1 holds only once every seat has registered its device key (until
-> then the signing request goes out unsealed, #63), and I2 step 4 is not met yet: a signing device
-> does not yet check what it shows against what it signs (#610).
+> then the signing request goes out unsealed, #63), and I2 is not fully met: a signing device does
+> not yet check what it shows against what it signs (#610). I3 shipped with #63 (2026-08-29); the
+> checklist below is the draft's state on 2026-08-02.
 - [x] **I1** relay blind - no secret/address/amount in cleartext on the wire (the relay never parses bodies).
 - [x] **I2** on-device sighash recompute + refuse-on-mismatch (#62/#67; primitive proven byte-exact, live-validated 2-tab).
 - [ ] **I3** SignRequest ECIES-sealed (#63) - **the one open invariant** (plan in §4 above).

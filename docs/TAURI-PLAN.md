@@ -181,7 +181,7 @@ Measured against exactly those needs:
 | Bundle size / footprint | Small (system webview, no bundled Chromium). | Medium. | Medium/large (bundled engine). |
 
 **Recommendation: Tauri 2.0.** It is the only option that reuses BOTH the existing React UI and the
-Rust crypto core with essentially zero rewrite -- for a solo project that is the difference between
+Rust crypto core with essentially zero rewrite -- for a project where one person writes the code, that is the difference between
 a shippable shell and a second full front end. The honest tradeoff is that Tauri's **mobile** story
 (iOS/Android under 2.0) is younger and less battle-tested than React Native's or Flutter's, and the
 Linux desktop webview does not render on this dev machine (ADR-0004), so validation waits on real
