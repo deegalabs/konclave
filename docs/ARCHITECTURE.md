@@ -60,8 +60,9 @@ into the browser. See §8 for how those become the two delivery shells.
 | | The vault's viewing key: minted by the coordinator when the vault is registered (`zcash-sign generate --ak`) and kept there; sent by the coordinator to the vault's devices, sealed, so the export can carry it (#447, #481). It decrypts the memos too |
 | | Proposals: destination, amount, labels, memo text, member names (to the coordinator) |
 
-`frostd` and the `relay-server` are **blind couriers**: they carry public/encrypted envelopes and
-open none of them. Compromising either reveals no secrets and grants no ability to spend; at worst
+`frostd` and the `relay-server` are **blind couriers**: they carry public or encrypted envelopes and
+open none of them, except that the relay carries a vault's signing request unsealed until every seat
+has registered its device key (#63). Compromising either reveals no secrets and grants no ability to spend; at worst
 it disrupts coordination (hence the QR/copy-paste fallback on the roadmap).
 
 **The coordinator role, named.** Pure FROST specifies the signing rounds but not message transport,
@@ -70,12 +71,12 @@ authenticated. Something must therefore coordinate, and here that is the **hoste
 (the helper): it builds and proves the PCZT, hosts the signing round, injects the aggregate
 signature and broadcasts. It is trusted for **availability**, for the **privacy of the books** (it
 holds each vault's viewing key, so it reads balances, payments, amounts, memos and member names)
-and, until #567 and #610 are fixed, for **building what the quorum signs**; never for shares (it
+and, until #567 and #610 are fixed, for **building only what was approved**; never for shares (it
 never receives one). It cannot move funds on its own, because every payment needs a quorum's
 signatures, but until both are fixed a payment the quorum signs is only as safe as the coordinator.
-Two consequences worth stating because they are easy to assume wrongly: the **relay is not the coordinator** (it is a mailbox, and since #63 the signing
-request is sealed to the members' device keys, so it carries ciphertext rather than recipient and
-amount), and the **MCP server is not the coordinator either** - `mcp-server/` is a read-and-draft
+Two consequences worth stating because they are easy to assume wrongly: the **relay is not the coordinator** (it is a mailbox; since #63 the signing
+request is sealed to the members' device keys once every seat has registered one, and from then on it
+carries ciphertext rather than recipient and amount), and the **MCP server is not the coordinator either** - `mcp-server/` is a read-and-draft
 assistant with deliberately no approve/sign/broadcast tool, so an AI never sits on the critical path
 of moving money. Member identity, the piece FROST leaves open, is the per-device identity key of
 [ADR-0011](adr/0011-authenticated-writes-device-identity.md) (#288).
@@ -115,7 +116,7 @@ vault id (recovery detail in [`RECOVERY.md`](RECOVERY.md)).
 | `wallet` | Sync via UFVK, balance/history, plan construction (PCZT), `zcash_client_backend` linked |
 | `proposal` | **State machine** (LOGICA §6), balance reservation, expiry |
 | `validation` / `address` | Address/amount/memo/fee (ZIP 317), authoritative recipient decode; explicit failures at every boundary |
-| `secrets` | Seal shares at rest (XChaCha20-Poly1305); key in the OS keychain (`KeyStore`) |
+| `secrets` | Seal shares at rest (XChaCha20-Poly1305); a `KeyStore` trait whose OS-keychain store no build yet enables a platform backend for |
 | `store` | Local state in SQLite/SQLCipher |
 | `server` / `relay` | The loopback HTTP bridge (`/api/*`) and the in-process blind relay |
 | `helper` | Everything the hosted view-only helper needs: registration, its proposals, members, the ceremony trail. Private reads are gated behind the per-vault `readKey` (#388: `load_read_key`/`set_read_key`, open until a vault registers one). `helper-server/` is a thin shell over this. |
@@ -183,7 +184,7 @@ bundle and converge on the same on-chain transaction (guaranteed by the §7 pari
   src-tauri/ wraps orchestrator/             ui/ served static + relay-server/
   backend = native (orchestrator +           backend = WASM in the page
     konclave-signer + engine)                  (konclave-wasm)
-  share custody = OS keychain                 share custody = IndexedDB (passphrase)
+  share custody = OS keychain (design, #212)  share custody = IndexedDB (passphrase)
   full flow incl. create/prove/broadcast      signs its own piece; needs the sighash + a
   → the vault OPERATOR's app (secure)           proven PCZT passed in
                                               → any MEMBER, any device, zero-install

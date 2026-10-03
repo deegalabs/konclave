@@ -605,11 +605,12 @@ out **sealed** to the vault's devices, with the plaintext path closing per vault
 - **H2 CONFIDENTIALITY is DONE (#63), merged and proven live (2026-08-29).** The device-key handshake
   landed: each device derives a persistent comms key from its share, registers it, and the helper
   hybrid-seals the SignRequest to the seated devices; the ceremony no longer re-broadcasts the PCZT.
-  The relay is blind to who a vault pays and how much (proof: `047fe6ca`, room trace). Live validation
+  The relay is blind to who a vault pays and how much once every seat has registered its device key;
+  until then the helper sends the request unsealed (proof: `047fe6ca`, room trace). Live validation
   caught two defects unit tests missed (the `sreq` still leaked the PCZT; sealing per-device overflowed
   the relay's 128 KiB cap - fixed by hybrid sealing). The **ORIGIN-AUTHENTICATION** follow-on has since
   landed: **#392 is closed** (#401 authenticated signing-room seating, so an outsider can no longer
-  hijack a seat or forge room messages); the residual ceremony-DoS vectors - an unproven rejoin
+  hijack a seat or forge the arming tally); the residual ceremony-DoS vectors - an unproven rejoin
   grabbing an empty seat, or flooding the room - are tracked as **#399/#400**.
   **That sentence was true of one driver only, and is true of both since 2026-09-05.** #401 authenticated
   the background signer and nothing else: `/net`, a second ceremony driver that is still registered and

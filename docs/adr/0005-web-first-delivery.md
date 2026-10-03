@@ -39,7 +39,8 @@ native shells are optional wrappers, not requirements.**
   `orchestrator` shipped as native installers (Windows / macOS / Linux) at git tag **v0.2.0**
   (2026-08-03, [ADR-0004]); it changes only the delivery form, never the trust model. What remains
   open is live **per-platform hardware** validation (the dev machine's GTK/WSLg window will not
-  render).
+  render). (2026-10-03: the released shell hosts the same `ui/` and does not embed the
+  `orchestrator` yet, #212.)
 - **Not Wails / a Go shell.** The backend is Rust (`orchestrator`, `konclave-signer`); a Go
   desktop framework would mean porting Layer 2, and it uses the same WebKitGTK that blocks
   us on WSLg - so it solves nothing here. Tauri stays the native path when we package one.

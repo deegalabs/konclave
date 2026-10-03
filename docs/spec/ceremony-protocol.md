@@ -103,6 +103,10 @@ REQUIRES **authenticated admission**:
   helper to inject + broadcast. The helper never holds a share.
 
 ## 5. Invariants checklist (must all hold before real-money `/net` broadcast)
+
+> Status note (2026-10-03): I1 holds only once every seat has registered its device key (until
+> then the signing request goes out unsealed, #63), and I2 step 4 is not met yet: a signing device
+> does not yet check what it shows against what it signs (#610).
 - [x] **I1** relay blind - no secret/address/amount in cleartext on the wire (the relay never parses bodies).
 - [x] **I2** on-device sighash recompute + refuse-on-mismatch (#62/#67; primitive proven byte-exact, live-validated 2-tab).
 - [ ] **I3** SignRequest ECIES-sealed (#63) - **the one open invariant** (plan in §4 above).

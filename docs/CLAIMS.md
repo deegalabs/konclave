@@ -109,9 +109,10 @@ caller, `ui/src/screens/NetVault.tsx`). That is a statement about the product, n
   read: the `/net` signing request (`sighash`, `alpha`, `pczt_hex`) was posted to the relay in
   **plaintext**, so a curious relay operator or room-code holder could read who a shielded vault pays
   and how much. That is now closed. Each device derives a persistent comms key from its share and
-  registers it; the (blind) helper **hybrid-seals** the SignRequest to the seated devices; and the
+  registers it; once every seat has registered one, the helper **hybrid-seals** the SignRequest to the seated devices; and the
   ceremony no longer re-broadcasts the PCZT ([ADR-0007](adr/0007-ceremony-security-invariants.md) I3).
-  The relay is blind to the payment - proof `047fe6ca…` (block 3,464,505), attested by the captured
+  The relay is blind to the payment once every seat has registered its device key; until then the
+  request goes out unsealed (`helper-server/src/main.rs:1076-1085`). Proof `047fe6ca…` (block 3,464,505), attested by the captured
   room trace (`docs/proof/2026-08-29-relay-blind.md`), not by the block. **Origin authentication of the
   signing room has since landed (#392, closed in #401):** an id-only outsider can no longer take a seat a
   member holds or fake that member's ready-to-sign message, because both are signed. The ceremony's
@@ -160,8 +161,8 @@ caller, `ui/src/screens/NetVault.tsx`). That is a statement about the product, n
   the amount. Balance reservation and proposal expiry (72 hours) are the product locks that exist.
 - **The coordinator is not blind.** It never receives a share and cannot move funds on its own, but it holds each
   vault's viewing key and receives the proposals, so it reads balances, payments, amounts, memos
-  (payslips included) and member names. What is blind to the payment is the relay (#63,
-  `047fe6ca…`).
+  (payslips included) and member names. What is blind to the payment, once every seat has
+  registered its device key, is the relay (#63, `047fe6ca…`).
 - **"Audited" needs its scope, and the scope excludes our variant.** The Zcash Foundation's
   `ZcashFoundation/frost` README says the code base has been *"partially audited by NCC"* and states
   the exclusion explicitly: *"This does not include frost-secp256k1-tr and **rerandomized FROST**."*

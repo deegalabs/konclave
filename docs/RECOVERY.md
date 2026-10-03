@@ -16,10 +16,12 @@
 
 Two consequences follow from this table and drive everything below:
 
-1. **Deleting a helper vault dir cannot lose funds if a member holds a backup made on a Private
-   vault since 2026-09-06**, which carries the viewing key and the scan height; without one, it can
-   (see "Why the share alone is not enough" below). The spend power is the share, which lives on
-   devices; the helper never holds one (ADR-0006).
+1. **Deleting a helper vault dir does not destroy what a rebuild needs if an ops backup of it
+   exists (D), or if a member holds a backup made on a Private vault after #480 shipped
+   (2026-09-06)**, which carries the viewing key and the scan height; with neither, the funds are
+   lost (see "Why the share alone is not enough" below). Rebuilding from a member's backup alone has
+   no tool yet (see "Open work"). The spend power is the share, which lives on devices; the helper
+   never holds one (ADR-0006).
 2. **A share alone cannot re-derive the vault's on-chain identity.** The address + UFVK are generated
    once, with randomness, at registration and stored only in `registration.json`.
 

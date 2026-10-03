@@ -630,8 +630,9 @@ This crate was born to resolve the pczt version gap between frost-tools and zcas
 is the birth of the orchestrator.
 
 **Key custody & sealing (`secrets.rs`).** A share never sits in plaintext on disk. It is sealed
-with XChaCha20-Poly1305 (passphrase via Argon2id, or a sealing key from the OS keychain), and
-unsealed only into an ephemeral **0600 file in tmpfs** during a signing ceremony, removed by a
+with XChaCha20-Poly1305 (passphrase via Argon2id; a sealing key from the OS keychain is coded, but
+no build enables a platform backend yet), and unsealed only into an ephemeral **0600 file** (in
+tmpfs where the system has one) during a signing ceremony, removed by a
 RAII guard. The `frost-client` configs used by the ceremony are the sealed ones.
 
 **The blind relay (`relay.rs`, `relay-server/`).** An in-memory room mailbox that forwards only

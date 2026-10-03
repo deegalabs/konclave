@@ -44,14 +44,15 @@ This cycle's work:
   `docs/proof/2026-08-29-relay-blind.md`).
 - `/net` **multi-note** over the live relay (unit-tested; single-spend is live-proven).
 - **Tauri** live **per-platform hardware** validation (the desktop app is **released as v0.2.0**,
-  Windows/macOS/Linux installers; what remains open is validating each platform's installer on
-  real hardware, not building the shell).
+  Windows/macOS/Linux installers). Open: embedding the orchestrator and the OS keychain (#212), live
+  per-platform hardware validation, and signed installers (#606).
 
 ## Shipped since (2026-08-22)
 
 - **Desktop app RELEASED as v0.2.0** (2026-08-03, git tag `v0.2.0`): a real Tauri shell
-  (`src-tauri/`) around the same `ui/` (it does not embed the orchestrator yet, #212), with Windows/macOS/Linux installers. Only the
-  live per-platform hardware validation stays open (above); the shell itself is no longer roadmap.
+  (`src-tauri/`) around the same `ui/` (it does not embed the orchestrator yet, #212), with Windows/macOS/Linux installers. Open: embedding the
+  orchestrator and the OS keychain (#212), live per-platform hardware validation, and signed
+  installers (#606).
 - **Hosted blind helper is a real crate** (`helper-server/`, CI-gated): the Architecture-B
   helper (ADR-0006 Rung A) deployed on Railway, blind to shares. The native `orchestrator`
   (`konclave serve`) is the equivalent **local-mode** helper.
@@ -293,9 +294,10 @@ One UI (`ui/`) and one crypto core (`konclave-wasm`) behind the relay:
   installable as a PWA** (web app manifest + a network-first, update-safe service worker - the
   `/api` and `/relay` responses are never cached; the share lives only in encrypted IndexedDB).
 - **Desktop (RELEASED, v0.2.0)** - a Tauri shell (`src-tauri/`) around the same `ui/` (embedding the `orchestrator` is #212),
-  shipped as native installers (Windows / macOS / Linux) at git tag `v0.2.0` (2026-08-03). What
-  remains is live **per-platform hardware** validation (the dev machine's GTK/WSLg window won't
-  render, [ADR-0004](adr/0004-local-http-bridge.md)). Not Wails/Go: the backend is Rust and Wails
+  shipped as native installers (Windows / macOS / Linux) at git tag `v0.2.0` (2026-08-03). Open:
+  embedding the orchestrator and the OS keychain (#212), live **per-platform hardware** validation
+  (the dev machine's GTK/WSLg window won't render, [ADR-0004](adr/0004-local-http-bridge.md)), and
+  signed installers (#606). Not Wails/Go: the backend is Rust and Wails
   hits the same WebKitGTK wall.
 - **Mobile = the browser / PWA** - the same UI + WASM core; the device holds its share (encrypted
   IndexedDB) and signs, while build/prove/broadcast stay off-device via the helper (Architecture B),
@@ -342,7 +344,7 @@ see a share or move funds without the quorum's signatures):**
 1. **Manual CLI (today):** `konclave net-send` builds + proves + broadcasts; the browser devices sign
    over the blind relay. Simplest form; proves the loop.
 2. **Blind service / daemon:** the same helper runs as a service that watches the relay for a
-   browser-initiated spend and auto-builds/proves/broadcasts. Removes the manual step, still blind.
+   browser-initiated spend and auto-builds/proves/broadcasts. Removes the manual step, still share-blind.
 3. **WASM-only:** the browser does sync + build + prove + sign + broadcast itself. No helper at all.
 
 **The four capabilities to bring into WASM, by difficulty:**
@@ -380,6 +382,9 @@ no-manual-step flow, in which the helper holds no share, while the WASM proving 
 > control), #101 (unified vault list), #102 (ask-before-create chooser). **Still open:** a live
 > **desktop** validation of all three modes end to end (the Tauri window doesn't render in CI/WSL).
 > The design below is what landed.
+>
+> On the released desktop app the local mode has no orchestrator behind it yet (#212), and a
+> self-hosted helper is most likely blocked by the app's CSP (#612); the help page says the same.
 
 On desktop (Tauri) the coordination backend is decided at **build time** today
 (`helperConfigured()` reads `VITE_HELPER_BASE`). Make it the **user's runtime choice** - in all
@@ -394,8 +399,9 @@ three the helper never sees a share and never moves funds without the quorum:
 - **Ask before creating** - the create flow surfaces the mode choice up front.
 - **Unified vault list** - `/vaults` branches on `netMode` (one source) today; show **local +
   helper vaults together** so a person sees every vault regardless of how it was created.
-- **Works in all three** - helper (Architecture B) and local/bridge already exist; "your helper" is
-  the URL field; the rest is wiring + the merged list.
+- **Meant to work in all three** - on the web the hosted helper works; on the released desktop app
+  the local mode has no orchestrator behind it yet (#212) and a self-hosted helper is most likely
+  blocked by the app's security policy (#612).
 
 Touches `api` / `helper` / `Settings` / `Vaults`. Its own branch/PR, not bundled with the landing.
 Aligns with the decentralization ladder above (blind helper → your helper → local).

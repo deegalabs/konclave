@@ -123,7 +123,9 @@ keeping that index in the clear does not weaken the threat model. `store` adds a
 
 ## 7. Graceful degradation
 
-On a host with no keychain backend (headless Linux with no Secret Service daemon), the native
-command errors clearly rather than losing data silently. The shell must fall back to `webBackend`
+With no keychain backend feature enabled, `keyring` 3 falls back to its in-memory mock and does
+not error, so this swap must not ship until a platform backend is enabled per target
+(`src-tauri/Cargo.toml:40-45`). On a host where an enabled backend is missing (headless Linux with
+no Secret Service daemon), the native command must error clearly rather than lose data silently. The shell must fall back to `webBackend`
 (IndexedDB) in that case: `isTauri()` gates the choice, and a failed `secure_*` call is a
 recoverable, human-readable error (§6.11), never a silent share loss (§6.8).

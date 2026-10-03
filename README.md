@@ -38,8 +38,8 @@ multisig (for example on an EVM chain) can offer.
 > created. The proof is the mainnet transaction below: an actual 2-of-3 quorum payment, signed by a
 > FROST ceremony, broadcast to Zcash mainnet.
 
-> Konclave has not been independently audited. Do not keep significant funds in it yet: until
-> #567 and #610 are fixed, a payment the quorum signs is only as safe as our hosted coordinator.
+> Konclave has not been independently audited, and until #567 and #610 are fixed a payment the
+> quorum signs is only as safe as our hosted coordinator. Do not keep significant funds in it yet.
 > See [SECURITY.md](SECURITY.md#known-limitations).
 
 ## Why we built this
@@ -201,7 +201,7 @@ not promise what we do not deliver.
 - **Guaranteed by the cryptography:** the key is never reconstituted; a quorum signature is
   required to spend; your share never leaves your device.
 - **Guaranteed by how the services are built (product, not protocol):** the relay carries sealed or
-  public ceremony messages and, once every member's device has registered its key, never who a
+  public ceremony messages and, once every member's device has registered its public device key, never who a
   payment pays, though it sees member names and the quorum while a vault is created; the
   coordinator never receives a share but does hold the vault's viewing key (see *Who coordinates*
   below).
@@ -212,14 +212,14 @@ not promise what we do not deliver.
   transport, member identity, or who assembles the transaction, so *something* has to coordinate.
   Here that is the **hosted coordinator** (the helper): it builds and proves the transaction, hosts
   the signing round, and broadcasts the result. It is trusted for **availability**, for the
-  **privacy of the books** and, until #567 and #610 are fixed, for **building what the quorum
-  signs**. It holds each vault's viewing key, so it can read the balance, the payments, the
+  **privacy of the books** and, until #567 and #610 are fixed, for **building only what was
+  approved**. It holds each vault's viewing key, so it can read the balance, the payments, the
   amounts, the memos (payslips included) and the members' names. It never receives a share and
-  cannot move funds on its own, because every payment needs a quorum's signatures. But until those
-  two issues are fixed, a malicious or compromised coordinator could change an approved payment,
+  cannot move funds on its own, because every payment needs a quorum's signatures. But today a malicious or
+  compromised coordinator could change an approved payment,
   burn funds as fee or alter a memo: a payment the quorum signs is only as safe as the coordinator.
   The relay is a blind mailbox: since #63 the signing request is sealed to the members' device
-  keys once every member's device has registered its key (each does when its member unlocks the
+  keys once every member's device has registered its public device key (each does when its member unlocks the
   vault), and from then on it carries ciphertext, not the recipient or the amount.
 - **The AI assistant is off the money path, structurally:** [`mcp-server/`](mcp-server/) exposes a
   vault to an AI assistant that can **read** the books and **draft** a proposal, and deliberately has
@@ -277,7 +277,7 @@ not promise what we do not deliver.
   are the DKG-vault send and every browser-signed send, came from keys born by real **DKG**.
   [docs/PROOF.md](docs/PROOF.md) lists every one, and the list above is not all of them.
 - 🔬 **By dry-run** (it *signs*, it does not yet *broadcast*): the fully-sealed local signing path
-  (sealed configs unsealed only to ephemeral tmpfs files).
+  (sealed configs unsealed only to ephemeral `0600` files, in tmpfs where the system has one).
 - 🌐 **In the browser, live over the internet - broadcast PROVEN on mainnet:** multi-device DKG and
   FROST signing over a **hosted blind relay**, over a **real Orchard/Ironwood sighash** **under the
   transaction's own alpha** (the correct Orchard spend mechanism, verified under `ak+alpha`), with
@@ -308,7 +308,7 @@ without overstatement.
 |---|---|---|---|---|
 | No single member can move the funds | no | yes | yes | **yes** |
 | No single point of failure | no | yes | yes | **not yet: our hosted coordinator and relay ([#613](https://github.com/deegalabs/konclave/issues/613))** |
-| Amounts and recipients private | n/a | no | yes | **yes** |
+| Amounts and recipients private on chain | n/a | no | yes | **yes (our hosted coordinator reads them, [#516](https://github.com/deegalabs/konclave/issues/516))** |
 | Group makeup hidden on-chain | n/a | no | yes | **yes** |
 | Usable without a command line | yes | yes | **no** | **yes** |
 | Private payroll (N outputs, one approval) | no | no | no | **yes** |
@@ -374,8 +374,9 @@ A working, mainnet-proven prototype. The core runs through the UI for **payment 
 propose → validate (continuous) → approve/refuse (real quorum, with expiry) → **sign (FROST with the
 shares of whoever approved, sealed at rest)** → account (ledger + itemized CSV). A desktop app also
 ships, on **Tauri**, since v0.2.0 (latest v0.8.0, a pre-release; Windows, Linux and Apple Silicon
-macOS installers, none of them code-signed or notarized; live per-platform hardware validation is the
-open item, so the website does not offer the download yet). CI gates the whole repo on every push
+macOS installers, none of them code-signed or notarized; open: embedding the orchestrator and the OS
+keychain (#212), live per-platform hardware validation and signed installers (#606), so the website
+does not offer the download yet). CI gates the whole repo on every push
 (fmt + clippy `-D warnings` + tests across the Rust workspace crates, a wasm browser build, and the UI lint/test/build). What is shipped, dry-run, or
 roadmap is in the honest ladder above and tracked in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 

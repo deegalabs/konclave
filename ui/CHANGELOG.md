@@ -55,19 +55,25 @@ history to tidy it is how context gets lost.
   builds what that screen shows, so neither is yet a check on the coordinator (#610), and a vote is
   not yet tied to the exact content of a proposal (#567). The help page now says that, until both
   are fixed, a payment the quorum signs is only as safe as the coordinator, and a new question in
-  the FAQ says what that means. What to do: keep only small amounts in Konclave until #567 and
-  #610 are fixed.
+  the FAQ says what that means. What to do: keep only small amounts in Konclave. It has not been
+  independently audited, and #567 and #610 are still open.
 - **The help page said the coordinator cannot spend, and that the safety of spending lies only in
   who signs.** The coordinator cannot move funds on its own, but it builds every transaction the
   quorum signs, and the devices that sign cannot yet check that it built what was approved. The
   help page now says so, and lists it as not guaranteed yet rather than under what is guaranteed.
 - **The help page did not say what happens if our servers go down.** A new question in the FAQ
-  does: no payment can be made while they are down, and if we lost a vault's data for good, only
-  a member's backup made on a Private vault since 6 September 2026 would bring it back.
+  does: no payment can be made while they are down, and if we lost a vault's data for good, only a
+  member's backup made on a Private vault since 6 September 2026 would still hold what a rebuild
+  needs. The rebuild itself is not built yet (#214, #613).
 - **The help page said the desktop app seals your part of the key under a key held in the system
   keychain.** It does not. The desktop app uses the same app code as the browser, in a native
   window, and keeps your part of the key the same way: encrypted under your passphrase, in the
-  app's own storage. Keeping it in the system keychain is planned.
+  app's own storage. Keeping it in the system keychain is planned. Another line on the same page
+  said the desktop seals it the way the local build does; it now says the same as this one.
+- **The help page said the relay never learns who a payment pays.** That holds once every member
+  has unlocked the vault on their device, which registers a public key of that device with the
+  coordinator; until then the signing request crosses the relay unsealed. The help page now says
+  so.
 - **The help page said the desktop app can use your own coordinator or run with none.** It
   offers both, but it does not include the local orchestrator yet (#212), and its security policy
   most likely blocks a coordinator other than ours (#612). The help page now says which modes are
