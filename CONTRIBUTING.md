@@ -25,8 +25,17 @@ correctness, privacy, and honesty matter more than speed.
 ## Workflow
 
 1. Branch off `main`. One coherent change per PR.
-2. Commits: `type(scope): description` (e.g. `fix(ui): guard the no-expiry sentinel`).
+2. Commits: Conventional Commits in English, `type(scope): summary` (e.g.
+   `fix(ui): guard the no-expiry sentinel (#123)`). The summary is lower case, with no final
+   period, and says what changes; an optional body says why.
    **No AI co-author trailer.**
+   - **Types:** `feat`, `fix`, `security`, `docs`, `test`, `refactor`, `perf`, `build`, `ci`,
+     `chore`, `revert`. `security` is this project's own type: its changelog entry goes under
+     `Security`.
+   - **Scope:** the component that changes (`ui`, `signer`, `wasm`, `helper`, `relay`,
+     `engine`, `roadmap`, `docs`, ...), never an issue number. The issue goes at the end of the
+     summary: `(#610)`.
+   - **A version cut** is `chore(release): vX.Y.Z`.
 3. Fill in the PR checklist.
 
 ## Verify before finishing
