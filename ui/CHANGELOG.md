@@ -40,6 +40,8 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+## [0.9.0] 2026-10-03
+
 ### Added
 
 - **A roadmap in the docs.** Under Roadmap, the steps Konclave plans to take, in order, each with
