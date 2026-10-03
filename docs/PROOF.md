@@ -9,7 +9,8 @@ plainly what on-chain data can and cannot prove, so nothing here is overclaimed.
 Konclave claims 19 real Zcash **mainnet** transactions, one for each row of the table below.
 The table is the record. Every other count in this repository is a description of it.
 
-Each row below is a **first**: the first time one capability was proven on the live network.
+Each row below is a **first for Konclave**: the first time Konclave proved one capability on the
+live network. None of the rows claims to be the first on Zcash.
 It is not a log of every send. The vaults have made more transactions than this, and the ones
 that only repeat a capability already listed are deliberately left out - a row here is meant to
 be a claim you can check, not evidence of volume.
@@ -22,8 +23,8 @@ be a claim you can check, not evidence of volume.
 | Private multi-output payroll (3 outputs, one encrypted memo each), 2-of-3 FROST | `b1e24c07fcd629e6e6ea6809ffeb5d2e311054781740c6a5db73dabc94d0e1b4` | 3,413,648 |
 | 2-of-3 FROST send from a **real DKG-generated vault** (key never reconstituted) | `aab00f903b65e32d1adac317820a85fc97d15c2dcd788b3657ce36773e230ff3` | 3,413,792 |
 | Post-Ironwood (NU6.3) **V6** tx: 2-of-3 FROST **Orchard→Ironwood migration** (seeds the Ironwood pool) | `54266f478505160adfb039c7c76f5615f1536a34059ab30e9f24781ec2e5c494` | 3,428,205 |
-| First **Ironwood-pool spend** on mainnet: 2-of-3 FROST spend **from** the Ironwood pool (V6/NU6.3) | `36c60f1e3f602c2ac13c9f5b0687f248522499fc5a8b69311605336457226c95` | 3,428,246 |
-| First **browser-signed** mainnet broadcast: browser-DKG 2-of-2 vault, each **tab** signing **in the browser** with only its own share over the blind relay (Architecture B), Ironwood pool. *Two tabs on one machine*; the cross-device milestone was closed later (`aec83baf…`, below). | `3022420a8bcf17ffd5511163c18ee9b5996a3ba44747e4eff6794bdd3f04ccee` | 3,429,922 |
+| Konclave's first **Ironwood-pool spend** on mainnet: 2-of-3 FROST spend **from** the Ironwood pool (V6/NU6.3) | `36c60f1e3f602c2ac13c9f5b0687f248522499fc5a8b69311605336457226c95` | 3,428,246 |
+| Konclave's first **browser-signed** mainnet broadcast: browser-DKG 2-of-2 vault, each **tab** signing **in the browser** with only its own share over the blind relay (Architecture B), Ironwood pool. *Two tabs on one machine*; the cross-device milestone was closed later (`aec83baf…`, below). | `3022420a8bcf17ffd5511163c18ee9b5996a3ba44747e4eff6794bdd3f04ccee` | 3,429,922 |
 | Browser-signed send under the **everyone-signs / last-signer-sends** model: 2-of-2 browser-DKG vault, each device signing its own share, the device that closed the quorum broadcasting | `64f94d290f409f0e80b7985213bf0089a82b5c8de13e587d096ad57be7ae7f32` | 3,460,108 |
 | **3-of-4** browser-DKG vault, browser-signed, operated by someone other than the maintainer - the largest quorum proven | `b496fc3ce0b728f840b5346127a7757c670b4e38f55f0f7198b4a2e43a902898` | 3,460,538 |
 | **Private payroll on the web path, post-Ironwood**: 2 beneficiaries in ONE V6 transaction, browser-DKG 2-of-2 vault, approved once and signed by both devices under the everyone-signs / last-signer-sends model | `7c4c1dd5d8522dc14a77b4a37ebb0846d5a3b7ed0c507c9cede2de09480490ea` | 3,461,704 |

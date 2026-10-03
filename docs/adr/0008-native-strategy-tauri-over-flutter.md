@@ -2,6 +2,9 @@
 
 - **Status:** accepted
 - **Date:** 2026-08-02
+- **Amended 2026-10-01:** Zafu runs FROST vaults in a browser extension, so "no comparable project"
+  below no longer holds, and we describe other projects as peers, not competitors. The text is kept as
+  the record of the decision as it was taken.
 - **Context:**
   Konclave is **browser-native**: a React UI plus the Rust crypto core compiled to WASM
   (`konclave-wasm`), running in any browser with zero install - the wedge no comparable project has

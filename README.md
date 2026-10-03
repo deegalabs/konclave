@@ -43,10 +43,10 @@ multisig (for example on an EVM chain) can offer.
 Using FROST on Zcash today means a **CLI, several terminals, and copying hex between participants
 by hand**. The Zcash Foundation built and partially audited the cryptography (the audit excludes
 rerandomized FROST, the variant Zcash uses; see [docs/CLAIMS.md](docs/CLAIMS.md)), and says plainly
-that *wallet integration is the missing piece*: it is gated to "technically-inclined users," and
-there is no **browser-based** GUI for FROST on Zcash that we know of (Zkool ships FROST multisig as
-a native app). Making "easy multi-sig tools for shielded addresses
-(FROST in user-facing wallets)" is a named
+that *wallet integration is the missing piece*: it is gated to "technically-inclined users". Other
+teams have brought FROST to users: Zkool ships FROST multisig as a native app, Zafu runs FROST vaults
+in a browser extension, and CYZE is a desktop app. Making "easy multi-sig tools for shielded
+addresses (FROST in user-facing wallets)" is a named
 [Zcash Community Grants funding priority](https://zcashcommunitygrants.org/).
 
 Konclave fills that gap for the people who need it most: a **treasurer** who must not be a single
@@ -172,10 +172,10 @@ end-to-end** (X25519 → HKDF-SHA256 → XChaCha20-Poly1305), so the relay stays
 creating a vault at [konclave-demo.vercel.app](https://konclave-demo.vercel.app) and joining it from
 a second device.
 
-We are not aware of another Zcash FROST DKG-and-signing ceremony driven entirely from the
-**browser** - an ecosystem scan (Aug 2026) found no comparable. (Zkool ships FROST shielded multisig
-on Zcash, but as a native app; the in-browser ceremony is the distinction, not the multisig
-primitive.) This is the path to *your key lives on your phone, the platform never holds it*.
+Other Zcash projects run FROST ceremonies too: Zkool as a native app, Zafu in a browser extension,
+CYZE on the desktop. What Konclave adds next to them is the treasury layer a group needs: proposals,
+approval to quorum, a payroll approved once, and a shared ledger, in a web app members also use from
+a phone. This is the path to *your key lives on your phone, the platform never holds it*.
 
 ## Shared-custody safety: what is proven, what is not wired
 

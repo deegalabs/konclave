@@ -1,5 +1,8 @@
 # Competitive Audit - Konclave
 
+> **Amended 2026-10-01:** the projects below are peers in the Zcash ecosystem, not rivals. The wording
+> is kept as the record of the July research.
+
 > Phase: discover | Brand: konclave | Generated: 2026-07-08
 > The real rivals (from BRIEF.md, `audit/market-fit.md`, `temp/05`) placed on two axes,
 > with each one's **visual language** dissected, and where Konclave should sit.

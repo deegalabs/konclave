@@ -90,8 +90,8 @@ export const PROOF_TXS: readonly ProofTx[] = [
     block: 3428246,
     origin: 'dealer',
     label: {
-      en: 'First spend FROM the Ironwood pool on mainnet (NU6.3/V6), 2-of-3 FROST',
-      'pt-BR': 'Primeiro gasto DO pool Ironwood na mainnet (NU6.3/V6), 2-de-3 FROST',
+      en: "Konclave's first spend FROM the Ironwood pool on mainnet (NU6.3/V6), 2-of-3 FROST",
+      'pt-BR': 'Primeiro gasto do Konclave DO pool Ironwood na mainnet (NU6.3/V6), 2-de-3 FROST',
     },
   },
   {
@@ -100,8 +100,8 @@ export const PROOF_TXS: readonly ProofTx[] = [
     origin: 'dkg',
     label: {
       // This said "each device". The record says two tabs on one machine, so the screen does too.
-      en: 'First browser-signed mainnet broadcast: a browser-DKG 2-of-2 vault, each tab signing in the browser with only its own share over the blind relay (Architecture B), Ironwood pool. Two tabs on one machine.',
-      'pt-BR': 'Primeiro broadcast na mainnet assinado NO NAVEGADOR: cofre 2-de-2 nascido de DKG no navegador, cada aba assinando com só o seu share pelo relay cego (Arquitetura B), pool Ironwood. Duas abas numa máquina só.',
+      en: "Konclave's first browser-signed mainnet broadcast: a browser-DKG 2-of-2 vault, each tab signing in the browser with only its own share over the blind relay (Architecture B), Ironwood pool. Two tabs on one machine.",
+      'pt-BR': 'Primeiro broadcast do Konclave na mainnet assinado NO NAVEGADOR: cofre 2-de-2 nascido de DKG no navegador, cada aba assinando com só o seu share pelo relay cego (Arquitetura B), pool Ironwood. Duas abas numa máquina só.',
     },
   },
   {
