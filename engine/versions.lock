@@ -78,26 +78,31 @@ rev  = "06c0dbdbb1bac9b99cd255e74ba2f387c295e660"                 # zcash-sign I
 [source.zcash-devtool]
 repo = "https://github.com/zcash/zcash-devtool"
 rev  = "539ae81d6e793d15ea6ed3fb4157973545e27326"                 # main HEAD as of 2026-08-22
-# HONEST CAVEAT: upstream rev 539ae81d does NOT build against the released crate line unmodified.
-# Its `migration` subcommand calls a zcash_pool_migration API that is ahead of the published 0.1.0.
-# The local build re-pins the manifest to the released versions and puts that subcommand behind an
+patch        = "engine/patches/zcash-devtool-539ae81d-released-line.patch"
+patch_sha256 = "238677420e320f7922323641b81a42da757098fc11d30938b4776d72701cf05e"
+# Upstream rev 539ae81d does NOT build against the released crate line unmodified: its `migration`
+# subcommand calls a zcash_pool_migration API that is ahead of the published 0.1.0. The patch above
+# re-pins the manifest and Cargo.lock to the released versions and puts that subcommand behind an
 # off-by-default `pool-migration` feature. Konclave never invokes it (only `pczt create`, `pczt
-# prove`, `pczt send`), so the gate does not touch our path, but the build is upstream-rev PLUS a
-# local patch, not the upstream rev alone. Upstream it or carry it deliberately.
-# With that patch its manifest and Cargo.lock resolve orchard 0.15.5, pczt 0.9.3,
+# prove`, `pczt send`), so the gate does not touch our path. The build is upstream rev PLUS this
+# patch; upstreaming it would let the patch go.
+# With the patch, the manifest and Cargo.lock resolve orchard 0.15.5, pczt 0.9.3,
 # zcash_client_backend 0.24.0, zcash_primitives 0.30.1, zcash_protocol 0.10.5, zcash_client_sqlite
 # 0.22.0, zcash_keys 0.16.1, zcash_address 0.13.0, zip321 0.9.0, zcash_transparent 0.10.0, with zero
 # git sources: the same released set the workspace links.
 #
-# sha256 STALE - NEEDS A REBUILD RECORD. The value below is the 2026-08-22 build at the OLD rc pins
-# and no longer corresponds to anything the workspace should ship against:
-#   sha256(zcash-devtool, 2026-08-22, rc pins, STALE) =
-#     045c32288b359caea337a1334dce60a813f9295a3b94eb8abf51a44a93965ce7
-# A local stable-line build exists on the build host and hashes to
+# THE BUILD THAT SHIPS, and where it comes from: zcash-devtool sha256
 #   8c41afd3950d2b169c6880ef99a7d0c3c6e22061507115f789a1b5589c526153
-# but it came from the locally patched working tree described above, not from a clean checkout, so it
-# is recorded as an OBSERVATION, not as the authoritative pin. Rebuild from a committed, reproducible
-# source state (upstream rev + a committed patch, or a fork rev) and record that sha256 here.
+# built 2026-08-23 on the build host, rustc 1.95.0, `cargo build --release --locked`, from upstream
+# 539ae81d plus the patch above. The patch was committed on 2026-10-03, after the build, from the
+# build tree itself (`git diff` against 539ae81d). Checked that day: the patch applied to a clean
+# export of 539ae81d reproduces the build tree file by file (98 files, no difference), and cargo
+# reports the 8c41afd3 artifact Fresh for that tree (`--locked --offline`, nothing rebuilt). This is
+# the same build the 2026-08-24 deploy shipped ([[deploy_binary]] below). It has NOT been rebuilt from
+# scratch on another path or host; build paths end up in the binary, so a rebuild elsewhere is
+# expected to hash differently while compiling the same source.
+#   To rebuild: export 539ae81d, `git apply` the patch, `cargo build --release --locked`.
+# Superseded: 045c32288b359caea337a1334dce60a813f9295a3b94eb8abf51a44a93965ce7 (2026-08-22, rc pins).
 
 # Binaries produced from the frost-tools source above (sha256 of THIS build; see NOTE).
 # Rebuilt on the build host 2026-08-22 at frost-tools 06c0dbdbb1ba; the sha256 below are the real
