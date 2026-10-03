@@ -255,7 +255,7 @@ classDiagram
 | `ReconcileReport`, `Outcome`, `reconcile` | `reconcile.rs` | Pure "on-chain wins" engine: confirm sent txids, invalidate underfunded reservations (FIFO). |
 | `InheritancePolicy`, `SwitchState`, `evaluate` | `inheritance.rs` | Pure dead-man's-switch policy: heartbeat → lapse → grace → release-authorized. |
 | `SignRequest`, `SignResponse` | `net_send.rs` | Architecture-B wire protocol: helper publishes a signing request, validates aggregate sigs. |
-| relay `Msg`/`RelayState`; `RelayClient` | `relay.rs`, `relay_client.rs` | Blind in-memory mailbox + poll/post transport (forwards opaque bytes only). |
+| relay `Msg`/`RelayState`; `RelayClient` | `relay.rs`, `relay_client.rs` | Blind in-memory mailbox + poll/post transport (forwards bytes it never parses). |
 | `seal`/`unseal`, `KeyStore`, `KeychainStore` | `secrets.rs` | XChaCha20-Poly1305 sealing of shares at rest; keychain trait; ephemeral 0600 unseal. |
 | `DkgSession`, `Coordinator`, `DeviceKey`, `RecoveryHelper` | `konclave-wasm/src/lib.rs` | Browser engine: in-tab DKG, FROST signing, ECIES device keys, RTS recovery - shares never cross to JS. |
 
@@ -588,15 +588,15 @@ sequenceDiagram
     participant DB as Device B (seat 2)
     participant Z as Zcash mainnet
 
-    Note over H: Helper sees only public tx data + view-only UFVK, never a share
+    Note over H: Helper holds the vault's viewing key (reads payments, amounts, memos, names), never a share
     H->>H: build + prove real PCZT for the vault OWN address
     H->>H: extract sighash + per-spend randomizers (alpha)
     H->>BR: SignRequest (kind, sighash, spends, pczt_hex)
     BR-->>DA: poll - sign request
     BR-->>DB: poll - sign request
 
-    DA->>DA: describeOutputs(pczt) confirms amount + destination
-    DB->>DB: describeOutputs(pczt) confirms amount + destination
+    DA->>DA: shows the payment (not yet a check on the coordinator, #610)
+    DB->>DB: shows the payment (not yet a check on the coordinator, #610)
     loop per spend k (fresh nonces, alpha_k)
         DA->>BR: s1 (commit, k)
         DB->>BR: s1 (commit, k)
@@ -629,14 +629,15 @@ and **verifies it as applied**, rejecting an out-of-range index or a non-verifyi
 This crate was born to resolve the pczt version gap between frost-tools and zcash-devtool, and
 is the birth of the orchestrator.
 
-**Key custody & sealing (`secrets.rs`).** A share never sits in plaintext on disk. It is sealed
-with XChaCha20-Poly1305 (passphrase via Argon2id, or a sealing key from the OS keychain), and
-unsealed only into an ephemeral **0600 file in tmpfs** during a signing ceremony, removed by a
-RAII guard. The `frost-client` configs used by the ceremony are the sealed ones.
+**Key custody & sealing (`secrets.rs`).** A share is never stored in plaintext. It is sealed with
+XChaCha20-Poly1305 (passphrase via Argon2id; a sealing key from the OS keychain is coded, but no
+build enables a platform backend yet), and unsealed only for the length of a signing ceremony into
+an ephemeral private file (`0600` on Unix; in tmpfs where the system has one, otherwise in the
+system temp directory), removed by a RAII guard. The `frost-client` configs used by the ceremony are the sealed ones.
 
-**The blind relay (`relay.rs`, `relay-server/`).** An in-memory room mailbox that forwards only
-opaque bytes - public DKG packages or already-encrypted (ECIES-sealed) round-2 packages. It
-cannot read what it carries. Public by design (CSRF-exempt) yet Host-gated on the loopback
+**The blind relay (`relay.rs`, `relay-server/`).** An in-memory room mailbox that never parses what
+it forwards: public DKG packages, ECIES-sealed round-2 packages and, once every seat has registered
+its device key, sealed signing requests (until then a signing request crosses it unsealed, #63). Public by design (CSRF-exempt) yet Host-gated on the loopback
 bridge; the standalone hosted version adds CORS + rate-limit + presence pruning.
 
 **Reconciliation (`reconcile.rs`).** A pure "on-chain wins" engine: given the freshly-synced
@@ -715,7 +716,7 @@ What is shipped, dry-run-only, or roadmap - validated against the code (not just
 | `/net` multi-device - **multi-note over the live relay** | **Wired + unit-tested; live proof pending** |
 | On-device share persistence + sign-after-restore | **Wired + live-exercised; `storage.ts` lacks a direct unit test** |
 | Social recovery (RTS) / Inheritance policy engine | **Core proven by tests; not yet wired into a live vault UI** |
-| Tauri single desktop binary | **Shipped** (first released as **v0.2.0** on 2026-08-03, latest **v0.8.0**, a pre-release; `src-tauri/`: Windows, Linux and Apple Silicon macOS installers, not code-signed or notarized). Open: live per-platform hardware validation. The loopback bridge remains the local delivery form; see [ADR-0004](adr/0004-local-http-bridge.md) |
+| Tauri single desktop binary | **Shipped** (first released as **v0.2.0** on 2026-08-03, latest **v0.8.0**, a pre-release; `src-tauri/`: Windows, Linux and Apple Silicon macOS installers, not code-signed or notarized). Open: embedding the orchestrator and the OS keychain (#212), live per-platform hardware validation, and signed installers (#606). The loopback bridge remains the local delivery form; see [ADR-0004](adr/0004-local-http-bridge.md) |
 
 See [CLAIMS.md](CLAIMS.md) and [PROOF.md](PROOF.md) for the authoritative, evidence-linked ladder.
 

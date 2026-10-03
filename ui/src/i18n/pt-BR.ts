@@ -504,7 +504,7 @@ export const ptBR: Record<string, string> = {
   'desk.view': 'Ver detalhes',
   'desk.openCount': '{n} abertas',
   'desk.seeAll': 'Ver todas ({n})',
-  'desk.noteSign': 'Você confere o destino e o valor antes de assinar. Nada sai daqui sem essa confirmação.',
+  'desk.noteSign': 'Antes de assinar, você confirma o pagamento como a proposta o registra. Nada sai daqui sem essa confirmação.',
   'desk.noteVote': 'Aprovar reserva o valor no cofre até a proposta ser enviada ou expirar.',
   'desk.noteWait': 'O valor já está reservado. Quem aprovou é quem assina.',
   'desk.noteVoted': 'Nada a fazer por enquanto. Ela avança quando o quórum fechar.',

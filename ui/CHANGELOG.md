@@ -1,18 +1,18 @@
-# Changelog — the app
+# Changelog: the app
 
 Written for the person who has to live with it: a treasurer holding real ZEC, not a reader of commit
 messages. If an entry does not answer "what is different for me now", it does not belong here.
 
 ## What this file covers, and what it does not
 
-This is the app itself — screens, the ceremony, the money gate, everything a member touches. It is
+This is the app itself: screens, the ceremony, the money gate, everything a member touches. It is
 **not** a product; it is what two products ship.
 
 - **The web** publishes it on every merge to `main`. There is no waiting and no version to install.
 - **The desktop** bundles the same app inside a native shell and publishes on a tag.
 
 So an entry here reaches the web immediately and the desktop at its next release. Recording it once,
-where the change lives, beats writing it in two files and letting them drift — which is the failure
+where the change lives, beats writing it in two files and letting them drift, which is the failure
 this repo keeps meeting in other forms.
 
 The desktop shell (`src-tauri/`) and the shared Rust crates stay in the root
@@ -57,17 +57,55 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
-- **The help page told you to check the recipient on the signing screen.** The address shown
-  there is a label the coordinator writes when it builds the payment, and nothing yet checks it
-  against what the payment actually pays (#610). The help page now says to compare the amount, which
-  the device reads from the transaction itself, and not to rely on the address shown. Making the
-  screen show the address that is really paid is #610's own fix.
+- **The help page told you what to check on the signing screen, and neither version was a check.**
+  It said to check the recipient there, and then, from 2 October, the amount. The coordinator
+  builds what that screen shows, so neither is yet a check on the coordinator (#610), and a vote is
+  not yet tied to the exact content of a proposal (#567). The help page now says that, until both
+  are fixed, a payment the quorum signs is only as safe as the coordinator, and a new question in
+  the FAQ says what that means. What to do: keep only small amounts in Konclave. It has not been
+  independently audited, and #567 and #610 are still open.
+- **The signing desk said you check the destination and the amount before signing.** What you
+  confirm there is the payment as the proposal records it, and that is not yet a check on the
+  coordinator (#567, #610). The note now says what you confirm.
+- **The help page said the coordinator cannot spend, and that the safety of spending lies only in
+  who signs.** The coordinator cannot move funds on its own, but it builds every transaction the
+  quorum signs, and the devices that sign cannot yet check that it built what was approved. The
+  help page now says so, and lists it as not guaranteed yet rather than under what is guaranteed.
+- **The help page did not say what happens if our servers go down.** A new question in the FAQ
+  does: no payment can be made while they are down, and if we lost a vault's data for good, only a
+  member's backup made on a Private vault since 6 September 2026, while our coordinator was
+  reachable, would still hold what a rebuild
+  needs. The rebuild itself is not built yet (#214, #613).
+- **The help page said the desktop app seals your part of the key under a key held in the system
+  keychain.** It does not. The desktop app uses the same app code as the browser, in a native
+  window, and keeps your part of the key the same way: encrypted under your passphrase, in the
+  app's own storage. Keeping it in the system keychain is planned. Another line on the same page
+  said the desktop seals it the way the local build does; it now says the same as this one.
+- **The help page said the relay never learns who a payment pays.** That holds once every member
+  has unlocked the vault on their device, which registers a public key of that device with the
+  coordinator; until then the signing request crosses the relay unsealed. The help page now says
+  so.
+- **The help page said the desktop app can use your own coordinator or run with none.** It
+  offers both, but it does not include the local orchestrator yet (#212), and its security policy
+  most likely blocks a coordinator other than ours (#612). The help page now says which modes are
+  not confirmed to work there.
+- **The help page said each device checks the payment before it signs.** It shows the payment, and
+  what it shows is not yet checked against what it signs (#610). The proof section and the dry-run
+  note now say so.
+- **The proof page said a device checked that a payment was the approved one before signing it.**
+  The transaction it points to is the one where the device recognised the vault's own change, which
+  the chain itself cannot show. What a device
+  shows is not yet checked against what it signs (#610), and an approval is not yet tied to the
+  exact content of the proposal (#567). The proof page, `docs/PROOF.md` and `docs/CLAIMS.md` now say
+  so.
+- **The roadmap said a signing device already checks recipients and amounts.** Step 0 now says
+  that a signing device does not yet check what it shows against what it signs, nor the fee or the
+  memos (#610), and the titles of #610 and #583 read as they do on GitHub. It no longer lists the
+  server's engine among our defects: this release moves the coordinator onto the engine built from
+  the code's main line (#120).
 - **The proof page called two transactions the first on mainnet.** They were Konclave's first spend
   from the Ironwood pool and Konclave's first browser-signed broadcast, not the first on Zcash. The
   page and `docs/PROOF.md` now say so, and the README names the other projects that run FROST.
-- **The roadmap gave issue 120 a title that was not true.** It said production runs the released
-  Zcash libraries. Production runs a July build of them; issue 120 is what moves `main` and production
-  onto the released ones. The issue and the roadmap now both say so.
 - **The landing named the previous desktop release.** It said v0.7.0 after v0.8.0 shipped. It now
   names v0.8.0, and the sentence reads the version from the same constant as the installer links,
   so the two cannot disagree.
