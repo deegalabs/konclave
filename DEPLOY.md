@@ -47,10 +47,17 @@ The full recipe, including the engine binaries and the reason they are not in gi
 [deploy/helper/README.md](deploy/helper/README.md). The short form:
 
 ```sh
-CARGO_TARGET_DIR=~/ktarget cargo build --release --manifest-path helper-server/Cargo.toml
-# assemble ~/konclave-helper-deploy/ fresh (four binaries + Dockerfile + entrypoint.sh)
+REV=$(git rev-parse --short HEAD)
+CARGO_TARGET_DIR=~/ktarget-$REV cargo build --release --manifest-path helper-server/Cargo.toml
+CARGO_TARGET_DIR=~/ktarget-$REV cargo build --release --manifest-path konclave-signer/Cargo.toml
+# assemble ~/konclave-helper-deploy/ fresh: our two binaries from ~/ktarget-$REV, the two engine
+# tools whose sha256 engine/versions.lock records (checked with sha256 -c), Dockerfile, entrypoint.sh
 cd ~/konclave-helper-deploy && railway up --ci -s konclave-helper
 ```
+
+A deploy that changes the engine needs a full volume backup first, wallets included: the wallet
+migration is one-way, and an older engine cannot sync a migrated wallet. See
+[deploy/helper/README.md](deploy/helper/README.md).
 
 Two things that have each cost a day:
 
@@ -113,8 +120,10 @@ have to name the new origin - **with the old one still allowed**, because an ins
 calling whatever URL it was built with until it updates. A hard switch would cut off every device
 that had not reloaded.
 
-**The deployed engine is not reproducible from `main`.** `zcash-sign`, `zcash-devtool` and
-`konclave-signer` are built out of repo and copied into the image; `engine/versions.lock` on `main`
-pins older versions than the binaries actually deployed. That is the real content of the #259 debt,
-and it is why the release record (`## [x.y.z]` in `CHANGELOG.md`) writes down what each service was
-ANSWERING when a version was cut rather than what it should have been.
+**The deployed engine is not fully reproducible from this repository.** `konclave-signer` is
+built from the commit being deployed, but `zcash-devtool` comes from an upstream rev plus a local
+patch that is not committed anywhere (see `[source.zcash-devtool]` in `engine/versions.lock`), and
+`zcash-sign` from frost-tools at a recorded rev. Since #120 the lock pins the released crate line,
+and until the coordinator is redeployed from it, production runs the OLDER (July) engine. That is
+why the release record (`## [x.y.z]` in `CHANGELOG.md`) writes down what each service was ANSWERING
+when a version was cut rather than what it should have been.

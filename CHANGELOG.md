@@ -55,6 +55,41 @@ explicitly accepted.
 
 ## [Unreleased]
 
+### Changed
+
+- **The engine is built on the published Zcash libraries, not a pinned snapshot.** The signing
+  bridge and the coordinator's wallet code now use pczt 0.9.3, zcash_client_backend 0.24.0,
+  zcash_primitives 0.30.1 and orchard 0.15.5, straight from crates.io, with no git pins left in the
+  lockfile. Until now `main` described a July snapshot of those libraries, while the coordinator ran
+  the released ones from 2026-08-24 and, since its deploy steps copied July builds back on
+  2026-09-21, the July snapshot again (#120, #522). The coordinator's `zcash-sign` also moves from
+  the July build (frost-tools #587) to the Ironwood one (#593); the coordinator only calls it when a
+  vault registers. Nothing changes for a vault until the coordinator is redeployed from this.
+- **Moving to a newer engine no longer takes every balance offline.** Before it reads a vault's
+  balance, the coordinator migrates the vault's wallet database to the schema its engine expects,
+  once per read, and logs a migration that fails instead of hiding it. In August a newer engine met
+  databases written by an older one, and every balance failed until the engine was rolled back.
+
+### Fixed
+
+- **A vault created between 2026-08-24 and 2026-09-21 would stop syncing at its next
+  transaction.** Those wallets were created by the released engine, and since 2026-09-21 the
+  coordinator has run the July one again (#522). The July engine records every new transaction with
+  an upsert that the newer database schema no longer accepts, so the first deposit or send would
+  have left that vault's balance failing to load. Found by reading the code and comparing the
+  engine builds, not observed: the coordinator's logs since 2026-09-29 show no failed balance read.
+  Fixed for production when the coordinator is redeployed from this.
+
+### Known limits
+
+- **The wallet migration is one-way.** Once the coordinator has migrated a vault's wallet, an older
+  engine cannot sync it. Going back needs the backup taken before the deploy
+  (`deploy/helper/README.md`), or a rebuild from the vault's birthday with its balance offline until
+  the rescan ends.
+- **The local bridge does not migrate.** `konclave serve` reads its wallet without running the
+  migration, so a wallet created by an older engine fails there until it is migrated by hand
+  (`zcash-devtool wallet -w <dir> upgrade`). The desktop app does not use that path.
+
 ## [0.8.0] 2026-09-30
 
 > **Services deployed when this was cut (2026-09-30):** coordinator `80e3a18`, relay `03bb736890c63e86`.

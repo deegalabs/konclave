@@ -187,6 +187,19 @@ pub fn vault_balance(
     cfg: &HelperConfig,
     reg: &VaultRegistration,
 ) -> Result<VaultBalance, ToolError> {
+    // Migrate the wallet database to the schema THIS engine expects before touching it. Once per
+    // read, and outside the sync throttle below: `balance` reads the database unconditionally, so a
+    // throttled read on a wallet written by an older engine would still fail (in August:
+    // `no such table: orchard_ironwood_migrations`). A failed migration is logged, not fatal: the
+    // read goes ahead, and if the schema really is wrong the read is what fails. The log carries the
+    // vault's 8-character prefix only; the devtool's stderr names the wallet path, which holds the id.
+    if let Err(e) = crate::wallet::upgrade(&cfg.devtool, &reg.wallet_dir) {
+        let short = reg.vault_id.get(..8).unwrap_or(&reg.vault_id);
+        eprintln!(
+            "vault {short}: wallet upgrade failed: {}",
+            e.to_string().replace(&reg.vault_id, short)
+        );
+    }
     // Throttle the sync: only hit lightwalletd if the last sync for this vault is stale. A fresh
     // deposit still lands within SYNC_THROTTLE_SECS, but rapid balance reads no longer each block on
     // a full sync (#194). The balance below reflects whatever the wallet last synced.
@@ -1676,6 +1689,111 @@ mod tests {
                 pubkey: "bb".into()
             }]
         );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A fake `zcash-devtool` for the balance path. It appends each subcommand (`$4` in
+    /// `wallet -w <dir> <subcommand> ...`) to `<dir>/calls.log`, prints a valid balance for
+    /// `balance`, and, when `upgrade_fails`, exits 1 on `upgrade` the way a failed migration does.
+    #[cfg(unix)]
+    fn fake_balance_devtool(dir: &Path, upgrade_fails: bool) -> (PathBuf, PathBuf) {
+        use std::os::unix::fs::PermissionsExt;
+        let log = dir.join("calls.log");
+        let fake = dir.join("fake-devtool");
+        let mut script = String::from("#!/bin/sh\n");
+        script.push_str(&format!("echo \"$4\" >> \"{}\"\n", log.display()));
+        if upgrade_fails {
+            script.push_str(
+                "if [ \"$4\" = upgrade ]; then echo 'migration failed' >&2; exit 1; fi\n",
+            );
+        }
+        script.push_str(
+            "if [ \"$4\" = balance ]; then echo '{\"chain_tip_height\":3400100,\"orchard_spendable\":0,\"sapling_spendable\":0,\"total\":100000,\"transparent_spendable\":0}'; fi\n",
+        );
+        std::fs::write(&fake, script).expect("write fake devtool");
+        let mut p = std::fs::metadata(&fake).expect("stat").permissions();
+        p.set_mode(0o755);
+        std::fs::set_permissions(&fake, p).expect("chmod");
+        (fake, log)
+    }
+
+    #[cfg(unix)]
+    fn balance_cfg(devtool: PathBuf, vaults_dir: PathBuf) -> HelperConfig {
+        HelperConfig {
+            zcash_sign: PathBuf::from("/nonexistent/zcash-sign"),
+            devtool,
+            lightwalletd: "zec.rocks:443".into(),
+            network: "main".into(),
+            konclave_signer: PathBuf::from("/nonexistent/konclave-signer"),
+            vaults_dir,
+        }
+    }
+
+    #[cfg(unix)]
+    fn tmp(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("konclave-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        dir
+    }
+
+    #[cfg(unix)]
+    fn calls(log: &Path) -> Vec<String> {
+        std::fs::read_to_string(log)
+            .expect("the fake devtool was invoked")
+            .lines()
+            .map(str::to_owned)
+            .collect()
+    }
+
+    /// A stale wallet is migrated ONCE, then synced, then read. Migrating inside `sync` as well
+    /// started a second ~98 MB devtool process under the vault lock on every synced read.
+    #[cfg(unix)]
+    #[test]
+    fn a_stale_balance_read_migrates_once_then_syncs_then_reads() {
+        let dir = tmp("balance-stale");
+        let (fake, log) = fake_balance_devtool(&dir, false);
+        let cfg = balance_cfg(fake, dir.join("vaults"));
+        let r = reg("aaaa1111");
+
+        vault_balance(&cfg, &r).expect("balance reads");
+
+        assert_eq!(calls(&log), vec!["upgrade", "sync", "balance"]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The read that the sync throttle skips still migrates first: `balance` reads the database
+    /// unconditionally, and on a wallet written by an older engine it fails with
+    /// `no such table: orchard_ironwood_migrations` unless the upgrade ran.
+    #[cfg(unix)]
+    #[test]
+    fn a_throttled_balance_read_still_migrates_first() {
+        let dir = tmp("balance-throttled");
+        let (fake, log) = fake_balance_devtool(&dir, false);
+        let cfg = balance_cfg(fake, dir.join("vaults"));
+        let r = reg("bbbb2222");
+        mark_synced(&cfg.vaults_dir, &r.vault_id, now_secs());
+
+        vault_balance(&cfg, &r).expect("balance reads");
+
+        assert_eq!(calls(&log), vec!["upgrade", "balance"]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A failed migration does not by itself take the balance offline: the read goes ahead, and if
+    /// the schema really is wrong the read is what fails. The failure is logged, not swallowed.
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_migration_does_not_block_a_readable_wallet() {
+        let dir = tmp("balance-upgrade-fails");
+        let (fake, log) = fake_balance_devtool(&dir, true);
+        let cfg = balance_cfg(fake, dir.join("vaults"));
+        let r = reg("cccc3333");
+
+        let b = vault_balance(&cfg, &r).expect("a readable wallet still reads");
+
+        assert_eq!(b.total_zat, 100_000);
+        assert_eq!(calls(&log), vec!["upgrade", "sync", "balance"]);
         std::fs::remove_dir_all(&dir).ok();
     }
 
