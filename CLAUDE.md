@@ -658,9 +658,11 @@ out **sealed** to the vault's devices, with the plaintext path closing per vault
   (2026-07-28) and `zcash-devtool` (2026-07-26) on librustzcash `42ffd0d` (pczt 0.7), and `zcash-sign`
   (2026-07-09, frost-tools #587). The released line (pczt 0.9.3 / `zcash_client_backend` 0.24.0 /
   `zcash_primitives` 0.30.1 / orchard 0.15.5) ran in production only from 2026-08-24 to 2026-09-21,
-  built from #259's branch. The `cp` steps in `deploy/helper/README.md` copy from build directories
-  that still hold July builds, and reassembling the deploy context from them on 2026-09-21 put the
-  July engine back (#522). This entry said production ran the released line until 2026-10-01, and so
+  built from #259's branch. Until #608, the `cp` steps in `deploy/helper/README.md` copied from build
+  directories that still held July builds, and reassembling the deploy context from them on
+  2026-09-21 put the July engine back (#522); #608 replaced them: our two binaries are built from the
+  commit being deployed, and the two external tools are checked by sha256 against
+  `engine/versions.lock`. This entry said production ran the released line until 2026-10-01, and so
   did comments on #120 and #522 that day, corrected the same day. #259 will not be merged (221
   commits behind `main`, and its committed wasm predates #364 and #281): #120 re-cuts the same line
   onto `main`, and its deploy is an engine upgrade for production, gated on a staging run and a live
