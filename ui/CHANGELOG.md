@@ -40,6 +40,8 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+## [0.10.0] 2026-10-04
+
 ### Security
 
 - **A device checks the payment it signs against the transaction itself.** Before it adds its part

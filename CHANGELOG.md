@@ -55,6 +55,13 @@ explicitly accepted.
 
 ## [Unreleased]
 
+## [0.10.0] 2026-10-04
+
+> **Services deployed when this was cut (2026-10-04):** coordinator `b62a7f0`, relay `03bb736890c63e86`.
+> The web app is this release's own commit. The two services are deployed by hand and may be
+> older than it - recording what they were ANSWERING is the point, not what they should have been.
+
+
 ### Security
 
 - **Defects in the coordinator's write checks were fixed.** What they were is held back for now and
