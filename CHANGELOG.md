@@ -57,6 +57,12 @@ explicitly accepted.
 
 ### Security
 
+- **Defects in the coordinator's write checks were fixed.** What they were is held back for now and
+  will be added here when the details are published. What a member can notice is in
+  [helper-server/CHANGELOG.md](helper-server/CHANGELOG.md). The command-line `konclave net-send`
+  now requires an https `--relay-base` and a plain `--room` name. The desktop app is otherwise
+  unchanged: it does not use the coordinator.
+
 - **A device checks the payment it signs against the transaction itself, and bounds the fee.** The
   browser signer now reads each payment, its address label, its memo and the fee from the parts of
   the transaction its signature covers, refuses what disagrees with the approved payment, and

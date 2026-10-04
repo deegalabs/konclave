@@ -140,8 +140,70 @@ pub fn seat_holder(roster: &[String], seat: u16) -> Option<&str> {
 /// What is RECORDED is never decided here. The caller records [`seat_holder`], the roster's own
 /// spelling, so this tolerance cannot turn one member into two.
 pub fn seat_acts_as(roster: &[String], seat: u16, name: &str) -> bool {
-    let name = name.trim();
-    !name.is_empty() && seat_holder(roster, seat).is_some_and(|holder| holder.trim() == name)
+    member_name(name)
+        .is_some_and(|name| seat_holder(roster, seat).and_then(member_name) == Some(name))
+}
+
+/// How many MEMBERS a list of recorded names amounts to (#575): each name counts at most as many
+/// times as the roster has seats under it, and a name under no seat does not count.
+///
+/// An approval is recorded as a name, and the count used to be the length of the list. Nothing
+/// checked that an entry belongs to a member, or that two entries belong to two members. So an
+/// approval planted as `"alice "` while a vault still took unsigned writes went on counting beside
+/// alice's own signed vote, recorded as `"alice"`, and a 2-of-2 proposal read as approved by both.
+///
+/// Names are compared the way [`seat_acts_as`] compares them, through the same function, because a
+/// count that disagreed with the binding would hand back what the binding refuses.
+///
+/// Two seats under the same name can count as two only when their entries are two entries. A vote
+/// replaces the earlier entry of the same member ([`same_member`]), so two seats both called
+/// `"bob"` leave one entry and count as one; telling them apart needs the seat recorded with the
+/// vote.
+///
+/// A vault with no roster has nothing to match against, so every entry counts, as it always did.
+pub fn members_counted(entries: &[String], roster: &[String]) -> usize {
+    if roster.is_empty() {
+        return entries.len();
+    }
+    let mut seats: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for name in roster.iter().filter_map(|n| member_name(n)) {
+        *seats.entry(name).or_default() += 1;
+    }
+    entries
+        .iter()
+        .filter_map(|e| member_name(e))
+        .filter(|name| match seats.get_mut(name) {
+            Some(free) if *free > 0 => {
+                *free -= 1;
+                true
+            }
+            _ => false,
+        })
+        .count()
+}
+
+/// Whether two recorded names are the same member's, compared as everywhere here.
+///
+/// A vote replaces what was recorded for its member before (#575). By exact string, an entry
+/// planted as `"alice "` while a vault took unsigned writes survived alice's own vote: she refused,
+/// and the planted approval went on counting as hers.
+///
+/// Two seats whose names differ only at the edges therefore replace each other's votes, as two seats
+/// with the identical name already did. [`seat_acts_as`] treats them as one name too.
+pub fn same_member(a: &str, b: &str) -> bool {
+    member_key(a) == member_key(b)
+}
+
+/// The one comparison every name check here makes: whitespace at the edges is ignored and nothing
+/// else is.
+fn member_key(name: &str) -> &str {
+    name.trim()
+}
+
+/// A name as a member, or `None` for one that is empty once trimmed: a blank name names nobody.
+fn member_name(name: &str) -> Option<&str> {
+    let name = member_key(name);
+    (!name.is_empty()).then_some(name)
 }
 
 /// Exactly 32 bytes from hex, or `None`. Length is part of the check: a short key is malformed, not
@@ -467,5 +529,52 @@ mod tests {
         let a = write_message(V, WriteAction::Rename, "ab\0c", 1, 1, "n");
         let b = write_message(V, WriteAction::Rename, "a\0bc", 1, 1, "n");
         assert_ne!(a, b);
+    }
+
+    /// #575, the case in the issue: an approval planted as another spelling of a member's name,
+    /// beside that member's own, is one member.
+    #[test]
+    fn two_spellings_of_one_member_count_once() {
+        let r = roster(&["alice", "bob"]);
+        assert_eq!(members_counted(&roster(&["alice ", "alice"]), &r), 1);
+        assert_eq!(members_counted(&roster(&["alice\u{00a0}", "alice"]), &r), 1);
+        assert_eq!(members_counted(&roster(&["alice", "bob"]), &r), 2);
+    }
+
+    #[test]
+    fn a_name_on_no_seat_does_not_count() {
+        let r = roster(&["alice", "bob"]);
+        assert_eq!(members_counted(&roster(&["mallory"]), &r), 0);
+        assert_eq!(members_counted(&roster(&["mallory", "alice"]), &r), 1);
+        // Case, inner spaces and look-alikes are different names, exactly as in the binding.
+        assert_eq!(
+            members_counted(&roster(&["Alice", "al ice", "alice\u{200b}"]), &r),
+            0
+        );
+        // A blank entry names nobody, and a blank seat is nobody's.
+        assert_eq!(members_counted(&roster(&["", "  "]), &r), 0);
+        assert_eq!(
+            members_counted(&roster(&["", " "]), &roster(&["", "bob"])),
+            0
+        );
+    }
+
+    /// Two seats under one name are two members, so two entries under it count as two and are not
+    /// capped at one. This is the count alone: a vote replaces its member's earlier entry, so in a
+    /// vault two such seats still leave one entry (Known limits).
+    #[test]
+    fn the_count_gives_each_seat_under_a_name_its_own_entry() {
+        let r = roster(&["bob", "bob "]);
+        assert_eq!(members_counted(&roster(&["bob", "bob "]), &r), 2);
+        // But never more entries than seats.
+        assert_eq!(members_counted(&roster(&["bob", "bob ", " bob"]), &r), 2);
+    }
+
+    /// A vault that never recorded a roster has nothing to match against, and keeps the count it
+    /// always had rather than counting nobody.
+    #[test]
+    fn a_vault_with_no_roster_counts_every_entry() {
+        assert_eq!(members_counted(&roster(&["alice ", "alice"]), &[]), 2);
+        assert_eq!(members_counted(&[], &[]), 0);
     }
 }
