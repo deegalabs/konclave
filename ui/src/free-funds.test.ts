@@ -79,14 +79,13 @@ describe('the guard says WHICH shortage it is', () => {
   })
 })
 
-import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { blockMessageKey } from './propose-guard'
+import { codeAt } from './source-scan'
 
 describe('one notion of free funds, held in one place', () => {
   const SRC = new URL('.', import.meta.url).pathname
-  const codeOf = (f: string) =>
-    readFileSync(join(SRC, f), 'utf8').split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*|\{\/\*)/.test(l)).join('\n')
+  const codeOf = (f: string) => codeAt(join(SRC, f)) // comments excluded, by the parser
 
   it('the payment screen derives what it can send instead of reading spendable', () => {
     // The drift this closes: the Dashboard's `canPay` subtracted open proposals, the payment
@@ -109,7 +108,7 @@ describe('one notion of free funds, held in one place', () => {
     // Reservation is a product lock, not the network refusing (§6.14). A bare "not enough" hides
     // the one thing the member can act on.
     for (const loc of ['en.ts', 'pt-BR.ts']) {
-      const line = readFileSync(join(SRC, 'i18n', loc), 'utf8')
+      const line = codeAt(join(SRC, 'i18n', loc))
         .split('\n').find((l) => l.includes("'money.blockReserved'"))
       expect(line, `${loc} has no reserved message`).toBeTruthy()
       for (const token of ['{reserved}', '{free}', '{held}']) {

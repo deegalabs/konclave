@@ -5,7 +5,7 @@
 // (audit C6). It proves the wire encoding round-trips in JavaScript, not just that Rust compiles.
 import { readFileSync } from 'node:fs'
 import { beforeAll, describe, expect, it } from 'vitest'
-import init, { describeOutputs, extractRandomizers, injectSigs } from './wasm-pkg/konclave_wasm.js'
+import init, { describeOutputs, extractRandomizers, injectSigs, readPayment } from './wasm-pkg/konclave_wasm.js'
 
 const vec = (name: string) =>
   new Uint8Array(readFileSync(new URL(`../../konclave-wasm/tests/vectors/${name}`, import.meta.url)))
@@ -32,6 +32,28 @@ describe('FROST<->PCZT bridge over the JS boundary (Ironwood v2)', () => {
     const outs = JSON.parse(describeOutputs(proven)) as { address: string | null; value: number | null }[]
     expect(outs.length).toBeGreaterThan(0)
     expect(outs.some((o) => o.value !== null)).toBe(true)
+  })
+
+  it('readPayment reads the checked outputs, their memos and the fee across the JS boundary (#610)', () => {
+    const p = JSON.parse(readPayment(proven)) as {
+      outputs: { address: string | null; value: number | null; recipient: string | null; memo: string | null }[]
+      feeZat: number
+      actions: number
+    }
+    expect(p.feeZat).toBe(20_000) // 4 actions at 5000
+    expect(p.actions).toBe(4)
+    const paying = p.outputs.filter((o) => (o.value ?? 0) > 0)
+    expect(paying.map((o) => o.value)).toEqual([100_000_000, 99_960_000])
+    for (const o of paying) expect(typeof o.memo).toBe('string') // opened on the device
+    for (const o of p.outputs.filter((o) => o.value === 0)) expect(o.memo).toBeNull()
+  })
+
+  it('readPayment refuses an inflated fee with a code the screen can name (#610)', () => {
+    // The value balance 20000 is the varint a0 9c 01 and occurs once; 25000 is a8 c3 01.
+    const at = proven.findIndex((_, i) => proven[i] === 0xa0 && proven[i + 1] === 0x9c && proven[i + 2] === 0x01)
+    const tampered = proven.slice()
+    tampered.set([0xa8, 0xc3, 0x01], at)
+    expect(() => readPayment(tampered)).toThrow(/^\[fee\]/)
   })
 
   it('extractRandomizers yields every real Ironwood spend index and alpha', () => {

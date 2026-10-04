@@ -47,6 +47,10 @@ getrandom = { version = "0.2", features = ["js"] }
 konclave-seal = { path = "../konclave-seal" }
 zcash_address = "0.13.0"
 zcash_protocol = { version = "0.10.6", default-features = false }
+# #610: the device opens each paying output with the ephemeral key it derives from the note's
+# `rseed`, so it reads the memo the transaction really carries without any viewing key. Already in
+# the tree through orchard, at the version orchard uses.
+zcash_note_encryption = "0.4.2"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"

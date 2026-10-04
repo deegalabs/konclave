@@ -4,6 +4,7 @@ import { join } from 'node:path'
 // @ts-expect-error - a plain .mjs script, deliberately not part of the app's TS build
 import { proofRows, statedCounts, COUNT_DOCS } from '../../scripts/proof-table.mjs'
 import { PROOF_TXS, proofOriginCounts } from './proof-record'
+import { stripComments } from './source-scan'
 
 // The table in docs/PROOF.md is the record. Everything else describes it.
 //
@@ -120,10 +121,7 @@ describe('no document states a count the record does not hold', () => {
     // is a second place for the count to live, which is what this whole file exists to prevent.
     // Comments are left out: they are prose about the code, and this one mentions numbers.
     for (const file of ['ui/src/screens/Proof.tsx', 'ui/src/docs/content.ts']) {
-      const code = read(file)
-        .split('\n')
-        .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
-        .join('\n')
+      const code = stripComments(file, read(file))
       expect(statedCounts(code), `${file} states a count in English`).toEqual([])
       expect(code.match(/\b\d+\s+txids\s+verific\S*/gi) ?? [], `${file} states a count in Portuguese`).toEqual([])
     }

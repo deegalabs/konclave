@@ -12,7 +12,7 @@ import { Dialog } from '../components'
 import { Identicon } from '../avatar'
 import { useT } from '../i18n'
 import { useToast } from '../toast'
-import { fmtZec, fmtZecExact, parseZecToZat, shortAddr } from '../format'
+import { fmtZecExact, parseZecToZat, shortAddr } from '../format'
 import { useVaultSigner } from '../VaultSigner'
 import { unlockOnDevice } from '../unlock'
 import { executeProposal, listProposals } from '../helper'
@@ -21,11 +21,40 @@ import { relayBase } from '../net'
 import { resolveOutcome, RESOLVE_ATTEMPTS } from '../send-outcome'
 import { getUnlockedShare } from '../session'
 import { usdEnabled, cachedRate, fetchRate, zecToUsd, type Rate } from '../price'
+import { describeSigningError } from '../signing-refusal'
+import { readingRows } from '../device-reading'
+import type { SignPreview } from '../signing-machine'
+
+/** What this device read from the transaction it is signing, or refused to sign (#610): every
+ *  output that moves value and the fee, each checked against what the signature covers. Exact
+ *  amounts, because this is what the member compares with the proposal. What an unlabelled output
+ *  is called comes from `readingRows`, which calls it change only when it pays the vault itself. */
+function DeviceReading({ what, t, isOurs, heading = 'signing.readHeading' }: { what: SignPreview; t: (k: string) => string; isOurs: (r: string | null) => boolean; heading?: string }) {
+  return (
+    <div className="mt-sm">
+      <div className="klab" id="sign-read">{t(heading)}</div>
+      <div role="list" aria-labelledby="sign-read">
+        {readingRows(what, isOurs).map((r, i) => (
+          <div key={i} role="listitem" className="sign-to mono">
+            <span aria-hidden="true">→</span>{' '}
+            {r.to.kind === 'address' ? shortAddr(r.to.addr) : t(r.to.kind === 'vault' ? 'signing.toVault' : 'signing.unnamed')}
+            {' '}<span aria-hidden="true">·</span>{' '}
+            <span className="num">{fmtZecExact(r.zat / 1e8)}{'\u00a0'}ZEC</span>
+          </div>
+        ))}
+      </div>
+      <div className="sign-to mono">
+        {t('signing.networkFee')}{' '}<span aria-hidden="true">·</span>{' '}
+        <span className="num">{fmtZecExact(what.feeZat / 1e8)}{'\u00a0'}ZEC</span>
+      </div>
+    </div>
+  )
+}
 
 export default function SigningPanel() {
   const t = useT()
   const toast = useToast()
-  const { bg, vault, threshold, myName, active, close, reseat, armed, armActive, armedUntil, unarmActive } = useVaultSigner()
+  const { bg, vault, threshold, myName, active, close, reseat, armed, armActive, armedUntil, unarmActive, isOurReceiver } = useVaultSigner()
   const [confirming, setConfirming] = useState(false)
   const [sending, setSending] = useState(false)
   // When the ceremony started on THIS device. The run is minutes long and emits no event we can
@@ -43,6 +72,9 @@ export default function SigningPanel() {
   const [arming, setArming] = useState(false)
   // The send fires from an effect (the room names the sender), so guard it: one send per proposal.
   const sentOnce = useRef<string | null>(null)
+  // Whether this device refused the transaction (#610), for the send's own failure path, which runs
+  // later from a closure that cannot see this render's values.
+  const refusingRef = useRef(false)
   // True while anything is running here: this device signing, or the send it triggered.
   const started = sending || bg.phase !== 'idle'
   const [rate, setRate] = useState<Rate | null>(cachedRate())
@@ -90,19 +122,24 @@ export default function SigningPanel() {
   }, [runSince])
 
   useEffect(() => {
-    if (!active) return
+    if (!active || !vault) return
     let on = true
-    void getBalance().then((b) => { if (on && b?.configured) setSpendableZat(b.spendable_zat ?? b.total_zat ?? null) })
+    // The signer's own vault, never the shared selection another tab can switch (#610 review).
+    void getBalance(vault.id).then((b) => { if (on && b?.configured) setSpendableZat(b.spendable_zat ?? b.total_zat ?? null) })
     if (active.kind === 'payroll') {
-      void getProposalDetail(active.id).then((d) => { if (on && d) setPayrollLines(Math.max(1, d.lines.length)) })
+      void getProposalDetail(active.id, vault.id).then((d) => { if (on && d) setPayrollLines(Math.max(1, d.lines.length)) })
     }
     return () => { on = false }
-  }, [active])
+  }, [active, vault])
 
   // A member who signed but did not send learns the outcome here. Only the sending device gets the
   // reply, so this is the ONLY way the rest of the vault finds out the payment is not coming.
   useEffect(() => {
     if (!bg.peerFailure) return
+    // This device refused the transaction itself (#610). The coordinator then waits for signatures
+    // that will not come, and its timeout reaches every device as a failed send inviting a retry.
+    // The refusal is the true account here, so it stays on screen and the retry is not offered.
+    if (describeSigningError(bg.error, t).kind === 'refusal') { bg.clearPeerFailure(); return }
     const msg = t('signing.peerFailed.' + bg.peerFailure)
     setResult({ error: msg })
     toast.err(msg)
@@ -192,7 +229,16 @@ export default function SigningPanel() {
   const iWouldBeLast = !armed && threshold > 0 && signedCount === threshold - 1
 
   const sent = result && 'txid' in result && result.txid
-  const errMsg = (result && 'error' in result && result.error) || bg.error || ''
+  // A refusal by this device outranks any later failure of the send (#610): the send fails BECAUSE
+  // the device refused, and the failure's wording ("you can sign again") would contradict it.
+  const fromSigner = describeSigningError(bg.error, t)
+  const refusal = fromSigner.kind === 'refusal' ? bg.error : ''
+  refusingRef.current = refusal !== ''
+  // A message this device ignored is not the outcome of anything: it is shown beside the progress,
+  // never in its place, while the honest round can still be signed.
+  const notice = fromSigner.kind === 'notice' && bg.phase !== 'signed' ? fromSigner.text : ''
+  const errMsg = refusal || (result && 'error' in result && result.error) || (fromSigner.kind === 'failure' ? bg.error : '') || ''
+  const errShown = describeSigningError(errMsg, t)
   // The send's outcome is not known and may never be. This is deliberately NOT an error state: no
   // failure wording, and above all no Retry, because the money may already have moved (#280).
   const unresolved = !!result && 'unresolved' in result
@@ -208,7 +254,7 @@ export default function SigningPanel() {
 
   const dest = active.to_address ? shortAddr(active.to_address) : '-'
   const amtNum = active.value_zec
-  const amt = fmtZec(active.value_zec)
+  const amt = fmtZecExact(Number(active.value_zec))
   const isPayroll = active.kind === 'payroll'
 
   // ZIP-317, spends + outputs (see the note in Proposal.tsx): one spend + N destinations + change.
@@ -242,7 +288,9 @@ export default function SigningPanel() {
   // as well, because the run takes minutes and nobody watches a panel for that long.
   function fail(msg: string, raw?: string) {
     setResult({ error: msg })
-    toast.err(msg)
+    // When this device refused the transaction, the send's failure is a consequence of that refusal,
+    // which the panel shows instead; announcing "could not send" over it invites the retry it rules out.
+    if (!refusingRef.current) toast.err(msg)
     // Nothing moved, so the payment goes back to unsigned everywhere. Left standing, the failed
     // attempt's signatures sit in the permanent room and the payment reads as already signed by
     // devices that have gone - with no button to sign it and no one to send it.
@@ -381,7 +429,7 @@ export default function SigningPanel() {
         <div className="sign-what">
           <span className="sign-amt num">{amt} <span className="dim small">ZEC</span></span>
           {usd && <span className="sign-usd dim small">{usd}</span>}
-          <span className="sign-to mono">{isPayroll ? t('kind.payroll') : <>→ {dest}</>}</span>
+          <span className="sign-to mono">{isPayroll ? t('kind.payroll') : <><span aria-hidden="true">→</span> {dest}</>}</span>
         </div>
 
         {/* Presence: how many devices are on the vault's signing room now. */}
@@ -445,16 +493,21 @@ export default function SigningPanel() {
             </div>
           ) : errMsg ? (
             <div className="sign-err">
-              <div className="hint err" role="alert">{t('signing.failed', { reason: errMsg })}</div>
-              <button
-                className="btn ghost sm-btn mt-sm"
-                onClick={() => {
-                  // Clearing the message is not enough on the sending device: without releasing the
-                  // once-guard, "try again" would look like a button that does nothing.
-                  setResult(null)
-                  if (bg.iSend && active && sentOnce.current === active.id) { sentOnce.current = null; void doSend() }
-                }}
-              >{t('signing.tryAgain')}</button>
+              <div className="hint err" role="alert">{errShown.text}</div>
+              {/* A refusal shows what the device read, so the member can compare it with the
+                  proposal as the message asks; and no Try again, because a refusal is not a failed send. */}
+              {errShown.kind === 'refusal' && bg.what && <DeviceReading what={bg.what} t={t} isOurs={isOurReceiver} heading="signing.readRefusedHeading" />}
+              {errShown.kind !== 'refusal' && (
+                <button
+                  className="btn ghost sm-btn mt-sm"
+                  onClick={() => {
+                    // Clearing the message is not enough on the sending device: without releasing the
+                    // once-guard, "try again" would look like a button that does nothing.
+                    setResult(null)
+                    if (bg.iSend && active && sentOnce.current === active.id) { sentOnce.current = null; void doSend() }
+                  }}
+                >{t('signing.tryAgain')}</button>
+              )}
             </div>
           ) : started ? (
             <div className="sign-run">
@@ -463,17 +516,22 @@ export default function SigningPanel() {
                 {/* Three real stages, in order, instead of one label that claims the wrong one: the
                     coordinator builds and proves before any share is asked for, so "signed,
                     sending" was a lie for the whole first minute on the sending device. */}
-                <span className="confirm">
+                {/* The stage is what changes meaningfully, so it is the status a screen reader
+                    announces; the clock below ticks every second and is not announced. */}
+                <span className="confirm" role="status">
                   {bg.phase === 'signed' ? t('signing.sending')
                     : bg.phase === 'signing' ? t('signing.signing')
                     : t('signing.building')}
                 </span>
               </div>
-              {bg.what && <div className="hint mt-sm mono">→ {shortAddr(bg.what.addr)} · {bg.what.zec} ZEC</div>}
-              <div className="hint mt-sm" aria-live="polite">
-                {t('signing.takesMinutes')} · <span className="num">{Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, '0')}</span>
+              <div className="hint mt-sm">
+                {t('signing.takesMinutes')} <span aria-hidden="true">·</span> <span className="num">{Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, '0')}</span>
               </div>
-              {elapsed > 180 && <div className="hint err mt-sm">{t('signing.slowHint')}</div>}
+              {elapsed > 180 && <div className="hint err mt-sm" role="alert">{t('signing.slowHint')}</div>}
+              {/* An ignored message, before the reading, so a long payroll does not push it out of view. */}
+              {notice && <div className="hint warn mt-sm" role="status">{notice}</div>}
+              {/* Below the clock, so a long payroll does not push the progress off a phone screen. */}
+              {bg.what && <DeviceReading what={bg.what} t={t} isOurs={isOurReceiver} />}
             </div>
           ) : !hasShare ? (
             <div className="sign-unlock">
@@ -530,6 +588,7 @@ export default function SigningPanel() {
               </button>
             </>
           )}
+          {notice && !started && !errMsg && !sent && <div className="hint warn mt-sm" role="status">{notice}</div>}
         </div>
 
         <div className="sign-reassure dim">{t('signing.reassure')}</div>

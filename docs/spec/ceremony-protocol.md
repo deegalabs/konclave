@@ -105,8 +105,8 @@ REQUIRES **authenticated admission**:
 ## 5. Invariants checklist (must all hold before real-money `/net` broadcast)
 
 > Status note (2026-10-03): I1 holds only once every seat has registered its device key (until
-> then the signing request goes out unsealed, #63), and I2 is not fully met: a signing device does
-> not yet check what it shows against what it signs (#610). I3 shipped with #63 (2026-08-29); the
+> then the signing request goes out unsealed, #63), and I2 now also covers the payment: a signing device reads it from the
+> transaction and checks it against the approved one (#610). I3 shipped with #63 (2026-08-29); the
 > checklist below is the draft's state on 2026-08-02.
 - [x] **I1** relay blind - no secret/address/amount in cleartext on the wire (the relay never parses bodies).
 - [x] **I2** on-device sighash recompute + refuse-on-mismatch (#62/#67; primitive proven byte-exact, live-validated 2-tab).

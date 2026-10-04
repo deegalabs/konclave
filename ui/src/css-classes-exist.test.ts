@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
+import { codeAt } from './source-scan'
 
 // A class name with no rule behind it renders as nothing, and nothing is what you get: no error, no
 // warning, no failing test. The element just looks unfinished, and only a human looking at the
@@ -66,7 +67,7 @@ describe('every class name used in the UI has a rule behind it', () => {
 
     const offenders: string[] = []
     for (const file of walk(abs('src'), '.tsx')) {
-      const src = readFileSync(file, 'utf8')
+      const src = codeAt(file)
       for (const m of src.matchAll(/className="([a-z0-9 _-]+)"/g)) {
         for (const cls of m[1]!.split(/\s+/).filter(Boolean)) {
           if (KNOWN_UNSTYLED.has(cls)) continue

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { settlementOf, isConfirmed } from './settlement'
-import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { codeAt } from './source-scan'
 
 // The Dashboard rendered a green chip saying **Confirmed** over a transaction still in the mempool.
 // It read the proposal's own state - and the proposal cannot know: `HelperProposal::recompute`
@@ -62,8 +62,7 @@ describe('confirmed means a block, or it is not said', () => {
 
 describe('the screens cannot go back to asking the proposal', () => {
   const SRC = new URL('.', import.meta.url).pathname
-  const codeOf = (f: string) =>
-    readFileSync(join(SRC, f), 'utf8').split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n')
+  const codeOf = (f: string) => codeAt(join(SRC, f)) // comments excluded, by the parser
 
   it('a sent proposal stops polling, because nothing will change it', () => {
     // `HelperProposal::recompute` early-returns on "sent" and nothing writes "confirmed", so the

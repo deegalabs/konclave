@@ -30,6 +30,7 @@ import { getUnlockedShare, setUnlockedShare } from './session'
 import { signGovernanceWrite, type WriteProof } from './device-key'
 import { ensureWasm } from './wasm-ready'
 import { decodeBundle } from './signing'
+import { addressText } from './approved-payment'
 
 export type Member = { name: string; pubkey: string }
 
@@ -41,7 +42,13 @@ export type Vault = {
   members: number
   member_list: Member[]
   group_pubkey: string
+  /** The address members deposit to. On the hosted path it is the one this device recorded for the
+   *  vault; the coordinator's answer only while the record has none (it is then recorded); and `''`
+   *  on a device with no record of the vault (A9, #610 review). */
   orchard_address: string
+  /** The coordinator answered with an address other than the one this device recorded. The screens
+   *  keep showing the recorded one; Receive says why. Absent on the local-bridge path. */
+  served_address_differs?: boolean
   // ufvk is intentionally NOT sent by the bridge (it decrypts the whole tx graph + memos).
   server_url?: string
   locked?: boolean
@@ -191,9 +198,11 @@ export async function health(): Promise<boolean> {
  *  a literal `address: ''` that nothing ever revisited, and the repair must not become the same
  *  kind of thing - a branch nobody can exercise. */
 export async function backfillAddress(id: string, address: string): Promise<boolean> {
+  // Only text is an address: anything else written here would be the record from then on.
+  if (!addressText(address)) return false
   try {
     const rec = (await listVaults()).find((v) => v.id === id)
-    if (!rec || (rec.address ?? '').trim()) return false
+    if (!rec || addressText(rec.address)) return false
     await updateVaultMeta(id, { address })
     return true
   } catch {
@@ -206,10 +215,13 @@ export async function getVault(): Promise<Vault | null> {
     const id = getSelectedVault()
     if (!id) return null
     const v = await netGetVault(id)
-    if (!v) return null
+    // An answer about any vault but the one asked for is no answer (#610 review). The signer keys its
+    // share, its room, the gate's record and the send on this id, so a coordinator that named
+    // another vault on this device could move the ceremony onto a vault whose quorum approved nothing.
+    if (!v || v.vault_id !== id) return null
     const total = v.total ?? 0
-    // The device's own record, read once: it carries both the vault's name and its roster.
-    let rec: { name?: string; roster?: string[] } | undefined
+    // The device's own record, read once: it carries the vault's name, its roster and its address.
+    let rec: { name?: string; roster?: string[]; address?: string } | undefined
     try {
       rec = (await listVaults()).find((s) => s.id === id)
     } catch { /* local-bridge mode / no on-device record */ }
@@ -241,7 +253,11 @@ export async function getVault(): Promise<Vault | null> {
     //
     // Fire-and-forget on purpose: it is one IndexedDB write, once, on a screen that must not wait
     // for it, and a vault that never opens a screen loses nothing it had.
-    if (v.address) void backfillAddress(id, v.address)
+    // The coordinator's answer and the record, as text or as nothing (`addressText`, the one reading
+    // the money gate uses too): neither is trusted to be a string.
+    const served = addressText(v.address)
+    const recorded = addressText(rec?.address)
+    if (served) void backfillAddress(id, served)
     // Pin the vault's change receiver the first time any screen reads the vault (#281). Same shape
     // as the address backfill above and for the same reason: `saveVault` runs once at creation, so
     // a field added later reaches an existing vault only if something revisits the record.
@@ -251,16 +267,28 @@ export async function getVault(): Promise<Vault | null> {
     // security property - it is what makes a helper taken over AFTER capture unable to relabel an
     // attacker's output as this vault's change. Deliberately NOT wrapped in a guard here: a second
     // copy of "only if absent" is how one rule with two implementations starts.
-    if (v.change_receiver) void recordChangeReceiver(id, v.change_receiver)
+    const change = addressText(v.change_receiver)
+    if (change) void recordChangeReceiver(id, change)
+    // The address every screen shows for deposits is the one this device recorded, the same one the
+    // money gate treats as the vault's own (`ourReceiversFrom`). The screens used to show the
+    // coordinator's answer on every load, so a coordinator taken over after creation could answer
+    // with its own address and take every deposit made from Receive, with no signature involved.
+    // Only a record with no address yet (#501) shows the answer, which the backfill above then makes
+    // the record. Like the record itself, this trusts the coordinator's first answer: it closes the
+    // door to one taken over afterwards, not to one hostile when the vault was created. A device with
+    // no record at all (or whose storage failed) shows none: the answer would be trusted afresh on
+    // every load, and the money gate refuses in the same state.
     return {
-      id: v.vault_id,
+      id,
       name: vaultName,
       threshold: v.threshold ?? 0,
       total,
       members: total,
       member_list,
-      group_pubkey: v.vault_id,
-      orchard_address: v.address,
+      group_pubkey: id,
+      orchard_address: rec ? recorded || served : '',
+      // Compared without case: an all-capitals encoding is the same address.
+      served_address_differs: !!recorded && !!served && recorded.toLowerCase() !== served.toLowerCase(),
     }
   }
   const r = await getJson<{ vault: Vault | null }>(withVault('/api/vault'))
@@ -278,9 +306,12 @@ export async function getProposals(): Promise<Proposal[] | null> {
   return r?.proposals ?? null
 }
 
-export async function getBalance(): Promise<Balance | null> {
+export async function getBalance(
+  /** The vault to read. The signing panel passes the signer's own, as with `getProposalDetail`. */
+  vaultId?: string,
+): Promise<Balance | null> {
   if (NET) {
-    const id = getSelectedVault()
+    const id = vaultId ?? getSelectedVault()
     if (!id) return null
     const b = await netVaultBalance(id)
     if (!b) return null
@@ -807,9 +838,12 @@ export async function deleteBeneficiary(id: string): Promise<boolean> {
 /** Proposal detail including payroll lines (empty for a single payment). */
 export async function getProposalDetail(
   id: string,
+  /** The vault to read it from. The signer passes its own: the selection lives in shared storage,
+   *  so another tab switching vaults would otherwise change which vault this reads (#610 review). */
+  vaultId?: string,
 ): Promise<{ proposal: Proposal; lines: PayrollLine[] } | null> {
   if (NET) {
-    const vid = getSelectedVault()
+    const vid = vaultId ?? getSelectedVault()
     if (!vid) return null
     const ps = await netListProposals(vid)
     const hp = ps?.find((x) => x.id === id)

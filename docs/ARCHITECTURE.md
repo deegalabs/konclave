@@ -71,9 +71,9 @@ authenticated. Something must therefore coordinate, and here that is the **hoste
 (the helper): it builds and proves the PCZT, hosts the signing round, injects the aggregate
 signature and broadcasts. It is trusted for **availability**, for the **privacy of the books** (it
 holds each vault's viewing key, so it reads balances, payments, amounts, memos and member names)
-and, until #567 and #610 are fixed, for **building only what was approved**; never for shares (it
+and, until #567 is fixed, for **building only what was approved**; never for shares (it
 never receives one). It cannot move funds on its own, because every payment needs a quorum's
-signatures, but until both are fixed a payment the quorum signs is only as safe as the coordinator.
+signatures, but until #567 is fixed a payment the quorum signs is only as safe as the coordinator.
 Two consequences worth stating because they are easy to assume wrongly: the **relay is not the coordinator** (it is a mailbox; since #63 the signing
 request is sealed to the members' device keys once every seat has registered one, and from then on it
 carries ciphertext rather than recipient and amount), and the **MCP server is not the coordinator either** - `mcp-server/` is a read-and-draft
@@ -201,7 +201,7 @@ bundle and converge on the same on-chain transaction (guaranteed by the §7 pari
   `src-tauri/`, not a rewrite.
 - **Web (browser)** is the shell in daily use: a member creates, approves and signs from a phone or
   laptop with no install, via the WASM core over the blind relay. Every device shows the payment it
-  is about to sign, though what it shows is not yet checked against what it signs (#610), and the
+  is about to sign, read from the transaction itself and checked against the approved payment, and the
   share is sealed at
   rest in IndexedDB under a passphrase-derived key. A passkey shortcut (WebAuthn PRF, #57) can
   unlock the vault's books on the device where it was created; approving and sending always require
@@ -217,8 +217,8 @@ bundle and converge on the same on-chain transaction (guaranteed by the §7 pari
   sighash of the vault's own PCZT under the transaction's randomizer; social recovery (RTS) and the
   inheritance policy engine, proven by tests and not yet wired into a live vault (#58).
 - The FROST↔PCZT bridge in WASM (`pczt_bridge`), byte-for-byte equal to native.
-- **Real browser transaction:** the payment shown on each device before it signs (not yet a check
-  on the coordinator, #610), then a broadcast from
+- **Real browser transaction:** the payment each device reads from the transaction and checks against
+  the approved one before it signs (#610), then a broadcast from
   the browser path (`3022420a…`, 2026-07-30), since repeated across separate machines and from a
   phone.
 - **Per-vault read access + S-derived signing room + fully-encrypted v2 export (#388/#214, live).**

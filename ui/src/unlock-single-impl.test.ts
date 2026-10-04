@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
+import { codeAt } from './source-scan'
 
 // Opening a share is three lines - `loadVault` -> `setUnlockedShare` -> `markVaultUnlocked` - and
 // that is exactly why it kept being written out again instead of called.
@@ -39,7 +40,7 @@ describe('opening a share has one implementation', () => {
         // The limit, stated rather than hidden: a copy that spread the two calls far apart would
         // slip through. Nobody writes it that way, and a cheap check that catches the shape which
         // actually recurred four times beats an exact one nobody maintains.
-        const lines = readFileSync(p, 'utf8').split('\n')
+        const lines = codeAt(p).split('\n')
         const at = (re: RegExp) => lines.flatMap((l, i) => (re.test(l) ? [i] : []))
         const loads = at(/\bloadVault\s*\(/)
         const seats = at(/\bsetUnlockedShare\s*\(/)

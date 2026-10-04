@@ -8,6 +8,7 @@ import {
   pcztSighash,
   extractRandomizers,
   describeOutputs,
+  readPayment,
   injectSigs,
   toHex,
   fromHex,
@@ -46,6 +47,7 @@ describe('@konclave/frost smoke test', () => {
     expect(typeof pcztSighash).toBe('function')
     expect(typeof extractRandomizers).toBe('function')
     expect(typeof describeOutputs).toBe('function')
+    expect(typeof readPayment).toBe('function')
     expect(typeof injectSigs).toBe('function')
   })
 })

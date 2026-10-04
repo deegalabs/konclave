@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { codeAt } from './source-scan'
 
 // Importing a vault must leave it USABLE, and how this was missed matters more than the bug.
 //
@@ -37,11 +38,8 @@ function sources(dir: string, out: string[] = []): string[] {
 describe('importing a vault leaves it unlocked', () => {
   it('nothing but unlock.ts calls importVault', () => {
     const offenders = sources(SRC).filter((p) => {
-      // Comments excluded: a scan its own commentary can satisfy measures nothing.
-      const code = readFileSync(p, 'utf8')
-        .split('\n')
-        .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
-        .join('\n')
+      // Comments excluded, by the parser: a scan its own commentary can satisfy measures nothing.
+      const code = codeAt(p)
       return /\bimportVault\s*\(/.test(code)
     })
     expect(
@@ -51,10 +49,7 @@ describe('importing a vault leaves it unlocked', () => {
   })
 
   it('and unlock.ts pairs it with the unlock in one function', () => {
-    const home = readFileSync(join(SRC, HOME), 'utf8')
-      .split('\n')
-      .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
-      .join('\n')
+    const home = codeAt(join(SRC, HOME))
     const fn = home.slice(home.indexOf('export async function importAndUnlock'))
     expect(fn, 'importAndUnlock is gone; the pairing is no longer structural').toBeTruthy()
     expect(/\bimportVault\s*\(/.test(fn) && /\bunlockOnDevice\s*\(/.test(fn),

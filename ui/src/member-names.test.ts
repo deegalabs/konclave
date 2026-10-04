@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { codeOf } from './source-scan'
 
 // Signers must be shown by name whenever this device knows one.
 //
@@ -17,7 +17,7 @@ import { readFileSync } from 'node:fs'
 // hard enough that the test starts asserting the fake. What actually broke was the ORDER of three
 // fallbacks, and the order is visible right here.
 
-const api = readFileSync(new URL('./api.ts', import.meta.url), 'utf8')
+const api = codeOf('./api.ts')
 
 /** The expression that names each seat, lifted out of `getVault`'s net branch. */
 function namePicker(): string {
