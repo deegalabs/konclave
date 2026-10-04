@@ -8,7 +8,7 @@
 ## Status - 2026-08-19 (post-hackathon)
 
 The core runs end to end (payment + payroll: propose -> validate -> approve/refuse -> sign with
-FROST -> account) and is **proven on mainnet** (19 verifiable mainnet txids as of 2026-09-29, see
+FROST -> account) and is **proven on mainnet** (20 verifiable mainnet txids as of 2026-10-04, see
 `docs/PROOF.md`; this line said 12, which was the count on 2026-08-26, when it was last edited).
 This cycle's work:
 
@@ -95,8 +95,8 @@ production (`konclave-demo.vercel.app` / `www.konclave.xyz`) and validated on ma
 
 **Still roadmap after #388 (§6.15)**
 - ~~**Write auth (#288)**~~ **Done 2026-09-28:** every vote, proposal, payroll, rename and send is
-  signed and checked, on each vault from the first time a member unlocks it; what is open is #575,
-  #576 and #577. The signing-room seat-hijack half was closed in #401 (#392 done); the residual
+  signed and checked, on each vault from the first time a member unlocks it; what is open is #575
+  (narrowed, 2026-10-04) and #577; #576 is closed and live since 2026-10-04. The signing-room seat-hijack half was closed in #401 (#392 done); the residual
   ceremony-DoS vector is #400 (#399 closed 2026-09-15).
 - **Upgrading the legacy/open vaults in place (#406):** no auto-migration yet.
 - **Helper single-request outage (#375)** - fixed 2026-08-28 by a worker pool (#384), closed
@@ -218,7 +218,7 @@ slice slips, Phase 6 is the escape valve, never the core.
 > fingerprint (#67/#68, ADR-0007). Open security follow-up: H2 (seal the SignRequest, #63).
 
 The core crypto is proven (real FROST over Orchard and Ironwood,
-**19 verifiable mainnet txids** as of 2026-09-29, listed in `docs/PROOF.md`, incl. a
+**20 verifiable mainnet txids** as of 2026-10-04, listed in `docs/PROOF.md`, incl. a
 DKG-vault send, a private multi-output payroll, and - on NU6.3 activation day - an
 Orchard→Ironwood migration plus the first **Ironwood-pool spend** (both V6/NU6.3, FROST 2-of-3),
 and browser-side signing of a real **Ironwood** spend (the eighth txid, `3022420a…`, a V6/NU6.3

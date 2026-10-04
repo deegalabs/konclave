@@ -68,9 +68,9 @@ and while it is down no payment can be made. What is fixed and what is open, by 
 - **Changing what a payment pays.** Fixed: a device signs only the message it derives from its
   own copy of the transaction, in both signing rounds, so another member cannot swap the
   transaction under it (#62; round 2: #355, #579). That guards against a member, not against
-  the coordinator, which builds the transaction to begin with. A signing device now reads the payment from the
+  the coordinator, which builds the transaction to begin with. A signing device reads the payment from the
   transaction, checks it against the approved payment, memos included, and refuses a fee above the
-  network's standard one (#610); the legacy `/net` page signs without that check, and the fee limit
+  network's standard one (#610, live on the web since 2026-10-04; the desktop installers carry it once they are published); the legacy `/net` page signs without that check, and the fee limit
   grows with the actions the coordinator chooses. Open: an approval is not yet tied
   to the exact content of the proposal, and the approved payment a device compares with is
   fetched from the coordinator when it signs (#567). Until that is fixed, a malicious or
@@ -79,11 +79,12 @@ and while it is down no payment can be made. What is fixed and what is open, by 
 - **Acting as another member.** Fixed: every vote, proposal, payroll, rename and send is signed by
   the member's device and checked by the coordinator, and votes, proposals and payrolls are
   recorded under the seat that signed them (#288, #569); seats in the signing room, and the
-  messages that carry the arming tally, are authenticated (#401, #424, #425). Open: a member can claim a colleague's seat before the
-  colleague does, and then vote as them (#577); an approval recorded while a vault still took
-  unsigned writes keeps counting after it requires signatures (#575); two requests for one vault
-  can run unserialised (#576); and the write check turns on per vault, the first time a member
-  unlocks it, so until then that vault still accepts unsigned writes.
+  messages that carry the arming tally, are authenticated (#401, #424, #425); two requests for one
+  vault no longer run unserialised (#576, since 2026-10-04). Open: a member can claim a colleague's seat
+  before the colleague does, and then vote as them (#577); an approval recorded while a vault still
+  took unsigned writes keeps counting after it requires signatures (#575, narrowed on 2026-10-04 and
+  not closed by it); and the write check turns on per vault, the first time a member unlocks it, so
+  until then that vault still accepts unsigned writes.
 - **Denial of service.** Fixed: one slow request no longer takes the coordinator or the relay down
   (#384, #393). Open: the hosted coordinator is a single point of failure, and so is the relay for
   the signing round. While either is down nothing can be spent, though the funds stay on chain.
