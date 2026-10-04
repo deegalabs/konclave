@@ -12,7 +12,8 @@ import { decodeBundle } from './signing'
 import { BackgroundSession } from './background-session'
 import { signingRoom, signingRoomFromSecret, acquireSigner, releaseSigner, type GovernanceGate } from './background-signer'
 import type { FailureCode } from './background-session'
-import type { PcztOutput } from './approved-payment'
+import type { GateDecision, PcztOutput } from './approved-payment'
+import type { SignPreview } from './signing-machine'
 import { deviceCommsKey, devicePubHex } from './device-key'
 import { unsealSignRequest } from './net-sign'
 
@@ -24,7 +25,7 @@ export interface BackgroundSignerState {
   seatCount: number
   phase: 'idle' | 'signing' | 'signed'
   signature: { hex: string; ok: boolean } | null
-  what: { zec: string; addr: string } | null
+  what: SignPreview | null
   error: string
   /** Seats that have explicitly signed the proposal now on screen. */
   armedSeats: number[]
@@ -50,26 +51,26 @@ export interface BackgroundSignerState {
 }
 
 /**
- * Run a background signer for an UNLOCKED vault. `gate` is the governance policy (default: never
- * sign - the safe default; the caller supplies the real per-vault auto/manual + approval logic).
- * Returns null-ish state until the vault's share is unlocked in this session.
+ * Run a background signer for an UNLOCKED vault. `gate` is the governance policy and
+ * `decideApproval` the money gate; the caller supplies both, as `SigningDeps` requires of every
+ * driver. Returns null-ish state until the vault's share is unlocked in this session.
  */
 export function useBackgroundSigner(
   // `nonce` lets the caller force a re-seat (e.g. after unlocking the share in-session) without
   // changing the vault id.
   vault: { id: string; nonce?: number } | null,
-  gate: GovernanceGate = () => false,
-  // #281: does a request pay EXACTLY what the quorum approved? Defaults to REFUSE, the same
-  // direction as `gate` above: a caller that forgets to supply it gets a device that signs nothing,
-  // which is visible and safe, rather than one that signs anything, which is neither.
-  paysWhatWasApproved: (outputs: PcztOutput[]) => boolean = () => false,
+  gate: GovernanceGate,
+  // #281: does a request pay EXACTLY what the quorum approved? Required, with no default, for the
+  // reason `SigningDeps` requires it: a default nobody pins is one a later edit flips to `match`
+  // with every test green (#610 review), so each caller says what it answers at its call site.
+  decideApproval: (outputs: PcztOutput[]) => GateDecision,
 ): BackgroundSignerState {
   const [room, setRoom] = useState('')
   const [ready, setReady] = useState(false)
   const [seatCount, setSeatCount] = useState(0)
   const [phase, setPhase] = useState<'idle' | 'signing' | 'signed'>('idle')
   const [signature, setSignature] = useState<{ hex: string; ok: boolean } | null>(null)
-  const [what, setWhat] = useState<{ zec: string; addr: string } | null>(null)
+  const [what, setWhat] = useState<SignPreview | null>(null)
   const [error, setError] = useState('')
   const [armedSeats, setArmedSeats] = useState<number[]>([])
   const [iSend, setISend] = useState(false)
@@ -147,7 +148,7 @@ export function useBackgroundSigner(
         // arming completes the quorum is named the trigger, and every device computes the same name.
         // So two people signing at the same instant still produce exactly ONE send.
         const session = new BackgroundSession({
-      paysWhatWasApproved,
+          decideApproval,
           myTag,
           mySeat: b.seat,
           signingMaterial: () => ({ keyPackage: b.keyPackage, groupVk: b.groupVk, pubkeys: b.pubkeys }),

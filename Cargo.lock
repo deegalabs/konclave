@@ -2646,6 +2646,7 @@ dependencies = [
  "reddsa",
  "wasm-bindgen",
  "zcash_address",
+ "zcash_note_encryption",
  "zcash_protocol",
 ]
 

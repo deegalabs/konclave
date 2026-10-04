@@ -63,6 +63,14 @@ explicitly accepted.
   now requires an https `--relay-base` and a plain `--room` name. The desktop app is otherwise
   unchanged: it does not use the coordinator.
 
+- **A device checks the payment it signs against the transaction itself, and bounds the fee.** The
+  browser signer now reads each payment, its address label, its memo and the fee from the parts of
+  the transaction its signature covers, refuses what disagrees with the approved payment, and
+  refuses a fee above the ZIP 317 fee for the transaction's actions. The app's changelog lists the
+  further changes on the same signing path. For anyone building on the SDK: `readPayment` returns
+  that reading, and `describeOutputs` now carries the same checks and a `memo` field, and throws
+  whenever `readPayment` refuses.
+
 ## [0.9.0] 2026-10-03
 
 > **Services deployed when this was cut (2026-10-03):** coordinator `80e3a18`, relay `03bb736890c63e86`.

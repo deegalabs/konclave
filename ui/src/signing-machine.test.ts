@@ -13,12 +13,15 @@ import init, {
   DkgSession,
   identifierBytes,
   pcztSighash,
+  readPayment,
 } from './wasm-pkg/konclave_wasm.js'
 import { bytesEqual, b64, unb64 } from './net'
 import { dkgProvenPczt } from './demo-vector'
 import { parseAlphas } from './signing'
 import { bytesToHex, RESPONSE_KIND } from './net-sign'
-import { SigningMachine, type SigningDeps } from './signing-machine'
+import { SigningMachine, refusalKey, type SignPreview, type SigningDeps } from './signing-machine'
+import type { GateDecision } from './approved-payment'
+import { codeOf } from './source-scan'
 
 beforeAll(async () => {
   await init(readFileSync(new URL('./wasm-pkg/konclave_wasm_bg.wasm', import.meta.url)))
@@ -63,9 +66,67 @@ interface Device {
   bus: Bus // the CURRENT signing room (a re-armed device moves to a fresh one per payment)
   /** #399: tags this device treats as UNPROVEN, i.e. an outsider that claimed an empty seat. */
   unprovenTags: Set<string>
-  /** #281: does the request pay what this device's owner approved? Flip it to false to make the
-   *  device refuse, which is what the money-gate test does. */
-  paysApproved: boolean
+  /** #281: what this device's gate answers for the request. Set it to 'mismatch' or 'unknown' to
+   *  make the device refuse, which is what the money-gate tests do. */
+  decision: GateDecision
+  /** #610: the last preview this device showed. */
+  what: SignPreview | null
+  /** When set, answers for the request in place of `decision`. */
+  gate?: (outputs: unknown[]) => GateDecision
+}
+
+// #610: the fixture's payment and change as they sit on the wire, read in konclave-wasm's tests.
+const hexb = (h: string): number[] => (h.match(/../g) ?? []).map((x) => parseInt(x, 16))
+const varint = (v: number): number[] => {
+  const out: number[] = []
+  for (;;) {
+    const b = v & 0x7f
+    v = Math.floor(v / 128)
+    if (v === 0) { out.push(b); return out }
+    out.push(b | 0x80)
+  }
+}
+const PAY = {
+  label: 'utest1cx3tarwlxt8vw60ugpddnsjemj3aum5nhkwpdyy0kn0urhhq27lu0q3ajv4whnav4mschgsnum4tvt5l22zs47ccltyfrxqwkcal5m47',
+  recipient: 'eb843eb1c03fb58b1f844c511913d20c16a1d61df9cd2b826c0f7d6d82b7746c91b64bb0117134c34fec8b',
+  value: 100_000_000,
+  enc200: '953a8a094e6cd4c29227f458586981a1d46a06cd447d9101d9c58c34984b6855',
+}
+const CHG = {
+  anchor: '7d6a2ff335a409ff82621a72d6f7e8b2',
+  recipient: '8dfd0a5e0d0d13315253b5906588e4f0bdabc07a1d91648ea5731d0e97d14fc38376da78a267f9a2dc190b',
+  value: 99_960_000,
+}
+const wireOut = (anchor: string, recipient: string, value: number) => [...hexb(anchor), 1, ...hexb(recipient), 1, ...varint(value)]
+const labelWire = (s: string) => [1, ...varint(s.length), ...Array.from(new TextEncoder().encode(s))]
+
+/** Two devices take a request for `pczt`; both must refuse with `key` before any share moves. */
+async function refusedWith(pczt: Uint8Array, key: string) {
+  const { s0, s1, groupVk, pubkeys } = dkg2of3()
+  const bus = new Bus()
+  const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+  const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+  bus.post('helper', signRequestFor(pczt).json)
+  await runCeremony(A, B, bus)
+  expect(A.sig).toBeNull()
+  expect(B.sig).toBeNull()
+  expect(A.errors).toContain(key)
+  expect(bus.msgs.some((m) => (m.from === 'A' || m.from === 'B') && m.data.includes('"s1"'))).toBe(false)
+}
+
+/** Replace the only occurrence of `needle` in `bytes` (the uniqueness is asserted, so the patch
+ *  cannot land somewhere else). */
+function patchOnce(bytes: Uint8Array, needle: number[], replacement: number[]): Uint8Array {
+  const at: number[] = []
+  for (let i = 0; i + needle.length <= bytes.length; i++) {
+    if (needle.every((b, j) => bytes[i + j] === b)) at.push(i)
+  }
+  expect(at.length, 'the patched pattern occurs exactly once').toBe(1)
+  const out = new Uint8Array(bytes.length - needle.length + replacement.length)
+  out.set(bytes.subarray(0, at[0]))
+  out.set(replacement, at[0]!)
+  out.set(bytes.subarray(at[0]! + needle.length), at[0]! + replacement.length)
+  return out
 }
 
 // A and B are the two devices most tests use. C is seat 3, used only by the #399 test, where the
@@ -99,7 +160,7 @@ function makeDevice(
   // peer's `rejoin` and a device genuinely does not know a peer's seat until that rejoin is processed.
   seats: Record<string, number> = SEATS,
 ): Device {
-  const dev: Device = { tag, machine: null as unknown as SigningMachine, consumed: new Set(), sig: null, errors: [], bus, unprovenTags: new Set(), paysApproved: true }
+  const dev: Device = { tag, machine: null as unknown as SigningMachine, consumed: new Set(), sig: null, errors: [], bus, unprovenTags: new Set(), decision: 'match', what: null }
   const deps: SigningDeps = {
     signingMaterial: mat,
     seatOf: (t) => seats[t],
@@ -114,12 +175,12 @@ function makeDevice(
     onLog: () => {},
     onError: (msg) => dev.errors.push(msg),
     onPhase: () => {},
-    onWhat: () => {},
+    onWhat: (w) => { dev.what = w },
     onSignature: (hex, ok) => { dev.sig = { hex, ok } },
     tt: (k) => k,
     // #281: this harness exercises the CEREMONY, not the money gate. Permissive by default; the
     // refusal is asserted in its own test below, which overrides this.
-    paysWhatWasApproved: () => dev.paysApproved,
+    decideApproval: (outputs) => (dev.gate ? dev.gate(outputs) : dev.decision),
   }
   dev.machine = new SigningMachine(deps)
   return dev
@@ -131,7 +192,7 @@ function makeDevice(
 // the sighash is the honest one and the commitments are the live ones, so frost-core's own
 // IncorrectCommitment check passes. The only thing wrong with it is who sent it.
 function makeUnseatedCoordinator(tag: string, bus: Bus, mat: () => { keyPackage: Uint8Array; groupVk: Uint8Array; pubkeys: Uint8Array }): Device {
-  const dev: Device = { tag, machine: null as unknown as SigningMachine, consumed: new Set(), sig: null, errors: [], bus, unprovenTags: new Set(), paysApproved: true }
+  const dev: Device = { tag, machine: null as unknown as SigningMachine, consumed: new Set(), sig: null, errors: [], bus, unprovenTags: new Set(), decision: 'match', what: null }
   const deps: SigningDeps = {
     signingMaterial: mat,
     // In ITS OWN view it holds seat 1. No peer map contains its tag, which is the whole point.
@@ -145,12 +206,12 @@ function makeUnseatedCoordinator(tag: string, bus: Bus, mat: () => { keyPackage:
     onLog: () => {},
     onError: (msg) => dev.errors.push(msg),
     onPhase: () => {},
-    onWhat: () => {},
+    onWhat: (w) => { dev.what = w },
     onSignature: (hex, ok) => { dev.sig = { hex, ok } },
     // #281: the attacker is not changing WHAT is paid - the package pays the approved transaction,
-    // which is the point. Answering true keeps this test measuring the sender check and nothing else;
+    // which is the point. Answering 'match' keeps this test measuring the sender check and nothing else;
     // a refusal here would make it pass for the wrong reason.
-    paysWhatWasApproved: () => dev.paysApproved,
+    decideApproval: () => dev.decision,
     tt: (k) => k,
   }
   dev.machine = new SigningMachine(deps)
@@ -447,8 +508,8 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     const bus = new Bus()
     const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
     const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
-    A.paysApproved = false
-    B.paysApproved = false
+    A.decision = 'mismatch'
+    B.decision = 'mismatch'
 
     const pczt = dkgProvenPczt()
     bus.post('helper', signRequestFor(pczt).json)
@@ -475,6 +536,228 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     await runCeremony(A, B, bus)
 
     expect(A.sig?.ok).toBe(true)
+  })
+
+  it('a device refuses a fee above ZIP 317 before any share moves, even when the outputs match (#610)', async () => {
+    // The fixture's fee is 20000 zatoshis, 4 actions at 5000; its value balance sits on the wire as
+    // the varint a0 9c 01. A coordinator that keeps every approved output and returns less change
+    // raises exactly that number. The request stays internally consistent - the helper computes the
+    // sighash over the inflated transaction - and the gate answers yes, because the outputs are the
+    // approved ones. What has to stop it is the device reading the fee itself.
+    const pczt = patchOnce(dkgProvenPczt(), [0xa0, 0x9c, 0x01], [0xa8, 0xc3, 0x01]) // 20000 -> 25000
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+
+    bus.post('helper', signRequestFor(pczt).json)
+    await runCeremony(A, B, bus)
+
+    expect(A.sig).toBeNull()
+    expect(B.sig).toBeNull()
+    expect(A.errors).toContain('net.err.feeTooHigh')
+    expect(bus.msgs.some((m) => (m.from === 'A' || m.from === 'B') && m.data.includes('"s1"'))).toBe(false)
+  })
+
+  it('the preview shows every paying output and the fee, as the device read them (#610)', async () => {
+    // It used to show the first output that carried an address: one recipient of a payroll, and
+    // never the fee. Change shows with no address, because the vault pays itself.
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+
+    bus.post('helper', signRequestFor(dkgProvenPczt()).json)
+    await runCeremony(A, B, bus)
+
+    expect(A.what?.feeZat).toBe(20_000)
+    expect(A.what?.outputs.map((o) => o.zat)).toEqual([PAY.value, CHG.value])
+    expect(A.what?.outputs[0]?.addr).toBe(PAY.label)
+    expect(A.what?.outputs[1]?.addr).toBeNull()
+    // The receiver rides along, so the screen can tell the vault's own change from an unlabelled
+    // payment to someone else; the label alone cannot (device-reading.ts).
+    expect(A.what?.outputs.map((o) => o.recipient)).toEqual([PAY.recipient, CHG.recipient])
+  })
+
+  // The gate answers three ways, and the member is told different things: "this is not what was
+  // approved" says to tell the others, "could not load what was approved" says to reload. The machine
+  // reports which, so the panel never has to work it out from state kept beside the gate (#610 review,
+  // where the mapping lived in the provider and only its harmless direction had a test).
+  for (const [decision, key] of [['mismatch', 'net.err.notApproved'], ['unknown', 'net.err.approvalUnknown']] as const) {
+    it(`a gate that answers ${decision} refuses with ${key}, and signs nothing (#610)`, async () => {
+      const { s0, s1, groupVk, pubkeys } = dkg2of3()
+      const bus = new Bus()
+      const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+      const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+      A.decision = decision
+      B.decision = decision
+      bus.post('helper', signRequestFor(dkgProvenPczt()).json)
+      await runCeremony(A, B, bus)
+      expect(A.errors).toEqual([key])
+      expect(B.errors).toEqual([key])
+      expect(A.sig).toBeNull()
+      expect(bus.msgs.some((m) => (m.from === 'A' || m.from === 'B') && m.data.includes('"s1"'))).toBe(false)
+    })
+  }
+
+  it('a refusal by the money gate still shows what the device read (#610)', async () => {
+    // The refusal asks the member to compare the payment with the proposal, so the reading has to
+    // be on screen when the gate says no.
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    A.decision = 'mismatch'
+    B.decision = 'mismatch'
+    bus.post('helper', signRequestFor(dkgProvenPczt()).json)
+    await runCeremony(A, B, bus)
+    expect(A.errors).toContain('net.err.notApproved')
+    expect(A.what?.outputs.map((o) => o.zat)).toEqual([PAY.value, CHG.value])
+  })
+
+  it('a refused second payment does not keep showing the first one as what the device read (#610)', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus1 = new Bus()
+    const A = makeDevice('A', bus1, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus1, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    bus1.post('helper', signRequestFor(dkgProvenPczt()).json)
+    await runCeremony(A, B, bus1)
+    expect(A.what).not.toBeNull()
+
+    const bus2 = new Bus()
+    for (const dev of [A, B]) {
+      dev.machine.rearm()
+      dev.bus = bus2
+      dev.consumed = new Set()
+      dev.sig = null
+      dev.errors = []
+    }
+    bus2.post('helper', signRequestFor(patchOnce(dkgProvenPczt(), [0xa0, 0x9c, 0x01], [0xa8, 0xc3, 0x01])).json)
+    await runCeremony(A, B, bus2)
+    expect(A.errors).toContain('net.err.feeTooHigh')
+    expect(A.what, 'the panel renders this under the refusal').toBeNull()
+  })
+
+  // Each code the WASM refuses with reaches the member as its own message, through the real machine
+  // and the real WASM, and nothing is signed. The patches are the fixture's own wire bytes, read in
+  // konclave-wasm's tests: an output is `out_ciphertext tail ++ Some(recipient) ++ Some(value)`.
+  it('a change output claiming another receiver is refused as an output mismatch (#610)', async () => {
+    const pczt = patchOnce(dkgProvenPczt(), wireOut(CHG.anchor, CHG.recipient, CHG.value), wireOut(CHG.anchor, PAY.recipient, CHG.value))
+    await refusedWith(pczt, 'net.err.outputMismatch')
+  })
+
+  it('a label that is not an address is refused as a label mismatch (#610)', async () => {
+    await refusedWith(patchOnce(dkgProvenPczt(), labelWire(PAY.label), labelWire('Alice')), 'net.err.labelMismatch')
+  })
+
+  it('a payment its recipient cannot open is refused as an output mismatch (#610)', async () => {
+    const slice = hexb(PAY.enc200)
+    await refusedWith(patchOnce(dkgProvenPczt(), slice, slice.map((b) => b ^ 0xff)), 'net.err.outputMismatch')
+  })
+
+  // A refusal has to be the end of that transaction on this device, not a pause. The machine marked
+  // the ceremony started and loaded its spends BEFORE the gate decided, so a `signed` for spend 0,
+  // posted by anyone into the room, moved a refusing device on to spend 1 and the rest of the very
+  // transaction it had refused, and the coordinating seat returned their signatures to the helper.
+  // The decisive check: after the refusal, nothing this device sends may carry a commitment, a share
+  // or a signature, whatever arrives.
+  for (const [why, pczt, gate, key] of [
+    ['the money gate', () => dkgProvenPczt(), 'mismatch', 'net.err.notApproved'],
+    ['the fee rule', () => patchOnce(dkgProvenPczt(), [0xa0, 0x9c, 0x01], [0xa8, 0xc3, 0x01]), 'match', 'net.err.feeTooHigh'],
+  ] as const) {
+    it(`a refusal by ${why} stays a refusal when a forged "signed" arrives (#610)`, async () => {
+      const { s0, s1, groupVk, pubkeys } = dkg2of3()
+      const bus = new Bus()
+      const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+      const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+      A.decision = gate
+      B.decision = gate
+      bus.post('helper', signRequestFor(pczt()).json)
+      await runCeremony(A, B, bus)
+      expect(A.errors).toContain(key)
+      const refusedAt = bus.msgs.length
+
+      bus.post('evil', JSON.stringify({ type: 'signed', sig: b64(new Uint8Array(64)), ok: true, k: 0 }))
+      await runCeremony(A, B, bus)
+
+      const after = bus.msgs.slice(refusedAt).filter((m) => m.from === 'A' || m.from === 'B')
+      expect(after.map((m) => m.data.slice(0, 40)), 'nothing signed after the refusal').toEqual([])
+      expect(A.sig).toBeNull()
+      expect(B.sig).toBeNull()
+    })
+  }
+
+  // Final review of #610. After a final refusal the device has nothing left to say about that
+  // transaction: a forged package posted afterwards under another seat's tag used to make it report
+  // `notCoordinator`, which replaced the refusal on the panel (the panel keeps the last error), took
+  // the reading off the screen and offered a retry, which is what the coordinator the refusal
+  // exposes would want.
+  it('a forged message after a refusal does not replace the refusal (#610)', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    A.decision = 'mismatch'
+    B.decision = 'mismatch'
+    bus.post('helper', signRequestFor(dkgProvenPczt()).json)
+    await runCeremony(A, B, bus)
+    bus.post('B', JSON.stringify({ type: 'sp', signers: [1, 2], sp: b64(new Uint8Array(32)), msg: b64(new Uint8Array(32)), k: 0 }))
+    await runCeremony(A, B, bus)
+    expect(A.errors).toEqual(['net.err.notApproved'])
+    expect(B.errors).toEqual(['net.err.notApproved'])
+  })
+
+  // Each barrier against signing a refused transaction, proven on its own. The forged-"signed" tests
+  // above pass while either one holds; these two fail when the one they name is removed.
+  async function runThree(A: Device, B: Device, C: Device, bus: Bus) {
+    let prev = -1
+    for (let r = 0; bus.msgs.length !== prev && r < 60; r++) {
+      prev = bus.msgs.length
+      await pump(A, bus)
+      await pump(B, bus)
+      await pump(C, bus)
+    }
+  }
+
+  it('a coordinating seat that refused does not coordinate the seats that approved (`cleared`, #610)', async () => {
+    const { s0, s1, s2, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    const C = makeDevice('C', bus, () => ({ keyPackage: s2.keyPackage(), groupVk, pubkeys }))
+    A.decision = 'mismatch' // seat 1 refuses; seats 2 and 3 approve
+    bus.post('helper', signRequestFor(dkgProvenPczt()).json)
+    await runThree(A, B, C, bus)
+    expect(A.errors).toContain('net.err.notApproved')
+    // A's only post is the `sreq` it sends before it has read the transaction.
+    const fromA = bus.msgs.filter((m) => m.from === 'A' && !m.data.includes('"sreq"')).map((m) => m.data.slice(0, 40))
+    expect(fromA, 'nothing from the refusing coordinator after the sreq').toEqual([])
+    expect(B.sig).toBeNull()
+    expect(C.sig).toBeNull()
+  })
+
+  it('a "signed" from the coordinating seat that does not verify here is neither recorded nor followed (#610)', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    bus.post('helper', signRequestFor(dkgProvenPczt()).json)
+    // Posted under the coordinator's own tag (the relay lets a poster name itself), before the run.
+    bus.post('A', JSON.stringify({ type: 'signed', sig: b64(new Uint8Array(64).fill(7)), ok: true, k: 0 }))
+    await runCeremony(A, B, bus)
+    expect(A.sig?.ok).toBe(true)
+    const resp = bus.msgs.find((m) => m.from === 'A' && m.data.includes(RESPONSE_KIND))
+    expect(resp, 'the coordinator answered the helper').toBeDefined()
+    expect(resp!.data.includes('0707070707'), 'the forged signature is not in the answer').toBe(false)
+  })
+
+  it('refusalKey maps each bracketed code, with or without the Error: prefix (#610)', () => {
+    expect(refusalKey('[fee] x')).toBe('net.err.feeTooHigh')
+    expect(refusalKey('Error: [commitment] x')).toBe('net.err.outputMismatch')
+    expect(refusalKey('[undecryptable] x')).toBe('net.err.outputMismatch')
+    expect(refusalKey('[label] x')).toBe('net.err.labelMismatch')
+    expect(refusalKey('[shape] x')).toBe('net.err.unexpectedShape')
+    expect(refusalKey('failed to parse PCZT')).toBe('net.err.unreadablePczt')
   })
 
   it('an unreadable set of spends is refused OUT LOUD, never thrown into the void (#364)', async () => {
@@ -598,9 +881,7 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     // exists for the self-contained demos; the randomizer one takes the message and refuses a
     // package over anything else. The money path must only ever reach the second. Comments are
     // stripped before looking, since a scan that can be satisfied by a comment checks nothing.
-    const code = readFileSync(new URL('./signing-machine.ts', import.meta.url), 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .replace(/\/\/.*$/gm, '')
+    const code = codeOf('./signing-machine.ts')
     expect(code).not.toMatch(/\bparticipantRound2\(/)
     const calls = code.match(/\bparticipantRound2WithRandomizer\(([\s\S]*?)\)\n/g) ?? []
     expect(calls.length, 'one call site').toBe(1)
@@ -681,7 +962,7 @@ describe('who coordinates is asked in one place (#519)', () => {
   // into `coordinateIfReady` and simply never written into `onSp`, so for two rounds of hardening
   // every device answered "yes" to a package from anyone. The rule now has a name, and this asserts
   // the name is the only way to ask - a second bare literal is how the drift starts again.
-  const SRC = readFileSync(new URL('./signing-machine.ts', import.meta.url), 'utf8')
+  const SRC = codeOf('./signing-machine.ts')
 
   it('no seat is compared against a bare literal 1', () => {
     const offenders = SRC.split('\n')
@@ -694,5 +975,56 @@ describe('who coordinates is asked in one place (#519)', () => {
 
   it('and both the coordinator and the verifier read the same constant', () => {
     expect(SRC.match(/COORDINATOR_SEAT/g)?.length ?? 0, 'the declaration plus BOTH readers').toBeGreaterThanOrEqual(3)
+  })
+})
+
+// The device reads the transaction it checks and signs the one it read. The request reaches a
+// device twice (the sealed one from the helper, and the coordinator's own message, which may carry a
+// transaction inline), so each test hands the two different transactions with a message that matches
+// the one the signature would be made over. The gate answers `match` only for the approved payment.
+describe('a device signs the transaction it checked', () => {
+  const otherPczt = () => new Uint8Array(readFileSync(new URL('../../konclave-wasm/tests/vectors/orchard_mainnet_two_spend.proven.pczt', import.meta.url)))
+  const tagOf = (p: Uint8Array) => bytesToHex(pcztSighash(p)).slice(0, 16)
+  const outputsOf = (p: Uint8Array) => JSON.stringify((JSON.parse(readPayment(p)) as { outputs: unknown[] }).outputs)
+
+  async function run(helperPczt: Uint8Array, inlinePczt: Uint8Array, msgOf: Uint8Array) {
+    const approved = dkgProvenPczt()
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    const approvedOutputs = outputsOf(approved)
+    for (const d of [A, B]) d.gate = (o) => (JSON.stringify(o) === approvedOutputs ? 'match' : 'mismatch')
+    // Sealed, so the coordinator adds no message of its own and the one below is the only one.
+    const spends = parseAlphas(helperPczt).map((s) => ({ index: s.index, alpha: bytesToHex(s.alpha) }))
+    bus.post('helper', JSON.stringify({ kind: 'net-sign-request', sighash: bytesToHex(pcztSighash(helperPczt)), spends, pczt_hex: bytesToHex(helperPczt), sealed: true }))
+    bus.post('A', JSON.stringify({ type: 'sreq', msg: b64(msgOf), pczt: b64(inlinePczt) }))
+    await runCeremony(A, B, bus)
+    const s1Tags = bus.msgs
+      .filter((m) => m.from === 'A' || m.from === 'B')
+      .map((m) => { try { return JSON.parse(m.data) as { type?: string; h?: string } } catch { return {} } })
+      .filter((p) => p.type === 's1')
+      .map((p) => p.h)
+    return { A, B, s1Tags, approvedTag: tagOf(approved) }
+  }
+
+  it('the first reading is of one transaction and the message of another: nothing is signed', async () => {
+    const approved = dkgProvenPczt()
+    const other = otherPczt()
+    const r = await run(approved, other, pcztSighash(other))
+    expect(r.A.errors.length + r.B.errors.length, 'the request was refused').toBeGreaterThan(0)
+    expect(r.s1Tags.every((h) => h === r.approvedTag), 'every commitment is for the approved payment').toBe(true)
+    expect(r.A.sig).toBeNull()
+    expect(r.B.sig).toBeNull()
+  })
+
+  it('the helper request holds another transaction than the coordinator message: nothing is signed', async () => {
+    const approved = dkgProvenPczt()
+    const other = otherPczt()
+    const r = await run(other, approved, pcztSighash(other))
+    expect(r.A.errors.length + r.B.errors.length, 'the request was refused').toBeGreaterThan(0)
+    expect(r.s1Tags.every((h) => h === r.approvedTag), 'every commitment is for the approved payment').toBe(true)
+    expect(r.A.sig).toBeNull()
+    expect(r.B.sig).toBeNull()
   })
 })

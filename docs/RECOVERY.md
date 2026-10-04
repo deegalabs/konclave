@@ -38,7 +38,7 @@ member's **share export** — and, since #447 and #480, that export carries what
 | the quorum (`t`/`n`) | decoded from the share bundle itself |
 | the change receiver | derivable from the UFVK |
 
-The address travels in every export; the viewing key and the scan floor only on a **Private**
+The address travels in every v2 export; the viewing key and the scan floor only on a **Private**
 vault. An Open vault cannot fetch its viewing key (the helper refuses it to a vault with no read
 key), so its export restores the seat and not the vault.
 
@@ -207,7 +207,8 @@ machine, the other a database id a rebuild re-mints.
 
 > **A v1 export** (no `version` field, or `version: 1`) is a different shape: the metadata is in the
 > clear and only the share is sealed. The same derivation opens it; the fields differ. #405 replaced
-> it precisely so a leaked backup would reveal nothing, including which vault it belongs to.
+> it precisely so a leaked backup would reveal nothing, including which vault it belongs to. Konclave
+> checks a v1 file before importing it, and `scripts/open-export.mjs` reports what it would refuse.
 
 ## Open work
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync, readdirSync } from 'node:fs'
+import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { codeAt } from './source-scan'
 
 // Anything that signs must first make sure the WASM is there.
 //
@@ -36,7 +37,7 @@ describe('every governance signature ensures the WASM first', () => {
   const files = sources(SRC).filter((p) => !p.endsWith('device-key.ts'))
 
   it('somebody calls the signer, or this guard is watching nothing', () => {
-    const callers = files.filter((p) => SIGNERS.some((s) => readFileSync(p, 'utf8').includes(`${s}(`)))
+    const callers = files.filter((p) => SIGNERS.some((s) => codeAt(p).includes(`${s}(`)))
     expect(callers.length).toBeGreaterThan(0)
   })
 
@@ -44,7 +45,7 @@ describe('every governance signature ensures the WASM first', () => {
     // Only the module that builds the proof needs the ensure; screens go through it. So the rule is
     // narrow on purpose: whichever file calls `signGovernanceWrite` must also call `ensureWasm`.
     for (const p of files) {
-      const src = readFileSync(p, 'utf8')
+      const src = codeAt(p)
       if (!src.includes('signGovernanceWrite(')) continue
       expect(
         src.includes('ensureWasm('),
@@ -58,7 +59,7 @@ describe('every governance signature ensures the WASM first', () => {
   it('the signer does not swallow a failure without a trace', () => {
     // The catch is right - an unsigned write must not become an exception on a money screen - but a
     // silent one made a browser problem look like a server rule.
-    const api = readFileSync(join(SRC, 'api.ts'), 'utf8')
+    const api = codeAt(join(SRC, 'api.ts'))
     const fn = api.slice(api.indexOf('export async function writeProof'))
     const body = fn.slice(0, fn.indexOf('\n}'))
     expect(body).toMatch(/catch\s*\(/)

@@ -230,7 +230,7 @@ Facts (verified 2026-06-30):
 4. The relay is **blind** (sealed or public material only; until every seat of a vault has registered
    its device key, that vault's signing request crosses it unsealed, #63). The hosted coordinator is
    **share-blind**: it never receives, derives or stores a share and cannot move funds on its own,
-   but it builds the transactions the quorum signs (until #567 and #610 are fixed, a payment the
+   but it builds the transactions the quorum signs (until #567 is fixed, a payment the
    quorum signs is only as safe as the coordinator), and it holds each vault's viewing key and
    reads its books; moving that key to the devices is #516.
    Documented and demonstrable. (This line said "the coordination server is blind" until
@@ -476,10 +476,9 @@ does**.
 > unlock). The guard is a source scan - a capability the UI offers to USE must be offered somewhere
 > to CREATE - and it excludes test files on purpose, since counting them rebuilds the blind spot.
 
-**H1 is DONE and live, in BOTH rounds since 2026-09-29** (see the two corrections below). Every device recomputes the ZIP-244 sighash
+**H1 is DONE and live, in BOTH rounds since 2026-09-29** (see the three corrections below). Every device recomputes the ZIP-244 sighash
 from **its own** PCZT and signs that, refusing the ceremony if it disagrees with the requested one,
-and it shows a payment before contributing a share, though what it shows is not yet checked
-against what it signs (#610). `SigningMachine` is
+and it decodes and shows what the transaction pays before contributing a share. `SigningMachine` is
 what the background signer drives, so this is the live path, not a lab one. #62 is closed.
 
 > **This paragraph overstated the guarantee until 2026-08-27, and the correction is worth keeping.**
@@ -499,6 +498,24 @@ what the background signer drives, so this is the live path, not a lab one. #62 
 > refuses a package over anything else, so there is no call that skips it. Found by checking one
 > sentence of the ZCG application against the code, not by a report. The same shape as the rule
 > above: a check that lives beside the thing it protects is a second implementation.
+>
+> **And "decodes and shows what the transaction pays" overstated it a third time, until the #610 fix.**
+> What the device showed and compared was not bound to what the signature covers. #610 made
+> `read_payment` the one reader of a PCZT's outputs: each output checked against its note
+> commitment, the address label against the receiver, each paying output opened for its memo, the
+> fee bounded by ZIP 317, and only what the sighash covers read. The same review tightened the
+> gate around it: a refusal clears the ceremony so nothing later moves the device on to sign; the
+> vault's own receivers and deposit address come from the device's record (`ourReceiversFrom`,
+> `addressText`), not from each coordinator answer; `getVault` refuses an answer about any vault but
+> the selected one; and a v1 backup no longer supplies an address or payee book, and must have an id
+> equal to its group key, a sealed part that is a share and a 32-byte secret. The full account of
+> each defect, with dates and how it was found, is written for the disclosure and goes into this
+> paragraph with it. Still open: #567 (the approved lines come from the coordinator at signing),
+> `/net` signing with no content gate (no issue of its own; #363 is the same driver's replay gap),
+> a fee ceiling that grows with actions the builder chooses, the vault's own receivers, both taken
+> from the coordinator once (at creation, or on first read for an older record), a v1 backup that is only
+> partly sealed (Known limits: compare the fingerprint), and no pause to read the
+> device's own reading before its share moves.
 
 **Privacy: a leaked vault id no longer opens the books (#388) - DONE and LIVE (2026-08-30).**
 Shipped to production (`konclave-demo.vercel.app` / `www.konclave.xyz`) and validated on mainnet the

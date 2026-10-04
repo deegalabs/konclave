@@ -10,8 +10,8 @@
 import { armIsLive } from './signing-gate'
 import { SigningSeats } from './signing-seats'
 import { BackgroundSigner, type GovernanceGate } from './background-signer'
-import type { SigningMaterial } from './signing-machine'
-import type { PcztOutput } from './approved-payment'
+import type { SignPreview, SigningMaterial } from './signing-machine'
+import type { GateDecision, PcztOutput } from './approved-payment'
 import { signRejoin, rejoinIsProven, signArmed, armedIsProven, signUnarmed, unarmedIsProven } from './room-auth'
 import { bytesToHex } from './bytes'
 
@@ -28,13 +28,13 @@ export interface BackgroundSessionDeps {
   send: (data: string) => Promise<boolean>
   /** Does a request pay EXACTLY what the quorum approved (#281)? Threaded to the machine, which
    *  calls it once per ceremony right after its own sighash check and before any share moves. */
-  paysWhatWasApproved: (outputs: PcztOutput[]) => boolean
+  decideApproval: (outputs: PcztOutput[]) => GateDecision
   /** Governance gate: whether this device signs this payment (policy lives in the caller). */
   gate: GovernanceGate
   onLog?: (line: string) => void
   onError?: (msg: string) => void
   onPhase?: (p: 'signing' | 'signed') => void
-  onWhat?: (w: { zec: string; addr: string } | null) => void
+  onWhat?: (w: SignPreview | null) => void
   onSignature?: (hex: string, ok: boolean) => void
   onSeatCount?: (n: number) => void
   /** Armed seats changed. `triggerTag` is the tag of the device whose arming COMPLETED the quorum -
@@ -131,7 +131,7 @@ export class BackgroundSession {
       mySeat: () => this.seats.mySeat(),
       threshold: deps.threshold,
       hasVault: () => true, // an unlocked, restored vault always exists
-      paysWhatWasApproved: deps.paysWhatWasApproved,
+      decideApproval: deps.decideApproval,
       send: async (m) => { await this.send(JSON.stringify(m)) },
       rawSend: (data) => this.send(data),
       onLog: deps.onLog ?? (() => {}),

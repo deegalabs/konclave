@@ -75,9 +75,19 @@ export {
    */
   extractRandomizers,
   /**
-   * Read every Orchard output of a proven PCZT as a JSON string:
-   * `[{"address": string|null, "value": number|null}, ...]` (zatoshis; `address:null` is change).
-   * The "what am I signing?" check the UI shows before any device contributes a signature.
+   * Read what a proven PCZT pays, as a device can confirm it, as a JSON string:
+   * `{"outputs": [{"address", "value", "recipient", "memo"}, ...], "feeZat", "actions"}`.
+   * Every output is checked against its note commitment, an address label against the receiver it
+   * pays, each paying output is opened for its memo, and the fee is bounded by ZIP 317. Throws on
+   * a PCZT it cannot parse, and on a refusal, whose message starts with a bracketed code
+   * (`[commitment]`, `[label]`, `[undecryptable]`, `[fee]`, `[shape]`). This is what a device signs on.
+   */
+  readPayment,
+  /**
+   * The `outputs` of {@link readPayment}, as a JSON array, with the same checks:
+   * `[{"address": string|null, "value": number|null, "recipient": hex|null, "memo": string|null}]`
+   * (zatoshis). `address:null` means the output carries no label, which says nothing about where it
+   * pays: compare `recipient` with your vault's own receivers before calling it change.
    */
   describeOutputs,
   /**

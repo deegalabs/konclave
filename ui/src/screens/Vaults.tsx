@@ -15,6 +15,7 @@ import { Dialog, Letterhead, activateOnKey } from '../components'
 import PasskeyButton from '../PasskeyButton'
 import NetVault from './NetVault'
 import { useT, useTr, useI18n } from '../i18n'
+import { addressText } from '../approved-payment'
 import '../redesign.css'
 
 // Every vault carries WHERE it lives, so one unified list can hold both worlds and route each
@@ -229,7 +230,7 @@ export default function Vaults() {
           members: s.roster.length,
           member_list: s.roster.map((name) => ({ name, pubkey: name })),
           group_pubkey: s.groupKey,
-          orchard_address: s.address,
+          orchard_address: addressText(s.address),
           secured: s.secured, // #388: whether this vault holds S (gated reads/room)
         },
       }))

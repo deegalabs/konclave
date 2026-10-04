@@ -55,6 +55,24 @@ describe('backfilling a vault address that was never recorded', () => {
     expect(updateVaultMeta).not.toHaveBeenCalled()
   })
 
+  it('records only text', async () => {
+    // Whatever is written here is the vault's address on this device from then on (A9), and a value
+    // that is not text would make every later read of the vault throw.
+    listVaults.mockResolvedValue([rec('')])
+    for (const bad of [123, { a: 1 }, null, '   ']) {
+      expect(await backfillAddress('v1', bad as never)).toBe(false)
+    }
+    expect(updateVaultMeta).not.toHaveBeenCalled()
+  })
+
+  it('fills a record whose address is not text, which counts as none', async () => {
+    // The same reading as getVault and the money gate (addressText): a corrupt value is no address,
+    // so the first answer replaces it instead of the record staying stuck.
+    listVaults.mockResolvedValue([{ ...rec(''), address: { x: 1 } }])
+    expect(await backfillAddress('v1', ADDR)).toBe(true)
+    expect(updateVaultMeta).toHaveBeenCalledWith('v1', { address: ADDR })
+  })
+
   it('stays silent when storage is unavailable', async () => {
     // A private window, blocked site data, a quota error. This runs on screens that must render
     // regardless; a repair that can break a page is worse than the gap it closes.

@@ -16,6 +16,16 @@ import { readFileSync } from 'node:fs'
 
 const css = readFileSync(new URL('./lacre.css', import.meta.url), 'utf8')
 const docsCss = readFileSync(new URL('./docs.css', import.meta.url), 'utf8')
+const appCss = readFileSync(new URL('./App.css', import.meta.url), 'utf8')
+
+/** The declarations of one App.css rule, by its exact selector. */
+function appRule(selector: string): string {
+  const esc = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const m = new RegExp(`(?:^|\\n)${esc}\\s*\\{([^}]*)\\}`).exec(appCss)
+  if (!m) throw new Error(`no rule for ${selector} in App.css`)
+  return m[1]!
+}
+const tokenIn = (decls: string, prop: string) => new RegExp(`(?:^|[;{\\s])${prop}:\\s*var\\(--([a-z0-9-]+)\\)`).exec(decls)?.[1]
 
 /** The token a docs.css rule paints its TEXT with (`color:`, not `border-left-color:`). */
 function docsTextToken(selector: string): string {
@@ -94,6 +104,20 @@ for (const theme of ['light', 'dark'] as const) {
 
     it('the funds-loss warning clears AA on the danger card it sits on', () => {
       expect(ratio(t('warn-strong'), dangerCard())).toBeGreaterThanOrEqual(4.5)
+    })
+
+    // The banner that warns about the vault itself (the open vault on the Dashboard, a coordinator
+    // that answers with another address on Receive, A9) sits on the raised surface.
+    it('the vault warning banner clears AA on the surface it sits on', () => {
+      // Read from the rule that ships, so a change to the banner is what gets measured.
+      const decls = appRule('.banner-warn')
+      const fg = tokenIn(decls, 'color')
+      const bg = tokenIn(decls, 'background')
+      expect(fg, '.banner-warn sets its text colour from a token').toBeTruthy()
+      expect(bg, '.banner-warn sets its background from a token').toBeTruthy()
+      expect(decls, 'a faded banner would pass the token check and not the eye').not.toMatch(/opacity/)
+      expect(decls).toMatch(/border:\s*1px solid var\(--warn\)/) // a frame, not colour alone
+      expect(ratio(t(fg!), t(bg!))).toBeGreaterThanOrEqual(4.5)
     })
 
     it('the network pill clears AA on its own wash', () => {

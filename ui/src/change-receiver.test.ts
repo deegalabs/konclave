@@ -1,11 +1,12 @@
 import 'fake-indexeddb/auto'
 import { describe, it, expect } from 'vitest'
-import { readFileSync, readdirSync } from 'node:fs'
+import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   saveVault, listVaults, recordChangeReceiver, updateVaultMeta, deleteVault,
   exportVault, importVault, parseVaultExport, type VaultData,
 } from './storage'
+import { codeAt } from './source-scan'
 
 // The vault's change receiver, captured ONCE and never rewritten (#281, step 2).
 //
@@ -143,7 +144,7 @@ describe('nothing else may write the change receiver', () => {
     // of a write-once rule, and the second one is always the one that forgets the "once".
     const offenders = sources(SRC)
       .filter((p) => !p.endsWith('storage.ts'))
-      .filter((p) => /changeReceiver\s*:/.test(readFileSync(p, 'utf8')))
+      .filter((p) => /changeReceiver\s*:/.test(codeAt(p)))
       .map((p) => p.slice(SRC.length))
     expect(offenders, `these assign changeReceiver directly instead of calling recordChangeReceiver`).toEqual([])
   })
@@ -158,7 +159,7 @@ describe('nothing else may write the change receiver', () => {
     // Test files are excluded on purpose - counting them is what rebuilds the blind spot.
     const callers = sources(SRC)
       .filter((p) => !p.endsWith('storage.ts'))
-      .filter((p) => /recordChangeReceiver\s*\(/.test(readFileSync(p, 'utf8')))
+      .filter((p) => /recordChangeReceiver\s*\(/.test(codeAt(p)))
       .map((p) => p.slice(SRC.length))
     expect(callers.length, 'nothing calls recordChangeReceiver, so the pin is never captured').toBeGreaterThan(0)
   })
@@ -167,14 +168,14 @@ describe('nothing else may write the change receiver', () => {
     // `updateVaultMeta` takes `Partial<Pick<VaultRecord, ...>>`. If the receiver is ever added to
     // that Pick, the write-once rule is bypassable through a rename, in one line, with no test
     // failing anywhere else.
-    const src = readFileSync(join(SRC, 'storage.ts'), 'utf8')
+    const src = codeAt(join(SRC, 'storage.ts'))
     const decl = src.slice(src.indexOf('export async function updateVaultMeta'))
     const signature = decl.slice(0, decl.indexOf('): Promise<void>'))
     expect(signature).not.toContain('changeReceiver')
   })
 
   it('the writer refuses an existing value rather than merging over it', () => {
-    const src = readFileSync(join(SRC, 'storage.ts'), 'utf8')
+    const src = codeAt(join(SRC, 'storage.ts'))
     const fn = src.slice(src.indexOf('export async function recordChangeReceiver'))
     const body = fn.slice(0, fn.indexOf('\n}'))
     expect(body, 'recordChangeReceiver must short-circuit when one is already stored').toMatch(

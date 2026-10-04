@@ -18,6 +18,11 @@
   max-width: 60ch;
 }
 
+/* Scoped to the page: App.css, which sets the banner's own margin, loads after this file. */
+.rcv .rcv-warn {
+  margin: 0 0 18px;
+}
+
 .rcv-grid {
   display: grid;
   grid-template-columns: 220px 1fr;

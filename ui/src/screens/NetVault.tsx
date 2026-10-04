@@ -12,7 +12,7 @@ import {
 } from '../wasm-pkg/konclave_wasm.js'
 import { RelaySession, newRoomCode, deriveRoom, ephemeralTag, b64, unb64, bytesEqual, relayBase, type RelayMsg } from '../net'
 import { decodeBundle } from '../signing'
-import { SigningMachine } from '../signing-machine'
+import { SigningMachine, type SignPreview } from '../signing-machine'
 import { seatHolder } from '../signing-seats'
 import { signRejoin, rejoinIsProven } from '../room-auth'
 import { unsealSignRequest } from '../net-sign'
@@ -44,8 +44,10 @@ import {
   executeProposal,
   type Proposal,
 } from '../helper'
-import { zatToZec, vaultFingerprint } from '../format'
+import { zatToZec, fmtZecExact, vaultFingerprint } from '../format'
+import { readingRows } from '../device-reading'
 import encodeQR from '@paulmillr/qr'
+import { addressText } from '../approved-payment'
 import '../redesign.css'
 import '../net.css'
 
@@ -96,7 +98,7 @@ function Shell({ error, children, onDashboard, embedded }: { error: string; chil
   if (embedded) {
     return (
       <div className="rd net-embedded">
-        {error && <div className="net-error">{error}</div>}
+        {error && <div className="net-error" role="alert">{error}</div>}
         {children}
       </div>
     )
@@ -113,7 +115,7 @@ function Shell({ error, children, onDashboard, embedded }: { error: string; chil
         <span className="demo-eyebrow"><span className="dot" aria-hidden="true" />{t('net.frame.tag')}</span>
         <p className="demo-note">{t('net.frame.note')}</p>
       </div>
-      {error && <div className="net-error">{error}</div>}
+      {error && <div className="net-error" role="alert">{error}</div>}
       {children}
     </div>
   )
@@ -197,7 +199,7 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
   const [signature, setSignature] = useState('')
   const [signOk, setSignOk] = useState(false)
   // What this device is about to sign, read on-device from the proven PCZT (describeOutputs).
-  const [signWhat, setSignWhat] = useState<{ zec: string; addr: string } | null>(null)
+  const [signWhat, setSignWhat] = useState<SignPreview | null>(null)
   // Signing-after-restore: how many devices (by declared seat) have rejoined the signing session.
   const [signSeatCount, setSignSeatCount] = useState(0)
   const [signRoomInput, setSignRoomInput] = useState('')
@@ -366,7 +368,7 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
       const chosenName = vaultNameRef.current.trim() || `net-${vk.slice(0, 8)}`
       void registerVault(vk, chosenName, cfg?.t ?? 0, cfg?.n ?? 0).then((v) => {
         if (v) {
-          setHostedAddress(v.address)
+          setHostedAddress(addressText(v.address))
           setHostedState('registered')
           // Record each member's own announced name (seat order). Every device produces the same
           // list (own name from myNameRef, others from the hellos), so the call is idempotent.
@@ -404,14 +406,14 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
       signingMaterial,
       // #281, stated rather than silently skipped. This driver signs a ceremony that is not bound
       // to a proposal at all (#363), so it has no approved payment to compare an output against -
-      // there is nothing here that could answer the question honestly. Returning true says "this
+      // there is nothing here that could answer the question honestly. Answering `match` says "this
       // driver does not gate on content", which is the truth and is now visible at the call site;
-      // returning false would refuse every /net signature, including vault creation.
+      // refusing would refuse every /net signature, including vault creation.
       //
       // The reason the dep is REQUIRED rather than optional is exactly this: /net and the
       // background signer have diverged three times (#424, #425, #363) because a rule lived in one
       // and not the other. It cannot silently miss this one - it has to say so, here.
-      paysWhatWasApproved: () => true,
+      decideApproval: () => 'match',
       seatOf: (tag) => seatByTagRef.current.get(tag),
       // #399: this driver has no notion of a proven seat. Its map is tag -> seat and nothing here
       // ever verified a rejoin signature, so the honest answer is false for every tag, which makes
@@ -1221,7 +1223,7 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
         {savedVaults.length > 0 && (
           <div className="net-card" style={{ marginTop: 16 }}>
             <h3>{L.restoreTitle}</h3>
-            {restoreErr && <div className="net-error">{restoreErr}</div>}
+            {restoreErr && <div className="net-error" role="alert">{restoreErr}</div>}
             {savedVaults.map((v) => (
               <div key={v.id} className="net-row" style={{ flexWrap: 'wrap', gap: 8 }}>
                 <code style={{ flex: '1 1 100%', wordBreak: 'break-all', fontSize: '0.8em' }}>{v.id}</code>
@@ -1303,19 +1305,33 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
   // rejoined a signing session ('signsession'). `canStart` gates the button on quorum presence.
   const renderSign = () => (
     <div className="net-sign">
-      {signPhase === 'none' && (
+      {signPhase === 'none' && !signWhat && (
         <p className="net-lead" style={{ marginTop: 20 }}>
           {pe(
-            'Cofre pronto para assinar. Aguardando um pedido de pagamento do operador pelo relay; quando chegar, cada dispositivo confere o destino e o valor antes de assinar.',
-            'Vault ready to sign. Waiting for a payment request from the operator over the relay; when it arrives, each device confirms the destination and amount before signing.',
+            'Cofre pronto para assinar. Aguardando um pedido de pagamento do operador pelo relay; quando chegar, cada dispositivo lê da própria transação o que ela paga antes de assinar.',
+            'Vault ready to sign. Waiting for a payment request from the operator over the relay; when it arrives, each device reads from the transaction itself what it pays before signing.',
           )}
         </p>
       )}
-      {signWhat && signPhase !== 'none' && (
-        <div className="net-what" style={{ marginTop: 16, padding: '10px 14px', border: '1px solid var(--rd-line)', borderRadius: 8 }}>
-          <strong>{pe('Você está assinando', 'You are signing')}</strong>: {signWhat.zec} ZEC → <code>{shortId(signWhat.addr)}</code>
+      {/* Shown on a refusal too, which is when the member is asked to compare it (#610). This
+          route does not know the vault's own receivers, so it names no output change. The heading
+          says what the block is and nothing more: this route's `error` covers relay drops and
+          timeouts too, so it cannot tell a refusal from a failure. */}
+      {signWhat && (
+        <div className="net-what" style={{ marginTop: 16, padding: '10px 14px', border: '1px solid var(--line)', borderRadius: 8 }}>
+          <strong>{pe('O que este dispositivo leu da transação', 'What this device read from the transaction')}</strong>
+          {readingRows(signWhat, () => false).map((r, i) => (
+            <div key={i}>
+              {fmtZecExact(r.zat / 1e8)} ZEC <span aria-hidden="true">→</span>{' '}
+              <code>{r.to.kind === 'address' ? shortId(r.to.addr) : pe('um endereço que a transação não informa', 'an address this transaction does not name')}</code>
+            </div>
+          ))}
+          <div>{pe('Taxa da rede', 'Network fee')}: {fmtZecExact(signWhat.feeZat / 1e8)} ZEC</div>
           <div style={{ fontSize: '.82rem', opacity: 0.75, marginTop: 4 }}>
-            {pe('Cada dispositivo confere o destino e o valor antes de contribuir com a sua parte da assinatura.', 'Each device confirms the destination and amount before contributing its share of the signature.')}
+            {pe(
+              'Cada dispositivo lê da própria transação o que ela paga e a taxa, e recusa uma que não bate com o que diz pagar, antes de contribuir com a sua parte da assinatura.',
+              'Each device reads from the transaction itself what it pays and its fee, and refuses one that does not match what it claims to pay, before contributing its share of the signature.',
+            )}
           </div>
         </div>
       )}
@@ -1636,7 +1652,7 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
               <p className="net-tip">{L.saved}</p>
             ) : (
               <>
-                {saveErr && <div className="net-error">{saveErr}</div>}
+                {saveErr && <div className="net-error" role="alert">{saveErr}</div>}
                 <input
                   className="net-input"
                   type="password"

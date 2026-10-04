@@ -10,7 +10,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { getVault, getProposalDetail, isVaultUnlocked, IS_NET, type Proposal, type Vault } from './api'
 import { listVaults } from './storage'
-import { matchesApprovedPayment, type ApprovedLine, type PcztOutput } from './approved-payment'
+import { gateDecision, ourReceiversFrom, paysOurselves, type ApprovedLine, type GateDecision, type PcztOutput } from './approved-payment'
 import { ensureWasm } from './wasm-ready'
 import { uaReceiver } from './wasm-pkg/konclave_wasm.js'
 import { useBackgroundSigner, type BackgroundSignerState } from './useBackgroundSigner'
@@ -39,6 +39,10 @@ interface VaultSignerCtx {
   armActive: () => Promise<void>
   /** When this device's signature stops counting (epoch ms), or null when it is not armed. */
   armedUntil: number | null
+  /** Is this receiver one of the vault's own, by the same `ourReceivers` the money gate decides
+   *  with? False while they are not known, so the signing screen never calls an output change on a
+   *  guess (#610). */
+  isOurReceiver: (recipient: string | null) => boolean
 }
 
 const Ctx = createContext<VaultSignerCtx | null>(null)
@@ -113,26 +117,34 @@ export function VaultSignerProvider({ children }: { children: ReactNode }) {
   // Null means "I could not work out what was approved", and the gate REFUSES on null. That is
   // deliberate: a device that does not know what was approved cannot confirm the request matches
   // it, and signing anyway is exactly the state #281 exists to end. The visible cost is that a
-  // vault whose change receiver was never pinned will not sign until it has been - which is why
-  // `getVault` pins it on the first screen that reads the vault.
+  // vault whose address or change receiver this device never recorded will not sign until it has -
+  // which is why `getVault` records both on the first screen that reads the vault.
   const approvalRef = useRef<{ approved: ApprovedLine[]; ourReceivers: string[] } | null>(null)
+  // The vault's own receivers on their own, as soon as the record gives them: the screen names the
+  // vault's change from these, and it must not depend on the proposal fetch that can fail (#610).
+  const ourReceiversRef = useRef<string[] | null>(null)
   useEffect(() => {
     let live = true
     approvalRef.current = null // a proposal change invalidates the old context immediately
+    ourReceiversRef.current = null
     if (!active || !vault) return
     void (async () => {
       try {
         await ensureWasm() // the decode below is a WASM call (#483)
-        const pinned = (await listVaults()).find((v) => v.id === vault.id)?.changeReceiver
-        if (!pinned) return // unknown change receiver -> stay refusing, never guess
-        const ourReceivers = [uaReceiver(vault.orchard_address), uaReceiver(pinned)]
-        const detail = await getProposalDetail(active.id)
+        // Both of the vault's own receivers from this device's record, never from the address the
+        // coordinator serves now (#610 review): either one missing -> stay refusing, never guess.
+        const ourReceivers = ourReceiversFrom((await listVaults()).find((v) => v.id === vault.id), uaReceiver)
+        if (!ourReceivers) return
+        if (live) ourReceiversRef.current = ourReceivers
+        const detail = await getProposalDetail(active.id, vault.id) // this signer's vault, never the shared selection
         if (!detail) return
+        // The memo is part of what was approved (#610): a payslip's text, compared with the memo
+        // the device opens from each paying output. No memo is the empty one.
         const approved: ApprovedLine[] =
           detail.lines.length > 0
-            ? detail.lines.map((l) => ({ toReceiver: uaReceiver(l.address), amountZat: l.value_zat }))
+            ? detail.lines.map((l) => ({ toReceiver: uaReceiver(l.address), amountZat: l.value_zat, memo: l.memo ?? '' }))
             : detail.proposal.to_address
-              ? [{ toReceiver: uaReceiver(detail.proposal.to_address), amountZat: detail.proposal.value_zat }]
+              ? [{ toReceiver: uaReceiver(detail.proposal.to_address), amountZat: detail.proposal.value_zat, memo: detail.proposal.memo ?? '' }]
               : []
         if (approved.length === 0) return // nothing to compare against -> keep refusing
         if (live) approvalRef.current = { approved, ourReceivers }
@@ -144,13 +156,10 @@ export function VaultSignerProvider({ children }: { children: ReactNode }) {
     return () => { live = false }
   }, [active, vault])
 
-  /** Does this request pay exactly what the quorum approved? Refuses until the context is known. */
-  const paysWhatWasApproved = useMemo(
-    () => (outputs: PcztOutput[]): boolean => {
-      const ctx = approvalRef.current
-      if (!ctx) return false
-      return matchesApprovedPayment(outputs, ctx.approved, ctx.ourReceivers)
-    },
+  /** Does this request pay exactly what the quorum approved? `unknown` until the context is known,
+   *  and the machine refuses on anything but `match`, wording each refusal itself. */
+  const decideApproval = useMemo(
+    () => (outputs: PcztOutput[]): GateDecision => gateDecision(approvalRef.current, outputs),
     [],
   )
 
@@ -177,7 +186,7 @@ export function VaultSignerProvider({ children }: { children: ReactNode }) {
     return () => window.clearTimeout(id)
   }, [armedAt])
 
-  const bg = useBackgroundSigner(unlocked, gate, paysWhatWasApproved)
+  const bg = useBackgroundSigner(unlocked, gate, decideApproval)
 
   // Scope the signer to the payment on screen. Without this the room's whole history counts: it is
   // permanent, so the previous payment's signatures replayed as a full quorum for the new one.
@@ -215,6 +224,7 @@ export function VaultSignerProvider({ children }: { children: ReactNode }) {
       await bg.unarm(active.id, code)
     },
     armedUntil: armedAt === null ? null : armedAt + ARM_TTL_MS,
+    isOurReceiver: (recipient) => paysOurselves(recipient, ourReceiversRef.current),
     armActive: async () => {
       if (!active) return
       // Arm BEFORE announcing, so a request that lands the instant the room hears us is already

@@ -14,6 +14,7 @@ import { BackgroundSession } from './background-session'
 import { signArmed } from './room-auth'
 import { ARM_TTL_MS } from './signing-gate'
 import type { GovernanceGate } from './background-signer'
+import type { GateDecision } from './approved-payment'
 
 beforeAll(async () => {
   await init(readFileSync(new URL('./wasm-pkg/konclave_wasm_bg.wasm', import.meta.url)))
@@ -47,13 +48,13 @@ class Bus {
 interface Dev { tag: string; session: BackgroundSession; delivered: Set<number>; sig: { hex: string; ok: boolean } | null; errors: string[]; seats: number; armedSeats: number[]; namedSender: string | null; failure: string | null }
 
 let NOW = 1_700_000_000_000
-function makeDev(tag: string, seat: number, bus: Bus, mat: () => { keyPackage: Uint8Array; groupVk: Uint8Array; pubkeys: Uint8Array }, gate: GovernanceGate): Dev {
+function makeDev(tag: string, seat: number, bus: Bus, mat: () => { keyPackage: Uint8Array; groupVk: Uint8Array; pubkeys: Uint8Array }, gate: GovernanceGate, decide: () => GateDecision = () => 'match'): Dev {
   const dev: Dev = { tag, session: null as unknown as BackgroundSession, delivered: new Set(), sig: null, errors: [], seats: 0, armedSeats: [], namedSender: null, failure: null }
   dev.session = new BackgroundSession({
     myTag: tag,
     mySeat: seat,
-    // #281 is asserted in signing-machine.test.ts; permissive here, where the subject is seating.
-    paysWhatWasApproved: () => true,
+    // #281 is asserted in signing-machine.test.ts; permissive here unless a test says otherwise.
+    decideApproval: decide,
     signingMaterial: mat,
     threshold: () => 2,
     send: async (data) => { bus.post(tag, data); return true },
@@ -116,6 +117,28 @@ describe('BackgroundSession - seated background signing (Stage 3 core, end to en
     expect(B.sig?.ok).toBe(true)
     expect(A.sig?.hex).toBe(B.sig?.hex) // the two devices agree on the aggregate signature
   })
+
+  // The gate's answer crosses the session on its way to the machine, and the machine words each
+  // refusal. A hop that turned a mismatch into "could not load" would tell members to reload a
+  // payment that is evidence of tampering (#610 review), so the session is run with each answer.
+  for (const [decision, key] of [['mismatch', 'net.err.notApproved'], ['unknown', 'net.err.approvalUnknown']] as const) {
+    it(`carries a gate answer of ${decision} to the machine, which refuses with ${key} (#610)`, async () => {
+      const { s0, s1, groupVk, pubkeys } = dkg2of3()
+      const bus = new Bus()
+      const open: GovernanceGate = () => true
+      const A = makeDev('a-tag', 1, bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }), open, () => decision)
+      const B = makeDev('b-tag', 2, bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }), open, () => decision)
+      await A.session.start()
+      await B.session.start()
+      await run([A, B], bus)
+      bus.post('helper', requestFor(dkgProvenPczt()))
+      await run([A, B], bus)
+      expect(A.errors).toEqual([key])
+      expect(B.errors).toEqual([key])
+      expect(A.sig).toBeNull()
+      expect(B.sig).toBeNull()
+    })
+  }
 
   it('BUG #356: a signature read back from the room still counts, or the quorum never closes', async () => {
     // Both members present, one has signed, and the other device joined afterwards. It learns that

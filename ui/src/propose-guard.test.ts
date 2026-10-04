@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { proposeBlock, poolsOf } from './propose-guard'
+import { codeAt } from './source-scan'
 
 // The submit gate for a payment or a payroll, as a pure rule.
 //
@@ -158,7 +159,7 @@ describe('every screen that asks the gate also tells it about the pools (#427)',
     const offenders = sources(SRC)
       .filter((p) => !p.endsWith('propose-guard.ts'))
       .filter((p) => {
-        const src = readFileSync(p, 'utf8')
+        const src = codeAt(p)
         // Every `proposeBlock({ ... })` in the file must name `pools` inside its own braces.
         const calls = src.match(/proposeBlock\(\{[^}]*\}/g) ?? []
         return calls.some((c) => !c.includes('pools'))
@@ -173,7 +174,7 @@ describe('every screen that asks the gate also tells it about the pools (#427)',
 
   it('and at least one screen actually asks it, so the rule is reachable', () => {
     // The #468 lesson: a rule the product never invokes ships, passes its tests, and does nothing.
-    const callers = sources(SRC).filter((p) => /proposeBlock\(/.test(readFileSync(p, 'utf8')))
+    const callers = sources(SRC).filter((p) => /proposeBlock\(/.test(codeAt(p)))
     expect(callers.length, 'no screen calls proposeBlock at all').toBeGreaterThan(0)
   })
 })
@@ -192,7 +193,7 @@ describe('the fee a member is SHOWN is the fee they are BLOCKED by (#427 follow-
 
   it('the fee copy is a placeholder, never a number', () => {
     for (const locale of ['i18n/en.ts', 'i18n/pt-BR.ts']) {
-      const line = readFileSync(join(SRC, locale), 'utf8')
+      const line = codeAt(join(SRC, locale))
         .split('\n')
         .find((l) => l.includes('payment.feeEstimate'))
       expect(line, `${locale} has no payment.feeEstimate`).toBeTruthy()
@@ -205,7 +206,7 @@ describe('the fee a member is SHOWN is the fee they are BLOCKED by (#427 follow-
   })
 
   it('and the payment screen subtracts that same constant', () => {
-    const screen = readFileSync(join(SRC, 'screens/NewPayment.tsx'), 'utf8')
+    const screen = codeAt(join(SRC, 'screens/NewPayment.tsx'))
     expect(screen, 'the gate must use the shared constant').toContain('SINGLE_PAYMENT_FEE_ZAT')
     expect(
       /const feeZat = \d+/.test(screen),

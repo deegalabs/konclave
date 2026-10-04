@@ -1046,6 +1046,8 @@ pub mod pczt_bridge {
         BadIndex(usize),
         Extract(orchard::pczt::TxExtractorError),
         Commitment(orchard::bundle::CommitmentError),
+        /// A device refusing what it read, in words meant for the member (#610).
+        Refuse(String),
     }
     impl From<OrchardParseError> for OErr {
         fn from(e: OrchardParseError) -> Self {
@@ -1151,67 +1153,342 @@ pub mod pczt_bridge {
         }
     }
 
-    /// One Orchard output as the device can read it from a proven PCZT, for the
-    /// "what am I signing?" check before a device joins the ceremony.
+    /// One output as the device reads it from a proven PCZT, for the "what am I signing?" check
+    /// before a device joins the ceremony. Every field here has been checked against the note
+    /// commitment the signature covers (`read_payment`); none of it is taken on the builder's word.
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct OutputInfo {
-        /// The user-facing address label (the `user_address` an Updater set), if present. ADVISORY:
-        /// shown to the human, but NOT trusted for the approval decision - the party that builds the
-        /// PCZT controls it, and the orchard PCZT spec requires a Signer to confirm it contains
-        /// `recipient` rather than trust it. Change outputs carry `None`.
+        /// The user-facing address label (the `user_address` an Updater set), if present. Shown to
+        /// the human, never the basis of the approval decision. Change outputs carry `None`.
         pub address: Option<String>,
-        /// The output value in zatoshis, if the PCZT exposes it (it does for our shielded sends).
+        /// The output value in zatoshis, checked against the note commitment.
         pub value: Option<u64>,
-        /// The raw 43-byte Orchard/Ironwood receiver, hex-encoded - the GROUND TRUTH of who gets paid,
-        /// bound into the note commitment the sighash covers. This is what the on-device money gate
-        /// (#281) compares against the approved recipients; `user_address` is only a label over it.
-        /// `None` only if the PCZT omits it (unverifiable, fails closed downstream).
+        /// The raw 43-byte Orchard/Ironwood receiver, hex-encoded, checked against the note
+        /// commitment. This is what the on-device money gate (#281) compares with the approved
+        /// recipients.
         pub recipient: Option<String>,
+        /// The memo the recipient will read, opened on the device from the output's own
+        /// ciphertext: the text, or `""` for an empty memo. `None` on outputs that move no value
+        /// and on a memo that is not text.
+        pub memo: Option<String>,
     }
 
-    /// Read every Orchard output of a proven PCZT as `(address, value)` - what this transaction
-    /// actually pays, in cleartext, so each device can verify it against the human-approved proposal
-    /// BEFORE contributing its signature. This is the "what am I signing?" primitive: on-device
-    /// verification is what keeps a malicious create/prove from getting a quorum to sign a different
-    /// transaction than the one that was approved. Dummy padding outputs surface as `value: Some(0)`
-    /// (or `None`) with no address, so the caller can ignore them.
-    pub fn describe_outputs(pczt_bytes: &[u8]) -> Result<Vec<OutputInfo>, String> {
-        let pczt = Pczt::parse(pczt_bytes).map_err(|e| format!("failed to parse PCZT: {:?}", e))?;
-        let read = |bundle: &orchard::pczt::Bundle| -> Vec<OutputInfo> {
-            bundle
-                .actions()
-                .iter()
-                .map(|action| {
-                    let o = action.output();
-                    OutputInfo {
-                        address: o.user_address().clone(),
-                        value: o.value().map(|v| v.inner()),
-                        recipient: o
-                            .recipient()
-                            .as_ref()
-                            .map(|a| hex::encode(a.to_raw_address_bytes())),
-                    }
-                })
-                .collect()
+    /// What a proven PCZT pays, as the device can confirm it on its own.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct Payment {
+        /// Every output of the Orchard bundle, then of the Ironwood bundle (the sighash's order).
+        pub outputs: Vec<OutputInfo>,
+        /// The fee in zatoshis: what the two bundles take out of the shielded pools, which the
+        /// sighash covers. Never above the ZIP 317 fee for the transaction's actions.
+        pub fee_zat: u64,
+        /// Actions across both bundles.
+        pub actions: usize,
+    }
+
+    /// ZIP 317: the conventional fee is `MARGINAL_FEE * max(GRACE_ACTIONS, logical_actions)`, and
+    /// for a shielded-only V6 transaction the logical actions are the Orchard actions plus the
+    /// Ironwood actions.
+    const MARGINAL_FEE: u64 = 5_000;
+    const GRACE_ACTIONS: u64 = 2;
+
+    /// What the fee rule needs to know about one bundle.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    struct BundleShape {
+        /// Actions in the bundle, padding included.
+        actions: usize,
+        /// Spends still awaiting this vault's signature (the ceremony's own predicate).
+        to_sign: usize,
+        /// Outputs that move value, read after the commitment check.
+        paying: usize,
+    }
+
+    /// The fee this transaction pays, or the refusal when it pays more than ZIP 317 sets for it.
+    ///
+    /// Nothing on the signing path bounded the fee before #610. A builder could pay every approved
+    /// line exactly and return less change, and the difference went to the miner: every device
+    /// signed it, because every check looked at the outputs and none at what they did not add up
+    /// to. The fee here comes from the bundles' value balance, which the sighash covers.
+    ///
+    /// The ZIP 317 fee grows with the number of actions, so a bound on the fee alone would let a
+    /// builder add empty padding actions and raise its own ceiling by 5000 zatoshis each. So each
+    /// bundle may carry at most `max(2, to_sign + paying)` actions. That covers both ways a builder
+    /// pairs spends with outputs: one action per spend-or-output where cross-address transfers are
+    /// allowed (Ironwood), and a spend and an output in separate actions where they are not
+    /// (Orchard after NU6.3), whose fabricated zero-value spends are ours to sign and so counted.
+    ///
+    /// What this does NOT bound: the builder chooses both terms. It can split change into more
+    /// outputs, spend more of the vault's notes, or add zero-value spends left for the vault to
+    /// sign (`collect_real` does not check a spend's `rk` against the vault's key), and each such
+    /// action raises the ceiling by 5000 zatoshis, paid to the network. Nothing on the device caps
+    /// the number of actions; the relay's 128 KiB message cap is the only bound today. A real bound
+    /// needs the device to know which notes a payment should spend.
+    fn check_fee(fee: i64, bundles: &[BundleShape]) -> Result<u64, String> {
+        let fee = u64::try_from(fee).map_err(|_| {
+            format!(
+                "[fee] the transaction adds {} zatoshis to the shielded pools instead of paying a fee",
+                fee.unsigned_abs()
+            )
+        })?;
+        for b in bundles {
+            let enough = (b.to_sign + b.paying).max(GRACE_ACTIONS as usize);
+            if b.actions > enough {
+                return Err(format!(
+                    "[fee] the transaction carries {} actions in one bundle where {enough} are enough",
+                    b.actions
+                ));
+            }
+        }
+        let actions: u64 = bundles.iter().map(|b| b.actions as u64).sum();
+        let ceiling = MARGINAL_FEE * actions.max(GRACE_ACTIONS);
+        if fee > ceiling {
+            return Err(format!(
+                "[fee] the transaction pays {fee} zatoshis in fee, above the {ceiling} that ZIP 317 sets for its {actions} actions"
+            ));
+        }
+        Ok(fee)
+    }
+
+    /// Read one Orchard-shaped bundle's outputs, refusing any output whose fields its note
+    /// commitment does not bind.
+    ///
+    /// `recipient` and `value` travel BESIDE `cmx` in a PCZT, and the builder writes all three.
+    /// The sighash covers `cmx`, not the fields (#610). Before this check a builder could commit to
+    /// a note paying one party and write another party, or another amount, into the fields every
+    /// reader here used: the gate compared them with the approved lines and the screen showed them.
+    /// `verify_note_commitment` recomputes the commitment from `recipient`, `value`, `rseed` and the
+    /// action's own nullifier, so a field that disagrees with `cmx` is refused. A missing field
+    /// cannot be checked and is refused too: a device that cannot confirm an output must not sign.
+    fn read_bundle(
+        pool: &str,
+        bundle: &orchard::pczt::Bundle,
+    ) -> Result<(Vec<OutputInfo>, BundleShape, i64), String> {
+        let mut out = Vec::with_capacity(bundle.actions().len());
+        for (i, action) in bundle.actions().iter().enumerate() {
+            let o = action.output();
+            o.verify_note_commitment(action.spend()).map_err(|e| {
+                format!("[commitment] {pool} output {i} does not match its note commitment: {e:?}")
+            })?;
+            let recipient = o
+                .recipient()
+                .as_ref()
+                .map(|a| hex::encode(a.to_raw_address_bytes()));
+            // The label is what the member reads on the signing screen, so it must name the
+            // receiver the commitment pays. The pczt crate asks this of every Signer: "parse this
+            // address (if present) and confirm that it contains `recipient`".
+            if let Some(label) = o.user_address() {
+                let named = ua_receiver(label).map_err(|e| {
+                    format!("[label] {pool} output {i} carries a label that is not a payable address: {e}")
+                })?;
+                if Some(&named) != recipient.as_ref() {
+                    return Err(format!(
+                        "[label] {pool} output {i} is labelled with an address it does not pay"
+                    ));
+                }
+            }
+            let value = o.value().map(|v| v.inner());
+            // A paying output must open, and what it opens to is the memo the recipient will read.
+            // Padding carries no memo worth reading, and a zero-value output paired with an
+            // external spend has a random ciphertext by design, so neither is opened.
+            let memo = if value.unwrap_or(0) > 0 {
+                let opened = open_output(action).ok_or_else(|| {
+                    format!(
+                        "[undecryptable] {pool} output {i} pays a note its recipient cannot open"
+                    )
+                })?;
+                memo_text(&opened)
+            } else {
+                None
+            };
+            out.push(OutputInfo {
+                // Trimmed, as `ua_receiver` read it: the label that was checked is the one shown.
+                address: o.user_address().as_ref().map(|a| a.trim().to_string()),
+                value,
+                recipient,
+                memo,
+            });
+        }
+        let shape = BundleShape {
+            actions: bundle.actions().len(),
+            to_sign: collect_real(bundle).len(),
+            paying: out.iter().filter(|o| o.value.unwrap_or(0) > 0).count(),
         };
-        // Read outputs from whichever pool the tx spends from, so an Ironwood send's real payment
-        // (whose outputs live in the Ironwood bundle) surfaces the same as an Orchard one.
-        let ironwood = active_pool(&pczt)?;
-        let mut out: Vec<OutputInfo> = vec![];
-        let signer = Signer::new(pczt);
-        let res = if ironwood {
-            signer.sign_ironwood_with(|_pczt, bundle, _| {
-                out = read(bundle);
-                Ok::<(), OErr>(())
-            })
+        let value_balance = i64::try_from(*bundle.value_sum())
+            .map_err(|_| format!("[fee] the {pool} bundle's value balance is out of range"))?;
+        Ok((out, shape, value_balance))
+    }
+
+    /// Open one output the way its recipient will, and return the memo plaintext.
+    ///
+    /// The ephemeral secret key is derived from the note itself (`rseed` and `rho`), so the device
+    /// needs no viewing key: with the note's fields already checked against `cmx`, it encrypts to
+    /// the same key the builder did. Recovery also checks that the opened note matches `cmx` and
+    /// the ephemeral public key, so an output that opens is the output the commitment describes.
+    /// `None` when any field is missing or the ciphertext does not open.
+    fn open_output(action: &orchard::pczt::Action) -> Option<[u8; 512]> {
+        use orchard::note_encryption::{IronwoodDomain, OrchardDomain};
+        let o = action.output();
+        let rho = Option::from(orchard::note::Rho::from_bytes(
+            &action.spend().nullifier().to_bytes(),
+        ))?;
+        let note = Option::from(orchard::Note::from_parts(
+            (*o.recipient())?,
+            (*o.value())?,
+            rho,
+            (*o.rseed())?,
+            *o.note_version(),
+        ))?;
+        match o.note_version() {
+            orchard::NoteVersion::V2 => {
+                recover_memo(OrchardDomain::for_pczt_action(action), &note, action)
+            }
+            orchard::NoteVersion::V3 => {
+                recover_memo(IronwoodDomain::for_pczt_action(action), &note, action)
+            }
+        }
+    }
+
+    fn recover_memo<D>(
+        domain: D,
+        note: &orchard::Note,
+        action: &orchard::pczt::Action,
+    ) -> Option<[u8; 512]>
+    where
+        D: zcash_note_encryption::Domain<Note = orchard::Note, Memo = [u8; 512]>,
+        orchard::pczt::Action: zcash_note_encryption::ShieldedOutput<
+            D,
+            { zcash_note_encryption::ENC_CIPHERTEXT_SIZE },
+        >,
+    {
+        let esk = D::derive_esk(note)?;
+        let pk_d = D::get_pk_d(note);
+        zcash_note_encryption::try_output_recovery_with_pkd_esk(&domain, pk_d, esk, action)
+            .map(|(_, _, memo)| memo)
+    }
+
+    /// A memo as the proposal records it: the text, `""` for the empty memo, and `None` for any
+    /// memo that is not text (which no Konclave proposal makes, so it never matches a line).
+    fn memo_text(bytes: &[u8; 512]) -> Option<String> {
+        use zcash_protocol::memo::{Memo, MemoBytes};
+        match Memo::try_from(MemoBytes::from_bytes(bytes).ok()?).ok()? {
+            Memo::Empty => Some(String::new()),
+            Memo::Text(t) => Some(String::from(&*t)),
+            _ => None,
+        }
+    }
+
+    /// Run `read` over one pool's bundle, keeping a refusal's own words and wrapping a parse error.
+    fn with_bundle<T>(
+        pczt: &Pczt,
+        ironwood_pool: bool,
+        read: impl FnOnce(&orchard::pczt::Bundle) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let mut out: Option<T> = None;
+        let run = |_: &Pczt, bundle: &mut orchard::pczt::Bundle, _: &mut u8| -> Result<(), OErr> {
+            out = Some(read(bundle).map_err(OErr::Refuse)?);
+            Ok(())
+        };
+        let signer = Signer::new(pczt.clone());
+        let res = if ironwood_pool {
+            signer.sign_ironwood_with(run)
         } else {
-            signer.sign_orchard_with(|_pczt, bundle, _| {
-                out = read(bundle);
-                Ok::<(), OErr>(())
-            })
+            signer.sign_orchard_with(run)
         };
-        res.map_err(|e| format!("parse: {:?}", e))?;
-        Ok(out)
+        match res {
+            Ok(_) => out.ok_or_else(|| "parse: the bundle was not read".to_string()),
+            Err(OErr::Refuse(msg)) => Err(msg),
+            Err(e) => Err(format!("parse: {:?}", e)),
+        }
+    }
+
+    /// The bundles a transaction of this version signs, and the parts a vault payment never has.
+    ///
+    /// Over nothing but the facts, so every branch is testable without a PCZT of that shape (the
+    /// `decide_pool` pattern): this repo has no transparent, Sapling, v4 or v7 fixture, and a rule
+    /// only a fixture could exercise is a rule no test exercises. The reading covers exactly what
+    /// `shielded_sighash` covers: Orchard for v5; Orchard then Ironwood for v6. The fee is the
+    /// shielded value balance, which is the whole fee only when nothing else moves value, so a
+    /// transparent or Sapling part is refused (the sighash refuses them too, for its own reason).
+    fn signed_pools(
+        tx_version: u32,
+        has_transparent: bool,
+        has_sapling: bool,
+    ) -> Result<&'static [(bool, &'static str)], String> {
+        if has_transparent {
+            return Err(
+                "[shape] the transaction has a transparent part, which a vault spend never has"
+                    .into(),
+            );
+        }
+        if has_sapling {
+            return Err(
+                "[shape] the transaction has a Sapling part, which a vault spend never has".into(),
+            );
+        }
+        match tx_version {
+            5 => Ok(&[(false, "orchard")]),
+            6 => Ok(&[(false, "orchard"), (true, "ironwood")]),
+            v => Err(format!("[shape] unsupported transaction version {v}")),
+        }
+    }
+
+    /// Read what a proven PCZT pays, every output checked against its note commitment, across BOTH
+    /// shielded bundles. A V6 transaction can carry both: an Orchard-to-Ironwood migration spends
+    /// from Orchard and pays into Ironwood, and reading only the pool the spends come from would
+    /// miss where the money lands. The order is the sighash's: Orchard, then Ironwood.
+    pub fn read_payment(pczt_bytes: &[u8]) -> Result<Payment, String> {
+        let pczt = Pczt::parse(pczt_bytes).map_err(|e| format!("failed to parse PCZT: {:?}", e))?;
+        let tx_version = *pczt.global().tx_version();
+        let pools = signed_pools(
+            tx_version,
+            !pczt.transparent().inputs().is_empty() || !pczt.transparent().outputs().is_empty(),
+            !pczt.sapling().spends().is_empty() || !pczt.sapling().outputs().is_empty(),
+        )?;
+        // A bundle with no actions enters the digest as the empty-bundle commitment, which carries
+        // no value balance, so a non-zero one there is refused below; summed into the fee, it could
+        // offset a fee raised in the other bundle. And a version 5 transaction has no Ironwood slot
+        // in its digest, so an Ironwood bundle in one is signed by nobody: refused, not read.
+        if tx_version == 5 {
+            let (_, iw, balance) = with_bundle(&pczt, true, |b| read_bundle("ironwood", b))?;
+            if iw.actions > 0 || balance != 0 {
+                return Err(
+                    "[shape] a version 5 transaction carries an Ironwood bundle its signature does not cover"
+                        .into(),
+                );
+            }
+        }
+        let mut outputs = vec![];
+        let mut shapes = vec![];
+        let mut fee: i64 = 0;
+        for &(ironwood_pool, pool) in pools {
+            let (part, shape, balance) =
+                with_bundle(&pczt, ironwood_pool, |b| read_bundle(pool, b))?;
+            if shape.actions == 0 && balance != 0 {
+                return Err(format!(
+                    "[shape] the {pool} bundle has no actions and a value balance its signature does not cover"
+                ));
+            }
+            fee = fee
+                .checked_add(balance)
+                .ok_or("[fee] the transaction's value balance is out of range")?;
+            outputs.extend(part);
+            shapes.push(shape);
+        }
+        let fee_zat = check_fee(fee, &shapes)?;
+        let actions = shapes.iter().map(|s| s.actions).sum();
+        Ok(Payment {
+            outputs,
+            fee_zat,
+            actions,
+        })
+    }
+
+    /// Every output of a proven PCZT - what this transaction actually pays - so each device can
+    /// verify it against the human-approved proposal BEFORE contributing its signature. The same
+    /// reading as `read_payment`, so it carries the same checks: there is one reader of a PCZT's
+    /// outputs in this crate, and it refuses what it cannot confirm. Dummy padding outputs surface
+    /// as `value: Some(0)` with no address, so the caller can ignore them.
+    pub fn describe_outputs(pczt_bytes: &[u8]) -> Result<Vec<OutputInfo>, String> {
+        read_payment(pczt_bytes).map(|p| p.outputs)
     }
 
     /// The raw Orchard receiver of a unified address, hex-encoded - directly comparable to an
@@ -1781,6 +2058,555 @@ pub mod pczt_bridge {
         #[test]
         fn describe_outputs_rejects_garbage() {
             assert!(describe_outputs(b"not a pczt").is_err());
+        }
+
+        // ---------- #610: the fields a device reads must be the ones the signature covers ----------
+        //
+        // A PCZT output carries `recipient` and `value` NEXT TO its note commitment `cmx`, and the
+        // party that builds the PCZT writes all three. The sighash covers `cmx`, not the two fields
+        // beside it. So these tests change a field in the serialized bytes and leave `cmx` alone:
+        // the result is exactly what a hostile coordinator would hand a device - the same
+        // transaction under the signature, a different payment in the fields the gate reads.
+
+        /// Replace the ONLY occurrence of `needle` in `hay`. Postcard has no length prefix on a
+        /// struct, so a field may change length as long as the pattern is unique; the uniqueness
+        /// assertion is what keeps the patch from landing somewhere else.
+        fn patch_once(hay: &[u8], needle: &[u8], with: &[u8]) -> Vec<u8> {
+            let at: Vec<usize> = hay
+                .windows(needle.len())
+                .enumerate()
+                .filter(|(_, w)| *w == needle)
+                .map(|(i, _)| i)
+                .collect();
+            assert_eq!(at.len(), 1, "the patched pattern must occur exactly once");
+            [&hay[..at[0]], with, &hay[at[0] + needle.len()..]].concat()
+        }
+
+        /// Postcard's varint (unsigned LEB128), the encoding of a `u64` field.
+        fn varint(mut v: u64) -> Vec<u8> {
+            let mut out = vec![];
+            loop {
+                let byte = (v & 0x7f) as u8;
+                v >>= 7;
+                if v == 0 {
+                    out.push(byte);
+                    return out;
+                }
+                out.push(byte | 0x80);
+            }
+        }
+
+        /// One output of the fixture as it sits on the wire: the tail of its `out_ciphertext`
+        /// (the field serialized right before `recipient`), its recipient bytes and its value.
+        struct WireOutput {
+            anchor: Vec<u8>,
+            recipient: Vec<u8>,
+            value: u64,
+        }
+
+        impl WireOutput {
+            /// `out_ciphertext` tail ++ `Some(recipient)` ++ `Some(value)`, with the two fields
+            /// replaced. The anchor is what makes the pattern unique: in this fixture the payment
+            /// pays the same receiver as one of the notes it spends, so `recipient ++ value` alone
+            /// also matches that spend.
+            fn wire(&self, recipient: &[u8], value: u64) -> Vec<u8> {
+                [&self.anchor[..], &[1u8], recipient, &[1u8], &varint(value)].concat()
+            }
+            fn as_is(&self) -> Vec<u8> {
+                self.wire(&self.recipient, self.value)
+            }
+        }
+
+        /// The fixture's labelled payment and unlabelled change, read before any patch.
+        fn payment_and_change() -> (WireOutput, WireOutput) {
+            let mut outs: Vec<(bool, WireOutput)> = vec![];
+            Signer::new(Pczt::parse(IW_PROVEN).unwrap())
+                .sign_ironwood_with(|_, bundle, _| {
+                    for a in bundle.actions() {
+                        let o = a.output();
+                        let value = o.value().map(|v| v.inner()).unwrap_or(0);
+                        if value == 0 {
+                            continue;
+                        }
+                        let oc = &o.encrypted_note().out_ciphertext;
+                        outs.push((
+                            o.user_address().is_some(),
+                            WireOutput {
+                                anchor: oc[oc.len() - 16..].to_vec(),
+                                recipient: o.recipient().unwrap().to_raw_address_bytes().to_vec(),
+                                value,
+                            },
+                        ));
+                    }
+                    Ok::<(), OErr>(())
+                })
+                .unwrap();
+            let mut take = |labelled: bool| {
+                let i = outs
+                    .iter()
+                    .position(|(l, _)| *l == labelled)
+                    .expect("present");
+                outs.remove(i).1
+            };
+            let pay = take(true);
+            let chg = take(false);
+            (pay, chg)
+        }
+
+        fn assert_refused(pczt: &[u8], code: &str) {
+            let err = describe_outputs(pczt).expect_err("a device must refuse this PCZT");
+            assert!(err.starts_with(code), "expected {code}, got: {err}");
+        }
+
+        #[test]
+        fn a_patched_field_leaves_the_signature_unchanged() {
+            // The premise of every test below, checked rather than assumed: if patching a field
+            // changed the sighash, the attack would not exist and the tests would prove nothing.
+            let (pay, chg) = payment_and_change();
+            let swapped = patch_once(
+                IW_PROVEN,
+                &chg.as_is(),
+                &chg.wire(&pay.recipient, chg.value),
+            );
+            assert_eq!(
+                shielded_sighash(&Pczt::parse(&swapped).unwrap()).unwrap(),
+                IW_SIGHASH,
+                "the recipient field is outside the sighash",
+            );
+            let revalued = patch_once(IW_PROVEN, &pay.as_is(), &pay.wire(&pay.recipient, 1));
+            assert_eq!(
+                shielded_sighash(&Pczt::parse(&revalued).unwrap()).unwrap(),
+                IW_SIGHASH,
+                "the value field is outside the sighash",
+            );
+        }
+
+        #[test]
+        fn a_recipient_the_commitment_does_not_bind_is_refused() {
+            // The change output claims to pay someone else. The note it commits to still pays the
+            // vault, so the field describes a payment the transaction does not make.
+            let (pay, chg) = payment_and_change();
+            let tampered = patch_once(
+                IW_PROVEN,
+                &chg.as_is(),
+                &chg.wire(&pay.recipient, chg.value),
+            );
+            assert_refused(&tampered, "[commitment]");
+        }
+
+        #[test]
+        fn a_value_the_commitment_does_not_bind_is_refused() {
+            let (pay, _) = payment_and_change();
+            let tampered = patch_once(
+                IW_PROVEN,
+                &pay.as_is(),
+                &pay.wire(&pay.recipient, pay.value - 1),
+            );
+            assert_refused(&tampered, "[commitment]");
+        }
+
+        #[test]
+        fn a_paying_output_cannot_pass_for_padding() {
+            // The gate ignores zero-value outputs, so a real payment that CLAIMS zero would not be
+            // checked against any approved line at all. The commitment says what it really pays.
+            let (pay, _) = payment_and_change();
+            let tampered = patch_once(IW_PROVEN, &pay.as_is(), &pay.wire(&pay.recipient, 0));
+            assert_refused(&tampered, "[commitment]");
+        }
+
+        /// A real testnet unified address whose only receiver is `receiver`.
+        fn testnet_ua(receiver: &[u8]) -> String {
+            use zcash_address::unified::{Address, Encoding, Receiver};
+            let r: [u8; 43] = receiver.try_into().unwrap();
+            Address::try_from_items(vec![Receiver::Orchard(r)])
+                .unwrap()
+                .encode(&zcash_protocol::consensus::NetworkType::Test)
+        }
+
+        /// The fixture's payment label, as it sits on the wire: `Some(len ++ utf8)`.
+        fn label_wire(label: &str) -> Vec<u8> {
+            [&[1u8][..], &varint(label.len() as u64), label.as_bytes()].concat()
+        }
+
+        #[test]
+        fn a_label_that_names_another_receiver_is_refused() {
+            // The commitment pays the payee and the label names the vault's change receiver: a
+            // member reading the screen sees one address while the money goes to another. The
+            // pczt crate asks a Signer to confirm that `user_address` contains `recipient`.
+            let (_, chg) = payment_and_change();
+            let label = describe_outputs(IW_PROVEN)
+                .unwrap()
+                .into_iter()
+                .find_map(|o| o.address)
+                .unwrap();
+            let other = testnet_ua(&chg.recipient);
+            assert_ne!(other, label);
+            let tampered = patch_once(IW_PROVEN, &label_wire(&label), &label_wire(&other));
+            assert_refused(&tampered, "[label]");
+        }
+
+        #[test]
+        fn a_label_that_is_not_an_address_is_refused() {
+            let label = describe_outputs(IW_PROVEN)
+                .unwrap()
+                .into_iter()
+                .find_map(|o| o.address)
+                .unwrap();
+            let tampered = patch_once(IW_PROVEN, &label_wire(&label), &label_wire("Alice"));
+            assert_refused(&tampered, "[label]");
+        }
+
+        #[test]
+        fn a_fee_above_zip317_is_refused() {
+            // The bundle's value balance is what leaves the shielded pool, and with no transparent
+            // or Sapling part it is the fee. Raising it is how a builder pays every approved line
+            // and returns less change: the difference goes to the miner. 20000 is this fixture's
+            // fee, 4 actions at 5000; 25000 is one more than the transaction's actions allow.
+            assert_eq!(varint(20000), [0xa0, 0x9c, 0x01]);
+            let tampered = patch_once(IW_PROVEN, &varint(20000), &varint(25000));
+            assert_refused(&tampered, "[fee]");
+        }
+
+        fn shape(actions: usize, to_sign: usize, paying: usize) -> BundleShape {
+            BundleShape {
+                actions,
+                to_sign,
+                paying,
+            }
+        }
+        const EMPTY: BundleShape = BundleShape {
+            actions: 0,
+            to_sign: 0,
+            paying: 0,
+        };
+
+        #[test]
+        fn the_fee_rule_accepts_what_an_honest_builder_makes() {
+            // This fixture: an Ironwood bundle of 4 actions, 4 spends, a payment and change.
+            assert_eq!(check_fee(20_000, &[EMPTY, shape(4, 4, 2)]), Ok(20_000));
+            // A fee below the conventional one costs the vault nothing, so it is not refused.
+            assert_eq!(check_fee(10_000, &[EMPTY, shape(4, 4, 2)]), Ok(10_000));
+            // One spend, a payment and change: two actions where spends and outputs share them,
+            // three where the builder keeps them apart.
+            assert_eq!(check_fee(10_000, &[EMPTY, shape(2, 1, 2)]), Ok(10_000));
+            assert_eq!(check_fee(15_000, &[EMPTY, shape(3, 1, 2)]), Ok(15_000));
+            // An Orchard-to-Ironwood migration: two Orchard spends paired with zero-value outputs,
+            // and an Ironwood bundle whose padding spends arrive already signed.
+            assert_eq!(
+                check_fee(20_000, &[shape(2, 2, 0), shape(2, 0, 1)]),
+                Ok(20_000)
+            );
+        }
+
+        #[test]
+        fn the_fee_rule_refuses_a_fee_above_zip317() {
+            let err = check_fee(25_000, &[EMPTY, shape(4, 4, 2)]).unwrap_err();
+            assert!(err.starts_with("[fee]"), "{err}");
+        }
+
+        #[test]
+        fn the_fee_rule_refuses_padding_that_raises_its_own_ceiling() {
+            // Six actions for one spend and two outputs: the ceiling would be 30000, and the three
+            // extra actions are there only to lift it.
+            let err = check_fee(30_000, &[EMPTY, shape(6, 1, 2)]).unwrap_err();
+            assert!(err.starts_with("[fee]"), "{err}");
+        }
+
+        #[test]
+        fn the_fee_rule_refuses_value_flowing_into_the_pool() {
+            let err = check_fee(-1, &[EMPTY, shape(2, 1, 2)]).unwrap_err();
+            assert!(err.starts_with("[fee]"), "{err}");
+        }
+
+        /// 32 bytes from the middle of the payment output's encrypted note (the memo region).
+        fn payment_ciphertext_slice() -> Vec<u8> {
+            let mut slice = vec![];
+            Signer::new(Pczt::parse(IW_PROVEN).unwrap())
+                .sign_ironwood_with(|_, bundle, _| {
+                    let a = bundle
+                        .actions()
+                        .iter()
+                        .find(|a| a.output().user_address().is_some())
+                        .unwrap();
+                    slice = a.output().encrypted_note().enc_ciphertext[200..232].to_vec();
+                    Ok::<(), OErr>(())
+                })
+                .unwrap();
+            slice
+        }
+
+        #[test]
+        fn a_paying_output_its_recipient_cannot_decrypt_is_refused() {
+            // The ciphertext is inside the sighash, so a builder can sign away a real payment in a
+            // ciphertext nobody can open: the recipient never finds the note, and the money is
+            // gone. The device derives the note's ephemeral key from `rseed` and opens it itself.
+            let slice = payment_ciphertext_slice();
+            let flipped: Vec<u8> = slice.iter().map(|b| b ^ 0xff).collect();
+            let tampered = patch_once(IW_PROVEN, &slice, &flipped);
+            assert_refused(&tampered, "[undecryptable]");
+        }
+
+        #[test]
+        fn the_device_reads_each_paying_outputs_memo() {
+            // The honest fixture's payment and change both open, and each carries a memo the
+            // device can compare with the approved line (empty, here, is still a memo).
+            let outs = describe_outputs(IW_PROVEN).unwrap();
+            for o in outs.iter().filter(|o| o.value.unwrap_or(0) > 0) {
+                assert!(o.memo.is_some(), "a paying output's memo is read: {o:?}");
+            }
+            for o in outs.iter().filter(|o| o.value.unwrap_or(0) == 0) {
+                assert_eq!(o.memo, None, "padding carries no memo worth reading");
+            }
+        }
+
+        #[test]
+        fn the_honest_fixture_reads_its_fee() {
+            let p = read_payment(IW_PROVEN).unwrap();
+            assert_eq!(p.fee_zat, 20_000, "4 actions at 5000");
+            assert_eq!(p.actions, 4);
+        }
+
+        // Honest shapes beyond the one Ironwood fixture, so the checks above are also shown NOT to
+        // refuse what a real builder makes. The two Orchard sends are real mainnet PCZTs (pczt v1,
+        // V5, `dkg_single_spend` and `evidence_two_spend` before their rename), retired in 1d4eb42
+        // when the browser moved to the Ironwood pin and brought back for this: they are the only Orchard
+        // pool, note version 2, shapes in the repo. The third is the Zcash Foundation's own
+        // `zcash-sign` test fixture (frost-tools 06c0dbd, `zcash-sign/tests/fixtures/ironwood_v6.pczt`,
+        // MIT/Apache like this repo): an Ironwood send whose change is split into four outputs, so
+        // five outputs pay and the padding bound has to allow every one of them.
+        const OR_MAINNET_DKG: &[u8] =
+            include_bytes!("../tests/vectors/orchard_mainnet_dkg_single_spend.proven.pczt");
+        const OR_MAINNET_TWO: &[u8] =
+            include_bytes!("../tests/vectors/orchard_mainnet_two_spend.proven.pczt");
+        const ZF_IW_SPLIT_CHANGE: &[u8] =
+            include_bytes!("../tests/vectors/zf_zcash_sign_ironwood_v6.pczt");
+
+        #[test]
+        fn real_mainnet_orchard_sends_read_with_their_fee_and_memos() {
+            for pczt in [OR_MAINNET_DKG, OR_MAINNET_TWO] {
+                let p = read_payment(pczt).expect("an honest mainnet Orchard send reads");
+                assert_eq!(p.fee_zat, 10_000, "2 actions at 5000");
+                assert_eq!(p.actions, 2);
+                let paying: Vec<_> = p
+                    .outputs
+                    .iter()
+                    .filter(|o| o.value.unwrap_or(0) > 0)
+                    .collect();
+                assert_eq!(paying.len(), 2, "a payment and its change");
+                for o in &paying {
+                    assert_eq!(
+                        o.memo.as_deref(),
+                        Some(""),
+                        "opened as a note version 2 output"
+                    );
+                }
+                let labelled = paying.iter().find_map(|o| o.address.as_ref()).unwrap();
+                assert!(
+                    labelled.starts_with("u1"),
+                    "a mainnet address, checked against its receiver"
+                );
+            }
+        }
+
+        #[test]
+        fn a_change_split_into_four_outputs_reads_within_the_padding_bound() {
+            let p = read_payment(ZF_IW_SPLIT_CHANGE).expect("the Foundation's fixture reads");
+            assert_eq!(p.fee_zat, 25_000, "5 actions at 5000");
+            assert_eq!(p.actions, 5);
+            let paying: Vec<_> = p
+                .outputs
+                .iter()
+                .filter(|o| o.value.unwrap_or(0) > 0)
+                .collect();
+            assert_eq!(paying.len(), 5, "one payment and four change outputs");
+            assert_eq!(paying.iter().filter(|o| o.address.is_some()).count(), 1);
+        }
+
+        // The reading must cover exactly what the sighash covers, and no more. Two ways it did not,
+        // both found in review of the first version: a bundle with no actions is replaced in the
+        // digest by the empty-bundle commitment, so its value balance is signed by nobody; and a
+        // version 5 transaction has no Ironwood slot in the digest at all.
+
+        fn first_ironwood_cv_net() -> [u8; 32] {
+            let mut cv = [0u8; 32];
+            Signer::new(Pczt::parse(IW_PROVEN).unwrap())
+                .sign_ironwood_with(|_, bundle, _| {
+                    cv = bundle.actions()[0].cv_net().to_bytes();
+                    Ok::<(), OErr>(())
+                })
+                .unwrap();
+            cv
+        }
+
+        #[test]
+        fn an_empty_bundle_cannot_hide_a_fee() {
+            // Raise the Ironwood fee from 20000 to 1000000, then add an Orchard bundle with no
+            // actions and a value balance of -980000: summed, the two read as the honest 20000.
+            const N: u64 = 980_000;
+            let inflated = patch_once(IW_PROVEN, &varint(20_000), &varint(20_000 + N));
+            let cv0 = first_ironwood_cv_net();
+            // The empty Orchard bundle (`None`) sits just before the Ironwood one, whose first
+            // action starts with its `cv_net`.
+            let needle = [&[0x00u8, 0x01, 0x04, 0x01][..], &cv0[..]].concat();
+            let empty_orchard = [
+                &[0x00u8][..],  // actions: none
+                &[0x00u8][..],  // flags
+                &varint(N)[..], // value_sum magnitude
+                &[0x01u8][..],  // value_sum is negative
+                &[0x00u8][..],  // anchor: None
+                &[0x01u8][..],  // note version
+                &[0x00u8][..],  // zkproof: None
+                &[0x00u8][..],  // bsk: None
+            ]
+            .concat();
+            let with = [
+                &[0x01u8][..],
+                &empty_orchard[..],
+                &[0x01u8, 0x04, 0x01][..],
+                &cv0[..],
+            ]
+            .concat();
+            let tampered = patch_once(&inflated, &needle, &with);
+
+            assert_eq!(
+                shielded_sighash(&Pczt::parse(&inflated).unwrap()).unwrap(),
+                shielded_sighash(&Pczt::parse(&tampered).unwrap()).unwrap(),
+                "the empty Orchard bundle is outside the sighash",
+            );
+            assert!(read_payment(&inflated).unwrap_err().starts_with("[fee]"));
+            assert_refused(&tampered, "[shape]");
+        }
+
+        #[test]
+        fn a_version_5_transaction_cannot_carry_an_ironwood_bundle() {
+            let head6 = [
+                &b"PCZT"[..],
+                &2u32.to_le_bytes()[..],
+                &varint(6)[..],
+                &varint(0xD884_B698)[..],
+            ]
+            .concat();
+            let head5 = [
+                &b"PCZT"[..],
+                &2u32.to_le_bytes()[..],
+                &varint(5)[..],
+                &varint(0x26A7_270A)[..],
+            ]
+            .concat();
+            let v5 = patch_once(IW_PROVEN, &head6, &head5);
+            let v5_other = patch_once(&v5, &varint(20_000), &varint(25_000));
+            assert_eq!(
+                shielded_sighash(&Pczt::parse(&v5).unwrap()).unwrap(),
+                shielded_sighash(&Pczt::parse(&v5_other).unwrap()).unwrap(),
+                "in v5 the Ironwood bundle does not reach the sighash",
+            );
+            assert_refused(&v5, "[shape]");
+        }
+
+        #[test]
+        fn signed_pools_answers_every_shape() {
+            assert_eq!(signed_pools(5, false, false), Ok(&[(false, "orchard")][..]));
+            assert_eq!(
+                signed_pools(6, false, false),
+                Ok(&[(false, "orchard"), (true, "ironwood")][..])
+            );
+            for (v, t, s) in [
+                (4, false, false),
+                (7, false, false),
+                (6, true, false),
+                (6, false, true),
+                (5, true, true),
+            ] {
+                let err = signed_pools(v, t, s).unwrap_err();
+                assert!(err.starts_with("[shape]"), "v{v} t{t} s{s}: {err}");
+            }
+        }
+
+        #[test]
+        fn read_payment_asks_signed_pools() {
+            // The shape rules are tested above over booleans; this keeps the reader from answering
+            // them itself again, which is how the pool question once drifted (#364).
+            let src = include_str!("lib.rs");
+            let body = src
+                .split("pub fn read_payment(pczt_bytes")
+                .nth(1)
+                .expect("read_payment exists")
+                .split("\n    }")
+                .next()
+                .unwrap();
+            // ...and must hand it every part a vault payment never has, each one able to refuse on
+            // its own, in the position signed_pools reads it. Naming the parts in the body was not
+            // enough: `&&` for `||`, a dead `false && ...`, or naming them and passing `false` all
+            // kept that scan green (#610 third review). Whitespace-insensitive, so rustfmt is free.
+            let flat: String = body.chars().filter(|c| !c.is_whitespace()).collect();
+            // `?` included: a refusal that is swallowed (`unwrap_or`, a retry with `false`) is none.
+            let call = concat!(
+                "letpools=signed_pools(tx_version,",
+                "!pczt.transparent().inputs().is_empty()||!pczt.transparent().outputs().is_empty(),",
+                "!pczt.sapling().spends().is_empty()||!pczt.sapling().outputs().is_empty(),",
+                ")?;"
+            );
+            assert!(
+                flat.contains(call),
+                "read_payment must hand signed_pools each part, any one refusing, and return its refusal"
+            );
+        }
+
+        #[test]
+        fn the_shape_counts_spends_to_sign_apart_from_actions() {
+            // Two fixtures where the vault signs fewer spends than the bundle has actions: the
+            // padding bound is computed from `to_sign`, so it must not be the action count.
+            let pczt = Pczt::parse(OR_MAINNET_DKG).unwrap();
+            let (_, s, _) = with_bundle(&pczt, false, |b| read_bundle("orchard", b)).unwrap();
+            assert_eq!(s, shape_of(2, 1, 2));
+            let pczt = Pczt::parse(ZF_IW_SPLIT_CHANGE).unwrap();
+            let (_, s, _) = with_bundle(&pczt, true, |b| read_bundle("ironwood", b)).unwrap();
+            assert_eq!(s, shape_of(5, 1, 5));
+        }
+
+        #[test]
+        fn the_fixture_bundle_has_the_shape_the_fee_rule_reads() {
+            // 4 actions, 4 spends this vault signs, a payment and change: the numbers the padding
+            // bound and the ZIP 317 ceiling are computed from.
+            let pczt = Pczt::parse(IW_PROVEN).unwrap();
+            let (_, shape, balance) =
+                with_bundle(&pczt, true, |b| read_bundle("ironwood", b)).unwrap();
+            assert_eq!(shape, shape_of(4, 4, 2));
+            assert_eq!(balance, 20_000);
+        }
+
+        fn shape_of(actions: usize, to_sign: usize, paying: usize) -> BundleShape {
+            BundleShape {
+                actions,
+                to_sign,
+                paying,
+            }
+        }
+
+        #[test]
+        fn a_label_is_shown_as_it_was_checked() {
+            // `ua_receiver` trims what it decodes, so the label that passed the check is the trimmed
+            // one, and that is what the screen shows; an untrimmed label used to come out as no label.
+            let label = describe_outputs(IW_PROVEN)
+                .unwrap()
+                .into_iter()
+                .find_map(|o| o.address)
+                .unwrap();
+            let padded = format!(" {label} ");
+            let tampered = patch_once(IW_PROVEN, &label_wire(&label), &label_wire(&padded));
+            let shown = describe_outputs(&tampered)
+                .expect("a padded label naming the paid receiver is fine")
+                .into_iter()
+                .find_map(|o| o.address)
+                .unwrap();
+            assert_eq!(shown, label);
+        }
+
+        #[test]
+        fn the_honest_fixture_still_reads() {
+            // The other half of every refusal above: the untouched PCZT passes the same checks.
+            let outs = describe_outputs(IW_PROVEN).expect("an honest PCZT reads");
+            assert_eq!(outs.len(), 4, "four actions, four outputs");
         }
 
         #[test]
@@ -2504,10 +3330,6 @@ mod js_pczt {
         Ok(out)
     }
 
-    /// Read every Orchard output of a proven PCZT as JSON: `[{"address": string|null, "value":
-    /// number|null}, ...]`. The UI shows this and confirms it against the approved proposal BEFORE
-    /// the device signs - the "what am I signing?" check. Addressed entries are real recipients;
-    /// `address: null` entries are change. Values are zatoshis.
     /// The raw Orchard receiver of a unified address, hex - the approved destination in the same
     /// space as an output's `recipient`, so the money gate can compare them (#281).
     ///
@@ -2519,11 +3341,26 @@ mod js_pczt {
         pczt_bridge::ua_receiver(ua).map_err(je)
     }
 
-    #[wasm_bindgen(js_name = describeOutputs)]
-    pub fn describe_outputs(pczt: &[u8]) -> Result<String, JsValue> {
-        let outs = pczt_bridge::describe_outputs(pczt).map_err(je)?;
-        // Build JSON by hand: UAs are bech32m ([a-z0-9]) so they need no escaping, and values are
-        // integers - no serde dependency required.
+    /// A JSON string literal. A memo is free text a member typed, so unlike the addresses and hex
+    /// beside it, it needs escaping.
+    fn json_str(s: &str) -> String {
+        let mut out = String::with_capacity(s.len() + 2);
+        out.push('"');
+        for c in s.chars() {
+            match c {
+                '"' => out.push_str("\\\""),
+                '\\' => out.push_str("\\\\"),
+                c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+                c => out.push(c),
+            }
+        }
+        out.push('"');
+        out
+    }
+
+    /// The outputs as a JSON array of `{"address","value","recipient","memo"}`, built by hand (no
+    /// serde in this crate).
+    fn outputs_json(outs: &[pczt_bridge::OutputInfo]) -> String {
         let mut s = String::from("[");
         for (i, o) in outs.iter().enumerate() {
             if i > 0 {
@@ -2543,13 +3380,43 @@ mod js_pczt {
                 Some(r) => format!("\"{}\"", r),
                 None => "null".to_string(),
             };
+            let memo = match &o.memo {
+                Some(m) => json_str(m),
+                None => "null".to_string(),
+            };
             s.push_str(&format!(
-                "{{\"address\":{},\"value\":{},\"recipient\":{}}}",
-                addr, val, recip
+                "{{\"address\":{},\"value\":{},\"recipient\":{},\"memo\":{}}}",
+                addr, val, recip, memo
             ));
         }
         s.push(']');
-        Ok(s)
+        s
+    }
+
+    /// Every output of a proven PCZT as a JSON array of `{"address": string|null, "value":
+    /// number|null, "recipient": hex|null, "memo": string|null}`, each checked against its note
+    /// commitment (see `readPayment`, which this is the outputs of). Values are zatoshis.
+    #[wasm_bindgen(js_name = describeOutputs)]
+    pub fn describe_outputs(pczt: &[u8]) -> Result<String, JsValue> {
+        let outs = pczt_bridge::describe_outputs(pczt).map_err(je)?;
+        Ok(outputs_json(&outs))
+    }
+
+    /// What a proven PCZT pays, as THIS device can confirm it, as JSON: `{"outputs": [...as
+    /// describeOutputs...], "feeZat": number, "actions": number}`. This is the reading a device
+    /// signs on (#610): every output checked against its note commitment, its address label against
+    /// the receiver it pays, each paying output opened for its memo, and the fee bounded by ZIP 317.
+    /// A refusal is an error whose message starts with a bracketed code (`[commitment]`, `[label]`,
+    /// `[undecryptable]`, `[fee]`, `[shape]`) so the caller can tell the member why.
+    #[wasm_bindgen(js_name = readPayment)]
+    pub fn read_payment(pczt: &[u8]) -> Result<String, JsValue> {
+        let p = pczt_bridge::read_payment(pczt).map_err(je)?;
+        Ok(format!(
+            "{{\"outputs\":{},\"feeZat\":{},\"actions\":{}}}",
+            outputs_json(&p.outputs),
+            p.fee_zat,
+            p.actions
+        ))
     }
 
     /// Apply FROST redpallas signatures to a proven PCZT and return the signed PCZT bytes.

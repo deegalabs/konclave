@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { codeOf } from './source-scan'
 
 // A refused vote must not be reported as a conflict.
 //
@@ -15,7 +15,7 @@ import { readFileSync } from 'node:fs'
 // It also got worse the day #288 gated proposing and sending, which made 401 far more reachable. A
 // stricter gate and a lying error message are a bad pair.
 
-const api = readFileSync(new URL('./api.ts', import.meta.url), 'utf8')
+const api = codeOf('./api.ts')
 
 describe('a refused write is not reported as a vote conflict', () => {
   it('the vote path distinguishes 401 from every other failure', () => {
@@ -29,7 +29,7 @@ describe('a refused write is not reported as a vote conflict', () => {
 
   it('both errors have their own message, and they say different things', () => {
     for (const lang of ['pt-BR', 'en']) {
-      const dict = readFileSync(new URL(`./i18n/${lang}.ts`, import.meta.url), 'utf8')
+      const dict = codeOf(`./i18n/${lang}.ts`)
       const auth = /'error\.writeNotAuthorized':\s*'([^']+)'/.exec(dict)?.[1]
       const rejected = /'error\.voteRejected':\s*'([^']+)'/.exec(dict)?.[1]
       expect(auth, `${lang} has no writeNotAuthorized`).toBeTruthy()
