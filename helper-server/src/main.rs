@@ -42,9 +42,10 @@ use orchestrator::helper::{
     vault_transactions, CeremonyRecord, HelperConfig, HelperProposal, HelperState, PayrollLine,
     RosterWrite, VaultRegistration,
 };
+use orchestrator::relay_client::{configured_relay, parse_relay_config, valid_room, RelayRefusal};
 use orchestrator::send::{funding_check, net_orchestrate_send, Funding, PayrollDest, SpendPlan};
 use orchestrator::write_auth::{
-    authorize_write, seat_acts_as, seat_holder, SignedWrite, WriteAction, WriteAuth,
+    authorize_write, same_member, seat_acts_as, seat_holder, SignedWrite, WriteAction, WriteAuth,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -998,6 +999,27 @@ fn handle_proposal_send(state: &HelperState, cfg: &HelperConfig, path: &str, bod
         Ok(r) => r,
         Err(_) => return resp(400, json!({ "error": "invalid json" }).to_string()),
     };
+    // #270: the relay is this coordinator's own, never the request's. The request used to name it,
+    // and it went to `curl` unchecked: any URL fetched from the coordinator's network, and on a
+    // vault where not every seat had registered a device key, the signing request - who the vault
+    // pays and how much - sent in clear text to that address. First, before the vault, the gate or
+    // the engine: a send to anywhere else is refused for what it is.
+    let relay = match configured_relay(&req.relay_base, &cfg.relays) {
+        Ok(relay) => relay,
+        Err(why) => {
+            let status = match why {
+                RelayRefusal::NoneConfigured => 503,
+                RelayRefusal::NotOurs => 400,
+            };
+            return resp(status, json!({ "error": why.message() }).to_string());
+        }
+    };
+    if !valid_room(&req.room) {
+        return resp(
+            400,
+            json!({ "error": "the room must be 1 to 64 letters, digits, '-' or '_'" }).to_string(),
+        );
+    }
     let reg = match state.get(&req.vault) {
         Some(r) => r,
         None => return resp(404, json!({ "error": "no such vault" }).to_string()),
@@ -1087,7 +1109,7 @@ fn handle_proposal_send(state: &HelperState, cfg: &HelperConfig, path: &str, bod
     match net_orchestrate_send(
         &sc,
         &plan,
-        &req.relay_base,
+        relay,
         &req.room,
         &device_pubs,
         req.dry_run,
@@ -1252,7 +1274,7 @@ fn handle_create_proposal(state: &HelperState, cfg: &HelperConfig, body: &[u8]) 
         expiry_unix: req.expiry_unix,
         txid: None,
     };
-    p.recompute(now);
+    p.recompute(now, &load_members(&cfg.vaults_dir, &reg.vault_id));
     match save_proposal(&cfg.vaults_dir, &p) {
         Ok(()) => resp(200, serde_json::to_string(&p).unwrap_or_default()),
         Err(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
@@ -1383,7 +1405,7 @@ fn handle_create_payroll(state: &HelperState, cfg: &HelperConfig, body: &[u8]) -
         expiry_unix: req.expiry_unix,
         txid: None,
     };
-    p.recompute(now);
+    p.recompute(now, &load_members(&cfg.vaults_dir, &reg.vault_id));
     match save_proposal(&cfg.vaults_dir, &p) {
         Ok(()) => resp(200, serde_json::to_string(&p).unwrap_or_default()),
         Err(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
@@ -1437,9 +1459,9 @@ fn handle_vote(state: &HelperState, cfg: &HelperConfig, path: &str, body: &[u8])
     // unsigned writes: once a write key is registered the gate below binds the seat to a roster
     // name, and with no roster there is no name to bind, so it refuses (#568).
     let roster = load_members(&cfg.vaults_dir, &req.vault);
-    // Compared trimmed on both sides, like the binding in the gate: a roster keeps names as they
-    // arrived, and a device sends its own trimmed.
-    if !roster.is_empty() && !roster.iter().any(|m| m.trim() == req.member.trim()) {
+    // Compared the way the binding in the gate compares: a roster keeps names as they arrived, and
+    // a device sends its own trimmed.
+    if !roster.is_empty() && !roster.iter().any(|m| same_member(m, &req.member)) {
         return resp(
             403,
             json!({ "error": "not a member of this vault" }).to_string(),
@@ -1479,7 +1501,7 @@ fn handle_vote(state: &HelperState, cfg: &HelperConfig, path: &str, body: &[u8])
         Some(p) => p,
         None => return resp(404, json!({ "error": "no such proposal" }).to_string()),
     };
-    if !p.vote(&voter, approve, now) {
+    if !p.vote(&voter, approve, now, &roster) {
         return resp(
             409,
             json!({ "error": "proposal is no longer open", "state": p.state }).to_string(),
@@ -1536,7 +1558,33 @@ fn config_from_env() -> HelperConfig {
         network: env("KONCLAVE_NETWORK", "main"),
         konclave_signer: PathBuf::from(env("KONCLAVE_SIGNER", "konclave-signer")),
         vaults_dir: PathBuf::from(env("KONCLAVE_VAULTS_DIR", "./helper-vaults")),
+        relays: relays_from_env(),
     }
+}
+
+/// The relays this coordinator may publish a signing request to (#270), from
+/// `KONCLAVE_RELAY_BASES`: comma-separated `https://host[:port]` origins.
+///
+/// There is no default. A compiled-in relay would let the staging coordinator publish to the
+/// production relay, or the reverse, so a coordinator nobody configured refuses every send and says
+/// so here, at boot, where it is seen.
+fn relays_from_env() -> Vec<String> {
+    let (relays, rejected) =
+        parse_relay_config(&std::env::var("KONCLAVE_RELAY_BASES").unwrap_or_default());
+    for entry in &rejected {
+        eprintln!(
+            "konclave-helper: KONCLAVE_RELAY_BASES entry ignored, not an https origin: {entry:?}"
+        );
+    }
+    if relays.is_empty() {
+        eprintln!("konclave-helper: no relay configured (KONCLAVE_RELAY_BASES): every send will be refused");
+    } else {
+        eprintln!(
+            "konclave-helper: sends are published only to {}",
+            relays.join(", ")
+        );
+    }
+    relays
 }
 
 /// The `kind` a sealed viewing-key response carries, so a reader tells an envelope from the
@@ -1598,9 +1646,13 @@ fn parse_registration(body: &[u8]) -> Result<Registration, Resp> {
 }
 
 /// The response for a request admission refused.
-fn refusal(why: admission::Refused) -> Response<std::io::Cursor<Vec<u8>>> {
-    Response::from_data(json!({ "error": why.message() }).to_string().into_bytes())
-        .with_status_code(429)
+fn refusal(why: admission::Refused) -> Resp {
+    resp(429, json!({ "error": why.message() }).to_string())
+}
+
+/// The HTTP response for an answer, with the CORS headers every answer carries.
+fn http_response(r: Resp) -> Response<std::io::Cursor<Vec<u8>>> {
+    with_cors(Response::from_data(r.body.into_bytes()).with_status_code(r.status))
 }
 
 /// Whether this request is a registration that WILL reach the engine, and is over its limit.
@@ -1625,6 +1677,54 @@ fn new_vault_refusal(
         return None;
     }
     limits.new_vault(client, &reg.group_key, now).err()
+}
+
+/// Everything a worker does with a request once its body is read: admission, the vault's lock,
+/// the handler.
+///
+/// ONE function, called by the worker loop and by the tests. The lock used to be taken inline in
+/// `main()`, where no test could reach it, so what the tests said about serialisation was said
+/// about something other than what production runs (#576).
+#[allow(clippy::too_many_arguments)]
+fn serve(
+    state: &HelperState,
+    cfg: &HelperConfig,
+    locks: &concurrency::VaultLocks,
+    limits: &admission::Limits,
+    client: &str,
+    now: i64,
+    method: &Method,
+    path: &str,
+    body: &[u8],
+    read_token: Option<&str>,
+) -> Resp {
+    // First, because there is no right vault to lock for a request that names two, or whose body
+    // cannot be read by name, and because a registration refused here must not be counted against
+    // its sender's allowance below (#576).
+    let query = path.split_once('?').map_or("", |(_, q)| q);
+    let vault = match concurrency::request_vault(query, body) {
+        Ok(vault) => vault,
+        Err(why) => return resp(400, json!({ "error": why.message() }).to_string()),
+    };
+
+    // Before the vault's lock, so a registration that will be refused never queues behind a vault
+    // that is busy signing.
+    if let Some(refused) = new_vault_refusal(limits, state, client, method, path, body, now) {
+        return refusal(refused);
+    }
+
+    // Held for the whole request, and only when the request names a vault - so health and
+    // anything unrouted never wait for a lock at all. Whichever field the handler reads the vault
+    // from, it is this one: `request_vault` refused the request if any two disagreed, and refused
+    // any body it could not read by name.
+    let lock = vault.map(|v| locks.for_vault(&v));
+    // A handler that panicked would poison this lock and wedge that vault forever; taking the
+    // inner value keeps the vault serving instead.
+    let _guard = lock
+        .as_ref()
+        .map(|m| m.lock().unwrap_or_else(|e| e.into_inner()));
+
+    handle_with_token(state, cfg, method, path, body, read_token)
 }
 
 fn main() {
@@ -1724,7 +1824,7 @@ fn main() {
             // logged: a line per refused request would turn a flood of requests into a flood of
             // log, and would write client addresses to disk, which nothing here needs.
             if let Some(refused) = admission::refuse_flood(&limits, &client, &path, now) {
-                let _ = req.respond(with_cors(refusal(refused)));
+                let _ = req.respond(http_response(refusal(refused)));
                 continue;
             }
             // A public POST with no ceiling is memory exhaustion by one request (#269). The relay
@@ -1742,28 +1842,19 @@ fn main() {
                 konclave_http::ReadPlan::Skip => { /* over the cap: handle an empty body */ }
             }
 
-            // Before the vault's lock, so a registration that will be refused never queues behind
-            // a vault that is busy signing.
-            if let Some(refused) =
-                new_vault_refusal(&limits, &state, &client, &method, &path, &body, now)
-            {
-                let _ = req.respond(with_cors(refusal(refused)));
-                continue;
-            }
-
-            // Held for the whole request, and only when the request names a vault - so health and
-            // anything unrouted never wait for a lock at all.
-            let query = path.split_once('?').map_or("", |(_, q)| q);
-            let lock = concurrency::request_vault(query, &body).map(|v| locks.for_vault(&v));
-            // A handler that panicked would poison this lock and wedge that vault forever; taking
-            // the inner value keeps the vault serving instead.
-            let _guard = lock
-                .as_ref()
-                .map(|m| m.lock().unwrap_or_else(|e| e.into_inner()));
-
-            let r = handle_with_token(&state, &cfg, &method, &path, &body, read_token.as_deref());
-            let out = Response::from_data(r.body.into_bytes()).with_status_code(r.status);
-            let _ = req.respond(with_cors(out));
+            let r = serve(
+                &state,
+                &cfg,
+                &locks,
+                &limits,
+                &client,
+                now,
+                &method,
+                &path,
+                &body,
+                read_token.as_deref(),
+            );
+            let _ = req.respond(http_response(r));
         }));
     }
     for w in pool {
@@ -1846,8 +1937,12 @@ mod tests {
                 let _ = std::fs::create_dir_all(&dir);
                 dir
             },
+            relays: vec![TEST_RELAY.into()],
         }
     }
+
+    /// The one relay the test coordinator is configured to publish to (#270).
+    const TEST_RELAY: &str = "https://relay.test";
 
     #[test]
     fn the_vault_info_publishes_the_change_receiver_and_still_withholds_the_ufvk() {
@@ -2146,7 +2241,7 @@ mod tests {
             expiry_unix: now + 86_400,
             txid: None,
         };
-        p.recompute(now);
+        p.recompute(now, &[]);
         orchestrator::helper::save_proposal(dir, &p).unwrap();
     }
 
@@ -2593,7 +2688,7 @@ mod tests {
             expiry_unix: now + 86_400,
             txid: None,
         };
-        p.recompute(now);
+        p.recompute(now, &[]);
         orchestrator::helper::save_proposal(dir, &p).unwrap();
 
         let unsigned = |member: &str| {
@@ -3283,7 +3378,7 @@ mod tests {
         // proposal/approval/roster check. It is removed; the only send path is an approved proposal.
         let st = HelperState::new();
         seed(&st, "aaaa");
-        let body = br#"{"vault":"aaaa","to":"utest1xyz","amount_zat":1000,"relay_base":"http://x","room":"r"}"#;
+        let body = br#"{"vault":"aaaa","to":"utest1xyz","amount_zat":1000,"relay_base":"https://relay.test","room":"r"}"#;
         let r = handle(&st, &cfg(), &Method::Post, "/api/vault/send", body);
         assert_eq!(r.status, 404, "the raw send route must not exist");
     }
@@ -3620,7 +3715,7 @@ mod tests {
         seed(&st, "aaaa"); // 2 of 3
 
         // unknown vault -> 404
-        let body = br#"{"vault":"zzzz","relay_base":"http://x","room":"r"}"#;
+        let body = br#"{"vault":"zzzz","relay_base":"https://relay.test","room":"r"}"#;
         assert_eq!(
             handle(
                 &st,
@@ -3633,7 +3728,7 @@ mod tests {
             404
         );
         // unknown proposal -> 404
-        let body2 = br#"{"vault":"aaaa","relay_base":"http://x","room":"r"}"#;
+        let body2 = br#"{"vault":"aaaa","relay_base":"https://relay.test","room":"r"}"#;
         assert_eq!(
             handle(
                 &st,
@@ -3985,5 +4080,486 @@ mod tests {
                 );
             }
         }
+    }
+
+    // #576. A vault's lock is taken from what the request NAMES, and its handler acts on what it
+    // READS. Those were two different readings of one request: the lock preferred the query
+    // string, the POST handlers act on the body. So a request could hold one vault's lock and
+    // write another vault's directory, which is the corruption the lock exists to prevent.
+
+    /// Runs `body` through `serve` on another thread while THIS thread holds `vault`'s lock, and
+    /// asserts that `touched` stays false for as long as the lock is held. Whatever the request
+    /// does, it must not change a vault whose lock somebody else holds. Returns its status.
+    fn serve_while_locked(
+        st: &HelperState,
+        c: &HelperConfig,
+        vault: &str,
+        path: &str,
+        body: &str,
+        touched: impl Fn() -> bool,
+    ) -> u16 {
+        let locks = concurrency::VaultLocks::new();
+        let limits = admission::Limits::new();
+        let held = locks.for_vault(vault);
+        let guard = held.lock().expect("hold the vault's lock");
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::scope(|s| {
+            let worker = s.spawn(|| {
+                let r = serve(
+                    st,
+                    c,
+                    &locks,
+                    &limits,
+                    "203.0.113.7",
+                    T0,
+                    &Method::Post,
+                    path,
+                    body.as_bytes(),
+                    None,
+                );
+                let _ = tx.send(());
+                r.status
+            });
+            // Long enough for the request to finish if nothing stops it; it either finishes
+            // without touching the vault, or it is still waiting for the lock. Both are correct.
+            let _ = rx.recv_timeout(Duration::from_secs(2));
+            assert!(
+                !touched(),
+                "{path} changed {vault} while another request held its lock"
+            );
+            drop(guard);
+            worker.join().expect("worker")
+        })
+    }
+
+    #[test]
+    fn a_vote_never_acts_on_a_vault_whose_lock_is_held() {
+        let st = HelperState::new();
+        seed(&st, "lockedv");
+        let c = cfg();
+        let dir = c.vaults_dir.clone();
+        let _ = claim_members(&dir, "lockedv", &["alice".into(), "bob".into()]);
+
+        for (path, body) in [
+            // The body names the vault; the query names another one, which nothing else holds.
+            (
+                "/api/vault/proposals/p1/approve?vault=decoy",
+                r#"{"vault":"lockedv","member":"bob"}"#,
+            ),
+            // A JSON array: the handler reads its fields by position, and nothing named `vault`
+            // is there for the lock to read.
+            ("/api/vault/proposals/p1/approve", r#"["lockedv","bob"]"#),
+            // A field a JSON value refuses and the handler skips.
+            (
+                "/api/vault/proposals/p1/approve",
+                r#"{"vault":"lockedv","member":"bob","pad":1e400}"#,
+            ),
+        ] {
+            an_open_two_of_two_proposal(&dir, "lockedv");
+            let status = serve_while_locked(&st, &c, "lockedv", path, body, || {
+                !load_proposal(&dir, "lockedv", "p1", now_unix())
+                    .expect("the proposal")
+                    .approvals
+                    .is_empty()
+            });
+            assert_eq!(status, 400, "{path} {body}");
+        }
+    }
+
+    /// The same defect inside the body: a registration route acts on `group_key`, and the lock used
+    /// to prefer `vault` when both were present.
+    #[test]
+    fn a_device_registration_never_acts_on_a_vault_whose_lock_is_held() {
+        let st = HelperState::new();
+        let gk = "ab".repeat(32);
+        seed(&st, &gk);
+        let c = cfg();
+        let dir = c.vaults_dir.clone();
+        let device = "cd".repeat(32);
+
+        for body in [
+            format!(r#"{{"group_key":"{gk}","vault":"decoy","device_pub":"{device}"}}"#),
+            format!(r#"["{gk}","{device}"]"#),
+        ] {
+            let status = serve_while_locked(&st, &c, &gk, "/api/vault/devicekey", &body, || {
+                !orchestrator::helper::load_device_records(&dir, &gk).is_empty()
+            });
+            assert_eq!(status, 400, "{body}");
+        }
+    }
+
+    /// The case in #576, as it was reproduced against the real binary: a member votes and renames
+    /// themselves at the same instant, each request carrying a different query string, and then
+    /// votes again under their new name. Serialised, that is one approval whichever request ran
+    /// first. Interleaved, the vote saves under the old name after the rename has migrated every
+    /// proposal, and the second vote makes it two: one person, a 2-of-2 quorum.
+    ///
+    /// Rounds of the shapes the app sends and of every shape that used to reach the vault without
+    /// its lock, because the honest ones must keep working and the others must never land. It
+    /// checks each request's status, so "serialised" cannot pass as "never ran", and asserts on the
+    /// raw approvals, not on the state, so that counting members (#575) cannot hide the race.
+    #[test]
+    fn a_vote_and_a_rename_of_one_vault_never_interleave() {
+        let st = HelperState::new();
+        seed(&st, "race");
+        let c = cfg();
+        let dir = c.vaults_dir.clone();
+        let locks = concurrency::VaultLocks::new();
+        let limits = admission::Limits::new();
+        // (vote query, vote body, rename query, rename body, honest). The honest shapes are the two
+        // the app sends; each of the others reached the vault without its lock before #576.
+        let vote = r#"{"vault":"race","member":"alice601"}"#;
+        let rename = r#"{"vault":"race","old":"alice601","new":"alice602"}"#;
+        let vote_pad = r#"{"vault":"race","member":"alice601","pad":1e400}"#;
+        let rename_pad = r#"{"vault":"race","old":"alice601","new":"alice602","pad":1e400}"#;
+        let shapes = [
+            ("", vote, "", rename, true),
+            ("?vault=race", vote, "?vault=race", rename, true),
+            ("?vault=decoy-a", vote, "?vault=decoy-b", rename, false),
+            (
+                "",
+                r#"["race","alice601"]"#,
+                "",
+                r#"["race","alice601","alice602"]"#,
+                false,
+            ),
+            ("", vote_pad, "", rename_pad, false),
+            (
+                "?vault=decoy-a",
+                vote_pad,
+                "?vault=decoy-b",
+                rename_pad,
+                false,
+            ),
+        ];
+        let post = |path: &str, body: &str| {
+            serve(
+                &st,
+                &c,
+                &locks,
+                &limits,
+                "203.0.113.7",
+                T0,
+                &Method::Post,
+                path,
+                body.as_bytes(),
+                None,
+            )
+            .status
+        };
+        let mut interleaved = 0;
+        for round in 0..300 {
+            let (vote_q, vote_body, rename_q, rename_body, honest) = shapes[round % shapes.len()];
+            orchestrator::helper::save_members(&dir, "race", &["alice601".into(), "bob".into()])
+                .expect("reset the roster");
+            an_open_two_of_two_proposal(&dir, "race");
+
+            let start = std::sync::Barrier::new(2);
+            let (voted, renamed) = std::thread::scope(|s| {
+                let v = s.spawn(|| {
+                    start.wait();
+                    post(
+                        &format!("/api/vault/proposals/p1/approve{vote_q}"),
+                        vote_body,
+                    )
+                });
+                let r = s.spawn(|| {
+                    start.wait();
+                    post(&format!("/api/vault/members/rename{rename_q}"), rename_body)
+                });
+                (v.join().expect("vote"), r.join().expect("rename"))
+            });
+            // Serialised and not merely refused: an honest rename runs, and the vote either runs
+            // first or finds the name already gone. Every other shape is refused outright.
+            if honest {
+                assert_eq!(renamed, 200, "round {round}: the honest rename ran");
+                assert!(
+                    voted == 200 || voted == 403,
+                    "round {round}: the honest vote ran, or found the old name gone: {voted}"
+                );
+            } else {
+                assert_eq!((voted, renamed), (400, 400), "round {round}: {vote_body}");
+            }
+
+            // She votes again under whatever the roster now calls her seat.
+            let her_name = load_members(&dir, "race")[0].clone();
+            post(
+                "/api/vault/proposals/p1/approve",
+                &format!(r#"{{"vault":"race","member":"{her_name}"}}"#),
+            );
+
+            let p = load_proposal(&dir, "race", "p1", now_unix()).expect("the proposal");
+            if p.approvals.len() != 1 {
+                interleaved += 1;
+                eprintln!("round {round} ({vote_body}): {:?}", p.approvals);
+            }
+        }
+        assert_eq!(
+            interleaved, 0,
+            "a vote and a rename of one vault ran at the same time"
+        );
+    }
+
+    /// A request refused for naming two vaults is refused BEFORE admission, so a registration
+    /// refused that way is not counted against its sender's allowance for new vaults: admission
+    /// counts only what will reach the engine (#558).
+    #[test]
+    fn a_registration_refused_for_naming_two_vaults_costs_no_allowance() {
+        let st = HelperState::new();
+        let c = cfg();
+        let locks = concurrency::VaultLocks::new();
+        let limits = admission::Limits::new();
+        for n in 0..20u32 {
+            let body = format!(
+                r#"{{"group_key":"{n:064x}","vault":"decoy","name":"v","threshold":2,"total":2}}"#
+            );
+            let r = serve(
+                &st,
+                &c,
+                &locks,
+                &limits,
+                "203.0.113.7",
+                T0,
+                &Method::Post,
+                "/api/vault",
+                body.as_bytes(),
+                None,
+            );
+            assert_eq!(r.status, 400, "{}", r.body);
+        }
+        assert_eq!(
+            registering(&limits, &st, "203.0.113.7", &register_body(999, 2, 2)),
+            None,
+            "the allowance is untouched"
+        );
+    }
+
+    // #575. An approval is a NAME, and the count trusted strings: `vote` removed duplicates by exact
+    // string and `recompute` counted the list. While a vault still took unsigned writes, anyone
+    // holding its id could create a proposal under another spelling of a member's name, or under a
+    // name on no roster at all, and the proposer is recorded as approving. Once the vault required
+    // signatures, that member's signed vote was recorded under the roster's spelling - a second
+    // string - and a 2-of-2 proposal read as approved by both.
+    #[test]
+    fn an_approval_planted_while_the_vault_was_open_does_not_count_once_it_is_signed() {
+        use konclave_seal::WriteAction;
+        for planted in ["alice ", "alice\u{00a0}", "mallory"] {
+            let st = HelperState::new();
+            seed(&st, "planted");
+            let mut two_of_two = st.get("planted").expect("seeded");
+            two_of_two.total = 2;
+            st.insert(two_of_two);
+            let c = cfg();
+            let dir = &c.vaults_dir;
+            let _ = claim_members(dir, "planted", &["alice".into(), "bob".into()]);
+
+            // 1. The vault is open: no device has registered a write key, so an unsigned proposal
+            //    under any name is accepted, and its proposer is recorded as approving.
+            let created = handle(
+                &st,
+                &c,
+                &Method::Post,
+                "/api/vault/proposals",
+                format!(
+                    r#"{{"vault":"planted","proposer":"{planted}","to":"{TESTNET_ORCHARD_UA}","amount_zat":1000}}"#
+                )
+                .as_bytes(),
+            );
+            assert_eq!(created.status, 200, "{planted:?}: {}", created.body);
+            let id = serde_json::from_str::<serde_json::Value>(&created.body).expect("json")["id"]
+                .as_str()
+                .expect("an id")
+                .to_string();
+
+            // 2. A device registers its write key: from now on the vault requires signatures.
+            let sk = alice_registers_seat_one(dir, "planted");
+
+            // 3. Alice votes, signed, for her own seat.
+            let env = signed_as_seat_one(&sk, "planted", WriteAction::Approve, &id, "n1");
+            let voted = handle(
+                &st,
+                &c,
+                &Method::Post,
+                &format!("/api/vault/proposals/{id}/approve"),
+                format!(r#"{{"vault":"planted","member":"alice",{env}}}"#).as_bytes(),
+            );
+            assert_eq!(voted.status, 200, "{planted:?}: {}", voted.body);
+            // The state the vote answers with is the one the screen shows: counted the same way.
+            let answered: serde_json::Value = serde_json::from_str(&voted.body).expect("json");
+            assert_eq!(answered["state"], "pending", "{planted:?}: {}", voted.body);
+
+            let p = load_proposal(dir, "planted", &id, now_unix()).expect("the proposal");
+            assert_eq!(
+                p.state, "pending",
+                "{planted:?} and alice are one approval at most: {:?}",
+                p.approvals
+            );
+            // Her own vote replaced a spelling of her name; a name on no seat stays on record and
+            // counts for nobody.
+            let expected: Vec<String> = if planted == "mallory" {
+                vec!["mallory".into(), "alice".into()]
+            } else {
+                vec!["alice".into()]
+            };
+            assert_eq!(p.approvals, expected, "{planted:?}");
+
+            // The send gate reads the same count, so the planted approval cannot open a ceremony.
+            let env = signed_as_seat_one(&sk, "planted", WriteAction::Send, &id, "n2");
+            let send = handle(
+                &st,
+                &c,
+                &Method::Post,
+                &format!("/api/vault/proposals/{id}/send"),
+                format!(
+                    r#"{{"vault":"planted","relay_base":"https://relay.test","room":"r",{env}}}"#
+                )
+                .as_bytes(),
+            );
+            assert_eq!(send.status, 409, "{planted:?}: {}", send.body);
+        }
+    }
+
+    /// A payment or a payroll is answered with its state when it is created, and the proposer is
+    /// recorded as approving. That state is counted against the roster too: on a 1-of-2 vault a
+    /// proposer on no seat approves nothing.
+    #[test]
+    fn a_new_proposal_is_counted_against_the_roster() {
+        let st = HelperState::new();
+        seed(&st, "oneoftwo");
+        let mut quorum = st.get("oneoftwo").expect("seeded");
+        (quorum.threshold, quorum.total) = (1, 2);
+        st.insert(quorum);
+        let c = cfg();
+        let _ = claim_members(&c.vaults_dir, "oneoftwo", &["alice".into(), "bob".into()]);
+
+        for (path, body) in [
+            (
+                "/api/vault/proposals",
+                format!(
+                    r#"{{"vault":"oneoftwo","proposer":"mallory","to":"{TESTNET_ORCHARD_UA}","amount_zat":1000}}"#
+                ),
+            ),
+            (
+                "/api/vault/payroll",
+                format!(
+                    r#"{{"vault":"oneoftwo","proposer":"mallory","lines":[{{"to":"{TESTNET_ORCHARD_UA}","amount_zat":1000}}]}}"#
+                ),
+            ),
+        ] {
+            let r = handle(&st, &c, &Method::Post, path, body.as_bytes());
+            assert_eq!(r.status, 200, "{path}: {}", r.body);
+            let p: serde_json::Value = serde_json::from_str(&r.body).expect("json");
+            assert_eq!(p["state"], "pending", "{path}: {}", r.body);
+        }
+    }
+
+    // #270. `relay_base` came from the request body and went to `curl` unchecked: the coordinator
+    // would fetch any URL from its own network, and on a vault where not every seat had registered
+    // a device key the signing request - who the vault pays and how much - went out in clear text
+    // to whatever address the request named.
+
+    /// A 2-of-3 proposal on `vault` that already has its quorum, so a send reaches every gate.
+    fn a_ready_proposal(dir: &std::path::Path, vault: &str) {
+        let now = now_unix();
+        let p = HelperProposal {
+            id: "p1".into(),
+            vault_id: vault.into(),
+            kind: "payment".into(),
+            to: TESTNET_ORCHARD_UA.into(),
+            amount_zat: 1000,
+            memo: None,
+            lines: vec![],
+            proposer: "alice".into(),
+            state: "ready".into(),
+            approvals: vec!["alice".into(), "bob".into()],
+            refusals: vec![],
+            threshold: 2,
+            total: 3,
+            created_at_unix: now,
+            expiry_unix: now + 86_400,
+            txid: None,
+        };
+        orchestrator::helper::save_proposal(dir, &p).unwrap();
+    }
+
+    fn send_to(st: &HelperState, c: &HelperConfig, relay: &str, room: &str) -> Resp {
+        let body = json!({ "vault": "relayv", "relay_base": relay, "room": room }).to_string();
+        handle(
+            st,
+            c,
+            &Method::Post,
+            "/api/vault/proposals/p1/send",
+            body.as_bytes(),
+        )
+    }
+
+    #[test]
+    fn a_send_is_published_only_to_the_configured_relay() {
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let c = cfg();
+        a_ready_proposal(&c.vaults_dir, "relayv");
+
+        for relay in [
+            "https://evil.example",
+            "http://relay.test",
+            "-K/etc/passwd",
+            "--config=/etc/passwd",
+            "https://relay.test@evil.example",
+            "https://relay.test.evil.example",
+            "https://relay.test:8443",
+            "https://relay.test/../evil",
+            "HTTPS://RELAY.TEST",
+            " https://relay.test",
+            "",
+        ] {
+            let r = send_to(&st, &c, relay, "ROOM2345");
+            assert_eq!(r.status, 400, "{relay:?}: {}", r.body);
+            assert!(
+                r.body.contains("only talks to its own relay"),
+                "{relay:?}: {}",
+                r.body
+            );
+        }
+
+        // The room is part of the URL the coordinator calls: the app sends a short code or 32 hex
+        // characters, and nothing else may shape the path or the query.
+        let long = "A".repeat(65);
+        for room in [
+            "",
+            "a/b",
+            "x?since=99",
+            "..",
+            "r%2F",
+            "sala\u{e9}",
+            long.as_str(),
+        ] {
+            let r = send_to(&st, &c, TEST_RELAY, room);
+            assert_eq!(r.status, 400, "{room:?}: {}", r.body);
+            assert!(r.body.contains("room"), "{room:?}: {}", r.body);
+        }
+
+        // The configured relay, as the app sends it, passes this gate and goes on to the engine,
+        // which the test coordinator does not have.
+        for relay in [TEST_RELAY, "https://relay.test/"] {
+            let r = send_to(&st, &c, relay, "0123456789abcdef0123456789abcdef");
+            assert_ne!(r.status, 400, "{relay:?}: {}", r.body);
+            assert!(!r.body.contains("relay"), "{relay:?}: {}", r.body);
+        }
+    }
+
+    /// No compiled-in default: a coordinator with no relay configured refuses every send rather
+    /// than guessing one, which could be the other environment's.
+    #[test]
+    fn a_coordinator_with_no_relay_configured_refuses_every_send() {
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let mut c = cfg();
+        c.relays.clear();
+        a_ready_proposal(&c.vaults_dir, "relayv");
+
+        let r = send_to(&st, &c, TEST_RELAY, "ROOM2345");
+        assert_eq!(r.status, 503, "{}", r.body);
+        assert!(r.body.contains("no relay configured"), "{}", r.body);
     }
 }

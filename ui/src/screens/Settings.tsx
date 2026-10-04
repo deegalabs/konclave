@@ -336,7 +336,7 @@ export default function Settings() {
               screen while someone is looking over a shoulder. The app already veils it elsewhere
               through the same global reveal, so showing it in clear HERE was the inconsistency. */}
           <span className="set-v mono">
-            {vault ? <Secret sm>{shortAddr(vault.orchard_address)}</Secret> : '-'}
+            {vault?.orchard_address ? <Secret sm>{shortAddr(vault.orchard_address)}</Secret> : '-'}
           </span>
         </div>
         {/* The "Chave do grupo" row is GONE. It printed a truncated public key in hex on a screen

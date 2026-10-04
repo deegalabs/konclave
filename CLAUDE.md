@@ -227,9 +227,12 @@ Facts (verified 2026-06-30):
 1. Shielded-first (Orchard). A transparent destination is an explicit, warned exception.
 2. Data minimization. No telemetry. Nothing collected/logged/transmitted without need.
 3. Secrets never persist outside the OS secure vault. Never in plaintext on disk, log, URL, query string.
-4. The relay is **blind** (sealed or public material only). The hosted coordinator is
-   **share-blind**: it never receives, derives or stores a share and cannot spend, but it holds
-   each vault's viewing key and reads its books; moving that key to the devices is #516.
+4. The relay is **blind** (sealed or public material only; until every seat of a vault has registered
+   its device key, that vault's signing request crosses it unsealed, #63). The hosted coordinator is
+   **share-blind**: it never receives, derives or stores a share and cannot move funds on its own,
+   but it builds the transactions the quorum signs (until #567 is fixed, a payment the
+   quorum signs is only as safe as the coordinator), and it holds each vault's viewing key and
+   reads its books; moving that key to the devices is #516.
    Documented and demonstrable. (This line said "the coordination server is blind" until
    2026-09-30. The hosted coordinator never was, and the docs say so since #595.)
 5. Encrypted memos (payslip) = sensitive data; only the recipient/UFVK reads them.
@@ -389,7 +392,9 @@ Ironwood: **proven on mainnet**. The cross-device broadcast is **no longer an op
 local-first *desktop* app, and the desktop shell exists (v0.2.0). What ships and is used is the
 browser path, and that is not a retreat from the principle: the key share still never leaves the
 device (sealed in the browser's own storage, signed in WASM on the device), the relay is a blind
-mailbox and the helper is **view-only** and never receives, derives or stores a share. What moved is
+mailbox (for a payment's content, once every seat has registered its device key) and the helper is
+**share-blind**: it never receives, derives or stores a share, though it holds each vault's viewing
+key and builds what the quorum signs. What moved is
 the *delivery* - a browser instead of a binary - not where the secret lives. Read §2's "local-first
 desktop" as the original intent and ADR-0005 as the delivery that carries it today.
 
@@ -411,10 +416,12 @@ desktop" as the original intent and ADR-0005 as the delivery that carries it tod
 (#67, primitive proven byte-exact vs the signer). PIN-gated admission + vault fingerprint close the
 invite-as-bearer concern (#67 prevention / #68 detection, both live-validated 2-tab).
 
-**Desktop (Tauri) - RELEASED, latest v0.8.0 (2026-09-30); the line opened at v0.2.0 (2026-08-03).** The desktop line shipped: real `src-tauri/`
-code (Tauri shell over the `orchestrator`) tagged **`v0.2.0`**, with Windows/macOS/Linux installers.
-The web app stays the primary delivery (ADR-0005); desktop is the optional native shell. **Still open:**
-live **per-platform hardware** validation (the GTK/WSLg window does not render here, ADR-0004).
+**Desktop (Tauri) - RELEASED, latest v0.8.0 (2026-09-30); the line opened at v0.2.0 (2026-08-03).** The desktop line shipped: a Tauri
+shell (`src-tauri/`) around the same `ui/` (it does not embed the `orchestrator` yet, #212), tagged
+**`v0.2.0`**, with Windows/macOS/Linux installers. The web app stays the primary delivery (ADR-0005);
+desktop is the optional native shell. **Still open:** embedding the orchestrator and the OS keychain
+(#212), live **per-platform hardware** validation (the GTK/WSLg window does not render here,
+ADR-0004), and signed installers (#606).
 
 **The failure that repeated most, and is now a working rule.** Four separate defects this week were
 the same shape: **one rule, two implementations, and only one of them updated.** #424 (`/net` never
@@ -469,7 +476,7 @@ does**.
 > unlock). The guard is a source scan - a capability the UI offers to USE must be offered somewhere
 > to CREATE - and it excludes test files on purpose, since counting them rebuilds the blind spot.
 
-**H1 is DONE and live, in BOTH rounds since 2026-09-29** (see the two corrections below). Every device recomputes the ZIP-244 sighash
+**H1 is DONE and live, in BOTH rounds since 2026-09-29** (see the three corrections below). Every device recomputes the ZIP-244 sighash
 from **its own** PCZT and signs that, refusing the ceremony if it disagrees with the requested one,
 and it decodes and shows what the transaction pays before contributing a share. `SigningMachine` is
 what the background signer drives, so this is the live path, not a lab one. #62 is closed.
@@ -491,6 +498,24 @@ what the background signer drives, so this is the live path, not a lab one. #62 
 > refuses a package over anything else, so there is no call that skips it. Found by checking one
 > sentence of the ZCG application against the code, not by a report. The same shape as the rule
 > above: a check that lives beside the thing it protects is a second implementation.
+>
+> **And "decodes and shows what the transaction pays" overstated it a third time, until the #610 fix.**
+> What the device showed and compared was not bound to what the signature covers. #610 made
+> `read_payment` the one reader of a PCZT's outputs: each output checked against its note
+> commitment, the address label against the receiver, each paying output opened for its memo, the
+> fee bounded by ZIP 317, and only what the sighash covers read. The same review tightened the
+> gate around it: a refusal clears the ceremony so nothing later moves the device on to sign; the
+> vault's own receivers and deposit address come from the device's record (`ourReceiversFrom`,
+> `addressText`), not from each coordinator answer; `getVault` refuses an answer about any vault but
+> the selected one; and a v1 backup no longer supplies an address or payee book, and must have an id
+> equal to its group key, a sealed part that is a share and a 32-byte secret. The full account of
+> each defect, with dates and how it was found, is written for the disclosure and goes into this
+> paragraph with it. Still open: #567 (the approved lines come from the coordinator at signing),
+> `/net` signing with no content gate (no issue of its own; #363 is the same driver's replay gap),
+> a fee ceiling that grows with actions the builder chooses, the vault's own receivers, both taken
+> from the coordinator once (at creation, or on first read for an older record), a v1 backup that is only
+> partly sealed (Known limits: compare the fingerprint), and no pause to read the
+> device's own reading before its share moves.
 
 **Privacy: a leaked vault id no longer opens the books (#388) - DONE and LIVE (2026-08-30).**
 Shipped to production (`konclave-demo.vercel.app` / `www.konclave.xyz`) and validated on mainnet the
@@ -602,11 +627,12 @@ out **sealed** to the vault's devices, with the plaintext path closing per vault
 - **H2 CONFIDENTIALITY is DONE (#63), merged and proven live (2026-08-29).** The device-key handshake
   landed: each device derives a persistent comms key from its share, registers it, and the helper
   hybrid-seals the SignRequest to the seated devices; the ceremony no longer re-broadcasts the PCZT.
-  The relay is blind to who a vault pays and how much (proof: `047fe6ca`, room trace). Live validation
+  The relay is blind to who a vault pays and how much once every seat has registered its device key;
+  until then the helper sends the request unsealed (proof: `047fe6ca`, room trace). Live validation
   caught two defects unit tests missed (the `sreq` still leaked the PCZT; sealing per-device overflowed
   the relay's 128 KiB cap - fixed by hybrid sealing). The **ORIGIN-AUTHENTICATION** follow-on has since
-  landed: **#392 is closed** (#401 authenticated signing-room seating, so an outsider can no longer
-  hijack a seat or forge room messages); the residual ceremony-DoS vectors - an unproven rejoin
+  landed: **#392 is closed** (#401 authenticated signing-room seating and #425 the arming tally, so an outsider can no
+  longer hijack a seat or forge the tally); the residual ceremony-DoS vectors - an unproven rejoin
   grabbing an empty seat, or flooding the room - are tracked as **#399/#400**.
   **That sentence was true of one driver only, and is true of both since 2026-09-05.** #401 authenticated
   the background signer and nothing else: `/net`, a second ceremony driver that is still registered and
@@ -629,23 +655,31 @@ out **sealed** to the vault's devices, with the plaintext path closing per vault
   (`konclave-staging`), on mainnet, with the helper's `/data/vaults` empty - properly isolated. The
   CSP admits both (#440), so pointing a preview at it is `VITE_RELAY_BASE` alone.
   The objection this entry recorded was real and was answered rather than removed: a staging helper
-  built from `main`'s pins would run a different engine than production. It was solved by reusing the
-  SAME out-of-band binaries instead of rebuilding, so both environments run one engine (the two deploy
-  contexts hard-link the same files). Since 2026-09-21 that one engine is the July build, in both: see
-  the engine entry below. That the entry did not notice is worth
+  built from `main`'s pins would run a different engine than production. It was answered by reusing
+  the SAME out-of-band binaries instead of rebuilding, which makes staging ABLE to run production's
+  engine, not a guarantee that it does. While an engine change is under test (#608 is the first,
+  under test since 2026-10-02), staging switches between production's set and the candidate, and its relay can
+  run a different commit from production's. So before reading a staging result as a fact about
+  production, check what staging answers at that moment: the relay's `/health` reports a
+  `source_digest`, and the engine binaries are checked inside the container. Production's engine is
+  in the engine entry below. This line said "both environments run one engine" until 2026-10-03.
+  That the entry did not notice is worth
   more than the entry: nothing here is checked against the thing it describes unless someone looks.
-- **`/net` multi-note over the live relay** (unit-tested; single-spend is live-proven), and **Tauri**
-  live per-platform hardware validation (above).
+- **`/net` multi-note over the live relay** (unit-tested; single-spend is live-proven), and the
+  **Tauri** open items above (#212, #606, per-platform hardware validation).
 
 **Ops + hardening (2026-08).**
-- **The engine: production runs the July build, and the released line is re-cut onto `main` (#120).**
+- **The engine: until the release that carries #608 is deployed, production runs the July build; #608
+  re-cut the released line onto `main` (#120).**
   Measured inside the coordinator container on 2026-10-01 (read-only `stat`): `konclave-signer`
   (2026-07-28) and `zcash-devtool` (2026-07-26) on librustzcash `42ffd0d` (pczt 0.7), and `zcash-sign`
   (2026-07-09, frost-tools #587). The released line (pczt 0.9.3 / `zcash_client_backend` 0.24.0 /
   `zcash_primitives` 0.30.1 / orchard 0.15.5) ran in production only from 2026-08-24 to 2026-09-21,
-  built from #259's branch. The `cp` steps in `deploy/helper/README.md` copy from build directories
-  that still hold July builds, and reassembling the deploy context from them on 2026-09-21 put the
-  July engine back (#522). This entry said production ran the released line until 2026-10-01, and so
+  built from #259's branch. Until #608, the `cp` steps in `deploy/helper/README.md` copied from build
+  directories that still held July builds, and reassembling the deploy context from them on
+  2026-09-21 put the July engine back (#522); #608 replaced them: our two binaries are built from the
+  commit being deployed, and the two external tools are checked by sha256 against
+  `engine/versions.lock`. This entry said production ran the released line until 2026-10-01, and so
   did comments on #120 and #522 that day, corrected the same day. #259 will not be merged (221
   commits behind `main`, and its committed wasm predates #364 and #281): #120 re-cuts the same line
   onto `main`, and its deploy is an engine upgrade for production, gated on a staging run and a live

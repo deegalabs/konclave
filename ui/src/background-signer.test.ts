@@ -63,7 +63,7 @@ function makeDev(tag: string, bus: Bus, mat: () => { keyPackage: Uint8Array; gro
     signingMaterial: mat,
     // #281 is asserted in signing-machine.test.ts, where the ceremony's own refusal lives. This
     // file exercises the GOVERNANCE gate (approve/arm), so the money gate is permissive here.
-    paysWhatWasApproved: () => true,
+    decideApproval: () => 'match',
     seatOf: (t) => SEATS[t],
     seatIsProven: () => true, // #399 is exercised in signing-machine.test.ts; all seats real here
 

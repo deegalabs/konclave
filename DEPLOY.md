@@ -29,7 +29,8 @@ Static Vite build at **konclave.xyz** / **konclave-demo.vercel.app**, project `k
 connected to `deegalabs/konclave`. A push to `main` builds and promotes to production.
 
 - Root Directory `ui`, framework `vite`, build `npm run build` → `dist`
-- `VITE_RELAY_BASE = https://konclave-relay-production.up.railway.app`
+- `VITE_RELAY_BASE = https://relay.konclave.xyz` (read from the live bundle on 2026-10-03; builds
+  before the custom domain carried `https://konclave-relay-production.up.railway.app`)
 - `ui/src/wasm-pkg/` is committed, so the build needs no Rust toolchain
 
 **Verify:** the footer shows `v<version> · <commit>`. Compare the commit with `main`.
@@ -47,10 +48,20 @@ The full recipe, including the engine binaries and the reason they are not in gi
 [deploy/helper/README.md](deploy/helper/README.md). The short form:
 
 ```sh
-CARGO_TARGET_DIR=~/ktarget cargo build --release --manifest-path helper-server/Cargo.toml
-# assemble ~/konclave-helper-deploy/ fresh (four binaries + Dockerfile + entrypoint.sh)
+REV=$(git rev-parse --short HEAD)
+CARGO_TARGET_DIR=~/ktarget-$REV cargo build --release --manifest-path helper-server/Cargo.toml
+CARGO_TARGET_DIR=~/ktarget-$REV cargo build --release --manifest-path konclave-signer/Cargo.toml
+# assemble ~/konclave-helper-deploy/ fresh: our two binaries from ~/ktarget-$REV, the two engine
+# tools whose sha256 engine/versions.lock records (checked with sha256 -c), Dockerfile, entrypoint.sh
+# the relays this coordinator may publish to (#270; values per environment in the table below),
+# set BEFORE the first `railway up` of a build that reads them
+railway variables -s konclave-helper --set "KONCLAVE_RELAY_BASES=<the environment's relays>"
 cd ~/konclave-helper-deploy && railway up --ci -s konclave-helper
 ```
+
+A deploy that changes the engine needs a full volume backup first, wallets included: the wallet
+migration is one-way, and an older engine cannot sync a migrated wallet. See
+[deploy/helper/README.md](deploy/helper/README.md).
 
 Two things that have each cost a day:
 
@@ -68,6 +79,35 @@ curl -s .../api/health   # -> {"helper_commit":"<sha>", ...}
 
 The commit must be the one you built. A build from a modified tree reports `<sha>-dirty`, which is
 the difference between an identifier and a guess.
+
+**The coordinator publishes a signing request only to the relays it is configured with (#270).**
+`KONCLAVE_RELAY_BASES` lists them, as comma-separated `https://host[:port]` origins, and a send that
+names any other relay is refused. There is no default: with the variable unset or empty, every send
+is refused (503), and the boot log says so. Set it on the service before the first `railway up` of a
+build that reads it (the command block above); setting a variable can restart the deployment that is
+running, which ignores it. Then verify by behaviour, with no vault needed:
+
+```sh
+curl -s -X POST .../api/vault/proposals/x/send -H 'content-type: application/json' \
+  -d '{"vault":"x","relay_base":"https://example.invalid","room":"ROOM2345"}'
+# 400 "only talks to its own relay": configured. 503 "no relay configured": the variable is missing.
+# 404 "no such vault": a build from before #270.
+# Then once per relay name the app sends (the table below), expecting 404 "no such vault": a 400
+# here means the variable spells that relay differently from the app, and every real send fails.
+curl -s -X POST .../api/vault/proposals/x/send -H 'content-type: application/json' \
+  -d '{"vault":"x","relay_base":"https://relay.konclave.xyz","room":"ROOM2345"}'
+```
+
+Spell each value exactly as the app sends it (`VITE_RELAY_BASE`): the match is exact, so `:443` or a
+trailing dot in the variable would refuse every send.
+
+| environment | `KONCLAVE_RELAY_BASES` |
+|---|---|
+| production | `https://relay.konclave.xyz,https://konclave-relay-production.up.railway.app` |
+| staging | `https://konclave-relay-staging.up.railway.app` |
+
+Production lists both names of the same relay because an installed PWA keeps calling the URL it was
+built with until it updates (see the paragraph on service names below).
 
 ## Blind relay → Railway (by hand)
 
@@ -106,15 +146,21 @@ the same registry would corrupt it. Replicating either one means moving that sta
 load or availability demands it; neither does today, and the 2026-08-27 outage that looked like an
 availability problem was a serial request loop, fixed by a worker pool (#384).
 
-**The services answer on `*.up.railway.app`.** `relay.konclave.xyz` and `helper.konclave.xyz` are
-not set up. Doing it is a migration rather than a setting: `railway domain` on each service, CNAMEs
-in DNS, and then `orchestrator/src/csp.rs`, `ui/src/helper.ts` and Vercel's `VITE_RELAY_BASE` all
-have to name the new origin - **with the old one still allowed**, because an installed PWA keeps
-calling whatever URL it was built with until it updates. A hard switch would cut off every device
-that had not reloaded.
+**The services answer on two names each.** `relay.konclave.xyz` and `helper.konclave.xyz` are live
+and the production app is built against them; checked on 2026-10-03, they report the same
+`source_digest` and `helper_commit` as `konclave-relay-production.up.railway.app` and
+`konclave-helper-production.up.railway.app`. The `*.up.railway.app` names stay allowed - in
+`orchestrator/src/csp.rs` and in the coordinator's `KONCLAVE_RELAY_BASES` - because an installed
+PWA keeps calling whatever URL it was built with until it updates, and a hard switch would cut off
+every device that had not reloaded. Narrowing to one name is a later, deliberate change.
 
-**The deployed engine is not reproducible from `main`.** `zcash-sign`, `zcash-devtool` and
-`konclave-signer` are built out of repo and copied into the image; `engine/versions.lock` on `main`
-pins older versions than the binaries actually deployed. That is the real content of the #259 debt,
-and it is why the release record (`## [x.y.z]` in `CHANGELOG.md`) writes down what each service was
-ANSWERING when a version was cut rather than what it should have been.
+**The deployed engine is reproducible from recorded sources, not bit for bit.** `konclave-signer`
+is built from the commit being deployed; `zcash-devtool` from an upstream rev plus the patch in
+`engine/patches/` (committed on 2026-10-03, after the build that ships, and checked to reproduce
+that build's source tree; see `[source.zcash-devtool]` in `engine/versions.lock`); and `zcash-sign`
+from frost-tools at a recorded rev. Build paths end up in the binaries, so a rebuild on another
+host compiles the same source and hashes differently; the hash that ships is the one the lock
+records. Since #120 the lock pins the released crate line,
+and until the coordinator is redeployed from it, production runs the OLDER (July) engine. That is
+why the release record (`## [x.y.z]` in `CHANGELOG.md`) writes down what each service was ANSWERING
+when a version was cut rather than what it should have been.

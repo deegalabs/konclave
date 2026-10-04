@@ -651,6 +651,9 @@ export class TestVault {
 if (Symbol.dispose) TestVault.prototype[Symbol.dispose] = TestVault.prototype.free;
 
 /**
+ * Every output of a proven PCZT as a JSON array of `{"address": string|null, "value":
+ * number|null, "recipient": hex|null, "memo": string|null}`, each checked against its note
+ * commitment (see `readPayment`, which this is the outputs of). Values are zatoshis.
  * @param {Uint8Array} pczt
  * @returns {string}
  */
@@ -876,6 +879,37 @@ export function pcztSighash(pczt) {
 }
 
 /**
+ * What a proven PCZT pays, as THIS device can confirm it, as JSON: `{"outputs": [...as
+ * describeOutputs...], "feeZat": number, "actions": number}`. This is the reading a device
+ * signs on (#610): every output checked against its note commitment, its address label against
+ * the receiver it pays, each paying output opened for its memo, and the fee bounded by ZIP 317.
+ * A refusal is an error whose message starts with a bracketed code (`[commitment]`, `[label]`,
+ * `[undecryptable]`, `[fee]`, `[shape]`) so the caller can tell the member why.
+ * @param {Uint8Array} pczt
+ * @returns {string}
+ */
+export function readPayment(pczt) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passArray8ToWasm0(pczt, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.readPayment(ptr0, len0);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+/**
  * Encrypt a body ONCE under a raw 32-byte key (hybrid sealing, #63): the helper seals the key to
  * each device, so the SignRequest wire stays flat in the signer count. Exposed for parity/tests.
  * @param {Uint8Array} key
@@ -1012,10 +1046,6 @@ export function signWrite(key_package, vault_id, action, target, seat, ts, nonce
 }
 
 /**
- * Read every Orchard output of a proven PCZT as JSON: `[{"address": string|null, "value":
- * number|null}, ...]`. The UI shows this and confirms it against the approved proposal BEFORE
- * the device signs - the "what am I signing?" check. Addressed entries are real recipients;
- * `address: null` entries are change. Values are zatoshis.
  * The raw Orchard receiver of a unified address, hex - the approved destination in the same
  * space as an output's `recipient`, so the money gate can compare them (#281).
  *

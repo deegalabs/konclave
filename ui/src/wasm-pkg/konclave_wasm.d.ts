@@ -168,6 +168,11 @@ export class TestVault {
     pubkeys(): Uint8Array;
 }
 
+/**
+ * Every output of a proven PCZT as a JSON array of `{"address": string|null, "value":
+ * number|null, "recipient": hex|null, "memo": string|null}`, each checked against its note
+ * commitment (see `readPayment`, which this is the outputs of). Values are zatoshis.
+ */
 export function describeOutputs(pczt: Uint8Array): string;
 
 /**
@@ -234,6 +239,16 @@ export function participantRound2WithRandomizer(sp: Uint8Array, nonces_bytes: Ui
 export function pcztSighash(pczt: Uint8Array): Uint8Array;
 
 /**
+ * What a proven PCZT pays, as THIS device can confirm it, as JSON: `{"outputs": [...as
+ * describeOutputs...], "feeZat": number, "actions": number}`. This is the reading a device
+ * signs on (#610): every output checked against its note commitment, its address label against
+ * the receiver it pays, each paying output opened for its memo, and the fee bounded by ZIP 317.
+ * A refusal is an error whose message starts with a bracketed code (`[commitment]`, `[label]`,
+ * `[undecryptable]`, `[fee]`, `[shape]`) so the caller can tell the member why.
+ */
+export function readPayment(pczt: Uint8Array): string;
+
+/**
  * Encrypt a body ONCE under a raw 32-byte key (hybrid sealing, #63): the helper seals the key to
  * each device, so the SignRequest wire stays flat in the signer count. Exposed for parity/tests.
  */
@@ -275,10 +290,6 @@ export function signRoomMsg(key_package: Uint8Array, msg: Uint8Array): Uint8Arra
 export function signWrite(key_package: Uint8Array, vault_id: string, action: string, target: string, seat: number, ts: number, nonce: string): string;
 
 /**
- * Read every Orchard output of a proven PCZT as JSON: `[{"address": string|null, "value":
- * number|null}, ...]`. The UI shows this and confirms it against the approved proposal BEFORE
- * the device signs - the "what am I signing?" check. Addressed entries are real recipients;
- * `address: null` entries are change. Values are zatoshis.
  * The raw Orchard receiver of a unified address, hex - the approved destination in the same
  * space as an output's `recipient`, so the money gate can compare them (#281).
  *
@@ -306,7 +317,6 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
-    readonly selftest: () => [number, number];
     readonly __wbg_coordinator_free: (a: number, b: number) => void;
     readonly __wbg_round1_free: (a: number, b: number) => void;
     readonly __wbg_testvault_free: (a: number, b: number) => void;
@@ -334,6 +344,8 @@ export interface InitOutput {
     readonly extractRandomizers: (a: number, b: number) => [number, number, number, number];
     readonly injectSigs: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
     readonly pcztSighash: (a: number, b: number) => [number, number, number, number];
+    readonly readPayment: (a: number, b: number) => [number, number, number, number];
+    readonly selftest: () => [number, number];
     readonly uaReceiver: (a: number, b: number) => [number, number, number, number];
     readonly __wbg_devicekey_free: (a: number, b: number) => void;
     readonly __wbg_dkgsession_free: (a: number, b: number) => void;

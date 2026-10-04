@@ -91,6 +91,7 @@ export function envelopeOf(bundle) {
   return { v1, env }
 }
 
+const KEY_HEX = /^[0-9a-f]{64}$/i
 const hex = (u) => [...u].map((b) => b.toString(16).padStart(2, '0')).join('')
 
 /** Decrypt an export. Returns the payload in the v2 shape whichever format the file is. */
@@ -130,9 +131,11 @@ export async function openExport(bundle, passphrase) {
     // closed. So v1 is reassembled here into the shape the report below already expects.
     payload = v1
       ? {
-          name: env.name, myName: env.myName, creatorName: env.creatorName,
-          governance: env.governance, groupKey: env.groupKey, address: env.address,
-          roster: env.roster, createdAt: env.createdAt, beneficiaries: env.beneficiaries,
+          id: env.id, name: env.name, myName: env.myName, creatorName: env.creatorName,
+          governance: env.governance, groupKey: env.groupKey, address: undefined,
+          // Not the payee book: in v1 it is cleartext anyone could have edited, and the app does not
+          // import it (A9).
+          roster: env.roster, createdAt: env.createdAt, beneficiaries: undefined,
           share: hex(new Uint8Array(plain)),
           // v1 predates both, so they are absent by construction, never merely missing.
           accessSecret: null,
@@ -140,7 +143,10 @@ export async function openExport(bundle, passphrase) {
       : JSON.parse(new TextDecoder().decode(plain))
     if (v1 && env.secretCipher && env.secretIv) {
       try {
-        payload.accessSecret = hex(new Uint8Array(await open(env.secretIv, env.secretCipher, 'secretCipher')))
+        // S is 32 bytes; anything else that opens (the envelope pointed at the share's own
+        // ciphertext) is not S, and the app does not take it (A9).
+        const secret = new Uint8Array(await open(env.secretIv, env.secretCipher, 'secretCipher'))
+        if (secret.length === 32) payload.accessSecret = hex(secret)
       } catch (e) {
         // S is optional on v1; its absence is not a failure to open the backup. A field that is not
         // even hex is a damaged file, though, and says so.
@@ -164,7 +170,11 @@ export function shareFacts(hex) {
   try {
     const bytes = Uint8Array.from(hex.match(/../g).map((x) => parseInt(x, 16)))
     const b = JSON.parse(new TextDecoder().decode(bytes))
-    return typeof b === 'object' && b ? b : null
+    // The same test the app applies before it imports a share (`isShareBundle`): the key package and
+    // the group's public keys, as non-empty text. Anything else that opens is not a share.
+    const isBundle = typeof b === 'object' && b && typeof b.kp === 'string' && b.kp !== '' &&
+      typeof b.pubkeys === 'string' && b.pubkeys !== ''
+    return isBundle ? b : null
   } catch {
     return null
   }
@@ -182,7 +192,7 @@ function quorumOf(share) {
 }
 
 /** What this tool can say about a payload that opened: the share, the quorum, and what disagrees. */
-export function examine(payload) {
+export function examine(payload, v1 = false) {
   const share = payload.share ? shareFacts(payload.share) : null
   const quorum = quorumOf(share)
   const roster = Array.isArray(payload.roster) ? payload.roster : []
@@ -193,6 +203,24 @@ export function examine(payload) {
     problems.push(`The share does not decode. The file opened - the passphrase is right and the
     ciphertext is intact - but what came out is not the bundle this device wrote. Do not rely on
     this backup; take a fresh one.`)
+  }
+  if (v1 && (!payload.id || !payload.groupKey)) {
+    problems.push(`This backup has no vault id or group key. Konclave refuses to import it; take a
+    fresh backup.`)
+  } else if (v1 && !(KEY_HEX.test(String(payload.id).trim()) && KEY_HEX.test(String(payload.groupKey).trim()))) {
+    problems.push(`The vault id or the group key in this file is not a 64-character key. Konclave
+    refuses to import it; take a fresh backup.`)
+  }
+  // A v1 whose roster is missing or is not a list is refused by the app.
+  if (v1 && !Array.isArray(payload.roster)) {
+    problems.push(`This backup has no list of members. Konclave refuses to import it; take a fresh
+    backup.`)
+  }
+  // A vault's id is its group key. The app refuses a v1 backup where they differ (it would restore
+  // the seat under another vault's id), so the report says it too.
+  if (payload.id && payload.groupKey &&
+      String(payload.id).trim().toLowerCase() !== String(payload.groupKey).trim().toLowerCase()) {
+    problems.push(`The vault id and the group key in this file differ. ${v1 ? 'Konclave refuses to import it: restored, the seat would answer as another vault. ' : ''}The file was edited; take a fresh backup.`)
   }
   // The ceremony that made the share fixed the member count, and the roster is the names it
   // seated, one per member. The threshold has no second record in an export, so only the count can
@@ -217,22 +245,28 @@ const yes = (v) => (v ? '  yes' : '  NO')
 
 /** The report, one string per block the program prints. */
 export function reportLines(bundle, env, v1, payload, showSecrets = false) {
-  const { share, quorum, problems } = examine(payload)
+  const { share, quorum, problems } = examine(payload, v1)
   const lines = []
+  // A v1 backup keeps the address in the clear, outside what the passphrase protects, so anyone who
+  // could edit the file could have changed it. Konclave does not import it (A9), and neither does
+  // this report present it as the vault's: the address to deposit to is the one the app shows.
+  const address = v1
+    ? '(not trusted in this format: kept outside the encryption, so it may have been edited; Konclave ignores it)'
+    : (payload.address ?? '(none)')
   lines.push(`
   Konclave export · v${bundle.version} · sealed ${new Date(bundle.exportedAt).toISOString().slice(0, 10)} · PBKDF2 ${env.kdfIters ?? 210_000}
 
   Vault      ${payload.name ?? '(unnamed)'}
   You        ${payload.myName ?? '(unrecorded)'}
-  Members    ${(payload.roster ?? []).join(', ') || '(none recorded)'}
-  Address    ${payload.address ?? '(none)'}
+  Members    ${(Array.isArray(payload.roster) ? payload.roster : []).join(', ') || '(none recorded)'}
+  Address    ${address}
 
   Quorum     ${quorum ? `${quorum.t} of ${quorum.n}` : '(not recorded)'}
 
   What a rebuild needs
     your share                  ${yes(payload.share)}${share?.seat !== undefined ? `   (seat ${share.seat})` : ''}
     the quorum it belongs to    ${yes(quorum)}
-    the vault's address         ${yes(payload.address)}
+    the vault's address         ${v1 ? '  from the coordinator on first use' : yes(payload.address)}
     the viewing key (#447)      ${yes(payload.ufvk)}
     the scan floor (#480)       ${yes(payload.birthday !== undefined)}${
   payload.birthday !== undefined ? `   (block ${payload.birthday})` : ''

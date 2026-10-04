@@ -13,6 +13,7 @@ use zcash_protocol::consensus::NetworkType;
 use crate::address::{validate_recipient_on, AddressError};
 use crate::send::{SendConfig, SpendPlan};
 use crate::tools::{run, run_text_all, ToolError};
+use crate::write_auth::{members_counted, same_member};
 
 /// What a hosted blind helper needs to operate vaults. All of it is public tooling and view-only
 /// material: there is no share and no seed anywhere in here, by construction.
@@ -31,6 +32,9 @@ pub struct HelperConfig {
     pub konclave_signer: PathBuf,
     /// Base directory under which each vault's view-only wallet lives (`<vaults_dir>/<vault_id>/wallet`).
     pub vaults_dir: PathBuf,
+    /// The relay base URLs this coordinator may publish a signing request to (#270), from its own
+    /// configuration and never from a request. Empty means none: every send is refused.
+    pub relays: Vec<String>,
 }
 
 impl HelperConfig {
@@ -187,6 +191,19 @@ pub fn vault_balance(
     cfg: &HelperConfig,
     reg: &VaultRegistration,
 ) -> Result<VaultBalance, ToolError> {
+    // Migrate the wallet database to the schema THIS engine expects before touching it. Once per
+    // read, and outside the sync throttle below: `balance` reads the database unconditionally, so a
+    // throttled read on a wallet written by an older engine would still fail (in August:
+    // `no such table: orchard_ironwood_migrations`). A failed migration is logged, not fatal: the
+    // read goes ahead, and if the schema really is wrong the read is what fails. The log carries the
+    // vault's 8-character prefix only; the devtool's stderr names the wallet path, which holds the id.
+    if let Err(e) = crate::wallet::upgrade(&cfg.devtool, &reg.wallet_dir) {
+        let short = reg.vault_id.get(..8).unwrap_or(&reg.vault_id);
+        eprintln!(
+            "vault {short}: wallet upgrade failed: {}",
+            e.to_string().replace(&reg.vault_id, short)
+        );
+    }
     // Throttle the sync: only hit lightwalletd if the last sync for this vault is stale. A fresh
     // deposit still lands within SYNC_THROTTLE_SECS, but rapid balance reads no longer each block on
     // a full sync (#194). The balance below reflects whatever the wallet last synced.
@@ -331,13 +348,20 @@ fn kind_payment() -> String {
 }
 
 impl HelperProposal {
-    /// Recompute the state from the votes / clock. Terminal states (`sent`, `refused`, `expired`)
-    /// stick. `ready` once approvals reach the threshold; `refused` once refusals make the quorum
-    /// unreachable (`total - refusals < threshold`); `expired` past the deadline.
-    pub fn recompute(&mut self, now: u64) {
+    /// Recompute the state from the votes / clock. `sent` sticks, and so does `expired` once its
+    /// deadline has passed. `ready` once approvals reach the threshold; `refused` once refusals make
+    /// the quorum unreachable (`total - refusals < threshold`), derived on every call, so a withdrawn
+    /// refusal moves a proposal back out of it (#369); `expired` past the deadline.
+    ///
+    /// Votes are counted as MEMBERS of `roster`, the vault's current member list, not as strings
+    /// (#575): see [`members_counted`]. The roster is a parameter rather than something this reads,
+    /// so no caller can count without it. A vault with no roster counts every entry, as before.
+    pub fn recompute(&mut self, now: u64, roster: &[String]) {
         if self.state == "sent" {
             return;
         }
+        let approvals = members_counted(&self.approvals, roster);
+        let refusals = members_counted(&self.refusals, roster);
         // ORDER MATTERS, and it is not chronological: refusal is evaluated BEFORE expiry.
         //
         // A refusal is a DECISION the group made; an expiry is a deadline nobody met. When both
@@ -354,7 +378,7 @@ impl HelperProposal {
         // past its deadline correctly falls through to `expired` below.
         if self.total > 0
             && self.threshold > 0
-            && (self.total as usize).saturating_sub(self.refusals.len()) < self.threshold as usize
+            && (self.total as usize).saturating_sub(refusals) < self.threshold as usize
         {
             self.state = "refused".into();
             return;
@@ -363,7 +387,7 @@ impl HelperProposal {
             self.state = "expired".into();
             return;
         }
-        self.state = if self.threshold > 0 && self.approvals.len() >= self.threshold as usize {
+        self.state = if self.threshold > 0 && approvals >= self.threshold as usize {
             "ready".into()
         } else {
             "pending".into()
@@ -381,18 +405,20 @@ impl HelperProposal {
     /// holding the vault id, left the group with a proposal it could not revive. Accepting a vote
     /// here lets a member withdraw a refusal, and `recompute` moves the proposal back out of
     /// `refused` on its own. The refusal is still recorded; it just stops being a one-way door.
-    pub fn vote(&mut self, member: &str, approve: bool, now: u64) -> bool {
+    pub fn vote(&mut self, member: &str, approve: bool, now: u64, roster: &[String]) -> bool {
         if self.state == "sent" || self.state == "expired" {
             return false;
         }
-        self.approvals.retain(|m| m != member);
-        self.refusals.retain(|m| m != member);
+        // By member, not by exact string (#575): otherwise an entry recorded for this member under
+        // another spelling outlives what they say now.
+        self.approvals.retain(|m| !same_member(m, member));
+        self.refusals.retain(|m| !same_member(m, member));
         if approve {
             self.approvals.push(member.to_string());
         } else {
             self.refusals.push(member.to_string());
         }
-        self.recompute(now);
+        self.recompute(now, roster);
         true
     }
 }
@@ -428,7 +454,7 @@ pub fn save_proposal(vaults_dir: &Path, p: &HelperProposal) -> Result<(), ToolEr
 pub fn load_proposal(vaults_dir: &Path, vault: &str, id: &str, now: u64) -> Option<HelperProposal> {
     let json = std::fs::read_to_string(proposal_path(vaults_dir, vault, id)).ok()?;
     let mut p: HelperProposal = serde_json::from_str(&json).ok()?;
-    p.recompute(now);
+    p.recompute(now, &load_members(vaults_dir, vault));
     Some(p)
 }
 
@@ -438,12 +464,13 @@ pub fn list_proposals(vaults_dir: &Path, vault: &str, now: u64) -> Vec<HelperPro
     let Ok(entries) = std::fs::read_dir(&dir) else {
         return Vec::new();
     };
+    let roster = load_members(vaults_dir, vault);
     let mut out: Vec<HelperProposal> = entries
         .flatten()
         .filter_map(|e| std::fs::read_to_string(e.path()).ok())
         .filter_map(|j| serde_json::from_str::<HelperProposal>(&j).ok())
         .map(|mut p| {
-            p.recompute(now);
+            p.recompute(now, &roster);
             p
         })
         .collect();
@@ -511,7 +538,7 @@ pub fn claim_members(
         && existing
             .iter()
             .zip(names.iter())
-            .all(|(a, b)| a.trim() == b.trim());
+            .all(|(a, b)| same_member(a, b));
     Ok(if same {
         RosterWrite::Unchanged
     } else {
@@ -782,7 +809,8 @@ fn ct_eq(a: &[u8], b: &[u8]) -> bool {
 /// roster, so identity stays consistent across a rename.
 ///
 /// Guards: the `old` name must be an existing seat, and `new` must be non-empty and not already
-/// taken by a DIFFERENT seat (renaming a seat to its own current name is a no-op, allowed). Returns
+/// taken by a DIFFERENT seat, compared the way votes are matched ([`same_member`]), nor recorded on
+/// a payment under no seat; renaming a seat to its own current name is a no-op, allowed. Returns
 /// the updated roster.
 pub fn rename_member(
     vaults_dir: &Path,
@@ -799,12 +827,37 @@ pub fn rename_member(
     if !names.iter().any(|n| n == old) {
         return Err(ToolError::parse("members", "no such member to rename"));
     }
-    if names.iter().any(|n| n == new && n != old) {
-        return Err(ToolError::parse("members", "that name is already taken"));
+    let taken = || ToolError::parse("members", "that name is already taken");
+    // Taken is decided the way votes are matched (#575). By exact string, `"bob"` was free beside
+    // a roster entry `"bob "`, and the member who took it then replaced bob's vote with each of
+    // their own.
+    if names.iter().any(|n| same_member(n, new) && n != old) {
+        return Err(taken());
+    }
+    let proposals = list_proposals(vaults_dir, vault, now);
+    // And a name a payment already records, under no seat, is taken too: it was planted while the
+    // vault took unsigned writes, or left by an earlier spelling. Taking it would make its votes,
+    // and its proposals, read as this member's - who never cast them (#575). A respelling of the
+    // member's own name is theirs.
+    if !same_member(old, new)
+        && proposals.iter().any(|p| {
+            std::iter::once(&p.proposer)
+                .chain(&p.approvals)
+                .chain(&p.refusals)
+                .any(|n| same_member(n, new))
+        })
+    {
+        return Err(ToolError::parse(
+            "members",
+            "that name is already recorded on a payment",
+        ));
     }
     if old == new {
         return Ok(names); // no-op rename
     }
+    // When another seat's name differs from this one only at the edges, an entry under either
+    // could be either seat's. Identical names are renamed together below, so they are one name.
+    let twin = names.iter().any(|n| same_member(n, old) && n != old);
     for n in names.iter_mut() {
         if n == old {
             *n = new.to_string();
@@ -814,29 +867,63 @@ pub fn rename_member(
 
     // Migrate the name everywhere a vote references it, so quorum counting and the approvals list
     // stay coherent (no orphaned approval under the old name, no duplicate row for the new one).
-    for mut p in list_proposals(vaults_dir, vault, now) {
-        let mut changed = false;
-        if p.proposer == old {
-            p.proposer = new.to_string();
-            changed = true;
-        }
-        for a in p.approvals.iter_mut() {
-            if a == old {
-                *a = new.to_string();
-                changed = true;
+    for mut p in proposals {
+        let before = p.clone();
+        if p.state == "sent" || p.state == "expired" {
+            // A sent or expired payment is a record of what happened: the name moves, exactly as
+            // it always did, and nothing is merged or removed.
+            for n in std::iter::once(&mut p.proposer)
+                .chain(p.approvals.iter_mut())
+                .chain(p.refusals.iter_mut())
+            {
+                if n == old {
+                    *n = new.to_string();
+                }
             }
-        }
-        for r in p.refusals.iter_mut() {
-            if r == old {
+        } else if twin {
+            // An approval under the shared name could be either seat's: carried, it could become
+            // the renamed seat's while the other approves again, one member reading as two. It is
+            // dropped, which only lowers the count, and both approve again. A refusal moves only
+            // under this seat's exact spelling and is never dropped: dropping one could reopen a
+            // payment the group refused, and moving one never adds an approval. The proposer is
+            // left as recorded.
+            p.approvals.retain(|a| !same_member(a, old));
+            for r in p.refusals.iter_mut().filter(|r| *r == old) {
                 *r = new.to_string();
-                changed = true;
             }
+            p.recompute(now, &names);
+        } else {
+            if same_member(&p.proposer, old) {
+                p.proposer = new.to_string();
+            }
+            carry_votes(&mut p.approvals, old, new);
+            carry_votes(&mut p.refusals, old, new);
+            // Counted against the roster as it now reads, with the votes now under the new name.
+            p.recompute(now, &names);
         }
-        if changed {
+        if p != before {
             save_proposal(vaults_dir, &p)?;
         }
     }
     Ok(names)
+}
+
+/// One list of votes on a payment not yet decided by the clock or the chain, after `old` is renamed
+/// to `new`: the member's entries, under whatever spelling they were recorded, become one entry
+/// under `new`.
+fn carry_votes(list: &mut Vec<String>, old: &str, new: &str) {
+    let mut carried = false;
+    list.retain_mut(|entry| {
+        if !same_member(entry, old) {
+            return true;
+        }
+        if carried {
+            return false;
+        }
+        *entry = new.to_string();
+        carried = true;
+        true
+    });
 }
 
 /// One RFC-4180 CSV field: wrap in quotes and double any embedded quote when it contains a comma,
@@ -1679,6 +1766,112 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    /// A fake `zcash-devtool` for the balance path. It appends each subcommand (`$4` in
+    /// `wallet -w <dir> <subcommand> ...`) to `<dir>/calls.log`, prints a valid balance for
+    /// `balance`, and, when `upgrade_fails`, exits 1 on `upgrade` the way a failed migration does.
+    #[cfg(unix)]
+    fn fake_balance_devtool(dir: &Path, upgrade_fails: bool) -> (PathBuf, PathBuf) {
+        use std::os::unix::fs::PermissionsExt;
+        let log = dir.join("calls.log");
+        let fake = dir.join("fake-devtool");
+        let mut script = String::from("#!/bin/sh\n");
+        script.push_str(&format!("echo \"$4\" >> \"{}\"\n", log.display()));
+        if upgrade_fails {
+            script.push_str(
+                "if [ \"$4\" = upgrade ]; then echo 'migration failed' >&2; exit 1; fi\n",
+            );
+        }
+        script.push_str(
+            "if [ \"$4\" = balance ]; then echo '{\"chain_tip_height\":3400100,\"orchard_spendable\":0,\"sapling_spendable\":0,\"total\":100000,\"transparent_spendable\":0}'; fi\n",
+        );
+        std::fs::write(&fake, script).expect("write fake devtool");
+        let mut p = std::fs::metadata(&fake).expect("stat").permissions();
+        p.set_mode(0o755);
+        std::fs::set_permissions(&fake, p).expect("chmod");
+        (fake, log)
+    }
+
+    #[cfg(unix)]
+    fn balance_cfg(devtool: PathBuf, vaults_dir: PathBuf) -> HelperConfig {
+        HelperConfig {
+            zcash_sign: PathBuf::from("/nonexistent/zcash-sign"),
+            devtool,
+            lightwalletd: "zec.rocks:443".into(),
+            network: "main".into(),
+            konclave_signer: PathBuf::from("/nonexistent/konclave-signer"),
+            vaults_dir,
+            relays: Vec::new(),
+        }
+    }
+
+    #[cfg(unix)]
+    fn tmp(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("konclave-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        dir
+    }
+
+    #[cfg(unix)]
+    fn calls(log: &Path) -> Vec<String> {
+        std::fs::read_to_string(log)
+            .expect("the fake devtool was invoked")
+            .lines()
+            .map(str::to_owned)
+            .collect()
+    }
+
+    /// A stale wallet is migrated ONCE, then synced, then read. Migrating inside `sync` as well
+    /// started a second ~98 MB devtool process under the vault lock on every synced read.
+    #[cfg(unix)]
+    #[test]
+    fn a_stale_balance_read_migrates_once_then_syncs_then_reads() {
+        let dir = tmp("balance-stale");
+        let (fake, log) = fake_balance_devtool(&dir, false);
+        let cfg = balance_cfg(fake, dir.join("vaults"));
+        let r = reg("aaaa1111");
+
+        vault_balance(&cfg, &r).expect("balance reads");
+
+        assert_eq!(calls(&log), vec!["upgrade", "sync", "balance"]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The read that the sync throttle skips still migrates first: `balance` reads the database
+    /// unconditionally, and on a wallet written by an older engine it fails with
+    /// `no such table: orchard_ironwood_migrations` unless the upgrade ran.
+    #[cfg(unix)]
+    #[test]
+    fn a_throttled_balance_read_still_migrates_first() {
+        let dir = tmp("balance-throttled");
+        let (fake, log) = fake_balance_devtool(&dir, false);
+        let cfg = balance_cfg(fake, dir.join("vaults"));
+        let r = reg("bbbb2222");
+        mark_synced(&cfg.vaults_dir, &r.vault_id, now_secs());
+
+        vault_balance(&cfg, &r).expect("balance reads");
+
+        assert_eq!(calls(&log), vec!["upgrade", "balance"]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A failed migration does not by itself take the balance offline: the read goes ahead, and if
+    /// the schema really is wrong the read is what fails. The failure is logged, not swallowed.
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_migration_does_not_block_a_readable_wallet() {
+        let dir = tmp("balance-upgrade-fails");
+        let (fake, log) = fake_balance_devtool(&dir, true);
+        let cfg = balance_cfg(fake, dir.join("vaults"));
+        let r = reg("cccc3333");
+
+        let b = vault_balance(&cfg, &r).expect("a readable wallet still reads");
+
+        assert_eq!(b.total_zat, 100_000);
+        assert_eq!(calls(&log), vec!["upgrade", "sync", "balance"]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     fn reg(id: &str) -> VaultRegistration {
         VaultRegistration {
             vault_id: id.into(),
@@ -1717,16 +1910,16 @@ mod tests {
     #[test]
     fn proposal_state_machine() {
         let mut p = mk_prop("v", "p1");
-        p.recompute(200);
+        p.recompute(200, &[]);
         assert_eq!(p.state, "pending"); // 1 of 2 approvals
-        assert!(p.vote("bob", true, 200)); // 2 of 2
+        assert!(p.vote("bob", true, 200, &[])); // 2 of 2
         assert_eq!(p.state, "ready");
         // Idempotent re-vote does not double-count.
-        assert!(p.vote("bob", true, 200));
+        assert!(p.vote("bob", true, 200, &[]));
         assert_eq!(p.approvals.len(), 2);
         // Expiry wins over ready.
         p.expiry_unix = 300;
-        p.recompute(301);
+        p.recompute(301, &[]);
         assert_eq!(p.state, "expired");
     }
 
@@ -1744,12 +1937,12 @@ mod tests {
         p.expiry_unix = 300;
 
         // 2-of-3: two refusals leave one possible approver, below the threshold.
-        assert!(p.vote("bob", false, 100));
-        assert!(p.vote("carol", false, 100));
+        assert!(p.vote("bob", false, 100, &[]));
+        assert!(p.vote("carol", false, 100, &[]));
         assert_eq!(p.state, "refused");
 
         // The deadline passes. The decision must survive it.
-        p.recompute(301);
+        p.recompute(301, &[]);
         assert_eq!(
             p.state, "refused",
             "the group refused this payment; a passed deadline must not rewrite that as a timeout"
@@ -1758,7 +1951,7 @@ mod tests {
         // A proposal still in play, with no refusals, DOES expire - that branch is unaffected.
         let mut open = mk_prop("v", "p4");
         open.expiry_unix = 300;
-        open.recompute(301);
+        open.recompute(301, &[]);
         assert_eq!(open.state, "expired");
     }
 
@@ -1767,9 +1960,9 @@ mod tests {
         // 2-of-3: two refusals leave only 1 possible approver, below the threshold -> refused.
         let mut p = mk_prop("v", "p2");
         p.approvals.clear();
-        assert!(p.vote("bob", false, 100));
+        assert!(p.vote("bob", false, 100, &[]));
         assert_eq!(p.state, "pending");
-        assert!(p.vote("carol", false, 100));
+        assert!(p.vote("carol", false, 100, &[]));
         assert_eq!(p.state, "refused");
 
         // This used to assert that a refused proposal rejects further votes. The expectation was
@@ -1778,7 +1971,7 @@ mod tests {
         // request per seat, from anyone holding the vault id, brick a vault's governance with no
         // way back. A member withdrawing a refusal must bring the proposal back.
         assert!(
-            p.vote("carol", true, 100),
+            p.vote("carol", true, 100, &[]),
             "a refusal is not a one-way door"
         );
         assert_ne!(p.state, "refused", "withdrawing it revives the proposal");
@@ -1786,12 +1979,44 @@ mod tests {
 
         // What IS terminal stays terminal.
         p.state = "sent".into();
-        assert!(!p.vote("alice", true, 100), "a sent payment takes no votes");
+        assert!(
+            !p.vote("alice", true, 100, &[]),
+            "a sent payment takes no votes"
+        );
         p.state = "expired".into();
         assert!(
-            !p.vote("alice", true, 100),
+            !p.vote("alice", true, 100, &[]),
             "an expired proposal takes no votes"
         );
+    }
+
+    /// #575, the other direction. A member's own vote has to replace whatever was recorded for them
+    /// under another spelling, or the planted entry outlives what they actually said: here alice
+    /// REFUSES, and an approval planted as `"alice "` while the vault took unsigned writes went on
+    /// counting as hers, so bob alone took a 2-of-3 proposal to `ready`.
+    #[test]
+    fn a_members_vote_replaces_what_was_recorded_for_them_under_another_spelling() {
+        let roster: Vec<String> = vec!["alice".into(), "bob".into(), "carol".into()];
+        let mut p = mk_prop("v", "p1");
+        p.approvals = vec!["alice ".into()];
+
+        assert!(p.vote("alice", false, 200, &roster));
+        assert!(p.vote("bob", true, 200, &roster));
+
+        assert_eq!(
+            p.approvals,
+            vec!["bob".to_string()],
+            "alice approves nothing"
+        );
+        assert_eq!(p.refusals, vec!["alice".to_string()]);
+        assert_eq!(p.state, "pending", "one member approved, of the two needed");
+
+        // And a vote under her own spelling replaces a planted one in the same list too, so the
+        // record says alice once.
+        let mut q = mk_prop("v", "p2");
+        q.approvals = vec!["alice\u{00a0}".into()];
+        assert!(q.vote("alice", true, 200, &roster));
+        assert_eq!(q.approvals, vec!["alice".to_string()]);
     }
 
     #[test]
@@ -1849,6 +2074,7 @@ mod tests {
             network: "test".into(),
             konclave_signer: PathBuf::from("/nonexistent/konclave-signer"),
             vaults_dir: PathBuf::from("/tmp/konclave-helper-vaults"),
+            relays: Vec::new(),
         };
         assert!(register_vault(&cfg, "not-a-valid-key", "demo", 2, 3).is_err());
     }
@@ -1861,6 +2087,7 @@ mod tests {
             network: network.into(),
             konclave_signer: PathBuf::from("/bin/konclave-signer"),
             vaults_dir: PathBuf::from("/srv/vaults"),
+            relays: Vec::new(),
         }
     }
 
@@ -2158,6 +2385,217 @@ mod tests {
             vec!["Michael".to_string(), "Daniel".to_string()]
         );
         assert!(!got.approvals.iter().any(|a| a == "zcashbrazil"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn rename_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("konclave-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        dir
+    }
+
+    /// #575 through a rename. A name no seat held, planted while the vault took unsigned writes,
+    /// counted for nobody - until a member renamed themselves to it, and its approval became theirs.
+    /// Here bob never approved and the 2-of-2 would read `ready`. A recorded name is taken.
+    #[test]
+    fn a_rename_cannot_take_a_name_a_payment_records_under_no_seat() {
+        let dir = rename_dir("rename-planted");
+        save_members(&dir, "v", &["alice".into(), "bob".into()]).unwrap();
+        let mut p = mk_prop("v", "p1");
+        p.total = 2;
+        p.approvals = vec!["alice".into(), "robert".into()];
+        save_proposal(&dir, &p).unwrap();
+        let mut q = mk_prop("v", "p2");
+        q.proposer = "zed".into();
+        q.refusals = vec!["kim".into()];
+        save_proposal(&dir, &q).unwrap();
+
+        for planted in ["robert", "robert ", "zed", "kim"] {
+            let err = rename_member(&dir, "v", "bob", planted, 200).unwrap_err();
+            assert!(
+                err.to_string().contains("already recorded on a payment"),
+                "{planted:?}: {err}"
+            );
+        }
+        let got = load_proposal(&dir, "v", "p1", 200).unwrap();
+        assert_eq!(got.state, "pending", "bob never approved");
+        assert_eq!(load_members(&dir, "v"), vec!["alice", "bob"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Two seats under one name: an entry under it could be either seat's, so a rename of one of
+    /// them must not carry it. Carried, seat 2's approval became seat 1's, seat 2 approved again,
+    /// and one member took the 2-of-2 to `ready`. Dropped, both vote again.
+    #[test]
+    fn a_rename_of_one_of_two_seats_under_one_name_carries_no_vote() {
+        let dir = rename_dir("rename-twin");
+        save_members(&dir, "v", &["bob".into(), "bob ".into()]).unwrap();
+        let mut p = mk_prop("v", "p1");
+        p.total = 2;
+        p.proposer = "bob ".into();
+        p.approvals = vec!["bob ".into()];
+        save_proposal(&dir, &p).unwrap();
+
+        rename_member(&dir, "v", "bob", "robert", 200).unwrap();
+
+        let mut got = load_proposal(&dir, "v", "p1", 200).unwrap();
+        assert!(got.approvals.is_empty(), "{:?}", got.approvals);
+        assert_eq!(got.proposer, "bob ", "nor the authorship");
+        let roster = load_members(&dir, "v");
+        assert!(got.vote("bob ", true, 200, &roster));
+        assert_eq!(got.state, "pending", "one member, one approval");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A rename never reopens what the group decided. Two seats with the identical name are
+    /// renamed together, so they are one name and their refusal moves with them; two whose names
+    /// differ only at the edges keep the refusal where it was, since dropping it would bring a
+    /// refused payment back to the desk.
+    #[test]
+    fn a_rename_never_reopens_a_refused_payment() {
+        for (roster, refusals) in [
+            (["bob", "bob", "carol"], vec!["bob", "carol"]),
+            (["bob", "bob ", "carol"], vec!["bob ", "carol"]),
+            // Both edge twins refusing, as a record from before this build can hold.
+            (["bob", "bob ", "carol"], vec!["bob", "bob "]),
+        ] {
+            let dir = rename_dir("rename-refused");
+            let roster: Vec<String> = roster.iter().map(|n| n.to_string()).collect();
+            save_members(&dir, "v", &roster).unwrap();
+            let mut p = mk_prop("v", "p1");
+            p.approvals = vec![];
+            p.refusals = refusals.iter().map(|n| n.to_string()).collect();
+            save_proposal(&dir, &p).unwrap();
+            assert_eq!(
+                load_proposal(&dir, "v", "p1", 200).unwrap().state,
+                "refused"
+            );
+
+            rename_member(&dir, "v", "bob", "robert", 200).unwrap();
+
+            let got = load_proposal(&dir, "v", "p1", 200).unwrap();
+            assert_eq!(got.state, "refused", "{roster:?}: {:?}", got.refusals);
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+
+    /// The refusal of an edge twin who renames stays theirs: left under the shared spelling, the
+    /// other seat's next vote replaced it, and one member's vote erased another's.
+    #[test]
+    fn a_renamed_twins_refusal_stays_theirs() {
+        let dir = rename_dir("rename-twin-refusal");
+        save_members(&dir, "v", &["bob".into(), "bob ".into()]).unwrap();
+        let mut p = mk_prop("v", "p1");
+        p.total = 2;
+        p.approvals = vec![];
+        p.refusals = vec!["bob".into()];
+        save_proposal(&dir, &p).unwrap();
+
+        let roster = rename_member(&dir, "v", "bob", "robert", 200).unwrap();
+        let mut got = load_proposal(&dir, "v", "p1", 200).unwrap();
+        assert!(got.vote("bob ", true, 200, &roster));
+        assert_eq!(got.refusals, vec!["robert"]);
+        assert_eq!(got.state, "refused");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An expired payment is a record too: a rename moves the name exactly and removes nothing,
+    /// even where another seat shares the name.
+    #[test]
+    fn a_rename_moves_the_name_in_an_expired_payment_and_removes_nothing() {
+        let dir = rename_dir("rename-expired");
+        save_members(&dir, "v", &["bob".into(), "bob ".into()]).unwrap();
+        let mut p = mk_prop("v", "p1");
+        p.expiry_unix = 150;
+        p.approvals = vec!["bob".into(), "bob ".into()];
+        save_proposal(&dir, &p).unwrap();
+
+        rename_member(&dir, "v", "bob", "robert", 200).unwrap();
+
+        let got = load_proposal(&dir, "v", "p1", 200).unwrap();
+        assert_eq!(got.approvals, vec!["robert", "bob "]);
+        assert_eq!(got.state, "expired");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A sent payment is a record of what happened: a rename moves the name in it and removes
+    /// nothing.
+    #[test]
+    fn a_rename_moves_the_name_in_a_sent_payment_and_removes_nothing() {
+        let dir = rename_dir("rename-sent");
+        save_members(&dir, "v", &["alice".into(), "bob".into()]).unwrap();
+        let mut p = mk_prop("v", "p1");
+        p.state = "sent".into();
+        p.approvals = vec!["alice".into(), "bob".into(), "bob ".into()];
+        save_proposal(&dir, &p).unwrap();
+
+        rename_member(&dir, "v", "bob", "robert", 200).unwrap();
+
+        let got = load_proposal(&dir, "v", "p1", 200).unwrap();
+        assert_eq!(got.approvals, vec!["alice", "robert", "bob "]);
+        assert_eq!(got.state, "sent");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A rename takes no name another seat holds, compared the way votes are. Otherwise carol, as
+    /// `"bob"` beside a roster entry `"bob "`, would replace bob's vote with every vote of her own.
+    #[test]
+    fn a_rename_cannot_take_another_seats_name_under_another_spelling() {
+        let dir = rename_dir("rename-taken");
+        save_members(&dir, "v", &["alice".into(), "bob ".into(), "carol".into()]).unwrap();
+        let err = rename_member(&dir, "v", "carol", "bob", 200).unwrap_err();
+        assert!(err.to_string().contains("already taken"), "{err}");
+        // Respelling your own name is still yours to do, even where your vote already reads as the
+        // new spelling.
+        let mut p = mk_prop("v", "p1");
+        p.approvals = vec!["bob".into()];
+        save_proposal(&dir, &p).unwrap();
+        let roster = rename_member(&dir, "v", "bob ", "bob", 200).unwrap();
+        assert_eq!(roster[1], "bob");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A rename carries every vote of its member, whatever spelling it was recorded under: an
+    /// unsigned vote is recorded as sent, and a roster keeps names as they arrived.
+    #[test]
+    fn a_rename_carries_its_members_votes_under_any_spelling() {
+        let dir = rename_dir("rename-spelling");
+        save_members(&dir, "v", &["alice ".into(), "bob".into()]).unwrap();
+        let mut p = mk_prop("v", "p1");
+        p.total = 2;
+        // Her proposal and her approval, under two spellings neither of which is the roster's.
+        p.approvals = vec!["alice".into(), "bob".into(), "alice\u{a0}".into()];
+        save_proposal(&dir, &p).unwrap();
+        assert_eq!(load_proposal(&dir, "v", "p1", 200).unwrap().state, "ready");
+
+        rename_member(&dir, "v", "alice ", "alicia", 200).unwrap();
+
+        let got = load_proposal(&dir, "v", "p1", 200).unwrap();
+        assert_eq!(got.approvals, vec!["alicia".to_string(), "bob".to_string()]);
+        assert_eq!(got.proposer, "alicia");
+        assert_eq!(got.state, "ready", "her approval still counts");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A record written before this build is counted as members when it is read, by every reader:
+    /// `load_proposal`, which the send gate uses, and `list_proposals`, which the screens use.
+    #[test]
+    fn a_stored_record_is_counted_as_members_by_every_reader() {
+        let dir = rename_dir("stored-record");
+        save_members(&dir, "v", &["alice".into(), "bob".into(), "carol".into()]).unwrap();
+        let mut p = mk_prop("v", "p1");
+        p.state = "ready".into();
+        p.approvals = vec!["alice ".into(), "alice".into()];
+        // Two spellings of one refusal must not count as two, either: in a 2-of-3 that would make
+        // the quorum unreachable and stamp the payment `refused`.
+        p.refusals = vec!["bob ".into(), "bob".into(), "mallory".into()];
+        save_proposal(&dir, &p).unwrap();
+
+        assert_eq!(
+            load_proposal(&dir, "v", "p1", 200).unwrap().state,
+            "pending"
+        );
+        assert_eq!(list_proposals(&dir, "v", 200)[0].state, "pending");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

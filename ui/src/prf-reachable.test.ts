@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { codeAt } from './source-scan'
 
 // The passkey shortcut shipped DEAD, and nothing caught it (#468).
 //
@@ -32,7 +33,7 @@ function callers(symbol: string): string[] {
   const re = new RegExp(`\\b${symbol}\\s*\\(`)
   return sources(SRC)
     .filter((p) => !p.endsWith('prf-wrap.ts') && !p.endsWith('prf-store.ts'))
-    .filter((p) => re.test(readFileSync(p, 'utf8')))
+    .filter((p) => re.test(codeAt(p)))
 }
 
 describe('the passkey shortcut is reachable', () => {

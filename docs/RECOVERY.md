@@ -12,12 +12,16 @@
 |---|---|---|---|
 | **Device** (browser) | the member's **FROST share**, sealed in IndexedDB (AES-GCM under a passphrase) | yes, ciphertext only | yes (a threshold of them) |
 | **Helper volume** (`/data/vaults/<id>/`) | **view-only** material: `registration.json` (address + **UFVK** + account + quorum), `wallet/` sync cache, `ceremonies.jsonl`, `proposals/`, `members.json`, `device-keys.json` | yes | **no** (never a share) |
-| **Relay** | opaque room messages | **no** (in-memory, 1h TTL) | no |
+| **Relay** | room messages it does not parse (public or sealed; a signing request goes unsealed until every seat has registered its device key, #63) | **no** (in-memory, 1h TTL) | no |
 
 Two consequences follow from this table and drive everything below:
 
-1. **Deleting a helper vault dir cannot lose funds.** The spend power is the share, which lives on
-   devices. The helper is view-only by design (ADR-0006).
+1. **Deleting a helper vault dir does not destroy what a rebuild needs if an ops backup of it
+   exists (D), or if a member holds a backup made on a Private vault after #480 shipped
+   (2026-09-06) while the coordinator was reachable**, which carries the viewing key and the scan height; with neither, the funds are
+   lost (see "Why the share alone is not enough" below). Rebuilding from a member's backup alone has
+   no tool yet (see "Open work"). The spend power is the share, which lives on devices; the helper
+   never holds one (ADR-0006).
 2. **A share alone cannot re-derive the vault's on-chain identity.** The address + UFVK are generated
    once, with randomness, at registration and stored only in `registration.json`.
 
@@ -34,7 +38,7 @@ member's **share export** — and, since #447 and #480, that export carries what
 | the quorum (`t`/`n`) | decoded from the share bundle itself |
 | the change receiver | derivable from the UFVK |
 
-The address travels in every export; the viewing key and the scan floor only on a **Private**
+The address travels in every v2 export; the viewing key and the scan floor only on a **Private**
 vault. An Open vault cannot fetch its viewing key (the helper refuses it to a vault with no read
 key), so its export restores the seat and not the vault.
 
@@ -203,7 +207,8 @@ machine, the other a database id a rebuild re-mints.
 
 > **A v1 export** (no `version` field, or `version: 1`) is a different shape: the metadata is in the
 > clear and only the share is sealed. The same derivation opens it; the fields differ. #405 replaced
-> it precisely so a leaked backup would reveal nothing, including which vault it belongs to.
+> it precisely so a leaked backup would reveal nothing, including which vault it belongs to. Konclave
+> checks a v1 file before importing it, and `scripts/open-export.mjs` reports what it would refuse.
 
 ## Open work
 

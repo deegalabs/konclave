@@ -8,7 +8,8 @@ relay. It never receives, derives, or stores a share.
 
 It runs on **Zcash mainnet** (`KONCLAVE_NETWORK=main`, lightwalletd `zec.rocks:443`) on Railway
 alongside the blind relay (`konclave-relay` project, `konclave-helper` service), the same way the
-relay does. It currently serves 8 live vaults (re-counted 2026-09-06 from the boot log; the "~23" here was stale by a census).
+relay does. It serves three active vaults since the 2026-09-29 retirement (the boot log prints the
+count as `vault(s) restored`).
 
 ## The image (`Dockerfile`)
 
@@ -29,6 +30,13 @@ ran from 2026-08-24 to 2026-09-21 and was replaced by the `cp` steps below, whic
 directories that still hold July builds (#522). Moving `main` and then production onto the released
 line is #120; until it is deployed, do not treat this image as being on the released line.
 
+That window matters for the wallets on the volume. The 2026-08-24 deploy shipped the same
+`zcash-devtool` this line ships (`8c41afd3…`, recorded in `engine/versions.lock`), so a vault
+registered between 2026-08-24 and 2026-09-21 had its wallet created on the newer schema. The July
+engine cannot record a new transaction in such a wallet (see "the upgrade is one-way" below), so
+under the July engine those vaults stop syncing at their next deposit or send. Read in the code, not
+observed: no balance read has failed in the logs since 2026-09-29.
+
 A from-source multi-stage build (librustzcash + orchard + halo2) would exceed Railway's build
 limits, so the binaries are built out of band. They are glibc-2.39 (Ubuntu 24.04), so the runtime
 image is pinned to `ubuntu:24.04`. The helper does **not** need `frostd` (in Architecture B the
@@ -43,24 +51,81 @@ browsers run the FROST ceremony over the relay).
 > the context fresh each time from the commands below; do not reuse a directory you find lying about.
 
 The `bin/` the Dockerfile copies is **not** in git (the binaries are ~100 MB and are built out
-of repo, matching the pin-not-vendor policy). Assemble it from local builds:
+of repo, matching the pin-not-vendor policy). Our two binaries are built from the commit being
+deployed, in a target directory named after it, so nothing comes from a directory that outlived the
+build it holds. That is the mistake #522 records: until #120 the engine was copied from long-lived
+target directories, and on 2026-09-21 that put a July engine back in production.
 
 ```sh
-# helper-server (this repo)
-CARGO_TARGET_DIR=~/ktarget cargo build --release --manifest-path helper-server/Cargo.toml
+# Our binaries, from the commit being deployed (run in this repo, on a clean tree).
+REV=$(git rev-parse --short HEAD)
+CARGO_TARGET_DIR=~/ktarget-$REV cargo build --release --manifest-path helper-server/Cargo.toml
+CARGO_TARGET_DIR=~/ktarget-$REV cargo build --release --manifest-path konclave-signer/Cargo.toml
 
-# then gather the four binaries into a deploy context next to this Dockerfile.
-# WARNING (2026-10-01): the three ENGINE lines below copy JULY builds (#522). Following them on
-# 2026-09-21 is what put the July engine back in production. Keep them only for a helper-only
-# deploy before #120 lands, since that is what production runs today; #120 replaces them with
-# binaries built from the commit being deployed and checked against engine/versions.lock.
-mkdir -p ~/konclave-helper-deploy/bin
-cp ~/ktarget/release/helper-server            ~/konclave-helper-deploy/bin/
-cp ~/ktarget-engine/release/zcash-sign        ~/konclave-helper-deploy/bin/
-cp ~/ktarget-ironwood/release/zcash-devtool   ~/konclave-helper-deploy/bin/
-cp ~/ktarget-ironwood-signer/release/konclave-signer ~/konclave-helper-deploy/bin/
-cp deploy/helper/Dockerfile                   ~/konclave-helper-deploy/Dockerfile
+# Start from an empty bin/: `mkdir -p` alone keeps whatever an earlier assembly left there, which
+# is how a July zcash-devtool can ride along unnoticed. Keep nothing else in the context either:
+# a second set of binaries in it pushes the upload past Railway's limit (413).
+rm -rf ~/konclave-helper-deploy/bin && mkdir -p ~/konclave-helper-deploy/bin
+cp ~/ktarget-$REV/release/helper-server   ~/konclave-helper-deploy/bin/
+cp ~/ktarget-$REV/release/konclave-signer ~/konclave-helper-deploy/bin/
+
+# The two external tools that ship are the ones engine/versions.lock records under
+# [[deploy_binary]] (zcash-devtool) and [[binary]] (zcash-sign); the [source.*] sections say where
+# they come from, not which file ships. If no file on this host has that sha256, rebuild it from the
+# recorded source; do not ship a near match.
+cp <zcash-devtool with the recorded sha256> ~/konclave-helper-deploy/bin/zcash-devtool
+cp <zcash-sign with the recorded sha256>    ~/konclave-helper-deploy/bin/zcash-sign
+cp deploy/helper/Dockerfile ~/konclave-helper-deploy/Dockerfile
+
+# Before `railway up`: COMPARE, do not just print. This fails unless both engine tools are the
+# recorded builds (today zcash-devtool 8c41afd3… and zcash-sign 27f58e7c…, full values in the lock).
+(cd ~/konclave-helper-deploy/bin && sha256sum -c - <<'EOF'
+8c41afd3950d2b169c6880ef99a7d0c3c6e22061507115f789a1b5589c526153  zcash-devtool
+27f58e7ceb6aa0405cc3d6e0947f999c21d1157206401b24fb71faddb02be5f1  zcash-sign
+EOF
+)
+sha256sum ~/konclave-helper-deploy/bin/{helper-server,konclave-signer}
+strings ~/konclave-helper-deploy/bin/konclave-signer | grep -oE 'pczt-[0-9.]+|zcash_client_backend-[0-9.]+' | sort -u
 ```
+
+The `strings` line must name the line `engine/versions.lock` pins (today `pczt-0.9.3` and
+`zcash_client_backend-0.24.0`). A signer built on a git rev prints paths under `checkouts/` instead,
+and that is the July engine. After the deploy, record the four sha256 with the date and the commit
+in `engine/versions.lock`, in the same pull request that deployed them: replace the values under
+`[deploy_build]` and its `[[deploy_binary]]` entries, and keep the previous ones as a comment block
+(a second `[deploy_build]` table would make the file invalid TOML). Then check the container:
+
+```sh
+railway ssh -- stat -c %s /usr/local/bin/konclave-signer /usr/local/bin/zcash-devtool /usr/local/bin/zcash-sign /usr/local/bin/helper-server
+```
+
+Those are read-only, and the sizes must equal the files you uploaded.
+
+### Before deploying a new engine: back up the wallets, because the upgrade is one-way
+
+The first balance read after a new engine is deployed runs `zcash-devtool wallet upgrade` on that
+vault's wallet database. Moving a wallet from the July engine (`zcash_client_sqlite` at librustzcash
+`42ffd0d`) to 0.22.0 applies 16 migrations; 13 of them declare `CannotRevert`, and no command the
+tools ship undoes any of them. A wallet created by the 0.22.0 engine starts on that schema.
+
+Once a wallet is on that schema, the July engine cannot sync it. Its `INSERT ... ON CONFLICT (txid)`
+into `tx_retrieval_queue` (`zcash_client_sqlite` at `42ffd0d`, `wallet.rs:4763`) matches no
+constraint after the `tx_status_observation_intent` migration replaces `UNIQUE (txid)` with
+`UNIQUE (txid, query_type)`, and the scanner calls it for every wallet-relevant transaction
+(`zcash_client_backend` at `42ffd0d`, `data_api/ll/wallet.rs:401`). The sync fails at the first block
+that holds one of the vault's transactions. So **rolling the engine back is not a binary swap.**
+
+Before `railway up`, with no send in flight:
+
+1. Take a FULL backup of the volume, wallets included. Prefer a platform snapshot of the volume
+   (Railway: the service's volume backups), which keeps the data on the platform. The ops backup in
+   [docs/RECOVERY.md](../../docs/RECOVERY.md) D excludes `wallet/` on purpose and is NOT enough here.
+2. Write down the sha256 of the four binaries that were running, so the old image can be rebuilt.
+
+To go back after the new engine has run: redeploy the old binaries AND restore every `wallet/` from
+that backup, together. Restoring only the binaries leaves every migrated vault unable to sync.
+Without the backup, the only way back is rebuilding each wallet from its birthday (RECOVERY.md B),
+with every balance offline until the rescan finishes.
 
 Validate locally before deploying:
 
@@ -79,6 +144,7 @@ cd ~/konclave-helper-deploy
 railway link -p konclave-relay
 railway add --service konclave-helper                       # once
 railway volume -s <serviceId> -e <envId> add -m /data       # once: durable KONCLAVE_VAULTS_DIR
+railway variables -s konclave-helper --set "KONCLAVE_RELAY_BASES=<relays>"   # before the first up of a #270 build
 railway up --ci -s konclave-helper
 railway domain -s konclave-helper                           # mint the public URL
 ```
@@ -103,6 +169,7 @@ deployment values.
 | `KONCLAVE_LIGHTWALLETD` | `zec.rocks:443` | lightwalletd for the view-only wallets (mainnet default; `testnet.zec.rocks:443` for testnet) |
 | `KONCLAVE_ZCASH_SIGN` / `KONCLAVE_DEVTOOL` / `KONCLAVE_SIGNER` | `/usr/local/bin/...` | engine binary paths |
 | `KONCLAVE_VAULTS_DIR` | `/data/vaults` | per-vault view-only wallets + send scratch (per the Dockerfile) |
+| `KONCLAVE_RELAY_BASES` | none | the relays a send may be published to, comma-separated `https://` origins (#270). **No default: unset, every send is refused.** Production: `https://relay.konclave.xyz,https://konclave-relay-production.up.railway.app`; staging: `https://konclave-relay-staging.up.railway.app` (see `DEPLOY.md`) |
 
 > With the Railway volume mounted at `/data` (see "Deploy" above), `KONCLAVE_VAULTS_DIR=/data/vaults`
 > lives on **durable** storage, so registrations persist across redeploys. Without a volume,

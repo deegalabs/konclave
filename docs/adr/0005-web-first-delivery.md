@@ -7,7 +7,7 @@
 Konclave must reach ordinary treasurers on whatever device they already have -
 Windows, macOS, Linux (many distros), Android, iOS. The naive path is a native app per
 platform, which drags in the whole packaging matrix: `.msi` / `.dmg` / `.deb` / `.rpm` /
-AppImage / Flatpak / Snap, plus two mobile app-store pipelines. For a solo project that is
+AppImage / Flatpak / Snap, plus two mobile app-store pipelines. For a project where one person writes the code, that is
 a large, recurring maintenance cost that has nothing to do with the product.
 
 Two facts about Konclave's architecture change the calculus:
@@ -39,7 +39,11 @@ native shells are optional wrappers, not requirements.**
   `orchestrator` shipped as native installers (Windows / macOS / Linux) at git tag **v0.2.0**
   (2026-08-03, [ADR-0004]); it changes only the delivery form, never the trust model. What remains
   open is live **per-platform hardware** validation (the dev machine's GTK/WSLg window will not
-  render).
+  render). (2026-10-03: the released shell hosts the same `ui/` and does not embed the
+  `orchestrator` yet. Open: #212, per-platform hardware validation, and signed installers, #606.
+  The signing request crosses the relay unsealed until every seat has registered its device key
+  (#63), and the build/prove step is not trustless: until #567 is fixed, a payment the
+  quorum signs is only as safe as the helper.)
 - **Not Wails / a Go shell.** The backend is Rust (`orchestrator`, `konclave-signer`); a Go
   desktop framework would mean porting Layer 2, and it uses the same WebKitGTK that blocks
   us on WSLg - so it solves nothing here. Tauri stays the native path when we package one.
@@ -56,7 +60,7 @@ native shells are optional wrappers, not requirements.**
     with the restored share (a live two-tab proof observed a restore-then-sign deadlock edge case,
     tracked separately; the fresh-DKG path signs cleanly).
   - a real broadcast from the browser is **proven on mainnet** (Architecture B): a browser-DKG
-    vault signed a real Ironwood tx in the browser and the blind helper broadcast it (txid
+    vault signed a real Ironwood tx in the browser and the share-blind helper broadcast it (txid
     `3022420a…`). The remaining depth is a broadcast across **separate physical devices** (proven
     so far as two tabs on one machine).
 - **Service-worker discipline:** the SW is network-first and never caches `/api` or `/relay`

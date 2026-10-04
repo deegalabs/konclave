@@ -505,7 +505,7 @@ pub fn net_orchestrate_send(
 
     // 3) publish the signing request into the vault's relay room.
     let client = RelayClient::new(
-        CurlTransport,
+        CurlTransport::default(),
         relay_base.trim_end_matches('/'),
         room,
         "helper",

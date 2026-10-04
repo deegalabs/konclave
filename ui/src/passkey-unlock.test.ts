@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { unlockWithPasskeyUsing, UNLOCK_TIMEOUT_MS, type PasskeyUnlockDeps } from './passkey-unlock'
+import { codeAt } from './source-scan'
 
 // #469 unified the passkey BUTTON across the two unlock surfaces and left the handler behind it
 // duplicated: `LockOverlay.withPasskey` and `Vaults.unlockWithPasskey` were the same twelve lines
@@ -21,8 +22,7 @@ function sources(dir: string, out: string[] = []): string[] {
   return out
 }
 
-const codeOf = (p: string) =>
-  readFileSync(p, 'utf8').split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n')
+const codeOf = codeAt // comments excluded, by the parser (source-scan.ts)
 
 const WRAP = { credentialId: 'AQID', salt: 'aa', iv: 'bb', cipher: 'cc' }
 

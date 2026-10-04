@@ -157,7 +157,7 @@ The shape per spend:
 import {
   init, Coordinator, identifierBytes,
   participantRound1, participantRound2WithRandomizer,
-  pcztSighash, extractRandomizers, describeOutputs, injectSigs,
+  pcztSighash, extractRandomizers, readPayment, injectSigs,
 } from '@konclave/frost'
 
 await init(wasmUrl)
@@ -166,9 +166,17 @@ await init(wasmUrl)
 // copy commits to - never a sighash received over the wire (the transaction-swap defence).
 const pczt: Uint8Array = /* proven PCZT from your wallet (Konclave: the blind helper) */ undefined!
 
-// 1) "What am I signing?" - confirm the outputs against the approved proposal BEFORE signing.
-const outs = JSON.parse(describeOutputs(pczt)) as { address: string | null; value: number | null }[]
-//    (address:null entries are change; values are zatoshis)
+// 1) "What am I signing?" - read what the transaction really pays and confirm it against the
+//    approved proposal BEFORE signing. readPayment checks every output against its note commitment,
+//    an address label against the receiver it pays, opens each paying output for its memo, and
+//    bounds the fee by ZIP 317; it throws a refusal ("[fee] ...", "[commitment] ...") otherwise.
+//    Reading the outputs any other way reads what the signature does not cover.
+const { outputs, feeZat } = JSON.parse(readPayment(pczt)) as {
+  outputs: { address: string | null; value: number | null; recipient: string | null; memo: string | null }[]
+  feeZat: number
+}
+//    (values are zatoshis; address:null means the output carries no label, which says nothing
+//    about where it pays: compare `recipient` with your vault's own receivers to call it change)
 
 // 2) The message every device signs is the ZIP-244 sighash of ITS OWN PCZT.
 const sighash = pcztSighash(pczt)
@@ -310,7 +318,7 @@ Ceremony (seed path): `DkgSession`, `Coordinator`, `Round1`, `participantRound1`
 
 Real Orchard spend (rerandomized path): `pcztSighash`, `extractRandomizers`,
 `participantRound2WithRandomizer`, `Coordinator.aggregateWithRandomizer`,
-`Coordinator.verifyWithRandomizer`, `describeOutputs`, `injectSigs`
+`Coordinator.verifyWithRandomizer`, `readPayment`, `describeOutputs`, `injectSigs`
 
 Confidential channel: `DeviceKey`, `sealTo`
 

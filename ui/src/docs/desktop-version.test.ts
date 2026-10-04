@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
 import { SECTIONS } from './content'
 import { DESKTOP_VERSION } from '../desktop-release'
+import { codeOf } from '../source-scan'
 
 describe('the desktop version the docs name', () => {
   it('is the published one, the same the landing links to', () => {
@@ -11,7 +11,7 @@ describe('the desktop version the docs name', () => {
   })
 
   it('is read by the landing from the same constant, not typed into it', () => {
-    const intro = readFileSync(new URL('../screens/Intro.tsx', import.meta.url), 'utf8')
+    const intro = codeOf('./screens/Intro.tsx')
     expect(intro).toMatch(/from '\.\.\/desktop-release'/)
     expect(intro).not.toMatch(/=\s*'\d+\.\d+\.\d+'/)
   })

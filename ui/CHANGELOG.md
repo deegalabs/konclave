@@ -1,18 +1,18 @@
-# Changelog — the app
+# Changelog: the app
 
 Written for the person who has to live with it: a treasurer holding real ZEC, not a reader of commit
 messages. If an entry does not answer "what is different for me now", it does not belong here.
 
 ## What this file covers, and what it does not
 
-This is the app itself — screens, the ceremony, the money gate, everything a member touches. It is
+This is the app itself: screens, the ceremony, the money gate, everything a member touches. It is
 **not** a product; it is what two products ship.
 
 - **The web** publishes it on every merge to `main`. There is no waiting and no version to install.
 - **The desktop** bundles the same app inside a native shell and publishes on a tag.
 
 So an entry here reaches the web immediately and the desktop at its next release. Recording it once,
-where the change lives, beats writing it in two files and letting them drift — which is the failure
+where the change lives, beats writing it in two files and letting them drift, which is the failure
 this repo keeps meeting in other forms.
 
 The desktop shell (`src-tauri/`) and the shared Rust crates stay in the root
@@ -40,6 +40,97 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+## [0.10.0] 2026-10-04
+
+### Security
+
+- **A device checks the payment it signs against the transaction itself.** Before it adds its part
+  of a signature, your device now reads each payment, the address it names, its memo and the network
+  fee from the parts of the transaction its signature covers, compares them with what the group
+  approved, and refuses on any difference, on a payment its recipient could not open, and on a fee
+  above the network's standard fee for the transaction's size.
+- **A device that refused a payment stays refused.** Nothing that arrives afterwards moves it to
+  sign the refused transaction, and a part counts as signed only when the member device that
+  assembles the signature announces it and the signature checks out on this device.
+- **The vault's own address is the one this device recorded.** The device treats outputs that pay
+  the vault itself as change, and takes that address from its own record of the vault, made when it
+  was created or first opened. It refuses to sign while it has none. See Known limits for what that record still trusts.
+- **The app signs only for the vault you opened,** and switching vaults from the side rail starts a
+  new signer for the new vault.
+- **Add funds, the dashboard and Settings show the address this device recorded.** Add funds warns
+  when the coordinator answers with a different one, without showing that one, and shows no address
+  when this device has none recorded. Importing a backup made before 30 August no longer takes its
+  address or its payee book from the file, and refuses a file whose vault id is not its group key,
+  whose sealed part is not a share, or whose vault secret is not 32 bytes. The offline backup
+  checker (`scripts/open-export.mjs`) applies the same rules.
+
+All five are live on the web with this change. If Konclave was already open, tap Update when it
+says a new version is available, or close every Konclave tab and open it again: reloading one tab
+keeps the version you had. The commit in the footer tells you which version you are running. On the
+desktop they arrive with its next release. A fuller account of what each one closed follows once
+it is live for everyone.
+
+### Changed
+
+- **The signing screen lists every payment and the fee.** While your device signs, it shows what
+  it read from the transaction: each payment with its exact amount and the address it names, the
+  change returning to the vault, and the network fee. An output is called change only when it pays
+  the vault itself, and one that names no address and does not pay the vault is shown as such. It
+  used to show only the first recipient, so a payroll showed one beneficiary of several.
+
+### Fixed
+
+- **The signing screen could judge a payment by another vault's balance.** The Sign button and the
+  fee estimate read the balance, and the number of lines in a payroll, of whichever vault was
+  selected in the browser, so with vaults open in two tabs they could follow the other one. They now
+  read the vault being signed. Since 25 August.
+- **A device that refused to sign showed an internal code.** The message read "Could not send:
+  net.err.notApproved", with a Try again button under it, and a few minutes later it was replaced
+  by the coordinator's own failure, inviting you to sign again. A refusal now says, in your
+  language, that your device refused and why; stays on screen; shows what the device read from the
+  transaction, when it could read it, so you can compare it with the proposal; and offers no Try
+  again button, because a refusal is not a failed send. When the transaction does not match what
+  was approved or what it claims to be, or carries a fee or a part it should not, the message says
+  not to try again and to tell the other members. When the device could not load what was approved,
+  or its own record of the vault, the refusal says so, says that the coordinator can cause that,
+  and asks you to reload rather than to try again. A message the device ignores, while the real one
+  may still come, is shown as a note beside the progress instead of as a refusal.
+
+### Known limits
+
+- **The /net page signs without this check.** It is an older signing screen, not tied to a proposal,
+  so it has no approved payment to compare with and signs what it is given. Sign payments from the
+  vault's desk, not from /net.
+- **What your device compares the payment with still comes from the coordinator (#567).** Your
+  device now knows what a transaction really pays, but the approved lines it compares against are
+  fetched from the coordinator when it signs, and a vote is tied to the proposal, not to its exact
+  content. A coordinator that changed a proposal after it was approved could still build a payment
+  that matches the change. Until #567 is fixed, a payment the quorum signs is only as safe as the
+  coordinator.
+- **You decide on the proposal; your device reads the transaction afterwards.** The amount and
+  recipient on the screen where you sign come from the proposal record. Your device's own reading
+  appears once the signature is under way, and it refuses on its own if the transaction differs
+  from what was approved; there is no pause to look at it first.
+- **The fee limit grows with the size of the transaction, and the coordinator chooses the size.**
+  The device refuses a fee above the network's standard fee for the transaction's actions, and
+  refuses padding the coordinator signed itself. But the coordinator chooses how many parts of the
+  transaction the vault is asked to sign, how many of the vault's notes to spend and how many
+  pieces to split the change into, and each extra part can raise the standard fee by 0.00005 ZEC,
+  paid to the network. Nothing on the device limits how many; today the only limit is the relay's
+  cap on the size of one message.
+- **Your device learned the vault's own receivers from the coordinator, once.** It uses them to
+  tell the vault's change from a payment to someone else, and it keeps the first answer it got:
+  when the vault was created, or the first time it opened the vault. A coordinator that was already
+  compromised at that moment could have named an address of its own. The vault's address among them
+  is also the one Add funds shows for deposits, so the same limit applies there.
+- **A backup made before 30 August is only partly sealed.** Its vault id and group key sit outside
+  the encryption, and Konclave checks them against each other but cannot check them against the
+  share. After restoring an old backup, compare the vault fingerprint in Settings with another
+  member's. Better, download a new backup and delete the old copies: an old file stays importable
+  wherever it is kept. A backup made since 30 August seals all of it.
+
+## [0.9.0] 2026-10-03
+
 ### Added
 
 - **A roadmap in the docs.** Under Roadmap, the steps Konclave plans to take, in order, each with
@@ -48,19 +139,64 @@ history to tidy it is how context gets lost.
   The titles are kept with the page, so reading the roadmap sends nothing to GitHub until you open
   an issue. It is a plan, not a promise, and it carries no amounts.
 
+### Changed
+
+- **The signer in your browser is built on the published Zcash libraries.** pczt 0.9.3 and orchard
+  0.15.5, the same releases as the coordinator's engine, in place of a July development snapshot
+  (#120). Nothing changes on screen; the code that reads and signs a payment is now the released
+  library.
+
 ### Fixed
 
-- **The help page told you to check the recipient on the signing screen.** The address shown
-  there is a label the coordinator writes when it builds the payment, and nothing yet checks it
-  against what the payment actually pays (#610). The help page now says to compare the amount, which
-  the device reads from the transaction itself, and not to rely on the address shown. Making the
-  screen show the address that is really paid is #610's own fix.
+- **The help page told you what to check on the signing screen, and neither version was a check.**
+  It said to check the recipient there, and then, from 2 October, the amount. The coordinator
+  builds what that screen shows, so neither is yet a check on the coordinator (#610), and a vote is
+  not yet tied to the exact content of a proposal (#567). The help page now says that, until both
+  are fixed, a payment the quorum signs is only as safe as the coordinator, and a new question in
+  the FAQ says what that means. What to do: keep only small amounts in Konclave. It has not been
+  independently audited, and #567 and #610 are still open.
+- **The signing desk said you check the destination and the amount before signing.** What you
+  confirm there is the payment as the proposal records it, and that is not yet a check on the
+  coordinator (#567, #610). The note now says what you confirm.
+- **The help page said the coordinator cannot spend, and that the safety of spending lies only in
+  who signs.** The coordinator cannot move funds on its own, but it builds every transaction the
+  quorum signs, and the devices that sign cannot yet check that it built what was approved. The
+  help page now says so, and lists it as not guaranteed yet rather than under what is guaranteed.
+- **The help page did not say what happens if our servers go down.** A new question in the FAQ
+  does: no payment can be made while they are down, and if we lost a vault's data for good, only a
+  member's backup made on a Private vault since 6 September 2026, while our coordinator was
+  reachable, would still hold what a rebuild
+  needs. The rebuild itself is not built yet (#214, #613).
+- **The help page said the desktop app seals your part of the key under a key held in the system
+  keychain.** It does not. The desktop app uses the same app code as the browser, in a native
+  window, and keeps your part of the key the same way: encrypted under your passphrase, in the
+  app's own storage. Keeping it in the system keychain is planned. Another line on the same page
+  said the desktop seals it the way the local build does; it now says the same as this one.
+- **The help page said the relay never learns who a payment pays.** That holds once every member
+  has unlocked the vault on their device, which registers a public key of that device with the
+  coordinator; until then the signing request crosses the relay unsealed. The help page now says
+  so.
+- **The help page said the desktop app can use your own coordinator or run with none.** It
+  offers both, but it does not include the local orchestrator yet (#212), and its security policy
+  most likely blocks a coordinator other than ours (#612). The help page now says which modes are
+  not confirmed to work there.
+- **The help page said each device checks the payment before it signs.** It shows the payment, and
+  what it shows is not yet checked against what it signs (#610). The proof section and the dry-run
+  note now say so.
+- **The proof page said a device checked that a payment was the approved one before signing it.**
+  The transaction it points to is the one where the device recognised the vault's own change, which
+  the chain itself cannot show. What a device
+  shows is not yet checked against what it signs (#610), and an approval is not yet tied to the
+  exact content of the proposal (#567). The proof page, `docs/PROOF.md` and `docs/CLAIMS.md` now say
+  so.
+- **The roadmap said a signing device already checks recipients and amounts.** Step 0 now says
+  that a signing device does not yet check what it shows against what it signs, nor the fee or the
+  memos (#610), and the titles of #610 and #583 read as they do on GitHub. It no longer lists the
+  server's engine among our defects: this release moves the coordinator onto the engine built from
+  the code's main line (#120).
 - **The proof page called two transactions the first on mainnet.** They were Konclave's first spend
   from the Ironwood pool and Konclave's first browser-signed broadcast, not the first on Zcash. The
   page and `docs/PROOF.md` now say so, and the README names the other projects that run FROST.
-- **The roadmap gave issue 120 a title that was not true.** It said production runs the released
-  Zcash libraries. Production runs a July build of them; issue 120 is what moves `main` and production
-  onto the released ones. The issue and the roadmap now both say so.
 - **The landing named the previous desktop release.** It said v0.7.0 after v0.8.0 shipped. It now
   names v0.8.0, and the sentence reads the version from the same constant as the installer links,
   so the two cannot disagree.

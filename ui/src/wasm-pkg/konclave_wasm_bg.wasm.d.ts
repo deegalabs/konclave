@@ -1,7 +1,6 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
-export const selftest: () => [number, number];
 export const __wbg_coordinator_free: (a: number, b: number) => void;
 export const __wbg_round1_free: (a: number, b: number) => void;
 export const __wbg_testvault_free: (a: number, b: number) => void;
@@ -29,6 +28,8 @@ export const describeOutputs: (a: number, b: number) => [number, number, number,
 export const extractRandomizers: (a: number, b: number) => [number, number, number, number];
 export const injectSigs: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
 export const pcztSighash: (a: number, b: number) => [number, number, number, number];
+export const readPayment: (a: number, b: number) => [number, number, number, number];
+export const selftest: () => [number, number];
 export const uaReceiver: (a: number, b: number) => [number, number, number, number];
 export const __wbg_devicekey_free: (a: number, b: number) => void;
 export const __wbg_dkgsession_free: (a: number, b: number) => void;

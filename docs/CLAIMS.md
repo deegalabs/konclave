@@ -62,7 +62,7 @@ the record has no row in the table below.
 | Opaque from the outside with a live payment inside, #476 (`3fa08dce…`) | proven on-chain | **DKG** (browser) |
 | Every governance write authenticated, #288 (`47e4e5dd…`) | proven on-chain | **DKG** (browser) |
 | 2-of-3 signed with one seat absent, #399/#515 (`7d6b3dec…`) | proven on-chain | **DKG** (browser) |
-| The device checked the payment before signing, #281 (`075ecfe9…`) | proven on-chain | **DKG** (browser) |
+| The device recognised the vault's own change before signing, #281 (`075ecfe9…`) | proven on-chain | **DKG** (browser) |
 
 Any statement of the form "the app payment used DKG" is **false**. The DKG-born sends are `aab00f90…`
 (CLI DKG) and the twelve browser-DKG sends (`3022420a…`, `64f94d29…`, `b496fc3c…`, `7c4c1dd5…`,
@@ -85,15 +85,20 @@ caller, `ui/src/screens/NetVault.tsx`). That is a statement about the product, n
   2026-08-27).** Keep two things distinct:
   - **Shipped and live:** the app's background signer drives `SigningMachine`, which recomputes the
     ZIP-244 sighash **on-device from its own PCZT** and refuses the ceremony if it disagrees with what
-    it is asked to sign - in **both** rounds - and it decodes and shows what the transaction pays
-    before contributing a share. Round 2 was closed twice. #355 (2026-08-27) stopped `onSp` from
+    it is asked to sign - in **both** rounds - and it reads the payment from the transaction, checks it against
+    the approved one and shows it before contributing a share (#610). Round 2 was closed twice. #355 (2026-08-27) stopped `onSp` from
     overwriting the local sighash with the wire value, but it compared the `msg` field and then signed
     the `sp` field, and the share is computed over the message inside `sp`. Since 2026-09-29 the
     function that signs takes the locally derived sighash and refuses a package over any other
     message. Plus ([ADR-0007](adr/0007-ceremony-security-invariants.md), #67 / #68,
     live-validated 2-tab): PIN-gated room admission + a vault fingerprint each signer checks, which
-    close the invite-as-bearer / wrong-room concern. So on the path the app actually sends over, a
-    hostile helper or coordinator **cannot** swap the transaction under a signer.
+    close the invite-as-bearer / wrong-room concern. So on the path the app actually sends over,
+    once a device has derived the message from its own copy of the transaction, no one in the
+    signing room can make it sign a different one. That guards against a member, not against the
+    coordinator: the coordinator builds that transaction, the approved payment a device compares with is
+    fetched from the coordinator when it signs, and an approval is not yet tied to the exact
+    content of the proposal (#567). Until that is fixed, a payment the quorum signs is only as
+    safe as the coordinator (see `SECURITY.md`).
   - **Residual (open, #363):** the legacy standalone `/net` route (`NetVault.tsx`) drives the same
     `SigningMachine`, so it recomputes the sighash like the background signer. What it lacks is the
     replay mitigation: its wire type drops the ceremony tag and it ignores history. That is #363, not
@@ -104,9 +109,10 @@ caller, `ui/src/screens/NetVault.tsx`). That is a statement about the product, n
   read: the `/net` signing request (`sighash`, `alpha`, `pczt_hex`) was posted to the relay in
   **plaintext**, so a curious relay operator or room-code holder could read who a shielded vault pays
   and how much. That is now closed. Each device derives a persistent comms key from its share and
-  registers it; the (blind) helper **hybrid-seals** the SignRequest to the seated devices; and the
+  registers it; once every seat has registered one, the helper **hybrid-seals** the SignRequest to the seated devices; and the
   ceremony no longer re-broadcasts the PCZT ([ADR-0007](adr/0007-ceremony-security-invariants.md) I3).
-  The relay is blind to the payment - proof `047fe6ca…` (block 3,464,505), attested by the captured
+  The relay is blind to the payment once every seat has registered its device key; until then the
+  request goes out unsealed (`helper-server/src/main.rs:1076-1085`). Proof `047fe6ca…` (block 3,464,505), attested by the captured
   room trace (`docs/proof/2026-08-29-relay-blind.md`), not by the block. **Origin authentication of the
   signing room has since landed (#392, closed in #401):** an id-only outsider can no longer take a seat a
   member holds or fake that member's ready-to-sign message, because both are signed. The ceremony's
@@ -153,10 +159,10 @@ caller, `ui/src/screens/NetVault.tsx`). That is a statement about the product, n
   vault to a different coordinator (see [`RECOVERY.md`](RECOVERY.md), #214).
 - **There is no quorum-by-value.** The quorum is the `t` fixed at creation; no rule changes it with
   the amount. Balance reservation and proposal expiry (72 hours) are the product locks that exist.
-- **The coordinator is not blind.** It never receives a share and cannot spend, but it holds each
+- **The coordinator is not blind.** It never receives a share and cannot move funds on its own, but it holds each
   vault's viewing key and receives the proposals, so it reads balances, payments, amounts, memos
-  (payslips included) and member names. What is blind to the payment is the relay (#63,
-  `047fe6ca…`).
+  (payslips included) and member names. What is blind to the payment, once every seat has
+  registered its device key, is the relay (#63, `047fe6ca…`).
 - **"Audited" needs its scope, and the scope excludes our variant.** The Zcash Foundation's
   `ZcashFoundation/frost` README says the code base has been *"partially audited by NCC"* and states
   the exclusion explicitly: *"This does not include frost-secp256k1-tr and **rerandomized FROST**."*

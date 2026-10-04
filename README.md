@@ -6,7 +6,7 @@
 
 #### Konclave: private, collective FROST vaults on Zcash. *The vault that decides together.*
 
-**Create and operate a shielded, threshold-signed fund vault on Zcash mainnet (quorum-approved payments and private payroll) without a command line, and without any single person ever able to move the funds or reconstruct the key.**
+**Create and operate a shielded, threshold-signed fund vault on Zcash mainnet (quorum-approved payments and private payroll) without a command line, and without any single member ever able to move the funds or reconstruct the key.**
 
 [![Zcash mainnet](https://img.shields.io/badge/Zcash-mainnet%20(NU6.3%20Ironwood)-e5a00d?logo=zcash&logoColor=white)](#proven-on-zcash-mainnet)
 [![Built on FROST](https://img.shields.io/badge/built%20on-FROST-6f42c1)](#why-we-built-this)
@@ -37,6 +37,10 @@ multisig (for example on an EVM chain) can offer.
 > There is no demo mode and no sample data: the hosted app only ever shows a vault you actually
 > created. The proof is the mainnet transaction below: an actual 2-of-3 quorum payment, signed by a
 > FROST ceremony, broadcast to Zcash mainnet.
+
+> Konclave has not been independently audited, and until #567 is fixed a payment the
+> quorum signs is only as safe as our hosted coordinator. Do not keep significant funds in it yet.
+> See [SECURITY.md](SECURITY.md#known-limitations).
 
 ## Why we built this
 
@@ -166,8 +170,9 @@ browser, live over the internet**, with no server ever holding a share.
 The crate [`konclave-wasm`](konclave-wasm/) compiles rerandomized-redpallas (Orchard) FROST to
 WebAssembly. Two separate devices **create one vault by a real DKG** and then **produce a verifying
 FROST group signature together**, each keeping only its own share, routed through a **hosted blind
-relay** ([`relay-server/`](relay-server/), on Railway) that carries only public or already-encrypted
-bytes and holds no key. The one secret piece of the DKG (the round-2 packages) is **sealed
+relay** ([`relay-server/`](relay-server/), on Railway) that holds no key and carries public or
+encrypted messages, with one exception: a payment's signing request crosses it unsealed until every
+member's device has registered its public device key (see the trust model below). The one secret piece of the DKG (the round-2 packages) is **sealed
 end-to-end** (X25519 → HKDF-SHA256 → XChaCha20-Poly1305), so the relay stays blind. Try it by
 creating a vault at [konclave-demo.vercel.app](https://konclave-demo.vercel.app) and joining it from
 a second device.
@@ -197,34 +202,44 @@ not promise what we do not deliver.
 - **Guaranteed by the cryptography:** the key is never reconstituted; a quorum signature is
   required to spend; your share never leaves your device.
 - **Guaranteed by how the services are built (product, not protocol):** the relay carries sealed or
-  public ceremony messages, never who a payment pays, though it sees member names and the quorum
-  while a vault is created; the coordinator never receives a share but does hold the vault's
-  viewing key (see *Who coordinates* below).
+  public ceremony messages and, once every member's device has registered its public device key, never who a
+  payment pays, though it sees member names and the quorum while a vault is created; the
+  coordinator never receives a share but does hold the vault's viewing key (see *Who coordinates*
+  below).
 - **Enforced by the product (not the chain):** balance reservation and proposal expiry (72 hours)
   are application policy, not on-chain rules. We say so plainly. There is no quorum-by-value: the
   quorum is the one number fixed when the vault is created.
 - **Who coordinates, and what that role is trusted with:** pure FROST does not define message
   transport, member identity, or who assembles the transaction, so *something* has to coordinate.
   Here that is the **hosted coordinator** (the helper): it builds and proves the transaction, hosts
-  the signing round, and broadcasts the result. It is trusted for **availability** and for the
-  **privacy of the books**, never for authority: it holds each vault's viewing key, so it can read
-  the balance, the payments, the amounts, the memos (payslips included) and the members' names, but
-  it never receives a share and it cannot spend without a quorum. The relay is a blind mailbox: since
-  #63 the signing request is sealed to the members' device keys, so it carries ciphertext, not the
-  recipient or the amount.
+  the signing round, and broadcasts the result. It is trusted for **availability**, for the
+  **privacy of the books** and, until #567 is fixed, for **building only what was
+  approved**. It holds each vault's viewing key, so it can read the balance, the payments, the
+  amounts, the memos (payslips included) and the members' names. It never receives a share and
+  cannot move funds on its own, because every payment needs a quorum's signatures. But today a malicious or
+  compromised coordinator could change an approved payment,
+  burn funds as fee or alter a memo: a payment the quorum signs is only as safe as the coordinator.
+  The relay is a blind mailbox: since #63 the signing request is sealed to the members' device
+  keys once every member's device has registered its public device key (each does when its member unlocks the
+  vault), and from then on it carries ciphertext, not the recipient or the amount.
 - **The AI assistant is off the money path, structurally:** [`mcp-server/`](mcp-server/) exposes a
   vault to an AI assistant that can **read** the books and **draft** a proposal, and deliberately has
   **no tool to approve, sign, or broadcast**. A drafted proposal is created *awaiting approval* and
   moves zero funds until humans act on it. The coordinator is the hosted helper, not the MCP server:
   the assistant proposes and informs, the human quorum decides, and the shares sign on the devices.
-- **Security posture:** in the browser, the share is stored encrypted (AES-256-GCM under a
-  PBKDF2-SHA256 key: 600,000 iterations for anything sealed since 2026-09-06, while older records
-  and older backups keep 210,000 until the passphrase is changed) and decrypted only in memory; on the desktop and local build it is sealed
-  with XChaCha20-Poly1305 under an Argon2id key in the OS keychain and unsealed only to ephemeral
-  `0600` tmpfs files during signing; the local bridge is guarded against CSRF/DNS-rebinding; secret
-  material is zeroized in memory; destinations
-  are validated with an authoritative `zcash_address` decode before any send. See
-  [`SECURITY.md`](SECURITY.md).
+- **Security posture:** in the browser and in the desktop app (the same interface code, bundled
+  into a native window and not yet validated on real hardware), the share is stored encrypted
+  (AES-256-GCM under a PBKDF2-SHA256 key: 600,000 iterations for anything sealed since 2026-09-06;
+  records stored before then keep 210,000 until the passphrase is changed, and a backup made before
+  then keeps 210,000 for good, so make a new one) and decrypted only in memory. Moving the
+  desktop's copy into the OS keychain is planned: the native commands exist, but no screen calls
+  them and the released build does not enable a platform keychain yet
+  ([`docs/NATIVE-STORAGE-BRIDGE.md`](docs/NATIVE-STORAGE-BRIDGE.md)). The local build, which creates
+  vaults by DKG, seals it with XChaCha20-Poly1305 under a key derived from the vault passphrase
+  with Argon2id, never stored, and unseals it only to ephemeral `0600` files during signing (in
+  tmpfs where the system has one); the local bridge is guarded against CSRF/DNS-rebinding; secret
+  material is zeroized in memory; destinations are validated with an authoritative `zcash_address`
+  decode before any send. See [`SECURITY.md`](SECURITY.md).
 - **Read access is gated, not just the spend (#388, live):** a Konclave vault's on-chain data is
   shielded, but the hosted coordinator holds its viewing key and used to answer reads to anyone who
   had the public vault id. Now every member holds a per-vault secret **S** (minted at the DKG, sent to
@@ -241,7 +256,8 @@ not promise what we do not deliver.
   metadata, share, S and beneficiaries all encrypted under a passphrase, only a non-sensitive envelope
   in the clear - so a stolen backup file does not even disclose the vault id. Restoring it brings back
   the signing seat, and on a Private vault the export also carries the viewing key and the scan
-  height a rebuild needs (#447, #480). The export of a vault marked Open lacks the viewing key.
+  height a rebuild needs (#447, #480), if our coordinator answered when it was made. The export of a
+  vault marked Open lacks the viewing key.
   What is still missing is a way to hand an existing vault to a different coordinator (see
   [`docs/RECOVERY.md`](docs/RECOVERY.md)).
 
@@ -263,11 +279,15 @@ not promise what we do not deliver.
   are the DKG-vault send and every browser-signed send, came from keys born by real **DKG**.
   [docs/PROOF.md](docs/PROOF.md) lists every one, and the list above is not all of them.
 - 🔬 **By dry-run** (it *signs*, it does not yet *broadcast*): the fully-sealed local signing path
-  (sealed configs unsealed only to ephemeral tmpfs files).
+  (sealed configs unsealed only to ephemeral `0600` files, in tmpfs where the system has one).
 - 🌐 **In the browser, live over the internet - broadcast PROVEN on mainnet:** multi-device DKG and
   FROST signing over a **hosted blind relay**, over a **real Orchard/Ironwood sighash** **under the
   transaction's own alpha** (the correct Orchard spend mechanism, verified under `ak+alpha`), with
-  each device confirming what the tx pays (`describeOutputs`) before it signs, then broadcast by the
+  each device reading what the tx pays and refusing it when it differs from what the group approved,
+  before its share moves (`readPayment`, whose outputs `describeOutputs` returns; since #610 both
+  check them against what the signature covers;
+  the reading is shown while the ceremony runs, with no pause to read it first; the legacy `/net`
+  page signs without this check), then broadcast by the
   **hosted coordinator** (`helper-server`, Architecture B). Proven on mainnet: first with two tabs on one
   machine (`3022420a…`), then **across separate physical machines over the internet** (`aec83baf…`,
   block 3,460,285), two people in two places, each browser holding only its own share.
@@ -291,8 +311,9 @@ without overstatement.
 
 | | Bank | Transparent multisig (EVM) | CLI FROST (ZF tools) | **Konclave** |
 |---|---|---|---|---|
-| No single point of failure/theft | no | yes | yes | **yes** |
-| Amounts and recipients private | n/a | no | yes | **yes** |
+| No single member can move the funds | no | yes | yes | **yes** |
+| No single point of failure | no | yes | yes | **not yet: our hosted coordinator and relay ([#613](https://github.com/deegalabs/konclave/issues/613))** |
+| Amounts and recipients private on chain | n/a | no | yes | **yes (our hosted coordinator reads them, [#516](https://github.com/deegalabs/konclave/issues/516))** |
 | Group makeup hidden on-chain | n/a | no | yes | **yes** |
 | Usable without a command line | yes | yes | **no** | **yes** |
 | Private payroll (N outputs, one approval) | no | no | no | **yes** |
@@ -304,9 +325,9 @@ without overstatement.
 | Layer | Technology |
 |---|---|
 | UI | Vite + React + TypeScript (HashRouter static bundle), dependency-free i18n (PT-BR + EN) |
-| Orchestrator | Rust: proposal state machine, ZIP-317/address validation, payroll, SQLite/**SQLCipher** store, XChaCha20-Poly1305 + Argon2id sealing, OS keychain |
+| Orchestrator | Rust: proposal state machine, ZIP-317/address validation, payroll, SQLite/**SQLCipher** store, XChaCha20-Poly1305 + Argon2id sealing (an OS-keychain store exists, with no platform backend enabled yet) |
 | Browser signer | `konclave-wasm`: rerandomized-redpallas FROST + DKG + ECIES sealing + recovery, compiled to WebAssembly |
-| Blind relay | `relay-server`: standalone `tiny_http` mailbox (CORS, opaque messages), hosted on Railway |
+| Blind relay | `relay-server`: standalone `tiny_http` mailbox (CORS, forwards messages it never parses), hosted on Railway |
 | Coordinator (helper) | `helper-server`: the Architecture-B helper ([ADR-0006](docs/adr/0006-browser-native-vault.md) Rung A) - given a vault's view-only UFVK + a signing request it builds/proves the PCZT, waits for the browsers' signatures, injects and broadcasts; it **never holds a share**, but its viewing key reads the vault's payments and memos; hosted on Railway as a **non-root** container (the native `orchestrator` is the local-mode equivalent) |
 | Engine (not reimplemented) | ZF `frostd` · `frost-client` · `zcash-sign` · `zcash-devtool` · `librustzcash` (`zcash_client_backend` linked) |
 | Deploy | Vercel (UI, git auto-deploy) · Railway (relay and coordinator) · Zcash mainnet (the real path) |
@@ -344,9 +365,9 @@ konclave/
 │                    secrets · the loopback HTTP bridge · the blind relay
 ├── konclave-wasm/   FROST redpallas + DKG + ECIES sealing + RTS recovery → WebAssembly (the browser)
 ├── konclave-signer/ the FROST↔PCZT bridge (resolves the pczt 0.5↔0.7 gap; born in the slice)
-├── relay-server/    the standalone, hosted blind relay (CORS, opaque messages)
+├── relay-server/    the standalone, hosted blind relay (CORS, never parses what it forwards)
 ├── helper-server/   the hosted, share-blind Architecture-B helper (build/prove/broadcast; ADR-0006 Rung A)
-├── src-tauri/       the Tauri desktop shell wrapping the orchestrator (released since v0.2.0)
+├── src-tauri/       the Tauri desktop shell: the same ui/ in a native window (released since v0.2.0; embedding the orchestrator is #212)
 ├── ui/              Vite + React: Dashboard · Payment · Payroll · Proposal · Ledger · Members · /net · /signer
 ├── engine/          pinned engine versions (versions.lock)
 └── docs/            ARCHITECTURE · ROADMAP · VERTICAL_SLICE · DIAGRAMS · ADRs
@@ -358,8 +379,9 @@ A working, mainnet-proven prototype. The core runs through the UI for **payment 
 propose → validate (continuous) → approve/refuse (real quorum, with expiry) → **sign (FROST with the
 shares of whoever approved, sealed at rest)** → account (ledger + itemized CSV). A desktop app also
 ships, on **Tauri**, since v0.2.0 (latest v0.8.0, a pre-release; Windows, Linux and Apple Silicon
-macOS installers, none of them code-signed or notarized; live per-platform hardware validation is the
-open item, so the website does not offer the download yet). CI gates the whole repo on every push
+macOS installers, none of them code-signed or notarized; open: embedding the orchestrator and the OS
+keychain (#212), live per-platform hardware validation and signed installers (#606), so the website
+does not offer the download yet). CI gates the whole repo on every push
 (fmt + clippy `-D warnings` + tests across the Rust workspace crates, a wasm browser build, and the UI lint/test/build). What is shipped, dry-run, or
 roadmap is in the honest ladder above and tracked in [`docs/ROADMAP.md`](docs/ROADMAP.md).
 

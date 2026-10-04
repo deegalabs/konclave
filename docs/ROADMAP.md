@@ -1,6 +1,6 @@
 # Konclave: Build Roadmap
 
-> Approved phase plan. Calibrated for **solo, ~15 days** (start 2026-06-30 →
+> Approved phase plan. Calibrated for **one person writing the code, ~15 days** (start 2026-06-30 →
 > deadline 2026-07-15 UTC), **vertical slice first**, scope locked to the core.
 
 ---
@@ -43,15 +43,15 @@ This cycle's work:
   the devices' comms keys, ceremony carries no cleartext PCZT; proof `047fe6ca…`,
   `docs/proof/2026-08-29-relay-blind.md`).
 - `/net` **multi-note** over the live relay (unit-tested; single-spend is live-proven).
-- **Tauri** live **per-platform hardware** validation (the desktop app is **released as v0.2.0**,
-  Windows/macOS/Linux installers; what remains open is validating each platform's installer on
-  real hardware, not building the shell).
+- **Tauri desktop app** (**released as v0.2.0**, Windows/macOS/Linux installers). Open: embedding the orchestrator and the OS keychain (#212), live
+  per-platform hardware validation, and signed installers (#606).
 
 ## Shipped since (2026-08-22)
 
 - **Desktop app RELEASED as v0.2.0** (2026-08-03, git tag `v0.2.0`): a real Tauri shell
-  (`src-tauri/`) wrapping the orchestrator, with Windows/macOS/Linux installers. Only the
-  live per-platform hardware validation stays open (above); the shell itself is no longer roadmap.
+  (`src-tauri/`) around the same `ui/`, with Windows/macOS/Linux installers. Open: embedding the
+  orchestrator and the OS keychain (#212), live per-platform hardware validation, and signed
+  installers (#606).
 - **Hosted blind helper is a real crate** (`helper-server/`, CI-gated): the Architecture-B
   helper (ADR-0006 Rung A) deployed on Railway, blind to shares. The native `orchestrator`
   (`konclave serve`) is the equivalent **local-mode** helper.
@@ -94,21 +94,22 @@ production (`konclave-demo.vercel.app` / `www.konclave.xyz`) and validated on ma
   user created a #388-protected family vault (`882bde37…`) in the wild on 2026-08-30.
 
 **Still roadmap after #388 (§6.15)**
-- **Write auth (#288):** reads are gated, the helper's write endpoints (voting) are not - anyone with
-  the id can vote. The signing-room seat-hijack half was closed in #401 (#392 done); residual
-  ceremony-DoS vectors are #399/#400.
-- **Migrating the ~5 legacy/open vaults (#406):** a guided "Protect this vault" flow; no auto-migration.
-- **Helper single-request outage (#375)** - fixed 2026-08-28 by a worker pool (#384), pending close;
-  **no staging (#370)**.
+- ~~**Write auth (#288)**~~ **Done 2026-09-28:** every vote, proposal, payroll, rename and send is
+  signed and checked, on each vault from the first time a member unlocks it; what is open is #575,
+  #576 and #577. The signing-room seat-hijack half was closed in #401 (#392 done); the residual
+  ceremony-DoS vector is #400 (#399 closed 2026-09-15).
+- **Upgrading the legacy/open vaults in place (#406):** no auto-migration yet.
+- **Helper single-request outage (#375)** - fixed 2026-08-28 by a worker pool (#384), closed
+  2026-08-30. **Staging (#370)** is built (CLAUDE.md §11).
 - **Portability is Konclave-web to Konclave-web only (#214 / #126):** desktop / `frost-client` import
-  is not wired; the relay is self-hostable and blind, but there is still **no relay-free ceremony**
+  is not wired; the relay is self-hostable and, once every seat has registered its device key, blind to the payment, but there is still **no relay-free ceremony**
   (QR / copy-paste planned, not built).
 
 ---
 
 ## Schedule principles
 - **The risk is in Phase 1** (crypto → broadcast). It comes first and is the existential gate.
-- **Solo = scope discipline.** The core is a firm commitment; extras only if the core closes.
+- **One person writing the code = scope discipline.** The core is a firm commitment; extras only if the core closes.
 - **Documentation and security are cross-cutting** (day 1 to 15), not phases.
 
 ## Overview
@@ -229,8 +230,8 @@ cryptography. Ordered by priority.
   consistent (see [CLAIMS.md](CLAIMS.md)).
 - Browser signing of a real spend is now on `main` (the ceremony signs under the PCZT's own
   randomizer/alpha and verifies under `ak+alpha`). The `/net` "demo → real broadcast" path is
-  **proven on mainnet**: **Architecture B**, a helper-assisted broadcast that is blind to
-  spending. The browser devices keep the shares and sign over the blind relay; a helper (the
+  **proven on mainnet**: **Architecture B**, a helper-assisted broadcast in which the helper
+  holds no share. The browser devices keep the shares and sign over the blind relay; a helper (the
   hosted `helper-server`, or the native orchestrator, which never sees a share) builds and proves
   the real PCZT for the vault's own address, publishes a signing request, waits for the aggregate
   signature, injects, and broadcasts - consistent with "internal transparency, external privacy".
@@ -292,14 +293,15 @@ One UI (`ui/`) and one crypto core (`konclave-wasm`) behind the relay:
 - **Web** - browser + WASM + hosted relay (done; verified across separate machines). **Now
   installable as a PWA** (web app manifest + a network-first, update-safe service worker - the
   `/api` and `/relay` responses are never cached; the share lives only in encrypted IndexedDB).
-- **Desktop (RELEASED, v0.2.0)** - a Tauri shell (`src-tauri/`) wrapping the `orchestrator`,
-  shipped as native installers (Windows / macOS / Linux) at git tag `v0.2.0` (2026-08-03). What
-  remains is live **per-platform hardware** validation (the dev machine's GTK/WSLg window won't
-  render, [ADR-0004](adr/0004-local-http-bridge.md)). Not Wails/Go: the backend is Rust and Wails
+- **Desktop (RELEASED, v0.2.0)** - a Tauri shell (`src-tauri/`) around the same `ui/`,
+  shipped as native installers (Windows / macOS / Linux) at git tag `v0.2.0` (2026-08-03). Open:
+  embedding the orchestrator and the OS keychain (#212), live **per-platform hardware** validation
+  (the dev machine's GTK/WSLg window won't render, [ADR-0004](adr/0004-local-http-bridge.md)), and
+  signed installers (#606). Not Wails/Go: the backend is Rust and Wails
   hits the same WebKitGTK wall.
 - **Mobile = the browser / PWA** - the same UI + WASM core; the device holds its share (encrypted
   IndexedDB) and signs, while build/prove/broadcast stay off-device via the helper (Architecture B),
-  trustless and unable to move funds without the quorum. Sign-after-restore in `/net` is **wired end
+  holding no share and unable to move funds without the quorum. Sign-after-restore in `/net` is **wired end
   to end** (the saved bundle carries the KeyPackage + group key + seat; a reloaded device rejoins a
   signing room, re-announces its original seat, and signs with the restored share - no DKG redo;
   covered by a bundle+seat test). **Remaining:** a live two-browser proof.
@@ -337,17 +339,17 @@ secp256k1/C deps on purpose).
 > ZecHub FROST projects (2026-07-29) named as the meaningful one, and which none of the six had
 > reached.
 
-**Three stages for the helper (each strictly more decentralized, all trustless - the helper never
-sees a share and cannot move funds without the quorum's signatures):**
+**Three stages for the helper (each strictly more decentralized; in none of them does the helper
+see a share or move funds without the quorum's signatures):**
 1. **Manual CLI (today):** `konclave net-send` builds + proves + broadcasts; the browser devices sign
    over the blind relay. Simplest form; proves the loop.
 2. **Blind service / daemon:** the same helper runs as a service that watches the relay for a
-   browser-initiated spend and auto-builds/proves/broadcasts. Removes the manual step, still blind.
+   browser-initiated spend and auto-builds/proves/broadcasts. Removes the manual step, still share-blind.
 3. **WASM-only:** the browser does sync + build + prove + sign + broadcast itself. No helper at all.
 
 **The four capabilities to bring into WASM, by difficulty:**
 - **Broadcast** (browser → lightwalletd) - smallest: grpc-web + CORS, or a blind raw-tx **forwarder**
-  (trustless like the relay: it only relays a fully-signed tx, cannot alter or author one).
+  (it only relays a fully-signed tx and cannot alter or author one).
 - **Build** the PCZT (`zcash_client_backend` construction) - medium: compile to wasm, store notes in
   IndexedDB rather than SQLite.
 - **Prove** the Orchard action (Halo2) - **the make-or-break. Compile risk retired (2026-07-28
@@ -364,12 +366,13 @@ sees a share and cannot move funds without the quorum's signatures):**
   is the likely speedup path.
 - **Sync** (light client in WASM) - largest: compact-block sync, trial-decryption, witness updates.
 
-**Security invariant, unchanged at every stage:** the share stays encrypted on the device, the
-vault's viewing key lives in the browser (the member already owns it), and no operator or service
-ever sees a secret. Security is in **who signs** (the devices), never in who assembles the tx.
+**Security goal, at every stage:** the share stays encrypted on the device and no operator or
+service ever sees it. The viewing key is meant to live only on the members' devices; today the
+coordinator holds it too (#516). Only **the devices that sign** can spend, but until #567
+is fixed they cannot check that what they compare a transaction with is what the members approved.
 
-**Fallback:** if in-WASM proving is not viable yet, stage 2 (blind service) already delivers a
-no-manual-step, trustless flow while the WASM proving path matures.
+**Fallback:** if in-WASM proving is not viable yet, stage 2 (share-blind service) already delivers a
+no-manual-step flow, in which the helper holds no share, while the WASM proving path matures.
 
 ---
 
@@ -379,12 +382,15 @@ no-manual-step, trustless flow while the WASM proving path matures.
 > control), #101 (unified vault list), #102 (ask-before-create chooser). **Still open:** a live
 > **desktop** validation of all three modes end to end (the Tauri window doesn't render in CI/WSL).
 > The design below is what landed.
+>
+> On the released desktop app the local mode has no orchestrator behind it yet (#212), and a
+> self-hosted helper is most likely blocked by the app's CSP (#612); the help page says the same.
 
 On desktop (Tauri) the coordination backend is decided at **build time** today
-(`helperConfigured()` reads `VITE_HELPER_BASE`). Make it the **user's runtime choice** - all three
-trustless (the helper never sees a share, never moves funds without the quorum):
+(`helperConfigured()` reads `VITE_HELPER_BASE`). Make it the **user's runtime choice** - in all
+three the helper never sees a share and never moves funds without the quorum:
 
-1. **Our hosted helper** (default) - the blind Architecture-B helper.
+1. **Our hosted helper** (default) - the share-blind Architecture-B helper.
 2. **Your own helper** - a self-hosted helper URL (Settings field + localStorage override, so
    `helperConfigured()` becomes runtime, not build-time).
 3. **Local, no helper** - the local orchestrator/bridge (`/create` → `POST {BASE}/api/vault/dkg`),
@@ -393,8 +399,9 @@ trustless (the helper never sees a share, never moves funds without the quorum):
 - **Ask before creating** - the create flow surfaces the mode choice up front.
 - **Unified vault list** - `/vaults` branches on `netMode` (one source) today; show **local +
   helper vaults together** so a person sees every vault regardless of how it was created.
-- **Works in all three** - helper (Architecture B) and local/bridge already exist; "your helper" is
-  the URL field; the rest is wiring + the merged list.
+- **Meant to work in all three** - on the web the hosted helper works; on the released desktop app
+  the local mode has no orchestrator behind it yet (#212) and a self-hosted helper is most likely
+  blocked by the app's security policy (#612).
 
 Touches `api` / `helper` / `Settings` / `Vaults`. Its own branch/PR, not bundled with the landing.
-Aligns with the decentralization ladder above (blind helper → your helper → local).
+Aligns with the decentralization ladder above (share-blind helper → your helper → local).

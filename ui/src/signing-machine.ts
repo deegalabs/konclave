@@ -10,8 +10,8 @@
 // keeps the exact preconditions and the exact boolean return contract the caller's fixpoint
 // relies on (`false` = "not ready, re-apply me later"; `true` = "consumed").
 
-import { Coordinator, identifierBytes, participantRound1, participantRound2WithRandomizer, describeOutputs, pcztSighash } from './wasm-pkg/konclave_wasm.js'
-import type { PcztOutput } from './approved-payment'
+import { Coordinator, identifierBytes, participantRound1, participantRound2WithRandomizer, readPayment, pcztSighash } from './wasm-pkg/konclave_wasm.js'
+import type { GateDecision, PcztOutput, PcztPayment } from './approved-payment'
 import { b64, unb64, bytesEqual } from './net'
 import { parseSignRequest, buildSignResponse, hexToBytes as hexBytes, bytesToHex, type SignRequest } from './net-sign'
 import { parseAlphas } from './signing'
@@ -58,7 +58,7 @@ export interface SigningDeps {
   /** Did this tag PROVE it holds its seat's share (#392)? The coordinator prefers proven seats when
    *  it picks the threshold set (#399).
    *
-   *  Required rather than optional, for the reason #281 made `paysWhatWasApproved` required: there
+   *  Required rather than optional, for the reason #281 made `decideApproval` required: there
    *  are two ceremony drivers here and they have diverged three times (#424, #425, #363). A driver
    *  that cannot tell proven from unproven must SAY so by answering false, not by omitting the
    *  question. Answering false everywhere restores the old lowest-seats behaviour exactly. */
@@ -76,8 +76,9 @@ export interface SigningDeps {
   onLog: (line: string) => void
   onError: (msg: string) => void
   onPhase: (p: 'signing' | 'signed') => void
-  onWhat: (w: { zec: string; addr: string } | null) => void
-  /** Does this PCZT pay EXACTLY what the quorum approved (#281)?
+  onWhat: (w: SignPreview | null) => void
+  /** Does this PCZT pay EXACTLY what the quorum approved (#281)? `match` signs; `mismatch` and
+   *  `unknown` (this device could not work out what was approved) refuse, each with its own words.
    *
    *  Called once per ceremony, right after the local sighash check and BEFORE any share is
    *  contributed. Refusing aborts: the device signs nothing and says so.
@@ -86,7 +87,7 @@ export interface SigningDeps {
    *  two ceremony drivers in this codebase - the background signer and `/net` - which have now
    *  diverged three times (#424, #425, #363) because a rule existed in one and not the other.
    *  Making every construction site supply it turns "did you remember?" into a compile error. */
-  paysWhatWasApproved: (outputs: PcztOutput[]) => boolean
+  decideApproval: (outputs: PcztOutput[]) => GateDecision
   onSignature: (hex: string, ok: boolean) => void
   /** i18n lookup for log/error strings (net.log.* / net.err.*). */
   tt: (key: string, params?: Record<string, string | number>) => string
@@ -97,6 +98,44 @@ function hex(bytes: Uint8Array): string {
 }
 const shortId = (s: string) => (s.length > 24 ? `${s.slice(0, 14)}…${s.slice(-6)}` : s)
 const fmtZec = (zat: number) => (zat / 1e8).toFixed(8).replace(/0+$/, '').replace(/\.$/, '')
+
+/** What the signing screen shows: every output that moves value and the fee, as THIS device read
+ *  them from the transaction it signs (#610), in zatoshis. `addr` is the output's address label,
+ *  which the WASM refuses when it names a receiver the output does not pay. A missing label says
+ *  nothing about where the money goes, so `recipient` rides along and the screen decides what to
+ *  call an unlabelled output from it (device-reading.ts), never from the missing label. */
+export interface SignPreview {
+  outputs: { zat: number; addr: string | null; recipient: string | null }[]
+  feeZat: number
+}
+
+function previewOf(p: PcztPayment): SignPreview {
+  return {
+    outputs: p.outputs
+      .filter((o) => (o.value ?? 0) > 0)
+      .map((o) => ({ zat: o.value ?? 0, addr: o.address, recipient: o.recipient })),
+    feeZat: p.feeZat,
+  }
+}
+
+/** Which refusal to show for a `readPayment` error. The WASM starts each refusal with a bracketed
+ *  code; anything else is a PCZT the device could not read at all. */
+export function refusalKey(e: unknown): string {
+  const code = /^\[(\w+)\]/.exec(String(e).replace(/^Error:\s*/, ''))?.[1]
+  switch (code) {
+    case 'fee':
+      return 'net.err.feeTooHigh'
+    case 'commitment':
+    case 'undecryptable':
+      return 'net.err.outputMismatch'
+    case 'label':
+      return 'net.err.labelMismatch'
+    case 'shape':
+      return 'net.err.unexpectedShape'
+    default:
+      return 'net.err.unreadablePczt'
+  }
+}
 
 /**
  * The seat that coordinates: assembles the SigningPackage and aggregates the shares.
@@ -137,6 +176,14 @@ export class SigningMachine {
   private sigs: { index: number; sig: string }[] = [] // accumulated per-spend signatures
   private startedSpends = new Set<number>() // beginSpend fires once per position
   private done = false // the whole ceremony (every spend) finished
+  /** Did the gate pass for THIS transaction? Set in one place, after every check in `onSreq`, and
+   *  asked by every path that commits, shares, aggregates or advances (#610).
+   *
+   *  `onSreq` marks the ceremony started and loads its spends before the gate decides, and a refusal
+   *  used to leave that state armed: a `signed` posted by anyone then moved a refusing device on to
+   *  the next spend of the very transaction it had refused, and it signed the rest. The decision has
+   *  to live inside the steps that produce a signature, not beside them (the lesson of #579). */
+  private cleared = false
 
   constructor(deps: SigningDeps) {
     this.d = deps
@@ -155,6 +202,7 @@ export class SigningMachine {
    *  cross-contaminate. Fresh session per payment is the contract. */
   rearm(): void {
     this.started = false
+    this.cleared = false
     this.done = false
     this.msg = new Uint8Array()
     this.nonces = null
@@ -200,12 +248,18 @@ export class SigningMachine {
   /** Dispatch one signing message. Preserves NetVault's exact boolean contract for the fixpoint.
    *  May throw on a malformed peer package - the caller keeps its try/catch around this call. */
   async handle(parsed: SignWireMsg, fromTag: string): Promise<boolean> {
+    // A transaction this device took up and refused is over here: every later message about it is
+    // consumed and answered with nothing, not even an error. A forged package used to make a refused
+    // device report `notCoordinator`, which replaced the refusal on screen (#610 review). While this
+    // guard stands, the per-handler `cleared` checks below cannot be reached; they stay as defence in
+    // depth, so a refactor that moves this line still leaves each step that signs asking on its own.
+    if (this.started && !this.cleared) return true
     switch (parsed.type) {
       case 'sreq': return this.onSreq(parsed)
       case 's1': return this.onS1(parsed, fromTag)
       case 'sp': return this.onSp(parsed, fromTag)
       case 's2': return this.onS2(parsed, fromTag)
-      case 'signed': return this.onSigned(parsed)
+      case 'signed': return this.onSigned(parsed, fromTag)
     }
   }
 
@@ -213,6 +267,7 @@ export class SigningMachine {
    *  spend's alpha, generate FRESH nonces (never reused across signatures), and broadcast this
    *  device's commitment tagged with `k`. Fires once per position (guarded), on every device. */
   async beginSpend(k: number): Promise<void> {
+    if (!this.cleared) return // nothing is committed for a transaction this device did not clear
     if (this.startedSpends.has(k)) return
     this.startedSpends.add(k)
     this.cur = k
@@ -280,34 +335,50 @@ export class SigningMachine {
       }
       this.sigs = []
       this.startedSpends = new Set()
-      // What does this transaction actually pay? Read the outputs ONCE and use them for both jobs:
+      // What does this transaction actually pay? Read it ONCE and use the reading for both jobs:
       // the money gate's decision (#281) and the human preview.
       //
       // This used to be display-only, inside a catch that let the ceremony run when the PCZT could
       // not be read. That is the wrong default on a money path: a device that cannot see what it
       // signs cannot confirm it is the approved payment, and "show no preview, sign anyway" is
       // precisely the state where only human vigilance stood between a swapped destination and a
-      // signature. It now fails closed.
-      let outs: PcztOutput[]
+      // signature. It fails closed.
+      //
+      // `readPayment` is also where the reading became trustworthy (#610). It checks every output
+      // against the note commitment the sighash covers, the address label against the receiver it
+      // pays, opens each paying output for its memo, and bounds the fee by ZIP 317. Before it, the
+      // device read the outputs as the builder wrote them, beside the commitment and not bound to
+      // it, and nothing looked at the fee at all.
+      // A reading belongs to one transaction. Cleared first, so a refusal of this one is never
+      // shown over the reading of the payment before it.
+      this.d.onWhat(null)
+      let payment: PcztPayment
       try {
-        outs = JSON.parse(describeOutputs(pczt)) as PcztOutput[]
-      } catch {
-        this.d.onError(this.d.tt('net.err.unreadablePczt'))
+        payment = JSON.parse(readPayment(pczt)) as PcztPayment
+      } catch (e) {
+        this.d.onError(this.d.tt(refusalKey(e)))
+        this.d.onLog(`~ ${String(e)}`)
         return true
       }
+      // Shown before the gate decides, so a refusal can show the payment it refused: the member is
+      // told to compare it with the proposal, and has to be able to see it to do that.
+      const preview = previewOf(payment)
+      this.d.onWhat(preview)
+      for (const o of preview.outputs) this.d.onLog(`~ ${fmtZec(o.zat)} ZEC -> ${o.addr ? shortId(o.addr) : 'no label'}`)
+      this.d.onLog(`~ fee ${fmtZec(preview.feeZat)} ZEC`)
       // The gate, before any share moves. H1 proved this device signs the sighash of the PCZT it
       // holds; this proves that PCZT pays what the quorum approved. Both are needed: without the
       // first a hostile coordinator swaps the bytes under the signature, without the second it
       // swaps the payment under the approval.
-      if (!this.d.paysWhatWasApproved(outs)) {
-        this.d.onError(this.d.tt('net.err.notApproved'))
+      // Anything but `match` refuses. The two refusals are worded apart because they ask different
+      // things of the member: a mismatch is evidence to tell the others about, an approval this device
+      // could not load is a reason to reload first (#610 review).
+      const decision = this.d.decideApproval(payment.outputs)
+      if (decision !== 'match') {
+        this.d.onError(this.d.tt(decision === 'unknown' ? 'net.err.approvalUnknown' : 'net.err.notApproved'))
         return true
       }
-      const recip = outs.find((o) => o.address !== null)
-      if (recip && recip.address && recip.value != null) {
-        this.d.onWhat({ zec: fmtZec(recip.value), addr: recip.address })
-        this.d.onLog(`~ ${fmtZec(recip.value)} ZEC -> ${shortId(recip.address)}`)
-      }
+      this.cleared = true // every check above passed, and only here
       this.d.onPhase('signing')
       await this.beginSpend(0) // the first (and, for a single-spend tx, the only) ceremony
     }
@@ -330,6 +401,7 @@ export class SigningMachine {
 
   private async onS1(parsed: Extract<SignWireMsg, { type: 's1' }>, fromTag: string): Promise<boolean> {
     if (!this.started) return false
+    if (!this.cleared) return true // refused here: this device does not help sign it
     if (this.otherCeremony(parsed)) return true // another transaction's round 1 - never mix it in
     // Spend-tagged: a message for a LATER spend waits (re-applied after we advance); an EARLIER
     // one is stale and dropped. Keeps N sequential ceremonies from crossing over the relay.
@@ -453,6 +525,7 @@ export class SigningMachine {
       return true
     }
     if (!this.started) return false
+    if (!this.cleared) return true // refused here: no share for it, whoever asks
     if (this.otherCeremony(parsed)) return true
     if (parsed.k !== this.cur) return parsed.k > this.cur ? false : true
     // H1 / ADR-0007, the second half. `onSreq` recomputes the ZIP-244 sighash from THIS device's own
@@ -472,7 +545,7 @@ export class SigningMachine {
     // signs, which refuses a package that signs anything else. It cannot be skipped from here,
     // because there is no longer a way to ask for the share without it.
     const sp = unb64(parsed.sp)
-    if (parsed.signers.includes(this.d.mySeat()) && !this.sentS2 && this.nonces && this.alpha) {
+    if (this.cleared && parsed.signers.includes(this.d.mySeat()) && !this.sentS2 && this.nonces && this.alpha) {
       let share: Uint8Array
       try {
         share = participantRound2WithRandomizer(
@@ -499,6 +572,7 @@ export class SigningMachine {
 
   private async onS2(parsed: Extract<SignWireMsg, { type: 's2' }>, fromTag: string): Promise<boolean> {
     if (!this.started) return false
+    if (!this.cleared) return true // refused here: nothing to aggregate
     if (this.otherCeremony(parsed)) return true
     if (this.d.mySeat() !== COORDINATOR_SEAT) return true // only the coordinator aggregates
     if (parsed.k !== this.cur) return parsed.k > this.cur ? false : true
@@ -522,20 +596,32 @@ export class SigningMachine {
     return true
   }
 
-  private async onSigned(parsed: Extract<SignWireMsg, { type: 'signed' }>): Promise<boolean> {
+  private async onSigned(parsed: Extract<SignWireMsg, { type: 'signed' }>, fromTag: string): Promise<boolean> {
     if (!this.started) return false
+    if (!this.cleared) return true // refused here: a signature for it moves nothing
     if (this.otherCeremony(parsed)) return true
+    // Only the coordinator aggregates, so only its seat may announce a spend signed (#610). As in
+    // `onSp`, a sender not seated YET is not refused, only deferred.
+    const senderSeat = this.d.seatOf(fromTag)
+    if (senderSeat === undefined) return false
+    if (senderSeat !== COORDINATOR_SEAT) return true
     if (parsed.k !== this.cur) return parsed.k > this.cur ? false : true
     const sig = unb64(parsed.sig)
-    let ok = parsed.ok
+    // Every device re-checks under ak+alpha (a fresh Coordinator just to verify), and a signature
+    // that does not verify here is neither recorded nor a reason to move on. It used to be both:
+    // the coordinator's word was kept when the local check could not run.
+    let ok = false
     try {
       if (this.alpha) {
-        // Every device re-checks under ak+alpha (a fresh Coordinator just to verify).
         const mat = this.d.signingMaterial()
         ok = new Coordinator(mat.groupVk, mat.pubkeys, this.msg).verifyWithRandomizer(this.alpha, sig)
       }
     } catch {
-      /* keep the coordinator's result if local verify throws */
+      ok = false
+    }
+    if (!ok) {
+      this.d.onLog(this.d.tt('net.log.verifyFail'))
+      return true
     }
     // Record this spend's signature under its on-chain index (dedup - the fixpoint may retry).
     const spend = this.spends[this.cur]

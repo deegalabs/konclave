@@ -199,8 +199,8 @@ export const PROOF_TXS: readonly ProofTx[] = [
     block: 3484695,
     origin: 'dkg',
     label: {
-      en: 'The device checked that the payment was the approved one before signing it (#281): a 2-of-2 vault sending 0.0001 ZEC in a transaction that carries change. The chain cannot show the check. What attests it is that the change went to the internal receiver of the vault, which differs from its receive address, and the device recognised it as its own.',
-      'pt-BR': 'O dispositivo conferiu que o pagamento era o aprovado antes de assinar (#281): um cofre 2-de-2 enviando 0,0001 ZEC numa transação que carrega troco. A cadeia não mostra a conferência. O que atesta é que o troco foi para o receptor interno do próprio cofre, diferente do endereço de recebimento, e o dispositivo o reconheceu como seu.',
+      en: 'The device recognised the vault’s own change before signing (#281): a 2-of-2 vault sending 0.0001 ZEC in a transaction that carries change. The chain cannot show the check. What attests it is that the change went to the internal receiver of the vault, which differs from its receive address, and the device recognised it as its own. That send was signed before devices read the payment from the transaction itself and checked it against the approved one (#610), and an approval is not yet tied to the exact content of the proposal (#567).',
+      'pt-BR': 'O dispositivo reconheceu o troco do próprio cofre antes de assinar (#281): um cofre 2-de-2 enviando 0,0001 ZEC numa transação que carrega troco. A cadeia não mostra a conferência. O que atesta é que o troco foi para o receptor interno do próprio cofre, diferente do endereço de recebimento, e o dispositivo o reconheceu como seu. Esse envio foi assinado antes de os aparelhos lerem o pagamento da própria transação e o conferirem com o aprovado (#610), e a aprovação ainda não fica presa ao conteúdo exato da proposta (#567).',
     },
   },
 ]
