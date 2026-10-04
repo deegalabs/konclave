@@ -1598,9 +1598,13 @@ fn parse_registration(body: &[u8]) -> Result<Registration, Resp> {
 }
 
 /// The response for a request admission refused.
-fn refusal(why: admission::Refused) -> Response<std::io::Cursor<Vec<u8>>> {
-    Response::from_data(json!({ "error": why.message() }).to_string().into_bytes())
-        .with_status_code(429)
+fn refusal(why: admission::Refused) -> Resp {
+    resp(429, json!({ "error": why.message() }).to_string())
+}
+
+/// The HTTP response for an answer, with the CORS headers every answer carries.
+fn http_response(r: Resp) -> Response<std::io::Cursor<Vec<u8>>> {
+    with_cors(Response::from_data(r.body.into_bytes()).with_status_code(r.status))
 }
 
 /// Whether this request is a registration that WILL reach the engine, and is over its limit.
@@ -1625,6 +1629,54 @@ fn new_vault_refusal(
         return None;
     }
     limits.new_vault(client, &reg.group_key, now).err()
+}
+
+/// Everything a worker does with a request once its body is read: admission, the vault's lock,
+/// the handler.
+///
+/// ONE function, called by the worker loop and by the tests. The lock used to be taken inline in
+/// `main()`, where no test could reach it, so what the tests said about serialisation was said
+/// about something other than what production runs (#576).
+#[allow(clippy::too_many_arguments)]
+fn serve(
+    state: &HelperState,
+    cfg: &HelperConfig,
+    locks: &concurrency::VaultLocks,
+    limits: &admission::Limits,
+    client: &str,
+    now: i64,
+    method: &Method,
+    path: &str,
+    body: &[u8],
+    read_token: Option<&str>,
+) -> Resp {
+    // First, because there is no right vault to lock for a request that names two, or whose body
+    // cannot be read by name, and because a registration refused here must not be counted against
+    // its sender's allowance below (#576).
+    let query = path.split_once('?').map_or("", |(_, q)| q);
+    let vault = match concurrency::request_vault(query, body) {
+        Ok(vault) => vault,
+        Err(why) => return resp(400, json!({ "error": why.message() }).to_string()),
+    };
+
+    // Before the vault's lock, so a registration that will be refused never queues behind a vault
+    // that is busy signing.
+    if let Some(refused) = new_vault_refusal(limits, state, client, method, path, body, now) {
+        return refusal(refused);
+    }
+
+    // Held for the whole request, and only when the request names a vault - so health and
+    // anything unrouted never wait for a lock at all. Whichever field the handler reads the vault
+    // from, it is this one: `request_vault` refused the request if any two disagreed, and refused
+    // any body it could not read by name.
+    let lock = vault.map(|v| locks.for_vault(&v));
+    // A handler that panicked would poison this lock and wedge that vault forever; taking the
+    // inner value keeps the vault serving instead.
+    let _guard = lock
+        .as_ref()
+        .map(|m| m.lock().unwrap_or_else(|e| e.into_inner()));
+
+    handle_with_token(state, cfg, method, path, body, read_token)
 }
 
 fn main() {
@@ -1724,7 +1776,7 @@ fn main() {
             // logged: a line per refused request would turn a flood of requests into a flood of
             // log, and would write client addresses to disk, which nothing here needs.
             if let Some(refused) = admission::refuse_flood(&limits, &client, &path, now) {
-                let _ = req.respond(with_cors(refusal(refused)));
+                let _ = req.respond(http_response(refusal(refused)));
                 continue;
             }
             // A public POST with no ceiling is memory exhaustion by one request (#269). The relay
@@ -1742,28 +1794,19 @@ fn main() {
                 konclave_http::ReadPlan::Skip => { /* over the cap: handle an empty body */ }
             }
 
-            // Before the vault's lock, so a registration that will be refused never queues behind
-            // a vault that is busy signing.
-            if let Some(refused) =
-                new_vault_refusal(&limits, &state, &client, &method, &path, &body, now)
-            {
-                let _ = req.respond(with_cors(refusal(refused)));
-                continue;
-            }
-
-            // Held for the whole request, and only when the request names a vault - so health and
-            // anything unrouted never wait for a lock at all.
-            let query = path.split_once('?').map_or("", |(_, q)| q);
-            let lock = concurrency::request_vault(query, &body).map(|v| locks.for_vault(&v));
-            // A handler that panicked would poison this lock and wedge that vault forever; taking
-            // the inner value keeps the vault serving instead.
-            let _guard = lock
-                .as_ref()
-                .map(|m| m.lock().unwrap_or_else(|e| e.into_inner()));
-
-            let r = handle_with_token(&state, &cfg, &method, &path, &body, read_token.as_deref());
-            let out = Response::from_data(r.body.into_bytes()).with_status_code(r.status);
-            let _ = req.respond(with_cors(out));
+            let r = serve(
+                &state,
+                &cfg,
+                &locks,
+                &limits,
+                &client,
+                now,
+                &method,
+                &path,
+                &body,
+                read_token.as_deref(),
+            );
+            let _ = req.respond(http_response(r));
         }));
     }
     for w in pool {
@@ -3985,5 +4028,257 @@ mod tests {
                 );
             }
         }
+    }
+
+    // #576. A vault's lock is taken from what the request NAMES, and its handler acts on what it
+    // READS. Those were two different readings of one request: the lock preferred the query
+    // string, the POST handlers act on the body. So a request could hold one vault's lock and
+    // write another vault's directory, which is the corruption the lock exists to prevent.
+
+    /// Runs `body` through `serve` on another thread while THIS thread holds `vault`'s lock, and
+    /// asserts that `touched` stays false for as long as the lock is held. Whatever the request
+    /// does, it must not change a vault whose lock somebody else holds. Returns its status.
+    fn serve_while_locked(
+        st: &HelperState,
+        c: &HelperConfig,
+        vault: &str,
+        path: &str,
+        body: &str,
+        touched: impl Fn() -> bool,
+    ) -> u16 {
+        let locks = concurrency::VaultLocks::new();
+        let limits = admission::Limits::new();
+        let held = locks.for_vault(vault);
+        let guard = held.lock().expect("hold the vault's lock");
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::scope(|s| {
+            let worker = s.spawn(|| {
+                let r = serve(
+                    st,
+                    c,
+                    &locks,
+                    &limits,
+                    "203.0.113.7",
+                    T0,
+                    &Method::Post,
+                    path,
+                    body.as_bytes(),
+                    None,
+                );
+                let _ = tx.send(());
+                r.status
+            });
+            // Long enough for the request to finish if nothing stops it; it either finishes
+            // without touching the vault, or it is still waiting for the lock. Both are correct.
+            let _ = rx.recv_timeout(Duration::from_secs(2));
+            assert!(
+                !touched(),
+                "{path} changed {vault} while another request held its lock"
+            );
+            drop(guard);
+            worker.join().expect("worker")
+        })
+    }
+
+    #[test]
+    fn a_vote_never_acts_on_a_vault_whose_lock_is_held() {
+        let st = HelperState::new();
+        seed(&st, "lockedv");
+        let c = cfg();
+        let dir = c.vaults_dir.clone();
+        let _ = claim_members(&dir, "lockedv", &["alice".into(), "bob".into()]);
+
+        for (path, body) in [
+            // The body names the vault; the query names another one, which nothing else holds.
+            (
+                "/api/vault/proposals/p1/approve?vault=decoy",
+                r#"{"vault":"lockedv","member":"bob"}"#,
+            ),
+            // A JSON array: the handler reads its fields by position, and nothing named `vault`
+            // is there for the lock to read.
+            ("/api/vault/proposals/p1/approve", r#"["lockedv","bob"]"#),
+            // A field a JSON value refuses and the handler skips.
+            (
+                "/api/vault/proposals/p1/approve",
+                r#"{"vault":"lockedv","member":"bob","pad":1e400}"#,
+            ),
+        ] {
+            an_open_two_of_two_proposal(&dir, "lockedv");
+            let status = serve_while_locked(&st, &c, "lockedv", path, body, || {
+                !load_proposal(&dir, "lockedv", "p1", now_unix())
+                    .expect("the proposal")
+                    .approvals
+                    .is_empty()
+            });
+            assert_eq!(status, 400, "{path} {body}");
+        }
+    }
+
+    /// The same defect inside the body: a registration route acts on `group_key`, and the lock used
+    /// to prefer `vault` when both were present.
+    #[test]
+    fn a_device_registration_never_acts_on_a_vault_whose_lock_is_held() {
+        let st = HelperState::new();
+        let gk = "ab".repeat(32);
+        seed(&st, &gk);
+        let c = cfg();
+        let dir = c.vaults_dir.clone();
+        let device = "cd".repeat(32);
+
+        for body in [
+            format!(r#"{{"group_key":"{gk}","vault":"decoy","device_pub":"{device}"}}"#),
+            format!(r#"["{gk}","{device}"]"#),
+        ] {
+            let status = serve_while_locked(&st, &c, &gk, "/api/vault/devicekey", &body, || {
+                !orchestrator::helper::load_device_records(&dir, &gk).is_empty()
+            });
+            assert_eq!(status, 400, "{body}");
+        }
+    }
+
+    /// The case in #576, as it was reproduced against the real binary: a member votes and renames
+    /// themselves at the same instant, each request carrying a different query string, and then
+    /// votes again under their new name. Serialised, that is one approval whichever request ran
+    /// first. Interleaved, the vote saves under the old name after the rename has migrated every
+    /// proposal, and the second vote makes it two: one person, a 2-of-2 quorum.
+    ///
+    /// Rounds of the shapes the app sends and of every shape that used to reach the vault without
+    /// its lock, because the honest ones must keep working and the others must never land. It
+    /// checks each request's status, so "serialised" cannot pass as "never ran", and asserts on the
+    /// raw approvals, not on the state, so that counting members (#575) cannot hide the race.
+    #[test]
+    fn a_vote_and_a_rename_of_one_vault_never_interleave() {
+        let st = HelperState::new();
+        seed(&st, "race");
+        let c = cfg();
+        let dir = c.vaults_dir.clone();
+        let locks = concurrency::VaultLocks::new();
+        let limits = admission::Limits::new();
+        // (vote query, vote body, rename query, rename body, honest). The honest shapes are the two
+        // the app sends; each of the others reached the vault without its lock before #576.
+        let vote = r#"{"vault":"race","member":"alice601"}"#;
+        let rename = r#"{"vault":"race","old":"alice601","new":"alice602"}"#;
+        let vote_pad = r#"{"vault":"race","member":"alice601","pad":1e400}"#;
+        let rename_pad = r#"{"vault":"race","old":"alice601","new":"alice602","pad":1e400}"#;
+        let shapes = [
+            ("", vote, "", rename, true),
+            ("?vault=race", vote, "?vault=race", rename, true),
+            ("?vault=decoy-a", vote, "?vault=decoy-b", rename, false),
+            (
+                "",
+                r#"["race","alice601"]"#,
+                "",
+                r#"["race","alice601","alice602"]"#,
+                false,
+            ),
+            ("", vote_pad, "", rename_pad, false),
+            (
+                "?vault=decoy-a",
+                vote_pad,
+                "?vault=decoy-b",
+                rename_pad,
+                false,
+            ),
+        ];
+        let post = |path: &str, body: &str| {
+            serve(
+                &st,
+                &c,
+                &locks,
+                &limits,
+                "203.0.113.7",
+                T0,
+                &Method::Post,
+                path,
+                body.as_bytes(),
+                None,
+            )
+            .status
+        };
+        let mut interleaved = 0;
+        for round in 0..300 {
+            let (vote_q, vote_body, rename_q, rename_body, honest) = shapes[round % shapes.len()];
+            orchestrator::helper::save_members(&dir, "race", &["alice601".into(), "bob".into()])
+                .expect("reset the roster");
+            an_open_two_of_two_proposal(&dir, "race");
+
+            let start = std::sync::Barrier::new(2);
+            let (voted, renamed) = std::thread::scope(|s| {
+                let v = s.spawn(|| {
+                    start.wait();
+                    post(
+                        &format!("/api/vault/proposals/p1/approve{vote_q}"),
+                        vote_body,
+                    )
+                });
+                let r = s.spawn(|| {
+                    start.wait();
+                    post(&format!("/api/vault/members/rename{rename_q}"), rename_body)
+                });
+                (v.join().expect("vote"), r.join().expect("rename"))
+            });
+            // Serialised and not merely refused: an honest rename runs, and the vote either runs
+            // first or finds the name already gone. Every other shape is refused outright.
+            if honest {
+                assert_eq!(renamed, 200, "round {round}: the honest rename ran");
+                assert!(
+                    voted == 200 || voted == 403,
+                    "round {round}: the honest vote ran, or found the old name gone: {voted}"
+                );
+            } else {
+                assert_eq!((voted, renamed), (400, 400), "round {round}: {vote_body}");
+            }
+
+            // She votes again under whatever the roster now calls her seat.
+            let her_name = load_members(&dir, "race")[0].clone();
+            post(
+                "/api/vault/proposals/p1/approve",
+                &format!(r#"{{"vault":"race","member":"{her_name}"}}"#),
+            );
+
+            let p = load_proposal(&dir, "race", "p1", now_unix()).expect("the proposal");
+            if p.approvals.len() != 1 {
+                interleaved += 1;
+                eprintln!("round {round} ({vote_body}): {:?}", p.approvals);
+            }
+        }
+        assert_eq!(
+            interleaved, 0,
+            "a vote and a rename of one vault ran at the same time"
+        );
+    }
+
+    /// A request refused for naming two vaults is refused BEFORE admission, so a registration
+    /// refused that way is not counted against its sender's allowance for new vaults: admission
+    /// counts only what will reach the engine (#558).
+    #[test]
+    fn a_registration_refused_for_naming_two_vaults_costs_no_allowance() {
+        let st = HelperState::new();
+        let c = cfg();
+        let locks = concurrency::VaultLocks::new();
+        let limits = admission::Limits::new();
+        for n in 0..20u32 {
+            let body = format!(
+                r#"{{"group_key":"{n:064x}","vault":"decoy","name":"v","threshold":2,"total":2}}"#
+            );
+            let r = serve(
+                &st,
+                &c,
+                &locks,
+                &limits,
+                "203.0.113.7",
+                T0,
+                &Method::Post,
+                "/api/vault",
+                body.as_bytes(),
+                None,
+            );
+            assert_eq!(r.status, 400, "{}", r.body);
+        }
+        assert_eq!(
+            registering(&limits, &st, "203.0.113.7", &register_body(999, 2, 2)),
+            None,
+            "the allowance is untouched"
+        );
     }
 }

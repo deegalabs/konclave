@@ -8,7 +8,8 @@
 //! durable volume - a view-only wallet, its proposals, its member roster - and the handlers reach
 //! it through subprocesses. Two requests for the SAME vault running at once would write over each
 //! other there. So the fix is two pieces that only work together: requests run in parallel, and
-//! everything touching one vault is serialised on that vault's own lock.
+//! everything touching one vault is serialised on that vault's own lock. The vault locked has to be
+//! the vault the handler acts on, which is why a request naming two is refused (#576).
 //!
 //! What this deliberately does NOT do is make a send fast. A send still holds its vault for as long
 //! as the quorum takes to sign, and that vault's other requests wait behind it. What changes is the
@@ -18,33 +19,82 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-/// Which vault a request is about, or `None` for one that touches no vault (health, 404s).
+/// Which vault a request is about: `Ok(None)` for one that touches no vault (health, 404s), and
+/// `Err` for one whose vault cannot be read with certainty.
 ///
 /// Pure so the routing table's shape is unit-testable: the id arrives three different ways, and a
 /// request whose vault we fail to read would run unserialised, which is exactly the case that
 /// corrupts a directory. Reading the body here costs one extra JSON parse per request against
 /// handlers that already shell out to the engine.
-pub fn request_vault(query: &str, body: &[u8]) -> Option<String> {
-    if let Some(v) = query_vault(query) {
-        return Some(v.to_string());
-    }
-    let v: serde_json::Value = serde_json::from_slice(body).ok()?;
+///
+/// Two rules, both from #576, and both refuse rather than guess:
+///
+/// - EVERY place a request names a vault has to agree. This used to pick one: the query first, then
+///   `vault` in the body, then `group_key`. The handlers do not pick the same way - a GET reads the
+///   first `vault=` of the query, most POSTs read `vault` in the body, and the registration routes
+///   read `group_key` - so a request naming one vault in the query and another in the body was
+///   locked on the first and acted on the second, and a vote racing a rename recorded one member's
+///   approval twice. An empty `vault=` beside a real one is a disagreement too, so the first value,
+///   which is what a GET handler reads, is always the one locked.
+/// - A body has to be EMPTY or a JSON OBJECT this function can read by name. The handlers read the
+///   same bytes with serde's derived deserializers, which accept a JSON array by position and skip
+///   values a `serde_json::Value` refuses (a number like `1e400`, nesting past 128, a lone
+///   surrogate, invalid UTF-8). Before, any such body read as "no vault here" and ran with no lock
+///   at all, while its handler found the vault and acted on it. Every route takes an object, and the
+///   app sends nothing else.
+///
+/// Requiring agreement over every named field of an object, rather than teaching this function
+/// which field each route reads, keeps the rule in one place: whichever of them a handler reads, it
+/// is the vault that was locked. A routing table here would be a second copy of the router, and the
+/// first route added without updating it would reopen this.
+pub fn request_vault(query: &str, body: &[u8]) -> Result<Option<String>, Unlockable> {
+    let in_query = query.split('&').filter_map(|kv| {
+        let (k, v) = kv.split_once('=')?;
+        (k == "vault").then_some(v)
+    });
+    let fields = if body.iter().all(u8::is_ascii_whitespace) {
+        None
+    } else {
+        match serde_json::from_slice(body) {
+            Ok(serde_json::Value::Object(fields)) => Some(fields),
+            _ => return Err(Unlockable::NotAnObject),
+        }
+    };
     // `vault` on every operation route; `group_key` on registration, which names the same thing.
-    for key in ["vault", "group_key"] {
-        if let Some(s) = v.get(key).and_then(|x| x.as_str()) {
-            if !s.is_empty() {
-                return Some(s.to_string());
-            }
+    let in_body = ["vault", "group_key"]
+        .into_iter()
+        .filter_map(|key| fields.as_ref()?.get(key)?.as_str());
+
+    let mut named: Option<&str> = None;
+    for v in in_query.chain(in_body) {
+        match named {
+            None => named = Some(v),
+            Some(n) if n == v => {}
+            Some(_) => return Err(Unlockable::TwoVaults),
         }
     }
-    None
+    // An empty id is absent rather than a vault: otherwise every malformed request would
+    // serialise against every other one.
+    Ok(named.filter(|v| !v.is_empty()).map(str::to_string))
 }
 
-fn query_vault(query: &str) -> Option<&str> {
-    query.split('&').find_map(|kv| {
-        let (k, v) = kv.split_once('=')?;
-        (k == "vault" && !v.is_empty()).then_some(v)
-    })
+/// A request with no right vault to lock for. It is refused before any lock is taken.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Unlockable {
+    /// Two places in the request name different vaults.
+    TwoVaults,
+    /// The body is neither empty nor a JSON object, so the vault it names cannot be read by name.
+    NotAnObject,
+}
+
+impl Unlockable {
+    /// The reason, for the 400 the caller sends.
+    pub fn message(&self) -> &'static str {
+        match self {
+            Unlockable::TwoVaults => "the request names more than one vault",
+            Unlockable::NotAnObject => "the request body must be a JSON object",
+        }
+    }
 }
 
 /// One lock per vault, created on first use.
@@ -102,15 +152,15 @@ mod tests {
 
     #[test]
     fn reads_the_vault_from_the_query_string() {
-        assert_eq!(request_vault("vault=abc&x=1", b""), Some("abc".into()));
-        assert_eq!(request_vault("x=1&vault=abc", b""), Some("abc".into()));
+        assert_eq!(request_vault("vault=abc&x=1", b""), Ok(Some("abc".into())));
+        assert_eq!(request_vault("x=1&vault=abc", b""), Ok(Some("abc".into())));
     }
 
     #[test]
     fn reads_the_vault_from_the_body_when_the_query_has_none() {
         assert_eq!(
             request_vault("", br#"{"vault":"deadbeef","to":"u1..."}"#),
-            Some("deadbeef".into())
+            Ok(Some("deadbeef".into()))
         );
     }
 
@@ -120,31 +170,96 @@ mod tests {
         // registering runs the engine against the vault's directory.
         assert_eq!(
             request_vault("", br#"{"group_key":"ff00","name":"treasury"}"#),
-            Some("ff00".into())
+            Ok(Some("ff00".into()))
         );
     }
 
     #[test]
-    fn prefers_the_query_string_over_the_body() {
+    fn accepts_a_request_that_names_its_vault_in_several_places_consistently() {
+        assert_eq!(
+            request_vault("vault=abc", br#"{"vault":"abc","group_key":"abc"}"#),
+            Ok(Some("abc".into()))
+        );
+        assert_eq!(
+            request_vault("vault=abc&vault=abc", b""),
+            Ok(Some("abc".into()))
+        );
+    }
+
+    /// #576. Each of these was locked on one vault and acted on the other. The first is the case
+    /// reproduced against the real binary: a vote and a rename of one vault, each carrying a
+    /// different `?vault=`, ran concurrently and recorded one member's approval twice.
+    #[test]
+    fn refuses_a_request_that_names_two_vaults() {
+        use Unlockable::TwoVaults;
+        // The query against the body: the POST handlers read the body.
         assert_eq!(
             request_vault("vault=fromquery", br#"{"vault":"frombody"}"#),
-            Some("fromquery".into())
+            Err(TwoVaults)
         );
+        // Inside the body: the registration routes read `group_key`, the lock preferred `vault`.
+        assert_eq!(
+            request_vault("", br#"{"vault":"a","group_key":"b"}"#),
+            Err(TwoVaults)
+        );
+        assert_eq!(
+            request_vault("vault=a", br#"{"group_key":"b"}"#),
+            Err(TwoVaults)
+        );
+        // Inside the query: the reads take the first `vault=`, so the lock must not take another.
+        assert_eq!(request_vault("vault=a&vault=b", b""), Err(TwoVaults));
+        // An empty one beside a real one: a read takes the first, which would be the empty one.
+        assert_eq!(request_vault("vault=&vault=a", b""), Err(TwoVaults));
+        assert_eq!(request_vault("vault=", br#"{"vault":"a"}"#), Err(TwoVaults));
+    }
+
+    /// #576, the same defect by another door: the handlers read the body with serde's derived
+    /// deserializers, and each of these got past `serde_json::Value` as "names no vault", ran with
+    /// no lock, and was acted on by a handler that found the vault in it.
+    #[test]
+    fn refuses_a_body_it_cannot_read_by_name() {
+        use Unlockable::NotAnObject;
+        let deep = format!(
+            r#"{{"vault":"a","pad":{}0{}}}"#,
+            "[".repeat(200),
+            "]".repeat(200)
+        );
+        for body in [
+            br#"["a","bob"]"#.as_slice(),
+            br#"{"vault":"a","pad":1e400}"#,
+            deep.as_bytes(),
+            br#"{"vault":"a","pad":"\ud800"}"#,
+            b"{\"vault\":\"a\",\"pad\":\"\xff\"}",
+            br#""a""#,
+            b"42",
+            b"null",
+            b"not json",
+        ] {
+            assert_eq!(
+                request_vault("", body),
+                Err(NotAnObject),
+                "{}",
+                String::from_utf8_lossy(body)
+            );
+            // And a query that names a vault does not make an unreadable body lockable.
+            assert_eq!(request_vault("vault=a", body), Err(NotAnObject));
+        }
     }
 
     #[test]
     fn is_none_for_a_request_that_touches_no_vault() {
         // Health is the one that matters: it must never queue behind anything.
-        assert_eq!(request_vault("", b""), None);
-        assert_eq!(request_vault("other=1", b"not json"), None);
-        assert_eq!(request_vault("", br#"{"unrelated":true}"#), None);
+        assert_eq!(request_vault("", b""), Ok(None));
+        assert_eq!(request_vault("other=1", b""), Ok(None));
+        assert_eq!(request_vault("", b" \n"), Ok(None));
+        assert_eq!(request_vault("", br#"{"unrelated":true}"#), Ok(None));
     }
 
     #[test]
     fn treats_an_empty_id_as_absent_rather_than_locking_on_the_empty_string() {
         // Otherwise every malformed request would serialise against every other one.
-        assert_eq!(request_vault("vault=", b""), None);
-        assert_eq!(request_vault("", br#"{"vault":""}"#), None);
+        assert_eq!(request_vault("vault=", b""), Ok(None));
+        assert_eq!(request_vault("", br#"{"vault":""}"#), Ok(None));
     }
 
     #[test]
