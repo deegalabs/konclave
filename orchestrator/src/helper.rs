@@ -32,6 +32,9 @@ pub struct HelperConfig {
     pub konclave_signer: PathBuf,
     /// Base directory under which each vault's view-only wallet lives (`<vaults_dir>/<vault_id>/wallet`).
     pub vaults_dir: PathBuf,
+    /// The relay base URLs this coordinator may publish a signing request to (#270), from its own
+    /// configuration and never from a request. Empty means none: every send is refused.
+    pub relays: Vec<String>,
 }
 
 impl HelperConfig {
@@ -1797,6 +1800,7 @@ mod tests {
             network: "main".into(),
             konclave_signer: PathBuf::from("/nonexistent/konclave-signer"),
             vaults_dir,
+            relays: Vec::new(),
         }
     }
 
@@ -2070,6 +2074,7 @@ mod tests {
             network: "test".into(),
             konclave_signer: PathBuf::from("/nonexistent/konclave-signer"),
             vaults_dir: PathBuf::from("/tmp/konclave-helper-vaults"),
+            relays: Vec::new(),
         };
         assert!(register_vault(&cfg, "not-a-valid-key", "demo", 2, 3).is_err());
     }
@@ -2082,6 +2087,7 @@ mod tests {
             network: network.into(),
             konclave_signer: PathBuf::from("/bin/konclave-signer"),
             vaults_dir: PathBuf::from("/srv/vaults"),
+            relays: Vec::new(),
         }
     }
 

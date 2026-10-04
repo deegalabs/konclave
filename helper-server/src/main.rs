@@ -42,6 +42,7 @@ use orchestrator::helper::{
     vault_transactions, CeremonyRecord, HelperConfig, HelperProposal, HelperState, PayrollLine,
     RosterWrite, VaultRegistration,
 };
+use orchestrator::relay_client::{configured_relay, parse_relay_config, valid_room, RelayRefusal};
 use orchestrator::send::{funding_check, net_orchestrate_send, Funding, PayrollDest, SpendPlan};
 use orchestrator::write_auth::{
     authorize_write, same_member, seat_acts_as, seat_holder, SignedWrite, WriteAction, WriteAuth,
@@ -998,6 +999,27 @@ fn handle_proposal_send(state: &HelperState, cfg: &HelperConfig, path: &str, bod
         Ok(r) => r,
         Err(_) => return resp(400, json!({ "error": "invalid json" }).to_string()),
     };
+    // #270: the relay is this coordinator's own, never the request's. The request used to name it,
+    // and it went to `curl` unchecked: any URL fetched from the coordinator's network, and on a
+    // vault where not every seat had registered a device key, the signing request - who the vault
+    // pays and how much - sent in clear text to that address. First, before the vault, the gate or
+    // the engine: a send to anywhere else is refused for what it is.
+    let relay = match configured_relay(&req.relay_base, &cfg.relays) {
+        Ok(relay) => relay,
+        Err(why) => {
+            let status = match why {
+                RelayRefusal::NoneConfigured => 503,
+                RelayRefusal::NotOurs => 400,
+            };
+            return resp(status, json!({ "error": why.message() }).to_string());
+        }
+    };
+    if !valid_room(&req.room) {
+        return resp(
+            400,
+            json!({ "error": "the room must be 1 to 64 letters, digits, '-' or '_'" }).to_string(),
+        );
+    }
     let reg = match state.get(&req.vault) {
         Some(r) => r,
         None => return resp(404, json!({ "error": "no such vault" }).to_string()),
@@ -1087,7 +1109,7 @@ fn handle_proposal_send(state: &HelperState, cfg: &HelperConfig, path: &str, bod
     match net_orchestrate_send(
         &sc,
         &plan,
-        &req.relay_base,
+        relay,
         &req.room,
         &device_pubs,
         req.dry_run,
@@ -1536,7 +1558,33 @@ fn config_from_env() -> HelperConfig {
         network: env("KONCLAVE_NETWORK", "main"),
         konclave_signer: PathBuf::from(env("KONCLAVE_SIGNER", "konclave-signer")),
         vaults_dir: PathBuf::from(env("KONCLAVE_VAULTS_DIR", "./helper-vaults")),
+        relays: relays_from_env(),
     }
+}
+
+/// The relays this coordinator may publish a signing request to (#270), from
+/// `KONCLAVE_RELAY_BASES`: comma-separated `https://host[:port]` origins.
+///
+/// There is no default. A compiled-in relay would let the staging coordinator publish to the
+/// production relay, or the reverse, so a coordinator nobody configured refuses every send and says
+/// so here, at boot, where it is seen.
+fn relays_from_env() -> Vec<String> {
+    let (relays, rejected) =
+        parse_relay_config(&std::env::var("KONCLAVE_RELAY_BASES").unwrap_or_default());
+    for entry in &rejected {
+        eprintln!(
+            "konclave-helper: KONCLAVE_RELAY_BASES entry ignored, not an https origin: {entry:?}"
+        );
+    }
+    if relays.is_empty() {
+        eprintln!("konclave-helper: no relay configured (KONCLAVE_RELAY_BASES): every send will be refused");
+    } else {
+        eprintln!(
+            "konclave-helper: sends are published only to {}",
+            relays.join(", ")
+        );
+    }
+    relays
 }
 
 /// The `kind` a sealed viewing-key response carries, so a reader tells an envelope from the
@@ -1889,8 +1937,12 @@ mod tests {
                 let _ = std::fs::create_dir_all(&dir);
                 dir
             },
+            relays: vec![TEST_RELAY.into()],
         }
     }
+
+    /// The one relay the test coordinator is configured to publish to (#270).
+    const TEST_RELAY: &str = "https://relay.test";
 
     #[test]
     fn the_vault_info_publishes_the_change_receiver_and_still_withholds_the_ufvk() {
@@ -3326,7 +3378,7 @@ mod tests {
         // proposal/approval/roster check. It is removed; the only send path is an approved proposal.
         let st = HelperState::new();
         seed(&st, "aaaa");
-        let body = br#"{"vault":"aaaa","to":"utest1xyz","amount_zat":1000,"relay_base":"http://x","room":"r"}"#;
+        let body = br#"{"vault":"aaaa","to":"utest1xyz","amount_zat":1000,"relay_base":"https://relay.test","room":"r"}"#;
         let r = handle(&st, &cfg(), &Method::Post, "/api/vault/send", body);
         assert_eq!(r.status, 404, "the raw send route must not exist");
     }
@@ -3663,7 +3715,7 @@ mod tests {
         seed(&st, "aaaa"); // 2 of 3
 
         // unknown vault -> 404
-        let body = br#"{"vault":"zzzz","relay_base":"http://x","room":"r"}"#;
+        let body = br#"{"vault":"zzzz","relay_base":"https://relay.test","room":"r"}"#;
         assert_eq!(
             handle(
                 &st,
@@ -3676,7 +3728,7 @@ mod tests {
             404
         );
         // unknown proposal -> 404
-        let body2 = br#"{"vault":"aaaa","relay_base":"http://x","room":"r"}"#;
+        let body2 = br#"{"vault":"aaaa","relay_base":"https://relay.test","room":"r"}"#;
         assert_eq!(
             handle(
                 &st,
@@ -4358,8 +4410,10 @@ mod tests {
                 &c,
                 &Method::Post,
                 &format!("/api/vault/proposals/{id}/send"),
-                format!(r#"{{"vault":"planted","relay_base":"http://x","room":"r",{env}}}"#)
-                    .as_bytes(),
+                format!(
+                    r#"{{"vault":"planted","relay_base":"https://relay.test","room":"r",{env}}}"#
+                )
+                .as_bytes(),
             );
             assert_eq!(send.status, 409, "{planted:?}: {}", send.body);
         }
@@ -4397,5 +4451,115 @@ mod tests {
             let p: serde_json::Value = serde_json::from_str(&r.body).expect("json");
             assert_eq!(p["state"], "pending", "{path}: {}", r.body);
         }
+    }
+
+    // #270. `relay_base` came from the request body and went to `curl` unchecked: the coordinator
+    // would fetch any URL from its own network, and on a vault where not every seat had registered
+    // a device key the signing request - who the vault pays and how much - went out in clear text
+    // to whatever address the request named.
+
+    /// A 2-of-3 proposal on `vault` that already has its quorum, so a send reaches every gate.
+    fn a_ready_proposal(dir: &std::path::Path, vault: &str) {
+        let now = now_unix();
+        let p = HelperProposal {
+            id: "p1".into(),
+            vault_id: vault.into(),
+            kind: "payment".into(),
+            to: TESTNET_ORCHARD_UA.into(),
+            amount_zat: 1000,
+            memo: None,
+            lines: vec![],
+            proposer: "alice".into(),
+            state: "ready".into(),
+            approvals: vec!["alice".into(), "bob".into()],
+            refusals: vec![],
+            threshold: 2,
+            total: 3,
+            created_at_unix: now,
+            expiry_unix: now + 86_400,
+            txid: None,
+        };
+        orchestrator::helper::save_proposal(dir, &p).unwrap();
+    }
+
+    fn send_to(st: &HelperState, c: &HelperConfig, relay: &str, room: &str) -> Resp {
+        let body = json!({ "vault": "relayv", "relay_base": relay, "room": room }).to_string();
+        handle(
+            st,
+            c,
+            &Method::Post,
+            "/api/vault/proposals/p1/send",
+            body.as_bytes(),
+        )
+    }
+
+    #[test]
+    fn a_send_is_published_only_to_the_configured_relay() {
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let c = cfg();
+        a_ready_proposal(&c.vaults_dir, "relayv");
+
+        for relay in [
+            "https://evil.example",
+            "http://relay.test",
+            "-K/etc/passwd",
+            "--config=/etc/passwd",
+            "https://relay.test@evil.example",
+            "https://relay.test.evil.example",
+            "https://relay.test:8443",
+            "https://relay.test/../evil",
+            "HTTPS://RELAY.TEST",
+            " https://relay.test",
+            "",
+        ] {
+            let r = send_to(&st, &c, relay, "ROOM2345");
+            assert_eq!(r.status, 400, "{relay:?}: {}", r.body);
+            assert!(
+                r.body.contains("only talks to its own relay"),
+                "{relay:?}: {}",
+                r.body
+            );
+        }
+
+        // The room is part of the URL the coordinator calls: the app sends a short code or 32 hex
+        // characters, and nothing else may shape the path or the query.
+        let long = "A".repeat(65);
+        for room in [
+            "",
+            "a/b",
+            "x?since=99",
+            "..",
+            "r%2F",
+            "sala\u{e9}",
+            long.as_str(),
+        ] {
+            let r = send_to(&st, &c, TEST_RELAY, room);
+            assert_eq!(r.status, 400, "{room:?}: {}", r.body);
+            assert!(r.body.contains("room"), "{room:?}: {}", r.body);
+        }
+
+        // The configured relay, as the app sends it, passes this gate and goes on to the engine,
+        // which the test coordinator does not have.
+        for relay in [TEST_RELAY, "https://relay.test/"] {
+            let r = send_to(&st, &c, relay, "0123456789abcdef0123456789abcdef");
+            assert_ne!(r.status, 400, "{relay:?}: {}", r.body);
+            assert!(!r.body.contains("relay"), "{relay:?}: {}", r.body);
+        }
+    }
+
+    /// No compiled-in default: a coordinator with no relay configured refuses every send rather
+    /// than guessing one, which could be the other environment's.
+    #[test]
+    fn a_coordinator_with_no_relay_configured_refuses_every_send() {
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let mut c = cfg();
+        c.relays.clear();
+        a_ready_proposal(&c.vaults_dir, "relayv");
+
+        let r = send_to(&st, &c, TEST_RELAY, "ROOM2345");
+        assert_eq!(r.status, 503, "{}", r.body);
+        assert!(r.body.contains("no relay configured"), "{}", r.body);
     }
 }

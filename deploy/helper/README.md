@@ -144,6 +144,7 @@ cd ~/konclave-helper-deploy
 railway link -p konclave-relay
 railway add --service konclave-helper                       # once
 railway volume -s <serviceId> -e <envId> add -m /data       # once: durable KONCLAVE_VAULTS_DIR
+railway variables -s konclave-helper --set "KONCLAVE_RELAY_BASES=<relays>"   # before the first up of a #270 build
 railway up --ci -s konclave-helper
 railway domain -s konclave-helper                           # mint the public URL
 ```
@@ -168,6 +169,7 @@ deployment values.
 | `KONCLAVE_LIGHTWALLETD` | `zec.rocks:443` | lightwalletd for the view-only wallets (mainnet default; `testnet.zec.rocks:443` for testnet) |
 | `KONCLAVE_ZCASH_SIGN` / `KONCLAVE_DEVTOOL` / `KONCLAVE_SIGNER` | `/usr/local/bin/...` | engine binary paths |
 | `KONCLAVE_VAULTS_DIR` | `/data/vaults` | per-vault view-only wallets + send scratch (per the Dockerfile) |
+| `KONCLAVE_RELAY_BASES` | none | the relays a send may be published to, comma-separated `https://` origins (#270). **No default: unset, every send is refused.** Production: `https://relay.konclave.xyz,https://konclave-relay-production.up.railway.app`; staging: `https://konclave-relay-staging.up.railway.app` (see `DEPLOY.md`) |
 
 > With the Railway volume mounted at `/data` (see "Deploy" above), `KONCLAVE_VAULTS_DIR=/data/vaults`
 > lives on **durable** storage, so registrations persist across redeploys. Without a volume,
