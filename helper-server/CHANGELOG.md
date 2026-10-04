@@ -112,8 +112,7 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   deadline. Every vault takes unsigned actions from its creation until its first device registers
   (#575, narrowed in this release and not closed by it). And a member can register a device for
   a colleague's seat if that colleague has not opened the app since signed actions began, and then
-  approve as them (#577). In both no money can move: each device still asks its owner to confirm the
-  specific payment, and signing needs the real key shares. What is not yet trustworthy on its own is
+  approve as them (#577). What is not yet trustworthy on its own is
   the line that says who approved. A third route, a vote and a rename sent at the same instant
   (#576), is closed in this release.
 

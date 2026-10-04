@@ -4,7 +4,7 @@ The three hosted pieces, how each one ships, and how to tell what is actually ru
 
 > **This file used to call these "demo surfaces" and say the browser signature was "a test digest,
 > not a broadcast transaction".** Both stopped being true. The browser path signs and broadcasts real
-> mainnet transactions - `docs/PROOF.md` lists nineteen, including sends signed in a browser, a
+> mainnet transactions - `docs/PROOF.md` lists them, including sends signed in a browser, a
 > payroll, and a ceremony across separate machines. ADR-0005 records the web as the delivery that
 > carries the product. Corrected 2026-09-21.
 
@@ -160,7 +160,7 @@ is built from the commit being deployed; `zcash-devtool` from an upstream rev pl
 that build's source tree; see `[source.zcash-devtool]` in `engine/versions.lock`); and `zcash-sign`
 from frost-tools at a recorded rev. Build paths end up in the binaries, so a rebuild on another
 host compiles the same source and hashes differently; the hash that ships is the one the lock
-records. Since #120 the lock pins the released crate line,
-and until the coordinator is redeployed from it, production runs the OLDER (July) engine. That is
+records. Since #120 the lock pins the released crate line, and since 2026-10-04 (v0.10.0)
+production runs it; until then it ran the OLDER (July) engine. That was
 why the release record (`## [x.y.z]` in `CHANGELOG.md`) writes down what each service was ANSWERING
 when a version was cut rather than what it should have been.
