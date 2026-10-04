@@ -41,7 +41,6 @@ export const REF_TITLES: Record<string, string> = {
   'issue:577': "A member can claim a colleague's unclaimed seat, and then vote as them",
   'issue:575': 'An approval planted while a vault took unsigned writes keeps counting after it requires signatures',
   'issue:576': 'Two requests for one vault run unserialised when their query strings name another',
-  'issue:610': 'A signing device does not yet check what it shows against what it signs, nor the fee or the memos',
   'issue:605': 'Let anyone check that the web app is a published release, and refuse updates that are not',
   'issue:516': 'Prove on the device: remove the viewing key from the server, and measure what it costs',
   'issue:583': "Remember whether this device has a backup, and show the vault's address only once it has one",
@@ -88,11 +87,11 @@ export const ROADMAP_STEPS: Stage[] = [
     title: { 'pt-BR': 'Consertar os nossos defeitos', en: 'Fix our own defects' },
     body: {
       'pt-BR':
-        'Antes de qualquer coisa nova: a chave de visualização que fica sem cifra no navegador depois de restaurar um backup; a aprovação, que ainda não fica presa ao que a proposta diz; um assento ainda livre que outro membro consegue ocupar para votar como o colega; dois defeitos do coordenador achados em revisão; um aparelho que, ao assinar, ainda não confere se o que mostra é o que assina, nem a taxa nem os memos; e nada ainda deixa um membro conferir que o app que o nosso servidor entrega é uma versão publicada.',
+        'Antes de qualquer coisa nova: a chave de visualização que fica sem cifra no navegador depois de restaurar um backup; a aprovação, que ainda não fica presa ao que a proposta diz; um assento ainda livre que outro membro consegue ocupar para votar como o colega; dois defeitos do coordenador achados em revisão; e nada ainda deixa um membro conferir que o app que o nosso servidor entrega é uma versão publicada.',
       en:
-        'Before anything new: the viewing key left unencrypted in the browser after restoring a backup; approvals, which are not yet tied to what the proposal says; an unclaimed seat another member can take and then vote as its owner; two coordinator defects found in review; a signing device that does not yet check what it shows against what it signs, nor the fee or the memos; and nothing yet lets a member check that the app our server sends is a published release.',
+        'Before anything new: the viewing key left unencrypted in the browser after restoring a backup; approvals, which are not yet tied to what the proposal says; an unclaimed seat another member can take and then vote as its owner; two coordinator defects found in review; and nothing yet lets a member check that the app our server sends is a published release.',
     },
-    refs: [issue(599), issue(567), issue(577), issue(575), issue(576), issue(610), issue(605)],
+    refs: [issue(599), issue(567), issue(577), issue(575), issue(576), issue(605)],
   },
   {
     id: 'measure-design-review',

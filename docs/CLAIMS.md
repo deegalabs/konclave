@@ -85,8 +85,8 @@ caller, `ui/src/screens/NetVault.tsx`). That is a statement about the product, n
   2026-08-27).** Keep two things distinct:
   - **Shipped and live:** the app's background signer drives `SigningMachine`, which recomputes the
     ZIP-244 sighash **on-device from its own PCZT** and refuses the ceremony if it disagrees with what
-    it is asked to sign - in **both** rounds - and it shows a payment before contributing a share,
-    though what it shows is not yet checked against what it signs (#610). Round 2 was closed twice. #355 (2026-08-27) stopped `onSp` from
+    it is asked to sign - in **both** rounds - and it reads the payment from the transaction, checks it against
+    the approved one and shows it before contributing a share (#610). Round 2 was closed twice. #355 (2026-08-27) stopped `onSp` from
     overwriting the local sighash with the wire value, but it compared the `msg` field and then signed
     the `sp` field, and the share is computed over the message inside `sp`. Since 2026-09-29 the
     function that signs takes the locally derived sighash and refuses a package over any other
@@ -95,9 +95,9 @@ caller, `ui/src/screens/NetVault.tsx`). That is a statement about the product, n
     close the invite-as-bearer / wrong-room concern. So on the path the app actually sends over,
     once a device has derived the message from its own copy of the transaction, no one in the
     signing room can make it sign a different one. That guards against a member, not against the
-    coordinator: the coordinator builds that transaction, what the signing screen shows is not yet
-    checked against what the device signs (#610), and an approval is not yet tied to the exact
-    content of the proposal (#567). Until both are fixed, a payment the quorum signs is only as
+    coordinator: the coordinator builds that transaction, the approved payment a device compares with is
+    fetched from the coordinator when it signs, and an approval is not yet tied to the exact
+    content of the proposal (#567). Until that is fixed, a payment the quorum signs is only as
     safe as the coordinator (see `SECURITY.md`).
   - **Residual (open, #363):** the legacy standalone `/net` route (`NetVault.tsx`) drives the same
     `SigningMachine`, so it recomputes the sighash like the background signer. What it lacks is the

@@ -42,7 +42,7 @@ native shells are optional wrappers, not requirements.**
   render). (2026-10-03: the released shell hosts the same `ui/` and does not embed the
   `orchestrator` yet. Open: #212, per-platform hardware validation, and signed installers, #606.
   The signing request crosses the relay unsealed until every seat has registered its device key
-  (#63), and the build/prove step is not trustless: until #567 and #610 are fixed, a payment the
+  (#63), and the build/prove step is not trustless: until #567 is fixed, a payment the
   quorum signs is only as safe as the helper.)
 - **Not Wails / a Go shell.** The backend is Rust (`orchestrator`, `konclave-signer`); a Go
   desktop framework would mean porting Layer 2, and it uses the same WebKitGTK that blocks

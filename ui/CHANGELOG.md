@@ -40,6 +40,93 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Security
+
+- **A device checks the payment it signs against the transaction itself.** Before it adds its part
+  of a signature, your device now reads each payment, the address it names, its memo and the network
+  fee from the parts of the transaction its signature covers, compares them with what the group
+  approved, and refuses on any difference, on a payment its recipient could not open, and on a fee
+  above the network's standard fee for the transaction's size.
+- **A device that refused a payment stays refused.** Nothing that arrives afterwards moves it to
+  sign the refused transaction, and a part counts as signed only when the member device that
+  assembles the signature announces it and the signature checks out on this device.
+- **The vault's own address is the one this device recorded.** The device treats outputs that pay
+  the vault itself as change, and takes that address from its own record of the vault, made when it
+  was created or first opened. It refuses to sign while it has none. See Known limits for what that record still trusts.
+- **The app signs only for the vault you opened,** and switching vaults from the side rail starts a
+  new signer for the new vault.
+- **Add funds, the dashboard and Settings show the address this device recorded.** Add funds warns
+  when the coordinator answers with a different one, without showing that one, and shows no address
+  when this device has none recorded. Importing a backup made before 30 August no longer takes its
+  address or its payee book from the file, and refuses a file whose vault id is not its group key,
+  whose sealed part is not a share, or whose vault secret is not 32 bytes. The offline backup
+  checker (`scripts/open-export.mjs`) applies the same rules.
+
+All five are live on the web with this change. If Konclave was already open, tap Update when it
+says a new version is available, or close every Konclave tab and open it again: reloading one tab
+keeps the version you had. The commit in the footer tells you which version you are running. On the
+desktop they arrive with its next release. A fuller account of what each one closed follows once
+it is live for everyone.
+
+### Changed
+
+- **The signing screen lists every payment and the fee.** While your device signs, it shows what
+  it read from the transaction: each payment with its exact amount and the address it names, the
+  change returning to the vault, and the network fee. An output is called change only when it pays
+  the vault itself, and one that names no address and does not pay the vault is shown as such. It
+  used to show only the first recipient, so a payroll showed one beneficiary of several.
+
+### Fixed
+
+- **The signing screen could judge a payment by another vault's balance.** The Sign button and the
+  fee estimate read the balance, and the number of lines in a payroll, of whichever vault was
+  selected in the browser, so with vaults open in two tabs they could follow the other one. They now
+  read the vault being signed. Since 25 August.
+- **A device that refused to sign showed an internal code.** The message read "Could not send:
+  net.err.notApproved", with a Try again button under it, and a few minutes later it was replaced
+  by the coordinator's own failure, inviting you to sign again. A refusal now says, in your
+  language, that your device refused and why; stays on screen; shows what the device read from the
+  transaction, when it could read it, so you can compare it with the proposal; and offers no Try
+  again button, because a refusal is not a failed send. When the transaction does not match what
+  was approved or what it claims to be, or carries a fee or a part it should not, the message says
+  not to try again and to tell the other members. When the device could not load what was approved,
+  or its own record of the vault, the refusal says so, says that the coordinator can cause that,
+  and asks you to reload rather than to try again. A message the device ignores, while the real one
+  may still come, is shown as a note beside the progress instead of as a refusal.
+
+### Known limits
+
+- **The /net page signs without this check.** It is an older signing screen, not tied to a proposal,
+  so it has no approved payment to compare with and signs what it is given. Sign payments from the
+  vault's desk, not from /net.
+- **What your device compares the payment with still comes from the coordinator (#567).** Your
+  device now knows what a transaction really pays, but the approved lines it compares against are
+  fetched from the coordinator when it signs, and a vote is tied to the proposal, not to its exact
+  content. A coordinator that changed a proposal after it was approved could still build a payment
+  that matches the change. Until #567 is fixed, a payment the quorum signs is only as safe as the
+  coordinator.
+- **You decide on the proposal; your device reads the transaction afterwards.** The amount and
+  recipient on the screen where you sign come from the proposal record. Your device's own reading
+  appears once the signature is under way, and it refuses on its own if the transaction differs
+  from what was approved; there is no pause to look at it first.
+- **The fee limit grows with the size of the transaction, and the coordinator chooses the size.**
+  The device refuses a fee above the network's standard fee for the transaction's actions, and
+  refuses padding the coordinator signed itself. But the coordinator chooses how many parts of the
+  transaction the vault is asked to sign, how many of the vault's notes to spend and how many
+  pieces to split the change into, and each extra part can raise the standard fee by 0.00005 ZEC,
+  paid to the network. Nothing on the device limits how many; today the only limit is the relay's
+  cap on the size of one message.
+- **Your device learned the vault's own receivers from the coordinator, once.** It uses them to
+  tell the vault's change from a payment to someone else, and it keeps the first answer it got:
+  when the vault was created, or the first time it opened the vault. A coordinator that was already
+  compromised at that moment could have named an address of its own. The vault's address among them
+  is also the one Add funds shows for deposits, so the same limit applies there.
+- **A backup made before 30 August is only partly sealed.** Its vault id and group key sit outside
+  the encryption, and Konclave checks them against each other but cannot check them against the
+  share. After restoring an old backup, compare the vault fingerprint in Settings with another
+  member's. Better, download a new backup and delete the old copies: an old file stays importable
+  wherever it is kept. A backup made since 30 August seals all of it.
+
 ## [0.9.0] 2026-10-03
 
 ### Added

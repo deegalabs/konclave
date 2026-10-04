@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import { startVisiblePoll } from '../usePoll'
 import { Link, useOutletContext } from 'react-router-dom'
 import { useInstall } from '../use-install'
-import { Seal, Secret, RevealButton, Loading } from '../components'
+import { BannerWarn, Seal, Secret, RevealButton, Loading } from '../components'
 import { SkeletonStat, SkeletonRows } from '../skeleton'
 import { SpendBars, type SpendPoint } from '../charts'
 import { PageHeader } from '../page'
@@ -261,7 +261,6 @@ export default function Dashboard() {
   const n = vault?.total ?? 3
   const members = vault?.members ?? n
   const roster = vault?.member_list ?? []
-  const addr = vault ? shortAddr(vault.orchard_address) : '-'
 
   // Balance - real when the wallet is wired; "-" when live-but-unwired or still loading.
   const hasBal = balance?.configured === true
@@ -429,9 +428,7 @@ export default function Dashboard() {
         />
 
         {secured === false && (
-          <div className="dash-openwarn" role="alert">
-            <span className="ow-ic" aria-hidden="true">⚠</span> {t('dashboard.openBanner')}
-          </div>
+          <BannerWarn>{t('dashboard.openBanner')}</BannerWarn>
         )}
 
         {/* #307: the browser did not promise to keep the share. Not a bug in the app - it is how
@@ -742,11 +739,19 @@ export default function Dashboard() {
           {walletUnwired && <div className="breakdown"><span className="dim small">{t('dashboard.walletNotConnectedNote')}</span></div>}
           <div className="receive">
             <span className="klab plain">{t('dashboard.receiveIn')}</span>
-            <code>{addr}</code>
-            <span className="orchard">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2.5 4.5 5.5v6c0 5 3.4 8.4 7.5 9.9 4.1-1.5 7.5-4.9 7.5-9.9v-6L12 2.5Z" /></svg>
-              {t('dashboard.orchardOnly')}
-            </span>
+            {/* No address recorded on this device (A9): a dash, without the frame or the shielded
+                seal, which would describe an address that is not there. */}
+            {vault?.orchard_address ? (
+              <>
+                <code>{shortAddr(vault.orchard_address)}</code>
+                <span className="orchard">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2.5 4.5 5.5v6c0 5 3.4 8.4 7.5 9.9 4.1-1.5 7.5-4.9 7.5-9.9v-6L12 2.5Z" /></svg>
+                  {t('dashboard.orchardOnly')}
+                </span>
+              </>
+            ) : (
+              <span className="dim">-</span>
+            )}
           </div>
         </section>
 

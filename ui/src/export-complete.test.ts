@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync, readdirSync } from 'node:fs'
+import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { codeAt } from './source-scan'
 
 // #447/#480, and the reason they were not enough.
 //
@@ -31,7 +32,7 @@ function sources(dir: string): string[] {
 describe('every export a member is handed carries what a rebuild needs', () => {
   // `storage.ts` DEFINES exportVault; a definition is not a call site.
   const callers = sources(SRC).filter(
-    (p) => !p.endsWith('storage.ts') && /\bexportVault\(/.test(readFileSync(p, 'utf8')),
+    (p) => !p.endsWith('storage.ts') && /\bexportVault\(/.test(codeAt(p)),
   )
 
   it('there is at least one caller, or this test is guarding nothing', () => {
@@ -41,7 +42,7 @@ describe('every export a member is handed carries what a rebuild needs', () => {
   it.each(callers.map((p) => [p.slice(SRC.length), p] as const))(
     '%s passes the viewing key and the scan floor',
     (_rel, path) => {
-      const src = readFileSync(path, 'utf8')
+      const src = codeAt(path)
       // Two arguments is `exportVault(id, passphrase)` and nothing else: the seat, not the vault.
       const bare = [...src.matchAll(/\bexportVault\(([^)]*)\)/g)].filter(
         (m) => m[1]!.split(',').length < 3,

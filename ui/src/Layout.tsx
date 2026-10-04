@@ -3,7 +3,7 @@ import { NavLink, Link, Outlet, useNavigate, useLocation } from 'react-router-do
 import { Mark } from './components'
 import { Identicon } from './avatar'
 import { useT, useI18n } from './i18n'
-import { getVault, health, isVaultUnlocked, setSelectedVault, type Vault } from './api'
+import { getSelectedVault, getVault, health, isVaultUnlocked, setSelectedVault, type Vault } from './api'
 import { readSecretFor } from './session'
 import { needsUnlock, securedLocally } from './vault-lock'
 import { listVaults } from './storage'
@@ -72,6 +72,9 @@ export default function Layout() {
     setSwitchOpen(false)
     if (id === vault?.id) return
     setSelectedVault(id)
+    // The rail names the vault the signer is on: re-read it, since Layout reads its own once (#610).
+    setVault(null)
+    void getVault().then((v) => setVault(v))
     nav(isVaultUnlocked(id) ? '/dashboard' : '/vaults')
   }
 
@@ -165,7 +168,10 @@ export default function Layout() {
   return (
     <LoadingProvider>
     <TopProgress />
-    <VaultSignerProvider>
+    {/* One signer per vault (#610): it reads its vault once, so switching from the rail mounts a
+        new one instead of leaving the previous vault's share, room and record in place. Layout
+        re-renders on every navigation, and a switch always navigates. */}
+    <VaultSignerProvider key={getSelectedVault() ?? ''}>
     <div className="applayout">
       <aside className="rail">
         <Link to="/" className="brand">

@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
 import { startVisiblePoll } from '../usePoll'
 import encodeQR from '@paulmillr/qr'
 import { getVault, getTransactions, getLedger, shortAddr, IS_NET, type Vault, type WalletTx } from '../api'
 import { useT, useTr } from '../i18n'
 import { PageHeader } from '../page'
-import { Loading } from '../components'
+import { BannerWarn, Loading } from '../components'
 import '../receive.css'
 
 // "Add funds" is the easy side of a vault: receiving needs no key and no signature. The vault
@@ -12,9 +12,30 @@ import '../receive.css'
 // it and the balance appears once the vault syncs. This screen shows the address, a QR, and a
 // ZIP-321 payment link a phone wallet can open. All client-side; nothing leaves the browser.
 
+/** What Receive says about the vault's address before it shows one (A9, #610 review). The address
+ *  is the one this device recorded (`getVault`). When the coordinator answers with another, the
+ *  member is told before copying anything, and the coordinator's address is never shown: showing it
+ *  would offer it to copy. With no record there is no address to show, and the screen says why.
+ *  Exported for its test: the screen loads the vault in an effect, which server rendering never runs. */
+export function AddressNotice({ differs, missing, id }: { differs: boolean; missing: boolean; id: string }) {
+  const t = useT()
+  const tr = useTr()
+  if (missing) {
+    return (
+      <div id={id}>
+        <p className="rcv-note">{t('receive.noAddress')}</p>
+        <button type="button" className="btn" onClick={() => window.location.reload()}>{t('receive.reload')}</button>
+      </div>
+    )
+  }
+  if (!differs) return null
+  return <BannerWarn id={id} className="rcv-warn">{tr('receive.addressDiffers')}</BannerWarn>
+}
+
 export default function Receive() {
   const t = useT()
   const tr = useTr()
+  const noticeId = useId()
   const [vault, setVault] = useState<Vault | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [amount, setAmount] = useState('')
@@ -60,6 +81,9 @@ export default function Receive() {
   }, [])
 
   const address = vault?.orchard_address ?? ''
+  // Each control that hands the address on carries the warning, so a screen reader that missed the
+  // one announcement hears it again on the control it is about to use.
+  const describedBy = vault?.served_address_differs ? noticeId : undefined
   const uri = useMemo(() => {
     if (!address) return ''
     const raw = amount.trim().replace(',', '.')
@@ -95,8 +119,12 @@ export default function Receive() {
 
   return (
     <main className="page rcv">
-      <PageHeader title={t('receive.title')} subtitle={t('receive.lead')} />
+      {/* Without an address, the lead's "send ZEC to the vault's address" has nothing to point at. */}
+      <PageHeader title={t('receive.title')} subtitle={address ? t('receive.lead') : undefined} />
 
+      <AddressNotice differs={!!vault.served_address_differs} missing={!address} id={noticeId} />
+
+      {address && (
       <div className="rcv-grid">
         <div className="rcv-qr" dangerouslySetInnerHTML={{ __html: qrSvg }} role="img" aria-label={t('receive.qrAlt')} />
 
@@ -104,7 +132,7 @@ export default function Receive() {
           <span className="klab">{t('receive.address')}</span>
           <div className="rcv-addr">{address}</div>
           <div className="rcv-actions">
-            <button className="btn" onClick={() => copy(address, 'a')}>
+            <button className="btn" onClick={() => copy(address, 'a')} aria-describedby={describedBy}>
               {copied === 'a' ? t('receive.copied') : t('receive.copy')}
             </button>
           </div>
@@ -122,15 +150,16 @@ export default function Receive() {
           <span className="klab" style={{ marginTop: 4 }}>{t('receive.uri')}</span>
           <div className="rcv-uri">{uri}</div>
           <div className="rcv-actions">
-            <button className="btn" onClick={() => copy(uri, 'u')}>
+            <button className="btn" onClick={() => copy(uri, 'u')} aria-describedby={describedBy}>
               {copied === 'u' ? t('receive.copied') : t('receive.copyUri')}
             </button>
-            <a className="btn ok" href={uri}>{t('receive.openWallet')}</a>
+            <a className="btn ok" href={uri} aria-describedby={describedBy}>{t('receive.openWallet')}</a>
           </div>
         </div>
       </div>
+      )}
 
-      <p className="rcv-note">{t('receive.note')}</p>
+      {address && <p className="rcv-note">{t('receive.note')}</p>}
 
       {/* On-chain history: every transaction this vault recorded since creation. Browser-native
           only (the bridge/desktop path is a follow-up); each row links to a block explorer. */}

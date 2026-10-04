@@ -38,7 +38,7 @@ multisig (for example on an EVM chain) can offer.
 > created. The proof is the mainnet transaction below: an actual 2-of-3 quorum payment, signed by a
 > FROST ceremony, broadcast to Zcash mainnet.
 
-> Konclave has not been independently audited, and until #567 and #610 are fixed a payment the
+> Konclave has not been independently audited, and until #567 is fixed a payment the
 > quorum signs is only as safe as our hosted coordinator. Do not keep significant funds in it yet.
 > See [SECURITY.md](SECURITY.md#known-limitations).
 
@@ -213,7 +213,7 @@ not promise what we do not deliver.
   transport, member identity, or who assembles the transaction, so *something* has to coordinate.
   Here that is the **hosted coordinator** (the helper): it builds and proves the transaction, hosts
   the signing round, and broadcasts the result. It is trusted for **availability**, for the
-  **privacy of the books** and, until #567 and #610 are fixed, for **building only what was
+  **privacy of the books** and, until #567 is fixed, for **building only what was
   approved**. It holds each vault's viewing key, so it can read the balance, the payments, the
   amounts, the memos (payslips included) and the members' names. It never receives a share and
   cannot move funds on its own, because every payment needs a quorum's signatures. But today a malicious or
@@ -283,8 +283,11 @@ not promise what we do not deliver.
 - 🌐 **In the browser, live over the internet - broadcast PROVEN on mainnet:** multi-device DKG and
   FROST signing over a **hosted blind relay**, over a **real Orchard/Ironwood sighash** **under the
   transaction's own alpha** (the correct Orchard spend mechanism, verified under `ak+alpha`), with
-  each device showing the payment before it signs (what it shows is not yet checked against what it
-  signs, #610), then broadcast by the
+  each device reading what the tx pays and refusing it when it differs from what the group approved,
+  before its share moves (`readPayment`, whose outputs `describeOutputs` returns; since #610 both
+  check them against what the signature covers;
+  the reading is shown while the ceremony runs, with no pause to read it first; the legacy `/net`
+  page signs without this check), then broadcast by the
   **hosted coordinator** (`helper-server`, Architecture B). Proven on mainnet: first with two tabs on one
   machine (`3022420a…`), then **across separate physical machines over the internet** (`aec83baf…`,
   block 3,460,285), two people in two places, each browser holding only its own share.

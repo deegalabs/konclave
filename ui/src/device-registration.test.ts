@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { codeAt } from './source-scan'
 
 // Registering this device's seat must not depend on a proposal being open.
 //
@@ -33,10 +34,9 @@ function sources(dir: string, out: string[] = []): string[] {
   return out
 }
 
-function codeOf(p: string): string {
-  // Comments excluded: a scan its own commentary can satisfy measures nothing.
-  return readFileSync(p, 'utf8').split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n')
-}
+// Comments excluded, by the parser (source-scan.ts): a scan its own commentary can satisfy
+// measures nothing.
+const codeOf = codeAt
 
 describe('a seat registers on unlock, not on an open proposal', () => {
   it('nothing but device-registration.ts calls registerDeviceKey', () => {

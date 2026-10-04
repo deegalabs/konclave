@@ -245,8 +245,8 @@
 .live.offline{color:var(--warn-strong); border-color:var(--warn);
   background:var(--danger-soft); text-align:left; line-height:1.35; align-items:flex-start}
 .live.offline i{background:var(--danger); box-shadow:0 0 0 3px var(--danger-soft); margin-top:4px; flex:0 0 auto}
-.hint.warn{color:var(--warn-strong)}
-.hint.err{color:var(--danger-text); font-family:var(--font-mono); font-size:12.5px;
+.hint.warn{color:var(--warn-strong); overflow-wrap:anywhere}
+.hint.err{color:var(--danger-text); font-family:var(--font-mono); font-size:12.5px; overflow-wrap:anywhere;
   background:var(--danger-soft); border-left:3px solid var(--danger); border-radius:var(--radius-sm); padding:11px 14px}
 .ns.over{color:var(--danger-text); font-weight:600}
 /* `.ready` (below) is the Dashboard's readiness CARD: a flex column with its own padding, gradient
@@ -1403,11 +1403,12 @@ select{appearance:none; -webkit-appearance:none; background-image:url("data:imag
 .akind-shield{color:var(--success); border-color:var(--success-line); background:var(--success-soft)}
 .akind-pub{color:var(--warn); border-color:var(--warn); background:transparent}
 
-/* #388 open/legacy vault warning banner on the Dashboard. */
-.dash-openwarn { display:flex; align-items:flex-start; gap:8px; margin:14px 0 4px; padding:12px 14px;
+/* A warning about the vault itself: the open/legacy vault on the Dashboard (#388), a coordinator
+   that answers with another address on Receive (A9). One class, so the two cannot drift. */
+.banner-warn { display:flex; align-items:flex-start; gap:8px; margin:14px 0 4px; padding:12px 14px;
   border-radius:var(--radius); font-size:13.5px; line-height:1.5; color:var(--warn-strong);
   background:var(--surface-1); border:1px solid var(--warn); }
-.dash-openwarn .ow-ic { flex:0 0 auto; color:var(--warn); font-weight:700; }
+.banner-warn .ow-ic { flex:0 0 auto; color:var(--warn); font-weight:700; }
 
 /* #307: the persistence nudge. Deliberately NOT the warning treatment above: this is a thing the
    member can fix in one tap, not a hazard they must absorb, and an alarm shown on every visit is

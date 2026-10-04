@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { stripComments } from './source-scan'
 
 // Where the "I posted the weekly update" stamp lives is one rule with two implementations, and only
 // one of them is in this repo.
@@ -28,9 +29,7 @@ describe('the weekly stamp is written where the hook reads it', () => {
   // Only the code. The comment above the line necessarily describes the old path to explain what
   // was fixed, and a scan satisfied or broken by its own comment measures nothing - this repo has
   // shipped that mistake in both directions.
-  const CODE = SRC.split('\n')
-    .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
-    .join('\n')
+  const CODE = stripComments('stamp', SRC)
 
   it("resolves the stamp under temp/, not the repo root", () => {
     const line = CODE.split('\n').find((l) => l.includes('.weekly-update-stamp'))

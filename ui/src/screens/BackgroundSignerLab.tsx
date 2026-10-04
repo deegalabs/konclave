@@ -16,7 +16,7 @@ import { bytesToHex } from '../net-sign'
 import { dkgProvenPczt } from '../demo-vector'
 import { useBackgroundSigner } from '../useBackgroundSigner'
 import { makeSigningGate, type SigningMode } from '../signing-gate'
-import { shortAddr } from '../format'
+import { fmtZecExact, shortAddr } from '../format'
 
 function testRequest(): string {
   const pczt = dkgProvenPczt()
@@ -35,7 +35,10 @@ export default function BackgroundSignerLab() {
   const [mode, setMode] = useState<SigningMode>('manual')
   const [armed, setArmed] = useState(false)
   const gate = makeSigningGate({ mode: () => mode, isApproved: () => true, isArmed: () => armed })
-  const bg = useBackgroundSigner(unlocked, gate)
+  // #281: the lab has no proposal, so it cannot know what was approved, and answers `unknown`: the
+  // device reads the injected request and refuses it before any share moves. It never answers
+  // `match`, because this route joins the vault's real signing room.
+  const bg = useBackgroundSigner(unlocked, gate, () => 'unknown')
 
   useEffect(() => {
     void (async () => {
@@ -109,7 +112,11 @@ export default function BackgroundSignerLab() {
               <div><span className="klab">State</span><br /><b>{bg.phase}</b></div>
               <div><span className="klab">Ready</span><br /><b>{bg.ready ? 'yes' : '…'}</b></div>
             </div>
-            {bg.what && <p className="dim mt-sm">signing: {bg.what.zec} ZEC → {shortAddr(bg.what.addr, 10, 6)}</p>}
+            {bg.what && (
+              <p className="dim mt-sm">
+                signing: {bg.what.outputs.map((o) => `${fmtZecExact(o.zat / 1e8)} ZEC → ${o.addr ? shortAddr(o.addr, 10, 6) : 'no label'}`).join(', ')} · fee {fmtZecExact(bg.what.feeZat / 1e8)} ZEC
+              </p>
+            )}
             {bg.signature && (
               <p className="mt-sm" style={{ color: bg.signature.ok ? 'var(--success)' : 'var(--danger-text)' }}>
                 {bg.signature.ok ? '✓ verifying signature' : '✗ signature did not verify'}: <span className="mono">{shortAddr(bg.signature.hex, 10, 8)}</span>

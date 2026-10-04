@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { codeAt } from './source-scan'
 
 // Three defects from #282 that survived a month, each one a money control that misleads rather
 // than fails. The issue prescribed a whole derived money model; most of what that was for has
@@ -8,8 +8,7 @@ import { join } from 'node:path'
 // `over-balance`, and the dropped balance fields are back - so what remains is these, and they are
 // held here rather than by a rewrite nobody needs.
 const SRC = new URL('.', import.meta.url).pathname
-const codeOf = (f: string) =>
-  readFileSync(join(SRC, f), 'utf8').split('\n').filter((l) => !/^\s*(\/\/|\*|\/\*|\{\/\*)/.test(l)).join('\n')
+const codeOf = (f: string) => codeAt(join(SRC, f)) // comments excluded, by the parser
 
 describe('a blocked money screen watches the thing that blocked it', () => {
   it('the payment screen refreshes its balance', () => {

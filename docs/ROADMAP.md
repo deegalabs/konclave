@@ -368,8 +368,8 @@ see a share or move funds without the quorum's signatures):**
 
 **Security goal, at every stage:** the share stays encrypted on the device and no operator or
 service ever sees it. The viewing key is meant to live only on the members' devices; today the
-coordinator holds it too (#516). Only **the devices that sign** can spend, but until #567 and #610
-are fixed they cannot yet check that whoever assembles the transaction built what was approved.
+coordinator holds it too (#516). Only **the devices that sign** can spend, but until #567
+is fixed they cannot check that what they compare a transaction with is what the members approved.
 
 **Fallback:** if in-WASM proving is not viable yet, stage 2 (share-blind service) already delivers a
 no-manual-step flow, in which the helper holds no share, while the WASM proving path matures.

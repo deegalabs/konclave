@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { DENIAL_COPY, OPEN_DENIAL_COPY } from './prf-denial-copy'
+import { stripComments } from './source-scan'
 
 // A denial the member cannot read is the defect this whole change exists to remove.
 //
@@ -22,9 +23,8 @@ describe('every enrolment denial has copy the member can read (#538)', () => {
     // Only DEFINITIONS. A key that appears solely inside a comment is not copy, and this repo has
     // twice shipped a guard that its own commentary satisfied.
     const defined = new Set(
-      src
+      stripComments(locale, src)
         .split('\n')
-        .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
         .flatMap((l) => Array.from(l.matchAll(/'([\w.]+)'\s*:/g), (m) => m[1]!)),
     )
 

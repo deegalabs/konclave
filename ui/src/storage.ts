@@ -10,6 +10,7 @@
 // missing/blocked API surfaces a clear failure instead of a silent loss (a boundary, §6.8).
 
 import { bytesToHex as hex, hexToBytes as unhex } from './bytes'
+import { addressText } from './approved-payment'
 
 const DB_NAME = 'konclave'
 const STORE = 'vaults'
@@ -633,18 +634,27 @@ async function decodeV2(b: VaultExportV2, passphrase: string): Promise<DecodedIm
   if (!p.id || !p.groupKey || !p.share || !Array.isArray(p.roster)) throw new Error('The export is incomplete or corrupt')
   return {
     id: p.id, name: p.name, governance: p.governance, myName: p.myName, creatorName: p.creatorName,
-    groupKey: unhex(p.groupKey), address: p.address, roster: p.roster, createdAt: p.createdAt || Date.now(),
+    groupKey: unhex(p.groupKey), address: addressText(p.address), roster: p.roster, createdAt: p.createdAt || Date.now(),
     share: unhex(p.share), accessSecret: p.accessSecret ? unhex(p.accessSecret) : undefined,
     beneficiaries: Array.isArray(p.beneficiaries) ? p.beneficiaries : undefined,
     ufvk: typeof p.ufvk === 'string' && p.ufvk ? p.ufvk : undefined,
-    changeReceiver:
-      typeof p.changeReceiver === 'string' && p.changeReceiver.trim() ? p.changeReceiver.trim() : undefined,
+    changeReceiver: addressText(p.changeReceiver) || undefined,
     // A height, so it is validated as one: a string or a negative here would be a corrupt bundle,
     // and a wrong scan floor is the one failure that looks like a successful restore (#480).
     birthday:
       typeof p.birthday === 'number' && Number.isInteger(p.birthday) && p.birthday >= 0
         ? p.birthday
         : undefined,
+  }
+}
+
+/** Whether these bytes are a device bundle, the form every share is stored and exported in. */
+function isShareBundle(bytes: Uint8Array): boolean {
+  try {
+    const b = JSON.parse(new TextDecoder().decode(bytes)) as { kp?: unknown; pubkeys?: unknown }
+    return typeof b.kp === 'string' && b.kp !== '' && typeof b.pubkeys === 'string' && b.pubkeys !== ''
+  } catch {
+    return false
   }
 }
 
@@ -659,17 +669,46 @@ async function decodeV1(b: VaultExportV1, passphrase: string): Promise<DecodedIm
   } catch {
     throw new Error('Wrong passphrase for this export')
   }
+  // What a v1 sealed was the device bundle (JSON with the key package and the group's public keys).
+  // The vault id beside it is cleartext, so anyone who can edit the file could copy a v2 export's
+  // sealed payload in here and write another vault's id: the passphrase opens it, and the seat would
+  // restore under that id, whose address Add funds then shows (#610 review, A9). Anything that is not
+  // a share is refused.
+  if (!isShareBundle(new Uint8Array(shareBuf))) throw new Error('The export is incomplete or corrupt')
+  // A vault's id IS its group key (every v1 the app wrote has them equal). Edited apart, the seat
+  // would restore under another vault's id, whose address Add funds shows, while the fingerprint,
+  // drawn from the group key, stayed the member's own (#610 closing check). Edited together, the
+  // fingerprint changes, which comparing it with another member catches (Known limits).
+  // Both must be a 64-character key before they are compared, so a malformed one gets the same
+  // refusal as every other edit instead of a decoder's own message.
+  const KEY_HEX = /^[0-9a-f]{64}$/i
+  const idText = String(v.id).trim()
+  const groupKeyText = String(v.groupKey ?? '').trim()
+  if (!KEY_HEX.test(idText) || !KEY_HEX.test(groupKeyText) || idText.toLowerCase() !== groupKeyText.toLowerCase()) {
+    throw new Error('The export is incomplete or corrupt')
+  }
   let accessSecret: Uint8Array | undefined
   if (v.secretIv && v.secretCipher) {
     try {
-      accessSecret = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bufOf(unhex(v.secretIv)) }, key, bufOf(unhex(v.secretCipher))))
+      const secret = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bufOf(unhex(v.secretIv)) }, key, bufOf(unhex(v.secretCipher))))
+      // S is 32 random bytes. Its envelope sits in the clear too, and pointed at the share's own
+      // ciphertext it opened as "S": the vault showed as Private while its books stayed open.
+      if (secret.length === 32) accessSecret = secret
     } catch { /* a corrupt late-v1 S field: import the share without it */ }
   }
   return {
-    id: v.id, name: v.name, governance: v.governance, myName: v.myName, creatorName: v.creatorName,
-    groupKey: unhex(v.groupKey), address: v.address, roster: v.roster, createdAt: v.createdAt || Date.now(),
+    // The id as the app writes it (lowercase hex): one spelled in capitals would otherwise land as a
+    // second record of the same vault.
+    id: String(v.id).trim().toLowerCase(), name: v.name, governance: v.governance, myName: v.myName, creatorName: v.creatorName,
+    // NOT the bundle's address: in v1 it sits in cleartext outside the AES-GCM tag, so anyone who can
+    // edit the file can change it, and the record's address is the one the screens show for deposits
+    // over the coordinator's (A9). An empty one is filled by the coordinator's first answer, the same
+    // first-answer trust as a record made before the address was kept (#501).
+    groupKey: unhex(groupKeyText), address: '', roster: v.roster, createdAt: v.createdAt || Date.now(),
     share: new Uint8Array(shareBuf), accessSecret,
-    beneficiaries: Array.isArray(v.beneficiaries) ? v.beneficiaries : undefined,
+    // Not the payee book either: in v1 it is cleartext, so an edited file could put an address of
+    // its own under a payee's name. A member who restores an old backup adds payees again.
+    beneficiaries: undefined,
   }
 }
 
@@ -858,9 +897,9 @@ export async function listVaults(): Promise<VaultPublic[]> {
  * @returns true if this call wrote it; false if one was already pinned, the value was unusable, or
  *          the vault is not on this device. Callers must not read a `false` as a success.
  */
-export async function recordChangeReceiver(id: string, receiver: string): Promise<boolean> {
+export async function recordChangeReceiver(id: string, receiver: unknown): Promise<boolean> {
   if (!storageAvailable()) return false
-  const value = (receiver ?? '').trim()
+  const value = addressText(receiver) // a coordinator's answer that is not text is no receiver
   if (!value) return false
   const db = await openDb()
   try {

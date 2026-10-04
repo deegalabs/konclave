@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
+import { codeAt } from './source-scan'
 
 // #483. `init(wasmUrl)` was awaited in exactly ONE place, so every WASM call in the product worked
 // only because the background signer happened to have run first. #481 gave the export a reason to
@@ -28,7 +29,7 @@ describe('the WASM is initialised in one place', () => {
     const offenders = sources(SRC)
       .filter((p) => !p.endsWith('wasm-ready.ts'))
       .filter((p) => {
-        const src = readFileSync(p, 'utf8')
+        const src = codeAt(p)
         // A default import of the wasm module IS the initialiser; named imports are the functions.
         return /^import\s+init\s+from\s+['"].*wasm-pkg/m.test(src)
       })
@@ -50,10 +51,7 @@ describe('the WASM is initialised in one place', () => {
     // Comments are stripped FIRST. The file explains what was replaced, so it necessarily contains
     // the deprecated form as prose - and a guard satisfied (or broken) by the comment beside it
     // measures nothing. This repo has hit that both ways: a className test passed on its own comment.
-    const code = readFileSync(join(SRC, 'wasm-ready.ts'), 'utf8')
-      .split('\n')
-      .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
-      .join('\n')
+    const code = codeAt(join(SRC, 'wasm-ready.ts'))
 
     expect(code, 'init must be passed an object').toMatch(/init\(\s*\{\s*module_or_path:/)
     expect(/init\(\s*wasmUrl\s*\)/.test(code), 'the deprecated positional form is back').toBe(false)
@@ -64,7 +62,7 @@ describe('the WASM is initialised in one place', () => {
     // the rule above checkable at all.
     const offenders = sources(SRC)
       .filter((p) => !p.endsWith('wasm-ready.ts'))
-      .filter((p) => /konclave_wasm_bg\.wasm\?url/.test(readFileSync(p, 'utf8')))
+      .filter((p) => /konclave_wasm_bg\.wasm\?url/.test(codeAt(p)))
       .map((p) => relative(SRC, p))
 
     expect(offenders, `these import the wasm url directly: ${offenders.join(', ')}`).toEqual([])

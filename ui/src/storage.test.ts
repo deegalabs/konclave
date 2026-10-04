@@ -151,14 +151,132 @@ describe('storage - portable vault export/import (v2 opaque + v1 compat, #214/#3
     const iv = crypto.getRandomValues(new Uint8Array(12))
     const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveKey'])
     const key = await crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: 210_000, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
-    const cipher = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, share))
+    // What v1 encrypted was the device bundle, the JSON the share is stored as.
+    const bundleShare = new TextEncoder().encode(JSON.stringify({ kp: 'AA==', pubkeys: 'AA==', seat: 1, n: 2, t: 2 }))
+    const cipher = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, bundleShare))
     const hx = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('')
-    const v1 = { format: 'konclave-vault-export', version: 1, exportedAt: Date.now(), vault: { id: 'v1imp', name: 'Legacy', groupKey: hx(groupKey), address: 'u1legacy', roster: ['A', 'B'], createdAt: 111, salt: hx(salt), iv: hx(iv), cipher: hx(cipher) } }
+    // Every v1 the app wrote has its id equal to its group key (the vault IS its group key).
+    const v1 = { format: 'konclave-vault-export', version: 1, exportedAt: Date.now(), vault: { id: hx(groupKey), name: 'Legacy', groupKey: hx(groupKey), address: 'u1legacy', roster: ['A', 'B'], createdAt: 111, salt: hx(salt), iv: hx(iv), cipher: hx(cipher) } }
     const parsed = parseVaultExport(JSON.stringify(v1))
     const meta = await importVault(parsed, pass)
-    expect(meta.id).toBe('v1imp')
+    expect(meta.id).toBe(hx(groupKey))
     expect(meta.secured).toBe(false) // a v1 export has no S
-    expect(Array.from((await loadVault('v1imp', pass)).sealedShare)).toEqual(Array.from(share))
+    expect(Array.from((await loadVault(hx(groupKey), pass)).sealedShare)).toEqual(Array.from(bundleShare))
+    // A v1 bundle keeps the address in cleartext, outside what the passphrase protects, so anyone who
+    // can edit the file can change it. The screens show the recorded address over the coordinator's
+    // (A9), so the import must not take it: the record starts empty, and the first answer fills it.
+    expect(meta.address).toBe('')
+  })
+
+  // A genuine v1, built the way the app wrote one, for the edits below.
+  async function genuineV1(extra: Record<string, unknown> = {}, id?: string) {
+    const salt = crypto.getRandomValues(new Uint8Array(16))
+    const iv = crypto.getRandomValues(new Uint8Array(12))
+    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveKey'])
+    const key = await crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: 210_000, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
+    const bundleShare = new TextEncoder().encode(JSON.stringify({ kp: 'AA==', pubkeys: 'AA==', seat: 1, n: 2, t: 2 }))
+    const cipher = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, bundleShare))
+    const hx = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('')
+    const gk = hx(crypto.getRandomValues(new Uint8Array(32)))
+    return { file: { format: 'konclave-vault-export', version: 1, exportedAt: Date.now(), vault: { id: id ?? gk, name: 'Family', groupKey: gk, roster: ['A', 'B'], createdAt: 1, salt: hx(salt), iv: hx(iv), cipher: hx(cipher), ...extra } }, gk, iv: hx(iv), cipher: hx(cipher) }
+  }
+
+  it('refuses a v1 whose vault id is not its group key', async () => {
+    // Edited in the clear: the seat would restore under another vault's id, whose address Add funds
+    // shows, while the fingerprint (from the group key) stayed the member's own (#610 closing check).
+    const { file } = await genuineV1({}, 'cd'.repeat(32))
+    await expect(importVault(parseVaultExport(JSON.stringify(file)), pass)).rejects.toThrow(/incomplete|corrupt/i)
+  })
+
+  it('refuses a v1 whose id and group key agree but are not a 64-character key, with the same sentence', async () => {
+    const odd = 'a'.repeat(63)
+    const { file } = await genuineV1({ groupKey: odd }, odd)
+    await expect(importVault(parseVaultExport(JSON.stringify(file)), pass)).rejects.toThrow(/incomplete|corrupt/i)
+    const wrong = 'zz'.repeat(32)
+    const g = await genuineV1({ groupKey: wrong }, wrong)
+    await expect(importVault(parseVaultExport(JSON.stringify(g.file)), pass)).rejects.toThrow(/incomplete|corrupt/i)
+  })
+
+  it('stores a v1 id written in capitals as the app writes it, so it is not a second vault', async () => {
+    const g = await genuineV1()
+    const shouted = { ...g.file, vault: { ...g.file.vault, id: g.gk.toUpperCase() } }
+    const meta = await importVault(parseVaultExport(JSON.stringify(shouted)), pass)
+    expect(meta.id).toBe(g.gk)
+  })
+
+  it('does not import a v1\'s payee book, which that format keeps in the clear', async () => {
+    const { file, gk } = await genuineV1({ beneficiaries: [{ label: 'Alice', address: 'u1editedbysomeone' }] })
+    const g = globalThis as unknown as { localStorage?: Storage }
+    const mem = new Map<string, string>()
+    g.localStorage = { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => void mem.set(k, v), removeItem: (k: string) => void mem.delete(k), clear: () => mem.clear(), key: () => null, length: 0 } as Storage
+    try {
+      await importVault(parseVaultExport(JSON.stringify(file)), pass)
+      expect([...mem.entries()].filter(([k]) => k.includes(gk))).toEqual([])
+    } finally {
+      delete g.localStorage
+    }
+  })
+
+  it('takes no read secret from a v1 unless it is one: thirty-two bytes', async () => {
+    // A v1 kept the secret's envelope in the clear too; pointed at the share's own ciphertext, it
+    // opened, and the share became "S": the vault showed as Private while its books stayed open.
+    const g = await genuineV1()
+    const edited = { ...g.file, vault: { ...g.file.vault, secretIv: g.iv, secretCipher: g.cipher } }
+    const meta = await importVault(parseVaultExport(JSON.stringify(edited)), pass)
+    expect(meta.secured).toBe(false)
+  })
+
+  it('refuses a current backup re-wrapped as v1 under an id of the editor\'s choosing', async () => {
+    // v1 keeps the vault id and group key in cleartext. Anyone who can edit a member's backup file,
+    // without the passphrase, could copy a v2 export's sealed payload into a v1 envelope and write
+    // another vault's id beside it; the passphrase opens it, and the restored seat would answer as
+    // that vault, whose address Add funds would then show (#610 review, A9). What a v1 sealed was a
+    // share, so anything else is refused.
+    await saveVault('rewrap', data, pass)
+    const v2 = await exportVault('rewrap', pass)
+    const v1 = { format: 'konclave-vault-export', version: 1, exportedAt: Date.now(), vault: { id: 'bb'.repeat(32), name: 'Family', groupKey: 'bb'.repeat(32), roster: ['A', 'B'], createdAt: 1, salt: v2.salt, iv: v2.iv, cipher: v2.cipher, kdfIters: v2.kdfIters } }
+    await expect(importVault(parseVaultExport(JSON.stringify(v1)), pass)).rejects.toThrow(/incomplete|corrupt/i)
+    expect((await listVaults()).some((v) => v.id === 'bb'.repeat(32))).toBe(false)
+  })
+
+  it('reads a backup\'s address and change receiver as text or as nothing', async () => {
+    // The same reading as the money gate and the deposit screen (addressText, A9): a value that is
+    // not text restores as no address, which the coordinator's first answer then fills.
+    await saveVault('nontext', { ...data, address: 123 as unknown as string }, pass)
+    expect(await recordChangeReceiver('nontext', 'u1change')).toBe(true)
+    const bundle = await exportVault('nontext', pass)
+    await deleteVault('nontext')
+    const meta = await importVault(bundle, pass)
+    expect(meta.address).toBe('')
+    expect((await listVaults()).find((v) => v.id === 'nontext')?.changeReceiver).toBe('u1change')
+  })
+
+  it('imports a backup whose change receiver is not text as a record with none', async () => {
+    // Built by hand: the app never writes one, but the payload is whatever its maker sealed. The
+    // reading is the same as every other (addressText), so it restores with no receiver rather than
+    // with a value the gate would then have to refuse.
+    await saveVault('cr-hand', data, pass)
+    const made = await exportVault('cr-hand', pass)
+    const hexOf = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('')
+    const bytesOf = (h: string) => Uint8Array.from((h.match(/../g) ?? []).map((x) => parseInt(x, 16)))
+    const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveKey'])
+    const key = await crypto.subtle.deriveKey({ name: 'PBKDF2', salt: bytesOf(made.salt), iterations: made.kdfIters!, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
+    const plain = JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytesOf(made.iv) }, key, bytesOf(made.cipher)))) as Record<string, unknown>
+    plain.changeReceiver = 123
+    const iv = crypto.getRandomValues(new Uint8Array(12))
+    const cipher = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(JSON.stringify(plain))))
+    const edited = { ...made, iv: hexOf(iv), cipher: hexOf(cipher) }
+    await deleteVault('cr-hand')
+    await importVault(edited, pass)
+    const rec = (await listVaults()).find((v) => v.id === 'cr-hand')
+    expect(rec, 'the vault was restored').toBeDefined()
+    expect(rec?.changeReceiver).toBeUndefined()
+  })
+
+  it('records no change receiver that is not text, and says so instead of throwing', async () => {
+    await saveVault('cr-nontext', data, pass)
+    await expect(recordChangeReceiver('cr-nontext', 123)).resolves.toBe(false)
+    await expect(recordChangeReceiver('cr-nontext', '  ')).resolves.toBe(false)
   })
 
   it('parseVaultExport accepts v2, rejects junk, foreign JSON, and unknown versions', () => {

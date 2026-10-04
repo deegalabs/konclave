@@ -70,6 +70,19 @@ export function Dialog({ labelledBy, onClose, className, cardClassName, children
   )
 }
 
+/** A warning about the vault itself, shown as an alert: the open vault on the Dashboard (#388), a
+ *  coordinator that answers with another address on Add funds (A9). One component, so the markup
+ *  cannot drift between them. The sign carries U+FE0E so phones draw it as text, in the warning's
+ *  colour, not as an emoji. */
+export function BannerWarn({ id, className, children }: { id?: string; className?: string; children: ReactNode }) {
+  return (
+    <div className={'banner-warn' + (className ? ` ${className}` : '')} role="alert" id={id}>
+      <span className="ow-ic" aria-hidden="true">{'\u26A0\uFE0E'}</span>
+      <span>{children}</span>
+    </div>
+  )
+}
+
 /**
  * An action that exists but is not ready. Shown, never hidden: hiding it makes the product look
  * smaller than it is and leaves the reader wondering whether they missed something; a control that
