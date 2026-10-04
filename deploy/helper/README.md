@@ -22,20 +22,22 @@ maintainer's machine, instead of compiling them in-image:
 | `zcash-devtool` | register: view-only wallet init; send: PCZT create/prove/broadcast |
 | `konclave-signer` | send: extract the sighash / inject the browsers' aggregate signature |
 
-**Engine pins - deployed vs `engine/versions.lock`.** Measured inside the container on
-2026-10-01, the **deployed** helper runs the **July** engine: `zcash-devtool` (2026-07-26) and
-`konclave-signer` (2026-07-28) built on librustzcash `42ffd0d` (pczt 0.7), and `zcash-sign`
-(2026-07-09) from frost-tools #587. The released line (pczt 0.9.3 / `zcash_client_backend` 0.24.0)
-ran from 2026-08-24 to 2026-09-21 and was replaced by the `cp` steps below, which copy from
-directories that still hold July builds (#522). Moving `main` and then production onto the released
-line is #120; until it is deployed, do not treat this image as being on the released line.
+**Engine pins - deployed vs `engine/versions.lock`.** Since 2026-10-04 (v0.10.0) the **deployed**
+helper runs the **released line** that `engine/versions.lock` pins (pczt 0.9.3 /
+`zcash_client_backend` 0.24.0): coordinator commit `b62a7f0`, with the four binaries and sizes
+recorded in `engine/versions.lock` (`[deploy_build]` and its `[[deploy_binary]]` entries), and checked in the container by the `stat`
+line below. #608 moved the assembly onto the steps in this file and #120 re-cut the pins onto `main`.
+Production ran the **July** engine from 2026-09-21 to 2026-10-04: the released line had run from
+2026-08-24 to 2026-09-21 and was replaced by `cp` steps that copied from directories still holding
+July builds (#522). Those steps are gone; what protects the next deploy is the comparison below, not
+anyone remembering.
 
-That window matters for the wallets on the volume. The 2026-08-24 deploy shipped the same
+That earlier window matters for the wallets on the volume. The 2026-08-24 deploy shipped the same
 `zcash-devtool` this line ships (`8c41afd3…`, recorded in `engine/versions.lock`), so a vault
 registered between 2026-08-24 and 2026-09-21 had its wallet created on the newer schema. The July
 engine cannot record a new transaction in such a wallet (see "the upgrade is one-way" below), so
-under the July engine those vaults stop syncing at their next deposit or send. Read in the code, not
-observed: no balance read has failed in the logs since 2026-09-29.
+under the July engine those vaults would have stopped syncing at their next deposit or send. Read in
+the code, not observed: as of 2026-10-01 no balance read had failed in the logs since 2026-09-29.
 
 A from-source multi-stage build (librustzcash + orchard + halo2) would exceed Railway's build
 limits, so the binaries are built out of band. They are glibc-2.39 (Ubuntu 24.04), so the runtime
@@ -53,7 +55,7 @@ browsers run the FROST ceremony over the relay).
 The `bin/` the Dockerfile copies is **not** in git (the binaries are ~100 MB and are built out
 of repo, matching the pin-not-vendor policy). Our two binaries are built from the commit being
 deployed, in a target directory named after it, so nothing comes from a directory that outlived the
-build it holds. That is the mistake #522 records: until #120 the engine was copied from long-lived
+build it holds. That is the mistake #522 records: the engine used to be copied from long-lived
 target directories, and on 2026-09-21 that put a July engine back in production.
 
 ```sh

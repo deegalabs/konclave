@@ -203,6 +203,15 @@ export const PROOF_TXS: readonly ProofTx[] = [
       'pt-BR': 'O dispositivo reconheceu o troco do próprio cofre antes de assinar (#281): um cofre 2-de-2 enviando 0,0001 ZEC numa transação que carrega troco. A cadeia não mostra a conferência. O que atesta é que o troco foi para o receptor interno do próprio cofre, diferente do endereço de recebimento, e o dispositivo o reconheceu como seu. Esse envio foi assinado antes de os aparelhos lerem o pagamento da própria transação e o conferirem com o aprovado (#610), e a aprovação ainda não fica presa ao conteúdo exato da proposta (#567).',
     },
   },
+  {
+    txid: '1c53fe50c3179754b622b3a96efb43bd3ab0073b38c32bbccbec6d752c361ff4',
+    block: 3506220,
+    origin: 'dkg',
+    label: {
+      en: 'First transaction on the released engine in production (#608, #120): a private payroll of one line, one V6 transaction, from a vault its operator describes as a 2-of-3 created in the web app, broadcast by the production coordinator right after the 2026-10-04 release went live. The chain cannot show which engine built it. What attests it is the deploy record in engine/versions.lock: the sha256 checked on the deploy host, the sizes checked in the container and the commit the coordinator reports.',
+      'pt-BR': 'Primeira transação no motor lançado, em produção (#608, #120): folha privada de uma linha, uma transação V6, de um cofre que o operador descreve como 2-de-3 criado no app web, transmitida pelo coordenador de produção logo depois de a versão de 04/10/2026 entrar no ar. A cadeia não mostra qual motor a montou. O que atesta é o registro do deploy em engine/versions.lock: o sha256 conferido na máquina do deploy, os tamanhos conferidos no contêiner e o commit que o coordenador informa.',
+    },
+  },
 ]
 
 /** How many of the listed transactions came from each kind of vault. Counted, never typed. */

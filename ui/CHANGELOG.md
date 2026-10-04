@@ -40,6 +40,13 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Changed
+
+- **The proof page lists the twentieth transaction, and the roadmap page says what the 2026-10-04
+  release closed.** The new row is the first transaction made in production after the released engine went
+  live on 2026-10-04 (`1c53fe50…`). The roadmap's first step no longer lists the coordinator defect
+  that the 2026-10-04 release closed, and says the other one was narrowed and is still open.
+
 ## [0.10.0] 2026-10-04
 
 ### Security
