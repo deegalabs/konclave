@@ -55,6 +55,14 @@ explicitly accepted.
 
 ## [Unreleased]
 
+### Security
+
+- **Defects in the coordinator's write checks were fixed.** What they were is held back for now and
+  will be added here when the details are published. What a member can notice is in
+  [helper-server/CHANGELOG.md](helper-server/CHANGELOG.md). The command-line `konclave net-send`
+  now requires an https `--relay-base` and a plain `--room` name. The desktop app is otherwise
+  unchanged: it does not use the coordinator.
+
 ## [0.9.0] 2026-10-03
 
 > **Services deployed when this was cut (2026-10-03):** coordinator `80e3a18`, relay `03bb736890c63e86`.
