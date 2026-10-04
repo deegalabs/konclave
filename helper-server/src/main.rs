@@ -44,7 +44,7 @@ use orchestrator::helper::{
 };
 use orchestrator::send::{funding_check, net_orchestrate_send, Funding, PayrollDest, SpendPlan};
 use orchestrator::write_auth::{
-    authorize_write, seat_acts_as, seat_holder, SignedWrite, WriteAction, WriteAuth,
+    authorize_write, same_member, seat_acts_as, seat_holder, SignedWrite, WriteAction, WriteAuth,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -1252,7 +1252,7 @@ fn handle_create_proposal(state: &HelperState, cfg: &HelperConfig, body: &[u8]) 
         expiry_unix: req.expiry_unix,
         txid: None,
     };
-    p.recompute(now);
+    p.recompute(now, &load_members(&cfg.vaults_dir, &reg.vault_id));
     match save_proposal(&cfg.vaults_dir, &p) {
         Ok(()) => resp(200, serde_json::to_string(&p).unwrap_or_default()),
         Err(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
@@ -1383,7 +1383,7 @@ fn handle_create_payroll(state: &HelperState, cfg: &HelperConfig, body: &[u8]) -
         expiry_unix: req.expiry_unix,
         txid: None,
     };
-    p.recompute(now);
+    p.recompute(now, &load_members(&cfg.vaults_dir, &reg.vault_id));
     match save_proposal(&cfg.vaults_dir, &p) {
         Ok(()) => resp(200, serde_json::to_string(&p).unwrap_or_default()),
         Err(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
@@ -1437,9 +1437,9 @@ fn handle_vote(state: &HelperState, cfg: &HelperConfig, path: &str, body: &[u8])
     // unsigned writes: once a write key is registered the gate below binds the seat to a roster
     // name, and with no roster there is no name to bind, so it refuses (#568).
     let roster = load_members(&cfg.vaults_dir, &req.vault);
-    // Compared trimmed on both sides, like the binding in the gate: a roster keeps names as they
-    // arrived, and a device sends its own trimmed.
-    if !roster.is_empty() && !roster.iter().any(|m| m.trim() == req.member.trim()) {
+    // Compared the way the binding in the gate compares: a roster keeps names as they arrived, and
+    // a device sends its own trimmed.
+    if !roster.is_empty() && !roster.iter().any(|m| same_member(m, &req.member)) {
         return resp(
             403,
             json!({ "error": "not a member of this vault" }).to_string(),
@@ -1479,7 +1479,7 @@ fn handle_vote(state: &HelperState, cfg: &HelperConfig, path: &str, body: &[u8])
         Some(p) => p,
         None => return resp(404, json!({ "error": "no such proposal" }).to_string()),
     };
-    if !p.vote(&voter, approve, now) {
+    if !p.vote(&voter, approve, now, &roster) {
         return resp(
             409,
             json!({ "error": "proposal is no longer open", "state": p.state }).to_string(),
@@ -2189,7 +2189,7 @@ mod tests {
             expiry_unix: now + 86_400,
             txid: None,
         };
-        p.recompute(now);
+        p.recompute(now, &[]);
         orchestrator::helper::save_proposal(dir, &p).unwrap();
     }
 
@@ -2636,7 +2636,7 @@ mod tests {
             expiry_unix: now + 86_400,
             txid: None,
         };
-        p.recompute(now);
+        p.recompute(now, &[]);
         orchestrator::helper::save_proposal(dir, &p).unwrap();
 
         let unsigned = |member: &str| {
@@ -4280,5 +4280,122 @@ mod tests {
             None,
             "the allowance is untouched"
         );
+    }
+
+    // #575. An approval is a NAME, and the count trusted strings: `vote` removed duplicates by exact
+    // string and `recompute` counted the list. While a vault still took unsigned writes, anyone
+    // holding its id could create a proposal under another spelling of a member's name, or under a
+    // name on no roster at all, and the proposer is recorded as approving. Once the vault required
+    // signatures, that member's signed vote was recorded under the roster's spelling - a second
+    // string - and a 2-of-2 proposal read as approved by both.
+    #[test]
+    fn an_approval_planted_while_the_vault_was_open_does_not_count_once_it_is_signed() {
+        use konclave_seal::WriteAction;
+        for planted in ["alice ", "alice\u{00a0}", "mallory"] {
+            let st = HelperState::new();
+            seed(&st, "planted");
+            let mut two_of_two = st.get("planted").expect("seeded");
+            two_of_two.total = 2;
+            st.insert(two_of_two);
+            let c = cfg();
+            let dir = &c.vaults_dir;
+            let _ = claim_members(dir, "planted", &["alice".into(), "bob".into()]);
+
+            // 1. The vault is open: no device has registered a write key, so an unsigned proposal
+            //    under any name is accepted, and its proposer is recorded as approving.
+            let created = handle(
+                &st,
+                &c,
+                &Method::Post,
+                "/api/vault/proposals",
+                format!(
+                    r#"{{"vault":"planted","proposer":"{planted}","to":"{TESTNET_ORCHARD_UA}","amount_zat":1000}}"#
+                )
+                .as_bytes(),
+            );
+            assert_eq!(created.status, 200, "{planted:?}: {}", created.body);
+            let id = serde_json::from_str::<serde_json::Value>(&created.body).expect("json")["id"]
+                .as_str()
+                .expect("an id")
+                .to_string();
+
+            // 2. A device registers its write key: from now on the vault requires signatures.
+            let sk = alice_registers_seat_one(dir, "planted");
+
+            // 3. Alice votes, signed, for her own seat.
+            let env = signed_as_seat_one(&sk, "planted", WriteAction::Approve, &id, "n1");
+            let voted = handle(
+                &st,
+                &c,
+                &Method::Post,
+                &format!("/api/vault/proposals/{id}/approve"),
+                format!(r#"{{"vault":"planted","member":"alice",{env}}}"#).as_bytes(),
+            );
+            assert_eq!(voted.status, 200, "{planted:?}: {}", voted.body);
+            // The state the vote answers with is the one the screen shows: counted the same way.
+            let answered: serde_json::Value = serde_json::from_str(&voted.body).expect("json");
+            assert_eq!(answered["state"], "pending", "{planted:?}: {}", voted.body);
+
+            let p = load_proposal(dir, "planted", &id, now_unix()).expect("the proposal");
+            assert_eq!(
+                p.state, "pending",
+                "{planted:?} and alice are one approval at most: {:?}",
+                p.approvals
+            );
+            // Her own vote replaced a spelling of her name; a name on no seat stays on record and
+            // counts for nobody.
+            let expected: Vec<String> = if planted == "mallory" {
+                vec!["mallory".into(), "alice".into()]
+            } else {
+                vec!["alice".into()]
+            };
+            assert_eq!(p.approvals, expected, "{planted:?}");
+
+            // The send gate reads the same count, so the planted approval cannot open a ceremony.
+            let env = signed_as_seat_one(&sk, "planted", WriteAction::Send, &id, "n2");
+            let send = handle(
+                &st,
+                &c,
+                &Method::Post,
+                &format!("/api/vault/proposals/{id}/send"),
+                format!(r#"{{"vault":"planted","relay_base":"http://x","room":"r",{env}}}"#)
+                    .as_bytes(),
+            );
+            assert_eq!(send.status, 409, "{planted:?}: {}", send.body);
+        }
+    }
+
+    /// A payment or a payroll is answered with its state when it is created, and the proposer is
+    /// recorded as approving. That state is counted against the roster too: on a 1-of-2 vault a
+    /// proposer on no seat approves nothing.
+    #[test]
+    fn a_new_proposal_is_counted_against_the_roster() {
+        let st = HelperState::new();
+        seed(&st, "oneoftwo");
+        let mut quorum = st.get("oneoftwo").expect("seeded");
+        (quorum.threshold, quorum.total) = (1, 2);
+        st.insert(quorum);
+        let c = cfg();
+        let _ = claim_members(&c.vaults_dir, "oneoftwo", &["alice".into(), "bob".into()]);
+
+        for (path, body) in [
+            (
+                "/api/vault/proposals",
+                format!(
+                    r#"{{"vault":"oneoftwo","proposer":"mallory","to":"{TESTNET_ORCHARD_UA}","amount_zat":1000}}"#
+                ),
+            ),
+            (
+                "/api/vault/payroll",
+                format!(
+                    r#"{{"vault":"oneoftwo","proposer":"mallory","lines":[{{"to":"{TESTNET_ORCHARD_UA}","amount_zat":1000}}]}}"#
+                ),
+            ),
+        ] {
+            let r = handle(&st, &c, &Method::Post, path, body.as_bytes());
+            assert_eq!(r.status, 200, "{path}: {}", r.body);
+            let p: serde_json::Value = serde_json::from_str(&r.body).expect("json");
+            assert_eq!(p["state"], "pending", "{path}: {}", r.body);
+        }
     }
 }
