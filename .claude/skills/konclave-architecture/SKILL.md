@@ -91,7 +91,7 @@ The repo already has these primitives. Reuse them; do not invent a parallel one.
 | Same, client side | `ui/src/vault-secret.ts::deriveReadKey` - HKDF-SHA256 via WebCrypto. |
 | Domain-separated signing | `konclave-wasm` uses `DOMAIN = b"konclave-room-v1\0"` prepended before signing (#401). Mirror the shape. |
 | A fail-open per-vault gate | `orchestrator/src/helper.rs::read_authorized` - open until the vault registers a key, then required. This is the migration pattern (#388, #63): never break existing vaults. |
-| Device key registry | `load_device_keys` / `add_device_key`. **Extend it**; do not add a second registry file beside it. |
+| Device key registry | `register_device` (the one validating door) over `upsert_device` (write-once, no validation: only `register_device` calls it), read through `load_device_records` / `write_gate`, which keep absent, gated and UNREADABLE apart. **Extend it**; do not add a second registry file beside it. |
 | Sending an authenticated request | `ui/src/helper.ts::readAuthHeaders` injects into the shared request path. Do it in **one** place, not per call site. |
 
 Also: the roster write (`claim_members`) is **write-once** - a different roster on an already-rostered

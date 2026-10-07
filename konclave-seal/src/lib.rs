@@ -318,6 +318,26 @@ mod tests {
     }
     use super::*;
 
+    /// Known answers for the two device identities derived from a share. A device registration is
+    /// WRITE-ONCE on the coordinator, so a change to either derivation - the HKDF label, the input,
+    /// the curve step - would no longer heal on the next unlock: every member already registered would
+    /// present a different key and be answered with a conflict, for good. The values below were
+    /// produced by this code on 2026-10-06 and are copied here, not derived: if this test has to be
+    /// changed, the registrations on the coordinator need a rotation signed by the registered key first.
+    #[test]
+    fn the_device_identities_derived_from_a_share_are_pinned() {
+        let kp = b"konclave known-answer key package";
+        let hex = |b: &[u8]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
+        assert_eq!(
+            hex(&device_key_from_share(kp).public_bytes()),
+            "2204495a3f1c0f6d9875ac6bb965a11ae4bebde4bac2db1bf3809f025f8f5632"
+        );
+        assert_eq!(
+            hex(&write_key_seed_from_share(kp)),
+            "d50aee2ce81a8b30b374fc2d46c6fe6d9c65e67e4560ad63ebef6c1b9f1e2f48"
+        );
+    }
+
     #[test]
     fn a_body_sealed_under_a_symmetric_key_opens_only_with_that_key() {
         // Hybrid sealing (#63): the body is encrypted once; only the key is sealed per device.

@@ -92,6 +92,31 @@ FROST signing share, matching the Zcash Foundation's frost-client pattern.
   to register the write keys, so read-gate (#388) and write-auth (#288) migrate in one guided flow.
   No key change, no re-creation, funds untouched.
 
+### Amendment, 2026-10-06: what D4 and D5 actually guarantee
+
+Two sentences above were stronger than the code, and are corrected here rather than rewritten, so the
+record shows what was believed and when it stopped being true.
+
+- **D4 said the registration is "sealed over the #63 channel" and that "an outsider cannot register a
+  key in a seat's place".** It is not sealed and it carries no proof of the share. The route is
+  protected by the vault's read key (#388), which every MEMBER holds, and a device is identified by its
+  comms key, which every member can read (the boxes of a sealed envelope are keyed by it). So the
+  protection was against an outsider, never against another member, and until now a member could
+  re-register another member's device with a key of their own. The binding is now **write-once**: a
+  record that has a seat and a write key keeps both; the same pair is a no-op, any other is a conflict
+  (409); a record with neither may gain them once; a seat held by another comms key is a conflict. A
+  key rotation, if one is ever needed, must be signed by the key currently registered. What this does
+  not close: a seat nobody has registered is still first-come (#577), and so is a record that
+  registered for sealing only, before seats existed.
+- **D5 said a vault with no registered write keys keeps accepting unsigned writes.** That holds for a
+  registry that is **absent** or has **no write keys**. It does not hold for a registry that is there
+  and **cannot be read** (a cut write, a bad edit, a permission, a directory in its place): reading
+  that as "no keys" would open the gate exactly for the vault whose keys it holds. Only a missing file
+  is "no devices"; `[]` is a registry with none; anything else that does not parse, including zero
+  bytes, is unreadable. An unreadable registry refuses governance writes, the viewing key and sealed
+  sends (503), is never rewritten from empty, and is reported in the coordinator's boot log. The
+  registry is also written whole or not at all (temporary file and rename).
+
 ### Amendment, 2026-09-05: D6 does not apply to the local bridge
 
 D6 says the rule lives once and **both** backends call it, so web and desktop cannot answer

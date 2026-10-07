@@ -42,6 +42,10 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Security
 
+- **How the coordinator registers a member's device was hardened.** The details are held back for
+  now: they will be written up when they are published, and this entry will be extended then. What a
+  member or operator can notice is under Known limits. Takes effect when this build is deployed.
+
 - **The coordinator's handling of a send that does not finish cleanly was hardened.** The details
   are held back for now: they will be written up when they are published, and this entry will be
   extended then. What a member or operator can notice is under Known limits. Takes effect when this
@@ -108,6 +112,26 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   since the coordinator was first hosted. Takes effect when this build is deployed.
 
 ### Known limits
+
+- **A device's registration, once it holds a seat, no longer changes by itself.** Unlocking again on
+  the same device sends the same registration and changes nothing. A member whose seat is registered
+  with a key that is not their device's cannot put it right by unlocking any more: it takes the
+  operator at the desk, and `docs/RECOVERY.md`, procedure F, says how (by **replacing** the record,
+  never by removing it first). A device that registered for sealing before seats existed can still
+  gain its seat once, and whoever registers it first keeps it (#577).
+- **A vault whose device registry cannot be read refuses governance writes.** A vote, a proposal, a
+  rename or a send answers 503 with "this vault's device list cannot be read, so nothing can be
+  changed until the operator restores it"; the viewing key and a sealed send are held back too, and
+  the file is never rewritten from empty. Reading the vault's balance, proposals and ledger keeps
+  working. The coordinator lists such vaults in its boot log (`device registries: ... UNREADABLE`).
+  Before this change the same file was read as "no devices" and the vault accepted unsigned writes.
+  `docs/RECOVERY.md`, procedure G.
+- **A device key must now be one the coordinator can use.** A comms key it cannot seal to (a
+  small-order point) and a write key that is not a canonical, non-weak Ed25519 point are refused with a
+  400, as is a seat outside `1..total`. Registrations already on the volume are not re-checked. This
+  does **not** stop a member from registering many keys of their own, which can still push a signing
+  request past the relay's size limit or turn sealing on early: that needs a proof of the share, which
+  is #577.
 
 - **A payment can be held as "not settled", and a hold has no button.** After a send that did not
   finish cleanly the coordinator keeps a record of it on its volume (`send-attempts/`, public data

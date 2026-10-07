@@ -22,15 +22,14 @@
 //! proposal's own file: no proposal state or wire shape changes, an older coordinator ignores the
 //! directory, and the record holds public data only - never a share, a memo or a payroll line.
 
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
 use crate::helper::{
-    append_ceremony, load_ceremonies, load_proposal, loggable, proposal_file_stem, save_proposal,
-    CeremonyRecord, HelperProposal, WalletView,
+    append_ceremony, load_ceremonies, load_proposal, loggable, proposal_file_stem, replace_file,
+    save_proposal, sync_dir, unique_tmp, write_synced, CeremonyRecord, HelperProposal, WalletView,
 };
 use crate::send::{broadcast_signed, net_prepare_send, SendConfig, SignedSend, SpendPlan};
 use crate::tools::ToolError;
@@ -91,39 +90,6 @@ fn short(vault: &str) -> &str {
     vault.get(..8).unwrap_or(vault)
 }
 
-fn unique_tmp(dir: &Path, stem: &str, ext: &str) -> PathBuf {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static N: AtomicU64 = AtomicU64::new(0);
-    // The time makes a name left by a process that died mid-write unlikely to be taken again.
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    dir.join(format!(
-        ".{stem}.{}.{nanos}.{}.{ext}",
-        std::process::id(),
-        N.fetch_add(1, Ordering::Relaxed)
-    ))
-}
-
-fn write_synced(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let mut f = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(path)?;
-    f.write_all(bytes)?;
-    f.sync_all()
-}
-
-#[cfg(unix)]
-fn sync_dir(dir: &Path) -> std::io::Result<()> {
-    std::fs::File::open(dir).and_then(|d| d.sync_all())
-}
-#[cfg(not(unix))]
-fn sync_dir(_dir: &Path) -> std::io::Result<()> {
-    Ok(())
-}
-
 /// Write the record durably and atomically, and only if none exists. The content is written to a
 /// temporary file and synced BEFORE it takes the final name, by a hard link that fails if the name is
 /// taken, so the final path is never seen empty or half written and two attempts cannot both own it.
@@ -172,15 +138,12 @@ fn record_attempt_with(
 fn rewrite_attempt(vaults_dir: &Path, a: &Attempt) -> std::io::Result<()> {
     let dir = attempts_dir(vaults_dir, &a.vault_id);
     let json = serde_json::to_vec(a).map_err(std::io::Error::other)?;
-    let tmp = unique_tmp(&dir, &proposal_file_stem(&a.proposal_id), "tmp");
-    if let Err(e) = write_synced(&tmp, &json) {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(e);
-    }
-    if let Err(e) = std::fs::rename(&tmp, attempt_path(vaults_dir, &a.vault_id, &a.proposal_id)) {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(e);
-    }
+    replace_file(
+        &attempt_path(vaults_dir, &a.vault_id, &a.proposal_id),
+        &dir,
+        &json,
+        write_synced,
+    )?;
     sync_dir(&dir)
 }
 

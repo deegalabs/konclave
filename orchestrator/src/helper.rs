@@ -496,20 +496,72 @@ fn proposal_path(vaults_dir: &Path, vault: &str, id: &str) -> PathBuf {
     proposals_dir(vaults_dir, vault).join(format!("{}.json", proposal_file_stem(id)))
 }
 
+/// A temporary file name in `dir` that a process which died mid-write is unlikely to meet again: the
+/// pid, the time and a counter. Shared by every write in this crate that goes through a temporary.
+pub(crate) fn unique_tmp(dir: &Path, stem: &str, ext: &str) -> PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static N: AtomicU64 = AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    dir.join(format!(
+        ".{stem}.{}.{nanos}.{}.{ext}",
+        std::process::id(),
+        N.fetch_add(1, Ordering::Relaxed)
+    ))
+}
+
+/// Create `path` (it must not exist), write `bytes` and sync them to disk.
+pub(crate) fn write_synced(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)?;
+    f.write_all(bytes)?;
+    f.sync_all()
+}
+
+#[cfg(unix)]
+pub(crate) fn sync_dir(dir: &Path) -> std::io::Result<()> {
+    std::fs::File::open(dir).and_then(|d| d.sync_all())
+}
+#[cfg(not(unix))]
+pub(crate) fn sync_dir(_dir: &Path) -> std::io::Result<()> {
+    Ok(())
+}
+
+/// Replace `path` with `bytes`, whole or not at all: the bytes go to a temporary file in `tmp_dir`
+/// (written by `write_tmp`, so a cut write can be tested), which is then renamed over `path`. A
+/// process that dies half way leaves the old file or the new one, never a truncated one, and the
+/// temporary is removed on any error. The ONE way this crate replaces a file that other reads depend
+/// on: a proposal that records a payment as sent, a device registry whose truncation would read as
+/// "no write keys".
+pub(crate) fn replace_file(
+    path: &Path,
+    tmp_dir: &Path,
+    bytes: &[u8],
+    write_tmp: impl Fn(&Path, &[u8]) -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    let stem = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let tmp = unique_tmp(tmp_dir, &stem, "tmp");
+    let done = write_tmp(&tmp, bytes).and_then(|()| std::fs::rename(&tmp, path));
+    if done.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    done
+}
+
 /// Persist (create or update) a proposal. Written to a temporary file in the VAULT's directory (not
 /// in `proposals/`, which [`list_proposals`] reads whole), synced, then renamed over the proposal: a
 /// process that dies mid-write leaves the old file or the new one, never a truncated one that
 /// `load_proposal` would silently drop - and this is the write that records a payment as `sent`.
 pub fn save_proposal(vaults_dir: &Path, p: &HelperProposal) -> Result<(), ToolError> {
-    save_proposal_with(vaults_dir, p, |path, bytes| {
-        use std::io::Write;
-        let mut f = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(path)?;
-        f.write_all(bytes)?;
-        f.sync_all()
-    })
+    save_proposal_with(vaults_dir, p, write_synced)
 }
 
 /// [`save_proposal`] with the write of the temporary file as a parameter, so a write that is cut
@@ -519,26 +571,19 @@ fn save_proposal_with(
     p: &HelperProposal,
     write_tmp: impl Fn(&Path, &[u8]) -> std::io::Result<()>,
 ) -> Result<(), ToolError> {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static N: AtomicU64 = AtomicU64::new(0);
-
     let path = proposal_path(vaults_dir, &p.vault_id, &p.id);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(ToolError::Io)?;
     }
     let json = serde_json::to_string(p).map_err(|e| ToolError::parse("proposal", e.to_string()))?;
-    let tmp = vaults_dir.join(&p.vault_id).join(format!(
-        ".proposal.{}.{}.{}.tmp",
-        proposal_file_stem(&p.id),
-        std::process::id(),
-        N.fetch_add(1, Ordering::Relaxed)
-    ));
-    let written = write_tmp(&tmp, json.as_bytes()).and_then(|()| std::fs::rename(&tmp, &path));
-    if let Err(e) = written {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(ToolError::Io(e));
-    }
-    Ok(())
+    // The temporary lives beside `proposals/`, never in it: `list_proposals` reads every file there.
+    replace_file(
+        &path,
+        &vaults_dir.join(&p.vault_id),
+        json.as_bytes(),
+        write_tmp,
+    )
+    .map_err(ToolError::Io)
 }
 
 /// Load one proposal by id (with its state recomputed against `now`, so a lapsed deadline reads as
@@ -667,18 +712,41 @@ pub struct DeviceRecord {
     pub write: Option<String>,
 }
 
+/// The device registry exists but cannot be read: not "no devices", which would leave the vault open
+/// to unsigned writes, but a registry that is there and is not usable (a cut write, a bad edit, a
+/// permission, a directory in its place). Everything that depends on the registry refuses on this
+/// rather than falling back to open, and nothing rewrites it from empty.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegistryUnreadable(pub String);
+
+impl std::fmt::Display for RegistryUnreadable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "the device registry cannot be read: {}", self.0)
+    }
+}
+impl std::error::Error for RegistryUnreadable {}
+
 /// Every device registered on this vault.
 ///
 /// Reads BOTH shapes: the current list of records, and the original flat `["hex", ...]` array of
 /// comms keys that the live vaults still carry. A flat entry becomes a record with no seat and no
 /// write key, which is exactly what it is - a device that registered for sealing before write
 /// authentication existed. Nothing on the volume has to be migrated for this to be read correctly.
-pub fn load_device_records(vaults_dir: &Path, vault: &str) -> Vec<DeviceRecord> {
-    let Ok(json) = std::fs::read_to_string(device_keys_path(vaults_dir, vault)) else {
-        return Vec::new();
+///
+/// ONLY a missing file is "no devices". `[]` is a registry with none. Anything else that does not
+/// read - zero bytes (what a `write` cut after it truncated leaves), half a JSON document, garbage,
+/// a mixed array, bad UTF-8, a permission error, a directory - is [`RegistryUnreadable`].
+pub fn load_device_records(
+    vaults_dir: &Path,
+    vault: &str,
+) -> Result<Vec<DeviceRecord>, RegistryUnreadable> {
+    let json = match std::fs::read_to_string(device_keys_path(vaults_dir, vault)) {
+        Ok(j) => j,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(RegistryUnreadable(e.to_string())),
     };
     if let Ok(recs) = serde_json::from_str::<Vec<DeviceRecord>>(&json) {
-        return recs;
+        return Ok(recs);
     }
     serde_json::from_str::<Vec<String>>(&json)
         .map(|flat| {
@@ -690,84 +758,241 @@ pub fn load_device_records(vaults_dir: &Path, vault: &str) -> Vec<DeviceRecord> 
                 })
                 .collect()
         })
-        .unwrap_or_default()
+        .map_err(|_| RegistryUnreadable("not a list of device records".into()))
 }
 
 /// The vault's registered device comms pubkeys (hex), the seal-set for a SignRequest (#63). Empty
 /// when none registered yet - in which case the request is posted UNSEALED (compat during rollout).
-pub fn load_device_keys(vaults_dir: &Path, vault: &str) -> Vec<String> {
-    load_device_records(vaults_dir, vault)
+pub fn load_device_keys(vaults_dir: &Path, vault: &str) -> Result<Vec<String>, RegistryUnreadable> {
+    Ok(load_device_records(vaults_dir, vault)?
         .into_iter()
         .map(|r| r.comms)
-        .collect()
+        .collect())
 }
 
-/// The write keys registered on this vault, in the shape [`crate::write_auth::authorize_write`]
-/// wants. Empty means no device has registered one, which keeps the vault on the fail-open path
-/// (ADR-0011 D5) rather than freezing it.
-pub fn load_write_keys(vaults_dir: &Path, vault: &str) -> Vec<crate::write_auth::WriteKey> {
-    load_device_records(vaults_dir, vault)
-        .into_iter()
-        .filter_map(|r| {
-            Some(crate::write_auth::WriteKey {
-                seat: r.seat?,
-                pubkey: r.write?,
-            })
-        })
-        .collect()
+/// What the registry says about whether this vault's governance writes must be signed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WriteGate {
+    /// No device has registered a write key: the vault is open to unsigned writes (ADR-0011 D5), so a
+    /// vault that has not migrated keeps working.
+    Open,
+    /// At least one seat has a write key: every governance write must be signed by the seat's key.
+    Keys(Vec<crate::write_auth::WriteKey>),
+    /// The registry cannot be read: writes are refused, because reading it as "open" would turn the
+    /// gate off exactly for a vault whose keys it holds.
+    Unreadable(RegistryUnreadable),
 }
 
-/// Register a device's PERSISTENT comms pubkey (hex of its X25519 public, derived from its share) so
-/// the helper can SEAL the SignRequest to it, keeping recipient + amount off the relay (H2 / ADR-0007
-/// I3). Idempotent: registering the same key again is a no-op. Returns whether the key was NEW.
+/// The ONE place that decides open, gated or unreadable. `authorize_write` stays free of I/O and is
+/// handed the keys this returns.
+pub fn write_gate(vaults_dir: &Path, vault: &str) -> WriteGate {
+    match load_device_records(vaults_dir, vault) {
+        Err(e) => WriteGate::Unreadable(e),
+        Ok(recs) => {
+            let keys: Vec<_> = recs
+                .into_iter()
+                .filter_map(|r| {
+                    Some(crate::write_auth::WriteKey {
+                        seat: r.seat?,
+                        pubkey: r.write?,
+                    })
+                })
+                .collect();
+            if keys.is_empty() {
+                WriteGate::Open
+            } else {
+                WriteGate::Keys(keys)
+            }
+        }
+    }
+}
+
+/// The write keys registered on this vault. A convenience for tests and tooling that flattens "open"
+/// into an empty list; the coordinator decides through [`write_gate`], which keeps open, gated and
+/// unreadable apart.
+pub fn load_write_keys(
+    vaults_dir: &Path,
+    vault: &str,
+) -> Result<Vec<crate::write_auth::WriteKey>, RegistryUnreadable> {
+    match write_gate(vaults_dir, vault) {
+        WriteGate::Open => Ok(Vec::new()),
+        WriteGate::Keys(k) => Ok(k),
+        WriteGate::Unreadable(e) => Err(e),
+    }
+}
+
+/// Why a device registration did not go through. The coordinator maps each to one status; the
+/// reasons carry no mechanism.
+#[derive(Debug)]
+pub enum DeviceError {
+    /// The registration is not well formed or not acceptable as sent: 400.
+    Invalid(String),
+    /// A registration already on record would have to change: 409.
+    Conflict(String),
+    /// The registry is there and cannot be read, so nothing is written to it: 503.
+    Unreadable(RegistryUnreadable),
+    /// The registry could not be written: 500.
+    Io(ToolError),
+}
+
+impl std::fmt::Display for DeviceError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DeviceError::Invalid(m) | DeviceError::Conflict(m) => f.write_str(m),
+            DeviceError::Unreadable(e) => e.fmt(f),
+            DeviceError::Io(e) => e.fmt(f),
+        }
+    }
+}
+impl std::error::Error for DeviceError {}
+
+fn is_lower_hex_32(h: &str) -> Option<[u8; 32]> {
+    if h.len() != 64 || !h.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+        return None;
+    }
+    let mut out = [0u8; 32];
+    for (i, b) in out.iter_mut().enumerate() {
+        *b = u8::from_str_radix(&h[2 * i..2 * i + 2], 16).ok()?;
+    }
+    Some(out)
+}
+
+/// A comms key the coordinator can actually seal to: 64 lower-case hex (one spelling per key) and
+/// accepted by the SAME function that will later seal to it, `envelope::seal_to_devices` - so a small-order key, which would make every sealed send and
+/// `/ufvk` fail until the registry is edited by hand, is refused here by the rule that would refuse
+/// it there, with no second table of bad points.
+fn check_comms_key(comms: &str) -> Result<(), String> {
+    let Some(bytes) = is_lower_hex_32(comms) else {
+        return Err("device_pub must be 64 lower-case hex characters".into());
+    };
+    let _ = bytes;
+    crate::envelope::seal_to_devices("check", b"", &[comms.to_string()])
+        .map(|_| ())
+        .map_err(|_| "device_pub is not a valid device key".to_string())
+}
+
+/// A write key the coordinator can verify with: 64 lower-case hex that decode to an Ed25519 point,
+/// not a small-order one, and written in its canonical encoding. The canonical check re-compresses
+/// the decoded point: `VerifyingKey::to_bytes()` hands back the bytes it was given, so comparing
+/// against that would pass anything that decodes.
+fn check_write_key(write: &str) -> Result<(), String> {
+    const BAD: &str = "write_pub is not a valid write key";
+    let Some(bytes) = is_lower_hex_32(write) else {
+        return Err("write_pub must be 64 lower-case hex characters".into());
+    };
+    let vk = ed25519_dalek::VerifyingKey::from_bytes(&bytes).map_err(|_| BAD.to_string())?;
+    if vk.is_weak() || vk.to_edwards().compress().to_bytes() != bytes {
+        return Err(BAD.into());
+    }
+    Ok(())
+}
+
+/// The ONE public door for registering a device: it validates, then binds. A caller cannot reach the
+/// writer without the checks, because the writer is not part of the public surface a production path
+/// uses (`upsert_device` takes no validation and is named so).
 ///
-/// This is public material (a pubkey), and registration is NOT yet authenticated: an outsider holding
-/// the vault id could register a key of their own and receive a sealed copy - but such a holder can
-/// read the cleartext request TODAY (the vault-id capability, #388). So sealing is a strict gain
-/// against the relay operator and a room-holder who lacks the group key; authenticating the registrant
-/// is the #392/#288 layer, tracked separately.
-pub fn add_device_key(vaults_dir: &Path, vault: &str, device_pub: &str) -> Result<bool, ToolError> {
+/// - `device_pub` must be a comms key the coordinator can seal to ([`check_comms_key`]);
+/// - the seat and the write key travel together or not at all; the seat is in `1..=total` (a legacy
+///   vault registered with `total == 0` keeps only `seat >= 1`), the key is canonical and strong;
+/// - an existing record that is already bound to a seat and a key never changes either (see
+///   [`upsert_device`]).
+pub fn register_device(
+    vaults_dir: &Path,
+    vault: &str,
+    total: u16,
+    comms: &str,
+    seat: Option<u16>,
+    write_pub: Option<&str>,
+) -> Result<bool, DeviceError> {
+    let comms = comms.trim();
+    check_comms_key(comms).map_err(DeviceError::Invalid)?;
+    let write = match (seat, write_pub.map(str::trim)) {
+        (None, None) => None,
+        (Some(seat), Some(wp)) => {
+            if seat == 0 || (total > 0 && seat > total) {
+                return Err(DeviceError::Invalid(
+                    "seat is outside this vault's seats".into(),
+                ));
+            }
+            check_write_key(wp).map_err(DeviceError::Invalid)?;
+            Some((seat, wp))
+        }
+        _ => {
+            return Err(DeviceError::Invalid(
+                "seat and write_pub must be sent together".into(),
+            ))
+        }
+    };
+    upsert_device(vaults_dir, vault, comms, write)
+}
+
+/// Register a device's PERSISTENT comms pubkey so the helper can SEAL the SignRequest to it. Tests
+/// only: production registers through [`register_device`], which validates.
+#[cfg(test)]
+pub fn add_device_key(
+    vaults_dir: &Path,
+    vault: &str,
+    device_pub: &str,
+) -> Result<bool, DeviceError> {
     upsert_device(vaults_dir, vault, device_pub, None)
 }
 
-/// Register (or complete) a device: its comms key, and optionally the seat + Ed25519 write key it
-/// will sign governance writes with (ADR-0011 D4). Returns whether anything changed.
+fn same_key(a: &str, b: &str) -> bool {
+    a.eq_ignore_ascii_case(b)
+}
+
+/// Write a device record: its comms key, and optionally the seat + Ed25519 write key it will sign
+/// governance writes with (ADR-0011 D4). Returns whether anything changed. **Does not validate** its
+/// arguments: a production caller goes through [`register_device`], and a test pins that the only
+/// non-test caller here is that one. The caller holds the vault's lock (`serve` does).
 ///
-/// A device is identified by its COMMS key, which is derived from its share - so a caller cannot
-/// attach a write key to someone else's device by guessing, only by holding that share. Writing a
-/// seat that another device already claims is REFUSED rather than overwritten: silently moving a
-/// seat is the rename-hijack (#288) in a different file, and an overwrite here would hand an
-/// attacker the seat by simply registering after the real holder.
+/// The binding is WRITE-ONCE. A device is found by its comms key - but every member can read every
+/// device's comms key (the boxes of a sealed envelope are keyed by them), so presenting one proves
+/// nothing about who holds the share. So:
+/// - a record with no seat and no write key (it registered for sealing only, or is a legacy flat
+///   entry) may gain its seat and key once;
+/// - a record already bound keeps its seat and its key for good: the same pair is a no-op, any other
+///   is a conflict, and a message with no write key at all (an older build re-sending its comms key)
+///   changes nothing and conflicts with nothing;
+/// - a seat held by ANOTHER comms key is a conflict, as it always was.
+///
+/// A rotation, if one is ever needed, must be signed by the key currently registered. An unreadable
+/// registry is never written to: starting from empty would drop every other seat's key.
 pub fn upsert_device(
     vaults_dir: &Path,
     vault: &str,
     comms: &str,
     write: Option<(u16, &str)>,
-) -> Result<bool, ToolError> {
+) -> Result<bool, DeviceError> {
     let comms = comms.trim();
-    let mut recs = load_device_records(vaults_dir, vault);
+    let mut recs = load_device_records(vaults_dir, vault).map_err(DeviceError::Unreadable)?;
 
     if let Some((seat, _)) = write {
         if recs
             .iter()
-            .any(|r| r.seat == Some(seat) && r.comms != comms)
+            .any(|r| r.seat == Some(seat) && !same_key(&r.comms, comms))
         {
-            return Err(ToolError::parse(
-                "device-keys",
-                format!("seat {seat} is already claimed by another device"),
+            return Err(DeviceError::Conflict(
+                "this seat is already registered to another device".into(),
             ));
         }
     }
 
     let mut changed = false;
-    match recs.iter_mut().find(|r| r.comms == comms) {
+    match recs.iter_mut().find(|r| same_key(&r.comms, comms)) {
         Some(existing) => {
             if let Some((seat, wk)) = write {
-                let wk = wk.trim().to_string();
-                if existing.seat != Some(seat) || existing.write.as_deref() != Some(wk.as_str()) {
+                let wk = wk.trim();
+                let bound = existing.seat.is_some() || existing.write.is_some();
+                if !bound {
                     existing.seat = Some(seat);
-                    existing.write = Some(wk);
+                    existing.write = Some(wk.to_string());
                     changed = true;
+                } else if existing.seat != Some(seat) || existing.write.as_deref() != Some(wk) {
+                    return Err(DeviceError::Conflict(
+                        "this device is already registered and its registration cannot be changed"
+                            .into(),
+                    ));
                 }
             }
         }
@@ -785,13 +1010,29 @@ pub fn upsert_device(
     }
 
     let path = device_keys_path(vaults_dir, vault);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(ToolError::Io)?;
-    }
-    let json =
-        serde_json::to_string(&recs).map_err(|e| ToolError::parse("device-keys", e.to_string()))?;
-    std::fs::write(&path, json).map_err(ToolError::Io)?;
+    let dir = vaults_dir.join(vault);
+    std::fs::create_dir_all(&dir).map_err(|e| DeviceError::Io(ToolError::Io(e)))?;
+    let json = serde_json::to_string(&recs)
+        .map_err(|e| DeviceError::Io(ToolError::parse("device-keys", e.to_string())))?;
+    write_device_registry(&path, &dir, json.as_bytes())
+        .map_err(|e| DeviceError::Io(ToolError::Io(e)))?;
     Ok(true)
+}
+
+/// The registry is replaced whole or not at all ([`replace_file`]): a write cut half way must not
+/// leave a file that reads as "no write keys".
+fn write_device_registry(path: &Path, dir: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    write_device_registry_with(path, dir, bytes, write_synced)
+}
+
+fn write_device_registry_with(
+    path: &Path,
+    dir: &Path,
+    bytes: &[u8],
+    write_tmp: impl Fn(&Path, &[u8]) -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    replace_file(path, dir, bytes, write_tmp)?;
+    sync_dir(dir)
 }
 
 fn write_nonces_path(vaults_dir: &Path, vault: &str) -> PathBuf {
@@ -1778,13 +2019,13 @@ mod tests {
         std::fs::create_dir_all(dir.join(&v)).unwrap();
         std::fs::write(dir.join(&v).join("device-keys.json"), r#"["aabb","ccdd"]"#).unwrap();
 
-        assert_eq!(load_device_keys(&dir, &v), vec!["aabb", "ccdd"]);
-        let recs = load_device_records(&dir, &v);
+        assert_eq!(load_device_keys(&dir, &v).unwrap(), vec!["aabb", "ccdd"]);
+        let recs = load_device_records(&dir, &v).unwrap();
         assert_eq!(recs.len(), 2);
         assert_eq!(recs[0].seat, None, "a flat entry has no seat");
         assert_eq!(recs[0].write, None, "and no write key - which is the truth");
         assert!(
-            load_write_keys(&dir, &v).is_empty(),
+            load_write_keys(&dir, &v).unwrap().is_empty(),
             "so the vault stays on the fail-open path, not frozen"
         );
         std::fs::remove_dir_all(&dir).ok();
@@ -1799,12 +2040,12 @@ mod tests {
 
         assert!(upsert_device(&dir, &v, "aabb", Some((1, "11"))).unwrap());
         assert_eq!(
-            load_device_keys(&dir, &v),
+            load_device_keys(&dir, &v).unwrap(),
             vec!["aabb", "ccdd"],
             "the #63 seal-set is unchanged"
         );
         assert_eq!(
-            load_write_keys(&dir, &v),
+            load_write_keys(&dir, &v).unwrap(),
             vec![crate::write_auth::WriteKey {
                 seat: 1,
                 pubkey: "11".into()
@@ -1828,7 +2069,7 @@ mod tests {
         let err = upsert_device(&dir, &v, "mallory", Some((1, "ff")));
         assert!(err.is_err(), "seat 1 is taken");
         assert_eq!(
-            load_write_keys(&dir, &v),
+            load_write_keys(&dir, &v).unwrap(),
             vec![crate::write_auth::WriteKey {
                 seat: 1,
                 pubkey: "aa".into()
@@ -1840,21 +2081,287 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    /// What each state of `device-keys.json` means. ONLY a missing file is "no devices"; everything
+    /// else that does not read is a registry that is there and unusable.
     #[test]
-    fn a_device_may_rotate_its_own_write_key() {
-        // Same comms key - which is derived from the share, so only that device can present it.
+    fn the_registry_file_reads_as_absent_empty_legacy_records_or_unreadable() {
+        let dir = std::env::temp_dir().join(format!("konclave-reg-states-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let v = "e".repeat(64);
+        let vault = dir.join(&v);
+        std::fs::create_dir_all(&vault).unwrap();
+        let path = vault.join("device-keys.json");
+        let read = || load_device_records(&dir, &v);
+
+        // No file: no devices.
+        assert_eq!(read(), Ok(vec![]));
+        // `[]` is a registry with none; the legacy flat list still reads, as seatless records.
+        std::fs::write(&path, "[]").unwrap();
+        assert_eq!(read(), Ok(vec![]));
+        std::fs::write(&path, r#"["aabb","ccdd"]"#).unwrap();
+        let flat = read().unwrap();
+        assert_eq!(flat.len(), 2);
+        assert!(flat.iter().all(|r| r.seat.is_none() && r.write.is_none()));
+        std::fs::write(&path, r#"[{"comms":"aa","seat":2,"write":"bb"}]"#).unwrap();
+        assert_eq!(read().unwrap()[0].seat, Some(2));
+
+        // Everything else is unreadable, not empty.
+        let unreadable: [(&str, &[u8]); 9] = [
+            ("zero bytes", b""),
+            ("only spaces", b"  \n "),
+            ("half a record", br#"[{"comms":"aa","seat":1,"wri"#),
+            ("trailing garbage", br#"[{"comms":"aa"}] xx"#),
+            ("a mixed array", br#"["aa",{"comms":"bb"}]"#),
+            ("the wrong type", br#"{"comms":"aa"}"#),
+            ("a byte-order mark", b"\xef\xbb\xbf[]"),
+            ("invalid utf-8", b"\xff\xfe"),
+            ("null", b"null"),
+        ];
+        for (name, bytes) in unreadable {
+            std::fs::write(&path, bytes).unwrap();
+            assert!(read().is_err(), "{name} must be unreadable");
+        }
+        // A directory in the file's place.
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        assert!(read().is_err(), "a directory must be unreadable");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The one decision, open or gated or unreadable, as the coordinator takes it.
+    #[test]
+    fn the_write_gate_is_open_gated_or_unreadable() {
+        let dir = std::env::temp_dir().join(format!("konclave-gate-states-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let v = "f".repeat(64);
+        std::fs::create_dir_all(dir.join(&v)).unwrap();
+        let path = dir.join(&v).join("device-keys.json");
+
+        assert_eq!(write_gate(&dir, &v), WriteGate::Open);
+        // Comms-only records are still an open vault.
+        std::fs::write(&path, r#"["aa"]"#).unwrap();
+        assert_eq!(write_gate(&dir, &v), WriteGate::Open);
+        std::fs::write(&path, r#"[{"comms":"aa","seat":1,"write":"bb"}]"#).unwrap();
+        assert!(matches!(write_gate(&dir, &v), WriteGate::Keys(k) if k.len() == 1));
+        std::fs::write(&path, b"").unwrap();
+        assert!(matches!(write_gate(&dir, &v), WriteGate::Unreadable(_)));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A registry write that is cut half way leaves the OLD registry whole and no temporary: a
+    /// truncated file would read as "no write keys" and open the vault.
+    #[test]
+    fn a_cut_registry_write_leaves_the_old_registry_and_no_temporary() {
+        let dir = std::env::temp_dir().join(format!("konclave-cut-reg-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("device-keys.json");
+        write_device_registry(&path, &dir, br#"[{"comms":"aa","seat":1,"write":"bb"}]"#).unwrap();
+
+        let r = write_device_registry_with(&path, &dir, br#"[{"comms":"cc"}]"#, |tmp, bytes| {
+            std::fs::write(tmp, &bytes[..bytes.len() / 2])?;
+            Err(std::io::Error::other("cut"))
+        });
+        assert!(r.is_err());
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            r#"[{"comms":"aa","seat":1,"write":"bb"}]"#
+        );
+        let stray = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".tmp"))
+            .count();
+        assert_eq!(stray, 0);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// An unreadable registry is never written to, by the writer itself.
+    #[test]
+    fn the_writer_refuses_an_unreadable_registry_and_leaves_it_alone() {
+        let dir = std::env::temp_dir().join(format!("konclave-unread-w-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let v = "9".repeat(64);
+        std::fs::create_dir_all(dir.join(&v)).unwrap();
+        let path = dir.join(&v).join("device-keys.json");
+        std::fs::write(&path, b"{ half").unwrap();
+        let r = upsert_device(&dir, &v, "alice", Some((1, "aa")));
+        assert!(matches!(r, Err(DeviceError::Unreadable(_))), "{r:?}");
+        assert_eq!(std::fs::read(&path).unwrap(), b"{ half");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The writer does not validate, so the only non-test caller of it must be the door that does.
+    /// A new production caller fails this until someone decides it belongs.
+    #[test]
+    fn only_register_device_calls_the_unvalidated_writer() {
+        fn walk(dir: &Path, out: &mut Vec<(String, usize)>) {
+            let call = ["upsert", "_device("].concat();
+            for entry in std::fs::read_dir(dir).unwrap().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    walk(&path, out);
+                } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
+                    let text = std::fs::read_to_string(&path).unwrap();
+                    // Production code only: everything before the file's test module.
+                    let prod = text.split("#[cfg(test)]\nmod tests").next().unwrap_or("");
+                    let n = prod.matches(call.as_str()).count();
+                    if n > 0 {
+                        out.push((path.file_name().unwrap().to_string_lossy().into_owned(), n));
+                    }
+                }
+            }
+        }
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let mut found = Vec::new();
+        for crate_src in ["orchestrator/src", "helper-server/src"] {
+            walk(&root.join(crate_src), &mut found);
+        }
+        found.sort();
+        // `helper.rs`: the definition, the call inside `register_device`, and the call inside
+        // `add_device_key`, which is `#[cfg(test)]` (so it never exists in a production build) but
+        // sits above the test module this scan stops at.
+        assert_eq!(found, vec![("helper.rs".to_string(), 3)], "{found:?}");
+    }
+
+    /// The production writer REPLACES the registry (new inode), it does not rewrite it in place: a hard
+    /// link made beforehand keeps the OLD bytes. (The shipped cut test exercises `_with`, not the wrapper
+    /// `upsert_device` reaches.)
+    #[test]
+    fn registering_replaces_the_registry_file_instead_of_rewriting_it() {
+        let dir = std::env::temp_dir().join(format!("konclave-y1-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let v = "7".repeat(64);
+        std::fs::create_dir_all(dir.join(&v)).unwrap();
+        upsert_device(&dir, &v, "alice", Some((1, "aa"))).unwrap();
+        let path = device_keys_path(&dir, &v);
+        let link = dir.join(&v).join("old-link.json");
+        std::fs::hard_link(&path, &link).unwrap();
+        let old = std::fs::read_to_string(&path).unwrap();
+        upsert_device(&dir, &v, "bob", Some((2, "bb"))).unwrap();
+        assert_ne!(
+            std::fs::read_to_string(&path).unwrap(),
+            old,
+            "the new record is there"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&link).unwrap(),
+            old,
+            "the old inode was not touched"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A registry write that fails (the directory cannot take a new file) leaves the old registry
+    /// whole and no temporary, through the production door.
+    #[test]
+    fn a_failed_registration_write_leaves_the_old_registry_whole() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("konclave-y2-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let v = "6".repeat(64);
+        std::fs::create_dir_all(dir.join(&v)).unwrap();
+        upsert_device(&dir, &v, "alice", Some((1, "aa"))).unwrap();
+        let path = device_keys_path(&dir, &v);
+        let old = std::fs::read_to_string(&path).unwrap();
+        std::fs::set_permissions(dir.join(&v), std::fs::Permissions::from_mode(0o500)).unwrap();
+        if std::fs::File::create(dir.join(&v).join("probe")).is_ok() {
+            std::fs::set_permissions(dir.join(&v), std::fs::Permissions::from_mode(0o700)).unwrap();
+            eprintln!("y2: running as a user that ignores directory modes; skipped");
+            std::fs::remove_dir_all(&dir).ok();
+            return;
+        }
+        let r = upsert_device(&dir, &v, "bob", Some((2, "bb")));
+        std::fs::set_permissions(dir.join(&v), std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(matches!(r, Err(DeviceError::Io(_))), "{r:?}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), old);
+        let stray = std::fs::read_dir(dir.join(&v))
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".tmp"))
+            .count();
+        assert_eq!(stray, 0);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A registration that conflicts changes NOTHING on disk (bytes identical), for each refusal.
+    #[test]
+    fn a_refused_registration_leaves_the_file_byte_identical() {
+        let dir = std::env::temp_dir().join(format!("konclave-y3-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let v = "5".repeat(64);
+        std::fs::create_dir_all(dir.join(&v)).unwrap();
+        upsert_device(&dir, &v, "alice", Some((1, "aa"))).unwrap();
+        upsert_device(&dir, &v, "bob", Some((2, "bb"))).unwrap();
+        let path = device_keys_path(&dir, &v);
+        let before = std::fs::read(&path).unwrap();
+        for (comms, seat, key) in [
+            ("alice", 1, "zz"),
+            ("alice", 2, "aa"),
+            ("alice", 3, "aa"),
+            ("bob", 1, "bb"),
+            ("carol", 1, "cc"),
+            ("carol", 2, "cc"),
+        ] {
+            assert!(
+                upsert_device(&dir, &v, comms, Some((seat, key))).is_err(),
+                "{comms} {seat} {key}"
+            );
+            assert_eq!(
+                std::fs::read(&path).unwrap(),
+                before,
+                "{comms} {seat} {key}"
+            );
+        }
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The same key in another case is the same device: a bound record cannot be taken over by
+    /// spelling it differently.
+    #[test]
+    fn a_bound_device_is_found_whatever_the_case_of_its_comms_key() {
+        let dir = std::env::temp_dir().join(format!("konclave-case-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let v = "4".repeat(64);
+        std::fs::create_dir_all(dir.join(&v)).unwrap();
+        upsert_device(&dir, &v, "ab12", Some((1, "aa"))).unwrap();
+        assert!(upsert_device(&dir, &v, "AB12", Some((1, "bb"))).is_err());
+        assert!(upsert_device(&dir, &v, "AB12", Some((2, "aa"))).is_err());
+        assert!(
+            !upsert_device(&dir, &v, "AB12", Some((1, "aa"))).unwrap(),
+            "the same pair, a no-op"
+        );
+        assert_eq!(load_device_records(&dir, &v).unwrap().len(), 1);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_device_cannot_rotate_its_own_write_key() {
+        // The old rule said a device could, "because only that device can present its comms key".
+        // Every member can read every device's comms key, so presenting it proves nothing: a bound
+        // record never changes its seat or its write key (V1 and V2). A rotation, if one is ever
+        // needed, must be signed by the key currently registered.
         let dir = std::env::temp_dir().join(format!("konclave-dev-rot-{}", std::process::id()));
         let v = "d".repeat(64);
         std::fs::create_dir_all(dir.join(&v)).unwrap();
         upsert_device(&dir, &v, "alice", Some((1, "aa"))).unwrap();
-        assert!(upsert_device(&dir, &v, "alice", Some((1, "bb"))).unwrap());
+        assert!(
+            upsert_device(&dir, &v, "alice", Some((1, "bb"))).is_err(),
+            "V1"
+        );
+        assert!(
+            upsert_device(&dir, &v, "alice", Some((2, "aa"))).is_err(),
+            "V2"
+        );
         assert_eq!(
-            load_write_keys(&dir, &v),
+            load_write_keys(&dir, &v).unwrap(),
             vec![crate::write_auth::WriteKey {
                 seat: 1,
-                pubkey: "bb".into()
+                pubkey: "aa".into()
             }]
         );
+        // The same triple is still a no-op.
+        assert!(!upsert_device(&dir, &v, "alice", Some((1, "aa"))).unwrap());
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -2473,7 +2980,10 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("konclave-devkey-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
 
-        assert!(load_device_keys(&dir, "v").is_empty(), "starts empty");
+        assert!(
+            load_device_keys(&dir, "v").unwrap().is_empty(),
+            "starts empty"
+        );
 
         assert!(add_device_key(&dir, "v", "aa11").unwrap(), "aa11 is new");
         assert!(add_device_key(&dir, "v", "bb22").unwrap(), "bb22 is new");
@@ -2482,7 +2992,7 @@ mod tests {
             "a duplicate registration is not new (idempotent)",
         );
 
-        let mut keys = load_device_keys(&dir, "v");
+        let mut keys = load_device_keys(&dir, "v").unwrap();
         keys.sort();
         assert_eq!(
             keys,
@@ -2490,7 +3000,7 @@ mod tests {
             "the set holds both distinct keys, the duplicate collapsed",
         );
         // A different vault has its own set.
-        assert!(load_device_keys(&dir, "other").is_empty());
+        assert!(load_device_keys(&dir, "other").unwrap().is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

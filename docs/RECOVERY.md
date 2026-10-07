@@ -191,6 +191,56 @@ Restoring an ops backup (D) taken before an attempt, or rolling the coordinator 
 without records, ignores or loses the record: the protection is gone for any proposal that had one.
 Do not roll back, or restore over a vault, while a payment is held.
 
+### F. A seat's registration is not its member's device
+
+The coordinator keeps, for each seat, the device that holds it: the device's comms key, the seat, and
+the Ed25519 key it signs governance writes with (`device-keys.json`, one record per device). Once a
+record holds a seat and a key it does not change by itself, so a record that is WRONG stays wrong
+until an operator replaces it. (Before this rule a member's device put it right the next time it
+unlocked; that is the one thing that no longer happens.)
+
+1. The member tells the group, out of band, that their seat does not sign.
+2. The member reads their own three values from THEIR device: the comms key, the seat, the write key. The
+   device computes them from its share, and **there is no tool for it yet**: no screen shows them and
+   there is no script. Until one exists this step cannot be done by a member alone, and the founders
+   should not go on to step 4 on the strength of a record that merely looks odd. (A script that derives
+   the three values from a member's export is the follow-up this procedure is waiting for.)
+3. The founders compare them with the record, read-only (`cat` the file; the record is the one for
+   that seat). Only if they differ and the member is who they say, go on.
+4. **Replace the record, do not remove it.** Removing it leaves the seat unregistered until the
+   member next unlocks, and in that gap anyone with the read key can register the seat first and
+   freeze the wrong key again. Build the replacement ON YOUR OWN MACHINE from a copy of the file (the
+   coordinator's image has no `jq`), with the one record changed, and check it there (`jq . new
+   >/dev/null`). Put it on the volume under a temporary name in the same directory, give it the owner
+   and mode the coordinator reads (`chown konclave:konclave`, `chmod 644`), and `mv` it over the old one
+   in a single step. A file that does not parse freezes the whole vault (procedure G), so the check is
+   not optional.
+5. The member unlocks once more: the same registration now matches and changes nothing.
+
+This is a deliberate act of the founders, at the desk, on a volume sessions treat as read-only; it is
+not a routine procedure.
+
+### G. The device registry is unreadable
+
+`device-keys.json` that exists and does not read (zero bytes, half a document, garbage, a directory, a
+permission the coordinator lacks) makes the coordinator refuse governance writes for that vault, the
+viewing key and sealed sends (503, "this vault's device list cannot be read ..."), and the boot log
+says so (`device registries: UNREADABLE, vault <prefix>`). It does not read the file as "no devices",
+and no registration rewrites it. Reading the vault keeps working. What stops until it is restored:
+votes, proposals, renames and sends (503), the viewing key (so a member's backup export, which asks
+for it, leaves without one: take it again afterwards), and the sealing of a signing request.
+
+Two ways out, a decision for the founders:
+
+- **Restore the file from the ops backup (D)**, which includes `device-keys.json`. Check it parses
+  first. This keeps every seat's registration.
+- **Set the file aside.** The vault then has no registry: it is open to unsigned governance writes
+  again (ADR-0011 D5) until the members unlock and register, and until then anyone with the read key
+  can register a seat first. Do this only when no backup exists, and say so to the members.
+
+Take the same care as in F: build and check the replacement on your own machine, put it on the volume
+under a temporary name, `chown` and `chmod`, then `mv`.
+
 ## Opening an export without Konclave
 
 The encrypted export is the only spare key a member has, so it must be openable when Konclave is
