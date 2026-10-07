@@ -148,12 +148,10 @@ pub struct VaultBalance {
     pub chain_tip_height: u64,
 }
 
-/// Sync a registered vault's view-only wallet against lightwalletd and read its shielded balance.
-/// The helper owns the UFVK (view-only), so this is a watcher's read - no share involved. Network +
-/// engine I/O, so it is exercised live, not in unit tests.
-/// How long a wallet sync stays "fresh": within this window, a balance read skips the (slow) sync
-/// and serves the last-synced state, so the Dashboard's 12s poll (and bursts across screens) share
-/// one sync instead of each triggering a multi-second lightwalletd sync (#194).
+/// How long a wallet sync stays "fresh": within this window, a read of the wallet (the balance and the
+/// history alike) skips the slow sync and serves the last-synced state, so the Dashboard's 12 s poll,
+/// the Add funds history's 15 s poll and bursts across screens share one sync instead of each
+/// triggering a multi-second lightwalletd sync (#194). Per vault: every vault has its own window.
 pub const SYNC_THROTTLE_SECS: u64 = 15;
 
 fn last_sync_path(vaults_dir: &Path, vault: &str) -> PathBuf {
@@ -187,16 +185,21 @@ fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
-pub fn vault_balance(
-    cfg: &HelperConfig,
-    reg: &VaultRegistration,
-) -> Result<VaultBalance, ToolError> {
+/// Bring a vault's wallet up to date before ANY read of chain state: migrate its database to the
+/// schema THIS engine expects, then sync it with lightwalletd unless the last sync is still inside the
+/// throttle window. Every read of the wallet - the balance and the history alike - goes through this
+/// one function, so no caller can read a wallet that a sync would have changed (#637: the history read
+/// only listed what the wallet already knew, and a deposit showed on Add funds only after the
+/// dashboard's balance read had synced it). The caller holds the vault's lock (the coordinator's
+/// `serve` takes it for every request that names a vault), which is what keeps two reads from starting
+/// two syncs of one wallet; this function does not take it itself.
+fn fresh_wallet(cfg: &HelperConfig, reg: &VaultRegistration) -> Result<(), ToolError> {
     // Migrate the wallet database to the schema THIS engine expects before touching it. Once per
-    // read, and outside the sync throttle below: `balance` reads the database unconditionally, so a
-    // throttled read on a wallet written by an older engine would still fail (in August:
-    // `no such table: orchard_ironwood_migrations`). A failed migration is logged, not fatal: the
-    // read goes ahead, and if the schema really is wrong the read is what fails. The log carries the
-    // vault's 8-character prefix only; the devtool's stderr names the wallet path, which holds the id.
+    // read, and outside the sync throttle below: a read on a wallet written by an older engine would
+    // fail even when the sync is skipped (in August: `no such table: orchard_ironwood_migrations`).
+    // A failed migration is logged, not fatal: the read goes ahead, and if the schema really is wrong
+    // the read is what fails. The log carries the vault's 8-character prefix only; the devtool's
+    // stderr names the wallet path, which holds the id.
     if let Err(e) = crate::wallet::upgrade(&cfg.devtool, &reg.wallet_dir) {
         let short = reg.vault_id.get(..8).unwrap_or(&reg.vault_id);
         eprintln!(
@@ -205,13 +208,26 @@ pub fn vault_balance(
         );
     }
     // Throttle the sync: only hit lightwalletd if the last sync for this vault is stale. A fresh
-    // deposit still lands within SYNC_THROTTLE_SECS, but rapid balance reads no longer each block on
-    // a full sync (#194). The balance below reflects whatever the wallet last synced.
+    // deposit still lands within SYNC_THROTTLE_SECS, but rapid reads no longer each block on a full
+    // sync (#194). A sync that fails is an error: a view that could not be refreshed is not served as
+    // current.
     let now = now_secs();
     if should_sync(&cfg.vaults_dir, &reg.vault_id, SYNC_THROTTLE_SECS, now) {
         crate::wallet::sync(&cfg.devtool, &reg.wallet_dir, &cfg.lightwalletd)?;
         mark_synced(&cfg.vaults_dir, &reg.vault_id, now);
     }
+    Ok(())
+}
+
+/// Read a registered vault's shielded balance from its view-only wallet, after bringing the wallet
+/// up to date ([`vault_balance`] and [`vault_transactions`] share that step). The helper owns the
+/// UFVK (view-only), so this is a watcher's read - no share involved. A sync that fails is an error:
+/// a balance that could not be refreshed is not served as current.
+pub fn vault_balance(
+    cfg: &HelperConfig,
+    reg: &VaultRegistration,
+) -> Result<VaultBalance, ToolError> {
+    fresh_wallet(cfg, reg)?;
     let b = crate::wallet::balance(&cfg.devtool, &reg.wallet_dir)?;
     Ok(VaultBalance {
         orchard_spendable_zat: b.orchard_spendable.as_u64(),
@@ -222,13 +238,27 @@ pub fn vault_balance(
     })
 }
 
-/// The vault's on-chain transaction history (newest first) for the Add-funds record. Read-only:
-/// reads the wallet's current `list-tx` view (the balance poll keeps it synced), so it is fast and
-/// never moves funds. Amount/direction per tx is a follow-up (#125).
+/// The vault's on-chain transaction history (newest first) for the Add-funds record. It brings the
+/// wallet up to date first, under the same throttle as the balance, so a deposit appears on the first
+/// read whichever screen asked first, and it never moves funds. Amount/direction per tx is a
+/// follow-up (#125).
+///
+/// Unlike the balance, a history whose sync FAILS (lightwalletd unreachable) still answers with what
+/// the wallet already knows, and the failure is logged: the Add funds screen replaces its list with
+/// "no transactions yet" on any error, so failing here would make a reachable outage look like a
+/// vault that lost its history. Before this change the history never depended on lightwalletd at all.
+/// The failed sync is not recorded as done, so the next read tries it again.
 pub fn vault_transactions(
     cfg: &HelperConfig,
     reg: &VaultRegistration,
 ) -> Result<Vec<crate::wallet::WalletTx>, ToolError> {
+    if let Err(e) = fresh_wallet(cfg, reg) {
+        let short = reg.vault_id.get(..8).unwrap_or(&reg.vault_id);
+        eprintln!(
+            "vault {short}: history served without a fresh sync: {}",
+            e.to_string().replace(&reg.vault_id, short)
+        );
+    }
     crate::wallet::list_transactions(&cfg.devtool, &reg.wallet_dir)
 }
 
@@ -1826,6 +1856,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_stale_balance_read_migrates_once_then_syncs_then_reads() {
+        let _serial = serial();
         let dir = tmp("balance-stale");
         let (fake, log) = fake_balance_devtool(&dir, false);
         let cfg = balance_cfg(fake, dir.join("vaults"));
@@ -1843,6 +1874,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_throttled_balance_read_still_migrates_first() {
+        let _serial = serial();
         let dir = tmp("balance-throttled");
         let (fake, log) = fake_balance_devtool(&dir, false);
         let cfg = balance_cfg(fake, dir.join("vaults"));
@@ -1860,6 +1892,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_failed_migration_does_not_block_a_readable_wallet() {
+        let _serial = serial();
         let dir = tmp("balance-upgrade-fails");
         let (fake, log) = fake_balance_devtool(&dir, true);
         let cfg = balance_cfg(fake, dir.join("vaults"));
@@ -1869,6 +1902,240 @@ mod tests {
 
         assert_eq!(b.total_zat, 100_000);
         assert_eq!(calls(&log), vec!["upgrade", "sync", "balance"]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// One test at a time may write and run a fake devtool script: writing an executable and running it
+    /// while another thread forks makes the kernel answer `Text file busy` (ETXTBSY) now and then, and
+    /// the tests that count subprocess calls then fail with no defect behind them. Taken by every test
+    /// that uses a fake devtool.
+    #[cfg(unix)]
+    fn serial() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// How the fake devtool's `sync` behaves.
+    #[cfg(unix)]
+    #[derive(Clone, Copy, PartialEq)]
+    enum FakeSync {
+        Works,
+        Fails,
+        /// Fails the first time and works after: a lightwalletd that comes back.
+        FailsOnce,
+    }
+
+    /// A `zcash-devtool` whose wallet only learns of a deposit when it SYNCS: `list-tx` answers an empty
+    /// history until `sync` has run, and a row for the deposit after. Logs each subcommand (`$4`) in
+    /// `calls.log` and every argument in `calls.log.args`, so a test can see WHICH wallet and server
+    /// were used, not only which subcommand ran.
+    #[cfg(unix)]
+    fn fake_chain_devtool(dir: &Path, sync: FakeSync) -> (PathBuf, PathBuf) {
+        use std::os::unix::fs::PermissionsExt;
+        let log = dir.join("calls.log");
+        let synced = dir.join("synced");
+        let tried = dir.join("tried");
+        let fake = dir.join("fake-devtool");
+        let mut script = String::from("#!/bin/sh\n");
+        script.push_str(&format!("echo \"$4\" >> \"{}\"\n", log.display()));
+        script.push_str(&format!("echo \"$*\" >> \"{}.args\"\n", log.display()));
+        match sync {
+            FakeSync::Works => script.push_str(&format!(
+                "if [ \"$4\" = sync ]; then touch \"{}\"; fi\n",
+                synced.display()
+            )),
+            FakeSync::Fails => script.push_str(
+                "if [ \"$4\" = sync ]; then echo 'lightwalletd unreachable' >&2; exit 1; fi\n",
+            ),
+            FakeSync::FailsOnce => script.push_str(&format!(
+                "if [ \"$4\" = sync ]; then if [ -e \"{t}\" ]; then touch \"{s}\"; else touch \"{t}\"; echo 'lightwalletd unreachable' >&2; exit 1; fi; fi\n",
+                t = tried.display(),
+                s = synced.display()
+            )),
+        }
+        script.push_str(
+            "if [ \"$4\" = balance ]; then echo '{\"chain_tip_height\":3400100,\"orchard_spendable\":0,\"sapling_spendable\":0,\"total\":100000,\"transparent_spendable\":0}'; fi\n",
+        );
+        script.push_str(&format!(
+            "if [ \"$4\" = list-tx ]; then if [ -e \"{}\" ]; then echo '[{{\"txid\":\"{}\",\"mined_height\":null}}]'; else echo '[]'; fi; fi\n",
+            synced.display(),
+            "cd".repeat(32)
+        ));
+        std::fs::write(&fake, script).expect("write fake devtool");
+        let mut p = std::fs::metadata(&fake).expect("stat").permissions();
+        p.set_mode(0o755);
+        std::fs::set_permissions(&fake, p).expect("chmod");
+        (fake, log)
+    }
+
+    /// #637. A member who has just sent a deposit and waits on Add funds saw nothing arrive: that screen
+    /// reads the history, the history read only listed what the wallet already knew, and the one read
+    /// that syncs the wallet was the balance, which the dashboard calls and Add funds does not. The
+    /// deposit is in the history of the FIRST history read, with no balance read before it - and the
+    /// vault's OWN wallet and the coordinator's OWN server are the ones the engine is pointed at.
+    #[cfg(unix)]
+    #[test]
+    fn a_deposit_is_in_the_history_without_a_balance_read_first() {
+        let _serial = serial();
+        let dir = tmp("history-fresh");
+        let (fake, log) = fake_chain_devtool(&dir, FakeSync::Works);
+        let cfg = balance_cfg(fake, dir.join("vaults"));
+        let r = reg("eeee7777");
+
+        let txs = vault_transactions(&cfg, &r).expect("history reads");
+
+        assert_eq!(txs.len(), 1, "the deposit shows on the first history read");
+        assert_eq!(calls(&log), vec!["upgrade", "sync", "list-tx"]);
+        let args = std::fs::read_to_string(log.with_extension("log.args")).unwrap();
+        assert!(args.contains("-w /tmp/eeee7777/wallet upgrade"), "{args}");
+        assert!(
+            args.contains("-w /tmp/eeee7777/wallet sync -s zec.rocks:443"),
+            "{args}"
+        );
+        assert!(args.contains("-w /tmp/eeee7777/wallet list-tx"), "{args}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// One rule, one implementation: the balance and the history go through the same function, so
+    /// they share ONE sync window. Three reads inside it start one sync, not three.
+    #[cfg(unix)]
+    #[test]
+    fn the_balance_and_the_history_share_one_sync_window() {
+        let _serial = serial();
+        let dir = tmp("shared-window");
+        let (fake, log) = fake_chain_devtool(&dir, FakeSync::Works);
+        let cfg = balance_cfg(fake, dir.join("vaults"));
+        let r = reg("ffff8888");
+
+        vault_balance(&cfg, &r).expect("balance");
+        vault_transactions(&cfg, &r).expect("history");
+        vault_balance(&cfg, &r).expect("balance again");
+
+        let ran = calls(&log);
+        assert_eq!(ran.iter().filter(|c| *c == "sync").count(), 1, "{ran:?}");
+        // Every read still migrates first, so a wallet written by an older engine reads either way.
+        assert_eq!(ran.iter().filter(|c| *c == "upgrade").count(), 3, "{ran:?}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Inside the window the history is read without a sync (the throttle still holds, #194), and it
+    /// migrates first like every other read of the wallet.
+    #[cfg(unix)]
+    #[test]
+    fn a_history_read_inside_the_window_does_not_sync_but_still_migrates() {
+        let _serial = serial();
+        let dir = tmp("history-throttled");
+        let (fake, log) = fake_chain_devtool(&dir, FakeSync::Works);
+        let cfg = balance_cfg(fake, dir.join("vaults"));
+        let r = reg("99990000");
+        mark_synced(&cfg.vaults_dir, &r.vault_id, now_secs());
+
+        vault_transactions(&cfg, &r).expect("history reads");
+
+        assert_eq!(calls(&log), vec!["upgrade", "list-tx"]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The window is fifteen seconds and no more: a deposit must not wait a day. The constant itself is
+    /// pinned (docs and changelog say 15), and a read just past the window syncs again.
+    #[cfg(unix)]
+    #[test]
+    fn the_window_is_fifteen_seconds_and_a_read_after_it_syncs() {
+        let _serial = serial();
+        assert_eq!(SYNC_THROTTLE_SECS, 15);
+        let dir = tmp("history-after-window");
+        let (fake, log) = fake_chain_devtool(&dir, FakeSync::Works);
+        let cfg = balance_cfg(fake, dir.join("vaults"));
+        let r = reg("aaaa0002");
+        mark_synced(
+            &cfg.vaults_dir,
+            &r.vault_id,
+            now_secs() - SYNC_THROTTLE_SECS - 1,
+        );
+
+        vault_transactions(&cfg, &r).expect("history reads");
+
+        assert_eq!(calls(&log), vec!["upgrade", "sync", "list-tx"]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Each vault has its own window: reading vault A must not keep vault B's wallet from syncing (the
+    /// coordinator serves many vaults and the dashboard polls each one).
+    #[cfg(unix)]
+    #[test]
+    fn each_vault_has_its_own_sync_window() {
+        let _serial = serial();
+        let dir = tmp("windows-per-vault");
+        let (fake, log) = fake_chain_devtool(&dir, FakeSync::Works);
+        let cfg = balance_cfg(fake, dir.join("vaults"));
+
+        vault_transactions(&cfg, &reg("aaaa0003")).expect("vault A");
+        vault_transactions(&cfg, &reg("bbbb0004")).expect("vault B");
+
+        let ran = calls(&log);
+        assert_eq!(ran.iter().filter(|c| *c == "sync").count(), 2, "{ran:?}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A history whose sync fails still answers with what the wallet knows, and says so in the log:
+    /// the Add funds screen turns any error into "no transactions yet" and drops the list it had.
+    #[cfg(unix)]
+    #[test]
+    fn a_history_read_whose_sync_fails_serves_the_last_known_list() {
+        let _serial = serial();
+        let dir = tmp("history-sync-fails");
+        let (fake, log) = fake_chain_devtool(&dir, FakeSync::Fails);
+        let cfg = balance_cfg(fake, dir.join("vaults"));
+        let r = reg("aaaa0001");
+
+        let txs = vault_transactions(&cfg, &r).expect("the history still answers");
+
+        assert!(txs.is_empty(), "the wallet knew of nothing yet");
+        let ran = calls(&log);
+        assert!(
+            ran.contains(&"sync".to_string()) && ran.contains(&"list-tx".to_string()),
+            "{ran:?}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A sync that failed is not recorded as done: the NEXT read tries it again, so a lightwalletd that
+    /// comes back is picked up at once instead of after a window nobody earned.
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_sync_does_not_use_up_the_window() {
+        let _serial = serial();
+        let dir = tmp("history-retry");
+        let (fake, log) = fake_chain_devtool(&dir, FakeSync::FailsOnce);
+        let cfg = balance_cfg(fake, dir.join("vaults"));
+        let r = reg("aaaa0005");
+
+        let first = vault_transactions(&cfg, &r).expect("served without a fresh sync");
+        let second = vault_transactions(&cfg, &r).expect("history reads");
+
+        assert!(first.is_empty());
+        assert_eq!(second.len(), 1, "the retry synced and found the deposit");
+        let ran = calls(&log);
+        assert_eq!(ran.iter().filter(|c| *c == "sync").count(), 2, "{ran:?}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The balance, by contrast, is an error when its sync fails: it never serves a number it could not
+    /// refresh as the current one.
+    #[cfg(unix)]
+    #[test]
+    fn a_balance_read_whose_sync_fails_is_an_error() {
+        let _serial = serial();
+        let dir = tmp("balance-sync-fails");
+        let (fake, log) = fake_chain_devtool(&dir, FakeSync::Fails);
+        let cfg = balance_cfg(fake, dir.join("vaults"));
+        let r = reg("aaaa0006");
+
+        assert!(vault_balance(&cfg, &r).is_err());
+        assert!(
+            !calls(&log).contains(&"balance".to_string()),
+            "no stale balance after a failed sync"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 
