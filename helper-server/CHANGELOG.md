@@ -42,6 +42,11 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Security
 
+- **The coordinator's handling of a send that does not finish cleanly was hardened.** The details
+  are held back for now: they will be written up when they are published, and this entry will be
+  extended then. What a member or operator can notice is under Known limits. Takes effect when this
+  build is deployed.
+
 - **Defects in the coordinator's write checks were fixed.** The details are held back for now: they
   will be written up when they are published, and this entry will be extended then.
   What a member or operator can notice: a request the coordinator now
@@ -104,6 +109,36 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Known limits
 
+- **A payment can be held as "not settled", and a hold has no button.** After a send that did not
+  finish cleanly the coordinator keeps a record of it on its volume (`send-attempts/`, public data
+  only) and answers a new Send for that payment with "an earlier attempt to send this payment is not
+  settled; it may already be on the network, do not retry yet". The hold ends by itself: when its
+  transaction is mined the payment shows as sent (the next Send records it, and so does a read of the
+  vault's proposals or ledger once the coordinator's wallet has synced past it, which a balance read
+  does), and when the transaction can no longer be mined - its own expiry
+  plus 10 blocks has passed - the next Send goes on. How long that takes depends on the transaction:
+  about an hour for most payments, and for a single payment of a round amount (0.01, 0.02, 0.05,
+  0.1 ZEC and the like, from a vault that still spends Orchard-pool funds) roughly one to two months.
+  That figure is read from the engine's code and has not been measured on mainnet.
+  **Do not make a replacement payment while one is held**: the held one may still be mined, and both
+  would be paid. In a vault with a single note the wallet already counts that note as spent for the
+  same time, so nothing else can be funded meanwhile.
+- **Some holds have no way out of their own.** A transaction with no expiry; a wallet the coordinator
+  cannot sync or read; a record it cannot read; a payment held past its own 72-hour deadline that is
+  never mined (it reads expired). These need a founder at the desk, and `docs/RECOVERY.md`, procedure
+  E, says what to check first.
+- **The record needs a volume that can hard-link and sync a directory.** The coordinator says at boot
+  whether its volume can, and how many payments are held. A volume that cannot refuses every real send,
+  before any device is asked to sign.
+- **Reading a vault can now write.** Reading its proposals, ledger or ledger CSV records a payment that
+  is found mined (in `proposals/` and `ceremonies.jsonl`), and only while a payment is held. It
+  looks at most once every 15 seconds per vault (it keeps the time in `last_promote`). Anyone who backs the volume up or reads it by hand as
+  "read-only" should know.
+- **The other members' devices can still say "Nothing was broadcast. You can sign again."** after a
+  send that errored, because their screens decide that wording from the kind of error, and the error
+  texts this coordinator now sends are not among the kinds they know. The coordinator refuses the
+  repeat either way. Fixing the wording is the web app's.
+
 - **One member can still make a payment read as approved by the group, by two other routes.** Found
   while reviewing the fix for a vote recorded under another member's name. While a vault still takes
   unsigned actions, anyone holding its id can record an approval under a member's name, and it keeps
@@ -152,6 +187,10 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   and an office of five with two tabs each about 42, against a limit of 300.
 
 ### Changed
+
+- **The coordinator's boot log now reports its send records.** One line says whether the volume can
+  hold them, one how many payments are held and how many of those have a record it cannot read, and
+  one each (vault prefix and proposal id, up to 20; an unreadable record is marked).
 
 - **Changing a vault's member list now needs the key that proves you can read the vault.** The list
   was already set once and never replaceable, which is what protected it; this closes the remaining

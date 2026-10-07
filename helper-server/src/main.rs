@@ -33,17 +33,15 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use std::time::Duration;
-
 use orchestrator::helper::{
-    append_ceremony, claim_members, is_valid_group_key, ledger_csv, list_proposals,
-    load_ceremonies, load_device_keys, load_members, load_proposal, payment_plan, read_authorized,
-    register_vault, rename_member, save_proposal, send_config_for, set_read_key, vault_balance,
-    vault_transactions, CeremonyRecord, HelperConfig, HelperProposal, HelperState, PayrollLine,
-    RosterWrite, VaultRegistration,
+    claim_members, is_valid_group_key, ledger_csv, list_proposals, load_ceremonies,
+    load_device_keys, load_members, load_proposal, payment_plan, read_authorized, register_vault,
+    rename_member, save_proposal, send_config_for, set_read_key, vault_balance, vault_transactions,
+    HelperConfig, HelperProposal, HelperState, PayrollLine, RosterWrite, VaultRegistration,
 };
 use orchestrator::relay_client::{configured_relay, parse_relay_config, valid_room, RelayRefusal};
-use orchestrator::send::{funding_check, net_orchestrate_send, Funding, PayrollDest, SpendPlan};
+use orchestrator::send::{funding_check, Funding, PayrollDest, SpendPlan};
+use orchestrator::send_record::{promote_mined_attempts, send_proposal, LiveSend, SendResult};
 use orchestrator::write_auth::{
     authorize_write, same_member, seat_acts_as, seat_holder, SignedWrite, WriteAction, WriteAuth,
 };
@@ -508,6 +506,7 @@ fn handle_with_token(
             match query_param(query, "vault").and_then(|v| state.get(v)) {
                 None => resp(404, json!({ "error": "no such vault" }).to_string()),
                 Some(reg) => {
+                    settle_mined_sends(cfg, &reg);
                     let ps = list_proposals(&cfg.vaults_dir, &reg.vault_id, now_unix());
                     resp(200, json!({ "proposals": ps }).to_string())
                 }
@@ -517,6 +516,7 @@ fn handle_with_token(
             match query_param(query, "vault").and_then(|v| state.get(v)) {
                 None => resp(404, json!({ "error": "no such vault" }).to_string()),
                 Some(reg) => {
+                    settle_mined_sends(cfg, &reg);
                     let entries = sent_proposals(cfg, &reg.vault_id);
                     resp(200, json!({ "entries": entries }).to_string())
                 }
@@ -527,7 +527,10 @@ fn handle_with_token(
                 None => resp(404, json!({ "error": "no such vault" }).to_string()),
                 // The body is CSV; it is served with the default JSON content-type, so the browser
                 // client downloads it as a blob (it sets the filename/type). Keeps the router simple.
-                Some(reg) => resp(200, ledger_csv(&sent_proposals(cfg, &reg.vault_id))),
+                Some(reg) => {
+                    settle_mined_sends(cfg, &reg);
+                    resp(200, ledger_csv(&sent_proposals(cfg, &reg.vault_id)))
+                }
             }
         }
         (Method::Get, "/api/vault/members") => {
@@ -1045,53 +1048,20 @@ fn handle_proposal_send(state: &HelperState, cfg: &HelperConfig, path: &str, bod
         return refused;
     }
     let now = now_unix();
-    let mut p = match load_proposal(&cfg.vaults_dir, &req.vault, id, now) {
+    let p = match load_proposal(&cfg.vaults_dir, &req.vault, id, now) {
         Some(p) => p,
         None => return resp(404, json!({ "error": "no such proposal" }).to_string()),
     };
-    if p.state != "ready" {
-        return resp(
-            409,
-            json!({ "error": "proposal is not ready to send", "state": p.state }).to_string(),
-        );
+    // The proposal was authorized under `req.vault`, and its record is keyed by its own vault: they
+    // must be the same one, as a rule and not a habit.
+    if p.vault_id != reg.vault_id {
+        return resp(404, json!({ "error": "no such proposal" }).to_string());
     }
     // A payroll spends to N beneficiaries in one tx; a payment spends to one. Re-validate each
-    // destination + amount at execution time (defence in depth) before building the plan.
-    let plan = if p.kind == "payroll" {
-        let mut dests = Vec::with_capacity(p.lines.len());
-        for l in &p.lines {
-            if let Err(e) = payment_plan(&l.to, l.amount_zat, l.memo.clone(), cfg.network_type()) {
-                return resp(400, json!({ "error": e.to_string() }).to_string());
-            }
-            dests.push(PayrollDest {
-                address: l.to.clone(),
-                value_zat: l.amount_zat,
-                memo: l.memo.clone(),
-            });
-        }
-        SpendPlan::Payroll { lines: dests }
-    } else {
-        match payment_plan(&p.to, p.amount_zat, p.memo.clone(), cfg.network_type()) {
-            Ok(pl) => pl,
-            Err(e) => return resp(400, json!({ "error": e.to_string() }).to_string()),
-        }
-    };
-    // Capacity guard (#135): refuse a memory-heavy prove up front when the instance is low.
-    if over_capacity() {
-        return resp(
-            503,
-            json!({ "error": "coordinator over capacity, retry in a moment" }).to_string(),
-        );
-    }
-    // Last gate before the room opens. The build inside `net_orchestrate_send` would refuse this
-    // too, but as a 502 "send failed" - and by then every device has been asked to sign. Asking
-    // here turns the same refusal into two figures and leaves the ceremony untouched. Funds can
-    // leave between approval and send, so this is not redundant with the check at creation.
-    match refuse_if_unfunded(cfg, &reg, &plan) {
-        Ok(Some(r)) => return r,
-        Ok(None) => {}
-        Err(_) => {} // an unrelated fault must not block a send the vault could make
-    }
+    // destination + amount at execution time (defence in depth) before building the plan. A plan
+    // that does not validate is refused by the gate below, AFTER an earlier attempt has been settled
+    // and the state checked - not before, or a payment already made could never be recorded.
+    let plan = send_plan_for(cfg, &p);
     let work_dir = format!("{}/{}/send-work", cfg.vaults_dir.display(), reg.vault_id);
     let _scratch = ScratchDir(work_dir.clone());
     let sc = send_config_for(cfg, &reg, work_dir);
@@ -1106,43 +1076,131 @@ fn handle_proposal_send(state: &HelperState, cfg: &HelperConfig, path: &str, bod
     } else {
         Vec::new()
     };
-    match net_orchestrate_send(
-        &sc,
-        &plan,
-        relay,
-        &req.room,
-        &device_pubs,
-        req.dry_run,
-        req.max_polls,
-        Duration::from_secs(1),
-    ) {
-        Ok(out) => {
-            let rec = CeremonyRecord {
-                vault_id: reg.vault_id.clone(),
-                sighash: out.sighash.clone(),
-                signatures: out.signatures.clone(),
-                txid: out.txid.clone(),
-                dry_run: req.dry_run,
-                created_at_unix: now_unix(),
-            };
-            let _ = append_ceremony(&cfg.vaults_dir, &rec);
-            // A real broadcast moves the proposal to the terminal `sent` with its txid; a dry-run
-            // leaves it `ready` (it only proved the quorum can sign).
-            if !req.dry_run {
-                if let Some(txid) = &out.txid {
-                    p.state = "sent".into();
-                    p.txid = Some(txid.clone());
-                    let _ = save_proposal(&cfg.vaults_dir, &p);
-                }
-            }
-            resp(
-                200,
-                json!({ "txid": out.txid, "dry_run": req.dry_run, "sighash": out.sighash,
-                        "state": p.state })
-                .to_string(),
-            )
+    let steps = LiveSend {
+        sc: &sc,
+        plan: plan.as_ref().ok(),
+        relay_base: relay,
+        room: &req.room,
+        device_pubs: &device_pubs,
+        max_polls: req.max_polls,
+        vault_id: &reg.vault_id,
+        vaults_dir: &cfg.vaults_dir,
+    };
+    // Everything that decides whether a transaction may leave - settling an earlier attempt, the
+    // record that comes before the broadcast, the broadcast itself - is `send_proposal`'s, in the
+    // orchestrator. This function authenticates, validates and maps the answer. It does not broadcast.
+    let result = send_proposal(&cfg.vaults_dir, p, req.dry_run, &steps, |_| {
+        let plan = match &plan {
+            Ok(plan) => plan,
+            Err(refused) => return Err(resp(refused.status, refused.body.clone())),
+        };
+        // Capacity guard (#135): refuse a memory-heavy prove up front when the instance is low.
+        if over_capacity() {
+            return Err(resp(
+                503,
+                json!({ "error": "coordinator over capacity, retry in a moment" }).to_string(),
+            ));
         }
-        Err(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
+        // Last gate before the room opens. The build would refuse this too, but as a 502 "send
+        // failed" - and by then every device has been asked to sign. Asking here turns the same
+        // refusal into two figures and leaves the ceremony untouched. Funds can leave between
+        // approval and send, so this is not redundant with the check at creation.
+        match refuse_if_unfunded(cfg, &reg, plan) {
+            Ok(Some(r)) => Err(r),
+            Ok(None) => Ok(()),
+            Err(_) => Ok(()), // an unrelated fault must not block a send the vault could make
+        }
+    });
+    send_result_resp(result)
+}
+
+/// The plan a proposal spends, each destination and amount validated again at execution time.
+fn send_plan_for(cfg: &HelperConfig, p: &HelperProposal) -> Result<SpendPlan, Resp> {
+    if p.kind == "payroll" {
+        let mut dests = Vec::with_capacity(p.lines.len());
+        for l in &p.lines {
+            if let Err(e) = payment_plan(&l.to, l.amount_zat, l.memo.clone(), cfg.network_type()) {
+                return Err(resp(400, json!({ "error": e.to_string() }).to_string()));
+            }
+            dests.push(PayrollDest {
+                address: l.to.clone(),
+                value_zat: l.amount_zat,
+                memo: l.memo.clone(),
+            });
+        }
+        Ok(SpendPlan::Payroll { lines: dests })
+    } else {
+        payment_plan(&p.to, p.amount_zat, p.memo.clone(), cfg.network_type())
+            .map_err(|e| resp(400, json!({ "error": e.to_string() }).to_string()))
+    }
+}
+
+/// Before a vault's proposals or ledger are read, promote to `sent` any proposal whose recorded send
+/// is mined (see `promote_mined_attempts`). It reads each send record and its proposal, and the
+/// wallet at most once per window per vault while a payment that can still be mined is held.
+fn settle_mined_sends(cfg: &HelperConfig, reg: &VaultRegistration) {
+    promote_mined_attempts(&cfg.vaults_dir, &reg.vault_id, || {
+        orchestrator::wallet::list_confirmed_txids(&cfg.devtool, &reg.wallet_dir)
+    });
+}
+
+fn not_ready_resp(state: &str) -> Resp {
+    resp(
+        409,
+        json!({ "error": "proposal is not ready to send", "state": state }).to_string(),
+    )
+}
+
+// What the screen shows when a send did not finish cleanly. The web app turns any error it reads into
+// a message by keywords (`humanError`, ui/src/api.ts), and several keywords - "connection", "refused",
+// "timed out", "expired", "share", "signature" - become "nothing was sent". These cases are exactly
+// where the coordinator cannot say that, so the wording avoids every one of them and stays under the
+// 140 characters the screen shows verbatim. `send_error_texts_stay_clear_of_the_screens_keywords` pins it.
+const UNSETTLED_TEXT: &str =
+    "an earlier attempt to send this payment is not settled; it may already be on the network, do not retry yet";
+const BROADCAST_TEXT: &str =
+    "the payment may or may not have reached the network; do not retry yet, check the vault's history first";
+const RECORD_TEXT: &str =
+    "the coordinator could not record this send, so nothing was sent; ask the operator to check its storage";
+
+/// The one place a send's result becomes a status and a body.
+fn send_result_resp(result: SendResult<Resp>) -> Resp {
+    match result {
+        SendResult::DryRun { sighash } => resp(
+            200,
+            json!({ "txid": null, "dry_run": true, "sighash": sighash, "state": "ready" })
+                .to_string(),
+        ),
+        SendResult::Sent {
+            txid,
+            sighash,
+            record_error,
+        } => resp(
+            200,
+            json!({ "txid": txid, "dry_run": false, "sighash": sighash, "state": "sent",
+                    "record_error": record_error })
+            .to_string(),
+        ),
+        // An earlier attempt turned out to be mined: the payment is on the chain, and the screen
+        // already treats a 200 with a txid as exactly that.
+        SendResult::AlreadySent { txid, record_error } => resp(
+            200,
+            json!({ "txid": txid, "dry_run": false, "state": "sent",
+                    "record_error": record_error })
+            .to_string(),
+        ),
+        SendResult::NotReady { state } => not_ready_resp(&state),
+        SendResult::Unsettled { .. } => resp(
+            409,
+            json!({ "error": UNSETTLED_TEXT, "state": "ready" }).to_string(),
+        ),
+        SendResult::Refused(r) => r,
+        SendResult::PrepareFailed(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
+        SendResult::RecordFailed(_) => resp(500, json!({ "error": RECORD_TEXT }).to_string()),
+        SendResult::BroadcastFailed { txid, .. } => resp(
+            502,
+            json!({ "error": BROADCAST_TEXT, "txid": txid }).to_string(),
+        ),
     }
 }
 
@@ -1757,6 +1815,39 @@ fn main() {
     // Nothing of record lives here: the txid is in the proposal and in ceremonies.jsonl, and the
     // registration, wallet, roster and proposals are sibling paths this never touches.
     let swept = sweep_send_work(&cfg.vaults_dir);
+    // The record of a send needs a volume that can hard-link and sync a directory. Say so now, in the
+    // log, rather than at the first payment, which would be refused after its devices had signed.
+    // The directory is made first: a first boot on an empty volume is not a volume that cannot.
+    match std::fs::create_dir_all(&cfg.vaults_dir)
+        .map_err(|e| format!("cannot create the vaults directory: {e}"))
+        .and_then(|()| orchestrator::send_record::probe_volume(&cfg.vaults_dir))
+    {
+        Ok(()) => eprintln!("send records: this volume can hold them"),
+        Err(why) => eprintln!(
+            "send records: ALERT this volume could not be shown able to hold them ({why}); a real send is refused if it cannot"
+        ),
+    }
+    // Payments whose send is on record and not yet settled, and records that cannot be read (those
+    // refuse every Send for their proposal and nothing clears them). Nothing is decided here: the next
+    // Send, or a read of the vault after the transaction is mined, settles each one.
+    let held = orchestrator::send_record::unsettled_attempts(&cfg.vaults_dir);
+    let unreadable = held.iter().filter(|h| h.unreadable).count();
+    eprintln!(
+        "send records: {} held payment(s), {unreadable} of them with an unreadable record",
+        held.len()
+    );
+    for h in held.iter().take(20) {
+        eprintln!(
+            "send records: held{}, vault {} proposal {}",
+            if h.unreadable {
+                " (UNREADABLE record)"
+            } else {
+                ""
+            },
+            h.vault,
+            h.proposal
+        );
+    }
     let server = Server::http(&addr).expect("bind");
     eprintln!(
         "konclave-helper listening on {addr} (network={}, {restored_n} vault(s) restored, {birthdays} birthday(s) recorded, {receivers} change receiver(s) recorded, {swept} scratch dir(s) swept)",
@@ -1887,6 +1978,450 @@ mod tests {
         );
     }
     use super::*;
+    use std::time::Duration;
+
+    /// The screen turns an error into a message by keyword (`humanError`, ui/src/api.ts). These are
+    /// its triggers, copied; each one becomes "nothing was sent" or "expired" or a missing-funds
+    /// message, none of which the coordinator can claim about a send it is unsure of.
+    const SCREEN_KEYWORDS: [&str; 15] = [
+        "insufficient",
+        "saldo",
+        "no connection",
+        "failed to fetch",
+        "connection",
+        "frostd",
+        "transport",
+        "refused",
+        "timed out",
+        "signature",
+        "apply_signature",
+        "share",
+        "expiry",
+        "expired",
+        "transparent",
+    ];
+
+    #[test]
+    fn send_error_texts_stay_clear_of_the_screens_keywords() {
+        for text in [UNSETTLED_TEXT, BROADCAST_TEXT, RECORD_TEXT] {
+            assert!(
+                text.len() < 140,
+                "the screen shows only short texts verbatim: {text}"
+            );
+            let lower = text.to_lowercase();
+            for k in SCREEN_KEYWORDS {
+                assert!(!lower.contains(k), "{text:?} would be read as {k:?}");
+            }
+            assert_ne!(lower.trim(), "send failed");
+        }
+    }
+
+    #[test]
+    fn a_send_result_maps_to_one_status_and_body() {
+        let body = |r: Resp| serde_json::from_str::<serde_json::Value>(&r.body).unwrap();
+        let tx = "ab".repeat(32);
+
+        let r = send_result_resp(SendResult::Unsettled { why: "x".into() });
+        assert_eq!(r.status, 409);
+        assert_eq!(body(r)["error"], UNSETTLED_TEXT);
+
+        // Found mined: the screen reads a 200 with a txid as success, and it is the truth.
+        let r = send_result_resp(SendResult::AlreadySent {
+            txid: tx.clone(),
+            record_error: None,
+        });
+        assert_eq!(r.status, 200);
+        let b = body(r);
+        assert_eq!(b["txid"], tx.as_str());
+        assert_eq!(b["state"], "sent");
+        assert_eq!(b["dry_run"], false);
+
+        // A broadcast that errored is never a clean "nothing was sent": it carries the txid and
+        // the cautious text.
+        let r = send_result_resp(SendResult::BroadcastFailed {
+            txid: tx.clone(),
+            error: orchestrator::tools::ToolError::Io(std::io::Error::other("reset")),
+        });
+        assert_eq!(r.status, 502);
+        let b = body(r);
+        assert_eq!(b["error"], BROADCAST_TEXT);
+        assert_eq!(b["txid"], tx.as_str());
+
+        // A send that went out but whose own record was not written says so, with the txid.
+        let r = send_result_resp(SendResult::Sent {
+            txid: tx.clone(),
+            sighash: "cd".repeat(32),
+            record_error: Some("proposal record: disk full".into()),
+        });
+        assert_eq!(r.status, 200);
+        let b = body(r);
+        assert_eq!(b["txid"], tx.as_str());
+        assert_eq!(b["state"], "sent");
+        assert_eq!(b["record_error"], "proposal record: disk full");
+
+        let r = send_result_resp(SendResult::RecordFailed("io".into()));
+        assert_eq!(r.status, 500);
+        assert_eq!(body(r)["error"], RECORD_TEXT);
+
+        let r = send_result_resp(SendResult::NotReady {
+            state: "pending".into(),
+        });
+        assert_eq!(r.status, 409);
+        let b = body(r);
+        assert_eq!(b["error"], "proposal is not ready to send");
+        assert_eq!(b["state"], "pending");
+    }
+
+    /// A `zcash-devtool` that never touches a network: logs `$4`, answers `balance` and `list-tx`.
+    /// `mined` is the txid its `list-tx` reports as mined, if any.
+    #[cfg(unix)]
+    fn fake_devtool(dir: &std::path::Path, mined: Option<&str>) -> (PathBuf, PathBuf) {
+        use std::os::unix::fs::PermissionsExt;
+        let log = dir.join("calls.log");
+        let fake = dir.join("fake-devtool");
+        let rows = match mined {
+            Some(t) => format!(r#"[{{"txid":"{t}","mined_height":3400000}}]"#),
+            None => "[]".to_string(),
+        };
+        let script = format!(
+            "#!/bin/sh\necho \"$*\" >> \"{}\"\n\
+             if [ \"$4\" = balance ]; then echo '{{\"chain_tip_height\":3400100,\"orchard_spendable\":0,\"sapling_spendable\":0,\"total\":0,\"transparent_spendable\":0}}'; fi\n\
+             if [ \"$4\" = list-tx ]; then echo '{rows}'; fi\n",
+            log.display()
+        );
+        std::fs::write(&fake, script).unwrap();
+        let mut p = std::fs::metadata(&fake).unwrap().permissions();
+        p.set_mode(0o755);
+        std::fs::set_permissions(&fake, p).unwrap();
+        (fake, log)
+    }
+
+    #[cfg(unix)]
+    fn held_send(dir: &std::path::Path, txid: &str) -> orchestrator::send_record::Attempt {
+        let a = orchestrator::send_record::Attempt {
+            version: 1,
+            proposal_id: "p1".into(),
+            vault_id: "relayv".into(),
+            txid: txid.into(),
+            reported_txid: None,
+            sighash: "ab".repeat(32),
+            signatures: vec!["cd".repeat(64)],
+            expiry_height: 3_400_500,
+            recorded_at_unix: now_unix(),
+        };
+        orchestrator::send_record::record_attempt(dir, &a).unwrap();
+        a
+    }
+
+    #[cfg(unix)]
+    fn real_send(st: &HelperState, c: &HelperConfig) -> Resp {
+        let body = json!({ "vault": "relayv", "relay_base": TEST_RELAY,
+            "room": "0123456789abcdef0123456789abcdef", "dry_run": false })
+        .to_string();
+        handle(
+            st,
+            c,
+            &Method::Post,
+            "/api/vault/proposals/p1/send",
+            body.as_bytes(),
+        )
+    }
+
+    /// The wiring, end to end through the handler: a proposal that has a record of an earlier send is
+    /// refused with the held text, the wallet is consulted, and NOTHING is built or broadcast. The
+    /// tests of the rule use a stand-in for the engine; this one goes through `send_proposal`,
+    /// `LiveSend` and the real wallet reads, against a fake devtool.
+    #[cfg(unix)]
+    #[test]
+    fn the_handler_refuses_a_held_payment_and_builds_nothing() {
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let mut c = cfg();
+        let (fake, log) = fake_devtool(&c.vaults_dir, None);
+        c.devtool = fake;
+        a_ready_proposal(&c.vaults_dir, "relayv");
+        held_send(&c.vaults_dir, &"11".repeat(32));
+
+        let r = real_send(&st, &c);
+        assert_eq!(r.status, 409, "{}", r.body);
+        assert!(r.body.contains(UNSETTLED_TEXT), "{}", r.body);
+
+        let ran = std::fs::read_to_string(&log).unwrap();
+        for step in ["upgrade", "sync", "balance", "list-tx"] {
+            assert!(ran.contains(step), "the wallet is settled first: {ran}");
+        }
+        // The vault's own wallet and the coordinator's own server reach the engine.
+        assert!(ran.contains("-w /tmp/relayv/wallet list-tx"), "{ran}");
+        assert!(
+            ran.contains("-w /tmp/relayv/wallet sync -s testnet.zec.rocks:443"),
+            "{ran}"
+        );
+        assert!(
+            !ran.contains("pczt"),
+            "nothing is built or broadcast: {ran}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_handler_answers_a_mined_attempt_as_sent_and_records_it() {
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let mut c = cfg();
+        let txid = "11".repeat(32);
+        let (fake, log) = fake_devtool(&c.vaults_dir, Some(&txid));
+        c.devtool = fake;
+        a_ready_proposal(&c.vaults_dir, "relayv");
+        held_send(&c.vaults_dir, &txid);
+
+        let r = real_send(&st, &c);
+        assert_eq!(r.status, 200, "{}", r.body);
+        let b: serde_json::Value = serde_json::from_str(&r.body).unwrap();
+        assert_eq!(
+            (b["state"].as_str(), b["txid"].as_str()),
+            (Some("sent"), Some(txid.as_str()))
+        );
+        assert!(!std::fs::read_to_string(&log).unwrap().contains("pczt"));
+        let saved = load_proposal(&c.vaults_dir, "relayv", "p1", now_unix()).unwrap();
+        assert_eq!(saved.state, "sent");
+    }
+
+    /// Reading a vault settles what is mined: a held proposal can pass its own deadline and then
+    /// nobody presses Send again, so a read is the only thing left to record it. Each of the three
+    /// reads, because the screen polls `proposals` and the ledger and the CSV are what an accountant
+    /// reads, and one of them losing the call must turn a test red.
+    #[cfg(unix)]
+    #[test]
+    fn reading_the_vault_records_a_mined_send_on_each_route_that_reads_it() {
+        for route in [
+            "/api/vault/proposals?vault=relayv",
+            "/api/vault/ledger?vault=relayv",
+            "/api/vault/ledger.csv?vault=relayv",
+        ] {
+            let st = HelperState::new();
+            seed(&st, "relayv");
+            let mut c = cfg();
+            let txid = "11".repeat(32);
+            let (fake, _log) = fake_devtool(&c.vaults_dir, Some(&txid));
+            c.devtool = fake;
+            a_ready_proposal(&c.vaults_dir, "relayv");
+            held_send(&c.vaults_dir, &txid);
+
+            let r = handle(&st, &c, &Method::Get, route, b"");
+            assert_eq!(r.status, 200, "{route}: {}", r.body);
+            assert!(r.body.contains(&txid), "{route} shows the txid: {}", r.body);
+            let saved = load_proposal(&c.vaults_dir, "relayv", "p1", now_unix()).unwrap();
+            assert_eq!(saved.state, "sent", "{route}");
+        }
+    }
+
+    /// A screen polls. While a payment that can still be mined is held, each poll must not start a
+    /// `list-tx` under the vault's lock: the wallet is read once per window.
+    #[cfg(unix)]
+    #[test]
+    fn polling_a_vault_with_a_held_payment_reads_the_wallet_once() {
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let mut c = cfg();
+        let (fake, log) = fake_devtool(&c.vaults_dir, None); // never mined
+        c.devtool = fake;
+        a_ready_proposal(&c.vaults_dir, "relayv");
+        held_send(&c.vaults_dir, &"11".repeat(32));
+
+        for _ in 0..5 {
+            let r = handle(
+                &st,
+                &c,
+                &Method::Get,
+                "/api/vault/proposals?vault=relayv",
+                b"",
+            );
+            assert_eq!(r.status, 200, "{}", r.body);
+        }
+        let ran = std::fs::read_to_string(&log).unwrap();
+        assert_eq!(ran.matches("list-tx").count(), 1, "{ran}");
+    }
+
+    /// The read gate (#388) comes BEFORE the settling: a stranger without the vault's read key gets a
+    /// 401 and starts nothing.
+    #[cfg(unix)]
+    #[test]
+    fn a_read_without_the_key_settles_nothing() {
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let mut c = cfg();
+        let txid = "11".repeat(32);
+        let (fake, log) = fake_devtool(&c.vaults_dir, Some(&txid));
+        c.devtool = fake;
+        a_ready_proposal(&c.vaults_dir, "relayv");
+        held_send(&c.vaults_dir, &txid);
+        set_read_key(&c.vaults_dir, "relayv", &"ab".repeat(32)).unwrap();
+
+        let r = handle(
+            &st,
+            &c,
+            &Method::Get,
+            "/api/vault/proposals?vault=relayv",
+            b"",
+        );
+        assert_eq!(r.status, 401, "{}", r.body);
+        assert!(!log.exists(), "the wallet was not touched");
+        let saved = load_proposal(&c.vaults_dir, "relayv", "p1", now_unix()).unwrap();
+        assert_eq!(saved.state, "ready");
+    }
+
+    /// A dry run is forwarded as a dry run: it does not settle an earlier send,
+    /// so a held payment does not answer it with "not settled". (Forcing it to a real send would.)
+    #[cfg(unix)]
+    #[test]
+    fn a_dry_run_through_the_handler_is_not_held_by_an_earlier_send() {
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let mut c = cfg();
+        let (fake, log) = fake_devtool(&c.vaults_dir, None);
+        c.devtool = fake;
+        a_ready_proposal(&c.vaults_dir, "relayv");
+        held_send(&c.vaults_dir, &"11".repeat(32));
+
+        let body = json!({ "vault": "relayv", "relay_base": TEST_RELAY,
+            "room": "0123456789abcdef0123456789abcdef", "dry_run": true })
+        .to_string();
+        let r = handle(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault/proposals/p1/send",
+            body.as_bytes(),
+        );
+        assert_ne!(r.status, 409, "{}", r.body);
+        assert!(!r.body.contains(UNSETTLED_TEXT), "{}", r.body);
+        // The funding gate reads the balance (upgrade, sync, balance) as it always did; only settling
+        // an earlier send lists the wallet's transactions.
+        let ran = std::fs::read_to_string(&log).unwrap_or_default();
+        assert!(!ran.contains("list-tx"), "{ran}");
+    }
+
+    /// The proposal is authorized under the vault the request names; its record is keyed by its own.
+    /// A proposal file that says it belongs to another vault is not that vault's to send.
+    #[test]
+    fn a_proposal_that_belongs_to_another_vault_is_not_sent() {
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let c = cfg();
+        a_ready_proposal(&c.vaults_dir, "relayv");
+        let path = c
+            .vaults_dir
+            .join("relayv")
+            .join("proposals")
+            .join("p1.json");
+        let text = std::fs::read_to_string(&path)
+            .unwrap()
+            .replace("\"vault_id\":\"relayv\"", "\"vault_id\":\"other\"");
+        std::fs::write(&path, text).unwrap();
+        let body = json!({ "vault": "relayv", "relay_base": TEST_RELAY,
+            "room": "0123456789abcdef0123456789abcdef", "dry_run": false })
+        .to_string();
+        let r = handle(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault/proposals/p1/send",
+            body.as_bytes(),
+        );
+        assert_eq!(r.status, 404, "{}", r.body);
+    }
+
+    #[cfg(unix)]
+    fn a_proposal_with_a_bad_destination(dir: &std::path::Path) {
+        let p = HelperProposal {
+            to: "not-an-address".into(),
+            ..load_proposal(dir, "relayv", "p1", now_unix()).unwrap()
+        };
+        orchestrator::helper::save_proposal(dir, &p).unwrap();
+    }
+
+    /// The plan is validated INSIDE the gate, after an earlier send has been settled: a payment
+    /// already made is recorded even when its lines no longer validate, and one that was never made
+    /// is refused as invalid.
+    #[cfg(unix)]
+    #[test]
+    fn a_plan_that_does_not_validate_is_refused_after_settling_not_before() {
+        let txid = "11".repeat(32);
+
+        // No earlier send: the proposal is refused for what it is.
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let mut c = cfg();
+        let (fake, log) = fake_devtool(&c.vaults_dir, None);
+        c.devtool = fake;
+        a_ready_proposal(&c.vaults_dir, "relayv");
+        a_proposal_with_a_bad_destination(&c.vaults_dir);
+        let r = real_send(&st, &c);
+        assert_eq!(r.status, 400, "{}", r.body);
+        assert!(!std::fs::read_to_string(&log)
+            .map(|t| t.contains("pczt"))
+            .unwrap_or(false));
+
+        // An earlier send found mined: recorded, not refused.
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let mut c = cfg();
+        let (fake, _log) = fake_devtool(&c.vaults_dir, Some(&txid));
+        c.devtool = fake;
+        a_ready_proposal(&c.vaults_dir, "relayv");
+        a_proposal_with_a_bad_destination(&c.vaults_dir);
+        held_send(&c.vaults_dir, &txid);
+        let r = real_send(&st, &c);
+        assert_eq!(r.status, 200, "{}", r.body);
+        let saved = load_proposal(&c.vaults_dir, "relayv", "p1", now_unix()).unwrap();
+        assert_eq!(saved.state, "sent");
+    }
+
+    /// One rule, one implementation (CLAUDE.md §11): the hosted coordinator cannot broadcast except
+    /// through `send_proposal`, which records the attempt first. The names are assembled here so
+    /// this file does not contain them and trip itself.
+    #[test]
+    fn the_hosted_coordinator_names_no_way_to_broadcast_but_send_proposal() {
+        let forbidden = [
+            ["net_orchestrate", "_send"].concat(),
+            ["net_prepare", "_send"].concat(),
+            ["broadcast", "_signed"].concat(),
+            ["pczt", "::send"].concat(),
+            // The operator's wrappers, whole or aliased: the name is what matters, not a call.
+            ["orchestrate", "_send"].concat(),
+            [".broad", "cast("].concat(),
+            ["send", "_with"].concat(),
+            ["Send", "Steps"].concat(),
+        ];
+        fn walk(dir: &std::path::Path, forbidden: &[String], seen: &mut usize) {
+            for entry in std::fs::read_dir(dir).unwrap().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    walk(&path, forbidden, seen);
+                    continue;
+                }
+                if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+                    continue;
+                }
+                *seen += 1;
+                let text = std::fs::read_to_string(&path).unwrap();
+                for name in forbidden {
+                    assert!(
+                        !text.contains(name.as_str()),
+                        "{} names {name}: broadcast only through send_proposal",
+                        path.display()
+                    );
+                }
+            }
+        }
+        let mut seen = 0;
+        walk(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+            &forbidden,
+            &mut seen,
+        );
+        assert!(seen > 0);
+    }
 
     #[test]
     fn parse_mem_available_reads_the_meminfo_line() {

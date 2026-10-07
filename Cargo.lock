@@ -3280,6 +3280,7 @@ dependencies = [
  "keyring",
  "konclave-seal",
  "orchard",
+ "pczt",
  "rusqlite",
  "serde",
  "serde_json",

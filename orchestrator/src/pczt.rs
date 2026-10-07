@@ -45,7 +45,11 @@ pub fn prove(devtool: &Path, wallet_dir: &str, pczt: &[u8]) -> Result<Vec<u8>, T
 
 /// `zcash-devtool pczt -w <dir> send -s <server> --connection direct` - broadcasts and
 /// returns the txid.
-pub fn send(
+///
+/// `pub(crate)` on purpose: nothing outside this crate can broadcast except through
+/// [`crate::send_record::send_proposal`] (which records the attempt first) or the operator's command
+/// line wrapper in [`crate::send`].
+pub(crate) fn send(
     devtool: &Path,
     wallet_dir: &str,
     server: &str,
@@ -87,6 +91,27 @@ pub fn parse_txid(output: &str) -> Result<String, ToolError> {
     Err(ToolError::parse("broadcast", "no txid in output"))
 }
 
+/// The expiry height the signed PCZT itself carries (`0` = none). Read from the transaction, never
+/// assumed: a canonical single payment is built with an expiry measured in tens of thousands of
+/// blocks, an ordinary one 40 blocks past its target height, and which one this is is only in the PCZT.
+pub fn expiry_height_of(pczt_bytes: &[u8]) -> Result<u32, ToolError> {
+    let pczt = ::pczt::Pczt::parse(pczt_bytes)
+        .map_err(|e| ToolError::parse("pczt", format!("cannot read the signed PCZT: {e:?}")))?;
+    Ok(*pczt.global().expiry_height())
+}
+
+/// The transaction id as the wallet and explorers print it, from the 32-byte shielded sighash the
+/// quorum signed. For a transaction with no transparent input (every vault transaction) ZIP 244's
+/// signature digest is the txid digest, and the id is that digest's bytes in reverse order. Known
+/// before the broadcast, which is the point.
+pub fn txid_from_sighash(sighash: &[u8; 32]) -> String {
+    let mut s = String::with_capacity(64);
+    for b in sighash.iter().rev() {
+        s.push_str(&format!("{b:02x}"));
+    }
+    s
+}
+
 fn is_txid(s: &str) -> bool {
     s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit())
 }
@@ -94,6 +119,35 @@ fn is_txid(s: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The repo's Ironwood vector. Its expected values do NOT come from the functions under test:
+    // the sighash is `konclave-signer extract`'s, the txid is `zcash-devtool pczt inspect`'s (another
+    // implementation), the expiry was decoded by hand from the PCZT's postcard header.
+    const VECTOR: &[u8] =
+        include_bytes!("../../konclave-signer/tests/vectors/ironwood_single_spend.proven.pczt");
+    const VECTOR_SIGHASH: &str = "332de126200c22131337474ae50367218ec87815c23d297dcdc8278ecb8903b0";
+    const VECTOR_TXID: &str = "b00389cb8e27c8cd7d293dc21578c88e216703e54a47371313220c2026e12d33";
+
+    #[test]
+    fn the_txid_is_the_sighash_reversed_as_the_devtool_prints_it() {
+        let mut sighash = [0u8; 32];
+        for (i, b) in sighash.iter_mut().enumerate() {
+            *b = u8::from_str_radix(&VECTOR_SIGHASH[2 * i..2 * i + 2], 16).unwrap();
+        }
+        assert_eq!(txid_from_sighash(&sighash), VECTOR_TXID);
+    }
+
+    #[test]
+    fn the_expiry_is_read_from_the_pczt_itself() {
+        assert_eq!(expiry_height_of(VECTOR).unwrap(), 4_203_034);
+    }
+
+    #[test]
+    fn a_pczt_that_cannot_be_read_yields_no_expiry_rather_than_zero() {
+        // Zero means "never expires". A parse failure must never be read as that.
+        assert!(expiry_height_of(b"not a pczt").is_err());
+        assert!(expiry_height_of(&[]).is_err());
+    }
 
     // Real successful broadcast output from the vertical slice (Gate 1).
     const SEND_OK: &str = r#"2026-07-01T02:23:00Z  INFO zcash_devtool::remote: Connecting to zec.rocks:443

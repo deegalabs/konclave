@@ -101,7 +101,7 @@ pub fn payment_plan(
 /// Build the `SendConfig` for an Architecture-B send from a registered vault. Only the
 /// build/prove/extract/inject/broadcast fields are populated - the ceremony fields (members,
 /// frostd, certs, threshold) are left empty on purpose: in Architecture B the **browsers** run
-/// the FROST ceremony over the relay, and `send::net_orchestrate_send` never touches those
+/// the FROST ceremony over the relay, and `send::net_prepare_send` never touches those
 /// fields. The helper is blind to shares; it only assembles the PCZT and broadcasts the
 /// signature the devices return. `work_dir` is a scratch directory for the intermediate PCZTs.
 pub fn send_config_for(
@@ -187,6 +187,64 @@ fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
+/// A text for ONE log line about a vault: the vault's id replaced by its 8-character prefix (the
+/// engine's error text names the wallet's path, which holds the whole id) and line breaks flattened,
+/// since some of that text comes from a server that is not ours. Every log line that can carry an
+/// engine's error goes through this.
+pub(crate) fn loggable(vault_id: &str, text: &str) -> String {
+    let short = vault_id.get(..8).unwrap_or(vault_id);
+    let masked = if vault_id.is_empty() {
+        text.to_string()
+    } else {
+        text.replace(vault_id, short)
+    };
+    masked.replace(['\r', '\n'], " ")
+}
+
+/// Migrate a vault's wallet database to the schema THIS engine expects, logging a failure under the
+/// vault's 8-character prefix. A failed migration is logged, not fatal: the read that follows is what
+/// reports a real schema problem. Shared by the balance read and by [`settle_wallet`], so neither can
+/// touch a wallet an older engine wrote without it.
+pub(crate) fn upgrade_logged(devtool: &Path, wallet_dir: &str, vault_id: &str) {
+    if let Err(e) = crate::wallet::upgrade(devtool, wallet_dir) {
+        let short = vault_id.get(..8).unwrap_or(vault_id);
+        eprintln!(
+            "vault {short}: wallet upgrade failed: {}",
+            loggable(vault_id, &e.to_string())
+        );
+    }
+}
+
+/// What a freshly synced wallet says about the chain: its own tip and the txids it has recorded as
+/// mined. Both are read AFTER the same forced sync, so a transaction mined at or below `tip` is in
+/// `mined`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WalletView {
+    pub tip: u64,
+    pub mined: Vec<String>,
+}
+
+/// Bring the vault's wallet current and read what settling a send needs: upgrade, a FORCED sync (the
+/// balance read's throttle would let a stale view decide), then the tip and the mined txids. The tip
+/// is the wallet's own (`balance --json`), not a second lightwalletd call, so the two answers cannot
+/// come from different backends. The one reader of mined txids is [`crate::wallet`]'s, the one
+/// reconcile uses.
+pub fn settle_wallet(
+    devtool: &Path,
+    wallet_dir: &str,
+    lightwalletd: &str,
+    vaults_dir: &Path,
+    vault_id: &str,
+) -> Result<WalletView, ToolError> {
+    upgrade_logged(devtool, wallet_dir, vault_id);
+    let now = now_secs();
+    crate::wallet::sync(devtool, wallet_dir, lightwalletd)?;
+    mark_synced(vaults_dir, vault_id, now);
+    let tip = crate::wallet::balance(devtool, wallet_dir)?.chain_tip_height;
+    let mined = crate::wallet::list_confirmed_txids(devtool, wallet_dir)?;
+    Ok(WalletView { tip, mined })
+}
+
 pub fn vault_balance(
     cfg: &HelperConfig,
     reg: &VaultRegistration,
@@ -194,16 +252,8 @@ pub fn vault_balance(
     // Migrate the wallet database to the schema THIS engine expects before touching it. Once per
     // read, and outside the sync throttle below: `balance` reads the database unconditionally, so a
     // throttled read on a wallet written by an older engine would still fail (in August:
-    // `no such table: orchard_ironwood_migrations`). A failed migration is logged, not fatal: the
-    // read goes ahead, and if the schema really is wrong the read is what fails. The log carries the
-    // vault's 8-character prefix only; the devtool's stderr names the wallet path, which holds the id.
-    if let Err(e) = crate::wallet::upgrade(&cfg.devtool, &reg.wallet_dir) {
-        let short = reg.vault_id.get(..8).unwrap_or(&reg.vault_id);
-        eprintln!(
-            "vault {short}: wallet upgrade failed: {}",
-            e.to_string().replace(&reg.vault_id, short)
-        );
-    }
+    // `no such table: orchard_ironwood_migrations`).
+    upgrade_logged(&cfg.devtool, &reg.wallet_dir, &reg.vault_id);
     // Throttle the sync: only hit lightwalletd if the last sync for this vault is stale. A fresh
     // deposit still lands within SYNC_THROTTLE_SECS, but rapid balance reads no longer each block on
     // a full sync (#194). The balance below reflects whatever the wallet last synced.
@@ -273,7 +323,10 @@ pub fn append_ceremony(vaults_dir: &Path, rec: &CeremonyRecord) -> Result<(), To
         .append(true)
         .open(&path)
         .map_err(ToolError::Io)?;
-    writeln!(f, "{line}").map_err(ToolError::Io)?;
+    // One write for the line and its newline: two writes can leave the line without its break when the
+    // second one fails, and the next record would then be glued to it.
+    f.write_all(format!("{line}\n").as_bytes())
+        .map_err(ToolError::Io)?;
     Ok(())
 }
 
@@ -428,24 +481,63 @@ pub fn proposals_dir(vaults_dir: &Path, vault: &str) -> PathBuf {
     vaults_dir.join(vault).join("proposals")
 }
 
+/// The file stem a proposal id is stored under: the id with everything but letters, digits and `-`
+/// removed. ONE function, used for the proposal's own file and for the send record keyed by it, so
+/// two spellings of an id that load the same proposal can never reach two different records.
+pub(crate) fn proposal_file_stem(id: &str) -> String {
+    id.chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .collect()
+}
+
 fn proposal_path(vaults_dir: &Path, vault: &str, id: &str) -> PathBuf {
     // `id` is helper-generated (hex/dash), never attacker-controlled path input; still, keep only
     // the file name so a crafted id can never traverse out of the proposals dir.
-    let safe: String = id
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
-        .collect();
-    proposals_dir(vaults_dir, vault).join(format!("{safe}.json"))
+    proposals_dir(vaults_dir, vault).join(format!("{}.json", proposal_file_stem(id)))
 }
 
-/// Persist (create or update) a proposal.
+/// Persist (create or update) a proposal. Written to a temporary file in the VAULT's directory (not
+/// in `proposals/`, which [`list_proposals`] reads whole), synced, then renamed over the proposal: a
+/// process that dies mid-write leaves the old file or the new one, never a truncated one that
+/// `load_proposal` would silently drop - and this is the write that records a payment as `sent`.
 pub fn save_proposal(vaults_dir: &Path, p: &HelperProposal) -> Result<(), ToolError> {
+    save_proposal_with(vaults_dir, p, |path, bytes| {
+        use std::io::Write;
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)?;
+        f.write_all(bytes)?;
+        f.sync_all()
+    })
+}
+
+/// [`save_proposal`] with the write of the temporary file as a parameter, so a write that is cut
+/// half way can be tested: it must leave the proposal exactly as it was, and no temporary behind.
+fn save_proposal_with(
+    vaults_dir: &Path,
+    p: &HelperProposal,
+    write_tmp: impl Fn(&Path, &[u8]) -> std::io::Result<()>,
+) -> Result<(), ToolError> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static N: AtomicU64 = AtomicU64::new(0);
+
     let path = proposal_path(vaults_dir, &p.vault_id, &p.id);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(ToolError::Io)?;
     }
     let json = serde_json::to_string(p).map_err(|e| ToolError::parse("proposal", e.to_string()))?;
-    std::fs::write(&path, json).map_err(ToolError::Io)?;
+    let tmp = vaults_dir.join(&p.vault_id).join(format!(
+        ".proposal.{}.{}.{}.tmp",
+        proposal_file_stem(&p.id),
+        std::process::id(),
+        N.fetch_add(1, Ordering::Relaxed)
+    ));
+    let written = write_tmp(&tmp, json.as_bytes()).and_then(|()| std::fs::rename(&tmp, &path));
+    if let Err(e) = written {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(ToolError::Io(e));
+    }
     Ok(())
 }
 
@@ -1869,6 +1961,137 @@ mod tests {
 
         assert_eq!(b.total_zat, 100_000);
         assert_eq!(calls(&log), vec!["upgrade", "sync", "balance"]);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A fake `zcash-devtool` for settling a send: logs `$4`, answers `balance` and `list-tx`, and can
+    /// fail `sync`.
+    #[cfg(unix)]
+    fn fake_settle_devtool(dir: &Path, sync_fails: bool) -> (PathBuf, PathBuf) {
+        use std::os::unix::fs::PermissionsExt;
+        let log = dir.join("calls.log");
+        let fake = dir.join("fake-devtool");
+        let mut script = String::from("#!/bin/sh\n");
+        script.push_str(&format!("echo \"$4\" >> \"{}\"\n", log.display()));
+        script.push_str(&format!("echo \"$*\" >> \"{}.args\"\n", log.display()));
+        if sync_fails {
+            script.push_str(
+                "if [ \"$4\" = sync ]; then echo 'lightwalletd unreachable' >&2; exit 1; fi\n",
+            );
+        }
+        script.push_str(
+            "if [ \"$4\" = balance ]; then echo '{\"chain_tip_height\":3400100,\"orchard_spendable\":0,\"sapling_spendable\":0,\"total\":100000,\"transparent_spendable\":0}'; fi\n",
+        );
+        script.push_str(&format!(
+            "if [ \"$4\" = list-tx ]; then echo '[{{\"txid\":\"{}\",\"mined_height\":3400000}},{{\"txid\":\"{}\",\"mined_height\":null}}]'; fi\n",
+            "aa".repeat(32),
+            "bb".repeat(32)
+        ));
+        std::fs::write(&fake, script).expect("write fake devtool");
+        let mut p = std::fs::metadata(&fake).expect("stat").permissions();
+        p.set_mode(0o755);
+        std::fs::set_permissions(&fake, p).expect("chmod");
+        (fake, log)
+    }
+
+    /// Settling reads AFTER a forced sync, takes the tip from the wallet's own balance, and keeps only
+    /// the transactions the wallet lists as mined. Each of these decides `Mined` or `Dead`.
+    #[cfg(unix)]
+    #[test]
+    fn settling_syncs_first_then_reads_the_tip_and_the_mined_list() {
+        let dir = tmp("settle-wallet");
+        let (fake, log) = fake_settle_devtool(&dir, false);
+        let vaults = dir.join("vaults");
+        // A sync a second ago would let the balance read skip its own. Settling must not.
+        mark_synced(&vaults, "dddd4444", now_secs());
+        let view =
+            settle_wallet(&fake, "/w", "zec.rocks:443", &vaults, "dddd4444").expect("settles");
+
+        assert_eq!(calls(&log), vec!["upgrade", "sync", "balance", "list-tx"]);
+        assert_eq!(view.tip, 3_400_100);
+        assert_eq!(
+            view.mined,
+            vec!["aa".repeat(32)],
+            "the unmined row is not mined"
+        );
+        // The right wallet and the right server reach the engine.
+        let args = std::fs::read_to_string(log.with_extension("log.args")).unwrap();
+        assert!(args.contains("-w /w sync -s zec.rocks:443"), "{args}");
+        assert!(args.contains("-w /w list-tx"), "{args}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The forced sync is written down, so the balance read's throttle knows the wallet is fresh and
+    /// the next poll does not start a second sync.
+    #[cfg(unix)]
+    #[test]
+    fn settling_records_the_sync_it_made() {
+        let dir = tmp("settle-wallet-records");
+        let (fake, _log) = fake_settle_devtool(&dir, false);
+        let vaults = dir.join("vaults");
+        assert!(should_sync(
+            &vaults,
+            "ffff6666",
+            SYNC_THROTTLE_SECS,
+            now_secs()
+        ));
+        settle_wallet(&fake, "/w", "zec.rocks:443", &vaults, "ffff6666").expect("settles");
+        assert!(!should_sync(
+            &vaults,
+            "ffff6666",
+            SYNC_THROTTLE_SECS,
+            now_secs()
+        ));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_sync_that_fails_is_an_error_and_never_a_stale_view() {
+        let dir = tmp("settle-wallet-sync-fails");
+        let (fake, log) = fake_settle_devtool(&dir, true);
+        let r = settle_wallet(
+            &fake,
+            "/w",
+            "zec.rocks:443",
+            &dir.join("vaults"),
+            "eeee5555",
+        );
+        assert!(r.is_err());
+        let ran = calls(&log);
+        assert!(
+            !ran.contains(&"balance".to_string()) && !ran.contains(&"list-tx".to_string()),
+            "{ran:?}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A proposal write that is cut half way leaves the proposal exactly as it was, and no temporary
+    /// file: this is the write that records a payment as `sent`, and a truncated file would be
+    /// dropped by `load_proposal` without a word.
+    #[test]
+    fn a_cut_proposal_write_leaves_the_old_proposal_and_no_temporary() {
+        let dir = std::env::temp_dir().join(format!("konclave-cut-save-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut p = mk_prop("cut00000", "p1");
+        save_proposal(&dir, &p).unwrap();
+
+        p.state = "sent".into();
+        p.txid = Some("ab".repeat(32));
+        let r = save_proposal_with(&dir, &p, |path, bytes| {
+            std::fs::write(path, &bytes[..bytes.len() / 2])?;
+            Err(std::io::Error::other("cut"))
+        });
+        assert!(r.is_err());
+
+        let back = load_proposal(&dir, "cut00000", "p1", 0).expect("the old proposal still reads");
+        assert_eq!((back.state.as_str(), back.txid), ("pending", None));
+        let stray = std::fs::read_dir(dir.join("cut00000"))
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".tmp"))
+            .count();
+        assert_eq!(stray, 0, "the half-written temporary is removed");
         std::fs::remove_dir_all(&dir).ok();
     }
 

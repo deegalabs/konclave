@@ -59,6 +59,10 @@ zcash_keys = { version = "0.16.1", features = ["orchard"] }
 # different crates. Matching it keeps exactly one orchard in the graph, and it is now also the one
 # konclave-signer and konclave-wasm use. If `zcash_keys` moves, this moves with it.
 orchard = { version = "0.15.5", default-features = false }
+# Read the signed PCZT's own expiry height before a broadcast, so an unsettled send is judged against
+# the height the transaction really expires at and never against an assumed block count. Same pin and
+# the same feature set `konclave-wasm` reads it with; parse only, no signer, no transparent.
+pczt = { version = "0.9.3", default-features = false, features = ["orchard"] }
 
 # The `konclave serve` binary (the local bridge). The library stays the tested core.
 [[bin]]

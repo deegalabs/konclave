@@ -11,7 +11,7 @@
 | Layer | Holds | On disk? | Can spend? |
 |---|---|---|---|
 | **Device** (browser) | the member's **FROST share**, sealed in IndexedDB (AES-GCM under a passphrase) | yes, ciphertext only | yes (a threshold of them) |
-| **Helper volume** (`/data/vaults/<id>/`) | **view-only** material: `registration.json` (address + **UFVK** + account + quorum), `wallet/` sync cache, `ceremonies.jsonl`, `proposals/`, `members.json`, `device-keys.json` | yes | **no** (never a share) |
+| **Helper volume** (`/data/vaults/<id>/`) | **view-only** material: `registration.json` (address + **UFVK** + account + quorum), `wallet/` sync cache, `ceremonies.jsonl`, `proposals/`, `send-attempts/` (one record per real send attempt, plus `.expired-` trails: txid, expiry, no secret), `members.json`, `device-keys.json` | yes | **no** (never a share) |
 | **Relay** | room messages it does not parse (public or sealed; a signing request goes unsealed until every seat has registered its device key, #63) | **no** (in-memory, 1h TTL) | no |
 
 Two consequences follow from this table and drive everything below:
@@ -140,6 +140,56 @@ that guessed "recent" would have buried months of history on the older vaults - 
 
 Store the result off the server. With this plus each member's share export, any vault is fully
 recoverable.
+
+### E. A payment is held as "not settled"
+
+The coordinator keeps a record of every real send under `<vault>/send-attempts/<proposal>.json`
+BEFORE the transaction is broadcast. While a proposal has one that is not settled, a new Send for it
+is refused with "an earlier attempt to send this payment is not settled". The record of a send that
+finished stays on disk for good, so a listing of that directory is not the list of held payments: the
+boot log has that (`send records: held, vault <prefix> proposal <id>`, the first 20, with a record
+the coordinator cannot read marked `UNREADABLE record`), and a record is held only while its proposal
+is not `sent`. There is one record per real send attempt, including one whose broadcast errored.
+
+The chain settles it, on its own:
+
+- **Mined:** the proposal becomes `sent` with its txid, the next time someone presses Send for it, or
+  the vault's proposals or ledger are read once the coordinator's wallet has synced past the
+  transaction (a balance read, or a Send, syncs it; a read of the proposals does not). This matters
+  because a held proposal can pass its own 72-hour deadline and read `expired`, and then nobody
+  presses Send. A read looks at the wallet at most every 15 seconds per vault (the time of the last
+  look is the file `<vault>/last_promote`), whatever it finds, and for as long as any payment is held.
+- **Can no longer be mined** (its own `expiry_height` plus 10 blocks has passed, not mined): the
+  record is moved aside as `<proposal>.expired-<unix>.json`, and the next Send for a proposal that is
+  still `ready` goes on. A proposal that has meanwhile expired or been refused does not.
+
+Do not create a replacement payment while one is held: the held transaction may still be mined, and
+both would be paid.
+
+What an operator can check without writing anything (read-only, as the volume rule requires):
+
+1. `cat` the record. It holds the `txid` (and `reported_txid`, if the broadcast tool printed another)
+   and the `expiry_height` the signed transaction carries. `0` means it never expires and is never
+   cleared on its own.
+2. Look the `txid` up in a block explorer. Mined: the payment is made. Not found: it may be in a
+   mempool, or never have reached one.
+3. Compare `expiry_height` with the chain tip. Past it by more than 10 and not mined: the next Send
+   clears the record by itself.
+
+These holds have no way out of their own and need a founder at the desk: a record with `expiry_height`
+`0`; a coordinator whose wallet cannot be synced or read (the refusal is logged under the vault's
+8-character prefix); a record that cannot be read (a half file, a bad txid); and a payment held past
+its own deadline that is never mined. Moving or deleting a record is a decision for the founders, taken
+after steps 1 to 3 show the transaction is not on the chain and cannot be mined; it is not a routine
+procedure, because it is the one step that can allow a second payment.
+
+A volume that cannot hard-link or sync a directory cannot hold records: the boot log says so
+(`send records: ALERT this volume could not be shown able to hold them`) and every real send is refused before any device
+is asked to sign.
+
+Restoring an ops backup (D) taken before an attempt, or rolling the coordinator back to a build
+without records, ignores or loses the record: the protection is gone for any proposal that had one.
+Do not roll back, or restore over a vault, while a payment is held.
 
 ## Opening an export without Konclave
 
