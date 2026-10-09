@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { DENIAL_COPY, OPEN_DENIAL_COPY } from './prf-denial-copy'
-import { stripComments } from './source-scan'
+import { codeOf } from './source-scan'
 
 // A denial the member cannot read is the defect this whole change exists to remove.
 //
@@ -19,11 +17,10 @@ const LOCALES = ['en.ts', 'pt-BR.ts']
 
 describe('every enrolment denial has copy the member can read (#538)', () => {
   for (const locale of LOCALES) {
-    const src = readFileSync(join(new URL('.', import.meta.url).pathname, 'i18n', locale), 'utf8')
     // Only DEFINITIONS. A key that appears solely inside a comment is not copy, and this repo has
     // twice shipped a guard that its own commentary satisfied.
     const defined = new Set(
-      stripComments(locale, src)
+      codeOf(`./i18n/${locale}`)
         .split('\n')
         .flatMap((l) => Array.from(l.matchAll(/'([\w.]+)'\s*:/g), (m) => m[1]!)),
     )

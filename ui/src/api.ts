@@ -503,6 +503,8 @@ export function humanError(t: TFn, error?: string, detail?: string): string {
   if (has('signature') || has('apply_signature') || has('share')) return t('error.share')
   if (has('expiry') || has('expired') || e === 'expired') return t('error.expired')
   if (e === 'write not authorized') return t('error.writeNotAuthorized')
+  if (has('device list cannot be read')) return t('error.devicesUnreadable')
+  if (e === 'coordinator unavailable') return t('error.coordinatorUnavailable')
   // The coordinator's three wordings for one refusal (#568): the write carries a name that is not
   // the seat which signed it.
   if (has('you can only vote for your own seat') || has('you can only propose under your own name') || has('you can only rename your own seat'))
@@ -906,6 +908,22 @@ export async function sendProposal(id: string, dryRun: boolean): Promise<SendRes
   }
 }
 
+/** Why the coordinator did not take a vote, as the code `humanError` words. */
+export function voteFailure(f: { status: number; error?: string } | null): string {
+  // Not every failure is a conflict, and saying so when it is not sends the member looking for a
+  // vote that does not exist. A 401 here means this device could not prove it holds the seat:
+  // it is locked, or it never registered a write key for its seat on this vault (#288).
+  if (f?.status === 401) return 'write not authorized'
+  // A 403 is a refusal WITH a reason: the name is not on the roster, or it is not the seat that
+  // signed (#568). Calling it a conflicting vote sent the member looking for a vote that does
+  // not exist.
+  if (f?.status === 403 && f.error) return f.error
+  // The coordinator could not take any write: its vault's device list cannot be read (503 with a
+  // reason, which humanError words), or it is down. Neither is a conflict with this vote.
+  if (f && f.status >= 500) return f.error || 'coordinator unavailable'
+  return 'vote rejected'
+}
+
 /** Approve or refuse a proposal on behalf of `member`. */
 export async function voteProposal(
   id: string,
@@ -926,16 +944,7 @@ export async function voteProposal(
     const proof = await writeProof(vid, approve ? 'approve' : 'refuse', id)
     const p = await netVote(vid, id, member, approve, proof)
     if (p) return { ok: true, proposal: mapNetProposal(p) }
-    // Not every failure is a conflict, and saying so when it is not sends the member looking for a
-    // vote that does not exist. A 401 here means this device could not prove it holds the seat:
-    // it is locked, or it never registered a write key for its seat on this vault (#288).
-    const f = lastHelperPostFailure()
-    if (f?.status === 401) return { ok: false, error: 'write not authorized' }
-    // A 403 is a refusal WITH a reason: the name is not on the roster, or it is not the seat that
-    // signed (#568). Calling it a conflicting vote sent the member looking for a vote that does
-    // not exist.
-    if (f?.status === 403 && f.error) return { ok: false, error: f.error }
-    return { ok: false, error: 'vote rejected' }
+    return { ok: false, error: voteFailure(lastHelperPostFailure()) }
   }
   try {
     const res = await fetch(`${BASE}/api/proposals/${encodeURIComponent(id)}/${approve ? 'approve' : 'refuse'}`, {

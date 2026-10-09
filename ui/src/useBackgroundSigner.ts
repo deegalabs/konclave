@@ -31,8 +31,12 @@ export interface BackgroundSignerState {
   armedSeats: number[]
   /** True once this device's own arming completed the quorum: it is the one that sends. */
   iSend: boolean
-  /** Announce that this device's owner signed `proposal`. */
-  arm: (proposal: string) => Promise<void>
+  /** Announce that this device's owner signed `proposal` at `at` (the caller's one clock read). */
+  arm: (proposal: string, at: number) => Promise<void>
+  /** Would this device's signature, made now, name it the sender? The session's own rule (#626). */
+  wouldComplete: () => boolean
+  /** Is a sender the room named still within its window? Only then is a full count a send (#626). */
+  sendingNamed: () => boolean
   /** Withdraw every signature for `proposal` after a failed attempt: nothing moved, so the payment
    *  goes back to unsigned on every device instead of looking signed by devices that have gone.
    *  `code` tells the OTHER devices why, so they are not left on "sending" forever. */
@@ -102,6 +106,19 @@ export function useBackgroundSigner(
   }, [])
   const relayRef = useRef<RelaySession | null>(null)
   const sessionRef = useRef<BackgroundSession | null>(null)
+  // The count and "would my signature send?" change with time alone: a signature expires, a held
+  // window passes. Messages are what re-render the panel, and none may come, so re-read both every
+  // 15 s while a session is open (#626 review).
+  const [, setClock] = useState(0)
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const s = sessionRef.current
+      if (!s) return
+      setArmedSeats(s.armedSeats())
+      setClock((n) => n + 1)
+    }, 15_000)
+    return () => window.clearInterval(id)
+  }, [])
   const roomRef = useRef('')
   const gateRef = useRef(gate)
   gateRef.current = gate
@@ -200,7 +217,9 @@ export function useBackgroundSigner(
     seatCount,
     armedSeats,
     iSend,
-    arm: async (proposal: string) => { await sessionRef.current?.arm(proposal) },
+    arm: async (proposal: string, at: number) => { await sessionRef.current?.arm(proposal, at) },
+    wouldComplete: () => sessionRef.current?.wouldComplete() ?? false,
+    sendingNamed: () => sessionRef.current?.sendingNamed() ?? false,
     unarm: async (proposal: string, code?: FailureCode) => {
       setISend(false)
       await sessionRef.current?.unarm(proposal, code)

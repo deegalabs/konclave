@@ -44,6 +44,8 @@ import {
   executeProposal,
   type Proposal,
 } from '../helper'
+import { readReply } from '../send-outcome'
+import { netReplyText } from '../send-preflight'
 import { zatToZec, fmtZecExact, vaultFingerprint } from '../format'
 import { readingRows } from '../device-reading'
 import encodeQR from '@paulmillr/qr'
@@ -756,32 +758,11 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
           // #288, same rule as the app's signing panel: firing a broadcast is a governance write.
           proof: await writeProof(groupVk, 'send', id),
         })
-        if (!r) {
-          setPropMsg(pe('Falha ao executar: não foi possível falar com o coordenador.', 'Execute failed: could not reach the coordinator.'))
-          return
-        }
-        if ('error' in r) {
-          // The helper's real reason (funds not spendable, timed out waiting for a device to sign,
-          // signature rejected, broadcast refused, ...) instead of a generic guess.
-          setPropMsg(pe(`Falha ao executar: ${r.error}`, `Execute failed: ${r.error}`))
-          return
-        }
-        if ('unknown' in r) {
-          // The coordinator went quiet after a request it may have served in full (#280). It
-          // persists the proposal as sent WITH its txid before replying, so this must never be
-          // rendered as a failure and must never invite a retry. Reload and let the list say.
-          setPropMsg(pe(
-            'Sem resposta do cofre. O pagamento PODE ter sido transmitido - confira a proposta na lista antes de tentar de novo.',
-            'No answer from the vault. The payment MAY have been broadcast - check the proposal in the list before retrying.',
-          ))
-          void loadProposals()
-          return
-        }
-        setPropMsg(
-          r.txid
-            ? `${pe('Transmitido. txid:', 'Broadcast. txid:')} ${r.txid}`
-            : pe('Executado.', 'Executed.'),
-        )
+        // What the reply means is one rule (readReply, send-outcome.ts), the same as the signing
+        // panel's, and what /net says for it is netReplyText (send-preflight.ts).
+        const said = netReplyText(readReply(r))
+        setPropMsg(pe(said.pt, said.en))
+        if (said.stop) return
         void loadProposals()
       } finally {
         sendingRef.current = false

@@ -19,12 +19,11 @@ const api = codeOf('./api.ts')
 
 describe('a refused write is not reported as a vote conflict', () => {
   it('the vote path distinguishes 401 from every other failure', () => {
-    // Structural: the block must consult the helper's status before falling back.
+    // The mapping is `voteFailure`, tested on its behaviour in coordinator-replies.test.ts; this
+    // pins that the vote path goes through it.
     const vote = api.slice(api.indexOf('const p = await netVote('))
     const block = vote.slice(0, vote.indexOf('\n  }'))
-    expect(block).toContain('lastHelperPostFailure()')
-    expect(block).toContain('401')
-    expect(block).toContain('write not authorized')
+    expect(block).toContain('voteFailure(lastHelperPostFailure())')
   })
 
   it('both errors have their own message, and they say different things', () => {

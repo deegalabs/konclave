@@ -51,6 +51,21 @@ describe('the provider hands the gate its answer (#610)', () => {
   // The hops this test cannot run: the hook hands the decision to the session (whose own test runs
   // both refusals), and the lab, which has no proposal, answers `unknown`. A wrapper at either one
   // turned the money gate off with every test green (#610 fifth review).
+  it('contributes its share only on its own owner\'s signature, through the tested rule', () => {
+    expect(codeOf('./VaultSigner.tsx')).toMatch(/isArmed: \(\) => ownerArmed\(\{ armedProposal: armedRef\.current, armedAt: armedAtRef\.current, activeId: activeIdRef\.current \}, Date\.now\(\)\),/)
+  })
+
+  it('signs at one instant, and the screen asks the session whether that signature would send', () => {
+    // The owner's window and the room's count start from the same clock read (#626), and "Sign and
+    // send" comes from the session's own rule.
+    expect(codeOf('./VaultSigner.tsx')).toMatch(/const now = Date\.now\(\)[\s\S]*?armedAtRef\.current = now[\s\S]*?await bg\.arm\(active\.id, now\)/)
+    expect(codeOf('./useBackgroundSigner.ts')).toMatch(/wouldComplete: \(\) => sessionRef\.current\?\.wouldComplete\(\) \?\? false,/)
+    expect(codeOf('./useBackgroundSigner.ts')).toMatch(/arm: async \(proposal: string, at: number\) => \{ await sessionRef\.current\?\.arm\(proposal, at\) \}/)
+
+    // And the count follows time, not only messages.
+    expect(codeOf('./useBackgroundSigner.ts')).toMatch(/setInterval\(\(\) => \{\s*const s = sessionRef\.current\s*if \(!s\) return\s*setArmedSeats\(s\.armedSeats\(\)\)\s*setClock\(\(n\) => n \+ 1\)\s*\}, 15_000\)/)
+  })
+
   it('the hook hands the decision to the session as is, and the lab never answers match', () => {
     expect(codeOf('./useBackgroundSigner.ts')).toMatch(/new BackgroundSession\(\{\s*decideApproval,\s/)
     expect(codeOf('./screens/BackgroundSignerLab.tsx')).toMatch(/useBackgroundSigner\(unlocked, gate, \(\) => 'unknown'\)/)
