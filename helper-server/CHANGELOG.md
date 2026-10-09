@@ -150,7 +150,7 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 - **A send waits for the quorum for at most 600 polls of about a second each** (the default is
   unchanged, 300). The build, the proof and each call to the relay are not time-limited, so this is
   not a promise about how long a send holds its vault.
-- **A vault whose read key file cannot be read refuses every read until the operator restores it**
+- **A vault whose read key file cannot be read refuses every private read until the operator restores it**
   (`docs/RECOVERY.md`, procedure H), and the boot log lists such vaults.
 - **A signed write's nonce is limited to 64 bytes.** The app sends 36.
 

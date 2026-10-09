@@ -93,9 +93,9 @@ The repo already has these primitives. Reuse them; do not invent a parallel one.
 | A fail-open per-vault gate | `orchestrator/src/helper.rs::read_authorized` - open until the vault registers a key, then required. This is the migration pattern (#388, #63): never break existing vaults. |
 | Who a signing request is sealed to | `orchestrator::helper::request_recipients(total, registered, signed)`: one typed answer per send (`Result<_, UnsealedRefused>`); `LiveSend` holds the answer, never a bare list. Unsealed only for a send a seat signed (`gate_write_checked` says so, `Gated.signed`). |
 | What goes into a signing room | `orchestrator::pczt::published_copy` (the proven PCZT minus an optional per-spend field no device reads), called only by `net_prepare_send_with`. It fails closed. |
-| Replacing a vault file | `orchestrator::helper::replace_file`: temporary in the vault directory, sync, rename. No `std::fs::write` of vault state. |
+| Replacing a vault file | `orchestrator::helper::replace_file`: temporary in the vault directory, sync, rename. No `std::fs::write` of vault state (the `last_sync` and `last_promote` timestamps are best-effort, and the exception). |
 | Broadcasting a payment | `orchestrator::send_record::send_proposal`, the only door; the record comes before the broadcast. |
-| A vault id in a log | `orchestrator::helper::short_id` / `loggable`, never an inline slice (a source scan in the helper-server tests enforces it). |
+| A vault id in a log | `orchestrator::helper::short_id` / `loggable`, never an inline slice (a source scan in the helper-server tests counts the slice). |
 | A vault's read key | `read_key_state` keeps absent, set and UNREADABLE apart; `read_authorized` refuses on unreadable. |
 | Device key registry | `register_device` (the one validating door) over `upsert_device` (write-once, no validation: only `register_device` calls it), read through `load_device_records` / `write_gate`, which keep absent, gated and UNREADABLE apart. **Extend it**; do not add a second registry file beside it. |
 | Sending an authenticated request | `ui/src/helper.ts::readAuthHeaders` injects into the shared request path. Do it in **one** place, not per call site. |

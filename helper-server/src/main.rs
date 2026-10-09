@@ -181,14 +181,18 @@ fn handle_with_token(
         let Some(reg) = query_param(query, "vault").and_then(|v| state.get(v)) else {
             return resp(404, json!({ "error": "unknown vault" }).to_string());
         };
-        let Some(expected) = orchestrator::helper::load_read_key(&cfg.vaults_dir, &reg.vault_id)
-        else {
+        // Absent and unreadable both refuse here, harder than the reads: only a key that is SET opens
+        // the viewing key, and then only for the holder of it (the same comparison as every read).
+        if !matches!(
+            orchestrator::helper::read_key_state(&cfg.vaults_dir, &reg.vault_id),
+            orchestrator::helper::ReadKey::Set(_)
+        ) {
             return resp(
                 401,
                 json!({ "error": "this vault has no read key; protect it first" }).to_string(),
             );
-        };
-        if read_token.map(str::trim) != Some(expected.trim()) {
+        }
+        if !read_authorized(&cfg.vaults_dir, &reg.vault_id, read_token) {
             return resp(401, json!({ "error": "read key required" }).to_string());
         }
         // The birthday rides with the viewing key (#480), because neither rebuilds a vault alone:
@@ -1232,6 +1236,26 @@ fn registry_unreadable(
     )
 }
 
+/// The 8-character prefixes of the vaults whose `read-key.json` is there and is not a key, for the
+/// boot log: each of them refuses every read until the operator restores the file.
+fn unreadable_read_keys(vaults_dir: &std::path::Path) -> Vec<String> {
+    std::fs::read_dir(vaults_dir)
+        .map(|dirs| {
+            dirs.flatten()
+                .filter(|e| e.path().is_dir())
+                .filter_map(|e| {
+                    let vault = e.file_name().to_string_lossy().into_owned();
+                    matches!(
+                        orchestrator::helper::read_key_state(vaults_dir, &vault),
+                        orchestrator::helper::ReadKey::Unreadable
+                    )
+                    .then(|| orchestrator::helper::short_id(&vault).to_string())
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn not_ready_resp(state: &str) -> Resp {
     resp(
         409,
@@ -1948,21 +1972,7 @@ fn main() {
         eprintln!("device registries: UNREADABLE, vault {vault}");
     }
     // A read key file that is there and cannot be read refuses every read of its vault. Same boot line.
-    let unreadable_read_keys: Vec<String> = std::fs::read_dir(&cfg.vaults_dir)
-        .map(|dirs| {
-            dirs.flatten()
-                .filter(|e| e.path().is_dir())
-                .filter_map(|e| {
-                    let vault = e.file_name().to_string_lossy().into_owned();
-                    matches!(
-                        orchestrator::helper::read_key_state(&cfg.vaults_dir, &vault),
-                        orchestrator::helper::ReadKey::Unreadable
-                    )
-                    .then(|| orchestrator::helper::short_id(&vault).to_string())
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+    let unreadable_read_keys = unreadable_read_keys(&cfg.vaults_dir);
     eprintln!(
         "read keys: {} unreadable (their vaults refuse reads until restored)",
         unreadable_read_keys.len()
@@ -4464,8 +4474,8 @@ mod tests {
         // And it must not have taken effect. A refusal that wrote anyway would be the whole bug
         // with a different status code.
         assert_eq!(
-            orchestrator::helper::load_read_key(&c.vaults_dir, &armed).as_deref(),
-            Some(mine.as_str()),
+            orchestrator::helper::read_key_state(&c.vaults_dir, &armed),
+            orchestrator::helper::ReadKey::Set(mine.clone()),
             "the refusal still overwrote the key"
         );
 
@@ -4483,8 +4493,8 @@ mod tests {
             "the holder of the current key must be able to rotate it"
         );
         assert_eq!(
-            orchestrator::helper::load_read_key(&c.vaults_dir, &armed).as_deref(),
-            Some(theirs.as_str())
+            orchestrator::helper::read_key_state(&c.vaults_dir, &armed),
+            orchestrator::helper::ReadKey::Set(theirs.clone())
         );
     }
 
@@ -6174,44 +6184,72 @@ mod tests {
 
     /// A key file that is there and is not a key refuses, as an unreadable device registry does. Read
     /// as "no key" it would open the vault's reads, its device registration and the replacement of
-    /// the key itself to anyone holding only the id.
+    /// the key itself to anyone holding only the id. Every route that reads the key is asked, with
+    /// the right token, no token and an empty one.
     #[test]
     fn a_read_key_that_cannot_be_read_refuses_instead_of_opening() {
         let v = "6".repeat(64);
         let mine = "ab".repeat(32);
-        for (tag, bytes) in [
-            ("empty", &b""[..]),
-            ("garbage", &b"{ half"[..]),
-            ("null", &b"null"[..]),
-            ("blank", &b"\"\""[..]),
-        ] {
+        type Break = fn(&std::path::Path);
+        let states: [(&str, Break); 6] = [
+            ("empty", |p| std::fs::write(p, b"").unwrap()),
+            ("garbage", |p| std::fs::write(p, b"{ half").unwrap()),
+            ("null", |p| std::fs::write(p, b"null").unwrap()),
+            ("blank", |p| std::fs::write(p, b"\"\"").unwrap()),
+            ("not text", |p| {
+                std::fs::write(p, [0xffu8, 0xfe, 0x00]).unwrap()
+            }),
+            ("a directory", |p| {
+                std::fs::remove_file(p).unwrap();
+                std::fs::create_dir(p).unwrap();
+            }),
+        ];
+        for (tag, brk) in states {
             let st = HelperState::new();
             seed(&st, &v);
             let c = cfg();
             set_read_key(&c.vaults_dir, &v, &mine).unwrap();
-            // Intact: the member's token reads, the id alone does not.
-            let ask = |token: Option<&str>| {
+            let path = c.vaults_dir.join(&v).join("read-key.json");
+            let routes = [
+                "/api/vault/members",
+                "/api/vault/ufvk",
+                "/api/vault/proposals",
+                "/api/vault/ledger",
+                "/api/vault/ceremonies",
+                "/api/vault/transactions",
+            ];
+            let ask = |route: &str, token: Option<&str>| {
                 handle_with_token(
                     &st,
                     &c,
                     &Method::Get,
-                    &format!("/api/vault/members?vault={v}"),
+                    &format!("{route}?vault={v}"),
                     b"",
                     token,
                 )
             };
-            assert_eq!(ask(Some(&mine)).status, 200, "{tag}: intact");
-            assert_eq!(ask(None).status, 401, "{tag}: intact");
-
-            let path = c.vaults_dir.join(&v).join("read-key.json");
-            std::fs::write(&path, bytes).unwrap();
-            assert_eq!(ask(None).status, 401, "{tag}: the id alone");
-            assert_eq!(ask(Some(&mine)).status, 401, "{tag}: not even the old key");
+            // Intact: the id alone is refused on every one of them.
+            for route in routes {
+                assert_eq!(ask(route, None).status, 401, "{tag}: intact, {route}");
+            }
             assert_eq!(
-                ask(Some("")).status,
-                401,
-                "{tag}: an empty token is not the key"
+                ask("/api/vault/members", Some(&mine)).status,
+                200,
+                "{tag}: intact"
             );
+            assert_eq!(
+                ask("/api/vault/ufvk", Some(&mine)).status,
+                200,
+                "{tag}: intact"
+            );
+
+            brk(&path);
+            for route in routes {
+                for token in [None, Some(mine.as_str()), Some("")] {
+                    let r = ask(route, token);
+                    assert_eq!(r.status, 401, "{tag}: {route} with {token:?}: {}", r.body);
+                }
+            }
             let replace = json!({ "group_key": v, "read_key": "cd".repeat(32) }).to_string();
             let r = handle(
                 &st,
@@ -6221,15 +6259,52 @@ mod tests {
                 replace.as_bytes(),
             );
             assert_eq!(r.status, 401, "{tag}: {}", r.body);
-            assert_eq!(std::fs::read(&path).unwrap(), bytes, "{tag}: untouched");
+            let device = json!({ "group_key": v, "device_pub": "ab".repeat(32) }).to_string();
+            let r = handle(
+                &st,
+                &c,
+                &Method::Post,
+                "/api/vault/devicekey",
+                device.as_bytes(),
+            );
+            assert_eq!(r.status, 401, "{tag}: devicekey: {}", r.body);
+            assert!(
+                matches!(
+                    orchestrator::helper::read_key_state(&c.vaults_dir, &v),
+                    orchestrator::helper::ReadKey::Unreadable
+                ),
+                "{tag}: still unreadable, nothing replaced it"
+            );
         }
     }
 
-    /// The 8-character prefix of a vault id is `short_id`'s alone. A second copy of the slice is how
-    /// a log line prints a whole id. The needle is built in two pieces so this test's own text does
-    /// not satisfy it.
+    /// The boot log names the vaults whose key file is there and is not a key, by prefix, and only
+    /// those: a vault with no file, and one with a good key, are not on it.
     #[test]
-    fn a_vault_id_reaches_a_log_only_through_short_id() {
+    fn the_boot_lists_the_vaults_whose_read_key_cannot_be_read() {
+        let c = cfg();
+        for (name, content) in [
+            ("aaaaaaaa1111", Some(&b"{ half"[..])),
+            ("bbbbbbbb2222", Some(&b"\"cd\""[..])),
+            ("cccccccc3333", None),
+        ] {
+            let dir = c.vaults_dir.join(name);
+            std::fs::create_dir_all(&dir).unwrap();
+            if let Some(bytes) = content {
+                std::fs::write(dir.join("read-key.json"), bytes).unwrap();
+            }
+        }
+        assert_eq!(
+            unreadable_read_keys(&c.vaults_dir),
+            vec!["aaaaaaaa".to_string()]
+        );
+    }
+
+    /// The 8-character prefix of a vault id is cut by `short_id` alone: this counts the slice, in the
+    /// three files that log. (It does not see a log line that prints a whole id without slicing.) The
+    /// needle is built in two pieces so this test's own text does not satisfy it.
+    #[test]
+    fn the_vault_prefix_has_one_implementation() {
         let cut = concat!(".get(", "..8)");
         assert_eq!(
             include_str!("main.rs").matches(cut).count(),

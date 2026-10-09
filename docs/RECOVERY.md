@@ -210,7 +210,8 @@ not a guarantee). So:
   container was replaced may have been broadcast with no record, and the new build would then offer a
   second payment for a proposal that still reads `ready`. Check the HTTP log for a send in flight
   before deploying, and before the first Send on the new build confirm, for each `ready` proposal,
-  that no send was ever started on the older one.
+  that no send was ever started on the older one: from the wallet's transaction list and the
+  explorer, not only from the HTTP log, which may have rotated.
 
 ### F. A seat's registration is not its member's device
 
@@ -262,8 +263,9 @@ Two ways out, a decision for the founders:
   again (ADR-0011 D5) until the members unlock and register, and until then anyone with the read key
   can register a seat first. Do this only when no backup exists, and say so to the members.
 
-Setting the file aside has two more effects: a send from a vault whose devices are not all registered
-answers 409 ("this vault still has members whose devices are not registered ...") until they register,
+Setting the file aside has two more effects: an UNSIGNED send from a vault whose devices are not all
+registered answers 409 ("this vault still has members whose devices are not registered ...") until they
+register (a send a seat signs still goes through),
 and the viewing key is served in clear text again (to a holder of the read key) until a device registers.
 
 Take the same care as in F: build and check the replacement on your own machine, put it on the volume
@@ -271,16 +273,23 @@ under a temporary name, `chown` and `chmod`, then `mv`.
 
 ### H. A vault's read key file is unreadable
 
-`read-key.json` that exists and is not a key (zero bytes, half a document, `null`, an empty string, a
-permission the coordinator lacks) makes the coordinator refuse EVERY read of that vault, with or
-without a token, and the boot log says so (`read keys: UNREADABLE, vault <prefix>`). It does not read
-the file as "no key", which would open the vault's reads, its device registration and the replacement
-of the key to anyone holding only the vault id. Members see "read key required" with no other clue.
+`read-key.json` that exists and is not a key (zero bytes, half a document, `null`, an empty or blank
+string, a directory, a permission the coordinator lacks) makes the coordinator refuse every private
+read of that vault (balance, transactions, ceremonies, proposals, ledger, members and the viewing key),
+with or without a token, and the boot log says so (`read keys: UNREADABLE, vault <prefix>`). The vault's
+public metadata (`GET /api/vault`) stays open by design. The file is not read as "no key", which would
+open the reads, the registration of a device and the replacement of the key to anyone holding only
+the vault id. The members see an EMPTY vault, not an error: no balance and no proposals.
 
-- **Restore the file from the ops backup (D)**, which includes it. Check it is a JSON string (`jq .`)
-  on your own machine first, then put it in place as in F.
-- Removing the file instead makes the vault read as unprotected until a key is set again. Do that only
-  with no backup, and tell the members.
+- **Restore the file from the ops backup (D)**, which includes it. Check it first, on your own
+  machine: `jq -e 'type == "string" and (gsub("\\s"; "") | length) > 0' read-key.json` (a plain
+  `jq .` also passes an empty string, `null` and a blank one). Put it in place as in F.
+- **Without a backup there is no clean way out.** Do not just remove the file: the vault then reads as
+  unprotected, and the route that sets a key asks for no credential while none is set, so whoever holds
+  only the vault id can set the key first, read the vault, and lock the members out (nothing in the
+  app sets the key again after the vault is created). A random 64-hex value in the file keeps the
+  vault closed, but no member's device holds it, so the members still cannot read until a way to set
+  their own key exists, and there is no tool for that yet. Decide with the members, and tell them.
 
 ## Opening an export without Konclave
 

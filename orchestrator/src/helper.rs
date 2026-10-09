@@ -1185,8 +1185,10 @@ fn read_key_path(vaults_dir: &Path, vault: &str) -> PathBuf {
     vaults_dir.join(vault).join("read-key.json")
 }
 
-/// The vault's registered read token (hex of `readKey = HKDF(S, "read")`), or `None` when the vault
-/// has not migrated to #388. While `None`, reads are accepted untokened (per-vault compat).
+/// The vault's registered read token (hex of `readKey = HKDF(S, "read")`), or `None`. It flattens
+/// "no key" and "a key file that cannot be read" into one answer, so it exists for this crate's tests
+/// only: the coordinator decides through [`read_key_state`] and [`read_authorized`].
+#[cfg(test)]
 pub fn load_read_key(vaults_dir: &Path, vault: &str) -> Option<String> {
     match read_key_state(vaults_dir, vault) {
         ReadKey::Set(key) => Some(key),
