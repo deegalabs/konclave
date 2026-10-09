@@ -191,6 +191,27 @@ Restoring an ops backup (D) taken before an attempt, or rolling the coordinator 
 without records, ignores or loses the record: the protection is gone for any proposal that had one.
 Do not roll back, or restore over a vault, while a payment is held.
 
+**Before any roll-back.** The build before this one ignores `send-attempts/`: for a proposal that is
+`ready` and has a record, a Send on it builds and broadcasts a SECOND payment with the same approved
+lines (a single-note vault is held by its wallet for the first payment's lifetime, which is a brake and
+not a guarantee). So:
+
+- Do not roll back if the boot log printed `send records: N held payment(s)` with N above zero, or if
+  any `send-attempts/*.json` (not `.expired-`) belongs to a proposal that is not yet `sent`. Check each
+  by hand first: a `ready` one is a money risk (a second payment), an `expired` or `refused` one is a
+  ledger risk (a payment that was mined stays out of the ledger until the coordinator is rolled
+  forward again).
+- If a roll-back cannot be avoided with a payment held, start the older build WITHOUT
+  `KONCLAVE_RELAY_BASES`: it then refuses every send (503) until the founders have resolved each held
+  payment by hand, in the explorer.
+- A roll-back also puts back what the older build did not have: its registration and read rules, and
+  the unsealed signing request for a send nobody signed. Say so to the members.
+- The other direction has the same hole: a send that was in flight on the older build when the
+  container was replaced may have been broadcast with no record, and the new build would then offer a
+  second payment for a proposal that still reads `ready`. Check the HTTP log for a send in flight
+  before deploying, and before the first Send on the new build confirm, for each `ready` proposal,
+  that no send was ever started on the older one.
+
 ### F. A seat's registration is not its member's device
 
 The coordinator keeps, for each seat, the device that holds it: the device's comms key, the seat, and
@@ -215,7 +236,10 @@ unlocked; that is the one thing that no longer happens.)
    and mode the coordinator reads (`chown konclave:konclave`, `chmod 644`), and `mv` it over the old one
    in a single step. A file that does not parse freezes the whole vault (procedure G), so the check is
    not optional.
-5. The member unlocks once more: the same registration now matches and changes nothing.
+5. Read the file again (`cat`) and confirm it is the replacement. Do the `mv` when no member is
+   unlocking: the coordinator replaces this file when a device registers, and a registration that
+   races the `mv` can put the old record back. Tell the members first.
+6. The member unlocks once more: the same registration now matches and changes nothing.
 
 This is a deliberate act of the founders, at the desk, on a volume sessions treat as read-only; it is
 not a routine procedure.
@@ -238,8 +262,25 @@ Two ways out, a decision for the founders:
   again (ADR-0011 D5) until the members unlock and register, and until then anyone with the read key
   can register a seat first. Do this only when no backup exists, and say so to the members.
 
+Setting the file aside has two more effects: a send from a vault whose devices are not all registered
+answers 409 ("this vault still has members whose devices are not registered ...") until they register,
+and the viewing key is served in clear text again (to a holder of the read key) until a device registers.
+
 Take the same care as in F: build and check the replacement on your own machine, put it on the volume
 under a temporary name, `chown` and `chmod`, then `mv`.
+
+### H. A vault's read key file is unreadable
+
+`read-key.json` that exists and is not a key (zero bytes, half a document, `null`, an empty string, a
+permission the coordinator lacks) makes the coordinator refuse EVERY read of that vault, with or
+without a token, and the boot log says so (`read keys: UNREADABLE, vault <prefix>`). It does not read
+the file as "no key", which would open the vault's reads, its device registration and the replacement
+of the key to anyone holding only the vault id. Members see "read key required" with no other clue.
+
+- **Restore the file from the ops backup (D)**, which includes it. Check it is a JSON string (`jq .`)
+  on your own machine first, then put it in place as in F.
+- Removing the file instead makes the vault read as unprotected until a key is set again. Do that only
+  with no backup, and tell the members.
 
 ## Opening an export without Konclave
 

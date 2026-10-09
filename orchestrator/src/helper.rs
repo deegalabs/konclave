@@ -187,12 +187,18 @@ fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
+/// The 8-character prefix of a vault id: the only form of an id that may reach a log. ONE function,
+/// so the rule has no second copy (a source scan in the tests keeps it that way).
+pub fn short_id(vault_id: &str) -> &str {
+    vault_id.get(..8).unwrap_or(vault_id)
+}
+
 /// A text for ONE log line about a vault: the vault's id replaced by its 8-character prefix (the
 /// engine's error text names the wallet's path, which holds the whole id) and line breaks flattened,
 /// since some of that text comes from a server that is not ours. Every log line that can carry an
 /// engine's error goes through this.
-pub(crate) fn loggable(vault_id: &str, text: &str) -> String {
-    let short = vault_id.get(..8).unwrap_or(vault_id);
+pub fn loggable(vault_id: &str, text: &str) -> String {
+    let short = short_id(vault_id);
     let masked = if vault_id.is_empty() {
         text.to_string()
     } else {
@@ -207,9 +213,9 @@ pub(crate) fn loggable(vault_id: &str, text: &str) -> String {
 /// touch a wallet an older engine wrote without it.
 pub(crate) fn upgrade_logged(devtool: &Path, wallet_dir: &str, vault_id: &str) {
     if let Err(e) = crate::wallet::upgrade(devtool, wallet_dir) {
-        let short = vault_id.get(..8).unwrap_or(vault_id);
         eprintln!(
-            "vault {short}: wallet upgrade failed: {}",
+            "vault {}: wallet upgrade failed: {}",
+            short_id(vault_id),
             loggable(vault_id, &e.to_string())
         );
     }
@@ -771,8 +777,9 @@ pub fn load_device_records(
         .map_err(|_| RegistryUnreadable("not a list of device records".into()))
 }
 
-/// The vault's registered device comms pubkeys (hex), the seal-set for a SignRequest (#63). Empty
-/// when none registered yet - in which case the request is posted UNSEALED (compat during rollout).
+/// The vault's registered device comms pubkeys (hex), the seal-set for a SignRequest (#63), or why
+/// the registry cannot be read. Empty when none registered yet: [`request_recipients`] then decides
+/// whether a send may be published unsealed at all.
 pub fn load_device_keys(vaults_dir: &Path, vault: &str) -> Result<Vec<String>, RegistryUnreadable> {
     Ok(load_device_records(vaults_dir, vault)?
         .into_iter()
@@ -817,9 +824,10 @@ pub fn write_gate(vaults_dir: &Path, vault: &str) -> WriteGate {
     }
 }
 
-/// The write keys registered on this vault. A convenience for tests and tooling that flattens "open"
-/// into an empty list; the coordinator decides through [`write_gate`], which keeps open, gated and
-/// unreadable apart.
+/// The write keys registered on this vault. A convenience for tests that flattens "open" into an
+/// empty list; the coordinator decides through [`write_gate`], which keeps open, gated and unreadable
+/// apart, so this exists only for tests.
+#[cfg(test)]
 pub fn load_write_keys(
     vaults_dir: &Path,
     vault: &str,
@@ -868,14 +876,13 @@ fn is_lower_hex_32(h: &str) -> Option<[u8; 32]> {
 }
 
 /// A comms key the coordinator can actually seal to: 64 lower-case hex (one spelling per key) and
-/// accepted by the SAME function that will later seal to it, `envelope::seal_to_devices` - so a small-order key, which would make every sealed send and
-/// `/ufvk` fail until the registry is edited by hand, is refused here by the rule that would refuse
-/// it there, with no second table of bad points.
+/// accepted by the SAME function that will later seal to it, `envelope::seal_to_devices`. A small-order
+/// key, which would make every sealed send and `/ufvk` fail until the registry is edited by hand, is
+/// refused here by the rule that would refuse it there, with no second table of bad points.
 fn check_comms_key(comms: &str) -> Result<(), String> {
-    let Some(bytes) = is_lower_hex_32(comms) else {
+    if is_lower_hex_32(comms).is_none() {
         return Err("device_pub must be 64 lower-case hex characters".into());
-    };
-    let _ = bytes;
+    }
     crate::envelope::seal_to_devices("check", b"", &[comms.to_string()])
         .map(|_| ())
         .map_err(|_| "device_pub is not a valid device key".to_string())
@@ -1181,9 +1188,34 @@ fn read_key_path(vaults_dir: &Path, vault: &str) -> PathBuf {
 /// The vault's registered read token (hex of `readKey = HKDF(S, "read")`), or `None` when the vault
 /// has not migrated to #388. While `None`, reads are accepted untokened (per-vault compat).
 pub fn load_read_key(vaults_dir: &Path, vault: &str) -> Option<String> {
-    std::fs::read_to_string(read_key_path(vaults_dir, vault))
-        .ok()
-        .and_then(|j| serde_json::from_str::<String>(&j).ok())
+    match read_key_state(vaults_dir, vault) {
+        ReadKey::Set(key) => Some(key),
+        ReadKey::Absent | ReadKey::Unreadable => None,
+    }
+}
+
+/// What a vault's `read-key.json` says. The three answers stay apart, like [`WriteGate`]: a file
+/// that is there and cannot be read must not be read as "no key", which is an open vault.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReadKey {
+    /// No file: the vault has not migrated to #388 and reads are open (per-vault compat).
+    Absent,
+    /// A key is registered.
+    Set(String),
+    /// The file is there and is not a key (cannot be opened, is empty, is not a JSON string).
+    Unreadable,
+}
+
+/// The ONE place that decides absent, set or unreadable for a vault's read key.
+pub fn read_key_state(vaults_dir: &Path, vault: &str) -> ReadKey {
+    match std::fs::read_to_string(read_key_path(vaults_dir, vault)) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => ReadKey::Absent,
+        Err(_) => ReadKey::Unreadable,
+        Ok(json) => match serde_json::from_str::<String>(&json) {
+            Ok(key) if !key.trim().is_empty() => ReadKey::Set(key),
+            _ => ReadKey::Unreadable,
+        },
+    }
 }
 
 /// Register (or replace) the vault's read token. Called once at migration; from then on every read
@@ -1212,11 +1244,13 @@ fn set_read_key_with(
 
 /// Is this read authorized? A vault with no registered readKey is OPEN (pre-#388 compat). Once a
 /// readKey is set, the read must present exactly it, compared in constant time so a guess learns
-/// nothing from timing.
+/// nothing from timing. A key file that is there and cannot be read refuses every read.
 pub fn read_authorized(vaults_dir: &Path, vault: &str, presented: Option<&str>) -> bool {
-    match load_read_key(vaults_dir, vault) {
-        None => true, // not migrated: the gate is open
-        Some(expected) => {
+    match read_key_state(vaults_dir, vault) {
+        ReadKey::Absent => true, // not migrated: the gate is open
+        // A key file that cannot be read refuses, as an unreadable device registry does.
+        ReadKey::Unreadable => false,
+        ReadKey::Set(expected) => {
             presented.is_some_and(|p| ct_eq(p.trim().as_bytes(), expected.as_bytes()))
         }
     }
@@ -2370,6 +2404,7 @@ mod tests {
 
     /// A registry write that fails (the directory cannot take a new file) leaves the old registry
     /// whole and no temporary, through the production door.
+    #[cfg(unix)]
     #[test]
     fn a_failed_registration_write_leaves_the_old_registry_whole() {
         use std::os::unix::fs::PermissionsExt;
@@ -2383,7 +2418,7 @@ mod tests {
         std::fs::set_permissions(dir.join(&v), std::fs::Permissions::from_mode(0o500)).unwrap();
         if std::fs::File::create(dir.join(&v).join("probe")).is_ok() {
             std::fs::set_permissions(dir.join(&v), std::fs::Permissions::from_mode(0o700)).unwrap();
-            eprintln!("y2: running as a user that ignores directory modes; skipped");
+            eprintln!("a user that ignores directory modes: skipped");
             std::fs::remove_dir_all(&dir).ok();
             return;
         }

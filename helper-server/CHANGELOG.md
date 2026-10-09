@@ -147,8 +147,12 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   and an incomplete set of device keys answers a send with 409, "this vault still has members whose
   devices are not registered; open it on a current build so a seat can sign the send". Until every
   device is registered, a signing request still reaches the relay unsealed.
-- **A send now waits at most 600 polls (ten minutes) for the quorum**, however many the request
-  asked for. The default is unchanged (300).
+- **A send waits for the quorum for at most 600 polls of about a second each** (the default is
+  unchanged, 300). The build, the proof and each call to the relay are not time-limited, so this is
+  not a promise about how long a send holds its vault.
+- **A vault whose read key file cannot be read refuses every read until the operator restores it**
+  (`docs/RECOVERY.md`, procedure H), and the boot log lists such vaults.
+- **A signed write's nonce is limited to 64 bytes.** The app sends 36.
 
 - **A payment can be held as "not settled", and a hold has no button.** After a send that did not
   finish cleanly the coordinator keeps a record of it on its volume (`send-attempts/`, public data

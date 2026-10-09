@@ -839,18 +839,10 @@ fn refuse_if_unfunded(
     }
 }
 
-/// Execute a READY proposal over Architecture B: build the PCZT for the proposal's payment, run the
-/// browser ceremony over the relay, and (unless `dry_run`) broadcast. On a real broadcast the
-/// proposal is marked `sent` with its txid.
-///
-/// SECURITY (audit): `ready` is advisory (the approval votes are social, unauthenticated). The
-/// money gate is the ceremony itself, which needs the real quorum of browser shares to produce a
-/// valid signature, so a forged "ready" cannot move funds on its own. Non-ready proposals are
-/// refused (409); `dry_run` defaults true so a broadcast is always explicit.
 /// WHAT THE GATE PROVED, besides the name: `signed` is true only when a seat's signature was checked
 /// and accepted. `Ok` also comes back for an open vault, which proves nothing; a caller that needs
 /// to know the difference (the send, to decide whether its request may go out in clear text) asks
-/// here instead of reading the registry a second time.
+/// here instead of working it out from a second look at the registry.
 struct Gated {
     name: Option<String>,
     signed: bool,
@@ -961,7 +953,7 @@ fn gate_write_checked(
                     if !seat_acts_as(&roster, seat, claimed) {
                         eprintln!(
                             "vault {}: seat {seat} tried to {} as {claimed:?}, which is not its own",
-                            vault.get(..8).unwrap_or(vault),
+                            orchestrator::helper::short_id(vault),
                             action.tag()
                         );
                         return Err(resp(
@@ -986,7 +978,7 @@ fn gate_write_checked(
         WriteAuth::Refused(why) => {
             eprintln!(
                 "vault {}: refused a write ({why:?})",
-                vault.get(..8).unwrap_or(vault)
+                orchestrator::helper::short_id(vault)
             );
             Err(resp(
                 401,
@@ -1011,11 +1003,22 @@ fn not_your_seat(action: WriteAction) -> &'static str {
 /// The most a send waits for the quorum, in polls (one a second): twice the default. The request
 /// names its own `max_polls`, and a send holds its vault and a worker for as long as it waits.
 const MAX_POLLS_CEILING: u32 = 600;
+// The number helper-server/CHANGELOG.md states. Checked when the code is built, so a larger one does
+// not compile.
+const _: () = assert!(MAX_POLLS_CEILING <= 600);
 
 fn polls_for(requested: u32) -> u32 {
-    requested.min(MAX_POLLS_CEILING)
+    requested.clamp(1, MAX_POLLS_CEILING)
 }
 
+/// Execute a READY proposal over Architecture B: build the PCZT for the proposal's payment, run the
+/// browser ceremony over the relay, and (unless `dry_run`) broadcast. On a real broadcast the
+/// proposal is marked `sent` with its txid.
+///
+/// SECURITY (audit): `ready` is advisory (the approval votes are social, unauthenticated). The
+/// money gate is the ceremony itself, which needs the real quorum of browser shares to produce a
+/// valid signature, so a forged "ready" cannot move funds on its own. Non-ready proposals are
+/// refused (409); `dry_run` defaults true so a broadcast is always explicit.
 fn handle_proposal_send(state: &HelperState, cfg: &HelperConfig, path: &str, body: &[u8]) -> Resp {
     let id = path
         .trim_start_matches("/api/vault/proposals/")
@@ -1144,7 +1147,7 @@ fn handle_proposal_send(state: &HelperState, cfg: &HelperConfig, path: &str, bod
         if recipients.is_err() {
             eprintln!(
                 "vault {}: a send was refused: nothing seals its request and no seat signed it",
-                reg.vault_id.get(..8).unwrap_or(&reg.vault_id)
+                orchestrator::helper::short_id(&reg.vault_id)
             );
             return Err(resp(
                 409,
@@ -1218,12 +1221,10 @@ fn registry_unreadable(
     why: &orchestrator::helper::RegistryUnreadable,
     what: &str,
 ) -> Resp {
-    let short = vault.get(..8).unwrap_or(vault);
     eprintln!(
-        "vault {short}: {what}: {}",
-        why.to_string()
-            .replace(vault, short)
-            .replace(['\r', '\n'], " ")
+        "vault {}: {what}: {}",
+        orchestrator::helper::short_id(vault),
+        orchestrator::helper::loggable(vault, &why.to_string())
     );
     resp(
         503,
@@ -1934,7 +1935,7 @@ fn main() {
                     let vault = e.file_name().to_string_lossy().into_owned();
                     orchestrator::helper::load_device_records(&cfg.vaults_dir, &vault)
                         .err()
-                        .map(|_| vault.get(..8).unwrap_or(&vault).to_string())
+                        .map(|_| orchestrator::helper::short_id(&vault).to_string())
                 })
                 .collect()
         })
@@ -1945,6 +1946,29 @@ fn main() {
     );
     for vault in unreadable_registries.iter().take(20) {
         eprintln!("device registries: UNREADABLE, vault {vault}");
+    }
+    // A read key file that is there and cannot be read refuses every read of its vault. Same boot line.
+    let unreadable_read_keys: Vec<String> = std::fs::read_dir(&cfg.vaults_dir)
+        .map(|dirs| {
+            dirs.flatten()
+                .filter(|e| e.path().is_dir())
+                .filter_map(|e| {
+                    let vault = e.file_name().to_string_lossy().into_owned();
+                    matches!(
+                        orchestrator::helper::read_key_state(&cfg.vaults_dir, &vault),
+                        orchestrator::helper::ReadKey::Unreadable
+                    )
+                    .then(|| orchestrator::helper::short_id(&vault).to_string())
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    eprintln!(
+        "read keys: {} unreadable (their vaults refuse reads until restored)",
+        unreadable_read_keys.len()
+    );
+    for vault in unreadable_read_keys.iter().take(20) {
+        eprintln!("read keys: UNREADABLE, vault {vault}");
     }
     for h in held.iter().take(20) {
         eprintln!(
@@ -3079,6 +3103,7 @@ mod tests {
     }
 
     /// A registry the coordinator has no permission to read is unreadable, not empty (EACCES).
+    #[cfg(unix)]
     #[test]
     fn a_registry_without_permission_refuses_an_unsigned_vote() {
         use std::os::unix::fs::PermissionsExt;
@@ -3087,7 +3112,7 @@ mod tests {
         let path = c.vaults_dir.join(&v).join("device-keys.json");
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
         if std::fs::read(&path).is_ok() {
-            eprintln!("x6: running as a user that ignores file modes; skipped");
+            eprintln!("a user that ignores file modes: skipped");
             return;
         }
         let r = unsigned_approve(&st, &c, &v);
@@ -3164,7 +3189,7 @@ mod tests {
             (
                 "/api/vault/proposals/p1/send",
                 format!(
-                    r#"{{"vault":"{v}","relay_base":"https://x.example","room":"r1","dry_run":true}}"#
+                    r#"{{"vault":"{v}","relay_base":"{TEST_RELAY}","room":"0123456789abcdef0123456789abcdef","dry_run":true}}"#
                 ),
             ),
             (
@@ -3191,12 +3216,6 @@ mod tests {
             .map(|d| d.count())
             .unwrap_or(0);
         for (path, status, body) in &report {
-            eprintln!("x9 {path} -> {status} {body}");
-        }
-        for (path, status, body) in &report {
-            if path.ends_with("/send") {
-                continue; // no relay is configured in this fixture: its 503 would be the relay's, not the registry's
-            }
             assert_eq!(*status, 503, "{path}: {body}");
             assert!(
                 body.contains("device list cannot be read"),
@@ -6117,6 +6136,11 @@ mod tests {
         assert_eq!(polls_for(u32::MAX), MAX_POLLS_CEILING);
         assert_eq!(polls_for(300), 300, "the default is untouched");
         assert_eq!(polls_for(1), 1);
+        assert_eq!(
+            polls_for(0),
+            1,
+            "zero polls would arm a room nobody collects"
+        );
         // And the handler really goes through it. The needle is built in two pieces, so that this
         // test's own text is not what satisfies it.
         let needle = concat!("max_polls: polls_for", "(req.max_polls)");
@@ -6140,5 +6164,85 @@ mod tests {
 
         let r = send_as(&st, &c, true, None);
         assert!(!r.body.contains(UNSEALED_SEND_TEXT), "{}", r.body);
+    }
+
+    /// A key file that is there and is not a key refuses, as an unreadable device registry does. Read
+    /// as "no key" it would open the vault's reads, its device registration and the replacement of
+    /// the key itself to anyone holding only the id.
+    #[test]
+    fn a_read_key_that_cannot_be_read_refuses_instead_of_opening() {
+        let v = "6".repeat(64);
+        let mine = "ab".repeat(32);
+        for (tag, bytes) in [
+            ("empty", &b""[..]),
+            ("garbage", &b"{ half"[..]),
+            ("null", &b"null"[..]),
+            ("blank", &b"\"\""[..]),
+        ] {
+            let st = HelperState::new();
+            seed(&st, &v);
+            let c = cfg();
+            set_read_key(&c.vaults_dir, &v, &mine).unwrap();
+            // Intact: the member's token reads, the id alone does not.
+            let ask = |token: Option<&str>| {
+                handle_with_token(
+                    &st,
+                    &c,
+                    &Method::Get,
+                    &format!("/api/vault/members?vault={v}"),
+                    b"",
+                    token,
+                )
+            };
+            assert_eq!(ask(Some(&mine)).status, 200, "{tag}: intact");
+            assert_eq!(ask(None).status, 401, "{tag}: intact");
+
+            let path = c.vaults_dir.join(&v).join("read-key.json");
+            std::fs::write(&path, bytes).unwrap();
+            assert_eq!(ask(None).status, 401, "{tag}: the id alone");
+            assert_eq!(ask(Some(&mine)).status, 401, "{tag}: not even the old key");
+            assert_eq!(
+                ask(Some("")).status,
+                401,
+                "{tag}: an empty token is not the key"
+            );
+            let replace = json!({ "group_key": v, "read_key": "cd".repeat(32) }).to_string();
+            let r = handle(
+                &st,
+                &c,
+                &Method::Post,
+                "/api/vault/readkey",
+                replace.as_bytes(),
+            );
+            assert_eq!(r.status, 401, "{tag}: {}", r.body);
+            assert_eq!(std::fs::read(&path).unwrap(), bytes, "{tag}: untouched");
+        }
+    }
+
+    /// The 8-character prefix of a vault id is `short_id`'s alone. A second copy of the slice is how
+    /// a log line prints a whole id. The needle is built in two pieces so this test's own text does
+    /// not satisfy it.
+    #[test]
+    fn a_vault_id_reaches_a_log_only_through_short_id() {
+        let cut = concat!(".get(", "..8)");
+        assert_eq!(
+            include_str!("main.rs").matches(cut).count(),
+            0,
+            "helper-server"
+        );
+        assert_eq!(
+            include_str!("../../orchestrator/src/send_record.rs")
+                .matches(cut)
+                .count(),
+            0,
+            "send_record"
+        );
+        assert_eq!(
+            include_str!("../../orchestrator/src/helper.rs")
+                .matches(cut)
+                .count(),
+            1,
+            "helper.rs: only `short_id` itself"
+        );
     }
 }

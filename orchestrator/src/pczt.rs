@@ -159,6 +159,23 @@ mod tests {
         assert_eq!(txid_from_sighash(&sighash), VECTOR_TXID);
     }
 
+    // The same rule on a V5 Orchard transaction, the other version a vault spends from. Both values are
+    // `zcash-devtool pczt inspect`'s own output on
+    // `konclave-wasm/tests/vectors/orchard_mainnet_two_spend.proven.pczt` (read 2026-10-09), so they do
+    // not come from the function under test.
+    const ORCHARD_SIGHASH: &str =
+        "619ffa04d162b182f274c26d7402014065da13c8a0b62927028a23ddbb598e7f";
+    const ORCHARD_TXID: &str = "7f8e59bbdd238a022729b6a0c813da65400102746dc274f282b162d104fa9f61";
+
+    #[test]
+    fn the_txid_is_the_sighash_reversed_on_a_v5_orchard_transaction_too() {
+        let mut sighash = [0u8; 32];
+        for (i, b) in sighash.iter_mut().enumerate() {
+            *b = u8::from_str_radix(&ORCHARD_SIGHASH[2 * i..2 * i + 2], 16).unwrap();
+        }
+        assert_eq!(txid_from_sighash(&sighash), ORCHARD_TXID);
+    }
+
     #[test]
     fn the_expiry_is_read_from_the_pczt_itself() {
         assert_eq!(expiry_height_of(VECTOR).unwrap(), 4_203_034);

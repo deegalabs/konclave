@@ -29,7 +29,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::helper::{
     append_ceremony, load_ceremonies, load_proposal, loggable, proposal_file_stem, replace_file,
-    save_proposal, sync_dir, unique_tmp, write_synced, CeremonyRecord, HelperProposal, WalletView,
+    save_proposal, short_id, sync_dir, unique_tmp, write_synced, CeremonyRecord, HelperProposal,
+    WalletView,
 };
 use crate::send::{broadcast_signed, net_prepare_send, SendConfig, SignedSend, SpendPlan};
 use crate::tools::ToolError;
@@ -84,10 +85,6 @@ pub fn attempts_dir(vaults_dir: &Path, vault: &str) -> PathBuf {
 /// file, so an id spelled another way in a URL still reaches the same record.
 pub fn attempt_path(vaults_dir: &Path, vault: &str, proposal_id: &str) -> PathBuf {
     attempts_dir(vaults_dir, vault).join(format!("{}.json", proposal_file_stem(proposal_id)))
-}
-
-fn short(vault: &str) -> &str {
-    vault.get(..8).unwrap_or(vault)
 }
 
 /// Write the record durably and atomically, and only if none exists. The content is written to a
@@ -199,7 +196,7 @@ pub fn load_attempt(
 }
 
 /// Move a dead attempt aside (kept as a trail) so the proposal can be sent again.
-pub fn archive_attempt(
+pub(crate) fn archive_attempt(
     vaults_dir: &Path,
     vault: &str,
     proposal_id: &str,
@@ -305,7 +302,7 @@ fn now_unix() -> u64 {
 fn log_line(vault: &str, proposal: &str, what: &str) -> String {
     format!(
         "vault {} proposal {}: {}",
-        short(vault),
+        short_id(vault),
         loggable(vault, proposal),
         loggable(vault, what)
     )
@@ -566,7 +563,7 @@ fn mark_mined(vaults_dir: &Path, mut p: HelperProposal, a: &Attempt, txid: &str)
             &a.vault_id,
             &a.proposal_id,
             &format!(
-                "payment is on the chain, but a record was not written: {}",
+                "a record of this payment was not written: {}",
                 problems.join("; ")
             ),
         );
@@ -738,7 +735,7 @@ pub fn unsettled_attempts(vaults_dir: &Path) -> Vec<HeldPayment> {
                 Held::Unreadable(stem) => (stem, true),
             };
             out.push(HeldPayment {
-                vault: short(&vault).to_string(),
+                vault: short_id(&vault).to_string(),
                 proposal,
                 unreadable,
             });
@@ -1541,7 +1538,7 @@ mod tests {
         let engine = format!("wallet at /data/vaults/{VAULT}/wallet: no such table\nforged: ok\r");
         let line = log_line(VAULT, "p1", &engine);
         assert!(!line.contains(VAULT), "{line}");
-        assert!(line.contains(short(VAULT)), "{line}");
+        assert!(line.contains(short_id(VAULT)), "{line}");
         assert!(!line.contains('\n') && !line.contains('\r'), "{line:?}");
     }
 
@@ -1761,7 +1758,7 @@ mod tests {
         assert_eq!(
             held,
             vec![HeldPayment {
-                vault: short(VAULT).to_string(),
+                vault: short_id(VAULT).to_string(),
                 proposal: "p1".to_string(),
                 unreadable: false
             }]
