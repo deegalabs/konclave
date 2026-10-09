@@ -55,6 +55,10 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   now: they will be written up when they are published, and this entry will be extended then. What a
   member or operator can notice is under Known limits. Takes effect when this build is deployed.
 
+- **How the coordinator saves a vault's own files was hardened.** The details are held back for now:
+  they will be written up when they are published, and this entry will be extended then. Takes effect
+  when this build is deployed.
+
 - **Defects in the coordinator's write checks were fixed.** The details are held back for now: they
   will be written up when they are published, and this entry will be extended then.
   What a member or operator can notice: a request the coordinator now

@@ -623,14 +623,24 @@ fn members_path(vaults_dir: &Path, vault: &str) -> PathBuf {
 
 /// Persist the vault's member names (seat order). Overwrites the whole list.
 pub fn save_members(vaults_dir: &Path, vault: &str, names: &[String]) -> Result<(), ToolError> {
+    save_members_with(vaults_dir, vault, names, write_synced)
+}
+
+fn save_members_with(
+    vaults_dir: &Path,
+    vault: &str,
+    names: &[String],
+    write_tmp: impl Fn(&Path, &[u8]) -> std::io::Result<()>,
+) -> Result<(), ToolError> {
     let path = members_path(vaults_dir, vault);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(ToolError::Io)?;
     }
     let json =
         serde_json::to_string(names).map_err(|e| ToolError::parse("members", e.to_string()))?;
-    std::fs::write(&path, json).map_err(ToolError::Io)?;
-    Ok(())
+    // The temporary lives in the vault's directory and is renamed over the file: a write that is cut
+    // leaves the old file whole.
+    replace_file(&path, &vaults_dir.join(vault), json.as_bytes(), write_tmp).map_err(ToolError::Io)
 }
 
 /// What a roster write did.
@@ -1134,6 +1144,15 @@ fn load_write_nonces(vaults_dir: &Path, vault: &str) -> Vec<String> {
 /// it must never fail the vote itself. Bounded, so a vault cannot be grown without limit by an
 /// attacker who can reach the endpoint: the oldest entries fall off.
 pub fn burn_write_nonce(vaults_dir: &Path, vault: &str, nonce: &str) -> Result<(), ToolError> {
+    burn_write_nonce_with(vaults_dir, vault, nonce, write_synced)
+}
+
+fn burn_write_nonce_with(
+    vaults_dir: &Path,
+    vault: &str,
+    nonce: &str,
+    write_tmp: impl Fn(&Path, &[u8]) -> std::io::Result<()>,
+) -> Result<(), ToolError> {
     const KEEP: usize = 2_000;
     let mut nonces = load_write_nonces(vaults_dir, vault);
     if nonces.iter().any(|n| n == nonce) {
@@ -1150,8 +1169,9 @@ pub fn burn_write_nonce(vaults_dir: &Path, vault: &str, nonce: &str) -> Result<(
     }
     let json = serde_json::to_string(&nonces)
         .map_err(|e| ToolError::parse("write-nonces", e.to_string()))?;
-    std::fs::write(&path, json).map_err(ToolError::Io)?;
-    Ok(())
+    // The temporary lives in the vault's directory and is renamed over the file: a write that is cut
+    // leaves the old file whole.
+    replace_file(&path, &vaults_dir.join(vault), json.as_bytes(), write_tmp).map_err(ToolError::Io)
 }
 
 fn read_key_path(vaults_dir: &Path, vault: &str) -> PathBuf {
@@ -1170,14 +1190,24 @@ pub fn load_read_key(vaults_dir: &Path, vault: &str) -> Option<String> {
 /// must present exactly this value. This is a shared access secret (members + helper), not spendable
 /// material - it gates WHO may ask the helper, and does not change that the helper is view-only.
 pub fn set_read_key(vaults_dir: &Path, vault: &str, read_key: &str) -> Result<(), ToolError> {
+    set_read_key_with(vaults_dir, vault, read_key, write_synced)
+}
+
+fn set_read_key_with(
+    vaults_dir: &Path,
+    vault: &str,
+    read_key: &str,
+    write_tmp: impl Fn(&Path, &[u8]) -> std::io::Result<()>,
+) -> Result<(), ToolError> {
     let path = read_key_path(vaults_dir, vault);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(ToolError::Io)?;
     }
     let json = serde_json::to_string(read_key.trim())
         .map_err(|e| ToolError::parse("read-key", e.to_string()))?;
-    std::fs::write(&path, json).map_err(ToolError::Io)?;
-    Ok(())
+    // The temporary lives in the vault's directory and is renamed over the file: a write that is cut
+    // leaves the old file whole.
+    replace_file(&path, &vaults_dir.join(vault), json.as_bytes(), write_tmp).map_err(ToolError::Io)
 }
 
 /// Is this read authorized? A vault with no registered readKey is OPEN (pre-#388 compat). Once a
@@ -1437,14 +1467,29 @@ pub fn read_wallet_birthday(wallet_dir: &Path) -> Option<u64> {
 }
 
 pub fn save_registration(vaults_dir: &Path, reg: &VaultRegistration) -> Result<(), ToolError> {
+    save_registration_with(vaults_dir, reg, write_synced)
+}
+
+fn save_registration_with(
+    vaults_dir: &Path,
+    reg: &VaultRegistration,
+    write_tmp: impl Fn(&Path, &[u8]) -> std::io::Result<()>,
+) -> Result<(), ToolError> {
     let path = registration_path(vaults_dir, &reg.vault_id);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(ToolError::Io)?;
     }
     let json =
         serde_json::to_string(reg).map_err(|e| ToolError::parse("registration", e.to_string()))?;
-    std::fs::write(&path, json).map_err(ToolError::Io)?;
-    Ok(())
+    // The temporary lives in the vault's directory and is renamed over the file: a write that is cut
+    // leaves the old file whole.
+    replace_file(
+        &path,
+        &vaults_dir.join(&reg.vault_id),
+        json.as_bytes(),
+        write_tmp,
+    )
+    .map_err(ToolError::Io)
 }
 
 /// Load a single persisted registration if present (used to make [`register_vault`] idempotent and
@@ -3472,6 +3517,92 @@ mod tests {
         assert_eq!(send_cfg("main").network_type(), NetworkType::Main);
         // Anything unexpected defaults to mainnet (the safe, production default).
         assert_eq!(send_cfg("regtest").network_type(), NetworkType::Main);
+    }
+
+    // ---- the files beside the registry: a cut write must leave the old file whole ---------------
+
+    /// A write of the temporary file that is cut half way and fails.
+    fn cut_write(tmp: &Path, bytes: &[u8]) -> std::io::Result<()> {
+        std::fs::write(tmp, &bytes[..bytes.len() / 2])?;
+        Err(std::io::Error::other("cut"))
+    }
+
+    fn no_stray_tmp(dir: &Path) -> bool {
+        std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .all(|e| !e.file_name().to_string_lossy().ends_with(".tmp"))
+    }
+
+    fn fresh_vault(tag: &str) -> (PathBuf, String) {
+        let dir = std::env::temp_dir().join(format!("konclave-sib-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let v = "7".repeat(64);
+        std::fs::create_dir_all(dir.join(&v)).unwrap();
+        (dir, v)
+    }
+
+    #[test]
+    fn a_cut_write_of_the_read_key_leaves_the_old_key() {
+        let (dir, v) = fresh_vault("readkey");
+        set_read_key(&dir, &v, &"ab".repeat(32)).unwrap();
+        let r = set_read_key_with(&dir, &v, &"cd".repeat(32), cut_write);
+        assert!(r.is_err());
+        assert_eq!(load_read_key(&dir, &v), Some("ab".repeat(32)));
+        assert!(no_stray_tmp(&dir.join(&v)));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_cut_write_of_the_roster_leaves_the_old_roster() {
+        let (dir, v) = fresh_vault("roster");
+        let old = vec!["alice".to_string(), "bob".to_string()];
+        save_members(&dir, &v, &old).unwrap();
+        let r = save_members_with(
+            &dir,
+            &v,
+            &["carol".to_string(), "dave".to_string()],
+            cut_write,
+        );
+        assert!(r.is_err());
+        assert_eq!(load_members(&dir, &v), old);
+        assert!(no_stray_tmp(&dir.join(&v)));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_cut_write_of_the_nonce_list_leaves_the_old_list() {
+        let (dir, v) = fresh_vault("nonces");
+        burn_write_nonce(&dir, &v, "n1").unwrap();
+        let r = burn_write_nonce_with(&dir, &v, "n2", cut_write);
+        assert!(r.is_err());
+        assert_eq!(load_write_nonces(&dir, &v), vec!["n1".to_string()]);
+        assert!(no_stray_tmp(&dir.join(&v)));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_cut_write_of_the_registration_leaves_the_old_registration() {
+        let (dir, v) = fresh_vault("registration");
+        let mut reg = VaultRegistration {
+            vault_id: v.clone(),
+            address: "u1old".into(),
+            ufvk: "uview1old".into(),
+            wallet_dir: "/w".into(),
+            account: "acc".into(),
+            threshold: 2,
+            total: 3,
+            change_receiver: "u1change".into(),
+            birthday: Some(3_400_000),
+        };
+        save_registration(&dir, &reg).unwrap();
+        let before = std::fs::read(registration_path(&dir, &v)).unwrap();
+        reg.address = "u1new".into();
+        let r = save_registration_with(&dir, &reg, cut_write);
+        assert!(r.is_err());
+        assert_eq!(std::fs::read(registration_path(&dir, &v)).unwrap(), before);
+        assert!(no_stray_tmp(&dir.join(&v)));
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
 
