@@ -930,7 +930,7 @@ mod tests {
         let devtool = script(
             "devtool",
             format!(
-                "case \"$4\" in create) printf unproven;; prove) cat {};; esac",
+                "case \"$4\" in create) printf unproven;; prove) cat >/dev/null; cat {};; esac",
                 proven.display()
             ),
         );

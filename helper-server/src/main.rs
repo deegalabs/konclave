@@ -6133,7 +6133,12 @@ mod tests {
     /// as it waits.
     #[test]
     fn a_send_cannot_wait_longer_than_the_ceiling() {
-        assert_eq!(polls_for(u32::MAX), MAX_POLLS_CEILING);
+        // The VALUE, not the constant it is compared with: comparing against `MAX_POLLS_CEILING`
+        // stays green with the constant set to `u32::MAX` or to an hour.
+        assert_eq!(polls_for(u32::MAX), 600);
+        assert_eq!(polls_for(4_000_000_000), 600);
+        assert_eq!(polls_for(601), 600);
+        assert_eq!(polls_for(600), 600);
         assert_eq!(polls_for(300), 300, "the default is untouched");
         assert_eq!(polls_for(1), 1);
         assert_eq!(
@@ -6142,8 +6147,9 @@ mod tests {
             "zero polls would arm a room nobody collects"
         );
         // And the handler really goes through it. The needle is built in two pieces, so that this
-        // test's own text is not what satisfies it.
-        let needle = concat!("max_polls: polls_for", "(req.max_polls)");
+        // test's own text is not what satisfies it, and it ends at the comma, so a call that undoes
+        // the clamp after the scanned text no longer matches.
+        let needle = concat!("max_polls: polls_for", "(req.max_polls),");
         assert!(
             include_str!("main.rs").contains(needle),
             "the send must clamp the polls it is asked for"

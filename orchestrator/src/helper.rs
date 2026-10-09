@@ -3577,6 +3577,90 @@ mod tests {
         (dir, v)
     }
 
+    /// The cut-write tests above call the `_with` variants, so they prove `replace_file`, not that
+    /// each public function goes through it. A hard link to the old file keeps the old bytes only if
+    /// the file was replaced and not rewritten in place.
+    #[cfg(unix)]
+    #[test]
+    fn the_public_writers_replace_their_file_instead_of_rewriting_it() {
+        use std::os::unix::fs::MetadataExt;
+        let (dir, v) = fresh_vault("inode");
+        let vault = dir.join(&v);
+        let replaced = |name: &str, path: PathBuf, second: &dyn Fn()| {
+            let link = vault.join(format!("old-{name}.link"));
+            std::fs::hard_link(&path, &link).unwrap();
+            let before = std::fs::read(&path).unwrap();
+            let ino = std::fs::metadata(&path).unwrap().ino();
+            second();
+            assert_ne!(
+                std::fs::read(&path).unwrap(),
+                before,
+                "{name}: the new content is there"
+            );
+            assert_eq!(
+                std::fs::read(&link).unwrap(),
+                before,
+                "{name}: the old file was rewritten in place"
+            );
+            assert_ne!(
+                std::fs::metadata(&path).unwrap().ino(),
+                ino,
+                "{name}: same file"
+            );
+        };
+        set_read_key(&dir, &v, &"ab".repeat(32)).unwrap();
+        replaced("read-key", read_key_path(&dir, &v), &|| {
+            set_read_key(&dir, &v, &"cd".repeat(32)).unwrap()
+        });
+        save_members(&dir, &v, &["alice".into(), "bob".into()]).unwrap();
+        replaced("members", members_path(&dir, &v), &|| {
+            save_members(&dir, &v, &["carol".into(), "dave".into()]).unwrap()
+        });
+        burn_write_nonce(&dir, &v, "n1").unwrap();
+        replaced("nonces", write_nonces_path(&dir, &v), &|| {
+            burn_write_nonce(&dir, &v, "n2").unwrap()
+        });
+        let mut reg = VaultRegistration {
+            vault_id: v.clone(),
+            address: "u1old".into(),
+            ufvk: "uview1old".into(),
+            wallet_dir: "/w".into(),
+            account: "acc".into(),
+            threshold: 2,
+            total: 3,
+            change_receiver: "u1change".into(),
+            birthday: Some(3_400_000),
+        };
+        save_registration(&dir, &reg).unwrap();
+        reg.address = "u1new".into();
+        replaced("registration", registration_path(&dir, &v), &|| {
+            save_registration(&dir, &reg).unwrap()
+        });
+        let mk = |amount: u64| HelperProposal {
+            id: "p1".into(),
+            vault_id: v.clone(),
+            kind: "payment".into(),
+            to: "u1x".into(),
+            amount_zat: amount,
+            memo: None,
+            lines: vec![],
+            proposer: "alice".into(),
+            state: "ready".into(),
+            approvals: vec![],
+            refusals: vec![],
+            threshold: 2,
+            total: 3,
+            created_at_unix: 1_000,
+            expiry_unix: 0,
+            txid: None,
+        };
+        save_proposal(&dir, &mk(1_000)).unwrap();
+        replaced("proposal", proposal_path(&dir, &v, "p1"), &|| {
+            save_proposal(&dir, &mk(2_000)).unwrap()
+        });
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     #[test]
     fn a_cut_write_of_the_read_key_leaves_the_old_key() {
         let (dir, v) = fresh_vault("readkey");
