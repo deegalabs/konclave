@@ -926,6 +926,77 @@ pub fn register_device(
     upsert_device(vaults_dir, vault, comms, write)
 }
 
+/// A send that no seat signed and that would have to be published unsealed. See [`request_recipients`].
+#[derive(Debug, PartialEq, Eq)]
+pub struct UnsealedRefused;
+
+/// Who a signing request is sealed to, and whether it may be published unsealed at all. ONE rule,
+/// asked once per send, and the handler adds nothing to it.
+///
+/// - Every seat has registered a device key: the request is sealed to all of them, and nothing has
+///   to be signed for that.
+/// - Otherwise a seat that has not registered would get no box and be locked out of its own vault, so
+///   an unsealed request is allowed (the rollout never breaks a live vault, #63), but only for a
+///   send a seat SIGNED (`signed`). An empty list in the answer means "unsealed", and is only ever
+///   returned for a signed send.
+pub fn request_recipients(
+    total: u16,
+    registered: &[String],
+    signed: bool,
+) -> Result<Vec<String>, UnsealedRefused> {
+    if total > 0 && registered.len() >= total as usize {
+        return Ok(registered.to_vec());
+    }
+    if signed {
+        Ok(Vec::new())
+    } else {
+        Err(UnsealedRefused)
+    }
+}
+
+#[cfg(test)]
+mod recipients_tests {
+    use super::*;
+
+    fn keys(n: usize) -> Vec<String> {
+        (0..n).map(|i| format!("{i:064x}")).collect()
+    }
+
+    #[test]
+    fn every_seat_registered_seals_to_all_of_them_with_no_signature() {
+        for signed in [false, true] {
+            assert_eq!(request_recipients(3, &keys(3), signed), Ok(keys(3)));
+            // Extra device records (a second device of one member) are sealed to as well.
+            assert_eq!(request_recipients(3, &keys(4), signed), Ok(keys(4)));
+        }
+    }
+
+    #[test]
+    fn clear_text_is_only_for_a_send_a_seat_signed() {
+        for registered in [0, 1, 2] {
+            assert_eq!(
+                request_recipients(3, &keys(registered), true),
+                Ok(Vec::new()),
+                "{registered} of 3 registered, signed: clear text, as the rollout needs"
+            );
+            assert_eq!(
+                request_recipients(3, &keys(registered), false),
+                Err(UnsealedRefused),
+                "{registered} of 3 registered, unsigned: refused"
+            );
+        }
+    }
+
+    /// A legacy vault records no total. It cannot be "fully registered", so the same rule applies:
+    /// clear text only for a signed send.
+    #[test]
+    fn a_vault_with_no_recorded_total_is_never_fully_registered() {
+        assert_eq!(request_recipients(0, &[], false), Err(UnsealedRefused));
+        assert_eq!(request_recipients(0, &keys(2), false), Err(UnsealedRefused));
+        assert_eq!(request_recipients(0, &keys(2), true), Ok(Vec::new()));
+    }
+}
+
 /// Register a device's PERSISTENT comms pubkey so the helper can SEAL the SignRequest to it. Tests
 /// only: production registers through [`register_device`], which validates.
 #[cfg(test)]

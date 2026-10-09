@@ -100,6 +100,28 @@ pub fn expiry_height_of(pczt_bytes: &[u8]) -> Result<u32, ToolError> {
     Ok(*pczt.global().expiry_height())
 }
 
+/// The copy of a proven PCZT that goes into the signing room: the same transaction without the
+/// optional per-spend key field (96 bytes per spend, in both pools) that no device reads. The sighash,
+/// the outputs and the payment a device shows are built from the effecting data and the output
+/// fields. The coordinator keeps its own full copy to apply the signatures to; only what is
+/// PUBLISHED passes through here.
+///
+/// Fails closed: a PCZT that cannot be read is not published as it is.
+pub fn published_copy(pczt_bytes: &[u8]) -> Result<Vec<u8>, ToolError> {
+    let pczt = ::pczt::Pczt::parse(pczt_bytes)
+        .map_err(|e| ToolError::parse("pczt", format!("cannot read the proven PCZT: {e:?}")))?;
+    ::pczt::roles::redactor::Redactor::new(pczt)
+        .redact_orchard_with(|mut bundle| {
+            bundle.redact_actions(|mut action| action.clear_spend_fvk())
+        })
+        .redact_ironwood_with(|mut bundle| {
+            bundle.redact_actions(|mut action| action.clear_spend_fvk())
+        })
+        .finish()
+        .serialize()
+        .map_err(|e| ToolError::parse("pczt", format!("cannot write the redacted PCZT: {e:?}")))
+}
+
 /// The transaction id as the wallet and explorers print it, from the 32-byte shielded sighash the
 /// quorum signed. For a transaction with no transparent input (every vault transaction) ZIP 244's
 /// signature digest is the txid digest, and the id is that digest's bytes in reverse order. Known
@@ -180,5 +202,89 @@ Error: Send failed: (-25) failed to validate tx: transaction did not pass consen
             parse_txid("Sending transaction...\n"),
             Err(ToolError::Parse { .. })
         ));
+    }
+
+    // The published copy: the proven PCZT without each spend's optional 96-byte key field, which the
+    // devices never read (the sighash, the outputs and the payment they show come from the effecting
+    // data and the output fields).
+    const ORCHARD_TWO_SPEND: &[u8] =
+        include_bytes!("../../konclave-wasm/tests/vectors/orchard_mainnet_two_spend.proven.pczt");
+
+    /// How many key fields `out` lacks compared with `original`, checking that THAT is the only
+    /// difference. On the wire the field is `Option<[u8; 96]>`: a `01` tag and the 96 bytes, or a
+    /// lone `00`. So `out` must equal `original` with each `01 <96 bytes>` replaced by `00`, and
+    /// nothing else. Walks both, so the check does not use the redaction it is checking.
+    fn keys_removed(original: &[u8], out: &[u8]) -> usize {
+        let (mut i, mut j, mut removed) = (0, 0, 0);
+        while i < original.len() && j < out.len() {
+            if original[i] == out[j] {
+                i += 1;
+                j += 1;
+            } else {
+                assert!(
+                    original[i] == 1 && out[j] == 0 && i + 97 <= original.len(),
+                    "a difference that is not a removed key, at byte {i}"
+                );
+                i += 97;
+                j += 1;
+                removed += 1;
+            }
+        }
+        assert_eq!(
+            (i, j),
+            (original.len(), out.len()),
+            "lengths do not line up"
+        );
+        removed
+    }
+
+    #[test]
+    fn the_published_copy_drops_the_key_field_in_either_pool() {
+        // The number of spends each vector carries a key for: 4 in the Ironwood vector (a 4-spend
+        // `create-max`), 2 in the Orchard one.
+        for (name, vector, keys) in [("ironwood", VECTOR, 4), ("orchard", ORCHARD_TWO_SPEND, 2)] {
+            let out = published_copy(vector).unwrap();
+            assert_eq!(keys_removed(vector, &out), keys, "{name}");
+            assert_eq!(vector.len() - out.len(), 96 * keys, "{name}");
+        }
+    }
+
+    #[test]
+    fn the_published_copy_is_the_same_transaction() {
+        let out = published_copy(VECTOR).unwrap();
+        assert_eq!(expiry_height_of(&out).unwrap(), 4_203_034);
+        // Redacting twice changes nothing more, and a PCZT with no keys is left alone.
+        assert_eq!(published_copy(&out).unwrap(), out);
+    }
+
+    #[test]
+    fn a_pczt_that_cannot_be_read_is_not_published() {
+        // Fail closed: the caller refuses to publish rather than send what it could not check.
+        assert!(published_copy(b"not a pczt").is_err());
+        assert!(published_copy(&[]).is_err());
+    }
+
+    /// The devices' side of this is tested in `konclave-wasm` against these two files. They are this
+    /// function's output, byte for byte, so that test reads what is really published and not a copy
+    /// built the way the test would like.
+    #[test]
+    fn the_published_copy_is_what_the_devices_are_tested_against() {
+        let published: [(&[u8], &[u8]); 2] = [
+            (
+                VECTOR,
+                include_bytes!(
+                    "../../konclave-wasm/tests/vectors/ironwood_single_spend.published.pczt"
+                ),
+            ),
+            (
+                ORCHARD_TWO_SPEND,
+                include_bytes!(
+                    "../../konclave-wasm/tests/vectors/orchard_mainnet_two_spend.published.pczt"
+                ),
+            ),
+        ];
+        for (vector, fixture) in published {
+            assert_eq!(published_copy(vector).unwrap(), fixture);
+        }
     }
 }

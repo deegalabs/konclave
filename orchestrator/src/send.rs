@@ -620,8 +620,10 @@ pub fn net_prepare_send_with<T: Transport>(
         return Err(ToolError::parse("net-send", "no real spends to sign"));
     }
 
-    // 3) publish the signing request into the vault's relay room.
-    let req = net_send::SignRequest::from_signing_input(&input, &tx2);
+    // 3) publish the signing request into the vault's relay room. What goes in is the published copy
+    // of the PCZT (see `pczt::published_copy`); `tx2` stays whole, to apply the signatures to.
+    let published = pczt::published_copy(&tx2)?;
+    let req = net_send::SignRequest::from_signing_input(&input, &published);
     let posted = net_send::publish_sealed_request(client, &req, device_pubs)
         .map_err(|e| ToolError::parse("relay", e))?;
 
@@ -808,6 +810,9 @@ mod tests {
     // the code under test.
     const VECTOR: &[u8] =
         include_bytes!("../../konclave-signer/tests/vectors/ironwood_single_spend.proven.pczt");
+    // A second PCZT of the same engine, for the bytes `prove` prints in the preparing test below.
+    const PROVEN: &[u8] =
+        include_bytes!("../../konclave-signer/tests/vectors/ironwood_zero_value_spend.proven.pczt");
     fn vector_sighash() -> [u8; 32] {
         let hex = "332de126200c22131337474ae50367218ec87815c23d297dcdc8278ecb8903b0";
         let mut out = [0u8; 32];
@@ -852,6 +857,8 @@ mod tests {
     /// underneath, no sockets.
     struct DevicesOnTheRelay {
         state: std::sync::Arc<crate::relay::RelayState>,
+        /// The `pczt_hex` of every signing request posted into the room, as the room saw it.
+        published: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
     }
     impl DevicesOnTheRelay {
         fn call(&self, method: &str, url: &str, body: &[u8]) -> Result<Vec<u8>, String> {
@@ -869,6 +876,7 @@ mod tests {
             let outer: serde_json::Value = serde_json::from_slice(body).unwrap();
             let data = outer["data"].as_str().unwrap_or_default();
             if let Ok(req) = serde_json::from_str::<net_send::SignRequest>(data) {
+                self.published.lock().unwrap().push(req.pczt_hex.clone());
                 let answer = net_send::SignResponse {
                     kind: net_send::RESPONSE_KIND.to_string(),
                     sigs: req
@@ -891,16 +899,17 @@ mod tests {
         }
     }
 
-    /// The whole of `net_prepare_send_with`, against stand-ins for the engine's tools and a relay
-    /// that answers like the devices: what comes out is described from THE SIGHASH THE SIGNER
-    /// PRINTED and THE PCZT THAT WAS INJECTED (not the proven one), carries the devices' signatures,
-    /// and holds the injected bytes for the broadcast. The tests of `describe` alone cannot see a
-    /// call that passes it the wrong arguments.
+    /// `net_prepare_send_with` against stand-ins for the engine's tools and a relay that answers like
+    /// the devices, with `proven_bytes` as what the stand-in `prove` prints. Returns what came out and
+    /// the `pczt_hex` of every signing request the room was shown.
     #[cfg(unix)]
-    #[test]
-    fn preparing_a_send_ties_the_record_to_what_the_devices_signed() {
+    fn prepare_against_stand_ins(
+        tag: &str,
+        proven_bytes: &[u8],
+    ) -> (Result<SignedSend, ToolError>, Vec<String>) {
         use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir().join(format!("konclave-prepare-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("konclave-prepare-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let vector = dir.join("signed.pczt");
@@ -913,12 +922,17 @@ mod tests {
             std::fs::set_permissions(&path, perm).unwrap();
             path
         };
-        // `pczt -w <dir> create ...` and `pczt -w <dir> prove`: bytes that are NOT a PCZT, so reading
-        // the proven bytes where the signed ones belong cannot pass.
+        // `pczt -w <dir> create ...` and `pczt -w <dir> prove`. The proven bytes are a PCZT (what is
+        // published is redacted, and a PCZT that cannot be read is not published) but NOT the signed
+        // one, so reading the proven bytes where the signed ones belong cannot pass.
+        let proven = dir.join("proven.pczt");
+        std::fs::write(&proven, proven_bytes).unwrap();
         let devtool = script(
             "devtool",
-            "case \"$4\" in create) printf unproven;; prove) printf proven-not-a-pczt;; esac"
-                .into(),
+            format!(
+                "case \"$4\" in create) printf unproven;; prove) cat {};; esac",
+                proven.display()
+            ),
         );
         // `extract <pczt>` prints the vector's sighash; `inject <pczt> <out> --sig ...` writes the
         // signed PCZT, as the real one does only if every signature verifies.
@@ -943,17 +957,45 @@ mod tests {
             value_zat: 1000,
             memo: None,
         };
+        let published = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let relay = RelayClient::new(
             DevicesOnTheRelay {
                 state: std::sync::Arc::new(crate::relay::RelayState::new()),
+                published: published.clone(),
             },
             "",
             "room",
             "helper",
         );
 
-        let signed = net_prepare_send_with(&sc, &plan, &relay, &[], 5, Duration::from_millis(1))
-            .expect("prepares");
+        let result = net_prepare_send_with(&sc, &plan, &relay, &[], 5, Duration::from_millis(1));
+        let seen = published.lock().unwrap().clone();
+        std::fs::remove_dir_all(&dir).ok();
+        (result, seen)
+    }
+
+    /// The whole of `net_prepare_send_with`, against stand-ins for the engine's tools and a relay
+    /// that answers like the devices: what comes out is described from THE SIGHASH THE SIGNER
+    /// PRINTED and THE PCZT THAT WAS INJECTED (not the proven one), carries the devices' signatures,
+    /// and holds the injected bytes for the broadcast. The tests of `describe` alone cannot see a
+    /// call that passes it the wrong arguments.
+    #[cfg(unix)]
+    #[test]
+    fn preparing_a_send_ties_the_record_to_what_the_devices_signed() {
+        let (result, seen) = prepare_against_stand_ins("ties", PROVEN);
+        let signed = result.expect("prepares");
+        // The room saw the published copy, not the PCZT the signatures are applied to and not the
+        // one the engine proved.
+        assert_eq!(seen.len(), 1, "one signing request was published");
+        let in_the_room: Vec<u8> = (0..seen[0].len() / 2)
+            .map(|i| u8::from_str_radix(&seen[0][2 * i..2 * i + 2], 16).unwrap())
+            .collect();
+        assert!(
+            in_the_room.len() < PROVEN.len(),
+            "the room saw the full PCZT"
+        );
+        assert_eq!((PROVEN.len() - in_the_room.len()) % 96, 0);
+        assert_eq!(in_the_room, pczt::published_copy(PROVEN).unwrap());
         assert_eq!(
             signed.txid(),
             "b00389cb8e27c8cd7d293dc21578c88e216703e54a47371313220c2026e12d33",
@@ -977,7 +1019,16 @@ mod tests {
             signed.tx3, VECTOR,
             "what will be broadcast is what was injected"
         );
-        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Fail closed: when the PCZT the engine proved cannot be read, nothing is published and the
+    /// send fails. Publishing "what we could not check" is the fail-open this refuses.
+    #[cfg(unix)]
+    #[test]
+    fn a_proven_pczt_that_cannot_be_redacted_is_not_published() {
+        let (result, seen) = prepare_against_stand_ins("junk", b"proven-not-a-pczt");
+        assert!(result.is_err(), "the send must fail");
+        assert!(seen.is_empty(), "nothing reached the room: {seen:?}");
     }
 
     /// What reaches the broadcast tool is the signed PCZT the record was made from, byte for byte, on

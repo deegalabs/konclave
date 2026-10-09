@@ -755,7 +755,10 @@ pub struct LiveSend<'a> {
     pub plan: Option<&'a SpendPlan>,
     pub relay_base: &'a str,
     pub room: &'a str,
-    pub device_pubs: &'a [String],
+    /// Who the request is sealed to, or why it may not go out at all
+    /// ([`crate::helper::request_recipients`]). Held as that answer, so that an unsealed send nobody
+    /// signed cannot be turned into "an empty list" on the way here.
+    pub recipients: &'a Result<Vec<String>, crate::helper::UnsealedRefused>,
     pub max_polls: u32,
     pub vault_id: &'a str,
     pub vaults_dir: &'a Path,
@@ -766,12 +769,18 @@ impl SendSteps for LiveSend<'_> {
         let plan = self
             .plan
             .ok_or_else(|| ToolError::parse("send", "the proposal has no valid plan"))?;
+        let device_pubs = self.recipients.as_ref().map_err(|_| {
+            ToolError::parse(
+                "send",
+                "this send would be published unsealed and no seat signed it",
+            )
+        })?;
         net_prepare_send(
             self.sc,
             plan,
             self.relay_base,
             self.room,
-            self.device_pubs,
+            device_pubs,
             self.max_polls,
             Duration::from_secs(1),
         )
@@ -1890,5 +1899,35 @@ mod tests {
             settle(&attempt(TXID, 0), &view(u64::MAX, &[])),
             Settlement::StillPossible
         );
+    }
+
+    #[test]
+    fn a_live_send_that_no_seat_signed_and_cannot_seal_prepares_nothing() {
+        let sc: SendConfig = serde_json::from_value(serde_json::json!({
+            "devtool": "/nonexistent/devtool", "wallet_dir": "/w", "lightwalletd": "zec.rocks:443",
+            "account": "acc", "konclave_signer": "/nonexistent/signer", "frostd": "/x",
+            "frost_client": "/x", "members": [], "threshold": 2, "group": "g",
+            "frostd_cert": "c", "frostd_key": "k", "server_url": "s",
+            "work_dir": "/nonexistent/work",
+        }))
+        .unwrap();
+        let plan = SpendPlan::Payment {
+            to: "utest1x".into(),
+            value_zat: 1000,
+            memo: None,
+        };
+        let refused = Err(crate::helper::UnsealedRefused);
+        let live = LiveSend {
+            sc: &sc,
+            plan: Some(&plan),
+            relay_base: "https://relay.test",
+            room: "room",
+            recipients: &refused,
+            max_polls: 1,
+            vault_id: VAULT,
+            vaults_dir: Path::new("/nonexistent/vaults"),
+        };
+        let err = live.prepare().unwrap_err().to_string();
+        assert!(err.contains("unsealed"), "{err}");
     }
 }

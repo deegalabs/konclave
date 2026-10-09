@@ -33,6 +33,7 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use orchestrator::helper::request_recipients;
 use orchestrator::helper::{
     claim_members, is_valid_group_key, ledger_csv, list_proposals, load_ceremonies,
     load_device_keys, load_members, load_proposal, payment_plan, read_authorized, register_vault,
@@ -846,6 +847,35 @@ fn refuse_if_unfunded(
 /// money gate is the ceremony itself, which needs the real quorum of browser shares to produce a
 /// valid signature, so a forged "ready" cannot move funds on its own. Non-ready proposals are
 /// refused (409); `dry_run` defaults true so a broadcast is always explicit.
+/// WHAT THE GATE PROVED, besides the name: `signed` is true only when a seat's signature was checked
+/// and accepted. `Ok` also comes back for an open vault, which proves nothing; a caller that needs
+/// to know the difference (the send, to decide whether its request may go out in clear text) asks
+/// here instead of reading the registry a second time.
+struct Gated {
+    name: Option<String>,
+    signed: bool,
+}
+
+/// [`gate_write_checked`] for the writes that only need the name to record.
+#[allow(clippy::too_many_arguments)]
+fn gate_write(
+    cfg: &HelperConfig,
+    vault: &str,
+    action: WriteAction,
+    target: &str,
+    acts_as: Option<&str>,
+    seat: Option<u16>,
+    ts: Option<i64>,
+    nonce: Option<String>,
+    sig: Option<String>,
+    refusal: &'static str,
+) -> Result<Option<String>, Resp> {
+    gate_write_checked(
+        cfg, vault, action, target, acts_as, seat, ts, nonce, sig, refusal,
+    )
+    .map(|gated| gated.name)
+}
+
 /// The #288 gate, in ONE place (ADR-0011).
 ///
 /// Returns `Some(refusal)` when the write must not proceed, `None` when it may. Five handlers need
@@ -882,7 +912,7 @@ fn refuse_if_unfunded(
 /// `Ok(None)` means there is no proven name: the vault is open (ADR-0011 D5) or the write records
 /// none. The caller then records what it always did.
 #[allow(clippy::too_many_arguments)]
-fn gate_write(
+fn gate_write_checked(
     cfg: &HelperConfig,
     vault: &str,
     action: WriteAction,
@@ -893,11 +923,17 @@ fn gate_write(
     nonce: Option<String>,
     sig: Option<String>,
     refusal: &'static str,
-) -> Result<Option<String>, Resp> {
+) -> Result<Gated, Resp> {
     // One decision, in one place: open, gated, or unreadable. An unreadable registry refuses the write:
     // reading it as "no write keys" would open the gate exactly for the vault whose keys it holds.
     let write_keys = match orchestrator::helper::write_gate(&cfg.vaults_dir, vault) {
-        WriteGate::Open => return Ok(None), // open vault (D5)
+        WriteGate::Open => {
+            // open vault (D5)
+            return Ok(Gated {
+                name: None,
+                signed: false,
+            });
+        }
         WriteGate::Keys(keys) => keys,
         WriteGate::Unreadable(why) => {
             return Err(registry_unreadable(vault, &why, "write refused"));
@@ -924,7 +960,8 @@ fn gate_write(
                     let claimed = claimed.trim();
                     if !seat_acts_as(&roster, seat, claimed) {
                         eprintln!(
-                            "vault {vault}: seat {seat} tried to {} as {claimed:?}, which is not its own",
+                            "vault {}: seat {seat} tried to {} as {claimed:?}, which is not its own",
+                            vault.get(..8).unwrap_or(vault),
                             action.tag()
                         );
                         return Err(resp(
@@ -936,11 +973,21 @@ fn gate_write(
                 }
             };
             let _ = orchestrator::helper::burn_write_nonce(&cfg.vaults_dir, vault, &w.nonce);
-            Ok(recorded)
+            Ok(Gated {
+                name: recorded,
+                signed: true,
+            })
         }
-        WriteAuth::Open => Ok(None), // unreachable: keys were non-empty
+        // unreachable: keys were non-empty
+        WriteAuth::Open => Ok(Gated {
+            name: None,
+            signed: false,
+        }),
         WriteAuth::Refused(why) => {
-            eprintln!("vault {vault}: refused a write ({why:?})");
+            eprintln!(
+                "vault {}: refused a write ({why:?})",
+                vault.get(..8).unwrap_or(vault)
+            );
             Err(resp(
                 401,
                 json!({ "error": "signature required" }).to_string(),
@@ -959,6 +1006,14 @@ fn not_your_seat(action: WriteAction) -> &'static str {
         // without deciding what it says.
         WriteAction::Send => "you can only send from your own seat",
     }
+}
+
+/// The most a send waits for the quorum, in polls (one a second): twice the default. The request
+/// names its own `max_polls`, and a send holds its vault and a worker for as long as it waits.
+const MAX_POLLS_CEILING: u32 = 600;
+
+fn polls_for(requested: u32) -> u32 {
+    requested.min(MAX_POLLS_CEILING)
 }
 
 fn handle_proposal_send(state: &HelperState, cfg: &HelperConfig, path: &str, body: &[u8]) -> Resp {
@@ -1022,7 +1077,7 @@ fn handle_proposal_send(state: &HelperState, cfg: &HelperConfig, path: &str, bod
     // confirm the money gate is built on, and firing it is not a stranger's to do.
     //
     // Bound to the proposal id, so a signature for one send cannot fire another.
-    if let Err(refused) = gate_write(
+    let gated = match gate_write_checked(
         cfg,
         &req.vault,
         WriteAction::Send,
@@ -1034,8 +1089,9 @@ fn handle_proposal_send(state: &HelperState, cfg: &HelperConfig, path: &str, bod
         req.sig.clone(),
         "this vault requires a signed send",
     ) {
-        return refused;
-    }
+        Ok(gated) => gated,
+        Err(refused) => return refused,
+    };
     let now = now_unix();
     let p = match load_proposal(&cfg.vaults_dir, &req.vault, id, now) {
         Some(p) => p,
@@ -1063,18 +1119,16 @@ fn handle_proposal_send(state: &HelperState, cfg: &HelperConfig, path: &str, bod
         Ok(registered) => registered,
         Err(why) => return registry_unreadable(&reg.vault_id, &why, "send refused"),
     };
-    let device_pubs: Vec<String> = if reg.total > 0 && registered.len() >= reg.total as usize {
-        registered
-    } else {
-        Vec::new()
-    };
+    // Who it is sealed to, and whether it may go out in clear text at all, is `request_recipients`'s
+    // to say. A refusal waits for the gate below: an earlier attempt is settled first.
+    let recipients = request_recipients(reg.total, &registered, gated.signed);
     let steps = LiveSend {
         sc: &sc,
         plan: plan.as_ref().ok(),
         relay_base: relay,
         room: &req.room,
-        device_pubs: &device_pubs,
-        max_polls: req.max_polls,
+        recipients: &recipients,
+        max_polls: polls_for(req.max_polls),
         vault_id: &reg.vault_id,
         vaults_dir: &cfg.vaults_dir,
     };
@@ -1086,6 +1140,17 @@ fn handle_proposal_send(state: &HelperState, cfg: &HelperConfig, path: &str, bod
             Ok(plan) => plan,
             Err(refused) => return Err(resp(refused.status, refused.body.clone())),
         };
+        // The request would have to be published unsealed and no seat signed this send.
+        if recipients.is_err() {
+            eprintln!(
+                "vault {}: a send was refused: nothing seals its request and no seat signed it",
+                reg.vault_id.get(..8).unwrap_or(&reg.vault_id)
+            );
+            return Err(resp(
+                409,
+                json!({ "error": UNSEALED_SEND_TEXT }).to_string(),
+            ));
+        }
         // Capacity guard (#135): refuse a memory-heavy prove up front when the instance is low.
         if over_capacity() {
             return Err(resp(
@@ -1135,6 +1200,11 @@ fn settle_mined_sends(cfg: &HelperConfig, reg: &VaultRegistration) {
         orchestrator::wallet::list_confirmed_txids(&cfg.devtool, &reg.wallet_dir)
     });
 }
+
+/// What a member is told when a send that no seat signed would have to be published unsealed. Short,
+/// and clear of the screen's keywords (`send_error_texts_stay_clear_of_the_screens_keywords`).
+const UNSEALED_SEND_TEXT: &str =
+    "this vault still has members whose devices are not registered; open it on a current build so a seat can sign the send";
 
 /// What a member is told when the vault's device registry is there and cannot be read. Kept short and
 /// clear of every keyword the web app turns into another message (`humanError`), like the send texts.
@@ -2059,6 +2129,7 @@ mod tests {
             BROADCAST_TEXT,
             RECORD_TEXT,
             REGISTRY_UNREADABLE_TEXT,
+            UNSEALED_SEND_TEXT,
         ] {
             assert!(
                 text.len() < 140,
@@ -2338,6 +2409,8 @@ mod tests {
         c.devtool = fake;
         a_ready_proposal(&c.vaults_dir, "relayv");
         held_send(&c.vaults_dir, &"11".repeat(32));
+        // Sealable, so the refusal of an unsigned unsealed send is not what this test meets.
+        every_seat_has_a_device(&c.vaults_dir, "relayv");
 
         let body = json!({ "vault": "relayv", "relay_base": TEST_RELAY,
             "room": "0123456789abcdef0123456789abcdef", "dry_run": true })
@@ -5929,5 +6002,143 @@ mod tests {
         let r = send_to(&st, &c, TEST_RELAY, "ROOM2345");
         assert_eq!(r.status, 503, "{}", r.body);
         assert!(r.body.contains("no relay configured"), "{}", r.body);
+    }
+
+    /// Every one of `vault`'s 3 seats has a device key registered, so a send seals its request to
+    /// them and nothing has to be signed for it to be allowed.
+    fn every_seat_has_a_device(dir: &std::path::Path, vault: &str) {
+        for _ in 0..3 {
+            let dk = konclave_seal::DeviceKey::generate();
+            let pubhex: String = dk
+                .public_bytes()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect();
+            orchestrator::helper::upsert_device(dir, vault, &pubhex, None).unwrap();
+        }
+    }
+
+    /// A send body, optionally carrying a signed-write envelope (`fields` is what
+    /// `signed_as_seat_one` returns).
+    #[cfg(unix)]
+    fn send_as(st: &HelperState, c: &HelperConfig, dry_run: bool, fields: Option<&str>) -> Resp {
+        let mut body = json!({ "vault": "relayv", "relay_base": TEST_RELAY,
+            "room": "0123456789abcdef0123456789abcdef", "dry_run": dry_run });
+        if let Some(fields) = fields {
+            let extra: serde_json::Value = serde_json::from_str(&format!("{{{fields}}}")).unwrap();
+            for (k, v) in extra.as_object().unwrap() {
+                body[k] = v.clone();
+            }
+        }
+        handle(
+            st,
+            c,
+            &Method::Post,
+            "/api/vault/proposals/p1/send",
+            body.to_string().as_bytes(),
+        )
+    }
+
+    // A signing request is sealed to the vault's devices once every seat has registered one and is
+    // published unsealed until then. An unsealed request is published only for a send a seat signed.
+
+    #[cfg(unix)]
+    #[test]
+    fn an_unsigned_send_from_an_incompletely_registered_vault_is_refused_before_anything_is_built()
+    {
+        for dry_run in [true, false] {
+            let st = HelperState::new();
+            seed(&st, "relayv"); // open: no write key, no device key
+            let mut c = cfg();
+            let (fake, log) = fake_devtool(&c.vaults_dir, None);
+            c.devtool = fake;
+            a_ready_proposal(&c.vaults_dir, "relayv");
+
+            let r = send_as(&st, &c, dry_run, None);
+            assert_eq!(r.status, 409, "dry_run={dry_run}: {}", r.body);
+            assert!(r.body.contains(UNSEALED_SEND_TEXT), "{}", r.body);
+            let ran = std::fs::read_to_string(&log).unwrap_or_default();
+            assert!(
+                !ran.contains("pczt"),
+                "nothing is built or published (dry_run={dry_run}): {ran}"
+            );
+        }
+    }
+
+    /// The other side of the rule, so it cannot be met by refusing everything: a member who signs
+    /// still sends from a vault whose other seats have not registered a device key yet.
+    #[cfg(unix)]
+    #[test]
+    fn a_signed_send_from_an_incompletely_registered_vault_goes_on() {
+        use konclave_seal::WriteAction;
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let mut c = cfg();
+        let (fake, _log) = fake_devtool(&c.vaults_dir, None);
+        c.devtool = fake;
+        a_ready_proposal(&c.vaults_dir, "relayv");
+        let sk = alice_registers_seat_one(&c.vaults_dir, "relayv"); // 1 of 3 seats
+
+        let fields = signed_as_seat_one(&sk, "relayv", WriteAction::Send, "p1", "r1-signed");
+        let r = send_as(&st, &c, true, Some(&fields));
+        assert!(!r.body.contains(UNSEALED_SEND_TEXT), "{}", r.body);
+        assert_ne!(r.status, 401, "{}", r.body);
+    }
+
+    /// A body that LOOKS signed proves nothing on a vault with no write key: the send is still
+    /// unsigned, and is refused as one.
+    #[cfg(unix)]
+    #[test]
+    fn a_signature_that_proves_nothing_does_not_count_as_signed() {
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let mut c = cfg();
+        let (fake, log) = fake_devtool(&c.vaults_dir, None);
+        c.devtool = fake;
+        a_ready_proposal(&c.vaults_dir, "relayv");
+
+        let r = send_as(
+            &st,
+            &c,
+            true,
+            Some(r#""seat":1,"ts":1,"nonce":"zz","sig":"00""#),
+        );
+        assert_eq!(r.status, 409, "{}", r.body);
+        assert!(r.body.contains(UNSEALED_SEND_TEXT), "{}", r.body);
+        assert!(!std::fs::read_to_string(&log)
+            .unwrap_or_default()
+            .contains("pczt"));
+    }
+
+    /// The request names its own `max_polls`, and a send holds its vault and a worker for as long
+    /// as it waits.
+    #[test]
+    fn a_send_cannot_wait_longer_than_the_ceiling() {
+        assert_eq!(polls_for(u32::MAX), MAX_POLLS_CEILING);
+        assert_eq!(polls_for(300), 300, "the default is untouched");
+        assert_eq!(polls_for(1), 1);
+        // And the handler really goes through it. The needle is built in two pieces, so that this
+        // test's own text is not what satisfies it.
+        let needle = concat!("max_polls: polls_for", "(req.max_polls)");
+        assert!(
+            include_str!("main.rs").contains(needle),
+            "the send must clamp the polls it is asked for"
+        );
+    }
+
+    /// And the sealed case needs no signature, as before: nothing is published unsealed.
+    #[cfg(unix)]
+    #[test]
+    fn an_unsigned_send_on_a_fully_registered_vault_is_not_held_back() {
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let mut c = cfg();
+        let (fake, _log) = fake_devtool(&c.vaults_dir, None);
+        c.devtool = fake;
+        a_ready_proposal(&c.vaults_dir, "relayv");
+        every_seat_has_a_device(&c.vaults_dir, "relayv");
+
+        let r = send_as(&st, &c, true, None);
+        assert!(!r.body.contains(UNSEALED_SEND_TEXT), "{}", r.body);
     }
 }

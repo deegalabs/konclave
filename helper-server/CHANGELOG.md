@@ -51,6 +51,10 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   extended then. What a member or operator can notice is under Known limits. Takes effect when this
   build is deployed.
 
+- **How the coordinator publishes a signing request was hardened.** The details are held back for
+  now: they will be written up when they are published, and this entry will be extended then. What a
+  member or operator can notice is under Known limits. Takes effect when this build is deployed.
+
 - **Defects in the coordinator's write checks were fixed.** The details are held back for now: they
   will be written up when they are published, and this entry will be extended then.
   What a member or operator can notice: a request the coordinator now
@@ -132,6 +136,15 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   does **not** stop a member from registering many keys of their own, which can still push a signing
   request past the relay's size limit or turn sealing on early: that needs a proof of the share, which
   is #577.
+- **A send from a vault whose members' devices are not all registered needs a seat's signature.**
+  A vault where every device record is in place sends as before (what is counted is device
+  records, not seats). A vault where some are missing still sends when a seat signs the send, which
+  every vault with a registered write key already requires. A vault with no registered write key
+  and an incomplete set of device keys answers a send with 409, "this vault still has members whose
+  devices are not registered; open it on a current build so a seat can sign the send". Until every
+  device is registered, a signing request still reaches the relay unsealed.
+- **A send now waits at most 600 polls (ten minutes) for the quorum**, however many the request
+  asked for. The default is unchanged (300).
 
 - **A payment can be held as "not settled", and a hold has no button.** After a send that did not
   finish cleanly the coordinator keeps a record of it on its volume (`send-attempts/`, public data
