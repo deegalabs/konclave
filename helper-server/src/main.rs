@@ -6186,12 +6186,13 @@ mod tests {
     /// as "no key" it would open the vault's reads, its device registration and the replacement of
     /// the key itself to anyone holding only the id. Every route that reads the key is asked, with
     /// the right token, no token and an empty one.
+    #[cfg(unix)]
     #[test]
     fn a_read_key_that_cannot_be_read_refuses_instead_of_opening() {
         let v = "6".repeat(64);
         let mine = "ab".repeat(32);
         type Break = fn(&std::path::Path);
-        let states: [(&str, Break); 6] = [
+        let states: [(&str, Break); 8] = [
             ("empty", |p| std::fs::write(p, b"").unwrap()),
             ("garbage", |p| std::fs::write(p, b"{ half").unwrap()),
             ("null", |p| std::fs::write(p, b"null").unwrap()),
@@ -6202,6 +6203,16 @@ mod tests {
             ("a directory", |p| {
                 std::fs::remove_file(p).unwrap();
                 std::fs::create_dir(p).unwrap();
+            }),
+            // A symlink that points at itself: opening it fails with an error that is not "not found".
+            ("a symlink loop", |p| {
+                std::fs::remove_file(p).unwrap();
+                std::os::unix::fs::symlink(p, p).unwrap();
+            }),
+            // No permission to read it (skipped below for a user that ignores file modes).
+            ("mode 000", |p| {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o000)).unwrap();
             }),
         ];
         for (tag, brk) in states {
@@ -6244,6 +6255,10 @@ mod tests {
             );
 
             brk(&path);
+            if tag == "mode 000" && std::fs::read(&path).is_ok() {
+                eprintln!("a user that ignores file modes: skipped");
+                continue;
+            }
             for route in routes {
                 for token in [None, Some(mine.as_str()), Some("")] {
                     let r = ask(route, token);
@@ -6259,6 +6274,15 @@ mod tests {
                 replace.as_bytes(),
             );
             assert_eq!(r.status, 401, "{tag}: {}", r.body);
+            let roster = json!({ "vault": v, "names": ["alice", "bob"] }).to_string();
+            let r = handle(
+                &st,
+                &c,
+                &Method::Post,
+                "/api/vault/members",
+                roster.as_bytes(),
+            );
+            assert_eq!(r.status, 401, "{tag}: roster: {}", r.body);
             let device = json!({ "group_key": v, "device_pub": "ab".repeat(32) }).to_string();
             let r = handle(
                 &st,

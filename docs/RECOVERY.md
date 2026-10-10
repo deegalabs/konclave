@@ -114,7 +114,9 @@ Used on 2026-08-29 to retire 21 disposable test vaults without destroying them.
 
 ### D. Ops backup of vault identities (the out-of-band half)
 
-Pull a local copy of every vault's view-only metadata. Two files per vault, and both are needed:
+Pull a local copy of every vault's view-only metadata. Two files per vault are the identity, and both
+are needed (the command below also takes `device-keys.json`, `read-key.json`, `members.json` and the
+proposals, which procedures F, G and H restore from):
 
 - **`registration.json`** - the irreplaceable part: the UFVK and the address, minted once with
   randomness and reproducible nowhere.
@@ -232,14 +234,19 @@ unlocked; that is the one thing that no longer happens.)
 4. **Replace the record, do not remove it.** Removing it leaves the seat unregistered until the
    member next unlocks, and in that gap anyone with the read key can register the seat first and
    freeze the wrong key again. Build the replacement ON YOUR OWN MACHINE from a copy of the file (the
-   coordinator's image has no `jq`), with the one record changed, and check it there (`jq . new
-   >/dev/null`). Put it on the volume under a temporary name in the same directory, give it the owner
-   and mode the coordinator reads (`chown konclave:konclave`, `chmod 644`), and `mv` it over the old one
-   in a single step. A file that does not parse freezes the whole vault (procedure G), so the check is
-   not optional.
+   coordinator's image has no `jq`), with the one record changed, and check it there. `jq . new` is NOT a
+   check: it passes an empty file, `[]`, `{}` and `null`, and `[]` or a record with no seat or write key
+   OPENS the vault to unsigned writes. Use `jq -e 'type == "array" and length > 0 and all(.[]; (.comms |
+   type == "string") and (.seat | type == "number") and (.write | type == "string"))' new` (when every
+   record holds a seat) and `diff <(jq -S . old) <(jq -S . new)`, which must show only that record. Put it
+   on the volume under a temporary name in the same directory, give it the owner and mode the
+   coordinator reads (`chown konclave:konclave`, `chmod 644`), and `mv -T` it over the old one in a single
+   step (`-T` refuses a directory). A file that does not parse freezes the whole vault (procedure G),
+   so the check is not optional.
 5. Read the file again (`cat`) and confirm it is the replacement. Do the `mv` when no member is
    unlocking: the coordinator replaces this file when a device registers, and a registration that
-   races the `mv` can put the old record back. Tell the members first.
+   races the `mv` can put the old record back. Tell the members first. Never remove `read-key.json` or
+   `device-keys.json` to replace it (see H): replace it with `mv -T`, so there is no instant without it.
 6. The member unlocks once more: the same registration now matches and changes nothing.
 
 This is a deliberate act of the founders, at the desk, on a volume sessions treat as read-only; it is
@@ -257,8 +264,9 @@ for it, leaves without one: take it again afterwards), and the sealing of a sign
 
 Two ways out, a decision for the founders:
 
-- **Restore the file from the ops backup (D)**, which includes `device-keys.json`. Check it parses
-  first. This keeps every seat's registration.
+- **Restore the file from the ops backup (D)**, which includes `device-keys.json`. Check it first, on
+  your own machine, with the `jq -e` and the `diff` of F step 4 (a bare "it parses" passes `[]`, which
+  opens the vault). This keeps every seat's registration.
 - **Set the file aside.** The vault then has no registry: it is open to unsigned governance writes
   again (ADR-0011 D5) until the members unlock and register, and until then anyone with the read key
   can register a seat first. Do this only when no backup exists, and say so to the members.
@@ -269,7 +277,7 @@ register (a send a seat signs still goes through),
 and the viewing key is served in clear text again (to a holder of the read key) until a device registers.
 
 Take the same care as in F: build and check the replacement on your own machine, put it on the volume
-under a temporary name, `chown` and `chmod`, then `mv`.
+under a temporary name, `chown` and `chmod`, then `mv -T`.
 
 ### H. A vault's read key file is unreadable
 
@@ -282,11 +290,13 @@ open the reads, the registration of a device and the replacement of the key to a
 the vault id. The members see an EMPTY vault, not an error: no balance and no proposals.
 
 - **Restore the file from the ops backup (D)**, which includes it. Check it first, on your own
-  machine: `jq -e 'type == "string" and (gsub("\\s"; "") | length) > 0' read-key.json` (a plain
-  `jq .` also passes an empty string, `null` and a blank one). Put it in place as in F.
+  machine: `test "$(head -c1 read-key.json)" = '"' && jq -e -s 'length == 1 and (.[0] | type == "string"
+  and test("^[^\\s]+$"))' read-key.json`. A plain `jq .` passes an empty string, `null` and a blank
+  one, and a bare `jq -e` passes a file with a byte-order mark, two strings, or `null` followed by a
+  string, which the coordinator refuses. Put it in place with `mv -T`, as in F.
 - **Without a backup there is no clean way out.** Do not just remove the file: the vault then reads as
-  unprotected, and the route that sets a key asks for no credential while none is set, so whoever holds
-  only the vault id can set the key first, read the vault, and lock the members out (nothing in the
+  unprotected, and the route that sets a key asks for no credential while none is set, so whoever knows
+  the vault id can set the key first, read the vault, and lock the members out (nothing in the
   app sets the key again after the vault is created). A random 64-hex value in the file keeps the
   vault closed, but no member's device holds it, so the members still cannot read until a way to set
   their own key exists, and there is no tool for that yet. Decide with the members, and tell them.

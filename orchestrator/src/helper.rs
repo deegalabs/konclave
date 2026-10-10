@@ -3663,6 +3663,25 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    /// The comparison of a presented token with the key is bounded by length: an empty token, a prefix
+    /// of the key and the key with something added must all be refused, and the key itself (with
+    /// whitespace the app may add) accepted.
+    #[test]
+    fn a_read_token_must_be_exactly_the_key() {
+        let (dir, v) = fresh_vault("tokenlen");
+        let key = "ab".repeat(32);
+        set_read_key(&dir, &v, &key).unwrap();
+        assert!(read_authorized(&dir, &v, Some(&key)));
+        assert!(read_authorized(&dir, &v, Some(&format!(" {key}\n"))));
+        assert!(!read_authorized(&dir, &v, None));
+        assert!(!read_authorized(&dir, &v, Some("")));
+        assert!(!read_authorized(&dir, &v, Some(&key[..63])));
+        assert!(!read_authorized(&dir, &v, Some(&key[..1])));
+        assert!(!read_authorized(&dir, &v, Some(&format!("{key}0"))));
+        assert!(!read_authorized(&dir, &v, Some(&"cd".repeat(32))));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     #[test]
     fn a_cut_write_of_the_read_key_leaves_the_old_key() {
         let (dir, v) = fresh_vault("readkey");

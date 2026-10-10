@@ -153,6 +153,9 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 - **A vault whose read key file cannot be read refuses every private read until the operator restores it**
   (`docs/RECOVERY.md`, procedure H), and the boot log lists such vaults.
 - **A signed write's nonce is limited to 64 bytes.** The app sends 36.
+- **Do not remove `read-key.json` to replace it.** Removing it for an instant lets the viewing-key
+  route answer without a token (the route reads the file twice). Replace it with `mv -T`; the same
+  goes for `device-keys.json` (`docs/RECOVERY.md`, F and H).
 
 - **A payment can be held as "not settled", and a hold has no button.** After a send that did not
   finish cleanly the coordinator keeps a record of it on its volume (`send-attempts/`, public data
