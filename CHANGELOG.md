@@ -55,6 +55,13 @@ explicitly accepted.
 
 ## [Unreleased]
 
+## [0.11.0] 2026-10-12
+
+> **Services deployed when this was cut (2026-10-12):** coordinator `21db4dd`, relay `42da05bf003afc41`.
+> The web app is this release's own commit. The two services are deployed by hand and may be
+> older than it - recording what they were ANSWERING is the point, not what they should have been.
+
+
 ### Known limits
 
 - **The command line (`konclave net-send`, `konclave send`) and the local desktop bridge do not use the

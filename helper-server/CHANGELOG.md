@@ -40,6 +40,8 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+## [0.11.0] 2026-10-12
+
 ### Security
 
 - **How the coordinator registers a member's device was hardened.** The details are held back for
