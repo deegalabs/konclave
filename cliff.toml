@@ -1,0 +1,38 @@
+# The commit list of a release's notes (git-cliff), appended by `scripts/release.mjs --notes` under
+# the CHANGELOG's prose. The prose says what a member meets; this list says what changed, grouped by
+# the Conventional type of each squashed commit. Pinned in CI: git-cliff 2.14.2.
+
+[changelog]
+header = ""
+body = """
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim }}
+{% for commit in commits %}
+- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.message | split(pat="\n") | first | trim }} ([`{{ commit.id | truncate(length=7, end="") }}`](https://github.com/deegalabs/konclave/commit/{{ commit.id }}))
+{%- endfor %}
+{% endfor %}
+"""
+footer = ""
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+split_commits = false
+filter_commits = false
+sort_commits = "oldest"
+commit_parsers = [
+  { message = "^Merge ", skip = true },
+  { message = "^security", group = "<!-- 0 -->Security" },
+  { message = "^feat", group = "<!-- 1 -->Added" },
+  { message = "^fix", group = "<!-- 2 -->Fixed" },
+  { message = "^perf", group = "<!-- 3 -->Performance" },
+  { message = "^refactor", group = "<!-- 4 -->Refactored" },
+  { message = "^docs", group = "<!-- 5 -->Documentation" },
+  { message = "^(build|ci|chore|test|style|revert)", group = "<!-- 6 -->Maintenance" },
+  # Older types this repo used: a release commit, the changelog, the proof page.
+  { message = "^release", group = "<!-- 6 -->Maintenance" },
+  { message = "^(changelog|proof)", group = "<!-- 5 -->Documentation" },
+  # Anything else still gets a heading, never a raw type of its own.
+  { message = ".*", group = "<!-- 7 -->Other" },
+]

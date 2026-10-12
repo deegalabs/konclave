@@ -106,6 +106,7 @@ describe('stripComments', () => {
       'dkg-relay.test.ts': 'the WASM binary',
       'public-text-610.test.ts': 'documentation and the in-app copy, read as text',
       'who-sends.test.ts': 'the WASM binary',
+      'release-notes-commits.test.ts': 'cliff.toml',
     }
     const dir = new URL('./', import.meta.url)
     const unlisted: string[] = []

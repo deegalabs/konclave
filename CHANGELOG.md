@@ -16,7 +16,8 @@ single `Unreleased` section cannot say which of them an entry has actually reach
 - [relay-server/CHANGELOG.md](relay-server/CHANGELOG.md) - the blind relay
 
 A desktop release body is ASSEMBLED from this file and `ui/CHANGELOG.md`, because a desktop release
-ships both. `scripts/release.mjs --notes` does that, and cuts both sections when a version is cut.
+ships both, followed by the list of commits since the previous release (git-cliff, `cliff.toml`).
+`scripts/release.mjs --notes` does that, and cuts both sections when a version is cut.
 
 Neither carries a version number; both report a build identity instead, and their files say why.
 Entries from before that date were NOT moved out of this file - rewriting history to tidy it is how
@@ -54,6 +55,13 @@ explicitly accepted.
 ---
 
 ## [Unreleased]
+
+### Changed
+
+- **A desktop release's notes now list its commits.** Under the changelog's own words, the notes on a
+  GitHub release list the commits since the previous release, grouped by type (security, added,
+  fixed, and so on, merges left out), each linked to the commit. The list comes from git-cliff, pinned to 2.14.2 in the
+  release workflow and installed from crates.io with its lockfile.
 
 ## [0.12.0] 2026-10-12
 
