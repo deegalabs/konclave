@@ -829,7 +829,10 @@ pub mod creation {
     }
 
     fn hasher(personal: &[u8; 16]) -> blake2b_simd::State {
-        blake2b_simd::Params::new().hash_length(32).personal(personal).to_state()
+        blake2b_simd::Params::new()
+            .hash_length(32)
+            .personal(personal)
+            .to_state()
     }
 
     fn id(seat: u16) -> Result<Identifier, E> {
@@ -865,7 +868,10 @@ pub mod creation {
     }
 
     fn normalise(code: &str) -> String {
-        code.chars().filter(|c| c.is_ascii_alphanumeric()).map(|c| c.to_ascii_uppercase()).collect()
+        code.chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .map(|c| c.to_ascii_uppercase())
+            .collect()
     }
 
     fn aad(kind: &str, from: u16, to: u16) -> Vec<u8> {
@@ -930,7 +936,12 @@ pub mod creation {
         }
 
         pub fn my_commitment(&self) -> [u8; 32] {
-            commitment(self.my_seat, &self.device.public_bytes(), &self.r1, &self.nonce)
+            commitment(
+                self.my_seat,
+                &self.device.public_bytes(),
+                &self.r1,
+                &self.nonce,
+            )
         }
         /// Revealed only after this device has seen every seat's commitment.
         pub fn my_reveal(&self) -> (Vec<u8>, [u8; 32]) {
@@ -938,7 +949,13 @@ pub mod creation {
         }
 
         /// A seat's announced key and name, and its commitment. Once per seat, before the code.
-        pub fn add_member(&mut self, seat: u16, enc_pub: &[u8], name: &str, commit: &[u8]) -> Result<(), E> {
+        pub fn add_member(
+            &mut self,
+            seat: u16,
+            enc_pub: &[u8],
+            name: &str,
+            commit: &[u8],
+        ) -> Result<(), E> {
             if self.code.is_some() {
                 return Err("the roster is closed".into());
             }
@@ -949,11 +966,23 @@ pub mod creation {
                 return Err("name too long".into());
             }
             let enc_pub: [u8; 32] = enc_pub.try_into().map_err(|_| "key must be 32 bytes")?;
-            let commit: [u8; 32] = commit.try_into().map_err(|_| "commitment must be 32 bytes")?;
-            if seat == self.my_seat && (enc_pub != self.device.public_bytes() || commit != self.my_commitment()) {
+            let commit: [u8; 32] = commit
+                .try_into()
+                .map_err(|_| "commitment must be 32 bytes")?;
+            if seat == self.my_seat
+                && (enc_pub != self.device.public_bytes() || commit != self.my_commitment())
+            {
                 return Err("this seat's announcement is not this device's".into());
             }
-            self.members.insert(seat, Member { enc_pub, name: name.to_string(), commit, reveal: None });
+            self.members.insert(
+                seat,
+                Member {
+                    enc_pub,
+                    name: name.to_string(),
+                    commit,
+                    reveal: None,
+                },
+            );
             Ok(())
         }
 
@@ -976,14 +1005,24 @@ pub mod creation {
                 return Err("reveal does not match its commitment".into());
             }
             round1::Package::deserialize(r1).map_err(e)?;
-            m.reveal = Some((r1.to_vec(), nonce.try_into().map_err(|_| "nonce must be 32 bytes")?));
+            m.reveal = Some((
+                r1.to_vec(),
+                nonce.try_into().map_err(|_| "nonce must be 32 bytes")?,
+            ));
             Ok(())
         }
 
         /// Close the roster and return the code. Binds the room, the quorum, the governance, the
         /// vault's name, the creator's seat and name and, per seat, its key, name, round 1 and
         /// nonce, each length-prefixed, so every device that shows the code agrees on all of them.
-        pub fn freeze(&mut self, room: &[u8], governance: &str, vault_name: &str, creator_name: &str, creator_seat: u16) -> Result<String, E> {
+        pub fn freeze(
+            &mut self,
+            room: &[u8],
+            governance: &str,
+            vault_name: &str,
+            creator_name: &str,
+            creator_seat: u16,
+        ) -> Result<String, E> {
             if let Some(c) = &self.code {
                 return Ok(c.clone());
             }
@@ -1056,7 +1095,10 @@ pub mod creation {
                 }
                 let pkg = outgoing.get(&id(*seat)?).ok_or("missing round-2 package")?;
                 let bytes = pkg.serialize().map_err(e)?;
-                out.push((*seat, seal::seal(&m.enc_pub, &bytes, &aad("r2", self.my_seat, *seat))?));
+                out.push((
+                    *seat,
+                    seal::seal(&m.enc_pub, &bytes, &aad("r2", self.my_seat, *seat))?,
+                ));
             }
             Ok(out)
         }
@@ -1066,7 +1108,10 @@ pub mod creation {
             if self.r2_secret.is_none() {
                 return Err("round 2 box before this device's round 2".into());
             }
-            if from == self.my_seat || !self.members.contains_key(&from) || self.r2_in.contains_key(&from) {
+            if from == self.my_seat
+                || !self.members.contains_key(&from)
+                || self.r2_in.contains_key(&from)
+            {
                 return Err("round 2 box from an unknown or repeated seat".into());
             }
             let opened = seal::open(&self.device, sealed, &aad("r2", from, self.my_seat))?;
@@ -1074,7 +1119,10 @@ pub mod creation {
             // The share must be the sender's polynomial at this seat, per the commitment it revealed;
             // a box that is not is refused before it is kept, so it cannot take the sender's place.
             let (r1, _) = self.members[&from].reveal.as_ref().expect("frozen");
-            let commitment = round1::Package::deserialize(r1).map_err(e)?.commitment().clone();
+            let commitment = round1::Package::deserialize(r1)
+                .map_err(e)?
+                .commitment()
+                .clone();
             frost::keys::SecretShare::new(id(self.my_seat)?, *pkg.signing_share(), commitment)
                 .verify()
                 .map_err(|_| "round 2 share does not match its sender's commitment")?;
@@ -1090,7 +1138,10 @@ pub mod creation {
                 }
                 let (pkg, _) = m.reveal.as_ref().expect("frozen");
                 r1.insert(id(*seat)?, round1::Package::deserialize(pkg).map_err(e)?);
-                r2.insert(id(*seat)?, round2::Package::deserialize(&self.r2_in[seat]).map_err(e)?);
+                r2.insert(
+                    id(*seat)?,
+                    round2::Package::deserialize(&self.r2_in[seat]).map_err(e)?,
+                );
             }
             let (kp, pk) = part3(self.r2_secret.as_ref().expect("checked"), &r1, &r2)
                 .map_err(|x| format!("round 3 failed: {x}"))?;
@@ -1105,7 +1156,11 @@ pub mod creation {
             if !self.confirmed {
                 return Err("sealing before the code was confirmed".into());
             }
-            let m = self.members.get(&to).filter(|_| to != self.my_seat).ok_or("unknown seat")?;
+            let m = self
+                .members
+                .get(&to)
+                .filter(|_| to != self.my_seat)
+                .ok_or("unknown seat")?;
             seal::seal(&m.enc_pub, payload, &aad("vsec", self.my_seat, to))
         }
 
@@ -1146,7 +1201,10 @@ pub mod creation {
             (1..=n)
                 .map(|seat| {
                     let secret = seal::DeviceKey::generate().secret_bytes();
-                    Dev { secret, c: Creation::new(&secret, seat, n, t).unwrap() }
+                    Dev {
+                        secret,
+                        c: Creation::new(&secret, seat, n, t).unwrap(),
+                    }
                 })
                 .collect()
         }
@@ -1157,7 +1215,18 @@ pub mod creation {
 
         /// Everyone sees the same roster and reveals: returns each device's code.
         fn exchange(ds: &mut [Dev]) -> Vec<String> {
-            let ann: Vec<_> = ds.iter().enumerate().map(|(i, d)| ((i + 1) as u16, pub_of(d), d.c.my_commitment(), d.c.my_reveal())).collect();
+            let ann: Vec<_> = ds
+                .iter()
+                .enumerate()
+                .map(|(i, d)| {
+                    (
+                        (i + 1) as u16,
+                        pub_of(d),
+                        d.c.my_commitment(),
+                        d.c.my_reveal(),
+                    )
+                })
+                .collect();
             for d in ds.iter_mut() {
                 for (seat, pk, cm, _) in &ann {
                     d.c.add_member(*seat, pk, &format!("m{seat}"), cm).unwrap();
@@ -1166,7 +1235,9 @@ pub mod creation {
                     d.c.add_reveal(*seat, r1, nonce).unwrap();
                 }
             }
-            ds.iter_mut().map(|d| d.c.freeze(b"room", "quorum", "v", "m1", 1).unwrap()).collect()
+            ds.iter_mut()
+                .map(|d| d.c.freeze(b"room", "quorum", "v", "m1", 1).unwrap())
+                .collect()
         }
 
         fn finish(ds: &mut [Dev]) {
@@ -1188,10 +1259,13 @@ pub mod creation {
                 let codes = exchange(&mut ds);
                 assert!(codes.windows(2).all(|w| w[0] == w[1]));
                 for d in ds.iter_mut() {
-                    d.c.confirm(&codes[0].to_lowercase().replace('-', " ")).unwrap();
+                    d.c.confirm(&codes[0].to_lowercase().replace('-', " "))
+                        .unwrap();
                 }
                 finish(&mut ds);
-                assert!(ds.iter().all(|d| d.c.done() && d.c.group_vk() == ds[0].c.group_vk()));
+                assert!(ds
+                    .iter()
+                    .all(|d| d.c.done() && d.c.group_vk() == ds[0].c.group_vk()));
             }
         }
 
@@ -1210,20 +1284,39 @@ pub mod creation {
         #[test]
         fn a_key_swapped_in_one_view_changes_that_view_code() {
             let mut ds = devices(3, 2);
-            let ann: Vec<_> = ds.iter().enumerate().map(|(i, d)| ((i + 1) as u16, pub_of(d), d.c.my_commitment(), d.c.my_reveal())).collect();
+            let ann: Vec<_> = ds
+                .iter()
+                .enumerate()
+                .map(|(i, d)| {
+                    (
+                        (i + 1) as u16,
+                        pub_of(d),
+                        d.c.my_commitment(),
+                        d.c.my_reveal(),
+                    )
+                })
+                .collect();
             // In device 1's view, seat 2 carries an outsider's key (with a commitment that matches it).
             let outsider = seal::DeviceKey::generate().public_bytes();
             let swapped = commitment(2, &outsider, &ann[1].3 .0, &ann[1].3 .1);
             for (i, d) in ds.iter_mut().enumerate() {
                 for (seat, pk, cm, _) in &ann {
-                    let (pk, cm) = if i == 0 && *seat == 2 { (outsider, swapped) } else { (*pk, *cm) };
-                    d.c.add_member(*seat, &pk, &format!("m{seat}"), &cm).unwrap();
+                    let (pk, cm) = if i == 0 && *seat == 2 {
+                        (outsider, swapped)
+                    } else {
+                        (*pk, *cm)
+                    };
+                    d.c.add_member(*seat, &pk, &format!("m{seat}"), &cm)
+                        .unwrap();
                 }
                 for (seat, _, _, (r1, nonce)) in &ann {
                     d.c.add_reveal(*seat, r1, nonce).unwrap();
                 }
             }
-            let codes: Vec<_> = ds.iter_mut().map(|d| d.c.freeze(b"room", "quorum", "v", "m1", 1).unwrap()).collect();
+            let codes: Vec<_> = ds
+                .iter_mut()
+                .map(|d| d.c.freeze(b"room", "quorum", "v", "m1", 1).unwrap())
+                .collect();
             assert_ne!(codes[0], codes[1]);
             assert_eq!(codes[1], codes[2]);
         }
@@ -1231,24 +1324,45 @@ pub mod creation {
         #[test]
         fn a_different_round_one_in_one_view_changes_that_view_code() {
             let mut ds = devices(3, 2);
-            let ann: Vec<_> = ds.iter().enumerate().map(|(i, d)| ((i + 1) as u16, pub_of(d), d.c.my_commitment(), d.c.my_reveal())).collect();
+            let ann: Vec<_> = ds
+                .iter()
+                .enumerate()
+                .map(|(i, d)| {
+                    (
+                        (i + 1) as u16,
+                        pub_of(d),
+                        d.c.my_commitment(),
+                        d.c.my_reveal(),
+                    )
+                })
+                .collect();
             // In device 1's view, seat 3 committed to and revealed another round 1 (same key).
-            let (r1x, nx) = Creation::new(&seal::DeviceKey::generate().secret_bytes(), 3, 3, 2).unwrap().my_reveal();
+            let (r1x, nx) = Creation::new(&seal::DeviceKey::generate().secret_bytes(), 3, 3, 2)
+                .unwrap()
+                .my_reveal();
             let cx = commitment(3, &ann[2].1, &r1x, &nx);
             for (i, d) in ds.iter_mut().enumerate() {
-                let view = |seat: u16| if i == 0 && seat == 3 { (cx, r1x.clone(), nx) } else {
-                    let a = &ann[seat as usize - 1];
-                    (a.2, a.3 .0.clone(), a.3 .1)
+                let view = |seat: u16| {
+                    if i == 0 && seat == 3 {
+                        (cx, r1x.clone(), nx)
+                    } else {
+                        let a = &ann[seat as usize - 1];
+                        (a.2, a.3 .0.clone(), a.3 .1)
+                    }
                 };
                 for (seat, pk, _, _) in &ann {
-                    d.c.add_member(*seat, pk, &format!("m{seat}"), &view(*seat).0).unwrap();
+                    d.c.add_member(*seat, pk, &format!("m{seat}"), &view(*seat).0)
+                        .unwrap();
                 }
                 for (seat, _, _, _) in &ann {
                     let (_, r1, nonce) = view(*seat);
                     d.c.add_reveal(*seat, &r1, &nonce).unwrap();
                 }
             }
-            let codes: Vec<_> = ds.iter_mut().map(|d| d.c.freeze(b"room", "quorum", "v", "m1", 1).unwrap()).collect();
+            let codes: Vec<_> = ds
+                .iter_mut()
+                .map(|d| d.c.freeze(b"room", "quorum", "v", "m1", 1).unwrap())
+                .collect();
             assert_ne!(codes[0], codes[1]);
             assert_eq!(codes[1], codes[2]);
         }
@@ -1260,16 +1374,34 @@ pub mod creation {
             let b = (pub_of(&ds[1]), ds[1].c.my_commitment(), ds[1].c.my_reveal());
             let d = &mut ds[0].c;
             d.add_member(1, &a.0, "a", &a.1).unwrap();
-            assert!(d.add_reveal(1, &a.2 .0, &a.2 .1).is_err(), "no reveal before every seat committed");
-            assert!(d.add_member(1, &a.0, "a", &a.1).is_err(), "a seat commits once");
+            assert!(
+                d.add_reveal(1, &a.2 .0, &a.2 .1).is_err(),
+                "no reveal before every seat committed"
+            );
+            assert!(
+                d.add_member(1, &a.0, "a", &a.1).is_err(),
+                "a seat commits once"
+            );
             d.add_member(2, &b.0, "b", &b.1).unwrap();
-            assert!(d.add_reveal(2, &a.2 .0, &b.2 .1).is_err(), "a reveal must match its commitment");
+            assert!(
+                d.add_reveal(2, &a.2 .0, &b.2 .1).is_err(),
+                "a reveal must match its commitment"
+            );
             d.add_reveal(2, &b.2 .0, &b.2 .1).unwrap();
-            assert!(d.add_reveal(2, &b.2 .0, &b.2 .1).is_err(), "a seat reveals once");
-            assert!(d.freeze(b"room", "quorum", "v", "a", 1).is_err(), "not every seat revealed");
+            assert!(
+                d.add_reveal(2, &b.2 .0, &b.2 .1).is_err(),
+                "a seat reveals once"
+            );
+            assert!(
+                d.freeze(b"room", "quorum", "v", "a", 1).is_err(),
+                "not every seat revealed"
+            );
             d.add_reveal(1, &a.2 .0, &a.2 .1).unwrap();
             d.freeze(b"room", "quorum", "v", "a", 1).unwrap();
-            assert!(d.add_member(2, &b.0, "b", &b.1).is_err(), "the roster is closed");
+            assert!(
+                d.add_member(2, &b.0, "b", &b.1).is_err(),
+                "the roster is closed"
+            );
         }
 
         #[test]
@@ -1283,25 +1415,69 @@ pub mod creation {
         #[test]
         fn every_transcript_field_changes_the_code() {
             let d = devices(3, 2);
-            let ann: Vec<_> = d.iter().enumerate().map(|(i, x)| ((i + 1) as u16, pub_of(x), x.c.my_commitment(), x.c.my_reveal())).collect();
+            let ann: Vec<_> = d
+                .iter()
+                .enumerate()
+                .map(|(i, x)| {
+                    (
+                        (i + 1) as u16,
+                        pub_of(x),
+                        x.c.my_commitment(),
+                        x.c.my_reveal(),
+                    )
+                })
+                .collect();
             // Seat 2's view of the same material, frozen over one changed field at a time.
             #[derive(Clone)]
-            struct V<'a> { names: [&'a str; 3], room: &'a [u8], gov: &'a str, vn: &'a str, cn: &'a str, creator: u16, t: u16,
-                nonce1: Option<[u8; 32]>, r1_1: Option<Vec<u8>>, pub1: Option<[u8; 32]> }
+            struct V<'a> {
+                names: [&'a str; 3],
+                room: &'a [u8],
+                gov: &'a str,
+                vn: &'a str,
+                cn: &'a str,
+                creator: u16,
+                t: u16,
+                nonce1: Option<[u8; 32]>,
+                r1_1: Option<Vec<u8>>,
+                pub1: Option<[u8; 32]>,
+            }
             // Another round 1 and another key for seat 1, each with a commitment that matches it.
-            let other_r1 = Creation::new(&seal::DeviceKey::generate().secret_bytes(), 1, 3, 2).unwrap().my_reveal().0;
+            let other_r1 = Creation::new(&seal::DeviceKey::generate().secret_bytes(), 1, 3, 2)
+                .unwrap()
+                .my_reveal()
+                .0;
             let other_pub = seal::DeviceKey::generate().public_bytes();
-            let base = V { names: ["a", "b", "c"], room: b"r", gov: "quorum", vn: "v", cn: "a", creator: 1, t: 2, nonce1: None, r1_1: None, pub1: None };
+            let base = V {
+                names: ["a", "b", "c"],
+                room: b"r",
+                gov: "quorum",
+                vn: "v",
+                cn: "a",
+                creator: 1,
+                t: 2,
+                nonce1: None,
+                r1_1: None,
+                pub1: None,
+            };
             let code = |v: V| {
                 let mut o = Creation::new(&d[1].secret, 2, 3, v.t).unwrap();
                 o.r1 = ann[1].3 .0.clone();
                 o.nonce = ann[1].3 .1;
-                let seat1 = |i: usize, r1: &Vec<u8>, n: &[u8; 32], pk: &[u8; 32]| if i == 0 {
-                    (v.r1_1.clone().unwrap_or(r1.clone()), v.nonce1.unwrap_or(*n), v.pub1.unwrap_or(*pk))
-                } else { (r1.clone(), *n, *pk) };
+                let seat1 = |i: usize, r1: &Vec<u8>, n: &[u8; 32], pk: &[u8; 32]| {
+                    if i == 0 {
+                        (
+                            v.r1_1.clone().unwrap_or(r1.clone()),
+                            v.nonce1.unwrap_or(*n),
+                            v.pub1.unwrap_or(*pk),
+                        )
+                    } else {
+                        (r1.clone(), *n, *pk)
+                    }
+                };
                 for (i, (seat, pk, _, (r1, n))) in ann.iter().enumerate() {
                     let (r1, n, pk) = seat1(i, r1, n, pk);
-                    o.add_member(*seat, &pk, v.names[i], &commitment(*seat, &pk, &r1, &n)).unwrap();
+                    o.add_member(*seat, &pk, v.names[i], &commitment(*seat, &pk, &r1, &n))
+                        .unwrap();
                 }
                 for (i, (seat, pk, _, (r1, n))) in ann.iter().enumerate() {
                     let (r1, n, _) = seat1(i, r1, n, pk);
@@ -1311,19 +1487,108 @@ pub mod creation {
             };
             let reference = code(base.clone());
             assert_eq!(reference, code(base.clone()), "deterministic");
-            assert_ne!(reference, code(V { names: ["a", "x", "c"], ..base.clone() }), "a name");
-            assert_ne!(reference, code(V { names: ["ab", "", "c"], ..base.clone() }), "a name boundary");
-            assert_ne!(reference, code(V { room: b"s", ..base.clone() }), "the room");
-            assert_ne!(reference, code(V { gov: "open", ..base.clone() }), "the governance");
-            assert_ne!(reference, code(V { cn: "b", ..base.clone() }), "the creator's name");
-            assert_ne!(reference, code(V { vn: "w", ..base.clone() }), "the vault's name");
-            assert_ne!(reference, code(V { creator: 2, ..base.clone() }), "the creator's seat");
-            assert_ne!(reference, code(V { t: 3, ..base.clone() }), "the quorum");
-            assert_ne!(reference, code(V { nonce1: Some([7u8; 32]), ..base.clone() }), "a nonce");
-            assert_ne!(reference, code(V { r1_1: Some(other_r1.clone()), ..base.clone() }), "a round 1, same nonce");
-            assert_ne!(reference, code(V { pub1: Some(other_pub), ..base.clone() }), "a key, same round 1");
+            assert_ne!(
+                reference,
+                code(V {
+                    names: ["a", "x", "c"],
+                    ..base.clone()
+                }),
+                "a name"
+            );
+            assert_ne!(
+                reference,
+                code(V {
+                    names: ["ab", "", "c"],
+                    ..base.clone()
+                }),
+                "a name boundary"
+            );
+            assert_ne!(
+                reference,
+                code(V {
+                    room: b"s",
+                    ..base.clone()
+                }),
+                "the room"
+            );
+            assert_ne!(
+                reference,
+                code(V {
+                    gov: "open",
+                    ..base.clone()
+                }),
+                "the governance"
+            );
+            assert_ne!(
+                reference,
+                code(V {
+                    cn: "b",
+                    ..base.clone()
+                }),
+                "the creator's name"
+            );
+            assert_ne!(
+                reference,
+                code(V {
+                    vn: "w",
+                    ..base.clone()
+                }),
+                "the vault's name"
+            );
+            assert_ne!(
+                reference,
+                code(V {
+                    creator: 2,
+                    ..base.clone()
+                }),
+                "the creator's seat"
+            );
+            assert_ne!(
+                reference,
+                code(V {
+                    t: 3,
+                    ..base.clone()
+                }),
+                "the quorum"
+            );
+            assert_ne!(
+                reference,
+                code(V {
+                    nonce1: Some([7u8; 32]),
+                    ..base.clone()
+                }),
+                "a nonce"
+            );
+            assert_ne!(
+                reference,
+                code(V {
+                    r1_1: Some(other_r1.clone()),
+                    ..base.clone()
+                }),
+                "a round 1, same nonce"
+            );
+            assert_ne!(
+                reference,
+                code(V {
+                    pub1: Some(other_pub),
+                    ..base.clone()
+                }),
+                "a key, same round 1"
+            );
             // Adjacent fields: without length prefixes these two would hash the same bytes.
-            assert_ne!(code(V { vn: "ab", cn: "", ..base.clone() }), code(V { vn: "a", cn: "b", ..base.clone() }), "a field boundary");
+            assert_ne!(
+                code(V {
+                    vn: "ab",
+                    cn: "",
+                    ..base.clone()
+                }),
+                code(V {
+                    vn: "a",
+                    cn: "b",
+                    ..base.clone()
+                }),
+                "a field boundary"
+            );
         }
 
         #[test]
@@ -1333,17 +1598,42 @@ pub mod creation {
             for d in ds.iter_mut() {
                 d.c.confirm(&codes[0]).unwrap();
             }
-            let honest = ds[0].c.part2().unwrap().into_iter().find(|(to, _)| *to == 2).unwrap().1;
+            let honest = ds[0]
+                .c
+                .part2()
+                .unwrap()
+                .into_iter()
+                .find(|(to, _)| *to == 2)
+                .unwrap()
+                .1;
             ds[1].c.part2().unwrap();
             // Anyone can seal to seat 2's public key: a box with someone else's share for seat 2.
             let mut other = devices(3, 2);
             let oc = exchange(&mut other);
             other[0].c.confirm(&oc[0]).unwrap();
-            let foreign = other[0].c.part2().unwrap().into_iter().find(|(to, _)| *to == 2).unwrap().1;
-            let opened = seal::open(&seal::DeviceKey::from_secret_bytes(&other[1].secret), &foreign, &aad("r2", 1, 2)).unwrap();
+            let foreign = other[0]
+                .c
+                .part2()
+                .unwrap()
+                .into_iter()
+                .find(|(to, _)| *to == 2)
+                .unwrap()
+                .1;
+            let opened = seal::open(
+                &seal::DeviceKey::from_secret_bytes(&other[1].secret),
+                &foreign,
+                &aad("r2", 1, 2),
+            )
+            .unwrap();
             let forged = seal::seal(&pub_of(&ds[1]), &opened, &aad("r2", 1, 2)).unwrap();
-            assert!(ds[1].c.add_round2(1, &forged).is_err(), "not the sender's polynomial at this seat");
-            assert!(!ds[1].c.add_round2(1, &honest).unwrap(), "the honest box is still taken");
+            assert!(
+                ds[1].c.add_round2(1, &forged).is_err(),
+                "not the sender's polynomial at this seat"
+            );
+            assert!(
+                !ds[1].c.add_round2(1, &honest).unwrap(),
+                "the honest box is still taken"
+            );
         }
 
         #[test]
@@ -1353,20 +1643,44 @@ pub mod creation {
             for d in ds.iter_mut() {
                 d.c.confirm(&codes[0]).unwrap();
             }
-            let to2 = ds[0].c.part2().unwrap().into_iter().find(|(to, _)| *to == 2).unwrap().1;
-            assert!(ds[1].c.add_round2(1, &to2).is_err(), "not before this device's own round 2");
+            let to2 = ds[0]
+                .c
+                .part2()
+                .unwrap()
+                .into_iter()
+                .find(|(to, _)| *to == 2)
+                .unwrap()
+                .1;
+            assert!(
+                ds[1].c.add_round2(1, &to2).is_err(),
+                "not before this device's own round 2"
+            );
             ds[1].c.part2().unwrap();
             ds[2].c.part2().unwrap();
-            assert!(ds[2].c.add_round2(1, &to2).is_err(), "a box for seat 2 does not open at seat 3");
+            assert!(
+                ds[2].c.add_round2(1, &to2).is_err(),
+                "a box for seat 2 does not open at seat 3"
+            );
             assert!(ds[1].c.add_round2(4, &to2).is_err(), "no seat 4");
             assert!(ds[1].c.add_round2(2, &to2).is_err(), "not from itself");
-            assert!(ds[1].c.add_round2(3, &to2).is_err(), "not under another sender's label");
+            assert!(
+                ds[1].c.add_round2(3, &to2).is_err(),
+                "not under another sender's label"
+            );
             assert!(!ds[1].c.add_round2(1, &to2).unwrap());
             assert!(ds[1].c.add_round2(1, &to2).is_err(), "once per seat");
             // Boxes that do open (the right label) but come from outside the roster, or from itself.
-            let pkg = seal::open(&seal::DeviceKey::from_secret_bytes(&ds[1].secret), &to2, &aad("r2", 1, 2)).unwrap();
+            let pkg = seal::open(
+                &seal::DeviceKey::from_secret_bytes(&ds[1].secret),
+                &to2,
+                &aad("r2", 1, 2),
+            )
+            .unwrap();
             let from4 = seal::seal(&pub_of(&ds[1]), &pkg, &aad("r2", 4, 2)).unwrap();
-            assert!(ds[1].c.add_round2(4, &from4).is_err(), "seat 4 is not in the roster");
+            assert!(
+                ds[1].c.add_round2(4, &from4).is_err(),
+                "seat 4 is not in the roster"
+            );
             let from2 = seal::seal(&pub_of(&ds[1]), &pkg, &aad("r2", 2, 2)).unwrap();
             assert!(ds[1].c.add_round2(2, &from2).is_err(), "not from itself");
         }
@@ -3652,9 +3966,16 @@ mod js_dkg {
     #[wasm_bindgen]
     impl CreationSession {
         #[wasm_bindgen(constructor)]
-        pub fn new(device: &DeviceKey, my_seat: u16, n: u16, t: u16) -> Result<CreationSession, JsValue> {
+        pub fn new(
+            device: &DeviceKey,
+            my_seat: u16,
+            n: u16,
+            t: u16,
+        ) -> Result<CreationSession, JsValue> {
             let secret = device.inner.secret_bytes();
-            Ok(CreationSession { inner: super::creation::Creation::new(&secret, my_seat, n, t).map_err(je)? })
+            Ok(CreationSession {
+                inner: super::creation::Creation::new(&secret, my_seat, n, t).map_err(je)?,
+            })
         }
         #[wasm_bindgen(js_name = myCommitment)]
         pub fn my_commitment(&self) -> Vec<u8> {
@@ -3669,8 +3990,16 @@ mod js_dkg {
             self.inner.my_reveal().1.to_vec()
         }
         #[wasm_bindgen(js_name = addMember)]
-        pub fn add_member(&mut self, seat: u16, enc_pub: &[u8], name: &str, commit: &[u8]) -> Result<(), JsValue> {
-            self.inner.add_member(seat, enc_pub, name, commit).map_err(je)
+        pub fn add_member(
+            &mut self,
+            seat: u16,
+            enc_pub: &[u8],
+            name: &str,
+            commit: &[u8],
+        ) -> Result<(), JsValue> {
+            self.inner
+                .add_member(seat, enc_pub, name, commit)
+                .map_err(je)
         }
         #[wasm_bindgen(js_name = allCommitted)]
         pub fn all_committed(&self) -> bool {
@@ -3680,8 +4009,17 @@ mod js_dkg {
         pub fn add_reveal(&mut self, seat: u16, r1: &[u8], nonce: &[u8]) -> Result<(), JsValue> {
             self.inner.add_reveal(seat, r1, nonce).map_err(je)
         }
-        pub fn freeze(&mut self, room: &[u8], governance: &str, vault_name: &str, creator_name: &str, creator_seat: u16) -> Result<String, JsValue> {
-            self.inner.freeze(room, governance, vault_name, creator_name, creator_seat).map_err(je)
+        pub fn freeze(
+            &mut self,
+            room: &[u8],
+            governance: &str,
+            vault_name: &str,
+            creator_name: &str,
+            creator_seat: u16,
+        ) -> Result<String, JsValue> {
+            self.inner
+                .freeze(room, governance, vault_name, creator_name, creator_seat)
+                .map_err(je)
         }
         pub fn code(&self) -> Option<String> {
             self.inner.code()

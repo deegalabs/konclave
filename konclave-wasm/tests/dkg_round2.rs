@@ -24,8 +24,7 @@ fn round2_packages_are_consistent_with_the_group_key() {
     let mut packages: Vec<Vec<WireItem>> = Vec::new();
     let mut r2_secrets = Vec::new();
     for id in &ids {
-        let others: Vec<WireItem> =
-            r1_wire.iter().filter(|(o, _)| o != id).cloned().collect();
+        let others: Vec<WireItem> = r1_wire.iter().filter(|(o, _)| o != id).cloned().collect();
         let (s2, out) = part2_wire(r1_secrets.remove(0), &others).unwrap();
         r2_secrets.push(s2);
         packages.push(out);
@@ -41,10 +40,17 @@ fn round2_packages_are_consistent_with_the_group_key() {
                     .map(move |(_, p)| (identifier_bytes(i as u16 + 1).unwrap(), p.clone()))
             })
             .collect();
-        let others: Vec<WireItem> =
-            r1_wire.iter().filter(|(o, _)| *o != ids[0]).cloned().collect();
+        let others: Vec<WireItem> = r1_wire
+            .iter()
+            .filter(|(o, _)| *o != ids[0])
+            .cloned()
+            .collect();
         let (_kp, pk) = part3_wire(&r2_secrets[0], &others, &incoming).unwrap();
-        PublicKeyPackage::deserialize(&pk).unwrap().verifying_key().serialize().unwrap()
+        PublicKeyPackage::deserialize(&pk)
+            .unwrap()
+            .verifying_key()
+            .serialize()
+            .unwrap()
     };
 
     // Interpolate each f_i at 0 from its t evaluations, and add the constant terms.
@@ -70,7 +76,14 @@ fn round2_packages_are_consistent_with_the_group_key() {
     }
     // RedPallas DKG normalises the group key to an even y (ZIP 312), negating the shares
     // when needed, so the group secret is the sum or its negation: holding one is holding both.
-    let vk = |s: S| VerifyingKey::from(&SigningKey::from_scalar(s).unwrap()).serialize().unwrap();
+    let vk = |s: S| {
+        VerifyingKey::from(&SigningKey::from_scalar(s).unwrap())
+            .serialize()
+            .unwrap()
+    };
     let neg = <PallasScalarField as Field>::zero() - secret;
-    assert!(vk(secret) == group_vk || vk(neg) == group_vk, "the packages rebuild the group key");
+    assert!(
+        vk(secret) == group_vk || vk(neg) == group_vk,
+        "the packages rebuild the group key"
+    );
 }
