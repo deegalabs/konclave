@@ -158,3 +158,16 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   sliver - the moments during a vault's creation before it is protected at all. Creating a vault is
   unaffected, because the list is claimed before the protection exists and the coordinator knows to
   allow that.
+
+### Fixed
+
+- **A deposit now shows on Add funds the first time the history is read.** A member who had just sent
+  funds and waited on that screen saw nothing arrive until they opened the dashboard and came back
+  (#637, seen on staging on 2026-10-04). The history only listed what the wallet already knew, and the
+  balance read was the only one that synced it. Both reads now go through one function that migrates
+  the wallet and syncs it under the same 15-second window (one window per vault), so the first read of
+  either is fresh and reads close together share one sync. A deposit appears once it is in a block the
+  wallet has synced. If lightwalletd cannot be reached, the history keeps showing the last list the
+  wallet knew and the failure goes to the coordinator's log; the balance read, as it always did, fails.
+  The next read tries the sync again. Takes effect when this build is deployed. The screen's own
+  "updating" cue is the app's.

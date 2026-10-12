@@ -55,6 +55,12 @@ explicitly accepted.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A deposit now shows on Add funds the first time the history is read** (#637). The coordinator's
+  half: the history read syncs the wallet like the balance read does. The details are in
+  [helper-server/CHANGELOG.md](helper-server/CHANGELOG.md).
+
 ## [0.10.0] 2026-10-04
 
 > **Services deployed when this was cut (2026-10-04):** coordinator `b62a7f0`, relay `03bb736890c63e86`.
