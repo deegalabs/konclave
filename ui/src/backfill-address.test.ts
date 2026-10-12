@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { codeOf } from './source-scan'
 
 // #501's other half, and the shape of the miss.
 //
@@ -16,9 +17,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const listVaults = vi.hoisted(() => vi.fn())
 const updateVaultMeta = vi.hoisted(() => vi.fn(async () => {}))
-vi.mock('./storage', () => ({ listVaults, updateVaultMeta }))
+vi.mock('./storage', async (orig) => ({ ...(await orig<typeof import('./storage')>()), listVaults, updateVaultMeta }))
 
-const { backfillAddress } = await import('./api')
+const { backfillAddress, depositAddress } = await import('./api')
 
 const ADDR = 'u1qz8vt5m3gk9wr7hxne2d0lfp4yjaus6cvbq0t9mr2xk7dwh5nz3ge8pvc4ys6ta'
 const rec = (address: string) => ({ id: 'v1', groupKey: 'ab', address, roster: [], createdAt: 0 })
@@ -80,3 +81,43 @@ describe('backfilling a vault address that was never recorded', () => {
     expect(await backfillAddress('v1', ADDR)).toBe(false)
   })
 })
+
+describe('the deposit address a screen may show', () => {
+  const S = 'u1servedaddressxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+  const Q = { threshold: 2, total: 3 }
+  it('is none for a vault this device does not hold', () => {
+    expect(depositAddress(undefined, S, Q)).toEqual({ address: '', adopt: false })
+  })
+  it('is none, and adopts nothing, while the creation has not finished', () => {
+    expect(depositAddress({ address: '', pending: true, ...Q }, S, Q)).toEqual({ address: '', adopt: false })
+  })
+  it('is none when the coordinator holds another quorum than the members confirmed', () => {
+    expect(depositAddress({ address: ADDR, ...Q }, S, { threshold: 1, total: 3 })).toEqual({ address: '', adopt: false })
+    expect(depositAddress({ address: '', ...Q }, S, { threshold: 2, total: 4 })).toEqual({ address: '', adopt: false })
+    expect(depositAddress({ address: '', ...Q }, S, {})).toEqual({ address: '', adopt: false })
+  })
+  it('is the recorded address, else the served one adopted once; a record from before keeps working', () => {
+    expect(depositAddress({ address: ADDR, ...Q }, S, Q)).toEqual({ address: ADDR, adopt: false })
+    expect(depositAddress({ address: '', ...Q }, S, Q)).toEqual({ address: S, adopt: true })
+    expect(depositAddress({ address: '' }, S, { threshold: 1, total: 1 })).toEqual({ address: S, adopt: true }) // no quorum recorded
+  })
+})
+
+describe('backfill never writes into an unfinished vault', () => {
+  it('refuses a pending record', async () => {
+    listVaults.mockResolvedValue([{ ...rec(''), pending: true }])
+    expect(await backfillAddress('v1', ADDR)).toBe(false)
+    expect(updateVaultMeta).not.toHaveBeenCalled()
+  })
+})
+
+describe('getVault reads the deposit address through that one rule', () => {
+  const api = codeOf('./api.ts')
+  it('shows, adopts and pins only what depositAddress allows', () => {
+    expect(api).toMatch(/const deposit = depositAddress\(rec, served, \{ threshold: v\.threshold, total: v\.total \}\)/)
+    expect(api).toMatch(/if \(deposit\.adopt\) void backfillAddress\(id, served\)/)
+    expect(api).toMatch(/orchard_address: deposit\.address,/)
+    expect(api).toMatch(/if \(change && deposit\.address\) void recordChangeReceiver/)
+  })
+})
+

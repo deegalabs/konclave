@@ -63,6 +63,20 @@ explicitly accepted.
   fixed, and so on, merges left out), each linked to the commit. The list comes from git-cliff, pinned to 2.14.2 in the
   release workflow and installed from crates.io with its lockfile.
 
+## [0.12.0] 2026-10-12
+
+> **Services deployed when this was cut (2026-10-12):** coordinator `21db4dd`, relay `42da05bf003afc41`.
+> The web app is this release's own commit. The two services are deployed by hand and may be
+> older than it - recording what they were ANSWERING is the point, not what they should have been.
+
+
+### Security
+
+- **The browser signer's vault-creation core is new.** Creating a vault now runs in `konclave-wasm`
+  with a step every member confirms before anything secret is exchanged; the app's entry in
+  [ui/CHANGELOG.md](ui/CHANGELOG.md) describes what members see. Vaults that already exist are
+  unchanged.
+
 ## [0.11.0] 2026-10-12
 
 > **Services deployed when this was cut (2026-10-12):** coordinator `21db4dd`, relay `42da05bf003afc41`.

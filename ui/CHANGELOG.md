@@ -40,6 +40,42 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+## [0.12.0] 2026-10-12
+
+### Security
+
+- **Creating a vault now ends with a code every member reads to every other.** Before anything
+  secret is exchanged, each device shows the same short code and the list of members; you read it
+  with each person on the list (a call or in person) and confirm only if everyone reads back the same
+  code. The invite is now a link (or a long code) with a PIN that is always required and travels
+  separately. When what the devices announce does not add up, the ceremony stops and no vault is
+  created. Vaults you already have keep working as before.
+
+### Changed
+
+- **A new vault's address appears once every member has saved their part.** Until then each device
+  shows the vault without an address, so nobody can fund a vault one of its members does not hold.
+  If a device was closed before that, the vault shows as "Not finished" in Your vaults: confirm with
+  each member that they saved, then finish it there.
+- **An invite link opens Your vaults with the invite already filled in.** You type your name and the
+  PIN you received separately; the link is removed from the address bar once read. Old links that
+  pointed elsewhere still work.
+- **Every member now gives a name to create or join a vault.** The others read it when they compare
+  the code, so a blank name can no longer leave someone unsure who is on the list. Two members with
+  the same name are flagged at that step.
+
+### Fixed
+
+- **The vault's name now reaches every member.** The name the creator gives a new vault used to stay on
+  the creator's device: the others saved it with a generic name, and the coordinator could record a
+  generated one instead. Now every member sees the name on the code screen and saves the same one.
+  Vaults that already exist keep the names they were saved with.
+- **Clicking outside the create window, or pressing Esc, no longer throws a vault creation away.**
+  Until you saved your part, those used to close the window and lose it, with no way back; now the
+  window asks first ("Keep creating" is the default), and a reload asks too.
+- **Closing the create window at the end opens the new vault.** It used to return to a list that did
+  not show it until the page was reloaded; while the backup copy has not been taken, it asks first.
+
 ## [0.11.0] 2026-10-12
 
 ### Changed

@@ -24,7 +24,8 @@
 // share - and to nothing else.
 import { ensureWasm } from './wasm-ready'
 import { decodeBundle } from './signing'
-import { registerDeviceKey } from './helper'
+import { registerDeviceKey, registerReadKey } from './helper'
+import { deriveReadKey } from './vault-secret'
 import { devicePubHex, deviceWriteKeyHex } from './device-key'
 import type { VaultLoaded } from './storage'
 
@@ -43,13 +44,26 @@ export async function registerThisDevice(vaultId: string, share: VaultLoaded): P
   try {
     await ensureWasm()
     const b = decodeBundle(share)
+    // READ (#388): any member that holds the vault's secret S registers its read key, the same for
+    // every member. Idempotent on the coordinator, so this heals a vault whose creation ended before
+    // anyone registered it: the first unlock of any member turns its read gate on. Only for vaults
+    // made by the current creation (they record their quorum): an older vault's gate stays as it was,
+    // so a member of it who never received S is not locked out of its reads by someone else's unlock.
+    // Waited for, never thrown: the coordinator refuses the viewing key to a vault with no read key,
+    // and a caller (the creation's backup) asks for it right after this resolves.
+    if (share.accessSecret && share.threshold !== undefined) {
+      await deriveReadKey(share.accessSecret)
+        .then((rk) => registerReadKey(hex(share.groupKey), hex(rk)))
+        .then((ok) => { if (!ok) console.error('[konclave] the coordinator did not take this vault\'s read key', { vault: vaultId.slice(0, 8) }) })
+        .catch((error) => console.error('[konclave] could not register this vault\'s read key', { vault: vaultId.slice(0, 8), error }))
+    }
     const ok = await registerDeviceKey(hex(share.groupKey), devicePubHex(b.keyPackage), {
       seat: b.seat,
       pub: deviceWriteKeyHex(b.keyPackage),
     })
     if (ok === null) {
       console.error('[konclave] this device could not register its seat with the coordinator', {
-        vaultId, seat: b.seat,
+        vault: vaultId.slice(0, 8), seat: b.seat,
       })
       return false
     }
@@ -58,7 +72,7 @@ export async function registerThisDevice(vaultId: string, share: VaultLoaded): P
     // Same reasoning as the branch above, for the half that fails before the request is made -
     // a WASM module that never loaded looks exactly like a coordinator that never answered.
     console.error('[konclave] this device could not register its seat with the coordinator', {
-      vaultId, error: e,
+      vault: vaultId.slice(0, 8), error: e,
     })
     return false
   }

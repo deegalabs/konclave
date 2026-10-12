@@ -43,7 +43,7 @@ describe('storage - encrypted IndexedDB persistence', () => {
     const v = list.find((x) => x.id === 'v1')
     expect(v).toBeTruthy()
     expect(v).not.toHaveProperty('sealedShare')
-    expect(Object.keys(v!).sort()).toEqual(['address', 'changeReceiver', 'createdAt', 'creatorName', 'governance', 'groupKey', 'id', 'myName', 'name', 'roster', 'secured'])
+    expect(Object.keys(v!).sort()).toEqual(['address', 'changeReceiver', 'createdAt', 'creatorName', 'governance', 'groupKey', 'id', 'myName', 'name', 'pending', 'roster', 'secured', 'threshold', 'total'])
     expect(v!.name).toBe('Test vault')
     expect(v!.governance).toBe('quorum')
     expect(v!.myName).toBe('Alice')
@@ -109,6 +109,30 @@ describe('storage - portable vault export/import (v2 opaque + v1 compat, #214/#3
     expect(Array.from(loaded.groupKey)).toEqual(Array.from(groupKey))
     expect(loaded.roster).toEqual(['Alice', 'Bob', 'Carol'])
     expect(Array.from(loaded.accessSecret!)).toEqual(Array.from(accessSecret))
+  })
+
+  it('a backup of a vault whose creation had not finished comes back unfinished, with its quorum', async () => {
+    await saveVault('exp-pending', { ...data, pending: true, threshold: 2, total: 3 }, pass)
+    const bundle = parseVaultExport(JSON.stringify(await exportVault('exp-pending', pass)))
+    await deleteVault('exp-pending')
+    await importVault(bundle, pass)
+    const back = (await listVaults()).find((v) => v.id === 'exp-pending')!
+    expect(back.pending).toBe(true)
+    expect([back.threshold, back.total]).toEqual([2, 3])
+    // Finished vaults, and every backup made before, come back finished.
+    await saveVault('exp-done', data, pass)
+    const done = parseVaultExport(JSON.stringify(await exportVault('exp-done', pass)))
+    await deleteVault('exp-done')
+    await importVault(done, pass)
+    expect((await listVaults()).find((v) => v.id === 'exp-done')!.pending).toBeUndefined()
+  })
+
+  it('a backup whose recorded quorum disagrees with its share is refused', async () => {
+    const bundle = new TextEncoder().encode(JSON.stringify({ kp: 'aa', t: 2, n: 3 }))
+    await saveVault('exp-q', { ...data, sealedShare: bundle, threshold: 2, total: 4 }, pass)
+    const exp = parseVaultExport(JSON.stringify(await exportVault('exp-q', pass)))
+    await deleteVault('exp-q')
+    await expect(importVault(exp, pass)).rejects.toThrow(/corrupt/i)
   })
 
   it('import rejects a wrong passphrase before writing anything', async () => {

@@ -30,39 +30,45 @@ export function activateOnKey(fn: () => void) {
 
 /** Accessible modal dialog: role/aria-modal/aria-labelledby, focus moved inside
  *  on open, a Tab focus-trap, Esc to close, and focus returned to the trigger on
- *  close. Backdrop click closes (via onClose). Keeps the existing overlay/card
- *  classes so the visual design is unchanged. */
-export function Dialog({ labelledBy, onClose, className, cardClassName, children }: {
+ *  close. Backdrop click and Esc call `onDismiss` (by default `onClose`), so a dialog holding work
+ *  that would be lost can ask first instead of closing. Keeps the existing overlay/card classes so
+ *  the visual design is unchanged. */
+export function Dialog({ labelledBy, onClose, onDismiss, className, cardClassName, children }: {
   labelledBy: string
   onClose: () => void
+  onDismiss?: () => void
   className: string
   cardClassName: string
   children: ReactNode
 }) {
   const ref = useRef<HTMLDivElement>(null)
-  const onCloseRef = useRef(onClose)
-  onCloseRef.current = onClose
+  const dismissRef = useRef(onDismiss ?? onClose)
+  dismissRef.current = onDismiss ?? onClose
   useEffect(() => {
     const node = ref.current
     const prev = document.activeElement as HTMLElement | null
     const sel = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
     const focusables = () => (node ? Array.from(node.querySelectorAll<HTMLElement>(sel)) : [])
-    ;(focusables()[0] ?? node)?.focus()
+    // Focus moves inside, unless something inside already took it (an autofocused field).
+    if (!node?.contains(document.activeElement)) (focusables()[0] ?? node)?.focus()
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') { e.preventDefault(); onCloseRef.current(); return }
+      if (e.key === 'Escape') { e.preventDefault(); dismissRef.current(); return }
       if (e.key !== 'Tab') return
       const f = focusables()
       const first = f[0], last = f[f.length - 1]
       if (!first || !last) return
       const active = document.activeElement
+      // Focus that escaped the card (an element inside it unmounted) comes back to the first one.
+      if (!node || !node.contains(active)) { e.preventDefault(); first.focus(); return }
       if (e.shiftKey && active === first) { e.preventDefault(); last.focus() }
       else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus() }
     }
     document.addEventListener('keydown', onKey)
-    return () => { document.removeEventListener('keydown', onKey); prev?.focus?.() }
+    // Focus goes back to what opened the dialog only if it is still on the page.
+    return () => { document.removeEventListener('keydown', onKey); if (prev?.isConnected) prev.focus() }
   }, [])
   return (
-    <div className={className} onClick={() => onCloseRef.current()}>
+    <div className={className} onClick={() => dismissRef.current()}>
       <div ref={ref} className={cardClassName} role="dialog" aria-modal="true" aria-labelledby={labelledBy} onClick={(e) => e.stopPropagation()}>
         {children}
       </div>

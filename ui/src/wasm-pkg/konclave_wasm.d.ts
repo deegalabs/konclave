@@ -32,6 +32,38 @@ export class Coordinator {
 }
 
 /**
+ * One device's side of creating a vault (version 2). A thin wrapper over
+ * `creation::Creation`: every rule lives there. JS passes the relay's messages in and shows
+ * the code; it never holds a round-2 package in the clear or seals to a key itself.
+ */
+export class CreationSession {
+    free(): void;
+    [Symbol.dispose](): void;
+    addMember(seat: number, enc_pub: Uint8Array, name: string, commit: Uint8Array): void;
+    addReveal(seat: number, r1: Uint8Array, nonce: Uint8Array): void;
+    addRound2(from: number, sealed: Uint8Array): boolean;
+    allCommitted(): boolean;
+    code(): string | undefined;
+    confirm(code: string): void;
+    done(): boolean;
+    freeze(room: Uint8Array, governance: string, vault_name: string, creator_name: string, creator_seat: number): string;
+    groupVk(): Uint8Array;
+    keyPackage(): Uint8Array;
+    myCommitment(): Uint8Array;
+    myNonce(): Uint8Array;
+    myRound1(): Uint8Array;
+    constructor(device: DeviceKey, my_seat: number, n: number, t: number);
+    openFromSeat(from: number, sealed: Uint8Array): Uint8Array;
+    /**
+     * Round 2. Returns, for each other seat, `[to_hi, to_lo, ...sealed box]` flattened into one
+     * array per seat inside a JS array.
+     */
+    part2(): Array<any>;
+    pubkeys(): Uint8Array;
+    sealToSeat(to: number, payload: Uint8Array): Uint8Array;
+}
+
+/**
  * A device's long-term encryption keypair for the confidential channel (round-2 sealing).
  * The public half rides in the invite; the secret half never leaves the device.
  */
@@ -317,38 +349,27 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
-    readonly __wbg_coordinator_free: (a: number, b: number) => void;
-    readonly __wbg_round1_free: (a: number, b: number) => void;
-    readonly __wbg_testvault_free: (a: number, b: number) => void;
-    readonly coordinator_addCommitment: (a: number, b: number, c: number, d: number, e: number) => void;
-    readonly coordinator_addShare: (a: number, b: number, c: number, d: number, e: number) => void;
-    readonly coordinator_aggregate: (a: number) => [number, number, number, number];
-    readonly coordinator_aggregateWithRandomizer: (a: number, b: number, c: number) => [number, number, number, number];
-    readonly coordinator_new: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
-    readonly coordinator_prepare: (a: number) => [number, number];
-    readonly coordinator_seed: (a: number) => [number, number];
-    readonly coordinator_signingPackage: (a: number) => [number, number];
-    readonly coordinator_verify: (a: number, b: number, c: number) => [number, number, number];
-    readonly coordinator_verifyWithRandomizer: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
-    readonly participantRound1: (a: number, b: number) => [number, number, number];
-    readonly participantRound2: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
-    readonly participantRound2WithRandomizer: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number, number];
-    readonly round1_commitment: (a: number) => [number, number];
-    readonly round1_nonces: (a: number) => [number, number];
-    readonly testvault_groupVk: (a: number) => [number, number];
-    readonly testvault_id: (a: number, b: number) => [number, number];
-    readonly testvault_key_package: (a: number, b: number) => [number, number];
-    readonly testvault_new: () => [number, number, number];
-    readonly testvault_pubkeys: (a: number) => [number, number];
-    readonly describeOutputs: (a: number, b: number) => [number, number, number, number];
-    readonly extractRandomizers: (a: number, b: number) => [number, number, number, number];
-    readonly injectSigs: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
-    readonly pcztSighash: (a: number, b: number) => [number, number, number, number];
-    readonly readPayment: (a: number, b: number) => [number, number, number, number];
-    readonly selftest: () => [number, number];
-    readonly uaReceiver: (a: number, b: number) => [number, number, number, number];
+    readonly __wbg_creationsession_free: (a: number, b: number) => void;
     readonly __wbg_devicekey_free: (a: number, b: number) => void;
     readonly __wbg_dkgsession_free: (a: number, b: number) => void;
+    readonly creationsession_addMember: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number];
+    readonly creationsession_addReveal: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
+    readonly creationsession_addRound2: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly creationsession_allCommitted: (a: number) => number;
+    readonly creationsession_code: (a: number) => [number, number];
+    readonly creationsession_confirm: (a: number, b: number, c: number) => [number, number];
+    readonly creationsession_done: (a: number) => number;
+    readonly creationsession_freeze: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number, number];
+    readonly creationsession_groupVk: (a: number) => [number, number];
+    readonly creationsession_keyPackage: (a: number) => [number, number];
+    readonly creationsession_myCommitment: (a: number) => [number, number];
+    readonly creationsession_myNonce: (a: number) => [number, number];
+    readonly creationsession_myRound1: (a: number) => [number, number];
+    readonly creationsession_new: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly creationsession_openFromSeat: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly creationsession_part2: (a: number) => [number, number, number];
+    readonly creationsession_pubkeys: (a: number) => [number, number];
+    readonly creationsession_sealToSeat: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly deviceWritePubHex: (a: number, b: number) => [number, number];
     readonly devicekey_fromSecret: (a: number, b: number) => [number, number, number];
     readonly devicekey_fromShare: (a: number, b: number) => number;
@@ -390,6 +411,36 @@ export interface InitOutput {
     readonly recoveryhelper_deltaRecipient: (a: number, b: number) => [number, number];
     readonly recoveryhelper_new: (a: number, b: number, c: number, d: number) => number;
     readonly recoveryhelper_sigma: (a: number) => [number, number, number, number];
+    readonly selftest: () => [number, number];
+    readonly describeOutputs: (a: number, b: number) => [number, number, number, number];
+    readonly extractRandomizers: (a: number, b: number) => [number, number, number, number];
+    readonly injectSigs: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
+    readonly pcztSighash: (a: number, b: number) => [number, number, number, number];
+    readonly readPayment: (a: number, b: number) => [number, number, number, number];
+    readonly uaReceiver: (a: number, b: number) => [number, number, number, number];
+    readonly __wbg_coordinator_free: (a: number, b: number) => void;
+    readonly __wbg_round1_free: (a: number, b: number) => void;
+    readonly __wbg_testvault_free: (a: number, b: number) => void;
+    readonly coordinator_addCommitment: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly coordinator_addShare: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly coordinator_aggregate: (a: number) => [number, number, number, number];
+    readonly coordinator_aggregateWithRandomizer: (a: number, b: number, c: number) => [number, number, number, number];
+    readonly coordinator_new: (a: number, b: number, c: number, d: number, e: number, f: number) => number;
+    readonly coordinator_prepare: (a: number) => [number, number];
+    readonly coordinator_seed: (a: number) => [number, number];
+    readonly coordinator_signingPackage: (a: number) => [number, number];
+    readonly coordinator_verify: (a: number, b: number, c: number) => [number, number, number];
+    readonly coordinator_verifyWithRandomizer: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
+    readonly participantRound1: (a: number, b: number) => [number, number, number];
+    readonly participantRound2: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
+    readonly participantRound2WithRandomizer: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number, number];
+    readonly round1_commitment: (a: number) => [number, number];
+    readonly round1_nonces: (a: number) => [number, number];
+    readonly testvault_groupVk: (a: number) => [number, number];
+    readonly testvault_id: (a: number, b: number) => [number, number];
+    readonly testvault_key_package: (a: number, b: number) => [number, number];
+    readonly testvault_new: () => [number, number, number];
+    readonly testvault_pubkeys: (a: number) => [number, number];
     readonly __wbindgen_exn_store: (a: number) => void;
     readonly __externref_table_alloc: () => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;

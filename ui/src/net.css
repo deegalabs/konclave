@@ -337,7 +337,7 @@
   text-transform:uppercase; color:var(--warn,#e0a13f); margin-right:8px}
 .cv-join{margin-top:14px; display:flex; flex-direction:column; gap:10px}
 .cv-input{background:var(--surface-0); border:1px solid var(--line); border-radius:9px; color:var(--text); padding:11px 13px; font-family:var(--font-mono); letter-spacing:.14em; text-align:center; font-size:15px; box-sizing:border-box}
-.cv-input:focus{outline:none; border-color:var(--accent-line)}
+.cv-input:focus{border-color:var(--accent); outline:2px solid var(--accent); outline-offset:1px}
 
 /* Create-done backup card: the portable, encrypted copy of the just-created vault (download/copy). */
 .cv-backup{margin-top:16px; display:flex; flex-direction:column; gap:12px}
@@ -364,9 +364,41 @@
 .cv-name{margin-bottom:12px}
 .cv-nameinput{width:100%; box-sizing:border-box; background:var(--surface-0); border:1px solid var(--line);
   border-radius:9px; color:var(--text); padding:11px 13px; font-size:15px; font-family:var(--font-sans)}
-.cv-nameinput:focus{outline:none; border-color:var(--accent-line)}
+.cv-nameinput:focus{border-color:var(--accent); outline:2px solid var(--accent); outline-offset:1px}
 
 /* Invite copy hint (create modal) + the strong "don't lose your share" warning. */
 .cv-copyhint{font-family:var(--font-mono); font-size:11.5px; color:var(--text-muted); text-align:center; margin:-8px 0 4px}
 .cv-danger{color:var(--danger-text); font-size:11.5px; line-height:1.5; padding:0 8px}
 .cv-danger:hover{color:var(--danger)}
+
+/* Vault creation, version 2: the invite (code, link, QR), the code every member compares, the stop. */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.cv-invite { display: flex; flex-direction: column; align-items: stretch; gap: 12px; margin: 8px 0 16px; }
+.cv-group { display: inline-block; white-space: nowrap; }
+.net-code.cv-invite-code { font-size: clamp(16px, 4.2vw, 22px); letter-spacing: 0.08em; cursor: default; margin: 0; word-break: normal; }
+.cv-invite-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+.cv-status { min-height: 1.2em; margin: 0; text-align: center; font-size: 13px; color: var(--text-muted); }
+.cv-warn { border: 1px solid var(--warn-strong); border-radius: 10px; padding: 10px 12px; font-size: 14px; color: var(--text); background: var(--surface-1); }
+.cv-pin { display: block; margin-top: 6px; font-family: var(--font-mono); }
+.cv-pin-value { letter-spacing: 0.12em; }
+.cv-pin .cv-linkbtn { display: inline; width: auto; margin: 0 0 0 6px; padding: 6px 8px; min-height: 32px; font-size: 13px; text-decoration: underline; }
+.cv-invite-qr { align-self: center; width: min(220px, 60vw); background: #fff; padding: 10px; border-radius: 10px; border: 1px solid var(--line-strong); }
+.cv-invite-qr svg { display: block; width: 100%; height: auto; }
+.cv-codecheck { display: flex; flex-direction: column; gap: 12px; }
+.cv-headcount { font-size: 15px; margin: 0; color: var(--text); }
+.net-code.cv-code-big { font-size: clamp(28px, 8vw, 44px); letter-spacing: 0.16em; cursor: default; margin: 4px 0 8px; word-break: normal; }
+.cv-hint { font-size: 13px; color: var(--text-muted); margin: 0; }
+.cv-codecheck-list { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.cv-codecheck-row { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 10px;
+  border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface-1); }
+.cv-codecheck-row.me { color: var(--text-muted); }
+.cv-codecheck-row.unknown { border-color: var(--warn-strong); }
+.cv-codecheck-row input { width: 24px; height: 24px; flex: none; }
+.cv-codecheck-row label { flex: 1; cursor: pointer; }
+.cv-stop { min-height: 44px; padding: 10px 16px; font-size: 14px; background: none; border: 1px solid var(--warn-strong);
+  border-radius: 10px; color: var(--warn-strong); cursor: pointer; width: 100%; }
+.cv-stopped { display: flex; flex-direction: column; gap: 14px; }
+
+.cv-cancel { align-self: flex-end; margin-left: auto; display: block; min-height: 44px; padding: 10px 14px; font-size: 13px;
+  background: none; border: 1px solid var(--line-strong); border-radius: 10px; color: var(--text); cursor: pointer; }
+.cv-cancel:hover { border-color: var(--warn-strong); }

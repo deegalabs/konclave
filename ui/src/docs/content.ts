@@ -185,8 +185,8 @@ export const SECTIONS: Section[] = [
         k: 'ul',
         items: [
           {
-            'pt-BR': '**1. Crie ou entre num cofre** (Seus cofres → Criar cofre, ou Entrar por convite). Escolha quantos membros e quantos precisam aprovar (2 de 3 por padrão). O aparelho de cada membro gera o seu pedaço da chave; a chave inteira nunca existe em lugar nenhum.',
-            en: '**1. Create or join a vault** (Your vaults → Create a vault, or Join by invite). Pick how many members and how many must approve (2 of 3 by default). Each member’s device makes its own part of the key; the whole key never exists anywhere.',
+            'pt-BR': '**1. Crie ou entre num cofre** (Seus cofres → Criar cofre, ou Entrar por convite). Escolha quantos membros e quantos precisam aprovar (2 de 3 por padrão) e um PIN, que vai separado do convite. Quando todos entram, cada aparelho mostra o mesmo código curto: leia-o com cada pessoa da lista e confirme só se todas lerem o mesmo. O aparelho de cada membro gera o seu pedaço da chave; a chave inteira nunca existe em lugar nenhum.',
+            en: '**1. Create or join a vault** (Your vaults → Create a vault, or Join by invite). Pick how many members and how many must approve (2 of 3 by default), and a PIN that travels apart from the invite. Once everyone joins, each device shows the same short code: read it with every person on the list and confirm only if they all read the same. Each member’s device makes its own part of the key; the whole key never exists anywhere.',
           },
           {
             'pt-BR': '**2. Financie o cofre** (`/receive`). Compartilhe o **endereço blindado** do cofre (u1…, com QR e link de cobrança ZIP-321) e receba ZEC.',
@@ -328,9 +328,9 @@ export const SECTIONS: Section[] = [
         k: 'p',
         t: {
           'pt-BR':
-            'O único pedaço secreto do DKG (os pacotes da rodada 2) é **lacrado ponta a ponta** (X25519, HKDF-SHA256, XChaCha20-Poly1305), então o relay permanece cego. Em [Seus cofres](#/vaults), um aparelho cria o cofre e mostra um código de convite, o outro entra com ele, e juntos rodam um DKG real e depois assinam como quórum.',
+            'O único pedaço secreto do DKG (os pacotes da rodada 2) é **lacrado ponta a ponta** (X25519, HKDF-SHA256, XChaCha20-Poly1305), então o relay permanece cego. Em [Seus cofres](#/vaults), um aparelho cria o cofre e mostra um convite (link ou código), o outro entra com ele e com o PIN, todos conferem o mesmo código curto, e juntos rodam um DKG real e depois assinam como quórum.',
           en:
-            'The one secret piece of the DKG (the round-2 packages) is **sealed end-to-end** (X25519, HKDF-SHA256, XChaCha20-Poly1305), so the relay stays blind. In [Your vaults](#/vaults), one device creates the vault and shows an invite code, the other joins with it, and together they run a real DKG and then sign as a quorum.',
+            'The one secret piece of the DKG (the round-2 packages) is **sealed end-to-end** (X25519, HKDF-SHA256, XChaCha20-Poly1305), so the relay stays blind. In [Your vaults](#/vaults), one device creates the vault and shows an invite (a link or a code), the other joins with it and the PIN, everyone checks the same short code, and together they run a real DKG and then sign as a quorum.',
         },
       },
       { k: 'h', t: { 'pt-BR': 'Recuperação e herança: o que é provado, o que não está ligado', en: 'Recovery and inheritance: what is proven, what is not wired' } },

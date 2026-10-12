@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { readdirSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { codeAt } from './source-scan'
 
 // Registering this device's seat must not depend on a proposal being open.
@@ -39,6 +39,13 @@ function sources(dir: string, out: string[] = []): string[] {
 const codeOf = codeAt
 
 describe('a seat registers on unlock, not on an open proposal', () => {
+  it('nothing but device-registration.ts registers a vault\'s read key, and only for a vault made by the current creation', () => {
+    const offenders = sources(SRC).filter((p) => /\bregisterReadKey\s*\(/.test(codeOf(p)))
+      .map((p) => relative(SRC, p)).filter((p) => p !== 'device-registration.ts' && p !== DEFINES)
+    expect(offenders).toEqual([])
+    expect(codeOf(join(SRC, 'device-registration.ts'))).toMatch(/if \(share\.accessSecret && share\.threshold !== undefined\)/)
+  })
+
   it('nothing but device-registration.ts calls registerDeviceKey', () => {
     const offenders = sources(SRC).filter((p) => /\bregisterDeviceKey\s*\(/.test(codeOf(p)))
     expect(
