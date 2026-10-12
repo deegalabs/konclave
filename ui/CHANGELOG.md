@@ -409,25 +409,27 @@ it is live for everyone.
 
 - **Anyone holding a vault's link could lock its own members out of their books.** The key that
   proves a device may read a vault could be REPLACED by whoever had the vault's id, on any vault,
-  including a protected one. Nothing leaked and no money could move - what it did was shut the
-  members out: balance, ledger, proposals, members and history all refused, for everyone, on their
-  own vault. And it would not have healed on its own, because nothing in the app ever re-registers
-  that key after a vault is created; recovery would have been a hand-made request by someone who
-  knew. Changing the key now requires the current one. Setting the FIRST one still requires nothing,
-  which is what lets a new vault be protected at all. Open since the read protection shipped on
-  2026-08-28; no vault was affected.
+  including a protected one. Whoever replaced it chose the new key, so from then on they could read
+  what that key protects and, on a vault with no device registered for sealing, its viewing key. It
+  gave no part in signing, and it shut the members out: balance, ledger, proposals, members and
+  history all refused, for everyone, on their own vault. And it would not have healed on its own,
+  because nothing in the app ever re-registers that key after a vault is created; recovery would
+  have been a hand-made request by someone who knew. Changing the key now requires the current one.
+  Setting the FIRST one still requires nothing, which is what lets a new vault be protected at all.
+  Open since the read protection shipped on 2026-08-28; no vault was affected.
 
 - **Anyone holding a vault's link could take over a seat nobody had claimed yet.** Registering a
   device with the coordinator asked for no proof at all, so whoever had the vault id could claim any
   seat whose own member had not yet unlocked on a device - and from then on could vote as that
-  member, while the real member's own device was refused with "that seat is taken". No money was
-  ever reachable: signing needs the real key shares and always did. What it broke is the part that
-  matters most, which is that an approval on screen is that member's approval. Claiming a seat now
-  requires the key only a seated member's device can derive, the same one the private reads already
-  ask for. A vault that has never been protected still registers devices as before. Checked on the
-  live vaults: none was in the state where this could have been used - every one either had all its
-  seats claimed or had none - but the window opens whenever members join at different times, and on
-  one vault it had been open for two weeks.
+  member, while the real member's own device was refused with "that seat is taken". A seat taken
+  this way could act on the coordinator as that member (propose, approve, refuse, rename, ask for a
+  send). It could not sign: a signature needs that member's key share, which stays on the member's
+  device. What it broke is the part that matters most, which is that an approval on screen is that
+  member's approval. Claiming a seat now requires the key only a seated member's device can derive,
+  the same one the private reads already ask for. A vault that has never been protected still
+  registers devices as before. Checked on the live vaults: none was in the state where this could
+  have been used - every one either had all its seats claimed or had none - but the window opens
+  whenever members join at different times, and on one vault it had been open for two weeks.
 
 ### Changed
 
