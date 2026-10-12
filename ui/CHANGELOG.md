@@ -168,8 +168,8 @@ history to tidy it is how context gets lost.
 All five are live on the web with this change. If Konclave was already open, tap Update when it
 says a new version is available, or close every Konclave tab and open it again: reloading one tab
 keeps the version you had. The commit in the footer tells you which version you are running. On the
-desktop they arrive with its next release. A fuller account of what each one closed follows once
-it is live for everyone.
+desktop they arrive with its next release. What each one closed, and since when, is in the
+disclosure: https://forum.zcashcommunity.com/t/konclave-a-group-vault-on-zcash-frost/57218/21.
 
 ### Changed
 

@@ -44,29 +44,58 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Security
 
-- **How the coordinator registers a member's device was hardened.** The details are held back for
-  now: they will be written up when they are published, and this entry will be extended then. What a
+- **How the coordinator registers a member's device was hardened.** Before, a member who could read
+  the vault, or on a vault with no read key anyone holding its id, could register another member's
+  device key with their own write key, or move it to a free seat, and then vote, propose, rename and
+  trigger a send as that seat; on a vault that needs two approvals, one member could take a payment
+  to ready alone. The attacker had to know the target's comms key. The swap has been in the code
+  since 2026-09-06, when signed votes started to require a write key, and so has an unreadable
+  device registry, which was read as 'no devices' so the vault accepted unsigned writes. A key the
+  coordinator cannot seal to has been accepted since 2026-08-29, and once registered it made every
+  sealed send fail until an operator removed it. We did not check whether any of these was used. A
+  swap made earlier would look like a normal record, so a census of the vaults we could inspect
+  cannot show it. A seat that nobody has claimed yet is still open (#577). What a member or operator
+  can notice is under Known limits. Takes effect when this build is deployed.
+
+- **The coordinator's handling of a send that does not finish cleanly was hardened.** Before, a send
+  broadcast first and wrote its record afterwards, ignoring write errors. A crash or a failed write
+  between the two left the proposal ready with no transaction id, and the next Send built a second
+  transaction for the same approved lines. It needed no attacker. In the code since 2026-07-31. We
+  did not look for it in chain history. The record is now written before anything is broadcast.
+  Rolling back to v0.10.0 is not safe once records exist (docs/RECOVERY.md, procedure E). What a
   member or operator can notice is under Known limits. Takes effect when this build is deployed.
 
-- **The coordinator's handling of a send that does not finish cleanly was hardened.** The details
-  are held back for now: they will be written up when they are published, and this entry will be
-  extended then. What a member or operator can notice is under Known limits. Takes effect when this
-  build is deployed.
+- **How the coordinator publishes a signing request was hardened.** Before, the signing request
+  published on the relay included more than a device reads, and it was published in clear text when
+  not every member had registered a device. An unsigned send from such a vault is now refused. A
+  signed send from a vault whose members have not all registered still travels unsealed (see Known
+  limits). In the code since 2026-07-31; until 2026-08-29 the request was always in clear text, and
+  since then it is sealed once every member has registered a device. We did not check whether any
+  request was read. What a member or operator can notice is under Known limits. Takes effect when
+  this build is deployed.
 
-- **How the coordinator publishes a signing request was hardened.** The details are held back for
-  now: they will be written up when they are published, and this entry will be extended then. What a
-  member or operator can notice is under Known limits. Takes effect when this build is deployed.
-
-- **How the coordinator saves a vault's own files was hardened.** The details are held back for now:
-  they will be written up when they are published, and this entry will be extended then. Takes effect
+- **How the coordinator saves a vault's own files was hardened.** Before, some small files of a
+  vault were written in place, so a write cut by a crash or a full disk could leave a file that no
+  longer read as it should; for the key file that meant 'no key', which opened the vault's private
+  reads. No remote trigger was found. The key file and the device registry are now written through a
+  temporary file and a rename, and refuse to be read as empty when unreadable. In the code since
+  2026-07-31 for most of them (2026-08-29 for the key file). We did not check logs. Takes effect
   when this build is deployed.
 
-- **Defects in the coordinator's write checks were fixed.** The details are held back for now: they
-  will be written up when they are published, and this entry will be extended then.
-  What a member or operator can notice: a request the coordinator now
-  refuses gets a plain error, and **the coordinator needs `KONCLAVE_RELAY_BASES` set, to the relays
-  the apps use, or it refuses every send** (see `DEPLOY.md`). Takes effect when this build is
-  deployed.
+- **Defects in the coordinator's write checks were fixed.** Before, a send request carried the
+  address of the relay the coordinator would call, and the coordinator called it; it now calls only
+  the relays it is configured with, over https (#270, in the code since 2026-07-31; the issue has
+  been public since 2026-08-23). Two requests for the same vault could run at the same time when the
+  query string of one named another vault, so a vote and a rename sent together could approve under
+  two names (#576, in the code since 2026-08-28; the issue has been public since 2026-09-29).
+  Approvals were counted as text, not as members, so a name recorded while a vault took unsigned
+  actions kept counting (#575, since 2026-09-06; narrowed, still open: see Known limits). We did not
+  check whether any of these was used. These are the changes for #575 (narrowed, still open), #576
+  and #270, shipped in v0.10.0 on 2026-10-04. The disclosure has what each one was and since when:
+  https://forum.zcashcommunity.com/t/konclave-a-group-vault-on-zcash-frost/57218/21. What a member
+  or operator can notice: a request the coordinator now refuses gets a plain error, and **the
+  coordinator needs `KONCLAVE_RELAY_BASES` set, to the relays the apps use, or it refuses every
+  send** (see `DEPLOY.md`). Takes effect when this build is deployed.
 
 - **A member could approve a payment in another member's name.** Once a vault requires signed
   actions, every vote carries a signature that proves which seat sent it. The coordinator checked
@@ -84,7 +113,11 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   2026-09-06 and signed payments and payrolls on 2026-09-07, and this was open from the start. On
   2026-09-28 signed actions were on in two vaults on the production service, both of them the
   project's own test vaults. Takes effect when this build is deployed. **It closes this route and
-  not every route to the same result: see Known limits.**
+  not every route to the same result: see Known limits.** Fixed 2026-09-29 and live that day, before
+  v0.10.0. It appears under 0.11.0 because this file was not cut at v0.10.0, so the entries held
+  back then moved under this heading together. Open from 2026-09-06 (votes) and 2026-09-07 (payments
+  and payrolls). We did not check whether it was used: a proposal file does not record which seat
+  signed.
 
 - **Anyone holding a vault's link could lock its own members out of their books.** The key that
   proves a device may read a vault could be REPLACED by whoever had the vault's id, on any vault,
