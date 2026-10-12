@@ -215,12 +215,13 @@ explicitly accepted.
 
 - **On a transaction that spent from both shielded pools, a device signed half of it and said
   nothing.** A vault that still held funds in the older pool while receiving into the newer one
-  could produce a payment that draws on both. The part of the app that decides which parts of such
-  a payment need this device's signature answered that question on its own instead of asking the
-  one place that knows, and its answer was to take the older pool and ignore the rest. The parts it
-  ignored were never signed and no warning was raised; the payment then failed later, with a
-  message about the wrong thing. Nothing could be sent anywhere it was not approved to go, and no
-  funds were reachable - the cost was a payment that failed for a reason nobody could see.
+  could produce a payment that draws on both. The part of the app that decides which parts of such a
+  payment need this device's signature answered that question on its own instead of asking the one
+  place that knows, and its answer was to take the older pool and ignore the rest. The parts it
+  ignored were never signed and no warning was raised; the payment then failed later, with a message
+  about the wrong thing. This defect could not change what the payment paid: a transaction with a
+  part left unsigned is not valid, so it could only fail, and the cost was a payment that failed for
+  a reason nobody could see.
 
   There is now one answer to that question and every part of the app asks it. A payment drawing on
   both pools is refused before anything is signed, with the same wording everywhere, and the reason
@@ -235,10 +236,9 @@ explicitly accepted.
   it may only use once, and have nothing left when the real member's package arrived. The payment
   then failed and could not be retried in that attempt.
 
-  No money could be moved to anywhere it was not approved to go: a device still refuses any
-  transaction other than the one it recomputed for itself, so the worst outcome was a payment that
-  did not go out. What the sender did obtain was the finished signature for the approved payment,
-  without the deliberate confirm the send is built on.
+  For the payment itself, the outcome seen was that it did not go out. What the sender did obtain
+  was the finished signature for the approved payment, without the deliberate confirm the send is
+  built on.
 
   A device now refuses a package from a member that does not hold the seat that opens the round. A
   sender it has not placed YET is held rather than refused, because a device learns its peers'
@@ -249,8 +249,8 @@ explicitly accepted.
 - **Someone who took an empty seat could stall a payment.** In a vault that signs with fewer members
   than it has, a seat whose device was offline could be claimed by an outsider, who then sent a
   contribution nobody's share had made. The signature failed to verify and the payment did not go
-  out; it had to be tried again, and succeeded once the real member was present. No money could be
-  moved and nobody else's money was reachable.
+  out; it had to be tried again, and succeeded once the real member was present. Such a contribution
+  cannot change the transaction: one that no share made only makes the signature fail to verify.
 
   Devices now record which seats proved they hold their share, and the member that assembles the
   round waits until the whole batch of contributions has arrived before choosing whose to use, so a
