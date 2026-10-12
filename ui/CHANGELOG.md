@@ -40,6 +40,8 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+## [0.12.0] 2026-10-12
+
 ### Security
 
 - **Creating a vault now ends with a code every member reads to every other.** Before anything
