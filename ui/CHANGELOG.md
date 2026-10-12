@@ -40,6 +40,8 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+## [0.11.0] 2026-10-12
+
 ### Changed
 
 - **The proof page lists the twentieth transaction, and the roadmap page says what the 2026-10-04
