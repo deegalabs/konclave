@@ -7,7 +7,7 @@
 // messages into `onMessage` and calls `start()`/`stop()`. Unit-tested end to end over an in-memory
 // relay, so the live layer is glue, not logic.
 
-import { armIsLive } from './signing-gate'
+import { armExpiredBy, armOnArrival, emptyTally, tallyAfter, type Tally } from './signing-gate'
 import { SigningSeats } from './signing-seats'
 import { BackgroundSigner, type GovernanceGate } from './background-signer'
 import type { SignPreview, SigningMaterial } from './signing-machine'
@@ -84,6 +84,11 @@ export interface UnarmedMsg {
   sig?: string
 }
 
+/** Whether a tally message fits this device's own seat: one under this device's tag carries its seat. */
+export function tallyMessageFits(from: string, seat: number | undefined, myTag: string, mySeat: number): boolean {
+  return from !== myTag || seat === mySeat
+}
+
 export class BackgroundSession {
   private readonly seats: SigningSeats
   private readonly signer: BackgroundSigner
@@ -98,9 +103,18 @@ export class BackgroundSession {
   /** The ceremony log line. `/net` shows it; the app path leaves it unwired today, so a dropped
    *  tally message is not on screen there - see #425's note on the mixed-version window. */
   private readonly onLog?: (line: string) => void
-  /** Seat -> the tag that armed it, for `currentProposal`. Keyed by SEAT so a device that reloads
-   *  (new tag, same seat) replaces its own arming instead of counting twice. */
-  private readonly armed = new Map<number, string>()
+  /** The current payment's tally (`tallyAfter`): each seat's standing signature, the window of the
+   *  last completion, and the newest signatures taken. Keyed by SEAT so a device that reloads (new
+   *  tag, same seat) replaces its own arming instead of counting twice. */
+  private tally: Tally = emptyTally()
+  /** The window of the last completion that named a sender (its newest signature's time): while it
+   *  runs, a full count on screen is someone sending; after it, it is signatures waiting for the
+   *  next one past the window (#626 review). */
+  private namedAt: number | null = null
+  /** Seats whose signature for this payment was dropped as dated too far ahead, logged once each. */
+  private readonly warnedAhead = new Set<number>()
+  /** Seats whose proven signature for this payment the tally ignored, logged once each. */
+  private readonly warnedIgnored = new Set<number>()
   /** The payment whose signatures this session is counting. Anything else is ignored.
    *
    *  The signing room is PERMANENT (it is derived from the group key), so its log still holds every
@@ -168,6 +182,11 @@ export class BackgroundSession {
     // quorum. A message that does not verify is dropped and SAID, never dropped in silence: a
     // tally that quietly refuses to grow is the #356 failure, two members at "1 of 2" with both
     // present and nothing wrong on screen.
+    // Tally messages are checked against this device's own seat.
+    if ((parsed?.type === 'armed' || parsed?.type === 'unarmed') && !tallyMessageFits(from, parsed.seat, this.myTag, this.seats.mySeat())) {
+      this.onLog?.(`~ ignored a ${parsed.type} message that does not match this device's seat`)
+      return
+    }
     if (parsed?.type === 'unarmed' && typeof parsed.proposal === 'string') {
       if (parsed.proposal !== this.currentProposal) return
       const proven =
@@ -177,19 +196,38 @@ export class BackgroundSession {
         this.onLog?.(`~ ignored an unproven withdrawal for seat ${String(parsed.seat)}`)
         return
       }
-      this.armed.clear()
+      // A withdrawn attempt holds no window, so the next round may send at once; what was taken stays
+      // taken, so the withdrawn signatures cannot be posted back in.
+      this.tally = { ...this.tally, entries: new Map(), completedAt: null }
+      this.namedAt = null
       this.onArmed?.([], null)
-      if (parsed.code) this.onFailed?.(parsed.code)
+      // The reason is for the other devices. This one already says its own, and the room delivers a
+      // device's messages back to it: taking its own withdrawal as a peer's failure replaced what it
+      // said with "the send failed ... you can sign again".
+      // A failure is news only when it happens: one read back from the room's history belongs to an
+      // earlier attempt and must not replace what the screen knows about a later one.
+      if (parsed.code && from !== this.myTag && !historical) this.onFailed?.(parsed.code)
       return
     }
     if (parsed?.type === 'armed' && typeof parsed.seat === 'number' && typeof parsed.proposal === 'string') {
       const at = typeof parsed.at === 'number' ? parsed.at : null
-      // The cheap gates run FIRST. A message for another payment, or one whose signature has
-      // already expired, is dropped without spending a verification on it - so a flood of forged
-      // armings costs a device parsing, not crypto. It also keeps the two rules separable: an
-      // expired arming is refused for being expired, not for being unproven.
+      // The cheap gates run FIRST. A message for another payment, or one from further ahead than any
+      // clock should be, is dropped without spending a verification on it; one for the open payment
+      // costs one verification, which the relay's rate limit bounds. Expiry is not judged here:
+      // `tallyAfter` decides it from the signatures' own times, the same on every device (#626).
       if (parsed.proposal !== this.currentProposal) return
-      if (at === null || !armIsLive(at, this.now())) return
+      if (at === null) return // from before signatures carried a time: always a leftover
+      if (armOnArrival(at, this.now()) === 'ahead') {
+        // Dropping it is what stalled a send with nothing on screen (#626), so it is said, once per
+        // seat and payment, and only for a signature the seat really made: a forged one must not use
+        // up the warning for the real one, nor fill the console. The console carries it because the
+        // app path leaves `onLog` unwired.
+        if (!this.warnedAhead.has(parsed.seat) && armedIsProven(this.signingMaterial(), parsed.seat, from, at, parsed.proposal, parsed.sig)) {
+          this.warnedAhead.add(parsed.seat)
+          this.say(`~ ignored a signature for seat ${parsed.seat} dated ${Math.round((at - this.now()) / 1000)}s ahead of this device's clock`)
+        }
+        return
+      }
       if (!armedIsProven(this.signingMaterial(), parsed.seat, from, at, parsed.proposal, parsed.sig)) {
         this.onLog?.(`~ ignored an unproven arming for seat ${parsed.seat}`)
         return
@@ -247,8 +285,11 @@ export class BackgroundSession {
   setProposal(id: string | null): void {
     if (this.currentProposal === id) return
     this.currentProposal = id
-    this.armed.clear()
+    this.tally = emptyTally()
+    this.namedAt = null
     this.onArmed?.([], null)
+    this.warnedAhead.clear()
+    this.warnedIgnored.clear()
     if (id !== null && id !== this.machineProposal) {
       this.machineProposal = id
       this.signer.rearm()
@@ -256,10 +297,11 @@ export class BackgroundSession {
   }
 
   /** Announce that this device's owner explicitly signed `proposal`. Every device (this one
-   *  included, the relay echoes it back) sees the same ordered log and agrees on who sends. */
-  async arm(proposal: string): Promise<void> {
+   *  included, the relay echoes it back) sees the same ordered log and agrees on who sends. `at` is
+   *  the moment the owner signed, read once by the caller so its own window and the room's count
+   *  are the same instant. */
+  async arm(proposal: string, at: number = this.now()): Promise<void> {
     this.setProposal(proposal) // a no-op in the normal path; correct if the caller never scoped us
-    const at = this.now()
     const seat = this.seats.mySeat()
     const mat = this.signingMaterial()
     const sig = signArmed(mat.keyPackage, seat, bytesToHex(mat.groupVk), this.myTag, at, proposal)
@@ -278,36 +320,72 @@ export class BackgroundSession {
   }
 
   /** Apply one signature. Signatures for any other payment are dropped, so replaying the room's
-   *  history on join can never build a tally for the payment on screen. The device whose signature
-   *  brings the tally exactly to the threshold is named as the sender - once, deterministically,
-   *  from an ordering every device sees identically. */
-  private handleArmed(from: string, seat: number, proposal: string, at: number | null): void {
+   *  history on join can never build a tally for the payment on screen. Who sends is `tallyAfter`'s
+   *  decision, made from the room's order and the signatures' own times, so every device reaches the
+   *  same one (#626). */
+  private handleArmed(from: string, seat: number, proposal: string, at: number): void {
     if (proposal !== this.currentProposal) return
-    // A signature expires on the wire exactly as it expires on the device. Without this, a failed
-    // attempt's signatures sat in the permanent room forever: on reload both devices rebuilt a full
-    // quorum from tags that no longer existed, so the payment read as signed by ghosts and sendable
-    // by nobody - no button, no sender, no way out. One with no timestamp is from before this rule
-    // and is always stale; it can only be a leftover.
-    if (at === null || !armIsLive(at, this.now())) return
-    const known = this.armed.get(seat)
-    this.armed.set(seat, from)
-    const t = this.threshold()
-    // Only a NEW seat can complete the quorum; a device re-announcing its own seat must not
-    // re-fire the trigger.
-    const completes = known === undefined && t > 0 && this.armed.size === t
-    this.onArmed?.(this.armedSeats(), completes ? from : null)
+    const step = tallyAfter(this.tally, seat, from, at, this.threshold())
+    if (step.ignored) {
+      // Said like a signature dated ahead, once per seat and payment: the member whose signature it
+      // was sees no button until its own window ends, and the reason must be somewhere (#626 review).
+      // Someone able to write to the room can post a seat's old signature again and use the line up;
+      // the line it leaves says the same thing.
+      const line = `~ ignored seat ${seat}'s signature: ${step.ignored === 'older' ? 'older than one already taken' : 'expired before the newest'}`
+      if (this.warnedIgnored.has(seat)) this.onLog?.(line)
+      else {
+        this.warnedIgnored.add(seat)
+        this.say(line)
+      }
+      return
+    }
+    for (const s of step.pruned) {
+      this.say(`~ seat ${s}'s signature, dated ${Math.round((step.tally.newest! - this.tally.entries.get(s)!.at) / 1000)}s before the newest, no longer counts`)
+    }
+    this.tally = step.tally
+    // A completion read back from an old attempt holds its window like any other, so every device
+    // keeps the same latch, but names nobody: its sender's tab is gone (#326).
+    const named = step.completes && !armExpiredBy(at, this.now()) ? from : null
+    if (named !== null) this.namedAt = step.tally.completedAt
+    this.onArmed?.(this.armedSeats(), named)
   }
 
-  /** The seats that have signed the current proposal, ascending. */
+  /** The seats whose signature for the current proposal still counts, ascending: what the screen
+   *  shows. The tally forgets an expired signature when the next one arrives; this also leaves out
+   *  one that expired since, by this device's clock, so the count does not show a signature from an
+   *  old attempt as standing. */
   armedSeats(): number[] {
-    return [...this.armed.keys()].sort((a, b) => a - b)
+    const now = this.now()
+    return [...this.tally.entries.entries()].filter(([, e]) => !armExpiredBy(e.at, now)).map(([s]) => s).sort((a, b) => a - b)
+  }
+
+  /** Would this device's signature, made now, name it the sender? `tallyAfter` itself, asked with a
+   *  signature dated now, so the panel words the confirm from the decision and not from a copy of it
+   *  (#626 review). */
+  wouldComplete(now: number = this.now()): boolean {
+    return tallyAfter(this.tally, this.seats.mySeat(), this.myTag, now, this.threshold()).completes
+  }
+
+  /** Is a sender the room named still within its window? What lets the screen say someone is
+   *  sending: a full count alone does not, once that window has passed with nobody named since. */
+  sendingNamed(now: number = this.now()): boolean {
+    return this.namedAt !== null && !armExpiredBy(this.namedAt, now)
+  }
+
+  /** A tally line: to the ceremony log, and to the console, because the app path leaves `onLog`
+   *  unwired and a dropped signature is what stalled sends with nothing on screen (#626). No
+   *  secret: a seat number and a number of seconds. */
+  private say(line: string): void {
+    this.onLog?.(line)
+    console.warn(`[konclave] ${line}`)
   }
 
   /** Reset for a NEXT payment. Also clears `machineProposal`, so the next `setProposal` binds the
    *  machine again rather than assuming it is already pointed at the right payment. */
   rearm(): void {
     this.signer.rearm()
-    this.armed.clear()
+    this.tally = emptyTally()
+    this.namedAt = null
     this.currentProposal = null
     this.machineProposal = null
   }

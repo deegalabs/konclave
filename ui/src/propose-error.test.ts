@@ -118,6 +118,7 @@ describe('no caller invents a reason the coordinator did not give', () => {
   it('a refused vote passes the coordinator\'s reason on instead of calling it a conflict', () => {
     const fn = CODE.split('export async function voteProposal')[1]?.split('\nexport ')[0] ?? ''
     expect(fn, 'voteProposal not found').toBeTruthy()
-    expect(fn, 'a 403 carries a reason and it must reach the member').toContain('403')
+    // The mapping itself is tested on its behaviour in coordinator-replies.test.ts.
+    expect(fn, 'a 403 carries a reason and it must reach the member').toContain('voteFailure(lastHelperPostFailure())')
   })
 })
