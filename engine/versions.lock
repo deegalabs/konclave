@@ -161,20 +161,20 @@ zcash_client_backend = "0.24.0-rc.1"
 # engine is not a binary swap (deploy/helper/README.md, "the upgrade is one-way").
 # The `konclave` bridge is not part of the helper image, so it has no entry here.
 [deploy_build]
-date        = "2026-10-04"
-commit      = "b62a7f0"
+date        = "2026-10-11"
+commit      = "21db4dd"
 line        = "released crates.io (pczt 0.9.3 / zcash_client_backend 0.24.0 / zcash_primitives 0.30.1 / orchard 0.15.5)"
 
 [[deploy_binary]]
 name   = "konclave-signer"
-sha256 = "d3c392a1f0df25c6f9c3fff3d55e9c657b5ae45a63a5e8e4fea2504e03e8fd01"
-bytes  = 7686456
+sha256 = "07c2d73ecc5f03d5d1f72f837a9bd51a7714a131aeec802c99762429141d341b"
+bytes  = 7970504
 role   = "FROST<->PCZT bridge: extract shielded sighash + per-spend randomizers; inject the aggregate signature (pool-aware: Orchard pre-NU6.3, Ironwood post-NU6.3)"
 
 [[deploy_binary]]
 name   = "helper-server"
-sha256 = "50c0e5788b8adadbe75b06cdc6d5a7bf7fd5b286af6fd35cc2a42c961d8724f9"
-bytes  = 2791512
+sha256 = "4caaf8b2d0af33cc4555bc4e8514cf8d0bb03530e917a775a646ba237d59edfa"
+bytes  = 3370184
 role   = "hosted BLIND helper (ADR-0006 Rung A): registers a vault by group key, keeps a view-only wallet, builds/proves/broadcasts while the browsers sign. Never receives, derives, or stores a share"
 
 # The external tools used alongside them in the helper image. zcash-devtool is the build recorded
@@ -192,6 +192,11 @@ sha256 = "27f58e7ceb6aa0405cc3d6e0947f999c21d1157206401b24fb71faddb02be5f1"
 bytes  = 2793296
 role   = "register: derive the Orchard address + UFVK from the group key (`generate --ak`)"
 
+# The current [deploy_build] above is the v0.11.0 coordinator, built from 21db4dd (squash-merged into staging as 9771556, #645).
+# PREVIOUS DEPLOY (v0.10.0, 2026-10-04, commit b62a7f0): replaced on 2026-10-11 by the v0.11.0 coordinator.
+#   konclave-signer d3c392a1f0df25c6f9c3fff3d55e9c657b5ae45a63a5e8e4fea2504e03e8fd01 (7686456 bytes)
+#   helper-server   50c0e5788b8adadbe75b06cdc6d5a7bf7fd5b286af6fd35cc2a42c961d8724f9 (2791512 bytes)
+#   zcash-devtool and zcash-sign are unchanged.
 # ---------------------------------------------------------------------------------------------
 # PREVIOUS DEPLOY RECORD, kept as comments (a second [deploy_build] table would make the file
 # invalid TOML). The released-line build of 2026-08-24, which ran in production until 2026-09-21,
