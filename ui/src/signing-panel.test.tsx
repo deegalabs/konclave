@@ -9,9 +9,11 @@ const PAY_UA = 'utest1cx3tarwlxt8vw60ugpddnsjemj3aum5nhkwpdyy0kn0urhhq27lu0q3ajv
 const CHG_RCV = '8dfd0a5e'
 const OUTSIDER = 'cacacaca'
 
-const state: { bg: Record<string, unknown>; ours: (r: string | null) => boolean } = {
+const state: { bg: Record<string, unknown>; ours: (r: string | null) => boolean; share: unknown; armed: boolean } = {
   bg: {},
   ours: () => false,
+  share: undefined,
+  armed: false,
 }
 
 vi.mock('./VaultSigner', () => ({
@@ -21,10 +23,14 @@ vi.mock('./VaultSigner', () => ({
     threshold: 2,
     myName: 'Ana',
     active: { id: 'p1', kind: 'payment', to_address: PAY_UA, value_zec: '1', state: 'ready' },
-    open: () => {}, close: () => {}, reseat: () => {}, armed: false,
+    open: () => {}, close: () => {}, reseat: () => {}, armed: state.armed,
     unarmActive: async () => {}, armActive: async () => {}, armedUntil: null,
     isOurReceiver: (r: string | null) => state.ours(r),
   }),
+}))
+vi.mock('./session', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./session')>()),
+  getUnlockedShare: () => state.share,
 }))
 vi.mock('./toast', () => ({ useToast: () => ({ show: () => {}, ok: () => {}, err: () => {}, success: () => {}, error: () => {} }) }))
 
@@ -40,7 +46,7 @@ const reading: SignPreview = {
   ],
   feeZat: 20_000,
 }
-const baseBg = { ready: true, phase: 'idle', error: '', what: null, seatCount: 2, armedSeats: [], iSend: false, peerFailure: null, clearPeerFailure: () => {}, signature: null }
+const baseBg = { ready: true, phase: 'idle', error: '', what: null, seatCount: 2, armedSeats: [], iSend: false, peerFailure: null, clearPeerFailure: () => {}, signature: null, wouldComplete: () => false, sendingNamed: () => false }
 
 function render(bg: Record<string, unknown>, opts: { ours?: (r: string | null) => boolean } = {}): string {
   state.bg = { ...baseBg, ...bg }
@@ -113,5 +119,39 @@ describe('the signing panel (#610)', () => {
     const list = html.slice(html.indexOf('role="list"'))
     expect(list.match(/<span aria-hidden="true">→<\/span>/g)?.length).toBe(3)
     expect(html.indexOf('This takes a few minutes')).toBeLessThan(html.indexOf('Checked on this device'))
+  })
+
+  it('words the button from the session\'s own answer, not from the count (#626)', () => {
+    // The count says one more signature completes it; the session says whether this one would,
+    // which is false while a closed quorum holds its window. The button follows the session.
+    const counted = { armedSeats: [2], seatCount: 2 }
+    state.share = { myName: 'Ana' } // this device holds its share, so it is offered the button
+    try {
+      expect(render({ ...counted, wouldComplete: () => true })).toContain('Sign and send')
+      const notLast = render({ ...counted, wouldComplete: () => false })
+      expect(notLast).toContain('Sign with my share')
+      expect(notLast).not.toContain('Sign and send')
+    } finally {
+      state.share = undefined
+    }
+  })
+
+  it('says someone is sending only while the room named a sender, not whenever the count is full (#626)', () => {
+    // A full count with nobody named (the named sender vanished and its window passed) is not a
+    // send in progress: the member signed, and signs again when the button returns.
+    state.share = { myName: 'Ana' }
+    state.armed = true
+    try {
+      const full = { armedSeats: [1, 2], seatCount: 2 }
+      const named = render({ ...full, sendingNamed: () => true })
+      expect(named).toContain('Whoever signed last is sending')
+      const nobody = render({ ...full, sendingNamed: () => false })
+      expect(nobody).not.toContain('is sending')
+      expect(nobody).toContain('You signed.')
+      expect(nobody).toContain('2 of 2 signed')
+    } finally {
+      state.share = undefined
+      state.armed = false
+    }
   })
 })

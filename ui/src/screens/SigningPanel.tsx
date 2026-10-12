@@ -16,9 +16,11 @@ import { fmtZecExact, parseZecToZat, shortAddr } from '../format'
 import { useVaultSigner } from '../VaultSigner'
 import { unlockOnDevice } from '../unlock'
 import { executeProposal, listProposals } from '../helper'
-import { errorCode, getBalance, getProposalDetail, humanError, writeProof } from '../api'
+import { alreadySent, panelStep, resolvedStep, stepResult, unresolvedNoteKey, watchSent, type ShownStep } from '../send-preflight'
+import { errorCode, getBalance, getProposalDetail, writeProof } from '../api'
 import { relayBase } from '../net'
-import { resolveOutcome, RESOLVE_ATTEMPTS } from '../send-outcome'
+import { OutcomeBook, peerFailureMayShow, readReply, resolveOutcome, sentTxidOf, RESOLVE_ATTEMPTS, type PanelResult } from '../send-outcome'
+import { endSend, newSendAttempt, takeSend } from '../send-attempt'
 import { getUnlockedShare } from '../session'
 import { usdEnabled, cachedRate, fetchRate, zecToUsd, type Rate } from '../price'
 import { describeSigningError } from '../signing-refusal'
@@ -63,15 +65,17 @@ export default function SigningPanel() {
   // in front of a frozen line for the whole build+prove+broadcast leg with nothing moving.
   const [runSince, setRunSince] = useState<number | null>(null)
   const [elapsed, setElapsed] = useState(0)
-  const [result, setResult] = useState<{ txid: string | null } | { error: string } | { unresolved: true } | null>(null)
+  // What the send came to (`PanelResult`, send-outcome.ts); only `sentTxidOf` reads it as sent.
+  const [result, setResult] = useState<PanelResult>(null)
   // How many checks remain while resolving an unknown outcome; 0 when not resolving.
   const [checking, setChecking] = useState(0)
   const [pass, setPass] = useState('')
   const [unlocking, setUnlocking] = useState(false)
   const [unlockErr, setUnlockErr] = useState('')
   const [arming, setArming] = useState(false)
-  // The send fires from an effect (the room names the sender), so guard it: one send per proposal.
-  const sentOnce = useRef<string | null>(null)
+  // The send fires from an effect (the room names the sender), so guard it: one send per attempt
+  // (send-attempt.ts, the rule the who-sends simulator also runs).
+  const attempt = useRef(newSendAttempt())
   // Whether this device refused the transaction (#610), for the send's own failure path, which runs
   // later from a closure that cannot see this render's values.
   const refusingRef = useRef(false)
@@ -94,11 +98,14 @@ export default function SigningPanel() {
   // error. `boundTo` only ever moves forward to a real payment, so closing and reopening the same
   // one still keeps what is on screen.
   const boundTo = useRef<string | null>(null)
+  // What each payment's send came to on this page (OutcomeBook, send-outcome.ts).
+  const outcomes = useRef(new OutcomeBook())
   useEffect(() => {
     const id = active?.id ?? null
     if (id === null || id === boundTo.current) return
     boundTo.current = id
-    setResult(null)
+    setResult(outcomes.current.restore(id))
+    setChecking(0)
     setConfirming(false)
     setSending(false)
     setRunSince(null)
@@ -141,22 +148,24 @@ export default function SigningPanel() {
     // The refusal is the true account here, so it stays on screen and the retry is not offered.
     if (describeSigningError(bg.error, t).kind === 'refusal') { bg.clearPeerFailure(); return }
     const msg = t('signing.peerFailed.' + bg.peerFailure)
-    setResult({ error: msg })
+    // Never over a payment that may be on the network, one shown as sent, or this device's own send
+    // still running; and announced only when shown.
+    if (!active || sending || !peerFailureMayShow(outcomes.current.restore(active.id))) { bg.clearPeerFailure(); return }
+    showFor(active.id, { error: msg })
     toast.err(msg)
     bg.clearPeerFailure()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bg.peerFailure])
 
-  // The room decided this device sends. It already passed the money confirm (that is what
-  // `iWouldBeLast` gates), so fire once - and only once - per proposal.
+  // The room decided this device sends. Its owner already passed the money confirm (that is what
+  // `iWouldBeLast` gates). Fire once per attempt (send-attempt.ts).
   useEffect(() => {
-    if (!bg.iSend || !active) return
-    if (sentOnce.current === active.id) return
-    sentOnce.current = active.id
+    if (!bg.iSend || !active || !armed) return
+    if (!takeSend(attempt.current, active.id)) return
     void doSend()
-    // Deliberately keyed on the decision and the payment only: doSend closes over state that
-    // changes during the send, and re-running it would be a second broadcast.
-  }, [bg.iSend, active?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+    // Deliberately keyed on the decision, the payment and the signature only: doSend closes over
+    // state that changes during the send, and re-running it would be a second broadcast.
+  }, [bg.iSend, active?.id, armed]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!active || !usdEnabled()) return
@@ -177,17 +186,16 @@ export default function SigningPanel() {
   // Everyone who signed deserves the outcome, not just whoever sent. Only the sending device gets
   // the txid in its reply, so every OTHER device watches the proposal until the vault records it -
   // otherwise a member who signed sits on "sending…" forever with no way to learn it worked.
+  // Every OPEN panel watches, not only the devices that signed (#626 review): a member whose device
+  // did not take part must see the payment sent, and not be offered to sign it again. One read at a
+  // time and none from a hidden tab (`watchSent`): during a send every read waits on the vault.
+  // It watches until the payment shows as sent, through a failure or an unknown outcome too: a screen
+  // that says nothing went out must learn that it did.
+  const sentTxid = sentTxidOf(result)
   useEffect(() => {
-    if (!active || !vault || sending || result) return
-    if (bg.phase !== 'signed') return
-    let on = true
-    const id = window.setInterval(async () => {
-      const list = await listProposals(vault.group_pubkey)
-      const p = list?.find((x) => x.id === active.id)
-      if (on && p?.state === 'sent' && p.txid) setResult({ txid: p.txid })
-    }, 4000)
-    return () => { on = false; window.clearInterval(id) }
-  }, [active, vault, sending, result, bg.phase])
+    if (!active || !vault || sending || sentTxid) return
+    return watchSent(() => listProposals(vault.group_pubkey), active.id, (txid) => showFor(active.id, { txid }))
+  }, [active, vault, sending, sentTxid])
 
   // Every hook above this line: the panel returns null while no proposal is open, and React
   // requires the same hooks on every render.
@@ -221,14 +229,19 @@ export default function SigningPanel() {
   // presence (a bare count), this is attributable - we can name who signed without guessing.
   const signedSeats = bg.armedSeats
   const signedCount = signedSeats.length
-  const quorumSigned = threshold > 0 && signedCount >= threshold
+  // A full count is a send in progress only while the sender the room named is within its window.
+  // After it, the signatures wait for the next one past the window (#626 review): saying someone is
+  // sending then told members to wait for a send nobody was making.
+  const quorumSigned = threshold > 0 && signedCount >= threshold && bg.sendingNamed()
   // If I sign now, the quorum closes and I am the one who sends. This drives the WORDING only:
   // every signature is confirmed on its own device, whoever you are. Predicting "I am last" and
   // confirming only then would leave a hole - two people clicking in the same instant would both
   // read as not-last, and whichever one closed the quorum would send with no confirm at all.
-  const iWouldBeLast = !armed && threshold > 0 && signedCount === threshold - 1
+  // The session answers it with the rule that decides (#626): the bare count disagrees with the
+  // decision once expired signatures leave the tally and a closed quorum holds its window.
+  const iWouldBeLast = !armed && threshold > 0 && bg.wouldComplete()
 
-  const sent = result && 'txid' in result && result.txid
+  const sent = sentTxidOf(result)
   // A refusal by this device outranks any later failure of the send (#610): the send fails BECAUSE
   // the device refused, and the failure's wording ("you can sign again") would contradict it.
   const fromSigner = describeSigningError(bg.error, t)
@@ -241,7 +254,7 @@ export default function SigningPanel() {
   const errShown = describeSigningError(errMsg, t)
   // The send's outcome is not known and may never be. This is deliberately NOT an error state: no
   // failure wording, and above all no Retry, because the money may already have moved (#280).
-  const unresolved = !!result && 'unresolved' in result
+  const unresolved = result && 'unresolved' in result ? result : null
   // What this device can do now is SIGN. The send is not a button any more: it follows from the
   // quorum closing, on the device the room named.
   // The signer is still coming up: has a share but hasn't seated yet. Show a loading line instead of
@@ -284,13 +297,38 @@ export default function SigningPanel() {
     : null
 
 
+  // A send's outcome belongs to its payment: kept for it, and shown only while it is the one on
+  // screen. `boundTo` moves only when another payment opens.
+  function showFor(pid: string, r: PanelResult) {
+    if (outcomes.current.record(pid, r, boundTo.current)) setResult(r)
+  }
+
+  // "Try again" clears what this payment's send came to, here and in the book.
+  function clearShown() {
+    if (active) outcomes.current.clear(active.id)
+    setResult(null)
+  }
+
+  // What a step of the send does on screen (panelStep, resolvedStep). `resolve` is handled by the
+  // caller, which asks the record; a failure has its own path, `fail`.
+  function apply(pid: string, step: ShownStep) {
+    if (step.do === 'fail') return fail(pid, step.text, step.raw)
+    // An unknown outcome: the payment may be on the network. Not a failure: no withdrawal and no Try
+    // again, and this device keeps the memory of its send (#280).
+    if (step.do === 'unknown') endSend(attempt.current, pid, 'unknown')
+    showFor(pid, stepResult(step))
+    if (step.do === 'sent') toast.ok(t('toast.sent'))
+    else toast.warn(t('toast.sendUnresolved'))
+  }
+
   // A failed send keeps its message on the panel - the reader has to act on it - and is announced
   // as well, because the run takes minutes and nobody watches a panel for that long.
-  function fail(msg: string, raw?: string) {
-    setResult({ error: msg })
+  function fail(pid: string, msg: string, raw?: string) {
+    showFor(pid, stepResult({ do: 'fail', text: msg }))
     // When this device refused the transaction, the send's failure is a consequence of that refusal,
     // which the panel shows instead; announcing "could not send" over it invites the retry it rules out.
     if (!refusingRef.current) toast.err(msg)
+    endSend(attempt.current, pid, 'not-sent')
     // Nothing moved, so the payment goes back to unsigned everywhere. Left standing, the failed
     // attempt's signatures sit in the permanent room and the payment reads as already signed by
     // devices that have gone - with no button to sign it and no one to send it.
@@ -306,9 +344,12 @@ export default function SigningPanel() {
     // the vault was working, stuck, or done. On a money screen that is the worst possible state,
     // because the honest next move (wait? retry? check the chain?) is unknowable.
     if (!vault) { setResult({ error: t('signing.errNoVault') }); return }
+    // The payment this send is for. Its outcome is shown only while it is still the one on screen
+    // (`showFor`): a late reply used to land on whatever payment was open by then.
+    const pid = active!.id
     const args = {
       vault: vault.group_pubkey,
-      proposalId: active!.id,
+      proposalId: pid,
       relayBase: relayBase(),
       room: bg.room,
       dryRun: false,
@@ -320,28 +361,33 @@ export default function SigningPanel() {
     // secret is logged (the group key and the proposal id are public vault material).
     console.info('[konclave] send: start', { proposal: args.proposalId, room: args.room, phase: bg.phase })
     setConfirming(false)
+    let asked = false
     setSending(true)
+    outcomes.current.clear(pid)
     setResult(null)
     try {
+      // The coordinator's record is the last word on whether this payment went out (send-preflight):
+      // a sender named after a vanished one's window must not send it twice (#626, #334).
+      const sentAs = alreadySent(await listProposals(vault.group_pubkey), args.proposalId)
+      if (sentAs) {
+        console.info('[konclave] send: already sent', { proposal: args.proposalId, txid: sentAs })
+        showFor(pid, { txid: sentAs })
+        return
+      }
+      asked = true // from here the request may have been served, broadcast included
       const r = await executeProposal(args)
       console.info('[konclave] send: reply', r)
-      if (!r) fail(t('signing.errUnreachable'))
-      // The coordinator went quiet, or answered with a gateway error carrying no reason. It
-      // persists the proposal as sent WITH its txid BEFORE it replies, so this is at least as
-      // likely to mean the payment went out and the answer was lost. Saying "failed" here is how a
-      // treasurer is invited to pay twice (#280). Ask the vault instead.
-      else if ('unknown' in r) await resolveUnknown(vault.group_pubkey, args.proposalId)
-      // Through humanError, so the money path never shows a binary path and a Rust struct. It was
-      // reporting failures like "/usr/local/bin/konclave-signer exited with 1: Error:
-      // propose_transfer: InsufficientFunds { available: Zatoshis(20000), required: Zatoshis(24000) }".
-      else if ('error' in r) fail(humanError(t, r.error), r.error)
-      else if (!r.txid) fail(t('signing.errNoTxid')) // a reply with no txid is NOT a send
-      else { setResult({ txid: r.txid }); toast.ok(t('toast.sent')) }
+      // What each ending means for the screen is one tested rule (panelStep, send-preflight.ts).
+      const step = panelStep(readReply(r), t)
+      if (step.do === 'resolve') await resolveUnknown(vault.group_pubkey, pid)
+      else apply(pid, step)
     } catch (e) {
       // A throw here previously escaped as an unhandled rejection: `sending` stayed true forever and
       // the panel sat on a progress line that would never resolve.
       console.error('[konclave] send: threw', e)
-      fail(e instanceof Error ? e.message : String(e))
+      // A throw after the request went out may follow a broadcast: unknown, never a failure.
+      if (asked) apply(pid, { do: 'unknown', why: 'lost' })
+      else fail(pid, e instanceof Error ? e.message : String(e))
     } finally {
       setSending(false)
     }
@@ -350,31 +396,23 @@ export default function SigningPanel() {
   /**
    * The send's outcome is unknown. Ask the vault, repeatedly, instead of guessing (#280).
    *
-   * Three endings, and each one says exactly what it knows. `sent` is a normal success found the
-   * slow way. `not-sent` is the only ending that may offer Retry, because it is the only one where
-   * we know the notes are untouched. `unresolved` stays unresolved: no failure, no Retry, and a
-   * line telling the person where to look.
+   * Two endings, and each one says exactly what it knows. `sent` is a normal success found the
+   * slow way. Anything else stays unresolved: no failure, no Retry, and a line telling the person
+   * where to look. A record that still reads ready with no txid is not "nothing was sent".
    */
   async function resolveUnknown(groupKey: string, proposalId: string): Promise<void> {
-    setChecking(RESOLVE_ATTEMPTS)
+    // The countdown is this payment's: another payment opened meanwhile does not show it.
+    const count = (n: number) => { if (boundTo.current === proposalId) setChecking(n) }
+    count(RESOLVE_ATTEMPTS)
     try {
       const r = await resolveOutcome(proposalId, {
         list: () => listProposals(groupKey),
         wait: (ms) => new Promise((res) => window.setTimeout(res, ms)),
-        onAttempt: setChecking,
+        onAttempt: count,
       })
       console.info('[konclave] send: resolved', r)
-      if (r.kind === 'sent') {
-        setResult({ txid: r.txid })
-        toast.ok(t('toast.sent'))
-      } else if (r.kind === 'not-sent') {
-        fail(t('signing.errUnreachable'))
-      } else {
-        // Unknown, and still unknown. Do NOT call it a failure and do NOT unarm: the signatures may
-        // be attached to a transaction that is already on the chain.
-        setResult({ unresolved: true })
-        toast.warn(t('toast.sendUnresolved'))
-      }
+      // Sent, or still unknown: never a failure, and no withdrawal (resolvedStep).
+      apply(proposalId, resolvedStep(r))
     } finally {
       setChecking(0)
     }
@@ -410,8 +448,10 @@ export default function SigningPanel() {
   }
 
   function onClose() {
-    // The background signer keeps running; closing only hides the panel. The result is NOT cleared:
-    // wiping it here meant a stray click on the scrim could erase a failure the user never read.
+    // Closing stops the background signer (`VaultSigner` passes it no vault without an open
+    // proposal), so reopening starts a new session that reads the room back, like a reload (#334).
+    // The result is NOT cleared: wiping it here meant a stray click on the scrim could erase a
+    // failure the user never read.
     setConfirming(false)
     close()
   }
@@ -470,10 +510,10 @@ export default function SigningPanel() {
           {sent ? (
             <div className="sign-ok">
               <div className="confirm quorum">{t('signing.sentTitle')}</div>
-              {(result as { txid: string }).txid && (
+              {sent && (
                 <div className="p-meta mt-sm">
-                  <div className="sign-txid mono"><code>{(result as { txid: string }).txid}</code></div>
-                  <a className="link" href={`https://mainnet.zcashexplorer.app/transactions/${(result as { txid: string }).txid}`} target="_blank" rel="noreferrer">{t('proposal.viewExplorer')}</a>
+                  <div className="sign-txid mono"><code>{sent}</code></div>
+                  <a className="link" href={`https://mainnet.zcashexplorer.app/transactions/${sent}`} target="_blank" rel="noreferrer">{t('proposal.viewExplorer')}</a>
                 </div>
               )}
             </div>
@@ -488,7 +528,8 @@ export default function SigningPanel() {
           ) : unresolved ? (
             <div className="sign-err">
               <div className="hint warn" role="alert">{t('signing.unresolved')}</div>
-              <div className="note">{t('signing.unresolvedNote')}</div>
+              <div className="note">{t(unresolvedNoteKey(unresolved.unresolved))}</div>
+              {unresolved.txid && <div className="note mono sign-txid">{unresolved.txid}</div>}
               <a className="btn ghost sm-btn mt-sm" href="/ledger">{t('signing.openLedger')}</a>
             </div>
           ) : errMsg ? (
@@ -498,15 +539,9 @@ export default function SigningPanel() {
                   proposal as the message asks; and no Try again, because a refusal is not a failed send. */}
               {errShown.kind === 'refusal' && bg.what && <DeviceReading what={bg.what} t={t} isOurs={isOurReceiver} heading="signing.readRefusedHeading" />}
               {errShown.kind !== 'refusal' && (
-                <button
-                  className="btn ghost sm-btn mt-sm"
-                  onClick={() => {
-                    // Clearing the message is not enough on the sending device: without releasing the
-                    // once-guard, "try again" would look like a button that does nothing.
-                    setResult(null)
-                    if (bg.iSend && active && sentOnce.current === active.id) { sentOnce.current = null; void doSend() }
-                  }}
-                >{t('signing.tryAgain')}</button>
+                // The failure released this device's send memory and withdrew its signature, so
+                // "Try again" returns to signing: the next quorum names its sender.
+                <button className="btn ghost sm-btn mt-sm" onClick={clearShown}>{t('signing.tryAgain')}</button>
               )}
             </div>
           ) : started ? (

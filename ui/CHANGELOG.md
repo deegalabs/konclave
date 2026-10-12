@@ -40,12 +40,70 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+## [0.11.0] 2026-10-12
+
 ### Changed
 
 - **The proof page lists the twentieth transaction, and the roadmap page says what the 2026-10-04
   release closed.** The new row is the first transaction made in production after the released engine went
   live on 2026-10-04 (`1c53fe50…`). The roadmap's first step no longer lists the coordinator defect
   that the 2026-10-04 release closed, and says the other one was narrowed and is still open.
+
+### Fixed
+
+- **A payment the group had signed could wait with nobody sending it.** The device whose signature
+  completes the group's signatures is the one that sends. Each signature carries the time on its
+  signer's clock, and a device dropped, without saying so, any signature dated even a second ahead of
+  its own clock. When the first signer's clock ran fast, the member who signed last never saw the
+  signatures complete, while the others waited for that member to send: nothing was sent and nothing
+  said why. A signature also stayed counted after it expired, so signing the same payment again ten
+  minutes later, with the signing screen still open, named no one to send either. Now, among devices
+  whose clocks are within two minutes of each other, every device decides who sends from the room's
+  order and the times the signatures carry, so they agree, including a device that opens the payment
+  later: a signature dated up to two minutes ahead counts, and one further ahead is noted in the
+  browser console; a signature expires at the same point on every device; an old one posted again
+  does not come back; and after a payment names its sender, no other is named for ten minutes by the
+  times the signatures carry, so a member who signs again while the send may still be running is not
+  a second sender (a member whose clock runs up to two minutes fast can be named up to two minutes
+  sooner, and that device then finds the payment sent). After those ten
+  minutes the next signature names a sender, with the signatures still standing, however many members
+  signed: before, once more members had signed than the vault needs, or a member signed again over
+  their own standing signature, nobody was named again. Before asking for the send, the device checks
+  whether the payment already went out. When the coordinator refuses because another device sent it,
+  the screen shows it sent, where it used to show "Could not send: proposal is not ready to send" and
+  withdraw every signature; when the proposal expired, was refused or lost an approval, the screen
+  says which.
+  Every open signing screen shows the payment as sent once it is, asking the coordinator one request
+  at a time and nothing from a hidden tab. The screen says "Sign and send" only when this device's
+  signature would name it the sender, says someone is sending only while a sender named in the last
+  ten minutes may be, and keeps its count current as signatures expire; a signature the device
+  ignores is noted in the browser console. Since 25 August; found on 3 October when a test send on
+  staging stalled three times (#626). Every member of a vault needs this version: a device on the
+  previous one still drops a signature from a fast clock.
+- **The signing screen says what it knows when a send's outcome is unclear.** When the coordinator
+  stops answering during a send, or answers that the payment may be on the network, the screen says
+  it does not know, keeps the signatures, offers no retry, and says to check the book first and when
+  the payment can be signed again; it used to call some of these a failure and offer to try again. A
+  vote the coordinator could not take for a reason of its own is no longer called "no longer
+  applies". The `/net` page reads a send's reply by the same rule.
+
+### Known limits
+
+- **A send whose outcome is unclear waits even when nothing went out.** The device that sent can
+  sign the payment again only after a reload. The other members are not told the outcome is unclear;
+  their screens show the payment sent once the coordinator records it.
+- **Who sends can still stall in a few cases (#626, #334).** Closing the signing screen, or
+  reloading, while a send waits leaves the payment waiting about ten minutes before a new signature
+  can send it, and about twenty when the members' clocks are up to two minutes apart: a signature
+  from the slower clock, given as soon as its button returns, can still fall inside the ten minutes
+  measured on the faster one. A member who signs again from a second device whose clock is behind the
+  first, or after setting the clock back, is ignored by every device until the button returns ten
+  minutes later; the browser console says so. With clocks more than two minutes apart, a device drops
+  the other's signature, as before this version, and with three or more members two devices can each
+  believe they send. The coordinator refuses to send a payment it has recorded as sent, and the device
+  that asks second sees it sent. A device that opens a payment after its room passed 512 messages
+  reads only the latest ones and may decide differently from the others. The member whose clock runs
+  fast should sign last.
 
 ## [0.10.0] 2026-10-04
 

@@ -151,6 +151,23 @@ railway up --ci -s konclave-helper
 railway domain -s konclave-helper                           # mint the public URL
 ```
 
+**Before deploying a build that keeps send records:** read the HTTP log for a send in flight (one that
+was broadcast with no record is not protected by the new build) and read `docs/RECOVERY.md` E, which
+says why a roll-back with a payment held reopens a double send.
+
+**After it comes up, read the boot log for these lines** before saying it is live:
+
+```
+send records: this volume can hold them
+send records: 0 held payment(s), 0 of them with an unreadable record
+device registries: 0 unreadable (their vaults refuse governance writes until restored)
+read keys: 0 unreadable (their vaults refuse reads until restored)
+konclave-helper serving with <N> worker(s)
+```
+
+A volume that cannot hard-link or sync a directory prints `send records: ALERT ...` and every real send
+is refused: that line is the one to look for. `/api/health` must name the commit that was built.
+
 The volume mounted at `/data` (= `KONCLAVE_VAULTS_DIR=/data/vaults`) makes registrations survive a
 redeploy: `helper-server` reseeds its registry from `<vaults_dir>/<id>/registration.json` at startup,
 and a re-register returns the STORED address instead of re-deriving a fresh diversified one. The

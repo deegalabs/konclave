@@ -33,17 +33,17 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use std::time::Duration;
-
+use orchestrator::helper::request_recipients;
 use orchestrator::helper::{
-    append_ceremony, claim_members, is_valid_group_key, ledger_csv, list_proposals,
-    load_ceremonies, load_device_keys, load_members, load_proposal, payment_plan, read_authorized,
-    register_vault, rename_member, save_proposal, send_config_for, set_read_key, vault_balance,
-    vault_transactions, CeremonyRecord, HelperConfig, HelperProposal, HelperState, PayrollLine,
-    RosterWrite, VaultRegistration,
+    claim_members, is_valid_group_key, ledger_csv, list_proposals, load_ceremonies,
+    load_device_keys, load_members, load_proposal, payment_plan, read_authorized, register_vault,
+    rename_member, save_proposal, send_config_for, set_read_key, vault_balance, vault_transactions,
+    DeviceError, HelperConfig, HelperProposal, HelperState, PayrollLine, RosterWrite,
+    VaultRegistration, WriteGate,
 };
 use orchestrator::relay_client::{configured_relay, parse_relay_config, valid_room, RelayRefusal};
-use orchestrator::send::{funding_check, net_orchestrate_send, Funding, PayrollDest, SpendPlan};
+use orchestrator::send::{funding_check, Funding, PayrollDest, SpendPlan};
+use orchestrator::send_record::{promote_mined_attempts, send_proposal, LiveSend, SendResult};
 use orchestrator::write_auth::{
     authorize_write, same_member, seat_acts_as, seat_holder, SignedWrite, WriteAction, WriteAuth,
 };
@@ -181,14 +181,18 @@ fn handle_with_token(
         let Some(reg) = query_param(query, "vault").and_then(|v| state.get(v)) else {
             return resp(404, json!({ "error": "unknown vault" }).to_string());
         };
-        let Some(expected) = orchestrator::helper::load_read_key(&cfg.vaults_dir, &reg.vault_id)
-        else {
+        // Absent and unreadable both refuse here, harder than the reads: only a key that is SET opens
+        // the viewing key, and then only for the holder of it (the same comparison as every read).
+        if !matches!(
+            orchestrator::helper::read_key_state(&cfg.vaults_dir, &reg.vault_id),
+            orchestrator::helper::ReadKey::Set(_)
+        ) {
             return resp(
                 401,
                 json!({ "error": "this vault has no read key; protect it first" }).to_string(),
             );
-        };
-        if read_token.map(str::trim) != Some(expected.trim()) {
+        }
+        if !read_authorized(&cfg.vaults_dir, &reg.vault_id, read_token) {
             return resp(401, json!({ "error": "read key required" }).to_string());
         }
         // The birthday rides with the viewing key (#480), because neither rebuilds a vault alone:
@@ -206,11 +210,12 @@ fn handle_with_token(
         // Per vault, turning on the moment a device registers: the #388 / ADR-0011 D5 shape. A vault
         // whose members are all on older builds keeps its plaintext path rather than losing access
         // to its own viewing key, and nobody is ever locked out of something they already hold.
-        let pubs: Vec<String> =
-            orchestrator::helper::load_device_records(&cfg.vaults_dir, &reg.vault_id)
-                .into_iter()
-                .map(|d| d.comms)
-                .collect();
+        // A registry that is there and cannot be read is not "no devices": it must not turn the sealed
+        // answer into the plaintext one.
+        let pubs = match orchestrator::helper::load_device_keys(&cfg.vaults_dir, &reg.vault_id) {
+            Ok(pubs) => pubs,
+            Err(why) => return registry_unreadable(&reg.vault_id, &why, "viewing key withheld"),
+        };
         return match orchestrator::envelope::seal_to_devices(
             SEALED_UFVK_KIND,
             payload.as_bytes(),
@@ -320,34 +325,6 @@ fn handle_with_token(
                     json!({ "error": "group_key must be 64 hex chars" }).to_string(),
                 );
             }
-            // A device comms pubkey is a 32-byte X25519 public = 64 lowercase hex chars.
-            let dp = req.device_pub.trim();
-            if dp.len() != 64 || !dp.bytes().all(|b| b.is_ascii_hexdigit()) {
-                return resp(
-                    400,
-                    json!({ "error": "device_pub must be 64 hex chars" }).to_string(),
-                );
-            }
-            // The write key is optional (a device on an older build registers comms only), but the
-            // seat and the key travel together or not at all.
-            let write =
-                match (req.seat, req.write_pub.as_deref().map(str::trim)) {
-                    (None, None) => None,
-                    (Some(seat), Some(wp)) if seat > 0 => {
-                        if wp.len() != 64 || !wp.bytes().all(|b| b.is_ascii_hexdigit()) {
-                            return resp(
-                                400,
-                                json!({ "error": "write_pub must be 64 hex chars" }).to_string(),
-                            );
-                        }
-                        Some((seat, wp))
-                    }
-                    _ => return resp(
-                        400,
-                        json!({ "error": "seat and write_pub must be sent together, seat >= 1" })
-                            .to_string(),
-                    ),
-                };
             match state.get(&req.group_key) {
                 None => resp(404, json!({ "error": "no such vault" }).to_string()),
                 Some(reg) => {
@@ -383,24 +360,34 @@ fn handle_with_token(
                                 .to_string(),
                         );
                     }
-                    match orchestrator::helper::upsert_device(
+                    // Judged only now, AFTER the vault was found and the read key checked: a stranger
+                    // holding just the id is told to authenticate and learns nothing about what a
+                    // valid registration looks like. Everything about the registration - its shape,
+                    // the seat bound by the vault's own `total`, the keys, and whether an existing
+                    // record may change - is `register_device`'s; this only maps the answer.
+                    match orchestrator::helper::register_device(
                         &cfg.vaults_dir,
                         &reg.vault_id,
-                        dp,
-                        write,
+                        reg.total,
+                        &req.device_pub,
+                        req.seat,
+                        req.write_pub.as_deref(),
                     ) {
                         Ok(added) => resp(200, json!({ "ok": true, "added": added }).to_string()),
-                        // A seat already held by ANOTHER device is a 409, not a 500: it is a
-                        // conflict with the world, not a failure of ours, and the caller can tell
-                        // the difference (#288 - never silently move a seat).
-                        Err(e) => {
-                            let msg = e.to_string();
-                            let code = if msg.contains("already claimed") {
-                                409
-                            } else {
-                                500
-                            };
-                            resp(code, json!({ "error": msg }).to_string())
+                        Err(DeviceError::Invalid(why)) => {
+                            resp(400, json!({ "error": why }).to_string())
+                        }
+                        // A conflict with what is on record is a 409, not a 500: it is a conflict
+                        // with the world, not a failure of ours, and the caller can tell the
+                        // difference (#288 - never silently move a seat).
+                        Err(DeviceError::Conflict(why)) => {
+                            resp(409, json!({ "error": why }).to_string())
+                        }
+                        Err(DeviceError::Unreadable(why)) => {
+                            registry_unreadable(&reg.vault_id, &why, "registration refused")
+                        }
+                        Err(DeviceError::Io(e)) => {
+                            resp(500, json!({ "error": e.to_string() }).to_string())
                         }
                     }
                 }
@@ -508,6 +495,7 @@ fn handle_with_token(
             match query_param(query, "vault").and_then(|v| state.get(v)) {
                 None => resp(404, json!({ "error": "no such vault" }).to_string()),
                 Some(reg) => {
+                    settle_mined_sends(cfg, &reg);
                     let ps = list_proposals(&cfg.vaults_dir, &reg.vault_id, now_unix());
                     resp(200, json!({ "proposals": ps }).to_string())
                 }
@@ -517,6 +505,7 @@ fn handle_with_token(
             match query_param(query, "vault").and_then(|v| state.get(v)) {
                 None => resp(404, json!({ "error": "no such vault" }).to_string()),
                 Some(reg) => {
+                    settle_mined_sends(cfg, &reg);
                     let entries = sent_proposals(cfg, &reg.vault_id);
                     resp(200, json!({ "entries": entries }).to_string())
                 }
@@ -527,7 +516,10 @@ fn handle_with_token(
                 None => resp(404, json!({ "error": "no such vault" }).to_string()),
                 // The body is CSV; it is served with the default JSON content-type, so the browser
                 // client downloads it as a blob (it sets the filename/type). Keeps the router simple.
-                Some(reg) => resp(200, ledger_csv(&sent_proposals(cfg, &reg.vault_id))),
+                Some(reg) => {
+                    settle_mined_sends(cfg, &reg);
+                    resp(200, ledger_csv(&sent_proposals(cfg, &reg.vault_id)))
+                }
             }
         }
         (Method::Get, "/api/vault/members") => {
@@ -851,14 +843,35 @@ fn refuse_if_unfunded(
     }
 }
 
-/// Execute a READY proposal over Architecture B: build the PCZT for the proposal's payment, run the
-/// browser ceremony over the relay, and (unless `dry_run`) broadcast. On a real broadcast the
-/// proposal is marked `sent` with its txid.
-///
-/// SECURITY (audit): `ready` is advisory (the approval votes are social, unauthenticated). The
-/// money gate is the ceremony itself, which needs the real quorum of browser shares to produce a
-/// valid signature, so a forged "ready" cannot move funds on its own. Non-ready proposals are
-/// refused (409); `dry_run` defaults true so a broadcast is always explicit.
+/// WHAT THE GATE PROVED, besides the name: `signed` is true only when a seat's signature was checked
+/// and accepted. `Ok` also comes back for an open vault, which proves nothing; a caller that needs
+/// to know the difference (the send, to decide whether its request may go out in clear text) asks
+/// here instead of working it out from a second look at the registry.
+struct Gated {
+    name: Option<String>,
+    signed: bool,
+}
+
+/// [`gate_write_checked`] for the writes that only need the name to record.
+#[allow(clippy::too_many_arguments)]
+fn gate_write(
+    cfg: &HelperConfig,
+    vault: &str,
+    action: WriteAction,
+    target: &str,
+    acts_as: Option<&str>,
+    seat: Option<u16>,
+    ts: Option<i64>,
+    nonce: Option<String>,
+    sig: Option<String>,
+    refusal: &'static str,
+) -> Result<Option<String>, Resp> {
+    gate_write_checked(
+        cfg, vault, action, target, acts_as, seat, ts, nonce, sig, refusal,
+    )
+    .map(|gated| gated.name)
+}
+
 /// The #288 gate, in ONE place (ADR-0011).
 ///
 /// Returns `Some(refusal)` when the write must not proceed, `None` when it may. Five handlers need
@@ -895,7 +908,7 @@ fn refuse_if_unfunded(
 /// `Ok(None)` means there is no proven name: the vault is open (ADR-0011 D5) or the write records
 /// none. The caller then records what it always did.
 #[allow(clippy::too_many_arguments)]
-fn gate_write(
+fn gate_write_checked(
     cfg: &HelperConfig,
     vault: &str,
     action: WriteAction,
@@ -906,11 +919,22 @@ fn gate_write(
     nonce: Option<String>,
     sig: Option<String>,
     refusal: &'static str,
-) -> Result<Option<String>, Resp> {
-    let write_keys = orchestrator::helper::load_write_keys(&cfg.vaults_dir, vault);
-    if write_keys.is_empty() {
-        return Ok(None); // open vault (D5)
-    }
+) -> Result<Gated, Resp> {
+    // One decision, in one place: open, gated, or unreadable. An unreadable registry refuses the write:
+    // reading it as "no write keys" would open the gate exactly for the vault whose keys it holds.
+    let write_keys = match orchestrator::helper::write_gate(&cfg.vaults_dir, vault) {
+        WriteGate::Open => {
+            // open vault (D5)
+            return Ok(Gated {
+                name: None,
+                signed: false,
+            });
+        }
+        WriteGate::Keys(keys) => keys,
+        WriteGate::Unreadable(why) => {
+            return Err(registry_unreadable(vault, &why, "write refused"));
+        }
+    };
     let (Some(seat), Some(ts), Some(nonce), Some(sig)) = (seat, ts, nonce, sig) else {
         return Err(resp(401, json!({ "error": refusal }).to_string()));
     };
@@ -932,7 +956,8 @@ fn gate_write(
                     let claimed = claimed.trim();
                     if !seat_acts_as(&roster, seat, claimed) {
                         eprintln!(
-                            "vault {vault}: seat {seat} tried to {} as {claimed:?}, which is not its own",
+                            "vault {}: seat {seat} tried to {} as {claimed:?}, which is not its own",
+                            orchestrator::helper::short_id(vault),
                             action.tag()
                         );
                         return Err(resp(
@@ -944,11 +969,21 @@ fn gate_write(
                 }
             };
             let _ = orchestrator::helper::burn_write_nonce(&cfg.vaults_dir, vault, &w.nonce);
-            Ok(recorded)
+            Ok(Gated {
+                name: recorded,
+                signed: true,
+            })
         }
-        WriteAuth::Open => Ok(None), // unreachable: keys were non-empty
+        // unreachable: keys were non-empty
+        WriteAuth::Open => Ok(Gated {
+            name: None,
+            signed: false,
+        }),
         WriteAuth::Refused(why) => {
-            eprintln!("vault {vault}: refused a write ({why:?})");
+            eprintln!(
+                "vault {}: refused a write ({why:?})",
+                orchestrator::helper::short_id(vault)
+            );
             Err(resp(
                 401,
                 json!({ "error": "signature required" }).to_string(),
@@ -969,6 +1004,25 @@ fn not_your_seat(action: WriteAction) -> &'static str {
     }
 }
 
+/// The most a send waits for the quorum, in polls (one a second): twice the default. The request
+/// names its own `max_polls`, and a send holds its vault and a worker for as long as it waits.
+const MAX_POLLS_CEILING: u32 = 600;
+// The number helper-server/CHANGELOG.md states. Checked when the code is built, so a larger one does
+// not compile.
+const _: () = assert!(MAX_POLLS_CEILING <= 600);
+
+fn polls_for(requested: u32) -> u32 {
+    requested.clamp(1, MAX_POLLS_CEILING)
+}
+
+/// Execute a READY proposal over Architecture B: build the PCZT for the proposal's payment, run the
+/// browser ceremony over the relay, and (unless `dry_run`) broadcast. On a real broadcast the
+/// proposal is marked `sent` with its txid.
+///
+/// SECURITY (audit): `ready` is advisory (the approval votes are social, unauthenticated). The
+/// money gate is the ceremony itself, which needs the real quorum of browser shares to produce a
+/// valid signature, so a forged "ready" cannot move funds on its own. Non-ready proposals are
+/// refused (409); `dry_run` defaults true so a broadcast is always explicit.
 fn handle_proposal_send(state: &HelperState, cfg: &HelperConfig, path: &str, body: &[u8]) -> Resp {
     let id = path
         .trim_start_matches("/api/vault/proposals/")
@@ -1030,7 +1084,7 @@ fn handle_proposal_send(state: &HelperState, cfg: &HelperConfig, path: &str, bod
     // confirm the money gate is built on, and firing it is not a stranger's to do.
     //
     // Bound to the proposal id, so a signature for one send cannot fire another.
-    if let Err(refused) = gate_write(
+    let gated = match gate_write_checked(
         cfg,
         &req.vault,
         WriteAction::Send,
@@ -1042,56 +1096,24 @@ fn handle_proposal_send(state: &HelperState, cfg: &HelperConfig, path: &str, bod
         req.sig.clone(),
         "this vault requires a signed send",
     ) {
-        return refused;
-    }
+        Ok(gated) => gated,
+        Err(refused) => return refused,
+    };
     let now = now_unix();
-    let mut p = match load_proposal(&cfg.vaults_dir, &req.vault, id, now) {
+    let p = match load_proposal(&cfg.vaults_dir, &req.vault, id, now) {
         Some(p) => p,
         None => return resp(404, json!({ "error": "no such proposal" }).to_string()),
     };
-    if p.state != "ready" {
-        return resp(
-            409,
-            json!({ "error": "proposal is not ready to send", "state": p.state }).to_string(),
-        );
+    // The proposal was authorized under `req.vault`, and its record is keyed by its own vault: they
+    // must be the same one, as a rule and not a habit.
+    if p.vault_id != reg.vault_id {
+        return resp(404, json!({ "error": "no such proposal" }).to_string());
     }
     // A payroll spends to N beneficiaries in one tx; a payment spends to one. Re-validate each
-    // destination + amount at execution time (defence in depth) before building the plan.
-    let plan = if p.kind == "payroll" {
-        let mut dests = Vec::with_capacity(p.lines.len());
-        for l in &p.lines {
-            if let Err(e) = payment_plan(&l.to, l.amount_zat, l.memo.clone(), cfg.network_type()) {
-                return resp(400, json!({ "error": e.to_string() }).to_string());
-            }
-            dests.push(PayrollDest {
-                address: l.to.clone(),
-                value_zat: l.amount_zat,
-                memo: l.memo.clone(),
-            });
-        }
-        SpendPlan::Payroll { lines: dests }
-    } else {
-        match payment_plan(&p.to, p.amount_zat, p.memo.clone(), cfg.network_type()) {
-            Ok(pl) => pl,
-            Err(e) => return resp(400, json!({ "error": e.to_string() }).to_string()),
-        }
-    };
-    // Capacity guard (#135): refuse a memory-heavy prove up front when the instance is low.
-    if over_capacity() {
-        return resp(
-            503,
-            json!({ "error": "coordinator over capacity, retry in a moment" }).to_string(),
-        );
-    }
-    // Last gate before the room opens. The build inside `net_orchestrate_send` would refuse this
-    // too, but as a 502 "send failed" - and by then every device has been asked to sign. Asking
-    // here turns the same refusal into two figures and leaves the ceremony untouched. Funds can
-    // leave between approval and send, so this is not redundant with the check at creation.
-    match refuse_if_unfunded(cfg, &reg, &plan) {
-        Ok(Some(r)) => return r,
-        Ok(None) => {}
-        Err(_) => {} // an unrelated fault must not block a send the vault could make
-    }
+    // destination + amount at execution time (defence in depth) before building the plan. A plan
+    // that does not validate is refused by the gate below, AFTER an earlier attempt has been settled
+    // and the state checked - not before, or a payment already made could never be recorded.
+    let plan = send_plan_for(cfg, &p);
     let work_dir = format!("{}/{}/send-work", cfg.vaults_dir.display(), reg.vault_id);
     let _scratch = ScratchDir(work_dir.clone());
     let sc = send_config_for(cfg, &reg, work_dir);
@@ -1100,49 +1122,197 @@ fn handle_proposal_send(state: &HelperState, cfg: &HelperConfig, path: &str, bod
     // of its own vault. Until then (and for legacy 0-total vaults) the request stays plaintext, so
     // the rollout never breaks a live vault. A device registers on unlock, so a vault converges to
     // sealed as its members open it on a build that registers.
-    let registered = load_device_keys(&cfg.vaults_dir, &reg.vault_id);
-    let device_pubs: Vec<String> = if reg.total > 0 && registered.len() >= reg.total as usize {
-        registered
-    } else {
-        Vec::new()
+    let registered = match load_device_keys(&cfg.vaults_dir, &reg.vault_id) {
+        Ok(registered) => registered,
+        Err(why) => return registry_unreadable(&reg.vault_id, &why, "send refused"),
     };
-    match net_orchestrate_send(
-        &sc,
-        &plan,
-        relay,
-        &req.room,
-        &device_pubs,
-        req.dry_run,
-        req.max_polls,
-        Duration::from_secs(1),
-    ) {
-        Ok(out) => {
-            let rec = CeremonyRecord {
-                vault_id: reg.vault_id.clone(),
-                sighash: out.sighash.clone(),
-                signatures: out.signatures.clone(),
-                txid: out.txid.clone(),
-                dry_run: req.dry_run,
-                created_at_unix: now_unix(),
-            };
-            let _ = append_ceremony(&cfg.vaults_dir, &rec);
-            // A real broadcast moves the proposal to the terminal `sent` with its txid; a dry-run
-            // leaves it `ready` (it only proved the quorum can sign).
-            if !req.dry_run {
-                if let Some(txid) = &out.txid {
-                    p.state = "sent".into();
-                    p.txid = Some(txid.clone());
-                    let _ = save_proposal(&cfg.vaults_dir, &p);
-                }
-            }
-            resp(
-                200,
-                json!({ "txid": out.txid, "dry_run": req.dry_run, "sighash": out.sighash,
-                        "state": p.state })
-                .to_string(),
-            )
+    // Who it is sealed to, and whether it may go out in clear text at all, is `request_recipients`'s
+    // to say. A refusal waits for the gate below: an earlier attempt is settled first.
+    let recipients = request_recipients(reg.total, &registered, gated.signed);
+    let steps = LiveSend {
+        sc: &sc,
+        plan: plan.as_ref().ok(),
+        relay_base: relay,
+        room: &req.room,
+        recipients: &recipients,
+        max_polls: polls_for(req.max_polls),
+        vault_id: &reg.vault_id,
+        vaults_dir: &cfg.vaults_dir,
+    };
+    // Everything that decides whether a transaction may leave - settling an earlier attempt, the
+    // record that comes before the broadcast, the broadcast itself - is `send_proposal`'s, in the
+    // orchestrator. This function authenticates, validates and maps the answer. It does not broadcast.
+    let result = send_proposal(&cfg.vaults_dir, p, req.dry_run, &steps, |_| {
+        let plan = match &plan {
+            Ok(plan) => plan,
+            Err(refused) => return Err(resp(refused.status, refused.body.clone())),
+        };
+        // The request would have to be published unsealed and no seat signed this send.
+        if recipients.is_err() {
+            eprintln!(
+                "vault {}: a send was refused: nothing seals its request and no seat signed it",
+                orchestrator::helper::short_id(&reg.vault_id)
+            );
+            return Err(resp(
+                409,
+                json!({ "error": UNSEALED_SEND_TEXT }).to_string(),
+            ));
         }
-        Err(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
+        // Capacity guard (#135): refuse a memory-heavy prove up front when the instance is low.
+        if over_capacity() {
+            return Err(resp(
+                503,
+                json!({ "error": "coordinator over capacity, retry in a moment" }).to_string(),
+            ));
+        }
+        // Last gate before the room opens. The build would refuse this too, but as a 502 "send
+        // failed" - and by then every device has been asked to sign. Asking here turns the same
+        // refusal into two figures and leaves the ceremony untouched. Funds can leave between
+        // approval and send, so this is not redundant with the check at creation.
+        match refuse_if_unfunded(cfg, &reg, plan) {
+            Ok(Some(r)) => Err(r),
+            Ok(None) => Ok(()),
+            Err(_) => Ok(()), // an unrelated fault must not block a send the vault could make
+        }
+    });
+    send_result_resp(result)
+}
+
+/// The plan a proposal spends, each destination and amount validated again at execution time.
+fn send_plan_for(cfg: &HelperConfig, p: &HelperProposal) -> Result<SpendPlan, Resp> {
+    if p.kind == "payroll" {
+        let mut dests = Vec::with_capacity(p.lines.len());
+        for l in &p.lines {
+            if let Err(e) = payment_plan(&l.to, l.amount_zat, l.memo.clone(), cfg.network_type()) {
+                return Err(resp(400, json!({ "error": e.to_string() }).to_string()));
+            }
+            dests.push(PayrollDest {
+                address: l.to.clone(),
+                value_zat: l.amount_zat,
+                memo: l.memo.clone(),
+            });
+        }
+        Ok(SpendPlan::Payroll { lines: dests })
+    } else {
+        payment_plan(&p.to, p.amount_zat, p.memo.clone(), cfg.network_type())
+            .map_err(|e| resp(400, json!({ "error": e.to_string() }).to_string()))
+    }
+}
+
+/// Before a vault's proposals or ledger are read, promote to `sent` any proposal whose recorded send
+/// is mined (see `promote_mined_attempts`). It reads each send record and its proposal, and the
+/// wallet at most once per window per vault while a payment that can still be mined is held.
+fn settle_mined_sends(cfg: &HelperConfig, reg: &VaultRegistration) {
+    promote_mined_attempts(&cfg.vaults_dir, &reg.vault_id, || {
+        orchestrator::wallet::list_confirmed_txids(&cfg.devtool, &reg.wallet_dir)
+    });
+}
+
+/// What a member is told when a send that no seat signed would have to be published unsealed. Short,
+/// and clear of the screen's keywords (`send_error_texts_stay_clear_of_the_screens_keywords`).
+const UNSEALED_SEND_TEXT: &str =
+    "this vault still has members whose devices are not registered; open it on a current build so a seat can sign the send";
+
+/// What a member is told when the vault's device registry is there and cannot be read. Kept short and
+/// clear of every keyword the web app turns into another message (`humanError`), like the send texts.
+const REGISTRY_UNREADABLE_TEXT: &str =
+    "this vault's device list cannot be read, so nothing can be changed until the operator restores it";
+
+/// The 503 for an unreadable registry, and the line the operator reads in the log: the vault's
+/// 8-character prefix only, and what was being refused.
+fn registry_unreadable(
+    vault: &str,
+    why: &orchestrator::helper::RegistryUnreadable,
+    what: &str,
+) -> Resp {
+    eprintln!(
+        "vault {}: {what}: {}",
+        orchestrator::helper::short_id(vault),
+        orchestrator::helper::loggable(vault, &why.to_string())
+    );
+    resp(
+        503,
+        json!({ "error": REGISTRY_UNREADABLE_TEXT }).to_string(),
+    )
+}
+
+/// The 8-character prefixes of the vaults whose `read-key.json` is there and is not a key, for the
+/// boot log: each of them refuses every read until the operator restores the file.
+fn unreadable_read_keys(vaults_dir: &std::path::Path) -> Vec<String> {
+    std::fs::read_dir(vaults_dir)
+        .map(|dirs| {
+            dirs.flatten()
+                .filter(|e| e.path().is_dir())
+                .filter_map(|e| {
+                    let vault = e.file_name().to_string_lossy().into_owned();
+                    matches!(
+                        orchestrator::helper::read_key_state(vaults_dir, &vault),
+                        orchestrator::helper::ReadKey::Unreadable
+                    )
+                    .then(|| orchestrator::helper::short_id(&vault).to_string())
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn not_ready_resp(state: &str) -> Resp {
+    resp(
+        409,
+        json!({ "error": "proposal is not ready to send", "state": state }).to_string(),
+    )
+}
+
+// What the screen shows when a send did not finish cleanly. The web app turns any error it reads into
+// a message by keywords (`humanError`, ui/src/api.ts), and several keywords - "connection", "refused",
+// "timed out", "expired", "share", "signature" - become "nothing was sent". These cases are exactly
+// where the coordinator cannot say that, so the wording avoids every one of them and stays under the
+// 140 characters the screen shows verbatim. `send_error_texts_stay_clear_of_the_screens_keywords` pins it.
+const UNSETTLED_TEXT: &str =
+    "an earlier attempt to send this payment is not settled; it may already be on the network, do not retry yet";
+const BROADCAST_TEXT: &str =
+    "the payment may or may not have reached the network; do not retry yet, check the vault's history first";
+const RECORD_TEXT: &str =
+    "the coordinator could not record this send, so nothing was sent; ask the operator to check its storage";
+
+/// The one place a send's result becomes a status and a body.
+fn send_result_resp(result: SendResult<Resp>) -> Resp {
+    match result {
+        SendResult::DryRun { sighash } => resp(
+            200,
+            json!({ "txid": null, "dry_run": true, "sighash": sighash, "state": "ready" })
+                .to_string(),
+        ),
+        SendResult::Sent {
+            txid,
+            sighash,
+            record_error,
+        } => resp(
+            200,
+            json!({ "txid": txid, "dry_run": false, "sighash": sighash, "state": "sent",
+                    "record_error": record_error })
+            .to_string(),
+        ),
+        // An earlier attempt turned out to be mined: the payment is on the chain, and the screen
+        // already treats a 200 with a txid as exactly that.
+        SendResult::AlreadySent { txid, record_error } => resp(
+            200,
+            json!({ "txid": txid, "dry_run": false, "state": "sent",
+                    "record_error": record_error })
+            .to_string(),
+        ),
+        SendResult::NotReady { state } => not_ready_resp(&state),
+        SendResult::Unsettled { .. } => resp(
+            409,
+            json!({ "error": UNSETTLED_TEXT, "state": "ready" }).to_string(),
+        ),
+        SendResult::Refused(r) => r,
+        SendResult::PrepareFailed(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
+        SendResult::RecordFailed(_) => resp(500, json!({ "error": RECORD_TEXT }).to_string()),
+        SendResult::BroadcastFailed { txid, .. } => resp(
+            502,
+            json!({ "error": BROADCAST_TEXT, "txid": txid }).to_string(),
+        ),
     }
 }
 
@@ -1757,6 +1927,71 @@ fn main() {
     // Nothing of record lives here: the txid is in the proposal and in ceremonies.jsonl, and the
     // registration, wallet, roster and proposals are sibling paths this never touches.
     let swept = sweep_send_work(&cfg.vaults_dir);
+    // The record of a send needs a volume that can hard-link and sync a directory. Say so now, in the
+    // log, rather than at the first payment, which would be refused after its devices had signed.
+    // The directory is made first: a first boot on an empty volume is not a volume that cannot.
+    match std::fs::create_dir_all(&cfg.vaults_dir)
+        .map_err(|e| format!("cannot create the vaults directory: {e}"))
+        .and_then(|()| orchestrator::send_record::probe_volume(&cfg.vaults_dir))
+    {
+        Ok(()) => eprintln!("send records: this volume can hold them"),
+        Err(why) => eprintln!(
+            "send records: ALERT this volume could not be shown able to hold them ({why}); a real send is refused if it cannot"
+        ),
+    }
+    // Payments whose send is on record and not yet settled, and records that cannot be read (those
+    // refuse every Send for their proposal and nothing clears them). Nothing is decided here: the next
+    // Send, or a read of the vault after the transaction is mined, settles each one.
+    let held = orchestrator::send_record::unsettled_attempts(&cfg.vaults_dir);
+    let unreadable = held.iter().filter(|h| h.unreadable).count();
+    eprintln!(
+        "send records: {} held payment(s), {unreadable} of them with an unreadable record",
+        held.len()
+    );
+    // A device registry that is there and cannot be read refuses every governance write for its vault
+    // (and the viewing key, and sealed sends). Say so at boot, once per vault, rather than when a
+    // member first tries to vote.
+    let unreadable_registries: Vec<String> = std::fs::read_dir(&cfg.vaults_dir)
+        .map(|dirs| {
+            dirs.flatten()
+                .filter(|e| e.path().is_dir())
+                .filter_map(|e| {
+                    let vault = e.file_name().to_string_lossy().into_owned();
+                    orchestrator::helper::load_device_records(&cfg.vaults_dir, &vault)
+                        .err()
+                        .map(|_| orchestrator::helper::short_id(&vault).to_string())
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    eprintln!(
+        "device registries: {} unreadable (their vaults refuse governance writes until restored)",
+        unreadable_registries.len()
+    );
+    for vault in unreadable_registries.iter().take(20) {
+        eprintln!("device registries: UNREADABLE, vault {vault}");
+    }
+    // A read key file that is there and cannot be read refuses every read of its vault. Same boot line.
+    let unreadable_read_keys = unreadable_read_keys(&cfg.vaults_dir);
+    eprintln!(
+        "read keys: {} unreadable (their vaults refuse reads until restored)",
+        unreadable_read_keys.len()
+    );
+    for vault in unreadable_read_keys.iter().take(20) {
+        eprintln!("read keys: UNREADABLE, vault {vault}");
+    }
+    for h in held.iter().take(20) {
+        eprintln!(
+            "send records: held{}, vault {} proposal {}",
+            if h.unreadable {
+                " (UNREADABLE record)"
+            } else {
+                ""
+            },
+            h.vault,
+            h.proposal
+        );
+    }
     let server = Server::http(&addr).expect("bind");
     eprintln!(
         "konclave-helper listening on {addr} (network={}, {restored_n} vault(s) restored, {birthdays} birthday(s) recorded, {receivers} change receiver(s) recorded, {swept} scratch dir(s) swept)",
@@ -1887,6 +2122,1239 @@ mod tests {
         );
     }
     use super::*;
+    use std::time::Duration;
+
+    /// The screen turns an error into a message by keyword (`humanError`, ui/src/api.ts). These are
+    /// its triggers, copied; each one becomes "nothing was sent" or "expired" or a missing-funds
+    /// message, none of which the coordinator can claim about a send it is unsure of.
+    const SCREEN_KEYWORDS: &[&str] = &[
+        "insufficient",
+        "saldo",
+        "no connection",
+        "failed to fetch",
+        "connection",
+        "frostd",
+        "transport",
+        "refused",
+        "timed out",
+        "signature",
+        "apply_signature",
+        "share",
+        "expiry",
+        "expired",
+        "transparent",
+        // The coordinator's own wordings `humanError` matches and turns into another message.
+        "you can only vote for your own seat",
+        "you can only propose under your own name",
+        "you can only rename your own seat",
+        "not a member of this vault",
+        "not a valid zcash address",
+        "unrecognized address",
+        "testnet address",
+        "cannot receive shielded",
+        "crosses shielded pools",
+        "payroll has no lines",
+    ];
+
+    #[test]
+    fn send_error_texts_stay_clear_of_the_screens_keywords() {
+        for text in [
+            UNSETTLED_TEXT,
+            BROADCAST_TEXT,
+            RECORD_TEXT,
+            REGISTRY_UNREADABLE_TEXT,
+            UNSEALED_SEND_TEXT,
+        ] {
+            assert!(
+                text.len() < 140,
+                "the screen shows only short texts verbatim: {text}"
+            );
+            let lower = text.to_lowercase();
+            for k in SCREEN_KEYWORDS.iter().copied() {
+                assert!(!lower.contains(k), "{text:?} would be read as {k:?}");
+            }
+            assert_ne!(lower.trim(), "send failed");
+        }
+    }
+
+    #[test]
+    fn a_send_result_maps_to_one_status_and_body() {
+        let body = |r: Resp| serde_json::from_str::<serde_json::Value>(&r.body).unwrap();
+        let tx = "ab".repeat(32);
+
+        let r = send_result_resp(SendResult::Unsettled { why: "x".into() });
+        assert_eq!(r.status, 409);
+        assert_eq!(body(r)["error"], UNSETTLED_TEXT);
+
+        // Found mined: the screen reads a 200 with a txid as success, and it is the truth.
+        let r = send_result_resp(SendResult::AlreadySent {
+            txid: tx.clone(),
+            record_error: None,
+        });
+        assert_eq!(r.status, 200);
+        let b = body(r);
+        assert_eq!(b["txid"], tx.as_str());
+        assert_eq!(b["state"], "sent");
+        assert_eq!(b["dry_run"], false);
+
+        // A broadcast that errored is never a clean "nothing was sent": it carries the txid and
+        // the cautious text.
+        let r = send_result_resp(SendResult::BroadcastFailed {
+            txid: tx.clone(),
+            error: orchestrator::tools::ToolError::Io(std::io::Error::other("reset")),
+        });
+        assert_eq!(r.status, 502);
+        let b = body(r);
+        assert_eq!(b["error"], BROADCAST_TEXT);
+        assert_eq!(b["txid"], tx.as_str());
+
+        // A send that went out but whose own record was not written says so, with the txid.
+        let r = send_result_resp(SendResult::Sent {
+            txid: tx.clone(),
+            sighash: "cd".repeat(32),
+            record_error: Some("proposal record: disk full".into()),
+        });
+        assert_eq!(r.status, 200);
+        let b = body(r);
+        assert_eq!(b["txid"], tx.as_str());
+        assert_eq!(b["state"], "sent");
+        assert_eq!(b["record_error"], "proposal record: disk full");
+
+        let r = send_result_resp(SendResult::RecordFailed("io".into()));
+        assert_eq!(r.status, 500);
+        assert_eq!(body(r)["error"], RECORD_TEXT);
+
+        let r = send_result_resp(SendResult::NotReady {
+            state: "pending".into(),
+        });
+        assert_eq!(r.status, 409);
+        let b = body(r);
+        assert_eq!(b["error"], "proposal is not ready to send");
+        assert_eq!(b["state"], "pending");
+    }
+
+    /// A `zcash-devtool` that never touches a network: logs `$4`, answers `balance` and `list-tx`.
+    /// `mined` is the txid its `list-tx` reports as mined, if any.
+    #[cfg(unix)]
+    fn fake_devtool(dir: &std::path::Path, mined: Option<&str>) -> (PathBuf, PathBuf) {
+        use std::os::unix::fs::PermissionsExt;
+        let log = dir.join("calls.log");
+        let fake = dir.join("fake-devtool");
+        let rows = match mined {
+            Some(t) => format!(r#"[{{"txid":"{t}","mined_height":3400000}}]"#),
+            None => "[]".to_string(),
+        };
+        let script = format!(
+            "#!/bin/sh\necho \"$*\" >> \"{}\"\n\
+             if [ \"$4\" = balance ]; then echo '{{\"chain_tip_height\":3400100,\"orchard_spendable\":0,\"sapling_spendable\":0,\"total\":0,\"transparent_spendable\":0}}'; fi\n\
+             if [ \"$4\" = list-tx ]; then echo '{rows}'; fi\n",
+            log.display()
+        );
+        std::fs::write(&fake, script).unwrap();
+        let mut p = std::fs::metadata(&fake).unwrap().permissions();
+        p.set_mode(0o755);
+        std::fs::set_permissions(&fake, p).unwrap();
+        (fake, log)
+    }
+
+    #[cfg(unix)]
+    fn held_send(dir: &std::path::Path, txid: &str) -> orchestrator::send_record::Attempt {
+        let a = orchestrator::send_record::Attempt {
+            version: 1,
+            proposal_id: "p1".into(),
+            vault_id: "relayv".into(),
+            txid: txid.into(),
+            reported_txid: None,
+            sighash: "ab".repeat(32),
+            signatures: vec!["cd".repeat(64)],
+            expiry_height: 3_400_500,
+            recorded_at_unix: now_unix(),
+        };
+        orchestrator::send_record::record_attempt(dir, &a).unwrap();
+        a
+    }
+
+    #[cfg(unix)]
+    fn real_send(st: &HelperState, c: &HelperConfig) -> Resp {
+        let body = json!({ "vault": "relayv", "relay_base": TEST_RELAY,
+            "room": "0123456789abcdef0123456789abcdef", "dry_run": false })
+        .to_string();
+        handle(
+            st,
+            c,
+            &Method::Post,
+            "/api/vault/proposals/p1/send",
+            body.as_bytes(),
+        )
+    }
+
+    /// The wiring, end to end through the handler: a proposal that has a record of an earlier send is
+    /// refused with the held text, the wallet is consulted, and NOTHING is built or broadcast. The
+    /// tests of the rule use a stand-in for the engine; this one goes through `send_proposal`,
+    /// `LiveSend` and the real wallet reads, against a fake devtool.
+    #[cfg(unix)]
+    #[test]
+    fn the_handler_refuses_a_held_payment_and_builds_nothing() {
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let mut c = cfg();
+        let (fake, log) = fake_devtool(&c.vaults_dir, None);
+        c.devtool = fake;
+        a_ready_proposal(&c.vaults_dir, "relayv");
+        held_send(&c.vaults_dir, &"11".repeat(32));
+
+        let r = real_send(&st, &c);
+        assert_eq!(r.status, 409, "{}", r.body);
+        assert!(r.body.contains(UNSETTLED_TEXT), "{}", r.body);
+
+        let ran = std::fs::read_to_string(&log).unwrap();
+        for step in ["upgrade", "sync", "balance", "list-tx"] {
+            assert!(ran.contains(step), "the wallet is settled first: {ran}");
+        }
+        // The vault's own wallet and the coordinator's own server reach the engine.
+        assert!(ran.contains("-w /tmp/relayv/wallet list-tx"), "{ran}");
+        assert!(
+            ran.contains("-w /tmp/relayv/wallet sync -s testnet.zec.rocks:443"),
+            "{ran}"
+        );
+        assert!(
+            !ran.contains("pczt"),
+            "nothing is built or broadcast: {ran}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_handler_answers_a_mined_attempt_as_sent_and_records_it() {
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let mut c = cfg();
+        let txid = "11".repeat(32);
+        let (fake, log) = fake_devtool(&c.vaults_dir, Some(&txid));
+        c.devtool = fake;
+        a_ready_proposal(&c.vaults_dir, "relayv");
+        held_send(&c.vaults_dir, &txid);
+
+        let r = real_send(&st, &c);
+        assert_eq!(r.status, 200, "{}", r.body);
+        let b: serde_json::Value = serde_json::from_str(&r.body).unwrap();
+        assert_eq!(
+            (b["state"].as_str(), b["txid"].as_str()),
+            (Some("sent"), Some(txid.as_str()))
+        );
+        assert!(!std::fs::read_to_string(&log).unwrap().contains("pczt"));
+        let saved = load_proposal(&c.vaults_dir, "relayv", "p1", now_unix()).unwrap();
+        assert_eq!(saved.state, "sent");
+    }
+
+    /// Reading a vault settles what is mined: a held proposal can pass its own deadline and then
+    /// nobody presses Send again, so a read is the only thing left to record it. Each of the three
+    /// reads, because the screen polls `proposals` and the ledger and the CSV are what an accountant
+    /// reads, and one of them losing the call must turn a test red.
+    #[cfg(unix)]
+    #[test]
+    fn reading_the_vault_records_a_mined_send_on_each_route_that_reads_it() {
+        for route in [
+            "/api/vault/proposals?vault=relayv",
+            "/api/vault/ledger?vault=relayv",
+            "/api/vault/ledger.csv?vault=relayv",
+        ] {
+            let st = HelperState::new();
+            seed(&st, "relayv");
+            let mut c = cfg();
+            let txid = "11".repeat(32);
+            let (fake, _log) = fake_devtool(&c.vaults_dir, Some(&txid));
+            c.devtool = fake;
+            a_ready_proposal(&c.vaults_dir, "relayv");
+            held_send(&c.vaults_dir, &txid);
+
+            let r = handle(&st, &c, &Method::Get, route, b"");
+            assert_eq!(r.status, 200, "{route}: {}", r.body);
+            assert!(r.body.contains(&txid), "{route} shows the txid: {}", r.body);
+            let saved = load_proposal(&c.vaults_dir, "relayv", "p1", now_unix()).unwrap();
+            assert_eq!(saved.state, "sent", "{route}");
+        }
+    }
+
+    /// A screen polls. While a payment that can still be mined is held, each poll must not start a
+    /// `list-tx` under the vault's lock: the wallet is read once per window.
+    #[cfg(unix)]
+    #[test]
+    fn polling_a_vault_with_a_held_payment_reads_the_wallet_once() {
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let mut c = cfg();
+        let (fake, log) = fake_devtool(&c.vaults_dir, None); // never mined
+        c.devtool = fake;
+        a_ready_proposal(&c.vaults_dir, "relayv");
+        held_send(&c.vaults_dir, &"11".repeat(32));
+
+        for _ in 0..5 {
+            let r = handle(
+                &st,
+                &c,
+                &Method::Get,
+                "/api/vault/proposals?vault=relayv",
+                b"",
+            );
+            assert_eq!(r.status, 200, "{}", r.body);
+        }
+        let ran = std::fs::read_to_string(&log).unwrap();
+        assert_eq!(ran.matches("list-tx").count(), 1, "{ran}");
+    }
+
+    /// The read gate (#388) comes BEFORE the settling: a stranger without the vault's read key gets a
+    /// 401 and starts nothing.
+    #[cfg(unix)]
+    #[test]
+    fn a_read_without_the_key_settles_nothing() {
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let mut c = cfg();
+        let txid = "11".repeat(32);
+        let (fake, log) = fake_devtool(&c.vaults_dir, Some(&txid));
+        c.devtool = fake;
+        a_ready_proposal(&c.vaults_dir, "relayv");
+        held_send(&c.vaults_dir, &txid);
+        set_read_key(&c.vaults_dir, "relayv", &"ab".repeat(32)).unwrap();
+
+        let r = handle(
+            &st,
+            &c,
+            &Method::Get,
+            "/api/vault/proposals?vault=relayv",
+            b"",
+        );
+        assert_eq!(r.status, 401, "{}", r.body);
+        assert!(!log.exists(), "the wallet was not touched");
+        let saved = load_proposal(&c.vaults_dir, "relayv", "p1", now_unix()).unwrap();
+        assert_eq!(saved.state, "ready");
+    }
+
+    /// A dry run is forwarded as a dry run: it does not settle an earlier send,
+    /// so a held payment does not answer it with "not settled". (Forcing it to a real send would.)
+    #[cfg(unix)]
+    #[test]
+    fn a_dry_run_through_the_handler_is_not_held_by_an_earlier_send() {
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let mut c = cfg();
+        let (fake, log) = fake_devtool(&c.vaults_dir, None);
+        c.devtool = fake;
+        a_ready_proposal(&c.vaults_dir, "relayv");
+        held_send(&c.vaults_dir, &"11".repeat(32));
+        // Sealable, so the refusal of an unsigned unsealed send is not what this test meets.
+        every_seat_has_a_device(&c.vaults_dir, "relayv");
+
+        let body = json!({ "vault": "relayv", "relay_base": TEST_RELAY,
+            "room": "0123456789abcdef0123456789abcdef", "dry_run": true })
+        .to_string();
+        let r = handle(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault/proposals/p1/send",
+            body.as_bytes(),
+        );
+        assert_ne!(r.status, 409, "{}", r.body);
+        assert!(!r.body.contains(UNSETTLED_TEXT), "{}", r.body);
+        // The funding gate reads the balance (upgrade, sync, balance) as it always did; only settling
+        // an earlier send lists the wallet's transactions.
+        let ran = std::fs::read_to_string(&log).unwrap_or_default();
+        assert!(!ran.contains("list-tx"), "{ran}");
+    }
+
+    /// The proposal is authorized under the vault the request names; its record is keyed by its own.
+    /// A proposal file that says it belongs to another vault is not that vault's to send.
+    #[test]
+    fn a_proposal_that_belongs_to_another_vault_is_not_sent() {
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let c = cfg();
+        a_ready_proposal(&c.vaults_dir, "relayv");
+        let path = c
+            .vaults_dir
+            .join("relayv")
+            .join("proposals")
+            .join("p1.json");
+        let text = std::fs::read_to_string(&path)
+            .unwrap()
+            .replace("\"vault_id\":\"relayv\"", "\"vault_id\":\"other\"");
+        std::fs::write(&path, text).unwrap();
+        let body = json!({ "vault": "relayv", "relay_base": TEST_RELAY,
+            "room": "0123456789abcdef0123456789abcdef", "dry_run": false })
+        .to_string();
+        let r = handle(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault/proposals/p1/send",
+            body.as_bytes(),
+        );
+        assert_eq!(r.status, 404, "{}", r.body);
+    }
+
+    #[cfg(unix)]
+    fn a_proposal_with_a_bad_destination(dir: &std::path::Path) {
+        let p = HelperProposal {
+            to: "not-an-address".into(),
+            ..load_proposal(dir, "relayv", "p1", now_unix()).unwrap()
+        };
+        orchestrator::helper::save_proposal(dir, &p).unwrap();
+    }
+
+    /// The plan is validated INSIDE the gate, after an earlier send has been settled: a payment
+    /// already made is recorded even when its lines no longer validate, and one that was never made
+    /// is refused as invalid.
+    #[cfg(unix)]
+    #[test]
+    fn a_plan_that_does_not_validate_is_refused_after_settling_not_before() {
+        let txid = "11".repeat(32);
+
+        // No earlier send: the proposal is refused for what it is.
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let mut c = cfg();
+        let (fake, log) = fake_devtool(&c.vaults_dir, None);
+        c.devtool = fake;
+        a_ready_proposal(&c.vaults_dir, "relayv");
+        a_proposal_with_a_bad_destination(&c.vaults_dir);
+        let r = real_send(&st, &c);
+        assert_eq!(r.status, 400, "{}", r.body);
+        assert!(!std::fs::read_to_string(&log)
+            .map(|t| t.contains("pczt"))
+            .unwrap_or(false));
+
+        // An earlier send found mined: recorded, not refused.
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let mut c = cfg();
+        let (fake, _log) = fake_devtool(&c.vaults_dir, Some(&txid));
+        c.devtool = fake;
+        a_ready_proposal(&c.vaults_dir, "relayv");
+        a_proposal_with_a_bad_destination(&c.vaults_dir);
+        held_send(&c.vaults_dir, &txid);
+        let r = real_send(&st, &c);
+        assert_eq!(r.status, 200, "{}", r.body);
+        let saved = load_proposal(&c.vaults_dir, "relayv", "p1", now_unix()).unwrap();
+        assert_eq!(saved.state, "sent");
+    }
+
+    // ---- device registration: write-once seats, valid keys, an unreadable registry fails closed ----
+
+    /// The hex of a real Ed25519 verifying key, derived from a one-byte seed: canonical, not weak.
+    fn real_write_key(n: u8) -> String {
+        ed25519_dalek::SigningKey::from_bytes(&[n; 32])
+            .verifying_key()
+            .as_bytes()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
+    }
+
+    /// A vault the registration route can find: a 64-hex id (the route validates it first) with
+    /// `total` = 3 (what `seed` registers) and no read key, so no token is needed.
+    fn device_vault(st: &HelperState, tag: &str) -> String {
+        let id = tag.repeat(32);
+        seed(st, &id);
+        id
+    }
+
+    fn register(
+        st: &HelperState,
+        c: &HelperConfig,
+        vault: &str,
+        comms: &str,
+        seat: Option<u16>,
+        write: Option<&str>,
+    ) -> Resp {
+        let mut body = json!({ "group_key": vault, "device_pub": comms });
+        if let Some(s) = seat {
+            body["seat"] = json!(s);
+        }
+        if let Some(w) = write {
+            body["write_pub"] = json!(w);
+        }
+        handle(
+            st,
+            c,
+            &Method::Post,
+            "/api/vault/devicekey",
+            body.to_string().as_bytes(),
+        )
+    }
+
+    fn registry(c: &HelperConfig, vault: &str) -> String {
+        std::fs::read_to_string(c.vaults_dir.join(vault).join("device-keys.json"))
+            .unwrap_or_default()
+    }
+
+    /// V1: a member who can see a device's comms key (every member can) re-registers it with a write
+    /// key of their own. The record must keep the key it was registered with.
+    #[test]
+    fn a_member_cannot_swap_the_write_key_of_a_registered_seat() {
+        let st = HelperState::new();
+        let v = device_vault(&st, "a1");
+        let c = cfg();
+        let comms = "aa".repeat(32);
+        let (w_victim, w_attacker) = (real_write_key(1), real_write_key(2));
+        assert_eq!(
+            register(&st, &c, &v, &comms, Some(2), Some(&w_victim)).status,
+            200
+        );
+
+        let r = register(&st, &c, &v, &comms, Some(2), Some(&w_attacker));
+        assert_eq!(r.status, 409, "{}", r.body);
+        assert!(registry(&c, &v).contains(&w_victim));
+        assert!(!registry(&c, &v).contains(&w_attacker));
+    }
+
+    /// V2: the same device record moved to another seat with the attacker's key.
+    #[test]
+    fn a_member_cannot_move_a_registered_device_to_another_seat() {
+        let st = HelperState::new();
+        let v = device_vault(&st, "a2");
+        let c = cfg();
+        let comms = "aa".repeat(32);
+        let (w_victim, w_attacker) = (real_write_key(1), real_write_key(2));
+        assert_eq!(
+            register(&st, &c, &v, &comms, Some(2), Some(&w_victim)).status,
+            200
+        );
+
+        let r = register(&st, &c, &v, &comms, Some(3), Some(&w_attacker));
+        assert_eq!(r.status, 409, "{}", r.body);
+        let keys = orchestrator::helper::load_device_records(&c.vaults_dir, &v).unwrap();
+        assert_eq!(keys.len(), 1);
+        assert_eq!(
+            (keys[0].seat, keys[0].write.as_deref()),
+            (Some(2), Some(w_victim.as_str()))
+        );
+    }
+
+    /// What every legitimate path presents: the SAME `(comms, seat, write)`. Unlock after a reload,
+    /// an import after clearing storage, a new browser, a reinstall and a passphrase change all
+    /// derive both keys from the stored KeyPackage, so each answers `added: false`.
+    #[test]
+    fn presenting_the_same_registration_again_changes_nothing() {
+        let st = HelperState::new();
+        let v = device_vault(&st, "a3");
+        let c = cfg();
+        let comms = "aa".repeat(32);
+        let w = real_write_key(1);
+        let first = register(&st, &c, &v, &comms, Some(2), Some(&w));
+        assert_eq!(
+            (first.status, first.body.contains("\"added\":true")),
+            (200, true)
+        );
+        for _ in 0..3 {
+            let again = register(&st, &c, &v, &comms, Some(2), Some(&w));
+            assert_eq!(again.status, 200, "{}", again.body);
+            assert!(again.body.contains("\"added\":false"), "{}", again.body);
+        }
+    }
+
+    /// A device on an older build registers its comms key only. After it has a seat and key on
+    /// record, a comms-only message is not a conflict and not a change.
+    #[test]
+    fn a_comms_only_registration_of_a_bound_device_is_a_no_op() {
+        let st = HelperState::new();
+        let v = device_vault(&st, "a4");
+        let c = cfg();
+        let comms = "aa".repeat(32);
+        let w = real_write_key(1);
+        register(&st, &c, &v, &comms, Some(1), Some(&w));
+        let r = register(&st, &c, &v, &comms, None, None);
+        assert_eq!(r.status, 200, "{}", r.body);
+        assert!(r.body.contains("\"added\":false"), "{}", r.body);
+        assert!(registry(&c, &v).contains(&w));
+    }
+
+    /// A record that registered for sealing before write keys existed gains its seat once: that is
+    /// how every vault upgrades, and it stays allowed.
+    #[test]
+    fn a_comms_only_record_gains_its_seat_and_key_once() {
+        let st = HelperState::new();
+        let v = device_vault(&st, "a5");
+        let c = cfg();
+        let comms = "aa".repeat(32);
+        let w = real_write_key(1);
+        assert!(register(&st, &c, &v, &comms, None, None)
+            .body
+            .contains("\"added\":true"));
+        let bind = register(&st, &c, &v, &comms, Some(1), Some(&w));
+        assert_eq!(bind.status, 200, "{}", bind.body);
+        assert!(bind.body.contains("\"added\":true"), "{}", bind.body);
+        let rebind = register(&st, &c, &v, &comms, Some(1), Some(&real_write_key(9)));
+        assert_eq!(
+            rebind.status, 409,
+            "once bound, the key is fixed: {}",
+            rebind.body
+        );
+    }
+
+    #[test]
+    fn a_seat_outside_the_vault_is_refused() {
+        let st = HelperState::new();
+        let v = device_vault(&st, "a6"); // total = 3
+        let c = cfg();
+        let w = real_write_key(1);
+        for seat in [0u16, 4, 100, u16::MAX] {
+            let r = register(&st, &c, &v, &"aa".repeat(32), Some(seat), Some(&w));
+            assert_eq!(r.status, 400, "seat {seat}: {}", r.body);
+        }
+        assert_eq!(registry(&c, &v), "", "nothing was written");
+        assert_eq!(
+            register(&st, &c, &v, &"aa".repeat(32), Some(3), Some(&w)).status,
+            200,
+            "the last seat is inside"
+        );
+    }
+
+    /// A3: a small-order comms key makes every sealed send and `/ufvk` fail until someone edits the
+    /// file by hand. It is refused at registration.
+    #[test]
+    fn a_low_order_comms_key_is_refused_at_registration() {
+        let st = HelperState::new();
+        let v = device_vault(&st, "a7");
+        let c = cfg();
+        let identity = format!("01{}", "00".repeat(31));
+        for bad in ["00".repeat(32), identity] {
+            let r = register(&st, &c, &v, &bad, None, None);
+            assert_eq!(r.status, 400, "{bad}: {}", r.body);
+        }
+        assert_eq!(registry(&c, &v), "");
+    }
+
+    /// One spelling per key: lower case.
+    #[test]
+    fn a_comms_key_has_one_spelling() {
+        let st = HelperState::new();
+        let v = device_vault(&st, "a8");
+        let c = cfg();
+        assert_eq!(
+            register(&st, &c, &v, &"AA".repeat(32), None, None).status,
+            400
+        );
+        assert_eq!(
+            register(&st, &c, &v, &"aa".repeat(32), None, None).status,
+            200
+        );
+    }
+
+    #[test]
+    fn a_write_key_that_is_not_a_canonical_strong_point_is_refused() {
+        let st = HelperState::new();
+        let v = device_vault(&st, "a9");
+        let c = cfg();
+        let comms = "aa".repeat(32);
+        let identity = format!("01{}", "00".repeat(31));
+        // A valid point written in a non-canonical way: y = 2^255 - 13 + 3, which is y = 3 again.
+        // Only a check that re-encodes the point sees it (`to_bytes()` hands the input back).
+        let alias = format!("f0{}7f", "ff".repeat(30));
+        for (name, bad) in [
+            ("the identity point", identity),
+            ("a non-canonical alias", alias),
+            ("bytes that decode to no point", "dd".repeat(32)),
+            ("upper case", real_write_key(1).to_uppercase()),
+        ] {
+            let r = register(&st, &c, &v, &comms, Some(1), Some(&bad));
+            assert_eq!(r.status, 400, "{name}: {}", r.body);
+        }
+        assert_eq!(registry(&c, &v), "");
+    }
+
+    /// The semantic checks come AFTER the read-key gate: a stranger holding only the vault id learns
+    /// nothing about what a valid registration looks like, and is told to authenticate.
+    #[test]
+    fn a_stranger_is_asked_for_the_read_key_before_the_registration_is_judged() {
+        let st = HelperState::new();
+        let v = device_vault(&st, "b1");
+        let c = cfg();
+        set_read_key(&c.vaults_dir, &v, &"ab".repeat(32)).unwrap();
+        let r = register(&st, &c, &v, &"00".repeat(32), Some(9), Some("nonsense"));
+        assert_eq!(r.status, 401, "{}", r.body);
+    }
+
+    /// An unparseable registry is NOT an empty one. An empty one means no write keys were ever
+    /// registered, which leaves a vault open to unsigned writes; a half-written one is the trace of
+    /// a cut write, and reading it as empty would turn the gate off for the vault whose keys it held.
+    fn gated_vault_with_a_registry_that_will_break(
+        st: &HelperState,
+        tag: &str,
+    ) -> (String, HelperConfig) {
+        let v = device_vault(st, tag);
+        let c = cfg();
+        let _ =
+            orchestrator::helper::claim_members(&c.vaults_dir, &v, &["alice".into(), "bob".into()]);
+        let now = now_unix();
+        let mut p = HelperProposal {
+            id: "p1".into(),
+            vault_id: v.clone(),
+            kind: "payment".into(),
+            to: "u1dest".into(),
+            amount_zat: 1000,
+            memo: None,
+            lines: vec![],
+            proposer: "alice".into(),
+            state: "pending".into(),
+            approvals: vec![],
+            refusals: vec![],
+            threshold: 2,
+            total: 2,
+            created_at_unix: now,
+            expiry_unix: now + 86_400,
+            txid: None,
+        };
+        p.recompute(now, &[]);
+        orchestrator::helper::save_proposal(&c.vaults_dir, &p).unwrap();
+        // Alice registered her key, so the vault is gated.
+        let r = register(
+            st,
+            &c,
+            &v,
+            &"aa".repeat(32),
+            Some(1),
+            Some(&real_write_key(1)),
+        );
+        assert_eq!(r.status, 200, "{}", r.body);
+        (v, c)
+    }
+
+    fn unsigned_approve(st: &HelperState, c: &HelperConfig, v: &str) -> Resp {
+        handle(
+            st,
+            c,
+            &Method::Post,
+            "/api/vault/proposals/p1/approve",
+            format!(r#"{{"vault":"{v}","member":"alice"}}"#).as_bytes(),
+        )
+    }
+
+    #[test]
+    fn an_unparseable_device_registry_refuses_an_unsigned_vote() {
+        let breaks: [(&str, &[u8]); 4] = [
+            ("half a record", br#"[{"comms":"aa","seat":1,"wri"#),
+            ("zero bytes, the trace of a cut write", b""),
+            ("only spaces", b"   \n"),
+            ("garbage", b"\xff\xfe not json"),
+        ];
+        for (i, (name, bytes)) in breaks.iter().enumerate() {
+            let st = HelperState::new();
+            let (v, c) = gated_vault_with_a_registry_that_will_break(&st, &format!("c{i}"));
+            // Sanity: while the registry is fine, an unsigned vote is refused.
+            assert_eq!(unsigned_approve(&st, &c, &v).status, 401);
+            std::fs::write(c.vaults_dir.join(&v).join("device-keys.json"), bytes).unwrap();
+            let r = unsigned_approve(&st, &c, &v);
+            assert_eq!(r.status, 503, "{name}: {}", r.body);
+        }
+    }
+
+    #[test]
+    fn a_registry_that_is_a_directory_refuses_an_unsigned_vote() {
+        let st = HelperState::new();
+        let (v, c) = gated_vault_with_a_registry_that_will_break(&st, "d1");
+        let path = c.vaults_dir.join(&v).join("device-keys.json");
+        std::fs::remove_file(&path).unwrap();
+        std::fs::create_dir(&path).unwrap();
+        assert_eq!(unsigned_approve(&st, &c, &v).status, 503);
+    }
+
+    /// The opposite guards: a registry that is absent, empty (`[]`) or the legacy flat list is a
+    /// vault with no write keys, and stays open exactly as before (ADR-0011 D5).
+    #[test]
+    fn an_absent_empty_or_legacy_registry_is_still_an_open_vault() {
+        for (i, content) in [None, Some("[]"), Some(r#"["aa","bb"]"#)]
+            .iter()
+            .enumerate()
+        {
+            let st = HelperState::new();
+            let (v, c) = gated_vault_with_a_registry_that_will_break(&st, &format!("e{i}"));
+            let path = c.vaults_dir.join(&v).join("device-keys.json");
+            match content {
+                None => std::fs::remove_file(&path).unwrap(),
+                Some(text) => std::fs::write(&path, text).unwrap(),
+            }
+            assert_eq!(unsigned_approve(&st, &c, &v).status, 200, "{content:?}");
+        }
+    }
+
+    /// An unreadable registry is never "healed" by a registration: starting from empty would drop
+    /// every other seat's key and make the vault first-come for all of them.
+    #[test]
+    fn an_unreadable_registry_is_never_rewritten_by_a_registration() {
+        let st = HelperState::new();
+        let (v, c) = gated_vault_with_a_registry_that_will_break(&st, "f1");
+        let path = c.vaults_dir.join(&v).join("device-keys.json");
+        let broken: &[u8] = br#"[{"comms":"aa","seat":1,"wri"#;
+        std::fs::write(&path, broken).unwrap();
+
+        let r = register(
+            &st,
+            &c,
+            &v,
+            &"bb".repeat(32),
+            Some(2),
+            Some(&real_write_key(2)),
+        );
+        assert_eq!(r.status, 503, "{}", r.body);
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            broken,
+            "the file is untouched"
+        );
+    }
+
+    /// `/ufvk` with a registry it cannot read answers 503 instead of the viewing key in clear: the
+    /// code already says a vault with devices whose seal fails must not fall back to plaintext.
+    #[test]
+    fn an_unreadable_registry_does_not_serve_the_viewing_key_in_clear() {
+        let st = HelperState::new();
+        let (v, c) = gated_vault_with_a_registry_that_will_break(&st, "f2");
+        let tok = "ab".repeat(32);
+        set_read_key(&c.vaults_dir, &v, &tok).unwrap();
+        std::fs::write(
+            c.vaults_dir.join(&v).join("device-keys.json"),
+            b"{ not a registry",
+        )
+        .unwrap();
+        let r = handle_with_token(
+            &st,
+            &c,
+            &Method::Get,
+            &format!("/api/vault/ufvk?vault={v}"),
+            b"",
+            Some(&tok),
+        );
+        assert_eq!(r.status, 503, "{}", r.body);
+        assert!(
+            !r.body.contains("uviewtest"),
+            "no viewing key in the answer: {}",
+            r.body
+        );
+    }
+
+    fn plain_hex(b: &[u8]) -> String {
+        b.iter().map(|x| format!("{x:02x}")).collect()
+    }
+
+    /// The REAL device-side derivations (konclave-seal, the same code the wasm build runs) feed the
+    /// REAL registration door: no legitimate (comms, write) pair may be refused. 300 distinct
+    /// pseudo-KeyPackages, each registered on its own vault.
+    #[test]
+    fn every_pair_a_real_device_derives_is_accepted_by_the_door() {
+        let mut state: u64 = 0x9E37_79B9_7F4A_7C15;
+        let mut next = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        let dir = std::env::temp_dir().join(format!("konclave-x1-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut refused = Vec::new();
+        let n: u32 = 300;
+        for i in 0..n {
+            let kp: Vec<u8> = (0..120).map(|_| (next() >> 24) as u8).collect();
+            let comms = plain_hex(&konclave_seal::device_key_from_share(&kp).public_bytes());
+            let seed = konclave_seal::write_key_seed_from_share(&kp);
+            let write = plain_hex(
+                ed25519_dalek::SigningKey::from_bytes(&seed)
+                    .verifying_key()
+                    .as_bytes(),
+            );
+            let seat = 1 + (i % 3) as u16;
+            let r = orchestrator::helper::register_device(
+                &dir,
+                &format!("v{i:05}"),
+                3,
+                &comms,
+                Some(seat),
+                Some(&write),
+            );
+            if !matches!(r, Ok(true)) {
+                refused.push((i, comms, write, format!("{r:?}")));
+            }
+        }
+        std::fs::remove_dir_all(&dir).ok();
+        assert!(
+            refused.is_empty(),
+            "legitimate keys refused: {:?}",
+            &refused[..refused.len().min(3)]
+        );
+    }
+
+    /// Sixteen threads register the SAME device on the SAME seat with sixteen different write keys,
+    /// through `serve` (the vault lock the workers take). Exactly one wins, the rest are conflicts, and
+    /// the registry holds exactly the winner. 40 rounds, each on its own vault.
+    #[test]
+    fn concurrent_conflicting_registrations_have_one_winner() {
+        for round in 0..40u32 {
+            let st = HelperState::new();
+            let v = device_vault(&st, &format!("{:02x}", round));
+            let c = cfg();
+            let locks = concurrency::VaultLocks::new();
+            let limits = admission::Limits::new();
+            let comms = "aa".repeat(32);
+            let barrier = std::sync::Barrier::new(16);
+            let outcomes: Vec<(u16, String, String)> = std::thread::scope(|s| {
+                let hs: Vec<_> = (0..16u8)
+                    .map(|k| {
+                        let (st, c, locks, limits, barrier, v, comms) =
+                            (&st, &c, &locks, &limits, &barrier, &v, &comms);
+                        s.spawn(move || {
+                            let w = real_write_key(k + 1);
+                            let body = json!({"group_key": v, "device_pub": comms, "seat": 2, "write_pub": w}).to_string();
+                            barrier.wait();
+                            let r = serve(st, c, locks, limits, "203.0.113.7", T0, &Method::Post,
+                                          "/api/vault/devicekey", body.as_bytes(), None);
+                            (r.status, r.body, w)
+                        })
+                    })
+                    .collect();
+                hs.into_iter().map(|h| h.join().unwrap()).collect()
+            });
+            let wins: Vec<_> = outcomes
+                .iter()
+                .filter(|o| o.0 == 200 && o.1.contains("\"added\":true"))
+                .collect();
+            let conflicts = outcomes.iter().filter(|o| o.0 == 409).count();
+            assert_eq!(
+                wins.len(),
+                1,
+                "round {round}: {:?}",
+                outcomes.iter().map(|o| o.0).collect::<Vec<_>>()
+            );
+            assert_eq!(conflicts, 15, "round {round}");
+            let recs = orchestrator::helper::load_device_records(&c.vaults_dir, &v).unwrap();
+            assert_eq!(recs.len(), 1, "round {round}");
+            assert_eq!(
+                recs[0].write.as_deref(),
+                Some(wins[0].2.as_str()),
+                "round {round}: the registry holds the winner"
+            );
+        }
+    }
+
+    /// A legacy vault registered with total = 0 keeps `seat >= 1` only (the documented rule).
+    #[test]
+    fn a_legacy_vault_with_no_total_accepts_any_seat_from_one() {
+        let st = HelperState::new();
+        let id = "b3".repeat(32);
+        st.insert(VaultRegistration {
+            vault_id: id.clone(),
+            address: format!("utest1{id}"),
+            ufvk: format!("uviewtest1{id}"),
+            wallet_dir: format!("/tmp/{id}/wallet"),
+            account: format!("acct-{id}"),
+            threshold: 0,
+            total: 0,
+            change_receiver: String::new(),
+            birthday: None,
+        });
+        let c = cfg();
+        let w = real_write_key(1);
+        assert_eq!(
+            register(&st, &c, &id, &"aa".repeat(32), Some(0), Some(&w)).status,
+            400
+        );
+        let r = register(&st, &c, &id, &"aa".repeat(32), Some(7), Some(&w));
+        assert_eq!(r.status, 200, "{}", r.body);
+    }
+
+    /// Padding around a key is trimmed, as the route always did.
+    #[test]
+    fn padded_keys_are_trimmed_not_refused() {
+        let st = HelperState::new();
+        let v = device_vault(&st, "b4");
+        let c = cfg();
+        let w = real_write_key(1);
+        let r = register(
+            &st,
+            &c,
+            &v,
+            &format!(" {} ", "aa".repeat(32)),
+            Some(1),
+            Some(&format!(" {w}\n")),
+        );
+        assert_eq!(r.status, 200, "{}", r.body);
+        let recs = orchestrator::helper::load_device_records(&c.vaults_dir, &v).unwrap();
+        assert_eq!(recs[0].comms, "aa".repeat(32));
+        assert_eq!(recs[0].write.as_deref(), Some(w.as_str()));
+        // And the padded spelling of the same registration is the same device, not a second record.
+        let again = register(
+            &st,
+            &c,
+            &v,
+            &"aa".repeat(32),
+            Some(1),
+            Some(&format!("{w} ")),
+        );
+        assert_eq!(again.status, 200, "{}", again.body);
+        assert!(again.body.contains("\"added\":false"), "{}", again.body);
+    }
+
+    /// A seat without a key, or a key without a seat, is not a registration.
+    #[test]
+    fn a_half_pair_is_refused() {
+        let st = HelperState::new();
+        let v = device_vault(&st, "b5");
+        let c = cfg();
+        let w = real_write_key(1);
+        assert_eq!(
+            register(&st, &c, &v, &"aa".repeat(32), Some(1), None).status,
+            400
+        );
+        assert_eq!(
+            register(&st, &c, &v, &"aa".repeat(32), None, Some(&w)).status,
+            400
+        );
+        assert_eq!(registry(&c, &v), "");
+    }
+
+    /// A registry the coordinator has no permission to read is unreadable, not empty (EACCES).
+    #[cfg(unix)]
+    #[test]
+    fn a_registry_without_permission_refuses_an_unsigned_vote() {
+        use std::os::unix::fs::PermissionsExt;
+        let st = HelperState::new();
+        let (v, c) = gated_vault_with_a_registry_that_will_break(&st, "b6");
+        let path = c.vaults_dir.join(&v).join("device-keys.json");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+        if std::fs::read(&path).is_ok() {
+            eprintln!("a user that ignores file modes: skipped");
+            return;
+        }
+        let r = unsigned_approve(&st, &c, &v);
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(r.status, 503, "{}", r.body);
+    }
+
+    /// Keys of the wrong LENGTH are refused (66 and 62 hex characters).
+    #[test]
+    fn a_key_of_the_wrong_length_is_refused() {
+        let st = HelperState::new();
+        let v = device_vault(&st, "b7");
+        let c = cfg();
+        let w = real_write_key(1);
+        for comms in [format!("{}ab", "aa".repeat(32)), "aa".repeat(31)] {
+            assert_eq!(
+                register(&st, &c, &v, &comms, None, None).status,
+                400,
+                "{comms}"
+            );
+        }
+        for write in [format!("{w}ab"), w[..62].to_string()] {
+            assert_eq!(
+                register(&st, &c, &v, &"aa".repeat(32), Some(1), Some(&write)).status,
+                400,
+                "{write}"
+            );
+        }
+        assert_eq!(registry(&c, &v), "");
+    }
+
+    /// A legacy flat registry with an UPPER-CASE comms key: the lower-case registration of the same
+    /// key is the same device (it gains its seat), not a second record.
+    #[test]
+    fn a_legacy_upper_case_entry_is_the_same_device() {
+        let st = HelperState::new();
+        let v = device_vault(&st, "b8");
+        let c = cfg();
+        std::fs::create_dir_all(c.vaults_dir.join(&v)).unwrap();
+        let upper = "AA".repeat(32);
+        std::fs::write(
+            c.vaults_dir.join(&v).join("device-keys.json"),
+            format!(r#"["{upper}"]"#),
+        )
+        .unwrap();
+        let w = real_write_key(1);
+        let r = register(&st, &c, &v, &"aa".repeat(32), Some(1), Some(&w));
+        assert_eq!(r.status, 200, "{}", r.body);
+        let recs = orchestrator::helper::load_device_records(&c.vaults_dir, &v).unwrap();
+        assert_eq!(recs.len(), 1, "one device, not two: {recs:?}");
+        assert_eq!(recs[0].seat, Some(1));
+    }
+
+    /// Every governance write refuses on an unreadable registry BEFORE it has an effect: a payment
+    /// proposal, a rename, a refusal, a send. (The shipped test covers an approval only.)
+    #[test]
+    fn every_governance_write_refuses_on_an_unreadable_registry() {
+        let st = HelperState::new();
+        let (v, c) = gated_vault_with_a_registry_that_will_break(&st, "b9");
+        std::fs::write(c.vaults_dir.join(&v).join("device-keys.json"), b"").unwrap();
+        let before = std::fs::read_dir(c.vaults_dir.join(&v).join("proposals"))
+            .map(|d| d.count())
+            .unwrap_or(0);
+        let post = |path: &str, body: String| handle(&st, &c, &Method::Post, path, body.as_bytes());
+        let cases: Vec<(&str, String)> = vec![
+            (
+                "/api/vault/proposals/p1/refuse",
+                format!(r#"{{"vault":"{v}","member":"alice"}}"#),
+            ),
+            (
+                "/api/vault/proposals/p1/approve",
+                format!(r#"{{"vault":"{v}","member":"alice"}}"#),
+            ),
+            (
+                "/api/vault/proposals/p1/send",
+                format!(
+                    r#"{{"vault":"{v}","relay_base":"{TEST_RELAY}","room":"0123456789abcdef0123456789abcdef","dry_run":true}}"#
+                ),
+            ),
+            (
+                "/api/vault/members/rename",
+                format!(r#"{{"vault":"{v}","old":"alice","new":"carol"}}"#),
+            ),
+            (
+                "/api/vault/proposals",
+                format!(r#"{{"vault":"{v}","proposer":"alice","to":"u1dest","amount_zat":1000}}"#),
+            ),
+            (
+                "/api/vault/payroll",
+                format!(
+                    r#"{{"vault":"{v}","proposer":"alice","lines":[{{"label":"a","to":"u1dest","amount_zat":1000}}]}}"#
+                ),
+            ),
+        ];
+        let mut report = Vec::new();
+        for (path, body) in cases {
+            let r = post(path, body);
+            report.push((path, r.status, r.body));
+        }
+        let after = std::fs::read_dir(c.vaults_dir.join(&v).join("proposals"))
+            .map(|d| d.count())
+            .unwrap_or(0);
+        for (path, status, body) in &report {
+            assert_eq!(*status, 503, "{path}: {body}");
+            assert!(
+                body.contains("device list cannot be read"),
+                "{path}: {body}"
+            );
+        }
+        assert_eq!(before, after, "no proposal was created");
+    }
+
+    /// A small-order comms key is refused on a SEATED registration too, and a bad write key on
+    /// every seat (the shipped tests try the comms key with no seat and the write key on seat 1).
+    #[test]
+    fn the_key_checks_hold_on_every_seat_and_on_a_seated_registration() {
+        let st = HelperState::new();
+        let v = device_vault(&st, "c2");
+        let c = cfg();
+        let w = real_write_key(1);
+        let r = register(&st, &c, &v, &"00".repeat(32), Some(1), Some(&w));
+        assert_eq!(
+            r.status, 400,
+            "seated registration with a small-order comms key: {}",
+            r.body
+        );
+        let identity = format!("01{}", "00".repeat(31));
+        for seat in [1u16, 2, 3] {
+            let r = register(&st, &c, &v, &"aa".repeat(32), Some(seat), Some(&identity));
+            assert_eq!(
+                r.status, 400,
+                "identity write key on seat {seat}: {}",
+                r.body
+            );
+        }
+        assert_eq!(registry(&c, &v), "");
+    }
+
+    /// Every small-order point of Curve25519, in every spelling the encoding allows (canonical,
+    /// non-canonical p, p+1, p-1, and the bit-255 aliases of each), is refused as a comms key by the
+    /// real door; none may be accepted.
+    #[test]
+    fn every_small_order_spelling_is_refused_as_a_comms_key() {
+        let le = |hex_be: &str| -> String {
+            // the published u-coordinates are written big-endian; the wire is little-endian
+            let mut b: Vec<u8> = (0..hex_be.len() / 2)
+                .map(|i| u8::from_str_radix(&hex_be[2 * i..2 * i + 2], 16).unwrap())
+                .collect();
+            b.reverse();
+            plain_hex(&b)
+        };
+        let order8_a = le("00b8495f16056286fdb1329ceb8d09da6ac49ff1fae35616aeb8413b7c7aebe0");
+        let order8_b = le("57119fd0dd4e22d8868e1c58c45c44045bef839c55b1d0b1248c50a3bc959c5f");
+        let p = format!("ed{}7f", "ff".repeat(30));
+        let p_plus_1 = format!("ee{}7f", "ff".repeat(30));
+        let p_minus_1 = format!("ec{}7f", "ff".repeat(30));
+        let zero = "00".repeat(32);
+        let one = format!("01{}", "00".repeat(31));
+        let mut all = vec![zero, one, order8_a, order8_b, p, p_plus_1, p_minus_1];
+        // the bit-255 alias of each
+        let aliases: Vec<String> = all
+            .iter()
+            .map(|h| {
+                let mut b: Vec<u8> = (0..32)
+                    .map(|i| u8::from_str_radix(&h[2 * i..2 * i + 2], 16).unwrap())
+                    .collect();
+                b[31] |= 0x80;
+                plain_hex(&b)
+            })
+            .collect();
+        all.extend(aliases);
+        let mut accepted = Vec::new();
+        for (i, bad) in all.iter().enumerate() {
+            let st = HelperState::new();
+            let v = device_vault(&st, &format!("{:02x}", 0x50 + i));
+            let c = cfg();
+            let r = register(&st, &c, &v, bad, None, None);
+            if r.status != 400 {
+                accepted.push((bad.clone(), r.status, r.body));
+            }
+        }
+        assert!(
+            accepted.is_empty(),
+            "small-order comms keys that were NOT refused: {accepted:?}"
+        );
+    }
+
+    /// One rule, one implementation (CLAUDE.md §11): the hosted coordinator cannot broadcast except
+    /// through `send_proposal`, which records the attempt first. The names are assembled here so
+    /// this file does not contain them and trip itself.
+    #[test]
+    fn the_hosted_coordinator_names_no_way_to_broadcast_but_send_proposal() {
+        let forbidden = [
+            ["net_orchestrate", "_send"].concat(),
+            ["net_prepare", "_send"].concat(),
+            ["broadcast", "_signed"].concat(),
+            ["pczt", "::send"].concat(),
+            // The operator's wrappers, whole or aliased: the name is what matters, not a call.
+            ["orchestrate", "_send"].concat(),
+            [".broad", "cast("].concat(),
+            ["send", "_with"].concat(),
+            ["Send", "Steps"].concat(),
+        ];
+        fn walk(dir: &std::path::Path, forbidden: &[String], seen: &mut usize) {
+            for entry in std::fs::read_dir(dir).unwrap().flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    walk(&path, forbidden, seen);
+                    continue;
+                }
+                if path.extension().and_then(|e| e.to_str()) != Some("rs") {
+                    continue;
+                }
+                *seen += 1;
+                let text = std::fs::read_to_string(&path).unwrap();
+                for name in forbidden {
+                    assert!(
+                        !text.contains(name.as_str()),
+                        "{} names {name}: broadcast only through send_proposal",
+                        path.display()
+                    );
+                }
+            }
+        }
+        let mut seen = 0;
+        walk(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+            &forbidden,
+            &mut seen,
+        );
+        assert!(seen > 0);
+    }
 
     #[test]
     fn parse_mem_available_reads_the_meminfo_line() {
@@ -3006,8 +4474,8 @@ mod tests {
         // And it must not have taken effect. A refusal that wrote anyway would be the whole bug
         // with a different status code.
         assert_eq!(
-            orchestrator::helper::load_read_key(&c.vaults_dir, &armed).as_deref(),
-            Some(mine.as_str()),
+            orchestrator::helper::read_key_state(&c.vaults_dir, &armed),
+            orchestrator::helper::ReadKey::Set(mine.clone()),
             "the refusal still overwrote the key"
         );
 
@@ -3025,8 +4493,8 @@ mod tests {
             "the holder of the current key must be able to rotate it"
         );
         assert_eq!(
-            orchestrator::helper::load_read_key(&c.vaults_dir, &armed).as_deref(),
-            Some(theirs.as_str())
+            orchestrator::helper::read_key_state(&c.vaults_dir, &armed),
+            orchestrator::helper::ReadKey::Set(theirs.clone())
         );
     }
 
@@ -3356,7 +4824,7 @@ mod tests {
         assert!(second.body.contains("\"added\":false"));
 
         assert_eq!(
-            orchestrator::helper::load_device_keys(&c.vaults_dir, gk),
+            orchestrator::helper::load_device_keys(&c.vaults_dir, gk).unwrap(),
             vec![pub_hex],
             "the pubkey is persisted in the vault's seal-set",
         );
@@ -4182,7 +5650,9 @@ mod tests {
             format!(r#"["{gk}","{device}"]"#),
         ] {
             let status = serve_while_locked(&st, &c, &gk, "/api/vault/devicekey", &body, || {
-                !orchestrator::helper::load_device_records(&dir, &gk).is_empty()
+                !orchestrator::helper::load_device_records(&dir, &gk)
+                    .unwrap()
+                    .is_empty()
             });
             assert_eq!(status, 400, "{body}");
         }
@@ -4561,5 +6031,323 @@ mod tests {
         let r = send_to(&st, &c, TEST_RELAY, "ROOM2345");
         assert_eq!(r.status, 503, "{}", r.body);
         assert!(r.body.contains("no relay configured"), "{}", r.body);
+    }
+
+    /// Every one of `vault`'s 3 seats has a device key registered, so a send seals its request to
+    /// them and nothing has to be signed for it to be allowed.
+    fn every_seat_has_a_device(dir: &std::path::Path, vault: &str) {
+        for _ in 0..3 {
+            let dk = konclave_seal::DeviceKey::generate();
+            let pubhex: String = dk
+                .public_bytes()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect();
+            orchestrator::helper::upsert_device(dir, vault, &pubhex, None).unwrap();
+        }
+    }
+
+    /// A send body, optionally carrying a signed-write envelope (`fields` is what
+    /// `signed_as_seat_one` returns).
+    #[cfg(unix)]
+    fn send_as(st: &HelperState, c: &HelperConfig, dry_run: bool, fields: Option<&str>) -> Resp {
+        let mut body = json!({ "vault": "relayv", "relay_base": TEST_RELAY,
+            "room": "0123456789abcdef0123456789abcdef", "dry_run": dry_run });
+        if let Some(fields) = fields {
+            let extra: serde_json::Value = serde_json::from_str(&format!("{{{fields}}}")).unwrap();
+            for (k, v) in extra.as_object().unwrap() {
+                body[k] = v.clone();
+            }
+        }
+        handle(
+            st,
+            c,
+            &Method::Post,
+            "/api/vault/proposals/p1/send",
+            body.to_string().as_bytes(),
+        )
+    }
+
+    // A signing request is sealed to the vault's devices once every seat has registered one and is
+    // published unsealed until then. An unsealed request is published only for a send a seat signed.
+
+    #[cfg(unix)]
+    #[test]
+    fn an_unsigned_send_from_an_incompletely_registered_vault_is_refused_before_anything_is_built()
+    {
+        for dry_run in [true, false] {
+            let st = HelperState::new();
+            seed(&st, "relayv"); // open: no write key, no device key
+            let mut c = cfg();
+            let (fake, log) = fake_devtool(&c.vaults_dir, None);
+            c.devtool = fake;
+            a_ready_proposal(&c.vaults_dir, "relayv");
+
+            let r = send_as(&st, &c, dry_run, None);
+            assert_eq!(r.status, 409, "dry_run={dry_run}: {}", r.body);
+            assert!(r.body.contains(UNSEALED_SEND_TEXT), "{}", r.body);
+            let ran = std::fs::read_to_string(&log).unwrap_or_default();
+            assert!(
+                !ran.contains("pczt"),
+                "nothing is built or published (dry_run={dry_run}): {ran}"
+            );
+        }
+    }
+
+    /// The other side of the rule, so it cannot be met by refusing everything: a member who signs
+    /// still sends from a vault whose other seats have not registered a device key yet.
+    #[cfg(unix)]
+    #[test]
+    fn a_signed_send_from_an_incompletely_registered_vault_goes_on() {
+        use konclave_seal::WriteAction;
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let mut c = cfg();
+        let (fake, _log) = fake_devtool(&c.vaults_dir, None);
+        c.devtool = fake;
+        a_ready_proposal(&c.vaults_dir, "relayv");
+        let sk = alice_registers_seat_one(&c.vaults_dir, "relayv"); // 1 of 3 seats
+
+        let fields = signed_as_seat_one(&sk, "relayv", WriteAction::Send, "p1", "r1-signed");
+        let r = send_as(&st, &c, true, Some(&fields));
+        assert!(!r.body.contains(UNSEALED_SEND_TEXT), "{}", r.body);
+        assert_ne!(r.status, 401, "{}", r.body);
+    }
+
+    /// A body that LOOKS signed proves nothing on a vault with no write key: the send is still
+    /// unsigned, and is refused as one.
+    #[cfg(unix)]
+    #[test]
+    fn a_signature_that_proves_nothing_does_not_count_as_signed() {
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let mut c = cfg();
+        let (fake, log) = fake_devtool(&c.vaults_dir, None);
+        c.devtool = fake;
+        a_ready_proposal(&c.vaults_dir, "relayv");
+
+        let r = send_as(
+            &st,
+            &c,
+            true,
+            Some(r#""seat":1,"ts":1,"nonce":"zz","sig":"00""#),
+        );
+        assert_eq!(r.status, 409, "{}", r.body);
+        assert!(r.body.contains(UNSEALED_SEND_TEXT), "{}", r.body);
+        assert!(!std::fs::read_to_string(&log)
+            .unwrap_or_default()
+            .contains("pczt"));
+    }
+
+    /// The request names its own `max_polls`, and a send holds its vault and a worker for as long
+    /// as it waits.
+    #[test]
+    fn a_send_cannot_wait_longer_than_the_ceiling() {
+        // The VALUE, not the constant it is compared with: comparing against `MAX_POLLS_CEILING`
+        // stays green with the constant set to `u32::MAX` or to an hour.
+        assert_eq!(polls_for(u32::MAX), 600);
+        assert_eq!(polls_for(4_000_000_000), 600);
+        assert_eq!(polls_for(601), 600);
+        assert_eq!(polls_for(600), 600);
+        assert_eq!(polls_for(300), 300, "the default is untouched");
+        assert_eq!(polls_for(1), 1);
+        assert_eq!(
+            polls_for(0),
+            1,
+            "zero polls would arm a room nobody collects"
+        );
+        // And the handler really goes through it. The needle is built in two pieces, so that this
+        // test's own text is not what satisfies it, and it ends at the comma, so a call that undoes
+        // the clamp after the scanned text no longer matches.
+        let needle = concat!("max_polls: polls_for", "(req.max_polls),");
+        assert!(
+            include_str!("main.rs").contains(needle),
+            "the send must clamp the polls it is asked for"
+        );
+    }
+
+    /// And the sealed case needs no signature, as before: nothing is published unsealed.
+    #[cfg(unix)]
+    #[test]
+    fn an_unsigned_send_on_a_fully_registered_vault_is_not_held_back() {
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let mut c = cfg();
+        let (fake, _log) = fake_devtool(&c.vaults_dir, None);
+        c.devtool = fake;
+        a_ready_proposal(&c.vaults_dir, "relayv");
+        every_seat_has_a_device(&c.vaults_dir, "relayv");
+
+        let r = send_as(&st, &c, true, None);
+        assert!(!r.body.contains(UNSEALED_SEND_TEXT), "{}", r.body);
+    }
+
+    /// A key file that is there and is not a key refuses, as an unreadable device registry does. Read
+    /// as "no key" it would open the vault's reads, its device registration and the replacement of
+    /// the key itself to anyone holding only the id. Every route that reads the key is asked, with
+    /// the right token, no token and an empty one.
+    #[cfg(unix)]
+    #[test]
+    fn a_read_key_that_cannot_be_read_refuses_instead_of_opening() {
+        let v = "6".repeat(64);
+        let mine = "ab".repeat(32);
+        type Break = fn(&std::path::Path);
+        let states: [(&str, Break); 8] = [
+            ("empty", |p| std::fs::write(p, b"").unwrap()),
+            ("garbage", |p| std::fs::write(p, b"{ half").unwrap()),
+            ("null", |p| std::fs::write(p, b"null").unwrap()),
+            ("blank", |p| std::fs::write(p, b"\"\"").unwrap()),
+            ("not text", |p| {
+                std::fs::write(p, [0xffu8, 0xfe, 0x00]).unwrap()
+            }),
+            ("a directory", |p| {
+                std::fs::remove_file(p).unwrap();
+                std::fs::create_dir(p).unwrap();
+            }),
+            // A symlink that points at itself: opening it fails with an error that is not "not found".
+            ("a symlink loop", |p| {
+                std::fs::remove_file(p).unwrap();
+                std::os::unix::fs::symlink(p, p).unwrap();
+            }),
+            // No permission to read it (skipped below for a user that ignores file modes).
+            ("mode 000", |p| {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o000)).unwrap();
+            }),
+        ];
+        for (tag, brk) in states {
+            let st = HelperState::new();
+            seed(&st, &v);
+            let c = cfg();
+            set_read_key(&c.vaults_dir, &v, &mine).unwrap();
+            let path = c.vaults_dir.join(&v).join("read-key.json");
+            let routes = [
+                "/api/vault/members",
+                "/api/vault/ufvk",
+                "/api/vault/proposals",
+                "/api/vault/ledger",
+                "/api/vault/ceremonies",
+                "/api/vault/transactions",
+            ];
+            let ask = |route: &str, token: Option<&str>| {
+                handle_with_token(
+                    &st,
+                    &c,
+                    &Method::Get,
+                    &format!("{route}?vault={v}"),
+                    b"",
+                    token,
+                )
+            };
+            // Intact: the id alone is refused on every one of them.
+            for route in routes {
+                assert_eq!(ask(route, None).status, 401, "{tag}: intact, {route}");
+            }
+            assert_eq!(
+                ask("/api/vault/members", Some(&mine)).status,
+                200,
+                "{tag}: intact"
+            );
+            assert_eq!(
+                ask("/api/vault/ufvk", Some(&mine)).status,
+                200,
+                "{tag}: intact"
+            );
+
+            brk(&path);
+            if tag == "mode 000" && std::fs::read(&path).is_ok() {
+                eprintln!("a user that ignores file modes: skipped");
+                continue;
+            }
+            for route in routes {
+                for token in [None, Some(mine.as_str()), Some("")] {
+                    let r = ask(route, token);
+                    assert_eq!(r.status, 401, "{tag}: {route} with {token:?}: {}", r.body);
+                }
+            }
+            let replace = json!({ "group_key": v, "read_key": "cd".repeat(32) }).to_string();
+            let r = handle(
+                &st,
+                &c,
+                &Method::Post,
+                "/api/vault/readkey",
+                replace.as_bytes(),
+            );
+            assert_eq!(r.status, 401, "{tag}: {}", r.body);
+            let roster = json!({ "vault": v, "names": ["alice", "bob"] }).to_string();
+            let r = handle(
+                &st,
+                &c,
+                &Method::Post,
+                "/api/vault/members",
+                roster.as_bytes(),
+            );
+            assert_eq!(r.status, 401, "{tag}: roster: {}", r.body);
+            let device = json!({ "group_key": v, "device_pub": "ab".repeat(32) }).to_string();
+            let r = handle(
+                &st,
+                &c,
+                &Method::Post,
+                "/api/vault/devicekey",
+                device.as_bytes(),
+            );
+            assert_eq!(r.status, 401, "{tag}: devicekey: {}", r.body);
+            assert!(
+                matches!(
+                    orchestrator::helper::read_key_state(&c.vaults_dir, &v),
+                    orchestrator::helper::ReadKey::Unreadable
+                ),
+                "{tag}: still unreadable, nothing replaced it"
+            );
+        }
+    }
+
+    /// The boot log names the vaults whose key file is there and is not a key, by prefix, and only
+    /// those: a vault with no file, and one with a good key, are not on it.
+    #[test]
+    fn the_boot_lists_the_vaults_whose_read_key_cannot_be_read() {
+        let c = cfg();
+        for (name, content) in [
+            ("aaaaaaaa1111", Some(&b"{ half"[..])),
+            ("bbbbbbbb2222", Some(&b"\"cd\""[..])),
+            ("cccccccc3333", None),
+        ] {
+            let dir = c.vaults_dir.join(name);
+            std::fs::create_dir_all(&dir).unwrap();
+            if let Some(bytes) = content {
+                std::fs::write(dir.join("read-key.json"), bytes).unwrap();
+            }
+        }
+        assert_eq!(
+            unreadable_read_keys(&c.vaults_dir),
+            vec!["aaaaaaaa".to_string()]
+        );
+    }
+
+    /// The 8-character prefix of a vault id is cut by `short_id` alone: this counts the slice, in the
+    /// three files that log. (It does not see a log line that prints a whole id without slicing.) The
+    /// needle is built in two pieces so this test's own text does not satisfy it.
+    #[test]
+    fn the_vault_prefix_has_one_implementation() {
+        let cut = concat!(".get(", "..8)");
+        assert_eq!(
+            include_str!("main.rs").matches(cut).count(),
+            0,
+            "helper-server"
+        );
+        assert_eq!(
+            include_str!("../../orchestrator/src/send_record.rs")
+                .matches(cut)
+                .count(),
+            0,
+            "send_record"
+        );
+        assert_eq!(
+            include_str!("../../orchestrator/src/helper.rs")
+                .matches(cut)
+                .count(),
+            1,
+            "helper.rs: only `short_id` itself"
+        );
     }
 }

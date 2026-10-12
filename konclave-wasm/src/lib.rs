@@ -1762,6 +1762,65 @@ pub mod pczt_bridge {
         const IW_PROVEN: &[u8] =
             include_bytes!("../tests/vectors/ironwood_single_spend.proven.pczt");
 
+        // What the coordinator publishes into the signing room is a copy of the proven PCZT with an
+        // optional per-spend field removed (`orchestrator::pczt::published_copy`, whose output for
+        // these two vectors is committed beside them and pinned byte for byte by that crate's
+        // tests). Everything a device runs on a request must answer the same on it as on the full
+        // PCZT, or removing the field would change what a device shows or signs.
+        const IW_PUBLISHED: &[u8] =
+            include_bytes!("../tests/vectors/ironwood_single_spend.published.pczt");
+        const OR_PROVEN: &[u8] =
+            include_bytes!("../tests/vectors/orchard_mainnet_two_spend.proven.pczt");
+        const OR_PUBLISHED: &[u8] =
+            include_bytes!("../tests/vectors/orchard_mainnet_two_spend.published.pczt");
+
+        #[test]
+        fn a_device_reads_the_published_copy_exactly_as_it_reads_the_full_pczt() {
+            for (name, full, published) in [
+                ("ironwood", IW_PROVEN, IW_PUBLISHED),
+                ("orchard", OR_PROVEN, OR_PUBLISHED),
+            ] {
+                assert_ne!(full, published, "{name}: the copy must really differ");
+                assert_eq!(
+                    shielded_sighash(&Pczt::parse(published).unwrap()),
+                    shielded_sighash(&Pczt::parse(full).unwrap()),
+                    "{name}: the message the quorum signs"
+                );
+                assert_eq!(
+                    extract_randomizers(published),
+                    extract_randomizers(full),
+                    "{name}: what each seat signs with"
+                );
+                assert_eq!(
+                    describe_outputs(published),
+                    describe_outputs(full),
+                    "{name}: the outputs a device lists"
+                );
+                assert_eq!(
+                    read_payment(published),
+                    read_payment(full),
+                    "{name}: the payment a device shows before it signs"
+                );
+            }
+        }
+
+        /// The comparison above is blind if both sides fail the same way, so the vectors that are
+        /// meant to be readable must be.
+        #[test]
+        fn the_published_copy_of_each_readable_vector_is_readable() {
+            assert!(read_payment(IW_PUBLISHED).is_ok());
+            assert!(describe_outputs(IW_PUBLISHED).is_ok());
+            assert!(describe_outputs(OR_PUBLISHED).is_ok());
+        }
+
+        #[test]
+        fn a_signature_applies_to_the_published_copy() {
+            // `inject_sigs` checks each signature against the spend's key and the sighash as it
+            // applies it, so this is the device-side proof that signing needs nothing the copy lacks.
+            let signed = inject_sigs(IW_PUBLISHED, IW_SIGHASH, &[(0, sig64(IW_SIG0))]);
+            assert!(signed.is_ok(), "{:?}", signed.err());
+        }
+
         // #364. The pool decision used to live TWICE in this module: once in `active_pool`, which
         // `describe_outputs` and `inject_sigs` call, and once inline in `extract_randomizers`, which
         // is the function the live browser ceremony consumes. They disagreed on exactly one input.

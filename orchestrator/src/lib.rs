@@ -31,6 +31,7 @@ pub mod dkg;
 pub mod helper;
 pub mod pczt;
 pub mod send;
+pub mod send_record;
 pub mod signer;
 pub mod tools;
 pub mod wallet;

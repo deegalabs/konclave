@@ -14,7 +14,7 @@ import { gateDecision, ourReceiversFrom, paysOurselves, type ApprovedLine, type 
 import { ensureWasm } from './wasm-ready'
 import { uaReceiver } from './wasm-pkg/konclave_wasm.js'
 import { useBackgroundSigner, type BackgroundSignerState } from './useBackgroundSigner'
-import { ARM_TTL_MS, armIsLive, makeSigningGate } from './signing-gate'
+import { ARM_TTL_MS, makeSigningGate, ownerArmed } from './signing-gate'
 import type { FailureCode } from './background-session'
 
 interface VaultSignerCtx {
@@ -167,11 +167,8 @@ export function VaultSignerProvider({ children }: { children: ReactNode }) {
     () => makeSigningGate({
       mode: () => 'manual',
       isApproved: () => true,
-      isArmed: () => {
-        // The deadline lives with the gate it guards (signing-gate.ts), where it is tested.
-        if (!armIsLive(armedAtRef.current, Date.now())) return false // expired: sign again
-        return !!activeIdRef.current && armedRef.current === activeIdRef.current
-      },
+      // The owner's own signature, within the owner's own window (signing-gate.ts, where it is tested).
+      isArmed: () => ownerArmed({ armedProposal: armedRef.current, armedAt: armedAtRef.current, activeId: activeIdRef.current }, Date.now()),
     }),
     [],
   )
@@ -234,7 +231,9 @@ export function VaultSignerProvider({ children }: { children: ReactNode }) {
       setArmedAt(now)
       armedRef.current = active.id
       armedAtRef.current = now
-      await bg.arm(active.id)
+      // The same instant goes into the room, so this device's window and the room's count start from
+      // one clock read; with clocks that agree they also close together (#626 review).
+      await bg.arm(active.id, now)
       await bg.retry()
     },
   }

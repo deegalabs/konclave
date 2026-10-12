@@ -19,6 +19,7 @@ import { readSecretFor } from './session'
 import { deriveReadKey } from './vault-secret'
 import { bytesToHex } from './bytes'
 import type { WriteProof } from './device-key'
+import type { SendReply } from './send-outcome'
 
 const ENV = import.meta.env as Record<string, string | undefined>
 
@@ -495,14 +496,7 @@ export async function executeProposal(args: {
   dryRun?: boolean
   /** #288: firing a broadcast is a governance write. Bound to the proposal id. */
   proof?: WriteProof
-}): Promise<
-  | { txid: string | null; dry_run: boolean; state: string }
-  | { error: string }
-  /** The coordinator did not answer, or gave a gateway error with no reason. The money may have
-   *  moved. The caller MUST resolve it against the vault before saying anything (#280). */
-  | { unknown: true }
-  | null
-> {
+}): Promise<SendReply> {
   // A send can fail at any of ~7 stages (build/prove/sign/inject/broadcast); the helper returns a
   // precise `{error}` with an accurate status. We read that body instead of collapsing every
   // failure to null, so the UI can show WHY (CLAUDE.md §6.11, §11) instead of a generic guess.
@@ -522,22 +516,28 @@ export async function executeProposal(args: {
     })
     const data = (await res.json().catch(() => null)) as
       | { txid: string | null; dry_run: boolean; state: string }
-      | { error?: string }
+      | { error?: string; state?: unknown; txid?: unknown }
       | null
     if (!res.ok) {
       const raw = data && 'error' in data && typeof data.error === 'string' ? data.error : ''
-      // A precise helper error names one of the ~7 send stages and is a real failure report: the
-      // helper reached that stage and stopped, so nothing was broadcast.
-      if (raw) return { error: raw }
-      // A gateway status with NO reason is the dangerous case (#280). The helper persists the
-      // proposal as `sent` WITH its txid before it replies, and the reply comes after a blocking
-      // build+prove+broadcast that routinely outlives a proxy idle timeout. So a bare 502 is at
-      // least as likely to mean "it went out and the answer was lost" as "nothing happened". This
-      // used to return the sentence "Nothing was sent. Retry in a moment.", which is the exact
-      // claim we cannot make - and the retry it invited is a double-spend attempt.
-      if (res.status === 502 || res.status === 503 || res.status === 504) return { unknown: true }
+      // An error with a reason says where the send stopped, and it is not always "nothing was
+      // broadcast": it may carry the state of the payment or a txid. `readReply` (send-outcome.ts)
+      // is what tells the endings apart.
+      const state = data && 'error' in data && typeof data.state === 'string' ? data.state : ''
+      const txid = data && 'error' in data && typeof data.txid === 'string' && data.txid.trim() ? data.txid.trim() : ''
+      if (raw) return { error: raw, ...(state ? { state } : {}), ...(txid ? { txid } : {}) }
+      // A gateway status with NO reason is the dangerous case (#280). The reply comes after a blocking
+      // build+prove+broadcast that routinely outlives a proxy idle timeout. So
+      // a bare 502 is at least as likely to mean "it went out and the answer was lost" as "nothing
+      // happened". This used to return the sentence "Nothing was sent. Retry in a moment.", which is
+      // the exact claim we cannot make - and the retry it invited is a double-spend attempt.
+      // Any 5xx with no reason is the same case: a bare 500 can follow a broadcast too.
+      if (res.status >= 500) return { unknown: true }
       return { error: `HTTP ${res.status}` }
     }
+    // A success whose body was lost or is not the coordinator's answer says nothing about the send:
+    // read as "no txid", it was a failure that withdrew every signature.
+    if (!data || typeof data !== 'object' || !('txid' in data)) return { unknown: true }
     return data as { txid: string | null; dry_run: boolean; state: string }
   } catch {
     // No response at all. Same reasoning: the request may have been fully served.

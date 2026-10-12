@@ -17,7 +17,7 @@ use serde::Deserialize;
 use zeroize::Zeroizing;
 
 use crate::ceremony::{run_coordinator, run_participant, Frostd};
-use crate::relay_client::{CurlTransport, RelayClient};
+use crate::relay_client::{CurlTransport, RelayClient, Transport};
 use crate::tools::ToolError;
 use crate::{net_send, pczt, signer};
 
@@ -465,18 +465,118 @@ pub fn orchestrate_send(
     })
 }
 
-/// Architecture B - a real `/net` broadcast for a browser-DKG vault. Instead of running the
-/// native FROST ceremony, the helper builds and proves the PCZT for the vault's own address,
-/// publishes the signing request into a relay room, and waits for the browser devices to return
-/// the aggregate FROST signature; then it injects and (unless `dry_run`) broadcasts. The devices'
-/// shares never reach this process - it sees only public transaction data and the view-only
-/// wallet, consistent with "internal transparency, external privacy".
+/// A transaction that is built, proven and signed by the quorum, and not yet broadcast.
 ///
-/// This is live integration glue (real HTTP via `curl`, real binaries, real broadcast); it is not
-/// exercised by CI, and is validated end to end on testnet. The pure protocol + handshake it
-/// composes ARE unit-tested (see `net_send`, `relay_client`).
+/// This is the seam between "signed" and "on the network". Its fields are private and nothing outside
+/// this module can build one, so the only way to broadcast a signed transaction is to hold one of
+/// these, and the only callers that take one are [`crate::send_record`] (which records the attempt
+/// first) and [`net_orchestrate_send_untracked`] (the operator's command line, which has no proposal).
+#[derive(Clone)]
+pub struct SignedSend {
+    txid: String,
+    sighash: String,
+    signatures: Vec<String>,
+    expiry_height: u32,
+    /// The signed PCZT, held as bytes: the expiry that gets recorded and the transaction that gets
+    /// broadcast are read from the SAME bytes, not from a file that could change between the two.
+    tx3: Vec<u8>,
+    tx3_path: String,
+}
+
+/// The signed PCZT names the recipients, the amounts and the memos, which must never be logged or
+/// persisted (#297): so `Debug` leaves the bytes out, and a stray `{:?}` cannot print them.
+impl std::fmt::Debug for SignedSend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SignedSend")
+            .field("txid", &self.txid)
+            .field("expiry_height", &self.expiry_height)
+            .field("tx3_bytes", &self.tx3.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl SignedSend {
+    /// Describe a signed PCZT: its id from the sighash the devices signed, its expiry from the PCZT.
+    /// Failing to read either is an error: a transaction we cannot describe is not one we can record,
+    /// and so not one to send.
+    fn describe(
+        tx3_path: &str,
+        sighash: &[u8; 32],
+        signatures: Vec<String>,
+    ) -> Result<Self, ToolError> {
+        let tx3 = std::fs::read(tx3_path).map_err(ToolError::Io)?;
+        Self::from_bytes(tx3, tx3_path, sighash, signatures)
+    }
+
+    pub(crate) fn from_bytes(
+        tx3: Vec<u8>,
+        tx3_path: &str,
+        sighash: &[u8; 32],
+        signatures: Vec<String>,
+    ) -> Result<Self, ToolError> {
+        Ok(SignedSend {
+            expiry_height: pczt::expiry_height_of(&tx3)?,
+            txid: pczt::txid_from_sighash(sighash),
+            sighash: hex_encode(sighash),
+            signatures,
+            tx3,
+            tx3_path: tx3_path.to_string(),
+        })
+    }
+
+    /// The transaction's id, derived from the sighash the devices signed (for a transaction with no
+    /// transparent input they are the same digest, byte-reversed), so it is known BEFORE the broadcast.
+    pub fn txid(&self) -> &str {
+        &self.txid
+    }
+    /// The shielded sighash the quorum signed (hex).
+    pub fn sighash(&self) -> &str {
+        &self.sighash
+    }
+    /// The aggregate signatures, one hex per real spend.
+    pub fn signatures(&self) -> &[String] {
+        &self.signatures
+    }
+    /// The height the signed transaction itself expires at, read from the PCZT. `0` means none.
+    pub fn expiry_height(&self) -> u32 {
+        self.expiry_height
+    }
+
+    /// A signed send for tests that never touch the engine. Not available outside `cfg(test)`.
+    #[cfg(test)]
+    pub(crate) fn for_test(txid: &str, expiry_height: u32) -> Self {
+        SignedSend {
+            txid: txid.into(),
+            sighash: "ab".repeat(32),
+            signatures: vec!["cd".repeat(64)],
+            expiry_height,
+            tx3: Vec::new(),
+            tx3_path: String::new(),
+        }
+    }
+}
+
+/// Broadcast a signed transaction and return the txid the tool reports. `pub(crate)`: callers outside
+/// this crate cannot broadcast except through a path that records the attempt first.
+pub(crate) fn broadcast_signed(sc: &SendConfig, signed: &SignedSend) -> Result<String, ToolError> {
+    pczt::send(&sc.devtool, &sc.wallet_dir, &sc.lightwalletd, &signed.tx3)
+}
+
+/// Architecture B - build, prove and collect the quorum's signature for a browser-DKG vault, and stop
+/// BEFORE the broadcast. The helper builds and proves the PCZT for the vault's own address,
+/// publishes the signing request into a relay room, and waits for the browser devices to return
+/// the aggregate FROST signature; then it injects it. The devices' shares never reach this process -
+/// it sees only public transaction data and the view-only wallet, consistent with "internal
+/// transparency, external privacy".
+///
+/// Broadcasting is a separate step ([`broadcast_signed`]) on purpose: a send that builds and
+/// broadcasts inside one call leaves no moment to record that a transaction is about to leave.
+///
+/// This is live integration glue (real HTTP via `curl`, real binaries); it is not exercised by CI,
+/// and is validated end to end on testnet. The pure protocol + handshake it composes ARE unit-tested
+/// (see `net_send`, `relay_client`).
 #[allow(clippy::too_many_arguments)]
-pub fn net_orchestrate_send(
+pub fn net_prepare_send(
     sc: &SendConfig,
     plan: &SpendPlan,
     relay_base: &str,
@@ -484,10 +584,28 @@ pub fn net_orchestrate_send(
     // The vault's registered device comms pubkeys (#63): the request is SEALED to these, so the
     // relay carries only ciphertext. Empty = plaintext (compat until every device has registered).
     device_pubs: &[String],
-    dry_run: bool,
     max_polls: u32,
     poll_delay: Duration,
-) -> Result<SendOutcome, ToolError> {
+) -> Result<SignedSend, ToolError> {
+    let client = RelayClient::new(
+        CurlTransport::default(),
+        relay_base.trim_end_matches('/'),
+        room,
+        "helper",
+    );
+    net_prepare_send_with(sc, plan, &client, device_pubs, max_polls, poll_delay)
+}
+
+/// [`net_prepare_send`] over any relay transport, so a test can drive the whole path with an
+/// in-memory relay and stand-in tools.
+pub fn net_prepare_send_with<T: Transport>(
+    sc: &SendConfig,
+    plan: &SpendPlan,
+    client: &RelayClient<T>,
+    device_pubs: &[String],
+    max_polls: u32,
+    poll_delay: Duration,
+) -> Result<SignedSend, ToolError> {
     std::fs::create_dir_all(&sc.work_dir).map_err(ToolError::Io)?;
 
     // 1) build + prove the PCZT for the vault's own address.
@@ -501,17 +619,12 @@ pub fn net_orchestrate_send(
     if input.randomizers.is_empty() {
         return Err(ToolError::parse("net-send", "no real spends to sign"));
     }
-    let sighash_hex = hex_encode(&input.sighash);
 
-    // 3) publish the signing request into the vault's relay room.
-    let client = RelayClient::new(
-        CurlTransport::default(),
-        relay_base.trim_end_matches('/'),
-        room,
-        "helper",
-    );
-    let req = net_send::SignRequest::from_signing_input(&input, &tx2);
-    let posted = net_send::publish_sealed_request(&client, &req, device_pubs)
+    // 3) publish the signing request into the vault's relay room. What goes in is the published copy
+    // of the PCZT (see `pczt::published_copy`); `tx2` stays whole, to apply the signatures to.
+    let published = pczt::published_copy(&tx2)?;
+    let req = net_send::SignRequest::from_signing_input(&input, &published);
+    let posted = net_send::publish_sealed_request(client, &req, device_pubs)
         .map_err(|e| ToolError::parse("relay", e))?;
 
     // 4) poll until the devices return the aggregate signatures (or we time out).
@@ -540,7 +653,7 @@ pub fn net_orchestrate_send(
         let verify = |sigs: &net_send::SpendSigs| {
             signer::inject(&sc.konclave_signer, &tx2_path, &tx3_path, sigs).is_ok()
         };
-        let (found, next) = net_send::collect_response(&client, &req, since, verify)
+        let (found, next) = net_send::collect_response(client, &req, since, verify)
             .map_err(|e| ToolError::parse("relay", e))?;
         since = next;
         if found.is_some() {
@@ -555,23 +668,50 @@ pub fn net_orchestrate_send(
         ToolError::parse("net-send", "timed out waiting for the devices' signatures")
     })?;
 
+    // 5) read what a later send needs to judge this one - the transaction's own expiry, from the signed
+    // PCZT, and its id, from the sighash - out of the very bytes that will be broadcast.
+    SignedSend::describe(
+        &tx3_path,
+        &input.sighash,
+        sigs.iter().map(|(_, s)| hex_encode(s)).collect(),
+    )
+}
+
+/// The operator's command line (`konclave net-send`): prepare, and broadcast unless `dry_run`, with NO
+/// record of the attempt. It has no proposal and no vault directory, and runs at a terminal with the
+/// operator watching, which is not the hosted coordinator's situation. The hosted coordinator must
+/// not call this: it goes through [`crate::send_record::send_proposal`], and a test fails the build if
+/// `helper-server` names this function.
+#[allow(clippy::too_many_arguments)]
+pub fn net_orchestrate_send_untracked(
+    sc: &SendConfig,
+    plan: &SpendPlan,
+    relay_base: &str,
+    room: &str,
+    device_pubs: &[String],
+    dry_run: bool,
+    max_polls: u32,
+    poll_delay: Duration,
+) -> Result<SendOutcome, ToolError> {
+    let signed = net_prepare_send(
+        sc,
+        plan,
+        relay_base,
+        room,
+        device_pubs,
+        max_polls,
+        poll_delay,
+    )?;
     let txid = if dry_run {
         None
     } else {
-        let tx3 = std::fs::read(&tx3_path).map_err(ToolError::Io)?;
-        Some(pczt::send(
-            &sc.devtool,
-            &sc.wallet_dir,
-            &sc.lightwalletd,
-            &tx3,
-        )?)
+        Some(broadcast_signed(sc, &signed)?)
     };
-
     Ok(SendOutcome {
         txid,
-        signed_pczt: tx3_path,
-        sighash: sighash_hex,
-        signatures: sigs.iter().map(|(_, s)| hex_encode(s)).collect(),
+        signed_pczt: signed.tx3_path.clone(),
+        sighash: signed.sighash.clone(),
+        signatures: signed.signatures.clone(),
     })
 }
 
@@ -664,6 +804,293 @@ fn read_key_file(path: &str) -> Result<Zeroizing<[u8; 32]>, ToolError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The Ironwood vector the signer's own tests use. Its sighash is `konclave-signer extract`'s, its
+    // txid is `zcash-devtool pczt inspect`'s, its expiry was decoded by hand: none of them comes from
+    // the code under test.
+    const VECTOR: &[u8] =
+        include_bytes!("../../konclave-signer/tests/vectors/ironwood_single_spend.proven.pczt");
+    // A second PCZT of the same engine, for the bytes `prove` prints in the preparing test below.
+    const PROVEN: &[u8] =
+        include_bytes!("../../konclave-signer/tests/vectors/ironwood_zero_value_spend.proven.pczt");
+    fn vector_sighash() -> [u8; 32] {
+        let hex = "332de126200c22131337474ae50367218ec87815c23d297dcdc8278ecb8903b0";
+        let mut out = [0u8; 32];
+        for (i, b) in out.iter_mut().enumerate() {
+            *b = u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap();
+        }
+        out
+    }
+
+    /// The wiring between what the quorum signed and what gets recorded: the id comes from THE
+    /// SIGHASH, the expiry from THE PCZT, the signatures are carried, and the transaction that is
+    /// held for broadcast is those same bytes.
+    #[test]
+    fn a_signed_send_describes_the_transaction_it_will_broadcast() {
+        let dir = std::env::temp_dir().join(format!("konclave-signed-send-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("net-tx3-signed.pczt");
+        std::fs::write(&path, VECTOR).unwrap();
+
+        let s = SignedSend::describe(
+            path.to_str().unwrap(),
+            &vector_sighash(),
+            vec!["cd".repeat(64)],
+        )
+        .expect("the vector describes");
+        assert_eq!(
+            s.txid(),
+            "b00389cb8e27c8cd7d293dc21578c88e216703e54a47371313220c2026e12d33"
+        );
+        assert_eq!(s.expiry_height(), 4_203_034);
+        assert_eq!(
+            s.sighash(),
+            "332de126200c22131337474ae50367218ec87815c23d297dcdc8278ecb8903b0"
+        );
+        assert_eq!(s.signatures(), ["cd".repeat(64)]);
+        assert_eq!(s.tx3, VECTOR);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A relay that plays the devices: when the helper's signing request lands in the room it posts
+    /// the quorum's answer (one signature per requested spend) as another party. A real `RelayState`
+    /// underneath, no sockets.
+    struct DevicesOnTheRelay {
+        state: std::sync::Arc<crate::relay::RelayState>,
+        /// The `pczt_hex` of every signing request posted into the room, as the room saw it.
+        published: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    }
+    impl DevicesOnTheRelay {
+        fn call(&self, method: &str, url: &str, body: &[u8]) -> Result<Vec<u8>, String> {
+            let raw = &url[url.find("/api/relay/").unwrap()..];
+            let path = raw.split('?').next().unwrap();
+            let r = self.state.handle(method, path, raw, body, 1000);
+            (r.status == 200)
+                .then_some(r.body)
+                .ok_or(format!("relay {}", r.status))
+        }
+    }
+    impl Transport for DevicesOnTheRelay {
+        fn post(&self, url: &str, body: &[u8]) -> Result<Vec<u8>, String> {
+            let posted = self.call("POST", url, body)?;
+            let outer: serde_json::Value = serde_json::from_slice(body).unwrap();
+            let data = outer["data"].as_str().unwrap_or_default();
+            if let Ok(req) = serde_json::from_str::<net_send::SignRequest>(data) {
+                self.published.lock().unwrap().push(req.pczt_hex.clone());
+                let answer = net_send::SignResponse {
+                    kind: net_send::RESPONSE_KIND.to_string(),
+                    sigs: req
+                        .spends
+                        .iter()
+                        .map(|s| net_send::SigResp {
+                            index: s.index,
+                            sig: "ab".repeat(64),
+                        })
+                        .collect(),
+                };
+                let msg = serde_json::json!({ "from": "device",
+                    "data": serde_json::to_string(&answer).unwrap() });
+                self.call("POST", url, msg.to_string().as_bytes())?;
+            }
+            Ok(posted)
+        }
+        fn get(&self, url: &str) -> Result<Vec<u8>, String> {
+            self.call("GET", url, &[])
+        }
+    }
+
+    /// `net_prepare_send_with` against stand-ins for the engine's tools and a relay that answers like
+    /// the devices, with `proven_bytes` as what the stand-in `prove` prints. Returns what came out and
+    /// the `pczt_hex` of every signing request the room was shown.
+    #[cfg(unix)]
+    fn prepare_against_stand_ins(
+        tag: &str,
+        proven_bytes: &[u8],
+    ) -> (Result<SignedSend, ToolError>, Vec<String>) {
+        use std::os::unix::fs::PermissionsExt;
+        let dir =
+            std::env::temp_dir().join(format!("konclave-prepare-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let vector = dir.join("signed.pczt");
+        std::fs::write(&vector, VECTOR).unwrap();
+        let script = |name: &str, body: String| {
+            let path = dir.join(name);
+            std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+            let mut perm = std::fs::metadata(&path).unwrap().permissions();
+            perm.set_mode(0o755);
+            std::fs::set_permissions(&path, perm).unwrap();
+            path
+        };
+        // `pczt -w <dir> create ...` and `pczt -w <dir> prove`. The proven bytes are a PCZT (what is
+        // published is redacted, and a PCZT that cannot be read is not published) but NOT the signed
+        // one, so reading the proven bytes where the signed ones belong cannot pass.
+        let proven = dir.join("proven.pczt");
+        std::fs::write(&proven, proven_bytes).unwrap();
+        let devtool = script(
+            "devtool",
+            format!(
+                "case \"$4\" in create) printf unproven;; prove) cat >/dev/null; cat {};; esac",
+                proven.display()
+            ),
+        );
+        // `extract <pczt>` prints the vector's sighash; `inject <pczt> <out> --sig ...` writes the
+        // signed PCZT, as the real one does only if every signature verifies.
+        let signer = script(
+            "signer",
+            format!(
+                "case \"$1\" in extract) echo 'SIGHASH {}'; echo 'RANDOMIZER 0 {}';; inject) cp {} \"$3\";; esac",
+                "332de126200c22131337474ae50367218ec87815c23d297dcdc8278ecb8903b0",
+                "11".repeat(32),
+                vector.display()
+            ),
+        );
+        let sc: SendConfig = serde_json::from_value(serde_json::json!({
+            "devtool": devtool, "wallet_dir": "/w", "lightwalletd": "zec.rocks:443",
+            "account": "acc", "konclave_signer": signer, "frostd": "/x", "frost_client": "/x",
+            "members": [], "threshold": 2, "group": "g", "frostd_cert": "c", "frostd_key": "k",
+            "server_url": "s", "work_dir": dir.join("work"),
+        }))
+        .unwrap();
+        let plan = SpendPlan::Payment {
+            to: "utest1x".into(),
+            value_zat: 1000,
+            memo: None,
+        };
+        let published = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let relay = RelayClient::new(
+            DevicesOnTheRelay {
+                state: std::sync::Arc::new(crate::relay::RelayState::new()),
+                published: published.clone(),
+            },
+            "",
+            "room",
+            "helper",
+        );
+
+        let result = net_prepare_send_with(&sc, &plan, &relay, &[], 5, Duration::from_millis(1));
+        let seen = published.lock().unwrap().clone();
+        std::fs::remove_dir_all(&dir).ok();
+        (result, seen)
+    }
+
+    /// The whole of `net_prepare_send_with`, against stand-ins for the engine's tools and a relay
+    /// that answers like the devices: what comes out is described from THE SIGHASH THE SIGNER
+    /// PRINTED and THE PCZT THAT WAS INJECTED (not the proven one), carries the devices' signatures,
+    /// and holds the injected bytes for the broadcast. The tests of `describe` alone cannot see a
+    /// call that passes it the wrong arguments.
+    #[cfg(unix)]
+    #[test]
+    fn preparing_a_send_ties_the_record_to_what_the_devices_signed() {
+        let (result, seen) = prepare_against_stand_ins("ties", PROVEN);
+        let signed = result.expect("prepares");
+        // The room saw the published copy, not the PCZT the signatures are applied to and not the
+        // one the engine proved.
+        assert_eq!(seen.len(), 1, "one signing request was published");
+        let in_the_room: Vec<u8> = (0..seen[0].len() / 2)
+            .map(|i| u8::from_str_radix(&seen[0][2 * i..2 * i + 2], 16).unwrap())
+            .collect();
+        assert!(
+            in_the_room.len() < PROVEN.len(),
+            "the room saw the full PCZT"
+        );
+        assert_eq!((PROVEN.len() - in_the_room.len()) % 96, 0);
+        assert_eq!(in_the_room, pczt::published_copy(PROVEN).unwrap());
+        assert_eq!(
+            signed.txid(),
+            "b00389cb8e27c8cd7d293dc21578c88e216703e54a47371313220c2026e12d33",
+            "the id comes from the sighash the signer printed"
+        );
+        assert_eq!(
+            signed.sighash(),
+            "332de126200c22131337474ae50367218ec87815c23d297dcdc8278ecb8903b0"
+        );
+        assert_eq!(
+            signed.expiry_height(),
+            4_203_034,
+            "the expiry comes from the injected PCZT"
+        );
+        assert_eq!(
+            signed.signatures(),
+            ["ab".repeat(64)],
+            "the devices' signatures are carried"
+        );
+        assert_eq!(
+            signed.tx3, VECTOR,
+            "what will be broadcast is what was injected"
+        );
+    }
+
+    /// Fail closed: when the PCZT the engine proved cannot be read, nothing is published and the
+    /// send fails. Publishing "what we could not check" is the fail-open this refuses.
+    #[cfg(unix)]
+    #[test]
+    fn a_proven_pczt_that_cannot_be_redacted_is_not_published() {
+        let (result, seen) = prepare_against_stand_ins("junk", b"proven-not-a-pczt");
+        assert!(result.is_err(), "the send must fail");
+        assert!(seen.is_empty(), "nothing reached the room: {seen:?}");
+    }
+
+    /// What reaches the broadcast tool is the signed PCZT the record was made from, byte for byte, on
+    /// its standard input, and what comes back is the id the tool printed.
+    #[cfg(unix)]
+    #[test]
+    fn the_broadcast_hands_the_tool_the_signed_bytes_and_returns_its_txid() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("konclave-broadcast-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let captured = dir.join("stdin.bin");
+        let devtool = dir.join("devtool");
+        std::fs::write(
+            &devtool,
+            format!(
+                "#!/bin/sh\ncat > {}\necho 'Sending transaction...'\necho {}\n",
+                captured.display(),
+                "cd".repeat(32)
+            ),
+        )
+        .unwrap();
+        let mut perm = std::fs::metadata(&devtool).unwrap().permissions();
+        perm.set_mode(0o755);
+        std::fs::set_permissions(&devtool, perm).unwrap();
+        let sc: SendConfig = serde_json::from_value(serde_json::json!({
+            "devtool": devtool, "wallet_dir": "/w", "lightwalletd": "zec.rocks:443",
+            "account": "acc", "konclave_signer": "/x", "frostd": "/x", "frost_client": "/x",
+            "members": [], "threshold": 2, "group": "g", "frostd_cert": "c", "frostd_key": "k",
+            "server_url": "s", "work_dir": dir.join("work"),
+        }))
+        .unwrap();
+        let signed =
+            SignedSend::from_bytes(VECTOR.to_vec(), "x", &vector_sighash(), vec![]).unwrap();
+
+        let txid = broadcast_signed(&sc, &signed).expect("broadcasts");
+        assert_eq!(txid, "cd".repeat(32));
+        assert_eq!(std::fs::read(&captured).unwrap(), VECTOR);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The signed PCZT names recipients, amounts and memos and must never be logged (#297): a derived
+    /// `Debug` would print every byte of it.
+    #[test]
+    fn debug_printing_a_signed_send_never_shows_the_pczt() {
+        let signed =
+            SignedSend::from_bytes(VECTOR.to_vec(), "x", &vector_sighash(), vec![]).unwrap();
+        let shown = format!("{signed:?}");
+        assert!(shown.contains(signed.txid()), "{shown}");
+        // The PCZT's first bytes are "PCZT" = 80, 67, 90, 84.
+        assert!(!shown.contains("80, 67, 90, 84"), "{shown}");
+        assert!(shown.len() < 400, "{} bytes of debug output", shown.len());
+    }
+
+    #[test]
+    fn a_transaction_that_cannot_be_described_cannot_be_sent() {
+        // No PCZT, no expiry, no record, no broadcast: never a silent zero.
+        let r = SignedSend::from_bytes(b"not a pczt".to_vec(), "x", &[0u8; 32], vec![]);
+        assert!(r.is_err());
+        let missing = SignedSend::describe("/nonexistent/net-tx3-signed.pczt", &[0u8; 32], vec![]);
+        assert!(missing.is_err());
+    }
 
     #[test]
     fn config_parses_from_json() {

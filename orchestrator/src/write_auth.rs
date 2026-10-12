@@ -68,6 +68,13 @@ pub enum WriteRefusal {
     Replay,
 }
 
+/// The longest nonce a signed write may carry. The app sends a 36-character UUID; the coordinator
+/// remembers the nonces it has accepted, so their size is bounded here, before anything is signed
+/// over or stored.
+pub const MAX_NONCE_BYTES: usize = 64;
+// The app's own nonce (a UUID, 36 bytes) must fit.
+const _: () = assert!(MAX_NONCE_BYTES >= 36);
+
 /// Decide whether a governance write is authentic.
 ///
 /// `seen_nonce` answers whether this vault has already accepted that nonce. It is a closure so this
@@ -90,6 +97,9 @@ pub fn authorize_write(
 
     // Cheap, attacker-controlled checks before any crypto: a flood of forged writes should cost
     // parsing, not signature verification.
+    if w.nonce.is_empty() || w.nonce.len() > MAX_NONCE_BYTES {
+        return WriteAuth::Refused(WriteRefusal::Malformed);
+    }
     let Some(key) = keys.iter().find(|k| k.seat == w.seat) else {
         return WriteAuth::Refused(WriteRefusal::UnknownSeat);
     };
@@ -475,6 +485,33 @@ mod tests {
             authorize_write(&keys, V, WriteAction::Approve, "prop-1", &w, |n| n == "n1"),
             WriteAuth::Refused(WriteRefusal::Replay)
         );
+    }
+
+    /// The coordinator keeps every nonce it accepts, so the size of one is bounded: a valid signature
+    /// over a nonce of any length is not enough.
+    #[test]
+    fn a_nonce_is_bounded_in_size_however_well_it_is_signed() {
+        let alice = Device::new(1, 1);
+        let keys = [alice.registered()];
+        let at_the_limit = "n".repeat(MAX_NONCE_BYTES);
+        let w = alice.sign(V, WriteAction::Approve, "prop-1", &at_the_limit);
+        assert_eq!(
+            authorize_write(&keys, V, WriteAction::Approve, "prop-1", &w, never_seen),
+            WriteAuth::Authorized { seat: 1 }
+        );
+        for nonce in [
+            "n".repeat(MAX_NONCE_BYTES + 1),
+            "n".repeat(1_000_000),
+            String::new(),
+        ] {
+            let w = alice.sign(V, WriteAction::Approve, "prop-1", &nonce);
+            assert_eq!(
+                authorize_write(&keys, V, WriteAction::Approve, "prop-1", &w, never_seen),
+                WriteAuth::Refused(WriteRefusal::Malformed),
+                "a nonce of {} bytes",
+                nonce.len()
+            );
+        }
     }
 
     #[test]
