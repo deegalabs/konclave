@@ -74,52 +74,53 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   signature does not cover. So a member signing correctly for their own seat could send a second
   vote carrying a colleague's name, and it was recorded as that colleague's approval. On a vault
   that needs two approvals, one person could make a payment show as approved by both. Creating a
-  payment or a payroll had the same fault: it could be recorded as proposed by someone else. No
-  money could move this way - signing a payment needs the real key shares, and each device still
-  asks its owner to confirm that specific payment. What it broke is what that confirmation rests
-  on: the owner was being asked to sign something the screen said the group had approved. A vote, a
-  payment, a payroll and a rename are now recorded under the name the member list gives the seat
-  that signed them, never under the name the request carried. A request under another member's
-  name is refused; one that differs from the list only by a space at its edge is accepted and
-  recorded as the list spells it. Signed votes were merged on 2026-09-06 and signed payments and
-  payrolls on 2026-09-07, and this was open from the start. On 2026-09-28 signed actions were on in
-  two vaults on the production service, both of them the project's own test vaults. Takes effect
-  when this build is deployed. **It closes this route and not every route to the same result: see
-  Known limits.**
+  payment or a payroll had the same fault: it could be recorded as proposed by someone else. A
+  forged approval could not produce a signature by itself: signing a payment needs the members' key
+  shares. What it broke is what a member's confirmation rests on: the screen said the group had
+  approved something it had not. A vote, a payment, a payroll and a rename are now recorded under
+  the name the member list gives the seat that signed them, never under the name the request
+  carried. A request under another member's name is refused; one that differs from the list only by
+  a space at its edge is accepted and recorded as the list spells it. Signed votes were merged on
+  2026-09-06 and signed payments and payrolls on 2026-09-07, and this was open from the start. On
+  2026-09-28 signed actions were on in two vaults on the production service, both of them the
+  project's own test vaults. Takes effect when this build is deployed. **It closes this route and
+  not every route to the same result: see Known limits.**
 
 - **Anyone holding a vault's link could lock its own members out of their books.** The key that
   proves a device may read a vault could be REPLACED by whoever had the vault's id, on any vault,
-  including a protected one. Nothing leaked and no money could move - what it did was shut the
-  members out: balance, ledger, proposals, members and history all refused, for everyone, on their
-  own vault. And it would not have healed on its own, because nothing in the app ever re-registers
-  that key after a vault is created; recovery would have been a hand-made request by someone who
-  knew. Changing the key now requires the current one. Setting the FIRST one still requires nothing,
-  which is what lets a new vault be protected at all. Open since the read protection shipped on
-  2026-08-28; no vault was affected.
+  including a protected one. Whoever replaced it chose the new key, so from then on they could read
+  what that key protects and, on a vault with no device registered for sealing, its viewing key. It
+  gave no part in signing, and it shut the members out: balance, ledger, proposals, members and
+  history all refused, for everyone, on their own vault. And it would not have healed on its own,
+  because nothing in the app ever re-registers that key after a vault is created; recovery would
+  have been a hand-made request by someone who knew. Changing the key now requires the current one.
+  Setting the FIRST one still requires nothing, which is what lets a new vault be protected at all.
+  Open since the read protection shipped on 2026-08-28; no vault was affected.
 
 - **Anyone holding a vault's link could take over a seat nobody had claimed yet.** Registering a
   device with the coordinator asked for no proof at all, so whoever had the vault id could claim any
   seat whose own member had not yet unlocked on a device - and from then on could vote as that
-  member, while the real member's own device was refused with "that seat is taken". No money was
-  ever reachable: signing needs the real key shares and always did. What it broke is the part that
-  matters most, which is that an approval on screen is that member's approval. Claiming a seat now
-  requires the key only a seated member's device can derive, the same one the private reads already
-  ask for. A vault that has never been protected still registers devices as before. Checked on the
-  live vaults: none was in the state where this could have been used - every one either had all its
-  seats claimed or had none - but the window opens whenever members join at different times, and on
-  one vault it had been open for two weeks.
+  member, while the real member's own device was refused with "that seat is taken". A seat taken
+  this way could act on the coordinator as that member (propose, approve, refuse, rename, ask for a
+  send). It could not sign: a signature needs that member's key share, which stays on the member's
+  device. What it broke is the part that matters most, which is that an approval on screen is that
+  member's approval. Claiming a seat now requires the key only a seated member's device can derive,
+  the same one the private reads already ask for. A vault that has never been protected still
+  registers devices as before. Checked on the live vaults: none was in the state where this could
+  have been used - every one either had all its seats claimed or had none - but the window opens
+  whenever members join at different times, and on one vault it had been open for two weeks.
 
 - **The coordinator had no limit on how fast, or how often, anyone could ask it for things.** The
   relay has refused floods since August; the coordinator never did, because the limit lived in the
   relay's own code. Two things were open. Anyone could send requests as fast as they liked. And
   creating a vault the coordinator had never seen ran its heaviest work and wrote to its disk every
-  time, with no ceiling. Nothing could be read and no money could move this way: what was exposed
-  is the service itself, which one source could slow down for everyone. Both now have a limit per
-  source address: 300 requests every 10 seconds, and 5 new vaults an hour. What is counted is the
-  vault, not the request, because every member's device registers the vault at the same moment
-  when it is created: a group of any size creating a vault counts once, however many devices take
-  part. The health check is never limited. A ceiling on the disk as a whole is still open. Open
-  since the coordinator was first hosted. Takes effect when this build is deployed.
+  time, with no ceiling. What this exposed is the service itself, which one source could slow down
+  for everyone. Both now have a limit per source address: 300 requests every 10 seconds, and 5 new
+  vaults an hour. What is counted is the vault, not the request, because every member's device
+  registers the vault at the same moment when it is created: a group of any size creating a vault
+  counts once, however many devices take part. The health check is never limited. A ceiling on the
+  disk as a whole is still open. Open since the coordinator was first hosted. Takes effect when this
+  build is deployed.
 
 ### Known limits
 
