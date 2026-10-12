@@ -78,6 +78,15 @@ jobs:
       #
       # `shell: bash` because the Windows runner defaults to pwsh, where the heredoc and
       # `>> "$GITHUB_OUTPUT"` below are not syntax. That default is why this was Linux-only.
+      # The notes list the release's commits by type (git-cliff, cliff.toml) under the CHANGELOG's
+      # prose. Pinned by version and installed with --locked, as ci.yml installs wasm-pack: no
+      # `curl | sh`, no new third-party action. In CI a git-cliff failure fails the notes step (and
+      # with it this platform's installers, as a failed notes step always did): a release body never
+      # loses its list without a red job. Re-run the job if crates.io was down.
+      - name: Install git-cliff (pinned)
+        shell: bash
+        run: cargo install git-cliff --version 2.14.2 --locked
+
       - name: Release notes from CHANGELOG
         id: notes
         shell: bash
@@ -86,6 +95,7 @@ jobs:
         env:
           TAG: ${{ inputs.tag || github.ref_name }}
         run: |
+          git-cliff --version
           {
             echo 'body<<KONCLAVE_EOF'
             node scripts/release.mjs --notes "$TAG"
