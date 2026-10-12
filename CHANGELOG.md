@@ -91,11 +91,15 @@ explicitly accepted.
 
 ### Security
 
-- **Defects in the coordinator's write checks were fixed.** What they were is held back for now and
-  will be added here when the details are published. What a member can notice is in
-  [helper-server/CHANGELOG.md](helper-server/CHANGELOG.md). The command-line `konclave net-send`
-  now requires an https `--relay-base` and a plain `--room` name. The desktop app is otherwise
-  unchanged: it does not use the coordinator.
+- **Defects in the coordinator's write checks were fixed.** They were three: the relay address a
+  send request could name (#270), two requests for one vault running at once (#576), and approvals
+  counted as text, not as members (#575, narrowed, still open). These are the changes shipped in
+  v0.10.0 on 2026-10-04, and the coordinator's own changelog says what each was and since when. The
+  disclosure has the full account:
+  https://forum.zcashcommunity.com/t/konclave-a-group-vault-on-zcash-frost/57218/21. What a member
+  can notice is in [helper-server/CHANGELOG.md](helper-server/CHANGELOG.md). The command-line
+  `konclave net-send` now requires an https `--relay-base` and a plain `--room` name. The desktop
+  app is otherwise unchanged: it does not use the coordinator.
 
 - **A device checks the payment it signs against the transaction itself, and bounds the fee.** The
   browser signer now reads each payment, its address label, its memo and the fee from the parts of
