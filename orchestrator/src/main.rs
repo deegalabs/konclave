@@ -8,7 +8,7 @@ use std::process::ExitCode;
 
 use zeroize::Zeroizing;
 
-use orchestrator::send::{net_orchestrate_send, orchestrate_send, SendConfig, SpendPlan};
+use orchestrator::send::{net_orchestrate_send_untracked, orchestrate_send, SendConfig, SpendPlan};
 use orchestrator::server::{self, Config, LiveWallet};
 
 const DEFAULT_PORT: u16 = 4762;
@@ -437,7 +437,7 @@ fn run_net_send(args: &[String]) -> Result<(), String> {
         memo: memo.clone(),
     };
     // Poll the relay for up to ~10 minutes (300 x 2s) while the devices run the ceremony.
-    let outcome = net_orchestrate_send(
+    let outcome = net_orchestrate_send_untracked(
         &sc,
         &plan,
         &relay_base,

@@ -55,6 +55,12 @@ explicitly accepted.
 
 ## [Unreleased]
 
+### Known limits
+
+- **The command line (`konclave net-send`, `konclave send`) and the local desktop bridge do not use the
+  hosted coordinator's record of a send.** They run on the operator's own machine, not on the
+  coordinator. The coordinator's own behaviour is in [helper-server/CHANGELOG.md](helper-server/CHANGELOG.md).
+
 ## [0.10.0] 2026-10-04
 
 > **Services deployed when this was cut (2026-10-04):** coordinator `b62a7f0`, relay `03bb736890c63e86`.
