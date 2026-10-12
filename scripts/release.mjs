@@ -5,13 +5,15 @@
 //                                           <version>, dated, and bump ui/package.json +
 //                                           src-tauri/tauri.conf.json to match.
 //   node scripts/release.mjs --notes <ver>  Print the CHANGELOG section for <ver> (used by CI to
-//                                           build the desktop release notes). Falls back to Unreleased.
+//                                           build the desktop release notes), then the commits
+//                                           since the previous release grouped by type (git-cliff,
+//                                           cliff.toml). Falls back to Unreleased.
 //
 // After a bump: commit, then `git tag v<version> && git push --tags` — the desktop-release workflow
 // builds the installers and uses the printed notes as the release body. Vercel deploys the web from
 // the same commit, so the in-app version badge, the desktop installer, and the tag all agree.
 import { readFileSync, writeFileSync } from 'node:fs'
-import { execSync } from 'node:child_process'
+import { execFileSync, execSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
@@ -114,6 +116,59 @@ export function versionsToReport(version, tagged = taggedVersions()) {
   return out
 }
 
+/** The commits a release's notes list: from the tag of the release before it (the first tagged
+ *  version beneath the sections it reports, so a superseded section's commits come too) to this
+ *  release's tag, or to HEAD before it is tagged. Null when no earlier release is known, which lists
+ *  nothing rather than the whole history. */
+export function commitRange(version, tagged = taggedVersions()) {
+  if (!tagged) return null
+  const reported = versionsToReport(version, tagged)
+  const all = versionsIn(CHANGELOG)
+  const last = all.indexOf(reported[reported.length - 1])
+  const previous = last === -1
+    ? [...tagged].filter((v) => v !== version && semverLess(v, version)).sort(semverCompare).pop()
+    : all.slice(last + 1).find((v) => tagged.has(v))
+  if (!previous) return null
+  return `v${previous}..${tagged.has(version) ? `v${version}` : 'HEAD'}`
+}
+
+function semverCompare(a, b) {
+  const pa = a.split(/[.-]/).map(Number), pb = b.split(/[.-]/).map(Number)
+  for (let i = 0; i < 3; i++) if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0)
+  return 0
+}
+const semverLess = (a, b) => semverCompare(a, b) < 0
+
+/** The prose, then the commits under their own heading; the prose alone when there is no list. */
+export function withCommits(prose, list) {
+  const l = (list || '').trim()
+  if (!l) return prose
+  return `${prose}\n\n## Commits\n\n${l}`
+}
+
+/** The commit list for `version` from git-cliff (cliff.toml). In CI (the release workflow, which
+ *  installs git-cliff pinned) a failure fails the notes, so a release body never loses its list
+ *  without anyone seeing it; elsewhere the notes keep the prose and say why on stderr. */
+export function commitList(version, {
+  run = (args) => execFileSync('git-cliff', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
+  ci = !!process.env.CI,
+  tagged = taggedVersions(),
+  warn = (m) => console.error(m),
+} = {}) {
+  const range = commitRange(version, tagged)
+  if (!range) return ''
+  try {
+    return run(['--config', join(root, 'cliff.toml'), '--strip', 'all', range])
+  } catch (e) {
+    const why = e.code === 'ENOENT'
+      ? 'git-cliff is not installed'
+      : (String(e.stderr || '').split('\n').find((l) => l.trim()) || String(e.message).split('\n')[0])
+    if (ci) throw new Error(`release notes: no commit list for ${range}: ${why}`)
+    warn(`release notes: no commit list (${why})`)
+    return ''
+  }
+}
+
 /**
  * Every source's section for `version`, assembled.
  *
@@ -201,7 +256,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const [arg, arg2] = process.argv.slice(2)
 
   if (arg === '--notes') {
-    process.stdout.write(notes(arg2 && arg2.replace(/^v/, '')) + '\n')
+    const v = arg2 && arg2.replace(/^v/, '')
+    process.stdout.write(withCommits(notes(v), v ? commitList(v) : '') + '\n')
     process.exit(0)
   }
 
