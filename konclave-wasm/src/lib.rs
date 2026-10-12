@@ -800,6 +800,579 @@ pub mod dkg {
     }
 }
 
+// ---------- Vault creation, version 2: what every member confirms is what the DKG consumes ----------
+//
+// One device's side of creating a vault. Every input the DKG uses (each seat's encryption key, name and
+// round-1 package) enters through `add_member`/`add_reveal`, is bound into one transcript, and becomes
+// a short code the members compare out of band. Round 2 runs only after `confirm` with that code, and it
+// seals each package itself, to the key in the transcript, so no caller ever holds a round-2 package in
+// the clear or can seal it to another key. Each seat commits to its round 1 before anyone reveals, so
+// nobody who sees the others' material can choose its own to land on a matching code.
+pub mod creation {
+    use super::*;
+    use frost::keys::dkg::{part1, part2, part3, round1, round2};
+    use frost::Identifier;
+
+    type E = String;
+    fn e<T: core::fmt::Display>(x: T) -> E {
+        x.to_string()
+    }
+
+    const COMMIT_PERSONAL: &[u8; 16] = b"konclaveDkgCmt2\0";
+    const TRANSCRIPT_PERSONAL: &[u8; 16] = b"konclaveDkgTr2\0\0";
+    const CROCKFORD: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+    const MAX_NAME: usize = 256; // bytes; the UI caps names at 64 characters
+
+    fn lp(h: &mut blake2b_simd::State, x: &[u8]) {
+        h.update(&(x.len() as u32).to_be_bytes());
+        h.update(x);
+    }
+
+    fn hasher(personal: &[u8; 16]) -> blake2b_simd::State {
+        blake2b_simd::Params::new().hash_length(32).personal(personal).to_state()
+    }
+
+    fn id(seat: u16) -> Result<Identifier, E> {
+        Identifier::try_from(seat).map_err(e)
+    }
+
+    /// The commitment a seat posts before anyone reveals: binds its key, its round 1 and a nonce.
+    pub fn commitment(seat: u16, enc_pub: &[u8], r1: &[u8], nonce: &[u8]) -> [u8; 32] {
+        let mut h = hasher(COMMIT_PERSONAL);
+        h.update(&seat.to_be_bytes());
+        lp(&mut h, enc_pub);
+        lp(&mut h, r1);
+        lp(&mut h, nonce);
+        h.finalize().as_bytes().try_into().expect("32 bytes")
+    }
+
+    /// The 9-character code (about 45 bits) the members read to each other: 3-3-3, Crockford base32.
+    pub fn code_of(digest: &[u8]) -> String {
+        let mut out = String::new();
+        let (mut bits, mut value) = (0u32, 0u64);
+        for b in digest {
+            value = (value << 8) | *b as u64;
+            bits += 8;
+            while bits >= 5 && out.len() < 9 {
+                bits -= 5;
+                out.push(CROCKFORD[((value >> bits) & 31) as usize] as char);
+            }
+            if out.len() == 9 {
+                break;
+            }
+        }
+        format!("{}-{}-{}", &out[0..3], &out[3..6], &out[6..9])
+    }
+
+    fn normalise(code: &str) -> String {
+        code.chars().filter(|c| c.is_ascii_alphanumeric()).map(|c| c.to_ascii_uppercase()).collect()
+    }
+
+    fn aad(kind: &str, from: u16, to: u16) -> Vec<u8> {
+        let mut a = format!("konclave-dkg-v2 {kind} ").into_bytes();
+        a.extend_from_slice(&from.to_be_bytes());
+        a.extend_from_slice(&to.to_be_bytes());
+        a
+    }
+
+    struct Member {
+        enc_pub: [u8; 32],
+        name: String,
+        commit: [u8; 32],
+        reveal: Option<(Vec<u8>, [u8; 32])>, // (round-1 package, nonce)
+    }
+
+    pub struct Creation {
+        my_seat: u16,
+        n: u16,
+        t: u16,
+        device: seal::DeviceKey,
+        r1_secret: Option<round1::SecretPackage>,
+        r1: Vec<u8>,
+        nonce: [u8; 32],
+        members: BTreeMap<u16, Member>,
+        code: Option<String>,
+        confirmed: bool,
+        r2_secret: Option<round2::SecretPackage>,
+        r2_in: BTreeMap<u16, Vec<u8>>,
+        key_package: Vec<u8>,
+        pubkeys: Vec<u8>,
+        group_vk: Vec<u8>,
+    }
+
+    impl Creation {
+        /// Seated: run round 1 and draw the nonce. `device_secret` is the key whose public half
+        /// this device announced in its hello.
+        pub fn new(device_secret: &[u8; 32], my_seat: u16, n: u16, t: u16) -> Result<Self, E> {
+            if !(2..=32).contains(&n) || t < 1 || t > n || my_seat < 1 || my_seat > n {
+                return Err("invalid seat or quorum".into());
+            }
+            let (secret, pkg) = part1(id(my_seat)?, n, t, OsRng).map_err(e)?;
+            let mut nonce = [0u8; 32];
+            rand::RngCore::fill_bytes(&mut OsRng, &mut nonce);
+            Ok(Creation {
+                my_seat,
+                n,
+                t,
+                device: seal::DeviceKey::from_secret_bytes(device_secret),
+                r1_secret: Some(secret),
+                r1: pkg.serialize().map_err(e)?,
+                nonce,
+                members: BTreeMap::new(),
+                code: None,
+                confirmed: false,
+                r2_secret: None,
+                r2_in: BTreeMap::new(),
+                key_package: vec![],
+                pubkeys: vec![],
+                group_vk: vec![],
+            })
+        }
+
+        pub fn my_commitment(&self) -> [u8; 32] {
+            commitment(self.my_seat, &self.device.public_bytes(), &self.r1, &self.nonce)
+        }
+        /// Revealed only after this device has seen every seat's commitment.
+        pub fn my_reveal(&self) -> (Vec<u8>, [u8; 32]) {
+            (self.r1.clone(), self.nonce)
+        }
+
+        /// A seat's announced key and name, and its commitment. Once per seat, before the code.
+        pub fn add_member(&mut self, seat: u16, enc_pub: &[u8], name: &str, commit: &[u8]) -> Result<(), E> {
+            if self.code.is_some() {
+                return Err("the roster is closed".into());
+            }
+            if seat < 1 || seat > self.n || self.members.contains_key(&seat) {
+                return Err("unknown or repeated seat".into());
+            }
+            if name.len() > MAX_NAME {
+                return Err("name too long".into());
+            }
+            let enc_pub: [u8; 32] = enc_pub.try_into().map_err(|_| "key must be 32 bytes")?;
+            let commit: [u8; 32] = commit.try_into().map_err(|_| "commitment must be 32 bytes")?;
+            if seat == self.my_seat && (enc_pub != self.device.public_bytes() || commit != self.my_commitment()) {
+                return Err("this seat's announcement is not this device's".into());
+            }
+            self.members.insert(seat, Member { enc_pub, name: name.to_string(), commit, reveal: None });
+            Ok(())
+        }
+
+        /// True once every seat has a commitment: the moment this device may reveal.
+        pub fn all_committed(&self) -> bool {
+            self.members.len() == self.n as usize
+        }
+
+        /// A seat's round 1 and nonce, checked against its commitment. Refused before every seat
+        /// has committed, so no one can reveal in reply to another's reveal.
+        pub fn add_reveal(&mut self, seat: u16, r1: &[u8], nonce: &[u8]) -> Result<(), E> {
+            if !self.all_committed() {
+                return Err("reveal before every seat committed".into());
+            }
+            let m = self.members.get_mut(&seat).ok_or("unknown seat")?;
+            if m.reveal.is_some() {
+                return Err("repeated reveal".into());
+            }
+            if commitment(seat, &m.enc_pub, r1, nonce) != m.commit {
+                return Err("reveal does not match its commitment".into());
+            }
+            round1::Package::deserialize(r1).map_err(e)?;
+            m.reveal = Some((r1.to_vec(), nonce.try_into().map_err(|_| "nonce must be 32 bytes")?));
+            Ok(())
+        }
+
+        /// Close the roster and return the code. Binds the room, the quorum, the governance, the
+        /// vault's name, the creator's seat and name and, per seat, its key, name, round 1 and
+        /// nonce, each length-prefixed, so every device that shows the code agrees on all of them.
+        pub fn freeze(&mut self, room: &[u8], governance: &str, vault_name: &str, creator_name: &str, creator_seat: u16) -> Result<String, E> {
+            if let Some(c) = &self.code {
+                return Ok(c.clone());
+            }
+            if !self.all_committed() || self.members.values().any(|m| m.reveal.is_none()) {
+                return Err("not every seat has revealed".into());
+            }
+            if !self.members.contains_key(&creator_seat) {
+                return Err("the creator has no seat".into());
+            }
+            let mut h = hasher(TRANSCRIPT_PERSONAL);
+            lp(&mut h, room);
+            h.update(&self.n.to_be_bytes());
+            h.update(&self.t.to_be_bytes());
+            lp(&mut h, governance.as_bytes());
+            lp(&mut h, vault_name.as_bytes());
+            lp(&mut h, creator_name.as_bytes());
+            h.update(&creator_seat.to_be_bytes());
+            for (seat, m) in &self.members {
+                let (r1, nonce) = m.reveal.as_ref().expect("checked");
+                h.update(&seat.to_be_bytes());
+                lp(&mut h, &m.enc_pub);
+                lp(&mut h, m.name.as_bytes());
+                lp(&mut h, r1);
+                lp(&mut h, nonce);
+            }
+            let code = code_of(h.finalize().as_bytes());
+            self.code = Some(code.clone());
+            Ok(code)
+        }
+
+        pub fn code(&self) -> Option<String> {
+            self.code.clone()
+        }
+
+        /// Unlocks round 2. This orders the protocol (no round 2 and no sealing before a code
+        /// exists and is presented back); it is not the check itself. The app passes the device's
+        /// own code once the members have compared it with every listed person on the screen: the
+        /// gate against a changed view is that human comparison, which this cannot replace.
+        pub fn confirm(&mut self, code: &str) -> Result<(), E> {
+            match &self.code {
+                Some(c) if normalise(c) == normalise(code) => {
+                    self.confirmed = true;
+                    Ok(())
+                }
+                Some(_) => Err("that code is not this vault's".into()),
+                None => Err("no code yet".into()),
+            }
+        }
+
+        /// Round 2: one package per other seat, each sealed to the key in the transcript.
+        pub fn part2(&mut self) -> Result<Vec<(u16, Vec<u8>)>, E> {
+            if !self.confirmed {
+                return Err("round 2 before the code was confirmed".into());
+            }
+            let secret = self.r1_secret.take().ok_or("round 2 already ran")?;
+            let mut others = BTreeMap::new();
+            for (seat, m) in &self.members {
+                if *seat == self.my_seat {
+                    continue;
+                }
+                let (r1, _) = m.reveal.as_ref().expect("frozen");
+                others.insert(id(*seat)?, round1::Package::deserialize(r1).map_err(e)?);
+            }
+            let (secret2, outgoing) = part2(secret, &others).map_err(e)?;
+            self.r2_secret = Some(secret2);
+            let mut out = Vec::new();
+            for (seat, m) in &self.members {
+                if *seat == self.my_seat {
+                    continue;
+                }
+                let pkg = outgoing.get(&id(*seat)?).ok_or("missing round-2 package")?;
+                let bytes = pkg.serialize().map_err(e)?;
+                out.push((*seat, seal::seal(&m.enc_pub, &bytes, &aad("r2", self.my_seat, *seat))?));
+            }
+            Ok(out)
+        }
+
+        /// A round-2 box from another seat. Returns true when round 3 has completed.
+        pub fn add_round2(&mut self, from: u16, sealed: &[u8]) -> Result<bool, E> {
+            if self.r2_secret.is_none() {
+                return Err("round 2 box before this device's round 2".into());
+            }
+            if from == self.my_seat || !self.members.contains_key(&from) || self.r2_in.contains_key(&from) {
+                return Err("round 2 box from an unknown or repeated seat".into());
+            }
+            let opened = seal::open(&self.device, sealed, &aad("r2", from, self.my_seat))?;
+            let pkg = round2::Package::deserialize(&opened).map_err(e)?;
+            // The share must be the sender's polynomial at this seat, per the commitment it revealed;
+            // a box that is not is refused before it is kept, so it cannot take the sender's place.
+            let (r1, _) = self.members[&from].reveal.as_ref().expect("frozen");
+            let commitment = round1::Package::deserialize(r1).map_err(e)?.commitment().clone();
+            frost::keys::SecretShare::new(id(self.my_seat)?, *pkg.signing_share(), commitment)
+                .verify()
+                .map_err(|_| "round 2 share does not match its sender's commitment")?;
+            self.r2_in.insert(from, opened);
+            if self.r2_in.len() < self.n as usize - 1 {
+                return Ok(false);
+            }
+            let mut r1 = BTreeMap::new();
+            let mut r2 = BTreeMap::new();
+            for (seat, m) in &self.members {
+                if *seat == self.my_seat {
+                    continue;
+                }
+                let (pkg, _) = m.reveal.as_ref().expect("frozen");
+                r1.insert(id(*seat)?, round1::Package::deserialize(pkg).map_err(e)?);
+                r2.insert(id(*seat)?, round2::Package::deserialize(&self.r2_in[seat]).map_err(e)?);
+            }
+            let (kp, pk) = part3(self.r2_secret.as_ref().expect("checked"), &r1, &r2)
+                .map_err(|x| format!("round 3 failed: {x}"))?;
+            self.group_vk = pk.verifying_key().serialize().map_err(e)?;
+            self.key_package = kp.serialize().map_err(e)?;
+            self.pubkeys = pk.serialize().map_err(e)?;
+            Ok(true)
+        }
+
+        /// Seal a payload (the vault secret) to a seat's key from the transcript. Confirmed only.
+        pub fn seal_to_seat(&self, to: u16, payload: &[u8]) -> Result<Vec<u8>, E> {
+            if !self.confirmed {
+                return Err("sealing before the code was confirmed".into());
+            }
+            let m = self.members.get(&to).filter(|_| to != self.my_seat).ok_or("unknown seat")?;
+            seal::seal(&m.enc_pub, payload, &aad("vsec", self.my_seat, to))
+        }
+
+        pub fn open_from_seat(&self, from: u16, sealed: &[u8]) -> Result<Vec<u8>, E> {
+            if !self.confirmed || !self.members.contains_key(&from) {
+                return Err("not from a confirmed seat".into());
+            }
+            seal::open(&self.device, sealed, &aad("vsec", from, self.my_seat))
+        }
+
+        pub fn done(&self) -> bool {
+            !self.group_vk.is_empty()
+        }
+        pub fn key_package(&self) -> Vec<u8> {
+            self.key_package.clone()
+        }
+        pub fn pubkeys(&self) -> Vec<u8> {
+            self.pubkeys.clone()
+        }
+        pub fn group_vk(&self) -> Vec<u8> {
+            self.group_vk.clone()
+        }
+        pub fn names(&self) -> Vec<String> {
+            self.members.values().map(|m| m.name.clone()).collect()
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        struct Dev {
+            secret: [u8; 32],
+            c: Creation,
+        }
+
+        fn devices(n: u16, t: u16) -> Vec<Dev> {
+            (1..=n)
+                .map(|seat| {
+                    let secret = seal::DeviceKey::generate().secret_bytes();
+                    Dev { secret, c: Creation::new(&secret, seat, n, t).unwrap() }
+                })
+                .collect()
+        }
+
+        fn pub_of(d: &Dev) -> [u8; 32] {
+            seal::DeviceKey::from_secret_bytes(&d.secret).public_bytes()
+        }
+
+        /// Everyone sees the same roster and reveals: returns each device's code.
+        fn exchange(ds: &mut [Dev]) -> Vec<String> {
+            let ann: Vec<_> = ds.iter().enumerate().map(|(i, d)| ((i + 1) as u16, pub_of(d), d.c.my_commitment(), d.c.my_reveal())).collect();
+            for d in ds.iter_mut() {
+                for (seat, pk, cm, _) in &ann {
+                    d.c.add_member(*seat, pk, &format!("m{seat}"), cm).unwrap();
+                }
+                for (seat, _, _, (r1, nonce)) in &ann {
+                    d.c.add_reveal(*seat, r1, nonce).unwrap();
+                }
+            }
+            ds.iter_mut().map(|d| d.c.freeze(b"room", "quorum", "v", "m1", 1).unwrap()).collect()
+        }
+
+        fn finish(ds: &mut [Dev]) {
+            let mut boxes = Vec::new();
+            for (i, d) in ds.iter_mut().enumerate() {
+                for (to, b) in d.c.part2().unwrap() {
+                    boxes.push(((i + 1) as u16, to, b));
+                }
+            }
+            for (from, to, b) in boxes {
+                ds[to as usize - 1].c.add_round2(from, &b).unwrap();
+            }
+        }
+
+        #[test]
+        fn honest_members_get_one_code_and_one_vault() {
+            for (n, t) in [(2, 2), (3, 2), (5, 3)] {
+                let mut ds = devices(n, t);
+                let codes = exchange(&mut ds);
+                assert!(codes.windows(2).all(|w| w[0] == w[1]));
+                for d in ds.iter_mut() {
+                    d.c.confirm(&codes[0].to_lowercase().replace('-', " ")).unwrap();
+                }
+                finish(&mut ds);
+                assert!(ds.iter().all(|d| d.c.done() && d.c.group_vk() == ds[0].c.group_vk()));
+            }
+        }
+
+        #[test]
+        fn round_two_waits_for_the_right_code() {
+            let mut ds = devices(3, 2);
+            let codes = exchange(&mut ds);
+            assert!(ds[0].c.part2().is_err(), "no round 2 before confirm");
+            assert!(ds[0].c.confirm("000-000-000").is_err());
+            assert!(ds[0].c.part2().is_err(), "a wrong code unlocks nothing");
+            assert!(ds[0].c.seal_to_seat(2, b"s").is_err());
+            ds[0].c.confirm(&codes[0]).unwrap();
+            assert_eq!(ds[0].c.part2().unwrap().len(), 2);
+        }
+
+        #[test]
+        fn a_key_swapped_in_one_view_changes_that_view_code() {
+            let mut ds = devices(3, 2);
+            let ann: Vec<_> = ds.iter().enumerate().map(|(i, d)| ((i + 1) as u16, pub_of(d), d.c.my_commitment(), d.c.my_reveal())).collect();
+            // In device 1's view, seat 2 carries an outsider's key (with a commitment that matches it).
+            let outsider = seal::DeviceKey::generate().public_bytes();
+            let swapped = commitment(2, &outsider, &ann[1].3 .0, &ann[1].3 .1);
+            for (i, d) in ds.iter_mut().enumerate() {
+                for (seat, pk, cm, _) in &ann {
+                    let (pk, cm) = if i == 0 && *seat == 2 { (outsider, swapped) } else { (*pk, *cm) };
+                    d.c.add_member(*seat, &pk, &format!("m{seat}"), &cm).unwrap();
+                }
+                for (seat, _, _, (r1, nonce)) in &ann {
+                    d.c.add_reveal(*seat, r1, nonce).unwrap();
+                }
+            }
+            let codes: Vec<_> = ds.iter_mut().map(|d| d.c.freeze(b"room", "quorum", "v", "m1", 1).unwrap()).collect();
+            assert_ne!(codes[0], codes[1]);
+            assert_eq!(codes[1], codes[2]);
+        }
+
+        #[test]
+        fn a_different_round_one_in_one_view_changes_that_view_code() {
+            let mut ds = devices(3, 2);
+            let ann: Vec<_> = ds.iter().enumerate().map(|(i, d)| ((i + 1) as u16, pub_of(d), d.c.my_commitment(), d.c.my_reveal())).collect();
+            // In device 1's view, seat 3 committed to and revealed another round 1 (same key).
+            let (r1x, nx) = Creation::new(&seal::DeviceKey::generate().secret_bytes(), 3, 3, 2).unwrap().my_reveal();
+            let cx = commitment(3, &ann[2].1, &r1x, &nx);
+            for (i, d) in ds.iter_mut().enumerate() {
+                let view = |seat: u16| if i == 0 && seat == 3 { (cx, r1x.clone(), nx) } else {
+                    let a = &ann[seat as usize - 1];
+                    (a.2, a.3 .0.clone(), a.3 .1)
+                };
+                for (seat, pk, _, _) in &ann {
+                    d.c.add_member(*seat, pk, &format!("m{seat}"), &view(*seat).0).unwrap();
+                }
+                for (seat, _, _, _) in &ann {
+                    let (_, r1, nonce) = view(*seat);
+                    d.c.add_reveal(*seat, &r1, &nonce).unwrap();
+                }
+            }
+            let codes: Vec<_> = ds.iter_mut().map(|d| d.c.freeze(b"room", "quorum", "v", "m1", 1).unwrap()).collect();
+            assert_ne!(codes[0], codes[1]);
+            assert_eq!(codes[1], codes[2]);
+        }
+
+        #[test]
+        fn commit_and_reveal_are_enforced() {
+            let mut ds = devices(2, 2);
+            let a = (pub_of(&ds[0]), ds[0].c.my_commitment(), ds[0].c.my_reveal());
+            let b = (pub_of(&ds[1]), ds[1].c.my_commitment(), ds[1].c.my_reveal());
+            let d = &mut ds[0].c;
+            d.add_member(1, &a.0, "a", &a.1).unwrap();
+            assert!(d.add_reveal(1, &a.2 .0, &a.2 .1).is_err(), "no reveal before every seat committed");
+            assert!(d.add_member(1, &a.0, "a", &a.1).is_err(), "a seat commits once");
+            d.add_member(2, &b.0, "b", &b.1).unwrap();
+            assert!(d.add_reveal(2, &a.2 .0, &b.2 .1).is_err(), "a reveal must match its commitment");
+            d.add_reveal(2, &b.2 .0, &b.2 .1).unwrap();
+            assert!(d.add_reveal(2, &b.2 .0, &b.2 .1).is_err(), "a seat reveals once");
+            assert!(d.freeze(b"room", "quorum", "v", "a", 1).is_err(), "not every seat revealed");
+            d.add_reveal(1, &a.2 .0, &a.2 .1).unwrap();
+            d.freeze(b"room", "quorum", "v", "a", 1).unwrap();
+            assert!(d.add_member(2, &b.0, "b", &b.1).is_err(), "the roster is closed");
+        }
+
+        #[test]
+        fn this_device_seat_must_carry_its_own_key() {
+            let mut ds = devices(2, 2);
+            let other = seal::DeviceKey::generate().public_bytes();
+            let cm = ds[0].c.my_commitment();
+            assert!(ds[0].c.add_member(1, &other, "a", &cm).is_err());
+        }
+
+        #[test]
+        fn every_transcript_field_changes_the_code() {
+            let d = devices(3, 2);
+            let ann: Vec<_> = d.iter().enumerate().map(|(i, x)| ((i + 1) as u16, pub_of(x), x.c.my_commitment(), x.c.my_reveal())).collect();
+            // Seat 2's view of the same material, frozen over one changed field at a time.
+            #[derive(Clone)]
+            struct V<'a> { names: [&'a str; 3], room: &'a [u8], gov: &'a str, vn: &'a str, cn: &'a str, creator: u16, t: u16,
+                nonce1: Option<[u8; 32]>, r1_1: Option<Vec<u8>>, pub1: Option<[u8; 32]> }
+            // Another round 1 and another key for seat 1, each with a commitment that matches it.
+            let other_r1 = Creation::new(&seal::DeviceKey::generate().secret_bytes(), 1, 3, 2).unwrap().my_reveal().0;
+            let other_pub = seal::DeviceKey::generate().public_bytes();
+            let base = V { names: ["a", "b", "c"], room: b"r", gov: "quorum", vn: "v", cn: "a", creator: 1, t: 2, nonce1: None, r1_1: None, pub1: None };
+            let code = |v: V| {
+                let mut o = Creation::new(&d[1].secret, 2, 3, v.t).unwrap();
+                o.r1 = ann[1].3 .0.clone();
+                o.nonce = ann[1].3 .1;
+                let seat1 = |i: usize, r1: &Vec<u8>, n: &[u8; 32], pk: &[u8; 32]| if i == 0 {
+                    (v.r1_1.clone().unwrap_or(r1.clone()), v.nonce1.unwrap_or(*n), v.pub1.unwrap_or(*pk))
+                } else { (r1.clone(), *n, *pk) };
+                for (i, (seat, pk, _, (r1, n))) in ann.iter().enumerate() {
+                    let (r1, n, pk) = seat1(i, r1, n, pk);
+                    o.add_member(*seat, &pk, v.names[i], &commitment(*seat, &pk, &r1, &n)).unwrap();
+                }
+                for (i, (seat, pk, _, (r1, n))) in ann.iter().enumerate() {
+                    let (r1, n, _) = seat1(i, r1, n, pk);
+                    o.add_reveal(*seat, &r1, &n).unwrap();
+                }
+                o.freeze(v.room, v.gov, v.vn, v.cn, v.creator).unwrap()
+            };
+            let reference = code(base.clone());
+            assert_eq!(reference, code(base.clone()), "deterministic");
+            assert_ne!(reference, code(V { names: ["a", "x", "c"], ..base.clone() }), "a name");
+            assert_ne!(reference, code(V { names: ["ab", "", "c"], ..base.clone() }), "a name boundary");
+            assert_ne!(reference, code(V { room: b"s", ..base.clone() }), "the room");
+            assert_ne!(reference, code(V { gov: "open", ..base.clone() }), "the governance");
+            assert_ne!(reference, code(V { cn: "b", ..base.clone() }), "the creator's name");
+            assert_ne!(reference, code(V { vn: "w", ..base.clone() }), "the vault's name");
+            assert_ne!(reference, code(V { creator: 2, ..base.clone() }), "the creator's seat");
+            assert_ne!(reference, code(V { t: 3, ..base.clone() }), "the quorum");
+            assert_ne!(reference, code(V { nonce1: Some([7u8; 32]), ..base.clone() }), "a nonce");
+            assert_ne!(reference, code(V { r1_1: Some(other_r1.clone()), ..base.clone() }), "a round 1, same nonce");
+            assert_ne!(reference, code(V { pub1: Some(other_pub), ..base.clone() }), "a key, same round 1");
+            // Adjacent fields: without length prefixes these two would hash the same bytes.
+            assert_ne!(code(V { vn: "ab", cn: "", ..base.clone() }), code(V { vn: "a", cn: "b", ..base.clone() }), "a field boundary");
+        }
+
+        #[test]
+        fn a_round_two_box_that_is_not_the_senders_share_is_refused_and_does_not_take_its_place() {
+            let mut ds = devices(3, 2);
+            let codes = exchange(&mut ds);
+            for d in ds.iter_mut() {
+                d.c.confirm(&codes[0]).unwrap();
+            }
+            let honest = ds[0].c.part2().unwrap().into_iter().find(|(to, _)| *to == 2).unwrap().1;
+            ds[1].c.part2().unwrap();
+            // Anyone can seal to seat 2's public key: a box with someone else's share for seat 2.
+            let mut other = devices(3, 2);
+            let oc = exchange(&mut other);
+            other[0].c.confirm(&oc[0]).unwrap();
+            let foreign = other[0].c.part2().unwrap().into_iter().find(|(to, _)| *to == 2).unwrap().1;
+            let opened = seal::open(&seal::DeviceKey::from_secret_bytes(&other[1].secret), &foreign, &aad("r2", 1, 2)).unwrap();
+            let forged = seal::seal(&pub_of(&ds[1]), &opened, &aad("r2", 1, 2)).unwrap();
+            assert!(ds[1].c.add_round2(1, &forged).is_err(), "not the sender's polynomial at this seat");
+            assert!(!ds[1].c.add_round2(1, &honest).unwrap(), "the honest box is still taken");
+        }
+
+        #[test]
+        fn round_two_boxes_come_only_from_roster_seats_and_open_only_for_their_recipient() {
+            let mut ds = devices(3, 2);
+            let codes = exchange(&mut ds);
+            for d in ds.iter_mut() {
+                d.c.confirm(&codes[0]).unwrap();
+            }
+            let to2 = ds[0].c.part2().unwrap().into_iter().find(|(to, _)| *to == 2).unwrap().1;
+            assert!(ds[1].c.add_round2(1, &to2).is_err(), "not before this device's own round 2");
+            ds[1].c.part2().unwrap();
+            ds[2].c.part2().unwrap();
+            assert!(ds[2].c.add_round2(1, &to2).is_err(), "a box for seat 2 does not open at seat 3");
+            assert!(ds[1].c.add_round2(4, &to2).is_err(), "no seat 4");
+            assert!(ds[1].c.add_round2(2, &to2).is_err(), "not from itself");
+            assert!(ds[1].c.add_round2(3, &to2).is_err(), "not under another sender's label");
+            assert!(!ds[1].c.add_round2(1, &to2).unwrap());
+            assert!(ds[1].c.add_round2(1, &to2).is_err(), "once per seat");
+            // Boxes that do open (the right label) but come from outside the roster, or from itself.
+            let pkg = seal::open(&seal::DeviceKey::from_secret_bytes(&ds[1].secret), &to2, &aad("r2", 1, 2)).unwrap();
+            let from4 = seal::seal(&pub_of(&ds[1]), &pkg, &aad("r2", 4, 2)).unwrap();
+            assert!(ds[1].c.add_round2(4, &from4).is_err(), "seat 4 is not in the roster");
+            let from2 = seal::seal(&pub_of(&ds[1]), &pkg, &aad("r2", 2, 2)).unwrap();
+            assert!(ds[1].c.add_round2(2, &from2).is_err(), "not from itself");
+        }
+    }
+}
+
 // ---------- Social recovery: repair a lost share (Repairable Threshold Scheme) ----------
 //
 // Steward has this; now so do we. When a member loses their device, a QUORUM of the others
@@ -3065,6 +3638,93 @@ mod js_dkg {
         #[wasm_bindgen(js_name = groupVk)]
         pub fn group_vk(&self) -> Vec<u8> {
             self.group_vk.clone()
+        }
+    }
+
+    /// One device's side of creating a vault (version 2). A thin wrapper over
+    /// `creation::Creation`: every rule lives there. JS passes the relay's messages in and shows
+    /// the code; it never holds a round-2 package in the clear or seals to a key itself.
+    #[wasm_bindgen]
+    pub struct CreationSession {
+        inner: super::creation::Creation,
+    }
+
+    #[wasm_bindgen]
+    impl CreationSession {
+        #[wasm_bindgen(constructor)]
+        pub fn new(device: &DeviceKey, my_seat: u16, n: u16, t: u16) -> Result<CreationSession, JsValue> {
+            let secret = device.inner.secret_bytes();
+            Ok(CreationSession { inner: super::creation::Creation::new(&secret, my_seat, n, t).map_err(je)? })
+        }
+        #[wasm_bindgen(js_name = myCommitment)]
+        pub fn my_commitment(&self) -> Vec<u8> {
+            self.inner.my_commitment().to_vec()
+        }
+        #[wasm_bindgen(js_name = myRound1)]
+        pub fn my_round1(&self) -> Vec<u8> {
+            self.inner.my_reveal().0
+        }
+        #[wasm_bindgen(js_name = myNonce)]
+        pub fn my_nonce(&self) -> Vec<u8> {
+            self.inner.my_reveal().1.to_vec()
+        }
+        #[wasm_bindgen(js_name = addMember)]
+        pub fn add_member(&mut self, seat: u16, enc_pub: &[u8], name: &str, commit: &[u8]) -> Result<(), JsValue> {
+            self.inner.add_member(seat, enc_pub, name, commit).map_err(je)
+        }
+        #[wasm_bindgen(js_name = allCommitted)]
+        pub fn all_committed(&self) -> bool {
+            self.inner.all_committed()
+        }
+        #[wasm_bindgen(js_name = addReveal)]
+        pub fn add_reveal(&mut self, seat: u16, r1: &[u8], nonce: &[u8]) -> Result<(), JsValue> {
+            self.inner.add_reveal(seat, r1, nonce).map_err(je)
+        }
+        pub fn freeze(&mut self, room: &[u8], governance: &str, vault_name: &str, creator_name: &str, creator_seat: u16) -> Result<String, JsValue> {
+            self.inner.freeze(room, governance, vault_name, creator_name, creator_seat).map_err(je)
+        }
+        pub fn code(&self) -> Option<String> {
+            self.inner.code()
+        }
+        pub fn confirm(&mut self, code: &str) -> Result<(), JsValue> {
+            self.inner.confirm(code).map_err(je)
+        }
+        /// Round 2. Returns, for each other seat, `[to_hi, to_lo, ...sealed box]` flattened into one
+        /// array per seat inside a JS array.
+        pub fn part2(&mut self) -> Result<js_sys::Array, JsValue> {
+            let out = js_sys::Array::new();
+            for (to, sealed) in self.inner.part2().map_err(je)? {
+                let mut v = to.to_be_bytes().to_vec();
+                v.extend_from_slice(&sealed);
+                out.push(&js_sys::Uint8Array::from(v.as_slice()));
+            }
+            Ok(out)
+        }
+        #[wasm_bindgen(js_name = addRound2)]
+        pub fn add_round2(&mut self, from: u16, sealed: &[u8]) -> Result<bool, JsValue> {
+            self.inner.add_round2(from, sealed).map_err(je)
+        }
+        #[wasm_bindgen(js_name = sealToSeat)]
+        pub fn seal_to_seat(&self, to: u16, payload: &[u8]) -> Result<Vec<u8>, JsValue> {
+            self.inner.seal_to_seat(to, payload).map_err(je)
+        }
+        #[wasm_bindgen(js_name = openFromSeat)]
+        pub fn open_from_seat(&self, from: u16, sealed: &[u8]) -> Result<Vec<u8>, JsValue> {
+            self.inner.open_from_seat(from, sealed).map_err(je)
+        }
+        pub fn done(&self) -> bool {
+            self.inner.done()
+        }
+        #[wasm_bindgen(js_name = keyPackage)]
+        pub fn key_package(&self) -> Vec<u8> {
+            self.inner.key_package()
+        }
+        pub fn pubkeys(&self) -> Vec<u8> {
+            self.inner.pubkeys()
+        }
+        #[wasm_bindgen(js_name = groupVk)]
+        pub fn group_vk(&self) -> Vec<u8> {
+            self.inner.group_vk()
         }
     }
 

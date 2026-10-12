@@ -25,7 +25,7 @@ import {
 } from './helper'
 import { fmtZecExact, zatToZec, parseZecToZat } from './format'
 import type { FailureCode } from './background-session'
-import { listVaults, updateVaultMeta, recordChangeReceiver } from './storage'
+import { listVaults, updateVaultMeta, recordChangeReceiver, vaultIsFinished } from './storage'
 import { getUnlockedShare, setUnlockedShare } from './session'
 import { signGovernanceWrite, type WriteProof } from './device-key'
 import { ensureWasm } from './wasm-ready'
@@ -55,6 +55,8 @@ export type Vault = {
   // #388: whether this vault holds the per-vault secret S (reads + signing room gated). undefined
   // when unknown (e.g. a bridge/local vault); false = a legacy/open vault a leaked id can read.
   secured?: boolean
+  /** Creation not finished on this device: no address, and a warning not to fund it. */
+  pending?: boolean
 }
 
 export type Proposal = {
@@ -197,12 +199,30 @@ export async function health(): Promise<boolean> {
  *  Separate from `getVault` so the condition is testable without a network: the bug it repairs was
  *  a literal `address: ''` that nothing ever revisited, and the repair must not become the same
  *  kind of thing - a branch nobody can exercise. */
+/** What a screen may show as this vault's deposit address, and whether the coordinator's answer may
+ *  become the record. One rule, for `getVault` and its backfill: no address for a vault this device
+ *  does not hold, for one whose creation has not finished, or when the coordinator holds it with
+ *  another quorum than the members confirmed; otherwise the recorded address, or (once) the served
+ *  one for a record that has none. */
+export function depositAddress(
+  rec: { address?: string; pending?: boolean; threshold?: number; total?: number } | undefined,
+  served: string,
+  quorum: { threshold?: number; total?: number },
+): { address: string; adopt: boolean } {
+  if (!rec || !vaultIsFinished(rec)) return { address: '', adopt: false }
+  if (rec.threshold !== undefined && (quorum.threshold !== rec.threshold || quorum.total !== rec.total)) {
+    return { address: '', adopt: false }
+  }
+  const recorded = addressText(rec.address)
+  return { address: recorded || served, adopt: !recorded && !!served }
+}
+
 export async function backfillAddress(id: string, address: string): Promise<boolean> {
   // Only text is an address: anything else written here would be the record from then on.
   if (!addressText(address)) return false
   try {
     const rec = (await listVaults()).find((v) => v.id === id)
-    if (!rec || addressText(rec.address)) return false
+    if (!rec || !vaultIsFinished(rec) || addressText(rec.address)) return false
     await updateVaultMeta(id, { address })
     return true
   } catch {
@@ -219,9 +239,8 @@ export async function getVault(): Promise<Vault | null> {
     // share, its room, the gate's record and the send on this id, so a coordinator that named
     // another vault on this device could move the ceremony onto a vault whose quorum approved nothing.
     if (!v || v.vault_id !== id) return null
-    const total = v.total ?? 0
     // The device's own record, read once: it carries the vault's name, its roster and its address.
-    let rec: { name?: string; roster?: string[]; address?: string } | undefined
+    let rec: { name?: string; roster?: string[]; address?: string; pending?: boolean; threshold?: number; total?: number } | undefined
     try {
       rec = (await listVaults()).find((s) => s.id === id)
     } catch { /* local-bridge mode / no on-device record */ }
@@ -234,6 +253,8 @@ export async function getVault(): Promise<Vault | null> {
     // "member 1", "member 2". The device knew their names the whole time: identity in this product
     // IS the name, seats are positional, and that roster is what the create/join ceremony agreed on.
     // Showing a placeholder while holding the answer is worse than a stale name.
+    // The member count the members confirmed, where the device recorded it; the coordinator's otherwise.
+    const total = rec?.total ?? v.total ?? 0
     const names = (await netListMembers(id)) ?? []
     const local = rec?.roster ?? []
     const member_list = Array.from({ length: total }, (_, i) => {
@@ -257,7 +278,8 @@ export async function getVault(): Promise<Vault | null> {
     // the money gate uses too): neither is trusted to be a string.
     const served = addressText(v.address)
     const recorded = addressText(rec?.address)
-    if (served) void backfillAddress(id, served)
+    const deposit = depositAddress(rec, served, { threshold: v.threshold, total: v.total })
+    if (deposit.adopt) void backfillAddress(id, served)
     // Pin the vault's change receiver the first time any screen reads the vault (#281). Same shape
     // as the address backfill above and for the same reason: `saveVault` runs once at creation, so
     // a field added later reaches an existing vault only if something revisits the record.
@@ -268,7 +290,9 @@ export async function getVault(): Promise<Vault | null> {
     // attacker's output as this vault's change. Deliberately NOT wrapped in a guard here: a second
     // copy of "only if absent" is how one rule with two implementations starts.
     const change = addressText(v.change_receiver)
-    if (change) void recordChangeReceiver(id, change)
+    // Not for a vault whose creation has not finished, or that the coordinator holds with another
+    // quorum: the same condition that withholds its address (`depositAddress`).
+    if (change && deposit.address) void recordChangeReceiver(id, change)
     // The address every screen shows for deposits is the one this device recorded, the same one the
     // money gate treats as the vault's own (`ourReceiversFrom`). The screens used to show the
     // coordinator's answer on every load, so a coordinator taken over after creation could answer
@@ -281,12 +305,13 @@ export async function getVault(): Promise<Vault | null> {
     return {
       id,
       name: vaultName,
-      threshold: v.threshold ?? 0,
+      // The quorum the members confirmed, where the device recorded it; the coordinator's otherwise.
+      threshold: rec?.threshold ?? v.threshold ?? 0,
       total,
       members: total,
       member_list,
       group_pubkey: id,
-      orchard_address: rec ? recorded || served : '',
+      orchard_address: deposit.address,
       // Compared without case: an all-capitals encoding is the same address.
       served_address_differs: !!recorded && !!served && recorded.toLowerCase() !== served.toLowerCase(),
     }

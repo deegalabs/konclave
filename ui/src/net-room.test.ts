@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { deriveRoom } from './net'
+import { deriveRoom, newInviteCode, parseInvite, inviteLink, joinParam, INVITE_LENGTH } from './net'
 
 // Two things, and the second is why this file exists at all.
 //
@@ -24,16 +24,17 @@ import { deriveRoom } from './net'
 
 describe('deriveRoom', () => {
   it.each([
-    ['ABCD1234', '1234', 'ac9c03ec13b2fe1e51d1192173a058d7'],
-    ['ROOM-X', 'hunter2', 'd5409075b4669430a3e3e73a38a8d15d'],
-    ['a', '  spaced  ', '0c328d145982619fff085bcdc3e06cba'],
-  ])('code %s + pin %s derives the same room it always has', async (code, pin, want) => {
+    // Version 2 (konclave-room-v2): a device on the previous version derives another room.
+    ['ABCD1234', '1234', '154251e12f579d8b11e2f9b44f997bf5'],
+    ['ROOM-X', 'hunter2', '2c6d69e75748f417de9e6984163df6fa'],
+    ['a', '  spaced  ', '0360e41e46d51f498078adc45e56f187'],
+  ])('code %s + pin %s derives its version-2 room', async (code, pin, want) => {
     expect(await deriveRoom(code, pin)).toBe(want)
   })
 
-  it('with no pin the room IS the code, so an unpinned vault is unchanged', async () => {
-    expect(await deriveRoom('ABCD1234', '')).toBe('ABCD1234')
-    expect(await deriveRoom('ABCD1234', '   ')).toBe('ABCD1234')
+  it('refuses to derive a room without a PIN', async () => {
+    await expect(deriveRoom('ABCD1234', '')).rejects.toThrow()
+    await expect(deriveRoom('ABCD1234', '   ')).rejects.toThrow()
   })
 
   it('the pin actually separates rooms', async () => {
@@ -44,6 +45,39 @@ describe('deriveRoom', () => {
   // trust, since the escaping change touched exactly those two bytes.
   it('the domain separator prevents a code/pin boundary collision', async () => {
     expect(await deriveRoom('ab', 'c')).not.toBe(await deriveRoom('a', 'bc'))
+  })
+})
+
+describe('the vault-creation invite', () => {
+  it('is 128 bits or more of base32, fresh each time', () => {
+    const a = newInviteCode()
+    expect(a).toMatch(new RegExp(`^[0-9A-HJKMNP-TV-Z]{${INVITE_LENGTH}}$`))
+    expect(INVITE_LENGTH * 5).toBeGreaterThanOrEqual(128)
+    expect(newInviteCode()).not.toBe(a)
+  })
+
+  it('is read back from a link, a grouped code, or the code itself, and nothing else', () => {
+    const code = newInviteCode()
+    expect(parseInvite(inviteLink(code, 'https://example.test/'))).toBe(code)
+    expect(parseInvite(code.match(/.{1,4}/g)!.join('-').toLowerCase())).toBe(code)
+    expect(parseInvite(code.slice(1))).toBeNull()
+    expect(parseInvite(code.slice(1) + 'I')).toBeNull() // I is not in the alphabet
+  })
+
+  it('a malformed link is no invite, never a crash', () => {
+    expect(parseInvite('#/vaults?join=%E0%A4%A')).toBeNull()
+    expect(parseInvite('#/vaults?join=%')).toBeNull()
+    expect(joinParam('#/vaults?join=%E0%A4%A')).toBeNull()
+  })
+
+  it('opens the vaults screen\'s join dialog, where a joiner gets what the creator gets', () => {
+    expect(inviteLink('X'.repeat(INVITE_LENGTH), 'https://example.test/')).toBe(`https://example.test/#/vaults?join=${'X'.repeat(INVITE_LENGTH)}`)
+  })
+
+  it('puts the code only in the fragment, never in a query a server would see', () => {
+    const link = inviteLink('X'.repeat(INVITE_LENGTH), 'https://example.test/')
+    expect(new URL(link).search).toBe('')
+    expect(new URL(link).hash).toContain('join=')
   })
 })
 

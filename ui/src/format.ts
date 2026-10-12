@@ -101,7 +101,7 @@ export function shortAddr(addr: string, head = 6, tail = 6): string {
 }
 
 // Crockford base32 (no I/L/O/U) - unambiguous when read aloud or copied by hand.
-const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
+export const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
 
 /** Pure: encode the first bytes of a digest as a 9-char code grouped 3-3-3 (≈45 bits).
  *  Deterministic and side-effect free so it can be unit-tested without WebCrypto. */

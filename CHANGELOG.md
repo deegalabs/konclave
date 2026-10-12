@@ -55,6 +55,13 @@ explicitly accepted.
 
 ## [Unreleased]
 
+### Security
+
+- **The browser signer's vault-creation core is new.** Creating a vault now runs in `konclave-wasm`
+  with a step every member confirms before anything secret is exchanged; the app's entry in
+  [ui/CHANGELOG.md](ui/CHANGELOG.md) describes what members see. Vaults that already exist are
+  unchanged.
+
 ## [0.11.0] 2026-10-12
 
 > **Services deployed when this was cut (2026-10-12):** coordinator `21db4dd`, relay `42da05bf003afc41`.

@@ -181,9 +181,9 @@ export function shareFacts(hex) {
 }
 
 /**
- * The quorum a backup belongs to. An export records it in ONE place, the share. `governance` is
- * 'open' or 'quorum', a policy and not a number, and nothing else in the payload holds t or n; this
- * used to read `governance.threshold`, so every backup reported its quorum as missing.
+ * The quorum a backup belongs to, from the share. `governance` is 'open' or 'quorum', a policy and
+ * not a number (this used to read `governance.threshold`, so every backup reported its quorum as
+ * missing). Backups made since the creation code also carry `threshold`/`total`, checked below.
  */
 function quorumOf(share) {
   if (!share) return null
@@ -222,9 +222,18 @@ export function examine(payload, v1 = false) {
       String(payload.id).trim().toLowerCase() !== String(payload.groupKey).trim().toLowerCase()) {
     problems.push(`The vault id and the group key in this file differ. ${v1 ? 'Konclave refuses to import it: restored, the seat would answer as another vault. ' : ''}The file was edited; take a fresh backup.`)
   }
+  // A backup of a vault whose creation had not finished: the app restores it unfinished, with no
+  // address, until the member confirms everyone saved.
+  if (payload.pending === true) {
+    problems.push(`This backup is of a vault whose creation had not finished on that device. Do not
+    fund it until you have confirmed, with each member, that they saved their part.`)
+  }
+  if (quorum && Number.isInteger(payload.threshold) && (payload.threshold !== quorum.t || payload.total !== quorum.n)) {
+    problems.push(`The share says ${quorum.t} of ${quorum.n}; the file records ${payload.threshold} of
+    ${payload.total}. One of the two was edited; this file cannot be trusted.`)
+  }
   // The ceremony that made the share fixed the member count, and the roster is the names it
-  // seated, one per member. The threshold has no second record in an export, so only the count can
-  // be cross-checked.
+  // seated, one per member.
   if (quorum && roster.length && quorum.n !== roster.length) {
     problems.push(`The share says the vault has ${quorum.n} members; the roster lists ${roster.length}. They
     must agree - the share was made by a ceremony that fixed that number - so one of the two is wrong

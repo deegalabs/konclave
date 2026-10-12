@@ -43,13 +43,17 @@ Implementations: browser client `ui/src/net.ts` (relay transport), `ui/src/scree
   eviction; presence pruning; peer count SHOULD NOT gratuitously leak group size.
 
 ## 2. Message types (`data`, JSON unless sealed)
-`config` (creator→all: n, t, governance g, creatorName cn) · `hello` (each device: encPub, name) ·
-`r1` (DKG round-1 broadcast) · `r2` (DKG round-2, **sealed** per recipient) · `rejoin` (restored
+Creation (version 2, `v: 2` on `config` and `hello`): `config` (creator→all: n, t, governance g,
+creatorName cn, vault name vn) · `hello` (each device: encPub, name) · `commit` (each seat: commitment to its key,
+round 1 and nonce) · `reveal` (each seat, after it has seen every commitment: round 1 and nonce) ·
+`r2` (DKG round 2, **sealed in WASM** per recipient, only after the code is confirmed) · `vsec` (the
+vault's access secret, sealed in WASM and signed with the creator's share). The previous version's
+`r1` in a version-2 room stops the ceremony. Other: `rejoin` (restored
 device re-announces its seat) · `sreq`/`s1`/`sp`/`s2`/`signed` (signing ceremony) · plus the raw
 helper `net-sign-request`/`net-sign-response` (Architecture B).
 
 ## 3. DKG + admission (fixes #65 → invariant I4)
-Seating today is "first n by sorted tag" - a **bearer** model (any code-holder can seat). The spec
+Seating today is "the first n distinct tags by relay order, numbered by sorted tag" - a **bearer** model (any code-holder can seat). The spec
 REQUIRES **authenticated admission**:
 1. **Shared secret (PIN).** The creator sets a PIN alongside the invite code. Each joiner proves
    knowledge of the PIN in the handshake (e.g. the `hello`/round-1 material is bound to
@@ -59,8 +63,16 @@ REQUIRES **authenticated admission**:
 3. **Out-of-band roster verification.** Before the group key is trusted, every member confirms the
    final roster's comm-pubkey **fingerprints** out of band (safety-number style). An unexpected
    member is caught here.
-- **Still holds:** round-2 secret packages are ECIES-sealed device-to-device (`sealTo`), so even a
-  seated attacker cannot read others' shares; the key is never reconstituted.
+- **As built (2026-10-12, ADR-0007 amendment).** The three requirements above are realised as: a
+  required PIN that derives the room; a 128-bit invite (link or QR); commit-then-reveal of every
+  seat's contribution; a 9-character code over the whole transcript, computed in WASM, that every
+  member reads with every listed person before round 2; and sealing inside WASM to the keys bound
+  into that code. The seats are the first n distinct devices by relay order; anything inconsistent
+  before the code is confirmed stops the ceremony. Against a member taking more than one seat the
+  check is human (the members must read the code with each listed person). The rule lives in
+  `konclave-wasm` `creation` and `ui/src/dkg-ceremony.ts`.
+- The vault fingerprint after creation (over the group key) still confirms everyone is in the same
+  vault; the code is what confirms who is in it.
 
 ## 4. Signing (fixes H1/H2 → invariants I2/I3)
 - **I3 (sealed request).** The `net-sign-request` (`sighash`, per-spend `alpha`, `pczt_hex`) MUST be
@@ -111,7 +123,7 @@ REQUIRES **authenticated admission**:
 - [x] **I1** relay blind - no secret/address/amount in cleartext on the wire (the relay never parses bodies).
 - [x] **I2** on-device sighash recompute + refuse-on-mismatch (#62/#67; primitive proven byte-exact, live-validated 2-tab).
 - [ ] **I3** SignRequest ECIES-sealed (#63) - **the one open invariant** (plan in §4 above).
-- [x] **I4** authenticated admission: PIN + creator admission + OOB fingerprint + ≥128-bit code (#65/#67/#68, live-validated 2-tab).
+- [x] **I4** authenticated admission, as amended (ADR-0007, 2026-10-12): required PIN + 128-bit invite + a transcript code every member reads with every other before round 2 + sealing in WASM. Live-validated locally (2-of-2, 2-of-3, a relay that rewrites one view); see §3.
 - [x] **I5** replay discipline: every permanent-room reader declares per type whether history applies (§1; #354/#356/#358, live-validated 2-device 2026-08-27, txid `78fe7dfa…`).
 - Gate: a real-money `/net` broadcast stays blocked on **I3** (I1/I2/I4 are enforced); I3 is money-path and lands with a live 2-device check.
 
