@@ -145,6 +145,257 @@ export class Coordinator {
 if (Symbol.dispose) Coordinator.prototype[Symbol.dispose] = Coordinator.prototype.free;
 
 /**
+ * One device's side of creating a vault (version 2). A thin wrapper over
+ * `creation::Creation`: every rule lives there. JS passes the relay's messages in and shows
+ * the code; it never holds a round-2 package in the clear or seals to a key itself.
+ */
+export class CreationSession {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        CreationSessionFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_creationsession_free(ptr, 0);
+    }
+    /**
+     * @param {number} seat
+     * @param {Uint8Array} enc_pub
+     * @param {string} name
+     * @param {Uint8Array} commit
+     */
+    addMember(seat, enc_pub, name, commit) {
+        const ptr0 = passArray8ToWasm0(enc_pub, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passArray8ToWasm0(commit, wasm.__wbindgen_malloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ret = wasm.creationsession_addMember(this.__wbg_ptr, seat, ptr0, len0, ptr1, len1, ptr2, len2);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
+     * @param {number} seat
+     * @param {Uint8Array} r1
+     * @param {Uint8Array} nonce
+     */
+    addReveal(seat, r1, nonce) {
+        const ptr0 = passArray8ToWasm0(r1, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArray8ToWasm0(nonce, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.creationsession_addReveal(this.__wbg_ptr, seat, ptr0, len0, ptr1, len1);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
+     * @param {number} from
+     * @param {Uint8Array} sealed
+     * @returns {boolean}
+     */
+    addRound2(from, sealed) {
+        const ptr0 = passArray8ToWasm0(sealed, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.creationsession_addRound2(this.__wbg_ptr, from, ptr0, len0);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return ret[0] !== 0;
+    }
+    /**
+     * @returns {boolean}
+     */
+    allCommitted() {
+        const ret = wasm.creationsession_allCommitted(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * @returns {string | undefined}
+     */
+    code() {
+        const ret = wasm.creationsession_code(this.__wbg_ptr);
+        let v1;
+        if (ret[0] !== 0) {
+            v1 = getStringFromWasm0(ret[0], ret[1]);
+            wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        }
+        return v1;
+    }
+    /**
+     * @param {string} code
+     */
+    confirm(code) {
+        const ptr0 = passStringToWasm0(code, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.creationsession_confirm(this.__wbg_ptr, ptr0, len0);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
+     * @returns {boolean}
+     */
+    done() {
+        const ret = wasm.creationsession_done(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * @param {Uint8Array} room
+     * @param {string} governance
+     * @param {string} vault_name
+     * @param {string} creator_name
+     * @param {number} creator_seat
+     * @returns {string}
+     */
+    freeze(room, governance, vault_name, creator_name, creator_seat) {
+        let deferred6_0;
+        let deferred6_1;
+        try {
+            const ptr0 = passArray8ToWasm0(room, wasm.__wbindgen_malloc);
+            const len0 = WASM_VECTOR_LEN;
+            const ptr1 = passStringToWasm0(governance, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            const len1 = WASM_VECTOR_LEN;
+            const ptr2 = passStringToWasm0(vault_name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            const len2 = WASM_VECTOR_LEN;
+            const ptr3 = passStringToWasm0(creator_name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+            const len3 = WASM_VECTOR_LEN;
+            const ret = wasm.creationsession_freeze(this.__wbg_ptr, ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, creator_seat);
+            var ptr5 = ret[0];
+            var len5 = ret[1];
+            if (ret[3]) {
+                ptr5 = 0; len5 = 0;
+                throw takeFromExternrefTable0(ret[2]);
+            }
+            deferred6_0 = ptr5;
+            deferred6_1 = len5;
+            return getStringFromWasm0(ptr5, len5);
+        } finally {
+            wasm.__wbindgen_free(deferred6_0, deferred6_1, 1);
+        }
+    }
+    /**
+     * @returns {Uint8Array}
+     */
+    groupVk() {
+        const ret = wasm.creationsession_groupVk(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
+     * @returns {Uint8Array}
+     */
+    keyPackage() {
+        const ret = wasm.creationsession_keyPackage(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
+     * @returns {Uint8Array}
+     */
+    myCommitment() {
+        const ret = wasm.creationsession_myCommitment(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
+     * @returns {Uint8Array}
+     */
+    myNonce() {
+        const ret = wasm.creationsession_myNonce(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
+     * @returns {Uint8Array}
+     */
+    myRound1() {
+        const ret = wasm.creationsession_myRound1(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
+     * @param {DeviceKey} device
+     * @param {number} my_seat
+     * @param {number} n
+     * @param {number} t
+     */
+    constructor(device, my_seat, n, t) {
+        _assertClass(device, DeviceKey);
+        const ret = wasm.creationsession_new(device.__wbg_ptr, my_seat, n, t);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        this.__wbg_ptr = ret[0];
+        CreationSessionFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+    /**
+     * @param {number} from
+     * @param {Uint8Array} sealed
+     * @returns {Uint8Array}
+     */
+    openFromSeat(from, sealed) {
+        const ptr0 = passArray8ToWasm0(sealed, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.creationsession_openFromSeat(this.__wbg_ptr, from, ptr0, len0);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v2;
+    }
+    /**
+     * Round 2. Returns, for each other seat, `[to_hi, to_lo, ...sealed box]` flattened into one
+     * array per seat inside a JS array.
+     * @returns {Array<any>}
+     */
+    part2() {
+        const ret = wasm.creationsession_part2(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * @returns {Uint8Array}
+     */
+    pubkeys() {
+        const ret = wasm.creationsession_pubkeys(this.__wbg_ptr);
+        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v1;
+    }
+    /**
+     * @param {number} to
+     * @param {Uint8Array} payload
+     * @returns {Uint8Array}
+     */
+    sealToSeat(to, payload) {
+        const ptr0 = passArray8ToWasm0(payload, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.creationsession_sealToSeat(this.__wbg_ptr, to, ptr0, len0);
+        if (ret[3]) {
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+        return v2;
+    }
+}
+if (Symbol.dispose) CreationSession.prototype[Symbol.dispose] = CreationSession.prototype.free;
+
+/**
  * A device's long-term encryption keypair for the confidential channel (round-2 sealing).
  * The public half rides in the invite; the secret half never leaves the device.
  */
@@ -1170,6 +1421,14 @@ function __wbg_get_imports() {
             const ret = arg0.msCrypto;
             return ret;
         },
+        __wbg_new_116be93542d39019: function() {
+            const ret = new Array();
+            return ret;
+        },
+        __wbg_new_from_slice_3eea173078478cfe: function(arg0, arg1) {
+            const ret = new Uint8Array(getArrayU8FromWasm0(arg0, arg1));
+            return ret;
+        },
         __wbg_new_with_length_3ffc1c56427c525c: function(arg0) {
             const ret = new Uint8Array(arg0 >>> 0);
             return ret;
@@ -1184,6 +1443,10 @@ function __wbg_get_imports() {
         },
         __wbg_prototypesetcall_de8e0d9553586985: function(arg0, arg1, arg2) {
             Uint8Array.prototype.set.call(getArrayU8FromWasm0(arg0, arg1), arg2);
+        },
+        __wbg_push_adb0107829f02d75: function(arg0, arg1) {
+            const ret = arg0.push(arg1);
+            return ret;
         },
         __wbg_randomFillSync_6c25eac9869eb53c: function() { return handleError(function (arg0, arg1) {
             arg0.randomFillSync(arg1);
@@ -1245,6 +1508,9 @@ function __wbg_get_imports() {
 const CoordinatorFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_coordinator_free(ptr, 1));
+const CreationSessionFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_creationsession_free(ptr, 1));
 const DeviceKeyFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_devicekey_free(ptr, 1));
@@ -1268,6 +1534,12 @@ function addToExternrefTable0(obj) {
     const idx = wasm.__externref_table_alloc();
     wasm.__wbindgen_externrefs.set(idx, obj);
     return idx;
+}
+
+function _assertClass(instance, klass) {
+    if (!(instance instanceof klass)) {
+        throw new Error(`expected instance of ${klass.name}`);
+    }
 }
 
 function getArrayU8FromWasm0(ptr, len) {

@@ -73,6 +73,18 @@ export interface VaultPublic {
    *  tell this vault's own change from a stranger; absent means UNKNOWN, and the gate must stay
    *  unarmed rather than read it as an empty allowlist. */
   changeReceiver?: string
+  /** Saved before every member had saved its share: no screen shows or adopts an address for it
+   *  until the creation finishes (`vaultIsFinished`). */
+  pending?: boolean
+  /** The quorum every member confirmed at creation (public), to compare with the coordinator's. */
+  threshold?: number
+  total?: number
+}
+
+/** Whether a saved vault finished creation: every member saved its share and the coordinator holds
+ *  it with the confirmed quorum. The one predicate every reader of a vault's address uses. */
+export function vaultIsFinished(v: { pending?: boolean }): boolean {
+  return !v.pending
 }
 
 /** Plaintext payload handed to saveVault; `sealedShare` is the secret to be encrypted at rest. */
@@ -93,6 +105,9 @@ export interface VaultData {
    *  sees the notes the vault already holds, and there is no rescan. `undefined` means "this device
    *  never learned it", never "start at zero". */
   birthday?: number
+  pending?: boolean
+  threshold?: number
+  total?: number
 }
 
 /** What loadVault returns after decrypting: the same shape, group key back as bytes. */
@@ -115,6 +130,10 @@ export interface VaultLoaded {
   birthday?: number
   /** The pinned internal (change) receiver (#281), when this device captured one. */
   changeReceiver?: string
+  /** Creation not finished on this device (see `vaultIsFinished`), and the quorum the members confirmed. */
+  pending?: boolean
+  threshold?: number
+  total?: number
 }
 
 // Internal on-disk record. `cipher`/`salt`/`iv` protect `sealedShare`; `secretCipher`/`secretIv`
@@ -149,6 +168,9 @@ interface VaultRecord {
    *  once, and pinned. Pinning is the whole point: a helper that turns hostile later cannot re-answer
    *  with an attacker's receiver and have the gate accept it as "our change". */
   changeReceiver?: string
+  pending?: boolean
+  threshold?: number
+  total?: number
 }
 
 
@@ -311,6 +333,8 @@ export async function saveVault(id: string, data: VaultData, passphrase: string)
     secretIv,
     secretCipher,
     ...(data.birthday !== undefined ? { birthday: data.birthday } : {}),
+    ...(data.pending ? { pending: true } : {}),
+    ...(data.threshold !== undefined ? { threshold: data.threshold, total: data.total } : {}),
     // Sealed WITH this, so it must be stored WITH it (#435).
     kdfIters: PBKDF2_ITERS,
   }
@@ -387,6 +411,9 @@ export async function loadVault(id: string, passphrase: string): Promise<VaultLo
     ufvk: record.ufvk,
     changeReceiver: record.changeReceiver,
     birthday: record.birthday,
+    pending: record.pending,
+    threshold: record.threshold,
+    total: record.total,
   }
 }
 
@@ -465,6 +492,11 @@ interface V2Payload {
    *  that re-opens the exact window the pin exists to close - by then the helper may be the thing
    *  being defended against. Absent on an export written before this. */
   changeReceiver?: string
+  /** Carried so a backup of a vault whose creation had not finished is restored as such, and with
+   *  the quorum its members confirmed: otherwise the copy would show an address the original hides. */
+  pending?: boolean
+  threshold?: number
+  total?: number
 }
 
 /**
@@ -535,6 +567,8 @@ export async function exportVault(
       ? { birthday: birthday ?? loaded.birthday }
       : {}),
     ...(loaded.changeReceiver ? { changeReceiver: loaded.changeReceiver } : {}),
+    ...(loaded.pending ? { pending: true } : {}),
+    ...(loaded.threshold !== undefined ? { threshold: loaded.threshold, total: loaded.total } : {}),
   }
 
   const salt = crypto.getRandomValues(new Uint8Array(16))
@@ -613,6 +647,23 @@ interface DecodedImport {
   birthday?: number
   /** The pinned change receiver (#281), when the export carried one. */
   changeReceiver?: string
+  pending?: boolean
+  threshold?: number
+  total?: number
+}
+
+/** The quorum a v2 backup records, only if it agrees with the share it carries (the share's own
+ *  t and n, fixed by the ceremony); a file whose two records disagree was edited, and is refused. */
+function quorumOfExport(p: V2Payload): { threshold?: number; total?: number } {
+  if (!(Number.isInteger(p.threshold) && Number.isInteger(p.total))) return {}
+  let bundle: { t?: unknown; n?: unknown } = {}
+  try {
+    bundle = JSON.parse(new TextDecoder().decode(unhex(p.share)))
+  } catch { /* not a device bundle: nothing to compare with */ }
+  if (bundle.t !== undefined && (bundle.t !== p.threshold || bundle.n !== p.total)) {
+    throw new Error('The export is corrupt')
+  }
+  return { threshold: p.threshold, total: p.total }
 }
 
 /** Decode a v2 opaque blob: decrypt the whole payload with the passphrase, then read the fields. */
@@ -645,6 +696,9 @@ async function decodeV2(b: VaultExportV2, passphrase: string): Promise<DecodedIm
       typeof p.birthday === 'number' && Number.isInteger(p.birthday) && p.birthday >= 0
         ? p.birthday
         : undefined,
+    // A backup of a vault whose creation had not finished comes back unfinished, with its quorum.
+    pending: p.pending === true ? true : undefined,
+    ...quorumOfExport(p),
   }
 }
 
@@ -822,6 +876,8 @@ export async function importVault(
     ...(d.ufvk ? { ufvk: d.ufvk } : {}),
     ...(d.birthday !== undefined ? { birthday: d.birthday } : {}),
     ...(d.changeReceiver ? { changeReceiver: d.changeReceiver } : {}),
+    ...(d.pending ? { pending: true } : {}),
+    ...(d.threshold !== undefined ? { threshold: d.threshold, total: d.total } : {}),
   }
 
   const db = await openDb()
@@ -860,7 +916,7 @@ export async function listVaults(): Promise<VaultPublic[]> {
     const records = await reqDone(tx.objectStore(STORE).getAll() as IDBRequest<VaultRecord[]>)
     await txDone(tx)
     return records
-      .map((r) => ({ id: r.id, name: r.name, governance: r.governance, myName: r.myName, creatorName: r.creatorName, groupKey: r.groupKey, address: r.address, roster: r.roster, createdAt: r.createdAt, secured: !!r.secretCipher, changeReceiver: r.changeReceiver }))
+      .map((r) => ({ id: r.id, name: r.name, governance: r.governance, myName: r.myName, creatorName: r.creatorName, groupKey: r.groupKey, address: r.address, roster: r.roster, createdAt: r.createdAt, secured: !!r.secretCipher, changeReceiver: r.changeReceiver, pending: r.pending, threshold: r.threshold, total: r.total }))
       .sort((a, b) => b.createdAt - a.createdAt)
   } finally {
     db.close()
@@ -924,7 +980,7 @@ export async function recordChangeReceiver(id: string, receiver: unknown): Promi
 
 export async function updateVaultMeta(
   id: string,
-  patch: Partial<Pick<VaultRecord, 'name' | 'myName' | 'creatorName' | 'address'>>,
+  patch: Partial<Pick<VaultRecord, 'name' | 'myName' | 'creatorName' | 'address' | 'pending'>>,
 ): Promise<void> {
   if (!storageAvailable()) return
   const db = await openDb()

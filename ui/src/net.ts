@@ -8,6 +8,8 @@
 // relay); proxied to :4762 in `npm run dev`. When the relay is hosted (Marco 6) this base
 // points at the public relay instead - the shape does not change.
 
+import { CROCKFORD } from './format'
+
 const ENV = import.meta.env as Record<string, string | undefined>
 const BASE: string = ENV.VITE_API_BASE ?? ''
 // A hosted relay overrides the base; empty = the local bridge (same origin). Exported so the
@@ -201,19 +203,92 @@ export function newRoomCode(): string {
   return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('')
 }
 
+// Crockford base32 (no I/L/O/U): unambiguous when read aloud, typed or scanned. The same alphabet
+// as the vault fingerprint, from one definition.
+const INVITE_ALPHABET = CROCKFORD
+/** Characters in an invite: 128 random bits in base32. */
+export const INVITE_LENGTH = 26
+
+/** A new vault-creation invite: 128 random bits, 26 characters. The PIN, shared separately, is
+ *  what keeps someone holding only the invite out of the room (ADR-0007 I4, as amended). */
+export function newInviteCode(): string {
+  const bytes = new Uint8Array(17) // 136 bits drawn; the first 130 make 26 characters
+  crypto.getRandomValues(bytes)
+  let out = ''
+  let bits = 0
+  let value = 0
+  for (const b of bytes) {
+    value = ((value << 8) | b) & 0xffff
+    bits += 8
+    while (bits >= 5 && out.length < INVITE_LENGTH) {
+      bits -= 5
+      out += INVITE_ALPHABET[(value >>> bits) & 31]
+    }
+  }
+  return out
+}
+
+/** The invite code inside whatever was pasted: a link carrying `join=…`, or the code itself, with
+ *  any spacing or dashes. Null unless it is exactly an invite. */
+export function parseInvite(text: string): string | null {
+  const m = /[?&]join=([^&\s]+)/.exec(text)
+  const decoded = m ? safeDecode(m[1]!) : text
+  if (decoded === null) return null
+  const raw = decoded.toUpperCase().replace(/[\s-]/g, '')
+  if (raw.length !== INVITE_LENGTH) return null
+  for (const ch of raw) if (!INVITE_ALPHABET.includes(ch)) return null
+  return raw
+}
+
+/** A URL-escaped value, or null when it is not valid escaping (a malformed link must not crash). */
+function safeDecode(s: string): string | null {
+  try {
+    return decodeURIComponent(s)
+  } catch {
+    return null
+  }
+}
+
+/** The link that opens Your vaults with the join dialog open and the invite filled in (the joiner
+ *  then gets what the creator gets: the name, the close guard, the backup step). The code rides in
+ *  the fragment (after `#`), which a browser never sends to any server, and the dialog removes it
+ *  from the address bar and this tab's history as soon as it reads it (the browser's own history
+ *  and the app that carried the link keep it; the PIN, never part of it, is what guards the room). */
+export function inviteLink(code: string, base = inviteBase()): string {
+  return `${base}#/vaults?join=${code}`
+}
+
+/** The raw `join=` value in a URL fragment, if any (an older link pointed at #/net). */
+export function joinParam(hash: string): string | null {
+  const m = /[?&]join=([^&]*)/.exec(hash)
+  return m ? safeDecode(m[1]!) : null
+}
+
+/** Where an invite link points: this web app, or the public one when this is the desktop shell
+ *  (whose own origin means nothing on another device). */
+const PUBLIC_APP = 'https://www.konclave.xyz/'
+function inviteBase(): string {
+  return /^https?:$/.test(location.protocol) && !/tauri/.test(location.hostname)
+    ? `${location.origin}${location.pathname}`
+    : PUBLIC_APP
+}
+
+/** Group an invite for reading: 4-4-4-… */
+export function formatInvite(code: string): string {
+  return code.match(/.{1,4}/g)?.join('-') ?? code
+}
+
 /**
- * The effective relay room for a ceremony, from the shared invite `code` and an optional `pin`
- * (issue #65 / ADR-0007 I4 - authenticated admission). With NO pin the room IS the code (the
- * backward-compatible bearer model). With a pin, the room is a 128-bit key derived from both, so a
- * device that has only the code lands in a DIFFERENT (empty) room and never meets the members -
- * the pin, shared out of band and separately from the code, gates admission and can never leak to
- * the relay (only the derived room id transits). Deterministic: every device with the same
- * (code, pin) computes the same room.
+ * The relay room for a vault-creation ceremony, from the invite and the PIN. Both are required:
+ * the room is a 128-bit value derived from the two, so a device with only the invite lands in a
+ * different, empty room and never meets the members. The PIN is shared out of band, apart from the
+ * invite, and never reaches the relay (only the derived room id does). Version 2: a device on the
+ * previous version derives a different room and cannot join a version-2 ceremony by accident.
  */
 export async function deriveRoom(code: string, pin: string): Promise<string> {
   const p = pin.trim()
-  if (!p) return code
-  const data = new TextEncoder().encode(`konclave-room\u0000${code}\u0000${p}`)
+  if (!p) throw new Error('a PIN is required')
+  const data = new TextEncoder().encode(`konclave-room-v2\u0000${code}\u0000${p}`)
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', data))
   return Array.from(digest.slice(0, 16), (b) => b.toString(16).padStart(2, '0')).join('') // 128-bit hex room id
 }

@@ -134,3 +134,52 @@ export function unarmedIsProven(
     return false
   }
 }
+
+/** The canonical bytes the creator signs over the vault secret it sends to seat `to`: sender seat,
+ *  recipient seat, the vault (group key) and the sealed box, last, so nothing can follow it. */
+function vaultSecretMessage(from: number, to: number, groupVkHex: string, box: string): Uint8Array {
+  return new TextEncoder().encode(`vsec:${from}:${to}:${groupVkHex.trim().toLowerCase()}:${box}`)
+}
+
+/** The creator signs the box carrying the vault secret with its share. Hex signature. */
+export function signVaultSecret(keyPackage: Uint8Array, from: number, to: number, groupVkHex: string, box: string): string {
+  return bytesToHex(signRoomMsg(keyPackage, vaultSecretMessage(from, to, groupVkHex, box)))
+}
+
+/** Is `sigHex` a signature by seat `from`'s share over this box for seat `to` in this vault? Only
+ *  answerable after this device's own round 3 (it needs the vault's public key package); false on
+ *  any bad input. */
+export function vaultSecretIsProven(
+  material: RoomMaterial,
+  from: number,
+  to: number,
+  box: string,
+  sigHex: string | undefined,
+): boolean {
+  if (!sigHex) return false
+  try {
+    return verifyRoomSig(material.pubkeys, from, vaultSecretMessage(from, to, bytesToHex(material.groupVk), box), hexToBytes(sigHex))
+  } catch {
+    return false
+  }
+}
+
+/** The canonical bytes a seat signs once its share exists: the seat and the vault (group key). */
+function createdMessage(seat: number, groupVkHex: string): Uint8Array {
+  return new TextEncoder().encode(`created:${seat}:${groupVkHex.trim().toLowerCase()}`)
+}
+
+/** A seat proves it finished creating the vault: a signature by its new share over the vault. */
+export function signCreated(keyPackage: Uint8Array, seat: number, groupVkHex: string): string {
+  return bytesToHex(signRoomMsg(keyPackage, createdMessage(seat, groupVkHex)))
+}
+
+/** Did seat `seat` finish this vault, with the share this device's own round 3 expects of it? */
+export function createdIsProven(material: RoomMaterial, seat: number, sigHex: string | undefined): boolean {
+  if (!sigHex) return false
+  try {
+    return verifyRoomSig(material.pubkeys, seat, createdMessage(seat, bytesToHex(material.groupVk)), hexToBytes(sigHex))
+  } catch {
+    return false
+  }
+}

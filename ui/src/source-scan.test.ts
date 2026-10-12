@@ -103,6 +103,7 @@ describe('stripComments', () => {
       'device-key.test.ts': 'the WASM binary',
       'net-sign.test.ts': 'the WASM binary',
       'net-flow.test.ts': 'the WASM binary',
+      'dkg-relay.test.ts': 'the WASM binary',
       'public-text-610.test.ts': 'documentation and the in-app copy, read as text',
       'who-sends.test.ts': 'the WASM binary',
     }

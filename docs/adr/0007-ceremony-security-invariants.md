@@ -51,6 +51,8 @@ the *why*.
   seat; the creator explicitly admits each joiner; and every member verifies the final roster's
   pubkey fingerprints **out of band** (safety-number style) before the DKG is trusted. Room codes
   are ≥128-bit.
+  *Amended 2026-10-12 (decided by the maintainer).* I4 is realised in a different form, recorded
+  below under "Amendment: I4 as built".
 
 **Sequencing:** I2, I3, I4 are the "ceremony-security batch" (issues #62, #63, #65; hardening #64),
 landed **before** the Dashboard-driven send (#49) broadcasts real money (#51). They do not block the
@@ -67,3 +69,45 @@ merge (#47), the honesty pass (#52), or non-money features.
   ZIP-244 digest, higher-entropy codes). No new crypto dependency.
 - **Honesty:** until I2 ships, docs/CLAIMS must keep the `/net` broadcast as "verified, not
   broadcast for real money" and not claim the helper cannot steal.
+
+## Amendment: I4 as built (2026-10-12)
+
+**Decision.** I4 ("the invite authenticates the joiner, and every member verifies the roster out of
+band before the vault is trusted") is realised by these four pieces instead of the three named above:
+
+1. **A required PIN.** The relay room is derived from the invite AND the PIN; there is no room without
+   a PIN. Someone holding only the invite lands in an empty room. The PIN is shared apart from the
+   invite and never reaches the relay.
+2. **A 128-bit invite.** The invite is 26 characters (130 bits), handed out as a link or a QR.
+3. **A code every member compares before anything secret is sent.** Each device commits to its
+   contribution, then reveals it; the device's WASM binds the room, the quorum, the governance, the
+   vault's name, the creator's name and seat, and every seat's key, name and contribution into one transcript, and
+   shows a 9-character code. Each member reads the code with **every listed person**, by voice, and
+   confirms only if each reads back the same code. Round 2 does not run, and nothing is sealed, until
+   then. The device's confirm call only orders the protocol; the check is the people comparing.
+   After round 3 every seat signs, with its new share, that it finished; the vault is registered,
+   shown and saved only when every seat has, so no one funds a vault a member does not hold.
+4. **Sealing inside WASM.** Round-2 packages and the vault's access secret are sealed by WASM to the
+   keys bound into that code; the access secret also carries the creator's share signature.
+
+**Why it replaces the three original pieces.** Creator admission and a per-key fingerprint check what
+the creator sees; the code checks what every member sees, which also covers a creator who is not
+honest and a relay that shows members different rooms. The PIN inside the handshake is subsumed: the
+PIN gates the room, and everything a device consumes is bound into the code.
+
+**What the guarantee is.** Against a relay or a member who changes what members see, the guarantee is
+cryptographic: different views give different codes, except with probability about 2^-45, and every
+contribution is committed before any is revealed. Against a member who takes more than one seat, it
+is **human**: it holds if the members really read the code with every listed person, and the screen
+says so. This distinction belongs in any text that describes the ceremony (CLAUDE.md §6.14).
+
+**Exception to CLAUDE.md §6.3 (secrets never in a URL).** The invite may travel as a link. The code is
+only in the fragment (after `#`), which browsers never send to a server; the app removes it from the
+address bar and history as soon as it reads it; the PIN is never part of a link. A leaked link alone
+does not admit anyone, because the PIN is required.
+
+**Existing vaults.** Only creation changes. Vaults created before this keep working for signing,
+restore and export. A ceremony between a device on this version and one on the previous version
+fails closed: they derive different rooms, and a device that sees a message of the previous version
+stops and says to update.
+

@@ -48,7 +48,8 @@ describe('who the ceremony says is in the room', () => {
   it('a missing record cannot throw the whole vault read', () => {
     // `listVaults` rejects in a private window or with storage blocked. The vault must still load;
     // losing names is a degradation, losing the screen is an outage.
-    const read = api.slice(api.indexOf('rec = (await listVaults())'))
+    // getVault's read (`find((s) =>`), not backfillAddress's, which has its own catch further on.
+    const read = api.slice(api.indexOf('rec = (await listVaults()).find((s) =>'))
     expect(read.slice(0, 200)).toMatch(/catch\s*\{/)
   })
 

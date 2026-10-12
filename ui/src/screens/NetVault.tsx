@@ -1,28 +1,32 @@
 import { ensureWasm } from '../wasm-ready'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { setSelectedVault, getSelectedVault } from '../api'
+import { setSelectedVault, getSelectedVault, depositAddress } from '../api'
 import CopyButton from '../CopyButton'
 import { getUnlockedShare, clearUnlockedShare, setUnlockedShare } from '../session'
 import {
-  DkgSession,
   DeviceKey,
-  sealTo,
   identifierBytes,
+  type CreationSession,
 } from '../wasm-pkg/konclave_wasm.js'
-import { RelaySession, newRoomCode, deriveRoom, ephemeralTag, b64, unb64, bytesEqual, relayBase, type RelayMsg } from '../net'
+import { DkgCeremony, DKG_VERSION, type DkgAbort, type DkgConfig, type DkgMsg } from '../dkg-ceremony'
+import { InviteCard, CodeCheck, StopPanel } from './CeremonyParts'
+import { creationBusy, closeIntent } from '../creation-guard'
+import { RelaySession, newRoomCode, newInviteCode, parseInvite, joinParam, formatInvite, deriveRoom, ephemeralTag, b64, relayBase, type RelayMsg } from '../net'
 import { decodeBundle } from '../signing'
 import { SigningMachine, type SignPreview } from '../signing-machine'
 import { seatHolder } from '../signing-seats'
 import { signRejoin, rejoinIsProven } from '../room-auth'
 import { unsealSignRequest } from '../net-sign'
-import { generateVaultSecret, deriveReadKey } from '../vault-secret'
+import { generateVaultSecret } from '../vault-secret'
 import { deviceCommsKey, devicePubHex } from '../device-key'
+import { registerThisDevice } from '../device-registration'
 import { writeProof } from '../api'
 import { useT, useTr, useI18n } from '../i18n'
 import { Letterhead, PassphraseField } from '../components'
 import {
   saveVault,
+  updateVaultMeta,
   loadVault,
   listVaults,
   deleteVault,
@@ -36,7 +40,6 @@ import { downloadText } from '../download'
 import {
   helperConfigured,
   registerVault,
-  registerReadKey,
   getUfvk,
   setMembers,
   vaultBalance,
@@ -58,18 +61,27 @@ import '../net.css'
 // sealed to their recipient, so the relay only ever carries public material or ciphertext.
 // This is the "I created / I invited / I entered the code" flow, running for real across tabs.
 
-type Phase = 'idle' | 'roster' | 'dkg' | 'done' | 'error' | 'restored' | 'signsession'
+// What each way a creation ceremony can stop says to the member.
+const ABORT_MESSAGE: Record<DkgAbort, string> = {
+  conflict: 'net.err.ceremonyConflict',
+  extra: 'net.err.seatConflict',
+  excluded: 'net.err.notInVault',
+  gap: 'net.err.ceremonyGap',
+  version: 'net.err.oldVersion',
+  failed: 'net.err.creationFailed',
+  mismatch: 'net.err.codeMismatch',
+  secret: 'net.err.secretConflict',
+}
+
+type Phase = 'idle' | 'roster' | 'confirm' | 'dkg' | 'done' | 'error' | 'restored' | 'signsession'
 
 
 // Wire messages (JSON inside the relay's opaque `data`; the relay never parses them).
 type Msg =
-  | { type: 'config'; n: number; t: number; g?: Governance; cn?: string }
-  | { type: 'hello'; encPub: string; name?: string }
-  | { type: 'r1'; pkg: string }
-  | { type: 'r2'; to: number; box: string }
+  | DkgMsg
   // #388: the creator seals the per-vault access secret S to each seat over the ceremony's enc
   // channel (same encPub/aad as r2), so every member persists the same S with their share.
-  | { type: 'vsec'; to: number; box: string }
+  | { type: 'vsec'; to: number; box: string; sig?: string }
   // rejoin (signing after restore): a restored device announces its ORIGINAL seat (its KeyPackage's
   // identifier is bound to it), so a signing session re-seats by declared seat, not by fresh tags.
   // `sig` proves the announcement came from that seat's share-holder (#392/#424). Optional on the
@@ -100,6 +112,7 @@ function Shell({ error, children, onDashboard, embedded }: { error: string; chil
   if (embedded) {
     return (
       <div className="rd net-embedded">
+        <span id="create-title" className="sr-only">{t('vaults.createDialogTitle')}</span>
         {error && <div className="net-error" role="alert">{error}</div>}
         {children}
       </div>
@@ -124,7 +137,14 @@ function Shell({ error, children, onDashboard, embedded }: { error: string; chil
 }
 
 
-export default function NetVault({ embedded, initialJoin }: { embedded?: boolean; initialJoin?: boolean } = {}) {
+export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
+  embedded?: boolean
+  initialJoin?: boolean
+  /** Bumped by the host on each attempt to close the dialog (Esc, backdrop); `closeIntent` decides. */
+  leaveAsk?: number
+  /** Close the dialog (the host also refreshes its list). */
+  onLeave?: () => void
+} = {}) {
   const tt = useT()
   const ttr = useTr()
   const { locale } = useI18n()
@@ -160,14 +180,21 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
   const [t, setT] = useState(2)
   const [showJoin, setShowJoin] = useState(!!initialJoin) // Join door opens straight into the join screen
   const [createStep, setCreateStep] = useState<1 | 2>(1) // create form is a 2-step flow (name -> rule)
-  const [advOpen, setAdvOpen] = useState(false) // governance / PIN / relay behind an Advanced disclosure
+  const [advOpen, setAdvOpen] = useState(false) // governance behind an Advanced disclosure (the PIN is required, outside it)
   const [vaultName, setVaultName] = useState('') // user-given vault name (create modal)
   const vaultNameRef = useRef('') // read at register time (after DKG), avoids a stale closure
-  const [codeCopied, setCodeCopied] = useState(false) // invite-copied feedback
   const [myName, setMyName] = useState('') // this participant's own name (create/join)
-  const [pin, setPin] = useState('') // optional admission PIN (#65): shared out of band, gates the room
+  const [pin, setPin] = useState('') // admission PIN (ADR-0007 I4): required, shared apart from the invite
+  // The code the members compare before anything secret is sent, and the names it was computed over.
+  const [code, setCode] = useState<{ code: string; names: string[]; mySeat: number; vaultName: string } | null>(null)
+  // After round 3: the members who have not yet proven they finished, and whether it is taking long.
+  const [waiting, setWaiting] = useState<string[]>([])
+  const [slowFinish, setSlowFinish] = useState(false)
+  // Every member saved and the vault is registered with the confirmed quorum: only now may the
+  // create modal hand over to the Dashboard.
+  const [finished, setFinished] = useState(false)
+  const slowFinishTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const myNameRef = useRef('')
-  const nameByTagRef = useRef<Map<string, string>>(new Map()) // tag -> announced name
   const [peers, setPeers] = useState(0)
   const [rosterCount, setRosterCount] = useState(0)
   const [log, setLog] = useState<string[]>([])
@@ -208,6 +235,15 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
 
   // --- on-device persistence (Marco 5) - additive, does not touch the DKG/relay/ceremony ---
   const [savePass, setSavePass] = useState('')
+  // A member saves only once it holds the vault's access secret S (the creator mints its own): a
+  // member saved without S would lose the vault's reads the moment its read gate turns on.
+  const [hasSecret, setHasSecret] = useState(false)
+  const [secretSlow, setSecretSlow] = useState(false)
+  useEffect(() => {
+    if (phase !== 'done' || hasSecret) return
+    const id = window.setTimeout(() => setSecretSlow(true), 120000)
+    return () => window.clearTimeout(id)
+  }, [phase, hasSecret])
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved'>('idle')
   const [saveErr, setSaveErr] = useState('')
   // Backup-on-create (create-done step): the encrypted portable copy is built at save time (reusing
@@ -234,7 +270,10 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
 
   // --- mutable ceremony state (refs so the poll callback always sees the latest) ---
   const sessionRef = useRef<RelaySession | null>(null)
-  const dkgRef = useRef<DkgSession | null>(null)
+  const dkgRef = useRef<CreationSession | null>(null)
+  // The creation ceremony (roster, seating, rounds 1-2): every rule about who gets a seat and whose
+  // key a secret is sealed to lives in it, not here.
+  const ceremonyRef = useRef<DkgCeremony | null>(null)
 
   // This device's signing material, from the live DKG session OR from a restored vault. Signing
   // after restore reads the same bytes the DKG produced (KeyPackage, group key, pubkeys), so a
@@ -249,23 +288,18 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
   const deviceKeyRef = useRef<DeviceKey | null>(null)
   // #388: this device is the vault creator (mints S), and the per-vault access secret S once it has
   // been minted (creator) or received sealed from the creator (joiner). null until then.
-  const isCreatorRef = useRef(false)
   const accessSecretRef = useRef<Uint8Array | null>(null)
   const myTagRef = useRef('')
-  const configRef = useRef<{ n: number; t: number; g?: Governance; cn?: string } | null>(null)
+  const configRef = useRef<DkgConfig | null>(null)
   // Governance policy the creator picks; propagated to every device in the `config` broadcast so
   // the whole vault agrees. Default `quorum` (safer for a shared fund); `open` for small trusted groups.
   const [governance, setGovernance] = useState<Governance>('quorum')
   const governanceRef = useRef<Governance>('quorum')
-  const rosterRef = useRef<Map<string, Uint8Array>>(new Map()) // tag -> encPub
   const seatByTagRef = useRef<Map<string, number>>(new Map()) // tag -> 1-based seat
   const seatTableRef = useRef<{ tag: string; encPub: Uint8Array; id: Uint8Array }[]>([])
   const mySeatRef = useRef(0)
   const startedDkgRef = useRef(false)
-  const part2DoneRef = useRef(false)
   const part3DoneRef = useRef(false)
-  const r1SeenRef = useRef<Set<number>>(new Set())
-  const r2SeenRef = useRef<Set<number>>(new Set())
   const allMsgsRef = useRef<RelayMsg[]>([])
   const consumedRef = useRef<Set<number>>(new Set())
   const startGuardRef = useRef(false)
@@ -294,103 +328,107 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
     setError(tt('net.err.relayDown'))
   }, [tt])
 
-  // Seat everyone deterministically by sorting their tags - every device computes the same
-  // seating with no central assigner (the invite code names the room, not the seats).
-  const computeSeating = useCallback(() => {
-    // Admission control: cap the roster at n by sorted tag, so a late/extra peer can never
-    // shift everyone else's seats (which would misroute round-2 packages). Beyond n, this
-    // device is unseated (mySeat = 0) and shows "room full" instead of corrupting the vault.
-    const n = configRef.current?.n ?? 2
-    const tags = [...rosterRef.current.keys()].sort().slice(0, n)
-    seatByTagRef.current = new Map(tags.map((tag, i) => [tag, i + 1]))
-    seatTableRef.current = tags.map((tag, i) => ({
-      tag,
-      encPub: rosterRef.current.get(tag)!,
-      id: identifierBytes(i + 1),
-    }))
-    mySeatRef.current = seatByTagRef.current.get(myTagRef.current) ?? 0
-    if (mySeatRef.current === 0) {
-      setError(tt('net.err.roomFull'))
-    }
-  }, [tt])
-
-  const doPart2 = useCallback(async () => {
+  // This device finished round 3 (inside DkgCeremony): it may save its share now. Nothing is
+  // registered and no address exists yet: that waits until every member saved theirs.
+  const round3SeenRef = useRef(false)
+  const onRound3 = useCallback(() => {
     const dkg = dkgRef.current!
-    dkg.part2()
-    part2DoneRef.current = true
-    const mySeat = mySeatRef.current
-    const count = dkg.round2Count()
-    for (let i = 0; i < count; i++) {
-      const recipId = dkg.round2Recipient(i)
-      const seat = seatTableRef.current.find((s) => bytesEqual(s.id, recipId))
-      if (!seat) continue
-      const recipSeat = seatByTagRef.current.get(seat.tag)!
-      const aad = new TextEncoder().encode(`${mySeat}->${recipSeat}`)
-      const sealed = sealTo(seat.encPub, dkg.round2Package(i), aad)
-      await send({ type: 'r2', to: recipSeat, box: b64(sealed) })
-    }
-    addLog(tt('net.log.round2', { count }))
-  }, [addLog, send, tt])
-
-  const doPart3 = useCallback(() => {
-    const dkg = dkgRef.current!
-    dkg.part3()
-    part3DoneRef.current = true
+    round3SeenRef.current = true
     if (ceremonyTimerRef.current) clearTimeout(ceremonyTimerRef.current)
-    const vk = hex(dkg.groupVk())
-    setGroupVk(vk)
+    setGroupVk(hex(dkg.groupVk()))
     setPhase('done')
     addLog(tt('net.log.round3'))
-    // #388: the creator mints the per-vault access secret S and seals it to each other seat over the
-    // ceremony's existing encrypted channel (same encPub/aad as round2). Members persist it with
-    // their share. Best-effort by design: a member who never receives it saves an unmigrated (open)
-    // vault, and S carries no enforcement until its readKey is registered - so this cannot break
-    // creation.
-    if (isCreatorRef.current && !accessSecretRef.current) {
+    // #388: the creator mints the per-vault access secret S and seals it, signed with its share,
+    // to each other seat, before anyone saves. A member saves only once it holds S (doSave), so a
+    // creation in which S never arrives does not finish: it has no address and holds no funds.
+    if (ceremonyRef.current?.isCreator && !accessSecretRef.current) {
       const s = generateVaultSecret()
       accessSecretRef.current = s
-      const mySeat = mySeatRef.current
+      setHasSecret(true)
       void (async () => {
-        for (const seatRow of seatTableRef.current) {
-          if (seatRow.tag === myTagRef.current || seatRow.encPub.length === 0) continue
-          const recipSeat = seatByTagRef.current.get(seatRow.tag)
-          if (recipSeat === undefined) continue
-          const aad = new TextEncoder().encode(`${mySeat}->${recipSeat}`)
-          await send({ type: 'vsec', to: recipSeat, box: b64(sealTo(seatRow.encPub, s, aad)) })
+        for (const { to, box, sig } of ceremonyRef.current?.sealSecretToOthers(s) ?? []) {
+          await send({ type: 'vsec', to, box, sig })
         }
       })()
     }
-    // Register the finished vault with the hosted blind helper (public group key only - no share
-    // crosses). Fire-and-forget: `/net` works with or without a helper, so a failure just leaves
-    // the vault local-only. Idempotent, so every device registering the same group key is fine.
+  }, [addLog, send, tt])
+
+  // The passphrase, held only until the backup is built (after every member saved), and what this
+  // device saved, so the record can take the address once the coordinator hands it out.
+  const savePassRef = useRef('')
+  const refreshSavedRef = useRef<() => Promise<void>>(async () => {})
+  const savedRef = useRef<{ vaultId: string; meta: Parameters<typeof setUnlockedShare>[1] } | null>(null)
+
+  // Every member saved its share and proved it: register the vault, record its address, and build
+  // the backup. Only now does an address exist for anyone to fund.
+  const finishVault = useCallback(async () => {
+    const dkg = dkgRef.current!
+    const cer = ceremonyRef.current!
+    part3DoneRef.current = true
+    if (slowFinishTimerRef.current) clearTimeout(slowFinishTimerRef.current)
+    setSlowFinish(false)
+    setWaiting([])
+    setError('') // the vault exists: no earlier warning stays over it
+    const vk = hex(dkg.groupVk())
+    const cfg = configRef.current
+    let addr = ''
     if (helperConfigured()) {
       setHostedState('registering')
-      // Pass the vault's quorum (t of n) so proposals inherit it (see helper::VaultRegistration).
-      const cfg = configRef.current
-      const chosenName = vaultNameRef.current.trim() || `net-${vk.slice(0, 8)}`
-      void registerVault(vk, chosenName, cfg?.t ?? 0, cfg?.n ?? 0).then((v) => {
-        if (v) {
-          setHostedAddress(addressText(v.address))
-          setHostedState('registered')
-          // Record each member's own announced name (seat order). Every device produces the same
-          // list (own name from myNameRef, others from the hellos), so the call is idempotent.
-          const names = seatTableRef.current.map((s) =>
-            (s.tag === myTagRef.current ? myNameRef.current.trim() : nameByTagRef.current.get(s.tag)) || s.tag,
-          )
-          if (names.length) void setMembers(vk, names)
-          // #388: the creator registers the vault's readKey (HKDF(S, "read")), turning on the read
-          // gate for this new vault. Only the creator (it holds S immediately); idempotent. A helper
-          // without the endpoint just 404s, so the vault stays open until the gate ships.
-          if (isCreatorRef.current && accessSecretRef.current) {
-            const s = accessSecretRef.current
-            void deriveReadKey(s).then((rk) => registerReadKey(vk, hex(rk)))
-          }
-        } else {
-          setHostedState('failed')
+      // The vault's name and quorum as every member confirmed them (they are in the code).
+      const chosenName = cer.config?.vn || `net-${vk.slice(0, 8)}`
+      const v = await registerVault(vk, chosenName, cfg?.t ?? 0, cfg?.n ?? 0)
+      // The first registration of a group key wins on the coordinator. Whether its answer may be
+      // this vault's address is the one rule every screen uses (`depositAddress`): not when it
+      // carries another quorum than the members confirmed.
+      const allowed = v ? depositAddress({ address: '', threshold: cfg?.t, total: cfg?.n }, addressText(v.address), { threshold: v.threshold, total: v.total }) : null
+      if (v && allowed?.address) {
+        setHostedAddress(addressText(v.address))
+        addr = allowed.address
+        setHostedState('registered')
+        // Each member's name (seat order) exactly as bound into the code; idempotent.
+        const names = seatTableRef.current.map((s) => cer.nameOf(s.tag) || s.tag)
+        if (names.length) void setMembers(vk, names)
+        // This device's keys, and the vault's read key from S (#388), registered the one way every
+        // unlock registers them (`registerThisDevice`), so the read gate turns on whoever finishes.
+        // Awaited: the backup below asks for the viewing key, which needs the read key in place.
+        if (savedRef.current) {
+          const sv = savedRef.current
+          await registerThisDevice(sv.vaultId, { ...sv.meta, threshold: cfg?.t, total: cfg?.n })
         }
-      })
+      } else {
+        setHostedState('failed')
+        if (v) setError(tt('net.err.registrationMismatch'))
+      }
     }
-  }, [addLog, tt])
+    const saved = savedRef.current
+    // Finished: every member saved, and the coordinator (if any) holds the confirmed quorum. Only
+    // then does the record stop being pending. A quorum mismatch leaves it pending: no address.
+    const finished = !helperConfigured() || !!addr
+    if (saved && finished) {
+      await updateVaultMeta(saved.vaultId, { pending: false, ...(addr ? { address: addr } : {}) }).catch(() => {})
+      if (addr) setUnlockedShare(saved.vaultId, { ...saved.meta, address: addr })
+    }
+    // The portable backup, now that the address, the viewing key and the scan floor exist. A
+    // backup failure must never block opening the vault.
+    const pass = savePassRef.current
+    savePassRef.current = ''
+    if (saved && pass && finished) {
+      try {
+        await ensureWasm()
+        const kp = dkg.keyPackage()
+        const keys = await getUfvk(saved.vaultId, { key: deviceCommsKey(kp), pubHex: devicePubHex(kp) })
+        const exp = await exportVault(saved.vaultId, pass, keys?.ufvk, keys?.birthday)
+        const safe = (saved.meta.name ?? 'konclave-vault').replace(/[^\w.-]+/g, '-').toLowerCase()
+        setBackup({
+          json: JSON.stringify(exp, null, 2),
+          name: `${safe}.konclave.json`,
+          complete: Boolean(addr && keys?.ufvk && keys?.birthday !== undefined),
+        })
+      } catch { /* backup is optional; the vault is already saved on this device */ }
+    }
+    await refreshSavedRef.current()
+    setFinished(finished)
+  }, [tt])
 
   // `send`/`tt` change identity (tt on a locale switch); route the machine through refs kept fresh
   // each render so a mid-ceremony change never leaves it calling a stale closure.
@@ -425,7 +463,7 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
       seatIsProven: () => false,
       mySeat: () => mySeatRef.current,
       threshold: () => configRef.current?.t ?? 0,
-      hasVault: () => part3DoneRef.current,
+      hasVault: () => part3DoneRef.current && !ceremonyRef.current?.aborted,
       send: (m) => sendRef.current(m),
       rawSend: async (data) => (await sessionRef.current?.send(data)) ?? false,
       onLog: addLog,
@@ -466,74 +504,43 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
         /* no signing material yet */
       }
       if (await machine.tryHelperRequest(reqData)) return true
-      if (parsed.type === 'config') {
-        if (!configRef.current) {
-          configRef.current = { n: parsed.n, t: parsed.t, g: parsed.g, cn: parsed.cn }
-          setN(parsed.n)
-          setT(parsed.t)
-          if (parsed.g) { setGovernance(parsed.g); governanceRef.current = parsed.g }
+      // ---- the creation ceremony: these go to DkgCeremony, which owns the rules ----
+      if (parsed.type === 'config' || parsed.type === 'hello' || parsed.type === 'commit' || parsed.type === 'reveal'
+        || parsed.type === 'r1' || parsed.type === 'r2' || parsed.type === 'done') {
+        const cer = ceremonyRef.current
+        if (!cer) return true // a signing session runs no ceremony
+        const r = cer.apply(msg.from, parsed)
+        if (!r.applied) return false
+        if (parsed.type === 'config' && cer.config && !configRef.current) {
+          configRef.current = cer.config
+          setN(cer.config.n)
+          setT(cer.config.t)
+          if (cer.config.g) { setGovernance(cer.config.g); governanceRef.current = cer.config.g }
           // Heard the host: the joiner is in the right room — clear the fail-fast hint.
           setJoinSlow(false)
           if (joinTimerRef.current) { clearTimeout(joinTimerRef.current); joinTimerRef.current = null }
         }
-        return true
-      }
-      if (parsed.type === 'hello') {
-        rosterRef.current.set(msg.from, unb64(parsed.encPub))
-        if (parsed.name) nameByTagRef.current.set(msg.from, parsed.name)
-        return true
-      }
-      if (parsed.type === 'r1') {
-        if (!startedDkgRef.current) return false // wait until seated
-        const seat = seatByTagRef.current.get(msg.from)
-        if (seat === undefined) return false
-        if (seat === mySeatRef.current) return true // my own - ignore
-        if (r1SeenRef.current.has(seat)) return true
-        dkgRef.current!.addRound1(identifierBytes(seat), unb64(parsed.pkg))
-        r1SeenRef.current.add(seat)
-        addLog(tt('net.log.r1From', { seat }))
-        const need = (configRef.current?.n ?? 0) - 1
-        if (r1SeenRef.current.size >= need && !part2DoneRef.current) await doPart2()
-        return true
-      }
-      if (parsed.type === 'r2') {
-        if (!part2DoneRef.current) return false // can't open/aggregate before my round 2
-        if (parsed.to !== mySeatRef.current) return true // addressed to someone else
-        const seat = seatByTagRef.current.get(msg.from)
-        if (seat === undefined) return false
-        if (r2SeenRef.current.has(seat)) return true
-        const aad = new TextEncoder().encode(`${seat}->${mySeatRef.current}`)
-        let opened: Uint8Array
-        try {
-          opened = deviceKeyRef.current!.open(unb64(parsed.box), aad)
-        } catch {
-          addLog(tt('net.log.cantOpen', { seat }))
-          return true
-        }
-        dkgRef.current!.addRound2(identifierBytes(seat), opened)
-        r2SeenRef.current.add(seat)
-        addLog(tt('net.log.r2From', { seat }))
-        const need = (configRef.current?.n ?? 0) - 1
-        if (r2SeenRef.current.size >= need && !part3DoneRef.current) doPart3()
+        for (const m of r.out) await send(m)
+        if (cer.part3Done && !round3SeenRef.current) onRound3()
+        if (cer.part3Done && !cer.complete) setWaiting(cer.waitingFor())
+        if (cer.complete && !part3DoneRef.current) void finishVault()
         return true
       }
 
       // ---- #388: receive the per-vault access secret S the creator sealed to this seat ----
       if (parsed.type === 'vsec') {
-        if (parsed.to !== mySeatRef.current) return true // addressed to another seat
-        const seat = seatByTagRef.current.get(msg.from) // the creator's seat
-        if (seat === undefined) return false
-        const aad = new TextEncoder().encode(`${seat}->${mySeatRef.current}`)
-        try {
-          accessSecretRef.current = deviceKeyRef.current!.open(unb64(parsed.box), aad)
-        } catch {
-          // A member that cannot open it just saves an unmigrated (open) vault - safe fallback.
-        }
-        return true
+        const cer = ceremonyRef.current
+        if (!cer) return true
+        // Only the creator's signed box counts; until one opens, this member cannot save (doSave).
+        const r = cer.takeSecret(msg.from, parsed.to, parsed.box, parsed.sig)
+        if (r.secret) { accessSecretRef.current = r.secret; setHasSecret(true) }
+        return r.applied
       }
 
       // ---- rejoin (signing after restore): re-seat by declared seat, not by fresh tags ----
       if (parsed.type === 'rejoin') {
+        // A vault being created has no seats to rejoin: its seats are the ceremony's alone.
+        if (ceremonyRef.current) return true
         // A device that reloads rejoins with a FRESH ephemeral tag but the SAME seat, so a rejoin
         // that names an OCCUPIED seat evicts its holder. Only the seat's own share-holder may do
         // that (#392): the announcement is signed with the share and bound to seat+vault+tag, so a
@@ -584,7 +591,7 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
         return true // consume so the fixpoint never re-throws the same message
       }
     },
-    [addLog, doPart2, doPart3, tt, machine],
+    [addLog, onRound3, finishVault, send, tt, machine],
   )
 
   // Idempotent fixpoint, serialized against itself: apply every message whose preconditions
@@ -601,15 +608,18 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
         let progressed = true
         while (progressed) {
           progressed = false
-          const cfg = configRef.current
-          if (cfg && rosterRef.current.size >= cfg.n && !startedDkgRef.current) {
-            computeSeating()
-            if (mySeatRef.current > 0) {
-              dkgRef.current = new DkgSession(identifierBytes(mySeatRef.current), cfg.n, cfg.t)
+          const cer = ceremonyRef.current
+          if (cer && !startedDkgRef.current) {
+            const commit = cer.trySeat()
+            if (cer.started) {
+              seatByTagRef.current = cer.seatByTag
+              seatTableRef.current = cer.seatTable.map((r) => ({ tag: r.tag, encPub: r.encPub, id: identifierBytes(r.seat) }))
+              mySeatRef.current = cer.mySeat
+              dkgRef.current = cer.session
               startedDkgRef.current = true
               setPhase('dkg')
-              addLog(tt('net.log.seated', { seat: mySeatRef.current, total: cfg.n }))
-              await send({ type: 'r1', pkg: b64(dkgRef.current.round1Package()) })
+              addLog(tt('net.log.seated', { seat: cer.mySeat, total: cer.config!.n }))
+              for (const m of commit) await send(m)
               progressed = true
             }
           }
@@ -627,12 +637,32 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
       } while (rerunRef.current)
     } finally {
       advancingRef.current = false
-      setRosterCount(rosterRef.current.size)
+      setRosterCount(ceremonyRef.current?.rosterSize ?? 0)
     }
-  }, [addLog, applyMsg, computeSeating, send, tt])
+  }, [addLog, applyMsg, send, tt])
+
+  // The members read the code to each other and every listed person matched: round 2.
+  const doConfirm = useCallback(async () => {
+    const cer = ceremonyRef.current
+    if (!cer?.code) return
+    const r = cer.confirmCode(cer.code)
+    if (!r.ok) return
+    setPhase('dkg')
+    for (const m of r.out) await send(m)
+    addLog(tt('net.log.round2', { count: r.out.length }))
+    // No watchdog that says "reload" from here: the others may still be reading the code with each
+    // person. After a few minutes a warning says not to use or fund the vault until it finishes.
+    slowFinishTimerRef.current = setTimeout(() => {
+      if (!ceremonyRef.current?.complete) setSlowFinish(true)
+    }, 180000)
+    void advance()
+  }, [addLog, advance, send, tt])
+
+  const doMismatch = useCallback(() => ceremonyRef.current?.rejectCode(), [])
 
   const onMessage = useCallback(
     (m: RelayMsg) => {
+      ceremonyRef.current?.noteSeq(m.seq)
       allMsgsRef.current.push(m)
       void advance()
     },
@@ -646,19 +676,33 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
       try {
         await ensureWasm()
         deviceKeyRef.current = new DeviceKey()
-        isCreatorRef.current = asRole === 'create' // #388: the creator mints S
         accessSecretRef.current = null
         myTagRef.current = ephemeralTag()
-        // The code is the human-readable invite (shown/copied); the ACTUAL relay room is derived
-        // from code + optional PIN (#65). Without a PIN the room is the code (unchanged behavior).
+        // The invite is what members share; the relay room is derived from it AND the PIN, both
+        // required (ADR-0007 I4, as amended), and the room id is also bound into the members' code.
         const roomId = await deriveRoom(code, pin)
+        const cer = new DkgCeremony(myTagRef.current, deviceKeyRef.current, roomId)
+        cer.onAbort = (why) => {
+          setError(tt(ABORT_MESSAGE[why], { name: cer.config?.cn || pe('quem convidou você', 'whoever invited you') }))
+          setPhase('error')
+          savePassRef.current = '' // the passphrase is held only for a backup that will not be built
+          sessionRef.current?.stop() // a stopped ceremony leaves the room: it signs nothing there
+        }
+        cer.onLog = (what, seat) => addLog(tt(`net.log.${what}`, { seat }))
+        cer.onCode = (c, names) => {
+          // People take time to read a code to each other: the watchdog waits for them.
+          if (ceremonyTimerRef.current) clearTimeout(ceremonyTimerRef.current)
+          setCode({ code: c, names, mySeat: cer.mySeat, vaultName: cer.config?.vn ?? '' })
+          setPhase('confirm')
+        }
+        ceremonyRef.current = cer
         setRoom(code)
         setPhase('roster')
         const sess = new RelaySession(roomId, myTagRef.current, onMessage, (p) => setPeers(p))
         sessionRef.current = sess
         sess.start()
         ceremonyTimerRef.current = setTimeout(() => {
-          if (!part3DoneRef.current) {
+          if (!part3DoneRef.current && !ceremonyRef.current?.aborted) {
             setError(tt('net.err.timeout'))
           }
         }, 90000)
@@ -673,11 +717,12 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
         }
         // The creator declares the group size/threshold; everyone announces their enc key.
         if (asRole === 'create') {
-          configRef.current = { n: total, t: threshold, g: governanceRef.current, cn: myNameRef.current.trim() || undefined }
-          await sess.send(JSON.stringify({ type: 'config', n: total, t: threshold, g: governanceRef.current, cn: myNameRef.current.trim() || undefined } satisfies Msg))
+          configRef.current = { n: total, t: threshold, g: governanceRef.current, cn: myNameRef.current.trim().slice(0, 64) || undefined, vn: vaultNameRef.current.trim().slice(0, 64) || undefined }
+          cer.setOwnConfig(configRef.current)
+          await sess.send(JSON.stringify({ type: 'config', v: DKG_VERSION, ...configRef.current } satisfies Msg))
         }
         await sess.send(
-          JSON.stringify({ type: 'hello', encPub: b64(deviceKeyRef.current.publicBytes()), name: myNameRef.current.trim() || undefined } satisfies Msg),
+          JSON.stringify({ type: 'hello', v: DKG_VERSION, encPub: b64(deviceKeyRef.current.publicBytes()), name: myNameRef.current.trim() || undefined } satisfies Msg),
         )
         addLog(tt('net.log.joined'))
         void advance()
@@ -686,7 +731,7 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
         setPhase('error')
       }
     },
-    [addLog, advance, onMessage, tt],
+    [addLog, advance, onMessage, pe, tt],
   )
 
   // Signing after restore: a restored device joins a SIGNING-only relay room. No DKG runs (the vault
@@ -787,6 +832,7 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
       /* listing failure is non-fatal - just show no saved vaults */
     }
   }, [])
+  refreshSavedRef.current = refreshSaved
 
   // Save the completed vault: encrypt this device's share (+ the public material a future signing
   // step needs) under a passphrase and store it. Reads live refs; does not alter ceremony state.
@@ -797,7 +843,10 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
     }
     if (savePass.length < 8) return
     const dkg = dkgRef.current
-    if (!dkg) return
+    // A member may save its share as soon as its own round 3 is done; only the address waits for
+    // every member (see finishVault).
+    if (!dkg || !ceremonyRef.current?.part3Done || ceremonyRef.current?.aborted) return
+    if (!ceremonyRef.current.isCreator && !accessSecretRef.current) return // wait for S (see hasSecret)
     setSaveState('saving')
     setSaveErr('')
     try {
@@ -815,58 +864,36 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
           t: cfg?.t ?? 0,
         }),
       )
-      const nm = vaultNameRef.current.trim() || undefined
+      const nm = ceremonyRef.current?.config?.vn || undefined
       const gov: Governance = cfg?.g ?? governanceRef.current
-      const mine = myNameRef.current.trim() || undefined
+      const mine = ceremonyRef.current?.nameOf(myTagRef.current) || myNameRef.current.trim() || undefined
       // The roster is member NAMES in seat order (identity is the name), NOT the throwaway relay
-      // tags: map each seat's tag to its announced name; this device's own seat uses its name; fall
-      // back to the tag only if a member never announced one. (Was storing raw p-… tags, which then
-      // showed as member names on the vault card / Members list and in the vault export.)
-      const roster = seatTableRef.current.map((s) =>
-        s.tag === myTagRef.current ? (mine ?? s.tag) : (nameByTagRef.current.get(s.tag) ?? s.tag),
-      )
+      // tags: each seat's name exactly as it was bound into the code the members confirmed; the
+      // tag only if a member announced none. (Was storing raw p-… tags, which then showed as
+      // member names on the vault card / Members list and in the vault export.)
+      const roster = seatTableRef.current.map((s) => ceremonyRef.current?.nameOf(s.tag) || s.tag)
       // Who set up the vault (the device that generated the invite); rides the config broadcast so
       // every device agrees. A real fixed fact, unlike the per-ceremony FROST coordinator role.
       const creator = cfg?.cn || undefined
       const vaultId = hex(gvk)
-      // The helper handed this back at registration and it was being thrown away: `saveVault` was
-      // called with `address: ''`, literally, for both create and join, and nothing ever filled it
-      // in afterwards. So every vault made on the web had a blank address in its record forever,
-      // and every backup taken from it reported "the vault's address: NO". The device cannot derive
-      // it - `zcash-sign` mints the address from a random `sk` it discards - so a record without it
-      // has no second source but the helper.
-      const addr = hostedAddress || ''
-      await saveVault(vaultId, { name: nm, governance: gov, myName: mine, creatorName: creator, groupKey: gvk, address: addr, roster, sealedShare: bundle, accessSecret: accessSecretRef.current ?? undefined }, savePass)
+      // No address yet: it exists only once every member saved, and finishVault records it then.
+      const addr = ''
+      // Checked again here: a stop can arrive while the passphrase is being stretched.
+      if (ceremonyRef.current?.aborted) { setSaveState('idle'); return }
+      // Pending until every member saved (finishVault): no screen shows or adopts an address for it
+      // before then (`vaultIsFinished`, read by getVault and its backfill).
+      await saveVault(vaultId, { name: nm, governance: gov, myName: mine, creatorName: creator, groupKey: gvk, address: addr, roster, sealedShare: bundle, accessSecret: accessSecretRef.current ?? undefined, pending: true, threshold: cfg?.t, total: cfg?.n }, savePass)
       // Also keep the just-created share unlocked in memory for this session, so the operator can
       // sign from the app immediately without re-entering the passphrase (the access model).
       setUnlockedShare(vaultId, { name: nm, governance: gov, myName: mine, creatorName: creator, groupKey: gvk, address: addr, roster, sealedShare: bundle, createdAt: 0, accessSecret: accessSecretRef.current ?? undefined })
-      // Build the portable backup NOW, while we still hold the passphrase, so the create-done step can
-      // offer download/copy without a second prompt. A backup failure must never block opening the vault.
-      try {
-        // The viewing key and the scan floor, the same way Settings fetches them (#447/#480). Without
-        // the key a rebuilt wallet cannot detect the vault's notes at all; without the floor it scans
-        // from NOW and never sees the ones the vault already holds, and there is no rescan.
-        //
-        // This is the copy most members keep - it is handed to them the moment the vault exists - and
-        // it was the ONLY caller of `exportVault` passing neither. The 0.3.0 notes said the export
-        // carried both; that was true of the Settings export alone.
-        await ensureWasm()
-        // The key package straight from the DKG - the same bytes the bundle above encodes, without
-        // a decode round-trip that would need a VaultLoaded we do not have yet at this point.
-        const kp = dkg.keyPackage()
-        const keys = await getUfvk(vaultId, { key: deviceCommsKey(kp), pubHex: devicePubHex(kp) })
-        const exp = await exportVault(vaultId, savePass, keys?.ufvk, keys?.birthday)
-        const safe = (nm ?? 'konclave-vault').replace(/[^\w.-]+/g, '-').toLowerCase()
-        // Registration and the readKey both land asynchronously, so at this instant either may not
-        // be there yet and the fetch returns null. That is a race we cannot remove here, only stop
-        // hiding: an incomplete backup that SAYS it is incomplete costs a trip to Settings, and one
-        // that stays quiet costs the vault.
-        setBackup({
-          json: JSON.stringify(exp, null, 2),
-          name: `${safe}.konclave.json`,
-          complete: Boolean(addr && keys?.ufvk && keys?.birthday !== undefined),
-        })
-      } catch { /* backup is optional; the vault is already saved on this device */ }
+      savedRef.current = { vaultId, meta: { name: nm, governance: gov, myName: mine, creatorName: creator, groupKey: gvk, address: addr, roster, sealedShare: bundle, createdAt: 0, accessSecret: accessSecretRef.current ?? undefined } }
+      // Kept only until the backup is built, once every member saved and the address exists.
+      savePassRef.current = savePass
+      // Saved: only now does this device tell the others it finished.
+      const cer = ceremonyRef.current!
+      for (const m of cer.markSaved()) await send(m)
+      if (cer.complete && !part3DoneRef.current) void finishVault()
+      else setWaiting(cer.waitingFor())
       setSaveState('saved')
       setSavePass('')
       await refreshSaved()
@@ -874,16 +901,17 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
       setSaveState('idle')
       setSaveErr(L.saveErr + String(e))
     }
-  }, [savePass, L, refreshSaved, hostedAddress])
+  }, [savePass, L, refreshSaved, send, finishVault])
 
   const doBackupDownload = useCallback(() => {
-    if (backup) downloadText(backup.name, backup.json)
+    if (backup) { downloadText(backup.name, backup.json); setBackupTaken(true) }
   }, [backup])
   const doBackupCopy = useCallback(async () => {
     if (!backup) return
     try {
       await navigator.clipboard.writeText(backup.json)
       setBackupCopied(true)
+      setBackupTaken(true)
       setTimeout(() => setBackupCopied(false), 1500)
     } catch { /* clipboard blocked; the download button still works */ }
   }, [backup])
@@ -939,9 +967,9 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
   // the create-done step now shows a backup card first (download/copy the portable copy), and the
   // operator opens the vault from there. Only auto-open if there was nothing to back up.
   useEffect(() => {
-    if (embedded && saveState === 'saved' && !backup) openDashboard()
+    if (embedded && finished && !backup) openDashboard()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [embedded, saveState, backup])
+  }, [embedded, finished, backup])
 
   const doDelete = useCallback(
     async (id: string) => {
@@ -956,6 +984,83 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
     [refreshSaved],
   )
 
+  // Leaving now would lose this creation (creation-guard): tell the host, warn on reload, and ask
+  // before an explicit or stray close.
+  const busy = creationBusy(phase, finished, !!ceremonyRef.current?.aborted, saveState === 'saved')
+  // The backup copy offered at the end has not been downloaded or copied yet.
+  const [backupTaken, setBackupTaken] = useState(false)
+  const backupPending = !!backup && !backupTaken
+  const [leaving, setLeaving] = useState(false)
+  const leaveRef = useRef<HTMLDivElement>(null)
+  const allowUnloadRef = useRef(false) // the app's own reload, offered on purpose, does not warn
+  // Each attempt to close (Esc, backdrop) means what `closeIntent` says: during a creation it opens
+  // the question (and the next one answers "keep creating"); once finished it opens the new vault,
+  // exactly as the dialog's own button does; otherwise the dialog closes.
+  // Only attempts made while THIS screen is open count: the host's counter keeps its value across
+  // dialogs, and a fresh screen must not read the last dialog's close as its own.
+  const seenAsk = useRef(leaveAsk)
+  useEffect(() => {
+    if (!leaveAsk || leaveAsk === seenAsk.current) return
+    seenAsk.current = leaveAsk
+    const intent = closeIntent({ busy, finished, backupPending })
+    if (intent === 'ask' || intent === 'ask-backup') setLeaving((l) => !l)
+    else if (intent === 'open-vault') openDashboard()
+    else onLeave?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [leaveAsk])
+  const cancelRef = useRef<HTMLButtonElement>(null)
+  const wasLeaving = useRef(false)
+  useEffect(() => {
+    if (leaving) leaveRef.current?.scrollIntoView({ block: 'start' })
+    else if (wasLeaving.current) cancelRef.current?.focus() // "keep creating": focus returns where it was
+    wasLeaving.current = leaving
+  }, [leaving])
+  useEffect(() => {
+    if (!busy) return
+    const warn = (e: BeforeUnloadEvent) => {
+      if (allowUnloadRef.current) return
+      e.preventDefault(); e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [busy])
+
+  // An invite link opens the join form inside the vaults dialog (Vaults opens it). There it fills the
+  // invite, focuses the PIN (the one thing left to type) and leaves the address bar and history at
+  // once (this tab's history; the browser's own history keeps the first URL, and the PIN is what
+  // guards the room): the invite is a secret of the room (CLAUDE.md §6.3, the exception in ADR-0007).
+  // An older link to the standalone screen (#/net?join=) is sent to the same dialog. A bad code is
+  // filled as given, so the form says what is wrong with it in place.
+  // Known from the first render, so focus lands once: on the PIN when the link's invite is whole,
+  // on the invite field (which then says what is wrong) when it is not.
+  const [inviteFromLink, setInviteFromLink] = useState(() => !!embedded && joinParam(window.location.hash) !== null)
+  const joinPinRef = useRef<HTMLInputElement>(null)
+  const joinInviteRef = useRef<HTMLInputElement>(null)
+  const joinNameRef = useRef<HTMLInputElement>(null)
+  const linkFocused = useRef(false)
+  useEffect(() => {
+    // Once, when the code from the link has arrived: moving focus later would pull it out of a
+    // field the member is typing in.
+    if (!inviteFromLink || linkFocused.current || joinCode === '') return
+    linkFocused.current = true
+    // The first field that still needs the member: a bad invite, else the name (it always starts
+    // empty; the PIN comes after it).
+    if (!parseInvite(joinCode)) joinInviteRef.current?.focus()
+    else joinNameRef.current?.focus()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inviteFromLink, joinCode === '' ? 0 : 1])
+  useEffect(() => {
+    const raw = joinParam(window.location.hash)
+    if (raw === null) return
+    if (!embedded) { nav(`/vaults?join=${encodeURIComponent(raw)}`, { replace: true }); return }
+    setJoinCode(parseInvite(raw) ?? raw)
+    setShowJoin(true)
+    setInviteFromLink(true)
+    const path = window.location.hash.split('?')[0] || '#/vaults'
+    window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}${path}`)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Load the list of saved vaults once, so the idle screen can offer to restore one.
   useEffect(() => {
     void refreshSaved()
@@ -964,8 +1069,10 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
   useEffect(() => {
     return () => {
       sessionRef.current?.stop()
+      savePassRef.current = ''
       if (ceremonyTimerRef.current) clearTimeout(ceremonyTimerRef.current)
       if (joinTimerRef.current) clearTimeout(joinTimerRef.current)
+      if (slowFinishTimerRef.current) clearTimeout(slowFinishTimerRef.current)
     }
   }, [])
 
@@ -981,6 +1088,15 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
 
   // ---- render ----
 
+  // A stopped creation has its own screen: why, and how to start again.
+  if (phase === 'error' && ceremonyRef.current?.aborted) {
+    return (
+      <Shell error="" embedded={embedded}>
+        <StopPanel message={error} pe={pe} />
+      </Shell>
+    )
+  }
+
   // Create modal (embedded), idle: two separate views - CREATE or JOIN - toggled, never both at
   // once, each purpose-built and on brand. Each participant gives their OWN name (travels in the
   // relay hello, so everyone's member list shows real names). DKG logic unchanged.
@@ -989,24 +1105,47 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
       <Shell error={error} embedded>
         <span className="rd-eyebrow">{pe('ENTRAR NUM COFRE', 'JOIN A VAULT')}</span>
         <h2 className="cv-title">{pe('Entrar com um convite', 'Join with an invite')}</h2>
-        <p className="cv-lead">{pe('Você recebeu um código. Diga o seu nome e cole o código para entrar no cofre com os outros aparelhos.', 'You received a code. Enter your name and paste the code to join the vault with the other devices.')}</p>
+        <p className="cv-lead">{inviteFromLink
+          ? pe('O convite veio do link. Diga o seu nome e digite o PIN que você recebeu por outro caminho para entrar no cofre com os outros aparelhos.', 'The invite came from your link. Enter your name and type the PIN you received another way to join the vault with the other devices.')
+          : pe('Você recebeu um convite e, por outro caminho, um PIN. Diga o seu nome, cole o convite e digite o PIN para entrar no cofre com os outros aparelhos.', 'You received an invite and, another way, a PIN. Enter your name, paste the invite and type the PIN to join the vault with the other devices.')}</p>
         <div className="cv-field cv-name">
-          <span className="cv-k">{pe('Seu nome (aparece pros membros)', 'Your name (shown to the members)')}</span>
-          <input className="cv-nameinput" type="text" maxLength={30} placeholder={pe('ex.: Bob', 'e.g. Bob')}
-            value={myName} onChange={(e) => { setMyName(e.target.value); myNameRef.current = e.target.value }} autoFocus />
+          <label className="cv-k" htmlFor="cv-join-name">{pe('Seu nome (aparece pros membros)', 'Your name (shown to the members)')}</label>
+          <input id="cv-join-name" ref={joinNameRef} required className="cv-nameinput" type="text" maxLength={30} placeholder={pe('ex.: Bob', 'e.g. Bob')}
+            value={myName} onChange={(e) => { setMyName(e.target.value); myNameRef.current = e.target.value }} autoFocus={!inviteFromLink} />
         </div>
         <div className="cv-field cv-name">
-          <span className="cv-k">{pe('Código do convite', 'Invite code')}</span>
-          <input className="cv-nameinput" style={{ fontFamily: 'var(--font-mono)', letterSpacing: '.14em', textAlign: 'center' }}
-            placeholder="KX7M4PQR" value={joinCode} onChange={(e) => setJoinCode(e.target.value.toUpperCase().trim())} />
+          <label className="cv-k" htmlFor="cv-join-invite">{pe('Convite (link ou código)', 'Invite (link or code)')}</label>
+          <input id="cv-join-invite" ref={joinInviteRef} required aria-invalid={!!joinCode.trim() && !parseInvite(joinCode)} className="cv-nameinput" style={{ fontFamily: 'var(--font-mono)', textAlign: 'center' }}
+            autoCapitalize="characters" autoCorrect="off" spellCheck={false} aria-describedby="cv-join-invite-hint"
+            placeholder={pe('cole o link ou o código', 'paste the link or the code')} value={joinCode} onChange={(e) => setJoinCode(e.target.value)} />
+          <span className="cv-govnote" id="cv-join-invite-hint" role="status">
+            {joinCode.trim() && !parseInvite(joinCode) ? pe('Isso não parece um convite completo: confira se colou tudo.', 'That does not look like a whole invite: check you pasted all of it.') : ''}
+          </span>
+          {inviteFromLink && parseInvite(joinCode) && (
+            <span className="cv-govnote" id="cv-join-from-link">{pe('Preenchido pelo link do convite.', 'Filled from your invite link.')}</span>
+          )}
         </div>
         <div className="cv-field cv-name">
-          <span className="cv-k">{pe('PIN (se combinaram um)', 'PIN (if one was agreed)')}</span>
-          <input className="cv-nameinput" type="text" maxLength={20} placeholder={pe('opcional', 'optional')}
+          <label className="cv-k" htmlFor="cv-join-pin">{pe('PIN da sala (veio separado do convite)', 'Room PIN (it came apart from the invite)')}</label>
+          <input id="cv-join-pin" ref={joinPinRef} aria-describedby={inviteFromLink ? 'cv-join-from-link' : undefined} className="cv-nameinput" type="text" maxLength={20} required autoComplete="off" autoCorrect="off" spellCheck={false}
             value={pin} onChange={(e) => setPin(e.target.value)} />
         </div>
-        <button className="rd-enter primary cv-primary" disabled={joinCode.length < 8}
-          onClick={() => { setRole('join'); void begin('join', joinCode, n, t, pin) }}>
+        {(() => {
+          const missing = [
+            !myName.trim() && pe('o seu nome', 'your name'),
+            !parseInvite(joinCode) && pe('o convite', 'the invite'),
+            !pin.trim() && pe('o PIN', 'the PIN'),
+          ].filter(Boolean) as string[]
+          // Always in the page, emptied when nothing is missing: a live region inserted together with
+          // its text is often not announced.
+          return (
+            <p className="cv-govnote" id="cv-join-why" role="status">
+              {missing.length > 0 ? pe(`Para entrar, falta: ${missing.join(', ')}.`, `To join, fill in ${missing.join(', ')}.`) : ''}
+            </p>
+          )
+        })()}
+        <button className="rd-enter primary cv-primary" aria-describedby="cv-join-why" disabled={!myName.trim() || !parseInvite(joinCode) || !pin.trim()}
+          onClick={() => { setRole('join'); void begin('join', parseInvite(joinCode)!, n, t, pin) }}>
           {pe('Entrar no cofre', 'Join the vault')}
         </button>
         <button type="button" className="cv-linkbtn" onClick={() => setShowJoin(false)}>
@@ -1035,20 +1174,23 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
             <h2 className="cv-title">{pe('Como se chama o cofre?', 'What’s the vault called?')}</h2>
             <p className="cv-lead">{pe('Um nome pra vocês reconhecerem. Dá pra mudar depois.', 'A name you’ll recognize. You can change it later.')}</p>
             <div className="cv-field cv-name">
-              <span className="cv-k">{pe('Nome do cofre', 'Vault name')}</span>
-              <input className="cv-nameinput" type="text" maxLength={40} autoFocus
+              <label className="cv-k" htmlFor="cv-vault-name">{pe('Nome do cofre', 'Vault name')}</label>
+              <input id="cv-vault-name" className="cv-nameinput" type="text" maxLength={40} autoFocus
                 placeholder={pe('ex.: Tesouraria do coletivo', 'e.g. Collective treasury')}
                 value={vaultName}
                 onChange={(e) => { setVaultName(e.target.value); vaultNameRef.current = e.target.value }} />
             </div>
             <div className="cv-field cv-name">
-              <span className="cv-k">{pe('Seu nome (aparece pros membros)', 'Your name (shown to the members)')}</span>
-              <input className="cv-nameinput" type="text" maxLength={30}
+              <label className="cv-k" htmlFor="cv-create-name">{pe('Seu nome (aparece pros membros)', 'Your name (shown to the members)')}</label>
+              <input id="cv-create-name" required className="cv-nameinput" type="text" maxLength={30}
                 placeholder={pe('ex.: Alice', 'e.g. Alice')}
                 value={myName}
                 onChange={(e) => { setMyName(e.target.value); myNameRef.current = e.target.value }} />
             </div>
-            <button className="rd-enter primary cv-primary" onClick={() => setCreateStep(2)}>
+            <p className="cv-govnote" id="cv-create-why" role="status">
+              {!myName.trim() ? pe('Para seguir, diga o seu nome: os outros membros vão vê-lo.', 'To go on, fill in your name: the other members will see it.') : ''}
+            </p>
+            <button className="rd-enter primary cv-primary" disabled={!myName.trim()} aria-describedby="cv-create-why" onClick={() => setCreateStep(2)}>
               {pe('Continuar →', 'Continue →')}
             </button>
             <button type="button" className="cv-linkbtn" onClick={() => setShowJoin(true)}>
@@ -1068,10 +1210,10 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
               <div className="cv-field">
                 <span className="cv-k">{pe('Dispositivos', 'Devices')}</span>
                 <div className="cv-stepper">
-                  <button type="button" className="cv-step" disabled={n <= 2} aria-label={pe('menos', 'fewer')}
+                  <button type="button" className="cv-step" disabled={n <= 2} aria-label={pe('menos aparelhos', 'fewer devices')}
                     onClick={() => { const v = n - 1; setN(v); if (t > v) setT(v) }}>−</button>
                   <span className="cv-num">{n}</span>
-                  <button type="button" className="cv-step" disabled={n >= 5} aria-label={pe('mais', 'more')}
+                  <button type="button" className="cv-step" disabled={n >= 5} aria-label={pe('mais aparelhos', 'more devices')}
                     onClick={() => setN(n + 1)}>+</button>
                 </div>
               </div>
@@ -1080,10 +1222,10 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
                 <div className="cv-stepper">
                   {/* Never below 2: the threshold library refuses a quorum of 1, and the sentence
                       under this control promises that no one sends alone. */}
-                  <button type="button" className="cv-step" disabled={t <= 2} aria-label={pe('menos', 'fewer')}
+                  <button type="button" className="cv-step" disabled={t <= 2} aria-label={pe('quórum menor', 'lower quorum')}
                     onClick={() => setT(t - 1)}>−</button>
                   <span className="cv-num">{t} <em>{pe('de', 'of')} {n}</em></span>
-                  <button type="button" className="cv-step" disabled={t >= n} aria-label={pe('mais', 'more')}
+                  <button type="button" className="cv-step" disabled={t >= n} aria-label={pe('quórum maior', 'higher quorum')}
                     onClick={() => setT(t + 1)}>+</button>
                 </div>
               </div>
@@ -1102,7 +1244,7 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
             )}
 
             <button type="button" className="cv-adv" aria-expanded={advOpen} onClick={() => setAdvOpen((v) => !v)}>
-              {advOpen ? '⌄' : '›'} {pe('Avançado (governança, PIN)', 'Advanced (governance, PIN)')}
+              {advOpen ? '⌄' : '›'} {pe('Avançado (governança)', 'Advanced (governance)')}
             </button>
             {advOpen && (
               <>
@@ -1127,19 +1269,20 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
                          'Any member edits names and beneficiaries. Moving funds always needs the quorum.')}</span>
                 </div>
 
-                <div className="cv-field cv-gov">
-                  <span className="cv-k">{pe('PIN de admissão (recomendado)', 'Admission PIN (recommended)')}</span>
-                  <input className="cv-nameinput" type="text" maxLength={20} placeholder={pe('opcional, mas mais seguro', 'optional, but safer')}
-                    value={pin} onChange={(e) => setPin(e.target.value)} />
-                  <span className="cv-govnote">{pe(
-                    'Combine um PIN pelos membros e passe SEPARADO do convite. Sem o PIN, quem só tem o convite não acha a sala.',
-                    'Agree a PIN and share it SEPARATELY from the invite. Without the PIN, whoever only has the invite cannot find the room.')}</span>
-                </div>
               </>
             )}
 
-            <button className="rd-enter primary cv-primary"
-              onClick={() => { setRole('create'); void begin('create', newRoomCode(), n, t, pin) }}>
+            <div className="cv-field cv-gov">
+              <label className="cv-k" htmlFor="cv-create-pin">{pe('PIN da sala', 'Room PIN')}</label>
+              <input id="cv-create-pin" className="cv-nameinput" type="text" maxLength={20} required autoComplete="off" autoCorrect="off" spellCheck={false}
+                aria-describedby="cv-create-pin-help" value={pin} onChange={(e) => setPin(e.target.value)} />
+              <span className="cv-govnote" id="cv-create-pin-help">{pe(
+                'Invente um PIN (por exemplo, de 4 a 6 dígitos). Você vai dizê-lo a cada membro numa ligação, nunca junto com o convite. Sem o PIN, quem só tem o convite não acha a sala.',
+                'Make up a PIN (for example, 4 to 6 digits). You will tell it to each member on a call, never together with the invite. Without the PIN, whoever only has the invite cannot find the room.')}</span>
+            </div>
+
+            <button className="rd-enter primary cv-primary" disabled={!pin.trim()}
+              onClick={() => { setRole('create'); void begin('create', newInviteCode(), n, t, pin) }}>
               {pe('Gerar convite', 'Generate invite')}
             </button>
           </>
@@ -1174,9 +1317,14 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
                 ))}
               </select>
             </label>
+            <label className="net-row">
+              {pe('PIN de admissão', 'Admission PIN')}
+              <input className="net-input" type="text" maxLength={20} required value={pin} onChange={(e) => setPin(e.target.value)} />
+            </label>
             <button
               className="net-btn primary"
-              onClick={() => { setRole('create'); void begin('create', newRoomCode(), n, t, pin) }}
+              disabled={!pin.trim()}
+              onClick={() => { setRole('create'); void begin('create', newInviteCode(), n, t, pin) }}
             >
               {tt('net.idle.generateInvite')}
             </button>
@@ -1187,14 +1335,19 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
             <p>{tt('net.idle.joinDesc')}</p>
             <input
               className="net-input"
+              aria-label={pe('Convite (link ou código)', 'Invite (link or code)')}
+              autoCapitalize="characters" autoCorrect="off" spellCheck={false}
               placeholder={tt('net.idle.joinPlaceholder')}
               value={joinCode}
-              onChange={(e) => setJoinCode(e.target.value.toUpperCase().trim())}
+              onChange={(e) => setJoinCode(e.target.value)}
             />
+            <input className="net-input" type="text" maxLength={20} required placeholder={pe('PIN', 'PIN')}
+              aria-label={pe('PIN da sala', 'Room PIN')} autoComplete="off" autoCorrect="off" spellCheck={false}
+              value={pin} onChange={(e) => setPin(e.target.value)} />
             <button
               className="net-btn"
-              disabled={joinCode.length < 8}
-              onClick={() => { setRole('join'); void begin('join', joinCode, n, t, pin) }}
+              disabled={!parseInvite(joinCode) || !pin.trim()}
+              onClick={() => { setRole('join'); void begin('join', parseInvite(joinCode)!, n, t, pin) }}
             >
               {tt('net.idle.joinBtn')}
             </button>
@@ -1398,38 +1551,83 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
   // Embedded (create modal): clean, purpose-built rendering for the gathering / running / done
   // phases - seats filling, a running indicator, and a done step that just protects the device and
   // opens the Dashboard (the address/QR/proposals/ceremony all live in the app now).
-  if (embedded && (phase === 'roster' || phase === 'dkg' || phase === 'done')) {
+  if (embedded && (phase === 'roster' || phase === 'confirm' || phase === 'dkg' || phase === 'done')) {
     return (
       <Shell error={error} embedded>
+        {!busy && leaving && backupPending && (
+          <div className="cv-warn" role="group" aria-labelledby="cv-leave-q" aria-describedby="cv-leave-why" ref={leaveRef}>
+            <p id="cv-leave-q"><strong>{pe('Abrir o cofre sem guardar uma cópia?', 'Open the vault without saving a copy?')}</strong></p>
+            <p id="cv-leave-why">{pe('A cópia cifrada é o que permite recuperar o seu pedaço se este aparelho se perder. Você também pode exportá-la depois, nos Ajustes.', 'The encrypted copy is how you recover your part if this device is lost. You can also export it later, in Settings.')}</p>
+            <div className="cv-invite-actions">
+              <button type="button" className="rd-enter primary cv-primary" autoFocus onClick={() => { setLeaving(false); doBackupDownload() }}>{pe('Baixar o arquivo', 'Download the file')}</button>
+              <button type="button" className="cv-stop" onClick={() => { setLeaving(false); openDashboard() }}>{pe('Abrir sem a cópia', 'Open without it')}</button>
+            </div>
+          </div>
+        )}
+        {busy && (leaving ? (
+          <div className="cv-warn" role="group" aria-labelledby="cv-leave-q" aria-describedby="cv-leave-why" ref={leaveRef}>
+            {phase === 'done' ? (
+              <>
+                <p id="cv-leave-q"><strong>{pe('Sair sem guardar?', 'Leave without saving?')}</strong></p>
+                <p id="cv-leave-why">{pe('O seu pedaço da chave ainda não foi guardado neste aparelho. Sem ele você não poderá aprovar pagamentos deste cofre, e ele não será terminado.', 'Your part of the key is not saved on this device yet. Without it you cannot approve payments from this vault, and it will not be finished.')}</p>
+              </>
+            ) : (
+              <>
+                <p id="cv-leave-q"><strong>{pe('Cancelar a criação deste cofre?', 'Cancel creating this vault?')}</strong></p>
+                <p id="cv-leave-why">{pe('O seu pedaço da chave será perdido, este cofre não será criado, e os outros terão de começar de novo.', 'Your part of the key will be lost, this vault will not be created, and the others will have to start again.')}</p>
+              </>
+            )}
+            <div className="cv-invite-actions">
+              <button type="button" className="rd-enter primary cv-primary" autoFocus onClick={() => setLeaving(false)}>{pe('Continuar criando', 'Keep creating')}</button>
+              <button type="button" className="cv-stop" onClick={() => { setLeaving(false); onLeave?.() }}>{pe('Cancelar e perder o meu pedaço', 'Cancel and lose my part')}</button>
+            </div>
+          </div>
+        ) : (
+          <button type="button" className="cv-cancel" ref={cancelRef} onClick={() => setLeaving(true)}>{pe('Cancelar criação', 'Cancel creation')}</button>
+        ))}
         {phase === 'roster' && (
           <>
             <span className="rd-eyebrow">{pe('REUNINDO OS APARELHOS', 'GATHERING DEVICES')}</span>
             <h2 className="cv-title">{role === 'create' ? pe('Compartilhe o convite', 'Share the invite') : pe('Entrando no cofre', 'Joining the vault')}</h2>
             {role === 'create' && (
-              <p className="cv-lead">{pe('Envie este código para os outros aparelhos. O cofre nasce quando todos entrarem.', 'Send this code to the other devices. The vault is born once they all join.')}</p>
+              <>
+                <p className="cv-lead">{pe('Envie o convite para os outros aparelhos. O cofre nasce quando todos entrarem e conferirem o código.', 'Send the invite to the other devices. The vault is born once they all join and check the code.')}</p>
+                <InviteCard code={room} pin={pin} pe={pe} />
+              </>
             )}
-            <div className="net-code" role="button" tabIndex={0}
-              onClick={() => { void navigator.clipboard?.writeText(room); setCodeCopied(true); window.setTimeout(() => setCodeCopied(false), 1800) }}
-              title={tt('net.invite.clickCopy')}>{room}</div>
-            <p className="cv-copyhint">{codeCopied ? pe('Copiado ✓', 'Copied ✓') : pe('Toque para copiar', 'Tap to copy')}</p>
             <div className="cv-seats">
               {Array.from({ length: total }, (_, i) => (
                 <span key={i} className={'cv-seat' + (i < rosterCount ? ' on' : '')} />
               ))}
             </div>
-            <p className="cv-seatlabel">{rosterCount} {pe('de', 'of')} {total} {pe('conectados', 'connected')}</p>
+            <p className="cv-seatlabel" role="status">{rosterCount} {pe('de', 'of')} {total} {pe('conectados', 'connected')}</p>
             {role === 'join' && joinSlow && (
-              <div className="cv-trust" style={{ marginTop: 14 }}>{pe(
-                'Ainda não encontramos o cofre. Confira o código e o PIN (o PIN vem separado do convite), ou aguarde os outros aparelhos entrarem.',
-                'We haven’t found the vault yet. Check the code and the PIN (the PIN comes separately from the invite), or wait for the other devices to join.')}</div>
+              <div className="cv-trust" role="status" style={{ marginTop: 14 }}>{pe(
+                'Ainda não encontramos o cofre. Confira o convite e o PIN (o PIN vem separado do convite), ou aguarde os outros aparelhos entrarem.',
+                'We haven’t found the vault yet. Check the invite and the PIN (the PIN comes separately from the invite), or wait for the other devices to join.')}
+                <button type="button" className="cv-stop" style={{ marginTop: 10 }} onClick={() => { allowUnloadRef.current = true; window.location.reload() }}>
+                  {pe('Trocar o convite ou o PIN', 'Change the invite or the PIN')}
+                </button>
+              </div>
             )}
           </>
         )}
+        {phase === 'confirm' && code && (
+          <CodeCheck code={code.code} names={code.names} vaultName={code.vaultName} mySeat={code.mySeat} onConfirm={() => void doConfirm()} onMismatch={doMismatch} pe={pe} />
+        )}
         {phase === 'dkg' && (
-          <div className="cv-loading">
+          <div className="cv-loading" role="status">
             <div className="cv-spinner" aria-hidden="true" />
             <h2 className="cv-title">{pe('Criando a chave em conjunto', 'Creating the key together')}</h2>
-            <p className="cv-lead">{pe('Cada aparelho gera o seu pedaço por DKG. A chave inteira nunca é montada. Não feche esta janela.', 'Each device generates its share by DKG. The whole key is never assembled. Do not close this window.')}</p>
+            <p className="cv-lead">{pe('Cada aparelho faz o seu pedaço da chave; a chave inteira nunca é montada. Se você já confirmou o código, espere os outros confirmarem também. Não feche esta janela.', 'Each device makes its own piece of the key; the whole key is never put together. If you already confirmed the code, wait for the others to confirm too. Do not close this window.')}</p>
+            {waiting.length > 0 && (
+              <p className="cv-seatlabel">{pe(`Esperando terminar: ${waiting.join(', ')}`, `Waiting for these to finish: ${waiting.join(', ')}`)}</p>
+            )}
+            {slowFinish && (
+              <div className="cv-warn" role="alert">{pe(
+                'Está demorando: alguém pode não ter recebido a sua parte. Não use nem deposite neste cofre até ele terminar para todos. Se não terminar, comecem de novo com um novo convite.',
+                'This is taking long: someone may not have received their part. Do not use or fund this vault until it finishes for everyone. If it does not, start again with a new invite.')}</div>
+            )}
           </div>
         )}
         {phase === 'done' && saveState === 'saved' && backup && (
@@ -1472,9 +1670,9 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
         )}
         {phase === 'done' && !(saveState === 'saved' && backup) && (
           <>
-            <span className="rd-eyebrow">{pe('COFRE CRIADO', 'VAULT CREATED')}</span>
-            <h2 className="cv-title">{pe('Pronto', 'Done')}</h2>
-            <p className="cv-lead">{pe('O cofre nasceu. Cada aparelho guardou o seu pedaço; a chave inteira nunca foi montada. Proteja este aparelho com uma frase-senha para não perder o cofre ao recarregar.', 'The vault is born. Each device kept its share; the whole key was never assembled. Protect this device with a passphrase so a reload does not lose it.')}</p>
+            <span className="rd-eyebrow">{pe('GUARDE O SEU PEDAÇO', 'SAVE YOUR PART')}</span>
+            <h2 className="cv-title">{pe('O seu pedaço da chave está pronto', 'Your part of the key is ready')}</h2>
+            <p className="cv-lead">{pe('Proteja-o neste aparelho com uma frase-senha. O endereço do cofre aparece quando todos os membros tiverem guardado o seu; antes disso, não há onde depositar.', 'Protect it on this device with a passphrase. The vault’s address appears once every member has saved theirs; until then there is nowhere to deposit.')}</p>
             {fp && (
               <div className="fp-card" role="note" aria-label={tt('members.fpTitle')} style={{ marginBottom: 16 }}>
                 <div className="fp-head">
@@ -1490,17 +1688,22 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
                 placeholder={pe('Frase-senha (mínimo 8 caracteres)', 'Passphrase (at least 8 characters)')}
                 value={savePass} onChange={setSavePass} />
               {saveErr && <p className="set-err">{saveErr}</p>}
-              <button className="rd-enter primary cv-primary" disabled={savePass.length < 8 || saveState === 'saving' || hostedState !== 'registered'}
+              <button className="rd-enter primary cv-primary" disabled={savePass.length < 8 || saveState !== 'idle' || !hasSecret}
                 onClick={() => void doSave()}>
-                {saveState === 'saving' ? pe('Guardando…', 'Saving…')
-                  : hostedState !== 'registered' ? pe('Registrando o cofre…', 'Registering the vault…')
+                {!hasSecret ? (secretSlow
+                  ? pe('A chave de acesso não chegou. Peça a quem criou para conferir a conexão, ou comecem de novo.', 'The access key has not arrived. Ask the creator to check their connection, or start again.')
+                  : pe('Esperando a chave de acesso de quem criou…', 'Waiting for the access key from the creator…'))
+                  : saveState === 'saving' ? pe('Guardando…', 'Saving…')
+                  : saveState === 'saved' ? pe('Guardado neste aparelho ✓', 'Saved on this device ✓')
                   : pe('Proteger o cofre →', 'Protect the vault →')}
               </button>
-              {hostedState === 'registered' && (
-                <button type="button" className="cv-linkbtn cv-danger" onClick={openDashboard}>
-                  {pe('Abrir sem guardar: você perde o seu pedaço ao recarregar. Proteja com uma frase-senha.', 'Open without saving: you lose your share on reload. Protect it with a passphrase.')}
-                </button>
+              {saveState === 'saved' && waiting.length > 0 && (
+                <p className="cv-seatlabel" role="status">{pe(`Esperando os outros guardarem: ${waiting.join(', ')}. O endereço do cofre aparece quando todos guardarem.`, `Waiting for the others to save: ${waiting.join(', ')}. The vault's address appears once everyone has.`)}</p>
               )}
+              {saveState === 'saved' && !backup && waiting.length === 0 && hostedState === 'registering' && (
+                <p className="cv-seatlabel" role="status">{pe('Registrando o cofre…', 'Registering the vault…')}</p>
+              )}
+
             </div>
           </>
         )}
@@ -1509,21 +1712,22 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
   }
 
   return (
-    <Shell error={error} embedded={embedded} onDashboard={groupVk ? openDashboard : undefined}>
+    <Shell error={error} embedded={embedded} onDashboard={finished ? openDashboard : undefined}>
       {role === 'create' && phase === 'roster' && (
         <>
           <h1 className="net-h1">{tt('net.invite.title')}</h1>
           <p className="net-lead">{tt('net.invite.lead')}</p>
-          <div className="net-code" onClick={() => navigator.clipboard?.writeText(room)} title={tt('net.invite.clickCopy')}>
-            {room}
-          </div>
+          <InviteCard code={room} pin={pin} pe={pe} />
         </>
       )}
       {role === 'join' && phase === 'roster' && (
         <>
           <h1 className="net-h1">{tt('net.joining.title')}</h1>
-          <div className="net-code">{room}</div>
+          <div className="net-code">{formatInvite(room)}</div>
         </>
+      )}
+      {phase === 'confirm' && code && (
+        <CodeCheck code={code.code} names={code.names} vaultName={code.vaultName} mySeat={code.mySeat} onConfirm={() => void doConfirm()} onMismatch={doMismatch} pe={pe} />
       )}
       {phase === 'dkg' && <h1 className="net-h1">{tt('net.creating.title')}</h1>}
       {phase === 'done' && <h1 className="net-h1">{tt('net.done.title')}</h1>}
@@ -1546,7 +1750,7 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
           <div className="net-vk">{groupVk}</div>
           <p className="net-tip">{tt('net.done.tip')}</p>
 
-          {hostedState === 'registered' && (
+          {finished && hostedState === 'registered' && (
             <button className="net-btn primary" style={{ marginTop: 12 }} onClick={openDashboard}>
               {pe('Abrir o cofre (Dashboard) →', 'Open the vault (Dashboard) →')}
             </button>
@@ -1615,7 +1819,7 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
                   </div>
                 </>
               )}
-              {hostedState === 'failed' && (
+              {hostedState === 'failed' && !error && (
                 <p className="net-tip">
                   {pe(
                     'O cofre foi criado neste dispositivo, mas o coordenador não respondeu. O cofre segue válido e local; tente registrar mais tarde para receber e enviar.',
@@ -1630,7 +1834,9 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
             <h3>{L.saveTitle}</h3>
             <p>{L.saveHint}</p>
             {saveState === 'saved' ? (
-              <p className="net-tip">{L.saved}</p>
+              <p className="net-tip" role="status">{L.saved}{!finished && waiting.length > 0
+                ? ' ' + pe(`Esperando os outros guardarem: ${waiting.join(', ')}. O endereço aparece quando todos guardarem.`, `Waiting for the others to save: ${waiting.join(', ')}. The address appears once everyone has.`)
+                : ''}</p>
             ) : (
               <>
                 {saveErr && <div className="net-error" role="alert">{saveErr}</div>}
@@ -1643,7 +1849,7 @@ export default function NetVault({ embedded, initialJoin }: { embedded?: boolean
                 />
                 <button
                   className="net-btn"
-                  disabled={saveState === 'saving' || savePass.length < 8}
+                  disabled={saveState === 'saving' || savePass.length < 8 || !hasSecret}
                   onClick={() => void doSave()}
                 >
                   {saveState === 'saving' ? L.saving : L.saveBtn}

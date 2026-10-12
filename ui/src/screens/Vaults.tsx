@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { useNavigate, useLocation, Link } from 'react-router-dom'
+import { joinParam } from '../net'
 import { getVaults, health, setSelectedVault, getSelectedVault, clearSelectedVault, isVaultUnlocked, shortAddr, type Vault } from '../api'
 import { helperConfigured, getCustomHelper, setCoordMode, HELPER_BASE } from '../helper'
 import { isDesktop } from '../platform'
-import { listVaults, parseVaultExport, forgetVault, type VaultExport } from '../storage'
+import { listVaults, parseVaultExport, forgetVault, updateVaultMeta, type VaultExport } from '../storage'
 import { clearUnlockedShare, clearReadSecret } from '../session'
 import { loadPrfWrap, clearPrfWrap } from '../prf-store'
 import { unlockWithPasskey } from '../passkey-unlock'
@@ -68,6 +69,16 @@ export default function Vaults() {
   // named the control and left it disabled. Offered only for `src === 'net'`, because that is the
   // case where this device actually holds a share to give up.
   const [removing, setRemoving] = useState<Row | null>(null)
+  // A vault whose creation did not finish on this device: the member confirms, after speaking with
+  // every other member, that each of them saved their part. Two steps, never one click.
+  const [finishing, setFinishing] = useState<string | null>(null)
+  // Each Esc or backdrop click on the create dialog; NetVault decides what it means (closeIntent).
+  const [leaveAsk, setLeaveAsk] = useState(0)
+  const [reload, setReload] = useState(0)
+  // Which pending vault's confirmation is armed (after a pause), and the pending timer.
+  const [finishArmed, setFinishArmed] = useState<string | null>(null)
+  const armTimer = useRef<number | null>(null)
+  useEffect(() => () => { if (armTimer.current) window.clearTimeout(armTimer.current) }, [])
   const [removeWord, setRemoveWord] = useState('')
   const [removeBusy, setRemoveBusy] = useState(false)
   const [removeErr, setRemoveErr] = useState(false)
@@ -98,8 +109,16 @@ export default function Vaults() {
     }
   }
 
-  const [creating, setCreating] = useState(false)
-  const [joinMode, setJoinMode] = useState(false) // the Join door opens the create modal straight into join
+  // An invite link (#/vaults?join=…) opens the dialog straight into the join form.
+  const [creating, setCreating] = useState(() => joinParam(window.location.hash) !== null)
+  // Also when the link arrives in a tab already showing this screen (only the fragment changes).
+  const loc = useLocation()
+  useEffect(() => {
+    if (joinParam(loc.search) !== null && !creating) { setJoinMode(true); setCreating(true) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loc.search])
+  const [joinMode, setJoinMode] = useState(() => joinParam(window.location.hash) !== null) // the Join door opens the create modal straight into join
+
   const [pass, setPass] = useState('')
   const [unlockErr, setUnlockErr] = useState<string | null>(null)
   const [unlockBusy, setUnlockBusy] = useState(false)
@@ -223,15 +242,16 @@ export default function Vaults() {
         v: {
           id: s.id,
           name: s.name || t('vaults.networkedVault'),
-          // roster length is the participant count; the threshold isn't stored on-device, so the
-          // card shows a neutral "networked" tag instead of a possibly-wrong quorum (threshold: 0).
-          threshold: 0,
+          // The quorum the members confirmed, recorded since the creation code; an older record has
+          // none, and its card shows a neutral "networked" tag instead of a guessed quorum.
+          threshold: s.threshold ?? 0,
           total: s.roster.length,
           members: s.roster.length,
           member_list: s.roster.map((name) => ({ name, pubkey: name })),
           group_pubkey: s.groupKey,
           orchard_address: addressText(s.address),
           secured: s.secured, // #388: whether this vault holds S (gated reads/room)
+          pending: s.pending,
         },
       }))
       const localRows: Row[] = bridge.map((v) => ({ src: 'local', v }))
@@ -243,7 +263,7 @@ export default function Vaults() {
     })()
     return () => { on = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [reload])
 
   return (
     <div className="rd">
@@ -309,6 +329,36 @@ export default function Vaults() {
                   {avatars.slice(0, 4).map((m, i) => <Identicon key={i} seed={m.pubkey || m.name} />)}
                   <span className="names">{ms.length ? ms.map((m) => m.name).join(', ') : t('vaults.membersCount', { n: v.total })}</span>
                 </div>
+                {v.pending && (
+                  <div className="cv-warn" role="note" onClick={(e) => e.stopPropagation()}>
+                    <strong>{t('vaults.pendingBadge')}</strong> {t('vaults.pendingHint')}
+                    {finishing !== v.id ? (
+                      <button type="button" className="cv-stop" style={{ marginTop: 8 }}
+                        onClick={() => {
+                          setFinishing(v.id); setFinishArmed(null)
+                          if (armTimer.current) window.clearTimeout(armTimer.current)
+                          armTimer.current = window.setTimeout(() => setFinishArmed(v.id), 2000)
+                        }}>
+                        {t('vaults.pendingConfirm')}
+                      </button>
+                    ) : (
+                      <div style={{ marginTop: 8 }}>
+                        <p>{t('vaults.pendingConfirmAsk')}</p>
+                        {/* A different control, armed after a pause: a double click cannot skip the question. */}
+                        <label className="cv-codecheck-row">
+                          <input type="checkbox" disabled={finishArmed !== v.id} checked={false}
+                            onChange={() => {
+                              void updateVaultMeta(v.id, { pending: false })
+                                .then(() => { setFinishing(null); setReload((r) => r + 1) })
+                                .catch(() => setFinishing(null))
+                            }} />
+                          {t('vaults.pendingConfirmSure')}
+                        </label>
+                        <button type="button" className="cv-linkbtn" onClick={() => setFinishing(null)}>{t('vaults.pendingCancel')}</button>
+                      </div>
+                    )}
+                  </div>
+                )}
                 {v.orchard_address && (
                   <div className="rd-recv"><span className="lab">{t('vaults.receive')}&nbsp;</span><span className="val">{shortAddr(v.orchard_address)}</span></div>
                 )}
@@ -515,8 +565,9 @@ export default function Vaults() {
       )}
 
       {creating && (
-        <Dialog className="create-overlay" cardClassName="create-card" labelledBy="create-title" onClose={() => setCreating(false)}>
-          <NetVault embedded initialJoin={joinMode} />
+        <Dialog className="create-overlay" cardClassName="create-card" labelledBy="create-title" onClose={() => setCreating(false)}
+          onDismiss={() => setLeaveAsk((n) => n + 1)}>
+          <NetVault embedded initialJoin={joinMode} leaveAsk={leaveAsk} onLeave={() => { setCreating(false); setReload((r) => r + 1) }} />
         </Dialog>
       )}
     </div>
