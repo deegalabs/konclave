@@ -210,6 +210,7 @@ not promise what we do not deliver.
 - **Enforced by the product (not the chain):** balance reservation and proposal expiry (72 hours)
   are application policy, not on-chain rules. We say so plainly. There is no quorum-by-value: the
   quorum is the one number fixed when the vault is created.
+- **ZIP 2005.** Vaults created with the current derivation are not recoverable under ZIP 2005 (quantum recoverability); whether and how to move to a recoverable derivation is open (#428).
 - **Who coordinates, and what that role is trusted with:** pure FROST does not define message
   transport, member identity, or who assembles the transaction, so *something* has to coordinate.
   Here that is the **hosted coordinator** (the helper): it builds and proves the transaction, hosts
