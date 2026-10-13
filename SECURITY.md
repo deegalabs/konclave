@@ -114,3 +114,4 @@ and while it is down no payment can be made. What is fixed and what is open, by 
   Konclave (`scripts/open-export.mjs`); importing it into other FROST tools does not exist yet
   (#214), and keeping the share in the operating system's keychain on the desktop is planned,
   not done.
+- **ZIP 2005.** Vaults created with the current derivation are not recoverable under ZIP 2005 (quantum recoverability); whether and how to move to a recoverable derivation is open (#428).

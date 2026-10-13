@@ -160,6 +160,7 @@ caller, `ui/src/screens/NetVault.tsx`). That is a statement about the product, n
   vault to a different coordinator (see [`RECOVERY.md`](RECOVERY.md), #214).
 - **There is no quorum-by-value.** The quorum is the `t` fixed at creation; no rule changes it with
   the amount. Balance reservation and proposal expiry (72 hours) are the product locks that exist.
+- **ZIP 2005.** Vaults created with the current derivation are not recoverable under ZIP 2005 (quantum recoverability); whether and how to move to a recoverable derivation is open (#428).
 - **The coordinator is not blind.** It never receives a share and cannot move funds on its own, but it holds each
   vault's viewing key and receives the proposals, so it reads balances, payments, amounts, memos
   (payslips included) and member names. What is blind to the payment, once every seat has
