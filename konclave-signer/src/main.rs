@@ -525,4 +525,20 @@ mod tests {
             .to_string();
         assert!(err.contains("dummy_sk"), "{err}");
     }
+
+    // `ironwood_single_spend.signed.pczt` with `dummy_sk` set on action 0, the action that
+    // already carries its signature, and nothing else changed. konclave-wasm carries the
+    // identical file.
+    const IW_DUMMY_SK_SIGNED: &[u8] =
+        include_bytes!("../tests/vectors/ironwood_dummy_sk_signed.pczt");
+
+    #[test]
+    fn a_signed_spend_still_carrying_dummy_sk_is_refused_too() {
+        // The specification refuses the PCZT, not the spend: a key left on an action that is
+        // already signed is refused as well, though that action would not join the ceremony.
+        let err = extract_randomizers(&parse(IW_DUMMY_SK_SIGNED))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("dummy_sk"), "{err}");
+    }
 }

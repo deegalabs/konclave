@@ -3136,6 +3136,8 @@ pub mod pczt_bridge {
         // konclave-signer carries the identical file.
         const IW_DUMMY_SK: &[u8] =
             include_bytes!("../tests/vectors/ironwood_dummy_sk_spend.proven.pczt");
+        const IW_DUMMY_SK_SIGNED: &[u8] =
+            include_bytes!("../tests/vectors/ironwood_dummy_sk_signed.pczt");
 
         const IW_SIGHASH: [u8; 32] =
             hex_literal("332de126200c22131337474ae50367218ec87815c23d297dcdc8278ecb8903b0");
@@ -3207,6 +3209,16 @@ pub mod pczt_bridge {
             assert!(err.contains("dummy_sk"), "{err}");
             let shown = read_payment(IW_DUMMY_SK).map(|_| ()).unwrap_err();
             assert_eq!(shown, err, "one refusal, worded once");
+        }
+
+        #[test]
+        fn a_signed_spend_still_carrying_dummy_sk_is_refused_too() {
+            // The specification refuses the PCZT, not the spend: a key left on an action that is
+            // already signed (`ironwood_single_spend.signed.pczt` with `dummy_sk` set on action
+            // 0; konclave-signer carries the identical file) is refused as well, though that
+            // action would not join the ceremony.
+            let err = extract_randomizers(IW_DUMMY_SK_SIGNED).unwrap_err();
+            assert!(err.contains("dummy_sk"), "{err}");
         }
 
         #[test]
