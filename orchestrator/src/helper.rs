@@ -1541,12 +1541,40 @@ fn save_registration_with(
     .map_err(ToolError::Io)
 }
 
+/// What the volume says about a vault's registration. THREE states, because "there is none" and
+/// "there is one and it cannot be read" are different facts: treating them alike let an unreadable
+/// `registration.json` (a truncated write, an old non-atomic one) be overwritten by a NEW identity
+/// for the vault, which destroys the only record of its address and viewing key.
+#[derive(Debug)]
+pub enum StoredRegistration {
+    Loaded(VaultRegistration),
+    /// No `registration.json` at all.
+    Absent,
+    /// Something is there and it is not a registration this build can read.
+    Unreadable,
+}
+
+/// The ONE reader of `registration.json`: [`load_registration`], the registration guard and the boot
+/// listings all ask this, so "no registration" means the same thing in each.
+pub fn stored_registration(vaults_dir: &Path, group_key: &str) -> StoredRegistration {
+    match std::fs::read_to_string(registration_path(vaults_dir, group_key)) {
+        Ok(json) => match serde_json::from_str(&json) {
+            Ok(reg) => StoredRegistration::Loaded(reg),
+            Err(_) => StoredRegistration::Unreadable,
+        },
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => StoredRegistration::Absent,
+        Err(_) => StoredRegistration::Unreadable,
+    }
+}
+
 /// Load a single persisted registration if present (used to make [`register_vault`] idempotent and
-/// its address stable across restarts). Returns `None` when the file is absent or unreadable.
+/// its address stable across restarts). Returns `None` when the file is absent or unreadable; a
+/// caller that has to tell those apart asks [`stored_registration`].
 pub fn load_registration(vaults_dir: &Path, group_key: &str) -> Option<VaultRegistration> {
-    let path = registration_path(vaults_dir, group_key);
-    let json = std::fs::read_to_string(path).ok()?;
-    serde_json::from_str(&json).ok()
+    match stored_registration(vaults_dir, group_key) {
+        StoredRegistration::Loaded(reg) => Some(reg),
+        _ => None,
+    }
 }
 
 /// Record the wallet birthday on every registration that is missing one, reading it from the
@@ -1572,19 +1600,25 @@ pub fn backfill_birthdays(vaults_dir: &Path) -> usize {
             continue;
         }
         let Some(b) = read_wallet_birthday(Path::new(&reg.wallet_dir)) else {
-            eprintln!(
-                "vault {}: no birthday to record (no readable keys.toml); a rebuilt wallet would scan from now",
-                reg.vault_id
+            log_vault(
+                &reg.vault_id,
+                "no birthday to record (no readable keys.toml); a rebuilt wallet would scan from now",
             );
             continue;
         };
         reg.birthday = Some(b);
         match save_registration(vaults_dir, &reg) {
             Ok(()) => {
-                eprintln!("vault {}: birthday {b} recorded", reg.vault_id);
+                log_vault(&reg.vault_id, &format!("birthday {b} recorded"));
                 n += 1;
             }
-            Err(e) => eprintln!("vault {}: could not record birthday: {e:?}", reg.vault_id),
+            Err(e) => log_vault(
+                &reg.vault_id,
+                &format!(
+                    "could not record birthday ({:?}); retried at the next boot",
+                    tool_error_kind(&e)
+                ),
+            ),
         }
     }
     n
@@ -1612,9 +1646,11 @@ pub fn backfill_change_receivers(vaults_dir: &Path, network: &str) -> usize {
         let receiver = match change_receiver(&reg.ufvk, network) {
             Ok(r) => r,
             Err(e) => {
-                eprintln!(
-                    "vault {}: no change receiver to record ({e:?}); the money gate stays unable to judge this vault's change",
-                    reg.vault_id
+                log_vault(
+                    &reg.vault_id,
+                    &format!(
+                        "no change receiver to record ({e:?}); the money gate stays unable to judge this vault's change"
+                    ),
                 );
                 continue;
             }
@@ -1622,12 +1658,15 @@ pub fn backfill_change_receivers(vaults_dir: &Path, network: &str) -> usize {
         reg.change_receiver = receiver;
         match save_registration(vaults_dir, &reg) {
             Ok(()) => {
-                eprintln!("vault {}: change receiver recorded", reg.vault_id);
+                log_vault(&reg.vault_id, "change receiver recorded");
                 n += 1;
             }
-            Err(e) => eprintln!(
-                "vault {}: could not record the change receiver: {e:?}",
-                reg.vault_id
+            Err(e) => log_vault(
+                &reg.vault_id,
+                &format!(
+                    "could not record the change receiver ({:?}); retried at the next boot",
+                    tool_error_kind(&e)
+                ),
             ),
         }
     }
@@ -1685,6 +1724,17 @@ pub fn wallet_dir_for(vaults_dir: &Path, group_key: &str) -> String {
 /// (public material only), then initialise a **view-only** wallet from the UFVK. The helper thus
 /// knows only what a watcher knows; it never sees or stores a share. Rejects a malformed group key
 /// before running anything.
+///
+/// A registration that cannot be RECORDED is not a registration: the address in the answer would not
+/// survive a restart (the identity is minted at random and cannot be derived again), so it fails
+/// with [`RegisterError::NotPersisted`] and nothing is served. This used to discard the write's
+/// result.
+///
+/// The caller serialises registrations of ONE vault: the coordinator's `serve` takes that vault's
+/// write lock for a `POST /api/vault` that will reach this function, and answers the second request
+/// from the registry the first one filled. The set-aside below relies on it ("this call created that
+/// wallet"): two unserialised calls would let the loser, whose `init-fvk` is refused, move the
+/// winner's wallet away.
 pub fn register_vault(
     cfg: &HelperConfig,
     group_key: &str,
@@ -1692,7 +1742,33 @@ pub fn register_vault(
     threshold: u16,
     total: u16,
     cp: Option<u32>,
-) -> Result<VaultRegistration, ToolError> {
+) -> Result<VaultRegistration, RegisterError> {
+    register_vault_with(
+        cfg,
+        group_key,
+        name,
+        threshold,
+        total,
+        cp,
+        write_synced,
+        |from, to| std::fs::rename(from, to),
+    )
+}
+
+/// [`register_vault`] with the two things the volume can refuse as parameters (the write of the
+/// registration's temporary file, and the rename that sets a wallet directory aside), so each failure
+/// can be driven through every path that makes one.
+#[allow(clippy::too_many_arguments)]
+fn register_vault_with(
+    cfg: &HelperConfig,
+    group_key: &str,
+    name: &str,
+    threshold: u16,
+    total: u16,
+    cp: Option<u32>,
+    write_tmp: impl Fn(&Path, &[u8]) -> std::io::Result<()>,
+    rename: impl Fn(&Path, &Path) -> std::io::Result<()>,
+) -> Result<VaultRegistration, RegisterError> {
     if !is_valid_group_key(group_key) {
         return Err(ToolError::parse(
             "helper",
@@ -1700,52 +1776,95 @@ pub fn register_vault(
                 "group key must be 64 hex chars, got {} chars",
                 group_key.len()
             ),
-        ));
+        )
+        .into());
     }
     // Persisted-registration shortcut: if this vault was registered before (surviving a restart),
     // return the STORED registration - no re-derivation, so the address stays stable and the
     // heavy wallet init is not repeated.
-    if let Some(mut reg) = load_registration(&cfg.vaults_dir, group_key) {
+    let stored = stored_registration(&cfg.vaults_dir, group_key);
+    if let StoredRegistration::Loaded(mut reg) = stored {
         // Backfill the birthday for a vault registered before the field existed (#434). The number
         // lives only in `wallet/keys.toml`, which the documented ops backup EXCLUDES, so a vault
         // that loses its volume before this runs cannot have its wallet rebuilt correctly. Reading
         // it here captures it into the half that IS backed up, on the next registration touch.
-        // Idempotent, and best-effort: it never fails a registration.
+        // Idempotent, and it never fails a registration: the record that is served is the one that
+        // was read, and a birthday that cannot be written is tried again by the boot backfill.
         if reg.birthday.is_none() {
             if let Some(b) = read_wallet_birthday(Path::new(&reg.wallet_dir)) {
                 reg.birthday = Some(b);
-                let _ = save_registration(&cfg.vaults_dir, &reg);
-                eprintln!("vault {group_key}: birthday {b} recorded from keys.toml");
+                match record_birthday_with(&cfg.vaults_dir, &reg, &write_tmp) {
+                    Ok(()) => log_vault(group_key, &format!("birthday {b} recorded from keys.toml")),
+                    Err(kind) => log_vault(
+                        group_key,
+                        &format!(
+                            "birthday {b} read from keys.toml but not recorded ({kind:?}); retried at the next boot"
+                        ),
+                    ),
+                }
             }
         }
         return Ok(reg);
     }
-    let (address, ufvk) = derive_identity(&cfg.zcash_sign, group_key, &cfg.network)?;
+    // Three refusals, all BEFORE the engine runs, so that nothing new is created:
+    //
+    // - a `registration.json` that is there and cannot be read. It is the only record of that
+    //   vault's address and viewing key, and a new registration would write over it with a new
+    //   identity. It is not touched (docs/RECOVERY.md, I).
+    // - a wallet directory already in place with no registration. The engine refuses it itself
+    //   (`init-fvk` opens `keys.toml` with `create_new(true)`), and as a 502 that would read as the
+    //   request's fault for ever. It is NOT moved: it may be the only copy of the viewing key of a
+    //   vault this coordinator served before the write was checked (docs/RECOVERY.md, I).
+    // - three wallet directories already set aside for this vault, so a volume that cannot take a
+    //   registration does not also grow by one directory per attempt.
+    if matches!(stored, StoredRegistration::Unreadable) {
+        log_vault(
+            group_key,
+            "registration refused: a registration is in place and cannot be read; it is not touched (docs/RECOVERY.md, I)",
+        );
+        return Err(RegisterError::CleanupFailed);
+    }
     let wallet_dir = wallet_dir_for(&cfg.vaults_dir, group_key);
-    run(
-        &cfg.devtool,
-        &[
-            "wallet",
-            "-w",
-            wallet_dir.as_str(),
-            "init-fvk",
-            "--name",
-            name,
-            "--fvk",
-            ufvk.as_str(),
-            "-s",
-            cfg.lightwalletd.as_str(),
-            "--connection",
-            "direct",
-        ],
-        None,
-    )?;
-    let listed = run_text_all(
-        &cfg.devtool,
-        &["wallet", "-w", wallet_dir.as_str(), "list-addresses"],
-        None,
-    )?;
-    let account = parse_account_uuid(&listed)?;
+    if in_the_way(Path::new(&wallet_dir)) {
+        log_vault(
+            group_key,
+            "registration refused: a wallet directory is in place with no registration; it is not touched (docs/RECOVERY.md, I)",
+        );
+        return Err(RegisterError::CleanupFailed);
+    }
+    let left = unpersisted_leftovers(&cfg.vaults_dir.join(group_key));
+    if left >= MAX_UNPERSISTED_LEFTOVERS {
+        log_vault(
+            group_key,
+            &format!(
+                "registration refused: {left} wallet directories from earlier attempts are still in place; an operator has to clear them (docs/RECOVERY.md, I)"
+            ),
+        );
+        return Err(RegisterError::CleanupFailed);
+    }
+    let (address, ufvk) = derive_identity(&cfg.zcash_sign, group_key, &cfg.network)?;
+    // From here on the engine writes a wallet. Whatever stops it part way (the volume filling up
+    // under the SQLite file is the likely one) must not leave that directory where the next attempt's
+    // `init-fvk` trips on it, so a failure sets it aside like a failed write does. It is safe to move:
+    // the check above proved this call is the one that created it.
+    let account = match build_view_wallet(cfg, &wallet_dir, name, &ufvk) {
+        Ok(account) => account,
+        Err(e) => {
+            let out_of_the_way = set_aside_logged(
+                group_key,
+                &wallet_dir,
+                &format!("the engine failed ({:?})", tool_error_kind(&e)),
+                &rename,
+            );
+            // The same answer as a failed write: when the directory could not be moved, the next
+            // attempt cannot work until an operator acts, and the request is not what is wrong.
+            return Err(if out_of_the_way {
+                RegisterError::Engine(e)
+            } else {
+                RegisterError::CleanupFailed
+            });
+        }
+    };
     // Derived, not fetched: the change receiver comes from the UFVK we just generated, in the same
     // breath, so it is impossible for it to disagree with the wallet this registration describes.
     //
@@ -1758,8 +1877,9 @@ pub fn register_vault(
     let change_receiver = match change_receiver(&ufvk, &cfg.network) {
         Ok(addr) => addr,
         Err(e) => {
-            eprintln!(
-                "vault {group_key}: no change receiver derived ({e:?}); its money gate stays unarmed"
+            log_vault(
+                group_key,
+                &format!("no change receiver derived ({e:?}); its money gate stays unarmed"),
             );
             String::new()
         }
@@ -1769,8 +1889,9 @@ pub fn register_vault(
     // vault that gets backed up (#434).
     let birthday = read_wallet_birthday(Path::new(&wallet_dir));
     if birthday.is_none() {
-        eprintln!(
-            "vault {group_key}: no birthday read from keys.toml; a rebuilt wallet would scan from now"
+        log_vault(
+            group_key,
+            "no birthday read from keys.toml; a rebuilt wallet would scan from now",
         );
     }
     let reg = VaultRegistration {
@@ -1786,10 +1907,284 @@ pub fn register_vault(
         cp,
         created_at_unix: registration_time(now_secs()),
     };
-    // Persist so a restart keeps the vault + its now-fixed address. Best-effort: a write failure
-    // (e.g. read-only FS) must not fail the registration - the in-memory state still serves it.
-    let _ = save_registration(&cfg.vaults_dir, &reg);
+    persist_new_registration_with(&cfg.vaults_dir, &reg, write_tmp, &rename)?;
     Ok(reg)
+}
+
+/// Build the vault's view-only wallet from its UFVK and read back its account.
+fn build_view_wallet(
+    cfg: &HelperConfig,
+    wallet_dir: &str,
+    name: &str,
+    ufvk: &str,
+) -> Result<String, ToolError> {
+    run(
+        &cfg.devtool,
+        &[
+            "wallet",
+            "-w",
+            wallet_dir,
+            "init-fvk",
+            "--name",
+            name,
+            "--fvk",
+            ufvk,
+            "-s",
+            cfg.lightwalletd.as_str(),
+            "--connection",
+            "direct",
+        ],
+        None,
+    )?;
+    let listed = run_text_all(
+        &cfg.devtool,
+        &["wallet", "-w", wallet_dir, "list-addresses"],
+        None,
+    )?;
+    parse_account_uuid(&listed)
+}
+
+/// Whether something is at `path`, or cannot be told not to be: a `stat` that fails for any reason
+/// but "not found" counts as present, so a guard built on it fails closed, not open.
+fn in_the_way(path: &Path) -> bool {
+    match std::fs::symlink_metadata(path) {
+        Ok(_) => true,
+        Err(e) => e.kind() != std::io::ErrorKind::NotFound,
+    }
+}
+
+/// Why a registration did not complete.
+#[derive(Debug)]
+pub enum RegisterError {
+    /// The request, the key or the engine failed: nothing was recorded.
+    Engine(ToolError),
+    /// The identity was derived and the wallet built, but the registration could not be written.
+    /// What the attempt created was set aside, so the same vault can be registered again.
+    NotPersisted(ToolError),
+    /// An operator has to act before another attempt can work: what a failed attempt left could not
+    /// be set aside, three earlier attempts' leftovers are in place, or a wallet directory or an
+    /// unreadable registration is there that is not this call's to touch.
+    CleanupFailed,
+}
+
+impl From<ToolError> for RegisterError {
+    fn from(e: ToolError) -> Self {
+        RegisterError::Engine(e)
+    }
+}
+
+/// What a person is told when the registration could not be saved. Plain, under the length the
+/// screens show verbatim, and clear of the words they match on to classify a failure
+/// (`SCREEN_KEYWORDS` in the helper server's tests); the operating-system text stays in the log.
+pub const NOT_PERSISTED_TEXT: &str = "the vault could not be registered because its record could not be saved; nothing was created, try again in a moment";
+
+/// What a person is told when an operator has to act before another attempt can work.
+pub const CLEANUP_FAILED_TEXT: &str =
+    "the vault could not be registered; the coordinator needs its operator before another attempt";
+
+impl std::fmt::Display for RegisterError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RegisterError::Engine(e) => write!(f, "{e}"),
+            RegisterError::NotPersisted(_) => f.write_str(NOT_PERSISTED_TEXT),
+            RegisterError::CleanupFailed => f.write_str(CLEANUP_FAILED_TEXT),
+        }
+    }
+}
+
+/// One log line about a vault: its 8-character prefix, never the id. EVERY line of the registration
+/// path goes through this, so the rule has one implementation.
+fn vault_log_line(vault_id: &str, what: &str) -> String {
+    format!("vault {}: {what}", short_id(vault_id))
+}
+
+// Test builds can capture what a test makes the registration path log (per thread), so a test can
+// say that no line carries a whole id, a path or the engine's text.
+#[cfg(test)]
+thread_local! {
+    static LOG_SINK: std::cell::RefCell<Option<Vec<String>>> = const { std::cell::RefCell::new(None) };
+}
+
+fn log_vault(vault_id: &str, what: &str) {
+    let line = vault_log_line(vault_id, what);
+    #[cfg(test)]
+    {
+        let captured = LOG_SINK.with(|s| match s.borrow_mut().as_mut() {
+            Some(lines) => {
+                lines.push(line.clone());
+                true
+            }
+            None => false,
+        });
+        if captured {
+            return;
+        }
+    }
+    eprintln!("{line}");
+}
+
+/// Write a birthday that was just read from `keys.toml` into the registration. A failure is
+/// returned as its kind and never fails the registration; the boot backfill
+/// ([`backfill_birthdays`]) retries it.
+fn record_birthday_with(
+    vaults_dir: &Path,
+    reg: &VaultRegistration,
+    write_tmp: impl Fn(&Path, &[u8]) -> std::io::Result<()>,
+) -> Result<(), std::io::ErrorKind> {
+    save_registration_with(vaults_dir, reg, write_tmp).map_err(|e| tool_error_kind(&e))
+}
+
+/// The kind of I/O failure behind a [`ToolError`], as the one word a log line may carry. Never the
+/// message: free text, and the engine's own error text names the wallet's path, which holds the
+/// whole vault id.
+fn tool_error_kind(e: &ToolError) -> std::io::ErrorKind {
+    match e {
+        ToolError::Io(io) | ToolError::Spawn { source: io, .. } => io.kind(),
+        _ => std::io::ErrorKind::Other,
+    }
+}
+
+/// How many wallet directories a failed registration may leave for ONE vault before the next
+/// attempt is refused.
+const MAX_UNPERSISTED_LEFTOVERS: usize = 3;
+const UNPERSISTED_PREFIX: &str = "wallet.unpersisted-";
+
+/// The wallet directories earlier failed registrations of this vault set aside.
+fn unpersisted_leftovers(vault_dir: &Path) -> usize {
+    std::fs::read_dir(vault_dir)
+        .map(|rd| {
+            rd.flatten()
+                .filter(|e| {
+                    e.file_name()
+                        .to_string_lossy()
+                        .starts_with(UNPERSISTED_PREFIX)
+                })
+                .count()
+        })
+        .unwrap_or(0)
+}
+
+/// A name for a wallet directory being set aside that is not taken: `wallet.unpersisted-<stamp>`,
+/// then `-1`, `-2`, ... for a second failure in the same second. A rename onto an existing
+/// directory would fail, and a failure here is the one that blocks the vault.
+fn free_aside_name(parent: &Path, stamp: u64) -> PathBuf {
+    (0u32..)
+        .map(|n| match n {
+            0 => parent.join(format!("{UNPERSISTED_PREFIX}{stamp}")),
+            n => parent.join(format!("{UNPERSISTED_PREFIX}{stamp}-{n}")),
+        })
+        .find(|p| !p.exists())
+        .expect("an unbounded sequence has a free name")
+}
+
+/// Rename a wallet directory to a free `wallet.unpersisted-*` name next to it. `Ok(None)` when there
+/// is no such directory, `Ok(Some(name))` when it was moved, the failure's kind otherwise. Nothing
+/// is ever deleted.
+fn set_wallet_aside(
+    wallet: &Path,
+    rename: impl Fn(&Path, &Path) -> std::io::Result<()>,
+) -> Result<Option<String>, std::io::ErrorKind> {
+    if !wallet.exists() {
+        return Ok(None);
+    }
+    let parent = wallet.parent().unwrap_or_else(|| Path::new("."));
+    let aside = free_aside_name(parent, now_secs());
+    rename(wallet, &aside)
+        .map(|()| {
+            Some(
+                aside
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or(UNPERSISTED_PREFIX)
+                    .to_string(),
+            )
+        })
+        .map_err(|e| e.kind())
+}
+
+/// [`set_wallet_aside`] with the ONE log line for it, used when an attempt fails after the engine
+/// has started writing. Returns whether the directory is out of the way.
+fn set_aside_logged(
+    vault_id: &str,
+    wallet_dir: &str,
+    why: &str,
+    rename: impl Fn(&Path, &Path) -> std::io::Result<()>,
+) -> bool {
+    match set_wallet_aside(Path::new(wallet_dir), rename) {
+        Ok(None) => {
+            log_vault(
+                vault_id,
+                &format!("registration not completed: {why}; no wallet directory to set aside"),
+            );
+            true
+        }
+        Ok(Some(name)) => {
+            log_vault(vault_id, &format!("registration not completed: {why}; its wallet directory was set aside as {name}"));
+            true
+        }
+        Err(kind) => {
+            log_vault(vault_id, &format!("registration not completed: {why}; its wallet directory could NOT be set aside ({kind:?}) and blocks the next attempt until an operator moves it (docs/RECOVERY.md, I)"));
+            false
+        }
+    }
+}
+
+/// Record a registration that was just created, or undo what creating it left behind.
+///
+/// When the write fails the vault must not be served, because the address in the answer would be
+/// unrecoverable at the next restart. The wallet `init-fvk` just created is renamed to
+/// `wallet.unpersisted-<unix>`: the engine refuses a directory that already holds a `keys.toml`
+/// (`create_new(true)`), so leaving it would make every retry fail. Nothing is deleted, and nothing
+/// that moves was ever served: [`register_vault_with`] refuses before the engine runs when a wallet
+/// directory is already in place, so this call created that one.
+///
+/// ONE log line per failure, the vault by its 8-character prefix and the failure by its kind.
+fn persist_new_registration_with(
+    vaults_dir: &Path,
+    reg: &VaultRegistration,
+    write_tmp: impl Fn(&Path, &[u8]) -> std::io::Result<()>,
+    rename: impl Fn(&Path, &Path) -> std::io::Result<()>,
+) -> Result<(), RegisterError> {
+    let e = match save_registration_with(vaults_dir, reg, write_tmp) {
+        Ok(()) => return Ok(()),
+        Err(e) => e,
+    };
+    let why = format!("its record was not written ({:?})", tool_error_kind(&e));
+    if set_aside_logged(&reg.vault_id, &reg.wallet_dir, &why, rename) {
+        Err(RegisterError::NotPersisted(e))
+    } else {
+        Err(RegisterError::CleanupFailed)
+    }
+}
+
+/// Vault directories that need an operator's eye, by 8-character prefix: `.0` hold a `wallet/` and
+/// NO registration (a vault this coordinator served before a failed write stopped being served would
+/// look like this, its key in that wallet and nowhere else on the coordinator, and so would a failed
+/// attempt that was not set aside); `.1` hold a registration that cannot be read. Nothing is touched;
+/// this only says it is there. Both ask [`stored_registration`], the same reader the registration
+/// guard uses.
+pub fn registrations_needing_attention(vaults_dir: &Path) -> (Vec<String>, Vec<String>) {
+    let (mut orphans, mut unreadable) = (Vec::new(), Vec::new());
+    if let Ok(rd) = std::fs::read_dir(vaults_dir) {
+        for e in rd.flatten() {
+            let Some(name) = e.file_name().to_str().map(str::to_string) else {
+                continue;
+            };
+            if !is_valid_group_key(&name) {
+                continue;
+            }
+            match stored_registration(vaults_dir, &name) {
+                StoredRegistration::Absent if e.path().join("wallet").is_dir() => {
+                    orphans.push(short_id(&name).to_string());
+                }
+                StoredRegistration::Unreadable => unreadable.push(short_id(&name).to_string()),
+                _ => {}
+            }
+        }
+    }
+    orphans.sort();
+    unreadable.sort();
+    (orphans, unreadable)
 }
 
 /// The time a registration is recorded as made. `now_secs()` is 0 when the clock cannot be read,
@@ -4002,6 +4397,708 @@ mod change_receiver_tests {
         let bare = register_vault(&cfg, &key2, "v", 2, 3, None).expect("registers");
         assert_eq!(bare.cp, None);
         assert!(bare.created_at_unix.is_some());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ---- a registration that cannot be recorded is not a registration ----------------------------
+
+    /// Fake tools that behave like the real ones where it matters here: `init-fvk` REFUSES a wallet
+    /// directory that already holds a `keys.toml` (zcash-devtool `config.rs`: `create_new(true)`),
+    /// writes that file BEFORE the SQLite file (a file `init-fails` next to it makes it stop there,
+    /// the way a full volume stops that one), a file `block-registration` makes a DIRECTORY appear at
+    /// `registration.json` during the attempt (a write that then cannot succeed, with the real
+    /// writer), `zcash-sign` answers a new
+    /// address on every call (the identity is minted at random), and the signer leaves a marker so a
+    /// test can tell whether the engine ran at all. A `--probe` run changes nothing.
+    #[cfg(unix)]
+    fn n1_fixture(name: &str) -> (HelperConfig, PathBuf) {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("konclave-n1-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let write_exe = |file: &str, body: &str| {
+            let p = dir.join(file);
+            std::fs::write(&p, body).unwrap();
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+            for _ in 0..200 {
+                match std::process::Command::new(&p).arg("--probe").output() {
+                    Err(e) if e.raw_os_error() == Some(26) => {
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                    }
+                    _ => break,
+                }
+            }
+            p
+        };
+        let marker = dir.join("engine-ran");
+        let counter = dir.join("identities");
+        let sign = write_exe(
+            "fake-sign",
+            &format!(
+                "#!/bin/sh\n[ \"$1\" = \"--probe\" ] && exit 0\ntouch '{m}'\nn=$(cat '{c}' 2>/dev/null || echo 0)\nn=$((n+1))\necho $n > '{c}'\necho \"Orchard-only unified address: \\\"u1fake$n\\\"\"\necho \"Unified Full Viewing Key: \\\"uviewfake$n\\\"\"\n",
+                m = marker.display(),
+                c = counter.display()
+            ),
+        );
+        let devtool = write_exe(
+            "fake-devtool",
+            "#!/bin/sh\ncase \"$4\" in\n  init-fvk) mkdir -p \"$3\"; if [ -e \"$3/keys.toml\" ]; then echo 'File exists (os error 17)' >&2; exit 1; fi; printf 'network = \"main\"\\nbirthday = 3400000\\n' > \"$3/keys.toml\"; if [ -e \"$(dirname \"$0\")/block-registration\" ]; then mkdir -p \"$(dirname \"$3\")/registration.json\"; fi; if [ -e \"$(dirname \"$0\")/init-fails\" ]; then echo 'disk full' >&2; exit 1; fi ;;\n  list-addresses) echo 'Account AccountUuid(11111111-1111-1111-1111-111111111111)' ;;\nesac\n",
+        );
+        let cfg = HelperConfig {
+            zcash_sign: sign,
+            devtool,
+            lightwalletd: "unused:443".into(),
+            network: "main".into(),
+            konclave_signer: PathBuf::from("/unused"),
+            vaults_dir: dir.join("vaults"),
+            relays: Vec::new(),
+        };
+        (cfg, dir)
+    }
+
+    /// The names of the wallet directories a failed registration moved aside.
+    #[cfg(unix)]
+    fn n1_leftovers(vaults_dir: &Path, key: &str) -> Vec<String> {
+        let mut out: Vec<String> = std::fs::read_dir(vaults_dir.join(key))
+            .map(|rd| {
+                rd.flatten()
+                    .filter_map(|e| e.file_name().to_str().map(str::to_string))
+                    .filter(|n| n.starts_with("wallet.unpersisted-"))
+                    .collect()
+            })
+            .unwrap_or_default();
+        out.sort();
+        out
+    }
+
+    #[cfg(unix)]
+    fn n1_registration(key: &str, wallet: &Path) -> VaultRegistration {
+        VaultRegistration {
+            vault_id: key.to_string(),
+            address: "u1x".into(),
+            ufvk: "uview".into(),
+            wallet_dir: wallet.display().to_string(),
+            account: "a".into(),
+            threshold: 2,
+            total: 3,
+            change_receiver: "u1c".into(),
+            birthday: None,
+            cp: None,
+            created_at_unix: None,
+        }
+    }
+
+    /// THE HOLE. The registration used to be written with `let _ =`, so a write that failed (a full
+    /// or read-only volume) still returned Ok: the vault was served from memory with an address that
+    /// no restart would find. The writer is made to fail with the real one: a DIRECTORY appears at
+    /// `registration.json` during the attempt, so the final rename cannot succeed (and, unlike a
+    /// permission bit, this also fails when the tests run as root).
+    #[cfg(unix)]
+    #[test]
+    fn a_registration_that_cannot_be_written_is_not_a_registration() {
+        let (cfg, dir) = n1_fixture("unwritable");
+        let key = format!("{:064x}", 0x1111);
+        std::fs::write(dir.join("block-registration"), "").unwrap();
+
+        let err = register_vault(&cfg, &key, "v", 2, 3, Some(2)).expect_err("must not be Ok");
+        assert!(matches!(err, RegisterError::NotPersisted(_)), "{err:?}");
+        // Nothing a restart could load, nothing served.
+        assert!(load_registration(&cfg.vaults_dir, &key).is_none());
+        // The attempt's wallet is set aside, not left where the next `init-fvk` would trip on it.
+        assert!(!cfg.vaults_dir.join(&key).join("wallet").exists());
+        assert_eq!(n1_leftovers(&cfg.vaults_dir, &key).len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The retry has to be able to work: with an engine that refuses an existing wallet directory,
+    /// leaving it in place would make every later attempt fail. After the volume heals, the same id
+    /// registers, with a NEW identity (the first one was never served or stored).
+    #[cfg(unix)]
+    #[test]
+    fn after_a_failed_write_the_same_vault_can_register_again_with_a_new_identity() {
+        let (cfg, dir) = n1_fixture("retry");
+        let key = format!("{:064x}", 0x2222);
+        let blocker = cfg.vaults_dir.join(&key).join("registration.json");
+        std::fs::write(dir.join("block-registration"), "").unwrap();
+        assert!(register_vault(&cfg, &key, "v", 2, 3, None).is_err());
+
+        // The volume is healthy again.
+        std::fs::remove_file(dir.join("block-registration")).unwrap();
+        std::fs::remove_dir(&blocker).unwrap();
+        let reg = register_vault(&cfg, &key, "v", 2, 3, None).expect("the retry registers");
+        assert_eq!(
+            reg.address, "u1fake2",
+            "a new identity, the first was never served"
+        );
+        let stored = load_registration(&cfg.vaults_dir, &key).expect("persisted this time");
+        assert_eq!(stored.address, "u1fake2");
+        assert!(cfg
+            .vaults_dir
+            .join(&key)
+            .join("wallet")
+            .join("keys.toml")
+            .exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The seam: a failing writer is `NotPersisted`, nothing is written, the wallet is set aside.
+    /// If the wallet cannot be set aside either, the answer says so and the directory stays put. If
+    /// there is no wallet directory there is nothing to move, and moving is not even attempted.
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_write_sets_the_wallet_aside_and_says_so_when_it_cannot() {
+        let (cfg, dir) = n1_fixture("seam");
+        let key = format!("{:064x}", 0x3333);
+        let wallet = cfg.vaults_dir.join(&key).join("wallet");
+        std::fs::create_dir_all(&wallet).unwrap();
+        let reg = n1_registration(&key, &wallet);
+        let full = |_: &Path, _: &[u8]| -> std::io::Result<()> {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::StorageFull,
+                "no space left on device",
+            ))
+        };
+
+        // The rename fails too: CleanupFailed, and the directory is where it was.
+        let stuck = persist_new_registration_with(&cfg.vaults_dir, &reg, full, |_, _| {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "read-only",
+            ))
+        });
+        assert!(
+            matches!(stuck, Err(RegisterError::CleanupFailed)),
+            "{stuck:?}"
+        );
+        assert!(wallet.exists());
+
+        // The rename works: NotPersisted, and the wallet moved.
+        let moved = persist_new_registration_with(&cfg.vaults_dir, &reg, full, |a, b| {
+            std::fs::rename(a, b)
+        });
+        assert!(
+            matches!(moved, Err(RegisterError::NotPersisted(_))),
+            "{moved:?}"
+        );
+        assert!(!wallet.exists());
+        assert_eq!(n1_leftovers(&cfg.vaults_dir, &key).len(), 1);
+        assert!(load_registration(&cfg.vaults_dir, &key).is_none());
+
+        // No wallet directory (the engine failed before making one): NotPersisted, and the rename
+        // that would have failed is never called.
+        let none = persist_new_registration_with(&cfg.vaults_dir, &reg, full, |_, _| {
+            panic!("there is nothing to rename")
+        });
+        assert!(
+            matches!(none, Err(RegisterError::NotPersisted(_))),
+            "{none:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A second failure in the same second must not try to rename onto the first's directory.
+    #[cfg(unix)]
+    #[test]
+    fn a_name_that_is_taken_is_skipped_when_a_wallet_is_set_aside() {
+        let dir = std::env::temp_dir().join(format!("konclave-n1-{}-names", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(
+            free_aside_name(&dir, 100),
+            dir.join("wallet.unpersisted-100")
+        );
+        std::fs::create_dir_all(dir.join("wallet.unpersisted-100")).unwrap();
+        assert_eq!(
+            free_aside_name(&dir, 100),
+            dir.join("wallet.unpersisted-100-1")
+        );
+        std::fs::create_dir_all(dir.join("wallet.unpersisted-100-1")).unwrap();
+        assert_eq!(
+            free_aside_name(&dir, 100),
+            dir.join("wallet.unpersisted-100-2")
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A volume that is full must not grow with every attempt: three leftovers per vault, and the
+    /// fourth attempt is refused BEFORE the engine runs (so nothing new is created).
+    #[cfg(unix)]
+    #[test]
+    fn leftovers_are_bounded_and_the_fourth_attempt_creates_nothing() {
+        let (cfg, dir) = n1_fixture("bounded");
+        let key = format!("{:064x}", 0x4444);
+        let vault = cfg.vaults_dir.join(&key);
+        for n in 1..=3 {
+            std::fs::create_dir_all(vault.join(format!("wallet.unpersisted-{n}"))).unwrap();
+        }
+        let err = register_vault(&cfg, &key, "v", 2, 3, None).expect_err("refused");
+        assert!(matches!(err, RegisterError::CleanupFailed), "{err:?}");
+        assert!(!dir.join("engine-ran").exists(), "the engine did not run");
+        assert!(!vault.join("wallet").exists());
+        assert_eq!(n1_leftovers(&cfg.vaults_dir, &key).len(), 3);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The engine writes `keys.toml` first and can still fail after it (the volume filling up under
+    /// the wallet's database). That attempt is the same as a failed write: its directory is set
+    /// aside, so the vault is not locked out of registering by its own failed first try.
+    #[cfg(unix)]
+    #[test]
+    fn an_engine_failure_after_the_wallet_was_started_does_not_lock_the_vault_out() {
+        let (cfg, dir) = n1_fixture("engine-partial");
+        let key = format!("{:064x}", 0x7777);
+        std::fs::write(dir.join("init-fails"), "").unwrap();
+        let err = register_vault(&cfg, &key, "v", 2, 3, None).expect_err("the engine failed");
+        assert!(matches!(err, RegisterError::Engine(_)), "{err:?}");
+        assert!(!cfg.vaults_dir.join(&key).join("wallet").exists());
+        assert_eq!(n1_leftovers(&cfg.vaults_dir, &key).len(), 1);
+
+        std::fs::remove_file(dir.join("init-fails")).unwrap();
+        let reg = register_vault(&cfg, &key, "v", 2, 3, None).expect("the retry registers");
+        assert_eq!(reg.address, "u1fake2");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A wallet directory with no registration may be the only copy of a served vault's viewing key
+    /// (this coordinator served such vaults before a failed write was refused). It is refused, not
+    /// moved and not initialised over, and the engine does not run.
+    #[cfg(unix)]
+    #[test]
+    fn a_wallet_directory_with_no_registration_is_refused_and_left_alone() {
+        let (cfg, dir) = n1_fixture("orphan");
+        let key = format!("{:064x}", 0x8888);
+        let wallet = cfg.vaults_dir.join(&key).join("wallet");
+        std::fs::create_dir_all(&wallet).unwrap();
+        std::fs::write(wallet.join("data.sqlite"), "THE ONLY COPY").unwrap();
+
+        let err = register_vault(&cfg, &key, "v", 2, 3, None).expect_err("refused");
+        assert!(matches!(err, RegisterError::CleanupFailed), "{err:?}");
+        assert!(!dir.join("engine-ran").exists(), "the engine did not run");
+        assert_eq!(
+            std::fs::read_to_string(wallet.join("data.sqlite")).unwrap(),
+            "THE ONLY COPY"
+        );
+        assert!(n1_leftovers(&cfg.vaults_dir, &key).is_empty());
+        assert_eq!(
+            registrations_needing_attention(&cfg.vaults_dir).0,
+            vec![key[..8].to_string()]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A birthday that is read from `keys.toml` but cannot be written does not fail a vault that is
+    /// served from its stored record: the registration comes back with the birthday, the record on
+    /// disk is as it was, and the boot backfill writes it later. Driven THROUGH `register_vault`
+    /// (the write is the seam), so the call site is what is tested, not a wrapper of it.
+    #[cfg(unix)]
+    #[test]
+    fn a_birthday_that_cannot_be_recorded_does_not_fail_a_stored_vault() {
+        let (cfg, dir) = n1_fixture("birthday");
+        let key = format!("{:064x}", 0x5555);
+        let wallet = cfg.vaults_dir.join(&key).join("wallet");
+        std::fs::create_dir_all(&wallet).unwrap();
+        std::fs::write(
+            wallet.join("keys.toml"),
+            "network = \"main\"\nbirthday = 3400000\n",
+        )
+        .unwrap();
+        save_registration(&cfg.vaults_dir, &n1_registration(&key, &wallet)).unwrap();
+        let full = |_: &Path, _: &[u8]| -> std::io::Result<()> {
+            Err(std::io::Error::new(std::io::ErrorKind::StorageFull, "full"))
+        };
+
+        let reg = register_vault_with(&cfg, &key, "v", 2, 3, None, full, |a, b| {
+            std::fs::rename(a, b)
+        })
+        .expect("a stored vault is still returned");
+        assert_eq!(reg.birthday, Some(3_400_000));
+        assert_eq!(
+            load_registration(&cfg.vaults_dir, &key).unwrap().birthday,
+            None
+        );
+        // The boot backfill picks it up, and the engine never ran.
+        assert_eq!(backfill_birthdays(&cfg.vaults_dir), 1);
+        assert_eq!(
+            load_registration(&cfg.vaults_dir, &key).unwrap().birthday,
+            Some(3_400_000)
+        );
+        assert!(!dir.join("engine-ran").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Every line of the registration path names a vault by its 8-character prefix.
+    #[test]
+    fn a_registration_log_line_names_the_vault_by_its_prefix_only() {
+        let key = format!("{:0<64}", "abcdef12");
+        let line = vault_log_line(&key, "registration refused");
+        assert!(
+            line.contains("abcdef12") && !line.contains("abcdef120"),
+            "{line}"
+        );
+        assert!(line.contains(short_id(&key)), "{line}");
+        assert!(!line.contains(&key), "{line}");
+        // And the registration function has no bare `eprintln!`: a line goes through `log_vault`.
+        let src = include_str!("helper.rs");
+        let from = src.find("fn register_vault_with(").expect("the function");
+        let to = from
+            + src[from..]
+                .find("/// Build the vault's view-only wallet")
+                .expect("its end");
+        assert_eq!(
+            src[from..to].matches("eprintln!(").count(),
+            0,
+            "a log line in the registration path goes through `log_vault`"
+        );
+    }
+
+    /// A dangling symlink where `wallet/` goes is "in the way": it cannot be told not to be there.
+    #[cfg(unix)]
+    #[test]
+    fn a_dangling_symlink_at_wallet_is_refused_before_the_engine() {
+        let (cfg, dir) = n1_fixture("symlink");
+        let key = format!("{:064x}", 0xa301);
+        let vault = cfg.vaults_dir.join(&key);
+        std::fs::create_dir_all(&vault).unwrap();
+        std::os::unix::fs::symlink("/nonexistent-konclave-target", vault.join("wallet")).unwrap();
+        let err = register_vault(&cfg, &key, "v", 2, 3, None).expect_err("refused");
+        assert!(matches!(err, RegisterError::CleanupFailed), "{err:?}");
+        assert!(!dir.join("engine-ran").exists(), "the engine did not run");
+        assert!(
+            vault.join("wallet").symlink_metadata().is_ok(),
+            "left alone"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A vault directory with no registration and no wallet (members, proposals, a bare directory) is
+    /// not an orphan, and neither is one with a FILE named wallet.
+    #[cfg(unix)]
+    #[test]
+    fn a_vault_directory_without_a_wallet_directory_is_not_listed_as_an_orphan() {
+        let (cfg, dir) = n1_fixture("nowallet");
+        let key = format!("{:0<64}", "dddddddd");
+        std::fs::create_dir_all(cfg.vaults_dir.join(&key).join("proposals")).unwrap();
+        std::fs::write(cfg.vaults_dir.join(&key).join("members.json"), "{}").unwrap();
+        let key2 = format!("{:0<64}", "eeeeeeee");
+        std::fs::create_dir_all(cfg.vaults_dir.join(&key2)).unwrap();
+        std::fs::write(cfg.vaults_dir.join(&key2).join("wallet"), "x").unwrap();
+        let (orphans, unreadable) = registrations_needing_attention(&cfg.vaults_dir);
+        assert!(orphans.is_empty(), "{orphans:?}");
+        assert!(unreadable.is_empty(), "{unreadable:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// "Set aside" means MOVED, never deleted: what was in the wallet is in the leftover.
+    #[cfg(unix)]
+    #[test]
+    fn a_set_aside_wallet_keeps_its_contents() {
+        let (cfg, dir) = n1_fixture("keeps");
+        let key = format!("{:064x}", 0xc601);
+        let wallet = cfg.vaults_dir.join(&key).join("wallet");
+        std::fs::create_dir_all(&wallet).unwrap();
+        std::fs::write(wallet.join("data.sqlite"), "VIEWING DATA").unwrap();
+        let reg = n1_registration(&key, &wallet);
+        let full = |_: &Path, _: &[u8]| -> std::io::Result<()> {
+            Err(std::io::Error::new(std::io::ErrorKind::StorageFull, "full"))
+        };
+        let r = persist_new_registration_with(&cfg.vaults_dir, &reg, full, |a, b| {
+            std::fs::rename(a, b)
+        });
+        assert!(matches!(r, Err(RegisterError::NotPersisted(_))));
+        let left = n1_leftovers(&cfg.vaults_dir, &key);
+        assert_eq!(left.len(), 1);
+        assert_eq!(
+            std::fs::read_to_string(cfg.vaults_dir.join(&key).join(&left[0]).join("data.sqlite"))
+                .unwrap(),
+            "VIEWING DATA"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Two leftovers do not lock the vault: the cap is three, and a healthy volume registers.
+    #[cfg(unix)]
+    #[test]
+    fn two_leftovers_do_not_block_a_healthy_registration() {
+        let (cfg, dir) = n1_fixture("two");
+        let key = format!("{:064x}", 0xb201);
+        for n in 1..=2 {
+            std::fs::create_dir_all(
+                cfg.vaults_dir
+                    .join(&key)
+                    .join(format!("wallet.unpersisted-{n}")),
+            )
+            .unwrap();
+        }
+        let reg = register_vault(&cfg, &key, "v", 2, 3, None).expect("two leftovers are allowed");
+        assert_eq!(reg.address, "u1fake1");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Two failures in the same second are both set aside: the second takes a `-1` name, through the
+    /// real call site and not only through `free_aside_name`.
+    #[cfg(unix)]
+    #[test]
+    fn a_second_failure_in_the_same_second_is_set_aside_too() {
+        let (cfg, dir) = n1_fixture("samesec");
+        let key = format!("{:064x}", 0xc901);
+        let full = |_: &Path, _: &[u8]| -> std::io::Result<()> {
+            Err(std::io::Error::new(std::io::ErrorKind::StorageFull, "full"))
+        };
+        // This second's bare name and the next second's (the clock may roll over).
+        let t = now_secs();
+        for s in [t, t + 1] {
+            std::fs::create_dir_all(
+                cfg.vaults_dir
+                    .join(&key)
+                    .join(format!("wallet.unpersisted-{s}")),
+            )
+            .unwrap();
+        }
+        let e = register_vault_with(&cfg, &key, "v", 2, 3, None, full, |a, b| {
+            std::fs::rename(a, b)
+        })
+        .expect_err("failing");
+        assert!(matches!(e, RegisterError::NotPersisted(_)), "{e:?}");
+        assert_eq!(n1_leftovers(&cfg.vaults_dir, &key).len(), 3);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// On a healthy volume a stored vault gets its birthday written (the success path of the
+    /// shortcut, which the failing-write test cannot see).
+    #[cfg(unix)]
+    #[test]
+    fn a_stored_vault_gets_its_birthday_recorded_on_a_healthy_volume() {
+        let (cfg, dir) = n1_fixture("birthday-ok");
+        let key = format!("{:064x}", 0x5a55);
+        let wallet = cfg.vaults_dir.join(&key).join("wallet");
+        std::fs::create_dir_all(&wallet).unwrap();
+        std::fs::write(
+            wallet.join("keys.toml"),
+            "network = \"main\"\nbirthday = 3400000\n",
+        )
+        .unwrap();
+        save_registration(&cfg.vaults_dir, &n1_registration(&key, &wallet)).unwrap();
+        let reg = register_vault(&cfg, &key, "v", 2, 3, None).unwrap();
+        assert_eq!(reg.birthday, Some(3_400_000));
+        assert_eq!(
+            load_registration(&cfg.vaults_dir, &key).unwrap().birthday,
+            Some(3_400_000)
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// No raw print macro on the registration path or in the boot backfills, outside `log_vault`
+    /// itself: a new line goes through the one function that names a vault by its prefix.
+    #[test]
+    fn the_registration_path_and_the_boot_backfills_print_only_through_log_vault() {
+        let src = include_str!("helper.rs");
+        let production = src
+            .split("\n#[cfg(test)]\nmod change_receiver_tests")
+            .next()
+            .unwrap();
+        let mut spans: Vec<&str> = Vec::new();
+        // The two boot backfills (birthday and change receiver), whole.
+        let from = production
+            .find("pub fn backfill_birthdays(")
+            .expect("backfill_birthdays");
+        let to = from
+            + production[from..]
+                .find("/// What a booting helper needs from its volume")
+                .expect("end of the backfills");
+        spans.push(&production[from..to]);
+        // The registration path, without `log_vault`'s own body.
+        let from = production
+            .find("fn register_vault_with(")
+            .expect("register_vault_with");
+        let to = from
+            + production[from..]
+                .find("/// The time a registration is recorded as made")
+                .expect("end of the registration path");
+        let whole = &production[from..to];
+        let lv = whole.find("fn log_vault(").expect("log_vault");
+        let lv_end = lv + whole[lv..].find("\n}\n").expect("end of log_vault");
+        spans.push(&whole[..lv]);
+        spans.push(&whole[lv_end..]);
+        for span in spans {
+            for m in ["eprintln!(", "eprint!(", "println!(", "print!(", "dbg!("] {
+                assert_eq!(span.matches(m).count(), 0, "{m} outside log_vault");
+            }
+        }
+    }
+
+    /// Every line the registration path logs for a failure names the vault by its prefix and carries
+    /// neither a path (the wallet's holds the whole id) nor the engine's own text.
+    #[cfg(unix)]
+    #[test]
+    fn registration_log_lines_carry_no_whole_id_no_path_and_no_engine_text() {
+        let (cfg, dir) = n1_fixture("sink");
+        let full = |_: &Path, _: &[u8]| -> std::io::Result<()> {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::StorageFull,
+                "no space left on device",
+            ))
+        };
+        let denied = |_: &Path, _: &Path| -> std::io::Result<()> {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "read-only",
+            ))
+        };
+        LOG_SINK.with(|s| *s.borrow_mut() = Some(Vec::new()));
+        let k1 = format!("{:064x}", 0xfeed_0001u64);
+        let k2 = format!("{:064x}", 0xfeed_0002u64);
+        let k3 = format!("{:064x}", 0xfeed_0003u64);
+        let k4 = format!("{:064x}", 0xfeed_0004u64);
+        let k5 = format!("{:064x}", 0xfeed_0005u64);
+        let k6 = format!("{:064x}", 0xfeed_0006u64);
+        // The write fails, then the set-aside works / fails.
+        let _ = register_vault_with(&cfg, &k1, "v", 2, 3, None, full, |a, b| {
+            std::fs::rename(a, b)
+        });
+        let _ = register_vault_with(&cfg, &k2, "v", 2, 3, None, full, denied);
+        // The engine fails, then the set-aside works / fails.
+        std::fs::write(dir.join("init-fails"), "").unwrap();
+        let _ = register_vault_with(&cfg, &k3, "v", 2, 3, None, write_synced, |a, b| {
+            std::fs::rename(a, b)
+        });
+        let _ = register_vault_with(&cfg, &k4, "v", 2, 3, None, write_synced, denied);
+        // A stored vault whose birthday cannot be written.
+        let wallet = cfg.vaults_dir.join(&k5).join("wallet");
+        std::fs::create_dir_all(&wallet).unwrap();
+        std::fs::write(
+            wallet.join("keys.toml"),
+            "network = \"main\"\nbirthday = 3400000\n",
+        )
+        .unwrap();
+        save_registration(&cfg.vaults_dir, &n1_registration(&k5, &wallet)).unwrap();
+        let _ = register_vault_with(&cfg, &k5, "v", 2, 3, None, full, |a, b| {
+            std::fs::rename(a, b)
+        });
+        // Refused before the engine: a wallet in place, an unreadable record, the cap.
+        std::fs::create_dir_all(cfg.vaults_dir.join(&k6).join("wallet")).unwrap();
+        let _ = register_vault(&cfg, &k6, "v", 2, 3, None);
+        let lines = LOG_SINK.with(|s| s.borrow_mut().take().unwrap());
+        assert!(lines.len() >= 7, "{lines:#?}");
+        for line in &lines {
+            for k in [&k1, &k2, &k3, &k4, &k5, &k6] {
+                assert!(!line.contains(k.as_str()), "a whole id in {line}");
+            }
+            assert!(!line.contains("disk full"), "the engine's text in {line}");
+            assert!(
+                !line.contains("no space left"),
+                "the system's text in {line}"
+            );
+            assert!(!line.contains("konclave-n1-"), "a path in {line}");
+            assert!(!line.contains("NonZero"), "an error dump in {line}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The texts carry the fixed words and nothing the operating system said.
+    #[test]
+    fn the_registration_failure_texts_carry_no_operating_system_text() {
+        let io = std::io::Error::new(std::io::ErrorKind::StorageFull, "no space left on device");
+        assert_eq!(
+            RegisterError::NotPersisted(ToolError::Io(io)).to_string(),
+            NOT_PERSISTED_TEXT
+        );
+        assert_eq!(
+            RegisterError::CleanupFailed.to_string(),
+            CLEANUP_FAILED_TEXT
+        );
+    }
+
+    /// Wallets with no registration are listed by prefix, a vault with one is not, and a
+    /// registration that cannot be read is listed apart (it is not "no registration": a new one
+    /// would write over it).
+    #[cfg(unix)]
+    #[test]
+    fn the_listing_tells_a_missing_registration_from_an_unreadable_one() {
+        let (cfg, dir) = n1_fixture("orphans");
+        let with = format!("{:0<64}", "aaaaaaaa");
+        let without = format!("{:0<64}", "bbbbbbbb");
+        let broken = format!("{:0<64}", "cccccccc");
+        for key in [&with, &without, &broken] {
+            std::fs::create_dir_all(cfg.vaults_dir.join(key).join("wallet")).unwrap();
+        }
+        save_registration(
+            &cfg.vaults_dir,
+            &n1_registration(&with, &cfg.vaults_dir.join(&with).join("wallet")),
+        )
+        .unwrap();
+        std::fs::write(
+            cfg.vaults_dir.join(&broken).join("registration.json"),
+            "{\"vault_id\":\"ccc",
+        )
+        .unwrap();
+        let (orphans, unreadable) = registrations_needing_attention(&cfg.vaults_dir);
+        assert_eq!(orphans, vec!["bbbbbbbb".to_string()]);
+        assert_eq!(unreadable, vec!["cccccccc".to_string()]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A `registration.json` that is there and cannot be read is the only record of that vault's
+    /// address and viewing key. It is refused, byte for byte as it was, with or without a wallet
+    /// directory beside it, and the engine does not run. (Before, the one WITHOUT a wallet was
+    /// overwritten by a new identity.)
+    #[cfg(unix)]
+    #[test]
+    fn an_unreadable_registration_is_refused_and_never_overwritten() {
+        let (cfg, dir) = n1_fixture("unreadable");
+        // Truncated JSON with and without a wallet beside it, and a path that cannot be read at all
+        // (a directory where the file should be: the read fails, it is not "not found").
+        for (n, with_wallet, as_dir) in [
+            (0x9991, false, false),
+            (0x9992, true, false),
+            (0x9993, false, true),
+        ] {
+            let key = format!("{:064x}", n);
+            let vault = cfg.vaults_dir.join(&key);
+            std::fs::create_dir_all(&vault).unwrap();
+            let broken =
+                b"{\"vault_id\":\"00000000000000000000000000000000000000000000000000000000";
+            if as_dir {
+                std::fs::create_dir_all(vault.join("registration.json")).unwrap();
+            } else {
+                std::fs::write(vault.join("registration.json"), broken).unwrap();
+            }
+            if with_wallet {
+                std::fs::create_dir_all(vault.join("wallet")).unwrap();
+            }
+            let err = register_vault(&cfg, &key, "v", 2, 3, None).expect_err("refused");
+            assert!(matches!(err, RegisterError::CleanupFailed), "{err:?}");
+            if as_dir {
+                assert!(vault.join("registration.json").is_dir());
+            } else {
+                assert_eq!(
+                    std::fs::read(vault.join("registration.json")).unwrap(),
+                    broken
+                );
+            }
+            assert!(!dir.join("engine-ran").exists(), "the engine did not run");
+            assert!(n1_leftovers(&cfg.vaults_dir, &key).is_empty());
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// When the engine fails part way AND the directory cannot be moved, the answer is the same one
+    /// a failed write gives: an operator has to act (it is not a 502 that reads as the request's
+    /// fault, with the next attempt refused anyway).
+    #[cfg(unix)]
+    #[test]
+    fn an_engine_failure_that_cannot_be_cleaned_up_asks_for_the_operator() {
+        let (cfg, dir) = n1_fixture("engine-stuck");
+        let key = format!("{:064x}", 0x7778);
+        std::fs::write(dir.join("init-fails"), "").unwrap();
+        let err = register_vault_with(&cfg, &key, "v", 2, 3, None, write_synced, |_, _| {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "read-only",
+            ))
+        })
+        .expect_err("stuck");
+        assert!(matches!(err, RegisterError::CleanupFailed), "{err:?}");
+        assert!(cfg.vaults_dir.join(&key).join("wallet").exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

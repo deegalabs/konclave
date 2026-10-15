@@ -40,6 +40,32 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A vault whose registration could not be written to disk was served anyway, and was no longer
+  found after the next restart.** Creating a vault gives it an address on the coordinator and keeps
+  its record on the volume. If the volume could not take the record (full, read-only), the
+  coordinator still answered with the address and served the vault from memory. At the next restart
+  nothing found it; its viewing key stayed, on the coordinator, only in a wallet directory that
+  nothing in the coordinator reads again. Since 2026-07-31 (dd1ae16). We did not check
+  whether it happened; the boot log now lists, by prefix, every vault directory that holds a wallet
+  and no registration, which is how it would look. The registration now fails when its record cannot
+  be written: the answer is 503 (`registration_not_persisted`) and nothing is served. The
+  coordinator accepts a new registration of the same vault once the volume is healthy, and gives it
+  a new address, which is correct because the first was never given out. A failure part way through
+  creating the wallet no longer leaves it where the next attempt would fail on it. Where an operator
+  has to act before another attempt can work, the answer is 503 (`registration_cleanup_failed`):
+  a leftover that could not be set aside, three leftovers, a wallet directory with no registration,
+  or a registration that cannot be read. Those last two are never touched, and the second used to
+  be written over with a new identity. `docs/RECOVERY.md`, procedure I, says what to do. The boot
+  log also lists, by prefix, any vault that still has no recorded birthday.
+
+### Known limits
+
+- **The app has no retry for a registration the coordinator refused this way.** Its screen says the
+  coordinator did not respond and to try registering later; it does not say the coordinator could
+  not save the vault, and offers no button to register again.
+
 ## [0.13.1] 2026-10-15
 
 > Released as 0.13.1, not 0.14.0, although it carries a Security entry: the number was already
