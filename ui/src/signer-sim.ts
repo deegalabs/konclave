@@ -26,6 +26,8 @@ export interface SimOut {
   log: string[]
   /** Signings where the screen's "would my signature send?" disagreed with what it did. */
   would: string[]
+  /** Moments when two open sessions, both up to date with the room, held different coordinators. */
+  coord: string[]
 }
 
 const T0 = 1_700_000_000_000
@@ -41,7 +43,12 @@ export async function sim(T: number, N: number, skews: number[], openAt: number[
   type D = { tag: string; s: BackgroundSession; delivered: number; lastNamed: string | null; touched: boolean }
   const devs: Array<D | null> = Array.from({ length: N }, () => null)
   const tagOwner = new Map<string, number>()
-  const out: SimOut = { self: [], namings: [], unarmSeqs: [], life: {}, log: [], would: [] }
+  const out: SimOut = { self: [], namings: [], unarmSeqs: [], life: {}, log: [], would: [], coord: [] }
+  // Every session that has read the whole room holds the same coordinator (SIGNER-SEAT1, review B1).
+  const agree = () => {
+    const held = new Set(devs.filter((x): x is D => !!x && x.delivered === bus.length).map((x) => x.s.coordinatorTag()))
+    if (held.size > 1) out.coord.push(`${(rel() / 60000).toFixed(3)} min: ${[...held].join(' / ')}`)
+  }
   const byseq = new Map<number, Naming>()
   const ownArmedAt: Array<number | null> = Array.from({ length: N }, () => null)
   // What the page holds across closing and reopening the panel: the send memory, and whether a send's
@@ -79,11 +86,14 @@ export async function sim(T: number, N: number, skews: number[], openAt: number[
       const m = bus[d.delivered++]!
       d.touched = false
       d.lastNamed = null
-      await d.s.onMessage(m.from, m.data, hist)
       const p = JSON.parse(m.data) as { type?: string; at?: number }
-      if (p.type === 'unarmed' && !out.unarmSeqs.includes(m.seq)) out.unarmSeqs.push(m.seq)
+      // Only the device the room named sender withdraws to any effect (SIGNER-SEAT1): read in the
+      // room's order, every session agrees which withdrawals those are, so the oracle counts only them.
+      const effective = p.type === 'unarmed' && d.s.coordinatorTag() === m.from
+      await d.s.onMessage(m.from, m.data, hist)
+      if (effective && !out.unarmSeqs.includes(m.seq)) out.unarmSeqs.push(m.seq)
       // Another device's withdrawal, read live, ends this device's signature: its button returns.
-      if (p.type === 'unarmed' && m.from !== d.tag && !hist) ownArmedAt[i] = null
+      if (effective && m.from !== d.tag && !hist) ownArmedAt[i] = null
       if (p.type !== 'armed') continue
       let n = byseq.get(m.seq)
       if (!n) {
@@ -143,6 +153,7 @@ export async function sim(T: number, N: number, skews: number[], openAt: number[
       await d.s.arm('p1', own)
       NOW += 100
       for (let i = 0; i < N; i++) await deliver(i)
+      agree()
       const did = out.self.slice(before).some((x) => x.tag === d.tag)
       if (would !== did) out.would.push(`${d.tag} at ${(e.t / 60000).toFixed(3)}: would ${would}, did ${did}`)
       continue
@@ -163,6 +174,7 @@ export async function sim(T: number, N: number, skews: number[], openAt: number[
     }
     NOW += 100
     for (let i = 0; i < N; i++) await deliver(i)
+    agree()
   }
   return out
 }
@@ -183,7 +195,7 @@ export async function sim(T: number, N: number, skews: number[], openAt: number[
  *          signature plus twice `skewMs`, the furthest any other signature of that quorum can be dated
  *          after it. */
 export function check(o: SimOut, ttl: number, t?: number, skewMs = 0): string[] {
-  const v: string[] = o.would.map((w) => `WOULD: ${w}`)
+  const v: string[] = [...o.would.map((w) => `WOULD: ${w}`), ...o.coord.map((c) => `COORD: ${c}`)]
   for (const x of o.self) if (!x.fired) v.push(`BLOCKED: ${x.tag} named itself (seq ${x.seq}, relay ${(x.tRelay / 60000).toFixed(3)} min) and did not send`)
   const unarmBetween = (a: number, b: number) => o.unarmSeqs.some((u) => u > Math.min(a, b) && u < Math.max(a, b))
   for (let a = 0; a < o.self.length; a++) {

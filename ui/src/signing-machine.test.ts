@@ -487,6 +487,7 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     // seated: an unknown tag, not a known coordinator (the unseated-attacker test above).
     expect(bus.msgs.some((m) => m.from === 'A' && m.data.includes('"sp"')), 'the coordinator did post a package').toBe(true)
     expect(B.errors, 'and B raised no error over it').toEqual([])
+    expect(bus.msgs.filter((m) => m.from === 'B' && m.data.includes('"s2"')).length, 'and B signed it before any rejoin seated A').toBeGreaterThan(0)
 
     bSeats.A = 1
     await runCeremony(A, B, bus)
@@ -509,7 +510,6 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     // joins, so the only package in the room is C's - B has no honest one to prefer over it.
     const C = makeDevice('C', bus, () => ({ keyPackage: s2.keyPackage(), groupVk, pubkeys }))
     C.coordinator = 'C' // in its own view; every peer's room named seat 1's tag
-    Object.defineProperty(C.machine, 'd', { value: { ...(C.machine as unknown as { d: SigningDeps }).d, mySeat: () => 1 } })
 
     bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
     for (let i = 0; i < 8; i++) { await pump(B, bus); await pump(C, bus) }
@@ -1134,7 +1134,7 @@ describe('who coordinates is asked in one place (#519)', () => {
       .filter(({ line }) => /\w*[sS]eat\w*\s*(\(\))?\s*[!=]==\s*1\b/.test(line))
       .map(({ line, n }) => `signing-machine.ts:${n}  ${line}`)
 
-    expect(offenders, `these ask who coordinates with a literal instead of COORDINATOR_SEAT:\n${offenders.join('\n')}`).toEqual([])
+    expect(offenders, `these ask who coordinates with a literal instead of isCoordinator:\n${offenders.join('\n')}`).toEqual([])
   })
 
   // SIGNER-SEAT1: there is no fixed coordinator seat any more. The coordinator is the tag the room

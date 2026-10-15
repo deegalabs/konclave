@@ -15,16 +15,17 @@ describe('the panel names the device that is sending', () => {
   it('uses the seat whose signature completed the quorum, from the session', () => {
     expect(panel).toMatch(/const done = bg\.completed\(\)/)
     expect(panel).toMatch(/roster\[done\.seat - 1\]\?\.name/)
-    expect(panel).toMatch(/t\(senderLate \? 'signing\.senderWaiting' : 'signing\.senderSending', \{ name: senderName, mins: senderLapseMin \}\)/)
+    expect(panel).toMatch(/t\(senderLate \? 'signing\.senderWaiting' : 'signing\.senderSending', \{ name: senderName \}\)/)
   })
   it('says close and reopen when the round started and the sender went quiet', () => {
-    expect(panel).toMatch(/bg\.phase === 'signing' && !bg\.sendingNamed\(\) && \(\s*<div className="hint warn mt-sm" role="status">\{t\('signing\.stalledReopen'\)\}<\/div>/)
+    expect(panel).toMatch(/const stalled = !sending && bg\.phase === 'signing' && !bg\.sendingNamed\(\)/)
+    expect(panel).toMatch(/\{stalled && \(\s*<div className="hint warn mt-sm" role="status">\{t\('signing\.stalledReopen'\)\}<\/div>/)
   })
 })
 
 describe('a seat that was not needed is said as such once sent', () => {
   it('in the signing panel roster', () => {
-    expect(panel).toMatch(/sent && !signedSeats\.includes\(i \+ 1\) && <span className="sign-seat-nn">\{t\('signing\.seatNotNeeded'\)\}<\/span>/)
+    expect(panel).toMatch(/sent && !rosterSigned\.includes\(i \+ 1\) && <span className="sign-seat-nn"><span className="visually-hidden">, <\/span>\{t\('signing\.seatNotNeeded'\)\}<\/span>/)
   })
   it('on the proposal, for a member who neither approved nor refused', () => {
     expect(codeOf('./screens/Proposal.tsx')).toMatch(/if \(p\.state === 'sent' \|\| p\.state === 'confirmed'\) return \{ cls: '', label: t\('proposal\.stanceNotNeeded'\) \}/)
@@ -38,7 +39,7 @@ describe('a withdrawal ends this device\'s standing decision to send', () => {
 })
 
 describe('copy', () => {
-  for (const key of ['signing.senderSending', 'signing.senderWaiting', 'signing.stalledReopen', 'signing.seatNotNeeded', 'proposal.stanceNotNeeded']) {
+  for (const key of ['signing.senderSending', 'signing.senderWaiting', 'signing.senderLapse', 'signing.stalledReopen', 'signing.seatNotNeeded', 'proposal.stanceNotNeeded']) {
     it(`${key} exists in both languages, without em dashes`, () => {
       expect(en[key], key).toBeTruthy()
       expect(ptBR[key], key).toBeTruthy()

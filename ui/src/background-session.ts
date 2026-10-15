@@ -118,7 +118,7 @@ export class BackgroundSession {
    *  clock, so every device holds the same one (SIGNER-SEAT1, review B1). It is the ONE record of who
    *  was named: the coordinator of the ceremony, the "someone is sending" line and the live decision
    *  to call the send (`onArmed`'s trigger) all read it. */
-  private completion: { tag: string; seat: number; at: number } | null = null
+  private completion: { tag: string; seat: number; at: number; seats: number[] } | null = null
   /** Seats whose signature for this payment was dropped as dated too far ahead, logged once each. */
   private readonly warnedAhead = new Set<number>()
   /** Seats whose proven signature for this payment the tally ignored, logged once each. */
@@ -209,6 +209,15 @@ export class BackgroundSession {
         this.onLog?.(`~ ignored an unproven withdrawal for seat ${String(parsed.seat)}`)
         return
       }
+      // Only the device the room named sender withdraws: in the app it does so when its send failed.
+      // From anyone else a proven withdrawal used to reset the tally, the coordinator and every
+      // signer's consent, so a member who never signed could stop an approved send at every attempt
+      // (SIGNER-SEAT1 review A1). Read in the room's order, a withdrawal from an earlier attempt still
+      // matches the completion of that attempt, so history replays as it happened.
+      if (this.completion === null || from !== this.completion.tag) {
+        this.onLog?.(`~ ignored a withdrawal from a device that is not sending this payment (seat ${String(parsed.seat)})`)
+        return
+      }
       // A withdrawn attempt holds no window, so the next round may send at once; what was taken stays
       // taken, so the withdrawn signatures cannot be posted back in.
       this.tally = { ...this.tally, entries: new Map(), completedAt: null }
@@ -244,6 +253,14 @@ export class BackgroundSession {
       }
       if (!armedIsProven(this.signingMaterial(), parsed.seat, from, at, parsed.proposal, parsed.sig)) {
         this.onLog?.(`~ ignored an unproven arming for seat ${parsed.seat}`)
+        return
+      }
+      // The relay takes the sender a client writes, so a member could sign its own arming under another
+      // device's tag and have the room name that device, which never signed (review A2). A tag already
+      // seated at another seat is not this seat's.
+      const tagSeat = this.seats.seatOf(from)
+      if (tagSeat !== undefined && tagSeat !== parsed.seat) {
+        this.onLog?.(`~ ignored an arming for seat ${parsed.seat} posted under seat ${tagSeat}'s device`)
         return
       }
       // A signature that completes the quorum names the coordinator: a request that was waiting for one
@@ -360,7 +377,7 @@ export class BackgroundSession {
     }
     this.tally = step.tally
     // Who completed is recorded from the room alone, on every device the same (review B1).
-    if (step.completes) this.completion = { tag: from, seat, at: step.tally.completedAt! }
+    if (step.completes) this.completion = { tag: from, seat, at: step.tally.completedAt!, seats: [...step.tally.entries.keys()].sort((a, b) => a - b) }
     // Whether to CALL the send is this device's live decision, and only that reads the clock: a
     // completion read back from an old attempt holds its window like any other, so every device keeps
     // the same latch, but names nobody to send, because its sender's tab is gone (#326).
@@ -377,8 +394,8 @@ export class BackgroundSession {
 
   /** Whose signature completed the quorum and when (its newest signature's time), for the screen to
    *  name the device that is sending. Null while none has. */
-  completed(): { seat: number; at: number } | null {
-    return this.completion ? { seat: this.completion.seat, at: this.completion.at } : null
+  completed(): { seat: number; at: number; seats: number[] } | null {
+    return this.completion ? { seat: this.completion.seat, at: this.completion.at, seats: this.completion.seats } : null
   }
 
   /** The seats whose signature for the current proposal still counts, ascending: what the screen

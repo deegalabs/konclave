@@ -622,7 +622,8 @@ describe('BackgroundSession - the whole vault learns a send failed, not only the
     const [A, B] = pair(bus)
     A.session.setProposal('p1'); B.session.setProposal('p1')
     await A.session.start(); await B.session.start(); await run([A, B], bus)
-    await A.session.arm('p1'); await run([A, B], bus)
+    // B completes the quorum, so B is the device that sends and the one that withdraws (SIGNER-SEAT1).
+    await A.session.arm('p1'); await B.session.arm('p1'); await run([A, B], bus)
 
     await B.session.unarm('p1'); await run([A, B], bus)
     expect(A.failure).toBeNull()
@@ -685,12 +686,12 @@ describe('BackgroundSession - the tally cannot be moved by someone without a sha
   })
 
   it('an outsider cannot replay a real unarmed from another tag', async () => {
-    // Seat 1 legitimately withdraws once. The attacker captures that message and re-sends it under
-    // their own tag to zero the tally again after the members have signed afresh.
+    // The sender (B, which completed the quorum) legitimately withdraws once. The attacker captures that
+    // message and re-sends it under their own tag to zero the tally again after the members signed afresh.
     const bus = new Bus()
     const p = pair(bus)
     const [A, B] = await armedQuorum(bus, p)
-    await A.session.unarm('p1'); await run([A, B], bus)
+    await B.session.unarm('p1'); await run([A, B], bus)
     expect(A.armedSeats).toEqual([])
     const captured = bus.msgs.filter((m) => m.data.includes('"unarmed"')).at(-1)!.data
 
@@ -1193,14 +1194,17 @@ describe('a second transaction for an approval, through the real session', () =>
 
     // The panel closed and opened again; a new click; another transaction for the same payment.
     oa.give('p1', Date.now()); ob.give('p1', Date.now())
-    const second = await session(withExpiry(dkgProvenPczt(), honestExpiry() + 1))
+    // One expiry for the second and third attempts: read twice, a 75 s boundary between the reads made
+    // them two different transactions and the test fail now and then (tester, 15/10).
+    const later = honestExpiry() + 1
+    const second = await session(withExpiry(dkgProvenPczt(), later))
     expect(second.A.sig).toBeNull()
     expect(second.A.errors).toContain('net.err.signedAnother')
     expect(second.bus.msgs.some((m) => m.from === 'a-tag' && m.data.includes('"s2"'))).toBe(false)
 
     // Its owner signs again, knowing a first transaction exists: the second one is signed, once.
     oa.give('p1', Date.now(), { again: true }); ob.give('p1', Date.now(), { again: true })
-    const third = await session(withExpiry(dkgProvenPczt(), honestExpiry() + 1))
+    const third = await session(withExpiry(dkgProvenPczt(), later))
     expect(third.A.errors).toEqual([])
     expect(third.A.sig?.ok).toBe(true)
   })
@@ -1403,5 +1407,45 @@ describe('any t of n seats complete a send, whichever they are', () => {
     bus.post('helper', requestFor(withExpiry(dkgProvenPczt())))
     await run([b.dev, c.dev], bus)
     expect(b.dev.sig?.ok).toBe(true)
+  })
+
+  it('a withdrawal from a device the room did not name sender changes nothing, before or during the round', async () => {
+    // Only the named sender withdraws in the app (its send failed). Taken from anyone, a member who never
+    // signed could stop an approved send, at every attempt (security review A1, code review I1).
+    const { shares, groupVk, pubkeys } = dkg(2, 3)
+    const bus = new Bus()
+    const ds = shares.map((s, i) => seated(['a', 'b', 'c'][i]! + '-tag', i + 1, bus, () => ({ keyPackage: s.keyPackage(), groupVk, pubkeys }), 2))
+    const all = ds.map((d) => d.dev)
+    for (const d of all) await d.session.start()
+    await run(all, bus)
+    NOW += 1000; await ds[1]!.sign(); await run(all, bus)
+    NOW += 1000; await ds[2]!.sign(); await run(all, bus)
+    // Seat 1 never signed, and withdraws (a proven message, its own seat) before the request arrives...
+    NOW += 1000; await ds[0]!.dev.session.unarm('p1', 'ceremony'); await run(all, bus)
+    for (const d of all) expect(d.session.coordinatorTag(), d.tag).toBe('c-tag')
+    expect(ds[1]!.dev.withdrawn + ds[2]!.dev.withdrawn, 'no signer loses its consent to it').toBe(0)
+    bus.post('helper', requestFor(withExpiry(dkgProvenPczt())))
+    // ...and again while the round runs.
+    await ds[0]!.dev.session.unarm('p1', 'ceremony')
+    await run(all, bus)
+    expect(ds[1]!.dev.sig?.ok).toBe(true)
+    expect(response(bus)?.from).toBe('c-tag')
+  })
+
+  it('a signature posted under another device\'s tag is not counted', async () => {
+    // The relay takes the sender a client writes. Seat 1 signing its own arming under C's tag would make
+    // the room name C, which never signed and does not coordinate (security review A2).
+    const { shares, groupVk, pubkeys } = dkg(2, 3)
+    const bus = new Bus()
+    const b = seated('b-tag', 2, bus, () => ({ keyPackage: shares[1]!.keyPackage(), groupVk, pubkeys }), 2)
+    const c = seated('c-tag', 3, bus, () => ({ keyPackage: shares[2]!.keyPackage(), groupVk, pubkeys }), 2)
+    await b.dev.session.start(); await c.dev.session.start(); await run([b.dev, c.dev], bus)
+    NOW += 1000; await b.sign(); await run([b.dev, c.dev], bus)
+    NOW += 1000
+    const at = NOW
+    bus.post('c-tag', JSON.stringify({ type: 'armed', seat: 1, proposal: 'p1', at, sig: signArmed(shares[0]!.keyPackage(), 1, bytesToHex(groupVk), 'c-tag', at, 'p1') }))
+    await run([b.dev, c.dev], bus)
+    expect(b.dev.armedSeats).toEqual([2])
+    expect(b.dev.session.coordinatorTag()).toBeNull()
   })
 })
