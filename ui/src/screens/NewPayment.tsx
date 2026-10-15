@@ -9,13 +9,14 @@ import { fmtZecExact, parseZecToZat, zatToZec } from '../format'
 import { freeZatOf, reservedZatOf } from '../balance-parts'
 import { isOpen } from '../desk'
 import {
-  createProposal, getBalance, getVault, getBeneficiaries, getProposals, health, shortAddr, classifyAddress, humanError,
-  type Balance, type Beneficiary, type Member, type Proposal,
+  createProposal, getVault, getBeneficiaries, getProposals, health, shortAddr, classifyAddress, humanError,
+  type Beneficiary, type Member, type Proposal,
 } from '../api'
 import { listVaults } from '../storage'
 import { RecipientCombobox } from '../RecipientCombobox'
 import { usdEnabled, setUsdEnabled, cachedRate, rateIsStale, fetchRate, zecToUsd, type Rate } from '../price'
 import { proposeBlock, blockMessageKey, poolsOf, SINGLE_PAYMENT_FEE_ZAT } from '../propose-guard'
+import { useVaultBalance } from '../useVaultBalance'
 
 const MEMO_MAX = 512
 
@@ -36,11 +37,13 @@ export default function NewPayment() {
   // Storing a single string was how this screen came to mean something different by "available"
   // than the Dashboard did: the Dashboard subtracts what open proposals hold, this one did not,
   // and the screen that CREATES payments held the more permissive meaning.
-  const [bal, setBal] = useState<Balance | null>(null)
+  // Read and refreshed in one place shared with Payroll (useVaultBalance). A busy coordinator keeps
+  // the last balance and says so, instead of "balance unknown" (COORD-LOCK phase 1).
+  const { bal, busy: walletBusy } = useVaultBalance()
   const [openProps, setOpenProps] = useState<Proposal[] | null>(null)
   // #427: the two shielded pools separately. `spendable` is their sum, and one payment cannot
   // always spend the sum.
-  const [pools, setPools] = useState<ReturnType<typeof poolsOf>>(undefined)
+  const pools = bal ? poolsOf(bal) : undefined
   const [benefs, setBenefs] = useState<Beneficiary[]>([])
   // Neutral placeholder while the real vault name loads - never a fake name flashed to a real
   // user (the real name replaces this as soon as getVault resolves).
@@ -59,7 +62,7 @@ export default function NewPayment() {
       if (!on) return
       setLive(ok)
       if (!ok) return
-      const [v, b, bs] = await Promise.all([getVault(), getBalance(), getBeneficiaries()])
+      const [v, bs] = await Promise.all([getVault(), getBeneficiaries()])
       if (!on) return
       if (v) {
         setThreshold(v.threshold)
@@ -74,10 +77,6 @@ export default function NewPayment() {
           setProposer(mine ?? first0.name)
         }
       }
-      // Spendable (not total): the send can only draw on confirmed, spendable funds, so the
-      // "available" and the balance-after preview must be against spendable to catch amount+fee
-      // overspend BEFORE a proposal is created (the helper rejected 0.0120 on a 0.01213 spendable).
-      if (b?.configured) { setBal(b); setPools(poolsOf(b)) }
       void getProposals().then((ps) => { if (on) setOpenProps(ps) })
       if (bs) setBenefs(bs)
     })()
@@ -93,14 +92,11 @@ export default function NewPayment() {
   //
   // A disabled money control has to watch the condition that disabled it, or it is not a block, it
   // is a dead end.
+  //
+  // The balance does this in useVaultBalance. The ledger too: funds are released when someone
+  // else's proposal is sent or refused, and a member blocked by a reservation must see it lift
+  // without reloading.
   usePoll(() => {
-    void getBalance().then((b) => {
-      if (!b?.configured) return
-      setBal(b)
-      setPools(poolsOf(b))
-    })
-    // The ledger too: funds are released when someone else's proposal is sent or refused, and a
-    // member blocked by a reservation must see it lift without reloading.
     void getProposals().then(setOpenProps)
   }, 12_000)
 
@@ -293,7 +289,8 @@ export default function NewPayment() {
           {/* The gate fails closed now, so a member can meet a disabled button for reasons the
               screen used to stay silent about. Say which one - but never on an untouched form:
               an empty amount also parses to null, and a warning on a blank field is noise. */}
-          {value.trim() !== '' && blockMessageKey(block) && (
+          <div role="status" id="pay-busy">{walletBusy && <div className="hint mt-sm">{t(bal ? 'wallet.busyKept' : 'wallet.busyBlocked')}</div>}</div>
+          {value.trim() !== '' && blockMessageKey(block) && !(walletBusy && block === 'balance-unknown') && (
             <div className="hint warn mt-sm">{t(blockMessageKey(block)!, {
               free: fmtZecExact((freeZat ?? 0) / 1e8),
               reserved: fmtZecExact(reservedZat / 1e8),
@@ -303,7 +300,7 @@ export default function NewPayment() {
           <div className="hint mt-sm">{tr('payment.approvalHint', { proposer, threshold, rest: threshold > 1 ? t('payment.approvalHintMore', { n: threshold - 1 }) : t('payment.approvalHintReady'), aval: threshold === 1 ? t('payment.avalSingular') : t('payment.avalPlural') })}</div>
           {error && <div className="hint err mt-sm" role="alert">{error}</div>}
 
-          <button className="btn ok pay-submit mt" onClick={submit} disabled={!canSubmit}>
+          <button className="btn ok pay-submit mt" onClick={submit} disabled={!canSubmit} aria-describedby={walletBusy && block === 'balance-unknown' ? "pay-busy" : undefined}>
             {busy ? t('payment.proposing') : t('payment.proposeBtn')}
           </button>
         </aside>

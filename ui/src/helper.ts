@@ -97,16 +97,31 @@ async function readAuthHeaders(path: string): Promise<Record<string, string>> {
   return id ? readAuthFor(id) : {}
 }
 
-async function getJson<T>(path: string): Promise<T | null> {
+/** The coordinator answered a read with 503 `{"busy": "wallet"}`: the vault's wallet is in use (a
+ *  send, a funding check, another read) and the read did not wait for it. Not "nothing": the screen
+ *  keeps what it had and says why (COORD-LOCK phase 1). */
+export const WALLET_BUSY = 'wallet-busy' as const
+export type WalletBusy = typeof WALLET_BUSY
+
+async function getJsonOrBusy<T>(path: string): Promise<T | null | WalletBusy> {
   const base = helperBase()
   if (!base) return null
   try {
     const res = await fetch(`${base}${path}`, { headers: await readAuthHeaders(path) })
+    if (res.status === 503) {
+      const body = (await res.json().catch(() => null)) as { busy?: unknown } | null
+      return body?.busy === 'wallet' ? WALLET_BUSY : null
+    }
     if (!res.ok) return null
     return (await res.json()) as T
   } catch {
     return null
   }
+}
+
+async function getJson<T>(path: string): Promise<T | null> {
+  const r = await getJsonOrBusy<T>(path)
+  return r === WALLET_BUSY ? null : r
 }
 
 /** The reason the last `postJson` failed, when the helper gave one.
@@ -319,8 +334,9 @@ export async function listMembers(groupKeyHex: string): Promise<string[] | null>
 export type WalletTx = { txid: string; mined_height: number | null }
 
 /** The vault's full on-chain transaction history (newest first), or `null` if unavailable. */
-export async function listTransactions(groupKeyHex: string): Promise<WalletTx[] | null> {
-  return (await getJson<{ transactions: WalletTx[] }>(`/api/vault/transactions?vault=${q(groupKeyHex)}`))?.transactions ?? null
+export async function listTransactions(groupKeyHex: string): Promise<WalletTx[] | null | WalletBusy> {
+  const r = await getJsonOrBusy<{ transactions: WalletTx[] }>(`/api/vault/transactions?vault=${q(groupKeyHex)}`)
+  return r === WALLET_BUSY ? r : r?.transactions ?? null
 }
 
 /** Set the vault's member names (seat order); overwrites the list. Returns the saved names or null.
@@ -489,8 +505,8 @@ export type HelperBalance = {
  * watcher's read (the helper holds the UFVK, never a share). Slow (the helper syncs against
  * lightwalletd first). Returns `null` if no helper is configured or the vault is unknown.
  */
-export async function vaultBalance(groupKeyHex: string): Promise<HelperBalance | null> {
-  return getJson<HelperBalance>(`/api/vault/balance?vault=${q(groupKeyHex)}`)
+export async function vaultBalance(groupKeyHex: string): Promise<HelperBalance | null | WalletBusy> {
+  return getJsonOrBusy<HelperBalance>(`/api/vault/balance?vault=${q(groupKeyHex)}`)
 }
 
 /** One recorded signing ceremony (ZecSafe-inspired reproducible evidence). All public. */

@@ -12,12 +12,13 @@ import { rankDesk, type Band } from '../desk'
 import { balanceParts } from '../balance-parts'
 import { participation } from '../participation'
 import { usdEnabled, setUsdEnabled, cachedRate, rateIsStale, fetchRate, zecToUsd, type Rate } from '../price'
-import { CONFIRMATIONS_UNTRUSTED, getTransactions, getSelectedVault, type WalletTx } from '../api'
+import { CONFIRMATIONS_UNTRUSTED, readTransactions, getSelectedVault, type WalletTx } from '../api'
+import { WALLET_BUSY } from '../helper'
 import { settlementOf, type Settlement } from '../settlement'
 import { useT, useTr } from '../i18n'
 import {
-  getVault, getProposals, getBalance, getLedger, shortAddr, isVaultUnlocked,
-  type Vault, type Proposal, type Balance,
+  getVault, getProposals, readBalance, getLedger, shortAddr, isVaultUnlocked,
+  type Vault, type Proposal,
 } from '../api'
 import { storagePersistence, warnsAboutEviction, listVaults } from '../storage'
 import { readSecretFor } from '../session'
@@ -25,6 +26,7 @@ import { needsUnlock, securedLocally } from '../vault-lock'
 import type { VaultLockContext } from '../Layout'
 import { useVaultSigner } from '../VaultSigner'
 import { useLoading } from '../loading'
+import { keepOnBusy, nextBalanceView, type BalanceView } from '../useVaultBalance'
 
 type Movimento = { date: string; title: string; by?: string; value: string; dir: 'out' | 'in'; settlement: Settlement }
 
@@ -91,7 +93,12 @@ export default function Dashboard() {
   const [vault, setVault] = useState<Vault | null>(null)
   const [proposals, setProposals] = useState<Proposal[]>([])
   const [ledger, setLedger] = useState<Proposal[] | null>(null)
-  const [balance, setBalance] = useState<Balance | null>(null)
+  // The balance and whether the coordinator's wallet is busy, moved by the same rule the payment
+  // screens use (nextBalanceView): busy keeps the last balance, or the skeleton on a first load, and
+  // the card says why. Never "not connected" (COORD-LOCK phase 1).
+  const [view, setView] = useState<BalanceView>({ bal: null, busy: false })
+  const balance = view.bal
+  const walletBusy = view.busy
   // #388: whether this vault holds S (gated) or is legacy/open. Read from listVaults (the record's
   // sealed-S presence), so it is robust to the in-session unlock state; undefined = unknown -> no banner.
   const [secured, setSecured] = useState<boolean | undefined>(undefined)
@@ -214,10 +221,10 @@ export default function Dashboard() {
         if (first && on) setFirstLoaded(true) // page is usable now; the balance fills in below
         // SLOW data separately: getBalance triggers a helper wallet SYNC (seconds). It never gates
         // the page - the balance card shows a skeleton until it lands (the top-progress runs meanwhile).
-        const b = await getBalance()
+        const b = await readBalance()
         if (!on) return
-        if (b) setBalance(b)
-        if (on) setBalLoaded(true)
+        setView((v) => nextBalanceView(v, b))
+        if (b !== WALLET_BUSY) setBalLoaded(true)
       } finally {
         inFlight = false
         if (first) { end(); if (on) setFirstLoaded(true) }
@@ -318,9 +325,10 @@ export default function Dashboard() {
   useEffect(() => {
     if (pendZatNow <= 0 && !anyBroadcast) { setNewestHeight(null); setTxs(null); return }
     let on = true
-    void getTransactions().then((list) => {
+    void readTransactions().then((list) => {
       if (!on) return
-      setTxs(list)
+      setTxs((prev) => keepOnBusy(prev, list))
+      if (list === WALLET_BUSY) return
       const h = list?.[0]?.mined_height
       if (typeof h === 'number' && h > 0) setNewestHeight(h)
     })
@@ -625,11 +633,13 @@ export default function Dashboard() {
               <span className="m" aria-hidden="true">{quorumReachable ? '✓' : '!'}</span>
               <span>{t('dashboard.readySeats', { present: seatsHere, threshold: thr })}</span>
             </span>
-            <span className={'chk ' + (hasFree ? 'y' : 'n')}>
-              <span className="m" aria-hidden="true">{hasFree ? '✓' : '!'}</span>
+            <span className={'chk ' + (hasFree ? 'y' : hasBal ? 'n' : 'u')}>
+              <span className="m" aria-hidden="true">{hasFree ? '✓' : hasBal ? '!' : '…'}</span>
               <span>{hasFree
                 ? tr('dashboard.readyFree', { amt: fmt4(String((parts?.freeZat ?? 0) / 1e8)) })
-                : t('dashboard.readyNoFree')}</span>
+                : !hasBal
+                  ? t('dashboard.readyFreeUnknown')
+                  : t('dashboard.readyNoFree')}</span>
             </span>
             <span className={'chk ' + (backendsUp ? 'y' : 'n')}>
               <span className="m" aria-hidden="true">{backendsUp ? '✓' : '!'}</span>
@@ -737,6 +747,8 @@ export default function Dashboard() {
             </>
           )}
           {walletUnwired && <div className="breakdown"><span className="dim small">{t('dashboard.walletNotConnectedNote')}</span></div>}
+          {/* The region stays in the page; only its text comes and goes, so a screen reader hears it. */}
+          <div role="status">{walletBusy && <div className="hint mt-sm">{t(hasBal ? 'wallet.busyKept' : 'wallet.busyFirst')}</div>}</div>
           <div className="receive">
             <span className="klab plain">{t('dashboard.receiveIn')}</span>
             {/* No address recorded on this device (A9): a dash, without the frame or the shielded

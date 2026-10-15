@@ -18,7 +18,9 @@ describe('a blocked money screen watches the thing that blocked it', () => {
     const code = codeOf('screens/NewPayment.tsx')
     expect(code, 'NewPayment stopped polling: a stale zero blocks the member until they reload')
       .toMatch(/usePoll\(/)
-    expect(code, 'the poll no longer refreshes the balance itself').toMatch(/usePoll\([\s\S]{0,400}getBalance\(/)
+    // The balance itself refreshes in the hook both money screens share (useVaultBalance polls).
+    expect(code, 'the screen no longer reads the balance through the refreshing hook').toMatch(/= useVaultBalance\(\)/)
+    expect(codeOf('useVaultBalance.ts')).toMatch(/usePoll\(tick, 12_000\)/)
   })
 
   it('the fraction buttons are dead when there is nothing to take a fraction of', () => {

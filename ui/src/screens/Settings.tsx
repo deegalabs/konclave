@@ -6,7 +6,6 @@ import CopyButton from '../CopyButton'
 import { changePassphrase } from '../storage'
 import { useNavigate, Link } from 'react-router-dom'
 import { Seal, Loading } from '../components'
-import { VersionBadge } from '../UpdatePrompt'
 import { PageHeader, PageFooter } from '../page'
 import { useT, useTr } from '../i18n'
 import { loadPrfWrap, savePrfWrap, clearPrfWrap } from '../prf-store'
@@ -597,7 +596,7 @@ export default function Settings() {
       )}
 
 
-      <PageFooter>{t('settings.footer')} · <VersionBadge /></PageFooter>
+      <PageFooter>{t('settings.footer')}</PageFooter>
     </main>
   )
 }

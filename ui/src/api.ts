@@ -11,6 +11,8 @@ import {
   helperHealth,
   getVault as netGetVault,
   vaultBalance as netVaultBalance,
+  WALLET_BUSY,
+  type WalletBusy,
   listProposals as netListProposals,
   createProposal as netCreateProposal,
   createPayroll as netCreatePayroll,
@@ -334,14 +336,17 @@ export async function getProposals(): Promise<Proposal[] | null> {
   return r?.proposals ?? null
 }
 
-export async function getBalance(
+/** The vault's balance, or WALLET_BUSY when the coordinator's wallet is in use and the read did
+ *  not wait (a screen keeps its last figure and says why), or null when there is none. */
+export async function readBalance(
   /** The vault to read. The signing panel passes the signer's own, as with `getProposalDetail`. */
   vaultId?: string,
-): Promise<Balance | null> {
+): Promise<Balance | null | WalletBusy> {
   if (NET) {
     const id = vaultId ?? getSelectedVault()
     if (!id) return null
     const b = await netVaultBalance(id)
+    if (b === WALLET_BUSY) return b
     if (!b) return null
     // Since NU6.3 the spendable funds live in the Ironwood pool. Use the helper's combined
     // shielded_spendable_zat (Orchard + Ironwood); fall back to orchard-only for an older helper.
@@ -361,6 +366,13 @@ export async function getBalance(
     }
   }
   return await getJson<Balance>(withVault('/api/balance'))
+}
+
+/** `readBalance`, with a busy wallet read as null: for the screens that already keep their last
+ *  figure when a read brings nothing (the proposal page, the signing panel). */
+export async function getBalance(vaultId?: string): Promise<Balance | null> {
+  const b = await readBalance(vaultId)
+  return b === WALLET_BUSY ? null : b
 }
 
 /** Shorten an address for display: `u1vjgx…d406dr`. */
@@ -568,7 +580,8 @@ export type { WalletTx } from './helper'
 
 /** The vault's full on-chain transaction history (newest first) for the Add-funds record. Wired on
  *  BOTH paths (#211): browser-native via the helper, local bridge via `GET /api/transactions`. */
-export async function getTransactions(): Promise<WalletTx[] | null> {
+/** The vault's transactions, or WALLET_BUSY (keep the last list), or null. */
+export async function readTransactions(): Promise<WalletTx[] | null | WalletBusy> {
   if (NET) {
     const id = getSelectedVault()
     if (!id) return null
@@ -576,6 +589,7 @@ export async function getTransactions(): Promise<WalletTx[] | null> {
   }
   return (await getJson<{ transactions: WalletTx[] }>(withVault('/api/transactions')))?.transactions ?? null
 }
+
 
 /** Set the member names of the selected /net vault (seat order). Only in browser-native mode. */
 export async function setVaultMembers(names: string[]): Promise<string[] | null> {

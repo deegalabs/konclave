@@ -17,6 +17,15 @@ const commitSha = (() => {
 // (`konclave serve`, ADR-0004) and by a future packaged webview.
 export default defineConfig({
   plugins: [
+    // The waiting build names itself to the running one: the update banner reads this file (not
+    // precached: workbox only takes js, css, html, images, fonts and wasm) to say which version is
+    // arriving, not only which one is running.
+    {
+      name: 'konclave-version-file',
+      generateBundle() {
+        this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ version: pkg.version, commit: commitSha }) })
+      },
+    },
     react(),
     // PWA with an explicit UPDATE PROMPT (registerType: 'prompt'), not silent auto-reload: a
     // member mid-ceremony finishes first, then taps "update" (see UpdatePrompt). Precache is a

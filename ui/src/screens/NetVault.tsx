@@ -58,6 +58,7 @@ import { addressText } from '../approved-payment'
 import '../redesign.css'
 import '../net.css'
 import { CREATION_PROTOCOL, creationAllowed, isUpdateRequired } from '../creation-protocol'
+import { WALLET_BUSY } from '../helper'
 
 // The konclave.xyz network, made visible: two (or three) browser contexts create ONE vault by
 // a real DKG over the blind relay. Each keeps its own share; the round-2 secret pieces are
@@ -1812,11 +1813,9 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                       onClick={() => {
                         setBalanceBusy(true)
                         void vaultBalance(groupVk).then((b) => {
-                          setBalance(
-                            b
-                              ? { spend: zatToZec(b.orchard_spendable_zat), total: zatToZec(b.total_zat) }
-                              : null,
-                          )
+                          setBalance((prev) => (b === WALLET_BUSY ? prev : b
+                            ? { spend: zatToZec(b.orchard_spendable_zat), total: zatToZec(b.total_zat) }
+                            : null))
                           setBalanceBusy(false)
                         })
                       }}
