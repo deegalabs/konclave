@@ -56,6 +56,17 @@ explicitly accepted.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A vault whose registration could not be written to disk was served anyway, and was no longer
+  found after the next restart.** The coordinator answered with the address and served the vault from
+  memory when its record could not be written (a full or read-only volume). It now refuses the
+  registration with a 503 and serves nothing, and accepts a new registration of the same vault once
+  the volume is healthy, with a new address, because the first one was never given out (the app has
+  no retry button for it yet). A registration record that cannot be read is no longer written over
+  with a new identity. Since 2026-07-31. We did not check whether it happened. The details are in
+  [helper-server/CHANGELOG.md](helper-server/CHANGELOG.md).
+
 ## [0.13.1] 2026-10-15
 
 > **Services deployed when this was cut (2026-10-15):** coordinator `4223028`, relay `42da05bf003afc41`.
