@@ -1,9 +1,22 @@
 # Spec: Konclave ceremony protocol (DKG + signing over the blind relay)
 
-Status: draft (2026-08-02). Companion to [ADR-0007](../adr/0007-ceremony-security-invariants.md),
-which records the decision and the security invariants **I1-I4** this spec realizes. This document
-defines the wire so the security fixes (issues #62/#63/#65) are implemented against a precise target,
-not by guesswork.
+Status (2026-10-15). **What this document is:** the Konclave ceremony protocol as the code does it
+today: the messages a vault's devices, the relay and the hosted coordinator exchange to create a vault
+and to sign. **What it is not:** a specification another implementation could follow on its own. Its
+limits, each with its plan and status:
+
+- **Not a multi-vendor specification.** It describes one codebase; nothing here was written to be
+  implemented independently. Plan: none until a second implementation is asked for. Status: as is.
+- **The signing messages carry no version.** A device on an older build and one on a newer build cannot
+  tell from a message which rules it follows. Plan: a version prefix on the room messages. Status: not
+  started, not tracked in an issue yet.
+- **No test vectors.** The fixtures the test suites use (a proven transaction, its sighash, a DKG
+  transcript) are not published as vectors. Plan: export them next to this document. Status: not
+  started, not tracked in an issue yet.
+
+Companion to [ADR-0007](../adr/0007-ceremony-security-invariants.md), which records the decision and
+the security invariants **I1-I4** this document realizes. It was first written (2026-08-02) as the
+target for the security fixes of issues #62/#63/#65.
 
 Implementations: browser client `ui/src/net.ts` (relay transport), `ui/src/screens/NetVault.tsx`
 (ceremony driver, to be factored into `ui/src/signing.ts`), `ui/src/net-sign.ts` (sign wire),
@@ -116,16 +129,18 @@ REQUIRES **authenticated admission**:
 
 ## 5. Invariants checklist (must all hold before real-money `/net` broadcast)
 
-> Status note (2026-10-03): I1 holds only once every seat has registered its device key (until
-> then the signing request goes out unsealed, #63), and I2 now also covers the payment: a signing device reads it from the
-> transaction and checks it against the approved one (#610). I3 shipped with #63 (2026-08-29); the
-> checklist below is the draft's state on 2026-08-02.
+> Checklist as of 2026-10-15. I1 holds only once every seat has registered its device key (until
+> then the signing request goes out unsealed, #63). I2 also covers the payment: a signing device reads
+> it from the transaction and checks it against the approved one (#610).
 - [x] **I1** relay blind - no secret/address/amount in cleartext on the wire (the relay never parses bodies).
 - [x] **I2** on-device sighash recompute + refuse-on-mismatch (#62/#67; primitive proven byte-exact, live-validated 2-tab).
-- [ ] **I3** SignRequest ECIES-sealed (#63) - **the one open invariant** (plan in §4 above).
+- [x] **I3** SignRequest sealed to the seated devices (#63, 2026-08-29), proven by a mainnet send with
+  the relay blind to the payment, txid `047fe6ca…` ([PROOF](../PROOF.md)).
 - [x] **I4** authenticated admission, as amended (ADR-0007, 2026-10-12): required PIN + 128-bit invite + a transcript code every member reads with every other before round 2 + sealing in WASM. Live-validated locally (2-of-2, 2-of-3, a relay that rewrites one view); see §3.
 - [x] **I5** replay discipline: every permanent-room reader declares per type whether history applies (§1; #354/#356/#358, live-validated 2-device 2026-08-27, txid `78fe7dfa…`).
-- Gate: a real-money `/net` broadcast stays blocked on **I3** (I1/I2/I4 are enforced); I3 is money-path and lands with a live 2-device check.
+- Gate: I1-I5 hold on a vault's own signing screen. The `/net` lab page does not have the device's
+  newer checks and has no content check of its own (Known limits in `ui/CHANGELOG.md`); payments use
+  the vault's own signing screen.
 
 ## 6. Non-goals (for now)
 Non-interactive DKG (Golden, roadmap) · on-chain memo transport as a fallback (Zkool-style, roadmap)
