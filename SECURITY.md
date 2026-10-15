@@ -79,8 +79,8 @@ and while it is down no payment can be made. What is fixed and what is open, by 
 - **Acting as another member.** Fixed: every vote, proposal, payroll, rename and send is signed by
   the member's device and checked by the coordinator, and votes, proposals and payrolls are
   recorded under the seat that signed them (#288, #569); seats in the signing room, and the
-  messages that carry the arming tally, are authenticated (#401, #424, #425); two requests for one
-  vault no longer run unserialised (#576, since 2026-10-04). Open: a member can claim a colleague's seat
+  messages that carry the arming tally, are authenticated (#401, #424, #425); two writes to one
+  vault no longer run unserialised (#576, since 2026-10-04; a read does not queue behind a write, and the ones that record a mined send take the lock only when it is free). Open: a member can claim a colleague's seat
   before the colleague does, and then vote as them (#577); an approval recorded while a vault still
   took unsigned writes keeps counting after it requires signatures (#575, narrowed on 2026-10-04 and
   not closed by it); and the write check turns on per vault, the first time a member unlocks it, so
