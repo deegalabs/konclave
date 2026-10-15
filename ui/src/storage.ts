@@ -83,6 +83,12 @@ export interface VaultPublic {
   /** The creation protocol the vault was made with (creation-protocol.ts); absent for a vault made
    *  before it was recorded. The vault's, never the app's. */
   cp?: number
+  /** Every member's share was proven saved (the ceremony's verified `done` from each seat) before
+   *  the registration was attempted: written by `finishVault` ahead of any network call. Absent on
+   *  records older than that, whose finish is asked of the member. */
+  allSaved?: boolean
+  /** The coordinator's base URL the registration was attempted against (public). */
+  coordinator?: string
 }
 
 /** Whether a saved vault finished creation: every member saved its share and the coordinator holds
@@ -184,6 +190,8 @@ interface VaultRecord {
   /** The creation protocol the vault was made with (creation-protocol.ts); absent for a vault made
    *  before it was recorded. The vault's, never the app's. */
   cp?: number
+  allSaved?: boolean
+  coordinator?: string
 }
 
 
@@ -941,7 +949,7 @@ export async function listVaults(): Promise<VaultPublic[]> {
     const records = await reqDone(tx.objectStore(STORE).getAll() as IDBRequest<VaultRecord[]>)
     await txDone(tx)
     return records
-      .map((r) => ({ id: r.id, name: r.name, governance: r.governance, myName: r.myName, creatorName: r.creatorName, groupKey: r.groupKey, address: r.address, roster: r.roster, createdAt: r.createdAt, secured: !!r.secretCipher, changeReceiver: r.changeReceiver, pending: r.pending, threshold: r.threshold, total: r.total, cp: r.cp }))
+      .map((r) => ({ id: r.id, name: r.name, governance: r.governance, myName: r.myName, creatorName: r.creatorName, groupKey: r.groupKey, address: r.address, roster: r.roster, createdAt: r.createdAt, secured: !!r.secretCipher, changeReceiver: r.changeReceiver, pending: r.pending, threshold: r.threshold, total: r.total, cp: r.cp, allSaved: r.allSaved, coordinator: r.coordinator }))
       .sort((a, b) => b.createdAt - a.createdAt)
   } finally {
     db.close()
@@ -1005,7 +1013,7 @@ export async function recordChangeReceiver(id: string, receiver: unknown): Promi
 
 export async function updateVaultMeta(
   id: string,
-  patch: Partial<Pick<VaultRecord, 'name' | 'myName' | 'creatorName' | 'address' | 'pending'>>,
+  patch: Partial<Pick<VaultRecord, 'name' | 'myName' | 'creatorName' | 'address' | 'pending' | 'allSaved' | 'coordinator'>>,
 ): Promise<void> {
   if (!storageAvailable()) return
   const db = await openDb()
