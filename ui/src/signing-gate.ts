@@ -45,6 +45,62 @@ export function ownerArmed(
   return armIsLive(s.armedAt, now) && open && s.armedProposal === s.activeId
 }
 
+/** The owner's consent on this device: the payment they signed, when, and the one transaction it
+ *  covers. Held as ONE plain object by its owner (VaultSigner keeps it in a ref), so the gate, the
+ *  machine's claim and the screen read the same thing. Each signature is a new epoch, unbound. */
+export interface OwnerConsent {
+  proposal: string | null
+  at: number | null
+  epoch: number
+  /** The sighash (lower-case hex) of the first transaction cleared under this signature. */
+  bound: string | null
+  /** A different transaction was refused under this signature: it covers nothing more. */
+  spent: boolean
+}
+
+export function newConsent(): OwnerConsent {
+  return { proposal: null, at: null, epoch: 0, bound: null, spent: false }
+}
+
+/** The owner signs `proposal` at `at`: a new epoch, covering no transaction yet. */
+export function giveConsent(c: OwnerConsent, proposal: string, at: number): void {
+  c.proposal = proposal
+  c.at = at
+  c.epoch += 1
+  c.bound = null
+  c.spent = false
+}
+
+export function withdrawConsent(c: OwnerConsent): void {
+  c.proposal = null
+  c.at = null
+  c.epoch += 1
+  c.bound = null
+  c.spent = false
+}
+
+const canonical = (sighash: string) => sighash.trim().toLowerCase()
+
+/** Whether the consent covers the payment open now (`activeId`), at `now`, and - when given - the
+ *  transaction `sighash`. Read-only: the gate's pre-check and the screen's "signed". */
+export function consentAllows(c: OwnerConsent, activeId: string | null, now: number, sighash?: string): boolean {
+  if (c.spent) return false
+  if (!ownerArmed({ armedProposal: c.proposal, armedAt: c.at, activeId }, now)) return false
+  return sighash === undefined || c.bound === null || c.bound === canonical(sighash)
+}
+
+/** The machine clears `sighash` under this consent (every check passed, its own sighash): true binds
+ *  the consent to it, or confirms it is the one already bound. A different transaction is refused and
+ *  spends the consent, so the owner must sign again to cover another. */
+export function claimConsent(c: OwnerConsent, activeId: string | null, now: number, sighash: string): boolean {
+  if (!consentAllows(c, activeId, now)) return false
+  const h = canonical(sighash)
+  if (c.bound === null) { c.bound = h; return true }
+  if (c.bound === h) return true
+  c.spent = true
+  return false
+}
+
 /**
  * How far ahead of this device's clock another device's signature may be dated and still count
  * (#626). A signature carries the time on its signer's clock. `armIsLive` read one dated a second

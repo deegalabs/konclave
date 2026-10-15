@@ -40,6 +40,36 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Security
+
+- **The signer checks more of a transaction before it signs.** What this closes is held back for now
+  and will be added here when the details are published. What a member can notice: a device may
+  refuse to sign with one of a few new messages, each saying what to check; and when a device is
+  asked to sign a payment it signed before, it says so and signs again only through its own
+  confirmation, after the member checks the book.
+- **Creating or joining a vault needs an up-to-date app.** When the coordinator asks for a newer
+  app, this one says so before a creation or a join starts, and asks to reload (or, on the desktop
+  app, to install the latest release from the project's releases page).
+
+### Changed
+
+- **The signing panel shows the whole destination address and the network fee before you sign.** The
+  address is no longer shortened, the fee and the total that leaves the vault are shown as the
+  estimate they are, and the confirm repeats them. A payroll's fee appears once its lines are known.
+
+### Known limits
+
+- **Apps up to v0.12.0 cannot say they are out of date.** Once the coordinator asks for an
+  up-to-date app, one of these creating or joining a vault does not finish: it gets no address, so
+  nothing can be received into it, and v0.12.0 shows the vault as not finished without saying why.
+  Reloading the page brings the current app. The desktop app has no updater yet (#606): install the
+  latest release by hand. Status: the app side ships first, desktop installer included; the
+  coordinator starts asking only after it is live.
+- **The `/net` page does not have the signer's newer checks**, nor a content check of its own; use
+  the vault's own signing screen for payments.
+- **A device that signed a payment does not answer a new attempt at that same payment until the page
+  is reloaded.** Nothing is signed meanwhile; reload the page, then sign the new attempt.
+
 ## [0.12.0] 2026-10-12
 
 ### Security

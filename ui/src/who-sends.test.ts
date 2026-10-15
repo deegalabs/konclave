@@ -88,6 +88,15 @@ describe('who sends: the cases the review found (#626)', () => {
     expect(o.self.map((s) => [s.dev, s.fired])).toEqual([[1, true], [1, true]])
   })
 
+  it('after a withdrawal every device can sign again at once, and the next quorum sends', async () => {
+    // 2-of-2 in sync. d2 is named at 0.7 and its send fails at 1 with the panel open: the withdrawal
+    // ends every device's signature for the payment, so d1 signs again at 1.5 (not after its own
+    // ten minutes) and d2 at 2: named, and it sends.
+    const o = await sim(2, 2, [0, 0], [0, 0], ev([[0, 0, 'arm'], [0.7 * MIN, 1, 'arm'], [1 * MIN, 1, 'unarm'], [1.5 * MIN, 0, 'arm'], [2 * MIN, 1, 'arm']]), mats(2, 2))
+    expect(check(o, ARM_TTL_MS, 2), o.log.join('\n')).toEqual([])
+    expect(o.self.map((s) => [s.dev, s.tRelay / MIN, s.fired])).toEqual([[1, 0.7, true], [1, 2, true]])
+  })
+
   it('a sender whose send is still running or done never signs again on the same page', async () => {
     // d2 is named at 0.7 and closes its panel at 0.8 with the send going on. Reopening shows the run
     // or its result, with no Sign button, so d2 is not named again whatever d1 does.

@@ -29,6 +29,8 @@ export interface BackgroundSessionDeps {
   /** Does a request pay EXACTLY what the quorum approved (#281)? Threaded to the machine, which
    *  calls it once per ceremony right after its own sighash check and before any share moves. */
   decideApproval: (outputs: PcztOutput[]) => GateDecision
+  claim: (sighashHex: string, expiry: number) => boolean | Promise<boolean>
+  record: (sighashHex: string, expiry: number) => Promise<void>
   /** Governance gate: whether this device signs this payment (policy lives in the caller). */
   gate: GovernanceGate
   onLog?: (line: string) => void
@@ -45,6 +47,9 @@ export interface BackgroundSessionDeps {
   now?: () => number
   /** An attempt failed elsewhere. Every device that signed learns it, not only the one that sent. */
   onFailed?: (code: FailureCode) => void
+  /** Another device withdrew its signature for the open payment, live: the send went nowhere, so this
+   *  device's owner signs the next transaction anew. Not called for history read back on open. */
+  onWithdrawn?: () => void
 }
 
 /** A device announcing that its owner explicitly signed THIS proposal. Broadcast into the signing
@@ -100,6 +105,7 @@ export class BackgroundSession {
   private readonly onArmed?: (seats: number[], triggerTag: string | null) => void
   private readonly now: () => number
   private readonly onFailed?: (code: FailureCode) => void
+  private readonly onWithdrawn?: () => void
   /** The ceremony log line. `/net` shows it; the app path leaves it unwired today, so a dropped
    *  tally message is not on screen there - see #425's note on the mixed-version window. */
   private readonly onLog?: (line: string) => void
@@ -137,6 +143,7 @@ export class BackgroundSession {
     this.onLog = deps.onLog
     this.now = deps.now ?? (() => Date.now())
     this.onFailed = deps.onFailed
+    this.onWithdrawn = deps.onWithdrawn
     this.seats = new SigningSeats(deps.myTag, deps.mySeat, deps.onSeatCount)
     this.signer = new BackgroundSigner({
       signingMaterial: deps.signingMaterial,
@@ -146,6 +153,8 @@ export class BackgroundSession {
       threshold: deps.threshold,
       hasVault: () => true, // an unlocked, restored vault always exists
       decideApproval: deps.decideApproval,
+      claim: deps.claim,
+      record: deps.record,
       send: async (m) => { await this.send(JSON.stringify(m)) },
       rawSend: (data) => this.send(data),
       onLog: deps.onLog ?? (() => {}),
@@ -207,6 +216,7 @@ export class BackgroundSession {
       // A failure is news only when it happens: one read back from the room's history belongs to an
       // earlier attempt and must not replace what the screen knows about a later one.
       if (parsed.code && from !== this.myTag && !historical) this.onFailed?.(parsed.code)
+      if (from !== this.myTag && !historical) this.onWithdrawn?.()
       return
     }
     if (parsed?.type === 'armed' && typeof parsed.seat === 'number' && typeof parsed.proposal === 'string') {

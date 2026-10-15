@@ -59,6 +59,8 @@ export async function sim(T: number, N: number, skews: number[], openAt: number[
       myTag: tag,
       mySeat: i + 1,
       decideApproval: () => 'match',
+      claim: () => true,
+      record: async () => {},
       signingMaterial: mats[i]!,
       threshold: () => T,
       send: async (data) => { bus.push({ seq: seq++, from: tag, data, tRelay: rel() }); return true },
@@ -80,6 +82,8 @@ export async function sim(T: number, N: number, skews: number[], openAt: number[
       await d.s.onMessage(m.from, m.data, hist)
       const p = JSON.parse(m.data) as { type?: string; at?: number }
       if (p.type === 'unarmed' && !out.unarmSeqs.includes(m.seq)) out.unarmSeqs.push(m.seq)
+      // Another device's withdrawal, read live, ends this device's signature: its button returns.
+      if (p.type === 'unarmed' && m.from !== d.tag && !hist) ownArmedAt[i] = null
       if (p.type !== 'armed') continue
       let n = byseq.get(m.seq)
       if (!n) {

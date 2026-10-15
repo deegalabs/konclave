@@ -2066,15 +2066,275 @@ pub mod pczt_bridge {
         /// Every output of the Orchard bundle, then of the Ironwood bundle (the sighash's order).
         pub outputs: Vec<OutputInfo>,
         /// The fee in zatoshis: what the two bundles take out of the shielded pools, which the
-        /// sighash covers. Never above the ZIP 317 fee for the transaction's actions.
+        /// sighash covers. Exactly the ZIP 317 fee for the transaction's actions.
         pub fee_zat: u64,
         /// Actions across both bundles.
         pub actions: usize,
+        /// Actions in the Orchard bundle and in the Ironwood bundle, and the values the Ironwood
+        /// bundle pays: what tells a canonical ZIP 318 crossing apart (`is_canonical_crossing`).
+        pub orchard_actions: usize,
+        pub ironwood_actions: usize,
+        pub ironwood_values: Vec<u64>,
+        /// Each bundle's value balance (what it gives out of its pool; negative when it takes in).
+        pub orchard_balance: i64,
+        pub ironwood_balance: i64,
     }
 
     /// ZIP 317: the conventional fee is `MARGINAL_FEE * max(GRACE_ACTIONS, logical_actions)`, and
     /// for a shielded-only V6 transaction the logical actions are the Orchard actions plus the
     /// Ironwood actions.
+    /// The network a build signs for: per network upgrade, where the device's clock is anchored and
+    /// which transaction headers it accepts. A build constant, never read from the PCZT, whose
+    /// heights the builder writes. (The PCZT's `coin_type` is not readable through pczt's API and
+    /// is not in the sighash; another network shows here as a branch, a version or heights outside
+    /// the window: testnet shares NU6.3's branch id but runs hundreds of thousands of blocks ahead.)
+    #[derive(Clone, Copy, Debug)]
+    pub struct Epoch {
+        pub anchor_height: u32,
+        pub anchor_unix: i64,
+        pub spacing_s: i64,
+        pub expiry_delta: u32,
+        pub branch_id: u32,
+        pub tx_version: u32,
+        pub version_group_id: u32,
+    }
+    #[derive(Clone, Copy, Debug)]
+    pub struct NetworkRules {
+        pub epochs: &'static [Epoch],
+    }
+    /// Mainnet. NU6.3 activated at block 3,428,143, whose header time is 1785247643
+    /// (2026-07-28 14:07:23 UTC). A new upgrade (NU7, #638) is a new row, shipped before it activates:
+    /// a device on a bundle without it refuses every transaction of the new epoch.
+    pub const MAINNET: NetworkRules = NetworkRules {
+        epochs: &[Epoch {
+            anchor_height: 3_428_143,
+            anchor_unix: 1_785_247_643,
+            spacing_s: 75,
+            expiry_delta: 40,
+            branch_id: 0x37a5_165b,
+            tx_version: 6,
+            version_group_id: 0xD884_B698,
+        }],
+    };
+
+    /// The epoch the device's clock is in: the last one anchored at or before `now_unix`.
+    fn epoch_at(rules: &NetworkRules, now_unix: i64) -> Option<&'static Epoch> {
+        rules.epochs.iter().rfind(|e| e.anchor_unix <= now_unix)
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct HeightBounds {
+        pub lo: u32,
+        pub est: u32,
+        pub hi: u32,
+    }
+    #[derive(Clone, Copy, Debug)]
+    pub struct TxHeader {
+        pub tx_version: u32,
+        pub version_group_id: u32,
+        pub branch_id: u32,
+        pub lock_time: u32,
+        pub expiry_height: u32,
+    }
+
+    /// Whether a transaction expiring at `expiry` may still be mined, by this device's clock: its
+    /// expiry is not ten blocks below the window's floor. The one test `approval_decision` and
+    /// `lapses_at` both read, so what the screen says and what the device decides cannot drift.
+    fn still_counted(rules: &NetworkRules, expiry: u32, now_unix: i64) -> bool {
+        expiry.saturating_add(10) >= height_bounds(rules, now_unix).lo
+    }
+
+    /// The first moment (unix seconds) this device stops counting a transaction that expires at
+    /// `expiry`: from then on a new transaction for the same approval is `AfterExpiry`, not `Second`.
+    /// The screen says this time ("until about ..."), so it is the rule's own turning point, not an
+    /// estimate of when the block comes (the chain runs behind the nominal spacing, so that estimate
+    /// would be hours early). None when it is not found within the first epoch's reach.
+    pub fn lapses_at(rules: &NetworkRules, expiry: u32) -> Option<i64> {
+        let first = rules.epochs.first()?;
+        let mut lo = first.anchor_unix;
+        if !still_counted(rules, expiry, lo) {
+            return Some(lo);
+        }
+        // The floor of the window rises at most one block per spacing, and at least ~99% of that,
+        // so twice the nominal time to `expiry` (plus the margin) is always past the turn.
+        let blocks = (expiry as i64 - first.anchor_height as i64).max(0) + 1_000;
+        let mut hi = first.anchor_unix + blocks * first.spacing_s * 2;
+        if still_counted(rules, expiry, hi) {
+            return None;
+        }
+        // Counted at `lo`, not at `hi`: the floor never falls as the clock advances within an epoch.
+        while hi - lo > 1 {
+            let mid = lo + (hi - lo) / 2;
+            if still_counted(rules, expiry, mid) {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        Some(hi)
+    }
+
+    /// The heights a transaction built now may honestly expire at, from the DEVICE's clock alone:
+    /// `est` counts blocks since the epoch's anchor at its nominal spacing. The chain drifts from
+    /// that (blocks run slightly slower than 75 s), so the window is widened by a margin that grows
+    /// with time since the anchor: 144 blocks plus one per hundred since it. A clock before every
+    /// anchor confirms nothing (an empty window).
+    pub fn height_bounds(rules: &NetworkRules, now_unix: i64) -> HeightBounds {
+        let Some(e) = epoch_at(rules, now_unix) else {
+            return HeightBounds {
+                lo: u32::MAX,
+                est: 0,
+                hi: 0,
+            };
+        };
+        let since = ((now_unix - e.anchor_unix) / e.spacing_s) as u32;
+        let est = e.anchor_height.saturating_add(since);
+        let margin = 144 + since.div_ceil(100);
+        HeightBounds {
+            lo: est.saturating_sub(margin),
+            est,
+            hi: est.saturating_add(e.expiry_delta).saturating_add(margin),
+        }
+    }
+
+    /// What a device can confirm about a transaction's header before its share leaves: the network
+    /// (consensus branch, version, version group) is the one this build signs for in the
+    /// epoch its clock is in; nothing locks it to a later time; and it expires inside the window the
+    /// device's own clock allows, so whoever holds it signed cannot broadcast it much later.
+    /// A canonical ZIP 318 pool crossing, as the released engine builds it when one Orchard note pays
+    /// a `{1,2,5} x 10^k` amount: two Orchard actions (the spend and its change or a dummy) and one
+    /// Ironwood action carrying the single canonical output.
+    /// The value must also actually cross: the Orchard bundle gives value out (a positive balance)
+    /// and the Ironwood bundle takes exactly its one output (a balance of minus that output, so its
+    /// spend side is a zero dummy). Without this, a vault holding only Ironwood notes could have a
+    /// transaction of this action count signed with the crossing's long expiry.
+    pub fn is_canonical_crossing(
+        orchard_actions: usize,
+        ironwood_actions: usize,
+        ironwood_values: &[u64],
+        orchard_balance: i64,
+        ironwood_balance: i64,
+    ) -> bool {
+        use zcash_protocol::{value::Zatoshis, zip318};
+        orchard_actions == zip318::CROSSING_SOURCE_ACTIONS
+            && ironwood_actions == zip318::CROSSING_DESTINATION_ACTIONS
+            && orchard_balance > 0
+            && matches!(ironwood_values, [v] if Zatoshis::from_u64(*v).is_ok_and(zip318::is_canonical_denomination)
+                && i64::try_from(*v).is_ok_and(|v| ironwood_balance == -v))
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum ApprovalDecision {
+        First,
+        Same,
+        AfterExpiry,
+        Second { first_expiry: u32 },
+    }
+
+    /// What a new transaction is, for an approval this device already put its share into: `signed`
+    /// is this device's record of those transactions (their sighash and expiry). `Same` is a ceremony
+    /// restarted on the same transaction; `AfterExpiry` a new one once every earlier one can no longer
+    /// be mined by this device's clock (its expiry ten blocks below the window's floor); `Second` a
+    /// new one while an earlier one may still be mined, which pays twice if both are: the member
+    /// confirms it, told until when the earlier one stays valid.
+    pub fn approval_decision(
+        rules: &NetworkRules,
+        signed: &[(String, u32)],
+        sighash: &str,
+        now_unix: i64,
+    ) -> ApprovalDecision {
+        let s = sighash.trim().to_ascii_lowercase();
+        if signed.is_empty() {
+            return ApprovalDecision::First;
+        }
+        if signed
+            .iter()
+            .any(|(h, _)| h.trim().eq_ignore_ascii_case(&s))
+        {
+            return ApprovalDecision::Same;
+        }
+        match signed
+            .iter()
+            .map(|(_, e)| *e)
+            .filter(|e| still_counted(rules, *e, now_unix))
+            .max()
+        {
+            Some(first_expiry) => ApprovalDecision::Second { first_expiry },
+            None => ApprovalDecision::AfterExpiry,
+        }
+    }
+
+    /// `check_header`, with ZIP 318's rolling expiry accepted for a canonical crossing: exactly
+    /// `t - t % 34,560 + 69,120` for a target height `t` the device's clock allows, never any other
+    /// long expiry. Below its window the expiry is refused as for any transaction.
+    pub fn check_header_for(
+        rules: &NetworkRules,
+        h: &TxHeader,
+        now_unix: i64,
+        crossing: bool,
+    ) -> Result<(), String> {
+        use zcash_protocol::zip318::{EXPIRY_MODULUS, EXPIRY_WINDOW};
+        let plain = check_header(rules, h, now_unix);
+        if plain.is_ok() || !crossing || !plain.as_ref().unwrap_err().starts_with("[expiry]") {
+            return plain;
+        }
+        let b = height_bounds(rules, now_unix);
+        let e = h.expiry_height;
+        let target_hi =
+            b.hi.saturating_sub(epoch_at(rules, now_unix).map_or(0, |e| e.expiry_delta));
+        let zip318_at = |t: u32| t - t % EXPIRY_MODULUS + EXPIRY_WINDOW;
+        if e > b.lo
+            && e.is_multiple_of(EXPIRY_MODULUS)
+            && e >= zip318_at(b.lo)
+            && e <= zip318_at(target_hi)
+        {
+            // The header's other fields passed `check_header` (it fails on the expiry last).
+            return Ok(());
+        }
+        plain
+    }
+
+    pub fn check_header(rules: &NetworkRules, h: &TxHeader, now_unix: i64) -> Result<(), String> {
+        let Some(e) = epoch_at(rules, now_unix) else {
+            return Err(
+                "[expiry] this device's clock is earlier than the network this app signs for"
+                    .into(),
+            );
+        };
+        if h.branch_id != e.branch_id
+            || h.tx_version != e.tx_version
+            || h.version_group_id != e.version_group_id
+        {
+            return Err(format!(
+                "[network] the transaction is for another network or upgrade (branch {:08x}, v{})",
+                h.branch_id, h.tx_version
+            ));
+        }
+        if h.lock_time != 0 {
+            return Err(format!(
+                "[locktime] the transaction cannot be mined before {}",
+                h.lock_time
+            ));
+        }
+        let b = height_bounds(rules, now_unix);
+        if h.expiry_height == 0 {
+            return Err("[expiry] the transaction never expires".into());
+        }
+        if h.expiry_height <= b.lo {
+            return Err(format!(
+                "[expiry] the transaction expires at block {}, already past by this device's clock",
+                h.expiry_height
+            ));
+        }
+        if h.expiry_height > b.hi {
+            return Err(format!(
+                "[expiry] the transaction stays valid until block {}, much later than a payment built now",
+                h.expiry_height
+            ));
+        }
+        Ok(())
+    }
+
     const MARGINAL_FEE: u64 = 5_000;
     const GRACE_ACTIONS: u64 = 2;
 
@@ -2089,15 +2349,15 @@ pub mod pczt_bridge {
         paying: usize,
     }
 
-    /// The fee this transaction pays, or the refusal when it pays more than ZIP 317 sets for it.
+    /// The fee this transaction pays, or the refusal when it is not exactly what ZIP 317 sets for it.
     ///
     /// Nothing on the signing path bounded the fee before #610. A builder could pay every approved
     /// line exactly and return less change, and the difference went to the miner: every device
     /// signed it, because every check looked at the outputs and none at what they did not add up
     /// to. The fee here comes from the bundles' value balance, which the sighash covers.
     ///
-    /// The ZIP 317 fee grows with the number of actions, so a bound on the fee alone would let a
-    /// builder add empty padding actions and raise its own ceiling by 5000 zatoshis each. So each
+    /// The ZIP 317 fee grows with the number of actions, so a fee check alone would let a builder
+    /// add empty padding actions and raise the fee it must pay by 5000 zatoshis each. So each
     /// bundle may carry at most `max(2, to_sign + paying)` actions. That covers both ways a builder
     /// pairs spends with outputs: one action per spend-or-output where cross-address transfers are
     /// allowed (Ironwood), and a spend and an output in separate actions where they are not
@@ -2106,7 +2366,7 @@ pub mod pczt_bridge {
     /// What this does NOT bound: the builder chooses both terms. It can split change into more
     /// outputs, spend more of the vault's notes, or add zero-value spends left for the vault to
     /// sign (`collect_real` does not check a spend's `rk` against the vault's key), and each such
-    /// action raises the ceiling by 5000 zatoshis, paid to the network. Nothing on the device caps
+    /// action raises the fee by 5000 zatoshis, paid to the network. Nothing on the device caps
     /// the number of actions; the relay's 128 KiB message cap is the only bound today. A real bound
     /// needs the device to know which notes a payment should spend.
     fn check_fee(fee: i64, bundles: &[BundleShape]) -> Result<u64, String> {
@@ -2126,10 +2386,14 @@ pub mod pczt_bridge {
             }
         }
         let actions: u64 = bundles.iter().map(|b| b.actions as u64).sum();
-        let ceiling = MARGINAL_FEE * actions.max(GRACE_ACTIONS);
-        if fee > ceiling {
+        // Exactly ZIP 317's fee for the transaction's actions: every honest send pays exactly that
+        // (all twenty in docs/PROOF.md, payroll and migration included). Above it the builder keeps
+        // the difference from the change; below it the network may not relay the transaction, which
+        // then sits signed with whoever built it.
+        let zip317 = MARGINAL_FEE * actions.max(GRACE_ACTIONS);
+        if fee != zip317 {
             return Err(format!(
-                "[fee] the transaction pays {fee} zatoshis in fee, above the {ceiling} that ZIP 317 sets for its {actions} actions"
+                "[fee] the transaction pays {fee} zatoshis in fee, not the {zip317} that ZIP 317 sets for its {actions} actions"
             ));
         }
         Ok(fee)
@@ -2346,6 +2610,9 @@ pub mod pczt_bridge {
         let mut outputs = vec![];
         let mut shapes = vec![];
         let mut fee: i64 = 0;
+        let (mut orchard_actions, mut ironwood_actions) = (0, 0);
+        let (mut orchard_balance, mut ironwood_balance) = (0i64, 0i64);
+        let mut ironwood_values = vec![];
         for &(ironwood_pool, pool) in pools {
             let (part, shape, balance) =
                 with_bundle(&pczt, ironwood_pool, |b| read_bundle(pool, b))?;
@@ -2357,6 +2624,18 @@ pub mod pczt_bridge {
             fee = fee
                 .checked_add(balance)
                 .ok_or("[fee] the transaction's value balance is out of range")?;
+            if ironwood_pool {
+                ironwood_actions = shape.actions;
+                ironwood_balance = balance;
+                ironwood_values = part
+                    .iter()
+                    .filter_map(|o| o.value)
+                    .filter(|v| *v > 0)
+                    .collect();
+            } else {
+                orchard_actions = shape.actions;
+                orchard_balance = balance;
+            }
             outputs.extend(part);
             shapes.push(shape);
         }
@@ -2366,7 +2645,68 @@ pub mod pczt_bridge {
             outputs,
             fee_zat,
             actions,
+            orchard_actions,
+            ironwood_actions,
+            ironwood_values,
+            orchard_balance,
+            ironwood_balance,
         })
+    }
+
+    /// What a device signs on, read once: what the transaction pays (`read_payment`), its header
+    /// checked against the network this build signs for and the device's own clock (`check_header`),
+    /// the sighash its share will cover, and the txid that sighash gives (for a transaction with no
+    /// transparent input, ZIP 244's signature digest is the txid digest, as the orchestrator's
+    /// `txid_from_sighash` relies on). The one call a signing driver makes before its share leaves.
+    pub struct ForSigning {
+        pub payment: Payment,
+        pub sighash: [u8; 32],
+        pub txid: String,
+        pub expiry_height: u32,
+    }
+
+    fn header_of(pczt: &Pczt) -> Result<TxHeader, String> {
+        let g = pczt.global();
+        let lock_time = pczt::common::determine_lock_time(g, pczt.transparent().inputs())
+            .ok_or("[locktime] incompatible lock times in the transaction")?;
+        Ok(TxHeader {
+            tx_version: *g.tx_version(),
+            version_group_id: *g.version_group_id(),
+            branch_id: *g.consensus_branch_id(),
+            lock_time,
+            expiry_height: *g.expiry_height(),
+        })
+    }
+
+    pub fn read_for_signing_with(
+        rules: &NetworkRules,
+        pczt_bytes: &[u8],
+        now_unix: i64,
+    ) -> Result<ForSigning, String> {
+        let pczt = Pczt::parse(pczt_bytes).map_err(|e| format!("failed to parse PCZT: {:?}", e))?;
+        let header = header_of(&pczt)?;
+        let payment = read_payment(pczt_bytes)?;
+        let crossing = is_canonical_crossing(
+            payment.orchard_actions,
+            payment.ironwood_actions,
+            &payment.ironwood_values,
+            payment.orchard_balance,
+            payment.ironwood_balance,
+        );
+        check_header_for(rules, &header, now_unix, crossing)?;
+        let sighash = shielded_sighash(&pczt)?;
+        let txid = sighash.iter().rev().map(|b| format!("{b:02x}")).collect();
+        Ok(ForSigning {
+            payment,
+            sighash,
+            txid,
+            expiry_height: header.expiry_height,
+        })
+    }
+
+    /// `read_for_signing_with` for the network this build signs for.
+    pub fn read_for_signing(pczt_bytes: &[u8], now_unix: i64) -> Result<ForSigning, String> {
+        read_for_signing_with(&MAINNET, pczt_bytes, now_unix)
     }
 
     /// Every output of a proven PCZT - what this transaction actually pays - so each device can
@@ -3203,6 +3543,415 @@ pub mod pczt_bridge {
         }
 
         #[test]
+        fn a_fee_below_zip317_is_refused() {
+            // The fee is exactly what ZIP 317 sets for the transaction's actions: every honest send
+            // on mainnet pays exactly that. A lower one is a transaction the network may not relay.
+            let tampered = patch_once(IW_PROVEN, &varint(20000), &varint(15000));
+            assert_refused(&tampered, "[fee]");
+        }
+
+        // The header a device can check before its share leaves, from its own clock and the network
+        // the build is for, never from the coordinator's height or the PCZT's own claims.
+        const T_ANCHOR: i64 = 1_785_247_643; // block 3,428,143 (NU6.3 activation), header time
+        fn honest(now: i64) -> TxHeader {
+            let b = height_bounds(&MAINNET, now);
+            // An honest builder: the chain runs slower than 75 s a block, so its tip is behind `est`.
+            TxHeader {
+                tx_version: 6,
+                version_group_id: 0xD884_B698,
+                branch_id: 0x37a5_165b,
+                lock_time: 0,
+                expiry_height: b.est - 412 + 41,
+            }
+        }
+
+        #[test]
+        fn height_bounds_hold_a_margin_that_grows_with_time_since_the_anchor() {
+            let b = height_bounds(&MAINNET, T_ANCHOR);
+            assert_eq!(
+                (b.lo, b.est, b.hi),
+                (3_428_143 - 144, 3_428_143, 3_428_143 + 40 + 144)
+            );
+            let b = height_bounds(&MAINNET, T_ANCHOR + 75 * 87_500);
+            assert_eq!(b.est, 3_428_143 + 87_500);
+            assert_eq!(b.est - b.lo, 144 + 875);
+            assert_eq!(b.hi - b.est, 40 + 144 + 875);
+        }
+
+        #[test]
+        fn an_honest_header_passes_today() {
+            let now = T_ANCHOR + 75 * 87_500;
+            check_header(&MAINNET, &honest(now), now).unwrap();
+        }
+
+        #[test]
+        fn a_header_outside_what_the_device_can_confirm_is_refused() {
+            let now = T_ANCHOR + 75 * 87_500;
+            let h = honest(now);
+            let b = height_bounds(&MAINNET, now);
+            let refused = |h: TxHeader, tag: &str| {
+                let e = check_header(&MAINNET, &h, now).unwrap_err();
+                assert!(e.starts_with(tag), "{tag}: {e}");
+            };
+            refused(
+                TxHeader {
+                    expiry_height: 0,
+                    ..h
+                },
+                "[expiry]",
+            );
+            refused(
+                TxHeader {
+                    expiry_height: b.lo,
+                    ..h
+                },
+                "[expiry]",
+            );
+            refused(
+                TxHeader {
+                    expiry_height: b.hi + 1,
+                    ..h
+                },
+                "[expiry]",
+            );
+            refused(
+                TxHeader {
+                    branch_id: 0xc8e7_1055,
+                    ..h
+                },
+                "[network]",
+            );
+            refused(TxHeader { tx_version: 5, ..h }, "[network]");
+            refused(
+                TxHeader {
+                    version_group_id: 0x26a7_270a,
+                    ..h
+                },
+                "[network]",
+            );
+            refused(TxHeader { lock_time: 1, ..h }, "[locktime]");
+            check_header(
+                &MAINNET,
+                &TxHeader {
+                    expiry_height: b.lo + 1,
+                    ..h
+                },
+                now,
+            )
+            .unwrap();
+            check_header(
+                &MAINNET,
+                &TxHeader {
+                    expiry_height: b.hi,
+                    ..h
+                },
+                now,
+            )
+            .unwrap();
+        }
+
+        // A network table anchored where this testnet fixture was built, so its honest header
+        // passes: the fixture's expiry is its builder's tip + 40.
+        fn rules_for_fixture() -> (NetworkRules, i64) {
+            let p = Pczt::parse(IW_PROVEN).unwrap();
+            let expiry = *p.global().expiry_height();
+            let e: &'static [Epoch] = Box::leak(Box::new([Epoch {
+                anchor_height: expiry - 41,
+                anchor_unix: T_ANCHOR,
+                spacing_s: 75,
+                expiry_delta: 40,
+                branch_id: *p.global().consensus_branch_id(),
+                tx_version: 6,
+                version_group_id: 0xD884_B698,
+            }]));
+            (NetworkRules { epochs: e }, T_ANCHOR)
+        }
+
+        #[test]
+        fn read_for_signing_gives_the_payment_the_sighash_and_the_txid_it_gives() {
+            let (r, now) = rules_for_fixture();
+            let f = read_for_signing_with(&r, IW_PROVEN, now).unwrap();
+            assert_eq!(f.payment.fee_zat, read_payment(IW_PROVEN).unwrap().fee_zat);
+            // Expected values from other implementations, not from the code under test: the sighash
+            // is `konclave-signer extract`'s and the txid `zcash-devtool pczt inspect`'s, for this same
+            // vector (orchestrator/src/pczt.rs).
+            let hex = |b: &[u8]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
+            assert_eq!(
+                hex(&f.sighash),
+                "332de126200c22131337474ae50367218ec87815c23d297dcdc8278ecb8903b0"
+            );
+            assert_eq!(
+                f.txid,
+                "b00389cb8e27c8cd7d293dc21578c88e216703e54a47371313220c2026e12d33"
+            );
+        }
+
+        #[test]
+        fn read_for_signing_refuses_what_the_header_check_refuses() {
+            // The same testnet transaction, read by a mainnet build today: outside its window.
+            let e = match read_for_signing(IW_PROVEN, T_ANCHOR + 75 * 87_500) {
+                Err(e) => e,
+                Ok(_) => panic!("a testnet transaction passed a mainnet build"),
+            };
+            assert!(
+                e.starts_with("[expiry]") || e.starts_with("[network]"),
+                "{e}"
+            );
+            // And the device's clock moved past the window refuses it too.
+            let (r, now) = rules_for_fixture();
+            let late = now + 75 * 10_000;
+            let e = match read_for_signing_with(&r, IW_PROVEN, late) {
+                Err(e) => e,
+                Ok(_) => panic!("an expired transaction passed"),
+            };
+            assert!(e.starts_with("[expiry]"), "{e}");
+        }
+
+        // ZIP 318: the released engine builds a canonical pool crossing (one Orchard note paying a
+        // {1,2,5}x10^k amount into Ironwood) with a rolling expiry one to two months ahead. A device
+        // accepts that long expiry for exactly that shape and that exact expiry, nothing else.
+        #[test]
+        fn the_crossing_shape_is_recognised_exactly() {
+            // Orchard gives the amount and the fee (its balance is positive); Ironwood takes exactly
+            // the amount (its spend is a zero dummy, so its balance is minus the output).
+            let x = |o, i, v: &[u64], ob, ib| is_canonical_crossing(o, i, v, ob, ib);
+            assert!(x(2, 1, &[1_000_000], 1_015_000, -1_000_000));
+            assert!(x(2, 1, &[50_000_000], 50_015_000, -50_000_000));
+            assert!(
+                !x(2, 1, &[1_230_000], 1_245_000, -1_230_000),
+                "not a canonical amount"
+            );
+            assert!(
+                !x(3, 1, &[1_000_000], 1_020_000, -1_000_000),
+                "more Orchard actions"
+            );
+            assert!(
+                !x(2, 2, &[1_000_000, 5_000], 1_025_000, -1_005_000),
+                "more Ironwood outputs"
+            );
+            assert!(!x(2, 1, &[], 15_000, 0), "nothing crosses");
+            assert!(
+                !x(2, 1, &[1_000_000], 15_000, 0),
+                "an Ironwood note spent into it: Ironwood pays itself, nothing crosses"
+            );
+            assert!(
+                !x(2, 1, &[1_000_000], -985_000, 1_000_000),
+                "value leaving Ironwood is not a crossing into it"
+            );
+        }
+
+        /// ZIP 318's rolling expiry for a target height `t`.
+        fn zip318_expiry(t: u32) -> u32 {
+            t - t % 34_560 + 69_120
+        }
+
+        #[test]
+        fn a_crossing_still_needs_the_right_network_and_no_lock_time() {
+            // The exemption is for the expiry only: the rest of the header is checked as always.
+            let now = T_ANCHOR + 75 * 87_500;
+            let b = height_bounds(&MAINNET, now);
+            let long = zip318_expiry(b.est - 412);
+            let h = TxHeader {
+                branch_id: 0xc8e7_1055,
+                expiry_height: long,
+                ..honest(now)
+            };
+            let e = check_header_for(&MAINNET, &h, now, true).unwrap_err();
+            assert!(e.starts_with("[network]"), "{e}");
+            let h = TxHeader {
+                lock_time: 1,
+                expiry_height: long,
+                ..honest(now)
+            };
+            let e = check_header_for(&MAINNET, &h, now, true).unwrap_err();
+            assert!(e.starts_with("[locktime]"), "{e}");
+        }
+
+        #[test]
+        fn a_crossing_expiry_is_zip318_exactly_even_where_the_window_straddles_a_period() {
+            let period = 34_560u32;
+            let k = 3_428_143 / period + 3;
+            let since = k * period + 5 - 3_428_143;
+            let now = T_ANCHOR + 75 * since as i64;
+            let b = height_bounds(&MAINNET, now);
+            let target_hi = b.hi - 40;
+            assert!(
+                zip318_expiry(b.lo) < zip318_expiry(target_hi),
+                "the window straddles a period"
+            );
+            let h = TxHeader {
+                expiry_height: zip318_expiry(b.lo) + 1,
+                ..honest(now)
+            };
+            assert!(
+                check_header_for(&MAINNET, &h, now, true).is_err(),
+                "a non-ZIP-318 long expiry passed"
+            );
+            let h = TxHeader {
+                expiry_height: zip318_expiry(target_hi),
+                ..honest(now)
+            };
+            check_header_for(&MAINNET, &h, now, true).unwrap();
+        }
+
+        #[test]
+        fn a_crossing_expiry_one_period_early_is_refused() {
+            let now = T_ANCHOR + 75 * 87_500;
+            let b = height_bounds(&MAINNET, now);
+            let h = TxHeader {
+                expiry_height: zip318_expiry(b.lo) - 34_560,
+                ..honest(now)
+            };
+            assert!(
+                h.expiry_height > b.hi,
+                "a long expiry, outside the plain window"
+            );
+            assert!(
+                check_header_for(&MAINNET, &h, now, true).is_err(),
+                "one period before ZIP 318's passed"
+            );
+        }
+
+        #[test]
+        fn a_second_transaction_is_judged_by_the_latest_earlier_one() {
+            // The screen says until when the earlier attempts can go out: the last of them.
+            let now = T_ANCHOR + 75 * 87_500;
+            let b = height_bounds(&MAINNET, now);
+            let d = approval_decision(
+                &MAINNET,
+                &[("aa".into(), b.est + 41), ("cc".into(), b.est + 30)],
+                "bb",
+                now,
+            );
+            assert_eq!(
+                d,
+                ApprovalDecision::Second {
+                    first_expiry: b.est + 41
+                }
+            );
+        }
+
+        #[test]
+        fn a_crossing_may_carry_the_zip318_expiry_and_nothing_else_may() {
+            let now = T_ANCHOR + 75 * 87_500;
+            let h = honest(now);
+            let b = height_bounds(&MAINNET, now);
+            let target = b.est - 412;
+            let zip318 = target - target % 34_560 + 69_120;
+            let long = TxHeader {
+                expiry_height: zip318,
+                ..h
+            };
+            check_header_for(&MAINNET, &long, now, true).unwrap();
+            assert!(check_header_for(&MAINNET, &long, now, false)
+                .unwrap_err()
+                .starts_with("[expiry]"));
+            // A long expiry that is not ZIP 318's, even on a crossing, is refused.
+            let off = TxHeader {
+                expiry_height: zip318 + 34_560,
+                ..h
+            };
+            assert!(check_header_for(&MAINNET, &off, now, true)
+                .unwrap_err()
+                .starts_with("[expiry]"));
+            let off = TxHeader {
+                expiry_height: zip318 - 1,
+                ..h
+            };
+            assert!(check_header_for(&MAINNET, &off, now, true)
+                .unwrap_err()
+                .starts_with("[expiry]"));
+            // An ordinary expiry still passes on a crossing.
+            check_header_for(&MAINNET, &h, now, true).unwrap();
+        }
+
+        // One approval, one transaction: this device's record of the transactions its share went
+        // into for a proposal decides what a new one is. Only a second transaction while the first
+        // can still be mined asks the member to confirm, naming when the first stops being valid.
+        #[test]
+        fn a_new_transaction_for_an_approval_is_judged_against_what_this_device_signed() {
+            let now = T_ANCHOR + 75 * 87_500;
+            let b = height_bounds(&MAINNET, now);
+            let alive = b.est + 41;
+            let dead = b.lo - 11;
+            assert_eq!(
+                approval_decision(&MAINNET, &[], "aa", now),
+                ApprovalDecision::First
+            );
+            assert_eq!(
+                approval_decision(&MAINNET, &[("aa".into(), alive)], "AA", now),
+                ApprovalDecision::Same
+            );
+            assert_eq!(
+                approval_decision(&MAINNET, &[("aa".into(), alive)], "bb", now),
+                ApprovalDecision::Second {
+                    first_expiry: alive
+                }
+            );
+            assert_eq!(
+                approval_decision(&MAINNET, &[("aa".into(), dead)], "bb", now),
+                ApprovalDecision::AfterExpiry
+            );
+            // Any signed transaction still alive counts, whichever came first.
+            assert_eq!(
+                approval_decision(
+                    &MAINNET,
+                    &[("aa".into(), dead), ("cc".into(), alive)],
+                    "bb",
+                    now
+                ),
+                ApprovalDecision::Second {
+                    first_expiry: alive
+                }
+            );
+            // Just past the window's floor is not yet dead: ten blocks of margin.
+            assert_eq!(
+                approval_decision(&MAINNET, &[("aa".into(), b.lo - 5)], "bb", now),
+                ApprovalDecision::Second {
+                    first_expiry: b.lo - 5
+                }
+            );
+        }
+
+        #[test]
+        fn the_time_an_approval_lapses_is_where_the_rule_turns() {
+            // What the screen says ("until about ...") is the moment approval_decision stops counting
+            // the earlier transaction, not a second estimate of when its block comes: one turns
+            // exactly when the other does, for expiries across months.
+            for days in [1i64, 30, 76, 200] {
+                let built = T_ANCHOR + days * 86_400;
+                let expiry = height_bounds(&MAINNET, built).est + 40;
+                let t = lapses_at(&MAINNET, expiry).expect("an expiry above the anchor lapses");
+                let rec = [("aa".to_string(), expiry)];
+                assert_eq!(
+                    approval_decision(&MAINNET, &rec, "bb", t - 1),
+                    ApprovalDecision::Second {
+                        first_expiry: expiry
+                    },
+                    "{days}d: still counted one second before"
+                );
+                assert_eq!(
+                    approval_decision(&MAINNET, &rec, "bb", t),
+                    ApprovalDecision::AfterExpiry,
+                    "{days}d: lapsed at the time shown"
+                );
+                assert!(t > built, "{days}d: never in the past of when it was built");
+            }
+            assert_eq!(
+                lapses_at(&MAINNET, 1),
+                Some(T_ANCHOR),
+                "below the anchor: lapsed from the start"
+            );
+        }
+
+        #[test]
+        fn a_device_clock_before_the_anchor_confirms_nothing() {
+            let h = honest(T_ANCHOR);
+            let e = check_header(&MAINNET, &h, T_ANCHOR - 86_400).unwrap_err();
+            assert!(e.starts_with("[expiry]"), "{e}");
+        }
+
+        #[test]
         fn a_fee_above_zip317_is_refused() {
             // The bundle's value balance is what leaves the shielded pool, and with no transparent
             // or Sapling part it is the fee. Raising it is how a builder pays every approved line
@@ -3230,8 +3979,11 @@ pub mod pczt_bridge {
         fn the_fee_rule_accepts_what_an_honest_builder_makes() {
             // This fixture: an Ironwood bundle of 4 actions, 4 spends, a payment and change.
             assert_eq!(check_fee(20_000, &[EMPTY, shape(4, 4, 2)]), Ok(20_000));
-            // A fee below the conventional one costs the vault nothing, so it is not refused.
-            assert_eq!(check_fee(10_000, &[EMPTY, shape(4, 4, 2)]), Ok(10_000));
+            // A fee below ZIP 317's is refused too: the network may not relay that transaction, and
+            // it would sit signed with whoever built it.
+            assert!(check_fee(10_000, &[EMPTY, shape(4, 4, 2)])
+                .unwrap_err()
+                .starts_with("[fee]"));
             // One spend, a payment and change: two actions where spends and outputs share them,
             // three where the builder keeps them apart.
             assert_eq!(check_fee(10_000, &[EMPTY, shape(2, 1, 2)]), Ok(10_000));
@@ -4473,6 +5225,66 @@ mod js_pczt {
             outputs_json(&p.outputs),
             p.fee_zat,
             p.actions
+        ))
+    }
+
+    /// When this device stops counting a transaction that expires at `expiry` (`lapses_at`), in unix
+    /// seconds: the moment `approvalDecision` turns from "second" to "afterExpiry". 0 when unknown.
+    #[wasm_bindgen(js_name = approvalLapsesAt)]
+    pub fn approval_lapses_at(expiry: u32) -> f64 {
+        pczt_bridge::lapses_at(&pczt_bridge::MAINNET, expiry).unwrap_or(0) as f64
+    }
+
+    /// What a new transaction is for an approval this device already signed (`approval_decision`),
+    /// with the DEVICE's own clock read here. `signed` is this device's record as
+    /// `"sighash:expiry,sighash:expiry"`; the answer is JSON `{"kind": "first"|"same"|"afterExpiry"|
+    /// "second", "firstExpiry"?: number}`. A malformed record entry is an error, never skipped: a
+    /// record that cannot be read must not read as "nothing signed".
+    #[wasm_bindgen(js_name = approvalDecision)]
+    pub fn approval_decision(signed: &str, sighash: &str) -> Result<String, JsValue> {
+        let mut records = vec![];
+        for entry in signed.split(',').map(str::trim).filter(|e| !e.is_empty()) {
+            let (h, e) = entry
+                .split_once(':')
+                .ok_or_else(|| je("[record] malformed entry"))?;
+            let e: u32 = e.parse().map_err(|_| je("[record] malformed expiry"))?;
+            records.push((h.to_string(), e));
+        }
+        let now_unix = (js_sys::Date::now() / 1000.0) as i64;
+        Ok(
+            match pczt_bridge::approval_decision(&pczt_bridge::MAINNET, &records, sighash, now_unix)
+            {
+                pczt_bridge::ApprovalDecision::First => "{\"kind\":\"first\"}".to_string(),
+                pczt_bridge::ApprovalDecision::Same => "{\"kind\":\"same\"}".to_string(),
+                pczt_bridge::ApprovalDecision::AfterExpiry => {
+                    "{\"kind\":\"afterExpiry\"}".to_string()
+                }
+                pczt_bridge::ApprovalDecision::Second { first_expiry } => {
+                    format!("{{\"kind\":\"second\",\"firstExpiry\":{first_expiry}}}")
+                }
+            },
+        )
+    }
+
+    /// What this device signs on, as JSON: `{"outputs": [...], "feeZat", "actions", "sighash": hex,
+    /// "txid": hex, "expiry": number}`. `readPayment`'s reading plus the header checked against the
+    /// network this build signs for, with the DEVICE's own clock read here (never passed in by a
+    /// caller, never the coordinator's height). The one call a signing driver makes before its share
+    /// leaves; a refusal is an error starting with a bracketed code (`[expiry]`, `[network]`,
+    /// `[locktime]`, plus `readPayment`'s).
+    #[wasm_bindgen(js_name = readForSigning)]
+    pub fn read_for_signing(pczt: &[u8]) -> Result<String, JsValue> {
+        let now_unix = (js_sys::Date::now() / 1000.0) as i64;
+        let f = pczt_bridge::read_for_signing(pczt, now_unix).map_err(je)?;
+        let sighash: String = f.sighash.iter().map(|b| format!("{b:02x}")).collect();
+        Ok(format!(
+            "{{\"outputs\":{},\"feeZat\":{},\"actions\":{},\"sighash\":\"{}\",\"txid\":\"{}\",\"expiry\":{}}}",
+            outputs_json(&f.payment.outputs),
+            f.payment.fee_zat,
+            f.payment.actions,
+            sighash,
+            f.txid,
+            f.expiry_height
         ))
     }
 

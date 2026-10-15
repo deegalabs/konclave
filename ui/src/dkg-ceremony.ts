@@ -33,8 +33,9 @@ import { b64, unb64, bytesEqual } from './net'
 import { bytesToHex } from './bytes'
 import { signVaultSecret, vaultSecretIsProven, signCreated, createdIsProven } from './room-auth'
 import type { Governance } from './storage'
+import { CREATION_PROTOCOL } from './creation-protocol'
 
-export const DKG_VERSION = 2
+export const DKG_VERSION = CREATION_PROTOCOL
 
 export type DkgConfig = { n: number; t: number; g?: Governance; cn?: string; vn?: string }
 

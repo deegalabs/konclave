@@ -45,6 +45,8 @@ export interface BackgroundSignerState {
   peerFailure: FailureCode | null
   /** Clear the peer failure once it has been read. */
   clearPeerFailure: () => void
+  /** Clear what this device last reported, when its owner signs again. */
+  clearError: () => void
   /** Point the signer at the payment now on screen (null when none). Changing payment starts a
    *  fresh tally AND drops any standing "this device sends" decision. */
   setProposal: (id: string | null) => void
@@ -68,6 +70,12 @@ export function useBackgroundSigner(
   // reason `SigningDeps` requires it: a default nobody pins is one a later edit flips to `match`
   // with every test green (#610 review), so each caller says what it answers at its call site.
   decideApproval: (outputs: PcztOutput[]) => GateDecision,
+  // The owner's consent claims the transaction the machine cleared. Required for the same reason.
+  claim: (sighashHex: string, expiry: number) => boolean | Promise<boolean>,
+  // This device's record of what it signed, written before its share leaves. Required likewise.
+  record: (sighashHex: string, expiry: number) => Promise<void>,
+  // Another device withdrew its signature for the open payment: the caller ends its owner's consent.
+  onPeerWithdrew: () => void,
 ): BackgroundSignerState {
   const [room, setRoom] = useState('')
   const [ready, setReady] = useState(false)
@@ -122,6 +130,8 @@ export function useBackgroundSigner(
   const roomRef = useRef('')
   const gateRef = useRef(gate)
   gateRef.current = gate
+  const withdrewRef = useRef(onPeerWithdrew)
+  withdrewRef.current = onPeerWithdrew
 
   const id = vault?.id ?? null
   const nonce = vault?.nonce
@@ -166,6 +176,8 @@ export function useBackgroundSigner(
         // So two people signing at the same instant still produce exactly ONE send.
         const session = new BackgroundSession({
           decideApproval,
+          claim,
+          record,
           myTag,
           mySeat: b.seat,
           signingMaterial: () => ({ keyPackage: b.keyPackage, groupVk: b.groupVk, pubkeys: b.pubkeys }),
@@ -177,6 +189,7 @@ export function useBackgroundSigner(
           onWhat: setWhat,
           onSignature: (h, ok) => setSignature({ hex: h, ok }),
           onFailed: setPeerFailure,
+          onWithdrawn: () => withdrewRef.current(),
           onArmed: (seats, triggerTag) => {
             setArmedSeats(seats)
             if (triggerTag === myTag) setISend(true)
@@ -226,6 +239,7 @@ export function useBackgroundSigner(
     },
     peerFailure,
     clearPeerFailure: () => setPeerFailure(null),
+    clearError: () => setError(''),
     setProposal,
     phase,
     signature,

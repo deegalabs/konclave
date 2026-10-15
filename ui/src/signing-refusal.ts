@@ -26,6 +26,11 @@ export const REFUSALS: ReadonlySet<string> = new Set([
   'net.err.outputMismatch',
   'net.err.labelMismatch',
   'net.err.unexpectedShape',
+  'net.err.expiry',
+  'net.err.network',
+  'net.err.locktime',
+  'net.err.recordFailed', 'net.err.recordUnreadable',
+  'net.err.signedAnother',
 ])
 
 /** Messages the device ignored while the transaction may still be signed. */

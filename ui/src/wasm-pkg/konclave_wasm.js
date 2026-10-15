@@ -902,6 +902,50 @@ export class TestVault {
 if (Symbol.dispose) TestVault.prototype[Symbol.dispose] = TestVault.prototype.free;
 
 /**
+ * What a new transaction is for an approval this device already signed (`approval_decision`),
+ * with the DEVICE's own clock read here. `signed` is this device's record as
+ * `"sighash:expiry,sighash:expiry"`; the answer is JSON `{"kind": "first"|"same"|"afterExpiry"|
+ * "second", "firstExpiry"?: number}`. A malformed record entry is an error, never skipped: a
+ * record that cannot be read must not read as "nothing signed".
+ * @param {string} signed
+ * @param {string} sighash
+ * @returns {string}
+ */
+export function approvalDecision(signed, sighash) {
+    let deferred4_0;
+    let deferred4_1;
+    try {
+        const ptr0 = passStringToWasm0(signed, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(sighash, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.approvalDecision(ptr0, len0, ptr1, len1);
+        var ptr3 = ret[0];
+        var len3 = ret[1];
+        if (ret[3]) {
+            ptr3 = 0; len3 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred4_0 = ptr3;
+        deferred4_1 = len3;
+        return getStringFromWasm0(ptr3, len3);
+    } finally {
+        wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
+    }
+}
+
+/**
+ * When this device stops counting a transaction that expires at `expiry` (`lapses_at`), in unix
+ * seconds: the moment `approvalDecision` turns from "second" to "afterExpiry". 0 when unknown.
+ * @param {number} expiry
+ * @returns {number}
+ */
+export function approvalLapsesAt(expiry) {
+    const ret = wasm.approvalLapsesAt(expiry);
+    return ret;
+}
+
+/**
  * Every output of a proven PCZT as a JSON array of `{"address": string|null, "value":
  * number|null, "recipient": hex|null, "memo": string|null}`, each checked against its note
  * commitment (see `readPayment`, which this is the outputs of). Values are zatoshis.
@@ -1127,6 +1171,37 @@ export function pcztSighash(pczt) {
     var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
     wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
     return v2;
+}
+
+/**
+ * What this device signs on, as JSON: `{"outputs": [...], "feeZat", "actions", "sighash": hex,
+ * "txid": hex, "expiry": number}`. `readPayment`'s reading plus the header checked against the
+ * network this build signs for, with the DEVICE's own clock read here (never passed in by a
+ * caller, never the coordinator's height). The one call a signing driver makes before its share
+ * leaves; a refusal is an error starting with a bracketed code (`[expiry]`, `[network]`,
+ * `[locktime]`, plus `readPayment`'s).
+ * @param {Uint8Array} pczt
+ * @returns {string}
+ */
+export function readForSigning(pczt) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passArray8ToWasm0(pczt, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.readForSigning(ptr0, len0);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
 }
 
 /**
@@ -1435,6 +1510,10 @@ function __wbg_get_imports() {
         },
         __wbg_node_84ea875411254db1: function(arg0) {
             const ret = arg0.node;
+            return ret;
+        },
+        __wbg_now_8b265300afd5f2b9: function() {
+            const ret = Date.now();
             return ret;
         },
         __wbg_process_44c7a14e11e9f69e: function(arg0) {

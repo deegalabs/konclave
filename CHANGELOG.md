@@ -56,12 +56,27 @@ explicitly accepted.
 
 ## [Unreleased]
 
+### Security
+
+- **The browser signer checks more of a transaction before it signs.** What this closes is held back
+  for now and will be added here when the details are published. What a member can notice: a device
+  may refuse to sign with one of a few new messages, each saying what to check; and when a device is
+  asked to sign a payment it signed before, it says so and signs again only through its own
+  confirmation, after the member checks the book. For anyone building on the SDK: `readForSigning`
+  is new, and `readPayment`'s fee check changed; both are described when the details are published.
+
 ### Changed
 
 - **A desktop release's notes now list its commits.** Under the changelog's own words, the notes on a
   GitHub release list the commits since the previous release, grouped by type (security, added,
   fixed, and so on, merges left out), each linked to the commit. The list comes from git-cliff, pinned to 2.14.2 in the
   release workflow and installed from crates.io with its lockfile.
+
+### Known limits
+
+- **The `/net` lab screen does not have the signer's newer checks**, and still signs with no content
+  gate of its own (it has no approved payment to compare with).
+- **The approved lines a device compares with still come from the coordinator at signing** (#567).
 
 ## [0.12.0] 2026-10-12
 
