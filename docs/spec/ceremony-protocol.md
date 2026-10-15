@@ -7,20 +7,25 @@ limits, each with its plan and status:
 
 - **Not a multi-vendor specification.** It describes one codebase; nothing here was written to be
   implemented independently. Plan: none until a second implementation is asked for. Status: as is.
-- **The signing messages carry no version.** A device on an older build and one on a newer build cannot
-  tell from a message which rules it follows. Plan: a version prefix on the room messages. Status: not
-  started, not tracked in an issue yet.
-- **No test vectors.** The fixtures the test suites use (a proven transaction, its sighash, a DKG
-  transcript) are not published as vectors. Plan: export them next to this document. Status: not
-  started, not tracked in an issue yet.
+- **The signing messages carry no version.** Older and newer builds coexist only through optional
+  fields (`h`, `sig`) and a distinct kind for the sealed request; a message does not say which rules
+  it follows. Plan: a version prefix on the room messages. Status: not started, not tracked in an
+  issue yet.
+- **No protocol test vectors.** Transaction vectors are in the repository
+  (`konclave-wasm/tests/vectors/`, `konclave-signer/tests/vectors/`: proven and signed PCZTs and
+  signatures), but nothing here gives vectors for the protocol itself: room messages, a DKG
+  transcript, the transcript code. Plan: publish those next to this document. Status: not started,
+  not tracked in an issue yet.
 
 Companion to [ADR-0007](../adr/0007-ceremony-security-invariants.md), which records the decision and
 the security invariants **I1-I4** this document realizes. It was first written (2026-08-02) as the
 target for the security fixes of issues #62/#63/#65.
 
-Implementations: browser client `ui/src/net.ts` (relay transport), `ui/src/screens/NetVault.tsx`
-(the `/net` ceremony driver), `ui/src/signing-machine.ts` (the signing state machine), `ui/src/net-sign.ts` (sign wire),
-`konclave-wasm` (DKG + FROST crypto), relay `relay-server/src/main.rs` + `orchestrator/src/relay.rs`.
+Implementations: browser client `ui/src/net.ts` (relay transport), `ui/src/signing-machine.ts`
+(signing ceremony, driven by `ui/src/background-signer.ts` and `ui/src/background-session.ts`),
+`ui/src/screens/NetVault.tsx` (the older `/net` driver), `ui/src/dkg-ceremony.ts` (creation),
+`ui/src/net-sign.ts` (sign wire), `konclave-wasm` (DKG + FROST crypto), relay
+`relay-server/src/main.rs` + `orchestrator/src/relay.rs`.
 
 ## 1. Transport (the blind relay)
 - A **room** is named by a code. Messages are `{seq, from, data}`: `seq` monotonic per room, `from`
@@ -30,7 +35,9 @@ Implementations: browser client `ui/src/net.ts` (relay transport), `ui/src/scree
 - **The cursor dedups within a session; it does NOT make the room replay-immune.** This line used to
   claim it did, and three separate bugs came from believing it (#354, #356, #358). A cursor that
   starts at 0 replays the whole room, and a room is **permanent per vault**: the signing room is
-  `sha256("konclave-sign " + groupKey)` and the relay retains 512 messages with a one-hour idle TTL.
+  `sha256("konclave-sign-s " + S)[:16]` for a vault whose devices hold the per-vault secret `S`
+  (#388), or `sha256("konclave-sign " + groupKey)[:16]` for an older open vault, and the relay retains
+  512 messages with a one-hour idle TTL.
   So every new reader is handed every previous ceremony.
 - **I5 (replay discipline):** every reader of a permanent room MUST declare, per message type, what
   history means to it. Two classes, and mixing them up is what broke:
@@ -49,8 +56,9 @@ Implementations: browser client `ui/src/net.ts` (relay transport), `ui/src/scree
   previous payment's signatures (#358, helper). Before theorising about a ceremony failure, **read
   the room**: `GET {relay}/api/relay/{room}?since=0&from=diag` settled #354 and #358 in one look,
   after code-reading had produced two wrong hypotheses.
-- **I1 (relay is blind):** the relay sees only room id, tags, sizes, timing, and peer count. It MUST
-  NOT be able to read any secret, recipient address, or amount. Every payload carrying spending
+- **I1 (relay is blind):** the relay MUST NOT be able to read any secret, recipient address, or
+  amount. It sees room id, tags, sizes, timing and peer count, and in the clear the signing tally
+  (`armed`/`unarmed`: seat, proposal id, time, a coarse failure code), which #340 tracks. Every payload carrying spending
   detail MUST be sealed before it is posted (see §4).
 - **Hardening (issue #64):** room codes ≥128-bit; per-IP rate limit; room/msg/payload caps; TTL
   eviction; presence pruning; peer count SHOULD NOT gratuitously leak group size.
@@ -109,7 +117,8 @@ REQUIRES **authenticated admission**:
   1. decodes its **own** PCZT and computes the ZIP-244 `sig_digest` locally;
   2. **refuses to sign** unless the locally-computed digest equals the request's `sighash`;
   3. reads each spend's `alpha` from that PCZT (not from an untrusted field);
-  4. displays the PCZT outputs (`describeOutputs`) that correspond to the digest it will sign.
+  4. reads what the PCZT pays with `readPayment` (each output checked against its note commitment,
+     #610), displays it, and checks it against the approved lines.
   The bytes signed are derived locally; a wire-supplied `sighash` is only ever *compared*, never
   trusted. This is designed to defeat the transaction-swap; see the status note in §5.
 - Multi-spend: one re-randomized FROST ceremony per spend (fresh nonces, that spend's `alpha`),
@@ -121,18 +130,20 @@ REQUIRES **authenticated admission**:
 
 > Checklist as of 2026-10-15. I1 holds only once every seat has registered its device key (until
 > then the signing request goes out unsealed, #63). I2 also covers the payment: a signing device reads
-> it from the transaction and checks it against the approved one (#610).
+> it from the transaction and checks it against the approved one (#610). The approved lines it
+> compares with still come from the coordinator when it signs (#567, open).
 - [x] **I1** relay blind - no secret/address/amount in cleartext on the wire (the relay never parses bodies).
 - [x] **I2** on-device sighash recompute + refuse-on-mismatch (#62/#67; primitive proven byte-exact, live-validated 2-tab).
-- [x] **I3** SignRequest sealed to the seated devices once every seat has registered its device key
-  (#63, 2026-08-29), proven by a mainnet send with the relay blind to the payment, txid `047fe6ca…`
-  ([PROOF](../PROOF.md)).
+- [x] **I3** SignRequest sealed to the vault's registered devices (#63, 2026-08-29), once every
+  seat has registered its device key; until then the coordinator publishes it unsealed, as for I1.
+  Shown on mainnet by `047fe6ca…` with the relay-room trace in
+  [docs/proof/2026-08-29-relay-blind.md](../proof/2026-08-29-relay-blind.md) ([PROOF](../PROOF.md)).
 - [x] **I4** authenticated admission, as amended (ADR-0007, 2026-10-12): required PIN + 128-bit invite + a transcript code every member reads with every other before round 2 + sealing in WASM. Live-validated locally (2-of-2, 2-of-3, a relay that rewrites one view); see §3.
 - [x] **I5** replay discipline: every permanent-room reader declares per type whether history applies (§1; #354/#356/#358, live-validated 2-device 2026-08-27, txid `78fe7dfa…`).
-- Gate: I1-I5 hold on a vault's own signing screen, I1 and I3 once every seat has registered its
-  device key. The `/net` lab page does not have the device's
-  newer checks and has no content check of its own (Known limits in `ui/CHANGELOG.md`); payments use
-  the vault's own signing screen.
+- Gate: on a vault's own signing screen I2 and I5 hold, and I1 and I3 hold once every seat has
+  registered its device key; I4 holds for vaults created with the version-2 ceremony. The `/net` lab
+  page does not have the device's newer checks and has no content check of its own (Known limits in
+  `ui/CHANGELOG.md`); use the vault's own signing screen for payments.
 
 ## 6. Non-goals (for now)
 Non-interactive DKG (Golden, roadmap) · on-chain memo transport as a fallback (Zkool-style, roadmap)
