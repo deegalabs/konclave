@@ -105,6 +105,7 @@ describe('stripComments', () => {
       'net-flow.test.ts': 'the WASM binary',
       'dkg-relay.test.ts': 'the WASM binary',
       'public-text-610.test.ts': 'documentation and the in-app copy, read as text',
+      'desktop-release.test.ts': 'comments read as text: a stale desktop version sat in one',
       'who-sends.test.ts': 'the WASM binary',
       'release-notes-commits.test.ts': 'cliff.toml',
       'signed-record.test.ts': 'the WASM binary',
