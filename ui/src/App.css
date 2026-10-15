@@ -207,6 +207,10 @@
    is a quote from a third party, carrying its source and its age. */
 .sign-usd{display:block; margin-top:2px; font-size:12px}
 .sign-to{color:var(--text-muted); font-size:13px}
+/* The full destination in the signing panel: long, and must wrap, not scroll or clip. */
+.sign-dest{overflow-wrap:anywhere; word-break:break-all; color:var(--text); line-height:1.5}
+.sign-arrow{user-select:none}
+.p-cost-note{margin-top:2px; line-height:1.45}
 .sign-presence-head{display:flex; align-items:center; justify-content:space-between; margin-bottom:9px}
 /* The run line: a spinner beside the state, so a leg that takes minutes never reads as frozen. */
 /* A txid is 64 unbroken hex characters. Left to itself it pushed the sheet wider than the
@@ -782,8 +786,17 @@ h1.klab,h2.klab,h3.klab{margin:0;font-weight:400}
 .modal-overlay{position:fixed; inset:0; z-index:100; display:grid; place-items:center; padding:24px; background:rgba(8,11,15,.66); backdrop-filter:blur(4px)}
 .modal-card{width:100%; max-width:440px; padding:26px; border-radius:var(--radius-lg); background:linear-gradient(180deg,var(--surface-2),var(--surface-1)); border:1px solid var(--line-2); box-shadow:var(--shadow-overlay)}
 .modal-card.danger{border-color:var(--danger-line)}
+/* The signing confirms on a phone (375 x 667 on staging): never taller than the screen, the text
+   scrolls, and the buttons stay at the card's foot so the confirm is always in reach. */
+.modal-card.sign-confirm{max-height:calc(100vh - 48px); max-height:calc(100dvh - 48px); overflow-y:auto; overscroll-behavior:contain; scroll-padding-bottom:72px}
+/* bottom: minus the card's padding, so the row sits on the card's edge and covers no text at the end. */
+.sign-confirm > .btns{position:sticky; bottom:-26px; margin:16px -26px -26px; padding:14px 26px; background:var(--surface-1); border-top:1px solid var(--line)}
 .modal-h{margin:6px 0 4px; font-size:22px}
 .modal-p{color:var(--text-muted); font-size:13.5px; line-height:1.55; margin:0 0 14px}
+/* A deliberate acknowledgement before a risky confirm (signing a payment again): the box and its text
+   are one target, at least 24px tall (WCAG 2.5.8). */
+.check-row{display:flex; align-items:flex-start; gap:10px; min-height:24px; font-size:13.5px; line-height:1.5; color:var(--text); cursor:pointer}
+.check-row input{width:18px; height:18px; margin:2px 0 0; flex:none; accent-color:var(--accent)}
 .danger-funds{font-family:var(--font-mono); font-size:12.5px; line-height:1.6; color:var(--danger-text); background:var(--danger-soft); border-left:3px solid var(--danger); border-radius:var(--radius-sm); padding:11px 14px; margin-bottom:12px}
 .btns.right{justify-content:flex-end}
 

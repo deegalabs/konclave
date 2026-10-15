@@ -201,6 +201,21 @@ export class TestVault {
 }
 
 /**
+ * What a new transaction is for an approval this device already signed (`approval_decision`),
+ * with the DEVICE's own clock read here. `signed` is this device's record as
+ * `"sighash:expiry,sighash:expiry"`; the answer is JSON `{"kind": "first"|"same"|"afterExpiry"|
+ * "second", "firstExpiry"?: number}`. A malformed record entry is an error, never skipped: a
+ * record that cannot be read must not read as "nothing signed".
+ */
+export function approvalDecision(signed: string, sighash: string): string;
+
+/**
+ * When this device stops counting a transaction that expires at `expiry` (`lapses_at`), in unix
+ * seconds: the moment `approvalDecision` turns from "second" to "afterExpiry". 0 when unknown.
+ */
+export function approvalLapsesAt(expiry: number): number;
+
+/**
  * Every output of a proven PCZT as a JSON array of `{"address": string|null, "value":
  * number|null, "recipient": hex|null, "memo": string|null}`, each checked against its note
  * commitment (see `readPayment`, which this is the outputs of). Values are zatoshis.
@@ -269,6 +284,16 @@ export function participantRound2WithRandomizer(sp: Uint8Array, nonces_bytes: Ui
  * if the PCZT is not a shielded-only v5/v6 transaction.
  */
 export function pcztSighash(pczt: Uint8Array): Uint8Array;
+
+/**
+ * What this device signs on, as JSON: `{"outputs": [...], "feeZat", "actions", "sighash": hex,
+ * "txid": hex, "expiry": number}`. `readPayment`'s reading plus the header checked against the
+ * network this build signs for, with the DEVICE's own clock read here (never passed in by a
+ * caller, never the coordinator's height). The one call a signing driver makes before its share
+ * leaves; a refusal is an error starting with a bracketed code (`[expiry]`, `[network]`,
+ * `[locktime]`, plus `readPayment`'s).
+ */
+export function readForSigning(pczt: Uint8Array): string;
 
 /**
  * What a proven PCZT pays, as THIS device can confirm it, as JSON: `{"outputs": [...as
@@ -398,6 +423,7 @@ export interface InitOutput {
     readonly signWrite: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number) => [number, number, number, number];
     readonly verifyRedpallas: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
     readonly verifyRoomSig: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number];
+    readonly selftest: () => [number, number];
     readonly __wbg_recoverycombiner_free: (a: number, b: number) => void;
     readonly __wbg_recoveryhelper_free: (a: number, b: number) => void;
     readonly recoverycombiner_addSigma: (a: number, b: number, c: number) => void;
@@ -411,13 +437,6 @@ export interface InitOutput {
     readonly recoveryhelper_deltaRecipient: (a: number, b: number) => [number, number];
     readonly recoveryhelper_new: (a: number, b: number, c: number, d: number) => number;
     readonly recoveryhelper_sigma: (a: number) => [number, number, number, number];
-    readonly selftest: () => [number, number];
-    readonly describeOutputs: (a: number, b: number) => [number, number, number, number];
-    readonly extractRandomizers: (a: number, b: number) => [number, number, number, number];
-    readonly injectSigs: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
-    readonly pcztSighash: (a: number, b: number) => [number, number, number, number];
-    readonly readPayment: (a: number, b: number) => [number, number, number, number];
-    readonly uaReceiver: (a: number, b: number) => [number, number, number, number];
     readonly __wbg_coordinator_free: (a: number, b: number) => void;
     readonly __wbg_round1_free: (a: number, b: number) => void;
     readonly __wbg_testvault_free: (a: number, b: number) => void;
@@ -441,13 +460,22 @@ export interface InitOutput {
     readonly testvault_key_package: (a: number, b: number) => [number, number];
     readonly testvault_new: () => [number, number, number];
     readonly testvault_pubkeys: (a: number) => [number, number];
+    readonly approvalDecision: (a: number, b: number, c: number, d: number) => [number, number, number, number];
+    readonly approvalLapsesAt: (a: number) => number;
+    readonly describeOutputs: (a: number, b: number) => [number, number, number, number];
+    readonly extractRandomizers: (a: number, b: number) => [number, number, number, number];
+    readonly injectSigs: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number, number];
+    readonly pcztSighash: (a: number, b: number) => [number, number, number, number];
+    readonly readForSigning: (a: number, b: number) => [number, number, number, number];
+    readonly readPayment: (a: number, b: number) => [number, number, number, number];
+    readonly uaReceiver: (a: number, b: number) => [number, number, number, number];
     readonly __wbindgen_exn_store: (a: number) => void;
     readonly __externref_table_alloc: () => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;
     readonly __wbindgen_malloc: (a: number, b: number) => number;
+    readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __externref_table_dealloc: (a: number) => void;
     readonly __wbindgen_free: (a: number, b: number, c: number) => void;
-    readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_start: () => void;
 }
 

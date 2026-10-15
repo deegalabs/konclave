@@ -8,6 +8,9 @@ import { beforeAll, describe, expect, it, vi } from 'vitest'
 import init, { DkgSession, identifierBytes, pcztSighash } from './wasm-pkg/konclave_wasm.js'
 import { bytesEqual } from './net'
 import { dkgProvenPczt } from './demo-vector'
+import { honestExpiry, withExpiry } from './test-vectors'
+import { OwnerSigning } from './owner-signing'
+import { recordSigned, type RecordStore } from './signed-record'
 import { parseAlphas } from './signing'
 import { bytesToHex } from './net-sign'
 import { BackgroundSession, tallyMessageFits } from './background-session'
@@ -51,16 +54,18 @@ class Bus {
   post(from: string, data: string) { this.msgs.push({ seq: this.seq++, from, data }) }
 }
 
-interface Dev { tag: string; session: BackgroundSession; delivered: Set<number>; sig: { hex: string; ok: boolean } | null; errors: string[]; seats: number; armedSeats: number[]; namedSender: string | null; failure: string | null; logs: string[] }
+interface Dev { tag: string; session: BackgroundSession; delivered: Set<number>; sig: { hex: string; ok: boolean } | null; errors: string[]; seats: number; armedSeats: number[]; namedSender: string | null; failure: string | null; logs: string[]; withdrawn: number }
 
 let NOW = 1_700_000_000_000
-function makeDev(tag: string, seat: number, bus: Bus, mat: () => { keyPackage: Uint8Array; groupVk: Uint8Array; pubkeys: Uint8Array }, gate: GovernanceGate, decide: () => GateDecision = () => 'match', skewMs = 0, t = 2): Dev {
-  const dev: Dev = { tag, session: null as unknown as BackgroundSession, delivered: new Set(), sig: null, errors: [], seats: 0, armedSeats: [], namedSender: null, failure: null, logs: [] }
+function makeDev(tag: string, seat: number, bus: Bus, mat: () => { keyPackage: Uint8Array; groupVk: Uint8Array; pubkeys: Uint8Array }, gate: GovernanceGate, decide: () => GateDecision = () => 'match', skewMs = 0, t = 2, owner?: { claim: (h: string, e: number) => Promise<boolean>; record: (h: string, e: number) => Promise<void> }): Dev {
+  const dev: Dev = { tag, session: null as unknown as BackgroundSession, delivered: new Set(), sig: null, errors: [], seats: 0, armedSeats: [], namedSender: null, failure: null, logs: [], withdrawn: 0 }
   dev.session = new BackgroundSession({
     myTag: tag,
     mySeat: seat,
     // #281 is asserted in signing-machine.test.ts; permissive here unless a test says otherwise.
     decideApproval: decide,
+    claim: owner?.claim ?? (() => true),
+    record: owner?.record ?? (async () => {}),
     signingMaterial: mat,
     threshold: () => t,
     send: async (data) => { bus.post(tag, data); return true },
@@ -72,6 +77,7 @@ function makeDev(tag: string, seat: number, bus: Bus, mat: () => { keyPackage: U
     now: () => NOW + skewMs,
     onLog: (l) => dev.logs.push(l),
     onFailed: (c) => { dev.failure = c },
+    onWithdrawn: () => { dev.withdrawn++ },
     onArmed: (seats, triggerTag) => {
       dev.armedSeats = seats
       if (triggerTag) dev.namedSender = triggerTag
@@ -115,7 +121,7 @@ describe('BackgroundSession - seated background signing (Stage 3 core, end to en
     expect(B.session.seatCount()).toBe(2)
 
     // The helper publishes the sign-request into the same room; the devices sign in the background.
-    bus.post('helper', requestFor(dkgProvenPczt()))
+    bus.post('helper', requestFor(withExpiry(dkgProvenPczt())))
     await run([A, B], bus)
 
     expect(A.errors).toEqual([])
@@ -139,7 +145,7 @@ describe('BackgroundSession - seated background signing (Stage 3 core, end to en
       await A.session.start()
       await B.session.start()
       await run([A, B], bus)
-      bus.post('helper', requestFor(dkgProvenPczt()))
+      bus.post('helper', requestFor(withExpiry(dkgProvenPczt())))
       await run([A, B], bus)
       expect(A.errors).toEqual([key])
       expect(B.errors).toEqual([key])
@@ -185,7 +191,7 @@ describe('BackgroundSession - seated background signing (Stage 3 core, end to en
     await B.session.start()
     await run([A, B], bus)
 
-    const request = requestFor(dkgProvenPczt())
+    const request = requestFor(withExpiry(dkgProvenPczt()))
     // Delivered as history: the coordinator does not react at all, so no ceremony begins.
     const before = bus.msgs.length
     await A.session.onMessage('helper', request, true)
@@ -222,7 +228,7 @@ describe('BackgroundSession - seated background signing (Stage 3 core, end to en
     await B.session.start()
     await run([A, B], bus)
 
-    bus.post('helper', requestFor(dkgProvenPczt()))
+    bus.post('helper', requestFor(withExpiry(dkgProvenPczt())))
     await run([A, B], bus)
     expect(A.session.isDone()).toBe(true)
     const first = A.sig?.hex
@@ -236,7 +242,7 @@ describe('BackgroundSession - seated background signing (Stage 3 core, end to en
 
     // And the next ceremony actually runs, rather than being swallowed by a machine that thinks it
     // already finished.
-    bus.post('helper', requestFor(dkgProvenPczt()))
+    bus.post('helper', requestFor(withExpiry(dkgProvenPczt())))
     await run([A, B], bus)
     expect(A.errors).toEqual([])
     expect(B.errors).toEqual([])
@@ -258,7 +264,7 @@ describe('BackgroundSession - seated background signing (Stage 3 core, end to en
     await A.session.start()
     await B.session.start()
     await run([A, B], bus)
-    bus.post('helper', requestFor(dkgProvenPczt()))
+    bus.post('helper', requestFor(withExpiry(dkgProvenPczt())))
     await run([A, B], bus)
     expect(A.session.isDone()).toBe(true)
 
@@ -277,7 +283,7 @@ describe('BackgroundSession - seated background signing (Stage 3 core, end to en
     const B = makeDev('b-tag', 2, bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }), open)
 
     await A.session.start()
-    bus.post('helper', requestFor(dkgProvenPczt())) // request arrives before B joins
+    bus.post('helper', requestFor(withExpiry(dkgProvenPczt()))) // request arrives before B joins
     await run([A, B], bus)
     await B.session.start() // B finally announces its seat
     await run([A, B], bus)
@@ -399,7 +405,7 @@ describe('BackgroundSession - everyone signs, the last one sends', () => {
     const B = makeDev('b-tag', 2, bus, mat(s1.keyPackage(), groupVk, pubkeys), gateFor('b-tag'))
     await A.session.start(); await B.session.start(); await run([A, B], bus)
 
-    bus.post('helper', requestFor(dkgProvenPczt()))
+    bus.post('helper', requestFor(withExpiry(dkgProvenPczt())))
     await run([A, B], bus)
     expect(A.sig).toBeNull()
     expect(B.sig).toBeNull()
@@ -579,6 +585,19 @@ describe('BackgroundSession - the whole vault learns a send failed, not only the
     const last = bus.msgs[bus.msgs.length - 1]!
     await A.session.onMessage(last.from, last.data, true)
     expect(A.failure).toBeNull()
+  })
+
+  it('another device\'s withdrawal ends this device\'s signature for the payment; its own does not', async () => {
+    // A withdrawal says the send went nowhere: every device's signature for that payment ends, so the
+    // next transaction needs a new, deliberate signature from each.
+    const bus = new Bus()
+    const [A, B] = pair(bus)
+    A.session.setProposal('p1'); B.session.setProposal('p1')
+    await A.session.start(); await B.session.start(); await run([A, B], bus)
+    await A.session.arm('p1'); await B.session.arm('p1'); await run([A, B], bus)
+    await B.session.unarm('p1', 'ceremony'); await run([A, B], bus)
+    expect(A.withdrawn).toBe(1)
+    expect(B.withdrawn).toBe(0)
   })
 
   it('says nothing when there is no reason to give', async () => {
@@ -1119,5 +1138,99 @@ describe('tally messages are checked against this device\'s seat', () => {
   })
   it('the session checks every tally message with it', () => {
     expect(codeOf('./background-session.ts')).toMatch(/\(parsed\?\.type === 'armed' \|\| parsed\?\.type === 'unarmed'\) && !tallyMessageFits\(from, parsed\.seat, this\.myTag, this\.seats\.mySeat\(\)\)/)
+  })
+})
+
+// One approval, one transaction, through the real session and the owner's own record (owner-signing):
+// the panel closing and opening again is a new session, the record is not. The rule's own tests are in
+// owner-signing.test.ts and konclave-wasm; this proves the session hands the machine's claim and record
+// to it, so a driver that skipped either would fail here.
+describe('a second transaction for an approval, through the real session', () => {
+  const memoryStore = (): RecordStore => {
+    const d = new Map<string, string>()
+    return { getItem: (k) => d.get(k) ?? null, setItem: (k, v) => void d.set(k, v) }
+  }
+  const hooks = (o: OwnerSigning) => ({
+    claim: async (h: string, e: number) => (await o.claim('v1', 'p1', h, e)) === 'ok',
+    record: (h: string, e: number) => o.record(h, e),
+  })
+
+  it('gets no share in a new session until its owner signs again knowing it', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const ma = () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys })
+    const mb = () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys })
+    const oa = new OwnerSigning(memoryStore()), ob = new OwnerSigning(memoryStore())
+    const session = async (pczt: Uint8Array) => {
+      const bus = new Bus()
+      const A = makeDev('a-tag', 1, bus, ma, () => oa.allows('p1'), () => 'match', 0, 2, hooks(oa))
+      const B = makeDev('b-tag', 2, bus, mb, () => ob.allows('p1'), () => 'match', 0, 2, hooks(ob))
+      await A.session.start(); await B.session.start(); await run([A, B], bus)
+      bus.post('helper', requestFor(pczt))
+      await run([A, B], bus)
+      return { A, bus }
+    }
+    oa.give('p1', Date.now()); ob.give('p1', Date.now())
+    const first = await session(withExpiry(dkgProvenPczt()))
+    expect(first.A.sig?.ok).toBe(true)
+
+    // The panel closed and opened again; a new click; another transaction for the same payment.
+    oa.give('p1', Date.now()); ob.give('p1', Date.now())
+    const second = await session(withExpiry(dkgProvenPczt(), honestExpiry() + 1))
+    expect(second.A.sig).toBeNull()
+    expect(second.A.errors).toContain('net.err.signedAnother')
+    expect(second.bus.msgs.some((m) => m.from === 'a-tag' && m.data.includes('"s2"'))).toBe(false)
+
+    // Its owner signs again, knowing a first transaction exists: the second one is signed, once.
+    oa.give('p1', Date.now(), { again: true }); ob.give('p1', Date.now(), { again: true })
+    const third = await session(withExpiry(dkgProvenPczt(), honestExpiry() + 1))
+    expect(third.A.errors).toEqual([])
+    expect(third.A.sig?.ok).toBe(true)
+  })
+
+  it('keeps the refusal its owner can answer on screen when another seat posts a package', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const ma = () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys })
+    const mb = () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys })
+    const sa = memoryStore()
+    const oa = new OwnerSigning(sa), ob = new OwnerSigning(memoryStore())
+    await recordSigned(sa, 'v1', 'p1', bytesToHex(pcztSighash(withExpiry(dkgProvenPczt()))), honestExpiry())
+    const bus = new Bus()
+    const A = makeDev('a-tag', 1, bus, ma, () => oa.allows('p1'), () => 'match', 0, 2, hooks(oa))
+    const B = makeDev('b-tag', 2, bus, mb, () => ob.allows('p1'), () => 'match', 0, 2, hooks(ob))
+    await A.session.start(); await B.session.start(); await run([A, B], bus)
+    oa.give('p1', Date.now()); ob.give('p1', Date.now())
+    bus.post('helper', requestFor(withExpiry(dkgProvenPczt(), honestExpiry() + 1)))
+    await run([A, B], bus)
+    expect(A.errors.at(-1)).toBe('net.err.signedAnother')
+    bus.post('b-tag', JSON.stringify({ type: 'sp', signers: [1, 2], sp: 'AAAA', msg: 'AAAA', k: 0 }))
+    await run([A], bus)
+    expect(A.errors.at(-1)).toBe('net.err.signedAnother')
+  })
+
+  it('signs again in the same session once its owner confirms, without a reload', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const ma = () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys })
+    const mb = () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys })
+    const sa = memoryStore()
+    const oa = new OwnerSigning(sa), ob = new OwnerSigning(memoryStore())
+    // A signed an earlier attempt (its record says so); B never did.
+    await recordSigned(sa, 'v1', 'p1', bytesToHex(pcztSighash(withExpiry(dkgProvenPczt()))), honestExpiry())
+    const bus = new Bus()
+    const A = makeDev('a-tag', 1, bus, ma, () => oa.allows('p1'), () => 'match', 0, 2, hooks(oa))
+    const B = makeDev('b-tag', 2, bus, mb, () => ob.allows('p1'), () => 'match', 0, 2, hooks(ob))
+    await A.session.start(); await B.session.start(); await run([A, B], bus)
+    oa.give('p1', Date.now()); ob.give('p1', Date.now())
+    const second = withExpiry(dkgProvenPczt(), honestExpiry() + 1)
+    bus.post('helper', requestFor(second))
+    await run([A, B], bus)
+    expect(A.errors).toContain('net.err.signedAnother')
+    expect(A.sig).toBeNull()
+
+    // The owner confirms "Sign again" on the panel. Nothing is posted again: the request it answers
+    // is still pending on this device, and the re-drive the panel makes is enough.
+    oa.give('p1', Date.now(), { again: true })
+    await A.session.retry()
+    await run([A, B], bus)
+    expect(A.sig?.ok).toBe(true)
   })
 })

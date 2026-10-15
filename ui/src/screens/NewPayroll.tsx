@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Secret, activateOnKey, Loading, Soon } from '../components'
 import { PageHeader } from '../page'
 import { fmtZec, fmtZecExact, parseZecToZat, zatToZec } from '../format'
+import { estimatedFeeZat } from '../fee-estimate'
 import { useT, useTr } from '../i18n'
 import { useToast } from '../toast'
 import {
@@ -165,7 +166,7 @@ export default function NewPayroll() {
   //
   // This is an ESTIMATE and always will be: only the wallet knows its note selection. The gate that
   // can actually be right is the helper's, using build_unproven before anyone signs (#293).
-  const feeZat = count > 0 ? 5000 * Math.max(2, count + 1) : 0
+  const feeZat = count > 0 ? estimatedFeeZat(count) : 0
   // What batching is worth, in the vault's own money. Paying these N people one at a time is N
   // transactions of two actions each; one payroll is a single spend, N outputs and change. The
   // saving grows toward half as N grows, and it is the whole reason this screen exists - so it is

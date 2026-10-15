@@ -20,6 +20,7 @@ import { deriveReadKey } from './vault-secret'
 import { bytesToHex } from './bytes'
 import type { WriteProof } from './device-key'
 import type { SendReply } from './send-outcome'
+import { CREATION_PROTOCOL } from './creation-protocol'
 
 const ENV = import.meta.env as Record<string, string | undefined>
 
@@ -119,10 +120,10 @@ async function getJson<T>(path: string): Promise<T | null> {
  *  Rather than change `postJson`'s signature at forty call sites, the last failure is recorded here
  *  and read by the one caller that needs it. Single-threaded and read immediately after the await,
  *  so there is no interleaving to worry about. */
-let lastPostFailure: { status: number; error?: string } | null = null
+let lastPostFailure: { status: number; error?: string; updateRequired?: boolean } | null = null
 
 /** The failure from the most recent `postJson`, or null. Cleared by the next call. */
-export function lastHelperPostFailure(): { status: number; error?: string } | null {
+export function lastHelperPostFailure(): { status: number; error?: string; updateRequired?: boolean } | null {
   return lastPostFailure
 }
 
@@ -137,8 +138,8 @@ async function postJson<T>(path: string, body: unknown, extra: Record<string, st
       body: JSON.stringify(body),
     })
     if (!res.ok) {
-      const j = (await res.json().catch(() => null)) as { error?: string } | null
-      lastPostFailure = { status: res.status, error: j?.error }
+      const j = (await res.json().catch(() => null)) as { error?: string; update_required?: unknown } | null
+      lastPostFailure = { status: res.status, error: j?.error, updateRequired: j?.update_required === true }
       return null
     }
     return (await res.json()) as T
@@ -184,6 +185,23 @@ export async function helperHealth(): Promise<{ status?: string } | null> {
   return getJson<{ status?: string }>('/api/health')
 }
 
+/** The lowest creation protocol the coordinator accepts, from its health answer; null when it states
+ *  none (an older coordinator) or cannot be asked. Only an integer counts. */
+export async function coordinatorCreationMin(): Promise<number | null> {
+  const base = helperBase()
+  if (!base) return null
+  try {
+    // A coordinator that hangs must not hold a creation up: no answer in time is no minimum.
+    const res = await fetch(`${base}/api/health`, { signal: AbortSignal.timeout(4000) })
+    if (!res.ok) return null
+    const h = (await res.json()) as { client?: { creation?: unknown } } | null
+    const c = h?.client?.creation
+    return typeof c === 'number' && Number.isInteger(c) ? c : null
+  } catch {
+    return null
+  }
+}
+
 /**
  * Register the just-created browser-DKG vault with the helper by its group key. The helper
  * derives the Orchard address + a view-only wallet; it gets NO share. Idempotent: registering a
@@ -197,7 +215,9 @@ export async function registerVault(
   threshold = 0,
   total = 0,
 ): Promise<HelperVault | null> {
-  return postJson<HelperVault>('/api/vault', { group_key: groupKeyHex, name, threshold, total })
+  // `cp`: the creation protocol this vault was made with. The coordinator refuses a registration
+  // without it, so an outdated app's vault never gets an address (creation-protocol.ts).
+  return postJson<HelperVault>('/api/vault', { group_key: groupKeyHex, name, threshold, total, cp: CREATION_PROTOCOL })
 }
 
 /** A payment proposal on a browser-native vault, as the helper stores it. All public. */
@@ -442,8 +462,14 @@ export async function getUfvk(
 }
 
 /** Fetch a registered vault's public view (address + id), or `null`. */
-export async function getVault(groupKeyHex: string): Promise<HelperVault | null> {
-  return (await getJson<{ vault: HelperVault }>(`/api/vault?vault=${q(groupKeyHex)}`))?.vault ?? null
+export async function getVault(
+  groupKeyHex: string,
+  /** The creation protocol the VAULT was made with, from the device's record; never the app's. A
+   *  vault registered under the coordinator's gate shows its address only to a read that names it. */
+  cp?: number,
+): Promise<HelperVault | null> {
+  const withCp = cp !== undefined ? `&cp=${cp}` : ''
+  return (await getJson<{ vault: HelperVault }>(`/api/vault?vault=${q(groupKeyHex)}${withCp}`))?.vault ?? null
 }
 
 /** A vault's shielded balance (zatoshis) as the helper reports it from its view-only wallet.

@@ -43,7 +43,7 @@ describe('storage - encrypted IndexedDB persistence', () => {
     const v = list.find((x) => x.id === 'v1')
     expect(v).toBeTruthy()
     expect(v).not.toHaveProperty('sealedShare')
-    expect(Object.keys(v!).sort()).toEqual(['address', 'changeReceiver', 'createdAt', 'creatorName', 'governance', 'groupKey', 'id', 'myName', 'name', 'pending', 'roster', 'secured', 'threshold', 'total'])
+    expect(Object.keys(v!).sort()).toEqual(['address', 'changeReceiver', 'cp', 'createdAt', 'creatorName', 'governance', 'groupKey', 'id', 'myName', 'name', 'pending', 'roster', 'secured', 'threshold', 'total'])
     expect(v!.name).toBe('Test vault')
     expect(v!.governance).toBe('quorum')
     expect(v!.myName).toBe('Alice')
@@ -109,6 +109,20 @@ describe('storage - portable vault export/import (v2 opaque + v1 compat, #214/#3
     expect(Array.from(loaded.groupKey)).toEqual(Array.from(groupKey))
     expect(loaded.roster).toEqual(['Alice', 'Bob', 'Carol'])
     expect(Array.from(loaded.accessSecret!)).toEqual(Array.from(accessSecret))
+  })
+
+  it('a vault keeps the creation protocol it was made with, through a backup and back', async () => {
+    // The protocol belongs to the VAULT, not to the app reading it: an old-flow vault opened in a new
+    // app must not borrow the new app's number to fetch an address the coordinator would refuse it.
+    await saveVault('exp-cp', { ...data, cp: 2 }, pass)
+    expect((await listVaults()).find((v) => v.id === 'exp-cp')!.cp).toBe(2)
+    const bundle = parseVaultExport(JSON.stringify(await exportVault('exp-cp', pass)))
+    await deleteVault('exp-cp')
+    await importVault(bundle, pass)
+    expect((await listVaults()).find((v) => v.id === 'exp-cp')!.cp).toBe(2)
+    // A vault saved without one has none, never the app's.
+    await saveVault('exp-nocp', data, pass)
+    expect((await listVaults()).find((v) => v.id === 'exp-nocp')!.cp).toBeUndefined()
   })
 
   it('a backup of a vault whose creation had not finished comes back unfinished, with its quorum', async () => {

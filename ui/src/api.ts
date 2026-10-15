@@ -31,6 +31,7 @@ import { signGovernanceWrite, type WriteProof } from './device-key'
 import { ensureWasm } from './wasm-ready'
 import { decodeBundle } from './signing'
 import { addressText } from './approved-payment'
+import { protocolOfRecord } from './creation-protocol'
 
 export type Member = { name: string; pubkey: string }
 
@@ -234,16 +235,18 @@ export async function getVault(): Promise<Vault | null> {
   if (NET) {
     const id = getSelectedVault()
     if (!id) return null
-    const v = await netGetVault(id)
+    // The device's own record, read once and FIRST: it carries the vault's name, its roster, its
+    // address, and the creation protocol the vault was made with, which the read below names (never
+    // the app's own, so an old-flow vault opened in a new app is not handed an address).
+    let rec: { name?: string; roster?: string[]; address?: string; pending?: boolean; threshold?: number; total?: number; cp?: number } | undefined
+    try {
+      rec = (await listVaults()).find((s) => s.id === id)
+    } catch { /* local-bridge mode / no on-device record */ }
+    const v = await netGetVault(id, rec ? protocolOfRecord(rec) : undefined)
     // An answer about any vault but the one asked for is no answer (#610 review). The signer keys its
     // share, its room, the gate's record and the send on this id, so a coordinator that named
     // another vault on this device could move the ceremony onto a vault whose quorum approved nothing.
     if (!v || v.vault_id !== id) return null
-    // The device's own record, read once: it carries the vault's name, its roster and its address.
-    let rec: { name?: string; roster?: string[]; address?: string; pending?: boolean; threshold?: number; total?: number } | undefined
-    try {
-      rec = (await listVaults()).find((s) => s.id === id)
-    } catch { /* local-bridge mode / no on-device record */ }
 
     // Members, in seat order. THREE sources, and the order matters: the helper's list, then this
     // device's own roster, then a placeholder.

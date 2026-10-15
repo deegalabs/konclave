@@ -38,7 +38,7 @@ export default function BackgroundSignerLab() {
   // #281: the lab has no proposal, so it cannot know what was approved, and answers `unknown`: the
   // device reads the injected request and refuses it before any share moves. It never answers
   // `match`, because this route joins the vault's real signing room.
-  const bg = useBackgroundSigner(unlocked, gate, () => 'unknown')
+  const bg = useBackgroundSigner(unlocked, gate, () => 'unknown', () => false, async () => { throw new Error('the lab never signs') }, () => {})
 
   useEffect(() => {
     void (async () => {

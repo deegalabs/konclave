@@ -17,6 +17,7 @@ import init, {
 } from './wasm-pkg/konclave_wasm.js'
 import { bytesEqual, b64, unb64 } from './net'
 import { dkgProvenPczt } from './demo-vector'
+import { VECTOR_EXPIRY, honestExpiry, withExpiry } from './test-vectors'
 import { parseAlphas } from './signing'
 import { bytesToHex, RESPONSE_KIND } from './net-sign'
 import { SigningMachine, refusalKey, type SignPreview, type SigningDeps } from './signing-machine'
@@ -58,6 +59,19 @@ class Bus {
 }
 
 interface Device {
+  /** Every transaction this device claimed under its owner's consent, and what the consent answers. */
+  claims: string[]
+  claimAnswer: boolean
+  /** What this device recorded as signed, and whether recording fails. */
+  records: Array<[string, number]>
+  recordFails: boolean
+  /** The owner withdrew between the claim and the share. */
+  recordWithdrawn?: boolean
+  /** The record of what this device signed cannot be read when the claim asks it. */
+  claimUnreadable?: boolean
+  /** The owner withdraws once this many shares were recorded. */
+  withdrawAfter?: number
+  claimExpiries: number[]
   tag: string
   machine: SigningMachine
   consumed: Set<number>
@@ -160,7 +174,7 @@ function makeDevice(
   // peer's `rejoin` and a device genuinely does not know a peer's seat until that rejoin is processed.
   seats: Record<string, number> = SEATS,
 ): Device {
-  const dev: Device = { tag, machine: null as unknown as SigningMachine, consumed: new Set(), sig: null, errors: [], bus, unprovenTags: new Set(), decision: 'match', what: null }
+  const dev: Device = { claims: [], claimAnswer: true, records: [], recordFails: false, claimExpiries: [], tag, machine: null as unknown as SigningMachine, consumed: new Set(), sig: null, errors: [], bus, unprovenTags: new Set(), decision: 'match', what: null }
   const deps: SigningDeps = {
     signingMaterial: mat,
     seatOf: (t) => seats[t],
@@ -181,6 +195,8 @@ function makeDevice(
     // #281: this harness exercises the CEREMONY, not the money gate. Permissive by default; the
     // refusal is asserted in its own test below, which overrides this.
     decideApproval: (outputs) => (dev.gate ? dev.gate(outputs) : dev.decision),
+    claim: async (h, expiry) => { if (dev.claimUnreadable) throw new Error('[unreadable] blocked'); dev.claims.push(h); dev.claimExpiries.push(expiry); return dev.claimAnswer },
+    record: async (h, expiry) => { if (dev.recordFails) throw new Error('blocked'); if (dev.recordWithdrawn || (dev.withdrawAfter !== undefined && dev.records.length >= dev.withdrawAfter)) throw new Error('[withdrawn] no consent'); dev.records.push([h, expiry]) },
   }
   dev.machine = new SigningMachine(deps)
   return dev
@@ -192,7 +208,7 @@ function makeDevice(
 // the sighash is the honest one and the commitments are the live ones, so frost-core's own
 // IncorrectCommitment check passes. The only thing wrong with it is who sent it.
 function makeUnseatedCoordinator(tag: string, bus: Bus, mat: () => { keyPackage: Uint8Array; groupVk: Uint8Array; pubkeys: Uint8Array }): Device {
-  const dev: Device = { tag, machine: null as unknown as SigningMachine, consumed: new Set(), sig: null, errors: [], bus, unprovenTags: new Set(), decision: 'match', what: null }
+  const dev: Device = { claims: [], claimAnswer: true, records: [], recordFails: false, claimExpiries: [], tag, machine: null as unknown as SigningMachine, consumed: new Set(), sig: null, errors: [], bus, unprovenTags: new Set(), decision: 'match', what: null }
   const deps: SigningDeps = {
     signingMaterial: mat,
     // In ITS OWN view it holds seat 1. No peer map contains its tag, which is the whole point.
@@ -212,6 +228,8 @@ function makeUnseatedCoordinator(tag: string, bus: Bus, mat: () => { keyPackage:
     // which is the point. Answering 'match' keeps this test measuring the sender check and nothing else;
     // a refusal here would make it pass for the wrong reason.
     decideApproval: () => dev.decision,
+    claim: async () => true,
+    record: async () => {},
     tt: (k) => k,
   }
   dev.machine = new SigningMachine(deps)
@@ -270,7 +288,7 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
 
     // A helper (Architecture B) publishes a sign-request over the vault's own proven PCZT. Its
     // sighash is the PCZT's real sighash, so each device's on-device H1 check passes by construction.
-    const pczt = dkgProvenPczt()
+    const pczt = withExpiry(dkgProvenPczt())
     const spends = parseAlphas(pczt).map((s) => ({ index: s.index, alpha: bytesToHex(s.alpha) }))
     const requestJson = JSON.stringify({
       kind: 'net-sign-request',
@@ -310,7 +328,7 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys })) // seat 1
     const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
 
-    const pczt = dkgProvenPczt()
+    const pczt = withExpiry(dkgProvenPczt())
     const spends = parseAlphas(pczt).map((s) => ({ index: s.index, alpha: bytesToHex(s.alpha) }))
     // `sealed: true` is what unsealSignRequest marks on a request it opened from a box.
     bus.post('helper', JSON.stringify({
@@ -349,7 +367,7 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     const C = makeDevice('C', bus, () => ({ keyPackage: s2.keyPackage(), groupVk, pubkeys }))
     A.unprovenTags.add('B')
 
-    const pczt = dkgProvenPczt()
+    const pczt = withExpiry(dkgProvenPczt())
     bus.post('helper', signRequestFor(pczt).json)
     await pump(B, bus)          // the unproven seat commits first
     await pump(A, bus)          // the coordinator reaches threshold and picks, with only 1 and 2 in hand
@@ -374,7 +392,7 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     A.unprovenTags.add('A')
     A.unprovenTags.add('B')
 
-    const pczt = dkgProvenPczt()
+    const pczt = withExpiry(dkgProvenPczt())
     bus.post('helper', signRequestFor(pczt).json)
     await runCeremony(A, B, bus)
 
@@ -387,7 +405,7 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
     const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
 
-    const pczt = dkgProvenPczt()
+    const pczt = withExpiry(dkgProvenPczt())
     // A hostile coordinator forwards an sreq whose `msg` is NOT this PCZT's sighash.
     const wrongSighash = new Uint8Array(32).fill(7)
     bus.post('A', JSON.stringify({ type: 'sreq', msg: b64(wrongSighash), pczt: b64(pczt) }))
@@ -424,7 +442,7 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys })) // seat 2
     const X = makeUnseatedCoordinator('X', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
 
-    const pczt = dkgProvenPczt()
+    const pczt = withExpiry(dkgProvenPczt())
     bus.post('helper', signRequestFor(pczt).json)
 
     // B starts and publishes its commitment. X reads it and coordinates over the live commitments.
@@ -452,7 +470,7 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     const bSeats: Record<string, number> = { B: 2, C: 3 }
     const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }), bSeats)
 
-    const req = signRequestFor(dkgProvenPczt())
+    const req = signRequestFor(withExpiry(dkgProvenPczt()))
     bus.post('helper', req.json)
     for (let i = 0; i < 6; i++) { await pump(A, bus); await pump(B, bus) }
 
@@ -484,7 +502,7 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     const C = makeDevice('C', bus, () => ({ keyPackage: s2.keyPackage(), groupVk, pubkeys }))
     Object.defineProperty(C.machine, 'd', { value: { ...(C.machine as unknown as { d: SigningDeps }).d, mySeat: () => 1 } })
 
-    bus.post('helper', signRequestFor(dkgProvenPczt()).json)
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
     for (let i = 0; i < 8; i++) { await pump(B, bus); await pump(C, bus) }
 
     const sp = bus.msgs.find((m) => m.data.includes('"sp"'))
@@ -511,7 +529,7 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     A.decision = 'mismatch'
     B.decision = 'mismatch'
 
-    const pczt = dkgProvenPczt()
+    const pczt = withExpiry(dkgProvenPczt())
     bus.post('helper', signRequestFor(pczt).json)
     await runCeremony(A, B, bus)
 
@@ -523,6 +541,120 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     expect(bus.msgs.some((m) => m.from === 'A' && m.data.includes('"s1"'))).toBe(false)
   })
 
+  it('claims the transaction under the owner\'s consent once, after every check, with its own sighash', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    const pczt = withExpiry(dkgProvenPczt())
+    bus.post('helper', signRequestFor(pczt).json)
+    await runCeremony(A, B, bus)
+    expect(A.sig?.ok).toBe(true)
+    const local = Array.from(pcztSighash(pczt), (b) => b.toString(16).padStart(2, '0')).join('')
+    expect(A.claims).toEqual([local])
+    expect(B.claims).toEqual([local])
+  })
+
+  it('claims nothing for a transaction it refused', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    A.decision = 'mismatch'
+    B.decision = 'mismatch'
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
+    await runCeremony(A, B, bus)
+    expect(A.claims).toEqual([])
+  })
+
+  it('records what it signs before each share leaves, with its own sighash and the expiry it read', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    const expiry = honestExpiry()
+    const pczt = withExpiry(dkgProvenPczt(), expiry)
+    bus.post('helper', signRequestFor(pczt).json)
+    await runCeremony(A, B, bus)
+    expect(A.sig?.ok).toBe(true)
+    const local = Array.from(pcztSighash(pczt), (b) => b.toString(16).padStart(2, '0')).join('')
+    // One ask per share, so one per spend: the ask is also where a withdrawn consent stops the next
+    // share. The store keeps one entry per transaction however often it is asked.
+    expect(A.records.length).toBe(parseAlphas(pczt).length)
+    expect(A.records.length).toBeGreaterThan(1)
+    for (const r of A.records) expect(r).toEqual([local, expiry])
+    expect(A.claimExpiries).toEqual([expiry])
+  })
+
+  it('a record refused because its owner withdrew lets no share leave, and is not called a storage failure', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    A.recordWithdrawn = true
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
+    await runCeremony(A, B, bus)
+    expect(A.sig).toBeNull()
+    expect(A.errors).not.toContain('net.err.recordFailed')
+    expect(bus.msgs.some((m) => m.from === 'A' && m.data.includes('"s2"'))).toBe(false)
+  })
+
+  it('a withdrawal in the middle of a payment of several spends stops the shares that follow', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    const pczt = withExpiry(dkgProvenPczt())
+    expect(parseAlphas(pczt).length).toBeGreaterThan(1)
+    A.withdrawAfter = 1
+    bus.post('helper', signRequestFor(pczt).json)
+    await runCeremony(A, B, bus)
+    expect(A.sig).toBeNull()
+    const sharesFromA = bus.msgs.filter((m) => m.from === 'A' && m.data.includes('"s2"')).length
+    expect(sharesFromA).toBe(1)
+  })
+
+  it('a record it cannot read lets no share leave, and says so, not that it signed before', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    A.claimUnreadable = true
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
+    await runCeremony(A, B, bus)
+    expect(A.sig).toBeNull()
+    expect(A.errors).toContain('net.err.recordUnreadable')
+    expect(A.errors).not.toContain('net.err.signedAnother')
+    expect(bus.msgs.some((m) => m.from === 'A' && m.data.includes('"s2"'))).toBe(false)
+  })
+
+  it('a record it cannot write lets no share leave, and says why', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    A.recordFails = true
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
+    await runCeremony(A, B, bus)
+    expect(A.sig).toBeNull()
+    expect(A.errors).toContain('net.err.recordFailed')
+    expect(bus.msgs.some((m) => m.from === 'A' && m.data.includes('"s2"'))).toBe(false)
+  })
+
+  it('a claim the consent refuses contributes no share, and says why', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    A.claimAnswer = false
+    B.claimAnswer = false
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
+    await runCeremony(A, B, bus)
+    expect(A.sig).toBeNull()
+    expect(bus.msgs.some((m) => m.from === 'A' && m.data.includes('"s1"'))).toBe(false)
+    expect(A.errors).toContain('net.err.signedAnother')
+  })
+
   it('and it signs the same request once that device DOES approve it (#281)', async () => {
     // The companion, so the refusal above cannot pass by simply breaking the ceremony. Same PCZT,
     // same wire, same devices - only the approval answer differs.
@@ -531,7 +663,7 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
     const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
 
-    const pczt = dkgProvenPczt()
+    const pczt = withExpiry(dkgProvenPczt())
     bus.post('helper', signRequestFor(pczt).json)
     await runCeremony(A, B, bus)
 
@@ -544,7 +676,7 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     // raises exactly that number. The request stays internally consistent - the helper computes the
     // sighash over the inflated transaction - and the gate answers yes, because the outputs are the
     // approved ones. What has to stop it is the device reading the fee itself.
-    const pczt = patchOnce(dkgProvenPczt(), [0xa0, 0x9c, 0x01], [0xa8, 0xc3, 0x01]) // 20000 -> 25000
+    const pczt = patchOnce(withExpiry(dkgProvenPczt()), [0xa0, 0x9c, 0x01], [0xa8, 0xc3, 0x01]) // 20000 -> 25000
     const { s0, s1, groupVk, pubkeys } = dkg2of3()
     const bus = new Bus()
     const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
@@ -567,7 +699,7 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
     const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
 
-    bus.post('helper', signRequestFor(dkgProvenPczt()).json)
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
     await runCeremony(A, B, bus)
 
     expect(A.what?.feeZat).toBe(20_000)
@@ -591,7 +723,7 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
       const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
       A.decision = decision
       B.decision = decision
-      bus.post('helper', signRequestFor(dkgProvenPczt()).json)
+      bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
       await runCeremony(A, B, bus)
       expect(A.errors).toEqual([key])
       expect(B.errors).toEqual([key])
@@ -609,7 +741,7 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
     A.decision = 'mismatch'
     B.decision = 'mismatch'
-    bus.post('helper', signRequestFor(dkgProvenPczt()).json)
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
     await runCeremony(A, B, bus)
     expect(A.errors).toContain('net.err.notApproved')
     expect(A.what?.outputs.map((o) => o.zat)).toEqual([PAY.value, CHG.value])
@@ -620,7 +752,7 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     const bus1 = new Bus()
     const A = makeDevice('A', bus1, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
     const B = makeDevice('B', bus1, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
-    bus1.post('helper', signRequestFor(dkgProvenPczt()).json)
+    bus1.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
     await runCeremony(A, B, bus1)
     expect(A.what).not.toBeNull()
 
@@ -632,7 +764,7 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
       dev.sig = null
       dev.errors = []
     }
-    bus2.post('helper', signRequestFor(patchOnce(dkgProvenPczt(), [0xa0, 0x9c, 0x01], [0xa8, 0xc3, 0x01])).json)
+    bus2.post('helper', signRequestFor(patchOnce(withExpiry(dkgProvenPczt()), [0xa0, 0x9c, 0x01], [0xa8, 0xc3, 0x01])).json)
     await runCeremony(A, B, bus2)
     expect(A.errors).toContain('net.err.feeTooHigh')
     expect(A.what, 'the panel renders this under the refusal').toBeNull()
@@ -642,17 +774,17 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
   // and the real WASM, and nothing is signed. The patches are the fixture's own wire bytes, read in
   // konclave-wasm's tests: an output is `out_ciphertext tail ++ Some(recipient) ++ Some(value)`.
   it('a change output claiming another receiver is refused as an output mismatch (#610)', async () => {
-    const pczt = patchOnce(dkgProvenPczt(), wireOut(CHG.anchor, CHG.recipient, CHG.value), wireOut(CHG.anchor, PAY.recipient, CHG.value))
+    const pczt = patchOnce(withExpiry(dkgProvenPczt()), wireOut(CHG.anchor, CHG.recipient, CHG.value), wireOut(CHG.anchor, PAY.recipient, CHG.value))
     await refusedWith(pczt, 'net.err.outputMismatch')
   })
 
   it('a label that is not an address is refused as a label mismatch (#610)', async () => {
-    await refusedWith(patchOnce(dkgProvenPczt(), labelWire(PAY.label), labelWire('Alice')), 'net.err.labelMismatch')
+    await refusedWith(patchOnce(withExpiry(dkgProvenPczt()), labelWire(PAY.label), labelWire('Alice')), 'net.err.labelMismatch')
   })
 
   it('a payment its recipient cannot open is refused as an output mismatch (#610)', async () => {
     const slice = hexb(PAY.enc200)
-    await refusedWith(patchOnce(dkgProvenPczt(), slice, slice.map((b) => b ^ 0xff)), 'net.err.outputMismatch')
+    await refusedWith(patchOnce(withExpiry(dkgProvenPczt()), slice, slice.map((b) => b ^ 0xff)), 'net.err.outputMismatch')
   })
 
   // A refusal has to be the end of that transaction on this device, not a pause. The machine marked
@@ -662,8 +794,8 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
   // The decisive check: after the refusal, nothing this device sends may carry a commitment, a share
   // or a signature, whatever arrives.
   for (const [why, pczt, gate, key] of [
-    ['the money gate', () => dkgProvenPczt(), 'mismatch', 'net.err.notApproved'],
-    ['the fee rule', () => patchOnce(dkgProvenPczt(), [0xa0, 0x9c, 0x01], [0xa8, 0xc3, 0x01]), 'match', 'net.err.feeTooHigh'],
+    ['the money gate', () => withExpiry(dkgProvenPczt()), 'mismatch', 'net.err.notApproved'],
+    ['the fee rule', () => patchOnce(withExpiry(dkgProvenPczt()), [0xa0, 0x9c, 0x01], [0xa8, 0xc3, 0x01]), 'match', 'net.err.feeTooHigh'],
   ] as const) {
     it(`a refusal by ${why} stays a refusal when a forged "signed" arrives (#610)`, async () => {
       const { s0, s1, groupVk, pubkeys } = dkg2of3()
@@ -699,7 +831,7 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
     A.decision = 'mismatch'
     B.decision = 'mismatch'
-    bus.post('helper', signRequestFor(dkgProvenPczt()).json)
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
     await runCeremony(A, B, bus)
     bus.post('B', JSON.stringify({ type: 'sp', signers: [1, 2], sp: b64(new Uint8Array(32)), msg: b64(new Uint8Array(32)), k: 0 }))
     await runCeremony(A, B, bus)
@@ -726,7 +858,7 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
     const C = makeDevice('C', bus, () => ({ keyPackage: s2.keyPackage(), groupVk, pubkeys }))
     A.decision = 'mismatch' // seat 1 refuses; seats 2 and 3 approve
-    bus.post('helper', signRequestFor(dkgProvenPczt()).json)
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
     await runThree(A, B, C, bus)
     expect(A.errors).toContain('net.err.notApproved')
     // A's only post is the `sreq` it sends before it has read the transaction.
@@ -741,7 +873,7 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     const bus = new Bus()
     const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
     const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
-    bus.post('helper', signRequestFor(dkgProvenPczt()).json)
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
     // Posted under the coordinator's own tag (the relay lets a poster name itself), before the run.
     bus.post('A', JSON.stringify({ type: 'signed', sig: b64(new Uint8Array(64).fill(7)), ok: true, k: 0 }))
     await runCeremony(A, B, bus)
@@ -757,7 +889,30 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     expect(refusalKey('[undecryptable] x')).toBe('net.err.outputMismatch')
     expect(refusalKey('[label] x')).toBe('net.err.labelMismatch')
     expect(refusalKey('[shape] x')).toBe('net.err.unexpectedShape')
+    expect(refusalKey('[expiry] x')).toBe('net.err.expiry')
+    expect(refusalKey('[network] x')).toBe('net.err.network')
+    expect(refusalKey('[locktime] x')).toBe('net.err.locktime')
     expect(refusalKey('failed to parse PCZT')).toBe('net.err.unreadablePczt')
+  })
+
+  it('a transaction this device cannot confirm by its own clock gets no share, and says why', async () => {
+    // The vector as it is: a testnet transaction, valid far beyond the window a payment built now
+    // on mainnet allows. Whoever held it signed could broadcast it much later.
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt(), VECTOR_EXPIRY)).json)
+    await runCeremony(A, B, bus)
+    expect(A.sig).toBeNull()
+    expect(A.errors).toContain('net.err.expiry')
+    expect(bus.msgs.some((m) => m.from === 'A' && m.data.includes('"s1"'))).toBe(false)
+  })
+
+  it('the machine reads what it signs on through readForSigning alone', () => {
+    const src = codeOf('./signing-machine.ts')
+    expect(src).toMatch(/JSON\.parse\(readForSigning\(pczt\)\)/)
+    expect(src).not.toMatch(/readPayment\(/)
   })
 
   it('an unreadable set of spends is refused OUT LOUD, never thrown into the void (#364)', async () => {
@@ -771,7 +926,7 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
     // Built BEFORE the fault is armed: the helper's request is assembled with the same reader, and
     // a request that could not be built is a different test.
-    bus.post('helper', signRequestFor(dkgProvenPczt()).json)
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
 
     alphaFault.message = 'mixed Orchard+Ironwood spends are not supported by this bridge'
     try {
@@ -803,7 +958,7 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
     const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
 
-    const pczt = dkgProvenPczt()
+    const pczt = withExpiry(dkgProvenPczt())
     bus.post('helper', signRequestFor(pczt).json)
     // Let round 1 happen, then intercept: replace the coordinator's `sp` with one claiming a
     // DIFFERENT message. The SigningPackage bytes are left alone, so only the claim changes - which
@@ -839,7 +994,7 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
     const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
 
-    const pczt = dkgProvenPczt()
+    const pczt = withExpiry(dkgProvenPczt())
     bus.post('helper', signRequestFor(pczt).json)
     await pump(A, bus)  // A binds to the request and posts its round-1 commitment
     await pump(B, bus)  // B does the same
@@ -897,7 +1052,7 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
     const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
 
-    const pczt = dkgProvenPczt()
+    const pczt = withExpiry(dkgProvenPczt())
     bus.post('helper', signRequestFor(pczt).json)
     await runCeremony(A, B, bus)
     expect(A.sig?.ok).toBe(true)
@@ -923,7 +1078,7 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     const B = makeDevice('B', bus1, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
 
     // Payment 1.
-    const pczt = dkgProvenPczt()
+    const pczt = withExpiry(dkgProvenPczt())
     bus1.post('helper', signRequestFor(pczt).json)
     await runCeremony(A, B, bus1)
     expect(A.machine.isDone()).toBe(true)
@@ -988,7 +1143,7 @@ describe('a device signs the transaction it checked', () => {
   const outputsOf = (p: Uint8Array) => JSON.stringify((JSON.parse(readPayment(p)) as { outputs: unknown[] }).outputs)
 
   async function run(helperPczt: Uint8Array, inlinePczt: Uint8Array, msgOf: Uint8Array) {
-    const approved = dkgProvenPczt()
+    const approved = withExpiry(dkgProvenPczt())
     const { s0, s1, groupVk, pubkeys } = dkg2of3()
     const bus = new Bus()
     const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
@@ -1009,7 +1164,7 @@ describe('a device signs the transaction it checked', () => {
   }
 
   it('the first reading is of one transaction and the message of another: nothing is signed', async () => {
-    const approved = dkgProvenPczt()
+    const approved = withExpiry(dkgProvenPczt())
     const other = otherPczt()
     const r = await run(approved, other, pcztSighash(other))
     expect(r.A.errors.length + r.B.errors.length, 'the request was refused').toBeGreaterThan(0)
@@ -1019,7 +1174,7 @@ describe('a device signs the transaction it checked', () => {
   })
 
   it('the helper request holds another transaction than the coordinator message: nothing is signed', async () => {
-    const approved = dkgProvenPczt()
+    const approved = withExpiry(dkgProvenPczt())
     const other = otherPczt()
     const r = await run(other, approved, pcztSighash(other))
     expect(r.A.errors.length + r.B.errors.length, 'the request was refused').toBeGreaterThan(0)

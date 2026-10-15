@@ -9,6 +9,7 @@
 // points at the public relay instead - the shape does not change.
 
 import { CROCKFORD } from './format'
+import { CREATION_PROTOCOL } from './creation-protocol'
 
 const ENV = import.meta.env as Record<string, string | undefined>
 const BASE: string = ENV.VITE_API_BASE ?? ''
@@ -288,7 +289,7 @@ export function formatInvite(code: string): string {
 export async function deriveRoom(code: string, pin: string): Promise<string> {
   const p = pin.trim()
   if (!p) throw new Error('a PIN is required')
-  const data = new TextEncoder().encode(`konclave-room-v2\u0000${code}\u0000${p}`)
+  const data = new TextEncoder().encode(`konclave-room-v${CREATION_PROTOCOL}\u0000${code}\u0000${p}`)
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', data))
   return Array.from(digest.slice(0, 16), (b) => b.toString(16).padStart(2, '0')).join('') // 128-bit hex room id
 }

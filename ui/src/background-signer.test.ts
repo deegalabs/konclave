@@ -8,9 +8,11 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import init, { DkgSession, identifierBytes } from './wasm-pkg/konclave_wasm.js'
 import { bytesEqual } from './net'
 import { dkgProvenPczt } from './demo-vector'
+import { honestExpiry, withExpiry } from './test-vectors'
 import { parseAlphas } from './signing'
 import { bytesToHex } from './net-sign'
 import { pcztSighash } from './wasm-pkg/konclave_wasm.js'
+import { claimConsent, consentAllows, giveConsent, newConsent, type OwnerConsent } from './signing-gate'
 import {
   BackgroundSigner,
   signingRoom,
@@ -57,13 +59,15 @@ const SEATS: Record<string, number> = { A: 1, B: 2 }
 
 interface Dev { tag: string; signer: BackgroundSigner; delivered: Set<number>; sig: { hex: string; ok: boolean } | null; errors: string[]; bus: Bus }
 
-function makeDev(tag: string, bus: Bus, mat: () => { keyPackage: Uint8Array; groupVk: Uint8Array; pubkeys: Uint8Array }, gate: GovernanceGate): Dev {
+function makeDev(tag: string, bus: Bus, mat: () => { keyPackage: Uint8Array; groupVk: Uint8Array; pubkeys: Uint8Array }, gate: GovernanceGate, claim: (h: string) => boolean = () => true, record: (h: string, e: number) => Promise<void> = async () => {}): Dev {
   const dev: Dev = { tag, signer: null as unknown as BackgroundSigner, delivered: new Set(), sig: null, errors: [], bus }
   dev.signer = new BackgroundSigner({
     signingMaterial: mat,
     // #281 is asserted in signing-machine.test.ts, where the ceremony's own refusal lives. This
     // file exercises the GOVERNANCE gate (approve/arm), so the money gate is permissive here.
     decideApproval: () => 'match',
+    claim,
+    record,
     seatOf: (t) => SEATS[t],
     seatIsProven: () => true, // #399 is exercised in signing-machine.test.ts; all seats real here
 
@@ -151,7 +155,7 @@ describe('BackgroundSigner (Dashboard-driven signing, governance-gated)', () => 
     const A = makeDev('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }), open)
     const B = makeDev('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }), open)
 
-    bus.post('helper', requestFor(dkgProvenPczt()))
+    bus.post('helper', requestFor(withExpiry(dkgProvenPczt())))
     await run([A, B], bus)
 
     expect(A.errors).toEqual([])
@@ -167,7 +171,7 @@ describe('BackgroundSigner (Dashboard-driven signing, governance-gated)', () => 
     const closed: GovernanceGate = () => false // e.g. the owner has not approved this proposal
     const A = makeDev('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }), closed)
 
-    bus.post('helper', requestFor(dkgProvenPczt()))
+    bus.post('helper', requestFor(withExpiry(dkgProvenPczt())))
     await run([A], bus)
 
     expect(bus.has('sreq')).toBe(false) // the coordinator never kicked off - a gate is not a signature
@@ -183,7 +187,7 @@ describe('BackgroundSigner (Dashboard-driven signing, governance-gated)', () => 
     const A = makeDev('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }), gate)
     const B = makeDev('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }), gate)
 
-    bus.post('helper', requestFor(dkgProvenPczt()))
+    bus.post('helper', requestFor(withExpiry(dkgProvenPczt())))
     await run([A, B], bus)
     expect(bus.has('sreq')).toBe(false) // still pending - nobody approved yet
 
@@ -193,5 +197,53 @@ describe('BackgroundSigner (Dashboard-driven signing, governance-gated)', () => 
     await run([A, B], bus) // now it flows to completion
     expect(A.sig?.ok).toBe(true)
     expect(B.sig?.ok).toBe(true)
+  })
+})
+
+// One signature from the owner covers one transaction, and the cover outlives the signing session:
+// closing and reopening the panel starts a new session (a new machine), while the consent lives in
+// the provider. Real machines, real WASM, two different real PCZTs for the same payment.
+describe('the owner\'s consent across a new signing session', () => {
+  // Another transaction for the same payment: the same vector with another expiry inside the window.
+  const twoSpend = () => withExpiry(dkgProvenPczt(), honestExpiry() + 1)
+  const consentGate = (c: OwnerConsent): GovernanceGate => () => consentAllows(c, 'p1', Date.now())
+  const consentClaim = (c: OwnerConsent) => (h: string) => claimConsent(c, 'p1', Date.now(), h)
+
+  it('a second transaction under the same signature gets no share, and a new signature covers it', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const ma = () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys })
+    const mb = () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys })
+    const ca = newConsent(), cb = newConsent()
+    giveConsent(ca, 'p1', Date.now()); giveConsent(cb, 'p1', Date.now())
+
+    // The first transaction: signed.
+    const bus1 = new Bus()
+    const A1 = makeDev('A', bus1, ma, consentGate(ca), consentClaim(ca))
+    const B1 = makeDev('B', bus1, mb, consentGate(cb), consentClaim(cb))
+    bus1.post('helper', requestFor(withExpiry(dkgProvenPczt())))
+    await run([A1, B1], bus1)
+    expect(A1.sig?.ok).toBe(true)
+
+    // The panel closes and opens again: new sessions, the same consent. Another transaction for the
+    // same payment gets nothing, and the refusal is the consent's.
+    const bus2 = new Bus()
+    const A2 = makeDev('A', bus2, ma, consentGate(ca), consentClaim(ca))
+    const B2 = makeDev('B', bus2, mb, consentGate(cb), consentClaim(cb))
+    bus2.post('helper', requestFor(twoSpend()))
+    await run([A2, B2], bus2)
+    expect(A2.sig).toBeNull()
+    expect(bus2.msgs.some((m) => m.from === 'A' && m.data.includes('"s1"'))).toBe(false)
+    expect(A2.errors).toContain('net.err.signedAnother')
+    expect(ca.spent).toBe(true)
+
+    // A new, deliberate signature covers the new transaction.
+    giveConsent(ca, 'p1', Date.now()); giveConsent(cb, 'p1', Date.now())
+    const bus3 = new Bus()
+    const A3 = makeDev('A', bus3, ma, consentGate(ca), consentClaim(ca))
+    const B3 = makeDev('B', bus3, mb, consentGate(cb), consentClaim(cb))
+    bus3.post('helper', requestFor(twoSpend()))
+    await run([A3, B3], bus3)
+    expect(A3.errors).toEqual([])
+    expect(A3.sig?.ok).toBe(true)
   })
 })

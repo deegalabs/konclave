@@ -11,6 +11,7 @@
 
 import { bytesToHex as hex, hexToBytes as unhex } from './bytes'
 import { addressText } from './approved-payment'
+import { CREATION_PROTOCOL } from './creation-protocol'
 
 const DB_NAME = 'konclave'
 const STORE = 'vaults'
@@ -79,6 +80,9 @@ export interface VaultPublic {
   /** The quorum every member confirmed at creation (public), to compare with the coordinator's. */
   threshold?: number
   total?: number
+  /** The creation protocol the vault was made with (creation-protocol.ts); absent for a vault made
+   *  before it was recorded. The vault's, never the app's. */
+  cp?: number
 }
 
 /** Whether a saved vault finished creation: every member saved its share and the coordinator holds
@@ -108,6 +112,9 @@ export interface VaultData {
   pending?: boolean
   threshold?: number
   total?: number
+  /** The creation protocol the vault was made with (creation-protocol.ts); absent for a vault made
+   *  before it was recorded. The vault's, never the app's. */
+  cp?: number
 }
 
 /** What loadVault returns after decrypting: the same shape, group key back as bytes. */
@@ -134,6 +141,9 @@ export interface VaultLoaded {
   pending?: boolean
   threshold?: number
   total?: number
+  /** The creation protocol the vault was made with (creation-protocol.ts); absent for a vault made
+   *  before it was recorded. The vault's, never the app's. */
+  cp?: number
 }
 
 // Internal on-disk record. `cipher`/`salt`/`iv` protect `sealedShare`; `secretCipher`/`secretIv`
@@ -171,6 +181,9 @@ interface VaultRecord {
   pending?: boolean
   threshold?: number
   total?: number
+  /** The creation protocol the vault was made with (creation-protocol.ts); absent for a vault made
+   *  before it was recorded. The vault's, never the app's. */
+  cp?: number
 }
 
 
@@ -335,6 +348,7 @@ export async function saveVault(id: string, data: VaultData, passphrase: string)
     ...(data.birthday !== undefined ? { birthday: data.birthday } : {}),
     ...(data.pending ? { pending: true } : {}),
     ...(data.threshold !== undefined ? { threshold: data.threshold, total: data.total } : {}),
+    ...(data.cp !== undefined ? { cp: data.cp } : {}),
     // Sealed WITH this, so it must be stored WITH it (#435).
     kdfIters: PBKDF2_ITERS,
   }
@@ -414,6 +428,7 @@ export async function loadVault(id: string, passphrase: string): Promise<VaultLo
     pending: record.pending,
     threshold: record.threshold,
     total: record.total,
+    cp: record.cp,
   }
 }
 
@@ -497,6 +512,9 @@ interface V2Payload {
   pending?: boolean
   threshold?: number
   total?: number
+  /** The creation protocol the vault was made with (creation-protocol.ts); absent for a vault made
+   *  before it was recorded. The vault's, never the app's. */
+  cp?: number
 }
 
 /**
@@ -569,6 +587,7 @@ export async function exportVault(
     ...(loaded.changeReceiver ? { changeReceiver: loaded.changeReceiver } : {}),
     ...(loaded.pending ? { pending: true } : {}),
     ...(loaded.threshold !== undefined ? { threshold: loaded.threshold, total: loaded.total } : {}),
+    ...(loaded.cp !== undefined ? { cp: loaded.cp } : {}),
   }
 
   const salt = crypto.getRandomValues(new Uint8Array(16))
@@ -650,6 +669,9 @@ interface DecodedImport {
   pending?: boolean
   threshold?: number
   total?: number
+  /** The creation protocol the vault was made with (creation-protocol.ts); absent for a vault made
+   *  before it was recorded. The vault's, never the app's. */
+  cp?: number
 }
 
 /** The quorum a v2 backup records, only if it agrees with the share it carries (the share's own
@@ -699,6 +721,8 @@ async function decodeV2(b: VaultExportV2, passphrase: string): Promise<DecodedIm
     // A backup of a vault whose creation had not finished comes back unfinished, with its quorum.
     pending: p.pending === true ? true : undefined,
     ...quorumOfExport(p),
+    // At most the protocol this app speaks: a backup cannot claim one the app does not know.
+    cp: typeof p.cp === 'number' && Number.isInteger(p.cp) && p.cp > 0 && p.cp <= CREATION_PROTOCOL ? p.cp : undefined,
   }
 }
 
@@ -878,6 +902,7 @@ export async function importVault(
     ...(d.changeReceiver ? { changeReceiver: d.changeReceiver } : {}),
     ...(d.pending ? { pending: true } : {}),
     ...(d.threshold !== undefined ? { threshold: d.threshold, total: d.total } : {}),
+    ...(d.cp !== undefined ? { cp: d.cp } : {}),
   }
 
   const db = await openDb()
@@ -916,7 +941,7 @@ export async function listVaults(): Promise<VaultPublic[]> {
     const records = await reqDone(tx.objectStore(STORE).getAll() as IDBRequest<VaultRecord[]>)
     await txDone(tx)
     return records
-      .map((r) => ({ id: r.id, name: r.name, governance: r.governance, myName: r.myName, creatorName: r.creatorName, groupKey: r.groupKey, address: r.address, roster: r.roster, createdAt: r.createdAt, secured: !!r.secretCipher, changeReceiver: r.changeReceiver, pending: r.pending, threshold: r.threshold, total: r.total }))
+      .map((r) => ({ id: r.id, name: r.name, governance: r.governance, myName: r.myName, creatorName: r.creatorName, groupKey: r.groupKey, address: r.address, roster: r.roster, createdAt: r.createdAt, secured: !!r.secretCipher, changeReceiver: r.changeReceiver, pending: r.pending, threshold: r.threshold, total: r.total, cp: r.cp }))
       .sort((a, b) => b.createdAt - a.createdAt)
   } finally {
     db.close()
