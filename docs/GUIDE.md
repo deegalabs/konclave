@@ -584,7 +584,7 @@ sequenceDiagram
     autonumber
     participant H as Helper / Orchestrator (blind to shares)
     participant BR as Blind Relay (room)
-    participant DA as Device A (seat 1 / coordinator)
+    participant DA as Device A (completed the quorum / coordinator)
     participant DB as Device B (seat 2)
     participant Z as Zcash mainnet
 

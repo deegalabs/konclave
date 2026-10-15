@@ -53,7 +53,7 @@ const reading: SignPreview = {
   ],
   feeZat: 20_000,
 }
-const baseBg = { ready: true, phase: 'idle', error: '', what: null, seatCount: 2, armedSeats: [], iSend: false, peerFailure: null, clearPeerFailure: () => {}, signature: null, wouldComplete: () => false, sendingNamed: () => false }
+const baseBg = { ready: true, phase: 'idle', error: '', what: null, seatCount: 2, armedSeats: [], iSend: false, peerFailure: null, clearPeerFailure: () => {}, signature: null, wouldComplete: () => false, sendingNamed: () => false, completed: () => null }
 
 function render(bg: Record<string, unknown>, opts: { ours?: (r: string | null) => boolean } = {}): string {
   state.bg = { ...baseBg, ...bg }

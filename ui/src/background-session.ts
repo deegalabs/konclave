@@ -375,6 +375,12 @@ export class BackgroundSession {
     return this.completion?.tag ?? null
   }
 
+  /** Whose signature completed the quorum and when (its newest signature's time), for the screen to
+   *  name the device that is sending. Null while none has. */
+  completed(): { seat: number; at: number } | null {
+    return this.completion ? { seat: this.completion.seat, at: this.completion.at } : null
+  }
+
   /** The seats whose signature for the current proposal still counts, ascending: what the screen
    *  shows. The tally forgets an expired signature when the next one arrives; this also leaves out
    *  one that expired since, by this device's clock, so the count does not show a signature from an

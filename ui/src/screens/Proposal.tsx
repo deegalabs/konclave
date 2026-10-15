@@ -182,6 +182,8 @@ export default function Proposal() {
     const approved = p.approvals.includes(m)
     if (approved) return { cls: 'ok', label: m === p.proposer ? t('proposal.stanceProposedApproved') : t('proposal.stanceApproved') }
     if (p.refusals.includes(m)) return { cls: 'no', label: t('proposal.stanceRefused') }
+    // Once it went out, a member who did not take part was not needed, not still awaited (SIGNER-SEAT1).
+    if (p.state === 'sent' || p.state === 'confirmed') return { cls: '', label: t('proposal.stanceNotNeeded') }
     return { cls: '', label: t('proposal.stanceAwaiting') }
   }
 

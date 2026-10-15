@@ -40,6 +40,28 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Any t of n devices can complete a send, without a fixed device starting the signing.** The
+  signing used to be started by one fixed device of the vault, and when that device was not among
+  the ones that signed, the others' signatures waited with no message. Now the device whose
+  signature completes the quorum runs the send; a member who is present and has not signed never
+  blocks it; the panel names the device that is sending; and once the payment is out, a member
+  whose signature was not needed reads "not needed", on the panel and on the proposal. No member's
+  share or funds were affected: it was a matter of a send not happening.
+
+### Known limits
+
+- **A vault sends under the new signing rule once every device that signs runs this version.** With
+  an older app among the signers, a send can wait about four minutes and end with nothing sent;
+  everyone then signs again, and reloading the older app's page brings the current one. Nothing is
+  signed twice and nothing is at risk. The desktop app has no updater yet (#606).
+- **If the device sending a payment closes after the signing has started**, the others wait: close
+  the signing panel and open it again, then sign again. A started signing has no way to be called
+  off yet (#284).
+- **The `/net` page still starts its signing from the vault's first seat**, so there that seat must
+  be present.
+
 ## [0.13.1] 2026-10-15
 
 ### Changed

@@ -29,6 +29,7 @@ import { readingRows } from '../device-reading'
 import { againFromPanel } from '../sign-again'
 import { estimatedFeeZat } from '../fee-estimate'
 import type { SignPreview } from '../signing-machine'
+import { ARM_TTL_MS } from '../signing-gate'
 
 /** What this device read from the transaction it is signing, or refused to sign (#610): every
  *  output that moves value and the fee, each checked against what the signature covers. Exact
@@ -326,6 +327,13 @@ export default function SigningPanel() {
   // After it, the signatures wait for the next one past the window (#626 review): saying someone is
   // sending then told members to wait for a send nobody was making.
   const quorumSigned = threshold > 0 && signedCount >= threshold && bg.sendingNamed()
+  // The device that completed the quorum runs the send (SIGNER-SEAT1): named, so the others know whose
+  // screen it waits on. After a minute with no round started, the line says the signatures lapse at
+  // the end of their window and can be given again. Display only: no timer decides anything here.
+  const done = bg.completed()
+  const senderName = done && !bg.iSend ? roster[done.seat - 1]?.name ?? null : null
+  const senderLapseMin = done ? Math.max(0, Math.ceil((done.at + ARM_TTL_MS - Date.now()) / 60000)) : 0
+  const senderLate = done !== null && bg.phase === 'idle' && Date.now() - done.at > 60_000
   // If I sign now, the quorum closes and I am the one who sends. This drives the WORDING only:
   // every signature is confirmed on its own device, whoever you are. Predicting "I am last" and
   // confirming only then would leave a hole - two people clicking in the same instant would both
@@ -635,6 +643,7 @@ export default function SigningPanel() {
                       <span className="sign-seat-tick" aria-hidden="true">✓</span>
                     </>
                   )}
+                  {sent && !signedSeats.includes(i + 1) && <span className="sign-seat-nn">{t('signing.seatNotNeeded')}</span>}
                 </span>
               ))}
             </div>
@@ -722,6 +731,11 @@ export default function SigningPanel() {
                 {t('signing.takesMinutes')} <span aria-hidden="true">·</span> <span className="num">{Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, '0')}</span>
               </div>
               {elapsed > 180 && <div className="hint err mt-sm" role="alert">{t('signing.slowHint')}</div>}
+              {/* The device running the send went quiet after the round began: a started round has no
+                  abort yet (#284), so the one thing that helps is a fresh panel. */}
+              {!sending && bg.phase === 'signing' && !bg.sendingNamed() && (
+                <div className="hint warn mt-sm" role="status">{t('signing.stalledReopen')}</div>
+              )}
               {/* An ignored message, before the reading, so a long payroll does not push it out of view. */}
               {notice && <div className="hint warn mt-sm" role="status">{notice}</div>}
               {/* Below the clock, so a long payroll does not push the progress off a phone screen. */}
@@ -754,7 +768,13 @@ export default function SigningPanel() {
           ) : armed ? (
             // Reached from a confirm whose opener is gone: this state takes the focus and is heard.
             <div key="armed" tabIndex={-1} ref={focusOnMount}>
-              <div className="confirm quorum" role="status">{quorumSigned ? t('signing.othersSending') : t('signing.youSigned')}</div>
+              <div className="confirm quorum" role="status">
+                {!quorumSigned
+                  ? t('signing.youSigned')
+                  : senderName
+                    ? t(senderLate ? 'signing.senderWaiting' : 'signing.senderSending', { name: senderName, mins: senderLapseMin })
+                    : t('signing.othersSending')}
+              </div>
               <div className="hint mt-sm">{t('signing.signedCount', { n: signedCount, t: threshold })}</div>
               {armLeft > 0 && <div className="hint mt-sm dim">{t('signing.armExpires', { mins: armLeft })}</div>}
             </div>
