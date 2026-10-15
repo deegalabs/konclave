@@ -21,8 +21,8 @@ from both.
 
 ## Which build is live
 
-The web has no version to check, because it changes whenever `main` does. The footer names the exact
-commit instead, which is the honest answer to "do I have the fix?". Compare it with `main`.
+The web has no version to check, because it changes whenever `main` does. The app frame (the rail on a
+computer, the More menu on a phone) and the landing name the exact commit instead, which is the honest answer to "do I have the fix?". Compare it with `main`.
 
 ## Categories
 
@@ -39,6 +39,75 @@ history to tidy it is how context gets lost.
 ---
 
 ## [Unreleased]
+
+## [0.13.1] 2026-10-15
+
+### Changed
+
+- **A screen opened while the vault is busy keeps what it showed.** When the coordinator answers that
+  the vault is busy for a moment (often a payment being sent), the dashboard keeps the last balance,
+  the payment and payroll screens keep the last balance or, with none read yet, say a payment can be
+  proposed once the vault is free, and the receive screen keeps its transactions; all of them update
+  on their own. Before, such a screen could read "Wallet not connected" or block a payment until a
+  reload.
+
+### Fixed
+
+- **A refused payment read as money to verify on the dashboard.** The movements table showed it with
+  a minus sign and a "verify" link, as if it had left the vault. A payment that never went out now
+  shows its state (refused, expired, awaiting) and no minus sign; only a payment that left shows the
+  block it landed in, or that it is on its way.
+- **The update banner named the version already running, and on a phone it sat under the bottom
+  menu.** It now says which version replaces which, sits above the menu, and the page keeps room for
+  it.
+- **The version was only in Settings.** It is now in the app's frame (the side menu on a computer,
+  the More menu on a phone) and on the landing page.
+
+## [0.13.0] 2026-10-15
+
+### Security
+
+- **A device checks more of a transaction before it signs.** In earlier versions a device checked what
+  a transaction pays (since 0.10.0) and not much else about it. A coordinator could build the
+  approved payment with an expiry far in the future and keep the signed transaction to broadcast
+  later; could set a fee above the network rule, within the ceiling the device allowed; and could ask
+  the devices that approved a payment to sign a second, different transaction for it, so that both
+  could go out. A device now refuses a transaction that expires outside the window its own clock
+  allows, that is built for another network or transaction version, or whose fee is not exactly the
+  network rule (ZIP 317). On this device, it refuses to sign a second transaction for the same
+  approval without the explicit confirmation of the member who signs. We have no report that any of this
+  was used; we did not check. What a member can notice: a device may refuse to sign with one of a
+  few new messages, each saying what to check.
+- **Creating or joining a vault needs an up-to-date app.** An app cached from before 0.12.0 could
+  still create a vault the old way, the one the 0.12.0 notice describes, and the coordinator gave
+  that vault an address. The app now sends, with every registration, a field that identifies the
+  version of the app, so the coordinator can ask an outdated app to update; when it does, this app
+  says so before a creation or a join starts, and asks to reload (or, on the desktop app, to install
+  the latest release from the project's releases page). The coordinator does not refuse yet; a
+  notice period comes before it does (Known limits).
+
+### Changed
+
+- **The signing panel shows the whole destination address and the network fee before you sign.** The
+  address is no longer shortened, the fee and the total that leaves the vault are shown as the
+  estimate they are, and the confirm repeats them. A payroll's fee appears once its lines are known.
+
+### Known limits
+
+- **Apps up to v0.12.0 cannot say they are out of date.** Once the coordinator asks for an
+  up-to-date app, one of these creating or joining a vault may not finish: it may get no address, so
+  nothing could be received into it, without the app saying why. Reloading the page brings the
+  current app. The desktop app has no updater yet (#606): install the latest release by hand. The
+  plan: the app side ships first, desktop installer included, and the coordinator asks only after a
+  notice period.
+- **The exact-fee check uses the network's current fee per action.** If the network lowers it (ZIP
+  2009 proposes this at block 3,590,000), devices on this version would refuse honest payments until
+  they update. Plan: a build that follows the network's fee by block height, out before block
+  3,590,000. Status: planned, not started.
+- **The `/net` page does not have the signer's newer checks**, nor a content check of its own; use
+  the vault's own signing screen for payments.
+- **A device that signed a payment does not answer a new attempt at that same payment until the page
+  is reloaded.** Nothing is signed meanwhile; reload the page, then sign the new attempt.
 
 ## [0.12.0] 2026-10-12
 

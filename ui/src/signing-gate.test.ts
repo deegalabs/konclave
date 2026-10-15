@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ARM_SKEW_MS, ARM_TTL_MS, armExpiredBy, armIsLive, armOnArrival, emptyTally, makeSigningGate, ownerArmed, tallyAfter, type SigningMode, type Tally } from './signing-gate'
+import { ARM_SKEW_MS, ARM_TTL_MS, armExpiredBy, armIsLive, armOnArrival, claimConsent, consentAllows, emptyTally, giveConsent, makeSigningGate, newConsent, ownerArmed, tallyAfter, withdrawConsent, type SigningMode, type Tally } from './signing-gate'
 
 // The governance policy for background signing (#49): a device never signs an unapproved payment;
 // beyond that, auto signs approved ones on its own, manual also needs the owner to arm the payment.
@@ -201,5 +201,60 @@ describe('ownerArmed - this device\'s own consent', () => {
     expect(ownerArmed(s('p1', at, 'p2'), at)).toBe(false)
     expect(ownerArmed(s('p1', at, null), at)).toBe(false)
     expect(ownerArmed(s(null, null, 'p1'), at)).toBe(false)
+  })
+})
+
+// The owner's consent to one payment covers one transaction: the first one this device cleared under
+// it (every check passed). Any other transaction under the same consent is refused and spends it, so
+// the owner's Sign button returns for a new, deliberate signature.
+describe('owner consent', () => {
+  const T = 1_700_000_000_000
+  const A = 'ab'.repeat(32)
+  const B = 'cd'.repeat(32)
+
+  it('allows the payment it was given for, inside its window, and nothing else', () => {
+    const c = newConsent()
+    expect(consentAllows(c, 'p1', T)).toBe(false)
+    giveConsent(c, 'p1', T)
+    expect(consentAllows(c, 'p1', T + 1000)).toBe(true)
+    expect(consentAllows(c, 'p2', T + 1000)).toBe(false)
+    expect(consentAllows(c, 'p1', T + ARM_TTL_MS + 1)).toBe(false)
+  })
+
+  it('the first transaction cleared under it is the only one it covers, in any letter case', () => {
+    const c = newConsent()
+    giveConsent(c, 'p1', T)
+    expect(consentAllows(c, 'p1', T, A)).toBe(true)
+    expect(claimConsent(c, 'p1', T, A.toUpperCase())).toBe(true)
+    expect(claimConsent(c, 'p1', T + 5, A)).toBe(true) // the same transaction, a restarted ceremony
+    expect(consentAllows(c, 'p1', T + 5, B)).toBe(false)
+  })
+
+  it('another transaction under it is refused and spends it; a new signature starts unbound', () => {
+    const c = newConsent()
+    giveConsent(c, 'p1', T)
+    expect(claimConsent(c, 'p1', T, A)).toBe(true)
+    expect(claimConsent(c, 'p1', T + 5, B)).toBe(false)
+    expect(consentAllows(c, 'p1', T + 6)).toBe(false) // spent: the Sign button returns
+    expect(consentAllows(c, 'p1', T + 6, A)).toBe(false)
+    giveConsent(c, 'p1', T + 10)
+    expect(claimConsent(c, 'p1', T + 10, B)).toBe(true)
+  })
+
+  it('a claim outside the consent binds nothing', () => {
+    const c = newConsent()
+    giveConsent(c, 'p1', T)
+    expect(claimConsent(c, 'p2', T, A)).toBe(false)
+    expect(claimConsent(c, 'p1', T + ARM_TTL_MS + 1, A)).toBe(false)
+    expect(claimConsent(c, 'p1', T, B)).toBe(true) // still unbound
+  })
+
+  it('withdrawing ends it', () => {
+    const c = newConsent()
+    giveConsent(c, 'p1', T)
+    claimConsent(c, 'p1', T, A)
+    withdrawConsent(c)
+    expect(consentAllows(c, 'p1', T)).toBe(false)
+    expect(claimConsent(c, 'p1', T, A)).toBe(false)
   })
 })

@@ -40,6 +40,53 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+## [0.13.1] 2026-10-15
+
+> Released as 0.13.1, not 0.14.0, although it carries a Security entry: the number was already
+> named in the published notice for this release (decided 2026-10-15).
+
+### Security
+
+- **A stranger could make the coordinator's memory grow without limit.** Every request that named a
+  vault, registered or not, was given a lock that was never released, so requests with made-up
+  names of up to 2 MiB each used the coordinator's memory up, at the pace one address is allowed
+  to send (300 requests per ten seconds). Since the lock per vault was merged (#384, 2026-08-28).
+  We did not check whether it was used. A name that is not a registered vault, and a registration
+  that cannot register, no longer get a lock. In production since 2026-10-15 02:46 UTC
+  (coordinator build 4223028).
+
+### Fixed
+
+- **Reads of a vault no longer wait for a send.** While a payment was being signed, every read of
+  that vault (the proposal list, the ledger, the member list) waited behind it for as long as the
+  quorum took, and the members' screens stayed on "loading". On 2026-10-14, on the staging
+  coordinator, reads of one vault waited from about a minute to almost five behind a send. The
+  balance and the transactions now answer "busy" at once while a payment that has passed its checks
+  is being signed, and wait a few seconds for anything else that has the wallet; the proposal list
+  says which proposal is being sent. A mined payment is recorded by the next read that finds the
+  vault free. In production since 2026-10-15 02:46 UTC (coordinator build 4223028).
+
+### Known limits
+
+- **Writes still wait behind a send.** While a payment is being signed, other writes to that vault
+  wait for it, including requests that are later refused. A send can therefore delay other
+  members' votes and renames, and a device's registration of its keys, for as long as the quorum
+  takes. A ceremony nobody answers still ends only at its own wait; aborting one from the app does
+  not exist yet.
+- **The balance can answer "busy" instead of a number** during a send, and while another read or a
+  funding check has the wallet. A screen that is already open keeps the figure it had; an app older
+  than the 0.13.1 web build shows a page opened in that moment as not connected, and New payment
+  will not let a payment be proposed until the next refresh. A send that has not yet passed its
+  checks does not count as sending, so a balance read in those seconds waits for it like for any
+  other holder.
+- **A rename is seen in pieces for a moment.** The roster changes first and the proposals follow,
+  so a read that arrives in between can show a proposal as less approved than it is until the
+  rename ends. Before, that read waited for the rename.
+- **The ledger and its CSV can lag a mined payment** while a write or a send holds the vault, or a
+  balance read keeps the wallet busy: the read that would record the payment skips and the next
+  one that finds both free records it. A send records its own payment; this is for one whose
+  answer was lost.
+
 ## [0.11.0] 2026-10-12
 
 ### Security

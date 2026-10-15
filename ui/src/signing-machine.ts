@@ -10,7 +10,7 @@
 // keeps the exact preconditions and the exact boolean return contract the caller's fixpoint
 // relies on (`false` = "not ready, re-apply me later"; `true` = "consumed").
 
-import { Coordinator, identifierBytes, participantRound1, participantRound2WithRandomizer, readPayment, pcztSighash } from './wasm-pkg/konclave_wasm.js'
+import { Coordinator, identifierBytes, participantRound1, participantRound2WithRandomizer, readForSigning, pcztSighash } from './wasm-pkg/konclave_wasm.js'
 import type { GateDecision, PcztOutput, PcztPayment } from './approved-payment'
 import { b64, unb64, bytesEqual } from './net'
 import { parseSignRequest, buildSignResponse, hexToBytes as hexBytes, bytesToHex, type SignRequest } from './net-sign'
@@ -88,6 +88,16 @@ export interface SigningDeps {
    *  diverged three times (#424, #425, #363) because a rule existed in one and not the other.
    *  Making every construction site supply it turns "did you remember?" into a compile error. */
   decideApproval: (outputs: PcztOutput[]) => GateDecision
+  /** The owner's consent claims this transaction (its sighash in hex, derived by this device), after
+   *  every other check and before any share moves. False refuses: the consent covers another
+   *  transaction. REQUIRED for the same reason as `decideApproval`: each driver states its answer at
+   *  its construction site. */
+  claim: (sighashHex: string, expiry: number) => boolean | Promise<boolean>
+  /** Record that this device's share goes into the transaction (its sighash, derived here, and the
+   *  block it expires at), written ONCE, just before the first share leaves: a ceremony that stalls
+   *  in round 1 leaves no record. A record that cannot be written lets no share leave. REQUIRED for
+   *  the same reason as `claim`. */
+  record: (sighashHex: string, expiry: number) => Promise<void>
   onSignature: (hex: string, ok: boolean) => void
   /** i18n lookup for log/error strings (net.log.* / net.err.*). */
   tt: (key: string, params?: Record<string, string | number>) => string
@@ -132,6 +142,14 @@ export function refusalKey(e: unknown): string {
       return 'net.err.labelMismatch'
     case 'shape':
       return 'net.err.unexpectedShape'
+    case 'expiry':
+      return 'net.err.expiry'
+    case 'network':
+      return 'net.err.network'
+    case 'locktime':
+      return 'net.err.locktime'
+    case 'record':
+      return 'net.err.recordFailed'
     default:
       return 'net.err.unreadablePczt'
   }
@@ -184,6 +202,8 @@ export class SigningMachine {
    *  the next spend of the very transaction it had refused, and it signed the rest. The decision has
    *  to live inside the steps that produce a signature, not beside them (the lesson of #579). */
   private cleared = false
+  /** The expiry this device read for the transaction. */
+  private expiry = 0
 
   constructor(deps: SigningDeps) {
     this.d = deps
@@ -203,6 +223,7 @@ export class SigningMachine {
   rearm(): void {
     this.started = false
     this.cleared = false
+    this.expiry = 0
     this.done = false
     this.msg = new Uint8Array()
     this.nonces = null
@@ -352,9 +373,12 @@ export class SigningMachine {
       // A reading belongs to one transaction. Cleared first, so a refusal of this one is never
       // shown over the reading of the payment before it.
       this.d.onWhat(null)
+      // `readForSigning` (#610's reading plus what the device confirms about the transaction itself:
+      // its network, that nothing delays it, and that it expires inside the window this device's own
+      // clock allows, so it cannot be held signed and broadcast much later) is the one reading.
       let payment: PcztPayment
       try {
-        payment = JSON.parse(readPayment(pczt)) as PcztPayment
+        payment = JSON.parse(readForSigning(pczt)) as PcztPayment
       } catch (e) {
         this.d.onError(this.d.tt(refusalKey(e)))
         this.d.onLog(`~ ${String(e)}`)
@@ -377,6 +401,27 @@ export class SigningMachine {
       if (decision !== 'match') {
         this.d.onError(this.d.tt(decision === 'unknown' ? 'net.err.approvalUnknown' : 'net.err.notApproved'))
         return true
+      }
+      // The owner's consent covers one transaction: the first one cleared under it.
+      this.expiry = (payment as PcztPayment & { expiry: number }).expiry
+      let claimed: boolean
+      try {
+        claimed = await this.d.claim(bytesToHex(this.msg!), this.expiry)
+      } catch (e) {
+        // This device could not read what it signed before: final, and said as it is.
+        this.d.onError(this.d.tt('net.err.recordUnreadable'))
+        this.d.onLog(`~ ${String(e)}`)
+        return true
+      }
+      if (!claimed) {
+        this.d.onError(this.d.tt('net.err.signedAnother'))
+        // The one refusal its owner can answer: every check above passed, and only their signature
+        // is missing. So the request stays pending, not consumed, and the ceremony is not started:
+        // when they sign again, the next pass reads it afresh and runs every check again, the claim
+        // included. Without this, "Sign again" in the same session armed a device that could no
+        // longer sign, because the request it answers had already been used up here.
+        this.started = false
+        return false
       }
       this.cleared = true // every check above passed, and only here
       this.d.onPhase('signing')
@@ -518,13 +563,16 @@ export class SigningMachine {
     // `onS1` already answers that with `return false` - unconsumed, and `background-session` re-drives
     // the signer after every rejoin precisely so a message that arrived before its sender was seated
     // proceeds. Refusing here instead would consume the package and drop the honest send for good.
+    // Nothing to answer before this device read a request: a package now waits, unread, and above
+    // all says nothing over a refusal its owner can still answer (that refusal leaves the ceremony
+    // unstarted).
+    if (!this.started) return false
     const senderSeat = this.d.seatOf(fromTag)
     if (senderSeat === undefined) return false
     if (senderSeat !== COORDINATOR_SEAT) {
       this.d.onError(this.d.tt('net.err.notCoordinator'))
       return true
     }
-    if (!this.started) return false
     if (!this.cleared) return true // refused here: no share for it, whoever asks
     if (this.otherCeremony(parsed)) return true
     if (parsed.k !== this.cur) return parsed.k > this.cur ? false : true
@@ -546,6 +594,18 @@ export class SigningMachine {
     // because there is no longer a way to ask for the share without it.
     const sp = unb64(parsed.sp)
     if (this.cleared && parsed.signers.includes(this.d.mySeat()) && !this.sentS2 && this.nonces && this.alpha) {
+      // Before EVERY share, not once per ceremony: the record is also where the owner's consent is
+      // asked again, so a package that arrives after they withdrew gets nothing (the store keeps
+      // one entry per transaction however often it is asked).
+      try {
+        await this.d.record(bytesToHex(this.msg), this.expiry)
+      } catch (e) {
+        // A withdrawn consent is the owner's own choice, already said on their screen and to the
+        // room; anything else is a record this device could not keep.
+        if (!String(e).includes('[withdrawn]')) this.d.onError(this.d.tt(refusalKey('[record]')))
+        this.d.onLog(`~ ${String(e)}`)
+        return true
+      }
       let share: Uint8Array
       try {
         share = participantRound2WithRandomizer(

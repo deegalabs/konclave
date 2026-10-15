@@ -33,8 +33,14 @@ export function activateOnKey(fn: () => void) {
  *  close. Backdrop click and Esc call `onDismiss` (by default `onClose`), so a dialog holding work
  *  that would be lost can ask first instead of closing. Keeps the existing overlay/card classes so
  *  the visual design is unchanged. */
-export function Dialog({ labelledBy, onClose, onDismiss, className, cardClassName, children }: {
+export function Dialog({ labelledBy, describedBy, focusCard = false, onClose, onDismiss, className, cardClassName, children }: {
   labelledBy: string
+  /** Ids of the text a screen reader should hear with the title. */
+  describedBy?: string
+  /** Open on the dialog itself rather than its first control, so what it says is heard before any
+   *  control can be pressed (a confirm whose first control is an acknowledgement). It overrides an
+   *  autofocused child. */
+  focusCard?: boolean
   onClose: () => void
   onDismiss?: () => void
   className: string
@@ -44,13 +50,17 @@ export function Dialog({ labelledBy, onClose, onDismiss, className, cardClassNam
   const ref = useRef<HTMLDivElement>(null)
   const dismissRef = useRef(onDismiss ?? onClose)
   dismissRef.current = onDismiss ?? onClose
+  // Read once, on open, like the rest of this effect.
+  const focusCardRef = useRef(focusCard)
   useEffect(() => {
     const node = ref.current
     const prev = document.activeElement as HTMLElement | null
     const sel = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
     const focusables = () => (node ? Array.from(node.querySelectorAll<HTMLElement>(sel)) : [])
-    // Focus moves inside, unless something inside already took it (an autofocused field).
-    if (!node?.contains(document.activeElement)) (focusables()[0] ?? node)?.focus()
+    // Focus moves inside, unless something inside already took it (an autofocused field); opened on
+    // the card itself (focusCard), it lands there so what the dialog says is heard first.
+    if (focusCardRef.current) node?.focus()
+    else if (!node?.contains(document.activeElement)) (focusables()[0] ?? node)?.focus()
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') { e.preventDefault(); dismissRef.current(); return }
       if (e.key !== 'Tab') return
@@ -60,7 +70,8 @@ export function Dialog({ labelledBy, onClose, onDismiss, className, cardClassNam
       const active = document.activeElement
       // Focus that escaped the card (an element inside it unmounted) comes back to the first one.
       if (!node || !node.contains(active)) { e.preventDefault(); first.focus(); return }
-      if (e.shiftKey && active === first) { e.preventDefault(); last.focus() }
+      // Opened on the card itself (focusCard), the first Shift+Tab starts there, not on `first`.
+      if (e.shiftKey && (active === first || active === node)) { e.preventDefault(); last.focus() }
       else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus() }
     }
     document.addEventListener('keydown', onKey)
@@ -69,7 +80,7 @@ export function Dialog({ labelledBy, onClose, onDismiss, className, cardClassNam
   }, [])
   return (
     <div className={className} onClick={() => dismissRef.current()}>
-      <div ref={ref} className={cardClassName} role="dialog" aria-modal="true" aria-labelledby={labelledBy} onClick={(e) => e.stopPropagation()}>
+      <div ref={ref} className={cardClassName} role="dialog" aria-modal="true" aria-labelledby={labelledBy} aria-describedby={describedBy} tabIndex={focusCard ? -1 : undefined} onClick={(e) => e.stopPropagation()}>
         {children}
       </div>
     </div>

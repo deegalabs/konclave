@@ -5,6 +5,7 @@ import { Secret, Dialog, Loading } from '../components'
 import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
 import { fmtZec, fmtZecExact, parseZecToZat } from '../format'
+import { estimatedFeeZat } from '../fee-estimate'
 import { useT, useTr } from '../i18n'
 import { useToast } from '../toast'
 import {
@@ -153,7 +154,7 @@ export default function Proposal() {
     const amountZat = parseZecToZat(p.value_zec ?? '')
     if (amountZat === null) return null
     const dests = isPayroll ? Math.max(1, lines.length) : 1
-    const feeZat = 5000 * Math.max(2, dests + 1)
+    const feeZat = estimatedFeeZat(dests)
     const totalZat = amountZat + feeZat
     const short = spendableZat === null ? 0 : Math.max(0, totalZat - spendableZat)
     return { feeZat, totalZat, short }

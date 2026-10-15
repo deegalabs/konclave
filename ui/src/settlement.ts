@@ -54,3 +54,17 @@ export function settlementOf(
 export function isConfirmed(s: Settlement): s is { kind: 'confirmed'; height: number } {
   return s.kind === 'confirmed'
 }
+
+/** What one row of the movements says: money that left (confirmed by a block, or broadcast), or the
+ *  state of a proposal that never went out. A refused payment used to read "verify" with a minus sign,
+ *  as if money had left (Daniel's production check, 14/10). */
+export type Movement =
+  | { chip: 'confirmed'; height: number; out: true }
+  | { chip: 'broadcast'; out: true }
+  | { chip: 'state'; state: string; out: false }
+
+export function movementOf(state: string, s: Settlement): Movement {
+  if (s.kind === 'confirmed') return { chip: 'confirmed', height: s.height, out: true }
+  if (s.kind === 'broadcast') return { chip: 'broadcast', out: true }
+  return { chip: 'state', state, out: false }
+}

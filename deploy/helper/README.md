@@ -162,11 +162,17 @@ send records: this volume can hold them
 send records: 0 held payment(s), 0 of them with an unreadable record
 device registries: 0 unreadable (their vaults refuse governance writes until restored)
 read keys: 0 unreadable (their vaults refuse reads until restored)
+registrations: <N> carry a creation protocol, <M> do not
 konclave-helper serving with <N> worker(s)
 ```
 
 A volume that cannot hard-link or sync a directory prints `send records: ALERT ...` and every real send
-is refused: that line is the one to look for. `/api/health` must name the commit that was built.
+is refused: that line is the one to look for. `/api/health` must name the commit that was built, and
+its `client.creation` must be the number that build was made with
+(`node scripts/check-deployed.mjs --creation=<n>`, with `KONCLAVE_HELPER=<staging url>` for the staging
+coordinator): a roll back to a build that predates the field drops it, and `railway redeploy` re-runs
+the OLD image. The `registrations:` line is counts only; after a roll back, a registration with no
+recorded creation protocol is not proof that the vault predates the field.
 
 The volume mounted at `/data` (= `KONCLAVE_VAULTS_DIR=/data/vaults`) makes registrations survive a
 redeploy: `helper-server` reseeds its registry from `<vaults_dir>/<id>/registration.json` at startup,

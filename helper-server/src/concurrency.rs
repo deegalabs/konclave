@@ -8,16 +8,20 @@
 //! durable volume - a view-only wallet, its proposals, its member roster - and the handlers reach
 //! it through subprocesses. Two requests for the SAME vault running at once would write over each
 //! other there. So the fix is two pieces that only work together: requests run in parallel, and
-//! everything touching one vault is serialised on that vault's own lock. The vault locked has to be
-//! the vault the handler acts on, which is why a request naming two is refused (#576).
+//! everything that CHANGES one vault is serialised on that vault's own lock. The vault locked has to
+//! be the vault the handler acts on, which is why a request naming two is refused (#576).
 //!
 //! What this deliberately does NOT do is make a send fast. A send still holds its vault for as long
-//! as the quorum takes to sign, and that vault's other requests wait behind it. What changes is the
-//! blast radius: every OTHER vault, and liveness, keep answering. Removing the five-minute hold
-//! itself is a different change (a queued job with a status endpoint) and a different contract.
+//! as the quorum takes to sign, and that vault's other WRITES wait behind it. What changes is the
+//! blast radius: every OTHER vault, liveness and, since S3, every READ of the same vault keep
+//! answering (a read takes no write lock; the wallet is a second lock that readers only try, or wait
+//! a few seconds for when nothing is sending).
+//! Removing the five-minute hold itself is a different change (a queued job with a status endpoint)
+//! and a different contract.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
+use std::time::Instant;
 
 /// Which vault a request is about: `Ok(None)` for one that touches no vault (health, 404s), and
 /// `Err` for one whose vault cannot be read with certainty.
@@ -103,7 +107,90 @@ impl Unlockable {
 /// request - so a five-minute send blocks its own vault and nothing else.
 #[derive(Default)]
 pub struct VaultLocks {
+    /// The WRITE lock: a send, a vote, a rename, a registration. Held for the whole request.
     locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    /// The WALLET lock: held while an engine process may touch the vault's wallet database. A write
+    /// that uses the wallet (a send, a proposal, a payroll) holds it for the request; a read of the
+    /// balance or the transactions TRIES it: busy at once while a send is marked, and for anything
+    /// else a wait of a few seconds (two readers at most).
+    wallets: Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    /// A send in progress, by vault: shown to readers instead of making them wait.
+    sending: Mutex<HashMap<String, Sending>>,
+    /// How many wallet reads are waiting a moment for the wallet lock, by vault (bounded).
+    waiting: Mutex<HashMap<String, usize>>,
+}
+
+/// The most wallet reads that may wait for one vault's wallet at a time. A reader waits only for
+/// another reader (seconds), so a few waiting is enough, and the bound is what keeps a flood from
+/// parking the worker pool.
+const MAX_WAITING_PER_VAULT: usize = 2;
+
+/// A place in the (short) queue for a vault's wallet; released when dropped.
+pub struct WaitSlot<'a> {
+    locks: &'a VaultLocks,
+    vault: String,
+}
+
+impl Drop for WaitSlot<'_> {
+    fn drop(&mut self) {
+        let mut map = self.locks.waiting.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(n) = map.get_mut(&self.vault) {
+            *n = n.saturating_sub(1);
+            if *n == 0 {
+                map.remove(&self.vault);
+            }
+        }
+    }
+}
+
+/// A send that holds its vault: which proposal, and since when.
+#[derive(Clone)]
+struct Sending {
+    proposal: String,
+    since: Instant,
+}
+
+/// Holds the "sending" marker of one vault and clears it when dropped, including when the send
+/// unwinds from a panic.
+pub struct SendingMark<'a> {
+    locks: &'a VaultLocks,
+    vault: String,
+}
+
+impl Drop for SendingMark<'_> {
+    fn drop(&mut self) {
+        let mut map = self.locks.sending.lock().unwrap_or_else(|e| e.into_inner());
+        map.remove(&self.vault);
+    }
+}
+
+/// Take `lock`, waiting up to `within` in short steps, and give up at once when `give_up()` says so
+/// (a send is going on: waiting for it would be minutes, not seconds).
+pub fn acquire_within<'a>(
+    lock: &'a Mutex<()>,
+    within: std::time::Duration,
+    give_up: impl Fn() -> bool,
+) -> Option<MutexGuard<'a, ()>> {
+    let start = Instant::now();
+    loop {
+        if let Some(guard) = try_acquire(lock) {
+            return Some(guard);
+        }
+        if give_up() || start.elapsed() >= within {
+            return None;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+}
+
+/// Take `lock` if it is free RIGHT NOW. A poisoned lock (a handler panicked while holding it) is
+/// taken anyway, as everywhere else here: the mutex guards nothing, the work it orders is on disk.
+pub fn try_acquire(lock: &Mutex<()>) -> Option<MutexGuard<'_, ()>> {
+    match lock.try_lock() {
+        Ok(guard) => Some(guard),
+        Err(TryLockError::Poisoned(p)) => Some(p.into_inner()),
+        Err(TryLockError::WouldBlock) => None,
+    }
 }
 
 impl VaultLocks {
@@ -119,6 +206,53 @@ impl VaultLocks {
             .clone()
     }
 
+    /// The wallet lock for `vault`. Always taken AFTER the write lock when both are needed, and a
+    /// reader never blocks on it (it tries, or polls for a bounded time while holding nothing), so
+    /// no ordering can deadlock.
+    pub fn wallet_for_vault(&self, vault: &str) -> Arc<Mutex<()>> {
+        let mut map = self.wallets.lock().unwrap_or_else(|e| e.into_inner());
+        map.entry(vault.to_string())
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone()
+    }
+
+    /// A place among the (at most two) wallet reads waiting for `vault`, or `None` if they are taken.
+    pub fn wait_slot(&self, vault: &str) -> Option<WaitSlot<'_>> {
+        let mut map = self.waiting.lock().unwrap_or_else(|e| e.into_inner());
+        let n = map.entry(vault.to_string()).or_insert(0);
+        if *n >= MAX_WAITING_PER_VAULT {
+            return None;
+        }
+        *n += 1;
+        Some(WaitSlot {
+            locks: self,
+            vault: vault.to_string(),
+        })
+    }
+
+    /// Say that `proposal` is being sent from `vault` until the returned mark is dropped.
+    pub fn mark_sending(&self, vault: &str, proposal: &str) -> SendingMark<'_> {
+        let mut map = self.sending.lock().unwrap_or_else(|e| e.into_inner());
+        map.insert(
+            vault.to_string(),
+            Sending {
+                proposal: proposal.to_string(),
+                since: Instant::now(),
+            },
+        );
+        SendingMark {
+            locks: self,
+            vault: vault.to_string(),
+        }
+    }
+
+    /// The proposal being sent from `vault` and for how many seconds, if any.
+    pub fn sending(&self, vault: &str) -> Option<(String, u64)> {
+        let map = self.sending.lock().unwrap_or_else(|e| e.into_inner());
+        map.get(vault)
+            .map(|s| (s.proposal.clone(), s.since.elapsed().as_secs()))
+    }
+
     /// How many vaults have a lock. Test-only: nothing in the service reads it, and an unused
     /// public method would fail CI's `clippy -D warnings`.
     #[cfg(test)]
@@ -129,6 +263,12 @@ impl VaultLocks {
     #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    /// How many vaults have a wallet lock. Test-only.
+    #[cfg(test)]
+    pub fn wallet_len(&self) -> usize {
+        self.wallets.lock().unwrap_or_else(|e| e.into_inner()).len()
     }
 }
 
@@ -339,5 +479,182 @@ mod tests {
         assert_eq!(worker_count(None, 8), 32);
         assert_eq!(worker_count(None, 64), 64); // capped
         assert_eq!(worker_count(Some("99999"), 8), 256); // capped
+    }
+
+    #[test]
+    fn try_acquire_never_waits_and_takes_a_poisoned_lock() {
+        let m = Arc::new(Mutex::new(()));
+        assert!(try_acquire(&m).is_some(), "a free lock is taken");
+        let held = m.lock().unwrap();
+        // On another thread, with a deadline: waiting here would hang the test, not fail it.
+        let (tx, rx) = std::sync::mpsc::channel();
+        let m3 = Arc::clone(&m);
+        std::thread::spawn(move || {
+            let _ = tx.send(try_acquire(&m3).is_none());
+        });
+        assert_eq!(
+            rx.recv_timeout(std::time::Duration::from_secs(2)),
+            Ok(true),
+            "a held lock is not waited for"
+        );
+        drop(held);
+        let m2 = Arc::clone(&m);
+        let _ = std::thread::spawn(move || {
+            let _g = m2.lock().unwrap();
+            panic!("poison it");
+        })
+        .join();
+        assert!(
+            try_acquire(&m).is_some(),
+            "a poisoned lock is taken, as everywhere else"
+        );
+    }
+
+    #[test]
+    fn the_wallet_lock_is_per_vault_and_not_the_write_lock() {
+        let locks = VaultLocks::new();
+        let write = locks.for_vault("a");
+        let wallet_a = locks.wallet_for_vault("a");
+        let wallet_b = locks.wallet_for_vault("b");
+        assert!(!Arc::ptr_eq(&write, &wallet_a), "two different locks");
+        assert!(Arc::ptr_eq(&wallet_a, &locks.wallet_for_vault("a")));
+        let _held = wallet_a.lock().unwrap();
+        assert!(
+            try_acquire(&wallet_b).is_some(),
+            "another vault's wallet is free"
+        );
+        assert!(
+            try_acquire(&write).is_some(),
+            "the write lock is not the wallet lock"
+        );
+    }
+
+    #[test]
+    fn the_sending_mark_names_the_proposal_and_is_cleared_when_it_is_dropped() {
+        let locks = VaultLocks::new();
+        assert!(locks.sending("v").is_none());
+        {
+            let _mark = locks.mark_sending("v", "p9");
+            let (proposal, _secs) = locks.sending("v").expect("marked");
+            assert_eq!(proposal, "p9");
+            assert!(locks.sending("other").is_none(), "per vault");
+        }
+        assert!(locks.sending("v").is_none());
+    }
+
+    #[test]
+    fn the_sending_mark_is_cleared_when_the_send_panics() {
+        let locks = VaultLocks::new();
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _mark = locks.mark_sending("v", "p1");
+            assert!(locks.sending("v").is_some());
+            panic!("the send unwinds");
+        }));
+        assert!(r.is_err());
+        assert!(
+            locks.sending("v").is_none(),
+            "a panic leaves no mark behind"
+        );
+    }
+
+    /// Two vaults sending at once: one finishing must not clear the other's mark.
+    #[test]
+    fn one_vaults_mark_survives_another_vaults_end() {
+        // Several times over, with a fresh table each: the order a map keeps its keys in changes
+        // from one table to the next, and a drop that clears "some" entry must be caught.
+        for _ in 0..16 {
+            let locks = VaultLocks::new();
+            let a = locks.mark_sending("a", "pa");
+            let b = locks.mark_sending("b", "pb");
+            drop(a);
+            assert_eq!(locks.sending("b").map(|s| s.0), Some("pb".to_string()));
+            assert!(locks.sending("a").is_none());
+            drop(b);
+            assert!(locks.sending("b").is_none());
+        }
+    }
+
+    /// `since_secs` is seconds: 0 at the start, then whole seconds as time passes.
+    #[test]
+    fn the_sending_mark_counts_seconds() {
+        let locks = VaultLocks::new();
+        let _mark = locks.mark_sending("a", "pa");
+        assert_eq!(locks.sending("a").unwrap().1, 0);
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        let secs = locks.sending("a").unwrap().1;
+        assert!((1..=2).contains(&secs), "since_secs = {secs}");
+    }
+
+    /// Runs `acquire_within` on another thread while this one holds `lock`, so a call that does not
+    /// give up fails the test (after `deadline`) instead of hanging it. Returns whether it got the
+    /// lock and how long it took.
+    fn acquire_while_held(
+        lock: &Mutex<()>,
+        within: std::time::Duration,
+        give_up: bool,
+        release_after: Option<std::time::Duration>,
+    ) -> Option<(bool, std::time::Duration)> {
+        let held = lock.lock().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::scope(|scope| {
+            let worker = scope.spawn(|| {
+                let started = Instant::now();
+                let got = acquire_within(lock, within, || give_up).is_some();
+                let _ = tx.send((got, started.elapsed()));
+            });
+            let mut held = Some(held);
+            if let Some(after) = release_after {
+                std::thread::sleep(after);
+                held.take();
+            }
+            let answer = rx.recv_timeout(std::time::Duration::from_secs(4)).ok();
+            held.take();
+            worker.join().unwrap();
+            answer
+        })
+    }
+
+    #[test]
+    fn acquire_within_takes_a_lock_that_is_given_back_during_the_wait() {
+        let lock = Mutex::new(());
+        let (got, _) = acquire_while_held(
+            &lock,
+            std::time::Duration::from_secs(3),
+            false,
+            Some(std::time::Duration::from_millis(100)),
+        )
+        .expect("answered");
+        assert!(got, "the lock was given back inside the bound");
+    }
+
+    #[test]
+    fn acquire_within_gives_up_after_its_bound() {
+        let lock = Mutex::new(());
+        let (got, took) =
+            acquire_while_held(&lock, std::time::Duration::from_millis(200), false, None)
+                .expect("answered inside four seconds");
+        assert!(!got, "the lock was held the whole time");
+        assert!(took >= std::time::Duration::from_millis(200), "{took:?}");
+        assert!(took < std::time::Duration::from_secs(2), "{took:?}");
+    }
+
+    #[test]
+    fn acquire_within_gives_up_at_once_when_told_to() {
+        let lock = Mutex::new(());
+        let (got, took) = acquire_while_held(&lock, std::time::Duration::from_secs(30), true, None)
+            .expect("answered inside four seconds");
+        assert!(!got);
+        assert!(took < std::time::Duration::from_secs(1), "{took:?}");
+    }
+
+    #[test]
+    fn at_most_two_readers_wait_for_one_vaults_wallet() {
+        let locks = VaultLocks::new();
+        let a = locks.wait_slot("v").expect("first");
+        let _b = locks.wait_slot("v").expect("second");
+        assert!(locks.wait_slot("v").is_none(), "the third is turned away");
+        assert!(locks.wait_slot("other").is_some(), "per vault");
+        drop(a);
+        assert!(locks.wait_slot("v").is_some(), "a freed slot is reusable");
     }
 }

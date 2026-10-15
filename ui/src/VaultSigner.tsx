@@ -12,9 +12,11 @@ import { getVault, getProposalDetail, isVaultUnlocked, IS_NET, type Proposal, ty
 import { listVaults } from './storage'
 import { gateDecision, ourReceiversFrom, paysOurselves, type ApprovedLine, type GateDecision, type PcztOutput } from './approved-payment'
 import { ensureWasm } from './wasm-ready'
-import { uaReceiver } from './wasm-pkg/konclave_wasm.js'
+import { approvalLapsesAt, uaReceiver } from './wasm-pkg/konclave_wasm.js'
 import { useBackgroundSigner, type BackgroundSignerState } from './useBackgroundSigner'
-import { ARM_TTL_MS, makeSigningGate, ownerArmed } from './signing-gate'
+import { ARM_TTL_MS, makeSigningGate } from './signing-gate'
+import { OwnerSigning } from './owner-signing'
+import { browserRecordStore } from './signed-record'
 import type { FailureCode } from './background-session'
 
 interface VaultSignerCtx {
@@ -36,7 +38,11 @@ interface VaultSignerCtx {
    *  other devices a coarse reason so they are not left waiting on a send that will never come. */
   unarmActive: (code?: FailureCode) => Promise<void>
   /** Sign the active proposal from this device: arm the gate, then tell the room. */
-  armActive: () => Promise<void>
+  /** Sign the open payment; `again` when its owner confirmed signing a second transaction for it. */
+  armActive: (opts?: { again?: boolean }) => Promise<void>
+  /** A second transaction for this payment was refused: until when the first one stays valid. */
+  /** The first transaction's expiry block, and when this device stops counting it (unix seconds, 0 when unknown). */
+  signedBefore: { proposal: string; firstExpiry: number; firstUntil: number } | null
   /** When this device's signature stops counting (epoch ms), or null when it is not armed. */
   armedUntil: number | null
   /** Is this receiver one of the vault's own, by the same `ourReceivers` the money gate decides
@@ -93,13 +99,8 @@ export function VaultSignerProvider({ children }: { children: ReactNode }) {
   // this screen. Approval (K4) is consent to the payment; signing is the act that spends, and it is
   // now a deliberate, per-payment click on every device - not something a present tab does silently.
   //
-  // Arming is tracked per PROPOSAL because that is what the owner sees and clicks. Binding it to the
-  // payment's own sighash (so the gate cannot be fooled by a swapped transaction under the same
-  // proposal label) is issue #281 and is NOT claimed here.
-  const armedRef = useRef<string | null>(null)
-  armedRef.current = armedProposal
-  const armedAtRef = useRef<number | null>(null)
-  armedAtRef.current = armedAt
+  // The owner signs a PROPOSAL, because that is what they see and click; the consent it gives covers
+  // the first transaction this device clears for it (`consent` below).
   const activeIdRef = useRef<string | null>(null)
   activeIdRef.current = active?.id ?? null
   // #281: what did the quorum actually approve, in the bytes the note is bound to?
@@ -163,13 +164,51 @@ export function VaultSignerProvider({ children }: { children: ReactNode }) {
     [],
   )
 
+  // The owner's side of signing (owner-signing.ts, where it is tested): the consent a click gives
+  // and this device's record of what it signed. One plain object held in a ref, never React state
+  // copied into one, so the gate, the machine's claim and every render read the same thing.
+  const owner = useRef(new OwnerSigning(browserRecordStore()))
+  const vaultIdRef = useRef<string | null>(null)
+  vaultIdRef.current = vault?.id ?? null
+  // A second transaction for an approval this device already signed, refused: what the panel tells
+  // its owner (until when the first stays valid) before they may sign again knowing it.
+  const [signedBefore, setSignedBefore] = useState<{ proposal: string; firstExpiry: number; firstUntil: number } | null>(null)
   const gate = useMemo(
     () => makeSigningGate({
       mode: () => 'manual',
       isApproved: () => true,
-      // The owner's own signature, within the owner's own window (signing-gate.ts, where it is tested).
-      isArmed: () => ownerArmed({ armedProposal: armedRef.current, armedAt: armedAtRef.current, activeId: activeIdRef.current }, Date.now()),
+      // The owner's own signature, within the owner's own window. Which transaction it covers is the
+      // machine's claim, after its own checks: the wire's sighash is not checked yet here, and a
+      // transaction refused there must be said, not left waiting.
+      isArmed: () => owner.current.allows(activeIdRef.current),
     }),
+    [],
+  )
+  // The machine claims the transaction it cleared. A refused claim spends the click: this device
+  // stops reading as signed, so its owner can sign again after checking the book (the panel says so).
+  const claim = useMemo(
+    () => async (sighashHex: string, expiry: number) => {
+      const r = await owner.current.claim(vaultIdRef.current ?? '', activeIdRef.current, sighashHex, expiry)
+      if (r !== 'ok') { setArmedProposal(null); setArmedAt(null) }
+      const last = owner.current.lastSecond
+      // The machine read this transaction, so the WASM is ready. The time is the rule's own turning
+      // point (approvalLapsesAt), so the screen says exactly when this warning stops.
+      // The machine words this one itself: a record it could not read is not a second transaction.
+      if (r === 'unreadable') throw new Error('[unreadable] this device could not read what it signed')
+      if (r === 'second' && last) setSignedBefore({ proposal: last.proposal, firstExpiry: last.firstExpiry, firstUntil: approvalLapsesAt(last.firstExpiry) })
+      return r === 'ok'
+    },
+    [],
+  )
+  // Before this device's share leaves: written down, or no share.
+  const record = useMemo(
+    () => (sighashHex: string, expiry: number) => owner.current.record(sighashHex, expiry),
+    [],
+  )
+  // Another device's live withdrawal says the send went nowhere: this device's click ends with it,
+  // and the next transaction needs its owner's new signature. The record stays.
+  const endConsent = useMemo(
+    () => () => { owner.current.withdraw(); setArmedProposal(null); setArmedAt(null) },
     [],
   )
   // Let the arming expire on its own, so the screen and the gate agree: the button comes back and
@@ -177,13 +216,13 @@ export function VaultSignerProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (armedAt === null) return
     const left = ARM_TTL_MS - (Date.now() - armedAt)
-    const clear = () => { setArmedProposal(null); setArmedAt(null) }
+    const clear = () => { owner.current.withdraw(); setArmedProposal(null); setArmedAt(null) }
     if (left <= 0) { clear(); return }
     const id = window.setTimeout(clear, left)
     return () => window.clearTimeout(id)
   }, [armedAt])
 
-  const bg = useBackgroundSigner(unlocked, gate, decideApproval)
+  const bg = useBackgroundSigner(unlocked, gate, decideApproval, claim, record, endConsent)
 
   // Scope the signer to the payment on screen. Without this the room's whole history counts: it is
   // permanent, so the previous payment's signatures replayed as a full quorum for the new one.
@@ -202,6 +241,9 @@ export function VaultSignerProvider({ children }: { children: ReactNode }) {
     // starts over. (A full reload does clear it - the share is session-scoped too, so that path
     // goes back through the passphrase and the signature is offered again.)
     open: (p: Proposal) => {
+      owner.current.open(p.id)
+      // The same payment reopened (after "Open the book") keeps what the confirm will say.
+      setSignedBefore((cur) => (cur && cur.proposal === p.id ? cur : null))
       setArmedProposal((cur) => {
         if (cur === p.id) return cur
         setArmedAt(null)
@@ -214,23 +256,24 @@ export function VaultSignerProvider({ children }: { children: ReactNode }) {
     armed: !!active && armedProposal === active.id,
     unarmActive: async (code?: FailureCode) => {
       if (!active) return
+      owner.current.withdraw()
       setArmedProposal(null)
       setArmedAt(null)
-      armedRef.current = null
-      armedAtRef.current = null
       await bg.unarm(active.id, code)
     },
     armedUntil: armedAt === null ? null : armedAt + ARM_TTL_MS,
     isOurReceiver: (recipient) => paysOurselves(recipient, ourReceiversRef.current),
-    armActive: async () => {
+    signedBefore: signedBefore && active && signedBefore.proposal === active.id ? signedBefore : null,
+    armActive: async (opts?: { again?: boolean }) => {
       if (!active) return
       // Arm BEFORE announcing, so a request that lands the instant the room hears us is already
       // allowed through the gate. Then re-drive the signer in case the request arrived first.
       const now = Date.now()
+      owner.current.give(active.id, now, { again: !!opts?.again })
+      setSignedBefore(null)
+      bg.clearError()
       setArmedProposal(active.id)
       setArmedAt(now)
-      armedRef.current = active.id
-      armedAtRef.current = now
       // The same instant goes into the room, so this device's window and the room's count start from
       // one clock read; with clocks that agree they also close together (#626 review).
       await bg.arm(active.id, now)

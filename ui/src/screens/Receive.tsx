@@ -1,11 +1,13 @@
 import { useEffect, useId, useMemo, useState } from 'react'
 import { startVisiblePoll } from '../usePoll'
 import encodeQR from '@paulmillr/qr'
-import { getVault, getTransactions, getLedger, shortAddr, IS_NET, type Vault, type WalletTx } from '../api'
+import { getVault, readTransactions, getLedger, shortAddr, IS_NET, type Vault, type WalletTx } from '../api'
 import { useT, useTr } from '../i18n'
 import { PageHeader } from '../page'
 import { BannerWarn, Loading } from '../components'
 import '../receive.css'
+import { WALLET_BUSY } from '../helper'
+import { keepOnBusy } from '../useVaultBalance'
 
 // "Add funds" is the easy side of a vault: receiving needs no key and no signature. The vault
 // has a shielded Orchard address (derived from the group key by zcash-sign); anyone sends ZEC to
@@ -63,10 +65,11 @@ export default function Receive() {
       if (inFlight) return
       inFlight = true
       try {
-        const [r, ledger] = await Promise.all([getTransactions(), getLedger()])
+        const [r, ledger] = await Promise.all([readTransactions(), getLedger()])
         if (!on) return
-        setTxs(r)
-        setTxLoaded(true)
+        // A busy coordinator is not an empty history: keep the list the screen has (COORD-LOCK).
+        setTxs((prev) => keepOnBusy(prev, r))
+        if (r !== WALLET_BUSY) setTxLoaded(true)
         if (ledger) setSentIds(new Set(ledger.map((p) => p.txid).filter((x): x is string => !!x)))
       } finally {
         inFlight = false

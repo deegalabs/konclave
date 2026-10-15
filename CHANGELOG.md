@@ -16,7 +16,8 @@ single `Unreleased` section cannot say which of them an entry has actually reach
 - [relay-server/CHANGELOG.md](relay-server/CHANGELOG.md) - the blind relay
 
 A desktop release body is ASSEMBLED from this file and `ui/CHANGELOG.md`, because a desktop release
-ships both. `scripts/release.mjs --notes` does that, and cuts both sections when a version is cut.
+ships both, followed by the list of commits since the previous release (git-cliff, `cliff.toml`).
+`scripts/release.mjs --notes` does that, and cuts both sections when a version is cut.
 
 Neither carries a version number; both report a build identity instead, and their files say why.
 Entries from before that date were NOT moved out of this file - rewriting history to tidy it is how
@@ -54,6 +55,54 @@ explicitly accepted.
 ---
 
 ## [Unreleased]
+
+## [0.13.1] 2026-10-15
+
+> **Services deployed when this was cut (2026-10-15):** coordinator `4223028`, relay `42da05bf003afc41`.
+> The web app is this release's own commit. The two services are deployed by hand and may be
+> older than it - recording what they were ANSWERING is the point, not what they should have been.
+
+The notice for this release: https://forum.zcashcommunity.com/t/konclave-a-group-vault-on-zcash-frost/57218/23
+
+### Changed
+
+- **A vault's registration now records the creation protocol the app says it used, and when.** It is
+  what the app declares, not proof of what it did, and a vault registered before this has no record.
+
+## [0.13.0] 2026-10-15
+
+> **Services deployed when this was cut (2026-10-15):** coordinator `4223028`, relay `42da05bf003afc41`.
+> The web app is this release's own commit. The two services are deployed by hand and may be
+> older than it - recording what they were ANSWERING is the point, not what they should have been.
+
+The notice for this release: https://forum.zcashcommunity.com/t/konclave-a-group-vault-on-zcash-frost/57218/23
+
+### Security
+
+- **The browser signer checks more of a transaction before it signs.** In earlier versions a device
+  checked what a transaction pays (since 0.10.0) and not much else about it. A coordinator could build the
+  approved payment with an expiry far in the future and keep the signed transaction to broadcast
+  later; could set a fee above the network rule, within the ceiling the device allowed; and could ask
+  the devices that approved a payment to sign a second, different transaction for it, so that both
+  could go out. A device now refuses a transaction that expires outside the window its own clock
+  allows, that is built for another network or transaction version, or whose fee is not exactly the
+  network rule (ZIP 317). On this device, it refuses to sign a second transaction for the same
+  approval without the explicit confirmation of the member who signs. We have no report that any of this
+  was used; we did not check. What a member can notice: a device may refuse to sign with one of a
+  few new messages, each saying what to check.
+
+### Changed
+
+- **A desktop release's notes now list its commits.** Under the changelog's own words, the notes on a
+  GitHub release list the commits since the previous release, grouped by type (security, added,
+  fixed, and so on, merges left out), each linked to the commit. The list comes from git-cliff, pinned to 2.14.2 in the
+  release workflow and installed from crates.io with its lockfile.
+
+### Known limits
+
+- **The `/net` lab screen does not have the signer's newer checks**, and still signs with no content
+  gate of its own (it has no approved payment to compare with).
+- **The approved lines a device compares with still come from the coordinator at signing** (#567).
 
 ## [0.12.0] 2026-10-12
 

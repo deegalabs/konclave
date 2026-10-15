@@ -25,8 +25,8 @@ and the git tag never disagree:
 Pushing the tag triggers
 [`desktop-release.yml`](../.github/workflows/desktop-release.yml): it builds the
 Windows, macOS, and Linux installers on GitHub's own runners and opens a **draft**
-release whose notes are the CHANGELOG section for that tag (via
-`scripts/release.mjs --notes`). Review the draft, then publish it. Vercel deploys
+release whose notes are the CHANGELOG section for that tag, followed by the list of commits since
+the previous release grouped by type (via `scripts/release.mjs --notes`, git-cliff and `cliff.toml`). Review the draft, then publish it. Vercel deploys
 the web from the same commit, so the version badge matches the release.
 
 You can also build installers for an existing tag from the Actions tab

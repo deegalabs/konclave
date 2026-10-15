@@ -40,6 +40,8 @@ import { downloadText } from '../download'
 import {
   helperConfigured,
   registerVault,
+  coordinatorCreationMin,
+  lastHelperPostFailure,
   getUfvk,
   setMembers,
   vaultBalance,
@@ -55,6 +57,8 @@ import encodeQR from '@paulmillr/qr'
 import { addressText } from '../approved-payment'
 import '../redesign.css'
 import '../net.css'
+import { CREATION_PROTOCOL, creationAllowed, isUpdateRequired } from '../creation-protocol'
+import { WALLET_BUSY } from '../helper'
 
 // The konclave.xyz network, made visible: two (or three) browser contexts create ONE vault by
 // a real DKG over the blind relay. Each keeps its own share; the round-2 secret pieces are
@@ -398,6 +402,8 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
       } else {
         setHostedState('failed')
         if (v) setError(tt('net.err.registrationMismatch'))
+        // Refused for an outdated app: say so, instead of "registering" for good.
+        if (isUpdateRequired(lastHelperPostFailure())) setError(tt('net.err.updateRequired'))
       }
     }
     const saved = savedRef.current
@@ -454,6 +460,10 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
       // background signer have diverged three times (#424, #425, #363) because a rule lived in one
       // and not the other. It cannot silently miss this one - it has to say so, here.
       decideApproval: () => 'match',
+      // /net binds no consent to a transaction (Known limits, with its missing content gate).
+      claim: () => true,
+      // Nor does it keep a record of what it signed: /net has no proposal to key it by (Known limits).
+      record: async () => {},
       seatOf: (tag) => seatByTagRef.current.get(tag),
       // #399: this driver has no notion of a proven seat. Its map is tag -> seat and nothing here
       // ever verified a rejoin signature, so the honest answer is false for every tag, which makes
@@ -674,6 +684,13 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
       if (startGuardRef.current) return
       startGuardRef.current = true
       try {
+        // An app the coordinator calls outdated says so before any member waits on it, creating or
+        // joining alike. No answer, or no minimum stated: go on (the registration still refuses).
+        if (!creationAllowed(CREATION_PROTOCOL, await coordinatorCreationMin())) {
+          setError(tt('net.err.updateRequired'))
+          startGuardRef.current = false
+          return
+        }
         await ensureWasm()
         deviceKeyRef.current = new DeviceKey()
         accessSecretRef.current = null
@@ -882,7 +899,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
       if (ceremonyRef.current?.aborted) { setSaveState('idle'); return }
       // Pending until every member saved (finishVault): no screen shows or adopts an address for it
       // before then (`vaultIsFinished`, read by getVault and its backfill).
-      await saveVault(vaultId, { name: nm, governance: gov, myName: mine, creatorName: creator, groupKey: gvk, address: addr, roster, sealedShare: bundle, accessSecret: accessSecretRef.current ?? undefined, pending: true, threshold: cfg?.t, total: cfg?.n }, savePass)
+      await saveVault(vaultId, { name: nm, governance: gov, myName: mine, creatorName: creator, groupKey: gvk, address: addr, roster, sealedShare: bundle, accessSecret: accessSecretRef.current ?? undefined, pending: true, threshold: cfg?.t, total: cfg?.n, cp: CREATION_PROTOCOL }, savePass)
       // Also keep the just-created share unlocked in memory for this session, so the operator can
       // sign from the app immediately without re-entering the passphrase (the access model).
       setUnlockedShare(vaultId, { name: nm, governance: gov, myName: mine, creatorName: creator, groupKey: gvk, address: addr, roster, sealedShare: bundle, createdAt: 0, accessSecret: accessSecretRef.current ?? undefined })
@@ -1796,11 +1813,9 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                       onClick={() => {
                         setBalanceBusy(true)
                         void vaultBalance(groupVk).then((b) => {
-                          setBalance(
-                            b
-                              ? { spend: zatToZec(b.orchard_spendable_zat), total: zatToZec(b.total_zat) }
-                              : null,
-                          )
+                          setBalance((prev) => (b === WALLET_BUSY ? prev : b
+                            ? { spend: zatToZec(b.orchard_spendable_zat), total: zatToZec(b.total_zat) }
+                            : null))
                           setBalanceBusy(false)
                         })
                       }}

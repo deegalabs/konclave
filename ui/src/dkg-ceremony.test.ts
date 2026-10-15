@@ -588,7 +588,7 @@ describe('NetVault routes the creation ceremony through DkgCeremony', () => {
     expect(nv).not.toMatch(/registerVault\([^)]*\)[\s\S]{0,40}onRound3/)
   })
   it('saves the vault as pending, clears it only when every member saved, and the modal waits for that', () => {
-    expect(nv).toMatch(/pending: true, threshold: cfg\?\.t, total: cfg\?\.n \}, savePass\)/)
+    expect(nv).toMatch(/pending: true, threshold: cfg\?\.t, total: cfg\?\.n, cp: CREATION_PROTOCOL \}, savePass\)/)
     expect(nv).toMatch(/const finished = !helperConfigured\(\) \|\| !!addr[\s\S]{0,200}pending: false/)
     expect(nv).toMatch(/if \(embedded && finished && !backup\) openDashboard\(\)/)
   })
