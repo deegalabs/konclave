@@ -285,6 +285,9 @@ pub const ALL_WRITE_ACTIONS: [WriteAction; 5] = [
     WriteAction::Send,
 ];
 
+#[cfg(feature = "pczt")]
+pub mod spends;
+
 #[cfg(test)]
 mod tests {
 

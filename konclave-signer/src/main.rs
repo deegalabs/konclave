@@ -16,7 +16,7 @@ use std::io::Read;
 
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
-use ff::PrimeField;
+use konclave_seal::spends::spends_to_sign;
 use orchard::primitives::redpallas::{self, SpendAuth};
 use pczt::{
     roles::low_level_signer::{OrchardParseError, Signer as LowSigner},
@@ -119,58 +119,32 @@ fn shielded_sighash(pczt: &Pczt) -> Result<[u8; 32]> {
     Ok(signer.shielded_sighash())
 }
 
-/// Collect `(action_index, alpha)` for every spend of one Orchard-shaped bundle that still
-/// AWAITS a signature. The test is `spend_auth_sig().is_none()`, NOT "is this a non-zero (real)
-/// spend", and the difference is load-bearing post-NU6.3.
-///
-/// Selecting by value was inherited from `zcash-sign` as it stood at `36df5d2` (frost-tools #574),
-/// under its own `// TODO: improve dummy detection`. The Foundation replaced it with this predicate
-/// in `0cfaa75` (#592) - the same commit that made `zcash-sign` Ironwood-capable - because the two
-/// questions stopped coinciding: post-NU6.3 the builder pairs a spend or output with a fabricated
-/// zero-valued counterpart that is WALLET-CONTROLLED and ours to sign. Filtering by value skipped
-/// it, nobody signed it, and the failure surfaced far away as `MissingSpendAuthSig` (#86).
-///
-/// A protocol padding dummy is excluded for the right reason rather than by luck: it carries
-/// `dummy_sk`, the IO Finalizer signs it and clears the key, so it arrives here already carrying a
-/// `spend_auth_sig`. So does anything an earlier signer authorized, which keeps a signed action out
-/// of a second ceremony. A real spend can sit at any action index.
-fn collect_real(bundle: &orchard::pczt::Bundle) -> Vec<(usize, [u8; 32])> {
-    let mut out = vec![];
-    for (idx, action) in bundle.actions().iter().enumerate() {
-        if action.spend().spend_auth_sig().is_none() {
-            if let Some(alpha) = action.spend().alpha() {
-                let repr = alpha.to_repr();
-                let slice: &[u8] = repr.as_ref();
-                let bytes: [u8; 32] = slice.try_into().expect("redpallas scalar is 32 bytes");
-                out.push((idx, bytes));
-            }
-        }
-    }
-    out
-}
+// Which spends of a bundle this vault signs is `konclave_seal::spends::spends_to_sign`, the one
+// rule konclave-wasm reads too: the spends still awaiting a signature, and a refusal for any spend
+// that still carries `dummy_sk`.
 
 /// Real Orchard-pool spends `(idx, alpha)` (empty for a pure-Ironwood tx).
 fn orchard_spends(pczt: &Pczt) -> Result<Vec<(usize, [u8; 32])>> {
-    let mut r = vec![];
+    let mut r = Ok(vec![]);
     LowSigner::new(pczt.clone())
         .sign_orchard_with(|_pczt, bundle, _| {
-            r = collect_real(bundle);
+            r = spends_to_sign(bundle);
             Ok::<(), OErr>(())
         })
         .map_err(|e| anyhow!("orchard parse: {:?}", e))?;
-    Ok(r)
+    r.map_err(|e| anyhow!(e))
 }
 
 /// Real Ironwood-pool spends `(idx, alpha)` (empty for a pre-NU6.3 Orchard tx).
 fn ironwood_spends(pczt: &Pczt) -> Result<Vec<(usize, [u8; 32])>> {
-    let mut r = vec![];
+    let mut r = Ok(vec![]);
     LowSigner::new(pczt.clone())
         .sign_ironwood_with(|_pczt, bundle, _| {
-            r = collect_real(bundle);
+            r = spends_to_sign(bundle);
             Ok::<(), OErr>(())
         })
         .map_err(|e| anyhow!("ironwood parse: {:?}", e))?;
-    Ok(r)
+    r.map_err(|e| anyhow!(e))
 }
 
 /// Which pool this transaction's FROST spends are in. A single Konclave send spends from one
@@ -533,5 +507,22 @@ mod tests {
             vec![1, 2, 3],
             "action 0 now carries a signature and must not be collected again",
         );
+    }
+
+    // `ironwood_single_spend.proven.pczt` with `dummy_sk` set on action 1 and nothing else
+    // changed (the bytes after action 1's `alpha` read `zip32_derivation: None, dummy_sk: None`;
+    // the second became `Some(sk)`): a padding dummy the IO Finalizer never signed and cleared.
+    // konclave-wasm carries the identical file.
+    const IW_DUMMY_SK: &[u8] =
+        include_bytes!("../tests/vectors/ironwood_dummy_sk_spend.proven.pczt");
+
+    #[test]
+    fn a_spend_still_carrying_dummy_sk_is_refused() {
+        // "Signers MUST reject PCZTs that contain `dummy_sk` values" (pczt, orchard). It awaits a
+        // signature like a real spend, so the predicate alone collected it.
+        let err = extract_randomizers(&parse(IW_DUMMY_SK))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("dummy_sk"), "{err}");
     }
 }

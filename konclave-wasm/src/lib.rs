@@ -1916,7 +1916,7 @@ pub use konclave_seal as seal;
 // which rides on `orchard` (already linked). Pinned to byte-for-byte parity with konclave-signer by
 // the same real mainnet golden vectors used to close audit C6.
 pub mod pczt_bridge {
-    use ff::PrimeField;
+    use konclave_seal::spends::spends_to_sign;
     use orchard::primitives::redpallas::{self, SpendAuth};
     use pczt::{
         roles::low_level_signer::{OrchardParseError, Signer},
@@ -1947,49 +1947,30 @@ pub mod pczt_bridge {
     // differs. A single Konclave send spends from ONE pool; we read Orchard first and fall back to
     // Ironwood, matching konclave-signer's pool-aware bridge (§ Phase 12).
 
-    /// Every spend `(idx, alpha)` in one bundle that still AWAITS a signature. The test is
-    /// `spend_auth_sig().is_none()`, NOT "is this a non-zero (real) spend" - the same predicate the
-    /// Zcash Foundation's `zcash-sign` moved to in frost-tools #592, and the same one
-    /// `konclave-signer` uses. Post-NU6.3 the builder pairs a spend or output with a fabricated
-    /// zero-valued counterpart that is WALLET-CONTROLLED and ours to sign; filtering by value
-    /// skipped it and the send died at extract with `MissingSpendAuthSig` (#86). A protocol padding
-    /// dummy still gets skipped, for the right reason: the IO Finalizer signed it, so it already
-    /// carries a `spend_auth_sig`. The real spend can sit at any action index.
-    fn collect_real(bundle: &orchard::pczt::Bundle) -> Vec<(usize, [u8; 32])> {
-        let mut r = vec![];
-        for (idx, action) in bundle.actions().iter().enumerate() {
-            if action.spend().spend_auth_sig().is_none() {
-                if let Some(alpha) = action.spend().alpha() {
-                    let repr = alpha.to_repr();
-                    let slice: &[u8] = repr.as_ref();
-                    let bytes: [u8; 32] = slice.try_into().expect("redpallas scalar is 32 bytes");
-                    r.push((idx, bytes));
-                }
-            }
-        }
-        r
-    }
+    // Which spends of a bundle this vault signs is `konclave_seal::spends::spends_to_sign`, the one
+    // rule konclave-signer reads too: the spends still awaiting a signature, and a refusal for any
+    // spend that still carries `dummy_sk`.
 
     fn orchard_spends(pczt: &Pczt) -> Result<Vec<(usize, [u8; 32])>, String> {
-        let mut r = vec![];
+        let mut r = Ok(vec![]);
         Signer::new(pczt.clone())
             .sign_orchard_with(|_pczt, bundle, _| {
-                r = collect_real(bundle);
+                r = spends_to_sign(bundle);
                 Ok::<(), OErr>(())
             })
             .map_err(|e| format!("orchard parse: {:?}", e))?;
-        Ok(r)
+        r
     }
 
     fn ironwood_spends(pczt: &Pczt) -> Result<Vec<(usize, [u8; 32])>, String> {
-        let mut r = vec![];
+        let mut r = Ok(vec![]);
         Signer::new(pczt.clone())
             .sign_ironwood_with(|_pczt, bundle, _| {
-                r = collect_real(bundle);
+                r = spends_to_sign(bundle);
                 Ok::<(), OErr>(())
             })
             .map_err(|e| format!("ironwood parse: {:?}", e))?;
-        Ok(r)
+        r
     }
 
     /// The pool decision itself, over nothing but the two answers.
@@ -2365,7 +2346,7 @@ pub mod pczt_bridge {
     ///
     /// What this does NOT bound: the builder chooses both terms. It can split change into more
     /// outputs, spend more of the vault's notes, or add zero-value spends left for the vault to
-    /// sign (`collect_real` does not check a spend's `rk` against the vault's key), and each such
+    /// sign (`spends_to_sign` does not check a spend's `rk` against the vault's key), and each such
     /// action raises the fee by 5000 zatoshis, paid to the network. Nothing on the device caps
     /// the number of actions; the relay's 128 KiB message cap is the only bound today. A real bound
     /// needs the device to know which notes a payment should spend.
@@ -2460,7 +2441,7 @@ pub mod pczt_bridge {
         }
         let shape = BundleShape {
             actions: bundle.actions().len(),
-            to_sign: collect_real(bundle).len(),
+            to_sign: spends_to_sign(bundle)?.len(),
             paying: out.iter().filter(|o| o.value.unwrap_or(0) > 0).count(),
         };
         let value_balance = i64::try_from(*bundle.value_sum())
@@ -3148,6 +3129,14 @@ pub mod pczt_bridge {
         const IW_ZERO_VALUE: &[u8] =
             include_bytes!("../tests/vectors/ironwood_zero_value_spend.proven.pczt");
 
+        // The same vector with `dummy_sk` set on action 1 and nothing else changed (the bytes
+        // after action 1's `alpha` read `zip32_derivation: None, dummy_sk: None`; the second byte
+        // became `Some(sk)`). That is a padding dummy the IO Finalizer never signed and cleared:
+        // it awaits a signature like a real spend, so the predicate alone took it as ours.
+        // konclave-signer carries the identical file.
+        const IW_DUMMY_SK: &[u8] =
+            include_bytes!("../tests/vectors/ironwood_dummy_sk_spend.proven.pczt");
+
         const IW_SIGHASH: [u8; 32] =
             hex_literal("332de126200c22131337474ae50367218ec87815c23d297dcdc8278ecb8903b0");
 
@@ -3206,6 +3195,18 @@ pub mod pczt_bridge {
                 vec![0, 1, 2, 3],
                 "every unsigned spend must be collected, including the zero-value one at index 1",
             );
+        }
+
+        #[test]
+        fn a_spend_still_carrying_dummy_sk_is_refused() {
+            // "Signers MUST reject PCZTs that contain `dummy_sk` values" (pczt, orchard). Taken as
+            // ours, such a spend joined the ceremony, raised the action count the fee is read from,
+            // and failed at injection. The device must refuse it before it signs or shows a fee,
+            // on both readers: the randomizers the ceremony uses and the payment it shows.
+            let err = extract_randomizers(IW_DUMMY_SK).unwrap_err();
+            assert!(err.contains("dummy_sk"), "{err}");
+            let shown = read_payment(IW_DUMMY_SK).map(|_| ()).unwrap_err();
+            assert_eq!(shown, err, "one refusal, worded once");
         }
 
         #[test]
@@ -4003,9 +4004,9 @@ pub mod pczt_bridge {
         }
 
         #[test]
-        fn the_fee_rule_refuses_padding_that_raises_its_own_ceiling() {
-            // Six actions for one spend and two outputs: the ceiling would be 30000, and the three
-            // extra actions are there only to lift it.
+        fn the_fee_rule_refuses_padding_that_raises_its_own_fee() {
+            // Six actions for one spend and two outputs: their exact ZIP 317 fee would be 30000,
+            // and the three extra actions are there only to raise it.
             let err = check_fee(30_000, &[EMPTY, shape(6, 1, 2)]).unwrap_err();
             assert!(err.starts_with("[fee]"), "{err}");
         }
@@ -4265,7 +4266,7 @@ pub mod pczt_bridge {
         #[test]
         fn the_fixture_bundle_has_the_shape_the_fee_rule_reads() {
             // 4 actions, 4 spends this vault signs, a payment and change: the numbers the padding
-            // bound and the ZIP 317 ceiling are computed from.
+            // bound and the exact ZIP 317 fee are computed from.
             let pczt = Pczt::parse(IW_PROVEN).unwrap();
             let (_, shape, balance) =
                 with_bundle(&pczt, true, |b| read_bundle("ironwood", b)).unwrap();

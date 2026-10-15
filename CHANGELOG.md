@@ -58,6 +58,15 @@ explicitly accepted.
 
 ### Fixed
 
+- **A signer took a spend that still carried a dummy spending key as its own.** A transaction whose
+  padding was never finalized carries a spend with `dummy_sk` set and no signature, and both signers
+  (the device's, in the browser, and the native one) counted it among the spends the vault signs:
+  it joined the ceremony, raised the number of actions the fee is read from, and the send failed
+  when the signatures were applied. The PCZT specification says a signer must refuse such a
+  transaction; both now do, with the same words, because the rule for which spends a vault signs
+  now lives once (`konclave-seal`) and both read it. No key was exposed and no money could move:
+  the failure was a send that did not happen, or a fee the device read from an inflated count.
+
 - **A vault whose registration could not be written to disk was served anyway, and was no longer
   found after the next restart.** The coordinator answered with the address and served the vault from
   memory when its record could not be written (a full or read-only volume). It now refuses the

@@ -2589,7 +2589,9 @@ name = "konclave-seal"
 version = "0.1.0"
 dependencies = [
  "chacha20poly1305",
+ "ff",
  "hkdf",
+ "orchard",
  "rand",
  "sha2 0.10.9",
  "x25519-dalek",
@@ -2601,8 +2603,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "ff",
  "hex",
+ "konclave-seal",
  "orchard",
  "pczt",
  "rand",
@@ -2634,7 +2636,6 @@ version = "0.1.0"
 dependencies = [
  "blake2b_simd",
  "ed25519-dalek",
- "ff",
  "frost-rerandomized",
  "getrandom 0.2.17",
  "hex",
