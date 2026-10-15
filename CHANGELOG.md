@@ -67,6 +67,11 @@ explicitly accepted.
   with a new identity. Since 2026-07-31. We did not check whether it happened. The details are in
   [helper-server/CHANGELOG.md](helper-server/CHANGELOG.md).
 
+- **A deposit shows on Add funds on the first read after it is mined, without the dashboard having
+  run** (#637). The coordinator's history read now syncs the vault's wallet under the same 15 second
+  window as the balance read, so a deposit can still take up to one window after its block. What it
+  still does not do, and what it costs, is in [helper-server/CHANGELOG.md](helper-server/CHANGELOG.md).
+
 ## [0.13.1] 2026-10-15
 
 > **Services deployed when this was cut (2026-10-15):** coordinator `4223028`, relay `42da05bf003afc41`.
