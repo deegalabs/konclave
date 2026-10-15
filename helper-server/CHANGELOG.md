@@ -40,6 +40,11 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+## [0.13.1] 2026-10-15
+
+> Released as 0.13.1, not 0.14.0, although it carries a Security entry: the number was already
+> named in the published notice for this release (decided 2026-10-15).
+
 ### Security
 
 - **A stranger could make the coordinator's memory grow without limit.** Every request that named a

@@ -40,6 +40,8 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+## [0.13.1] 2026-10-15
+
 ### Changed
 
 - **A screen opened while the vault is busy keeps what it showed.** When the coordinator answers that
