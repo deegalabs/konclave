@@ -5,7 +5,7 @@ import { getVaults, health, setSelectedVault, getSelectedVault, clearSelectedVau
 import { helperConfigured, helperBase, getCustomHelper, setCoordMode, HELPER_BASE } from '../helper'
 import { isDesktop } from '../platform'
 import { listVaults, parseVaultExport, forgetVault, updateVaultMeta, type VaultExport, type VaultPublic } from '../storage'
-import { resumable, protocolOfRecord } from '../creation-protocol'
+import { resumable, isCurrentFlow, sameCoordinator } from '../creation-protocol'
 import { concludeRegistration, refusalKey } from '../conclude-registration'
 import { buildVaultBackup, type VaultBackup } from '../build-backup'
 import { downloadText } from '../download'
@@ -85,13 +85,22 @@ export default function Vaults() {
   const [resumeCopied, setResumeCopied] = useState(false)
   /** A record made while this device used another coordinator than it uses now: a different server
    *  would mint a different address for the same vault, so that is asked, never assumed. */
-  const sameCoordinator = (rec: VaultPublic) => !rec.coordinator || rec.coordinator === helperBase()
+  const sameCoord = (rec: VaultPublic) => sameCoordinator(rec.coordinator, helperBase())
+  /** Whether this device holds the vault's SHARE in session. A passkey unlock marks a vault unlocked
+   *  with the read secret only, and registering needs the share, so the card asks this, not
+   *  `isVaultUnlocked`. */
+  const hasShare = (id: string) => !!getUnlockedShare(id)
+  // One registration at a time per vault: a second click while one runs does nothing.
+  const concluding = useRef(new Set<string>())
+  const [backupPass, setBackupPass] = useState('')
 
   const resumableRec = (id: string) => { const r = recs[id]; return !!r && resumable(r) }
 
   /** Register the vault through the one implementation. With the passphrase in hand, also build the
    *  backup here: a member whose creation did not finish never got one. True when registered. */
   async function runConclude(id: string, pass?: string): Promise<boolean> {
+    if (concluding.current.has(id)) return false
+    concluding.current.add(id)
     setResumeBusy(id)
     setResumeMsg((m) => Object.fromEntries(Object.entries(m).filter(([k]) => k !== id)))
     try {
@@ -110,6 +119,26 @@ export default function Vaults() {
       setReload((x) => x + 1)
       return true
     } finally {
+      // The passphrase is gone from state as soon as it has done its work, or been refused.
+      setResumePass('')
+      concluding.current.delete(id)
+      setResumeBusy(null)
+    }
+  }
+
+  /** Build the backup copy for a vault that was just registered with no passphrase at hand. */
+  async function buildLaterBackup(id: string) {
+    if (!backupPass || concluding.current.has(id)) return
+    concluding.current.add(id)
+    setResumeBusy(id)
+    try {
+      const b = await buildVaultBackup(id, backupPass, getUnlockedShare(id), recs[id]?.name)
+      setResumeDone((d) => ({ ...d, [id]: b }))
+    } catch {
+      setResumeMsg((m) => ({ ...m, [id]: t('vaults.unlockWrong') }))
+    } finally {
+      setBackupPass('')
+      concluding.current.delete(id)
       setResumeBusy(null)
     }
   }
@@ -117,12 +146,14 @@ export default function Vaults() {
   /** The card's own control: unlock when locked, then register. */
   async function doResume(row: Row) {
     const id = row.v.id
-    if (!isVaultUnlocked(id)) {
+    if (concluding.current.has(id)) return
+    if (!hasShare(id)) {
       if (!resumePass) return
       setResumeBusy(id)
       const u = await unlockOnDevice(id, 'net', resumePass).catch(() => ({ ok: false as const, wrong: true }))
       if (!u.ok) {
         setResumeMsg((m) => ({ ...m, [id]: t(u.wrong ? 'vaults.unlockWrong' : 'vaults.unlockFail') }))
+        setResumePass('')
         setResumeBusy(null)
         return
       }
@@ -134,9 +165,11 @@ export default function Vaults() {
    *  address is registered now, with no question; a failure stays on the card with its words. */
   async function openUnlocked(row: Row, pass?: string) {
     const rec = recs[row.v.id]
-    if (rec && rec.allSaved && resumable(rec) && sameCoordinator(rec) && !resumeMsg[row.v.id]) {
-      const ok = await runConclude(row.v.id, pass)
-      if (!ok || pass) return
+    if (rec && rec.allSaved && resumable(rec) && sameCoord(rec) && hasShare(row.v.id) && !resumeMsg[row.v.id]) {
+      // Stay on the card: the member sees it registered and can take the backup copy, instead of
+      // being moved to the dashboard past both.
+      await runConclude(row.v.id, pass)
+      return
     }
     nav('/dashboard')
   }
@@ -285,7 +318,9 @@ export default function Vaults() {
         // address (`openUnlocked`). `/vaults` itself is never a destination: returning to the picker
         // you just used would be a loop.
         setUnlocking(null)
-        await openUnlocked(unlocking, pass)
+        const used = pass
+        setPass('')
+        await openUnlocked(unlocking, used)
         return
       }
       setUnlockErr(r.wrong ? t('vaults.unlockWrong') : t('vaults.unlockFail'))
@@ -416,11 +451,21 @@ export default function Vaults() {
                         </button>
                         <button type="button" className="cv-stop"
                           onClick={() => { void navigator.clipboard.writeText(resumeDone[v.id]!.json).then(() => { setResumeCopied(true); window.setTimeout(() => setResumeCopied(false), 1500) }).catch(() => {}) }}>
-                          {resumeCopied ? t('common.copied') : t('vaults.resumeBackupCopy')}
+                          {resumeCopied ? t('receive.copied') : t('vaults.resumeBackupCopy')}
                         </button>
                       </div>
                     ) : (
-                      <p style={{ marginTop: 8 }}>{t('vaults.resumeBackupLater')}</p>
+                      <div style={{ marginTop: 8 }}>
+                        <p>{t('vaults.resumeBackupAsk')}</p>
+                        <input className="unlock-input mono" type="password" placeholder={t('vaults.passphrase')}
+                          value={backupPass} onChange={(e) => setBackupPass(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') void buildLaterBackup(v.id) }} />
+                        <button type="button" className="cv-stop" style={{ marginTop: 8 }}
+                          disabled={resumeBusy === v.id || !backupPass} onClick={() => void buildLaterBackup(v.id)}>
+                          {t('vaults.resumeBackupBuild')}
+                        </button>
+                        {resumeMsg[v.id] && <p className="unlock-err" role="alert">{resumeMsg[v.id]}</p>}
+                      </div>
                     )}
                   </div>
                 )}
@@ -428,17 +473,18 @@ export default function Vaults() {
                   const rec = recs[v.id]
                   const canResume = !!rec && resumable(rec)
                   // The earlier flow: warned, never offered a finish. A coordinator is not what it lacks.
-                  const oldFlow = !!rec && protocolOfRecord(rec) === undefined
+                  const oldFlow = !!rec && !isCurrentFlow(rec)
                   return (
                   <div className="cv-warn" role="note" onClick={(e) => e.stopPropagation()}>
                     <strong>{v.pending ? t('vaults.pendingBadge') : t('vaults.resumeBadge')}</strong>{' '}
                     {v.pending && !(canResume && rec.allSaved) ? t('vaults.pendingHint') : t('vaults.resumeHint')}
                     {oldFlow && <p style={{ marginTop: 8 }}>{t('vaults.resumeOldFlow')}</p>}
+                    {resumeBusy === v.id && <p role="status" style={{ marginTop: 8 }}>{t('vaults.resumeBusy')}</p>}
                     {resumeMsg[v.id] && <p className="unlock-err" role="alert" style={{ marginTop: 8 }}>{resumeMsg[v.id]}</p>}
                     {!oldFlow && canResume && resumeFor === v.id && (
                       <div style={{ marginTop: 8 }}>
                         <p>{t('vaults.resumeConfirm', { server: helperBase() })}</p>
-                        {!sameCoordinator(rec) && (
+                        {!sameCoord(rec) && (
                           <>
                             <p>{t('vaults.resumeOtherServer', { was: rec.coordinator ?? '', now: helperBase() })}</p>
                             <label className="cv-codecheck-row">
@@ -447,7 +493,7 @@ export default function Vaults() {
                             </label>
                           </>
                         )}
-                        {!isVaultUnlocked(v.id) && (
+                        {!hasShare(v.id) && (
                           <>
                             <p>{t('vaults.resumePassAsk')}</p>
                             <input className="unlock-input mono" type="password" placeholder={t('vaults.passphrase')}
@@ -456,7 +502,7 @@ export default function Vaults() {
                           </>
                         )}
                         <button type="button" className="cv-stop" style={{ marginTop: 8 }}
-                          disabled={resumeBusy === v.id || (!isVaultUnlocked(v.id) && !resumePass) || (!sameCoordinator(rec) && !resumeAck)}
+                          disabled={resumeBusy === v.id || (!hasShare(v.id) && !resumePass) || (!sameCoord(rec) && !resumeAck)}
                           onClick={() => void doResume(row)}>
                           {resumeBusy === v.id ? t('vaults.resumeBusy') : t('vaults.resumeGo')}
                         </button>

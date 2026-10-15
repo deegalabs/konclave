@@ -594,7 +594,7 @@ describe('NetVault routes the creation ceremony through DkgCeremony', () => {
   })
   it('finishVault reads the coordinator\'s answer through the one deposit rule, and backs up only a finished vault', () => {
     // The deposit rule now lives in the one registration function, which the creation calls.
-    expect(codeAt(new URL('./conclude-registration.ts', import.meta.url).pathname)).toMatch(/depositAddress\(\{ address: '', threshold, total \}, addressText\(v\.address\), \{ threshold: v\.threshold, total: v\.total \}\)/)
+    expect(codeAt(new URL('./conclude-registration.ts', import.meta.url).pathname)).toMatch(/depositAddress\(\{ ...rec, pending: false \}, addressText\(v\.address\), \{ threshold: v\.threshold, total: v\.total \}\)/)
     expect(nv).toMatch(/await concludeRegistration\(saved\.vaultId\)/)
     expect(nv).toMatch(/if \(saved && pass && finished\) \{/)
   })

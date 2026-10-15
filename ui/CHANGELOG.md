@@ -47,8 +47,9 @@ history to tidy it is how context gets lost.
   without a deposit address and nothing on the device could finish it; answering "everyone saved" on
   the card only hid the warning. The card of such a vault now offers to finish registering it (after
   the same question about the members, or at once when this device already knew every member had
-  saved), names the coordinator it will register with, asks again if that is not the one the vault
-  was created with, and builds your backup copy in the same step. A vault made by an earlier version
+  saved), names the coordinator it will register with, and builds your backup copy in the same step.
+  The question about a different coordinator applies only to vaults created from this version on,
+  which are the ones that remember where they were created; older records cannot say. A vault made by an earlier version
   of the creation is still told to be recreated, not finished.
 
 ## [0.13.1] 2026-10-15

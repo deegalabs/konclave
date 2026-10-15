@@ -27,7 +27,8 @@ vi.mock('./storage', async (orig) => ({ ...(await orig<typeof import('./storage'
 vi.mock('./session', async (orig) => ({ ...(await orig<typeof import('./session')>()), getUnlockedShare: h.getUnlockedShare, setUnlockedShare: h.setUnlockedShare }))
 vi.mock('./device-registration', () => ({ registerThisDevice: h.registerThisDevice }))
 
-const { concludeRegistration } = await import('./conclude-registration')
+const { concludeRegistration, refusalKey } = await import('./conclude-registration')
+const { isCurrentFlow, sameCoordinator } = await import('./creation-protocol')
 
 const GK = 'ab'.repeat(32)
 const rec = (over: Record<string, unknown> = {}) => ({
@@ -41,7 +42,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   h.configured = true
   h.failure = null
-  h.served = { vault_id: 'x', address: 'u1served', threshold: 2, total: 2 }
+  h.served = { vault_id: GK, address: 'u1served', threshold: 2, total: 2 }
   h.registerVault.mockImplementation(async () => h.served)
   h.listVaults.mockResolvedValue([rec()])
   h.getUnlockedShare.mockReturnValue(session())
@@ -80,13 +81,13 @@ describe('what it writes', () => {
     expect(h.setUnlockedShare).toHaveBeenCalledWith(GK, expect.objectContaining({ address: 'u1served' }))
   })
   it('a coordinator holding another quorum is not adopted: mismatch, record untouched', async () => {
-    h.served = { vault_id: 'x', address: 'u1served', threshold: 1, total: 2 }
+    h.served = { vault_id: GK, address: 'u1served', threshold: 1, total: 2 }
     expect(await concludeRegistration(GK)).toEqual({ refused: 'mismatch' })
     expect(h.updateVaultMeta).not.toHaveBeenCalled()
     expect(h.registerThisDevice).not.toHaveBeenCalled()
   })
   it('an answer with no address text is not adopted either', async () => {
-    h.served = { vault_id: 'x', address: { oops: 1 }, threshold: 2, total: 2 }
+    h.served = { vault_id: GK, address: { oops: 1 }, threshold: 2, total: 2 }
     expect(await concludeRegistration(GK)).toEqual({ refused: 'mismatch' })
     expect(h.updateVaultMeta).not.toHaveBeenCalled()
   })
@@ -119,6 +120,102 @@ describe('each refusal keeps the record and says its own thing', () => {
     h.failure = { status: 400, error: 'bad' }
     expect(await concludeRegistration(GK)).toEqual({ refused: 'rejected', status: 400 })
     kept()
+  })
+})
+
+describe('the address that is written', () => {
+  it('is the recorded one when the record already has an address: the record wins, and the served one is ignored', async () => {
+    h.listVaults.mockResolvedValue([rec({ address: 'u1recorded' })])
+    expect(await concludeRegistration(GK)).toEqual({ address: 'u1recorded' })
+    expect(h.updateVaultMeta).toHaveBeenCalledWith(GK, { pending: false, address: 'u1recorded' })
+  })
+  it('goes through addressText: surrounding whitespace is not written', async () => {
+    h.served = { vault_id: GK, address: '  u1served \n', threshold: 2, total: 2 }
+    expect(await concludeRegistration(GK)).toEqual({ address: 'u1served' })
+    expect(h.updateVaultMeta).toHaveBeenCalledWith(GK, { pending: false, address: 'u1served' })
+    expect(h.setUnlockedShare).toHaveBeenCalledWith(GK, expect.objectContaining({ address: 'u1served' }))
+  })
+  it('is refused when the coordinator answers about another vault', async () => {
+    h.served = { vault_id: 'cd'.repeat(32), address: 'u1other', threshold: 2, total: 2 }
+    expect(await concludeRegistration(GK)).toEqual({ refused: 'mismatch' })
+    expect(h.updateVaultMeta).not.toHaveBeenCalled()
+    expect(h.registerThisDevice).not.toHaveBeenCalled()
+  })
+})
+
+describe('a device with no share in session registers nothing', () => {
+  it('locked: no network, no writes (a passkey unlock seats only the read secret)', async () => {
+    h.getUnlockedShare.mockReturnValue(undefined)
+    expect(await concludeRegistration(GK)).toEqual({ refused: 'locked' })
+    expect(h.registerVault).not.toHaveBeenCalled()
+    expect(h.updateVaultMeta).not.toHaveBeenCalled()
+    expect(h.registerThisDevice).not.toHaveBeenCalled()
+  })
+})
+
+describe('a 5xx is the network\'s case, a 4xx is the coordinator saying no', () => {
+  it('500, 502, 503 are unreachable; 400, 403, 404, 429 are rejected', async () => {
+    h.registerVault.mockResolvedValue(null)
+    for (const status of [500, 502, 503]) {
+      h.failure = { status }
+      expect(await concludeRegistration(GK)).toEqual({ refused: 'unreachable' })
+    }
+    for (const status of [400, 403, 404, 429]) {
+      h.failure = { status }
+      expect(await concludeRegistration(GK)).toEqual({ refused: 'rejected', status })
+    }
+  })
+})
+
+describe('one definition of a record of the current creation flow', () => {
+  it('needs the protocol AND the quorum: by behaviour, not by the shape of its source', async () => {
+    expect(isCurrentFlow({ cp: 2, threshold: 2, total: 3 })).toBe(true)
+    expect(isCurrentFlow({ threshold: 2, total: 3 })).toBe(true) // v0.12.0 shape
+    expect(isCurrentFlow({ cp: 2 })).toBe(false) // a protocol with no quorum
+    expect(isCurrentFlow({ cp: 2, threshold: 2 })).toBe(false)
+    expect(isCurrentFlow({})).toBe(false)
+    // and the registration agrees with it: a record it calls old is never registered
+    h.listVaults.mockResolvedValue([rec({ total: undefined })])
+    expect(await concludeRegistration(GK)).toEqual({ refused: 'old' })
+    expect(h.registerVault).not.toHaveBeenCalled()
+  })
+  it('resumable, the card and the registration read that one function', () => {
+    expect(codeOf('./creation-protocol.ts')).toMatch(/return isCurrentFlow\(r\) &&/)
+    expect(codeOf('./conclude-registration.ts')).toMatch(/!isCurrentFlow\(rec\)/)
+    expect(codeOf('./screens/Vaults.tsx')).toMatch(/oldFlow = !!rec && !isCurrentFlow\(rec\)/)
+  })
+})
+
+describe('the coordinator in use against the recorded one', () => {
+  it('same when nothing was recorded or the two agree; different otherwise', () => {
+    expect(sameCoordinator(undefined, 'https://a')).toBe(true)
+    expect(sameCoordinator('', 'https://a')).toBe(true)
+    expect(sameCoordinator('https://a', 'https://a')).toBe(true)
+    expect(sameCoordinator('https://a', 'https://b')).toBe(false)
+  })
+})
+
+describe('refusalKey: one distinct key per refusal', () => {
+  it('no two causes share a sentence, and every key is in both dictionaries', async () => {
+    const { en } = await import('./i18n/en')
+    const { ptBR } = await import('./i18n/pt-BR')
+    const keys = [
+      refusalKey({ refused: 'old' }),
+      refusalKey({ refused: 'locked' }),
+      refusalKey({ refused: 'update', older: false }),
+      refusalKey({ refused: 'update', older: true }),
+      refusalKey({ refused: 'mismatch' }),
+      refusalKey({ refused: 'unreachable' }),
+      refusalKey({ refused: 'rejected', status: 400 }),
+      refusalKey({ refused: 'rejected', status: 429 }),
+    ]
+    expect(new Set(keys).size).toBe(keys.length)
+    for (const k of keys) { expect(en[k], k).toBeTruthy(); expect(ptBR[k], k).toBeTruthy() }
+    expect(refusalKey({ refused: 'unreachable' })).toBe('registration.unreachable')
+    expect(refusalKey({ refused: 'mismatch' })).toBe('net.err.registrationMismatch')
+  })
+  it('the creation shows exactly that key', () => {
+    expect(codeOf('./screens/NetVault.tsx')).toMatch(/setHostedState\('failed'\)\s*setError\(tt\(refusalKey\(r\)\)\)/)
   })
 })
 

@@ -23,6 +23,14 @@ describe('buildVaultBackup', () => {
     expect(JSON.parse(b.json)).toEqual({ v: 2, blob: 'opaque' })
     expect(b.complete).toBe(true)
   })
+  it('is incomplete when the key came without the scan floor: a wallet rebuilt without it starts at now', async () => {
+    h.getUfvk.mockResolvedValueOnce({ ufvk: 'uview1x', birthday: undefined })
+    expect((await buildVaultBackup('v1', 'pass', undefined, 'v')).complete).toBe(false)
+    h.getUfvk.mockResolvedValueOnce({ birthday: 3_000_000 })
+    expect((await buildVaultBackup('v1', 'pass', undefined, 'v')).complete).toBe(false)
+    h.getUfvk.mockResolvedValueOnce({ ufvk: 'uview1x', birthday: 0 })
+    expect((await buildVaultBackup('v1', 'pass', undefined, 'v')).complete).toBe(true) // 0 is a height
+  })
   it('says incomplete when the coordinator would not give the key, and still builds', async () => {
     h.getUfvk.mockResolvedValueOnce(null)
     const b = await buildVaultBackup('v1', 'pass', undefined, undefined)

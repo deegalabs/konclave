@@ -713,6 +713,12 @@ async function decodeV2(b: VaultExportV2, passphrase: string): Promise<DecodedIm
     throw new Error('The export is corrupt')
   }
   if (!p.id || !p.groupKey || !p.share || !Array.isArray(p.roster)) throw new Error('The export is incomplete or corrupt')
+  // A vault's id IS its group key, in a v2 as in a v1: the registration and the coordinator's reads
+  // are keyed on the id, so an edited payload with the two apart would register one vault's key
+  // under another's name. Both must be a 64-character key, and equal.
+  if (!/^[0-9a-f]{64}$/i.test(String(p.id)) || String(p.id).toLowerCase() !== String(p.groupKey).toLowerCase()) {
+    throw new Error('The export is incomplete or corrupt')
+  }
   return {
     id: p.id, name: p.name, governance: p.governance, myName: p.myName, creatorName: p.creatorName,
     groupKey: unhex(p.groupKey), address: addressText(p.address), roster: p.roster, createdAt: p.createdAt || Date.now(),

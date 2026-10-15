@@ -38,5 +38,18 @@ export function protocolOfRecord(r: { cp?: number; threshold?: number; total?: n
  *  save" card has `pending: false` and still no address). Registering a vault the coordinator
  *  already holds is idempotent, so the wide reading costs nothing. The one place this is decided. */
 export function resumable(r: { cp?: number; threshold?: number; total?: number; address?: unknown; pending?: boolean }): boolean {
-  return protocolOfRecord(r) !== undefined && !addressText(r.address) && helperConfigured()
+  return isCurrentFlow(r) && !addressText(r.address) && helperConfigured()
+}
+
+/** Whether a record is one of the current creation flow: it names the protocol it was made with AND
+ *  keeps the quorum its members confirmed. The one definition `resumable`, the card's old-flow
+ *  warning and the registration itself all read. */
+export function isCurrentFlow(r: { cp?: number; threshold?: number; total?: number }): boolean {
+  return protocolOfRecord(r) !== undefined && r.threshold !== undefined && r.total !== undefined
+}
+
+/** Whether the coordinator in use now is the one a record was made against. A record that kept no
+ *  coordinator (made before it was recorded) cannot say, and counts as the same. */
+export function sameCoordinator(recorded: string | undefined, now: string): boolean {
+  return !recorded || recorded === now
 }

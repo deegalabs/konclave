@@ -17,20 +17,37 @@ describe('the end of a creation records what it proved before it asks the coordi
 })
 
 describe('the vault card', () => {
+  it('decides "unlocked" by the share in session, not by the unlocked mark a passkey also sets', () => {
+    expect(vl).toMatch(/const hasShare = \(id: string\) => !!getUnlockedShare\(id\)/)
+    const panel = vl.slice(vl.indexOf('async function doResume'), vl.indexOf('async function openUnlocked'))
+    expect(panel).not.toMatch(/isVaultUnlocked/)
+  })
+  it('one registration at a time, the passphrase leaves state when it is spent, and progress shows', () => {
+    expect(vl).toMatch(/if \(concluding\.current\.has\(id\)\) return false\s*concluding\.current\.add\(id\)/)
+    expect(vl).toMatch(/finally \{[^}]*setResumePass\(''\)/)
+    expect(vl).toMatch(/resumeBusy === v\.id && <p role="status"/)
+    expect(vl).toMatch(/finally \{\s*setBackupPass\(''\)/)
+  })
+  it('the copied label is a key that exists', () => {
+    expect(vl).not.toMatch(/common\.copied/)
+    expect(vl).toMatch(/t\('receive\.copied'\)/)
+  })
   it('offers a finish by the record, through the one predicate, never by pending alone', () => {
     expect(vl).toMatch(/const resumableRec = \(id: string\) => \{ const r = recs\[id\]; return !!r && resumable\(r\) \}/)
     expect(vl).toMatch(/\(v\.pending \|\| resumableRec\(v\.id\)\)/)
   })
   it('a record of the earlier flow keeps its warning and gets no finish control', () => {
-    expect(vl).toMatch(/oldFlow = !!rec && protocolOfRecord\(rec\) === undefined/)
+    expect(vl).toMatch(/oldFlow = !!rec && !isCurrentFlow\(rec\)/)
     expect(vl).toMatch(/\{!oldFlow && canResume && resumeFor === v\.id/)
     expect(vl).toMatch(/\{!oldFlow && canResume && resumeFor !== v\.id && rec\.allSaved/)
     expect(vl).toMatch(/\{!oldFlow && !\(canResume/)
   })
   it('opening an unlocked vault concludes it with no question only when allSaved is recorded and the coordinator is the same', () => {
-    expect(vl).toMatch(/rec && rec\.allSaved && resumable\(rec\) && sameCoordinator\(rec\)[^)]*\)? ?\{\s*const ok = await runConclude\(/)
+    expect(vl).toMatch(/rec && rec\.allSaved && resumable\(rec\) && sameCoord\(rec\) && hasShare\(row\.v\.id\)[^)]*\) \{[\s\S]{0,200}?await runConclude\(row\.v\.id, pass\)\s*return\s*\}/)
+    // and it never leaves the card on success: no navigation between the registration and the backup
+    expect(vl.slice(vl.indexOf('async function openUnlocked'), vl.indexOf('async function openUnlocked') + 700)).toMatch(/await runConclude\(row\.v\.id, pass\)\s*return\s*\}\s*nav\('\/dashboard'\)/)
     expect(vl).toMatch(/if \(isVaultUnlocked\(v\.id\)\) \{ void openUnlocked\(row\); return \}/)
-    expect(vl).toMatch(/await openUnlocked\(unlocking, pass\)/)
+    expect(vl).toMatch(/await openUnlocked\(unlocking, used\)/)
   })
   it('a record without allSaved reaches the registration only through the members\' answer', () => {
     // The sole other way into the panel is the armed checkbox of the question.
@@ -40,11 +57,11 @@ describe('the vault card', () => {
   })
   it('names the coordinator it will register with, and asks again when it is not the recorded one', () => {
     expect(vl).toMatch(/t\('vaults\.resumeConfirm', \{ server: helperBase\(\) \}\)/)
-    expect(vl).toMatch(/!sameCoordinator\(rec\) && !resumeAck/)
-    expect(vl).toMatch(/rec\.coordinator \|\| rec\.coordinator === helperBase\(\)|!rec\.coordinator \|\| rec\.coordinator === helperBase\(\)/)
+    expect(vl).toMatch(/!sameCoord\(rec\) && !resumeAck/)
+    expect(vl).toMatch(/sameCoordinator\(rec\.coordinator, helperBase\(\)\)/)
   })
   it('asks the passphrase when the vault is locked, and builds the backup with it through the shared builder', () => {
-    expect(vl).toMatch(/!isVaultUnlocked\(v\.id\) && \(\s*<>\s*<p>\{t\('vaults\.resumePassAsk'\)\}/)
+    expect(vl).toMatch(/!hasShare\(v\.id\) && \(\s*<>\s*<p>\{t\('vaults\.resumePassAsk'\)\}/)
     expect(vl).toMatch(/await buildVaultBackup\(id, pass, getUnlockedShare\(id\), recs\[id\]\?\.name\)/)
   })
   it('no coordinator configured keeps today\'s local finish for a pending record', () => {
