@@ -58,14 +58,13 @@ explicitly accepted.
 
 ### Fixed
 
-- **A signer took a spend that still carried a dummy spending key as its own.** A transaction whose
-  padding was never finalized carries a spend with `dummy_sk` set and no signature, and both signers
-  (the device's, in the browser, and the native one) counted it among the spends the vault signs:
-  it joined the ceremony, raised the number of actions the fee is read from, and the send failed
-  when the signatures were applied. The PCZT specification says a signer must refuse such a
-  transaction; both now do, with the same words, because the rule for which spends a vault signs
-  now lives once (`konclave-seal`) and both read it. No key was exposed and no money could move:
-  the failure was a send that did not happen, or a fee the device read from an inflated count.
+- **A signer took a spend that still carried a dummy spending key as its own.** The PCZT
+  specification says a signer must refuse a transaction whose padding still carries `dummy_sk`;
+  neither of ours did, and both now refuse it with the same words, because the rule for which
+  spends a vault signs now lives once (`konclave-seal`). No transaction our coordinator builds
+  carries one, since the builder clears it before anyone signs, so no member could have met this.
+  It closes a departure from the specification, not a path that moved money. The number of
+  actions a builder may add to a payment is still not bounded on the device (Known limits).
 
 - **A vault whose registration could not be written to disk was served anyway, and was no longer
   found after the next restart.** The coordinator answered with the address and served the vault from
@@ -80,6 +79,12 @@ explicitly accepted.
   run** (#637). The coordinator's history read now syncs the vault's wallet under the same 15 second
   window as the balance read, so a deposit can still take up to one window after its block. What it
   still does not do, and what it costs, is in [helper-server/CHANGELOG.md](helper-server/CHANGELOG.md).
+
+### Known limits
+
+- **The number of actions a builder may add to a payment is not bounded on the device.** Each extra
+  action raises the fee by 5000 zatoshis, paid to the network from the vault's change; a real bound
+  needs the device to know which notes a payment should spend.
 
 ## [0.13.1] 2026-10-15
 

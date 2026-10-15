@@ -511,7 +511,8 @@ mod tests {
 
     // `ironwood_single_spend.proven.pczt` with `dummy_sk` set on action 1 and nothing else
     // changed (the bytes after action 1's `alpha` read `zip32_derivation: None, dummy_sk: None`;
-    // the second became `Some(sk)`): a padding dummy the IO Finalizer never signed and cleared.
+    // the second became `Some(sk)`). Action 1 is a spend the vault signs; the key left on it is
+    // what a padding dummy carries before the IO Finalizer signs and clears it.
     // konclave-wasm carries the identical file.
     const IW_DUMMY_SK: &[u8] =
         include_bytes!("../tests/vectors/ironwood_dummy_sk_spend.proven.pczt");

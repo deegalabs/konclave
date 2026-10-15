@@ -3131,8 +3131,9 @@ pub mod pczt_bridge {
 
         // The same vector with `dummy_sk` set on action 1 and nothing else changed (the bytes
         // after action 1's `alpha` read `zip32_derivation: None, dummy_sk: None`; the second byte
-        // became `Some(sk)`). That is a padding dummy the IO Finalizer never signed and cleared:
-        // it awaits a signature like a real spend, so the predicate alone took it as ours.
+        // became `Some(sk)`). Action 1 is a spend the vault signs; the key left on it is what a
+        // padding dummy carries before the IO Finalizer signs and clears it. It awaits a
+        // signature, so the predicate alone took it as ours.
         // konclave-signer carries the identical file.
         const IW_DUMMY_SK: &[u8] =
             include_bytes!("../tests/vectors/ironwood_dummy_sk_spend.proven.pczt");
