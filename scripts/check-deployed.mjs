@@ -25,6 +25,12 @@ const RELAY = process.env.KONCLAVE_RELAY ?? "https://konclave-relay-production.u
 //
 // No id is hardcoded here on purpose. A vault id is the group key, and this file is public.
 const VAULT = process.argv.find((a) => a.startsWith("--vault="))?.slice(8) ?? process.env.KONCLAVE_VAULT;
+// The creation protocol the coordinator says it expects (`client.creation` in /api/health). Always
+// printed; with --creation=<n> (or KONCLAVE_CREATION) a different value, or none, counts as "behind":
+// a roll back to a build that predates the field drops it, and `railway redeploy` re-runs the OLD
+// image, so a silent roll back is the expected way for it to go missing.
+const EXPECT_CREATION =
+  process.argv.find((a) => a.startsWith("--creation="))?.slice(11) ?? process.env.KONCLAVE_CREATION;
 const REAL_VAULT = /^[0-9a-f]{64}$/.test(VAULT ?? "");
 const PROBE_VAULT = REAL_VAULT ? VAULT : "0".repeat(64);
 
@@ -60,6 +66,17 @@ async function status(url) {
 const rows = [];
 for (const c of CHECKS) rows.push([c, await status(c.url)]);
 
+async function creationOf(base) {
+  try {
+    const r = await fetch(`${base}/api/health`, { signal: AbortSignal.timeout(15000) });
+    const body = await r.json();
+    return body?.client?.creation;
+  } catch {
+    return null;
+  }
+}
+const creation = await creationOf(HELPER);
+
 let missing = 0;
 console.log(`\nwhat production is running   ${new Date().toISOString().slice(0, 10)}\n`);
 for (const [c, s] of rows) {
@@ -67,6 +84,18 @@ for (const [c, s] of rows) {
   if (!ok) missing++;
   console.log(`  ${ok ? "live " : "NOT  "} ${String(s).padEnd(12)} ${c.name}`);
   if (!ok && c.note) console.log(`        ${c.note}`);
+}
+
+const creationText =
+  creation === null
+    ? "unreachable"
+    : creation === undefined
+      ? "absent (the build predates the field)"
+      : String(creation);
+console.log(`  info  ${"".padEnd(12)} creation protocol the coordinator expects: ${creationText}`);
+if (EXPECT_CREATION !== undefined && String(creation) !== String(EXPECT_CREATION)) {
+  missing++;
+  console.log(`  NOT   ${"".padEnd(12)} expected creation protocol ${EXPECT_CREATION}`);
 }
 
 console.log(

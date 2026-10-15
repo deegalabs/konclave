@@ -99,9 +99,10 @@ fn query_param<'a>(query: &'a str, key: &str) -> Option<&'a str> {
 /// status + JSON body. Only `POST /api/vault` reaches the engine (via register_vault); every read
 /// path and every input rejection is decided here, so they are unit-testable.
 ///
-/// Test-only shim: production serves through `handle_with_token` (which carries the #388 read token);
-/// the many pre-#388 tests call this no-token form (token = None = the open gate). Gated `#[cfg(test)]`
-/// so it stays out of the binary and does not trip `-D dead-code`.
+/// Test-only shim: production serves through `serve`, which calls `handle_request` (that carries the
+/// #388 read token and the coordinator's locks); the many pre-#388 tests call this no-token form
+/// (token = None = the open gate). Gated `#[cfg(test)]` so it stays out of the binary and does not
+/// trip `-D dead-code`.
 #[cfg(test)]
 fn handle(
     state: &HelperState,
@@ -152,6 +153,9 @@ fn iso_from_epoch(secs: i64) -> String {
     )
 }
 
+/// [`handle_request`] with locks of its own, for the tests that call a handler directly. Production
+/// goes through `serve`, which passes the coordinator's locks.
+#[cfg(test)]
 fn handle_with_token(
     state: &HelperState,
     cfg: &HelperConfig,
@@ -160,19 +164,31 @@ fn handle_with_token(
     body: &[u8],
     read_token: Option<&str>,
 ) -> Resp {
+    handle_request(
+        state,
+        cfg,
+        &concurrency::VaultLocks::new(),
+        method,
+        path,
+        body,
+        read_token,
+    )
+}
+
+fn handle_request(
+    state: &HelperState,
+    cfg: &HelperConfig,
+    locks: &concurrency::VaultLocks,
+    method: &Method,
+    path: &str,
+    body: &[u8],
+    read_token: Option<&str>,
+) -> Resp {
     let (p, query) = path.split_once('?').unwrap_or((path, ""));
-    // #388 read gate: the private read routes require the vault's readKey once one is set. A vault
+    // #388 read gate: the private read routes (`GATED_READS`, at module level so the lock table
+    // below is derived from the same list) require the vault's readKey once one is set. A vault
     // with no readKey stays open, so migration is per-vault and pre-#388 vaults keep working. The
     // token rides in a header, never the URL/query (§6.3). An unauthorized read is 401.
-    const GATED_READS: &[&str] = &[
-        "/api/vault/balance",
-        "/api/vault/transactions",
-        "/api/vault/ceremonies",
-        "/api/vault/proposals",
-        "/api/vault/ledger",
-        "/api/vault/ledger.csv",
-        "/api/vault/members",
-    ];
     // The UFVK is gated HARDER than the reads above: it is refused even when the vault has no
     // readKey. Those stay open so pre-#388 vaults keep working, which is a bearer-by-id read -
     // tolerable for a balance, not for the key that decrypts every payslip the vault ever sent. A
@@ -262,6 +278,9 @@ fn handle_with_token(
                 "name": "konclave-helper",
                 "helper_commit": env!("KONCLAVE_BUILD_COMMIT"),
                 "helper_built_at": build_time_iso(),
+                // The creation protocol this coordinator requires of a registration. A roll back
+                // to a build without the gate drops the field, which is what a deploy checks.
+                "client": { "creation": creation_min() },
             })
             .to_string(),
         ),
@@ -285,12 +304,17 @@ fn handle_with_token(
                 Ok(r) => r,
                 Err(refused) => return refused,
             };
-            // Idempotent: if already registered, return it without re-running the tooling.
+            // One line per registration, with neither the key nor the name: the declared `cp` (or
+            // `none`) and whether the vault was already known. An HTTP log carries no bodies, so
+            // this is the only place that count can come from.
+            log_registration(req.cp, state.contains(&req.group_key));
+            // Idempotent: if already registered, return it without re-running the tooling. The
+            // record keeps the `cp` of the registration that made it.
             if let Some(r) = state.get(&req.group_key) {
                 return resp(200, vault_value(&r).to_string());
             }
             let name = req.name.as_deref().unwrap_or("vault");
-            match register_vault(cfg, &req.group_key, name, req.threshold, req.total) {
+            match register_vault(cfg, &req.group_key, name, req.threshold, req.total, req.cp) {
                 Ok(r) => {
                     let out = vault_value(&r).to_string();
                     state.insert(r);
@@ -457,28 +481,32 @@ fn handle_with_token(
         (Method::Get, "/api/vault/balance") => {
             match query_param(query, "vault").and_then(|v| state.get(v)) {
                 None => resp(404, json!({ "error": "no such vault" }).to_string()),
-                Some(reg) => match vault_balance(cfg, &reg) {
-                    Ok(b) => resp(
-                        200,
-                        json!({
-                            "orchard_spendable_zat": b.orchard_spendable_zat,
-                            "ironwood_spendable_zat": b.ironwood_spendable_zat,
-                            "shielded_spendable_zat": b.shielded_spendable_zat,
-                            "chain_tip_height": b.chain_tip_height,
-                            "total_zat": b.total_zat
-                        })
-                        .to_string(),
-                    ),
-                    Err(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
+                Some(reg) => match with_the_wallet(locks, &reg, || vault_balance(cfg, &reg)) {
+                    Err(busy) => busy,
+                    Ok(answer) => match answer {
+                        Ok(b) => resp(
+                            200,
+                            json!({
+                                "orchard_spendable_zat": b.orchard_spendable_zat,
+                                "ironwood_spendable_zat": b.ironwood_spendable_zat,
+                                "shielded_spendable_zat": b.shielded_spendable_zat,
+                                "chain_tip_height": b.chain_tip_height,
+                                "total_zat": b.total_zat
+                            })
+                            .to_string(),
+                        ),
+                        Err(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
+                    },
                 },
             }
         }
         (Method::Get, "/api/vault/transactions") => {
             match query_param(query, "vault").and_then(|v| state.get(v)) {
                 None => resp(404, json!({ "error": "no such vault" }).to_string()),
-                Some(reg) => match vault_transactions(cfg, &reg) {
-                    Ok(txs) => resp(200, json!({ "transactions": txs }).to_string()),
-                    Err(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
+                Some(reg) => match with_the_wallet(locks, &reg, || vault_transactions(cfg, &reg)) {
+                    Err(busy) => busy,
+                    Ok(Ok(txs)) => resp(200, json!({ "transactions": txs }).to_string()),
+                    Ok(Err(e)) => resp(502, json!({ "error": e.to_string() }).to_string()),
                 },
             }
         }
@@ -495,9 +523,15 @@ fn handle_with_token(
             match query_param(query, "vault").and_then(|v| state.get(v)) {
                 None => resp(404, json!({ "error": "no such vault" }).to_string()),
                 Some(reg) => {
-                    settle_mined_sends(cfg, &reg);
+                    settle_mined_sends(locks, cfg, &reg);
                     let ps = list_proposals(&cfg.vaults_dir, &reg.vault_id, now_unix());
-                    resp(200, json!({ "proposals": ps }).to_string())
+                    // Additive: present only while a send holds the vault, so a screen can say
+                    // "sending" instead of waiting for an answer that is behind the send.
+                    let mut out = json!({ "proposals": ps });
+                    if let Some((proposal, since_secs)) = locks.sending(&reg.vault_id) {
+                        out["sending"] = json!({ "proposal": proposal, "since_secs": since_secs });
+                    }
+                    resp(200, out.to_string())
                 }
             }
         }
@@ -505,7 +539,7 @@ fn handle_with_token(
             match query_param(query, "vault").and_then(|v| state.get(v)) {
                 None => resp(404, json!({ "error": "no such vault" }).to_string()),
                 Some(reg) => {
-                    settle_mined_sends(cfg, &reg);
+                    settle_mined_sends(locks, cfg, &reg);
                     let entries = sent_proposals(cfg, &reg.vault_id);
                     resp(200, json!({ "entries": entries }).to_string())
                 }
@@ -517,7 +551,7 @@ fn handle_with_token(
                 // The body is CSV; it is served with the default JSON content-type, so the browser
                 // client downloads it as a blob (it sets the filename/type). Keeps the router simple.
                 Some(reg) => {
-                    settle_mined_sends(cfg, &reg);
+                    settle_mined_sends(locks, cfg, &reg);
                     resp(200, ledger_csv(&sent_proposals(cfg, &reg.vault_id)))
                 }
             }
@@ -642,8 +676,8 @@ fn handle_with_token(
         (Method::Post, "/api/vault/payroll") => handle_create_payroll(state, cfg, body),
         (Method::Post, "/api/vault/proposals") => handle_create_proposal(state, cfg, body),
         (Method::Post, vp) if vp.starts_with("/api/vault/proposals/") => {
-            if vp.ends_with("/send") {
-                handle_proposal_send(state, cfg, vp, body)
+            if is_send_path(vp) {
+                handle_proposal_send(state, cfg, locks, vp, body)
             } else {
                 handle_vote(state, cfg, vp, body)
             }
@@ -1023,7 +1057,13 @@ fn polls_for(requested: u32) -> u32 {
 /// money gate is the ceremony itself, which needs the real quorum of browser shares to produce a
 /// valid signature, so a forged "ready" cannot move funds on its own. Non-ready proposals are
 /// refused (409); `dry_run` defaults true so a broadcast is always explicit.
-fn handle_proposal_send(state: &HelperState, cfg: &HelperConfig, path: &str, body: &[u8]) -> Resp {
+fn handle_proposal_send(
+    state: &HelperState,
+    cfg: &HelperConfig,
+    locks: &concurrency::VaultLocks,
+    path: &str,
+    body: &[u8],
+) -> Resp {
     let id = path
         .trim_start_matches("/api/vault/proposals/")
         .trim_end_matches("/send");
@@ -1142,6 +1182,12 @@ fn handle_proposal_send(state: &HelperState, cfg: &HelperConfig, path: &str, bod
     // Everything that decides whether a transaction may leave - settling an earlier attempt, the
     // record that comes before the broadcast, the broadcast itself - is `send_proposal`'s, in the
     // orchestrator. This function authenticates, validates and maps the answer. It does not broadcast.
+    // Armed inside the preflight, once everything that can refuse the send has passed, and dropped when
+    // this function returns: readers are told a send is in progress only for a send that is. The
+    // proposal's own id, not the path's.
+    let proposal_id = p.id.clone();
+    let sending: std::cell::RefCell<Option<concurrency::SendingMark<'_>>> =
+        std::cell::RefCell::new(None);
     let result = send_proposal(&cfg.vaults_dir, p, req.dry_run, &steps, |_| {
         let plan = match &plan {
             Ok(plan) => plan,
@@ -1171,8 +1217,11 @@ fn handle_proposal_send(state: &HelperState, cfg: &HelperConfig, path: &str, bod
         // approval and send, so this is not redundant with the check at creation.
         match refuse_if_unfunded(cfg, &reg, plan) {
             Ok(Some(r)) => Err(r),
-            Ok(None) => Ok(()),
-            Err(_) => Ok(()), // an unrelated fault must not block a send the vault could make
+            // Ok(None): funded. Err: an unrelated fault must not block a send the vault could make.
+            Ok(None) | Err(_) => {
+                *sending.borrow_mut() = Some(locks.mark_sending(&reg.vault_id, &proposal_id));
+                Ok(())
+            }
         }
     });
     send_result_resp(result)
@@ -1202,7 +1251,23 @@ fn send_plan_for(cfg: &HelperConfig, p: &HelperProposal) -> Result<SpendPlan, Re
 /// Before a vault's proposals or ledger are read, promote to `sent` any proposal whose recorded send
 /// is mined (see `promote_mined_attempts`). It reads each send record and its proposal, and the
 /// wallet at most once per window per vault while a payment that can still be mined is held.
-fn settle_mined_sends(cfg: &HelperConfig, reg: &VaultRegistration) {
+///
+/// A read no longer holds the vault's lock, so this takes the write lock and then the wallet lock
+/// with `try`: if a send, a vote or another settle has either, it does nothing - and does not stamp
+/// the window (`promote_mined_attempts` stamps only once it runs) - and the next read settles.
+fn settle_mined_sends(
+    locks: &concurrency::VaultLocks,
+    cfg: &HelperConfig,
+    reg: &VaultRegistration,
+) {
+    let write = locks.for_vault(&reg.vault_id);
+    let Some(_write) = concurrency::try_acquire(&write) else {
+        return;
+    };
+    let wallet = locks.wallet_for_vault(&reg.vault_id);
+    let Some(_wallet) = concurrency::try_acquire(&wallet) else {
+        return;
+    };
     promote_mined_attempts(&cfg.vaults_dir, &reg.vault_id, || {
         orchestrator::wallet::list_confirmed_txids(&cfg.devtool, &reg.wallet_dir)
     });
@@ -1767,6 +1832,85 @@ struct Registration {
     name: Option<String>,
     threshold: u16,
     total: u16,
+    /// The creation protocol the client declared (`cp`); `None` when it declared nothing.
+    cp: Option<u32>,
+}
+
+/// The creation protocol a registration must declare (REG-CREATION-MIN). A registration whose `cp`
+/// is missing or below this is refused, whether or not the coordinator already knows the key. A
+/// constant, not a variable: two coordinators that read it from their environment can disagree, and
+/// the number is published in `/api/health` (`client.creation`), which is what a deploy reads to
+/// confirm the build it is looking at.
+///
+/// It is `0` in this build: the coordinator records the `cp` it is given and logs one line per
+/// registration, and refuses nothing, so the registrations that still arrive without one can be
+/// counted (an HTTP log carries no bodies).
+const MIN_CREATION: u32 = 0;
+
+/// The minimum in force for THIS call. Production reads the constant. Under test it is `0` unless
+/// the test sets it for its own THREAD (`with_creation_min`; a thread a test spawns starts at `0`
+/// again), so the suite says the same thing whatever number the build ships.
+#[cfg(not(test))]
+fn creation_min() -> u32 {
+    MIN_CREATION
+}
+
+#[cfg(test)]
+thread_local! {
+    static TEST_CREATION_MIN: std::cell::Cell<Option<u32>> = const { std::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+fn creation_min() -> u32 {
+    TEST_CREATION_MIN.with(|c| c.get()).unwrap_or(0)
+}
+
+/// The answer to a registration that does not declare enough. A 403 (426 needs an `Upgrade` header
+/// the coordinator has no business sending), typed so the new client can say "update the app"; an old
+/// client reads any non-2xx as a failed registration and stays where it was. The text is clear of
+/// the screen's keywords (`send_error_texts_stay_clear_of_the_screens_keywords`).
+const CREATION_UPDATE_TEXT: &str = "update the app to create or join a vault";
+
+fn creation_refusal(min: u32) -> Resp {
+    resp(
+        403,
+        json!({
+            "error": CREATION_UPDATE_TEXT,
+            "update_required": true,
+            "min_creation": min,
+        })
+        .to_string(),
+    )
+}
+
+/// The one line logged per registration. It takes neither the key nor the name, so it cannot carry
+/// them: what it says is whether a `cp` was declared and whether the vault was already known.
+fn registration_log_line(cp: Option<u32>, known: bool) -> String {
+    format!(
+        "registration: cp={} known={known}",
+        cp.map_or_else(|| "none".to_string(), |c| c.to_string())
+    )
+}
+
+/// Writes that line. The handler calls this and nothing else: it takes the declared `cp` and whether
+/// the vault was known, so the key and the name are not available to it.
+fn log_registration(cp: Option<u32>, known: bool) {
+    eprintln!("{}", registration_log_line(cp, known));
+}
+
+/// How many of these registrations carry a creation protocol, and how many do not.
+fn creation_counts(regs: &[VaultRegistration]) -> (usize, usize) {
+    let with = regs.iter().filter(|r| r.cp.is_some()).count();
+    (with, regs.len() - with)
+}
+
+fn lenient_cp<'de, D>(d: D) -> Result<Option<u32>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let v = Option::<serde_json::Value>::deserialize(d)?;
+    Ok(v.and_then(|v| v.as_u64())
+        .and_then(|n| u32::try_from(n).ok()))
 }
 
 /// Read and validate a `POST /api/vault` body. `Err` carries the answer to send.
@@ -1786,6 +1930,11 @@ fn parse_registration(body: &[u8]) -> Result<Registration, Resp> {
         threshold: u16,
         #[serde(default)]
         total: u16,
+        /// The creation protocol the client declares; absent from every client before this field.
+        /// Anything that is not an integer that fits (a string, a float, a negative, null) counts as
+        /// "declared nothing": a registration is never refused here for the SHAPE of this field.
+        #[serde(default, deserialize_with = "lenient_cp")]
+        cp: Option<u32>,
     }
     let req: Req = serde_json::from_slice(body)
         .map_err(|_| resp(400, json!({ "error": "invalid json" }).to_string()))?;
@@ -1794,6 +1943,12 @@ fn parse_registration(body: &[u8]) -> Result<Registration, Resp> {
             400,
             json!({ "error": "group_key must be 64 hex chars" }).to_string(),
         ));
+    }
+    // The creation gate lives HERE and nowhere else: this function is the one the handler, admission
+    // and `serve` all read (#558), so there is no second copy of the rule to fall out of step.
+    let min = creation_min();
+    if req.cp.unwrap_or(0) < min {
+        return Err(creation_refusal(min));
     }
     // A quorum of 0 is not "unknown", it is unusable: `recompute` never reaches `ready`
     // with `threshold == 0`, so the vault registers and every proposal it will ever hold
@@ -1812,6 +1967,7 @@ fn parse_registration(body: &[u8]) -> Result<Registration, Resp> {
         name: req.name,
         threshold: req.threshold,
         total: req.total,
+        cp: req.cp,
     })
 }
 
@@ -1849,6 +2005,114 @@ fn new_vault_refusal(
     limits.new_vault(client, &reg.group_key, now).err()
 }
 
+/// The private read routes the #388 read gate covers. ONE list: the gate reads it, and the lock table
+/// (`lock_class`) derives from it, so a read added to the gate is free of the write lock without a
+/// second edit, and cannot be forgotten there. CLAUDE.md names exactly these routes
+/// (`tests/claude_md_gated_reads.rs`).
+const GATED_READS: &[&str] = &[
+    "/api/vault/balance",
+    "/api/vault/transactions",
+    "/api/vault/ceremonies",
+    "/api/vault/proposals",
+    "/api/vault/ledger",
+    "/api/vault/ledger.csv",
+    "/api/vault/members",
+];
+
+/// The reads outside that gate: the vault's metadata (an id is a bearer credential for it, on
+/// purpose), the viewing key, which has a stricter gate of its own in the router, and the health
+/// probe, which touches no vault and must never queue behind one (the platform restarts a service
+/// whose health stops answering, and a restart during a send is a send lost).
+const OPEN_READS: &[&str] = &["/api/vault", "/api/vault/ufvk", "/api/health"];
+
+/// Whether `route` (a path without its query) is the send of a proposal. ONE predicate: the router
+/// dispatches on it and `lock_class` takes the wallet lock on it.
+fn is_send_path(route: &str) -> bool {
+    route.starts_with("/api/vault/proposals/") && route.ends_with("/send")
+}
+
+/// Which locks a request takes before its handler runs.
+#[derive(Debug, PartialEq, Eq)]
+enum LockClass {
+    /// A read: no write lock, so it does not queue behind a send. (The reads that record a mined
+    /// send, or run the engine, take the locks they need themselves, with `try` or a bounded wait.)
+    Read,
+    /// Anything that can change a vault: the write lock, and the wallet lock too for a request that
+    /// runs the engine on the wallet (a proposal, a payroll, a send).
+    Write { wallet: bool },
+}
+
+/// The class of a request. Unknown routes and methods are `Write`, as they were: the table lists
+/// what is FREE, so a route nobody classified keeps the lock it always had.
+///
+/// The reads that WRITE (`proposals`, `ledger`, `ledger.csv` settle a mined send) and the reads that
+/// run the engine (`balance`, `transactions`) take the locks they need themselves, with `try`.
+fn lock_class(method: &Method, path: &str) -> LockClass {
+    let route = path.split('?').next().unwrap_or(path);
+    if *method == Method::Get && (GATED_READS.contains(&route) || OPEN_READS.contains(&route)) {
+        return LockClass::Read;
+    }
+    // A handler that starts running the engine on the wallet has to be listed here: nothing else
+    // would stop two engine processes opening one wallet. `the_lock_class_of_each_route` holds it.
+    let wallet = *method == Method::Post
+        && (route == "/api/vault/proposals"
+            || route == "/api/vault/payroll"
+            || is_send_path(route));
+    LockClass::Write { wallet }
+}
+
+/// The answers for a wallet read that found the wallet busy: typed, so a screen can keep the value
+/// it has. The first is for a send in progress (minutes), the second for another reader or a short
+/// write (seconds). Both stay clear of the screen's keywords (tested).
+const WALLET_BUSY_SENDING_TEXT: &str =
+    "this vault is busy with a payment in progress; its balance will be back in a moment";
+const WALLET_BUSY_TEXT: &str = "this vault's wallet is busy for a moment; try again shortly";
+
+/// How long a wallet read waits for whoever else holds the wallet (a balance read that is syncing,
+/// a proposal's funding check): a sync takes seconds, so two members polling the balance must both
+/// get a number. It stops waiting at once when a send is marked, and at most two wait per vault
+/// (`VaultLocks::wait_slot`), so a flood cannot park the pool.
+const WALLET_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Run `read` with the vault's wallet. Free: now. Held while a send is marked: 503 `busy` at once.
+/// Held by anything else, including a send that has not yet passed its checks (its funding check
+/// runs the engine before it is marked): a bounded wait, then 503 `busy`. The read gate has already
+/// run (a caller without the key never learns a send is going on).
+fn with_the_wallet<T>(
+    locks: &concurrency::VaultLocks,
+    reg: &VaultRegistration,
+    read: impl FnOnce() -> T,
+) -> Result<T, Resp> {
+    let vault = reg.vault_id.as_str();
+    let wallet = locks.wallet_for_vault(vault);
+    let guard = match concurrency::try_acquire(&wallet) {
+        Some(guard) => Some(guard),
+        None if locks.sending(vault).is_some() => None,
+        None => match locks.wait_slot(vault) {
+            Some(_slot) => {
+                concurrency::acquire_within(&wallet, WALLET_WAIT, || locks.sending(vault).is_some())
+            }
+            None => None,
+        },
+    };
+    let answer = match guard {
+        Some(_) => Ok(read()),
+        None => {
+            let text = if locks.sending(vault).is_some() {
+                WALLET_BUSY_SENDING_TEXT
+            } else {
+                WALLET_BUSY_TEXT
+            };
+            Err(resp(
+                503,
+                json!({ "error": text, "busy": "wallet" }).to_string(),
+            ))
+        }
+    };
+    drop(guard);
+    answer
+}
+
 /// Everything a worker does with a request once its body is read: admission, the vault's lock,
 /// the handler.
 ///
@@ -1877,24 +2141,62 @@ fn serve(
         Err(why) => return resp(400, json!({ "error": why.message() }).to_string()),
     };
 
+    // A registration body the coordinator will refuse (malformed, a quorum that cannot be, a
+    // creation protocol below the minimum) is answered here: its answer depends on nothing but the
+    // body, so it needs neither the vault's lock nor an allowance, and must not queue behind that
+    // vault's send. The question is asked of the same function the handler asks.
+    if *method == Method::Post && path.split('?').next() == Some("/api/vault") {
+        if let Err(refused) = parse_registration(body) {
+            if refused.status == 403 {
+                eprintln!("registration: refused, update required");
+            }
+            return refused;
+        }
+    }
+
     // Before the vault's lock, so a registration that will be refused never queues behind a vault
     // that is busy signing.
     if let Some(refused) = new_vault_refusal(limits, state, client, method, path, body, now) {
         return refusal(refused);
     }
 
-    // Held for the whole request, and only when the request names a vault - so health and
-    // anything unrouted never wait for a lock at all. Whichever field the handler reads the vault
-    // from, it is this one: `request_vault` refused the request if any two disagreed, and refused
-    // any body it could not read by name.
-    let lock = vault.map(|v| locks.for_vault(&v));
-    // A handler that panicked would poison this lock and wedge that vault forever; taking the
-    // inner value keeps the vault serving instead.
-    let _guard = lock
+    // Held for the whole request, and only when the request names a vault AND can change it - so
+    // health and every READ never wait for it (S3: a send used to hold this for its whole ceremony
+    // and every read of the vault queued behind it). A route nobody classified, and a method other
+    // than GET, still take it: the table lists what is free. Whichever field the
+    // handler reads the vault from, it is this one: `request_vault` refused the request if any two
+    // disagreed, and refused any body it could not read by name.
+    // A lock exists only for a vault that exists, or for a registration that WILL reach the engine
+    // (the same parser admission asks, #558): it has to be serialised on the key it creates. Any
+    // other name is a 404 or a 400 that needs no ordering, and a name chosen by the caller must not
+    // be kept in a map for the life of the process. (A request that names a vault the instant its
+    // registration lands can find no lock here and run unserialised once: two syncs on a wallet
+    // nobody has used yet.)
+    let route = path.split('?').next().unwrap_or(path);
+    let vault = vault.filter(|v| {
+        state.contains(v)
+            || (*method == Method::Post
+                && route == "/api/vault"
+                && parse_registration(body).is_ok())
+    });
+    let (write, wallet) = match (lock_class(method, path), vault) {
+        (LockClass::Write { wallet }, Some(v)) => (
+            Some(locks.for_vault(&v)),
+            wallet.then(|| locks.wallet_for_vault(&v)),
+        ),
+        _ => (None, None),
+    };
+    // A handler that panicked would poison a lock and wedge that vault forever; taking the inner
+    // value keeps the vault serving instead. Always the write lock first, then the wallet lock:
+    // readers only ever TRY the wallet lock, so this order cannot deadlock.
+    let _write = write
+        .as_ref()
+        .map(|m| m.lock().unwrap_or_else(|e| e.into_inner()));
+    let _wallet = wallet
         .as_ref()
         .map(|m| m.lock().unwrap_or_else(|e| e.into_inner()));
 
-    handle_with_token(state, cfg, method, path, body, read_token)
+    handle_request(state, cfg, locks, method, path, body, read_token)
 }
 
 fn main() {
@@ -1913,6 +2215,10 @@ fn main() {
     let (restored, birthdays, receivers) =
         orchestrator::helper::boot_registry(&cfg.vaults_dir, &cfg.network);
     let restored_n = restored.len();
+    // Counts only, so a roll back to a build that does not keep the field is visible afterwards:
+    // a registration without one is not proof that the vault predates it.
+    let (with_cp, without_cp) = creation_counts(&restored);
+    eprintln!("registrations: {with_cp} carry a creation protocol, {without_cp} do not");
     for reg in restored {
         state.insert(reg);
     }
@@ -2005,9 +2311,10 @@ fn main() {
     // `tiny_http::Server` hands out requests from any thread, so a fixed pool is enough; this needs
     // no async runtime. Concurrency on its own would be worse than the bug, though: each vault owns
     // a directory on the durable volume that the handlers reach through subprocesses, so two
-    // requests for the SAME vault would write over each other. `VaultLocks` serialises those, and
-    // only those. A send still holds its own vault for as long as the quorum takes; what it stops
-    // holding is everybody else.
+    // requests for the SAME vault would write over each other. `VaultLocks` serialises the WRITES to
+    // one vault, and only those: reads take no write lock, and the wallet has a second lock that
+    // readers only try or wait a few seconds for. A send still holds its own vault's writes for as long as the quorum
+    // takes; what it stops holding is everybody else, and every read.
     let locks = Arc::new(concurrency::VaultLocks::new());
     let workers = concurrency::worker_count(
         std::env::var("KONCLAVE_HELPER_WORKERS").ok().as_deref(),
@@ -2164,6 +2471,9 @@ mod tests {
             RECORD_TEXT,
             REGISTRY_UNREADABLE_TEXT,
             UNSEALED_SEND_TEXT,
+            WALLET_BUSY_TEXT,
+            WALLET_BUSY_SENDING_TEXT,
+            CREATION_UPDATE_TEXT,
         ] {
             assert!(
                 text.len() < 140,
@@ -3051,6 +3361,8 @@ mod tests {
             total: 0,
             change_receiver: String::new(),
             birthday: None,
+            cp: None,
+            created_at_unix: None,
         });
         let c = cfg();
         let w = real_write_key(1);
@@ -3441,6 +3753,8 @@ mod tests {
             total: 3,
             change_receiver: format!("utest1change{id}"),
             birthday: Some(3_400_000),
+            cp: None,
+            created_at_unix: None,
         });
     }
 
@@ -6349,5 +6663,1602 @@ mod tests {
             1,
             "helper.rs: only `short_id` itself"
         );
+    }
+
+    // ---- S3: a send holds its vault for the whole ceremony; a read must not wait behind it --------
+    //
+    // On 2026-10-12 a send held the vault's lock for 228 s and 48 reads of that vault queued behind it,
+    // each on a worker of the pool. The reads below must answer while a send holds the vault.
+
+    /// Runs one GET through `serve` while "a send" holds `vault`: its write lock, its wallet lock and
+    /// its marker. Returns the answer, or `None` if it had not answered after `within`.
+    fn get_while_a_send_holds(
+        st: &HelperState,
+        c: &HelperConfig,
+        vault: &str,
+        path: &str,
+        token: Option<&str>,
+        within: Duration,
+    ) -> Option<(u16, String)> {
+        let locks = concurrency::VaultLocks::new();
+        let limits = admission::Limits::new();
+        let write = locks.for_vault(vault);
+        let wallet = locks.wallet_for_vault(vault);
+        let write_guard = write.lock().expect("the send holds the write lock");
+        let wallet_guard = wallet.lock().expect("the send holds the wallet lock");
+        let _mark = locks.mark_sending(vault, "p1");
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::scope(|scope| {
+            let worker = scope.spawn(|| {
+                let r = serve(
+                    st,
+                    c,
+                    &locks,
+                    &limits,
+                    "203.0.113.7",
+                    T0,
+                    &Method::Get,
+                    path,
+                    b"",
+                    token,
+                );
+                let _ = tx.send((r.status, r.body));
+            });
+            let got = rx.recv_timeout(within).ok();
+            drop(write_guard);
+            drop(wallet_guard);
+            worker.join().expect("worker");
+            got
+        })
+    }
+
+    #[test]
+    fn a_read_of_a_vault_does_not_wait_for_the_send_that_holds_it() {
+        let st = HelperState::new();
+        seed(&st, "heldv");
+        let c = cfg();
+        for route in [
+            "/api/vault?vault=heldv",
+            "/api/vault/members?vault=heldv",
+            "/api/vault/ceremonies?vault=heldv",
+            "/api/vault/proposals?vault=heldv",
+            "/api/vault/ledger?vault=heldv",
+            "/api/vault/ledger.csv?vault=heldv",
+        ] {
+            let got = get_while_a_send_holds(&st, &c, "heldv", route, None, Duration::from_secs(2));
+            let (status, body) = got.unwrap_or_else(|| panic!("{route} waited for the send"));
+            assert_eq!(status, 200, "{route}: {body}");
+        }
+    }
+
+    #[test]
+    fn the_viewing_key_read_does_not_wait_for_the_send_either() {
+        let st = HelperState::new();
+        seed(&st, "heldk");
+        let c = cfg();
+        let tok = "ab".repeat(32);
+        set_read_key(&c.vaults_dir, "heldk", &tok).unwrap();
+        let got = get_while_a_send_holds(
+            &st,
+            &c,
+            "heldk",
+            "/api/vault/ufvk?vault=heldk",
+            Some(&tok),
+            Duration::from_secs(2),
+        );
+        let (status, body) = got.expect("the viewing key read waited for the send");
+        assert_eq!(status, 200, "{body}");
+    }
+
+    #[test]
+    fn a_wallet_read_answers_busy_at_once_while_a_send_holds_the_wallet() {
+        let st = HelperState::new();
+        seed(&st, "heldw");
+        let c = cfg();
+        for route in [
+            "/api/vault/balance?vault=heldw",
+            "/api/vault/transactions?vault=heldw",
+        ] {
+            let got = get_while_a_send_holds(&st, &c, "heldw", route, None, Duration::from_secs(2));
+            let (status, body) = got.unwrap_or_else(|| panic!("{route} waited for the send"));
+            assert_eq!(status, 503, "{route}: {body}");
+            assert!(body.contains("\"busy\":\"wallet\""), "{route}: {body}");
+        }
+    }
+
+    /// Busy is an answer for a member, not for whoever holds only the id: the read gate comes first.
+    #[test]
+    fn a_wallet_read_without_the_read_key_is_refused_before_it_is_called_busy() {
+        let st = HelperState::new();
+        seed(&st, "heldg");
+        let c = cfg();
+        set_read_key(&c.vaults_dir, "heldg", &"ab".repeat(32)).unwrap();
+        let got = get_while_a_send_holds(
+            &st,
+            &c,
+            "heldg",
+            "/api/vault/balance?vault=heldg",
+            None,
+            Duration::from_secs(2),
+        );
+        let (status, body) = got.expect("answered");
+        assert_eq!(status, 401, "{body}");
+        assert!(!body.contains("busy"), "{body}");
+    }
+
+    #[test]
+    fn the_proposals_say_that_a_send_is_in_progress() {
+        let st = HelperState::new();
+        seed(&st, "heldm");
+        let c = cfg();
+        let (status, body) = get_while_a_send_holds(
+            &st,
+            &c,
+            "heldm",
+            "/api/vault/proposals?vault=heldm",
+            None,
+            Duration::from_secs(2),
+        )
+        .expect("answered");
+        assert_eq!(status, 200, "{body}");
+        let j: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(j["sending"]["proposal"], "p1", "{body}");
+        assert!(j["sending"]["since_secs"].is_u64(), "{body}");
+
+        // And nothing is claimed when no send is in progress.
+        let r = handle(
+            &st,
+            &c,
+            &Method::Get,
+            "/api/vault/proposals?vault=heldm",
+            b"",
+        );
+        let j: serde_json::Value = serde_json::from_str(&r.body).unwrap();
+        assert!(j.get("sending").is_none(), "{}", r.body);
+    }
+
+    /// Which requests take which lock. Reads are free of the write lock; everything else, and every
+    /// route this table has never heard of, keeps taking it.
+    #[test]
+    fn the_lock_class_of_each_route() {
+        use LockClass::{Read, Write};
+        for path in [
+            "/api/health",
+            "/api/health?vault=v",
+            "/api/vault",
+            "/api/vault?vault=v",
+            "/api/vault/members",
+            "/api/vault/ceremonies",
+            "/api/vault/ufvk",
+            "/api/vault/proposals",
+            "/api/vault/ledger",
+            "/api/vault/ledger.csv",
+            "/api/vault/balance",
+            "/api/vault/transactions",
+        ] {
+            assert_eq!(lock_class(&Method::Get, path), Read, "GET {path}");
+        }
+        for (method, path, wallet) in [
+            (Method::Post, "/api/vault", false),
+            (Method::Post, "/api/vault/members", false),
+            (Method::Post, "/api/vault/members/rename", false),
+            (Method::Post, "/api/vault/devicekey", false),
+            (Method::Post, "/api/vault/readkey", false),
+            (Method::Post, "/api/vault/proposals", true),
+            (Method::Post, "/api/vault/payroll", true),
+            (Method::Post, "/api/vault/proposals/p1/send", true),
+            (Method::Post, "/api/vault/proposals/p1/approve", false),
+            (Method::Post, "/api/vault/proposals/p1/refuse", false),
+            (Method::Get, "/api/vault/something-new", false),
+            (Method::Head, "/api/vault/proposals", false),
+        ] {
+            assert_eq!(
+                lock_class(&method, path),
+                Write { wallet },
+                "{method:?} {path}"
+            );
+        }
+    }
+
+    /// The health probe takes no lock, even when it is made to name a vault that is busy: it is
+    /// what the platform asks to decide whether to restart the service, and a restart during a send
+    /// is a send lost.
+    #[test]
+    fn health_never_waits_even_when_it_names_a_busy_vault() {
+        let st = HelperState::new();
+        seed(&st, "healthv");
+        let c = cfg();
+        let locks = concurrency::VaultLocks::new();
+        let limits = admission::Limits::new();
+        let write = locks.for_vault("healthv");
+        let wallet = locks.wallet_for_vault("healthv");
+        let w = write.lock().unwrap();
+        let l = wallet.lock().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let got = std::thread::scope(|scope| {
+            scope.spawn(|| {
+                let r = serve(
+                    &st,
+                    &c,
+                    &locks,
+                    &limits,
+                    "203.0.113.7",
+                    T0,
+                    &Method::Get,
+                    "/api/health?vault=healthv",
+                    b"",
+                    None,
+                );
+                let _ = tx.send(r.status);
+            });
+            let got = rx.recv_timeout(Duration::from_secs(2)).ok();
+            drop(l);
+            drop(w);
+            got
+        });
+        assert_eq!(got, Some(200), "health waited behind a vault's lock");
+    }
+
+    /// The lock table is DERIVED from the gate's list, but the router is a third place a read is
+    /// named. Every route the table calls a free read must be one the router actually answers (not
+    /// the 404 of an unrouted path): a route renamed in the router and not in the lists would fall
+    /// out of the gate and out of the lock table together, silently.
+    #[test]
+    fn every_free_read_is_a_route_the_router_answers() {
+        let st = HelperState::new();
+        seed(&st, "routed");
+        let c = cfg();
+        let locks = concurrency::VaultLocks::new();
+        for route in GATED_READS.iter().chain(OPEN_READS) {
+            assert_eq!(
+                lock_class(&Method::Get, route),
+                LockClass::Read,
+                "{route} is listed as a read but the lock table does not say so"
+            );
+            let r = handle_request(
+                &st,
+                &c,
+                &locks,
+                &Method::Get,
+                &format!("{route}?vault=routed"),
+                b"",
+                None,
+            );
+            assert!(
+                !(r.status == 404 && r.body.contains("\"not found\"")),
+                "{route} is in the read lists and the router does not route it: {} {}",
+                r.status,
+                r.body
+            );
+        }
+        // And the other way: a GET the router does not answer is not free.
+        assert_eq!(
+            lock_class(&Method::Get, "/api/vault/nothing-routes-here"),
+            LockClass::Write { wallet: false }
+        );
+    }
+
+    /// A read no longer holds the vault, so its settle must not run behind a write that does: it
+    /// skips (touching neither the wallet nor the record) and the next read, with the vault free,
+    /// settles. A skipped settle must not stamp the window, or the next read would skip too.
+    #[cfg(unix)]
+    #[test]
+    fn a_read_settles_only_when_no_write_holds_the_vault() {
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let mut c = cfg();
+        let txid = "11".repeat(32);
+        let (fake, log) = fake_devtool(&c.vaults_dir, Some(&txid));
+        c.devtool = fake;
+        a_ready_proposal(&c.vaults_dir, "relayv");
+        held_send(&c.vaults_dir, &txid);
+        let locks = concurrency::VaultLocks::new();
+        let limits = admission::Limits::new();
+        let ask = || {
+            serve(
+                &st,
+                &c,
+                &locks,
+                &limits,
+                "203.0.113.7",
+                T0,
+                &Method::Get,
+                "/api/vault/proposals?vault=relayv",
+                b"",
+                None,
+            )
+        };
+
+        let write = locks.for_vault("relayv");
+        let mut held = Some(write.lock().expect("a write holds the vault"));
+        // On another thread, with a deadline: a read that waited for the write must FAIL this test,
+        // not hang it.
+        let (tx, rx) = std::sync::mpsc::channel();
+        let answered = std::thread::scope(|scope| {
+            let worker = scope.spawn(|| {
+                let _ = tx.send(ask().status);
+            });
+            let got = rx.recv_timeout(Duration::from_secs(2)).ok();
+            held.take(); // release, so a blocked worker can finish
+            worker.join().expect("worker");
+            got
+        });
+        assert_eq!(
+            answered,
+            Some(200),
+            "the read waited for the write that holds the vault"
+        );
+        let during = std::fs::read_to_string(&log).unwrap_or_default();
+        assert!(
+            !during.contains("list-tx"),
+            "settled behind a write: {during}"
+        );
+        let still = load_proposal(&c.vaults_dir, "relayv", "p1", now_unix()).unwrap();
+        assert_eq!(still.state, "ready");
+        assert!(held.is_none());
+
+        let r = ask();
+        assert_eq!(r.status, 200, "{}", r.body);
+        let after = std::fs::read_to_string(&log).unwrap_or_default();
+        assert!(after.contains("list-tx"), "the free vault settles: {after}");
+        let settled = load_proposal(&c.vaults_dir, "relayv", "p1", now_unix()).unwrap();
+        assert_eq!(settled.state, "sent");
+    }
+
+    /// The requests that run the engine on the wallet (a proposal, a payroll, a send) hold the
+    /// wallet lock for the whole request, so a read of the balance finds it busy and a second engine
+    /// process never opens the wallet beside theirs. Observed as behaviour: with the wallet lock
+    /// held by someone else, a proposal waits for it; without, it answers at once.
+    #[test]
+    fn a_request_that_runs_the_engine_waits_for_the_wallet_lock() {
+        let st = HelperState::new();
+        seed(&st, "walletv");
+        let c = cfg();
+        let locks = concurrency::VaultLocks::new();
+        let limits = admission::Limits::new();
+        let body = br#"{"vault":"walletv"}"#;
+        let wallet = locks.wallet_for_vault("walletv");
+        let held = wallet.lock().expect("a read holds the wallet");
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::scope(|scope| {
+            let worker = scope.spawn(|| {
+                let r = serve(
+                    &st,
+                    &c,
+                    &locks,
+                    &limits,
+                    "203.0.113.7",
+                    T0,
+                    &Method::Post,
+                    "/api/vault/proposals",
+                    body,
+                    None,
+                );
+                let _ = tx.send(r.status);
+            });
+            // The request takes the vault's write lock and then waits for the wallet: wait until
+            // the write lock is seen held, and only then say it has not answered.
+            let write = locks.for_vault("walletv");
+            let start = std::time::Instant::now();
+            while concurrency::try_acquire(&write).is_some() {
+                assert!(
+                    start.elapsed() < Duration::from_secs(2),
+                    "the request never took the vault's write lock"
+                );
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            assert!(
+                rx.try_recv().is_err(),
+                "a proposal ran the engine's path while another holds the wallet"
+            );
+            drop(held);
+            assert!(
+                rx.recv_timeout(Duration::from_secs(5)).is_ok(),
+                "and answers once the wallet is free"
+            );
+            worker.join().expect("worker");
+        });
+    }
+
+    // ---- S3, after the audit ------------------------------------------------------------------
+
+    /// A name nobody registered is not remembered: the lock maps used to grow with every vault name
+    /// a caller made up, and a POST holds the name (up to the body's size) in two of them.
+    #[test]
+    fn a_name_nobody_registered_is_not_given_a_lock() {
+        let st = HelperState::new();
+        let c = cfg();
+        let locks = concurrency::VaultLocks::new();
+        let limits = admission::Limits::new();
+        for i in 0..40 {
+            let name = format!("{i}{}", "x".repeat(64 * 1024));
+            let body = json!({ "vault": name }).to_string();
+            for path in [
+                "/api/vault/proposals",
+                "/api/vault/payroll",
+                "/api/vault/proposals/p1/send",
+            ] {
+                let r = serve(
+                    &st,
+                    &c,
+                    &locks,
+                    &limits,
+                    "203.0.113.7",
+                    T0,
+                    &Method::Post,
+                    path,
+                    body.as_bytes(),
+                    None,
+                );
+                assert!(r.status < 500, "{path}: {} {}", r.status, r.body);
+            }
+        }
+        assert_eq!(locks.len(), 0, "write locks for names nobody registered");
+        assert_eq!(
+            locks.wallet_len(),
+            0,
+            "wallet locks for names nobody registered"
+        );
+
+        // The registration route is the one place a name that is not a vault yet gets a lock, and
+        // only when the registration WILL reach the engine (the parser admission asks). A made-up
+        // name, a well-formed key with a quorum that cannot be, and a body that is not JSON do not.
+        for i in 0..40 {
+            let hexish = format!("{i:0>63x}{}", "z".repeat(64 * 1024));
+            let bodies = [
+                json!({ "group_key": hexish }).to_string(),
+                json!({ "group_key": format!("{i:064x}"), "threshold": 3, "total": 2 }).to_string(),
+                json!({ "group_key": format!("{i:064x}"), "threshold": 1, "total": 0 }).to_string(),
+                "not json".to_string(),
+            ];
+            for body in &bodies {
+                let r = serve(
+                    &st,
+                    &c,
+                    &locks,
+                    &limits,
+                    "203.0.113.9",
+                    T0,
+                    &Method::Post,
+                    "/api/vault",
+                    body.as_bytes(),
+                    None,
+                );
+                assert!(r.status < 500, "{} {}", r.status, r.body);
+            }
+        }
+        assert_eq!(
+            locks.len(),
+            0,
+            "write locks for registrations that cannot register"
+        );
+        // A registration that can: it is serialised on the key it creates, and only on that.
+        let r = serve(
+            &st,
+            &c,
+            &locks,
+            &limits,
+            "203.0.113.10",
+            T0,
+            &Method::Post,
+            "/api/vault",
+            &register_body(7, 2, 3),
+            None,
+        );
+        let _ = r;
+        assert_eq!(
+            locks.len(),
+            1,
+            "the one registration that reaches the engine"
+        );
+    }
+
+    /// A reader waits a moment for another reader, because a sync takes seconds and two members
+    /// polling the balance must both get a number. It does not wait behind a send.
+    #[cfg(unix)]
+    #[test]
+    fn two_balance_reads_of_one_vault_both_get_a_number() {
+        use std::os::unix::fs::PermissionsExt;
+        let st = HelperState::new();
+        seed(&st, "slowv");
+        let mut c = cfg();
+        let script = c.vaults_dir.join("slow-devtool");
+        let trail = c.vaults_dir.join("slow-devtool.trail");
+        std::fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\nif [ \"$4\" = balance ]; then echo start >> \"{trail}\"; sleep 0.6; echo end >> \"{trail}\"; echo '{{\"chain_tip_height\":3400100,\"orchard_spendable\":7,\"sapling_spendable\":0,\"total\":7,\"transparent_spendable\":0}}'; fi\n",
+                trail = trail.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        c.devtool = script;
+        let locks = concurrency::VaultLocks::new();
+        let limits = admission::Limits::new();
+        let ask = || {
+            serve(
+                &st,
+                &c,
+                &locks,
+                &limits,
+                "203.0.113.7",
+                T0,
+                &Method::Get,
+                "/api/vault/balance?vault=slowv",
+                b"",
+                None,
+            )
+            .status
+        };
+        let statuses: Vec<u16> = std::thread::scope(|scope| {
+            let a = scope.spawn(ask);
+            let b = scope.spawn(|| {
+                std::thread::sleep(Duration::from_millis(150));
+                ask()
+            });
+            vec![a.join().unwrap(), b.join().unwrap()]
+        });
+        assert_eq!(
+            statuses,
+            vec![200, 200],
+            "the second reader was turned away"
+        );
+        // One engine process at a time on the wallet: the second reader ran after the first, not
+        // beside it (a lock given back before the read would have both inside at once).
+        let trail = std::fs::read_to_string(&trail).unwrap_or_default();
+        assert_eq!(
+            trail.lines().collect::<Vec<_>>(),
+            ["start", "end", "start", "end"],
+            "two engine processes on one wallet at once: {trail}"
+        );
+        // And the lock was given back: a third read is not turned away.
+        assert_eq!(ask(), 200);
+    }
+
+    /// Busy only says "a payment" when one is in progress; for another reader or a short write it
+    /// says it is busy for a moment. (The wait slots are taken so the answer is immediate.)
+    #[test]
+    fn the_busy_answer_names_a_payment_only_when_there_is_one() {
+        let st = HelperState::new();
+        seed(&st, "busyv");
+        let c = cfg();
+        let locks = concurrency::VaultLocks::new();
+        let limits = admission::Limits::new();
+        let wallet = locks.wallet_for_vault("busyv");
+        let _held = wallet.lock().unwrap();
+        let _a = locks.wait_slot("busyv").expect("a slot");
+        let _b = locks.wait_slot("busyv").expect("a slot");
+        assert!(
+            locks.wait_slot("busyv").is_none(),
+            "the third is turned away"
+        );
+        let ask = || {
+            serve(
+                &st,
+                &c,
+                &locks,
+                &limits,
+                "203.0.113.7",
+                T0,
+                &Method::Get,
+                "/api/vault/balance?vault=busyv",
+                b"",
+                None,
+            )
+        };
+        let asked = std::time::Instant::now();
+        let r = ask();
+        assert!(
+            asked.elapsed() < Duration::from_millis(1500),
+            "a reader without a slot waited {:?}",
+            asked.elapsed()
+        );
+        assert_eq!(r.status, 503, "{}", r.body);
+        assert!(!r.body.contains("payment"), "{}", r.body);
+        let _mark = locks.mark_sending("busyv", "p1");
+        let r = ask();
+        assert_eq!(r.status, 503, "{}", r.body);
+        assert!(r.body.contains("payment in progress"), "{}", r.body);
+    }
+
+    /// A reader that finds the wallet held by something other than a send waits a few seconds and
+    /// then gives up: it must not hold a worker for as long as a send could. The bound itself is
+    /// pinned here too, so a lengthened wait cannot pass for "a few seconds".
+    #[test]
+    fn a_reader_of_a_busy_wallet_gives_up_within_seconds() {
+        let st = HelperState::new();
+        seed(&st, "waitv");
+        let c = cfg();
+        let locks = concurrency::VaultLocks::new();
+        let limits = admission::Limits::new();
+        let wallet = locks.wallet_for_vault("waitv");
+        let held = wallet.lock().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let (status, took) = std::thread::scope(|scope| {
+            let worker = scope.spawn(|| {
+                let started = std::time::Instant::now();
+                let r = serve(
+                    &st,
+                    &c,
+                    &locks,
+                    &limits,
+                    "203.0.113.7",
+                    T0,
+                    &Method::Get,
+                    "/api/vault/balance?vault=waitv",
+                    b"",
+                    None,
+                );
+                let _ = tx.send((r.status, started.elapsed()));
+            });
+            // Literals, not `WALLET_WAIT`: a bound computed from the constant under test cannot
+            // fail for a constant that grew.
+            let got = rx.recv_timeout(Duration::from_secs(14)).ok();
+            drop(held);
+            worker.join().expect("worker");
+            got
+        })
+        .expect("the reader gave up inside the bound");
+        assert_eq!(status, 503);
+        assert!(
+            took >= Duration::from_secs(9),
+            "it did not wait for the other holder: {took:?}"
+        );
+        assert!(
+            took < Duration::from_secs(13),
+            "a wallet read held a worker for {took:?}"
+        );
+    }
+
+    /// The flow the slots exist for: with the wallet held by something that is not a send, twenty
+    /// readers ask for the balance. Two may wait; every other one is turned away at once, so a flood
+    /// cannot park the worker pool.
+    #[cfg(unix)]
+    #[test]
+    fn a_flood_of_wallet_reads_parks_at_most_two_workers() {
+        let st = HelperState::new();
+        seed(&st, "floodv");
+        let c = cfg();
+        let locks = concurrency::VaultLocks::new();
+        let limits = admission::Limits::new();
+        let wallet = locks.wallet_for_vault("floodv");
+        let held = wallet.lock().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let (answered_early, answered_late) = std::thread::scope(|scope| {
+            let (st, c, locks, limits) = (&st, &c, &locks, &limits);
+            for _ in 0..20 {
+                let tx = tx.clone();
+                scope.spawn(move || {
+                    let r = serve(
+                        st,
+                        c,
+                        locks,
+                        limits,
+                        "203.0.113.7",
+                        T0,
+                        &Method::Get,
+                        "/api/vault/balance?vault=floodv",
+                        b"",
+                        None,
+                    );
+                    let _ = tx.send(r.status);
+                });
+            }
+            drop(tx);
+            std::thread::sleep(Duration::from_millis(700));
+            let mut early = Vec::new();
+            while let Ok(status) = rx.try_recv() {
+                early.push(status);
+            }
+            drop(held);
+            let late = rx.iter().count();
+            (early, late)
+        });
+        assert_eq!(
+            answered_early.len(),
+            18,
+            "all but two were turned away at once: {answered_early:?}"
+        );
+        assert!(
+            answered_early.iter().all(|s| *s == 503),
+            "{answered_early:?}"
+        );
+        assert_eq!(
+            answered_late, 2,
+            "the two that waited answered when it was free"
+        );
+    }
+
+    /// A reader already waiting stops the moment a send starts: it would be minutes, not seconds.
+    #[cfg(unix)]
+    #[test]
+    fn a_waiting_reader_gives_up_when_a_send_starts() {
+        let st = HelperState::new();
+        seed(&st, "turnv");
+        let c = cfg();
+        let locks = concurrency::VaultLocks::new();
+        let limits = admission::Limits::new();
+        let wallet = locks.wallet_for_vault("turnv");
+        let held = wallet.lock().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let answer = std::thread::scope(|scope| {
+            scope.spawn(|| {
+                let r = serve(
+                    &st,
+                    &c,
+                    &locks,
+                    &limits,
+                    "203.0.113.7",
+                    T0,
+                    &Method::Get,
+                    "/api/vault/balance?vault=turnv",
+                    b"",
+                    None,
+                );
+                let _ = tx.send((r.status, r.body));
+            });
+            std::thread::sleep(Duration::from_millis(300));
+            let _mark = locks.mark_sending("turnv", "p1");
+            let got = rx.recv_timeout(Duration::from_secs(3)).ok();
+            drop(held);
+            got
+        })
+        .expect("the waiting reader kept waiting after a send started");
+        assert_eq!(answer.0, 503, "{}", answer.1);
+        assert!(answer.1.contains("payment in progress"), "{}", answer.1);
+    }
+
+    /// The half of the settle that tries the WALLET lock: with only the wallet held (a sync, a
+    /// proposal's funding check), a read must not run the engine's `list-tx` beside it.
+    #[cfg(unix)]
+    #[test]
+    fn a_read_does_not_settle_while_the_wallet_is_held() {
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let mut c = cfg();
+        let txid = "11".repeat(32);
+        let (fake, log) = fake_devtool(&c.vaults_dir, Some(&txid));
+        c.devtool = fake;
+        a_ready_proposal(&c.vaults_dir, "relayv");
+        held_send(&c.vaults_dir, &txid);
+        let locks = concurrency::VaultLocks::new();
+        let limits = admission::Limits::new();
+        let wallet = locks.wallet_for_vault("relayv");
+        let held = wallet.lock().unwrap();
+        let ask = || {
+            serve(
+                &st,
+                &c,
+                &locks,
+                &limits,
+                "203.0.113.7",
+                T0,
+                &Method::Get,
+                "/api/vault/proposals?vault=relayv",
+                b"",
+                None,
+            )
+        };
+        // On another thread, with a deadline: a settle that WAITS for the wallet (holding the
+        // vault's write lock meanwhile) must fail this test, not hang it.
+        let (tx, rx) = std::sync::mpsc::channel();
+        let r = std::thread::scope(|scope| {
+            let worker = scope.spawn(|| {
+                let _ = tx.send(ask());
+            });
+            let got = rx.recv_timeout(Duration::from_secs(2)).ok();
+            drop(held);
+            worker.join().expect("worker");
+            got
+        })
+        .expect("a read waited for the wallet's holder");
+        assert_eq!(r.status, 200, "{}", r.body);
+        let during = std::fs::read_to_string(&log).unwrap_or_default();
+        assert!(
+            !during.contains("list-tx"),
+            "ran the engine beside the wallet's holder: {during}"
+        );
+        let r = ask();
+        assert_eq!(r.status, 200, "{}", r.body);
+        assert!(std::fs::read_to_string(&log)
+            .unwrap_or_default()
+            .contains("list-tx"));
+    }
+
+    /// A devtool that reports `balance` after `pause` seconds and takes `pause` seconds to start
+    /// building: a send that has passed every gate is in it for that long.
+    #[cfg(unix)]
+    fn devtool_that_pauses(dir: &std::path::Path, balance: u64, pause: &str) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let script = dir.join("pausing-devtool");
+        std::fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\nif [ \"$4\" = balance ]; then sleep {pause}; echo '{{\"chain_tip_height\":3400100,\"orchard_spendable\":{balance},\"sapling_spendable\":0,\"total\":{balance},\"transparent_spendable\":0}}'; fi\nif [ \"$4\" = create ]; then sleep {pause}; exit 1; fi\n"
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        script
+    }
+
+    /// Reads poll the proposals while a send runs through `serve`; returns the proposal ids they saw
+    /// in `sending`, over `for_how_long`.
+    #[cfg(unix)]
+    fn watch_sending(
+        st: &HelperState,
+        c: &HelperConfig,
+        locks: &concurrency::VaultLocks,
+        limits: &admission::Limits,
+        vault: &str,
+        for_how_long: Duration,
+    ) -> Vec<String> {
+        let start = std::time::Instant::now();
+        let mut seen = Vec::new();
+        while start.elapsed() < for_how_long {
+            let r = serve(
+                st,
+                c,
+                locks,
+                limits,
+                "203.0.113.7",
+                T0,
+                &Method::Get,
+                &format!("/api/vault/proposals?vault={vault}"),
+                b"",
+                None,
+            );
+            let j: serde_json::Value = serde_json::from_str(&r.body).unwrap_or_default();
+            if let Some(p) = j["sending"]["proposal"].as_str() {
+                seen.push(p.to_string());
+            }
+            std::thread::sleep(Duration::from_millis(40));
+        }
+        seen
+    }
+
+    #[cfg(unix)]
+    fn a_send_through_serve(
+        st: &HelperState,
+        c: &HelperConfig,
+        locks: &concurrency::VaultLocks,
+        limits: &admission::Limits,
+    ) -> u16 {
+        let body = json!({ "vault": "relayv", "relay_base": TEST_RELAY,
+            "room": "0123456789abcdef0123456789abcdef", "dry_run": true })
+        .to_string();
+        serve(
+            st,
+            c,
+            locks,
+            limits,
+            "203.0.113.7",
+            T0,
+            &Method::Post,
+            "/api/vault/proposals/p1/send",
+            body.as_bytes(),
+            None,
+        )
+        .status
+    }
+
+    /// The send, as the real handler runs it, shows up as `sending` while it is in the engine and
+    /// is gone when it ends.
+    #[cfg(unix)]
+    #[test]
+    fn a_send_is_shown_as_sending_only_while_it_runs() {
+        // A funded vault: the send passes every gate, then waits in `pczt create` and fails.
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let mut c = cfg();
+        c.devtool = devtool_that_pauses(&c.vaults_dir, 5_000_000, "1.2");
+        a_ready_proposal(&c.vaults_dir, "relayv");
+        every_seat_has_a_device(&c.vaults_dir, "relayv");
+        let locks = concurrency::VaultLocks::new();
+        let limits = admission::Limits::new();
+        let seen = std::thread::scope(|scope| {
+            let send = scope.spawn(|| a_send_through_serve(&st, &c, &locks, &limits));
+            let seen = watch_sending(&st, &c, &locks, &limits, "relayv", Duration::from_secs(6));
+            send.join().unwrap();
+            seen
+        });
+        assert!(
+            seen.iter().any(|p| p == "p1"),
+            "never shown as sending: {seen:?}"
+        );
+        assert!(seen.iter().all(|p| p == "p1"));
+        let after = watch_sending(
+            &st,
+            &c,
+            &locks,
+            &limits,
+            "relayv",
+            Duration::from_millis(100),
+        );
+        assert!(
+            after.is_empty(),
+            "still shown after the send ended: {after:?}"
+        );
+    }
+
+    /// A send refused at a gate never shows up as sending, however long the gate takes.
+    #[cfg(unix)]
+    #[test]
+    fn a_send_refused_at_a_gate_is_never_shown_as_sending() {
+        // Unfunded: the funding gate refuses it after a slow balance read.
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let mut c = cfg();
+        c.devtool = devtool_that_pauses(&c.vaults_dir, 0, "0.8");
+        a_ready_proposal(&c.vaults_dir, "relayv");
+        every_seat_has_a_device(&c.vaults_dir, "relayv");
+        let locks = concurrency::VaultLocks::new();
+        let limits = admission::Limits::new();
+        let (status, seen) = std::thread::scope(|scope| {
+            let send = scope.spawn(|| a_send_through_serve(&st, &c, &locks, &limits));
+            let seen = watch_sending(&st, &c, &locks, &limits, "relayv", Duration::from_secs(4));
+            (send.join().unwrap(), seen)
+        });
+        assert_eq!(status, 422, "the funding gate refuses it");
+        assert!(
+            seen.is_empty(),
+            "a refused send was shown as sending: {seen:?}"
+        );
+    }
+
+    /// A send on one vault is not shown on another vault, and does not make another vault's wallet
+    /// busy. (The mark is per vault; the write lock a send holds is per vault too, which the lock
+    /// tests cover.)
+    #[test]
+    fn a_send_on_one_vault_is_not_shown_or_felt_on_another() {
+        let st = HelperState::new();
+        seed(&st, "vaulta");
+        seed(&st, "vaultb");
+        let c = cfg();
+        let locks = concurrency::VaultLocks::new();
+        let limits = admission::Limits::new();
+        let a_write = locks.for_vault("vaulta");
+        let a_wallet = locks.wallet_for_vault("vaulta");
+        let _w = a_write.lock().unwrap();
+        let _l = a_wallet.lock().unwrap();
+        let _m = locks.mark_sending("vaulta", "pa");
+        let ask = |path: &str| {
+            serve(
+                &st,
+                &c,
+                &locks,
+                &limits,
+                "203.0.113.7",
+                T0,
+                &Method::Get,
+                path,
+                b"",
+                None,
+            )
+        };
+        let r = ask("/api/vault/proposals?vault=vaultb");
+        assert_eq!(r.status, 200, "{}", r.body);
+        assert!(
+            !r.body.contains("sending"),
+            "A's send shown on B: {}",
+            r.body
+        );
+        let r = ask("/api/vault/proposals?vault=vaulta");
+        assert!(r.body.contains("\"proposal\":\"pa\""), "{}", r.body);
+        let r = ask("/api/vault/balance?vault=vaulta");
+        assert_eq!(r.status, 503, "{}", r.body);
+    }
+
+    /// Whoever holds only a protected vault's id, or a wrong key, is told nothing about a send by
+    /// the read routes: the gate answers first, with neither the proposal's name nor "busy". (What a
+    /// keyless WRITE learns from how long it waits is a Known limit, not covered here.)
+    #[test]
+    fn the_read_routes_tell_an_outsider_nothing_about_a_send_on_a_protected_vault() {
+        let st = HelperState::new();
+        seed(&st, "protv");
+        let c = cfg();
+        let key = "ab".repeat(32);
+        set_read_key(&c.vaults_dir, "protv", &key).unwrap();
+        let locks = concurrency::VaultLocks::new();
+        let limits = admission::Limits::new();
+        let write = locks.for_vault("protv");
+        let wallet = locks.wallet_for_vault("protv");
+        let _w = write.lock().unwrap();
+        let _l = wallet.lock().unwrap();
+        let _m = locks.mark_sending("protv", "secret-proposal-id");
+        let ask = |path: &str, token: Option<&str>| {
+            serve(
+                &st,
+                &c,
+                &locks,
+                &limits,
+                "203.0.113.7",
+                T0,
+                &Method::Get,
+                path,
+                b"",
+                token,
+            )
+        };
+        for path in [
+            "/api/vault/proposals?vault=protv",
+            "/api/vault/balance?vault=protv",
+            "/api/vault/transactions?vault=protv",
+            "/api/vault/ledger?vault=protv",
+        ] {
+            for token in [None, Some("cd".repeat(32))] {
+                let r = ask(path, token.as_deref());
+                assert_eq!(r.status, 401, "{path}: {}", r.body);
+                assert!(
+                    !r.body.contains("secret-proposal-id") && !r.body.contains("busy"),
+                    "{path}: {}",
+                    r.body
+                );
+            }
+        }
+        let r = ask("/api/vault/proposals?vault=protv", Some(&key));
+        assert_eq!(r.status, 200, "{}", r.body);
+        assert!(r.body.contains("secret-proposal-id"), "{}", r.body);
+    }
+
+    /// The goal of S3 against a REAL write that runs the engine (a proposal's funding check): many
+    /// reads of the vault answer while it runs, the engine is opened once, and a second write still
+    /// queues behind the first, as it always did.
+    #[cfg(unix)]
+    #[test]
+    fn reads_answer_while_a_real_write_runs_the_engine() {
+        use std::os::unix::fs::PermissionsExt;
+        let st = HelperState::new();
+        seed(&st, "stress1");
+        let mut c = cfg();
+        let log = c.vaults_dir.join("stress-calls.log");
+        let script = c.vaults_dir.join("stress-devtool");
+        std::fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\necho \"$4\" >> \"{log}\"\nif [ \"$4\" = sync ]; then sleep 2; fi\nif [ \"$4\" = balance ]; then echo '{{\"chain_tip_height\":3400100,\"orchard_spendable\":100000000,\"sapling_spendable\":0,\"total\":100000000,\"transparent_spendable\":0}}'; fi\n",
+                log = log.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        c.devtool = script;
+        let _ = orchestrator::helper::claim_members(
+            &c.vaults_dir,
+            "stress1",
+            &["alice".into(), "bob".into()],
+        );
+        an_open_two_of_two_proposal(&c.vaults_dir, "stress1");
+        let locks = concurrency::VaultLocks::new();
+        let limits = admission::Limits::new();
+        let call = |method: Method, path: &str, body: &str| {
+            let started = std::time::Instant::now();
+            let r = serve(
+                &st,
+                &c,
+                &locks,
+                &limits,
+                "203.0.113.7",
+                T0,
+                &method,
+                path,
+                body.as_bytes(),
+                None,
+            );
+            (r, started.elapsed())
+        };
+        let create = format!(
+            r#"{{"vault":"stress1","proposer":"alice","to":"{TESTNET_ORCHARD_UA}","amount_zat":1000}}"#
+        );
+        let vote = r#"{"vault":"stress1","member":"bob"}"#;
+        std::thread::scope(|scope| {
+            let write = scope.spawn(|| call(Method::Post, "/api/vault/proposals", &create));
+            let start = std::time::Instant::now();
+            while !std::fs::read_to_string(&log)
+                .unwrap_or_default()
+                .lines()
+                .any(|l| l == "sync")
+            {
+                assert!(
+                    start.elapsed() < Duration::from_secs(5),
+                    "the write never reached the engine"
+                );
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            // A request that runs the engine holds the vault's wallet for as long as it runs it.
+            assert!(
+                concurrency::try_acquire(&locks.wallet_for_vault("stress1")).is_none(),
+                "the write ran the engine without the wallet lock"
+            );
+            let second_write =
+                scope.spawn(|| call(Method::Post, "/api/vault/proposals/p1/approve", vote));
+            let mut readers = Vec::new();
+            for path in [
+                "/api/vault/proposals?vault=stress1",
+                "/api/vault/members?vault=stress1",
+                "/api/vault/ledger?vault=stress1",
+            ] {
+                for _ in 0..20 {
+                    readers.push(scope.spawn(move || call(Method::Get, path, "")));
+                }
+            }
+            for reader in readers {
+                let (r, took) = reader.join().unwrap();
+                assert_eq!(r.status, 200, "{}", r.body);
+                assert!(took < Duration::from_millis(1500), "a read waited {took:?}");
+            }
+            let (created, _) = write.join().unwrap();
+            assert_eq!(created.status, 200, "{}", created.body);
+            let (voted, waited) = second_write.join().unwrap();
+            assert!(
+                voted.status == 200 || voted.status == 409,
+                "{} {}",
+                voted.status,
+                voted.body
+            );
+            assert!(
+                waited >= Duration::from_millis(1000),
+                "the second write did not queue: {waited:?}"
+            );
+        });
+        let syncs = std::fs::read_to_string(&log)
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| *l == "sync")
+            .count();
+        assert_eq!(syncs, 1, "one engine process opened the wallet");
+    }
+
+    // ---- REG-CREATION-MIN, coordinator side -----------------------------------------------------
+
+    /// Runs `f` with the creation minimum set for THIS thread, and restores it after. A thread that
+    /// `f` spawns starts at `0` again: set the minimum inside the closure that thread runs.
+    fn with_creation_min<T>(min: u32, f: impl FnOnce() -> T) -> T {
+        struct Restore(Option<u32>);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                TEST_CREATION_MIN.with(|c| c.set(self.0));
+            }
+        }
+        let _restore = Restore(TEST_CREATION_MIN.with(|c| c.replace(Some(min))));
+        f()
+    }
+
+    fn body_with_cp(n: u32, cp: Option<&str>) -> Vec<u8> {
+        let cp = cp.map_or(String::new(), |c| format!(r#","cp":{c}"#));
+        format!(r#"{{"group_key":"{n:064x}","name":"v","threshold":2,"total":3{cp}}}"#).into_bytes()
+    }
+
+    /// The constant ships at `0`: this is the one test that changes when the number does. A build
+    /// with it on by accident would refuse every registration of every client that does not send
+    /// `cp` yet. Everything else here sets its own minimum, so the suite says the same thing at
+    /// either number.
+    #[test]
+    fn the_shipped_minimum_is_phase_a() {
+        assert_eq!(
+            MIN_CREATION, 0,
+            "raising it is a deliberate, separate change"
+        );
+        assert_eq!(creation_min(), 0);
+    }
+
+    /// Phase A records what it is given and refuses nothing.
+    #[test]
+    fn phase_a_accepts_a_registration_with_or_without_cp() {
+        let none = parse_registration(&body_with_cp(1, None))
+            .ok()
+            .expect("accepted");
+        assert_eq!(none.cp, None);
+        let some = parse_registration(&body_with_cp(2, Some("2")))
+            .ok()
+            .expect("accepted");
+        assert_eq!(some.cp, Some(2));
+        let low = parse_registration(&body_with_cp(3, Some("1")))
+            .ok()
+            .expect("accepted");
+        assert_eq!(low.cp, Some(1), "recorded as declared, not corrected");
+    }
+
+    /// Phase B: a registration that does not declare the minimum is refused with a typed answer.
+    #[test]
+    fn phase_b_refuses_a_registration_below_the_minimum() {
+        with_creation_min(2, || {
+            for cp in [None, Some("0"), Some("1")] {
+                let refused = match parse_registration(&body_with_cp(1, cp)) {
+                    Err(r) => r,
+                    Ok(_) => panic!("cp {cp:?} must be refused"),
+                };
+                assert_eq!(refused.status, 403);
+                let j: serde_json::Value = serde_json::from_str(&refused.body).unwrap();
+                assert_eq!(j["update_required"], true, "{}", refused.body);
+                assert_eq!(j["min_creation"], 2);
+                assert_eq!(j["error"], CREATION_UPDATE_TEXT);
+            }
+            let ok = parse_registration(&body_with_cp(2, Some("2")))
+                .ok()
+                .expect("accepted");
+            assert_eq!(ok.cp, Some(2));
+            let more = parse_registration(&body_with_cp(3, Some("3")))
+                .ok()
+                .expect("accepted");
+            assert_eq!(more.cp, Some(3));
+        });
+    }
+
+    /// A known key is refused like an unknown one: the gate runs before the idempotent branch, so the
+    /// answer does not depend on who registered the key first.
+    #[test]
+    fn phase_b_refuses_a_known_key_without_cp() {
+        let st = HelperState::new();
+        let id = format!("{:064x}", 7);
+        seed(&st, &id);
+        let body = body_with_cp(7, None);
+        let phase_a = handle(&st, &cfg(), &Method::Post, "/api/vault", &body);
+        assert_eq!(phase_a.status, 200, "{}", phase_a.body);
+        with_creation_min(2, || {
+            let refused = handle(&st, &cfg(), &Method::Post, "/api/vault", &body);
+            assert_eq!(refused.status, 403, "{}", refused.body);
+            assert!(!refused.body.contains("address"), "{}", refused.body);
+            let with_cp = handle(
+                &st,
+                &cfg(),
+                &Method::Post,
+                "/api/vault",
+                &body_with_cp(7, Some("2")),
+            );
+            assert_eq!(with_cp.status, 200, "{}", with_cp.body);
+        });
+    }
+
+    /// A registration the gate refuses never reaches the engine, so it is not counted against its
+    /// sender: the gate and admission read the same function.
+    #[test]
+    fn a_registration_refused_for_cp_is_not_counted() {
+        let (l, st) = (admission::Limits::new(), HelperState::new());
+        with_creation_min(2, || {
+            for n in 0..(admission::NEW_VAULTS_MAX as u32 * 3) {
+                assert_eq!(
+                    registering(&l, &st, "203.0.113.7", &body_with_cp(n, None)),
+                    None,
+                    "a refusal costs no allowance"
+                );
+            }
+            for n in 0..admission::NEW_VAULTS_MAX as u32 {
+                assert_eq!(
+                    registering(&l, &st, "203.0.113.7", &body_with_cp(500 + n, Some("2"))),
+                    None,
+                    "the whole allowance is still there"
+                );
+            }
+            assert_eq!(
+                registering(&l, &st, "203.0.113.7", &body_with_cp(999, Some("2"))),
+                Some(admission::Refused::TooManyNewVaults)
+            );
+        });
+    }
+
+    /// A cp that is not an integer that fits counts as "declared nothing": at `0` it is accepted and
+    /// recorded as none, and at `2` it is the same refusal as a missing one. Never a 400 for its shape.
+    #[test]
+    fn a_cp_that_is_not_an_integer_declares_nothing() {
+        let shapes = [
+            "\"2\"",
+            "2.0",
+            "1e0",
+            "-1",
+            "-0",
+            "4294967296",
+            "[2]",
+            "true",
+            "{}",
+            "null",
+        ];
+        for (i, shape) in shapes.iter().enumerate() {
+            let body = body_with_cp(i as u32, Some(shape));
+            let a = parse_registration(&body).ok().expect("accepted at 0");
+            assert_eq!(a.cp, None, "{shape}");
+            with_creation_min(2, || {
+                let refused = match parse_registration(&body) {
+                    Err(r) => r,
+                    Ok(_) => panic!("{shape} declares nothing, so it must be refused at 2"),
+                };
+                assert_eq!(refused.status, 403, "{shape}: {}", refused.body);
+            });
+        }
+        let max = parse_registration(&body_with_cp(99, Some("4294967295")))
+            .ok()
+            .expect("accepted");
+        assert_eq!(max.cp, Some(u32::MAX));
+    }
+
+    /// A refused registration is answered by `serve` before admission and before any lock: for a key
+    /// nobody registered AND for a known one, and a known vault's send does not hold it up.
+    #[test]
+    fn a_refused_registration_takes_no_lock_and_does_not_queue() {
+        let st = HelperState::new();
+        let known = format!("{:064x}", 0x77);
+        seed(&st, &known);
+        let c = cfg();
+        let locks = concurrency::VaultLocks::new();
+        let limits = admission::Limits::new();
+        let ask = |n: u32, cp: Option<&str>| {
+            serve(
+                &st,
+                &c,
+                &locks,
+                &limits,
+                "203.0.113.7",
+                T0,
+                &Method::Post,
+                "/api/vault",
+                &body_with_cp(n, cp),
+                None,
+            )
+        };
+        with_creation_min(2, || {
+            for n in 0..50 {
+                let r = ask(1000 + n, None);
+                assert_eq!(r.status, 403, "{}", r.body);
+            }
+            let r = ask(0x77, None);
+            assert_eq!(r.status, 403, "a known key is refused too: {}", r.body);
+        });
+        assert!(locks.is_empty(), "a refused registration was given a lock");
+        assert_eq!(locks.wallet_len(), 0);
+
+        // The vault is busy (someone holds its lock, as a send does): the refusal still answers.
+        let held = locks.for_vault(&known);
+        let guard = held.lock().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let answer = std::thread::scope(|scope| {
+            scope.spawn(|| {
+                // the minimum is per thread: set it in the thread that asks
+                let r = with_creation_min(2, || ask(0x77, None));
+                let _ = tx.send(r.status);
+            });
+            let got = rx.recv_timeout(Duration::from_millis(1500)).ok();
+            drop(guard);
+            got
+        });
+        assert_eq!(answer, Some(403), "the refusal waited for the vault's lock");
+    }
+
+    #[test]
+    fn health_publishes_the_creation_minimum() {
+        let st = HelperState::new();
+        let read = |st: &HelperState| {
+            let r = handle(st, &cfg(), &Method::Get, "/api/health", b"");
+            serde_json::from_str::<serde_json::Value>(&r.body).unwrap()
+        };
+        assert_eq!(read(&st)["client"]["creation"], 0);
+        with_creation_min(2, || assert_eq!(read(&st)["client"]["creation"], 2));
+    }
+
+    #[test]
+    fn the_registration_log_line_says_neither_the_key_nor_the_name() {
+        assert_eq!(
+            registration_log_line(None, false),
+            "registration: cp=none known=false"
+        );
+        assert_eq!(
+            registration_log_line(Some(2), true),
+            "registration: cp=2 known=true"
+        );
+    }
+
+    /// The wiring, through the handler: what the client declares is what the vault's record says,
+    /// in memory and on disk, and the request that created it is the only one that decides.
+    #[cfg(unix)]
+    #[test]
+    fn the_handler_records_the_declared_cp() {
+        use std::os::unix::fs::PermissionsExt;
+        let st = HelperState::new();
+        let mut c = cfg();
+        let write_exe = |name: &str, body: &str| {
+            let p = c.vaults_dir.join(name);
+            std::fs::write(&p, body).unwrap();
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+            p
+        };
+        let ready = |p: PathBuf| {
+            // Another test thread may have forked while the script's write handle was open, which
+            // makes the first exec fail with "Text file busy" for a moment. Wait it out here, in
+            // the test, rather than let it fail the registration.
+            for _ in 0..200 {
+                match std::process::Command::new(&p).arg("--probe").output() {
+                    Err(e) if e.raw_os_error() == Some(26) => {
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    _ => break,
+                }
+            }
+            p
+        };
+        c.zcash_sign = ready(write_exe(
+            "fake-sign",
+            "#!/bin/sh\necho 'Orchard-only unified address: \"u1fakeaddress\"'\necho 'Unified Full Viewing Key: \"uviewfake\"'\n",
+        ));
+        c.devtool = ready(write_exe(
+            "fake-devtool",
+            "#!/bin/sh\ncase \"$4\" in\n  init-fvk) mkdir -p \"$3\"; printf 'network = \"main\"\\nbirthday = 3400000\\n' > \"$3/keys.toml\" ;;\n  list-addresses) echo 'Account AccountUuid(11111111-1111-1111-1111-111111111111)' ;;\nesac\n",
+        ));
+        let id = format!("{:064x}", 0x5151);
+        let r = handle(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault",
+            &body_with_cp(0x5151, Some("2")),
+        );
+        assert_eq!(r.status, 200, "{}", r.body);
+        assert_eq!(st.get(&id).expect("registered").cp, Some(2));
+        let stored = orchestrator::helper::load_registration(&c.vaults_dir, &id).expect("on disk");
+        assert_eq!(stored.cp, Some(2));
+        assert!(stored.created_at_unix.is_some());
+        // A second device registers the same key with no cp: the record is not rewritten.
+        let again = handle(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault",
+            &body_with_cp(0x5151, None),
+        );
+        assert_eq!(again.status, 200, "{}", again.body);
+        assert_eq!(st.get(&id).unwrap().cp, Some(2));
+        // ...or that declares a different one.
+        let other = handle(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault",
+            &body_with_cp(0x5151, Some("7")),
+        );
+        assert_eq!(other.status, 200, "{}", other.body);
+        assert_eq!(st.get(&id).unwrap().cp, Some(2));
+        let on_disk = orchestrator::helper::load_registration(&c.vaults_dir, &id).unwrap();
+        assert_eq!(on_disk.cp, Some(2));
+    }
+
+    /// The production half of this file, for scans: what is above the test module.
+    fn production_source() -> &'static str {
+        include_str!("main.rs")
+            .split("\n#[cfg(test)]\nmod tests")
+            .next()
+            .expect("the file has a production half")
+    }
+
+    /// Every production caller of `register_vault`, in the helper server and in the orchestrator:
+    /// exactly one, the registration handler. A second one (a re-registration, a migration) that
+    /// passes `None` would record "no protocol" for a vault silently. Read from the source tree at
+    /// test time, so a file added later is covered too; comment lines and the test modules do not
+    /// count, and neither does the definition.
+    #[test]
+    fn register_vault_has_one_production_caller() {
+        fn production_calls(path: &std::path::Path) -> usize {
+            let text = std::fs::read_to_string(path).expect("source file");
+            // Everything above the test module: other `#[cfg(test)]` items sit in the production half.
+            let production = text.split("\n#[cfg(test)]\nmod ").next().unwrap();
+            production
+                .lines()
+                .filter(|l| !l.trim_start().starts_with("//"))
+                .filter(|l| !l.contains("fn register_vault"))
+                .map(|l| l.matches("register_vault(").count())
+                .sum()
+        }
+        let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut found = Vec::new();
+        for dir in [manifest.join("src"), manifest.join("../orchestrator/src")] {
+            for entry in std::fs::read_dir(&dir).expect("source dir").flatten() {
+                let path = entry.path();
+                if path.extension().is_some_and(|e| e == "rs") {
+                    let n = production_calls(&path);
+                    if n > 0 {
+                        found.push((path.file_name().unwrap().to_string_lossy().into_owned(), n));
+                    }
+                }
+            }
+        }
+        assert_eq!(found, vec![("main.rs".to_string(), 1)], "{found:?}");
+    }
+
+    /// The registration handler logs through `log_registration(req.cp, state.contains(..))`, once,
+    /// and prints nothing else itself: the line cannot carry the key or the name, and a second
+    /// `eprintln!` beside it, or a changed argument, fails here.
+    #[test]
+    fn the_handler_logs_one_registration_line_without_key_or_name() {
+        let src = production_source();
+        let from = src
+            .find("(Method::Post, \"/api/vault\") => {")
+            .expect("the registration arm");
+        let to = src[from..]
+            .find("(Method::Post, \"/api/vault/devicekey\")")
+            .expect("the arm after it")
+            + from;
+        let arm = &src[from..to];
+        assert_eq!(
+            arm.matches("log_registration(req.cp, state.contains(&req.group_key))")
+                .count(),
+            1,
+            "the call, exactly"
+        );
+        assert_eq!(arm.matches("log_registration(").count(), 1);
+        assert_eq!(
+            arm.matches("eprintln!").count(),
+            0,
+            "the arm prints nothing itself"
+        );
+        assert_eq!(
+            src.matches("registration_log_line(").count(),
+            2,
+            "the definition and one use"
+        );
+    }
+
+    /// The boot line counts the right halves.
+    #[test]
+    fn the_boot_counts_split_by_a_recorded_creation_protocol() {
+        let mut with = VaultRegistration {
+            vault_id: "a".into(),
+            address: String::new(),
+            ufvk: String::new(),
+            wallet_dir: String::new(),
+            account: String::new(),
+            threshold: 2,
+            total: 3,
+            change_receiver: String::new(),
+            birthday: None,
+            cp: Some(2),
+            created_at_unix: None,
+        };
+        let without = VaultRegistration {
+            cp: None,
+            vault_id: "b".into(),
+            ..with.clone()
+        };
+        with.cp = Some(0);
+        assert_eq!(creation_counts(&[]), (0, 0));
+        assert_eq!(
+            creation_counts(&[with.clone(), without.clone(), without]),
+            (1, 2)
+        );
+    }
+
+    /// A body `serve` answers itself before the lock says what the handler would have said.
+    #[test]
+    fn a_registration_refused_by_serve_says_what_the_handler_says() {
+        let st = HelperState::new();
+        let c = cfg();
+        let locks = concurrency::VaultLocks::new();
+        let limits = admission::Limits::new();
+        // JSON objects: a body `request_vault` cannot read by name is refused before this and says
+        // so in its own words, as it always did.
+        let bodies: Vec<Vec<u8>> = vec![
+            br#"{"group_key":"short"}"#.to_vec(),
+            register_body(1, 3, 2),
+            register_body(2, 0, 3),
+            format!(r#"{{"group_key":"{:064x}","name":7}}"#, 4).into_bytes(),
+        ];
+        for body in &bodies {
+            let direct = handle(&st, &c, &Method::Post, "/api/vault", body);
+            let served = serve(
+                &st,
+                &c,
+                &locks,
+                &limits,
+                "203.0.113.7",
+                T0,
+                &Method::Post,
+                "/api/vault",
+                body,
+                None,
+            );
+            assert_eq!(
+                (direct.status, &direct.body),
+                (served.status, &served.body),
+                "{:?}",
+                String::from_utf8_lossy(body)
+            );
+        }
     }
 }

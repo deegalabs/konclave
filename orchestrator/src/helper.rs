@@ -1478,6 +1478,19 @@ pub struct VaultRegistration {
     /// backfilled from `keys.toml` when the wallet dir is still there.
     #[serde(default)]
     pub birthday: Option<u64>,
+    /// The creation protocol (`cp`) the client that registered this vault declared, recorded ONCE at
+    /// the registration that created the record and never overwritten by a later one (a known key
+    /// registered again keeps what it had: the first registration is the one that made the vault).
+    /// `None` on a record written before the field existed, and on one a client registered without
+    /// it while the coordinator did not yet require it. It is self-declared - a modified client can
+    /// send any number - so it is a record of what the client said, not proof of what it did.
+    #[serde(default)]
+    pub cp: Option<u32>,
+    /// When this coordinator first registered the vault, in unix seconds. `registration.json`'s own
+    /// file time is only "last written" (backfills and migrations rewrite the file), so it cannot
+    /// say when a vault was created; this can, for every vault registered from now on.
+    #[serde(default)]
+    pub created_at_unix: Option<u64>,
 }
 
 /// Where a vault's persisted registration lives: `<vaults_dir>/<vault_id>/registration.json`.
@@ -1678,6 +1691,7 @@ pub fn register_vault(
     name: &str,
     threshold: u16,
     total: u16,
+    cp: Option<u32>,
 ) -> Result<VaultRegistration, ToolError> {
     if !is_valid_group_key(group_key) {
         return Err(ToolError::parse(
@@ -1769,11 +1783,19 @@ pub fn register_vault(
         total,
         change_receiver,
         birthday,
+        cp,
+        created_at_unix: registration_time(now_secs()),
     };
     // Persist so a restart keeps the vault + its now-fixed address. Best-effort: a write failure
     // (e.g. read-only FS) must not fail the registration - the in-memory state still serves it.
     let _ = save_registration(&cfg.vaults_dir, &reg);
     Ok(reg)
+}
+
+/// The time a registration is recorded as made. `now_secs()` is 0 when the clock cannot be read,
+/// which is not a time: record nothing rather than a false date.
+fn registration_time(now: u64) -> Option<u64> {
+    (now > 0).then_some(now)
 }
 
 /// Pull the wallet account uuid from `zcash-devtool wallet list-addresses` output
@@ -2766,6 +2788,8 @@ mod tests {
             total: 3,
             change_receiver: format!("u1change{id}"),
             birthday: Some(3_400_000),
+            cp: None,
+            created_at_unix: None,
         }
     }
 
@@ -2959,7 +2983,7 @@ mod tests {
             vaults_dir: PathBuf::from("/tmp/konclave-helper-vaults"),
             relays: Vec::new(),
         };
-        assert!(register_vault(&cfg, "not-a-valid-key", "demo", 2, 3).is_err());
+        assert!(register_vault(&cfg, "not-a-valid-key", "demo", 2, 3, None).is_err());
     }
 
     fn send_cfg(network: &str) -> HelperConfig {
@@ -3632,6 +3656,8 @@ mod tests {
             total: 3,
             change_receiver: "u1change".into(),
             birthday: Some(3_400_000),
+            cp: None,
+            created_at_unix: None,
         };
         save_registration(&dir, &reg).unwrap();
         reg.address = "u1new".into();
@@ -3734,6 +3760,8 @@ mod tests {
             total: 3,
             change_receiver: "u1change".into(),
             birthday: Some(3_400_000),
+            cp: None,
+            created_at_unix: None,
         };
         save_registration(&dir, &reg).unwrap();
         let before = std::fs::read(registration_path(&dir, &v)).unwrap();
@@ -3763,6 +3791,8 @@ mod change_receiver_tests {
             total: 3,
             change_receiver: change.to_string(),
             birthday: Some(1),
+            cp: None,
+            created_at_unix: None,
         }
     }
 
@@ -3879,5 +3909,106 @@ mod change_receiver_tests {
             change_receiver(UFVK, "test").is_err(),
             "a mainnet key must not decode as testnet"
         );
+    }
+
+    // ---- REG-CREATION-MIN: what a registration records ------------------------------------------
+
+    /// A `registration.json` written before the two fields existed must still load, with `None`
+    /// for both: every vault on the volume is one of these.
+    #[test]
+    fn a_registration_written_before_cp_loads_with_none() {
+        let old = r#"{"vault_id":"v","address":"u1x","ufvk":"uview","wallet_dir":"/w","account":"a",
+            "threshold":2,"total":3,"change_receiver":"u1c","birthday":3400000}"#;
+        let reg: VaultRegistration = serde_json::from_str(old).expect("an old record loads");
+        assert_eq!(reg.cp, None);
+        assert_eq!(reg.created_at_unix, None);
+        // And the new fields survive a round trip.
+        let mut reg = reg;
+        reg.cp = Some(2);
+        reg.created_at_unix = Some(1_791_000_000);
+        let back: VaultRegistration =
+            serde_json::from_str(&serde_json::to_string(&reg).unwrap()).unwrap();
+        assert_eq!(
+            (back.cp, back.created_at_unix),
+            (Some(2), Some(1_791_000_000))
+        );
+    }
+
+    /// The registration that creates a vault records the `cp` it declared and when it happened; a
+    /// later registration of the same key keeps what the first one recorded.
+    #[cfg(unix)]
+    #[test]
+    fn register_vault_records_cp_once() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("konclave-register-cp-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let write_exe = |name: &str, body: &str| {
+            let p = dir.join(name);
+            std::fs::write(&p, body).unwrap();
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+            p
+        };
+        let sign = write_exe(
+            "fake-sign",
+            "#!/bin/sh\necho 'Orchard-only unified address: \"u1fakeaddress\"'\necho 'Unified Full Viewing Key: \"uviewfake\"'\n",
+        );
+        let devtool = write_exe(
+            "fake-devtool",
+            "#!/bin/sh\ncase \"$4\" in\n  init-fvk) mkdir -p \"$3\"; printf 'network = \"main\"\\nbirthday = 3400000\\n' > \"$3/keys.toml\" ;;\n  list-addresses) echo 'Account AccountUuid(11111111-1111-1111-1111-111111111111)' ;;\nesac\n",
+        );
+        for p in [&sign, &devtool] {
+            // See the helper-server twin of this test: a fork by another test thread can leave the
+            // script "busy" for a moment after it is written.
+            for _ in 0..200 {
+                match std::process::Command::new(p).arg("--probe").output() {
+                    Err(e) if e.raw_os_error() == Some(26) => {
+                        std::thread::sleep(std::time::Duration::from_millis(10));
+                    }
+                    _ => break,
+                }
+            }
+        }
+        let cfg = HelperConfig {
+            zcash_sign: sign,
+            devtool,
+            lightwalletd: "unused:443".into(),
+            network: "main".into(),
+            konclave_signer: PathBuf::from("/unused"),
+            vaults_dir: dir.join("vaults"),
+            relays: Vec::new(),
+        };
+        let key = format!("{:064x}", 0xabc);
+        let before = now_secs();
+        let first = register_vault(&cfg, &key, "v", 2, 3, Some(2)).expect("registers");
+        assert_eq!(first.cp, Some(2));
+        let at = first.created_at_unix.expect("the time is recorded");
+        assert!(at >= before && at <= now_secs() + 1, "{at}");
+        // It is on disk, in the half of the vault that is backed up.
+        let stored = load_registration(&cfg.vaults_dir, &key).expect("persisted");
+        assert_eq!((stored.cp, stored.created_at_unix), (Some(2), Some(at)));
+        // Registered again, by a client that declares nothing: the record is the one that made it.
+        let again = register_vault(&cfg, &key, "v", 2, 3, None).expect("idempotent");
+        assert_eq!((again.cp, again.created_at_unix), (Some(2), Some(at)));
+        // Registered again by a client that declares a DIFFERENT one: still the first.
+        let other = register_vault(&cfg, &key, "v", 2, 3, Some(9)).expect("idempotent");
+        assert_eq!((other.cp, other.created_at_unix), (Some(2), Some(at)));
+        assert_eq!(
+            load_registration(&cfg.vaults_dir, &key).unwrap().cp,
+            Some(2)
+        );
+        // A key registered with no cp records none, and still records when.
+        let key2 = format!("{:064x}", 0xdef);
+        let bare = register_vault(&cfg, &key2, "v", 2, 3, None).expect("registers");
+        assert_eq!(bare.cp, None);
+        assert!(bare.created_at_unix.is_some());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An unreadable clock is not a registration time.
+    #[test]
+    fn a_zero_clock_is_not_recorded_as_a_registration_time() {
+        assert_eq!(registration_time(0), None);
+        assert_eq!(registration_time(1_791_000_000), Some(1_791_000_000));
     }
 }

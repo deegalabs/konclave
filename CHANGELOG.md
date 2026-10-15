@@ -56,6 +56,11 @@ explicitly accepted.
 
 ## [Unreleased]
 
+### Changed
+
+- **A vault's registration now records the creation protocol the app says it used, and when.** It is
+  what the app declares, not proof of what it did, and a vault registered before this has no record.
+
 ## [0.13.0] 2026-10-15
 
 > **Services deployed when this was cut (2026-10-15):** coordinator `4223028`, relay `42da05bf003afc41`.

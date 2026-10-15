@@ -11,7 +11,7 @@
 | Layer | Holds | On disk? | Can spend? |
 |---|---|---|---|
 | **Device** (browser) | the member's **FROST share**, sealed in IndexedDB (AES-GCM under a passphrase) | yes, ciphertext only | yes (a threshold of them) |
-| **Helper volume** (`/data/vaults/<id>/`) | **view-only** material: `registration.json` (address + **UFVK** + account + quorum), `wallet/` sync cache, `ceremonies.jsonl`, `proposals/`, `send-attempts/` (one record per real send attempt, plus `.expired-` trails: txid, expiry, no secret), `members.json`, `device-keys.json` | yes | **no** (never a share) |
+| **Helper volume** (`/data/vaults/<id>/`) | **view-only** material: `registration.json` (address + **UFVK** + account + quorum, and from 2026-10 the creation protocol the registering client declared and when the coordinator registered it), `wallet/` sync cache, `ceremonies.jsonl`, `proposals/`, `send-attempts/` (one record per real send attempt, plus `.expired-` trails: txid, expiry, no secret), `members.json`, `device-keys.json` | yes | **no** (never a share) |
 | **Relay** | room messages it does not parse (public or sealed; a signing request goes unsealed until every seat has registered its device key, #63) | **no** (in-memory, 1h TTL) | no |
 
 Two consequences follow from this table and drive everything below:
