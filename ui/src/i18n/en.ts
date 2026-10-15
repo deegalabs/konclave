@@ -169,7 +169,6 @@ export const en: Record<string, string> = {
   'vaults.resumeBackupTitle': 'Your backup copy',
   'vaults.resumeBackupDownload': 'Download',
   'vaults.resumeBackupCopy': 'Copy',
-  'vaults.resumeBackupLater': 'Take your backup now: it is in Settings, under export.',
   'vaults.resumeBackupIncomplete': "This copy restores your seat but is missing the vault's viewing key. Make it again from Settings once the vault shows its balance.",
   'vaults.openHint': "Anyone with this vault's link can read its balance, history and members.",
   'dashboard.evictionBanner': "This browser has not promised to keep your key share, so it can be deleted without warning.",

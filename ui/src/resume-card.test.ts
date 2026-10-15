@@ -37,7 +37,7 @@ describe('the vault card', () => {
     expect(vl).toMatch(/\(v\.pending \|\| resumableRec\(v\.id\)\)/)
   })
   it('a record of the earlier flow keeps its warning and gets no finish control', () => {
-    expect(vl).toMatch(/oldFlow = !!rec && !isCurrentFlow\(rec\)/)
+    expect(vl).toMatch(/oldFlow = !!rec && !isCurrentFlow\(rec\)\s*\n/)
     expect(vl).toMatch(/\{!oldFlow && canResume && resumeFor === v\.id/)
     expect(vl).toMatch(/\{!oldFlow && canResume && resumeFor !== v\.id && rec\.allSaved/)
     expect(vl).toMatch(/\{!oldFlow && !\(canResume/)
@@ -57,7 +57,7 @@ describe('the vault card', () => {
   })
   it('names the coordinator it will register with, and asks again when it is not the recorded one', () => {
     expect(vl).toMatch(/t\('vaults\.resumeConfirm', \{ server: helperBase\(\) \}\)/)
-    expect(vl).toMatch(/!sameCoord\(rec\) && !resumeAck/)
+    expect(vl).toMatch(/\(!sameCoord\(rec\) && !resumeAck\)/)
     expect(vl).toMatch(/sameCoordinator\(rec\.coordinator, helperBase\(\)\)/)
   })
   it('asks the passphrase when the vault is locked, and builds the backup with it through the shared builder', () => {

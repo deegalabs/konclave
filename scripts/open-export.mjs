@@ -204,10 +204,11 @@ export function examine(payload, v1 = false) {
     ciphertext is intact - but what came out is not the bundle this device wrote. Do not rely on
     this backup; take a fresh one.`)
   }
-  if (v1 && (!payload.id || !payload.groupKey)) {
+  // The same rule for a v1 and a v2 (the app's `vaultIdOf`): both a 64-character key, and equal.
+  if (!payload.id || !payload.groupKey) {
     problems.push(`This backup has no vault id or group key. Konclave refuses to import it; take a
     fresh backup.`)
-  } else if (v1 && !(KEY_HEX.test(String(payload.id).trim()) && KEY_HEX.test(String(payload.groupKey).trim()))) {
+  } else if (!(KEY_HEX.test(String(payload.id).trim()) && KEY_HEX.test(String(payload.groupKey).trim()))) {
     problems.push(`The vault id or the group key in this file is not a 64-character key. Konclave
     refuses to import it; take a fresh backup.`)
   }
@@ -220,7 +221,7 @@ export function examine(payload, v1 = false) {
   // the seat under another vault's id), so the report says it too.
   if (payload.id && payload.groupKey &&
       String(payload.id).trim().toLowerCase() !== String(payload.groupKey).trim().toLowerCase()) {
-    problems.push(`The vault id and the group key in this file differ. ${v1 ? 'Konclave refuses to import it: restored, the seat would answer as another vault. ' : ''}The file was edited; take a fresh backup.`)
+    problems.push(`The vault id and the group key in this file differ. Konclave refuses to import it: restored, the seat would answer as another vault. The file was edited; take a fresh backup.`)
   }
   // A backup of a vault whose creation had not finished: the app restores it unfinished, with no
   // address, until the member confirms everyone saved.

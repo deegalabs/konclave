@@ -188,18 +188,25 @@ describe('storage - portable vault export/import (v2 opaque + v1 compat, #214/#3
   it('refuses a v2 whose vault id is not its group key, as a v1 is', async () => {
     // The id the record was saved under is not the key it holds: the export seals both, and an
     // import would register one vault's key under another's name.
-    await saveVault('apart-id', data, pass)
-    const bundle = await exportVault('apart-id', pass)
-    await deleteVault('apart-id')
+    // Both are well-formed 64-character keys, so only the equality rule can refuse it.
+    const apart = 'ef'.repeat(32)
+    await saveVault(apart, data, pass) // data.groupKey is 07 x 32
+    const bundle = await exportVault(apart, pass)
+    await deleteVault(apart)
     await expect(importVault(bundle, pass)).rejects.toThrow(/incomplete|corrupt/i)
-    expect((await listVaults()).some((v) => v.id === 'apart-id')).toBe(false)
+    expect((await listVaults()).some((v) => v.id === apart)).toBe(false)
   })
 
   it('imports a v2 written in capitals under the app\'s lowercase id', async () => {
-    await saveVault(GK7, data, pass)
-    const bundle = await exportVault(GK7, pass)
-    await deleteVault(GK7)
-    expect((await importVault(bundle, pass)).id).toBe(GK7)
+    const key = new Uint8Array(32).fill(0xab)
+    const shouted = 'AB'.repeat(32)
+    await saveVault(shouted, { ...data, groupKey: key }, pass) // the id as a hand-edited record would hold it
+    const bundle = await exportVault(shouted, pass)
+    await deleteVault(shouted)
+    const meta = await importVault(bundle, pass)
+    expect(meta.id).toBe('ab'.repeat(32))
+    expect((await listVaults()).filter((v) => v.id.toLowerCase() === 'ab'.repeat(32)).map((v) => v.id)).toEqual(['ab'.repeat(32)])
+    await deleteVault('ab'.repeat(32))
   })
 
   it('still imports a legacy v1 bundle (backward compat)', async () => {

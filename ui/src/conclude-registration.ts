@@ -50,6 +50,9 @@ export async function concludeRegistration(vaultId: string): Promise<Concluded> 
   // The earlier flow kept no quorum and no protocol: never registered here, and no network is used.
   // The definition of "current flow" is the one `resumable` and the card read.
   if (!rec || !isCurrentFlow(rec)) return { refused: 'old' }
+  // A record whose id is not its group key (hand-edited) is not one this registers: said before the
+  // network, instead of as a quorum mismatch it is not.
+  if (rec.id.toLowerCase() !== rec.groupKey.toLowerCase()) return { refused: 'old' }
   const cp = protocolOfRecord(rec)!
   const { threshold, total } = rec as { threshold: number; total: number }
   // The share signs this device's own registration, so it must be in session. A passkey unlock
@@ -74,7 +77,7 @@ export async function concludeRegistration(vaultId: string): Promise<Concluded> 
   // An answer about another vault is no answer for this one (as `getVault` holds it). And the
   // record is passed as it is, not as an empty one: an address already recorded wins over the
   // served one (#501/A9), and the record is never overwritten by a later answer.
-  if (v.vault_id !== vaultId) return { refused: 'mismatch' }
+  if (v.vault_id !== vaultId || v.vault_id !== rec.groupKey) return { refused: 'mismatch' }
   const allowed = depositAddress({ ...rec, pending: false }, addressText(v.address), { threshold: v.threshold, total: v.total })
   if (!allowed.address) return { refused: 'mismatch' }
 

@@ -123,6 +123,14 @@ describe('each refusal keeps the record and says its own thing', () => {
   })
 })
 
+describe('a record whose id is not its group key', () => {
+  it('is old: said before the network, not as a quorum mismatch', async () => {
+    h.listVaults.mockResolvedValue([rec({ groupKey: 'cd'.repeat(32) })])
+    expect(await concludeRegistration(GK)).toEqual({ refused: 'old' })
+    expect(h.registerVault).not.toHaveBeenCalled()
+  })
+})
+
 describe('the address that is written', () => {
   it('is the recorded one when the record already has an address: the record wins, and the served one is ignored', async () => {
     h.listVaults.mockResolvedValue([rec({ address: 'u1recorded' })])
@@ -182,7 +190,7 @@ describe('one definition of a record of the current creation flow', () => {
   it('resumable, the card and the registration read that one function', () => {
     expect(codeOf('./creation-protocol.ts')).toMatch(/return isCurrentFlow\(r\) &&/)
     expect(codeOf('./conclude-registration.ts')).toMatch(/!isCurrentFlow\(rec\)/)
-    expect(codeOf('./screens/Vaults.tsx')).toMatch(/oldFlow = !!rec && !isCurrentFlow\(rec\)/)
+    expect(codeOf('./screens/Vaults.tsx')).toMatch(/oldFlow = !!rec && !isCurrentFlow\(rec\)\s*\n/)
   })
 })
 

@@ -169,7 +169,6 @@ export const ptBR: Record<string, string> = {
   'vaults.resumeBackupTitle': 'Sua cópia de segurança',
   'vaults.resumeBackupDownload': 'Baixar',
   'vaults.resumeBackupCopy': 'Copiar',
-  'vaults.resumeBackupLater': 'Faça a sua cópia de segurança agora: ela fica em Configurações, em exportar.',
   'vaults.resumeBackupIncomplete': 'Esta cópia restaura o seu assento, mas falta a chave de visualização do cofre. Faça de novo em Configurações quando o cofre mostrar o saldo.',
   'vaults.openHint': 'Quem tiver o link deste cofre lê saldo, histórico e membros.',
   'dashboard.evictionBanner': "Este navegador não garantiu guardar a sua parte da chave, então ela pode ser apagada sem aviso.",

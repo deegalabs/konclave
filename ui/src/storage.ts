@@ -696,6 +696,20 @@ function quorumOfExport(p: V2Payload): { threshold?: number; total?: number } {
   return { threshold: p.threshold, total: p.total }
 }
 
+/** The id a backup restores under: the vault's id IS its group key, so both must be a 64-character key
+ *  and equal, and the id is stored as the app writes it (lowercase hex), so one spelled in capitals is
+ *  not a second record of the same vault. The one rule both decoders read; anything else is refused
+ *  with the same sentence as every other edit. */
+function vaultIdOf(id: unknown, groupKey: unknown): string {
+  const KEY_HEX = /^[0-9a-f]{64}$/i
+  const idText = String(id).trim()
+  const groupKeyText = String(groupKey ?? '').trim()
+  if (!KEY_HEX.test(idText) || !KEY_HEX.test(groupKeyText) || idText.toLowerCase() !== groupKeyText.toLowerCase()) {
+    throw new Error('The export is incomplete or corrupt')
+  }
+  return idText.toLowerCase()
+}
+
 /** Decode a v2 opaque blob: decrypt the whole payload with the passphrase, then read the fields. */
 async function decodeV2(b: VaultExportV2, passphrase: string): Promise<DecodedImport> {
   if (!b.salt || !b.iv || !b.cipher) throw new Error('The export is incomplete or corrupt')
@@ -713,14 +727,10 @@ async function decodeV2(b: VaultExportV2, passphrase: string): Promise<DecodedIm
     throw new Error('The export is corrupt')
   }
   if (!p.id || !p.groupKey || !p.share || !Array.isArray(p.roster)) throw new Error('The export is incomplete or corrupt')
-  // A vault's id IS its group key, in a v2 as in a v1: the registration and the coordinator's reads
-  // are keyed on the id, so an edited payload with the two apart would register one vault's key
-  // under another's name. Both must be a 64-character key, and equal.
-  if (!/^[0-9a-f]{64}$/i.test(String(p.id)) || String(p.id).toLowerCase() !== String(p.groupKey).toLowerCase()) {
-    throw new Error('The export is incomplete or corrupt')
-  }
+  // A vault's id IS its group key, in a v2 as in a v1 (see `vaultIdOf`).
+  const id = vaultIdOf(p.id, p.groupKey)
   return {
-    id: p.id, name: p.name, governance: p.governance, myName: p.myName, creatorName: p.creatorName,
+    id, name: p.name, governance: p.governance, myName: p.myName, creatorName: p.creatorName,
     groupKey: unhex(p.groupKey), address: addressText(p.address), roster: p.roster, createdAt: p.createdAt || Date.now(),
     share: unhex(p.share), accessSecret: p.accessSecret ? unhex(p.accessSecret) : undefined,
     beneficiaries: Array.isArray(p.beneficiaries) ? p.beneficiaries : undefined,
@@ -773,12 +783,8 @@ async function decodeV1(b: VaultExportV1, passphrase: string): Promise<DecodedIm
   // fingerprint changes, which comparing it with another member catches (Known limits).
   // Both must be a 64-character key before they are compared, so a malformed one gets the same
   // refusal as every other edit instead of a decoder's own message.
-  const KEY_HEX = /^[0-9a-f]{64}$/i
-  const idText = String(v.id).trim()
+  const idLower = vaultIdOf(v.id, v.groupKey)
   const groupKeyText = String(v.groupKey ?? '').trim()
-  if (!KEY_HEX.test(idText) || !KEY_HEX.test(groupKeyText) || idText.toLowerCase() !== groupKeyText.toLowerCase()) {
-    throw new Error('The export is incomplete or corrupt')
-  }
   let accessSecret: Uint8Array | undefined
   if (v.secretIv && v.secretCipher) {
     try {
@@ -791,7 +797,7 @@ async function decodeV1(b: VaultExportV1, passphrase: string): Promise<DecodedIm
   return {
     // The id as the app writes it (lowercase hex): one spelled in capitals would otherwise land as a
     // second record of the same vault.
-    id: String(v.id).trim().toLowerCase(), name: v.name, governance: v.governance, myName: v.myName, creatorName: v.creatorName,
+    id: idLower, name: v.name, governance: v.governance, myName: v.myName, creatorName: v.creatorName,
     // NOT the bundle's address: in v1 it sits in cleartext outside the AES-GCM tag, so anyone who can
     // edit the file can change it, and the record's address is the one the screens show for deposits
     // over the coordinator's (A9). An empty one is filled by the coordinator's first answer, the same
