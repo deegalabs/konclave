@@ -21,8 +21,8 @@ from both.
 
 ## Which build is live
 
-The web has no version to check, because it changes whenever `main` does. The footer names the exact
-commit instead, which is the honest answer to "do I have the fix?". Compare it with `main`.
+The web has no version to check, because it changes whenever `main` does. The app frame (the rail on a
+computer, the More menu on a phone) and the landing name the exact commit instead, which is the honest answer to "do I have the fix?". Compare it with `main`.
 
 ## Categories
 
@@ -39,6 +39,29 @@ history to tidy it is how context gets lost.
 ---
 
 ## [Unreleased]
+
+## [0.13.1] 2026-10-15
+
+### Changed
+
+- **A screen opened while the vault is busy keeps what it showed.** When the coordinator answers that
+  the vault is busy for a moment (often a payment being sent), the dashboard keeps the last balance,
+  the payment and payroll screens keep the last balance or, with none read yet, say a payment can be
+  proposed once the vault is free, and the receive screen keeps its transactions; all of them update
+  on their own. Before, such a screen could read "Wallet not connected" or block a payment until a
+  reload.
+
+### Fixed
+
+- **A refused payment read as money to verify on the dashboard.** The movements table showed it with
+  a minus sign and a "verify" link, as if it had left the vault. A payment that never went out now
+  shows its state (refused, expired, awaiting) and no minus sign; only a payment that left shows the
+  block it landed in, or that it is on its way.
+- **The update banner named the version already running, and on a phone it sat under the bottom
+  menu.** It now says which version replaces which, sits above the menu, and the page keeps room for
+  it.
+- **The version was only in Settings.** It is now in the app's frame (the side menu on a computer,
+  the More menu on a phone) and on the landing page.
 
 ## [0.13.0] 2026-10-15
 

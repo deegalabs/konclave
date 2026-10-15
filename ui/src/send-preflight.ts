@@ -26,7 +26,9 @@ export function alreadySent(list: ReadonlyArray<SentProbe> | null, id: string): 
  *  The coordinator holds the vault's lock for the whole of a send, and every read that names the
  *  vault waits on it holding one of the coordinator's workers; a read every few seconds from every
  *  open panel, each one left waiting, emptied the pool within minutes (#626 review, round 3; the
- *  shape of the 2026-08-27 incident). Returns the function that stops it. */
+ *  shape of the 2026-08-27 incident). COORD-LOCK phase 1 lets reads stop waiting on that lock (a busy
+ *  vault answers 503 at once); the watch stays light anyway, since every panel runs one. Returns the
+ *  function that stops it. */
 export function watchSent(
   list: () => Promise<ReadonlyArray<SentProbe> | null>,
   id: string,

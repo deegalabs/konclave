@@ -110,7 +110,8 @@ describe('send preflight', () => {
 
 // Every open panel watches, so the watch must be light (#626 review, round 3): the coordinator holds
 // the vault's lock for the whole of a send and every read naming the vault waits on it, holding one
-// of its workers. A read every 4 s from every open panel, each one waiting, emptied the pool.
+// of its workers. A read every 4 s from every open panel, each one waiting, emptied the pool. Reads no
+// longer wait once COORD-LOCK phase 1 is deployed; the watch stays light regardless.
 describe('watchSent', () => {
   afterEach(() => { vi.useRealTimers() })
 

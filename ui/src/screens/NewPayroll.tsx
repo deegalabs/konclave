@@ -7,13 +7,14 @@ import { estimatedFeeZat } from '../fee-estimate'
 import { useT, useTr } from '../i18n'
 import { useToast } from '../toast'
 import {
-  previewPayroll, createPayroll, getBalance, getBeneficiaries, getLedger, getVault, health, classifyAddress, humanError, IS_NET,
+  previewPayroll, createPayroll, getBeneficiaries, getLedger, getVault, health, classifyAddress, humanError, IS_NET,
   type Beneficiary, type Proposal, type Member,
 } from '../api'
 import { listVaults } from '../storage'
 import { RecipientCombobox } from '../RecipientCombobox'
 import { usdEnabled, setUsdEnabled, cachedRate, rateIsStale, fetchRate, zecToUsd, type Rate } from '../price'
 import { proposeBlock, blockMessageKey, poolsOf } from '../propose-guard'
+import { useVaultBalance } from '../useVaultBalance'
 
 const DRAFT_KEY = 'konclave.folha.rascunho'
 
@@ -43,10 +44,15 @@ export default function NewPayroll() {
   const [rows, setRows] = useState<Row[]>([emptyRow()])
   const [showImport, setShowImport] = useState(false)
   const [csv, setCsv] = useState('')
-  const [balanceZat, setBalanceZat] = useState<number | null>(null)
+  // The same balance the payment screen reads, refreshed on the same cadence (useVaultBalance): this
+  // screen used to read it once, so a payroll opened while the wallet was busy stayed blocked.
+  // Spendable, not total: only confirmed spendable funds can be sent, so the balance-after and the
+  // over-balance block are against spendable (catches amount+fee overspend at propose).
+  const { bal, busy: walletBusy } = useVaultBalance()
+  const balanceZat = bal ? bal.spendable_zat ?? bal.total_zat ?? null : null
   // #427: the two shielded pools separately. `spendable` is their sum, and one payment cannot
   // always spend the sum.
-  const [pools, setPools] = useState<ReturnType<typeof poolsOf>>(undefined)
+  const pools = bal ? poolsOf(bal) : undefined
   const [benefs, setBenefs] = useState<Beneficiary[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -81,12 +87,8 @@ export default function NewPayroll() {
     let on = true
     void (async () => {
       if (await health()) {
-        const [b, bs, led, v] = await Promise.all([getBalance(), getBeneficiaries(), getLedger(), getVault()])
+        const [bs, led, v] = await Promise.all([getBeneficiaries(), getLedger(), getVault()])
         if (!on) return
-        // Spendable, not total: only confirmed spendable funds can be sent, so the balance-after
-        // and the over-balance block are against spendable (catches amount+fee overspend at propose).
-        if (b?.configured) setBalanceZat(b.spendable_zat ?? b.total_zat ?? null)
-      if (b?.configured) setPools(poolsOf(b))
         if (bs) setBenefs(bs)
         if (led) setPastFolhas(led.filter((x) => x.kind === 'payroll'))
         if (v) {
@@ -340,7 +342,7 @@ export default function NewPayroll() {
           </div>
 
           <div className="plf-act">
-            <button className="btn ok" onClick={submit} disabled={!canSubmit}>{busy ? t('payroll.sending') : t('payroll.submitBtn')}</button>
+            <button className="btn ok" onClick={submit} disabled={!canSubmit} aria-describedby={walletBusy && block === 'balance-unknown' ? "payroll-busy" : undefined}>{busy ? t('payroll.sending') : t('payroll.submitBtn')}</button>
             <span className="plf-note">{tr('payroll.pvApprovalValue', { proposer })}</span>
           </div>
 
@@ -360,7 +362,8 @@ export default function NewPayroll() {
         {overBalance && <div className="hint warn mt-sm">{t('payroll.warnExceeds')}</div>}
         {/* Same reason as the payment screen: the gate fails closed, so name the block. Only once
             there is a valid row - on an empty sheet the total is 0 and would always warn. */}
-        {count > 0 && blockMessageKey(block) && (
+        <div role="status" id="payroll-busy">{walletBusy && <div className="hint mt-sm">{t(bal ? 'wallet.busyKept' : 'wallet.busyBlocked')}</div>}</div>
+        {count > 0 && blockMessageKey(block) && !(walletBusy && block === 'balance-unknown') && (
           <div className="hint warn mt-sm">{t(blockMessageKey(block)!)}</div>
         )}
         {error && <div className="hint err mt-sm" role="alert">{error}</div>}

@@ -56,6 +56,14 @@ explicitly accepted.
 
 ## [Unreleased]
 
+## [0.13.1] 2026-10-15
+
+> **Services deployed when this was cut (2026-10-15):** coordinator `4223028`, relay `42da05bf003afc41`.
+> The web app is this release's own commit. The two services are deployed by hand and may be
+> older than it - recording what they were ANSWERING is the point, not what they should have been.
+
+The notice for this release: https://forum.zcashcommunity.com/t/konclave-a-group-vault-on-zcash-frost/57218/23
+
 ### Changed
 
 - **A vault's registration now records the creation protocol the app says it used, and when.** It is

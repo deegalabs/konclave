@@ -7,6 +7,7 @@ import '../redesign.css'
 import '../landing-vault.css'
 import { useInstall } from '../use-install'
 import { DESKTOP_VERSION } from '../desktop-release'
+import { VersionBadge } from '../UpdatePrompt'
 
 const REPO = 'https://github.com/deegalabs/konclave'
 const RELEASES = `${REPO}/releases`
@@ -126,6 +127,7 @@ export default function Intro() {
             ? <>Veja por dentro: a arquitetura, a cerimônia de aprovação e cada prova on-chain - tudo nas </>
             : <>See under the hood: the architecture, the approval ceremony, and every on-chain proof - all in </>}
             <Link to="/docs">Docs →</Link></p>
+          <p className="lv-docs"><VersionBadge /></p>
         </div>
       </main>
 

@@ -11,6 +11,7 @@ import { VaultSignerProvider } from './VaultSigner'
 import { LoadingProvider, TopProgress } from './loading'
 import { startVisiblePoll } from './usePoll'
 import SigningPanel from './screens/SigningPanel'
+import { VersionBadge } from './UpdatePrompt'
 import AppPrefs from './AppPrefs'
 import LockOverlay from './LockOverlay'
 import type { VaultSrc } from './unlock'
@@ -53,6 +54,13 @@ export default function Layout() {
 
   // Close the mobile "More" sheet and the vault-switch popover on any route change.
   useEffect(() => { setMoreOpen(false); setSwitchOpen(false) }, [loc.pathname])
+  // Escape closes the More sheet, so keyboard focus never sits on something it covers.
+  useEffect(() => {
+    if (!moreOpen) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMoreOpen(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [moreOpen])
 
   // Toggle the switcher; on open, refresh the on-device vault list (names for the popover).
   async function toggleSwitch() {
@@ -235,6 +243,7 @@ export default function Layout() {
                   the bar's job is identity, current vault and liveness - so they live in the
                   overflow the app already has. On desktop they stay in the rail, under the brand. */}
               <div className="nav-more-prefs"><AppPrefs /></div>
+              <div className="more-ver"><VersionBadge /></div>
             </div>
           </>
         )}
@@ -303,6 +312,8 @@ export default function Layout() {
               ) : null}
             </span>
           </div>
+          {/* The build this screen runs, once in the frame (the More sheet carries it on a phone). */}
+          <div className="rail-ver"><VersionBadge /></div>
         </div>
       </aside>
 

@@ -82,6 +82,9 @@ export const ptBR: Record<string, string> = {
   'pass.hide': 'Ocultar frase-senha',
   'pwa.title': 'Nova versão disponível',
   'pwa.refresh': 'Atualizar',
+  'pwa.versions': 'Versão {now} agora, versão {next} chegando.',
+  'pwa.versionsBuild': 'Uma compilação mais nova da versão {now} está chegando.',
+  'version.commitLink': 'Commit {sha} no GitHub (abre numa nova aba)',
   'pwa.updating': 'Atualizando…',
   'pwa.dismiss': 'Dispensar',
   'common.reveal': 'Revelar',
@@ -471,6 +474,7 @@ export const ptBR: Record<string, string> = {
   'dashboard.readySeats': '{present} de {threshold} assentos presentes',
   'dashboard.readyFree': 'livre **{amt}** ZEC',
   'dashboard.readyNoFree': 'nada livre para gastar agora',
+  'dashboard.readyFreeUnknown': 'fundos livres: aguardando o cofre',
   'dashboard.readyBackends': 'cofre e relay respondendo',
   'dashboard.readyBackendsDown': 'cofre ou relay sem resposta',
   // Participation and the movements table.
@@ -489,6 +493,9 @@ export const ptBR: Record<string, string> = {
   'dashboard.overCommitted': 'As propostas abertas somam mais do que o cofre pode gastar agora. Alguma delas não vai conseguir ser paga.',
   'dashboard.walletNotConnected': 'Carteira não conectada',
   'dashboard.walletNotConnectedNote': 'O saldo aparece quando o cofre sincroniza com a rede.',
+  'wallet.busyKept': 'O cofre está ocupado por um instante, muitas vezes porque um pagamento está sendo enviado. O saldo mostrado é o último lido; ele se atualiza sozinho.',
+  'wallet.busyBlocked': 'O cofre está ocupado por um instante, muitas vezes porque um pagamento está sendo enviado. Você pode propor assim que ele liberar; esta tela se atualiza sozinha.',
+  'wallet.busyFirst': 'O cofre está ocupado por um instante, muitas vezes porque um pagamento está sendo enviado. O saldo aparece assim que ele liberar; esta tela se atualiza sozinha.',
   'dashboard.confirmedLower': 'confirmado',
   'dashboard.pendingLower': 'pendente',
   'dashboard.confirming': '{amt} confirmando - gastável depois de 10 confirmações',
@@ -535,7 +542,6 @@ export const ptBR: Record<string, string> = {
   'dashboard.agoNow': 'agora',
   'dashboard.agoMin': 'há {n} min',
   'dashboard.agoHours': 'há {n} h',
-  'dashboard.verify': 'verificar ↗',
   // O `confirmado` sozinho era o defeito inteiro: aparecia para transa\u00e7\u00e3o ainda no mempool, porque
   // o estado que ele lia nunca pode dizer outra coisa. Agora a palavra vem com o bloco que a
   // sustenta, e o passo anterior tem nome pr\u00f3prio.
