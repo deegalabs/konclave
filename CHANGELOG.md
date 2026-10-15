@@ -56,14 +56,27 @@ explicitly accepted.
 
 ## [Unreleased]
 
+## [0.13.0] 2026-10-15
+
+> **Services deployed when this was cut (2026-10-15):** coordinator `4223028`, relay `42da05bf003afc41`.
+> The web app is this release's own commit. The two services are deployed by hand and may be
+> older than it - recording what they were ANSWERING is the point, not what they should have been.
+
+The notice for this release: https://forum.zcashcommunity.com/t/konclave-a-group-vault-on-zcash-frost/57218/23
+
 ### Security
 
-- **The browser signer checks more of a transaction before it signs.** What this closes is held back
-  for now and will be added here when the details are published. What a member can notice: a device
-  may refuse to sign with one of a few new messages, each saying what to check; and when a device is
-  asked to sign a payment it signed before, it says so and signs again only through its own
-  confirmation, after the member checks the book. For anyone building on the SDK: `readForSigning`
-  is new, and `readPayment`'s fee check changed; both are described when the details are published.
+- **The browser signer checks more of a transaction before it signs.** In earlier versions a device
+  checked what a transaction pays (since 0.10.0) and not much else about it. A coordinator could build the
+  approved payment with an expiry far in the future and keep the signed transaction to broadcast
+  later; could set a fee above the network rule, within the ceiling the device allowed; and could ask
+  the devices that approved a payment to sign a second, different transaction for it, so that both
+  could go out. A device now refuses a transaction that expires outside the window its own clock
+  allows, that is built for another network or transaction version, or whose fee is not exactly the
+  network rule (ZIP 317). On this device, it refuses to sign a second transaction for the same
+  approval without the explicit confirmation of the member who signs. We have no report that any of this
+  was used; we did not check. What a member can notice: a device may refuse to sign with one of a
+  few new messages, each saying what to check.
 
 ### Changed
 
