@@ -85,7 +85,10 @@ export interface UnarmedMsg {
   /** The seat withdrawing. Present so the withdrawal can be attributed and therefore PROVEN: an
    *  unsigned `unarmed` used to be enough for anyone in the room to zero every device (#425). */
   seat?: number
-  /** Signed by that seat's own share, over seat+vault+tag+code+proposal. */
+  /** The time of the completed quorum this withdraws (SIGNER-SEAT1); signed, so an old withdrawal posted
+   *  again cannot end a later completion. */
+  of?: number
+  /** Signed by that seat's own share, over seat+vault+tag+code+proposal(+of). */
   sig?: string
 }
 
@@ -184,9 +187,9 @@ export class BackgroundSession {
    *  signing message that arrived before its sender was seated now proceeds); everything else goes
    *  to the signer. Call from RelaySession.onMessage. */
   async onMessage(from: string, data: string, historical = false): Promise<void> {
-    let parsed: { type?: string; seat?: number; sig?: string; proposal?: string; at?: number; code?: FailureCode } | null = null
+    let parsed: { type?: string; seat?: number; sig?: string; proposal?: string; at?: number; code?: FailureCode; of?: number } | null = null
     try {
-      parsed = JSON.parse(data) as { type?: string; seat?: number; sig?: string; proposal?: string; at?: number; code?: FailureCode }
+      parsed = JSON.parse(data) as { type?: string; seat?: number; sig?: string; proposal?: string; at?: number; code?: FailureCode; of?: number }
     } catch {
       /* not JSON - hand to the signer, which ignores unparseable input */
     }
@@ -204,17 +207,19 @@ export class BackgroundSession {
       if (parsed.proposal !== this.currentProposal) return
       const proven =
         typeof parsed.seat === 'number' &&
-        unarmedIsProven(this.signingMaterial(), parsed.seat, from, parsed.proposal, parsed.code, parsed.sig)
+        unarmedIsProven(this.signingMaterial(), parsed.seat, from, parsed.proposal, parsed.code, parsed.sig, parsed.of)
       if (!proven) {
         this.onLog?.(`~ ignored an unproven withdrawal for seat ${String(parsed.seat)}`)
         return
       }
-      // Only the device the room named sender withdraws: in the app it does so when its send failed.
-      // From anyone else a proven withdrawal used to reset the tally, the coordinator and every
-      // signer's consent, so a member who never signed could stop an approved send at every attempt
-      // (SIGNER-SEAT1 review A1). Read in the room's order, a withdrawal from an earlier attempt still
-      // matches the completion of that attempt, so history replays as it happened.
-      if (this.completion === null || from !== this.completion.tag) {
+      // Only the seat the room named sender withdraws (in the app, when its send failed), and only the
+      // completion it names. From anyone else a proven withdrawal used to reset the tally, the coordinator
+      // and every signer's consent, so a member who never signed could stop an approved send at every
+      // attempt (review A1). The seat, not the tag: the relay takes the sender a client writes, so a tag
+      // proves nothing (security delta B1), and the sender's own panel reopened has a new tag (B3). The
+      // completion's time, signed inside: an old withdrawal posted again ends nothing later (B2). Read in
+      // the room's order, a withdrawal still matches the completion it was made for.
+      if (this.completion === null || parsed.seat !== this.completion.seat || parsed.of !== this.completion.at) {
         this.onLog?.(`~ ignored a withdrawal from a device that is not sending this payment (seat ${String(parsed.seat)})`)
         return
       }
@@ -347,8 +352,9 @@ export class BackgroundSession {
   async unarm(proposal: string, code?: FailureCode): Promise<void> {
     const seat = this.seats.mySeat()
     const mat = this.signingMaterial()
-    const sig = signUnarmed(mat.keyPackage, seat, bytesToHex(mat.groupVk), this.myTag, proposal, code)
-    const msg: UnarmedMsg = { type: 'unarmed', proposal, seat, sig, ...(code ? { code } : {}) }
+    const of = this.completion?.at
+    const sig = signUnarmed(mat.keyPackage, seat, bytesToHex(mat.groupVk), this.myTag, proposal, code, of)
+    const msg: UnarmedMsg = { type: 'unarmed', proposal, seat, sig, ...(code ? { code } : {}), ...(of === undefined ? {} : { of }) }
     await this.send(JSON.stringify(msg))
   }
 

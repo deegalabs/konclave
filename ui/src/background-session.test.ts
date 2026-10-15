@@ -15,7 +15,7 @@ import { parseAlphas } from './signing'
 import { bytesToHex } from './net-sign'
 import { BackgroundSession, tallyMessageFits } from './background-session'
 import { codeOf } from './source-scan'
-import { signArmed } from './room-auth'
+import { signArmed, signUnarmed } from './room-auth'
 import { ARM_TTL_MS } from './signing-gate'
 import type { GovernanceGate } from './background-signer'
 import type { GateDecision } from './approved-payment'
@@ -1447,5 +1447,67 @@ describe('any t of n seats complete a send, whichever they are', () => {
     await run([b.dev, c.dev], bus)
     expect(b.dev.armedSeats).toEqual([2])
     expect(b.dev.session.coordinatorTag()).toBeNull()
+  })
+})
+
+// SIGNER-SEAT1 security delta (8a71fcb): a withdrawal is matched by SEAT, not by the tag a client writes,
+// and it names the completion it withdraws, so an old one cannot be posted again (B1, B2, B3).
+describe('a withdrawal counts only from the seat that completed, for that completion', () => {
+  type Mat = () => { keyPackage: Uint8Array; groupVk: Uint8Array; pubkeys: Uint8Array }
+  function seated(tag: string, seat: number, bus: Bus, m: Mat) {
+    const own = { armed: false }
+    const dev = makeDev(tag, seat, bus, m, () => own.armed, () => 'match', 0, 2)
+    dev.session.setProposal('p1')
+    return { dev, sign: async () => { own.armed = true; await dev.session.arm('p1', NOW); await dev.session.retry() } }
+  }
+  async function three() {
+    const { shares, groupVk, pubkeys } = dkg(2, 3)
+    const bus = new Bus()
+    const mat = (i: number) => () => ({ keyPackage: shares[i]!.keyPackage(), groupVk, pubkeys })
+    const ds = [0, 1, 2].map((i) => seated(['a', 'b', 'c'][i]! + '-tag', i + 1, bus, mat(i)))
+    const all = ds.map((d) => d.dev)
+    for (const d of all) await d.session.start()
+    await run(all, bus)
+    NOW += 1000; await ds[1]!.sign(); await run(all, bus)
+    NOW += 1000; await ds[2]!.sign(); await run(all, bus)
+    return { bus, ds, all, shares, groupVk, mat }
+  }
+
+  it('a member who never signed cannot withdraw by posting under the sender\'s tag (B1)', async () => {
+    const { bus, all, shares, groupVk } = await three()
+    const at = all[0]!.session.completed()!.at
+    // Seat 1 signs a withdrawal for ITS OWN seat, bound to the sender's tag, and posts it as the sender.
+    const sig = signUnarmed(shares[0]!.keyPackage(), 1, bytesToHex(groupVk), 'c-tag', 'p1', 'ceremony', at)
+    bus.post('c-tag', JSON.stringify({ type: 'unarmed', proposal: 'p1', seat: 1, code: 'ceremony', of: at, sig }))
+    await run(all, bus)
+    for (const d of all) expect(d.session.coordinatorTag(), d.tag).toBe('c-tag')
+    expect(all[1]!.withdrawn, 'seat 2 keeps its consent').toBe(0)
+    expect(all[1]!.failure).toBeNull()
+  })
+
+  it('the sender\'s own old withdrawal, posted again, does not end a later completion (B2)', async () => {
+    const { bus, ds, all } = await three()
+    await ds[2]!.dev.session.unarm('p1', 'ceremony'); await run(all, bus)
+    const old = bus.msgs.filter((m) => m.data.includes('"unarmed"')).at(-1)!
+    // Everyone signs again; C completes again, under the same tag.
+    NOW += 1000; await ds[1]!.sign(); await run(all, bus)
+    NOW += 1000; await ds[2]!.sign(); await run(all, bus)
+    expect(all[0]!.session.coordinatorTag()).toBe('c-tag')
+    bus.post(old.from, old.data)
+    await run(all, bus)
+    for (const d of all) expect(d.session.coordinatorTag(), d.tag).toBe('c-tag')
+  })
+
+  it('the sender that reopened its panel (new tag, same seat) can still withdraw (B3)', async () => {
+    const { bus, all, mat } = await three()
+    // C's panel closes and opens again: a new session, a new tag, the same seat, reading the room back.
+    const c2 = makeDev('c2-tag', 3, bus, mat(2), () => true, () => 'match', 0, 2)
+    c2.session.setProposal('p1')
+    await c2.session.start()
+    await run([...all, c2], bus)
+    expect(c2.session.coordinatorTag()).toBe('c-tag')
+    await c2.session.unarm('p1', 'ceremony'); await run([...all, c2], bus)
+    for (const d of all.slice(0, 2)) expect(d.session.coordinatorTag(), d.tag).toBeNull()
+    expect(all[1]!.failure).toBe('ceremony')
   })
 })
