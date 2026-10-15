@@ -17,7 +17,7 @@ import { decodeBundle } from '../signing'
 import { SigningMachine, type SignPreview } from '../signing-machine'
 import { seatHolder } from '../signing-seats'
 import { signRejoin, rejoinIsProven } from '../room-auth'
-import { unsealSignRequest } from '../net-sign'
+import { parseSignRequest, unsealSignRequest } from '../net-sign'
 import { generateVaultSecret } from '../vault-secret'
 import { deviceCommsKey, devicePubHex } from '../device-key'
 import { registerThisDevice } from '../device-registration'
@@ -472,6 +472,12 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
       // it properly is #363 (this driver never got the replay mitigation either).
       seatIsProven: () => false,
       mySeat: () => mySeatRef.current,
+      myTag: () => myTagRef.current,
+      // SIGNER-SEAT1, stated for this driver: /net has no signing tally, so it keeps its own rule, seat
+      // 1 coordinates (null until seat 1 is seated here). A /net ceremony therefore still needs seat 1
+      // present; the vault's own signing screen does not (Known limits).
+      coordinatorTag: () =>
+        mySeatRef.current === 1 ? myTagRef.current : ([...seatByTagRef.current].find(([, s]) => s === 1)?.[0] ?? null),
       threshold: () => configRef.current?.t ?? 0,
       hasVault: () => part3DoneRef.current && !ceremonyRef.current?.aborted,
       send: (m) => sendRef.current(m),
@@ -514,6 +520,8 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
         /* no signing material yet */
       }
       if (await machine.tryHelperRequest(reqData)) return true
+      // A request whose coordinator is not seated here yet waits for the rejoin that seats it.
+      if (parseSignRequest(reqData)) return false
       // ---- the creation ceremony: these go to DkgCeremony, which owns the rules ----
       if (parsed.type === 'config' || parsed.type === 'hello' || parsed.type === 'commit' || parsed.type === 'reveal'
         || parsed.type === 'r1' || parsed.type === 'r2' || parsed.type === 'done') {
