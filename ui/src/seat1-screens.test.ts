@@ -19,13 +19,18 @@ describe('the panel names the device that is sending', () => {
   })
   it('says close and reopen when the round started and the sender went quiet', () => {
     expect(panel).toMatch(/const stalled = !sending && bg\.phase === 'signing' && !bg\.sendingNamed\(\)/)
-    expect(panel).toMatch(/\{stalled && \(\s*<div className="hint warn mt-sm" role="status">\{t\('signing\.stalledReopen'\)\}<\/div>/)
+    // The live region is in the page before the hint lands in it, so it is announced (a11y delta 6).
+    expect(panel).toMatch(/<div role="status">\{stalled && <div className="hint warn mt-sm">\{t\('signing\.stalledReopen'\)\}<\/div>\}<\/div>/)
   })
 })
 
 describe('a seat that was not needed is said as such once sent', () => {
   it('in the signing panel roster', () => {
-    expect(panel).toMatch(/sent && !rosterSigned\.includes\(i \+ 1\) && <span className="sign-seat-nn"><span className="visually-hidden">, <\/span>\{t\('signing\.seatNotNeeded'\)\}<\/span>/)
+    expect(panel).toMatch(/sent && knowsWhoSigned && !rosterSigned\.includes\(i \+ 1\) && <span className="sign-seat-nn"><span className="visually-hidden">, <\/span>\{t\('signing\.seatNotNeeded'\)\}<\/span>/)
+    // A sent payment reopened without the completed quorum in memory says nothing about who was not
+    // needed, rather than reading an expiring count (a11y delta 1).
+    expect(panel).toMatch(/const knowsWhoSigned = !sent \|\| done !== null/)
+    expect(panel).toMatch(/<span className="visually-hidden">, \{t\('signing\.seatSigned'\)\}<\/span>/)
   })
   it('on the proposal, for a member who neither approved nor refused', () => {
     expect(codeOf('./screens/Proposal.tsx')).toMatch(/if \(p\.state === 'sent' \|\| p\.state === 'confirmed'\) return \{ cls: '', label: t\('proposal\.stanceNotNeeded'\) \}/)

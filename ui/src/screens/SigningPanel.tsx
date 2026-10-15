@@ -350,6 +350,9 @@ export default function SigningPanel() {
   // does not expire: the live count drops a signature after its window, and would then call a member
   // who signed "not needed" (a11y review 1).
   const rosterSigned = sent && done ? done.seats : signedSeats
+  // A sent payment reopened after another one has no completed quorum in memory: it then says nothing
+  // about who was not needed rather than read the count, which drops old signatures.
+  const knowsWhoSigned = !sent || done !== null
   // A refusal by this device outranks any later failure of the send (#610): the send fails BECAUSE
   // the device refused, and the failure's wording ("you can sign again") would contradict it.
   const fromSigner = describeSigningError(bg.error, t)
@@ -646,11 +649,11 @@ export default function SigningPanel() {
                   {rosterSigned.includes(i + 1) && (
                     <>
                       {/* The tick reads at a glance; the label makes it readable at all. */}
-                      <span className="visually-hidden">{t('signing.seatSigned')}</span>
+                      <span className="visually-hidden">, {t('signing.seatSigned')}</span>
                       <span className="sign-seat-tick" aria-hidden="true">✓</span>
                     </>
                   )}
-                  {sent && !rosterSigned.includes(i + 1) && <span className="sign-seat-nn"><span className="visually-hidden">, </span>{t('signing.seatNotNeeded')}</span>}
+                  {sent && knowsWhoSigned && !rosterSigned.includes(i + 1) && <span className="sign-seat-nn"><span className="visually-hidden">, </span>{t('signing.seatNotNeeded')}</span>}
                 </span>
               ))}
             </div>
@@ -740,9 +743,7 @@ export default function SigningPanel() {
               {elapsed > 180 && !stalled && <div className="hint err mt-sm" role="alert">{t('signing.slowHint')}</div>}
               {/* The device running the send has not finished within its window after the round began: a
                   started round has no abort yet (#284), so the one thing that helps is a fresh panel. */}
-              {stalled && (
-                <div className="hint warn mt-sm" role="status">{t('signing.stalledReopen')}</div>
-              )}
+              <div role="status">{stalled && <div className="hint warn mt-sm">{t('signing.stalledReopen')}</div>}</div>
               {/* An ignored message, before the reading, so a long payroll does not push it out of view. */}
               {notice && <div className="hint warn mt-sm" role="status">{notice}</div>}
               {/* Below the clock, so a long payroll does not push the progress off a phone screen. */}
