@@ -19,7 +19,7 @@ the security invariants **I1-I4** this document realizes. It was first written (
 target for the security fixes of issues #62/#63/#65.
 
 Implementations: browser client `ui/src/net.ts` (relay transport), `ui/src/screens/NetVault.tsx`
-(ceremony driver, to be factored into `ui/src/signing.ts`), `ui/src/net-sign.ts` (sign wire),
+(the `/net` ceremony driver), `ui/src/signing-machine.ts` (the signing state machine), `ui/src/net-sign.ts` (sign wire),
 `konclave-wasm` (DKG + FROST crypto), relay `relay-server/src/main.rs` + `orchestrator/src/relay.rs`.
 
 ## 1. Transport (the blind relay)
@@ -92,29 +92,19 @@ REQUIRES **authenticated admission**:
   ECIES-sealed to the seated devices' DKG keys before it reaches the relay. Cleartext recipient +
   amount MUST NOT transit the relay.
 
-  **Implementation plan (the one open invariant).** The seal primitive already exists:
-  `konclave-wasm`'s `sealTo` (X25519 -> HKDF-SHA256 -> XChaCha20-Poly1305), the same machinery that
-  seals DKG round-2 - native for the helper and via wasm-bindgen for the devices, so the helper's
-  seal and the device's unseal interoperate (one crate). Remaining, in order:
-  1. **Device-key registration (#63 handshake).** `orchestrator/src/helper.rs::register_vault` today
-     knows only the group key. Extend registration so each seated device also hands the helper its
-     DKG encryption pubkey (already established at DKG time); the roster's pubkeys are verified out of
-     band by I4's fingerprint, so a wrong key is caught.
-  2. **Seal on publish (helper).** In `orchestrator/src/net_send.rs::publish_request`, serialize the
-     `SignRequest` canonically and `seal` it per recipient (one envelope per seated device, like
-     round-2) before it touches the relay - `pczt_hex`/`sighash`/`alpha` never transit in cleartext.
-  3. **Unseal on receive (device).** In `ui/src/net-sign.ts::parseSignRequest` /
-     `signing-machine.ts::tryHelperRequest`, unseal with this device's DKG key before parsing; a
-     request not sealed to this device, or tampered, is rejected - never half-interpreted.
-  4. **Seal the inter-device `sreq` too.** Seat 1's `sreq` (sighash + pczt) also transits plaintext
-     today; seal it device-to-device (seat 1 already holds the others' DKG pubkeys from round-2).
-  5. **Backward-compat.** Negotiate by capability (a sealed request is a distinct kind/field); until
-     every device advertises a key, fall back to the current plaintext path, so the live-proven `/net`
-     flow never breaks mid-rollout.
-  6. **Validation gate.** Ship behind a flag and validate on a live **2-device** `/net` ceremony
-     (seal -> relay -> unseal -> sign -> broadcast); a relay capture must show no cleartext
-     address/amount before the default flips. This is money-path, so it lands as its own PR with the
-     live check - never rammed into an unrelated change.
+  **How it works today (#63, shipped 2026-08-29).** Each device derives a persistent comms key from its
+  share and registers its public half with the coordinator when it unlocks the vault. When a send
+  starts, the coordinator seals the `SignRequest` once under a fresh content key and seals that key to
+  each registered device (`orchestrator::envelope::seal_to_devices`, called from
+  `orchestrator/src/net_send.rs::seal_request_wire`); the relay sees ciphertext. Each device opens it
+  with its own comms key before parsing (`ui/src/net-sign.ts::unsealSignRequest`); a request not sealed
+  to it, or tampered, is rejected, never half-read. The device that starts the round sends only the
+  sighash in its `sreq` for a sealed request, since every device already holds the PCZT, so the
+  transaction never crosses the relay in cleartext.
+  **Condition, kept as it is:** until every seat of a vault has registered its device key, the
+  coordinator sends that vault's request unsealed, the path a device on a build that predates
+  registration still understands. Plan: none beyond each member unlocking once on a current build.
+  Status: per vault, as members unlock.
 - **I2 (on-device sighash binding).** Each signer:
   1. decodes its **own** PCZT and computes the ZIP-244 `sig_digest` locally;
   2. **refuses to sign** unless the locally-computed digest equals the request's `sighash`;
@@ -134,11 +124,13 @@ REQUIRES **authenticated admission**:
 > it from the transaction and checks it against the approved one (#610).
 - [x] **I1** relay blind - no secret/address/amount in cleartext on the wire (the relay never parses bodies).
 - [x] **I2** on-device sighash recompute + refuse-on-mismatch (#62/#67; primitive proven byte-exact, live-validated 2-tab).
-- [x] **I3** SignRequest sealed to the seated devices (#63, 2026-08-29), proven by a mainnet send with
-  the relay blind to the payment, txid `047fe6ca…` ([PROOF](../PROOF.md)).
+- [x] **I3** SignRequest sealed to the seated devices once every seat has registered its device key
+  (#63, 2026-08-29), proven by a mainnet send with the relay blind to the payment, txid `047fe6ca…`
+  ([PROOF](../PROOF.md)).
 - [x] **I4** authenticated admission, as amended (ADR-0007, 2026-10-12): required PIN + 128-bit invite + a transcript code every member reads with every other before round 2 + sealing in WASM. Live-validated locally (2-of-2, 2-of-3, a relay that rewrites one view); see §3.
 - [x] **I5** replay discipline: every permanent-room reader declares per type whether history applies (§1; #354/#356/#358, live-validated 2-device 2026-08-27, txid `78fe7dfa…`).
-- Gate: I1-I5 hold on a vault's own signing screen. The `/net` lab page does not have the device's
+- Gate: I1-I5 hold on a vault's own signing screen, I1 and I3 once every seat has registered its
+  device key. The `/net` lab page does not have the device's
   newer checks and has no content check of its own (Known limits in `ui/CHANGELOG.md`); payments use
   the vault's own signing screen.
 
