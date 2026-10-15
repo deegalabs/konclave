@@ -90,7 +90,7 @@ export async function sim(T: number, N: number, skews: number[], openAt: number[
       // Only the seat the room named sender withdraws to any effect, and only the completion it names
       // (SIGNER-SEAT1): every session agrees which withdrawals those are, so the oracle counts only them.
       const done = d.s.completed()
-      const effective = p.type === 'unarmed' && done !== null && done.seat === p.seat && done.at === p.of
+      const effective = p.type === 'unarmed' && done !== null && done.seat === p.seat && done.own === p.of
       await d.s.onMessage(m.from, m.data, hist)
       if (effective && !out.unarmSeqs.includes(m.seq)) out.unarmSeqs.push(m.seq)
       // Another device's withdrawal, read live, ends this device's signature: its button returns.

@@ -85,9 +85,9 @@ function armedMessage(seat: number, groupVkHex: string, tag: string, at: number,
 
 /** The canonical bytes an `unarmed` signs. The failure code is inside it so it cannot be swapped
  *  for a different reason in flight - each device writes its own sentence from that code. `of` is the
- *  time of the completed quorum it withdraws (SIGNER-SEAT1): with it inside the signature, a withdrawal
- *  ends that completion and no later one, so an old one posted again does nothing. A withdrawal from a
- *  build that predates it carries none, and is not taken. */
+ *  completing seat's own signature time for the completion it withdraws (SIGNER-SEAT1): with it inside
+ *  the signature, a withdrawal ends that completion and no later one, so an old one posted again does
+ *  nothing. A withdrawal from a build that predates it carries none, and is not taken. */
 function unarmedMessage(seat: number, groupVkHex: string, tag: string, code: string, proposal: string, of?: number): Uint8Array {
   return new TextEncoder().encode(
     `unarmed:${seat}:${groupVkHex.trim().toLowerCase()}:${tag}:${code}:${proposal}` + (of === undefined ? '' : `:${of}`),

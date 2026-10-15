@@ -1511,3 +1511,37 @@ describe('a withdrawal counts only from the seat that completed, for that comple
     expect(all[1]!.failure).toBe('ceremony')
   })
 })
+
+// SIGNER-SEAT1 security delta (e000a26): the completion a withdrawal names is the completing seat's OWN
+// signature time, which only grows for that seat; the newest time of the set can be another seat's and
+// repeat (C1). A device that knows no completion posts no withdrawal at all (C2).
+describe('a withdrawal names the completing seat\'s own signature', () => {
+  it('cites the completing seat\'s time even when another seat signed later by its clock (C1)', async () => {
+    const { shares, groupVk, pubkeys } = dkg(2, 3)
+    const bus = new Bus()
+    const mat = (i: number) => () => ({ keyPackage: shares[i]!.keyPackage(), groupVk, pubkeys })
+    const a = makeDev('a-tag', 1, bus, mat(0), () => true, () => 'match', 0, 2)
+    const c = makeDev('c-tag', 3, bus, mat(2), () => true, () => 'match', 0, 2)
+    for (const d of [a, c]) { d.session.setProposal('p1'); await d.session.start() }
+    await run([a, c], bus)
+    const late = NOW + 60_000 // A's clock runs a minute ahead (within the skew the tally accepts)
+    await a.session.arm('p1', late); await run([a, c], bus)
+    const own = NOW + 1000
+    await c.session.arm('p1', own); await run([a, c], bus)
+    expect(a.session.coordinatorTag()).toBe('c-tag')
+    await c.session.unarm('p1', 'ceremony'); await run([a, c], bus)
+    const w = JSON.parse(bus.msgs.filter((m) => m.data.includes('"unarmed"')).at(-1)!.data) as { of?: number }
+    expect(w.of, 'the completing seat\'s own signature time').toBe(own)
+    expect(a.session.coordinatorTag(), 'and it is taken').toBeNull()
+  })
+
+  it('posts nothing when this device knows no completion (C2)', async () => {
+    const { shares, groupVk, pubkeys } = dkg(2, 3)
+    const bus = new Bus()
+    const c = makeDev('c-tag', 3, bus, () => ({ keyPackage: shares[2]!.keyPackage(), groupVk, pubkeys }), () => true, () => 'match', 0, 2)
+    c.session.setProposal('p1')
+    const before = bus.msgs.length
+    await c.session.unarm('p1', 'ceremony')
+    expect(bus.msgs.slice(before).some((m) => m.data.includes('"unarmed"'))).toBe(false)
+  })
+})

@@ -85,8 +85,8 @@ export interface UnarmedMsg {
   /** The seat withdrawing. Present so the withdrawal can be attributed and therefore PROVEN: an
    *  unsigned `unarmed` used to be enough for anyone in the room to zero every device (#425). */
   seat?: number
-  /** The time of the completed quorum this withdraws (SIGNER-SEAT1); signed, so an old withdrawal posted
-   *  again cannot end a later completion. */
+  /** The completing seat's own signature time for the completion this withdraws (SIGNER-SEAT1); signed,
+   *  so an old withdrawal posted again cannot end a later completion. */
   of?: number
   /** Signed by that seat's own share, over seat+vault+tag+code+proposal(+of). */
   sig?: string
@@ -121,7 +121,7 @@ export class BackgroundSession {
    *  clock, so every device holds the same one (SIGNER-SEAT1, review B1). It is the ONE record of who
    *  was named: the coordinator of the ceremony, the "someone is sending" line and the live decision
    *  to call the send (`onArmed`'s trigger) all read it. */
-  private completion: { tag: string; seat: number; at: number; seats: number[] } | null = null
+  private completion: { tag: string; seat: number; at: number; own: number; seats: number[] } | null = null
   /** Seats whose signature for this payment was dropped as dated too far ahead, logged once each. */
   private readonly warnedAhead = new Set<number>()
   /** Seats whose proven signature for this payment the tally ignored, logged once each. */
@@ -219,7 +219,7 @@ export class BackgroundSession {
       // proves nothing (security delta B1), and the sender's own panel reopened has a new tag (B3). The
       // completion's time, signed inside: an old withdrawal posted again ends nothing later (B2). Read in
       // the room's order, a withdrawal still matches the completion it was made for.
-      if (this.completion === null || parsed.seat !== this.completion.seat || parsed.of !== this.completion.at) {
+      if (this.completion === null || parsed.seat !== this.completion.seat || parsed.of !== this.completion.own) {
         this.onLog?.(`~ ignored a withdrawal from a device that is not sending this payment (seat ${String(parsed.seat)})`)
         return
       }
@@ -352,7 +352,11 @@ export class BackgroundSession {
   async unarm(proposal: string, code?: FailureCode): Promise<void> {
     const seat = this.seats.mySeat()
     const mat = this.signingMaterial()
-    const of = this.completion?.at
+    // A withdrawal names the completion it ends by the completing seat's own signature time (C1), and
+    // a device that knows no completion has none to end: it posts nothing (C2), rather than a
+    // withdrawal no device would take.
+    if (this.completion === null) return
+    const of = this.completion.own
     const sig = signUnarmed(mat.keyPackage, seat, bytesToHex(mat.groupVk), this.myTag, proposal, code, of)
     const msg: UnarmedMsg = { type: 'unarmed', proposal, seat, sig, ...(code ? { code } : {}), ...(of === undefined ? {} : { of }) }
     await this.send(JSON.stringify(msg))
@@ -383,7 +387,7 @@ export class BackgroundSession {
     }
     this.tally = step.tally
     // Who completed is recorded from the room alone, on every device the same (review B1).
-    if (step.completes) this.completion = { tag: from, seat, at: step.tally.completedAt!, seats: [...step.tally.entries.keys()].sort((a, b) => a - b) }
+    if (step.completes) this.completion = { tag: from, seat, at: step.tally.completedAt!, own: at, seats: [...step.tally.entries.keys()].sort((a, b) => a - b) }
     // Whether to CALL the send is this device's live decision, and only that reads the clock: a
     // completion read back from an old attempt holds its window like any other, so every device keeps
     // the same latch, but names nobody to send, because its sender's tab is gone (#326).
@@ -400,8 +404,8 @@ export class BackgroundSession {
 
   /** Whose signature completed the quorum and when (its newest signature's time), for the screen to
    *  name the device that is sending. Null while none has. */
-  completed(): { seat: number; at: number; seats: number[] } | null {
-    return this.completion ? { seat: this.completion.seat, at: this.completion.at, seats: this.completion.seats } : null
+  completed(): { seat: number; at: number; own: number; seats: number[] } | null {
+    return this.completion ? { seat: this.completion.seat, at: this.completion.at, own: this.completion.own, seats: this.completion.seats } : null
   }
 
   /** The seats whose signature for the current proposal still counts, ascending: what the screen

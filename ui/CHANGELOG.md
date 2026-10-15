@@ -54,9 +54,9 @@ history to tidy it is how context gets lost.
 
 - **A vault sends under the new signing rule once every device that signs runs this version.** With
   an older app among the signers, a send can wait about four minutes and end with nothing sent;
-  everyone then signs again, and reloading the older app's page brings the current one. When an
-  older app's send fails, the others do not hear it from that app and can sign again only when the
-  signatures expire (ten minutes). Nothing is signed twice and nothing is at risk. The desktop app has
+  everyone then signs again, and reloading the older app's page brings the current one. When a send
+  fails, devices on the other version (older or newer) do not take that device's withdrawal, and can
+  sign again only when the signatures expire (ten minutes). Nothing is signed twice and nothing is at risk. The desktop app has
   no updater yet (#606).
 - **If the device sending a payment closes after the signing has started**, the others wait: close
   the signing panel and open it again, then sign again. A started signing has no way to be called
