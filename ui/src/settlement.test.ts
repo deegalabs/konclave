@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { settlementOf, isConfirmed } from './settlement'
+import { settlementOf, isConfirmed, movementOf } from './settlement'
 import { join } from 'node:path'
-import { codeAt } from './source-scan'
+import { codeAt, codeOf } from './source-scan'
 
 // The Dashboard rendered a green chip saying **Confirmed** over a transaction still in the mempool.
 // It read the proposal's own state - and the proposal cannot know: `HelperProposal::recompute`
@@ -80,5 +80,29 @@ describe('the screens cannot go back to asking the proposal', () => {
       /\?\s*'confirmado'/,
     )
     expect(code, 'the row no longer derives settlement from the chain').toMatch(/settlementOf\(/)
+  })
+})
+
+// A row of the Dashboard's movements says what happened to the proposal. A refused payment read
+// "verify" with a minus sign, as if money had left and needed checking (Daniel's production check,
+// 14/10): it never left. Only what went out carries the minus, and only the chain says confirmed.
+describe('what a movement row says', () => {
+  it('a confirmed or broadcast payment is money that left', () => {
+    expect(movementOf('sent', { kind: 'confirmed', height: 7 })).toEqual({ chip: 'confirmed', height: 7, out: true })
+    expect(movementOf('sent', { kind: 'broadcast' })).toEqual({ chip: 'broadcast', out: true })
+  })
+  it('a refused, expired or cancelled proposal says so, and nothing left the vault', () => {
+    for (const s of ['rejected', 'expired', 'cancelled', 'superseded']) {
+      expect(movementOf(s, { kind: 'open' }), s).toEqual({ chip: 'state', state: s, out: false })
+    }
+  })
+  it('an open proposal says where it stands, and nothing left yet', () => {
+    expect(movementOf('awaiting', { kind: 'open' })).toEqual({ chip: 'state', state: 'awaiting', out: false })
+    expect(movementOf('ready', { kind: 'open' })).toEqual({ chip: 'state', state: 'ready', out: false })
+  })
+  it('the Dashboard reads it, and offers no "verify" link for a proposal that never went out', () => {
+    const dash = codeOf('./screens/Dashboard.tsx')
+    expect(dash).toMatch(/movementOf\(p\.state, settlementOf\(p, txs\)\)/)
+    expect(dash).not.toMatch(/dashboard\.verify/)
   })
 })

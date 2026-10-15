@@ -51,6 +51,10 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **A refused payment read as money to verify on the dashboard.** The movements table showed it with
+  a minus sign and a "verify" link, as if it had left the vault. A payment that never went out now
+  shows its state (refused, expired, awaiting) and no minus sign; only a payment that left shows the
+  block it landed in, or that it is on its way.
 - **The update banner named the version already running, and on a phone it sat under the bottom
   menu.** It now says which version replaces which, sits above the menu, and the page keeps room for
   it.

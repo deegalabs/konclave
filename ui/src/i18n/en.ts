@@ -546,7 +546,6 @@ export const en: Record<string, string> = {
   'dashboard.agoNow': 'just now',
   'dashboard.agoMin': '{n} min ago',
   'dashboard.agoHours': '{n} h ago',
-  'dashboard.verify': 'verify ↗',
   // `confirmed` alone was the whole defect: it was shown for a transaction still in the mempool,
   // because the state it read can never say otherwise. The word now comes with the block that
   // earns it, and there is a separate word for the step before.

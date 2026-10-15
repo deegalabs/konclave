@@ -542,7 +542,6 @@ export const ptBR: Record<string, string> = {
   'dashboard.agoNow': 'agora',
   'dashboard.agoMin': 'há {n} min',
   'dashboard.agoHours': 'há {n} h',
-  'dashboard.verify': 'verificar ↗',
   // O `confirmado` sozinho era o defeito inteiro: aparecia para transa\u00e7\u00e3o ainda no mempool, porque
   // o estado que ele lia nunca pode dizer outra coisa. Agora a palavra vem com o bloco que a
   // sustenta, e o passo anterior tem nome pr\u00f3prio.
