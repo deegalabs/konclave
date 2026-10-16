@@ -108,20 +108,20 @@ describe('the export carries the pin', () => {
     // receiver again from the helper - at a moment when the helper may already be the thing being
     // defended against. Carrying it preserves the ORIGINAL capture, which is the only one made
     // before there was anything to defend.
-    await fresh('cr-export')
-    await recordChangeReceiver('cr-export', OURS)
-    const blob = await exportVault('cr-export', 'correct horse battery staple')
+    await fresh('07'.repeat(32))
+    await recordChangeReceiver('07'.repeat(32), OURS)
+    const blob = await exportVault('07'.repeat(32), 'correct horse battery staple')
     const parsed = parseVaultExport(JSON.stringify(blob)) // survives file/paste serialization
-    await deleteVault('cr-export')
+    await deleteVault('07'.repeat(32))
     await importVault(parsed, 'correct horse battery staple')
-    expect(await receiverOf('cr-export')).toBe(OURS)
+    expect(await receiverOf('07'.repeat(32))).toBe(OURS)
   })
 
   it('and the restored pin is still write-once', async () => {
     // A restore must not reopen the slot: an importer that wrote the field with a plain `put`
     // leaves it overwritable, and the guard below would not catch that on its own.
-    expect(await recordChangeReceiver('cr-export', ATTACKER)).toBe(false)
-    expect(await receiverOf('cr-export')).toBe(OURS)
+    expect(await recordChangeReceiver('07'.repeat(32), ATTACKER)).toBe(false)
+    expect(await receiverOf('07'.repeat(32))).toBe(OURS)
   })
 })
 

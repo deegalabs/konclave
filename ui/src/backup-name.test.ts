@@ -44,8 +44,11 @@ describe('the backup file name', () => {
 
   it('takes the vault name and the time, and nothing that could name a member', () => {
     expect(backupFileName.length).toBe(2)
+    // The one backup builder names the file; the screens go through it (#682).
+    expect(codeOf('./build-backup.ts')).toMatch(/name: backupFileName\(vaultName, new Date\(\)\)/)
     for (const f of ['./screens/Settings.tsx', './screens/NetVault.tsx']) {
-      expect(codeOf(f), f).toMatch(/backupFileName\([^,()]+(\([^)]*\))?[^,()]*, new Date\(\)\)/)
+      expect(codeOf(f), f).toMatch(/buildVaultBackup\(/)
+      expect(codeOf(f), f).not.toMatch(/backupFileName\(/)
     }
   })
 

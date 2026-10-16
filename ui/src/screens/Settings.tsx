@@ -12,15 +12,13 @@ import { loadPrfWrap, savePrfWrap, clearPrfWrap } from '../prf-store'
 import { enrolPrf } from '../prf-wrap'
 import { DENIAL_COPY } from '../prf-denial-copy'
 import { readSecretFor, getUnlockedShare } from '../session'
-import { deviceCommsKey, devicePubHex } from '../device-key'
-import { decodeBundle } from '../signing'
-import { ensureWasm } from '../wasm-ready'
+import { buildVaultBackup } from '../build-backup'
 import { getVault, getSelectedVault, clearSelectedVault, health, shortAddr, deleteVault, IS_NET, type Vault } from '../api'
-import { listVaults, exportVault, forgetVault, backupFileName, type Governance } from '../storage'
+import { listVaults, forgetVault, type Governance } from '../storage'
 import { clearUnlockedShare } from '../session'
 import { downloadText } from '../download'
 import { vaultFingerprint } from '../format'
-import { getCoordMode, setCoordMode, getCustomHelper, HELPER_BASE, getUfvk, type CoordMode } from '../helper'
+import { getCoordMode, setCoordMode, getCustomHelper, HELPER_BASE, type CoordMode } from '../helper'
 import { isDesktop } from '../platform'
 
 /**
@@ -175,36 +173,11 @@ export default function Settings() {
     if (!id) { setXpErr(t('export.errNoVault')); return null }
     if (xpPass.length < 1) { setXpErr(t('export.errPass')); return null }
     try {
-      // #214/#434: fetch the viewing key so the export can REBUILD the vault, not just restore the
-      // seat. Without it, `t` members hold real spend authority over money none of them can see:
-      // detecting notes needs the UFVK, and it is minted once, randomly, and kept on the helper.
-      //
-      // Best-effort by design. The helper refuses it for a vault with no readKey, and refuses it to
-      // a device that cannot present one, so an open or locked vault gets `null` here. That export
-      // is incomplete, and an incomplete export is far better than none - `docs/RECOVERY.md` still
-      // describes the two halves.
-      // The viewing key AND the scan floor, from one gated call (#480). An export with the key but
-      // no floor rebuilds a wallet that starts at NOW and never sees the notes the vault holds.
-      //
-      // The device key opens it (#481): the helper seals this response once the vault has a
-      // registered device, so nothing on this machine that is not the vault's own device can read
-      // it off the wire. The share is in session here - the member just typed their passphrase to
-      // export - and `undefined` degrades to the plaintext compat path for an unmigrated vault.
-      // The WASM has to be up before any of this: deriving the device key and opening the envelope
-      // both call into it, and the export runs on a screen the background signer never touches - so
-      // nothing had loaded it here (#483).
-      await ensureWasm()
-      const loadedShare = getUnlockedShare(id)
-      const device = loadedShare
-        ? (() => {
-            const kp = decodeBundle(loadedShare).keyPackage
-            return { key: deviceCommsKey(kp), pubHex: devicePubHex(kp) }
-          })()
-        : undefined
-      const keys = await getUfvk(id, device)
-      const bundle = await exportVault(id, xpPass, keys?.ufvk, keys?.birthday)
-      const json = JSON.stringify(bundle, null, 2)
-      return { json, name: backupFileName(vault?.name, new Date()) }
+      // The viewing key and the scan floor ride in the export so it can REBUILD the vault, not just
+      // restore the seat (#214/#434/#480); the share in session opens the coordinator's sealed
+      // answer (#481). All of it lives in the one builder, shared with the creation and the vault card.
+      const b = await buildVaultBackup(id, xpPass, getUnlockedShare(id), vault?.name)
+      return { json: b.json, name: b.name }
     } catch (e) {
       setXpErr(e instanceof Error ? e.message : t('export.errGeneric'))
       return null

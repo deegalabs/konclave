@@ -420,7 +420,9 @@ desktop" as the original intent and ADR-0005 as the delivery that carries it tod
 (#67, primitive proven byte-exact vs the signer). PIN-gated admission + vault fingerprint close the
 invite-as-bearer concern (#67 prevention / #68 detection, both live-validated 2-tab).
 
-**Desktop (Tauri) - RELEASED, latest v0.8.0 (2026-09-30); the line opened at v0.2.0 (2026-08-03).** The desktop line shipped: a Tauri
+**Desktop (Tauri) - RELEASED as pre-releases, the most recent v0.13.1 (2026-10-15); the line opened at v0.2.0 (2026-08-03).**
+Every GitHub release stays a pre-release while the project is in beta (pre-1.0), so none is marked Latest; this line said
+"latest v0.8.0" until 2026-10-15. The desktop line shipped: a Tauri
 shell (`src-tauri/`) around the same `ui/` (it does not embed the `orchestrator` yet, #212), tagged
 **`v0.2.0`**, with Windows/macOS/Linux installers. The web app stays the primary delivery (ADR-0005);
 desktop is the optional native shell. **Still open:** embedding the orchestrator and the OS keychain

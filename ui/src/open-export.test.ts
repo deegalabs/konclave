@@ -158,9 +158,10 @@ describe('the offline checker reads a real backup the way the app wrote it', () 
   it('says "refuses to import" only of a v1, which is the one the app checks that way', () => {
     const differ = { id: 'cd'.repeat(32), groupKey: 'ab'.repeat(32), roster: [] }
     expect(examine(differ, true).problems.join(' ')).toMatch(/refuses to import/)
-    const v2 = examine(differ, false).problems.join(' ')
-    expect(v2).toMatch(/differ/)
-    expect(v2).not.toMatch(/refuses to import/)
+    // and a v2 since the app holds it to the same rule
+    expect(examine(differ, false).problems.join(' ')).toMatch(/differ[\s\S]*refuses to import/)
+    expect(examine({ id: 'ab'.repeat(32), groupKey: 'ab'.repeat(32), roster: [] }, false).problems.join(' ')).not.toMatch(/refuses to import/)
+    expect(examine({ id: 'abc', groupKey: 'abc', roster: [] }, false).problems.join(' ')).toMatch(/not a 64-character key/)
   })
 
   it('finds the quorum, which an export records in the share', async () => {

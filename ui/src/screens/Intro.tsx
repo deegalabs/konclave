@@ -172,7 +172,7 @@ export default function Intro() {
               <div className="lv-d">{pt ? 'Um app de janela única; nada roda na nuvem.' : 'A single-window app; nothing runs in the cloud.'}</div>
               <div className="lv-ver">v{VER} · {BUILDS[os].ext}</div>
             </div>
-            {/* The desktop line is built (v0.8.0, a pre-release, not code-signed or notarized) but
+            {/* The desktop line is built (a pre-release, DESKTOP_VERSION; not code-signed or notarized) but
                 not yet validated per platform (#212, ADR-0004). Offering an untested installer for
                 a tool that holds money is a worse promise than saying "not yet" - so the option
                 stays visible and inert. */}

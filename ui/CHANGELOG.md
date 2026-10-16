@@ -50,15 +50,33 @@ history to tidy it is how context gets lost.
   first. The file is now named after the vault and the date and time it was made, and carries no
   member's name.
 
+- **A vault whose registration did not finish can be finished from its card.** If the coordinator did
+  not answer, or did not accept the registration, at the end of creating a vault, the vault stayed
+  without a deposit address and nothing on the device could finish it; answering "everyone saved" on
+  the card only hid the warning. The card of such a vault now offers to finish registering it (after
+  the same question about the members, or at once when this device already knew every member had
+  saved), names the coordinator it will register with, and builds your backup copy in the same step.
+  The question about a different coordinator applies only to vaults created from this version on,
+  which are the ones that remember where they were created; older records cannot say. A vault made by an earlier version
+  of the creation is still told to be recreated, not finished.
+
+- **The site names the 0.13.1 desktop pre-release.** The landing and the help named 0.8.0, an older
+  pre-release that predates the device's payment check. The version comes from one place, the latest
+  published pre-release, and the help no longer calls it the latest version. The landing's download
+  buttons stay off until the desktop app is validated on each platform (#212).
+
 ## [0.13.2] 2026-10-16
 
 ### Fixed
 
-- **A device signs nothing in a transaction whose padding was never finished.** The PCZT
-  specification says a signer must refuse a transaction that still carries a dummy spending key;
-  the device now does, before its share moves, and the signing screen says the transaction has a
-  part a vault payment never has. No transaction our coordinator builds carries one, so no member
-  could have met this. The rule is shared with the native signer (root CHANGELOG).
+- **A device signs nothing in a transaction whose padding was never finished.** A coordinator that
+  wanted to could have asked a device to sign a transaction whose padding spend still carried a
+  dummy spending key, and the device would have taken that spend as its own: extra actions, a higher
+  fee allowed for them, and a ceremony that fails when the signatures are applied, so nothing was
+  sent; no key was exposed. The PCZT specification says a signer must refuse such a transaction. The
+  device now does, before its share moves, and the signing screen says the transaction has a part a
+  vault payment never has. The coordinators we run do not build one; we have no report that it
+  happened, and we did not check. The rule is shared with the native signer (root CHANGELOG).
 
 ## [0.13.1] 2026-10-15
 
