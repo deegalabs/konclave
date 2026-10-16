@@ -40,6 +40,8 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+## [0.13.2] 2026-10-16
+
 ### Fixed
 
 - **A device signs nothing in a transaction whose padding was never finished.** The PCZT

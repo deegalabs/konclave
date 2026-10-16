@@ -56,6 +56,12 @@ explicitly accepted.
 
 ## [Unreleased]
 
+## [0.13.2] 2026-10-16
+
+> **Services deployed when this was cut (2026-10-16):** coordinator `4223028`, relay `42da05bf003afc41`.
+> The web app is this release's own commit. The two services are deployed by hand and may be
+> older than it - recording what they were ANSWERING is the point, not what they should have been.
+
 ### Fixed
 
 - **A signer took a spend that still carried a dummy spending key as its own.** The PCZT
