@@ -40,6 +40,8 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+## [0.13.2] 2026-10-16
+
 ### Fixed
 
 - **A vault whose registration could not be written to disk was served anyway, and was no longer
