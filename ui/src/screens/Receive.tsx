@@ -6,7 +6,7 @@ import { useI18n, useT, useTr } from '../i18n'
 import { PageHeader } from '../page'
 import { BannerWarn, Loading } from '../components'
 import '../receive.css'
-import { WALLET_BUSY } from '../helper'
+import { historyReadKind, isHistoryAnswer } from '../useVaultBalance'
 
 // "Add funds" is the easy side of a vault: receiving needs no key and no signature. The vault
 // has a shielded Orchard address (derived from the group key by zcash-sign); anyone sends ZEC to
@@ -58,16 +58,6 @@ export function HistoryStatus({ checking, checkedAt, failed = false }: { checkin
   )
 }
 
-/** What one history read means. `readTransactions` answers a list, `WALLET_BUSY` while the
- *  coordinator holds the vault (COORD-LOCK), or null when the read failed: a 401 before the read key
- *  is in the session, a timeout, a 5xx. Only a list is an answer. Taking null for an empty list is
- *  what showed "Nothing has arrived yet" for 20 to 40 seconds after an unlock on a vault with
- *  transactions (Daniel, 16/10). Exported for its test. */
-export function historyReadKind(r: WalletTx[] | null | typeof WALLET_BUSY): 'answer' | 'busy' | 'failed' {
-  if (r === WALLET_BUSY) return 'busy'
-  return r === null ? 'failed' : 'answer'
-}
-
 export default function Receive() {
   const t = useT()
   const tr = useTr()
@@ -114,7 +104,7 @@ export default function Receive() {
         // Only an answer fills the list and counts as a check. A busy coordinator (COORD-LOCK) and a
         // read that failed both keep what the screen has; a failure is retried soon, not at the poll.
         const kind = historyReadKind(r)
-        if (kind === 'answer') {
+        if (isHistoryAnswer(r)) {
           setTxs(r)
           setTxLoaded(true)
           setCheckedAt(Date.now())

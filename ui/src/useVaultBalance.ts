@@ -23,10 +23,20 @@ export function nextBalanceView(prev: BalanceView, read: Balance | null | Wallet
   return { bal: prev.bal, busy: false }
 }
 
-/** A list (transactions) through a read: a busy read keeps what the screen had, anything else
- *  replaces it. A busy coordinator is not an empty history. */
-export function keepOnBusy<T>(prev: T, read: T | WalletBusy): T {
-  return read === WALLET_BUSY ? prev : read
+/** What one transactions read means, for every screen that reads the history (Add funds, the
+ *  dashboard). A list is an answer. `WALLET_BUSY` is a coordinator holding the vault (COORD-LOCK).
+ *  null is a read that FAILED: a 401 before the read key is in the session, a timeout, a 5xx. Only an
+ *  answer replaces what a screen shows. This replaced `keepOnBusy`, which kept the list through a
+ *  busy read but took a failed one for an empty history: after an unlock, Add funds said "Nothing has
+ *  arrived yet" for 20 to 40 seconds on a vault with transactions (Daniel, 16/10). */
+export function historyReadKind(read: readonly unknown[] | null | WalletBusy): 'answer' | 'busy' | 'failed' {
+  if (read === WALLET_BUSY) return 'busy'
+  return read === null ? 'failed' : 'answer'
+}
+
+/** The same rule as a type guard, for the screens that then use the list. */
+export function isHistoryAnswer<T>(read: T[] | null | WalletBusy): read is T[] {
+  return historyReadKind(read) === 'answer'
 }
 
 /** One read at a time: a tick while a read is in flight starts nothing. Until the coordinator stops

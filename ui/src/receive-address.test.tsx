@@ -3,7 +3,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { I18nProvider } from './i18n'
 import { en } from './i18n/en'
 import { ptBR } from './i18n/pt-BR'
-import { AddressNotice, HistoryStatus, historyReadKind } from './screens/Receive'
+import { AddressNotice, HistoryStatus } from './screens/Receive'
+import { historyReadKind } from './useVaultBalance'
 import { WALLET_BUSY } from './helper'
 import { codeOf } from './source-scan'
 
@@ -152,7 +153,7 @@ describe('a history read that fails is not an answer', () => {
   it('the screen fills the list and the time only from an answer, and retries a failure soon', () => {
     const receive = codeOf('./screens/Receive.tsx')
     expect(receive).toMatch(/const kind = historyReadKind\(r\)/)
-    expect(receive).toMatch(/if \(kind === 'answer'\) \{\s*setTxs\(r\)\s*setTxLoaded\(true\)\s*setCheckedAt\(Date\.now\(\)\)/)
+    expect(receive).toMatch(/if \(isHistoryAnswer\(r\)\) \{\s*setTxs\(r\)\s*setTxLoaded\(true\)\s*setCheckedAt\(Date\.now\(\)\)/)
     expect(receive).toMatch(/setFailed\(kind === 'failed'\)/)
     expect(receive).toMatch(/if \(kind === 'failed'\) retry = setTimeout\(\(\) => void loadTx\(\), 3_000\)/)
     expect(receive).not.toMatch(/keepOnBusy/)

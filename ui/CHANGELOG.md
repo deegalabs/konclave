@@ -49,7 +49,8 @@ history to tidy it is how context gets lost.
 - **Add funds showed an empty history while it could not read it.** A history read that failed (right
   after unlocking, before the read key was in place, or on a timeout) was taken for an empty answer:
   for 20 to 40 seconds a vault with transactions read "Nothing has arrived yet". A failed read now
-  keeps what the screen had, says it could not check, and tries again within seconds.
+  keeps what the screen had, says it could not check, and tries again within seconds. The dashboard
+  had the same rule for its list of transactions and now reads both through one function.
 
 ## [0.13.1] 2026-10-15
 
