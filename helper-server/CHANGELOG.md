@@ -40,6 +40,61 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+## [0.13.2] 2026-10-16
+
+### Fixed
+
+- **A vault whose registration could not be written to disk was served anyway, and was no longer
+  found after the next restart.** Creating a vault gives it an address on the coordinator and keeps
+  its record on the volume. If the volume could not take the record (full, read-only), the
+  coordinator still answered with the address and served the vault from memory. At the next restart
+  nothing found it; its viewing key stayed, on the coordinator, only in a wallet directory that
+  nothing in the coordinator reads again. Since 2026-07-31 (dd1ae16). We did not check
+  whether it happened; the boot log now lists, by prefix, every vault directory that holds a wallet
+  and no registration, which is how it would look. The registration now fails when its record cannot
+  be written: the answer is 503 (`registration_not_persisted`) and nothing is served. The
+  coordinator accepts a new registration of the same vault once the volume is healthy, and gives it
+  a new address, which is correct because the first was never given out. A failure part way through
+  creating the wallet no longer leaves it where the next attempt would fail on it. Where an operator
+  has to act before another attempt can work, the answer is 503 (`registration_cleanup_failed`):
+  a leftover that could not be set aside, three leftovers, a wallet directory with no registration,
+  or a registration that cannot be read. Those last two are never touched, and the second used to
+  be written over with a new identity. `docs/RECOVERY.md`, procedure I, says what to do. The boot
+  log also lists, by prefix, any vault that still has no recorded birthday.
+
+- **A deposit now shows on Add funds on the first read after it is mined, without the dashboard
+  having run.** The history only listed what the vault's wallet already knew, and only the balance
+  read synced the wallet, so a member who sent funds and waited on Add funds saw nothing arrive until
+  the balance had been read (#637). The history read now brings the wallet up to date under the same
+  15 second window as the balance: one sync serves both, one window per vault, so a deposit can
+  still take up to one window after its block. If that sync fails the history still answers with the
+  list the wallet had, and the failure is logged; the balance stays an error, as before. While a
+  payment is being signed the history answers "busy" at once, as it already did, and starts no sync
+  of its own.
+
+### Known limits
+
+- **A sync that never returns holds the vault's wallet lock until the process restarts.** The
+  coordinator puts no time limit on the engine's calls. A vault whose wallet is stuck in a sync
+  answers every balance and history read "busy", a payment that arrives waits behind it, and
+  nothing recovers until the process restarts. While it waits, every other change to that vault (a
+  vote, a rename, a proposal, a payroll, a device's keys) waits behind it too, each holding a
+  worker, and the health check keeps answering, so nothing restarts the process by itself. The
+  history read now starts a sync as well, so a lightwalletd that is down is retried by every
+  balance and history read, one after the other, where only the balance did it before. A time limit
+  on those calls is not done.
+- **A history read that is syncing keeps the wallet busy.** A payment that arrives meanwhile waits
+  for the sync to end, and the proposals list, the ledger and its CSV, which only settle a mined
+  payment when they find the wallet free, can lag behind a history read as they already could
+  behind a balance read.
+- **The first history read of a vault that has been idle waits for a full sync.** Add funds used to
+  answer at once with what the wallet knew; the first read after a long idle now waits for the
+  recovery sync, and if that outlasts the proxy's own time limit the screen shows "No transactions
+  yet" until the next poll finds the sync done.
+- **The app has no retry for a registration the coordinator refused this way.** Its screen says the
+  coordinator did not respond and to try registering later; it does not say the coordinator could
+  not save the vault, and offers no button to register again.
+
 ## [0.13.1] 2026-10-15
 
 > Released as 0.13.1, not 0.14.0, although it carries a Security entry: the number was already

@@ -47,6 +47,19 @@ history to tidy it is how context gets lost.
   published pre-release, and the help no longer calls it the latest version. The landing's download
   buttons stay off until the desktop app is validated on each platform (#212).
 
+## [0.13.2] 2026-10-16
+
+### Fixed
+
+- **A device signs nothing in a transaction whose padding was never finished.** A coordinator that
+  wanted to could have asked a device to sign a transaction whose padding spend still carried a
+  dummy spending key, and the device would have taken that spend as its own: extra actions, a higher
+  fee allowed for them, and a ceremony that fails when the signatures are applied, so nothing was
+  sent; no key was exposed. The PCZT specification says a signer must refuse such a transaction. The
+  device now does, before its share moves, and the signing screen says the transaction has a part a
+  vault payment never has. The coordinators we run do not build one; we have no report that it
+  happened, and we did not check. The rule is shared with the native signer (root CHANGELOG).
+
 ## [0.13.1] 2026-10-15
 
 ### Changed

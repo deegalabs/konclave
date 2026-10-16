@@ -222,9 +222,10 @@ pub fn get_info(devtool: &Path, wallet_dir: &str, server: &str) -> Result<ChainI
 ///
 /// The migration is ONE-WAY: once it has run, an older engine can no longer sync the wallet (see
 /// deploy/helper/README.md). The error is returned so the caller can log it; whether a failure is
-/// fatal is the caller's decision ([`crate::helper::vault_balance`] logs it and lets the read that
-/// follows report a real schema problem).
-pub fn upgrade(devtool: &Path, wallet_dir: &str) -> Result<(), ToolError> {
+/// fatal is the caller's decision (the coordinator's wallet refresh, `helper::bring_current`, logs it
+/// and lets the read that follows report a real schema problem). Crate-private: the migration and the
+/// sync have ONE caller, so no read of the wallet can skip them.
+pub(crate) fn upgrade(devtool: &Path, wallet_dir: &str) -> Result<(), ToolError> {
     let args = ["wallet", "-w", wallet_dir, "upgrade"];
     crate::tools::run(devtool, &args, None).map(|_| ())
 }
@@ -234,8 +235,8 @@ pub fn upgrade(devtool: &Path, wallet_dir: &str) -> Result<(), ToolError> {
 /// stdout is progress noise (not JSON); only success/failure matters here.
 ///
 /// Does NOT migrate the wallet: the caller runs [`upgrade`] once, before it touches the wallet at
-/// all ([`crate::helper::vault_balance`]), so a synced read starts one devtool process, not two.
-pub fn sync(devtool: &Path, wallet_dir: &str, server: &str) -> Result<(), ToolError> {
+/// all (`helper::bring_current`), so a synced read starts one devtool process, not two.
+pub(crate) fn sync(devtool: &Path, wallet_dir: &str, server: &str) -> Result<(), ToolError> {
     let s = server_args(server);
     let args = ["wallet", "-w", wallet_dir, "sync", s[0], s[1], s[2], s[3]];
     crate::tools::run(devtool, &args, None)?;
@@ -243,7 +244,12 @@ pub fn sync(devtool: &Path, wallet_dir: &str, server: &str) -> Result<(), ToolEr
 }
 
 /// `zcash-devtool wallet -w <dir> balance --json`
-pub fn balance(devtool: &Path, wallet_dir: &str) -> Result<Balance, ToolError> {
+///
+/// Crate-private on purpose: the hosted coordinator reads a balance through `helper::vault_balance`
+/// (brought up to date under the window) or `helper::settle_wallet` (a forced sync), so a route that
+/// read this directly would serve a view a sync would have changed. The local bridge's `LiveWallet`
+/// reads it as it stands, without a sync, which is not part of #637.
+pub(crate) fn balance(devtool: &Path, wallet_dir: &str) -> Result<Balance, ToolError> {
     let args = ["wallet", "-w", wallet_dir, "balance", "--json"];
     parse_balance(&run_text(devtool, &args, None)?)
 }
@@ -256,7 +262,10 @@ pub fn list_confirmed_txids(devtool: &Path, wallet_dir: &str) -> Result<Vec<Stri
 
 /// `zcash-devtool wallet -w <dir> list-tx --json` → the vault's full transaction history (newest
 /// first), for the on-chain record on the Add-funds screen.
-pub fn list_transactions(devtool: &Path, wallet_dir: &str) -> Result<Vec<WalletTx>, ToolError> {
+pub(crate) fn list_transactions(
+    devtool: &Path,
+    wallet_dir: &str,
+) -> Result<Vec<WalletTx>, ToolError> {
     let args = ["wallet", "-w", wallet_dir, "list-tx", "--json"];
     parse_transactions(&run_text(devtool, &args, None)?)
 }
