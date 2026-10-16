@@ -64,13 +64,16 @@ explicitly accepted.
 
 ### Fixed
 
-- **A signer took a spend that still carried a dummy spending key as its own.** The PCZT
-  specification says a signer must refuse a transaction whose padding still carries `dummy_sk`;
-  neither of ours did, and both now refuse it with the same words, because the rule for which
-  spends a vault signs now lives once (`konclave-seal`). No transaction our coordinator builds
-  carries one, since the builder clears it before anyone signs, so no member could have met this.
-  It closes a departure from the specification, not a path that moved money. The number of
-  actions a builder may add to a payment is still not bounded on the device (Known limits).
+- **A signer took a spend that still carried a dummy spending key as its own.** A coordinator that
+  wanted to could have asked a device to sign a transaction whose padding spend still carried
+  `dummy_sk`, and both of our signers (the device's, in the browser, and the native one) would have
+  counted that spend among the ones the vault signs. The effect was extra actions, a higher fee
+  allowed for them, and a ceremony that fails when the signatures are applied, so nothing was sent;
+  no key was exposed. The PCZT specification says a signer must refuse such a transaction, and both
+  now do, with the same words, because the rule for which spends a vault signs lives once
+  (`konclave-seal`). The coordinators we run do not build one (the builder clears the key before
+  anyone signs); we have no report that it happened, and we did not check. The number of actions a
+  builder may add to a payment is still not bounded on the device (Known limits).
 
 - **A vault whose registration could not be written to disk was served anyway, and was no longer
   found after the next restart.** The coordinator answered with the address and served the vault from
