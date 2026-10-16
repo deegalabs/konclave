@@ -20,6 +20,16 @@ export function getUnlockedShare(id: string): VaultLoaded | undefined {
   return unlocked.get(id)
 }
 
+/** Is this vault unlocked on this device right now: is its share in this session? The one answer
+ *  the signing panel and the background signer read (16/10). Every path that can sign puts the
+ *  share here (the unlock screen, a passkey, the end of a creation, finishing a registration) and a
+ *  lock takes it out. `isVaultUnlocked` (api.ts) is a different question, the local bridge's: did
+ *  the unlock screen run for a bridge-locked vault. Asking that one here is what left a member who
+ *  had just created a vault on "Connecting" until a reload. */
+export function unlockedHere(id: string): boolean {
+  return unlocked.has(id)
+}
+
 /** Drop the in-memory share (on lock, remove, or switch away). */
 export function clearUnlockedShare(id: string): void {
   unlocked.delete(id)

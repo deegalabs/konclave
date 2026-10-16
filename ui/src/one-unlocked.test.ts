@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import * as session from './session'
+import { panelConnecting } from './screens/SigningPanel'
 import { codeOf } from './source-scan'
 
 // Final staging run, 16/10: a member who created a vault and then opened a payment on the same page,
@@ -34,5 +35,23 @@ describe('one answer to "is this vault unlocked on this device"', () => {
 
   it('the signing panel asks the same question', () => {
     expect(codeOf('./screens/SigningPanel.tsx')).toMatch(/const hasShare = unlockedHere\(vault\.id\)|const hasShare = !!vault && unlockedHere\(vault\.id\)/)
+  })
+
+  it('after a lock the panel shows the unlock form, not "Connecting", and the signer gets no vault', () => {
+    session.setUnlockedShare('vault-then-locked', share as never)
+    const base = { started: false, result: false, unlocking: false, ready: false }
+    // Unlocked, signer not seated yet: connecting.
+    expect(panelConnecting({ ...base, hasShare: session.unlockedHere('vault-then-locked') })).toBe(true)
+    session.clearUnlockedShare('vault-then-locked')
+    // Locked: not connecting, so the panel falls to its unlock form (`!hasShare`).
+    expect(session.unlockedHere('vault-then-locked')).toBe(false)
+    expect(panelConnecting({ ...base, hasShare: session.unlockedHere('vault-then-locked') })).toBe(false)
+    // And the provider hands the signer no vault: its condition is the same `unlockedHere`.
+    expect(codeOf('./VaultSigner.tsx')).toMatch(/vault && unlockedHere\(vault\.id\) \? \{ id: vault\.id, nonce \} : null/)
+  })
+
+  it('a passphrase being checked still shows the connecting line', () => {
+    expect(panelConnecting({ started: false, result: false, unlocking: true, hasShare: false, ready: false })).toBe(true)
+    expect(panelConnecting({ started: true, result: false, unlocking: false, hasShare: true, ready: false })).toBe(false)
   })
 })

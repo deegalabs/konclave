@@ -55,8 +55,10 @@ export default function BackgroundSignerLab() {
     setMsg('')
     try {
       // `unlockOnDevice`, not a fourth copy of it. The copy that was here diverged: it never called
-      // `markVaultUnlocked`, so `isVaultUnlocked` stayed false - and `VaultSigner` gates the signer
-      // on exactly that, which left this lab's signer inert while looking unlocked.
+      // `markVaultUnlocked`, and `VaultSigner` then gated the signer on `isVaultUnlocked`, which left
+      // this lab's signer inert while looking unlocked. That was the first sighting of the bug fixed on
+      // 16/10: the signer now asks `unlockedHere` (the share in this session), so marking is no longer
+      // what starts it. Kept on `unlockOnDevice` because it is the one unlock path, not as a workaround.
       const r = await unlockOnDevice(selected, 'net', pass)
       if (!r.ok) { setMsg('Could not unlock: wrong passphrase'); return }
       setUnlocked({ id: selected })

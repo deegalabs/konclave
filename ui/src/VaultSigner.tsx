@@ -8,7 +8,7 @@
 // happened when that member APPROVED the proposal (K4). See ADR-0009 and the ceremony design.
 
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { getVault, getProposalDetail, isVaultUnlocked, IS_NET, type Proposal, type Vault } from './api'
+import { getVault, getProposalDetail, IS_NET, type Proposal, type Vault } from './api'
 import { listVaults } from './storage'
 import { gateDecision, ourReceiversFrom, paysOurselves, type ApprovedLine, type GateDecision, type PcztOutput } from './approved-payment'
 import { ensureWasm } from './wasm-ready'
@@ -18,6 +18,7 @@ import { ARM_TTL_MS, makeSigningGate } from './signing-gate'
 import { OwnerSigning } from './owner-signing'
 import { browserRecordStore } from './signed-record'
 import type { FailureCode } from './background-session'
+import { unlockedHere } from './session'
 
 interface VaultSignerCtx {
   bg: BackgroundSignerState
@@ -93,7 +94,9 @@ export function VaultSignerProvider({ children }: { children: ReactNode }) {
   // screen: an app-wide relay session on every navigation was churny and destabilized the vault
   // session. Scoped to the panel, both members open "Sign this payment" to seat + sign together.
   // Requires a browser-native (/net) vault, unlocked in this session; otherwise inert.
-  const unlocked = active && IS_NET && vault && isVaultUnlocked(vault.id) ? { id: vault.id, nonce } : null
+  // The share in this session is what the signer needs, so that is what it asks (`unlockedHere`), the
+  // same question the panel asks; a creation puts the share there without the unlock screen.
+  const unlocked = active && IS_NET && vault && unlockedHere(vault.id) ? { id: vault.id, nonce } : null
 
   // MANUAL: this device contributes its share only for a payment its owner explicitly signed on
   // this screen. Approval (K4) is consent to the payment; signing is the act that spends, and it is
