@@ -7,7 +7,7 @@ import { ensureWasm } from './wasm-ready'
 import { decodeBundle } from './signing'
 import { deviceCommsKey, devicePubHex } from './device-key'
 import { getUfvk } from './helper'
-import { exportVault, type VaultLoaded } from './storage'
+import { backupFileName, exportVault, type VaultLoaded } from './storage'
 
 export type VaultBackup = { json: string; name: string; complete: boolean }
 
@@ -35,10 +35,9 @@ export async function buildVaultBackup(
   // with no read key, or a locked device, gets null and an incomplete export beats none.
   const keys = await getUfvk(vaultId, device)
   const exp = await exportVault(vaultId, passphrase, keys?.ufvk, keys?.birthday)
-  const safe = (vaultName ?? 'konclave-vault').replace(/[^\w.-]+/g, '-').toLowerCase()
   return {
     json: JSON.stringify(exp, null, 2),
-    name: `${safe}.konclave.json`,
+    name: backupFileName(vaultName, new Date()),
     complete: Boolean(keys?.ufvk && keys?.birthday !== undefined),
   }
 }

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { readdirSync } from 'node:fs'
 import { codeOf } from './source-scan'
 
@@ -11,15 +11,18 @@ vi.mock('./wasm-ready', () => ({ ensureWasm: async () => {} }))
 vi.mock('./signing', () => ({ decodeBundle: () => ({ keyPackage: new Uint8Array(4) }) }))
 vi.mock('./device-key', () => ({ deviceCommsKey: () => new Uint8Array(32), devicePubHex: () => 'pub' }))
 vi.mock('./helper', () => ({ getUfvk: h.getUfvk }))
-vi.mock('./storage', () => ({ exportVault: h.exportVault }))
+// The name is the real `backupFileName` (storage.ts): only the export itself is mocked.
+vi.mock('./storage', async (orig) => ({ ...(await orig<typeof import('./storage')>()), exportVault: h.exportVault }))
 
 const { buildVaultBackup } = await import('./build-backup')
 
 describe('buildVaultBackup', () => {
-  it('builds the export with the viewing key and the scan floor, named after the vault', async () => {
+  beforeAll(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date(2026, 9, 16, 13, 5)) })
+  afterAll(() => { vi.useRealTimers() })
+  it('builds the export with the viewing key and the scan floor, named after the vault and the time', async () => {
     const b = await buildVaultBackup('v1', 'pass', {} as never, 'Team Fund!')
     expect(h.exportVault).toHaveBeenCalledWith('v1', 'pass', 'uview1x', 3_000_000)
-    expect(b.name).toBe('team-fund-.konclave.json')
+    expect(b.name).toBe('team-fund--2026-10-16-1305.konclave.json')
     expect(JSON.parse(b.json)).toEqual({ v: 2, blob: 'opaque' })
     expect(b.complete).toBe(true)
   })
@@ -35,7 +38,7 @@ describe('buildVaultBackup', () => {
     h.getUfvk.mockResolvedValueOnce(null)
     const b = await buildVaultBackup('v1', 'pass', undefined, undefined)
     expect(b.complete).toBe(false)
-    expect(b.name).toBe('konclave-vault.konclave.json')
+    expect(b.name).toBe('konclave-vault-2026-10-16-1305.konclave.json')
   })
 })
 
