@@ -40,6 +40,14 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A device signs nothing in a transaction whose padding was never finished.** The PCZT
+  specification says a signer must refuse a transaction that still carries a dummy spending key;
+  the device now does, before its share moves, and the signing screen says the transaction has a
+  part a vault payment never has. No transaction our coordinator builds carries one, so no member
+  could have met this. The rule is shared with the native signer (root CHANGELOG).
+
 ## [0.13.1] 2026-10-15
 
 ### Changed
