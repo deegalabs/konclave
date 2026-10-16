@@ -1119,6 +1119,8 @@ export const en: Record<string, string> = {
   'receive.historyTitle': 'On-chain history',
   'receive.historyEmpty': 'No transactions yet. Once someone sends ZEC to the vault, it appears here.',
   'receive.historyNote': 'Every transaction this vault recorded on-chain, since it was created. Open one to see the amounts on the block explorer.',
+  'receive.historyChecking': 'Checking the network…',
+  'receive.historyChecked': 'Last checked at {time}',
   'receive.txConfirmed': 'block {h}',
   'receive.txPending': 'pending',
   'receive.viewTx': 'View',

@@ -72,7 +72,11 @@
 
 /* On-chain history: the vault's transaction record since creation, each linking to an explorer. */
 .rcv-history { margin-top: 26px; }
-.rcv-hist-head { margin-bottom: 10px; }
+.rcv-hist-head { margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.rcv-hist-status {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted);
+}
 .rcv-hist-list { display: flex; flex-direction: column; gap: 2px; }
 .rcv-hist-row {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;

@@ -34,6 +34,26 @@ export function AddressNotice({ differs, missing, id }: { differs: boolean; miss
   return <BannerWarn id={id} className="rcv-warn">{tr('receive.addressDiffers')}</BannerWarn>
 }
 
+/** Whether the on-chain history is being read right now, and when it last answered. The list fills in
+ *  from the coordinator's sync, which can take a while, so without this "No transactions yet" read as
+ *  an answer while a deposit was still on its way in. The live region stays in the page so a screen
+ *  reader hears each change. Exported for its test, like `AddressNotice`. */
+export function HistoryStatus({ checking, checkedAt }: { checking: boolean; checkedAt: string | null }) {
+  const t = useT()
+  return (
+    <span className="rcv-hist-status" role="status">
+      {checking ? (
+        <>
+          <span className="loader-ring sm" aria-hidden="true" />
+          {t('receive.historyChecking')}
+        </>
+      ) : checkedAt ? (
+        t('receive.historyChecked', { time: checkedAt })
+      ) : null}
+    </span>
+  )
+}
+
 export default function Receive() {
   const t = useT()
   const tr = useTr()
@@ -46,6 +66,9 @@ export default function Receive() {
   // link to a block explorer where the amounts are visible (per-tx amount/direction is a follow-up).
   const [txs, setTxs] = useState<WalletTx[] | null>(null)
   const [txLoaded, setTxLoaded] = useState(false)
+  // A history read in flight (the first one and every refresh), and the time the last one answered.
+  const [checking, setChecking] = useState(false)
+  const [checkedAt, setCheckedAt] = useState<string | null>(null)
   // The vault's OWN broadcast txids (from the ledger). A history tx whose id is in here is a SENT
   // (outgoing) payment this vault made; anything else is a RECEIVED deposit. This gives direction
   // client-side, without needing the tool's per-tx amount/direction fields (#125 v2 slice).
@@ -64,15 +87,19 @@ export default function Receive() {
     const loadTx = async () => {
       if (inFlight) return
       inFlight = true
+      setChecking(true)
       try {
         const [r, ledger] = await Promise.all([readTransactions(), getLedger()])
         if (!on) return
         // A busy coordinator is not an empty history: keep the list the screen has (COORD-LOCK).
         setTxs((prev) => keepOnBusy(prev, r))
         if (r !== WALLET_BUSY) setTxLoaded(true)
+        // Only an answer is a check: a busy read keeps the time of the last one.
+        if (r !== WALLET_BUSY) setCheckedAt(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
         if (ledger) setSentIds(new Set(ledger.map((p) => p.txid).filter((x): x is string => !!x)))
       } finally {
         inFlight = false
+        if (on) setChecking(false)
       }
     }
     void loadTx()
@@ -170,6 +197,7 @@ export default function Receive() {
         <section className="rcv-history">
           <div className="rcv-hist-head">
             <span className="klab">{t('receive.historyTitle')}</span>
+            {txLoaded && <HistoryStatus checking={checking} checkedAt={checkedAt} />}
           </div>
           {!txLoaded ? (
             <Loading />

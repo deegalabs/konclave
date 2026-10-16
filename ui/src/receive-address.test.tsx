@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { I18nProvider } from './i18n'
 import { en } from './i18n/en'
 import { ptBR } from './i18n/pt-BR'
-import { AddressNotice } from './screens/Receive'
+import { AddressNotice, HistoryStatus } from './screens/Receive'
 import { codeOf } from './source-scan'
 
 // A9 (#610 review). Which address Add funds shows is decided once, in `getVault`, and tested there
@@ -84,5 +84,43 @@ describe('the screens take the address from getVault and say what they know befo
     for (const f of ['./screens/Dashboard.tsx', './screens/Receive.tsx', './screens/Settings.tsx', './screens/Vaults.tsx']) {
       expect(codeOf(f), f).not.toMatch(/banner-warn/)
     }
+  })
+})
+
+// Daniel (16/10): the history list filled in a while after the screen opened, and nothing said it was
+// being read, so "No transactions yet" read as an answer. The status says when a read is in flight
+// and when the list was last read, for the first load and for every refresh after it.
+describe('the on-chain history says when it is being read', () => {
+  const status = (checking: boolean, checkedAt: string | null) =>
+    renderToStaticMarkup(<I18nProvider><HistoryStatus checking={checking} checkedAt={checkedAt} /></I18nProvider>)
+
+  it('shows a spinner and says it is checking while a read is in flight', () => {
+    const html = status(true, '10:41')
+    expect(html).toContain('role="status"')
+    expect(html).toContain('class="loader-ring sm" aria-hidden="true"')
+    expect(html).toContain('Checking the network…')
+    expect(html).not.toContain('10:41')
+  })
+
+  it('says when the list was last read once a read has answered', () => {
+    const html = status(false, '10:41')
+    expect(html).toContain('Last checked at 10:41')
+    expect(html).not.toContain('loader-ring')
+  })
+
+  it('keeps the live region in the page while idle with nothing read yet', () => {
+    expect(status(false, null)).toContain('role="status"')
+  })
+
+  it('says it in both languages', () => {
+    expect(en['receive.historyChecking']).toBe('Checking the network…')
+    expect(ptBR['receive.historyChecking']).toBe('Consultando a rede…')
+    expect(ptBR['receive.historyChecked']).toBe('Conferido às {time}')
+  })
+
+  it('the screen marks every history read, not only the first', () => {
+    const receive = codeOf('./screens/Receive.tsx')
+    expect(receive).toMatch(/setChecking\(true\)[\s\S]*readTransactions\(\)[\s\S]*setChecking\(false\)/)
+    expect(receive).toMatch(/<HistoryStatus checking=\{checking\} checkedAt=\{checkedAt\} \/>/)
   })
 })
