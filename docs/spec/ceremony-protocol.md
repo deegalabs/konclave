@@ -9,13 +9,13 @@ limits, each with its plan and status:
   implemented independently. Plan: none until a second implementation is asked for. Status: as is.
 - **The signing messages carry no version.** Older and newer builds coexist only through optional
   fields (`h`, `sig`) and a distinct kind for the sealed request; a message does not say which rules
-  it follows. Plan: a version prefix on the room messages. Status: not started, not tracked in an
-  issue yet.
+  it follows. Plan: a version prefix on the room messages. Status: not started, tracked in
+  [#689](https://github.com/deegalabs/konclave/issues/689).
 - **No protocol test vectors.** Transaction vectors are in the repository
   (`konclave-wasm/tests/vectors/`, `konclave-signer/tests/vectors/`: proven and signed PCZTs and
   signatures), but nothing here gives vectors for the protocol itself: room messages, a DKG
   transcript, the transcript code. Plan: publish those next to this document. Status: not started,
-  not tracked in an issue yet.
+  tracked in [#690](https://github.com/deegalabs/konclave/issues/690).
 
 Companion to [ADR-0007](../adr/0007-ceremony-security-invariants.md), which records the decision and
 the security invariants **I1-I4** this document realizes. It was first written (2026-08-02) as the
