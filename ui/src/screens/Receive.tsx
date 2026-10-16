@@ -103,10 +103,14 @@ export default function Receive() {
     const loadTx = async () => {
       if (inFlight) return
       inFlight = true
+      // The ledger (which txids this vault sent) is read beside the history but does not hold the
+      // spinner: "checking" is exactly the /api/vault/transactions request in flight (Daniel, 16/10).
+      const ledgerRead = getLedger()
       setChecking(true)
       try {
-        const [r, ledger] = await Promise.all([readTransactions(), getLedger()])
+        const r = await readTransactions()
         if (!on) return
+        setChecking(false)
         // Only an answer fills the list and counts as a check. A busy coordinator (COORD-LOCK) and a
         // read that failed both keep what the screen has; a failure is retried soon, not at the poll.
         const kind = historyReadKind(r)
@@ -117,7 +121,8 @@ export default function Receive() {
         }
         setFailed(kind === 'failed')
         if (kind === 'failed') retry = setTimeout(() => void loadTx(), 3_000)
-        if (ledger) setSentIds(new Set(ledger.map((p) => p.txid).filter((x): x is string => !!x)))
+        const ledger = await ledgerRead
+        if (on && ledger) setSentIds(new Set(ledger.map((p) => p.txid).filter((x): x is string => !!x)))
       } finally {
         inFlight = false
         if (on) setChecking(false)
@@ -223,7 +228,7 @@ export default function Receive() {
             {txLoaded && <HistoryStatus checking={checking} checkedAt={checkedAt} failed={failed} />}
           </div>
           {!txLoaded ? (
-            failed ? <p className="rcv-note">{t('receive.historyUnreadable')}</p> : <Loading />
+            failed && !checking ? <p className="rcv-note">{t('receive.historyUnreadable')}</p> : <Loading />
           ) : !txs || txs.length === 0 ? (
             <p className="rcv-note">{t('receive.historyEmpty')}</p>
           ) : (

@@ -123,6 +123,12 @@ describe('the on-chain history says when it is being read', () => {
     expect(ptBR['receive.historyEmpty']).toMatch(/esta lista confere de novo sozinha/)
   })
 
+  it('the spinner is exactly the transactions request: the ledger read does not hold it', () => {
+    const receive = codeOf('./screens/Receive.tsx')
+    expect(receive).toMatch(/const ledgerRead = getLedger\(\)\s*setChecking\(true\)[\s\S]*const r = await readTransactions\(\)\s*if \(!on\) return\s*setChecking\(false\)/)
+    expect(receive).not.toMatch(/Promise\.all\(\[readTransactions/)
+  })
+
   it('the screen marks every history read, not only the first', () => {
     const receive = codeOf('./screens/Receive.tsx')
     expect(receive).toMatch(/setChecking\(true\)[\s\S]*readTransactions\(\)[\s\S]*setChecking\(false\)/)
@@ -158,6 +164,7 @@ describe('a history read that fails is not an answer', () => {
     expect(en['receive.historyUnreadable']).toMatch(/Could not read the history yet/)
     expect(ptBR['receive.historyUnreadable']).toMatch(/Não deu para ler o histórico ainda/)
     expect(ptBR['receive.historyRetry']).toBe('Não deu para conferir, tentando de novo…')
-    expect(codeOf('./screens/Receive.tsx')).toMatch(/failed \? <p className="rcv-note">\{t\('receive\.historyUnreadable'\)\}<\/p> : <Loading \/>/)
+    // A retry in flight shows the loader again, not the failure text.
+    expect(codeOf('./screens/Receive.tsx')).toMatch(/failed && !checking \? <p className="rcv-note">\{t\('receive\.historyUnreadable'\)\}<\/p> : <Loading \/>/)
   })
 })
