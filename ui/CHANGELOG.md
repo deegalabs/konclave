@@ -42,6 +42,18 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **Add funds said nothing while it read the vault's history.** After the first load, the on-chain
+  history refreshed without a sign, so "No transactions yet" read as an answer while a deposit was
+  still on its way in. The history now shows when it is checking the network and when it last
+  checked, on every refresh, and an empty list says a deposit can take a few minutes to appear.
+- **Add funds showed an empty history while it could not read it.** The screen read the history
+  behind the unlock prompt, where the read fails, and took the failure for an empty answer: a vault
+  with transactions read "No transactions yet" until a later refresh, 20 to 40 seconds after the
+  unlock. It now waits for the unlock and reads the moment it happens; a failed read keeps what the
+  screen had, says it could not check, and is retried a few times over about 20 seconds. The
+  dashboard took a failed read the same way for the list it checks payments against, and now reads
+  it through the same rule.
+
 - **Creating a vault looked frozen while it waited for the other members.** After a member protected
   their part, the screen showed one line of plain text until everyone had. It now says how many have
   saved and who is left ("1 of 3 saved. Waiting for: ana, bia."), with a small spinner beside it,
