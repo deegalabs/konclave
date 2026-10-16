@@ -544,6 +544,17 @@ function writeBeneficiaries(id: string, list: unknown[]): void {
   }
 }
 
+/** The file name a backup downloads under: the vault's name and the local date and time it was made,
+ *  so a second copy does not replace or shadow the first and the newest is plain. Nothing about who
+ *  made it: a member's name in a file name lands in download folders and cloud drives (Daniel,
+ *  2026-10-16). One function for every screen that offers a backup. */
+export function backupFileName(vaultName: string | undefined, now: Date): string {
+  const safe = (vaultName || 'konclave-vault').replace(/[^\w.-]+/g, '-').toLowerCase()
+  const two = (n: number) => String(n).padStart(2, '0')
+  const stamp = `${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())}-${two(now.getHours())}${two(now.getMinutes())}`
+  return `${safe}-${stamp}.konclave.json`
+}
+
 /**
  * Build a portable v2 export: a SINGLE opaque blob. Everything the device needs to operate the vault
  * - metadata, the share, the #388 secret S, and the beneficiaries - is encrypted under the passphrase

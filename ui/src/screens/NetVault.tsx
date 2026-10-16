@@ -31,6 +31,7 @@ import {
   listVaults,
   deleteVault,
   exportVault,
+  backupFileName,
   storageAvailable,
   type VaultPublic,
   type VaultLoaded,
@@ -424,10 +425,9 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
         const kp = dkg.keyPackage()
         const keys = await getUfvk(saved.vaultId, { key: deviceCommsKey(kp), pubHex: devicePubHex(kp) })
         const exp = await exportVault(saved.vaultId, pass, keys?.ufvk, keys?.birthday)
-        const safe = (saved.meta.name ?? 'konclave-vault').replace(/[^\w.-]+/g, '-').toLowerCase()
         setBackup({
           json: JSON.stringify(exp, null, 2),
-          name: `${safe}.konclave.json`,
+          name: backupFileName(saved.meta.name, new Date()),
           complete: Boolean(addr && keys?.ufvk && keys?.birthday !== undefined),
         })
       } catch { /* backup is optional; the vault is already saved on this device */ }

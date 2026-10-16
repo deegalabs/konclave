@@ -16,7 +16,7 @@ import { deviceCommsKey, devicePubHex } from '../device-key'
 import { decodeBundle } from '../signing'
 import { ensureWasm } from '../wasm-ready'
 import { getVault, getSelectedVault, clearSelectedVault, health, shortAddr, deleteVault, IS_NET, type Vault } from '../api'
-import { listVaults, exportVault, forgetVault, type Governance } from '../storage'
+import { listVaults, exportVault, forgetVault, backupFileName, type Governance } from '../storage'
 import { clearUnlockedShare } from '../session'
 import { downloadText } from '../download'
 import { vaultFingerprint } from '../format'
@@ -204,8 +204,7 @@ export default function Settings() {
       const keys = await getUfvk(id, device)
       const bundle = await exportVault(id, xpPass, keys?.ufvk, keys?.birthday)
       const json = JSON.stringify(bundle, null, 2)
-      const safe = (vault?.name ?? 'konclave-vault').replace(/[^\w.-]+/g, '-').toLowerCase()
-      return { json, name: `${safe}.konclave.json` }
+      return { json, name: backupFileName(vault?.name, new Date()) }
     } catch (e) {
       setXpErr(e instanceof Error ? e.message : t('export.errGeneric'))
       return null
