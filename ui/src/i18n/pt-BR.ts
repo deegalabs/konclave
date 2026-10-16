@@ -1113,7 +1113,7 @@ export const ptBR: Record<string, string> = {
   'receive.note': 'Só blindado (u1…). Um endereço transparente ou Sapling legado não recebe deste cofre.',
   'receive.noVault': 'Nenhum cofre neste dispositivo.',
   'receive.historyTitle': 'Histórico on-chain',
-  'receive.historyEmpty': 'Nenhuma transação ainda. Quando alguém enviar ZEC ao cofre, aparece aqui.',
+  'receive.historyEmpty': 'Nada chegou ainda. Um depósito pode levar alguns minutos para aparecer; esta lista confere de novo sozinha.',
   'receive.historyNote': 'Toda transação que este cofre registrou on-chain, desde a criação. Abra uma para ver os valores no explorador de blocos.',
   'receive.historyChecking': 'Consultando a rede…',
   'receive.historyChecked': 'Conferido às {time}',

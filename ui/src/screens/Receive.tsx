@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useState } from 'react'
 import { startVisiblePoll } from '../usePoll'
 import encodeQR from '@paulmillr/qr'
 import { getVault, readTransactions, getLedger, shortAddr, IS_NET, type Vault, type WalletTx } from '../api'
-import { useT, useTr } from '../i18n'
+import { useI18n, useT, useTr } from '../i18n'
 import { PageHeader } from '../page'
 import { BannerWarn, Loading } from '../components'
 import '../receive.css'
@@ -35,21 +35,23 @@ export function AddressNotice({ differs, missing, id }: { differs: boolean; miss
 }
 
 /** Whether the on-chain history is being read right now, and when it last answered. The list fills in
- *  from the coordinator's sync, which can take a while, so without this "No transactions yet" read as
- *  an answer while a deposit was still on its way in. The live region stays in the page so a screen
- *  reader hears each change. Exported for its test, like `AddressNotice`. */
-export function HistoryStatus({ checking, checkedAt }: { checking: boolean; checkedAt: string | null }) {
-  const t = useT()
+ *  from the coordinator's sync, which can take a while, so without this an empty list read as an
+ *  answer while a deposit was still on its way in. The time stays on screen and is the only thing
+ *  announced, so a screen reader hears it change at most once a minute rather than twice per 15 s
+ *  poll; the spinner and its label sit beside it and are not announced. Exported for its test. */
+export function HistoryStatus({ checking, checkedAt }: { checking: boolean; checkedAt: number | null }) {
+  const { locale, t } = useI18n()
+  const time = checkedAt === null ? null
+    : new Date(checkedAt).toLocaleTimeString(locale === 'en' ? 'en-US' : 'pt-BR', { hour: '2-digit', minute: '2-digit' })
   return (
-    <span className="rcv-hist-status" role="status">
-      {checking ? (
-        <>
-          <span className="loader-ring sm" aria-hidden="true" />
+    <span className="rcv-hist-status">
+      {checking && (
+        <span className="rcv-hist-checking" aria-hidden="true">
+          <span className="loader-ring sm" />
           {t('receive.historyChecking')}
-        </>
-      ) : checkedAt ? (
-        t('receive.historyChecked', { time: checkedAt })
-      ) : null}
+        </span>
+      )}
+      <span role="status">{time ? t('receive.historyChecked', { time }) : null}</span>
     </span>
   )
 }
@@ -68,7 +70,7 @@ export default function Receive() {
   const [txLoaded, setTxLoaded] = useState(false)
   // A history read in flight (the first one and every refresh), and the time the last one answered.
   const [checking, setChecking] = useState(false)
-  const [checkedAt, setCheckedAt] = useState<string | null>(null)
+  const [checkedAt, setCheckedAt] = useState<number | null>(null)
   // The vault's OWN broadcast txids (from the ledger). A history tx whose id is in here is a SENT
   // (outgoing) payment this vault made; anything else is a RECEIVED deposit. This gives direction
   // client-side, without needing the tool's per-tx amount/direction fields (#125 v2 slice).
@@ -95,7 +97,7 @@ export default function Receive() {
         setTxs((prev) => keepOnBusy(prev, r))
         if (r !== WALLET_BUSY) setTxLoaded(true)
         // Only an answer is a check: a busy read keeps the time of the last one.
-        if (r !== WALLET_BUSY) setCheckedAt(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
+        if (r !== WALLET_BUSY) setCheckedAt(Date.now())
         if (ledger) setSentIds(new Set(ledger.map((p) => p.txid).filter((x): x is string => !!x)))
       } finally {
         inFlight = false

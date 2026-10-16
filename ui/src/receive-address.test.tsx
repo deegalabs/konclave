@@ -88,34 +88,37 @@ describe('the screens take the address from getVault and say what they know befo
 })
 
 // Daniel (16/10): the history list filled in a while after the screen opened, and nothing said it was
-// being read, so "No transactions yet" read as an answer. The status says when a read is in flight
-// and when the list was last read, for the first load and for every refresh after it.
+// being read, so the empty list read as an answer. The status shows when a read is in flight and when
+// the list last answered, on the first load and on every refresh after it. Only the time is announced
+// (GSP critique: swapping the whole text announced twice per 15 s poll).
 describe('the on-chain history says when it is being read', () => {
-  const status = (checking: boolean, checkedAt: string | null) =>
+  const at1041 = new Date(2026, 9, 16, 10, 41).getTime()
+  const status = (checking: boolean, checkedAt: number | null) =>
     renderToStaticMarkup(<I18nProvider><HistoryStatus checking={checking} checkedAt={checkedAt} /></I18nProvider>)
 
-  it('shows a spinner and says it is checking while a read is in flight', () => {
-    const html = status(true, '10:41')
-    expect(html).toContain('role="status"')
-    expect(html).toContain('class="loader-ring sm" aria-hidden="true"')
-    expect(html).toContain('Checking the network…')
-    expect(html).not.toContain('10:41')
+  it('shows a spinner and says it is checking while a read is in flight, without hiding the time', () => {
+    const html = status(true, at1041)
+    expect(html).toContain('class="rcv-hist-checking" aria-hidden="true"><span class="loader-ring sm"></span>Checking the network…')
+    expect(html).toMatch(/<span role="status">Last checked at 10:41/)
   })
 
-  it('says when the list was last read once a read has answered', () => {
-    const html = status(false, '10:41')
-    expect(html).toContain('Last checked at 10:41')
+  it('says only when the list was last read once a read has answered', () => {
+    const html = status(false, at1041)
+    expect(html).toMatch(/<span role="status">Last checked at 10:41/)
     expect(html).not.toContain('loader-ring')
+    expect(html).not.toContain('Checking')
   })
 
-  it('keeps the live region in the page while idle with nothing read yet', () => {
-    expect(status(false, null)).toContain('role="status"')
+  it('keeps the live region in the page with nothing read yet', () => {
+    expect(status(false, null)).toContain('<span role="status"></span>')
   })
 
-  it('says it in both languages', () => {
+  it('says it in both languages, and the empty list no longer reads as final', () => {
     expect(en['receive.historyChecking']).toBe('Checking the network…')
     expect(ptBR['receive.historyChecking']).toBe('Consultando a rede…')
     expect(ptBR['receive.historyChecked']).toBe('Conferido às {time}')
+    expect(en['receive.historyEmpty']).toMatch(/this list checks again on its own/)
+    expect(ptBR['receive.historyEmpty']).toMatch(/esta lista confere de novo sozinha/)
   })
 
   it('the screen marks every history read, not only the first', () => {

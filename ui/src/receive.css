@@ -72,11 +72,14 @@
 
 /* On-chain history: the vault's transaction record since creation, each linking to an explorer. */
 .rcv-history { margin-top: 26px; }
-.rcv-hist-head { margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.rcv-hist-head { margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; min-height: 16px; }
 .rcv-hist-status {
-  display: inline-flex; align-items: center; gap: 8px;
+  display: inline-flex; align-items: center; gap: 10px;
   font-family: var(--font-mono); font-size: 11.5px; color: var(--text-muted);
 }
+.rcv-hist-checking { display: inline-flex; align-items: center; gap: 6px; }
+/* A background refresh, not a blocking load: the ring stays in the muted text colour. */
+.rcv-hist-status .loader-ring { border-top-color: var(--text-muted); }
 .rcv-hist-list { display: flex; flex-direction: column; gap: 2px; }
 .rcv-hist-row {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
