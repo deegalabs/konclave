@@ -6,7 +6,9 @@ import { useI18n, useT, useTr } from '../i18n'
 import { PageHeader } from '../page'
 import { BannerWarn, Loading } from '../components'
 import '../receive.css'
-import { historyReadKind, isHistoryAnswer } from '../useVaultBalance'
+import { historyReadKind, historyReader, isHistoryAnswer } from '../useVaultBalance'
+import { useOutletContext } from 'react-router-dom'
+import type { VaultLockContext } from '../Layout'
 
 // "Add funds" is the easy side of a vault: receiving needs no key and no signature. The vault
 // has a shielded Orchard address (derived from the group key by zcash-sign); anyone sends ZEC to
@@ -62,6 +64,7 @@ export default function Receive() {
   const t = useT()
   const tr = useTr()
   const noticeId = useId()
+  const { locked, unlockNonce } = useOutletContext<VaultLockContext>()
   const [vault, setVault] = useState<Vault | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [amount, setAmount] = useState('')
@@ -87,46 +90,45 @@ export default function Receive() {
       if (v) setVault(v)
       setLoaded(true)
     })
-    // Auto-refresh the history (#123): a deposit that lands on-chain shows up without a reload.
-    // In-flight guarded; polls on the shared 15s cadence.
-    let inFlight = false
-    const loadTx = async () => {
-      if (inFlight) return
-      inFlight = true
-      // The ledger (which txids this vault sent) is read beside the history but does not hold the
-      // spinner: "checking" is exactly the /api/vault/transactions request in flight (Daniel, 16/10).
-      const ledgerRead = getLedger()
-      setChecking(true)
-      try {
-        const r = await readTransactions()
-        if (!on) return
+    return () => { on = false }
+  }, [])
+
+  // The history is a private read: behind the unlock overlay it would answer 401, which is a failure,
+  // not an empty history. So it waits for the vault to be unlocked and reads again the moment it is
+  // (`unlockNonce`, #467), as the dashboard does. The reader keeps one read at a time and retries a
+  // failure on a short schedule that stops; the 15 s poll does the rest (#123), paused when hidden.
+  useEffect(() => {
+    if (locked) return
+    let on = true
+    const reader = historyReader<WalletTx>({
+      read: () => readTransactions(),
+      onStart: () => {
+        // "Checking" is exactly the /api/vault/transactions request in flight (Daniel, 16/10). The
+        // ledger (which txids this vault sent) is read beside it and does not hold the spinner.
+        setChecking(true)
+        void getLedger().then((ledger) => {
+          if (on && ledger) setSentIds(new Set(ledger.map((p) => p.txid).filter((x): x is string => !!x)))
+        })
+      },
+      onResult: (r) => {
         setChecking(false)
-        // Only an answer fills the list and counts as a check. A busy coordinator (COORD-LOCK) and a
-        // read that failed both keep what the screen has; a failure is retried soon, not at the poll.
-        const kind = historyReadKind(r)
+        // Only an answer fills the list and counts as a check; busy and failed keep what is shown.
         if (isHistoryAnswer(r)) {
           setTxs(r)
           setTxLoaded(true)
           setCheckedAt(Date.now())
         }
-        setFailed(kind === 'failed')
-        if (kind === 'failed') retry = setTimeout(() => void loadTx(), 3_000)
-        const ledger = await ledgerRead
-        if (on && ledger) setSentIds(new Set(ledger.map((p) => p.txid).filter((x): x is string => !!x)))
-      } finally {
-        inFlight = false
-        if (on) setChecking(false)
-      }
-    }
-    let retry: ReturnType<typeof setTimeout> | undefined
-    void loadTx()
-    const stop = startVisiblePoll(() => void loadTx(), 15_000) // pause when hidden, refresh on return (#123)
+        setFailed(historyReadKind(r) === 'failed')
+      },
+    })
+    reader.tick()
+    const stop = startVisiblePoll(reader.tick, 15_000)
     return () => {
       on = false
-      clearTimeout(retry)
+      reader.stop()
       stop()
     }
-  }, [])
+  }, [locked, unlockNonce])
 
   const address = vault?.orchard_address ?? ''
   // Each control that hands the address on carries the warning, so a screen reader that missed the

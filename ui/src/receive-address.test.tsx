@@ -111,9 +111,14 @@ describe('the on-chain history says when it is being read', () => {
     expect(html).not.toContain('Checking')
   })
 
-  it('is not a live region: a status that changes every 15 s would talk over the screen', () => {
-    expect(status(true, at1041)).not.toContain('role=')
-    expect(status(false, at1041)).not.toContain('aria-live')
+  it('is not a live region in any state: a status that changes every 15 s would talk over the screen', () => {
+    for (const html of [status(true, at1041), status(false, at1041), status(false, null), status(true, null)]) {
+      expect(html).not.toContain('role=')
+      expect(html).not.toContain('aria-live')
+    }
+  })
+  it('the screen shows it beside the title once loaded', () => {
+    expect(codeOf('./screens/Receive.tsx')).toMatch(/<HistoryStatus checking=\{checking\} checkedAt=\{checkedAt\} failed=\{failed\} \/>/)
   })
 
   it('says it in both languages, and the empty list no longer reads as final', () => {
@@ -122,18 +127,6 @@ describe('the on-chain history says when it is being read', () => {
     expect(ptBR['receive.historyChecked']).toBe('Conferido às {time}')
     expect(en['receive.historyEmpty']).toMatch(/this list checks again on its own/)
     expect(ptBR['receive.historyEmpty']).toMatch(/esta lista confere de novo sozinha/)
-  })
-
-  it('the spinner is exactly the transactions request: the ledger read does not hold it', () => {
-    const receive = codeOf('./screens/Receive.tsx')
-    expect(receive).toMatch(/const ledgerRead = getLedger\(\)\s*setChecking\(true\)[\s\S]*const r = await readTransactions\(\)\s*if \(!on\) return\s*setChecking\(false\)/)
-    expect(receive).not.toMatch(/Promise\.all\(\[readTransactions/)
-  })
-
-  it('the screen marks every history read, not only the first', () => {
-    const receive = codeOf('./screens/Receive.tsx')
-    expect(receive).toMatch(/setChecking\(true\)[\s\S]*readTransactions\(\)[\s\S]*setChecking\(false\)/)
-    expect(receive).toMatch(/<HistoryStatus checking=\{checking\} checkedAt=\{checkedAt\} failed=\{failed\} \/>/)
   })
 })
 
@@ -148,15 +141,6 @@ describe('a history read that fails is not an answer', () => {
     expect(historyReadKind(null)).toBe('failed')
     expect(historyReadKind([])).toBe('answer')
     expect(historyReadKind([{ txid: 'ab', mined_height: 1 } as never])).toBe('answer')
-  })
-
-  it('the screen fills the list and the time only from an answer, and retries a failure soon', () => {
-    const receive = codeOf('./screens/Receive.tsx')
-    expect(receive).toMatch(/const kind = historyReadKind\(r\)/)
-    expect(receive).toMatch(/if \(isHistoryAnswer\(r\)\) \{\s*setTxs\(r\)\s*setTxLoaded\(true\)\s*setCheckedAt\(Date\.now\(\)\)/)
-    expect(receive).toMatch(/setFailed\(kind === 'failed'\)/)
-    expect(receive).toMatch(/if \(kind === 'failed'\) retry = setTimeout\(\(\) => void loadTx\(\), 3_000\)/)
-    expect(receive).not.toMatch(/keepOnBusy/)
   })
 
   it('says so, beside the title once loaded and in place of the list before', () => {

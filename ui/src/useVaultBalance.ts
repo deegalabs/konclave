@@ -39,6 +39,47 @@ export function isHistoryAnswer<T>(read: T[] | null | WalletBusy): read is T[] {
   return historyReadKind(read) === 'answer'
 }
 
+/** After a failed history read, how long to wait before each retry. Short, growing, and finite: a
+ *  failure that lasts is left to the screen's poll, so a tab left open cannot press the coordinator
+ *  every few seconds (the shape of the #375 incident). */
+export const HISTORY_RETRY_MS = [3_000, 6_000, 12_000] as const
+
+/** One history read at a time, retried after a failure on `HISTORY_RETRY_MS` and never from a hidden
+ *  tab. `tick` is what the screen's poll calls and replaces a pending retry; `stop` ends everything,
+ *  so nothing reads or reports after the screen is gone. Busy is not retried early: the coordinator
+ *  is holding the vault, and the poll comes back to it. */
+export function historyReader<T>(d: {
+  read: () => Promise<T[] | null | WalletBusy>
+  onStart: () => void
+  onResult: (r: T[] | null | WalletBusy) => void
+  hidden?: () => boolean
+}): { tick: () => void; stop: () => void } {
+  const hidden = d.hidden ?? (() => typeof document !== 'undefined' && document.hidden)
+  let inFlight = false
+  let stopped = false
+  let failures = 0
+  let retry: ReturnType<typeof setTimeout> | undefined
+  const tick = () => {
+    if (stopped || inFlight) return
+    clearTimeout(retry)
+    retry = undefined
+    inFlight = true
+    d.onStart()
+    void d.read().then(
+      (r) => {
+        inFlight = false
+        if (stopped) return
+        d.onResult(r)
+        if (historyReadKind(r) !== 'failed') { failures = 0; return }
+        if (failures >= HISTORY_RETRY_MS.length || hidden()) return
+        retry = setTimeout(tick, HISTORY_RETRY_MS[failures++])
+      },
+      () => { inFlight = false },
+    )
+  }
+  return { tick, stop: () => { stopped = true; clearTimeout(retry) } }
+}
+
 /** One read at a time: a tick while a read is in flight starts nothing. Until the coordinator stops
  *  making reads wait, a read during a send holds one of its workers for minutes, and stacking one per
  *  tick is the shape of the 2026-08-27 incident. With one in flight, answers also cannot arrive out of
