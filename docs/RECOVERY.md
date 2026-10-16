@@ -160,7 +160,7 @@ The chain settles it, on its own:
 
 - **Mined:** the proposal becomes `sent` with its txid, the next time someone presses Send for it, or
   the vault's proposals or ledger are read once the coordinator's wallet has synced past the
-  transaction (a balance read, or a Send, syncs it; a read of the proposals does not). This matters
+  transaction (a balance read, a history read, or a Send, syncs it; a read of the proposals does not). This matters
   because a held proposal can pass its own 72-hour deadline and read `expired`, and then nobody
   presses Send. A read looks at the wallet at most every 15 seconds per vault (the time of the last
   look is the file `<vault>/last_promote`), whatever it finds, and for as long as any payment is held.

@@ -2146,10 +2146,10 @@ const WALLET_BUSY_SENDING_TEXT: &str =
     "this vault is busy with a payment in progress; its balance will be back in a moment";
 const WALLET_BUSY_TEXT: &str = "this vault's wallet is busy for a moment; try again shortly";
 
-/// How long a wallet read waits for whoever else holds the wallet (a balance read that is syncing,
-/// a proposal's funding check): a sync takes seconds, so two members polling the balance must both
-/// get a number. It stops waiting at once when a send is marked, and at most two wait per vault
-/// (`VaultLocks::wait_slot`), so a flood cannot park the pool.
+/// How long a wallet read waits for whoever else holds the wallet (a balance or a history read that is
+/// syncing, a proposal's funding check): a sync takes seconds, so two members polling the balance
+/// must both get a number. It stops waiting at once when a send is marked, and at most two wait per
+/// vault (`VaultLocks::wait_slot`), so a flood cannot park the pool.
 const WALLET_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Run `read` with the vault's wallet. Free: now. Held while a send is marked: 503 `busy` at once.
@@ -7895,6 +7895,333 @@ mod tests {
             .filter(|l| *l == "sync")
             .count();
         assert_eq!(syncs, 1, "one engine process opened the wallet");
+    }
+
+    // ---- #637 on top of S3: a read of chain state syncs under the wallet lock, or answers busy -----
+    //
+    // The sync window and the migration live in `orchestrator::helper::bring_current`; the wallet lock
+    // lives in `with_the_wallet`. These tests prove the two compose: a read that finds the wallet held
+    // starts no engine process of its own, and a read that finds it free syncs once per window.
+
+    /// A `zcash-devtool` that counts. Every call appends its subcommand (`$4`) to `<dir>/calls.log`;
+    /// every call also tries to take `<dir>/in-engine` (a directory) and writes `overlap` to
+    /// `<dir>/overlap.log` if it finds it taken, which is two engine processes at once; `sync` sleeps
+    /// `sync_secs`.
+    #[cfg(unix)]
+    fn counting_devtool(dir: &std::path::Path, sync_secs: u32) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let fake = dir.join("counting-devtool");
+        std::fs::write(
+            &fake,
+            format!(
+                "#!/bin/sh\n[ \"$1\" = \"--probe\" ] && exit 0\necho \"$4\" >> \"{d}/calls.log\"\nif ! mkdir \"{d}/in-engine\" 2>/dev/null; then echo overlap >> \"{d}/overlap.log\"; fi\nif [ \"$4\" = sync ]; then sleep {sync_secs}; fi\nif [ \"$4\" = list-tx ] && [ -e \"{d}/list-tx-fails\" ]; then echo 'database is locked' >&2; rmdir \"{d}/in-engine\" 2>/dev/null; exit 1; fi\nif [ \"$4\" = balance ]; then echo '{{\"chain_tip_height\":3400100,\"orchard_spendable\":100000000,\"sapling_spendable\":0,\"total\":100000000,\"transparent_spendable\":0}}'; fi\nif [ \"$4\" = list-tx ]; then echo '[]'; fi\nrmdir \"{d}/in-engine\" 2>/dev/null\nexit 0\n",
+                d = dir.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        for _ in 0..200 {
+            match std::process::Command::new(&fake).arg("--probe").output() {
+                Err(e) if e.raw_os_error() == Some(26) => {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                _ => break,
+            }
+        }
+        fake
+    }
+
+    /// The subcommands the counting devtool ran, in order.
+    #[cfg(unix)]
+    fn engine_calls(dir: &std::path::Path) -> Vec<String> {
+        std::fs::read_to_string(dir.join("calls.log"))
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_string)
+            .collect()
+    }
+
+    #[cfg(unix)]
+    fn counting_cfg(name: &str, sync_secs: u32) -> (HelperConfig, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("konclave-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut c = cfg();
+        c.devtool = counting_devtool(&dir, sync_secs);
+        c.vaults_dir = dir.join("vaults");
+        std::fs::create_dir_all(&c.vaults_dir).unwrap();
+        (c, dir)
+    }
+
+    /// While a send is marked and holds the wallet, EVERY read route answers without starting an
+    /// engine process: the balance and the history are busy at once, and nothing else of the vault
+    /// reads the wallet. This is what keeps a stuck sync pinning one worker per vault and not one per
+    /// request: a read that finds the lock held starts no second sync, it answers.
+    #[cfg(unix)]
+    #[test]
+    fn a_held_wallet_starts_no_engine_process_for_any_read() {
+        let st = HelperState::new();
+        seed(&st, "nosync1");
+        let (c, dir) = counting_cfg("nosync", 0);
+        let mut routes: Vec<String> = GATED_READS
+            .iter()
+            .chain(OPEN_READS.iter())
+            .filter(|r| **r != "/api/health")
+            .map(|r| format!("{r}?vault=nosync1"))
+            .collect();
+        routes.sort();
+        routes.dedup();
+        assert!(
+            routes.iter().any(|r| r.starts_with("/api/vault/balance"))
+                && routes
+                    .iter()
+                    .any(|r| r.starts_with("/api/vault/transactions")),
+            "{routes:?}"
+        );
+        for route in &routes {
+            let got =
+                get_while_a_send_holds(&st, &c, "nosync1", route, None, Duration::from_secs(3));
+            let (status, body) = got.unwrap_or_else(|| panic!("{route} waited for the send"));
+            if route.starts_with("/api/vault/balance")
+                || route.starts_with("/api/vault/transactions")
+            {
+                assert_eq!(status, 503, "{route}: {body}");
+                assert!(body.contains("\"busy\":\"wallet\""), "{route}: {body}");
+            }
+        }
+        assert_eq!(
+            engine_calls(&dir),
+            Vec::<String>::new(),
+            "a read started the engine while a send held the wallet"
+        );
+        assert!(!dir.join("overlap.log").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The same with the wallet held by something that is NOT a send (a funding check, a read that is
+    /// syncing): the balance and the history each wait their bounded few seconds, answer busy, and
+    /// start no engine process of their own. The guard is dropped BEFORE the readers are joined, so a
+    /// regression to a blocking lock fails this test instead of hanging the suite.
+    #[cfg(unix)]
+    #[test]
+    fn a_reader_that_waits_for_a_held_wallet_starts_no_engine_process() {
+        let st = HelperState::new();
+        seed(&st, "nosync2");
+        let (c, dir) = counting_cfg("nosync-wait", 0);
+        let locks = concurrency::VaultLocks::new();
+        let limits = admission::Limits::new();
+        let held = locks.wallet_for_vault("nosync2");
+        let guard = held.lock().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let answers = std::thread::scope(|scope| {
+            for route in [
+                "/api/vault/balance?vault=nosync2",
+                "/api/vault/transactions?vault=nosync2",
+            ] {
+                let tx = tx.clone();
+                let (st, c, locks, limits) = (&st, &c, &locks, &limits);
+                scope.spawn(move || {
+                    let started = std::time::Instant::now();
+                    let r = serve(
+                        st,
+                        c,
+                        locks,
+                        limits,
+                        "203.0.113.7",
+                        T0,
+                        &Method::Get,
+                        route,
+                        b"",
+                        None,
+                    );
+                    let _ = tx.send((route, r.status, r.body, started.elapsed()));
+                });
+            }
+            drop(tx);
+            // Literals, not `WALLET_WAIT`: a bound computed from the constant under test cannot fail
+            // for a constant that grew.
+            let mut got = Vec::new();
+            for _ in 0..2 {
+                got.push(rx.recv_timeout(Duration::from_secs(14)).ok());
+            }
+            drop(guard);
+            got
+        });
+        for answer in answers {
+            let (route, status, body, took) = answer.expect("a reader gave up inside the bound");
+            assert_eq!(status, 503, "{route}: {body}");
+            assert!(body.contains("\"busy\":\"wallet\""), "{route}: {body}");
+            assert!(took >= Duration::from_secs(9), "{route}: {took:?}");
+        }
+        assert_eq!(engine_calls(&dir), Vec::<String>::new());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A history that cannot be LISTED is a 502, not an empty 200: only a failed sync is absorbed.
+    #[cfg(unix)]
+    #[test]
+    fn a_history_that_cannot_be_listed_is_a_502_and_not_an_empty_list() {
+        let st = HelperState::new();
+        seed(&st, "listfail");
+        let (c, dir) = counting_cfg("listfail", 0);
+        std::fs::write(dir.join("list-tx-fails"), "").unwrap();
+        let locks = concurrency::VaultLocks::new();
+        let limits = admission::Limits::new();
+        let r = serve(
+            &st,
+            &c,
+            &locks,
+            &limits,
+            "203.0.113.7",
+            T0,
+            &Method::Get,
+            "/api/vault/transactions?vault=listfail",
+            b"",
+            None,
+        );
+        assert_eq!(r.status, 502, "{}", r.body);
+        assert!(!r.body.contains("\"transactions\":[]"), "{}", r.body);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A free wallet and a stale window: the FIRST history read syncs (once) and reads, the second
+    /// inside the window reads without a sync. This is #637: before, the history never synced, and a
+    /// deposit appeared only after a balance read had.
+    #[cfg(unix)]
+    #[test]
+    fn a_history_read_on_a_free_wallet_syncs_once_per_window() {
+        let st = HelperState::new();
+        seed(&st, "window1");
+        let (c, dir) = counting_cfg("window", 0);
+        let locks = concurrency::VaultLocks::new();
+        let limits = admission::Limits::new();
+        let read = |path: &str| {
+            serve(
+                &st,
+                &c,
+                &locks,
+                &limits,
+                "203.0.113.7",
+                T0,
+                &Method::Get,
+                path,
+                b"",
+                None,
+            )
+        };
+        let first = read("/api/vault/transactions?vault=window1");
+        assert_eq!(first.status, 200, "{}", first.body);
+        assert_eq!(engine_calls(&dir), vec!["upgrade", "sync", "list-tx"]);
+        let second = read("/api/vault/transactions?vault=window1");
+        assert_eq!(second.status, 200, "{}", second.body);
+        let balance = read("/api/vault/balance?vault=window1");
+        assert_eq!(balance.status, 200, "{}", balance.body);
+        assert_eq!(
+            engine_calls(&dir),
+            vec!["upgrade", "sync", "list-tx", "upgrade", "list-tx", "upgrade", "balance"],
+            "one sync for the three reads, shared by the history and the balance"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A history read and a write that runs the engine (a proposal's funding check) at the same time,
+    /// in BOTH orders: the engine is never opened twice on the wallet, there is one sync for the
+    /// window, and whoever came second waited for it and did not sync again.
+    #[cfg(unix)]
+    #[test]
+    fn a_history_sync_and_a_funding_check_never_overlap_and_sync_once() {
+        for history_first in [true, false] {
+            let vault = if history_first {
+                "overlap1"
+            } else {
+                "overlap2"
+            };
+            let st = HelperState::new();
+            seed(&st, vault);
+            let (c, dir) = counting_cfg(vault, 2);
+            let _ = orchestrator::helper::claim_members(
+                &c.vaults_dir,
+                vault,
+                &["alice".into(), "bob".into()],
+            );
+            let locks = concurrency::VaultLocks::new();
+            let limits = admission::Limits::new();
+            let call = |method: Method, path: String, body: String| {
+                serve(
+                    &st,
+                    &c,
+                    &locks,
+                    &limits,
+                    "203.0.113.7",
+                    T0,
+                    &method,
+                    &path,
+                    body.as_bytes(),
+                    None,
+                )
+            };
+            let history = format!("/api/vault/transactions?vault={vault}");
+            let create = format!(
+                r#"{{"vault":"{vault}","proposer":"alice","to":"{TESTNET_ORCHARD_UA}","amount_zat":1000}}"#
+            );
+            let wait_for_sync = || {
+                let start = std::time::Instant::now();
+                while !engine_calls(&dir).iter().any(|l| l == "sync") {
+                    assert!(
+                        start.elapsed() < Duration::from_secs(5),
+                        "nothing reached the engine"
+                    );
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+            };
+            let (hist, created) = std::thread::scope(|scope| {
+                if history_first {
+                    let h = scope.spawn(|| call(Method::Get, history.clone(), String::new()));
+                    wait_for_sync();
+                    let w = scope.spawn(|| {
+                        call(
+                            Method::Post,
+                            "/api/vault/proposals".to_string(),
+                            create.clone(),
+                        )
+                    });
+                    (h.join().unwrap(), w.join().unwrap())
+                } else {
+                    let w = scope.spawn(|| {
+                        call(
+                            Method::Post,
+                            "/api/vault/proposals".to_string(),
+                            create.clone(),
+                        )
+                    });
+                    wait_for_sync();
+                    let h = scope.spawn(|| call(Method::Get, history.clone(), String::new()));
+                    (h.join().unwrap(), w.join().unwrap())
+                }
+            });
+            assert_eq!(
+                hist.status, 200,
+                "history_first={history_first}: {}",
+                hist.body
+            );
+            assert_eq!(
+                created.status, 200,
+                "history_first={history_first}: {}",
+                created.body
+            );
+            let syncs = engine_calls(&dir).iter().filter(|l| *l == "sync").count();
+            assert_eq!(
+                syncs,
+                1,
+                "history_first={history_first}: {:?}",
+                engine_calls(&dir)
+            );
+            assert!(
+                !dir.join("overlap.log").exists(),
+                "history_first={history_first}: two engine processes on one wallet"
+            );
+            let _ = std::fs::remove_dir_all(&dir);
+        }
     }
 
     // ---- REG-CREATION-MIN, coordinator side -----------------------------------------------------

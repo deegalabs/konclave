@@ -27,10 +27,11 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+use crate::helper::inside_window;
 use crate::helper::{
     append_ceremony, load_ceremonies, load_proposal, loggable, proposal_file_stem, replace_file,
     save_proposal, short_id, sync_dir, unique_tmp, write_synced, CeremonyRecord, HelperProposal,
-    WalletView,
+    WalletView, SYNC_THROTTLE_SECS,
 };
 use crate::send::{broadcast_signed, net_prepare_send, SendConfig, SignedSend, SpendPlan};
 use crate::tools::ToolError;
@@ -628,10 +629,6 @@ fn held_in(vaults_dir: &Path, vault: &str) -> Vec<Held> {
         .collect()
 }
 
-/// How often the wallet is read to promote what is mined, per vault: the same window the balance
-/// read uses for its sync, so a screen that polls does not turn into a `list-tx` per request.
-pub const PROMOTE_THROTTLE_SECS: u64 = 15;
-
 fn last_promote_path(vaults_dir: &Path, vault: &str) -> PathBuf {
     vaults_dir.join(vault).join("last_promote")
 }
@@ -643,12 +640,13 @@ fn last_promote_path(vaults_dir: &Path, vault: &str) -> PathBuf {
 /// decided by a Send alone.
 ///
 /// It reads the wallet AS IT STANDS, without syncing: a payment is seen once the wallet has synced
-/// past it, which a balance read or a Send does. `read_mined` is called only when something is held,
-/// and at most once per [`PROMOTE_THROTTLE_SECS`] per vault whether it succeeds or fails, so neither
-/// the subprocess nor a log line repeats per request. No record is skipped for its age: a payment the
-/// wallet only learns of late (a wallet restored from a backup, rescanned) is still recorded, and the
-/// window is what bounds the cost of a record that is never mined. Returns how many proposals it
-/// promoted.
+/// past it, which a balance read, a history read or a Send does. `read_mined` is called only when
+/// something is held, and at most once per [`SYNC_THROTTLE_SECS`] per vault whether it succeeds or
+/// fails, so neither the subprocess nor a log line repeats per request. That is the same DURATION the
+/// balance and history reads sync under, with its own stamp (`last_promote`) and the same predicate
+/// (`inside_window`). No record is skipped for its age: a payment the wallet only learns of late (a
+/// wallet restored from a backup, rescanned) is still recorded, and the window is what bounds the
+/// cost of a record that is never mined. Returns how many proposals it promoted.
 pub fn promote_mined_attempts(
     vaults_dir: &Path,
     vault: &str,
@@ -679,7 +677,7 @@ fn promote_at(
         .and_then(|t| t.trim().parse::<u64>().ok());
     // A stamp from the future (a clock that went back) is not a recent read: ignored, so it cannot
     // keep a payment from being recorded until the clock catches up.
-    if last.is_some_and(|l| l <= now && now - l < PROMOTE_THROTTLE_SECS) {
+    if last.is_some_and(|l| inside_window(l, now, SYNC_THROTTLE_SECS)) {
         return 0;
     }
     let _ = std::fs::write(&path, now.to_string());
@@ -1620,13 +1618,13 @@ mod tests {
             Ok::<Vec<String>, ToolError>(vec![])
         };
         promote_at(&dir, VAULT, 2_000, read);
-        promote_at(&dir, VAULT, 2_000 + PROMOTE_THROTTLE_SECS - 1, read);
+        promote_at(&dir, VAULT, 2_000 + SYNC_THROTTLE_SECS - 1, read);
         assert_eq!(
             reads.get(),
             1,
             "inside the window the wallet is not read again"
         );
-        promote_at(&dir, VAULT, 2_000 + PROMOTE_THROTTLE_SECS, read);
+        promote_at(&dir, VAULT, 2_000 + SYNC_THROTTLE_SECS, read);
         assert_eq!(reads.get(), 2, "once the window has passed it is");
     }
 
@@ -1696,7 +1694,7 @@ mod tests {
 
         std::fs::remove_dir_all(&trail).unwrap();
         assert_eq!(
-            promote_at(&dir, VAULT, 2_000 + PROMOTE_THROTTLE_SECS, || Ok(vec![
+            promote_at(&dir, VAULT, 2_000 + SYNC_THROTTLE_SECS, || Ok(vec![
                 TXID.into()
             ])),
             1

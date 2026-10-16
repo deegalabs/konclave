@@ -183,7 +183,8 @@ caller, `ui/src/screens/NetVault.tsx`). That is a statement about the product, n
   human should refuse, and if the quorum approves it, the money moves. The defence there is the same
   as for any proposal: the preview, the explicit confirmation, and the on-device sighash check (H1) -
   not the MCP boundary. Related, and worth saying because outside readers assume otherwise: the MCP
-  server is **not** the coordinator of the FROST ceremony (that is the hosted helper); an AI is never
+  server is **not** the coordinator (that is the hosted helper, which builds the transaction; the
+  signature itself is aggregated on a member's device); an AI is never
   on the critical path of a spend.
 - **The cross-device milestone is now closed on mainnet.** The first eight mainnet sends were signed
   on a single machine (seven with co-located CLI shares; the eighth, `3022420a…`, two browser tabs on

@@ -141,6 +141,7 @@ export function refusalKey(e: unknown): string {
     case 'label':
       return 'net.err.labelMismatch'
     case 'shape':
+    case 'dummy':
       return 'net.err.unexpectedShape'
     case 'expiry':
       return 'net.err.expiry'
