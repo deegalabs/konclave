@@ -80,6 +80,13 @@
 .rcv-hist-checking { display: inline-flex; align-items: center; gap: 6px; }
 /* A background refresh, not a blocking load: the ring stays in the muted text colour. */
 .rcv-hist-status .loader-ring { border-top-color: var(--text-muted); }
+/* Stops after about five seconds (six turns at 0.8 s), and never turns under reduced motion: the text
+   says what is happening (WCAG 2.2.2). */
+.rcv-hist-status .loader-ring { animation-iteration-count: 6; }
+@media (prefers-reduced-motion: reduce) { .rcv-hist-status .loader-ring { animation: none; } }
+/* On narrow screens the status takes its own line, so the checking label cannot push the list down
+   and back every 15 s. */
+@media (max-width: 420px) { .rcv-hist-status { flex-basis: 100%; } }
 .rcv-hist-list { display: flex; flex-direction: column; gap: 2px; }
 .rcv-hist-row {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;

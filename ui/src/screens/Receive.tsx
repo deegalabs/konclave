@@ -36,9 +36,10 @@ export function AddressNotice({ differs, missing, id }: { differs: boolean; miss
 
 /** Whether the on-chain history is being read right now, and when it last answered. The list fills in
  *  from the coordinator's sync, which can take a while, so without this an empty list read as an
- *  answer while a deposit was still on its way in. The time stays on screen and is the only thing
- *  announced, so a screen reader hears it change at most once a minute rather than twice per 15 s
- *  poll; the spinner and its label sit beside it and are not announced. Exported for its test. */
+ *  answer while a deposit was still on its way in. The time stays on screen while a read runs. It is
+ *  not a live region: a status that changes every 15 s would talk over the member reading the
+ *  address (a11y audit); announcing a new deposit when it lands is the follow-up. The spinner and
+ *  its label are decorative. Exported for its test. */
 export function HistoryStatus({ checking, checkedAt }: { checking: boolean; checkedAt: number | null }) {
   const { locale, t } = useI18n()
   const time = checkedAt === null ? null
@@ -51,7 +52,7 @@ export function HistoryStatus({ checking, checkedAt }: { checking: boolean; chec
           {t('receive.historyChecking')}
         </span>
       )}
-      <span role="status">{time ? t('receive.historyChecked', { time }) : null}</span>
+      {time && <span>{t('receive.historyChecked', { time })}</span>}
     </span>
   )
 }

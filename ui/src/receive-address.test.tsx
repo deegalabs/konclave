@@ -89,8 +89,8 @@ describe('the screens take the address from getVault and say what they know befo
 
 // Daniel (16/10): the history list filled in a while after the screen opened, and nothing said it was
 // being read, so the empty list read as an answer. The status shows when a read is in flight and when
-// the list last answered, on the first load and on every refresh after it. Only the time is announced
-// (GSP critique: swapping the whole text announced twice per 15 s poll).
+// the list last answered, on every refresh. Nothing is announced (a11y audit: a status changing every
+// 15 s talked over the member); the time stays visible while a read runs (GSP critique).
 describe('the on-chain history says when it is being read', () => {
   const at1041 = new Date(2026, 9, 16, 10, 41).getTime()
   const status = (checking: boolean, checkedAt: number | null) =>
@@ -99,18 +99,19 @@ describe('the on-chain history says when it is being read', () => {
   it('shows a spinner and says it is checking while a read is in flight, without hiding the time', () => {
     const html = status(true, at1041)
     expect(html).toContain('class="rcv-hist-checking" aria-hidden="true"><span class="loader-ring sm"></span>Checking the network…')
-    expect(html).toMatch(/<span role="status">Last checked at 10:41/)
+    expect(html).toMatch(/<span>Last checked at 10:41/)
   })
 
   it('says only when the list was last read once a read has answered', () => {
     const html = status(false, at1041)
-    expect(html).toMatch(/<span role="status">Last checked at 10:41/)
+    expect(html).toMatch(/<span>Last checked at 10:41/)
     expect(html).not.toContain('loader-ring')
     expect(html).not.toContain('Checking')
   })
 
-  it('keeps the live region in the page with nothing read yet', () => {
-    expect(status(false, null)).toContain('<span role="status"></span>')
+  it('is not a live region: a status that changes every 15 s would talk over the screen', () => {
+    expect(status(true, at1041)).not.toContain('role=')
+    expect(status(false, at1041)).not.toContain('aria-live')
   })
 
   it('says it in both languages, and the empty list no longer reads as final', () => {
