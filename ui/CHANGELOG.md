@@ -44,8 +44,8 @@ history to tidy it is how context gets lost.
 
 - **Add funds said nothing while it read the vault's history.** After the first load, the on-chain
   history refreshed without a sign, so "No transactions yet" read as an answer while a deposit was
-  still on its way in. The history now says when it is checking the network and when it last
-  checked, on the first load and on every refresh.
+  still on its way in. The history now shows when it is checking the network and when it last
+  checked, on every refresh, and an empty list says a deposit can take a few minutes to appear.
 
 ## [0.13.1] 2026-10-15
 
