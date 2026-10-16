@@ -457,8 +457,8 @@ export const SECTIONS: Section[] = [
             en: '**Proven by test:** social recovery (RTS share repair) and the inheritance policy engine.',
           },
           {
-            'pt-BR': `**Roadmap, não entregue:** o **multi-nota** ao vivo pelo relay; recuperação social e herança ligadas a um cofre vivo (#58); trocar um assento perdido, os membros ou o quórum de um cofre existente (#154); ler a folha de um CSV no app web. Já **entregues** (não são mais roadmap): o broadcast assinado no navegador, o broadcast entre dispositivos físicos separados, a persistência do share no dispositivo com assinatura-após-restore, e o app de mesa (Tauri, última versão **v${DESKTOP_VERSION}**, uma pré-release; ainda não validado em hardware real, por isso o botão de download do site fica desligado).`,
-            en: `**Roadmap, not shipped:** live **multi-note** over the relay; social recovery and inheritance wired into a live vault (#58); replacing a lost seat, or changing the members or the quorum of an existing vault (#154); reading a payroll from a CSV in the web app. Already **shipped** (no longer roadmap): the browser-signed broadcast, a broadcast across separate physical devices, on-device share persistence with sign-after-restore, and the desktop app (Tauri, latest **v${DESKTOP_VERSION}**, a pre-release; not yet validated on real hardware, so the site’s download button stays off).`,
+            'pt-BR': `**Roadmap, não entregue:** o **multi-nota** ao vivo pelo relay; recuperação social e herança ligadas a um cofre vivo (#58); trocar um assento perdido, os membros ou o quórum de um cofre existente (#154); ler a folha de um CSV no app web. Já **entregues** (não são mais roadmap): o broadcast assinado no navegador, o broadcast entre dispositivos físicos separados, a persistência do share no dispositivo com assinatura-após-restore, e o app de mesa (Tauri, **v${DESKTOP_VERSION}**, uma pré-release; ainda não validado em hardware real, por isso o botão de download do site fica desligado).`,
+            en: `**Roadmap, not shipped:** live **multi-note** over the relay; social recovery and inheritance wired into a live vault (#58); replacing a lost seat, or changing the members or the quorum of an existing vault (#154); reading a payroll from a CSV in the web app. Already **shipped** (no longer roadmap): the browser-signed broadcast, a broadcast across separate physical devices, on-device share persistence with sign-after-restore, and the desktop app (Tauri, **v${DESKTOP_VERSION}**, a pre-release; not yet validated on real hardware, so the site’s download button stays off).`,
           },
         ],
       },
@@ -600,8 +600,8 @@ export const SECTIONS: Section[] = [
             en: '**4.** In the **Export this vault** window, type your passphrase in the field **This vault’s passphrase**.',
           },
           {
-            'pt-BR': '**5.** Toque em **Baixar arquivo**. O navegador salva um arquivo com o nome do cofre, terminado em `.konclave.json`, onde ele costuma salvar os downloads. Ou toque em **Copiar** e cole o texto numa nota do seu gerenciador de senhas.',
-            en: '**5.** Press **Download file**. Your browser saves a file named after the vault, ending in `.konclave.json`, wherever it keeps downloads. Or press **Copy** and paste the text into a note in your password manager.',
+            'pt-BR': '**5.** Toque em **Baixar arquivo**. O navegador salva um arquivo com o nome do cofre e a data e hora em que foi feito, terminado em `.konclave.json`, onde ele costuma salvar os downloads. Ou toque em **Copiar** e cole o texto numa nota do seu gerenciador de senhas.',
+            en: '**5.** Press **Download file**. Your browser saves a file named after the vault and the date and time it was made, ending in `.konclave.json`, wherever it keeps downloads. Or press **Copy** and paste the text into a note in your password manager.',
           },
           {
             'pt-BR': '**6.** Guarde o arquivo em dois lugares que não sejam este aparelho, por exemplo um gerenciador de senhas e um pendrive. Guarde a frase-senha em outro lugar, não junto do arquivo.',

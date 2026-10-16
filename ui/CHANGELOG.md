@@ -50,6 +50,41 @@ history to tidy it is how context gets lost.
   whose signature was not needed and the proposal whose vote was not needed. No member's share or
   funds were affected: it was a matter of a send not happening.
 
+- **Add funds said nothing while it read the vault's history.** After the first load, the on-chain
+  history refreshed without a sign, so "No transactions yet" read as an answer while a deposit was
+  still on its way in. The history now shows when it is checking the network and when it last
+  checked, on every refresh, and an empty list says a deposit can take a few minutes to appear.
+- **Add funds showed an empty history while it could not read it.** The screen read the history
+  behind the unlock prompt, where the read fails, and took the failure for an empty answer: a vault
+  with transactions read "No transactions yet" until a later refresh, 20 to 40 seconds after the
+  unlock. It now waits for the unlock and reads the moment it happens; a failed read keeps what the
+  screen had, says it could not check, and is retried a few times over about 20 seconds. The
+  dashboard took a failed read the same way for the list it checks payments against, and now reads
+  it through the same rule.
+
+- **Creating a vault looked frozen while it waited for the other members.** After a member protected
+  their part, the screen showed one line of plain text until everyone had. It now says how many have
+  saved and who is left ("1 of 3 saved. Waiting for: ana, bia."), with a small spinner beside it,
+  and the same on the lab page.
+- **Every backup of a vault downloaded under the same name.** A second copy replaced or shadowed the
+  first. The file is now named after the vault and the date and time it was made, and carries no
+  member's name.
+
+- **A vault whose registration did not finish can be finished from its card.** If the coordinator did
+  not answer, or did not accept the registration, at the end of creating a vault, the vault stayed
+  without a deposit address and nothing on the device could finish it; answering "everyone saved" on
+  the card only hid the warning. The card of such a vault now offers to finish registering it (after
+  the same question about the members, or at once when this device already knew every member had
+  saved), names the coordinator it will register with, and builds your backup copy in the same step.
+  The question about a different coordinator applies only to vaults created from this version on,
+  which are the ones that remember where they were created; older records cannot say. A vault made by an earlier version
+  of the creation is still told to be recreated, not finished.
+
+- **The site names the 0.13.1 desktop pre-release.** The landing and the help named 0.8.0, an older
+  pre-release that predates the device's payment check. The version comes from one place, the latest
+  published pre-release, and the help no longer calls it the latest version. The landing's download
+  buttons stay off until the desktop app is validated on each platform (#212).
+
 ### Known limits
 
 - **A vault sends under the new signing rule once every device that signs runs this version.** With
@@ -63,6 +98,19 @@ history to tidy it is how context gets lost.
   off yet (#284).
 - **The `/net` page still starts its signing from the vault's first seat**, so there that seat must
   be present.
+
+## [0.13.2] 2026-10-16
+
+### Fixed
+
+- **A device signs nothing in a transaction whose padding was never finished.** A coordinator that
+  wanted to could have asked a device to sign a transaction whose padding spend still carried a
+  dummy spending key, and the device would have taken that spend as its own: extra actions, a higher
+  fee allowed for them, and a ceremony that fails when the signatures are applied, so nothing was
+  sent; no key was exposed. The PCZT specification says a signer must refuse such a transaction. The
+  device now does, before its share moves, and the signing screen says the transaction has a part a
+  vault payment never has. The coordinators we run do not build one; we have no report that it
+  happened, and we did not check. The rule is shared with the native signer (root CHANGELOG).
 
 ## [0.13.1] 2026-10-15
 

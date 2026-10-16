@@ -26,7 +26,7 @@ import { needsUnlock, securedLocally } from '../vault-lock'
 import type { VaultLockContext } from '../Layout'
 import { useVaultSigner } from '../VaultSigner'
 import { useLoading } from '../loading'
-import { keepOnBusy, nextBalanceView, type BalanceView } from '../useVaultBalance'
+import { isHistoryAnswer, nextBalanceView, type BalanceView } from '../useVaultBalance'
 
 type Movimento = { date: string; title: string; by?: string; value: string; dir: 'out' | 'in'; movement: Movement }
 
@@ -331,8 +331,9 @@ export default function Dashboard() {
     let on = true
     void readTransactions().then((list) => {
       if (!on) return
-      setTxs((prev) => keepOnBusy(prev, list))
-      if (list === WALLET_BUSY) return
+      // Only an answer replaces the list: a busy or failed read keeps what the screen has.
+      if (!isHistoryAnswer(list)) return
+      setTxs(list)
       const h = list?.[0]?.mined_height
       if (typeof h === 'number' && h > 0) setNewestHeight(h)
     })

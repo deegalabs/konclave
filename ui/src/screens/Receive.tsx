@@ -2,12 +2,13 @@ import { useEffect, useId, useMemo, useState } from 'react'
 import { startVisiblePoll } from '../usePoll'
 import encodeQR from '@paulmillr/qr'
 import { getVault, readTransactions, getLedger, shortAddr, IS_NET, type Vault, type WalletTx } from '../api'
-import { useT, useTr } from '../i18n'
+import { useI18n, useT, useTr } from '../i18n'
 import { PageHeader } from '../page'
 import { BannerWarn, Loading } from '../components'
 import '../receive.css'
-import { WALLET_BUSY } from '../helper'
-import { keepOnBusy } from '../useVaultBalance'
+import { historyReadKind, historyReader, isHistoryAnswer } from '../useVaultBalance'
+import { useOutletContext } from 'react-router-dom'
+import type { VaultLockContext } from '../Layout'
 
 // "Add funds" is the easy side of a vault: receiving needs no key and no signature. The vault
 // has a shielded Orchard address (derived from the group key by zcash-sign); anyone sends ZEC to
@@ -34,10 +35,36 @@ export function AddressNotice({ differs, missing, id }: { differs: boolean; miss
   return <BannerWarn id={id} className="rcv-warn">{tr('receive.addressDiffers')}</BannerWarn>
 }
 
+/** Whether the on-chain history is being read right now, and when it last answered. The list fills in
+ *  from the coordinator's sync, which can take a while, so without this an empty list read as an
+ *  answer while a deposit was still on its way in. The time stays on screen while a read runs. It is
+ *  not a live region: a status that changes every 15 s would talk over the member reading the
+ *  address (a11y audit); announcing a new deposit when it lands is the follow-up. The spinner and
+ *  its label are decorative. Exported for its test. */
+export function HistoryStatus({ checking, checkedAt, failed = false }: { checking: boolean; checkedAt: number | null; failed?: boolean }) {
+  const { locale, t } = useI18n()
+  const time = checkedAt === null ? null
+    : new Date(checkedAt).toLocaleTimeString(locale === 'en' ? 'en-US' : 'pt-BR', { hour: '2-digit', minute: '2-digit' })
+  return (
+    <span className="rcv-hist-status">
+      {checking ? (
+        <span className="rcv-hist-checking" aria-hidden="true">
+          <span className="loader-ring sm" />
+          {t('receive.historyChecking')}
+        </span>
+      ) : failed ? (
+        <span>{t('receive.historyRetry')}</span>
+      ) : null}
+      {time && <span>{t('receive.historyChecked', { time })}</span>}
+    </span>
+  )
+}
+
 export default function Receive() {
   const t = useT()
   const tr = useTr()
   const noticeId = useId()
+  const { locked, unlockNonce } = useOutletContext<VaultLockContext>()
   const [vault, setVault] = useState<Vault | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [amount, setAmount] = useState('')
@@ -46,6 +73,11 @@ export default function Receive() {
   // link to a block explorer where the amounts are visible (per-tx amount/direction is a follow-up).
   const [txs, setTxs] = useState<WalletTx[] | null>(null)
   const [txLoaded, setTxLoaded] = useState(false)
+  // A history read in flight (the first one and every refresh), and the time the last one answered.
+  const [checking, setChecking] = useState(false)
+  const [checkedAt, setCheckedAt] = useState<number | null>(null)
+  // The last read failed (not busy: failed). Said, and retried soon.
+  const [failed, setFailed] = useState(false)
   // The vault's OWN broadcast txids (from the ledger). A history tx whose id is in here is a SENT
   // (outgoing) payment this vault made; anything else is a RECEIVED deposit. This gives direction
   // client-side, without needing the tool's per-tx amount/direction fields (#125 v2 slice).
@@ -58,30 +90,45 @@ export default function Receive() {
       if (v) setVault(v)
       setLoaded(true)
     })
-    // Auto-refresh the history (#123): a deposit that lands on-chain shows up without a reload.
-    // In-flight guarded; polls on the shared 15s cadence.
-    let inFlight = false
-    const loadTx = async () => {
-      if (inFlight) return
-      inFlight = true
-      try {
-        const [r, ledger] = await Promise.all([readTransactions(), getLedger()])
-        if (!on) return
-        // A busy coordinator is not an empty history: keep the list the screen has (COORD-LOCK).
-        setTxs((prev) => keepOnBusy(prev, r))
-        if (r !== WALLET_BUSY) setTxLoaded(true)
-        if (ledger) setSentIds(new Set(ledger.map((p) => p.txid).filter((x): x is string => !!x)))
-      } finally {
-        inFlight = false
-      }
-    }
-    void loadTx()
-    const stop = startVisiblePoll(() => void loadTx(), 15_000) // pause when hidden, refresh on return (#123)
+    return () => { on = false }
+  }, [])
+
+  // The history is a private read: behind the unlock overlay it would answer 401, which is a failure,
+  // not an empty history. So it waits for the vault to be unlocked and reads again the moment it is
+  // (`unlockNonce`, #467), as the dashboard does. The reader keeps one read at a time and retries a
+  // failure on a short schedule that stops; the 15 s poll does the rest (#123), paused when hidden.
+  useEffect(() => {
+    if (locked) return
+    let on = true
+    const reader = historyReader<WalletTx>({
+      read: () => readTransactions(),
+      onStart: () => {
+        // "Checking" is exactly the /api/vault/transactions request in flight (Daniel, 16/10). The
+        // ledger (which txids this vault sent) is read beside it and does not hold the spinner.
+        setChecking(true)
+        void getLedger().then((ledger) => {
+          if (on && ledger) setSentIds(new Set(ledger.map((p) => p.txid).filter((x): x is string => !!x)))
+        })
+      },
+      onResult: (r) => {
+        setChecking(false)
+        // Only an answer fills the list and counts as a check; busy and failed keep what is shown.
+        if (isHistoryAnswer(r)) {
+          setTxs(r)
+          setTxLoaded(true)
+          setCheckedAt(Date.now())
+        }
+        setFailed(historyReadKind(r) === 'failed')
+      },
+    })
+    reader.tick()
+    const stop = startVisiblePoll(reader.tick, 15_000)
     return () => {
       on = false
+      reader.stop()
       stop()
     }
-  }, [])
+  }, [locked, unlockNonce])
 
   const address = vault?.orchard_address ?? ''
   // Each control that hands the address on carries the warning, so a screen reader that missed the
@@ -170,9 +217,10 @@ export default function Receive() {
         <section className="rcv-history">
           <div className="rcv-hist-head">
             <span className="klab">{t('receive.historyTitle')}</span>
+            {txLoaded && <HistoryStatus checking={checking} checkedAt={checkedAt} failed={failed} />}
           </div>
           {!txLoaded ? (
-            <Loading />
+            failed && !checking ? <p className="rcv-note">{t('receive.historyUnreadable')}</p> : <Loading />
           ) : !txs || txs.length === 0 ? (
             <p className="rcv-note">{t('receive.historyEmpty')}</p>
           ) : (

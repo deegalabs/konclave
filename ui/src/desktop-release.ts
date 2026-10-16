@@ -5,4 +5,4 @@
 //
 // One constant for both, because there were two: #598 moved the landing to v0.8.0 and left two
 // sentences in the docs naming v0.7.0.
-export const DESKTOP_VERSION = '0.8.0'
+export const DESKTOP_VERSION = '0.13.1'

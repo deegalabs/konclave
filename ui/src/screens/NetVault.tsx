@@ -1,7 +1,7 @@
 import { ensureWasm } from '../wasm-ready'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { setSelectedVault, getSelectedVault, depositAddress } from '../api'
+import { setSelectedVault, getSelectedVault } from '../api'
 import CopyButton from '../CopyButton'
 import { getUnlockedShare, clearUnlockedShare, setUnlockedShare } from '../session'
 import {
@@ -10,7 +10,7 @@ import {
   type CreationSession,
 } from '../wasm-pkg/konclave_wasm.js'
 import { DkgCeremony, DKG_VERSION, type DkgAbort, type DkgConfig, type DkgMsg } from '../dkg-ceremony'
-import { InviteCard, CodeCheck, StopPanel } from './CeremonyParts'
+import { InviteCard, CodeCheck, StopPanel, WaitLine, saveWaitText } from './CeremonyParts'
 import { creationBusy, closeIntent } from '../creation-guard'
 import { RelaySession, newRoomCode, newInviteCode, parseInvite, joinParam, formatInvite, deriveRoom, ephemeralTag, b64, relayBase, type RelayMsg } from '../net'
 import { decodeBundle } from '../signing'
@@ -20,7 +20,8 @@ import { signRejoin, rejoinIsProven } from '../room-auth'
 import { parseSignRequest, unsealSignRequest } from '../net-sign'
 import { generateVaultSecret } from '../vault-secret'
 import { deviceCommsKey, devicePubHex } from '../device-key'
-import { registerThisDevice } from '../device-registration'
+import { concludeRegistration, refusalKey } from '../conclude-registration'
+import { buildVaultBackup } from '../build-backup'
 import { writeProof } from '../api'
 import { useT, useTr, useI18n } from '../i18n'
 import { Letterhead, PassphraseField } from '../components'
@@ -30,7 +31,6 @@ import {
   loadVault,
   listVaults,
   deleteVault,
-  exportVault,
   storageAvailable,
   type VaultPublic,
   type VaultLoaded,
@@ -39,11 +39,8 @@ import {
 import { downloadText } from '../download'
 import {
   helperConfigured,
-  registerVault,
+  helperBase,
   coordinatorCreationMin,
-  lastHelperPostFailure,
-  getUfvk,
-  setMembers,
   vaultBalance,
   listProposals,
   executeProposal,
@@ -54,10 +51,9 @@ import { netReplyText } from '../send-preflight'
 import { zatToZec, fmtZecExact, vaultFingerprint } from '../format'
 import { readingRows } from '../device-reading'
 import encodeQR from '@paulmillr/qr'
-import { addressText } from '../approved-payment'
 import '../redesign.css'
 import '../net.css'
-import { CREATION_PROTOCOL, creationAllowed, isUpdateRequired } from '../creation-protocol'
+import { CREATION_PROTOCOL, creationAllowed } from '../creation-protocol'
 import { WALLET_BUSY } from '../helper'
 
 // The konclave.xyz network, made visible: two (or three) browser contexts create ONE vault by
@@ -366,53 +362,39 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
   // Every member saved its share and proved it: register the vault, record its address, and build
   // the backup. Only now does an address exist for anyone to fund.
   const finishVault = useCallback(async () => {
-    const dkg = dkgRef.current!
-    const cer = ceremonyRef.current!
     part3DoneRef.current = true
     if (slowFinishTimerRef.current) clearTimeout(slowFinishTimerRef.current)
     setSlowFinish(false)
     setWaiting([])
     setError('') // the vault exists: no earlier warning stays over it
-    const vk = hex(dkg.groupVk())
-    const cfg = configRef.current
+    const saved = savedRef.current
+    // Every seat proved it saved (`cer.complete` needs a verified `done` from each), and that is
+    // recorded BEFORE any network call: whatever the coordinator does next, a later open of this
+    // vault may finish the registration without asking the member again.
+    if (saved && helperConfigured()) {
+      await updateVaultMeta(saved.vaultId, { allSaved: true, coordinator: helperBase() }).catch(() => {})
+    }
     let addr = ''
     if (helperConfigured()) {
       setHostedState('registering')
-      // The vault's name and quorum as every member confirmed them (they are in the code).
-      const chosenName = cer.config?.vn || `net-${vk.slice(0, 8)}`
-      const v = await registerVault(vk, chosenName, cfg?.t ?? 0, cfg?.n ?? 0)
-      // The first registration of a group key wins on the coordinator. Whether its answer may be
-      // this vault's address is the one rule every screen uses (`depositAddress`): not when it
-      // carries another quorum than the members confirmed.
-      const allowed = v ? depositAddress({ address: '', threshold: cfg?.t, total: cfg?.n }, addressText(v.address), { threshold: v.threshold, total: v.total }) : null
-      if (v && allowed?.address) {
-        setHostedAddress(addressText(v.address))
-        addr = allowed.address
+      // The one implementation of the registration (also what the vault card calls). It reads this
+      // device's saved record, so the quorum and the name are the ones every member confirmed.
+      const r = saved ? await concludeRegistration(saved.vaultId) : ({ refused: 'unreachable' } as const)
+      if ('address' in r) {
+        setHostedAddress(r.address)
+        addr = r.address
         setHostedState('registered')
-        // Each member's name (seat order) exactly as bound into the code; idempotent.
-        const names = seatTableRef.current.map((s) => cer.nameOf(s.tag) || s.tag)
-        if (names.length) void setMembers(vk, names)
-        // This device's keys, and the vault's read key from S (#388), registered the one way every
-        // unlock registers them (`registerThisDevice`), so the read gate turns on whoever finishes.
-        // Awaited: the backup below asks for the viewing key, which needs the read key in place.
-        if (savedRef.current) {
-          const sv = savedRef.current
-          await registerThisDevice(sv.vaultId, { ...sv.meta, threshold: cfg?.t, total: cfg?.n })
-        }
       } else {
         setHostedState('failed')
-        if (v) setError(tt('net.err.registrationMismatch'))
-        // Refused for an outdated app: say so, instead of "registering" for good.
-        if (isUpdateRequired(lastHelperPostFailure())) setError(tt('net.err.updateRequired'))
+        setError(tt(refusalKey(r)))
       }
     }
-    const saved = savedRef.current
     // Finished: every member saved, and the coordinator (if any) holds the confirmed quorum. Only
-    // then does the record stop being pending. A quorum mismatch leaves it pending: no address.
+    // then does the record stop being pending. A refusal leaves it pending: no address. Without a
+    // coordinator there is nothing to wait for, and the record is finished locally.
     const finished = !helperConfigured() || !!addr
-    if (saved && finished) {
-      await updateVaultMeta(saved.vaultId, { pending: false, ...(addr ? { address: addr } : {}) }).catch(() => {})
-      if (addr) setUnlockedShare(saved.vaultId, { ...saved.meta, address: addr })
+    if (saved && finished && !addr) {
+      await updateVaultMeta(saved.vaultId, { pending: false }).catch(() => {})
     }
     // The portable backup, now that the address, the viewing key and the scan floor exist. A
     // backup failure must never block opening the vault.
@@ -420,16 +402,8 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
     savePassRef.current = ''
     if (saved && pass && finished) {
       try {
-        await ensureWasm()
-        const kp = dkg.keyPackage()
-        const keys = await getUfvk(saved.vaultId, { key: deviceCommsKey(kp), pubHex: devicePubHex(kp) })
-        const exp = await exportVault(saved.vaultId, pass, keys?.ufvk, keys?.birthday)
-        const safe = (saved.meta.name ?? 'konclave-vault').replace(/[^\w.-]+/g, '-').toLowerCase()
-        setBackup({
-          json: JSON.stringify(exp, null, 2),
-          name: `${safe}.konclave.json`,
-          complete: Boolean(addr && keys?.ufvk && keys?.birthday !== undefined),
-        })
+        const b = await buildVaultBackup(saved.vaultId, pass, getUnlockedShare(saved.vaultId) ?? saved.meta, saved.meta.name)
+        setBackup({ json: b.json, name: b.name, complete: Boolean(addr) && b.complete })
       } catch { /* backup is optional; the vault is already saved on this device */ }
     }
     await refreshSavedRef.current()
@@ -1459,6 +1433,11 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
 
   const total = configRef.current?.n ?? n
   const quorum = configRef.current?.t ?? t
+  // The save step's status line: who is left to save, then the registration; empty otherwise.
+  const saveWait = saveState !== 'saved' ? ''
+    : waiting.length > 0 ? saveWaitText(total, waiting, pe)
+    : !backup && hostedState === 'registering' ? pe('Registrando o cofre…', 'Registering the vault…')
+    : ''
 
   // Shared signing controls, used by the just-created vault ('done') and by a restored device that
   // rejoined a signing session ('signsession'). `canStart` gates the button on quorum presence.
@@ -1722,12 +1701,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                   : saveState === 'saved' ? pe('Guardado neste aparelho ✓', 'Saved on this device ✓')
                   : pe('Proteger o cofre →', 'Protect the vault →')}
               </button>
-              {saveState === 'saved' && waiting.length > 0 && (
-                <p className="cv-seatlabel" role="status">{pe(`Esperando os outros guardarem: ${waiting.join(', ')}. O endereço do cofre aparece quando todos guardarem.`, `Waiting for the others to save: ${waiting.join(', ')}. The vault's address appears once everyone has.`)}</p>
-              )}
-              {saveState === 'saved' && !backup && waiting.length === 0 && hostedState === 'registering' && (
-                <p className="cv-seatlabel" role="status">{pe('Registrando o cofre…', 'Registering the vault…')}</p>
-              )}
+              <WaitLine busy={!!saveWait}>{saveWait}</WaitLine>
 
             </div>
           </>
@@ -1857,9 +1831,10 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
             <h3>{L.saveTitle}</h3>
             <p>{L.saveHint}</p>
             {saveState === 'saved' ? (
-              <p className="net-tip" role="status">{L.saved}{!finished && waiting.length > 0
-                ? ' ' + pe(`Esperando os outros guardarem: ${waiting.join(', ')}. O endereço aparece quando todos guardarem.`, `Waiting for the others to save: ${waiting.join(', ')}. The address appears once everyone has.`)
-                : ''}</p>
+              <>
+                <p className="net-tip">{L.saved}</p>
+                <WaitLine busy={!finished && waiting.length > 0}>{!finished && waiting.length > 0 ? saveWaitText(total, waiting, pe) : ''}</WaitLine>
+              </>
             ) : (
               <>
                 {saveErr && <div className="net-error" role="alert">{saveErr}</div>}

@@ -34,7 +34,6 @@ blake2b_simd = "1"
 # default-features = false is LOAD-BEARING, and more so since pczt 0.9.3: its `default` set gained
 # "orchard"+"sapling", so taking defaults here would pull sapling-crypto into the wasm32 graph.
 pczt = { version = "0.9.3", default-features = false, features = ["orchard"] }
-ff = "0.13"
 # --- Ironwood (NU6.3): mirror the engine's released librustzcash line so the PCZT wire format
 # (v2) parses in the browser. No signer/transparent features, so the wasm32 build stays free of
 # secp256k1 (C) / zcash_script (C++). ---
@@ -44,7 +43,7 @@ getrandom = { version = "0.2", features = ["js"] }
 # The confidential channel (ECIES over X25519) - seal each secret to its recipient so the blind relay
 # carries only ciphertext. Extracted to a shared crate so the hosted helper seals with the SAME code
 # (#63); getrandom's `js` feature above unifies into it for the wasm build.
-konclave-seal = { path = "../konclave-seal" }
+konclave-seal = { path = "../konclave-seal", features = ["pczt"] }
 zcash_address = "0.13.0"
 zcash_protocol = { version = "0.10.6", default-features = false }
 # #610: the device opens each paying output with the ephemeral key it derives from the note's
