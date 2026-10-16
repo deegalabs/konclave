@@ -56,7 +56,24 @@ explicitly accepted.
 
 ## [Unreleased]
 
+## [0.13.2] 2026-10-16
+
+> **Services deployed when this was cut (2026-10-16):** coordinator `4223028`, relay `42da05bf003afc41`.
+> The web app is this release's own commit. The two services are deployed by hand and may be
+> older than it - recording what they were ANSWERING is the point, not what they should have been.
+
 ### Fixed
+
+- **A signer took a spend that still carried a dummy spending key as its own.** A coordinator that
+  wanted to could have asked a device to sign a transaction whose padding spend still carried
+  `dummy_sk`, and both of our signers (the device's, in the browser, and the native one) would have
+  counted that spend among the ones the vault signs. The effect was extra actions, a higher fee
+  allowed for them, and a ceremony that fails when the signatures are applied, so nothing was sent;
+  no key was exposed. The PCZT specification says a signer must refuse such a transaction, and both
+  now do, with the same words, because the rule for which spends a vault signs lives once
+  (`konclave-seal`). The coordinators we run do not build one (the builder clears the key before
+  anyone signs); we have no report that it happened, and we did not check. The number of actions a
+  builder may add to a payment is still not bounded on the device (Known limits).
 
 - **A vault whose registration could not be written to disk was served anyway, and was no longer
   found after the next restart.** The coordinator answered with the address and served the vault from
@@ -71,6 +88,12 @@ explicitly accepted.
   run** (#637). The coordinator's history read now syncs the vault's wallet under the same 15 second
   window as the balance read, so a deposit can still take up to one window after its block. What it
   still does not do, and what it costs, is in [helper-server/CHANGELOG.md](helper-server/CHANGELOG.md).
+
+### Known limits
+
+- **The number of actions a builder may add to a payment is not bounded on the device.** Each extra
+  action raises the fee by 5000 zatoshis, paid to the network from the vault's change; a real bound
+  needs the device to know which notes a payment should spend.
 
 ## [0.13.1] 2026-10-15
 

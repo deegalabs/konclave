@@ -11,6 +11,8 @@ import {
 // AES-GCM/PBKDF2 (crypto.subtle). The point is that a saved share comes back only with the
 // right passphrase, never in the clear.
 
+// A vault's id is its group key (07 x 32 for the shared test key): an export whose two differ is refused.
+const GK7 = '07'.repeat(32)
 const share = new Uint8Array(Array.from({ length: 32 }, (_, i) => i + 1))
 const groupKey = new Uint8Array(32).fill(7)
 const data: VaultData = {
@@ -43,7 +45,7 @@ describe('storage - encrypted IndexedDB persistence', () => {
     const v = list.find((x) => x.id === 'v1')
     expect(v).toBeTruthy()
     expect(v).not.toHaveProperty('sealedShare')
-    expect(Object.keys(v!).sort()).toEqual(['address', 'changeReceiver', 'cp', 'createdAt', 'creatorName', 'governance', 'groupKey', 'id', 'myName', 'name', 'pending', 'roster', 'secured', 'threshold', 'total'])
+    expect(Object.keys(v!).sort()).toEqual(['address', 'allSaved', 'changeReceiver', 'coordinator', 'cp', 'createdAt', 'creatorName', 'governance', 'groupKey', 'id', 'myName', 'name', 'pending', 'roster', 'secured', 'threshold', 'total'])
     expect(v!.name).toBe('Test vault')
     expect(v!.governance).toBe('quorum')
     expect(v!.myName).toBe('Alice')
@@ -71,8 +73,8 @@ describe('storage - portable vault export/import (v2 opaque + v1 compat, #214/#3
   const shareHex = share.reduce((s, b) => s + b.toString(16).padStart(2, '0'), '')
 
   it('exports a v2 opaque blob that leaks no metadata or share', async () => {
-    await saveVault('exp1', data, pass)
-    const bundle = await exportVault('exp1', pass)
+    await saveVault(GK7, data, pass)
+    const bundle = await exportVault(GK7, pass)
     expect(bundle.format).toBe('konclave-vault-export')
     expect(bundle.version).toBe(2)
     expect(bundle).not.toHaveProperty('vault')
@@ -83,28 +85,28 @@ describe('storage - portable vault export/import (v2 opaque + v1 compat, #214/#3
     expect(json).not.toContain('07'.repeat(32))
     expect(json).not.toContain('u1examplevaultaddress')
     expect(json).not.toContain('Alice')
-    expect(json).not.toContain('exp1')
+    expect(json).not.toContain(GK7)
   })
 
   it('export rejects a wrong passphrase', async () => {
-    await saveVault('exp2', data, pass)
-    await expect(exportVault('exp2', 'nope')).rejects.toThrow(/wrong passphrase|tampered/i)
+    await saveVault(GK7, data, pass)
+    await expect(exportVault(GK7, 'nope')).rejects.toThrow(/wrong passphrase|tampered/i)
   })
 
   it('v2 round-trips across a fresh device: export -> delete -> import -> load (with S)', async () => {
     const accessSecret = new Uint8Array(32).fill(5)
-    await saveVault('exp3', { ...data, accessSecret }, pass)
-    const bundle = await exportVault('exp3', pass)
+    await saveVault(GK7, { ...data, accessSecret }, pass)
+    const bundle = await exportVault(GK7, pass)
     const roundtripped = parseVaultExport(JSON.stringify(bundle)) // survives file/paste serialization
-    await deleteVault('exp3') // simulate a new device with no record
-    expect((await listVaults()).map((x) => x.id)).not.toContain('exp3')
+    await deleteVault(GK7) // simulate a new device with no record
+    expect((await listVaults()).map((x) => x.id)).not.toContain(GK7)
 
     const meta = await importVault(roundtripped, pass)
-    expect(meta.id).toBe('exp3')
+    expect(meta.id).toBe(GK7)
     expect(meta.name).toBe('Test vault')
     expect(meta.secured).toBe(true)
 
-    const loaded = await loadVault('exp3', pass)
+    const loaded = await loadVault(GK7, pass)
     expect(Array.from(loaded.sealedShare)).toEqual(Array.from(share))
     expect(Array.from(loaded.groupKey)).toEqual(Array.from(groupKey))
     expect(loaded.roster).toEqual(['Alice', 'Bob', 'Carol'])
@@ -114,55 +116,55 @@ describe('storage - portable vault export/import (v2 opaque + v1 compat, #214/#3
   it('a vault keeps the creation protocol it was made with, through a backup and back', async () => {
     // The protocol belongs to the VAULT, not to the app reading it: an old-flow vault opened in a new
     // app must not borrow the new app's number to fetch an address the coordinator would refuse it.
-    await saveVault('exp-cp', { ...data, cp: 2 }, pass)
-    expect((await listVaults()).find((v) => v.id === 'exp-cp')!.cp).toBe(2)
-    const bundle = parseVaultExport(JSON.stringify(await exportVault('exp-cp', pass)))
-    await deleteVault('exp-cp')
+    await saveVault(GK7, { ...data, cp: 2 }, pass)
+    expect((await listVaults()).find((v) => v.id === GK7)!.cp).toBe(2)
+    const bundle = parseVaultExport(JSON.stringify(await exportVault(GK7, pass)))
+    await deleteVault(GK7)
     await importVault(bundle, pass)
-    expect((await listVaults()).find((v) => v.id === 'exp-cp')!.cp).toBe(2)
+    expect((await listVaults()).find((v) => v.id === GK7)!.cp).toBe(2)
     // A vault saved without one has none, never the app's.
-    await saveVault('exp-nocp', data, pass)
-    expect((await listVaults()).find((v) => v.id === 'exp-nocp')!.cp).toBeUndefined()
+    await saveVault(GK7, data, pass)
+    expect((await listVaults()).find((v) => v.id === GK7)!.cp).toBeUndefined()
   })
 
   it('a backup of a vault whose creation had not finished comes back unfinished, with its quorum', async () => {
-    await saveVault('exp-pending', { ...data, pending: true, threshold: 2, total: 3 }, pass)
-    const bundle = parseVaultExport(JSON.stringify(await exportVault('exp-pending', pass)))
-    await deleteVault('exp-pending')
+    await saveVault(GK7, { ...data, pending: true, threshold: 2, total: 3 }, pass)
+    const bundle = parseVaultExport(JSON.stringify(await exportVault(GK7, pass)))
+    await deleteVault(GK7)
     await importVault(bundle, pass)
-    const back = (await listVaults()).find((v) => v.id === 'exp-pending')!
+    const back = (await listVaults()).find((v) => v.id === GK7)!
     expect(back.pending).toBe(true)
     expect([back.threshold, back.total]).toEqual([2, 3])
     // Finished vaults, and every backup made before, come back finished.
-    await saveVault('exp-done', data, pass)
-    const done = parseVaultExport(JSON.stringify(await exportVault('exp-done', pass)))
-    await deleteVault('exp-done')
+    await saveVault(GK7, data, pass)
+    const done = parseVaultExport(JSON.stringify(await exportVault(GK7, pass)))
+    await deleteVault(GK7)
     await importVault(done, pass)
-    expect((await listVaults()).find((v) => v.id === 'exp-done')!.pending).toBeUndefined()
+    expect((await listVaults()).find((v) => v.id === GK7)!.pending).toBeUndefined()
   })
 
   it('a backup whose recorded quorum disagrees with its share is refused', async () => {
     const bundle = new TextEncoder().encode(JSON.stringify({ kp: 'aa', t: 2, n: 3 }))
-    await saveVault('exp-q', { ...data, sealedShare: bundle, threshold: 2, total: 4 }, pass)
-    const exp = parseVaultExport(JSON.stringify(await exportVault('exp-q', pass)))
-    await deleteVault('exp-q')
+    await saveVault(GK7, { ...data, sealedShare: bundle, threshold: 2, total: 4 }, pass)
+    const exp = parseVaultExport(JSON.stringify(await exportVault(GK7, pass)))
+    await deleteVault(GK7)
     await expect(importVault(exp, pass)).rejects.toThrow(/corrupt/i)
   })
 
   it('import rejects a wrong passphrase before writing anything', async () => {
-    await saveVault('exp4', data, pass)
-    const bundle = await exportVault('exp4', pass)
-    await deleteVault('exp4')
+    await saveVault(GK7, data, pass)
+    const bundle = await exportVault(GK7, pass)
+    await deleteVault(GK7)
     await expect(importVault(bundle, 'wrong')).rejects.toThrow(/wrong passphrase/i)
-    expect((await listVaults()).map((x) => x.id)).not.toContain('exp4')
+    expect((await listVaults()).map((x) => x.id)).not.toContain(GK7)
   })
 
   it('import refuses to overwrite an existing vault unless overwrite is set', async () => {
-    await saveVault('exp5', data, pass)
-    const bundle = await exportVault('exp5', pass)
+    await saveVault(GK7, data, pass)
+    const bundle = await exportVault(GK7, pass)
     await expect(importVault(bundle, pass)).rejects.toThrow(/already exists/i)
     const meta = await importVault(bundle, pass, { overwrite: true })
-    expect(meta.id).toBe('exp5')
+    expect(meta.id).toBe(GK7)
   })
 
   it('carries the beneficiaries through v2 export -> import, sealed', async () => {
@@ -172,15 +174,39 @@ describe('storage - portable vault export/import (v2 opaque + v1 compat, #214/#3
       removeItem: (k: string) => void store.delete(k), clear: () => store.clear(), key: () => null, length: 0,
     } as Storage
     const payees = [{ id: 'p1', name: 'Rent', address: 'u1rentpayee', memo: '', is_public: false }]
-    store.set('konclave.benef.exp6', JSON.stringify(payees))
-    await saveVault('exp6', data, pass)
-    const bundle = await exportVault('exp6', pass)
+    store.set(`konclave.benef.${GK7}`, JSON.stringify(payees))
+    await saveVault(GK7, data, pass)
+    const bundle = await exportVault(GK7, pass)
     expect(JSON.stringify(bundle)).not.toContain('u1rentpayee') // sealed, not cleartext
     store.clear()
-    await deleteVault('exp6')
+    await deleteVault(GK7)
     await importVault(bundle, pass)
-    expect(JSON.parse(store.get('konclave.benef.exp6') ?? '[]')).toEqual(payees)
+    expect(JSON.parse(store.get(`konclave.benef.${GK7}`) ?? '[]')).toEqual(payees)
     delete (globalThis as unknown as { localStorage?: Storage }).localStorage
+  })
+
+  it('refuses a v2 whose vault id is not its group key, as a v1 is', async () => {
+    // The id the record was saved under is not the key it holds: the export seals both, and an
+    // import would register one vault's key under another's name.
+    // Both are well-formed 64-character keys, so only the equality rule can refuse it.
+    const apart = 'ef'.repeat(32)
+    await saveVault(apart, data, pass) // data.groupKey is 07 x 32
+    const bundle = await exportVault(apart, pass)
+    await deleteVault(apart)
+    await expect(importVault(bundle, pass)).rejects.toThrow(/incomplete|corrupt/i)
+    expect((await listVaults()).some((v) => v.id === apart)).toBe(false)
+  })
+
+  it('imports a v2 written in capitals under the app\'s lowercase id', async () => {
+    const key = new Uint8Array(32).fill(0xab)
+    const shouted = 'AB'.repeat(32)
+    await saveVault(shouted, { ...data, groupKey: key }, pass) // the id as a hand-edited record would hold it
+    const bundle = await exportVault(shouted, pass)
+    await deleteVault(shouted)
+    const meta = await importVault(bundle, pass)
+    expect(meta.id).toBe('ab'.repeat(32))
+    expect((await listVaults()).filter((v) => v.id.toLowerCase() === 'ab'.repeat(32)).map((v) => v.id)).toEqual(['ab'.repeat(32)])
+    await deleteVault('ab'.repeat(32))
   })
 
   it('still imports a legacy v1 bundle (backward compat)', async () => {
@@ -196,6 +222,7 @@ describe('storage - portable vault export/import (v2 opaque + v1 compat, #214/#3
     // Every v1 the app wrote has its id equal to its group key (the vault IS its group key).
     const v1 = { format: 'konclave-vault-export', version: 1, exportedAt: Date.now(), vault: { id: hx(groupKey), name: 'Legacy', groupKey: hx(groupKey), address: 'u1legacy', roster: ['A', 'B'], createdAt: 111, salt: hx(salt), iv: hx(iv), cipher: hx(cipher) } }
     const parsed = parseVaultExport(JSON.stringify(v1))
+    await deleteVault(hx(groupKey)) // an earlier test saved this id (the id is the shared test key)
     const meta = await importVault(parsed, pass)
     expect(meta.id).toBe(hx(groupKey))
     expect(meta.secured).toBe(false) // a v1 export has no S
@@ -280,21 +307,21 @@ describe('storage - portable vault export/import (v2 opaque + v1 compat, #214/#3
   it('reads a backup\'s address and change receiver as text or as nothing', async () => {
     // The same reading as the money gate and the deposit screen (addressText, A9): a value that is
     // not text restores as no address, which the coordinator's first answer then fills.
-    await saveVault('nontext', { ...data, address: 123 as unknown as string }, pass)
-    expect(await recordChangeReceiver('nontext', 'u1change')).toBe(true)
-    const bundle = await exportVault('nontext', pass)
-    await deleteVault('nontext')
+    await saveVault(GK7, { ...data, address: 123 as unknown as string }, pass)
+    expect(await recordChangeReceiver(GK7, 'u1change')).toBe(true)
+    const bundle = await exportVault(GK7, pass)
+    await deleteVault(GK7)
     const meta = await importVault(bundle, pass)
     expect(meta.address).toBe('')
-    expect((await listVaults()).find((v) => v.id === 'nontext')?.changeReceiver).toBe('u1change')
+    expect((await listVaults()).find((v) => v.id === GK7)?.changeReceiver).toBe('u1change')
   })
 
   it('imports a backup whose change receiver is not text as a record with none', async () => {
     // Built by hand: the app never writes one, but the payload is whatever its maker sealed. The
     // reading is the same as every other (addressText), so it restores with no receiver rather than
     // with a value the gate would then have to refuse.
-    await saveVault('cr-hand', data, pass)
-    const made = await exportVault('cr-hand', pass)
+    await saveVault(GK7, data, pass)
+    const made = await exportVault(GK7, pass)
     const hexOf = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('')
     const bytesOf = (h: string) => Uint8Array.from((h.match(/../g) ?? []).map((x) => parseInt(x, 16)))
     const base = await crypto.subtle.importKey('raw', new TextEncoder().encode(pass), 'PBKDF2', false, ['deriveKey'])
@@ -304,17 +331,17 @@ describe('storage - portable vault export/import (v2 opaque + v1 compat, #214/#3
     const iv = crypto.getRandomValues(new Uint8Array(12))
     const cipher = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(JSON.stringify(plain))))
     const edited = { ...made, iv: hexOf(iv), cipher: hexOf(cipher) }
-    await deleteVault('cr-hand')
+    await deleteVault(GK7)
     await importVault(edited, pass)
-    const rec = (await listVaults()).find((v) => v.id === 'cr-hand')
+    const rec = (await listVaults()).find((v) => v.id === GK7)
     expect(rec, 'the vault was restored').toBeDefined()
     expect(rec?.changeReceiver).toBeUndefined()
   })
 
   it('records no change receiver that is not text, and says so instead of throwing', async () => {
-    await saveVault('cr-nontext', data, pass)
-    await expect(recordChangeReceiver('cr-nontext', 123)).resolves.toBe(false)
-    await expect(recordChangeReceiver('cr-nontext', '  ')).resolves.toBe(false)
+    await saveVault(GK7, data, pass)
+    await expect(recordChangeReceiver(GK7, 123)).resolves.toBe(false)
+    await expect(recordChangeReceiver(GK7, '  ')).resolves.toBe(false)
   })
 
   it('parseVaultExport accepts v2, rejects junk, foreign JSON, and unknown versions', () => {
@@ -569,28 +596,28 @@ function hexOf(b: Uint8Array): string {
 describe('the export carries the viewing key, so it can rebuild the vault (#214)', () => {
   it('round-trips the UFVK through export and import', async () => {
     const UFVK = 'uview1testviewingkey'
-    await saveVault('ufvk-1', data, 'pass')
-    const blob = await exportVault('ufvk-1', 'pass', UFVK)
+    await saveVault(GK7, data, 'pass')
+    const blob = await exportVault(GK7, 'pass', UFVK)
     await importVault(blob, 'pass', { overwrite: true })
-    expect((await loadVault('ufvk-1', 'pass')).ufvk).toBe(UFVK)
+    expect((await loadVault(GK7, 'pass')).ufvk).toBe(UFVK)
   })
 
   it('the UFVK is INSIDE the encrypted blob, never in the envelope', async () => {
     // It is the whole transaction history, amounts and memos included. A leaked export file must
     // reveal nothing without the passphrase - which is the entire point of the v2 format.
     const UFVK = 'uview1testviewingkey'
-    await saveVault('ufvk-2', data, 'pass')
-    const blob = await exportVault('ufvk-2', 'pass', UFVK)
+    await saveVault(GK7, data, 'pass')
+    const blob = await exportVault(GK7, 'pass', UFVK)
     expect(JSON.stringify(blob)).not.toContain(UFVK)
   })
 
   it('an export made without it still works: the vault is exportable before it is protected', async () => {
     // An open (pre-#388) vault cannot fetch its own UFVK - the helper refuses by design. The export
     // must still be possible, just incomplete, rather than failing outright.
-    await saveVault('ufvk-3', data, 'pass')
-    const blob = await exportVault('ufvk-3', 'pass')
+    await saveVault(GK7, data, 'pass')
+    const blob = await exportVault(GK7, 'pass')
     await importVault(blob, 'pass', { overwrite: true })
-    const back = await loadVault('ufvk-3', 'pass')
+    const back = await loadVault(GK7, 'pass')
     expect(back.ufvk).toBeUndefined()
     expect(Array.from(back.sealedShare)).toEqual(Array.from(share))
   })
@@ -614,7 +641,7 @@ describe('changePassphrase', () => {
   // #447/#458 put on this device - leaving `t` members with spend authority over money none of them
   // can see. Asserted rather than left to a comment asking someone to remember.
   it('keeps the viewing key and the creation date', async () => {
-    const withKey = 'rotate-keeps'
+    const withKey = GK7
     await saveVault(withKey, { ...data, accessSecret: new Uint8Array(32).fill(3) }, 'old-one')
     const before = await loadVault(withKey, 'old-one')
     // The UFVK reaches a record through import, so that is how it gets here.
@@ -716,7 +743,7 @@ describe('the export carries the scan floor (#480)', () => {
   // Nobody checked whether the EXPORT carried it. `grep -c birthday storage.ts` was 0, so a member
   // restoring from their own backup rebuilt a vault that could not see its own money - the exact
   // failure, in the second place. One rule, two homes, one of them updated: the shape of the week.
-  const withKey = 'birthday-export'
+  const withKey = GK7
 
   it('a restore gets the scan floor, not just the viewing key', async () => {
     await saveVault(withKey, data, 'pass')
@@ -731,7 +758,7 @@ describe('the export carries the scan floor (#480)', () => {
     // A device that could not reach the helper has no birthday to record. Absent must stay absent:
     // a fabricated height is worse than none, because a TOO-HIGH one silently skips real notes
     // while looking like a successful restore.
-    const noKey = 'birthday-absent'
+    const noKey = GK7
     await saveVault(noKey, data, 'pass')
     const bundle = await exportVault(noKey, 'pass')
     await importVault(bundle, 'pass', { overwrite: true })
