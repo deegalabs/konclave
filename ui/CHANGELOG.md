@@ -40,6 +40,13 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The site names the 0.13.1 desktop pre-release.** The landing and the help named 0.8.0, an older
+  pre-release that predates the device's payment check. The version comes from one place, the latest
+  published pre-release, and the help no longer calls it the latest version. The landing's download
+  buttons stay off until the desktop app is validated on each platform (#212).
+
 ## [0.13.2] 2026-10-16
 
 ### Fixed
