@@ -37,6 +37,8 @@ export interface BackgroundSignerState {
   wouldComplete: () => boolean
   /** Is a sender the room named still within its window? Only then is a full count a send (#626). */
   sendingNamed: () => boolean
+  /** Whose signature completed the quorum, and when: the device that runs the send (SIGNER-SEAT1). */
+  completed: () => { seat: number; at: number; own: number; seats: number[] } | null
   /** Withdraw every signature for `proposal` after a failed attempt: nothing moved, so the payment
    *  goes back to unsigned on every device instead of looking signed by devices that have gone.
    *  `code` tells the OTHER devices why, so they are not left on "sending" forever. */
@@ -193,6 +195,9 @@ export function useBackgroundSigner(
           onArmed: (seats, triggerTag) => {
             setArmedSeats(seats)
             if (triggerTag === myTag) setISend(true)
+            // A withdrawal (from any device) empties the tally: no standing decision that this device
+            // sends survives it (review I4). A send already running is not touched by this.
+            else if (seats.length === 0) setISend(false)
           },
           onError: setError,
         })
@@ -233,6 +238,7 @@ export function useBackgroundSigner(
     arm: async (proposal: string, at: number) => { await sessionRef.current?.arm(proposal, at) },
     wouldComplete: () => sessionRef.current?.wouldComplete() ?? false,
     sendingNamed: () => sessionRef.current?.sendingNamed() ?? false,
+    completed: () => sessionRef.current?.completed() ?? null,
     unarm: async (proposal: string, code?: FailureCode) => {
       setISend(false)
       await sessionRef.current?.unarm(proposal, code)

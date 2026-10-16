@@ -29,6 +29,7 @@ import { readingRows } from '../device-reading'
 import { againFromPanel } from '../sign-again'
 import { estimatedFeeZat } from '../fee-estimate'
 import type { SignPreview } from '../signing-machine'
+import { ARM_TTL_MS } from '../signing-gate'
 
 /** What this device read from the transaction it is signing, or refused to sign (#610): every
  *  output that moves value and the fee, each checked against what the signature covers. Exact
@@ -326,6 +327,16 @@ export default function SigningPanel() {
   // After it, the signatures wait for the next one past the window (#626 review): saying someone is
   // sending then told members to wait for a send nobody was making.
   const quorumSigned = threshold > 0 && signedCount >= threshold && bg.sendingNamed()
+  // The device that completed the quorum runs the send (SIGNER-SEAT1): named, so the others know whose
+  // screen it waits on. After a minute with no round started, the line says the signatures lapse at
+  // the end of their window and can be given again. Display only: no timer decides anything here.
+  const done = bg.completed()
+  const senderName = done && !bg.iSend ? roster[done.seat - 1]?.name ?? null : null
+  const senderLapseMin = done ? Math.max(1, Math.ceil((done.at + ARM_TTL_MS - Date.now()) / 60000)) : 0
+  const senderLate = done !== null && bg.phase === 'idle' && Date.now() - done.at > 60_000
+  // A round that started and whose sender went past its window: the one thing that helps is a fresh
+  // panel (#284), and the "keep this open" hint must not stand beside it.
+  const stalled = !sending && bg.phase === 'signing' && !bg.sendingNamed()
   // If I sign now, the quorum closes and I am the one who sends. This drives the WORDING only:
   // every signature is confirmed on its own device, whoever you are. Predicting "I am last" and
   // confirming only then would leave a hole - two people clicking in the same instant would both
@@ -335,6 +346,13 @@ export default function SigningPanel() {
   const iWouldBeLast = !armed && threshold > 0 && bg.wouldComplete()
 
   const sent = sentTxidOf(result)
+  // Who signed, as the roster shows it. Once the payment is out, from the quorum that completed, which
+  // does not expire: the live count drops a signature after its window, and would then call a member
+  // who signed "not needed" (a11y review 1).
+  const rosterSigned = sent && done ? done.seats : signedSeats
+  // A sent payment reopened after another one has no completed quorum in memory: it then says nothing
+  // about who was not needed rather than read the count, which drops old signatures.
+  const knowsWhoSigned = !sent || done !== null
   // A refusal by this device outranks any later failure of the send (#610): the send fails BECAUSE
   // the device refused, and the failure's wording ("you can sign again") would contradict it.
   const fromSigner = describeSigningError(bg.error, t)
@@ -623,18 +641,19 @@ export default function SigningPanel() {
             <div className="sign-roster">
               {roster.map((m, i) => (
                 <span
-                  className={'sign-seat' + (presentFlags[i] ? ' on' : '') + (signedSeats.includes(i + 1) ? ' signed' : '')}
+                  className={'sign-seat' + (presentFlags[i] ? ' on' : '') + (rosterSigned.includes(i + 1) ? ' signed' : '')}
                   key={m.pubkey || m.name}
                 >
                   <Identicon seed={m.pubkey || m.name} size={22} />
                   <span className="sign-seat-name">{m.name}{me && m.name === me && <span className="klab"> {t('members.youShort')}</span>}</span>
-                  {signedSeats.includes(i + 1) && (
+                  {rosterSigned.includes(i + 1) && (
                     <>
                       {/* The tick reads at a glance; the label makes it readable at all. */}
-                      <span className="visually-hidden">{t('signing.seatSigned')}</span>
+                      <span className="visually-hidden">, {t('signing.seatSigned')}</span>
                       <span className="sign-seat-tick" aria-hidden="true">✓</span>
                     </>
                   )}
+                  {sent && knowsWhoSigned && !rosterSigned.includes(i + 1) && <span className="sign-seat-nn"><span className="visually-hidden">, </span>{t('signing.seatNotNeeded')}</span>}
                 </span>
               ))}
             </div>
@@ -721,7 +740,10 @@ export default function SigningPanel() {
               <div className="hint mt-sm">
                 {t('signing.takesMinutes')} <span aria-hidden="true">·</span> <span className="num">{Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, '0')}</span>
               </div>
-              {elapsed > 180 && <div className="hint err mt-sm" role="alert">{t('signing.slowHint')}</div>}
+              {elapsed > 180 && !stalled && <div className="hint err mt-sm" role="alert">{t('signing.slowHint')}</div>}
+              {/* The device running the send has not finished within its window after the round began: a
+                  started round has no abort yet (#284), so the one thing that helps is a fresh panel. */}
+              <div role="status">{stalled && <div className="hint warn mt-sm">{t('signing.stalledReopen')}</div>}</div>
               {/* An ignored message, before the reading, so a long payroll does not push it out of view. */}
               {notice && <div className="hint warn mt-sm" role="status">{notice}</div>}
               {/* Below the clock, so a long payroll does not push the progress off a phone screen. */}
@@ -754,9 +776,19 @@ export default function SigningPanel() {
           ) : armed ? (
             // Reached from a confirm whose opener is gone: this state takes the focus and is heard.
             <div key="armed" tabIndex={-1} ref={focusOnMount}>
-              <div className="confirm quorum" role="status">{quorumSigned ? t('signing.othersSending') : t('signing.youSigned')}</div>
+              <div className="confirm quorum" role="status">
+                {!quorumSigned
+                  ? t('signing.youSigned')
+                  : senderName
+                    ? t(senderLate ? 'signing.senderWaiting' : 'signing.senderSending', { name: senderName })
+                    : t('signing.othersSending')}
+              </div>
+              {/* The minutes change every minute, so they sit outside the announced status. */}
+              {quorumSigned && senderName && senderLate && (
+                <div className="hint mt-sm">{t('signing.senderLapse', { name: senderName, mins: senderLapseMin })}</div>
+              )}
               <div className="hint mt-sm">{t('signing.signedCount', { n: signedCount, t: threshold })}</div>
-              {armLeft > 0 && <div className="hint mt-sm dim">{t('signing.armExpires', { mins: armLeft })}</div>}
+              {armLeft > 0 && !quorumSigned && <div className="hint mt-sm dim">{t('signing.armExpires', { mins: armLeft })}</div>}
             </div>
           ) : (
             // A device that has NOT signed in this session always gets the button, whatever the room

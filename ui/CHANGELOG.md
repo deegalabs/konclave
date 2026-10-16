@@ -42,6 +42,14 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **Any t of n devices can complete a send, without a fixed device starting the signing.** The
+  signing used to be started by one fixed device of the vault, and when that device was not among
+  the ones that signed, the others' signatures waited with no message. Now the device whose
+  signature completes the quorum runs the send; a member who is present and has not signed never
+  blocks it; the panel names the device that is sending; and once the payment is out, the panel says
+  whose signature was not needed and the proposal whose vote was not needed. No member's share or
+  funds were affected: it was a matter of a send not happening.
+
 - **Add funds said nothing while it read the vault's history.** After the first load, the on-chain
   history refreshed without a sign, so "No transactions yet" read as an answer while a deposit was
   still on its way in. The history now shows when it is checking the network and when it last
@@ -76,6 +84,20 @@ history to tidy it is how context gets lost.
   pre-release that predates the device's payment check. The version comes from one place, the latest
   published pre-release, and the help no longer calls it the latest version. The landing's download
   buttons stay off until the desktop app is validated on each platform (#212).
+
+### Known limits
+
+- **A vault sends under the new signing rule once every device that signs runs this version.** With
+  an older app among the signers, a send can wait about four minutes and end with nothing sent;
+  everyone then signs again, and reloading the older app's page brings the current one. When a send
+  fails, devices on the other version (older or newer) do not take that device's withdrawal, and can
+  sign again only when the signatures expire (ten minutes). Nothing is signed twice and nothing is at risk. The desktop app has
+  no updater yet (#606).
+- **If the device sending a payment closes after the signing has started**, the others wait: close
+  the signing panel and open it again, then sign again. A started signing has no way to be called
+  off yet (#284).
+- **The `/net` page still starts its signing from the vault's first seat**, so there that seat must
+  be present.
 
 ## [0.13.2] 2026-10-16
 

@@ -19,7 +19,7 @@ import { bytesEqual, b64, unb64 } from './net'
 import { dkgProvenPczt } from './demo-vector'
 import { VECTOR_EXPIRY, honestExpiry, withExpiry } from './test-vectors'
 import { parseAlphas } from './signing'
-import { bytesToHex, RESPONSE_KIND } from './net-sign'
+import { bytesToHex, parseSignRequest, RESPONSE_KIND } from './net-sign'
 import { SigningMachine, refusalKey, type SignPreview, type SigningDeps } from './signing-machine'
 import type { GateDecision } from './approved-payment'
 import { codeOf } from './source-scan'
@@ -87,6 +87,9 @@ interface Device {
   what: SignPreview | null
   /** When set, answers for the request in place of `decision`. */
   gate?: (outputs: unknown[]) => GateDecision
+  /** The tag this device's room named coordinator (SIGNER-SEAT1); null while no quorum completed.
+   *  The harness defaults to seat 1's tag, 'A', so the ceremony tests read as before. */
+  coordinator?: string | null
 }
 
 // #610: the fixture's payment and change as they sit on the wire, read in konclave-wasm's tests.
@@ -182,6 +185,8 @@ function makeDevice(
     // exactly as before. The poison test flips one tag to unproven.
     seatIsProven: (t) => !dev.unprovenTags.has(t),
     mySeat: () => SEATS[tag]!,
+    myTag: () => tag,
+    coordinatorTag: () => (dev.coordinator === undefined ? 'A' : dev.coordinator),
     threshold: () => 2,
     hasVault: () => true,
     send: async (m) => { dev.bus.post(tag, JSON.stringify(m)) },
@@ -215,6 +220,8 @@ function makeUnseatedCoordinator(tag: string, bus: Bus, mat: () => { keyPackage:
     seatOf: (t) => (t === tag ? 1 : SEATS[t]),
     seatIsProven: () => true,
     mySeat: () => 1, // it thinks it is the coordinator; no peer agrees
+    myTag: () => tag,
+    coordinatorTag: () => tag,
     threshold: () => 2,
     hasVault: () => true,
     send: async (m) => { dev.bus.post(tag, JSON.stringify(m)) },
@@ -255,6 +262,7 @@ async function pump(dev: Device, bus: Bus) {
     for (const m of bus.msgs) {
       if (dev.consumed.has(m.seq)) continue
       if (await dev.machine.tryHelperRequest(m.data)) { dev.consumed.add(m.seq); progressed = true; continue }
+      if (parseSignRequest(m.data)) continue // pending, as both drivers leave it (SIGNER-SEAT1)
       let parsed: { type?: string }
       try { parsed = JSON.parse(m.data) as { type?: string } } catch { dev.consumed.add(m.seq); continue }
       if (parsed.type && ['sreq', 's1', 'sp', 's2', 'signed'].includes(parsed.type)) {
@@ -456,7 +464,7 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     expect(shares, 'B must not contribute a share to a package from a tag that holds no seat').toBe(0)
   })
 
-  it('an sp whose sender is not seated YET is held, not refused, and signs once it is (#519)', async () => {
+  it('an sp from the named coordinator is taken even before its rejoin seats it (#519, SIGNER-SEAT1)', async () => {
     // The false positive the fix has to avoid, and it is not hypothetical: `seatOf` is fed by the
     // peer's `rejoin`, NOT by its `s1`, so a legitimate coordinator's package can reach a device
     // before the rejoin that seats it. `background-session` re-drives the signer after every rejoin
@@ -474,12 +482,13 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     bus.post('helper', req.json)
     for (let i = 0; i < 6; i++) { await pump(A, bus); await pump(B, bus) }
 
-    // A has coordinated and posted its package; B has seen it and done nothing with it.
+    // SIGNER-SEAT1: the coordinator is the TAG the room named, so B can place A's package before A's
+    // rejoin seats it, and signs at once. What stays held is a sender that is neither named nor
+    // seated: an unknown tag, not a known coordinator (the unseated-attacker test above).
     expect(bus.msgs.some((m) => m.from === 'A' && m.data.includes('"sp"')), 'the coordinator did post a package').toBe(true)
-    expect(bus.msgs.filter((m) => m.from === 'B' && m.data.includes('"s2"')).length, 'B has not signed a sender it cannot place').toBe(0)
-    expect(B.errors, 'and it did not ERROR either - the sender is unknown, not wrong').toEqual([])
+    expect(B.errors, 'and B raised no error over it').toEqual([])
+    expect(bus.msgs.filter((m) => m.from === 'B' && m.data.includes('"s2"')).length, 'and B signed it before any rejoin seated A').toBeGreaterThan(0)
 
-    // A's rejoin lands: B now knows the sender's seat, and the driver re-drives the signer.
     bSeats.A = 1
     await runCeremony(A, B, bus)
 
@@ -500,7 +509,7 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     // C holds seat 3 in everyone's map, and behaves as though it coordinates. The real seat 1 never
     // joins, so the only package in the room is C's - B has no honest one to prefer over it.
     const C = makeDevice('C', bus, () => ({ keyPackage: s2.keyPackage(), groupVk, pubkeys }))
-    Object.defineProperty(C.machine, 'd', { value: { ...(C.machine as unknown as { d: SigningDeps }).d, mySeat: () => 1 } })
+    C.coordinator = 'C' // in its own view; every peer's room named seat 1's tag
 
     bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
     for (let i = 0; i < 8; i++) { await pump(B, bus); await pump(C, bus) }
@@ -1126,11 +1135,81 @@ describe('who coordinates is asked in one place (#519)', () => {
       .filter(({ line }) => /\w*[sS]eat\w*\s*(\(\))?\s*[!=]==\s*1\b/.test(line))
       .map(({ line, n }) => `signing-machine.ts:${n}  ${line}`)
 
-    expect(offenders, `these ask who coordinates with a literal instead of COORDINATOR_SEAT:\n${offenders.join('\n')}`).toEqual([])
+    expect(offenders, `these ask who coordinates with a literal instead of isCoordinator:\n${offenders.join('\n')}`).toEqual([])
   })
 
-  it('and both the coordinator and the verifier read the same constant', () => {
-    expect(SRC.match(/COORDINATOR_SEAT/g)?.length ?? 0, 'the declaration plus BOTH readers').toBeGreaterThanOrEqual(3)
+  // SIGNER-SEAT1: there is no fixed coordinator seat any more. The coordinator is the tag the room
+  // named (the device whose signature completed the quorum), and the machine asks it in one place.
+  it('no fixed coordinator seat is left in the machine', () => {
+    expect(SRC).not.toMatch(/COORDINATOR_SEAT/)
+  })
+
+  it('every step that asks who coordinates goes through one method', () => {
+    expect(SRC.match(/coordinatorTag\(\)/g)?.length ?? 0, 'read from the deps in exactly one place').toBe(1)
+    expect(SRC).toMatch(/private isCoordinator\(tag: string\)/)
+  })
+
+  it('both ceremony drivers say who coordinates at their construction site', () => {
+    expect(codeOf('./background-session.ts')).toMatch(/coordinatorTag: \(\) => this\.coordinatorTag\(\)/)
+    expect(codeOf('./screens/NetVault.tsx')).toMatch(/coordinatorTag: \(\) =>/)
+  })
+})
+
+describe('the coordinator is fixed for a ceremony once it starts (SIGNER-SEAT1)', () => {
+  it('the device the room named coordinates, and a later change in the room does not move it', async () => {
+    // A withdrawal by any seat resets the room's tally, and with it who it names. Read live, that would
+    // let a member who never signed stall a send already under way (review I1).
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    A.coordinator = 'B'
+    B.coordinator = 'B'
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
+    await pump(B, bus); await pump(A, bus); await pump(B, bus)
+    A.coordinator = null
+    B.coordinator = null
+    await runCeremony(A, B, bus)
+    expect(bus.msgs.find((m) => m.data.includes('"type":"sp"'))?.from, 'B, the named device, built the package').toBe('B')
+    expect(A.sig?.ok).toBe(true)
+    expect(B.sig?.ok).toBe(true)
+  })
+
+  it('a device that does not know the coordinator yet leaves the request pending', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    A.coordinator = null
+    B.coordinator = null
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
+    await runCeremony(A, B, bus)
+    expect(bus.msgs.some((m) => m.data.includes('"type":"s1"')), 'nobody commits to a ceremony nobody coordinates').toBe(false)
+    A.coordinator = 'A'
+    B.coordinator = 'A'
+    await runCeremony(A, B, bus)
+    expect(A.sig?.ok).toBe(true)
+  })
+
+  it('a device on the old rule in the same room never gives a second share for one nonce', async () => {
+    // A mixed vault (review I6): A still takes seat 1 as coordinator, B and C follow the room's C.
+    const { s0, s1, s2, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    const C = makeDevice('C', bus, () => ({ keyPackage: s2.keyPackage(), groupVk, pubkeys }))
+    A.coordinator = 'A'
+    B.coordinator = 'C'
+    C.coordinator = 'C'
+    const req = signRequestFor(withExpiry(dkgProvenPczt()))
+    bus.post('helper', req.json)
+    for (let i = 0; i < 12; i++) { await pump(A, bus); await pump(B, bus); await pump(C, bus) }
+    for (const d of ['A', 'B', 'C']) {
+      const shares = bus.msgs.filter((m) => m.from === d && m.data.includes('"type":"s2"'))
+      const perSpend = new Map<number, number>()
+      for (const m of shares) { const k = (JSON.parse(m.data) as { k: number }).k; perSpend.set(k, (perSpend.get(k) ?? 0) + 1) }
+      for (const [k, n] of perSpend) expect(n, `${d} gave ${n} shares for spend ${k}`).toBe(1)
+    }
   })
 })
 

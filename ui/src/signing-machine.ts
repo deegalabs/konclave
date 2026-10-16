@@ -65,6 +65,13 @@ export interface SigningDeps {
   seatIsProven: (tag: string) => boolean
   /** This device's own 1-based seat (0 = unseated). */
   mySeat: () => number
+  /** This device's own relay tag. */
+  myTag: () => string
+  /** The tag that coordinates the ceremony, or null while it is not known (SIGNER-SEAT1). The
+   *  background session answers with the device whose signature completed the quorum, the same
+   *  decision that names who sends; `/net` answers with its own rule. REQUIRED for the reason
+   *  `decideApproval` is: two drivers, and each states its answer at its construction site. */
+  coordinatorTag: () => string | null
   /** The quorum threshold `t`. */
   threshold: () => number
   /** True once this device holds a usable vault (DKG part 3 done, or restored). */
@@ -156,17 +163,6 @@ export function refusalKey(e: unknown): string {
   }
 }
 
-/**
- * The seat that coordinates: assembles the SigningPackage and aggregates the shares.
- *
- * It lives here as a named constant because it is read TWICE - once by the device deciding it should
- * coordinate (`coordinateIfReady`) and once by the device deciding whether to believe a package it
- * was sent (`onSp`) - and those two answering differently is exactly #519: for as long as `onSp` did
- * not ask at all, every device believed a package from anyone. The repeated failure in this codebase
- * is one rule with two implementations and only one of them updated, so this one is written once.
- */
-const COORDINATOR_SEAT = 1
-
 export class SigningMachine {
   private readonly d: SigningDeps
 
@@ -205,9 +201,33 @@ export class SigningMachine {
   private cleared = false
   /** The expiry this device read for the transaction. */
   private expiry = 0
+  /** The coordinator of THIS ceremony, fixed where the gate clears it and kept until `rearm`. Read
+   *  live, a withdrawal by any seat (one that never signed included) resets the room's tally and with
+   *  it who the room names, so a member who did not sign could stall a send already under way. */
+  private coordinator: string | null = null
 
   constructor(deps: SigningDeps) {
     this.d = deps
+  }
+
+  /** Who coordinates: assembles the SigningPackage, aggregates the shares, posts the signatures back.
+   *
+   *  Asked in one place, because it is read by the device deciding it should coordinate and by the
+   *  device deciding whether to believe a package or a signature it was sent, and those two answering
+   *  differently is exactly #519. It used to be seat 1, which acts only after its owner signs, so a
+   *  vault whose seat 1 was away or had not signed could never send (SIGNER-SEAT1). It is now the
+   *  device whose signature completed the quorum: live by construction, since it is the one asking
+   *  for the send, and named alike by every device from the room's order. Before the gate clears a
+   *  ceremony it is the room's current answer; after, the one fixed for the ceremony. */
+  private isCoordinator(tag: string): boolean {
+    const c = this.coordinatorNow()
+    return c !== null && c === tag
+  }
+
+  /** The tag `isCoordinator` compares with: the one fixed for the ceremony, or, before one starts,
+   *  the room's current answer (null while no quorum has completed). */
+  private coordinatorNow(): string | null {
+    return this.coordinator ?? (this.started ? null : this.d.coordinatorTag())
   }
 
   /** True once the current ceremony has fully finished (every spend signed). A long-lived signer
@@ -225,6 +245,7 @@ export class SigningMachine {
     this.started = false
     this.cleared = false
     this.expiry = 0
+    this.coordinator = null
     this.done = false
     this.msg = new Uint8Array()
     this.nonces = null
@@ -251,10 +272,13 @@ export class SigningMachine {
     const helperReq = parseSignRequest(rawData)
     if (!helperReq) return false
     this.helperReq = helperReq
-    // The coordinator (seat 1) kicks the ceremony over the helper's real PCZT. `sreq` carries the
-    // sighash + PCZT; each device reads ALL real spends' alphas from that PCZT and signs them one
-    // ceremony at a time, so single- and multi-note transactions take the same path.
-    if (this.d.mySeat() === COORDINATOR_SEAT && !this.sigDone && helperReq.spends.length >= 1) {
+    // Nobody is named yet (the completing signature has not reached this device): the request waits,
+    // unconsumed, and the session re-drives the signer when a signature changes the tally.
+    if (this.coordinatorNow() === null) return false
+    // The coordinator kicks the ceremony over the helper's real PCZT. `sreq` carries the sighash +
+    // PCZT; each device reads ALL real spends' alphas from that PCZT and signs them one ceremony at a
+    // time, so single- and multi-note transactions take the same path.
+    if (this.isCoordinator(this.d.myTag()) && !this.sigDone && helperReq.spends.length >= 1) {
       await this.d.send({
         type: 'sreq',
         msg: b64(hexBytes(helperReq.sighash)),
@@ -313,6 +337,10 @@ export class SigningMachine {
   private async onSreq(parsed: Extract<SignWireMsg, { type: 'sreq' }>): Promise<boolean> {
     if (!this.d.hasVault()) return false // no vault yet
     if (!this.started) {
+      // The ceremony needs a coordinator every device agrees on; until the completing signature reaches
+      // this device, the request waits (unconsumed) rather than starting a ceremony nobody can finish.
+      const coordinator = this.coordinatorNow()
+      if (coordinator === null) return false
       // The PCZT to sign: from the sreq inline (an older, plaintext coordinator), or - for a sealed
       // request where the coordinator omitted it so it never touches the relay (#63) - the PCZT this
       // device already opened from the helper request. If neither is available yet, wait.
@@ -425,6 +453,7 @@ export class SigningMachine {
         return false
       }
       this.cleared = true // every check above passed, and only here
+      this.coordinator = coordinator // fixed for this ceremony (review I1)
       this.d.onPhase('signing')
       await this.beginSpend(0) // the first (and, for a single-spend tx, the only) ceremony
     }
@@ -477,7 +506,7 @@ export class SigningMachine {
     await this.coordinateIfReady()
   }
 
-  /** Build and broadcast the SigningPackage once this device (seat 1) holds enough commitments.
+  /** Build and broadcast the SigningPackage once this device (the coordinator) holds enough commitments.
    *
    *  Split out of `onS1` so `afterDrain` can run it again (#399). The deferral inside CONSUMES its
    *  message rather than returning it unread, so something else has to retry - and it cannot be
@@ -485,7 +514,7 @@ export class SigningMachine {
    *  driver's fixpoint loop then exits with nothing left to progress. */
   private async coordinateIfReady(): Promise<void> {
     const t = this.d.threshold()
-    if (this.d.mySeat() === COORDINATOR_SEAT && this.commits.size >= t && !this.spSent) {
+    if (this.isCoordinator(this.d.myTag()) && this.commits.size >= t && !this.spSent) {
       // Prefer PROVEN seats, falling back to unproven only to reach threshold (#399).
       //
       // THIS FIRES. It did not when the sort was first written, and the comment that said so
@@ -556,8 +585,10 @@ export class SigningMachine {
     // Not theft: #355 already refuses a `msg` this device did not derive from its own PCZT, so the
     // transaction stays the approved one. What it costs is the ceremony.
     //
-    // Seat 1 is the coordinator by the same rule `onS1` uses to decide who coordinates, so this asks
-    // the one question that was missing rather than adding a second notion of who is in charge.
+    // The coordinator is asked by the same method `coordinateIfReady` uses to decide who coordinates,
+    // so this asks the one question that was missing rather than adding a second notion of who is in
+    // charge. It is the tag fixed for this ceremony, not a seat: a second tab of the coordinator's own
+    // seat is not the coordinator (SIGNER-SEAT1).
     // NOT-YET-SEATED IS NOT THE SAME AS NOT-THE-COORDINATOR, and conflating the two would trade this
     // hole for an outage. `seatOf` is fed by the peer's `rejoin`, not by its `s1`, so a legitimate
     // coordinator's package can land before this device has processed the rejoin that seats it.
@@ -568,9 +599,8 @@ export class SigningMachine {
     // all says nothing over a refusal its owner can still answer (that refusal leaves the ceremony
     // unstarted).
     if (!this.started) return false
-    const senderSeat = this.d.seatOf(fromTag)
-    if (senderSeat === undefined) return false
-    if (senderSeat !== COORDINATOR_SEAT) {
+    if (!this.isCoordinator(fromTag)) {
+      if (this.d.seatOf(fromTag) === undefined) return false
       this.d.onError(this.d.tt('net.err.notCoordinator'))
       return true
     }
@@ -635,7 +665,7 @@ export class SigningMachine {
     if (!this.started) return false
     if (!this.cleared) return true // refused here: nothing to aggregate
     if (this.otherCeremony(parsed)) return true
-    if (this.d.mySeat() !== COORDINATOR_SEAT) return true // only the coordinator aggregates
+    if (!this.isCoordinator(this.d.myTag())) return true // only the coordinator aggregates
     if (parsed.k !== this.cur) return parsed.k > this.cur ? false : true
     if (!this.coord) return false
     const seat = this.d.seatOf(fromTag)
@@ -661,11 +691,9 @@ export class SigningMachine {
     if (!this.started) return false
     if (!this.cleared) return true // refused here: a signature for it moves nothing
     if (this.otherCeremony(parsed)) return true
-    // Only the coordinator aggregates, so only its seat may announce a spend signed (#610). As in
-    // `onSp`, a sender not seated YET is not refused, only deferred.
-    const senderSeat = this.d.seatOf(fromTag)
-    if (senderSeat === undefined) return false
-    if (senderSeat !== COORDINATOR_SEAT) return true
+    // Only the coordinator aggregates, so only it may announce a spend signed (#610). As in `onSp`, a
+    // sender not seated YET is not refused, only deferred.
+    if (!this.isCoordinator(fromTag)) return this.d.seatOf(fromTag) === undefined ? false : true
     if (parsed.k !== this.cur) return parsed.k > this.cur ? false : true
     const sig = unb64(parsed.sig)
     // Every device re-checks under ak+alpha (a fresh Coordinator just to verify), and a signature
@@ -704,7 +732,7 @@ export class SigningMachine {
     this.d.onPhase('signed')
     this.d.onLog(ok ? this.d.tt('net.log.verifyOk') : this.d.tt('net.log.verifyFail'))
     const req = this.helperReq
-    if (req && this.d.mySeat() === COORDINATOR_SEAT && this.sigs.length === total) {
+    if (req && this.isCoordinator(this.d.myTag()) && this.sigs.length === total) {
       const resp = buildSignResponse(this.sigs)
       await this.d.rawSend(resp)
       this.d.onLog(`-> ${total} signature(s) handed to the helper`)

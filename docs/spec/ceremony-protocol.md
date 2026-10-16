@@ -123,7 +123,11 @@ REQUIRES **authenticated admission**:
   trusted. This is designed to defeat the transaction-swap; see the status note in §5.
 - Multi-spend: one re-randomized FROST ceremony per spend (fresh nonces, that spend's `alpha`),
   sequential; N signatures mapped by action index for the helper's `into_sigs`.
-- The **coordinator** (seat 1) aggregates; the aggregate signature is posted back for the (share-blind)
+- The **coordinator** is the device whose signature completed the quorum, the same device the room
+  names to ask for the send; every device derives it alike from the room's order, and it is fixed for
+  the round once the round starts. It starts the round (`sreq`), builds the signing package, aggregates,
+  and every device accepts a package or a signature only from it. The `/net` lab page, which has no
+  signing tally, keeps seat 1. The coordinator aggregates; the aggregate signature is posted back for the (share-blind)
   helper to inject + broadcast. The helper never holds a share.
 
 ## 5. Invariants checklist (must all hold before real-money `/net` broadcast)
