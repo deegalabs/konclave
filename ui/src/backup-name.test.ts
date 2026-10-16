@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
+import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { backupFileName } from './storage'
 import { codeOf } from './source-scan'
 
@@ -26,11 +29,40 @@ describe('the backup file name', () => {
     expect(backupFileName('v', new Date(2026, 0, 2, 3, 4))).toBe('v-2026-01-02-0304.konclave.json')
   })
 
-  it('is built in one place: both screens that offer a backup use it', () => {
+  describe('in the member’s own time zone, not UTC', () => {
+    const before = process.env.TZ
+    afterEach(() => {
+      if (before === undefined) delete process.env.TZ
+      else process.env.TZ = before
+    })
+    it('16:05 UTC is 13:05 in São Paulo', () => {
+      // CI runs in UTC, where local and UTC agree and a UTC slip would pass; pin a zone that differs.
+      process.env.TZ = 'America/Sao_Paulo'
+      expect(backupFileName('v', new Date(Date.UTC(2026, 9, 16, 16, 5)))).toBe('v-2026-10-16-1305.konclave.json')
+    })
+  })
+
+  it('takes the vault name and the time, and nothing that could name a member', () => {
+    expect(backupFileName.length).toBe(2)
     for (const f of ['./screens/Settings.tsx', './screens/NetVault.tsx']) {
-      const src = codeOf(f)
-      expect(src, f).toMatch(/backupFileName\(/)
-      expect(src, f).not.toMatch(/\.konclave\.json`/)
+      expect(codeOf(f), f).toMatch(/backupFileName\([^,()]+(\([^)]*\))?[^,()]*, new Date\(\)\)/)
     }
+  })
+
+  it('is built in one place: no other source writes a .konclave.json name', () => {
+    const root = fileURLToPath(new URL('.', import.meta.url))
+    const hits: string[] = []
+    const walk = (dir: string) => {
+      for (const name of readdirSync(dir)) {
+        const p = join(dir, name)
+        if (statSync(p).isDirectory()) {
+          if (name !== 'wasm-pkg' && name !== 'docs') walk(p)
+        } else if (/\.(ts|tsx)$/.test(name) && !/\.test\.tsx?$/.test(name)) {
+          if (/\.konclave\.json`/.test(readFileSync(p, 'utf8'))) hits.push(p.slice(root.length))
+        }
+      }
+    }
+    walk(root)
+    expect(hits).toEqual(['storage.ts'])
   })
 })

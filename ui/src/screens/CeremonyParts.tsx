@@ -8,14 +8,27 @@ import { formatInvite, inviteLink } from '../net'
 
 type Pe = (pt: string, en: string) => string
 
-/** A step that waits on other people: a spinner beside the sentence, so the screen does not look
- *  frozen while it waits (Daniel, 16/10). The sentence is the status; the spinner is decorative. */
-export function WaitLine({ children }: { children: ReactNode }) {
+/** The status line of a step that waits on other people. It stays mounted for the whole step, so a
+ *  screen reader hears its text change rather than missing a region that arrived already filled
+ *  (a11y audit); it is empty until there is something to wait for. While `busy`, a small spinner
+ *  sits beside the sentence so the screen does not look frozen (Daniel, 16/10); the sentence is the
+ *  status and the spinner is decorative. */
+export function WaitLine({ busy, children }: { busy: boolean; children?: ReactNode }) {
   return (
     <p className="cv-seatlabel cv-wait" role="status">
-      <span className="loader-ring sm" aria-hidden="true" />
+      {busy && <span className="loader-ring sm" aria-hidden="true" />}
       <span>{children}</span>
     </p>
+  )
+}
+
+/** What the save step says while others have not saved: how many have, then who is left, so the wait
+ *  visibly moves even without motion. One sentence for both creation screens. */
+export function saveWaitText(total: number, waiting: string[], pe: Pe): string {
+  const saved = Math.max(0, total - waiting.length)
+  return pe(
+    `${saved} de ${total} guardaram. Esperando: ${waiting.join(', ')}.`,
+    `${saved} of ${total} saved. Waiting for: ${waiting.join(', ')}.`,
   )
 }
 

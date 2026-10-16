@@ -43,8 +43,9 @@ history to tidy it is how context gets lost.
 ### Fixed
 
 - **Creating a vault looked frozen while it waited for the other members.** After a member protected
-  their part, the screen showed one line of plain text until everyone had; it now shows a small
-  spinner beside it, and beside "Registering the vault…".
+  their part, the screen showed one line of plain text until everyone had. It now says how many have
+  saved and who is left ("1 of 3 saved. Waiting for: ana, bia."), with a small spinner beside it,
+  and the same on the lab page.
 - **Every backup of a vault downloaded under the same name.** A second copy replaced or shadowed the
   first. The file is now named after the vault and the date and time it was made, and carries no
   member's name.

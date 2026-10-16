@@ -10,7 +10,7 @@ import {
   type CreationSession,
 } from '../wasm-pkg/konclave_wasm.js'
 import { DkgCeremony, DKG_VERSION, type DkgAbort, type DkgConfig, type DkgMsg } from '../dkg-ceremony'
-import { InviteCard, CodeCheck, StopPanel, WaitLine } from './CeremonyParts'
+import { InviteCard, CodeCheck, StopPanel, WaitLine, saveWaitText } from './CeremonyParts'
 import { creationBusy, closeIntent } from '../creation-guard'
 import { RelaySession, newRoomCode, newInviteCode, parseInvite, joinParam, formatInvite, deriveRoom, ephemeralTag, b64, relayBase, type RelayMsg } from '../net'
 import { decodeBundle } from '../signing'
@@ -1451,6 +1451,11 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
 
   const total = configRef.current?.n ?? n
   const quorum = configRef.current?.t ?? t
+  // The save step's status line: who is left to save, then the registration; empty otherwise.
+  const saveWait = saveState !== 'saved' ? ''
+    : waiting.length > 0 ? saveWaitText(total, waiting, pe)
+    : !backup && hostedState === 'registering' ? pe('Registrando o cofre…', 'Registering the vault…')
+    : ''
 
   // Shared signing controls, used by the just-created vault ('done') and by a restored device that
   // rejoined a signing session ('signsession'). `canStart` gates the button on quorum presence.
@@ -1714,12 +1719,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                   : saveState === 'saved' ? pe('Guardado neste aparelho ✓', 'Saved on this device ✓')
                   : pe('Proteger o cofre →', 'Protect the vault →')}
               </button>
-              {saveState === 'saved' && waiting.length > 0 && (
-                <WaitLine>{pe(`Esperando os outros guardarem: ${waiting.join(', ')}. O endereço do cofre aparece quando todos guardarem.`, `Waiting for the others to save: ${waiting.join(', ')}. The vault's address appears once everyone has.`)}</WaitLine>
-              )}
-              {saveState === 'saved' && !backup && waiting.length === 0 && hostedState === 'registering' && (
-                <WaitLine>{pe('Registrando o cofre…', 'Registering the vault…')}</WaitLine>
-              )}
+              <WaitLine busy={!!saveWait}>{saveWait}</WaitLine>
 
             </div>
           </>
@@ -1849,9 +1849,10 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
             <h3>{L.saveTitle}</h3>
             <p>{L.saveHint}</p>
             {saveState === 'saved' ? (
-              <p className="net-tip" role="status">{L.saved}{!finished && waiting.length > 0
-                ? ' ' + pe(`Esperando os outros guardarem: ${waiting.join(', ')}. O endereço aparece quando todos guardarem.`, `Waiting for the others to save: ${waiting.join(', ')}. The address appears once everyone has.`)
-                : ''}</p>
+              <>
+                <p className="net-tip">{L.saved}</p>
+                <WaitLine busy={!finished && waiting.length > 0}>{!finished && waiting.length > 0 ? saveWaitText(total, waiting, pe) : ''}</WaitLine>
+              </>
             ) : (
               <>
                 {saveErr && <div className="net-error" role="alert">{saveErr}</div>}

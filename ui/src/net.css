@@ -354,9 +354,11 @@
 .cv-seat.on{background:var(--accent-soft); border-color:var(--accent-line)}
 .cv-seatlabel{font-family:var(--font-mono); font-size:12px; color:var(--text-muted); margin:0}
 /* A step waiting on other people: the sentence with a small spinner beside it, in the muted colour. */
-.cv-wait { display: flex; align-items: center; gap: 8px; }
-.cv-wait .loader-ring { flex: none; border-top-color: var(--text-muted); }
-@media (prefers-reduced-motion: reduce) { .cv-wait .loader-ring { animation: none; } }
+/* Reduced motion follows the app's one rule for .loader-ring (App.css: it slows, it does not stop);
+   the count in the sentence is what shows the wait moving. */
+.cv-wait { display: flex; align-items: flex-start; gap: 8px; }
+.cv-wait .loader-ring { flex: none; margin-top: 1px; border-top-color: var(--text-muted); }
+.cv-wait > span { min-width: 0; overflow-wrap: anywhere; }
 .cv-loading{display:flex; flex-direction:column; align-items:center; text-align:center; padding:14px 0}
 .cv-loading .cv-title{margin-top:14px}
 .cv-loading .cv-lead{max-width:44ch}
