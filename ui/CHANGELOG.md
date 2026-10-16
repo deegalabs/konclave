@@ -46,6 +46,10 @@ history to tidy it is how context gets lost.
   history refreshed without a sign, so "No transactions yet" read as an answer while a deposit was
   still on its way in. The history now shows when it is checking the network and when it last
   checked, on every refresh, and an empty list says a deposit can take a few minutes to appear.
+- **Add funds showed an empty history while it could not read it.** A history read that failed (right
+  after unlocking, before the read key was in place, or on a timeout) was taken for an empty answer:
+  for 20 to 40 seconds a vault with transactions read "Nothing has arrived yet". A failed read now
+  keeps what the screen had, says it could not check, and tries again within seconds.
 
 ## [0.13.1] 2026-10-15
 

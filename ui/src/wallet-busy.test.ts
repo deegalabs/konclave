@@ -109,7 +109,9 @@ describe('the screens keep what they had while the wallet is busy', () => {
   it('the dashboard and the receive screen keep their transactions while busy', () => {
     const rcv = codeOf('./screens/Receive.tsx')
     expect(rcv).toContain('readTransactions(')
-    expect(rcv).toMatch(/setTxs\(\(prev\) => keepOnBusy\(prev, r\)\)/)
+    // Receive sets its list only from an answer (`historyReadKind`), so busy and failed both keep it.
+    expect(rcv).toMatch(/if \(kind === 'answer'\) \{\s*setTxs\(r\)/)
+    expect(rcv).not.toMatch(/setTxs\(\(prev\)/)
     expect(codeOf('./screens/Dashboard.tsx')).toMatch(/setTxs\(\(prev\) => keepOnBusy\(prev, list\)\)/)
     // /net keeps its balance through a busy read too.
     expect(codeOf('./screens/NetVault.tsx')).toMatch(/setBalance\(\(prev\) => \(b === WALLET_BUSY \? prev :/)
@@ -138,7 +140,8 @@ describe('what the delta audit on 6445e5c asked to be pinned', () => {
   })
   it('a busy read is not a load: no "not connected", no empty history', () => {
     expect(codeOf('./screens/Dashboard.tsx')).toMatch(/if \(b !== WALLET_BUSY\) setBalLoaded\(true\)/)
-    expect(codeOf('./screens/Receive.tsx')).toMatch(/if \(r !== WALLET_BUSY\) setTxLoaded\(true\)/)
+    // Receive tells busy, failed and answered apart in `historyReadKind` (receive-address.test.tsx).
+    expect(codeOf('./screens/Receive.tsx')).toMatch(/if \(kind === 'answer'\) \{\s*setTxs\(r\)\s*setTxLoaded\(true\)/)
   })
   it('the free-funds row says it does not know while no balance has been read, busy or syncing', () => {
     const src = codeOf('./screens/Dashboard.tsx')

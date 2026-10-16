@@ -3,7 +3,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { I18nProvider } from './i18n'
 import { en } from './i18n/en'
 import { ptBR } from './i18n/pt-BR'
-import { AddressNotice, HistoryStatus } from './screens/Receive'
+import { AddressNotice, HistoryStatus, historyReadKind } from './screens/Receive'
+import { WALLET_BUSY } from './helper'
 import { codeOf } from './source-scan'
 
 // A9 (#610 review). Which address Add funds shows is decided once, in `getVault`, and tested there
@@ -125,6 +126,38 @@ describe('the on-chain history says when it is being read', () => {
   it('the screen marks every history read, not only the first', () => {
     const receive = codeOf('./screens/Receive.tsx')
     expect(receive).toMatch(/setChecking\(true\)[\s\S]*readTransactions\(\)[\s\S]*setChecking\(false\)/)
-    expect(receive).toMatch(/<HistoryStatus checking=\{checking\} checkedAt=\{checkedAt\} \/>/)
+    expect(receive).toMatch(/<HistoryStatus checking=\{checking\} checkedAt=\{checkedAt\} failed=\{failed\} \/>/)
+  })
+})
+
+// Daniel (16/10): right after unlocking, the history said "Nothing has arrived yet" and "Last checked
+// at" for 20 to 40 seconds on a vault that had three transactions. A read that FAILS (a 401 before the
+// read key is in the session, a timeout, a 5xx) comes back as null, and the screen took null for an
+// empty answer. A failure is not an answer: it must not empty the list, must not be shown as a check,
+// and is retried soon rather than at the next 15 s poll.
+describe('a history read that fails is not an answer', () => {
+  it('tells the three outcomes apart', () => {
+    expect(historyReadKind(WALLET_BUSY)).toBe('busy')
+    expect(historyReadKind(null)).toBe('failed')
+    expect(historyReadKind([])).toBe('answer')
+    expect(historyReadKind([{ txid: 'ab', mined_height: 1 } as never])).toBe('answer')
+  })
+
+  it('the screen fills the list and the time only from an answer, and retries a failure soon', () => {
+    const receive = codeOf('./screens/Receive.tsx')
+    expect(receive).toMatch(/const kind = historyReadKind\(r\)/)
+    expect(receive).toMatch(/if \(kind === 'answer'\) \{\s*setTxs\(r\)\s*setTxLoaded\(true\)\s*setCheckedAt\(Date\.now\(\)\)/)
+    expect(receive).toMatch(/setFailed\(kind === 'failed'\)/)
+    expect(receive).toMatch(/if \(kind === 'failed'\) retry = setTimeout\(\(\) => void loadTx\(\), 3_000\)/)
+    expect(receive).not.toMatch(/keepOnBusy/)
+  })
+
+  it('says so, beside the title once loaded and in place of the list before', () => {
+    const html = renderToStaticMarkup(<I18nProvider><HistoryStatus checking={false} checkedAt={null} failed /></I18nProvider>)
+    expect(html).toContain('Could not check, trying again…')
+    expect(en['receive.historyUnreadable']).toMatch(/Could not read the history yet/)
+    expect(ptBR['receive.historyUnreadable']).toMatch(/Não deu para ler o histórico ainda/)
+    expect(ptBR['receive.historyRetry']).toBe('Não deu para conferir, tentando de novo…')
+    expect(codeOf('./screens/Receive.tsx')).toMatch(/failed \? <p className="rcv-note">\{t\('receive\.historyUnreadable'\)\}<\/p> : <Loading \/>/)
   })
 })

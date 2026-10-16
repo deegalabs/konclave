@@ -7,7 +7,6 @@ import { PageHeader } from '../page'
 import { BannerWarn, Loading } from '../components'
 import '../receive.css'
 import { WALLET_BUSY } from '../helper'
-import { keepOnBusy } from '../useVaultBalance'
 
 // "Add funds" is the easy side of a vault: receiving needs no key and no signature. The vault
 // has a shielded Orchard address (derived from the group key by zcash-sign); anyone sends ZEC to
@@ -40,21 +39,33 @@ export function AddressNotice({ differs, missing, id }: { differs: boolean; miss
  *  not a live region: a status that changes every 15 s would talk over the member reading the
  *  address (a11y audit); announcing a new deposit when it lands is the follow-up. The spinner and
  *  its label are decorative. Exported for its test. */
-export function HistoryStatus({ checking, checkedAt }: { checking: boolean; checkedAt: number | null }) {
+export function HistoryStatus({ checking, checkedAt, failed = false }: { checking: boolean; checkedAt: number | null; failed?: boolean }) {
   const { locale, t } = useI18n()
   const time = checkedAt === null ? null
     : new Date(checkedAt).toLocaleTimeString(locale === 'en' ? 'en-US' : 'pt-BR', { hour: '2-digit', minute: '2-digit' })
   return (
     <span className="rcv-hist-status">
-      {checking && (
+      {checking ? (
         <span className="rcv-hist-checking" aria-hidden="true">
           <span className="loader-ring sm" />
           {t('receive.historyChecking')}
         </span>
-      )}
+      ) : failed ? (
+        <span>{t('receive.historyRetry')}</span>
+      ) : null}
       {time && <span>{t('receive.historyChecked', { time })}</span>}
     </span>
   )
+}
+
+/** What one history read means. `readTransactions` answers a list, `WALLET_BUSY` while the
+ *  coordinator holds the vault (COORD-LOCK), or null when the read failed: a 401 before the read key
+ *  is in the session, a timeout, a 5xx. Only a list is an answer. Taking null for an empty list is
+ *  what showed "Nothing has arrived yet" for 20 to 40 seconds after an unlock on a vault with
+ *  transactions (Daniel, 16/10). Exported for its test. */
+export function historyReadKind(r: WalletTx[] | null | typeof WALLET_BUSY): 'answer' | 'busy' | 'failed' {
+  if (r === WALLET_BUSY) return 'busy'
+  return r === null ? 'failed' : 'answer'
 }
 
 export default function Receive() {
@@ -72,6 +83,8 @@ export default function Receive() {
   // A history read in flight (the first one and every refresh), and the time the last one answered.
   const [checking, setChecking] = useState(false)
   const [checkedAt, setCheckedAt] = useState<number | null>(null)
+  // The last read failed (not busy: failed). Said, and retried soon.
+  const [failed, setFailed] = useState(false)
   // The vault's OWN broadcast txids (from the ledger). A history tx whose id is in here is a SENT
   // (outgoing) payment this vault made; anything else is a RECEIVED deposit. This gives direction
   // client-side, without needing the tool's per-tx amount/direction fields (#125 v2 slice).
@@ -94,21 +107,28 @@ export default function Receive() {
       try {
         const [r, ledger] = await Promise.all([readTransactions(), getLedger()])
         if (!on) return
-        // A busy coordinator is not an empty history: keep the list the screen has (COORD-LOCK).
-        setTxs((prev) => keepOnBusy(prev, r))
-        if (r !== WALLET_BUSY) setTxLoaded(true)
-        // Only an answer is a check: a busy read keeps the time of the last one.
-        if (r !== WALLET_BUSY) setCheckedAt(Date.now())
+        // Only an answer fills the list and counts as a check. A busy coordinator (COORD-LOCK) and a
+        // read that failed both keep what the screen has; a failure is retried soon, not at the poll.
+        const kind = historyReadKind(r)
+        if (kind === 'answer') {
+          setTxs(r)
+          setTxLoaded(true)
+          setCheckedAt(Date.now())
+        }
+        setFailed(kind === 'failed')
+        if (kind === 'failed') retry = setTimeout(() => void loadTx(), 3_000)
         if (ledger) setSentIds(new Set(ledger.map((p) => p.txid).filter((x): x is string => !!x)))
       } finally {
         inFlight = false
         if (on) setChecking(false)
       }
     }
+    let retry: ReturnType<typeof setTimeout> | undefined
     void loadTx()
     const stop = startVisiblePoll(() => void loadTx(), 15_000) // pause when hidden, refresh on return (#123)
     return () => {
       on = false
+      clearTimeout(retry)
       stop()
     }
   }, [])
@@ -200,10 +220,10 @@ export default function Receive() {
         <section className="rcv-history">
           <div className="rcv-hist-head">
             <span className="klab">{t('receive.historyTitle')}</span>
-            {txLoaded && <HistoryStatus checking={checking} checkedAt={checkedAt} />}
+            {txLoaded && <HistoryStatus checking={checking} checkedAt={checkedAt} failed={failed} />}
           </div>
           {!txLoaded ? (
-            <Loading />
+            failed ? <p className="rcv-note">{t('receive.historyUnreadable')}</p> : <Loading />
           ) : !txs || txs.length === 0 ? (
             <p className="rcv-note">{t('receive.historyEmpty')}</p>
           ) : (

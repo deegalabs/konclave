@@ -1121,6 +1121,8 @@ export const en: Record<string, string> = {
   'receive.historyNote': 'Every transaction this vault recorded on-chain, since it was created. Open one to see the amounts on the block explorer.',
   'receive.historyChecking': 'Checking the network…',
   'receive.historyChecked': 'Last checked at {time}',
+  'receive.historyRetry': 'Could not check, trying again…',
+  'receive.historyUnreadable': 'Could not read the history yet. This list tries again on its own.',
   'receive.txConfirmed': 'block {h}',
   'receive.txPending': 'pending',
   'receive.viewTx': 'View',
