@@ -10,7 +10,7 @@ import {
   type CreationSession,
 } from '../wasm-pkg/konclave_wasm.js'
 import { DkgCeremony, DKG_VERSION, type DkgAbort, type DkgConfig, type DkgMsg } from '../dkg-ceremony'
-import { InviteCard, CodeCheck, StopPanel } from './CeremonyParts'
+import { InviteCard, CodeCheck, StopPanel, WaitLine } from './CeremonyParts'
 import { creationBusy, closeIntent } from '../creation-guard'
 import { RelaySession, newRoomCode, newInviteCode, parseInvite, joinParam, formatInvite, deriveRoom, ephemeralTag, b64, relayBase, type RelayMsg } from '../net'
 import { decodeBundle } from '../signing'
@@ -1715,10 +1715,10 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
                   : pe('Proteger o cofre →', 'Protect the vault →')}
               </button>
               {saveState === 'saved' && waiting.length > 0 && (
-                <p className="cv-seatlabel" role="status">{pe(`Esperando os outros guardarem: ${waiting.join(', ')}. O endereço do cofre aparece quando todos guardarem.`, `Waiting for the others to save: ${waiting.join(', ')}. The vault's address appears once everyone has.`)}</p>
+                <WaitLine>{pe(`Esperando os outros guardarem: ${waiting.join(', ')}. O endereço do cofre aparece quando todos guardarem.`, `Waiting for the others to save: ${waiting.join(', ')}. The vault's address appears once everyone has.`)}</WaitLine>
               )}
               {saveState === 'saved' && !backup && waiting.length === 0 && hostedState === 'registering' && (
-                <p className="cv-seatlabel" role="status">{pe('Registrando o cofre…', 'Registering the vault…')}</p>
+                <WaitLine>{pe('Registrando o cofre…', 'Registering the vault…')}</WaitLine>
               )}
 
             </div>
