@@ -47,9 +47,13 @@ history to tidy it is how context gets lost.
   upgrade is counted when it decides whether signing again could pay twice. Nothing changes until the
   next upgrade's row is added: an older record without a branch reads as NU6.3, which is true of
   every record that exists. When the earlier attempt is ended by an upgrade rather than by its own
-  expiry, the confirm says so. Three new texts (English and Portuguese) are drafts: a payment that
-  needs a new signature after an upgrade, funds the network holds until a block, and the device's
-  note about an attempt the network no longer accepts. None can appear yet.
+  expiry, the confirm names the last block it can be mined in and when that is expected, and when
+  the device has no turning point to give (a record that never stops counting) it says so instead of
+  naming a time. Seven new texts (English and Portuguese) are drafts for the maintainer to approve:
+  `signing.againUntilEpoch`, `signing.againNoTime`, `error.needsNewSignature`,
+  `error.fundsHeldUntil`, `error.upgradeHold`, `error.upgradeHoldCrossing` and
+  `error.coordinatorNotUpdated`. The app words the coordinator's refusals by the `reason` it sends,
+  also on `/net`, in both languages. None can appear yet.
 
 ### Fixed
 

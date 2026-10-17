@@ -58,8 +58,8 @@ explicitly accepted.
 
 ### Changed
 
-- **Groundwork for the next network upgrade (NU7): one table, one margin, and nothing different for
-  you until the upgrade's height is known.** The device (the browser signer) and the coordinator each
+- **Groundwork for the next network upgrade (NU7): one table, one margin, and almost nothing different
+  for you until the upgrade's height is known.** The device (the browser signer) and the coordinator each
   decided when an earlier transaction could no longer be mined from its expiry alone, each with its
   own copy of a ten-block margin, and the device picked the network upgrade it was in from its clock.
   Neither knew that a transaction signed for one upgrade cannot be mined once the next one is active,
@@ -67,10 +67,19 @@ explicitly accepted.
   cross-pool one) and the device would have warned "this pays twice" about a transaction the network
   already refuses. Both now read the same rules from `konclave-seal::epochs`: the table of upgrades,
   the margin (one copy), the height estimate and the header acceptance. A source scan fails the build
-  if a second copy appears. The table has one row today (NU6.3), so every number the device and the
-  coordinator produce is what it was; the new rules only act once a row for NU7 is added, which is
-  done when its activation height is decided. The device's record of what it signed now keeps the
-  consensus branch it read from the transaction, and an old record without one reads as NU6.3.
+  if a second copy appears. The table has one row today (NU6.3), and the window of heights, the lapse
+  times and the verdict on a sent payment are the numbers they were (pinned by tests written against
+  the old code). The new rules act on an upgrade only once a row for NU7 is added, which is done when
+  its activation height is decided. Three things are different today, and are named so that "nothing
+  changed" is not read as more than it is: a device record with no expiry (none can be written, a
+  header with no expiry is refused) used to count as dead at once and now never stops counting; the
+  coordinator already refuses to sign a transaction its engine built on any branch but NU6.3 (it
+  could not happen, and says "the coordinator has not been updated for the network upgrade"); and a
+  header whose expiry is below the NU6.3 activation block, with the clock in the first days after
+  it, is now refused as being for another upgrade (not reachable now). The device's record of what
+  it signed keeps the consensus branch it read from the transaction; an older entry without one reads
+  as NU6.3 (true of every one, an older bundle cannot sign a later upgrade), while the coordinator's
+  record of a send with no branch is treated as UNKNOWN and is never ended by an upgrade.
   Defaults to confirm: `K` (24 blocks: the 600 s ceremony ceiling plus 600 s to build and prove and
   600 s to be mined, at 75 s a block) and `K_c` (288 blocks, about six hours, for cross-pool
   payments). The wasm export `approvalLapsesAt` is gone: the time on the confirm now comes with the
@@ -78,9 +87,18 @@ explicitly accepted.
 
 ### Known limits
 
-- **The upgrade rules are inert until NU7's row exists.** The coordinator's cap on a transaction's
-  life also needs the engine to report the same activation height, and the engine that runs today
-  reports none, so the cap stays off and says why in the boot log. The wallet reports the tip it
+- **This change alone does not deliver the cap on a transaction's life.** It stays off until the
+  engine move (the next commit) adds the `konclave-signer next-upgrade` command: the coordinator
+  turns the cap on only when its table and the engine agree on the next upgrade's height, and the
+  engine that runs today reports none (the boot log says so). Until then a cross-pool payment signed
+  for NU6.3 and caught by the upgrade is held until its own expiry, as before. Turning it on also
+  needs the PR that adds the NU7 row to make the verdict depend on the branch the chain reports, not
+  only on the two copies of our own constant (#638).
+- **For about a day after the upgrade the device and the coordinator disagree.** The device judges by
+  its own clock with a margin that is about a day wide at that distance from its anchor, so it keeps
+  asking "this could pay twice" while the coordinator, which sees the chain, already says the payment
+  needs a new signature. The release that re-anchors the clock after the upgrade shortens this.
+- **The rules are inert until NU7's row exists.** The wallet reports the tip it
   knows and not the height it scanned, so a transaction is called dead because of an upgrade only
   100 blocks after the margin. A cross-pool payment caught by the upgrade keeps its funds reserved
   in the wallet until its own expiry, which can be weeks away; the build hold exists to keep new
