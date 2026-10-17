@@ -40,6 +40,12 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The site names the 0.13.2 desktop pre-release.** The landing and the help named 0.13.1 after
+  the 0.13.2 installers were published. The download buttons stay off until the desktop app is
+  validated on each platform (#212).
+
 ## [0.13.2] 2026-10-17
 
 ### Fixed
