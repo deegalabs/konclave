@@ -33,6 +33,7 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use konclave_http::ClientAddress;
 use orchestrator::helper::request_recipients;
 use orchestrator::helper::{
     claim_members, is_valid_group_key, ledger_csv, list_proposals, load_ceremonies,
@@ -2086,7 +2087,7 @@ fn http_response(r: Resp) -> Response<std::io::Cursor<Vec<u8>>> {
 fn new_vault_refusal(
     limits: &admission::Limits,
     state: &HelperState,
-    client: &str,
+    client: &ClientAddress,
     method: &Method,
     path: &str,
     body: &[u8],
@@ -2223,7 +2224,7 @@ fn serve(
     cfg: &HelperConfig,
     locks: &concurrency::VaultLocks,
     limits: &admission::Limits,
-    client: &str,
+    client: &ClientAddress,
     now: i64,
     method: &Method,
     path: &str,
@@ -2541,6 +2542,17 @@ mod tests {
     }
     use super::*;
     use std::time::Duration;
+
+    /// A client address for a test: 203.0.113.`host` (a documentation range). `serve` takes the
+    /// typed address the worker loop builds with `konclave_http::client_address`.
+    const fn client_at(host: u8) -> ClientAddress {
+        ClientAddress::from_ip(std::net::IpAddr::V4(std::net::Ipv4Addr::new(
+            203, 0, 113, host,
+        )))
+    }
+
+    /// The client address most of these tests send from.
+    const CLIENT: ClientAddress = client_at(7);
 
     /// The screen turns an error into a message by keyword (`humanError`, ui/src/api.ts). These are
     /// its triggers, copied; each one becomes "nothing was sent" or "expired" or a missing-funds
@@ -3483,7 +3495,7 @@ mod tests {
                             let w = real_write_key(k + 1);
                             let body = json!({"group_key": v, "device_pub": comms, "seat": 2, "write_pub": w}).to_string();
                             barrier.wait();
-                            let r = serve(st, c, locks, limits, "203.0.113.7", T0, &Method::Post,
+                            let r = serve(st, c, locks, limits, &CLIENT, T0, &Method::Post,
                                           "/api/vault/devicekey", body.as_bytes(), None);
                             (r.status, r.body, w)
                         })
@@ -5939,7 +5951,7 @@ mod tests {
     fn registering(
         l: &admission::Limits,
         st: &HelperState,
-        client: &str,
+        client: &ClientAddress,
         body: &[u8],
     ) -> Option<admission::Refused> {
         new_vault_refusal(l, st, client, &Method::Post, "/api/vault", body, T0)
@@ -5955,14 +5967,14 @@ mod tests {
         let body = format!(r#"{{"group_key":"{known}","threshold":2,"total":3}}"#);
         for i in 0..200 {
             assert_eq!(
-                registering(&l, &st, "203.0.113.7", body.as_bytes()),
+                registering(&l, &st, &CLIENT, body.as_bytes()),
                 None,
                 "registration {i} of a known vault"
             );
         }
         for n in 0..admission::NEW_VAULTS_MAX as u32 {
             assert_eq!(
-                registering(&l, &st, "203.0.113.7", &register_body(1000 + n, 2, 2)),
+                registering(&l, &st, &CLIENT, &register_body(1000 + n, 2, 2)),
                 None,
                 "and the allowance for new vaults is untouched"
             );
@@ -5995,18 +6007,18 @@ mod tests {
                 String::from_utf8_lossy(body)
             );
             for _ in 0..10 {
-                assert_eq!(registering(&l, &st, "203.0.113.7", body), None);
+                assert_eq!(registering(&l, &st, &CLIENT, body), None);
             }
         }
         for n in 0..admission::NEW_VAULTS_MAX as u32 {
             assert_eq!(
-                registering(&l, &st, "203.0.113.7", &register_body(100 + n, 2, 2)),
+                registering(&l, &st, &CLIENT, &register_body(100 + n, 2, 2)),
                 None,
                 "the whole allowance is still there"
             );
         }
         assert_eq!(
-            registering(&l, &st, "203.0.113.7", &register_body(999, 2, 2)),
+            registering(&l, &st, &CLIENT, &register_body(999, 2, 2)),
             Some(admission::Refused::TooManyNewVaults)
         );
     }
@@ -6024,7 +6036,7 @@ mod tests {
         ] {
             for _ in 0..20 {
                 assert_eq!(
-                    new_vault_refusal(&l, &st, "203.0.113.7", &method, path, &body, T0),
+                    new_vault_refusal(&l, &st, &CLIENT, &method, path, &body, T0),
                     None
                 );
             }
@@ -6059,7 +6071,7 @@ mod tests {
                     c,
                     &locks,
                     &limits,
-                    "203.0.113.7",
+                    &CLIENT,
                     T0,
                     &Method::Post,
                     path,
@@ -6189,7 +6201,7 @@ mod tests {
                 &c,
                 &locks,
                 &limits,
-                "203.0.113.7",
+                &CLIENT,
                 T0,
                 &Method::Post,
                 path,
@@ -6269,7 +6281,7 @@ mod tests {
                 &c,
                 &locks,
                 &limits,
-                "203.0.113.7",
+                &CLIENT,
                 T0,
                 &Method::Post,
                 "/api/vault",
@@ -6279,7 +6291,7 @@ mod tests {
             assert_eq!(r.status, 400, "{}", r.body);
         }
         assert_eq!(
-            registering(&limits, &st, "203.0.113.7", &register_body(999, 2, 2)),
+            registering(&limits, &st, &CLIENT, &register_body(999, 2, 2)),
             None,
             "the allowance is untouched"
         );
@@ -6862,7 +6874,7 @@ mod tests {
                     c,
                     &locks,
                     &limits,
-                    "203.0.113.7",
+                    &CLIENT,
                     T0,
                     &Method::Get,
                     path,
@@ -7049,7 +7061,7 @@ mod tests {
                     &c,
                     &locks,
                     &limits,
-                    "203.0.113.7",
+                    &CLIENT,
                     T0,
                     &Method::Get,
                     "/api/health?vault=healthv",
@@ -7127,7 +7139,7 @@ mod tests {
                 &c,
                 &locks,
                 &limits,
-                "203.0.113.7",
+                &CLIENT,
                 T0,
                 &Method::Get,
                 "/api/vault/proposals?vault=relayv",
@@ -7194,7 +7206,7 @@ mod tests {
                     &c,
                     &locks,
                     &limits,
-                    "203.0.113.7",
+                    &CLIENT,
                     T0,
                     &Method::Post,
                     "/api/vault/proposals",
@@ -7250,7 +7262,7 @@ mod tests {
                     &c,
                     &locks,
                     &limits,
-                    "203.0.113.7",
+                    &CLIENT,
                     T0,
                     &Method::Post,
                     path,
@@ -7284,7 +7296,7 @@ mod tests {
                     &c,
                     &locks,
                     &limits,
-                    "203.0.113.9",
+                    &client_at(9),
                     T0,
                     &Method::Post,
                     "/api/vault",
@@ -7305,7 +7317,7 @@ mod tests {
             &c,
             &locks,
             &limits,
-            "203.0.113.10",
+            &client_at(10),
             T0,
             &Method::Post,
             "/api/vault",
@@ -7349,7 +7361,7 @@ mod tests {
                 &c,
                 &locks,
                 &limits,
-                "203.0.113.7",
+                &CLIENT,
                 T0,
                 &Method::Get,
                 "/api/vault/balance?vault=slowv",
@@ -7406,7 +7418,7 @@ mod tests {
                 &c,
                 &locks,
                 &limits,
-                "203.0.113.7",
+                &CLIENT,
                 T0,
                 &Method::Get,
                 "/api/vault/balance?vault=busyv",
@@ -7450,7 +7462,7 @@ mod tests {
                     &c,
                     &locks,
                     &limits,
-                    "203.0.113.7",
+                    &CLIENT,
                     T0,
                     &Method::Get,
                     "/api/vault/balance?vault=waitv",
@@ -7502,7 +7514,7 @@ mod tests {
                         c,
                         locks,
                         limits,
-                        "203.0.113.7",
+                        &CLIENT,
                         T0,
                         &Method::Get,
                         "/api/vault/balance?vault=floodv",
@@ -7556,7 +7568,7 @@ mod tests {
                     &c,
                     &locks,
                     &limits,
-                    "203.0.113.7",
+                    &CLIENT,
                     T0,
                     &Method::Get,
                     "/api/vault/balance?vault=turnv",
@@ -7599,7 +7611,7 @@ mod tests {
                 &c,
                 &locks,
                 &limits,
-                "203.0.113.7",
+                &CLIENT,
                 T0,
                 &Method::Get,
                 "/api/vault/proposals?vault=relayv",
@@ -7669,7 +7681,7 @@ mod tests {
                 c,
                 locks,
                 limits,
-                "203.0.113.7",
+                &CLIENT,
                 T0,
                 &Method::Get,
                 &format!("/api/vault/proposals?vault={vault}"),
@@ -7700,7 +7712,7 @@ mod tests {
             c,
             locks,
             limits,
-            "203.0.113.7",
+            &CLIENT,
             T0,
             &Method::Post,
             "/api/vault/proposals/p1/send",
@@ -7796,7 +7808,7 @@ mod tests {
                 &c,
                 &locks,
                 &limits,
-                "203.0.113.7",
+                &CLIENT,
                 T0,
                 &Method::Get,
                 path,
@@ -7840,7 +7852,7 @@ mod tests {
                 &c,
                 &locks,
                 &limits,
-                "203.0.113.7",
+                &CLIENT,
                 T0,
                 &Method::Get,
                 path,
@@ -7906,7 +7918,7 @@ mod tests {
                 &c,
                 &locks,
                 &limits,
-                "203.0.113.7",
+                &CLIENT,
                 T0,
                 &method,
                 path,
@@ -8107,7 +8119,7 @@ mod tests {
                         c,
                         locks,
                         limits,
-                        "203.0.113.7",
+                        &CLIENT,
                         T0,
                         &Method::Get,
                         route,
@@ -8152,7 +8164,7 @@ mod tests {
             &c,
             &locks,
             &limits,
-            "203.0.113.7",
+            &CLIENT,
             T0,
             &Method::Get,
             "/api/vault/transactions?vault=listfail",
@@ -8181,7 +8193,7 @@ mod tests {
                 &c,
                 &locks,
                 &limits,
-                "203.0.113.7",
+                &CLIENT,
                 T0,
                 &Method::Get,
                 path,
@@ -8232,7 +8244,7 @@ mod tests {
                     &c,
                     &locks,
                     &limits,
-                    "203.0.113.7",
+                    &CLIENT,
                     T0,
                     &method,
                     &path,
@@ -8413,20 +8425,20 @@ mod tests {
         with_creation_min(2, || {
             for n in 0..(admission::NEW_VAULTS_MAX as u32 * 3) {
                 assert_eq!(
-                    registering(&l, &st, "203.0.113.7", &body_with_cp(n, None)),
+                    registering(&l, &st, &CLIENT, &body_with_cp(n, None)),
                     None,
                     "a refusal costs no allowance"
                 );
             }
             for n in 0..admission::NEW_VAULTS_MAX as u32 {
                 assert_eq!(
-                    registering(&l, &st, "203.0.113.7", &body_with_cp(500 + n, Some("2"))),
+                    registering(&l, &st, &CLIENT, &body_with_cp(500 + n, Some("2"))),
                     None,
                     "the whole allowance is still there"
                 );
             }
             assert_eq!(
-                registering(&l, &st, "203.0.113.7", &body_with_cp(999, Some("2"))),
+                registering(&l, &st, &CLIENT, &body_with_cp(999, Some("2"))),
                 Some(admission::Refused::TooManyNewVaults)
             );
         });
@@ -8482,7 +8494,7 @@ mod tests {
                 &c,
                 &locks,
                 &limits,
-                "203.0.113.7",
+                &CLIENT,
                 T0,
                 &Method::Post,
                 "/api/vault",
@@ -8870,7 +8882,7 @@ mod tests {
                                 &c,
                                 &locks,
                                 &limits,
-                                "203.0.113.7",
+                                &CLIENT,
                                 T0,
                                 &Method::Post,
                                 "/api/vault",
@@ -9102,7 +9114,7 @@ mod tests {
                 &c,
                 &locks,
                 &limits,
-                "203.0.113.7",
+                &CLIENT,
                 T0,
                 &Method::Post,
                 "/api/vault",

@@ -19,6 +19,7 @@ use std::io::Read;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use konclave_http::{ClientAddress, RateKey};
 use serde::{Deserialize, Serialize};
 use tiny_http::{Header, Method, Response, Server};
 
@@ -33,8 +34,9 @@ const PEER_WINDOW: i64 = 45;
 // just reclaims the memory once it is long gone.
 const PRESENCE_TTL: i64 = 300;
 // Fixed-window rate limit: at most RATE_MAX requests per RATE_WINDOW seconds per source key
-// (a `from` tag, or the room id when a poll carries none). Generous - a real short-poll
-// ceremony sends a couple of requests per second, well under this - it only refuses floods.
+// (a `from` tag, or the room id when a poll carries none), each one scoped to the client address
+// the server attributes to the request. Generous - a real short-poll ceremony sends a couple of
+// requests per second, well under this - it only refuses floods.
 const RATE_WINDOW: i64 = 10;
 const RATE_MAX: u32 = 150;
 // Per-IP fixed-window limit (#64). The `from`/room key above is client-controlled (an attacker can
@@ -105,7 +107,7 @@ impl RelayState {
         raw: &str,
         body: &[u8],
         now: i64,
-        ip: &str,
+        addr: &ClientAddress,
     ) -> (u16, String) {
         let Some(room_id) = path.strip_prefix("/api/relay/") else {
             return (404, r#"{"error":"not found"}"#.into());
@@ -113,27 +115,26 @@ impl RelayState {
         if room_id.is_empty() || room_id.contains('/') || room_id.len() > 128 {
             return (400, r#"{"error":"bad room id"}"#.into());
         }
-        // Per-IP flood check FIRST (robust: the client cannot cheaply change its IP), so a source
-        // rotating `from` tags to dodge the per-key limit below is still capped. `ip:` namespaces
-        // the key so it never collides with a `from`/room key in the same map.
-        if !self.rate_ok(&format!("ip:{ip}"), now, RATE_MAX_IP) {
+        // Per-address flood check FIRST (robust: the client cannot cheaply change its address), so
+        // a source rotating `from` tags to dodge the per-sender limit below is still capped. Every
+        // key the limiter sees is built by `RateKey` in `konclave-http` and is scoped to the
+        // client address the server attributes to the request (`client_address`): a tag or a room
+        // id from the request only enters behind a kind prefix and that address, so the three
+        // kinds of key are distinct by construction and one address's budgets are never another's.
+        if !self
+            .limiter
+            .allow(&RateKey::address(addr), now, RATE_MAX_IP)
+        {
             return (429, r#"{"error":"rate limited"}"#.into());
         }
         match *method {
-            Method::Post => self.post(room_id, body, now),
-            Method::Get | Method::Head => self.get(room_id, raw, now),
+            Method::Post => self.post(room_id, body, now, addr),
+            Method::Get | Method::Head => self.get(room_id, raw, now, addr),
             _ => (405, r#"{"error":"method not allowed"}"#.into()),
         }
     }
 
-    /// Fixed-window per-key rate check. Returns `true` if the request is within budget.
-    /// The rule is `konclave_http::RateLimiter`; this keeps the name the call sites and the tests
-    /// below have always used, so the tests that pinned the old behaviour pin the shared one.
-    fn rate_ok(&self, key: &str, now: i64, max: u32) -> bool {
-        self.limiter.allow(key, now, max)
-    }
-
-    fn post(&self, room_id: &str, body: &[u8], now: i64) -> (u16, String) {
+    fn post(&self, room_id: &str, body: &[u8], now: i64, addr: &ClientAddress) -> (u16, String) {
         #[derive(Deserialize)]
         struct PostReq {
             from: String,
@@ -146,7 +147,10 @@ impl RelayState {
         if req.from.is_empty() || req.from.len() > MAX_FROM {
             return (400, r#"{"error":"bad from tag"}"#.into());
         }
-        if !self.rate_ok(&req.from, now, RATE_MAX) {
+        if !self
+            .limiter
+            .allow(&RateKey::sender(&req.from, addr), now, RATE_MAX)
+        {
             return (429, r#"{"error":"rate limited"}"#.into());
         }
         if req.data.len() > MAX_DATA {
@@ -177,16 +181,20 @@ impl RelayState {
         )
     }
 
-    fn get(&self, room_id: &str, raw: &str, now: i64) -> (u16, String) {
+    fn get(&self, room_id: &str, raw: &str, now: i64, addr: &ClientAddress) -> (u16, String) {
         let since: u64 = query(raw, "since")
             .and_then(|s| s.parse().ok())
             .unwrap_or(0);
         let from = query(raw, "from");
+        // The same tag limit a post has, applied before any sender or room key is built.
+        if from.as_ref().is_some_and(|f| f.len() > MAX_FROM) {
+            return (400, r#"{"error":"bad from tag"}"#.into());
+        }
         let key = match &from {
-            Some(f) if !f.is_empty() => f.as_str(),
-            _ => room_id,
+            Some(f) if !f.is_empty() => RateKey::sender(f, addr),
+            _ => RateKey::room(room_id, addr),
         };
-        if !self.rate_ok(key, now, RATE_MAX) {
+        if !self.limiter.allow(&key, now, RATE_MAX) {
             return (429, r#"{"error":"rate limited"}"#.into());
         }
         let mut rooms = self.rooms.lock().unwrap_or_else(|e| e.into_inner());
@@ -199,7 +207,7 @@ impl RelayState {
         };
         room.last_active = now;
         if let Some(f) = from {
-            if !f.is_empty() && f.len() <= MAX_FROM {
+            if !f.is_empty() {
                 room.members.insert(f, now);
             }
         }
@@ -243,7 +251,7 @@ fn query(raw: &str, key: &str) -> Option<String> {
 /// The client's IP for rate limiting. Behind Railway's proxy `remote_addr` is the proxy, so prefer
 /// the first hop of `X-Forwarded-For` (the real client); fall back to `remote_addr` for a direct
 /// connection. An attacker can spoof XFF only if they bypass the proxy, which the platform prevents.
-fn client_ip(req: &tiny_http::Request) -> String {
+fn client_ip(req: &tiny_http::Request) -> ClientAddress {
     let remote = req.remote_addr().map(|a| a.ip().to_string());
     konclave_http::client_address(
         req.headers()
@@ -316,7 +324,7 @@ fn main() {
             let method = req.method().clone();
             let url = req.url().to_string();
             let path = url.split(['?', '#']).next().unwrap_or(&url).to_string();
-            let ip = client_ip(&req);
+            let addr = client_ip(&req);
 
             if method == Method::Options {
                 let _ = req.respond(with_cors(Response::empty(204), false));
@@ -333,7 +341,7 @@ fn main() {
                     }
                     konclave_http::ReadPlan::Skip => { /* over the cap: handle an empty body */ }
                 }
-                state.handle(&method, &path, &url, &buf, now_unix(), &ip)
+                state.handle(&method, &path, &url, &buf, now_unix(), &addr)
             } else if path == "/" || path == "/health" {
                 // Which sources this relay is running (#522). Not an attestation: whoever can
                 // replace the binary can report any digest. It catches a stale deploy, which is the
@@ -384,44 +392,346 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rate_ok_blocks_past_max_then_resets_next_window() {
+    fn the_limiter_blocks_past_max_then_resets_next_window() {
         let st = RelayState::default();
         let now = 1_000_000;
+        let key = RateKey::sender("k", &ADDR_A);
         // First `max` requests pass; the (max+1)-th in the same window is refused.
         for i in 0..5 {
-            assert!(st.rate_ok("k", now, 5), "req {i} should pass");
+            assert!(st.limiter.allow(&key, now, 5), "req {i} should pass");
         }
-        assert!(!st.rate_ok("k", now, 5), "6th in-window request is refused");
+        assert!(
+            !st.limiter.allow(&key, now, 5),
+            "6th in-window request is refused"
+        );
         // A new window (>= RATE_WINDOW later) resets the counter.
-        assert!(st.rate_ok("k", now + RATE_WINDOW, 5), "next window resets");
+        assert!(
+            st.limiter.allow(&key, now + RATE_WINDOW, 5),
+            "next window resets"
+        );
     }
 
     #[test]
-    fn rate_ok_keys_are_independent() {
+    fn limiter_keys_are_independent() {
         let st = RelayState::default();
         let now = 2_000_000;
-        assert!(!(1..=6).all(|_| st.rate_ok("a", now, 5))); // "a" hits its cap
-                                                            // A different key (e.g. a per-IP key vs a from key) has its own budget.
-        assert!(st.rate_ok("ip:203.0.113.7", now, 5));
+        let tagged = RateKey::sender("a", &ADDR_A);
+        assert!(!(1..=6).all(|_| st.limiter.allow(&tagged, now, 5))); // "a" hits its cap
+                                                                      // A different key (the per-address key vs a sender key) has its own budget.
+        assert!(st.limiter.allow(&RateKey::address(&ADDR_A), now, 5));
     }
 
     #[test]
     fn per_ip_check_stops_from_tag_rotation() {
-        // The point of #64: rotating the `from` tag dodges the per-key limit, but the per-IP key
-        // (same ip) keeps counting and eventually refuses. Simulate handle's IP-first check.
+        // The point of #64: rotating the `from` tag dodges the per-sender limit, but the
+        // per-address key keeps counting and eventually refuses. Simulate handle's address-first
+        // check.
         let st = RelayState::default();
         let now = 3_000_000;
-        let ip_key = "ip:198.51.100.9";
+        let addr_key = RateKey::address(&ADDR_B);
         let mut refused = false;
         for _ in 0..(RATE_MAX_IP + 10) {
-            if !st.rate_ok(ip_key, now, RATE_MAX_IP) {
+            if !st.limiter.allow(&addr_key, now, RATE_MAX_IP) {
                 refused = true;
                 break;
             }
         }
         assert!(
             refused,
-            "a single IP is capped regardless of from-tag rotation"
+            "a single address is capped regardless of from-tag rotation"
+        );
+    }
+
+    // These tests drive `handle`, the real request path, and not the limiter alone: a limiter test
+    // cannot see which keys the callers build.
+    const ADDR_A: ClientAddress = ClientAddress::from_ip(std::net::IpAddr::V4(
+        std::net::Ipv4Addr::new(203, 0, 113, 7),
+    ));
+    const ADDR_B: ClientAddress = ClientAddress::from_ip(std::net::IpAddr::V4(
+        std::net::Ipv4Addr::new(198, 51, 100, 9),
+    ));
+
+    fn poll(
+        st: &RelayState,
+        room: &str,
+        from: Option<&str>,
+        now: i64,
+        addr: &ClientAddress,
+    ) -> u16 {
+        let path = format!("/api/relay/{room}");
+        let raw = match from {
+            Some(f) => format!("{path}?since=0&from={f}"),
+            None => format!("{path}?since=0"),
+        };
+        st.handle(&Method::Get, &path, &raw, b"", now, addr).0
+    }
+
+    fn send(st: &RelayState, room: &str, from: &str, now: i64, addr: &ClientAddress) -> u16 {
+        let path = format!("/api/relay/{room}");
+        let body = serde_json::json!({ "from": from, "data": "x" }).to_string();
+        st.handle(&Method::Post, &path, &path, body.as_bytes(), now, addr)
+            .0
+    }
+
+    #[test]
+    fn a_budget_belongs_to_the_address_that_used_it() {
+        let st = RelayState::default();
+        let now = 4_000_000;
+        // One address polls 250 times under one tag: past a single tag's limit, under its own
+        // address limit.
+        for _ in 0..250 {
+            let _ = poll(&st, "room", Some(&format!("ip:{ADDR_A}")), now, &ADDR_B);
+        }
+        // Another address has its own budgets.
+        let refused = (0..60)
+            .filter(|_| poll(&st, "room", Some("member-tag"), now, &ADDR_A) == 429)
+            .count();
+        assert_eq!(refused, 0, "{refused} of 60 requests were refused");
+    }
+
+    #[test]
+    fn a_tag_budget_belongs_to_the_address_that_used_it() {
+        let st = RelayState::default();
+        let now = 5_000_000;
+        // One tag, used 160 times from one address in a window (the limit is 150).
+        for _ in 0..160 {
+            let _ = poll(&st, "room", Some("member-tag"), now, &ADDR_B);
+        }
+        assert_eq!(
+            send(&st, "room", "member-tag", now, &ADDR_A),
+            200,
+            "a post from another address was refused for requests it did not make"
+        );
+        assert_eq!(
+            poll(&st, "room", Some("member-tag"), now, &ADDR_A),
+            200,
+            "a poll from another address was refused for requests it did not make"
+        );
+        assert_eq!(
+            poll(&st, "room", Some("member-tag"), now, &ADDR_B),
+            429,
+            "and the address that used the budget is still over it"
+        );
+    }
+
+    #[test]
+    fn a_posted_tag_budget_belongs_to_the_address_that_used_it() {
+        let st = RelayState::default();
+        let now = 5_100_000;
+        for _ in 0..160 {
+            let _ = send(&st, "room", "member-tag", now, &ADDR_B);
+        }
+        assert_eq!(
+            send(&st, "room", "member-tag", now, &ADDR_A),
+            200,
+            "a post from another address was refused for requests it did not make"
+        );
+        assert_eq!(
+            poll(&st, "room", Some("member-tag"), now, &ADDR_A),
+            200,
+            "a poll from another address was refused for requests it did not make"
+        );
+        assert_eq!(send(&st, "room", "member-tag", now, &ADDR_B), 429);
+    }
+
+    /// A post and a poll under one tag, from one address, are one budget: 100 posts leave 50 polls.
+    #[test]
+    fn a_post_and_a_poll_under_one_tag_and_address_share_one_budget() {
+        let st = RelayState::default();
+        let now = 5_200_000;
+        for i in 0..100 {
+            assert_eq!(
+                send(&st, "room", "member-tag", now, &ADDR_B),
+                200,
+                "post {i}"
+            );
+        }
+        let refused = (0..60)
+            .filter(|_| poll(&st, "room", Some("member-tag"), now, &ADDR_B) == 429)
+            .count();
+        assert_eq!(refused, 10, "{refused} of 60 polls were refused, not 10");
+    }
+
+    #[test]
+    fn an_untagged_budget_belongs_to_the_address_that_used_it() {
+        let st = RelayState::default();
+        let now = 6_000_000;
+        // An untagged poll is counted per room AND address.
+        for _ in 0..160 {
+            let _ = poll(&st, "room", None, now, &ADDR_B);
+        }
+        assert_eq!(
+            poll(&st, "room", None, now, &ADDR_A),
+            200,
+            "an untagged poll was refused for requests another address made"
+        );
+        assert_eq!(
+            poll(&st, "room", None, now, &ADDR_B),
+            429,
+            "and the address that used the budget is still over it"
+        );
+    }
+
+    #[test]
+    fn untagged_polls_of_two_rooms_have_two_budgets() {
+        let st = RelayState::default();
+        let now = 6_100_000;
+        for _ in 0..160 {
+            let _ = poll(&st, "r1", None, now, &ADDR_B);
+        }
+        assert_eq!(
+            poll(&st, "r2", None, now, &ADDR_B),
+            200,
+            "another room has its own budget"
+        );
+        assert_eq!(
+            poll(&st, "r1", None, now, &ADDR_B),
+            429,
+            "and the room that was used is over its own"
+        );
+    }
+
+    /// An empty `from` names no sender, so it is counted like an absent one: per room and address.
+    #[test]
+    fn an_empty_from_is_counted_per_room_and_address() {
+        let st = RelayState::default();
+        let now = 6_200_000;
+        for _ in 0..160 {
+            let _ = poll(&st, "r1", Some(""), now, &ADDR_B);
+        }
+        assert_eq!(
+            poll(&st, "r2", Some(""), now, &ADDR_B),
+            200,
+            "another room has its own budget"
+        );
+        assert_eq!(
+            poll(&st, "r1", Some(""), now, &ADDR_A),
+            200,
+            "another address has its own"
+        );
+        assert_eq!(poll(&st, "r1", Some(""), now, &ADDR_B), 429);
+    }
+
+    #[test]
+    fn an_empty_and_an_absent_from_share_one_room_budget() {
+        let st = RelayState::default();
+        let now = 6_300_000;
+        assert_eq!(poll(&st, "room", Some(""), now, &ADDR_A), 200);
+        assert_eq!(poll(&st, "room", None, now, &ADDR_A), 200);
+        assert_eq!(
+            st.limiter.tracked(),
+            2,
+            "the address key and one room key, nothing else"
+        );
+    }
+
+    #[test]
+    fn an_oversized_poll_tag_is_refused() {
+        let st = RelayState::default();
+        let long = "a".repeat(MAX_FROM + 1);
+        assert_eq!(
+            poll(&st, "room", Some(&long), 7_000_000, &ADDR_A),
+            400,
+            "a poll applies the same tag limit as a post, before a sender or room key is built"
+        );
+    }
+
+    #[test]
+    fn a_poll_tag_of_exactly_the_post_limit_is_accepted() {
+        let st = RelayState::default();
+        let tag = "a".repeat(MAX_FROM);
+        assert_eq!(poll(&st, "room", Some(&tag), 7_100_000, &ADDR_A), 200);
+        assert_eq!(send(&st, "room", &tag, 7_100_000, &ADDR_A), 200);
+    }
+
+    #[test]
+    fn an_oversized_poll_tag_creates_no_sender_or_room_key() {
+        let st = RelayState::default();
+        let long = "a".repeat(MAX_FROM + 1);
+        assert_eq!(poll(&st, "room", Some(&long), 7_200_000, &ADDR_A), 400);
+        assert_eq!(st.limiter.tracked(), 1, "only the address's own key exists");
+    }
+
+    /// The refusal still costs the address a request: the address check runs first.
+    #[test]
+    fn a_refused_poll_tag_still_counts_against_the_address() {
+        let st = RelayState::default();
+        let now = 7_300_000;
+        let long = "a".repeat(MAX_FROM + 1);
+        for i in 0..RATE_MAX_IP {
+            assert_eq!(
+                poll(&st, "room", Some(&long), now, &ADDR_A),
+                400,
+                "request {i}"
+            );
+        }
+        assert_eq!(poll(&st, "room", Some("p-1"), now, &ADDR_A), 429);
+    }
+
+    // Controls: the fix must not loosen what already worked.
+    #[test]
+    fn a_member_is_still_limited_by_its_own_budget() {
+        let st = RelayState::default();
+        let now = 8_000_000;
+        for i in 0..RATE_MAX {
+            assert_eq!(
+                poll(&st, "room", Some("busy"), now, &ADDR_A),
+                200,
+                "request {i}"
+            );
+        }
+        assert_eq!(poll(&st, "room", Some("busy"), now, &ADDR_A), 429);
+    }
+
+    #[test]
+    fn a_poster_is_still_limited_by_its_own_budget() {
+        let st = RelayState::default();
+        let now = 8_100_000;
+        for i in 0..RATE_MAX {
+            assert_eq!(send(&st, "room", "busy", now, &ADDR_A), 200, "post {i}");
+        }
+        assert_eq!(send(&st, "room", "busy", now, &ADDR_A), 429);
+    }
+
+    /// Posts count against the address too: each of these has a tag of its own, so only the
+    /// address limit can refuse the last one.
+    #[test]
+    fn one_address_is_still_capped_however_many_tags_it_posts_under() {
+        let st = RelayState::default();
+        let now = 8_200_000;
+        for i in 0..RATE_MAX_IP {
+            assert_eq!(
+                send(&st, "room", &format!("tag-{i}"), now, &ADDR_A),
+                200,
+                "post {i}"
+            );
+        }
+        assert_eq!(send(&st, "room", "one-more", now, &ADDR_A), 429);
+    }
+
+    /// A post whose tag is empty or longer than the limit is refused before a sender key is built,
+    /// as a poll's is: the only key left behind is the address's own.
+    #[test]
+    fn a_post_with_an_empty_or_oversized_from_creates_no_sender_key() {
+        let st = RelayState::default();
+        let now = 8_300_000;
+        assert_eq!(send(&st, "room", "", now, &ADDR_A), 400);
+        assert_eq!(st.limiter.tracked(), 1, "only the address's own key exists");
+        let long = "a".repeat(MAX_FROM + 1);
+        assert_eq!(send(&st, "room", &long, now, &ADDR_A), 400);
+        assert_eq!(st.limiter.tracked(), 1, "only the address's own key exists");
+    }
+
+    #[test]
+    fn one_address_is_still_capped_however_many_tags_it_rotates() {
+        let st = RelayState::default();
+        let now = 9_000_000;
+        let refused = (0..(RATE_MAX_IP + 20))
+            .filter(|i| poll(&st, "room", Some(&format!("tag-{i}")), now, &ADDR_B) == 429)
+            .count();
+        assert!(
+            refused > 0,
+            "rotating tags must not dodge the per-address cap"
         );
     }
 }
