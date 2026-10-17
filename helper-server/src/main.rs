@@ -1379,16 +1379,19 @@ fn send_result_resp(result: SendResult<Resp>) -> Resp {
         SendResult::NeedsNewSignature { held_until } => resp(
             409,
             json!({ "error": orchestrator::epoch::needs_new_signature_text(held_until),
-                    "reason": "epoch", "held_until": held_until })
+                    "reason": orchestrator::epoch::NEEDS_NEW_SIGNATURE_REASON,
+                    "held_until": held_until })
             .to_string(),
         ),
         // The build hold and the post-build branch check: a refusal with a reason of its own, not an
-        // engine failure.
-        SendResult::PrepareFailed(e) if orchestrator::epoch::refusal_text(&e).is_some() => resp(
-            409,
-            json!({ "error": orchestrator::epoch::refusal_text(&e), "reason": "epoch" })
-                .to_string(),
-        ),
+        // engine failure. The app decides by `reason`; the text is only for a reader of the reply.
+        SendResult::PrepareFailed(e) if orchestrator::epoch::refusal_of(&e).is_some() => {
+            let kind = orchestrator::epoch::refusal_of(&e).expect("checked above");
+            resp(
+                409,
+                json!({ "error": kind.text(), "reason": kind.reason() }).to_string(),
+            )
+        }
         SendResult::PrepareFailed(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
         SendResult::RecordFailed(_) => resp(500, json!({ "error": RECORD_TEXT }).to_string()),
         SendResult::BroadcastFailed { txid, .. } => resp(
@@ -2613,7 +2616,7 @@ mod tests {
         );
         assert_eq!(
             (b["reason"].as_str(), b["held_until"].as_u64()),
-            (Some("epoch"), Some(3_534_560))
+            (Some("needs_new_signature"), Some(3_534_560))
         );
         assert!(
             b.get("state").is_none(),
@@ -2623,19 +2626,22 @@ mod tests {
         let b = body(r);
         assert!(b["held_until"].is_null());
         assert_eq!(b["error"], orchestrator::epoch::NEEDS_NEW_SIGNATURE_TEXT);
-        for text in [
-            orchestrator::epoch::HOLD_TEXT,
-            orchestrator::epoch::CROSSING_HOLD_TEXT,
-            orchestrator::epoch::NOT_UPDATED_TEXT,
+        // The reasons are the contract the app decides by: written out here, and pinned on the app's
+        // side by a test that reads them from the Rust source.
+        for (kind, reason) in [
+            (orchestrator::epoch::Refusal::Hold, "hold"),
+            (orchestrator::epoch::Refusal::CrossingHold, "crossing_hold"),
+            (orchestrator::epoch::Refusal::NotUpdated, "not_updated"),
         ] {
+            let text = kind.text();
             let r = send_result_resp(SendResult::PrepareFailed(orchestrator::epoch::refusal(
-                text,
+                kind,
             )));
             assert_eq!(r.status, 409, "{text}");
             let b = body(r);
             assert_eq!(
                 (b["error"].as_str(), b["reason"].as_str()),
-                (Some(text), Some("epoch"))
+                (Some(text), Some(reason))
             );
             assert!(b.get("state").is_none(), "{text}");
             assert!(text.len() < 140, "the screen shows it verbatim: {text}");
@@ -2738,7 +2744,7 @@ mod tests {
             sighash: "ab".repeat(32),
             signatures: vec!["cd".repeat(64)],
             expiry_height: 3_400_500,
-            branch_id: konclave_seal::epochs::NU6_3,
+            branch_id: Some(konclave_seal::epochs::NU6_3),
             recorded_at_unix: now_unix(),
         };
         orchestrator::send_record::record_attempt(dir, &a).unwrap();

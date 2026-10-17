@@ -68,19 +68,53 @@ pub fn needs_new_signature_text(held_until: Option<u32>) -> String {
     }
 }
 
-/// `ToolError::Parse { what, .. }` carrying one of the texts above: how a refusal of this module
-/// crosses `SendSteps::prepare` without a new error type in every match over `ToolError`.
-pub const REFUSAL: &str = "epoch";
-
-/// A refusal of this module as the error `prepare` returns.
-pub fn refusal(text: &'static str) -> ToolError {
-    ToolError::parse(REFUSAL, text)
+/// The refusals of the build hold and the branch check. Each has a stable `reason` the app decides by
+/// (the text is a draft and may change; the reason may not), and a text for a reader of the log.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Refusal {
+    Hold,
+    CrossingHold,
+    NotUpdated,
 }
 
-/// Whether `e` is a refusal of this module, and its text.
-pub fn refusal_text(e: &ToolError) -> Option<&str> {
+/// The reason the coordinator sends beside the text of the fourth ending, an earlier attempt the
+/// upgrade ended (`SendResult::NeedsNewSignature`).
+pub const NEEDS_NEW_SIGNATURE_REASON: &str = "needs_new_signature";
+
+impl Refusal {
+    pub const ALL: [Refusal; 3] = [Refusal::Hold, Refusal::CrossingHold, Refusal::NotUpdated];
+    pub fn reason(self) -> &'static str {
+        match self {
+            Refusal::Hold => "hold",
+            Refusal::CrossingHold => "crossing_hold",
+            Refusal::NotUpdated => "not_updated",
+        }
+    }
+    pub fn text(self) -> &'static str {
+        match self {
+            Refusal::Hold => HOLD_TEXT,
+            Refusal::CrossingHold => CROSSING_HOLD_TEXT,
+            Refusal::NotUpdated => NOT_UPDATED_TEXT,
+        }
+    }
+}
+
+/// `ToolError::Parse { what, .. }` with `what` = `epoch:<reason>`: how a refusal of this module crosses
+/// `SendSteps::prepare` without a new error type in every match over `ToolError`.
+const REFUSAL: &str = "epoch";
+
+/// A refusal of this module as the error `prepare` returns.
+pub fn refusal(kind: Refusal) -> ToolError {
+    ToolError::parse(format!("{REFUSAL}:{}", kind.reason()), kind.text())
+}
+
+/// The refusal of this module that `e` is, if it is one.
+pub fn refusal_of(e: &ToolError) -> Option<Refusal> {
     match e {
-        ToolError::Parse { what, detail } if what == REFUSAL => Some(detail),
+        ToolError::Parse { what, .. } => {
+            let reason = what.strip_prefix(REFUSAL)?.strip_prefix(':')?;
+            Refusal::ALL.into_iter().find(|k| k.reason() == reason)
+        }
         _ => None,
     }
 }
@@ -89,16 +123,16 @@ fn as_height(tip: u64) -> u32 {
     u32::try_from(tip).unwrap_or(u32::MAX)
 }
 
-/// The hold BEFORE a build: `Some(text)` when a new transaction for the epoch the next block is in
+/// The hold BEFORE a build: `Some(refusal)` when a new transaction for the epoch the next block is in
 /// would cross into the next upgrade before it could be mined. Never without a later row.
-pub fn hold_before_build(table: &Table, tip: u64) -> Option<&'static str> {
+pub fn hold_before_build(table: &Table, tip: u64) -> Option<Refusal> {
     let tip = as_height(tip);
     let row = table.epoch_of(tip.saturating_add(1));
     let a = table.next_activation_after(row.branch_id)?;
     let reach = tip
         .saturating_add(row.expiry_delta)
         .saturating_add(k_blocks(row.spacing_s));
-    (reach >= a).then_some(HOLD_TEXT)
+    (reach >= a).then_some(Refusal::Hold)
 }
 
 /// The checks on a BUILT transaction, read from the PCZT itself: its branch is the one the next
@@ -113,7 +147,7 @@ pub fn check_built(
     let tip = as_height(tip);
     let row = table.epoch_of(tip.saturating_add(1));
     if branch_id != row.branch_id {
-        return Err(refusal(NOT_UPDATED_TEXT));
+        return Err(refusal(Refusal::NotUpdated));
     }
     if let Some(a) = table.next_activation_after(row.branch_id) {
         let plain_reach = tip
@@ -121,7 +155,7 @@ pub fn check_built(
             .saturating_add(k_blocks(row.spacing_s));
         let long = expiry_height == 0 || expiry_height > plain_reach;
         if long && tip.saturating_add(K_CROSSING) >= a {
-            return Err(refusal(CROSSING_HOLD_TEXT));
+            return Err(refusal(Refusal::CrossingHold));
         }
     }
     Ok(())
@@ -202,12 +236,52 @@ pub fn boot_check_live(konclave_signer: &Path) -> String {
     )
 }
 
+/// How long the boot check waits for the engine to answer before it reads as "reports none".
+pub const ENGINE_ANSWER_WITHIN: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// Ask the engine for the next upgrade's activation height: `konclave-signer next-upgrade`, which
 /// prints `{"activation_height": <number|null>}`. The engine that runs today has no such command,
 /// and any failure to answer reads as "reports none": the cap stays off. (The command arrives with
-/// the engine move that carries a crate that knows the height, #638 commit 2.)
+/// the engine move that carries a crate that knows the height, #638 commit 2: until then THIS commit
+/// alone does not turn the epoch cap on.) Run with no stdin and a deadline: a command that hangs
+/// must not hold the coordinator's boot.
+///
+/// TODO(#638, NU7 row PR): the table and the engine are two copies of OUR pinned constant, not an
+/// observation of the chain. Before the cap may turn on, `Dead { by_epoch }` must also need the
+/// branch the chain reports (lightwalletd's `consensusBranchId`, read by the same backend as
+/// `settle_wallet`) to be the next row's. A postponed activation otherwise passes this check.
 pub fn read_engine_activation(konclave_signer: &Path) -> Option<u32> {
-    let out = crate::tools::run_text(konclave_signer, &["next-upgrade"], None).ok()?;
+    read_engine_activation_within(konclave_signer, ENGINE_ANSWER_WITHIN)
+}
+
+pub fn read_engine_activation_within(
+    konclave_signer: &Path,
+    within: std::time::Duration,
+) -> Option<u32> {
+    use std::io::Read;
+    use std::process::{Command, Stdio};
+    let mut child = Command::new(konclave_signer)
+        .arg("next-upgrade")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    let started = std::time::Instant::now();
+    loop {
+        match child.try_wait().ok()? {
+            Some(status) if status.success() => break,
+            Some(_) => return None,
+            None if started.elapsed() >= within => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+            None => std::thread::sleep(std::time::Duration::from_millis(20)),
+        }
+    }
+    let mut out = String::new();
+    child.stdout.take()?.read_to_string(&mut out).ok()?;
     parse_engine_activation(&out)
 }
 
@@ -292,10 +366,10 @@ mod tests {
         let k = k_blocks(75);
         let edge = u64::from(A - 40 - k);
         assert_eq!(hold_before_build(&WITH_NEXT, edge - 1), None);
-        assert_eq!(hold_before_build(&WITH_NEXT, edge), Some(HOLD_TEXT));
+        assert_eq!(hold_before_build(&WITH_NEXT, edge), Some(Refusal::Hold));
         assert_eq!(
             hold_before_build(&WITH_NEXT, u64::from(A) - 2),
-            Some(HOLD_TEXT)
+            Some(Refusal::Hold)
         );
         // Once the NEXT block is the upgrade's own the transaction is built under the new branch
         // and nothing is held (the branch check then demands it).
@@ -309,7 +383,7 @@ mod tests {
         let edge = u64::from(A - K_CROSSING);
         check_built(&WITH_NEXT, edge - 1, NU6_3, long).unwrap();
         let e = check_built(&WITH_NEXT, edge, NU6_3, long).unwrap_err();
-        assert_eq!(refusal_text(&e), Some(CROSSING_HOLD_TEXT));
+        assert_eq!(refusal_of(&e), Some(Refusal::CrossingHold));
         // An ordinary expiry at that tip is not a crossing: it passes (the pre-build hold handles it).
         check_built(&WITH_NEXT, edge, NU6_3, (edge as u32) + 41).unwrap();
         // No expiry at all counts as long.
@@ -321,10 +395,10 @@ mod tests {
         // Before the upgrade: NU6.3 passes, the new branch does not exist yet.
         check_built(&WITH_NEXT, 3_000_000, NU6_3, 3_000_041).unwrap();
         let e = check_built(&WITH_NEXT, 3_000_000, NU7, 3_000_041).unwrap_err();
-        assert_eq!(refusal_text(&e), Some(NOT_UPDATED_TEXT));
+        assert_eq!(refusal_of(&e), Some(Refusal::NotUpdated));
         // From the upgrade: an engine that still builds NU6.3 is refused.
         let e = check_built(&WITH_NEXT, u64::from(A), NU6_3, A + 41).unwrap_err();
-        assert_eq!(refusal_text(&e), Some(NOT_UPDATED_TEXT));
+        assert_eq!(refusal_of(&e), Some(Refusal::NotUpdated));
         check_built(&WITH_NEXT, u64::from(A), NU7, A + 121).unwrap();
         // And a branch the table does not know is refused on any table.
         assert!(check_built(&MAINNET, 3_500_000, 0xdead_beef, 3_500_041).is_err());
@@ -385,6 +459,69 @@ mod tests {
         let line = apply_boot_check(&WITH_NEXT, Some(A + 5));
         assert!(!cap_is_on() && line.contains("off"), "{line}");
         set_cap_for_test(false);
+    }
+
+    /// A signer that answers, one that hangs and one that waits on stdin, as the boot check meets them.
+    #[cfg(unix)]
+    fn fake_signer(tag: &str, body: &str) -> std::path::PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let p = std::env::temp_dir().join(format!("kc-epoch-{tag}-{}", std::process::id()));
+        std::fs::write(&p, format!("#!/bin/sh\n{body}\n")).unwrap();
+        let mut perm = std::fs::metadata(&p).unwrap().permissions();
+        perm.set_mode(0o755);
+        std::fs::set_permissions(&p, perm).unwrap();
+        p
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_boot_check_gives_the_signer_a_deadline_and_no_stdin() {
+        use std::time::{Duration, Instant};
+        let ok = fake_signer("ok", "echo '{\"activation_height\": 3500000}'");
+        assert_eq!(
+            read_engine_activation_within(&ok, Duration::from_secs(5)),
+            Some(A)
+        );
+        // A command that hangs reads as "reports none" at the deadline, and does not hold the boot.
+        let hangs = fake_signer("hangs", "sleep 30");
+        let t = Instant::now();
+        assert_eq!(
+            read_engine_activation_within(&hangs, Duration::from_millis(300)),
+            None
+        );
+        assert!(t.elapsed() < Duration::from_secs(5), "{:?}", t.elapsed());
+        // One that reads stdin gets end-of-file at once instead of waiting on the operator's terminal.
+        let reads = fake_signer(
+            "reads",
+            "cat >/dev/null; echo '{\"activation_height\": 3500000}'",
+        );
+        let t = Instant::now();
+        assert_eq!(
+            read_engine_activation_within(&reads, Duration::from_secs(5)),
+            Some(A)
+        );
+        assert!(t.elapsed() < Duration::from_secs(4));
+        // A failing one (the signer that runs today has no such command) reads as none.
+        let fails = fake_signer("fails", "exit 2");
+        assert_eq!(
+            read_engine_activation_within(&fails, Duration::from_secs(5)),
+            None
+        );
+        for p in [ok, hangs, reads, fails] {
+            let _ = std::fs::remove_file(p);
+        }
+    }
+
+    #[test]
+    fn each_refusal_has_a_stable_reason_that_round_trips() {
+        let reasons: Vec<&str> = Refusal::ALL.iter().map(|k| k.reason()).collect();
+        assert_eq!(reasons, ["hold", "crossing_hold", "not_updated"]);
+        for k in Refusal::ALL {
+            assert_eq!(refusal_of(&refusal(k)), Some(k));
+        }
+        assert_eq!(refusal_of(&ToolError::parse("ceremony", "x")), None);
+        assert_eq!(refusal_of(&ToolError::parse("epoch:nonsense", "x")), None);
+        assert_eq!(NEEDS_NEW_SIGNATURE_REASON, "needs_new_signature");
     }
 
     #[test]

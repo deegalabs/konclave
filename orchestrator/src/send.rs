@@ -595,6 +595,11 @@ pub fn net_prepare_send(
     device_pubs: &[String],
     max_polls: u32,
     poll_delay: Duration,
+    // The chain tip for the build hold and the branch check, asked only when the table has a later
+    // upgrade to be near. The hosted coordinator passes `helper::settle_wallet`'s (a forced sync, the
+    // one reader of the wallet, #637); the operator's command line, which has no vault directory,
+    // reads the wallet as it stands.
+    tip: &dyn Fn() -> Result<u64, ToolError>,
 ) -> Result<SignedSend, ToolError> {
     let client = RelayClient::new(
         CurlTransport::default(),
@@ -602,7 +607,7 @@ pub fn net_prepare_send(
         room,
         "helper",
     );
-    net_prepare_send_with(sc, plan, &client, device_pubs, max_polls, poll_delay)
+    net_prepare_send_with(sc, plan, &client, device_pubs, max_polls, poll_delay, tip)
 }
 
 /// [`net_prepare_send`] over any relay transport, so a test can drive the whole path with an
@@ -614,13 +619,13 @@ pub fn net_prepare_send_with<T: Transport>(
     device_pubs: &[String],
     max_polls: u32,
     poll_delay: Duration,
+    tip: &dyn Fn() -> Result<u64, ToolError>,
 ) -> Result<SignedSend, ToolError> {
-    // The live gate: mainnet's table, and the tip the vault's wallet knows (asked only when the table
-    // has a later upgrade to be near; with one row it decides nothing).
-    let tip = || crate::wallet::balance(&sc.devtool, &sc.wallet_dir).map(|b| b.chain_tip_height);
+    // The live gate: mainnet's table, and the caller's tip (asked only when the table has a later
+    // upgrade to be near; with one row it decides nothing).
     let gate = EpochGate {
         table: &konclave_seal::epochs::MAINNET,
-        tip: &tip,
+        tip,
     };
     net_prepare_send_gated(sc, plan, client, device_pubs, max_polls, poll_delay, &gate)
 }
@@ -740,6 +745,8 @@ pub fn net_orchestrate_send_untracked(
     max_polls: u32,
     poll_delay: Duration,
 ) -> Result<SendOutcome, ToolError> {
+    // The operator's terminal: no vault directory to sync under, the wallet as it stands.
+    let tip = || crate::wallet::balance(&sc.devtool, &sc.wallet_dir).map(|b| b.chain_tip_height);
     let signed = net_prepare_send(
         sc,
         plan,
@@ -748,6 +755,7 @@ pub fn net_orchestrate_send_untracked(
         device_pubs,
         max_polls,
         poll_delay,
+        &tip,
     )?;
     let txid = if dry_run {
         None
@@ -1015,7 +1023,16 @@ mod tests {
             "helper",
         );
 
-        let result = net_prepare_send_with(&sc, &plan, &relay, &[], 5, Duration::from_millis(1));
+        let no_tip = || -> Result<u64, ToolError> { panic!("one row: the tip decides nothing") };
+        let result = net_prepare_send_with(
+            &sc,
+            &plan,
+            &relay,
+            &[],
+            5,
+            Duration::from_millis(1),
+            &no_tip,
+        );
         let seen = published.lock().unwrap().clone();
         std::fs::remove_dir_all(&dir).ok();
         (result, seen)
@@ -1123,7 +1140,7 @@ mod tests {
     #[test]
     fn the_build_hold_covers_a_single_payment_and_a_payroll() {
         use crate::epoch::test_table::A;
-        use crate::epoch::{k_blocks, HOLD_TEXT};
+        use crate::epoch::{k_blocks, Refusal};
         let edge = u64::from(A - 40 - k_blocks(75));
         for (name, plan) in [
             ("payment", a_payment as fn() -> SpendPlan),
@@ -1131,7 +1148,7 @@ mod tests {
         ] {
             let (held, seen, log) = prepare_gated(&format!("hold-{name}"), PROVEN, plan(), edge);
             let e = held.expect_err(name);
-            assert_eq!(crate::epoch::refusal_text(&e), Some(HOLD_TEXT), "{name}");
+            assert_eq!(crate::epoch::refusal_of(&e), Some(Refusal::Hold), "{name}");
             assert!(seen.is_empty(), "{name}: nothing reached the room");
             assert!(log.is_empty(), "{name}: the engine built nothing: {log}");
             // One block earlier it is built, proven and signed as ever. (The vector's expiry is far
@@ -1149,7 +1166,7 @@ mod tests {
     #[test]
     fn a_transaction_built_on_the_wrong_branch_is_refused_before_the_room() {
         use crate::epoch::test_table::A;
-        use crate::epoch::NOT_UPDATED_TEXT;
+        use crate::epoch::Refusal;
         for (name, plan) in [
             ("payment", a_payment as fn() -> SpendPlan),
             ("payroll", a_payroll),
@@ -1160,8 +1177,8 @@ mod tests {
                 prepare_gated(&format!("branch-{name}"), PROVEN, plan(), u64::from(A));
             let e = r.expect_err(name);
             assert_eq!(
-                crate::epoch::refusal_text(&e),
-                Some(NOT_UPDATED_TEXT),
+                crate::epoch::refusal_of(&e),
+                Some(Refusal::NotUpdated),
                 "{name}"
             );
             assert!(seen.is_empty(), "{name}: nothing reached the room");
@@ -1177,11 +1194,11 @@ mod tests {
     #[test]
     fn a_crossing_is_not_built_close_to_the_upgrade() {
         use crate::epoch::test_table::A;
-        use crate::epoch::CROSSING_HOLD_TEXT;
+        use crate::epoch::Refusal;
         // 100 blocks before A: past the ordinary hold's edge? no (edge is A - 64), inside K_c (288).
         let (r, seen, _) = prepare_gated("crossing", PROVEN, a_payment(), u64::from(A) - 100);
         let e = r.expect_err("a crossing this close to the upgrade");
-        assert_eq!(crate::epoch::refusal_text(&e), Some(CROSSING_HOLD_TEXT));
+        assert_eq!(crate::epoch::refusal_of(&e), Some(Refusal::CrossingHold));
         assert!(seen.is_empty());
     }
 

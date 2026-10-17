@@ -36,15 +36,10 @@ use crate::helper::{
 use crate::send::{broadcast_signed, net_prepare_send, SendConfig, SignedSend, SpendPlan};
 use crate::tools::ToolError;
 
-use konclave_seal::epochs::{self, Table, MAINNET, NU6_3, REORG_MARGIN, SCAN_MARGIN};
+use konclave_seal::epochs::{self, Table, MAINNET, SCAN_MARGIN};
 
 fn record_version() -> u8 {
     1
-}
-
-/// A record written before the branch was kept: every one on the volume was signed under NU6.3.
-fn default_branch() -> u32 {
-    NU6_3
 }
 
 /// What a send leaves behind when it is about to broadcast: enough for a later request to ask the chain
@@ -70,10 +65,14 @@ pub struct Attempt {
     /// The height the signed transaction expires at, from the PCZT. `0` = it never expires.
     pub expiry_height: u32,
     /// The consensus branch the signed transaction is under, read from the PCZT beside its expiry.
-    /// A record written before it was kept reads as NU6.3 (it is true of every one: the file
-    /// postdates that upgrade), so an unreadable record is never the price of adding the field.
-    #[serde(default = "default_branch")]
-    pub branch_id: u32,
+    /// ABSENT means UNKNOWN, not NU6.3: a record without it was written by a build that did not keep
+    /// the branch, and after the next upgrade such a build can be running again (a rollback, a stale
+    /// binary: #522 happened) with an engine that builds the new branch. Calling that record NU6.3
+    /// would cap it at the old upgrade and declare a transaction that can still be mined dead. So the
+    /// epoch cap applies to a known branch only, and an unknown one keeps the rule it always had:
+    /// its expiry plus the reorg margin. An unreadable record is never the price of adding the field.
+    #[serde(default)]
+    pub branch_id: Option<u32>,
     pub recorded_at_unix: u64,
 }
 
@@ -269,10 +268,11 @@ pub fn settle_with(a: &Attempt, view: &WalletView, table: &Table, cap_on: bool) 
     if a.expiry_height != 0 && !epochs::within_margin(a.expiry_height, tip) {
         return Settlement::Dead { by_epoch: false };
     }
-    if cap_on {
+    // Only a record that knows its branch can be capped by an upgrade.
+    if let (true, Some(branch)) = (cap_on, a.branch_id) {
         // Capped only when a LATER upgrade exists and the transaction outlives the block before it.
-        let capped = table.capped_by_next(a.branch_id, a.expiry_height);
-        if let (true, Some(last)) = (capped, table.minable_until(a.branch_id, a.expiry_height)) {
+        let capped = table.capped_by_next(branch, a.expiry_height);
+        if let (true, Some(last)) = (capped, table.minable_until(branch, a.expiry_height)) {
             let scanned = match view.scanned {
                 Some(s) => s.min(tip),
                 None => tip.saturating_sub(u64::from(SCAN_MARGIN)),
@@ -423,12 +423,19 @@ pub(crate) fn send_with<S: SendSteps, R>(
                 match settle_with(&a, &view, &table, cap_on) {
                     Settlement::Mined => return settle_as_sent(vaults_dir, p, &a, &view),
                     Settlement::StillPossible => {
+                        // The last height it can be in a block: its expiry, or the block before the
+                        // upgrade that ends it when the cap is on and the branch is known.
+                        let until = match (cap_on, a.branch_id) {
+                            (true, Some(b)) => table.minable_until(b, a.expiry_height),
+                            _ => None,
+                        }
+                        .filter(|last| *last != u32::MAX)
+                        .unwrap_or(a.expiry_height);
                         return SendResult::Unsettled {
                             why: format!(
-                                "transaction not mined yet; it can be until height {}",
-                                a.expiry_height
+                                "transaction not mined yet; it can be until height {until}"
                             ),
-                        }
+                        };
                     }
                     Settlement::Dead { by_epoch } => {
                         if let Err(e) = archive_attempt(vaults_dir, &vault, &id, now_unix()) {
@@ -436,17 +443,27 @@ pub(crate) fn send_with<S: SendSteps, R>(
                             log(&vault, &id, &why);
                             return SendResult::Unsettled { why };
                         }
-                        if by_epoch {
+                        // Told "your approval stands" only while the proposal is still ready: one that
+                        // expired in the meantime falls to the state check below, as a dead attempt
+                        // always did.
+                        if by_epoch && p.state == "ready" {
                             log(
                                 &vault,
                                 &id,
                                 "earlier attempt overtaken by a network upgrade; archived",
                             );
                             return SendResult::NeedsNewSignature {
-                                held_until: (u64::from(a.expiry_height)
-                                    > view.tip + u64::from(REORG_MARGIN))
-                                .then_some(a.expiry_height),
+                                // The wallet keeps the note reserved until the expiry is reached.
+                                held_until: (u64::from(a.expiry_height) >= view.tip)
+                                    .then_some(a.expiry_height),
                             };
+                        }
+                        if by_epoch {
+                            log(
+                                &vault,
+                                &id,
+                                "earlier attempt overtaken by a network upgrade; archived",
+                            );
                         }
                         log(&vault, &id, "earlier attempt expired unmined; archived");
                     }
@@ -508,7 +525,7 @@ pub(crate) fn send_with<S: SendSteps, R>(
         sighash: signed.sighash().to_string(),
         signatures: signed.signatures().to_vec(),
         expiry_height: signed.expiry_height(),
-        branch_id: signed.branch_id(),
+        branch_id: Some(signed.branch_id()),
         recorded_at_unix: now_unix(),
     };
     match record_attempt(vaults_dir, &attempt) {
@@ -831,6 +848,9 @@ impl SendSteps for LiveSend<'_> {
                 "this send would be published unsealed and no seat signed it",
             )
         })?;
+        // The tip for the build hold comes from the one forced sync of the wallet (#637), and only
+        // when the table has a later upgrade to be near.
+        let tip = || self.settle_wallet().map(|v| v.tip);
         net_prepare_send(
             self.sc,
             plan,
@@ -839,6 +859,7 @@ impl SendSteps for LiveSend<'_> {
             device_pubs,
             self.max_polls,
             Duration::from_secs(1),
+            &tip,
         )
     }
     fn broadcast(&self, signed: &SignedSend) -> Result<String, ToolError> {
@@ -908,7 +929,7 @@ mod tests {
             sighash: "ab".repeat(32),
             signatures: vec!["cd".repeat(64)],
             expiry_height: expiry,
-            branch_id: NU6_3,
+            branch_id: Some(konclave_seal::epochs::NU6_3),
             recorded_at_unix: 1_000,
         }
     }
@@ -1975,15 +1996,17 @@ mod tests {
 
     use crate::epoch::test_table::{A, NU7, WITH_NEXT};
 
+    use konclave_seal::epochs::{NU6_3, REORG_MARGIN};
+
     fn on(branch: u32, expiry: u32) -> Attempt {
         Attempt {
-            branch_id: branch,
+            branch_id: Some(branch),
             ..attempt(TXID, expiry)
         }
     }
 
     #[test]
-    fn an_attempt_record_without_a_branch_reads_as_nu6_3() {
+    fn an_attempt_record_without_a_branch_has_an_unknown_one_not_nu6_3() {
         // A record an older build wrote: every field but the branch.
         let old = format!(
             r#"{{"proposal_id":"p1","vault_id":"{VAULT}","txid":"{TXID}","sighash":"{}","signatures":["{}"],"expiry_height":5000,"recorded_at_unix":1000}}"#,
@@ -1991,13 +2014,38 @@ mod tests {
             "cd".repeat(64)
         );
         let a = parse_attempt(&old).expect("an old record still reads");
-        assert_eq!(a.branch_id, NU6_3);
+        assert_eq!(a.branch_id, None, "absent is unknown, never NU6.3");
         // And one that names its branch keeps it, through the file it is written to.
         let dir = vaults();
         record_attempt(&dir, &on(NU7, 5_000)).unwrap();
         assert_eq!(
             load_attempt(&dir, VAULT, "p1").unwrap().unwrap().branch_id,
-            NU7
+            Some(NU7)
+        );
+    }
+
+    /// A record with no branch, on a coordinator that has the cap on and an engine on the later
+    /// upgrade (a rollback and a return, #522): it is NOT capped at the earlier upgrade. A transaction
+    /// that may be on the later branch and still mineable is not declared dead at A + margin.
+    #[test]
+    fn a_record_with_no_branch_is_never_dead_by_epoch() {
+        let mut unknown = attempt(TXID, A + 300);
+        unknown.branch_id = None;
+        let v = view(u64::from(A) + 150, &[]);
+        assert_eq!(
+            settle_with(&unknown, &v, &WITH_NEXT, true),
+            Settlement::StillPossible
+        );
+        // The same record WITH its branch is capped, so it is the missing branch that decides.
+        assert_eq!(
+            settle_with(&on(NU6_3, A + 300), &v, &WITH_NEXT, true),
+            Settlement::Dead { by_epoch: true }
+        );
+        // And an unknown branch still dies by its expiry plus the margin, as it always did.
+        let late = view(u64::from(A) + 300 + u64::from(REORG_MARGIN) + 1, &[]);
+        assert_eq!(
+            settle_with(&unknown, &late, &WITH_NEXT, true),
+            Settlement::Dead { by_epoch: false }
         );
     }
 
@@ -2172,9 +2220,9 @@ mod tests {
     #[test]
     fn an_ordinary_attempt_overtaken_by_an_upgrade_holds_no_funds() {
         let dir = vaults();
-        // Signed under NU6.3, expiring a few blocks past the tip: not dead by its expiry, dead because
-        // the upgrade came, and the wallet frees its funds as soon as the expiry passes.
-        record_attempt(&dir, &on(NU6_3, A + 125)).unwrap();
+        // Signed under NU6.3, its expiry just behind the tip: not dead by expiry (inside the margin),
+        // dead because the upgrade came, and the wallet already freed its funds (the expiry passed).
+        record_attempt(&dir, &on(NU6_3, A + 119)).unwrap();
         let mut f = Fake::new();
         f.rules = Some((WITH_NEXT, true));
         f.view = Ok(view(u64::from(A) + 120, &[]));
@@ -2183,6 +2231,83 @@ mod tests {
             matches!(r, SendResult::NeedsNewSignature { held_until: None }),
             "{r:?}"
         );
+    }
+
+    /// The wallet keeps the note reserved until the expiry is REACHED: at the tip itself, and after
+    /// it, the funds are still held, and at a saturating tip nothing wraps.
+    #[test]
+    fn funds_are_held_until_the_expiry_is_reached() {
+        for (expiry, tip, held) in [
+            (A + 120, A + 120, true),
+            (A + 121, A + 120, true),
+            (A + 119, A + 120, false),
+        ] {
+            let dir = vaults();
+            record_attempt(&dir, &on(NU6_3, expiry)).unwrap();
+            let mut f = Fake::new();
+            f.rules = Some((WITH_NEXT, true));
+            f.view = Ok(view(u64::from(tip), &[]));
+            let r = go(&dir, proposal("ready"), false, &f);
+            let SendResult::NeedsNewSignature { held_until } = r else {
+                panic!("{expiry}/{tip}: {r:?}")
+            };
+            assert_eq!(held_until.is_some(), held, "expiry {expiry}, tip {tip}");
+        }
+        // A tip at the top of the range does not overflow anything.
+        let dir = vaults();
+        record_attempt(&dir, &on(NU6_3, A + 5)).unwrap();
+        let mut f = Fake::new();
+        f.rules = Some((WITH_NEXT, true));
+        f.view = Ok(view(u64::MAX, &[]));
+        let r = go(&dir, proposal("ready"), false, &f);
+        assert!(
+            matches!(r, SendResult::Sent { .. } | SendResult::NotReady { .. }),
+            "{r:?}"
+        );
+    }
+
+    /// A proposal that expired while its attempt was dead by the upgrade is not told its approval
+    /// stands: it falls to the state check, as a dead attempt always did.
+    #[test]
+    fn an_expired_proposal_overtaken_by_an_upgrade_is_not_told_to_sign_again() {
+        let dir = vaults();
+        record_attempt(&dir, &on(NU6_3, A + 34_560)).unwrap();
+        let mut f = Fake::new();
+        f.rules = Some((WITH_NEXT, true));
+        f.view = Ok(view(u64::from(A) + 1_000, &[]));
+        let r = go(&dir, proposal("expired"), false, &f);
+        assert!(
+            matches!(&r, SendResult::NotReady { state } if state == "expired"),
+            "{r:?}"
+        );
+        assert!(!f.ran("prepare"));
+        assert!(
+            load_attempt(&dir, VAULT, "p1").unwrap().is_none(),
+            "still archived"
+        );
+    }
+
+    /// While the attempt can still be mined the held answer names the block the cap gives, not an
+    /// expiry weeks past the upgrade.
+    #[test]
+    fn the_unsettled_answer_names_the_last_height_it_can_be_mined_at() {
+        let dir = vaults();
+        record_attempt(&dir, &on(NU6_3, A + 34_560)).unwrap();
+        let mut f = Fake::new();
+        f.rules = Some((WITH_NEXT, true));
+        f.view = Ok(view(u64::from(A) - 5, &[]));
+        let r = go(&dir, proposal("ready"), false, &f);
+        let SendResult::Unsettled { why } = r else {
+            panic!("{r:?}")
+        };
+        assert!(why.ends_with(&format!("height {}", A - 1)), "{why}");
+        // With the cap off it is the expiry, as before.
+        f.rules = Some((WITH_NEXT, false));
+        let r = go(&dir, proposal("ready"), false, &f);
+        let SendResult::Unsettled { why } = r else {
+            panic!("{r:?}")
+        };
+        assert!(why.ends_with(&format!("height {}", A + 34_560)), "{why}");
     }
 
     #[test]
