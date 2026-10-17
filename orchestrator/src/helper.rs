@@ -235,6 +235,10 @@ fn upgrade_logged(devtool: &Path, wallet_dir: &str, vault_id: &str) {
 pub struct WalletView {
     pub tip: u64,
     pub mined: Vec<String>,
+    /// The height the wallet has SCANNED to, if the engine says. `balance --json` reports the tip the
+    /// wallet knows and not what it scanned (CLAUDE.md section 11), so today this is `None`, and the
+    /// epoch cap uses a named scan margin instead (`konclave_seal::epochs::SCAN_MARGIN`).
+    pub scanned: Option<u64>,
 }
 
 /// How current a wallet has to be made before it is read.
@@ -301,7 +305,11 @@ pub fn settle_wallet(
     )?;
     let tip = crate::wallet::balance(devtool, wallet_dir)?.chain_tip_height;
     let mined = crate::wallet::list_confirmed_txids(devtool, wallet_dir)?;
-    Ok(WalletView { tip, mined })
+    Ok(WalletView {
+        tip,
+        mined,
+        scanned: None,
+    })
 }
 
 /// Bring a registered vault's wallet up to date before a read of chain state, under the window.

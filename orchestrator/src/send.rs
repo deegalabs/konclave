@@ -17,6 +17,7 @@ use serde::Deserialize;
 use zeroize::Zeroizing;
 
 use crate::ceremony::{run_coordinator, run_participant, Frostd};
+use crate::epoch::EpochGate;
 use crate::relay_client::{CurlTransport, RelayClient, Transport};
 use crate::tools::ToolError;
 use crate::{net_send, pczt, signer};
@@ -477,6 +478,8 @@ pub struct SignedSend {
     sighash: String,
     signatures: Vec<String>,
     expiry_height: u32,
+    /// The consensus branch the signed PCZT is under, read from the same bytes as the expiry.
+    branch_id: u32,
     /// The signed PCZT, held as bytes: the expiry that gets recorded and the transaction that gets
     /// broadcast are read from the SAME bytes, not from a file that could change between the two.
     tx3: Vec<u8>,
@@ -516,6 +519,7 @@ impl SignedSend {
     ) -> Result<Self, ToolError> {
         Ok(SignedSend {
             expiry_height: pczt::expiry_height_of(&tx3)?,
+            branch_id: pczt::consensus_branch_of(&tx3)?,
             txid: pczt::txid_from_sighash(sighash),
             sighash: hex_encode(sighash),
             signatures,
@@ -541,6 +545,10 @@ impl SignedSend {
     pub fn expiry_height(&self) -> u32 {
         self.expiry_height
     }
+    /// The consensus branch the signed transaction is under, read from the PCZT.
+    pub fn branch_id(&self) -> u32 {
+        self.branch_id
+    }
 
     /// A signed send for tests that never touch the engine. Not available outside `cfg(test)`.
     #[cfg(test)]
@@ -550,6 +558,7 @@ impl SignedSend {
             sighash: "ab".repeat(32),
             signatures: vec!["cd".repeat(64)],
             expiry_height,
+            branch_id: konclave_seal::epochs::NU6_3,
             tx3: Vec::new(),
             tx3_path: String::new(),
         }
@@ -606,11 +615,49 @@ pub fn net_prepare_send_with<T: Transport>(
     max_polls: u32,
     poll_delay: Duration,
 ) -> Result<SignedSend, ToolError> {
+    // The live gate: mainnet's table, and the tip the vault's wallet knows (asked only when the table
+    // has a later upgrade to be near; with one row it decides nothing).
+    let tip = || crate::wallet::balance(&sc.devtool, &sc.wallet_dir).map(|b| b.chain_tip_height);
+    let gate = EpochGate {
+        table: &konclave_seal::epochs::MAINNET,
+        tip: &tip,
+    };
+    net_prepare_send_gated(sc, plan, client, device_pubs, max_polls, poll_delay, &gate)
+}
+
+/// [`net_prepare_send_with`] against a given epoch gate, so the hold and the branch check can be
+/// driven with a table that has a later upgrade, which mainnet's does not yet.
+pub fn net_prepare_send_gated<T: Transport>(
+    sc: &SendConfig,
+    plan: &SpendPlan,
+    client: &RelayClient<T>,
+    device_pubs: &[String],
+    max_polls: u32,
+    poll_delay: Duration,
+    gate: &EpochGate<'_>,
+) -> Result<SignedSend, ToolError> {
     std::fs::create_dir_all(&sc.work_dir).map_err(ToolError::Io)?;
+
+    // 0) the build hold: no new transaction is built for a branch that is about to stop being valid.
+    // Both a single payment and a payroll go through `build_unproven` below, so one gate covers both.
+    let tip = gate.tip()?;
+    if let Some(text) = crate::epoch::hold_before_build(gate.table, tip) {
+        return Err(crate::epoch::refusal(text));
+    }
 
     // 1) build + prove the PCZT for the vault's own address.
     let tx1 = build_unproven(sc, plan)?;
     let tx2 = pczt::prove(&sc.devtool, &sc.wallet_dir, &tx1)?;
+    // The engine chooses the target height and the branch. What it built must be on the branch of
+    // the epoch the next block belongs to, and a long-lived crossing must not be built close to an
+    // upgrade: else the devices would sign a transaction the network refuses (or one that holds the
+    // vault's note for weeks). Read from the PCZT's own bytes, and checked before the room opens.
+    crate::epoch::check_built(
+        gate.table,
+        tip,
+        pczt::consensus_branch_of(&tx2)?,
+        pczt::expiry_height_of(&tx2)?,
+    )?;
     let tx2_path = format!("{}/net-tx2-proven.pczt", sc.work_dir);
     std::fs::write(&tx2_path, &tx2).map_err(ToolError::Io)?;
 
@@ -972,6 +1019,170 @@ mod tests {
         let seen = published.lock().unwrap().clone();
         std::fs::remove_dir_all(&dir).ok();
         (result, seen)
+    }
+
+    /// `net_prepare_send_gated` against the same stand-ins, with a table that has a later upgrade and
+    /// a tip, for either kind of plan. Returns what came out, the `pczt_hex` of every signing request
+    /// the room was shown, and which of the engine's steps ran.
+    #[cfg(unix)]
+    fn prepare_gated(
+        tag: &str,
+        proven_bytes: &[u8],
+        plan: SpendPlan,
+        tip: u64,
+    ) -> (Result<SignedSend, ToolError>, Vec<String>, String) {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("konclave-gated-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let vector = dir.join("signed.pczt");
+        std::fs::write(&vector, VECTOR).unwrap();
+        let proven = dir.join("proven.pczt");
+        std::fs::write(&proven, proven_bytes).unwrap();
+        let ran = dir.join("ran.log");
+        let script = |name: &str, body: String| {
+            let path = dir.join(name);
+            std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+            let mut perm = std::fs::metadata(&path).unwrap().permissions();
+            perm.set_mode(0o755);
+            std::fs::set_permissions(&path, perm).unwrap();
+            path
+        };
+        // `create` (a single payment) and `prove` are the devtool's; `build-payroll` (a payroll) is the
+        // signer's. Every one of them leaves a line in the log, so a refusal can be shown to have run
+        // none of the ones that matter.
+        let devtool = script(
+            "devtool",
+            format!(
+                "echo \"devtool $4\" >> {}\ncase \"$4\" in create) printf unproven;; prove) cat >/dev/null; cat {};; esac",
+                ran.display(),
+                proven.display()
+            ),
+        );
+        let signer = script(
+            "signer",
+            format!(
+                "echo \"signer $1\" >> {}\ncase \"$1\" in build-payroll) printf unproven > \"$9\";; extract) echo 'SIGHASH {}'; echo 'RANDOMIZER 0 {}';; inject) cp {} \"$3\";; esac",
+                ran.display(),
+                "332de126200c22131337474ae50367218ec87815c23d297dcdc8278ecb8903b0",
+                "11".repeat(32),
+                vector.display()
+            ),
+        );
+        let sc: SendConfig = serde_json::from_value(serde_json::json!({
+            "devtool": devtool, "wallet_dir": "/w", "lightwalletd": "zec.rocks:443",
+            "account": "acc", "konclave_signer": signer, "frostd": "/x", "frost_client": "/x",
+            "members": [], "threshold": 2, "group": "g", "frostd_cert": "c", "frostd_key": "k",
+            "server_url": "s", "work_dir": dir.join("work"),
+        }))
+        .unwrap();
+        let published = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let relay = RelayClient::new(
+            DevicesOnTheRelay {
+                state: std::sync::Arc::new(crate::relay::RelayState::new()),
+                published: published.clone(),
+            },
+            "",
+            "room",
+            "helper",
+        );
+        let read_tip = move || -> Result<u64, ToolError> { Ok(tip) };
+        let gate = EpochGate {
+            table: &crate::epoch::test_table::WITH_NEXT,
+            tip: &read_tip,
+        };
+        let result =
+            net_prepare_send_gated(&sc, &plan, &relay, &[], 5, Duration::from_millis(1), &gate);
+        let seen = published.lock().unwrap().clone();
+        let log = std::fs::read_to_string(&ran).unwrap_or_default();
+        std::fs::remove_dir_all(&dir).ok();
+        (result, seen, log)
+    }
+
+    fn a_payment() -> SpendPlan {
+        SpendPlan::Payment {
+            to: "utest1x".into(),
+            value_zat: 1000,
+            memo: None,
+        }
+    }
+
+    fn a_payroll() -> SpendPlan {
+        SpendPlan::Payroll {
+            lines: vec![PayrollDest {
+                address: "utest1x".into(),
+                value_zat: 1000,
+                memo: None,
+            }],
+        }
+    }
+
+    /// The build hold, on both paths: inside `A - delta - K` no new transaction is built at all, so
+    /// neither the engine's build step nor the room is reached; one block before it, the build runs.
+    #[cfg(unix)]
+    #[test]
+    fn the_build_hold_covers_a_single_payment_and_a_payroll() {
+        use crate::epoch::test_table::A;
+        use crate::epoch::{k_blocks, HOLD_TEXT};
+        let edge = u64::from(A - 40 - k_blocks(75));
+        for (name, plan) in [
+            ("payment", a_payment as fn() -> SpendPlan),
+            ("payroll", a_payroll),
+        ] {
+            let (held, seen, log) = prepare_gated(&format!("hold-{name}"), PROVEN, plan(), edge);
+            let e = held.expect_err(name);
+            assert_eq!(crate::epoch::refusal_text(&e), Some(HOLD_TEXT), "{name}");
+            assert!(seen.is_empty(), "{name}: nothing reached the room");
+            assert!(log.is_empty(), "{name}: the engine built nothing: {log}");
+            // One block earlier it is built, proven and signed as ever. (The vector's expiry is far
+            // beyond an ordinary one, so the tip is also far from the crossing hold.)
+            let (open, _, log) =
+                prepare_gated(&format!("open-{name}"), PROVEN, plan(), edge - 1_000);
+            open.unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert!(log.contains("prove"), "{name}: built and proven: {log}");
+        }
+    }
+
+    /// The post-build check, on both paths: an engine that is not on the new line builds the old
+    /// branch after the upgrade; the PCZT's own branch is read and the send is refused before the room.
+    #[cfg(unix)]
+    #[test]
+    fn a_transaction_built_on_the_wrong_branch_is_refused_before_the_room() {
+        use crate::epoch::test_table::A;
+        use crate::epoch::NOT_UPDATED_TEXT;
+        for (name, plan) in [
+            ("payment", a_payment as fn() -> SpendPlan),
+            ("payroll", a_payroll),
+        ] {
+            // The stand-in engine always builds the vector's branch, NU6.3: at a tip where the next
+            // block is under the later upgrade, that is the engine not having been updated.
+            let (r, seen, log) =
+                prepare_gated(&format!("branch-{name}"), PROVEN, plan(), u64::from(A));
+            let e = r.expect_err(name);
+            assert_eq!(
+                crate::epoch::refusal_text(&e),
+                Some(NOT_UPDATED_TEXT),
+                "{name}"
+            );
+            assert!(seen.is_empty(), "{name}: nothing reached the room");
+            assert!(
+                !log.contains("extract"),
+                "{name}: nobody was asked to sign: {log}"
+            );
+        }
+    }
+
+    /// A crossing (a long expiry) is held further out than an ordinary payment.
+    #[cfg(unix)]
+    #[test]
+    fn a_crossing_is_not_built_close_to_the_upgrade() {
+        use crate::epoch::test_table::A;
+        use crate::epoch::CROSSING_HOLD_TEXT;
+        // 100 blocks before A: past the ordinary hold's edge? no (edge is A - 64), inside K_c (288).
+        let (r, seen, _) = prepare_gated("crossing", PROVEN, a_payment(), u64::from(A) - 100);
+        let e = r.expect_err("a crossing this close to the upgrade");
+        assert_eq!(crate::epoch::refusal_text(&e), Some(CROSSING_HOLD_TEXT));
+        assert!(seen.is_empty());
     }
 
     /// The whole of `net_prepare_send_with`, against stand-ins for the engine's tools and a relay

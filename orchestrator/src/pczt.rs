@@ -100,6 +100,14 @@ pub fn expiry_height_of(pczt_bytes: &[u8]) -> Result<u32, ToolError> {
     Ok(*pczt.global().expiry_height())
 }
 
+/// The consensus branch id the PCZT itself names. Read from the transaction, never assumed: it is
+/// what decides which upgrade the transaction is valid under (ZIP 244 binds it into the sighash).
+pub fn consensus_branch_of(pczt_bytes: &[u8]) -> Result<u32, ToolError> {
+    let pczt = ::pczt::Pczt::parse(pczt_bytes)
+        .map_err(|e| ToolError::parse("pczt", format!("cannot read the PCZT: {e:?}")))?;
+    Ok(*pczt.global().consensus_branch_id())
+}
+
 /// The copy of a proven PCZT that goes into the signing room: the same transaction without the
 /// optional per-spend key field (96 bytes per spend, in both pools) that no device reads. The sighash,
 /// the outputs and the payment a device shows are built from the effecting data and the output

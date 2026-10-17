@@ -1040,7 +1040,7 @@ fn not_your_seat(action: WriteAction) -> &'static str {
 
 /// The most a send waits for the quorum, in polls (one a second): twice the default. The request
 /// names its own `max_polls`, and a send holds its vault and a worker for as long as it waits.
-const MAX_POLLS_CEILING: u32 = 600;
+const MAX_POLLS_CEILING: u32 = orchestrator::epoch::CEREMONY_MAX_POLLS;
 // The number helper-server/CHANGELOG.md states. Checked when the code is built, so a larger one does
 // not compile.
 const _: () = assert!(MAX_POLLS_CEILING <= 600);
@@ -1372,6 +1372,22 @@ fn send_result_resp(result: SendResult<Resp>) -> Resp {
             json!({ "error": UNSETTLED_TEXT, "state": "ready" }).to_string(),
         ),
         SendResult::Refused(r) => r,
+        // The network upgrade overtook an earlier attempt: archived, nothing built. The reason tells
+        // the app to word it itself; `held_until` is when the wallet frees a crossing's funds.
+        SendResult::NeedsNewSignature { held_until } => resp(
+            409,
+            json!({ "error": orchestrator::epoch::NEEDS_NEW_SIGNATURE_TEXT, "state": "ready",
+                    "reason": "epoch", "held_until": held_until })
+            .to_string(),
+        ),
+        // The build hold and the post-build branch check: a refusal with a reason of its own, not an
+        // engine failure.
+        SendResult::PrepareFailed(e) if orchestrator::epoch::refusal_text(&e).is_some() => resp(
+            409,
+            json!({ "error": orchestrator::epoch::refusal_text(&e), "state": "ready",
+                    "reason": "epoch" })
+            .to_string(),
+        ),
         SendResult::PrepareFailed(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
         SendResult::RecordFailed(_) => resp(500, json!({ "error": RECORD_TEXT }).to_string()),
         SendResult::BroadcastFailed { txid, .. } => resp(
@@ -2339,6 +2355,12 @@ fn main() {
         "send records: {} held payment(s), {unreadable} of them with an unreadable record",
         held.len()
     );
+    // The network-upgrade cap in `settle` (#638): on only when the coordinator's table and the engine
+    // agree on the next upgrade's height. The line says which, and why when it is off.
+    eprintln!(
+        "{}",
+        orchestrator::epoch::boot_check_live(&cfg.konclave_signer)
+    );
     // A device registry that is there and cannot be read refuses every governance write for its vault
     // (and the viewing key, and sealed sends). Say so at boot, once per vault, rather than when a
     // member first tries to vote.
@@ -2574,6 +2596,46 @@ mod tests {
         }
     }
 
+    /// The network upgrade overtook an earlier attempt, or held a new build: a 409 with the reason the
+    /// app words itself, never the 502 "send failed" an engine failure gets.
+    #[test]
+    fn an_upgrade_refusal_is_a_409_with_its_reason() {
+        let body = |r: Resp| serde_json::from_str::<serde_json::Value>(&r.body).unwrap();
+        let r = send_result_resp(SendResult::NeedsNewSignature {
+            held_until: Some(3_534_560),
+        });
+        assert_eq!(r.status, 409);
+        let b = body(r);
+        assert_eq!(b["error"], orchestrator::epoch::NEEDS_NEW_SIGNATURE_TEXT);
+        assert_eq!(
+            (b["reason"].as_str(), b["held_until"].as_u64()),
+            (Some("epoch"), Some(3_534_560))
+        );
+        let r = send_result_resp(SendResult::NeedsNewSignature { held_until: None });
+        assert!(body(r)["held_until"].is_null());
+        for text in [
+            orchestrator::epoch::HOLD_TEXT,
+            orchestrator::epoch::CROSSING_HOLD_TEXT,
+            orchestrator::epoch::NOT_UPDATED_TEXT,
+        ] {
+            let r = send_result_resp(SendResult::PrepareFailed(orchestrator::epoch::refusal(
+                text,
+            )));
+            assert_eq!(r.status, 409, "{text}");
+            let b = body(r);
+            assert_eq!(
+                (b["error"].as_str(), b["reason"].as_str()),
+                (Some(text), Some("epoch"))
+            );
+            assert!(text.len() < 140, "the screen shows it verbatim: {text}");
+        }
+        // An ordinary engine failure stays a 502.
+        let r = send_result_resp(SendResult::PrepareFailed(
+            orchestrator::tools::ToolError::parse("ceremony", "a device refused"),
+        ));
+        assert_eq!(r.status, 502);
+    }
+
     #[test]
     fn a_send_result_maps_to_one_status_and_body() {
         let body = |r: Resp| serde_json::from_str::<serde_json::Value>(&r.body).unwrap();
@@ -2665,6 +2727,7 @@ mod tests {
             sighash: "ab".repeat(32),
             signatures: vec!["cd".repeat(64)],
             expiry_height: 3_400_500,
+            branch_id: konclave_seal::epochs::NU6_3,
             recorded_at_unix: now_unix(),
         };
         orchestrator::send_record::record_attempt(dir, &a).unwrap();
