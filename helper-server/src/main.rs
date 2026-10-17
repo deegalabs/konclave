@@ -38,8 +38,8 @@ use orchestrator::helper::{
     claim_members, is_valid_group_key, ledger_csv, list_proposals, load_ceremonies,
     load_device_keys, load_members, load_proposal, payment_plan, read_authorized, register_vault,
     rename_member, save_proposal, send_config_for, set_read_key, vault_balance, vault_transactions,
-    DeviceError, HelperConfig, HelperProposal, HelperState, PayrollLine, RosterWrite,
-    VaultRegistration, WriteGate,
+    DeviceError, HelperConfig, HelperProposal, HelperState, PayrollLine, RegisterError,
+    RosterWrite, VaultRegistration, WriteGate,
 };
 use orchestrator::relay_client::{configured_relay, parse_relay_config, valid_room, RelayRefusal};
 use orchestrator::send::{funding_check, Funding, PayrollDest, SpendPlan};
@@ -320,7 +320,7 @@ fn handle_request(
                     state.insert(r);
                     resp(200, out)
                 }
-                Err(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
+                Err(e) => registration_failure(&e),
             }
         }
         // Register a device's persistent comms pubkey (#63): the helper collects the set so it can
@@ -1892,6 +1892,84 @@ fn registration_log_line(cp: Option<u32>, known: bool) -> String {
     )
 }
 
+/// The answer to a registration that did not complete.
+///
+/// A request, key or engine failure is a 502 as it always was. A registration that was created but
+/// could not be RECORDED is a 503 with a `code`, because it is the coordinator's volume that is at
+/// fault, not the request, and nothing is served for it: the address would not survive a restart.
+/// `registration_cleanup_failed` is for every case where an operator has to act before another
+/// attempt can work (docs/RECOVERY.md, I): what a failed attempt left could not be set aside, three
+/// earlier leftovers are in place, or a wallet directory or an unreadable registration is there
+/// that is not this request's to touch. Nothing was derived in the last two.
+fn registration_failure(e: &RegisterError) -> Resp {
+    match e {
+        RegisterError::Engine(_) => resp(502, json!({ "error": e.to_string() }).to_string()),
+        RegisterError::NotPersisted(_) => resp(
+            503,
+            json!({ "error": e.to_string(), "code": "registration_not_persisted" }).to_string(),
+        ),
+        RegisterError::CleanupFailed => resp(
+            503,
+            json!({ "error": e.to_string(), "code": "registration_cleanup_failed" }).to_string(),
+        ),
+    }
+}
+
+/// The boot line for registrations that still carry no birthday, each by its 8-character prefix: a
+/// vault whose wallet is rebuilt from such a record scans from now (#434). `None` when there are none.
+fn without_birthday_line(regs: &[VaultRegistration]) -> Option<String> {
+    let mut ids: Vec<&str> = regs
+        .iter()
+        .filter(|r| r.birthday.is_none())
+        .map(|r| orchestrator::helper::short_id(&r.vault_id))
+        .collect();
+    if ids.is_empty() {
+        return None;
+    }
+    ids.sort_unstable();
+    Some(format!(
+        "registrations: {} without a recorded birthday ({}); a wallet rebuilt from them would scan from now",
+        ids.len(),
+        ids.join(", ")
+    ))
+}
+
+/// The boot lines for what needs an operator's eye in the registrations, by 8-character prefix: wallet
+/// directories with no registration, and registrations that cannot be read. Nothing is touched.
+fn attention_lines(orphans: &[String], unreadable: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    if !orphans.is_empty() {
+        out.push(format!(
+            "registrations: {} vault directories hold a wallet and no registration ({}); not touched (docs/RECOVERY.md, I)",
+            orphans.len(),
+            orphans.join(", ")
+        ));
+    }
+    if !unreadable.is_empty() {
+        out.push(format!(
+            "registrations: {} vault directories hold a registration that cannot be read ({}); not touched (docs/RECOVERY.md, I)",
+            unreadable.len(),
+            unreadable.join(", ")
+        ));
+    }
+    out
+}
+
+/// Everything the boot says about registrations that need an operator, as lines, in order: vaults
+/// without a recorded birthday, wallet directories with no registration, unreadable registrations.
+fn boot_attention_lines(
+    vaults_dir: &std::path::Path,
+    restored: &[VaultRegistration],
+) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Some(line) = without_birthday_line(restored) {
+        out.push(line);
+    }
+    let (orphans, unreadable) = orchestrator::helper::registrations_needing_attention(vaults_dir);
+    out.extend(attention_lines(&orphans, &unreadable));
+    out
+}
+
 /// Writes that line. The handler calls this and nothing else: it takes the declared `cp` and whether
 /// the vault was known, so the key and the name are not available to it.
 fn log_registration(cp: Option<u32>, known: bool) {
@@ -2068,10 +2146,10 @@ const WALLET_BUSY_SENDING_TEXT: &str =
     "this vault is busy with a payment in progress; its balance will be back in a moment";
 const WALLET_BUSY_TEXT: &str = "this vault's wallet is busy for a moment; try again shortly";
 
-/// How long a wallet read waits for whoever else holds the wallet (a balance read that is syncing,
-/// a proposal's funding check): a sync takes seconds, so two members polling the balance must both
-/// get a number. It stops waiting at once when a send is marked, and at most two wait per vault
-/// (`VaultLocks::wait_slot`), so a flood cannot park the pool.
+/// How long a wallet read waits for whoever else holds the wallet (a balance or a history read that is
+/// syncing, a proposal's funding check): a sync takes seconds, so two members polling the balance
+/// must both get a number. It stops waiting at once when a send is marked, and at most two wait per
+/// vault (`VaultLocks::wait_slot`), so a flood cannot park the pool.
 const WALLET_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// Run `read` with the vault's wallet. Free: now. Held while a send is marked: 503 `busy` at once.
@@ -2219,6 +2297,13 @@ fn main() {
     // a registration without one is not proof that the vault predates it.
     let (with_cp, without_cp) = creation_counts(&restored);
     eprintln!("registrations: {with_cp} carry a creation protocol, {without_cp} do not");
+    // What needs an operator in the registrations: a wallet with no registration next to it is either
+    // a failed attempt that was not set aside, or a vault served before a record that could not be
+    // written stopped being accepted, whose viewing key is in that wallet and nowhere else. Nothing
+    // is touched here; this is where it is said.
+    for line in boot_attention_lines(&cfg.vaults_dir, &restored) {
+        eprintln!("{line}");
+    }
     for reg in restored {
         state.insert(reg);
     }
@@ -2474,6 +2559,8 @@ mod tests {
             WALLET_BUSY_TEXT,
             WALLET_BUSY_SENDING_TEXT,
             CREATION_UPDATE_TEXT,
+            orchestrator::helper::NOT_PERSISTED_TEXT,
+            orchestrator::helper::CLEANUP_FAILED_TEXT,
         ] {
             assert!(
                 text.len() < 140,
@@ -7810,6 +7897,333 @@ mod tests {
         assert_eq!(syncs, 1, "one engine process opened the wallet");
     }
 
+    // ---- #637 on top of S3: a read of chain state syncs under the wallet lock, or answers busy -----
+    //
+    // The sync window and the migration live in `orchestrator::helper::bring_current`; the wallet lock
+    // lives in `with_the_wallet`. These tests prove the two compose: a read that finds the wallet held
+    // starts no engine process of its own, and a read that finds it free syncs once per window.
+
+    /// A `zcash-devtool` that counts. Every call appends its subcommand (`$4`) to `<dir>/calls.log`;
+    /// every call also tries to take `<dir>/in-engine` (a directory) and writes `overlap` to
+    /// `<dir>/overlap.log` if it finds it taken, which is two engine processes at once; `sync` sleeps
+    /// `sync_secs`.
+    #[cfg(unix)]
+    fn counting_devtool(dir: &std::path::Path, sync_secs: u32) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let fake = dir.join("counting-devtool");
+        std::fs::write(
+            &fake,
+            format!(
+                "#!/bin/sh\n[ \"$1\" = \"--probe\" ] && exit 0\necho \"$4\" >> \"{d}/calls.log\"\nif ! mkdir \"{d}/in-engine\" 2>/dev/null; then echo overlap >> \"{d}/overlap.log\"; fi\nif [ \"$4\" = sync ]; then sleep {sync_secs}; fi\nif [ \"$4\" = list-tx ] && [ -e \"{d}/list-tx-fails\" ]; then echo 'database is locked' >&2; rmdir \"{d}/in-engine\" 2>/dev/null; exit 1; fi\nif [ \"$4\" = balance ]; then echo '{{\"chain_tip_height\":3400100,\"orchard_spendable\":100000000,\"sapling_spendable\":0,\"total\":100000000,\"transparent_spendable\":0}}'; fi\nif [ \"$4\" = list-tx ]; then echo '[]'; fi\nrmdir \"{d}/in-engine\" 2>/dev/null\nexit 0\n",
+                d = dir.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
+        for _ in 0..200 {
+            match std::process::Command::new(&fake).arg("--probe").output() {
+                Err(e) if e.raw_os_error() == Some(26) => {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                _ => break,
+            }
+        }
+        fake
+    }
+
+    /// The subcommands the counting devtool ran, in order.
+    #[cfg(unix)]
+    fn engine_calls(dir: &std::path::Path) -> Vec<String> {
+        std::fs::read_to_string(dir.join("calls.log"))
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_string)
+            .collect()
+    }
+
+    #[cfg(unix)]
+    fn counting_cfg(name: &str, sync_secs: u32) -> (HelperConfig, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("konclave-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut c = cfg();
+        c.devtool = counting_devtool(&dir, sync_secs);
+        c.vaults_dir = dir.join("vaults");
+        std::fs::create_dir_all(&c.vaults_dir).unwrap();
+        (c, dir)
+    }
+
+    /// While a send is marked and holds the wallet, EVERY read route answers without starting an
+    /// engine process: the balance and the history are busy at once, and nothing else of the vault
+    /// reads the wallet. This is what keeps a stuck sync pinning one worker per vault and not one per
+    /// request: a read that finds the lock held starts no second sync, it answers.
+    #[cfg(unix)]
+    #[test]
+    fn a_held_wallet_starts_no_engine_process_for_any_read() {
+        let st = HelperState::new();
+        seed(&st, "nosync1");
+        let (c, dir) = counting_cfg("nosync", 0);
+        let mut routes: Vec<String> = GATED_READS
+            .iter()
+            .chain(OPEN_READS.iter())
+            .filter(|r| **r != "/api/health")
+            .map(|r| format!("{r}?vault=nosync1"))
+            .collect();
+        routes.sort();
+        routes.dedup();
+        assert!(
+            routes.iter().any(|r| r.starts_with("/api/vault/balance"))
+                && routes
+                    .iter()
+                    .any(|r| r.starts_with("/api/vault/transactions")),
+            "{routes:?}"
+        );
+        for route in &routes {
+            let got =
+                get_while_a_send_holds(&st, &c, "nosync1", route, None, Duration::from_secs(3));
+            let (status, body) = got.unwrap_or_else(|| panic!("{route} waited for the send"));
+            if route.starts_with("/api/vault/balance")
+                || route.starts_with("/api/vault/transactions")
+            {
+                assert_eq!(status, 503, "{route}: {body}");
+                assert!(body.contains("\"busy\":\"wallet\""), "{route}: {body}");
+            }
+        }
+        assert_eq!(
+            engine_calls(&dir),
+            Vec::<String>::new(),
+            "a read started the engine while a send held the wallet"
+        );
+        assert!(!dir.join("overlap.log").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The same with the wallet held by something that is NOT a send (a funding check, a read that is
+    /// syncing): the balance and the history each wait their bounded few seconds, answer busy, and
+    /// start no engine process of their own. The guard is dropped BEFORE the readers are joined, so a
+    /// regression to a blocking lock fails this test instead of hanging the suite.
+    #[cfg(unix)]
+    #[test]
+    fn a_reader_that_waits_for_a_held_wallet_starts_no_engine_process() {
+        let st = HelperState::new();
+        seed(&st, "nosync2");
+        let (c, dir) = counting_cfg("nosync-wait", 0);
+        let locks = concurrency::VaultLocks::new();
+        let limits = admission::Limits::new();
+        let held = locks.wallet_for_vault("nosync2");
+        let guard = held.lock().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let answers = std::thread::scope(|scope| {
+            for route in [
+                "/api/vault/balance?vault=nosync2",
+                "/api/vault/transactions?vault=nosync2",
+            ] {
+                let tx = tx.clone();
+                let (st, c, locks, limits) = (&st, &c, &locks, &limits);
+                scope.spawn(move || {
+                    let started = std::time::Instant::now();
+                    let r = serve(
+                        st,
+                        c,
+                        locks,
+                        limits,
+                        "203.0.113.7",
+                        T0,
+                        &Method::Get,
+                        route,
+                        b"",
+                        None,
+                    );
+                    let _ = tx.send((route, r.status, r.body, started.elapsed()));
+                });
+            }
+            drop(tx);
+            // Literals, not `WALLET_WAIT`: a bound computed from the constant under test cannot fail
+            // for a constant that grew.
+            let mut got = Vec::new();
+            for _ in 0..2 {
+                got.push(rx.recv_timeout(Duration::from_secs(14)).ok());
+            }
+            drop(guard);
+            got
+        });
+        for answer in answers {
+            let (route, status, body, took) = answer.expect("a reader gave up inside the bound");
+            assert_eq!(status, 503, "{route}: {body}");
+            assert!(body.contains("\"busy\":\"wallet\""), "{route}: {body}");
+            assert!(took >= Duration::from_secs(9), "{route}: {took:?}");
+        }
+        assert_eq!(engine_calls(&dir), Vec::<String>::new());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A history that cannot be LISTED is a 502, not an empty 200: only a failed sync is absorbed.
+    #[cfg(unix)]
+    #[test]
+    fn a_history_that_cannot_be_listed_is_a_502_and_not_an_empty_list() {
+        let st = HelperState::new();
+        seed(&st, "listfail");
+        let (c, dir) = counting_cfg("listfail", 0);
+        std::fs::write(dir.join("list-tx-fails"), "").unwrap();
+        let locks = concurrency::VaultLocks::new();
+        let limits = admission::Limits::new();
+        let r = serve(
+            &st,
+            &c,
+            &locks,
+            &limits,
+            "203.0.113.7",
+            T0,
+            &Method::Get,
+            "/api/vault/transactions?vault=listfail",
+            b"",
+            None,
+        );
+        assert_eq!(r.status, 502, "{}", r.body);
+        assert!(!r.body.contains("\"transactions\":[]"), "{}", r.body);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A free wallet and a stale window: the FIRST history read syncs (once) and reads, the second
+    /// inside the window reads without a sync. This is #637: before, the history never synced, and a
+    /// deposit appeared only after a balance read had.
+    #[cfg(unix)]
+    #[test]
+    fn a_history_read_on_a_free_wallet_syncs_once_per_window() {
+        let st = HelperState::new();
+        seed(&st, "window1");
+        let (c, dir) = counting_cfg("window", 0);
+        let locks = concurrency::VaultLocks::new();
+        let limits = admission::Limits::new();
+        let read = |path: &str| {
+            serve(
+                &st,
+                &c,
+                &locks,
+                &limits,
+                "203.0.113.7",
+                T0,
+                &Method::Get,
+                path,
+                b"",
+                None,
+            )
+        };
+        let first = read("/api/vault/transactions?vault=window1");
+        assert_eq!(first.status, 200, "{}", first.body);
+        assert_eq!(engine_calls(&dir), vec!["upgrade", "sync", "list-tx"]);
+        let second = read("/api/vault/transactions?vault=window1");
+        assert_eq!(second.status, 200, "{}", second.body);
+        let balance = read("/api/vault/balance?vault=window1");
+        assert_eq!(balance.status, 200, "{}", balance.body);
+        assert_eq!(
+            engine_calls(&dir),
+            vec!["upgrade", "sync", "list-tx", "upgrade", "list-tx", "upgrade", "balance"],
+            "one sync for the three reads, shared by the history and the balance"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A history read and a write that runs the engine (a proposal's funding check) at the same time,
+    /// in BOTH orders: the engine is never opened twice on the wallet, there is one sync for the
+    /// window, and whoever came second waited for it and did not sync again.
+    #[cfg(unix)]
+    #[test]
+    fn a_history_sync_and_a_funding_check_never_overlap_and_sync_once() {
+        for history_first in [true, false] {
+            let vault = if history_first {
+                "overlap1"
+            } else {
+                "overlap2"
+            };
+            let st = HelperState::new();
+            seed(&st, vault);
+            let (c, dir) = counting_cfg(vault, 2);
+            let _ = orchestrator::helper::claim_members(
+                &c.vaults_dir,
+                vault,
+                &["alice".into(), "bob".into()],
+            );
+            let locks = concurrency::VaultLocks::new();
+            let limits = admission::Limits::new();
+            let call = |method: Method, path: String, body: String| {
+                serve(
+                    &st,
+                    &c,
+                    &locks,
+                    &limits,
+                    "203.0.113.7",
+                    T0,
+                    &method,
+                    &path,
+                    body.as_bytes(),
+                    None,
+                )
+            };
+            let history = format!("/api/vault/transactions?vault={vault}");
+            let create = format!(
+                r#"{{"vault":"{vault}","proposer":"alice","to":"{TESTNET_ORCHARD_UA}","amount_zat":1000}}"#
+            );
+            let wait_for_sync = || {
+                let start = std::time::Instant::now();
+                while !engine_calls(&dir).iter().any(|l| l == "sync") {
+                    assert!(
+                        start.elapsed() < Duration::from_secs(5),
+                        "nothing reached the engine"
+                    );
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+            };
+            let (hist, created) = std::thread::scope(|scope| {
+                if history_first {
+                    let h = scope.spawn(|| call(Method::Get, history.clone(), String::new()));
+                    wait_for_sync();
+                    let w = scope.spawn(|| {
+                        call(
+                            Method::Post,
+                            "/api/vault/proposals".to_string(),
+                            create.clone(),
+                        )
+                    });
+                    (h.join().unwrap(), w.join().unwrap())
+                } else {
+                    let w = scope.spawn(|| {
+                        call(
+                            Method::Post,
+                            "/api/vault/proposals".to_string(),
+                            create.clone(),
+                        )
+                    });
+                    wait_for_sync();
+                    let h = scope.spawn(|| call(Method::Get, history.clone(), String::new()));
+                    (h.join().unwrap(), w.join().unwrap())
+                }
+            });
+            assert_eq!(
+                hist.status, 200,
+                "history_first={history_first}: {}",
+                hist.body
+            );
+            assert_eq!(
+                created.status, 200,
+                "history_first={history_first}: {}",
+                created.body
+            );
+            let syncs = engine_calls(&dir).iter().filter(|l| *l == "sync").count();
+            assert_eq!(
+                syncs,
+                1,
+                "history_first={history_first}: {:?}",
+                engine_calls(&dir)
+            );
+            assert!(
+                !dir.join("overlap.log").exists(),
+                "history_first={history_first}: two engine processes on one wallet"
+            );
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+
     // ---- REG-CREATION-MIN, coordinator side -----------------------------------------------------
 
     /// Runs `f` with the creation minimum set for THIS thread, and restores it after. A thread that
@@ -8118,6 +8532,368 @@ mod tests {
         assert_eq!(st.get(&id).unwrap().cp, Some(2));
         let on_disk = orchestrator::helper::load_registration(&c.vaults_dir, &id).unwrap();
         assert_eq!(on_disk.cp, Some(2));
+    }
+
+    /// At the door: a registration whose record cannot be written answers 503 with a code,
+    /// serves NOTHING (the state has no vault), and the same id registers again, with a new address,
+    /// once the volume is healthy. The writer is the real one, made to fail by a directory sitting
+    /// where `registration.json` goes.
+    #[cfg(unix)]
+    #[test]
+    fn a_registration_that_cannot_be_recorded_answers_503_and_serves_nothing() {
+        use std::os::unix::fs::PermissionsExt;
+        let (st, mut c) = (HelperState::new(), cfg());
+        let dir = std::env::temp_dir().join(format!("konclave-n1-door-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        c.vaults_dir = dir.join("vaults");
+        let write_exe = |name: &str, body: &str| {
+            let p = dir.join(name);
+            std::fs::write(&p, body).unwrap();
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+            for _ in 0..200 {
+                match std::process::Command::new(&p).arg("--probe").output() {
+                    Err(e) if e.raw_os_error() == Some(26) => {
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    _ => break,
+                }
+            }
+            p
+        };
+        c.zcash_sign = write_exe(
+            "fake-sign",
+            &format!(
+                "#!/bin/sh\n[ \"$1\" = \"--probe\" ] && exit 0\nn=$(cat '{c}' 2>/dev/null || echo 0)\nn=$((n+1))\necho $n > '{c}'\necho \"Orchard-only unified address: \\\"u1fake$n\\\"\"\necho \"Unified Full Viewing Key: \\\"uviewfake$n\\\"\"\n",
+                c = dir.join("identities").display()
+            ),
+        );
+        c.devtool = write_exe(
+            "fake-devtool",
+            "#!/bin/sh\ncase \"$4\" in\n  init-fvk) mkdir -p \"$3\"; if [ -e \"$3/keys.toml\" ]; then echo 'File exists' >&2; exit 1; fi; printf 'network = \"main\"\\nbirthday = 3400000\\n' > \"$3/keys.toml\"; if [ -e \"$(dirname \"$0\")/block-registration\" ]; then mkdir -p \"$(dirname \"$3\")/registration.json\"; fi ;;\n  list-addresses) echo 'Account AccountUuid(11111111-1111-1111-1111-111111111111)' ;;\nesac\n",
+        );
+        let id = format!("{:064x}", 0x6161);
+        let blocker = c.vaults_dir.join(&id).join("registration.json");
+        std::fs::write(dir.join("block-registration"), "").unwrap();
+
+        let r = handle(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault",
+            &body_with_cp(0x6161, Some("2")),
+        );
+        assert_eq!(r.status, 503, "{}", r.body);
+        let j: serde_json::Value = serde_json::from_str(&r.body).unwrap();
+        assert_eq!(j["code"], "registration_not_persisted");
+        assert!(st.get(&id).is_none(), "nothing is served for it");
+        // The text carries neither the id nor the operating-system's message.
+        assert!(!r.body.contains(&id), "{}", r.body);
+        let text = j["error"].as_str().unwrap().to_lowercase();
+        for word in SCREEN_KEYWORDS.iter().copied() {
+            assert!(!text.contains(word), "{word:?} in {text:?}");
+        }
+
+        std::fs::remove_file(dir.join("block-registration")).unwrap();
+        std::fs::remove_dir(&blocker).unwrap();
+        let again = handle(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault",
+            &body_with_cp(0x6161, Some("2")),
+        );
+        assert_eq!(again.status, 200, "{}", again.body);
+        assert_eq!(st.get(&id).expect("now served").address, "u1fake2");
+        assert!(orchestrator::helper::load_registration(&c.vaults_dir, &id).is_some());
+
+        // Three leftovers from earlier attempts: the next one is refused with the other code.
+        let id2 = format!("{:064x}", 0x6262);
+        for n in 1..=3 {
+            std::fs::create_dir_all(
+                c.vaults_dir
+                    .join(&id2)
+                    .join(format!("wallet.unpersisted-{n}")),
+            )
+            .unwrap();
+        }
+        let refused = handle(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault",
+            &body_with_cp(0x6262, Some("2")),
+        );
+        assert_eq!(refused.status, 503, "{}", refused.body);
+        let j: serde_json::Value = serde_json::from_str(&refused.body).unwrap();
+        assert_eq!(j["code"], "registration_cleanup_failed");
+        assert!(st.get(&id2).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The whole boot listing, from a directory: a vault without a birthday, a wallet with no
+    /// registration and an unreadable registration, each by prefix and in this order.
+    #[test]
+    fn the_boot_lists_every_registration_that_needs_an_operator_by_prefix() {
+        let dir = std::env::temp_dir().join(format!("konclave-boot-attn-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let key = |p: &str| format!("{:0<64}", p);
+        let (orphan, broken, nobday) = (key("bbbbbbbb"), key("cccccccc"), key("aaaaaaaa"));
+        std::fs::create_dir_all(dir.join(&orphan).join("wallet")).unwrap();
+        std::fs::create_dir_all(dir.join(&broken)).unwrap();
+        std::fs::write(
+            dir.join(&broken).join("registration.json"),
+            "{\"vault_id\":\"cc",
+        )
+        .unwrap();
+        let reg = VaultRegistration {
+            vault_id: nobday.clone(),
+            address: String::new(),
+            ufvk: String::new(),
+            wallet_dir: String::new(),
+            account: String::new(),
+            threshold: 2,
+            total: 3,
+            change_receiver: String::new(),
+            birthday: None,
+            cp: None,
+            created_at_unix: None,
+        };
+        let lines = boot_attention_lines(&dir, &[reg]);
+        assert_eq!(lines.len(), 3, "{lines:#?}");
+        assert!(
+            lines[0].contains("1 without a recorded birthday (aaaaaaaa)"),
+            "{lines:#?}"
+        );
+        assert!(
+            lines[1].contains("hold a wallet and no registration (bbbbbbbb)"),
+            "{lines:#?}"
+        );
+        assert!(
+            lines[2].contains("hold a registration that cannot be read (cccccccc)"),
+            "{lines:#?}"
+        );
+        assert!(
+            lines
+                .iter()
+                .all(|l| !l.contains(&orphan) && !l.contains(&broken)),
+            "{lines:#?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An engine failure at the door is what it always was: a 502 with the engine's reason and no
+    /// `code`, and nothing served. Only a record that could not be kept is a 503.
+    #[cfg(unix)]
+    #[test]
+    fn an_engine_failure_at_the_door_is_a_502_without_a_code() {
+        use std::os::unix::fs::PermissionsExt;
+        let (st, mut c) = (HelperState::new(), cfg());
+        let dir = std::env::temp_dir().join(format!("konclave-door502-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        c.vaults_dir = dir.join("vaults");
+        let write_exe = |name: &str, body: &str| {
+            let p = dir.join(name);
+            std::fs::write(&p, body).unwrap();
+            std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+            for _ in 0..200 {
+                match std::process::Command::new(&p).arg("--probe").output() {
+                    Err(e) if e.raw_os_error() == Some(26) => {
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    _ => break,
+                }
+            }
+            p
+        };
+        c.zcash_sign = write_exe(
+            "fake-sign",
+            "#!/bin/sh\n[ \"$1\" = \"--probe\" ] && exit 0\necho \"Orchard-only unified address: \\\"u1fake\\\"\"\necho \"Unified Full Viewing Key: \\\"uviewfake\\\"\"\n",
+        );
+        c.devtool = write_exe(
+            "fake-devtool",
+            "#!/bin/sh\ncase \"$4\" in\n  init-fvk) echo 'engine says no' >&2; exit 1 ;;\nesac\n",
+        );
+        let id = format!("{:064x}", 0x7171);
+        let r = handle(
+            &st,
+            &c,
+            &Method::Post,
+            "/api/vault",
+            &body_with_cp(0x7171, Some("2")),
+        );
+        assert_eq!(r.status, 502, "{}", r.body);
+        let j: serde_json::Value = serde_json::from_str(&r.body).unwrap();
+        assert!(j.get("code").is_none(), "{j}");
+        assert!(st.get(&id).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Two devices finish the same ceremony and both register the vault at once (the app does this
+    /// on every member's device). Through `serve`, as in production, the second waits for the first
+    /// and is answered from what it registered: one engine run, one address, the wallet where the
+    /// registration says, nothing set aside. The set-aside of a failed attempt relies on this
+    /// serialisation, so it is pinned here and not only reasoned.
+    #[cfg(unix)]
+    #[test]
+    fn two_devices_registering_one_vault_at_once_are_serialised_and_move_nothing() {
+        use std::os::unix::fs::PermissionsExt;
+        for round in 0..6u32 {
+            let (st, mut c) = (HelperState::new(), cfg());
+            let dir = std::env::temp_dir().join(format!(
+                "konclave-two-devices-{}-{round}",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            c.vaults_dir = dir.join("vaults");
+            let write_exe = |name: &str, body: &str| {
+                let p = dir.join(name);
+                std::fs::write(&p, body).unwrap();
+                std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+                for _ in 0..200 {
+                    match std::process::Command::new(&p).arg("--probe").output() {
+                        Err(e) if e.raw_os_error() == Some(26) => {
+                            std::thread::sleep(Duration::from_millis(10));
+                        }
+                        _ => break,
+                    }
+                }
+                p
+            };
+            // A new identity on every call, counted; an `init-fvk` that waits (the real one talks to
+            // the network first) and then creates `keys.toml` atomically, refusing an existing one.
+            c.zcash_sign = write_exe(
+                "fake-sign",
+                &format!(
+                    "#!/bin/sh\n[ \"$1\" = \"--probe\" ] && exit 0\necho x >> \"{d}/sign-calls\"\necho \"Orchard-only unified address: \\\"u1fake$$\\\"\"\necho \"Unified Full Viewing Key: \\\"uviewfake$$\\\"\"\n",
+                    d = dir.display()
+                ),
+            );
+            c.devtool = write_exe(
+                "fake-devtool",
+                "#!/bin/sh\ncase \"$4\" in\n  init-fvk) sleep 0.3; mkdir -p \"$3\" || exit 1; set -C; if ! printf 'network = \"main\"\\nbirthday = 3400000\\n' > \"$3/keys.toml\" 2>/dev/null; then echo 'File exists' >&2; exit 1; fi ;;\n  list-addresses) [ -e \"$3/keys.toml\" ] || { echo 'no wallet' >&2; exit 1; }; echo 'Account AccountUuid(11111111-1111-1111-1111-111111111111)' ;;\nesac\n",
+            );
+            let n = 0x7b00 + round;
+            let id = format!("{n:064x}");
+            let locks = concurrency::VaultLocks::new();
+            let limits = admission::Limits::new();
+            let barrier = std::sync::Barrier::new(2);
+            let answers: Vec<Resp> = std::thread::scope(|scope| {
+                let hs: Vec<_> = (0..2)
+                    .map(|_| {
+                        scope.spawn(|| {
+                            barrier.wait();
+                            serve(
+                                &st,
+                                &c,
+                                &locks,
+                                &limits,
+                                "203.0.113.7",
+                                T0,
+                                &Method::Post,
+                                "/api/vault",
+                                &body_with_cp(n, Some("2")),
+                                None,
+                            )
+                        })
+                    })
+                    .collect();
+                hs.into_iter().map(|h| h.join().unwrap()).collect()
+            });
+            for a in &answers {
+                assert_eq!(a.status, 200, "round {round}: {}", a.body);
+            }
+            assert_eq!(
+                answers[0].body, answers[1].body,
+                "round {round}: two devices were given two answers"
+            );
+            let signs = std::fs::read_to_string(dir.join("sign-calls"))
+                .unwrap_or_default()
+                .lines()
+                .count();
+            assert_eq!(
+                signs, 1,
+                "round {round}: the second was answered from the first"
+            );
+            let stored =
+                orchestrator::helper::load_registration(&c.vaults_dir, &id).expect("registered");
+            assert!(
+                std::path::Path::new(&stored.wallet_dir)
+                    .join("keys.toml")
+                    .exists(),
+                "round {round}: the registered wallet is where the registration says"
+            );
+            let leftovers = std::fs::read_dir(c.vaults_dir.join(&id))
+                .map(|rd| {
+                    rd.flatten()
+                        .filter(|e| {
+                            e.file_name()
+                                .to_string_lossy()
+                                .starts_with("wallet.unpersisted-")
+                        })
+                        .count()
+                })
+                .unwrap_or(0);
+            assert_eq!(leftovers, 0, "round {round}: nothing was set aside");
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+
+    /// The boot lines for the registrations that need an operator name them by prefix only, say which
+    /// kind each is, and print nothing when there is nothing.
+    #[test]
+    fn the_attention_lines_list_wallets_without_a_registration_and_unreadable_ones_by_prefix() {
+        assert!(attention_lines(&[], &[]).is_empty());
+        let lines = attention_lines(
+            &["bbbbbbbb".to_string(), "dddddddd".to_string()],
+            &["cccccccc".to_string()],
+        );
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        assert!(lines[0].contains(
+            "2 vault directories hold a wallet and no registration (bbbbbbbb, dddddddd)"
+        ));
+        assert!(lines[1]
+            .contains("1 vault directories hold a registration that cannot be read (cccccccc)"));
+    }
+
+    /// The boot line names the vaults with no recorded birthday by prefix, and is silent when there
+    /// are none.
+    #[test]
+    fn the_boot_line_lists_vaults_without_a_birthday_by_prefix() {
+        let reg = |id: &str, birthday: Option<u64>| VaultRegistration {
+            vault_id: id.into(),
+            address: String::new(),
+            ufvk: String::new(),
+            wallet_dir: String::new(),
+            account: String::new(),
+            threshold: 2,
+            total: 3,
+            change_receiver: String::new(),
+            birthday,
+            cp: None,
+            created_at_unix: None,
+        };
+        let full_a = format!("{:0<64}", "aaaaaaaa11");
+        let full_b = format!("{:0<64}", "bbbbbbbb22");
+        let full_c = format!("{:0<64}", "cccccccc33");
+        assert_eq!(
+            without_birthday_line(&[reg(&full_a, Some(3_400_000))]),
+            None
+        );
+        let line = without_birthday_line(&[
+            reg(&full_c, None),
+            reg(&full_a, Some(3_400_000)),
+            reg(&full_b, None),
+        ])
+        .expect("two lack one");
+        assert!(line.contains("2 without a recorded birthday"), "{line}");
+        assert!(line.contains("bbbbbbbb, cccccccc"), "{line}");
+        assert!(
+            !line.contains(&full_b) && !line.contains("aaaaaaaa"),
+            "{line}"
+        );
     }
 
     /// The production half of this file, for scans: what is above the test module.

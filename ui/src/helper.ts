@@ -20,7 +20,6 @@ import { deriveReadKey } from './vault-secret'
 import { bytesToHex } from './bytes'
 import type { WriteProof } from './device-key'
 import type { SendReply } from './send-outcome'
-import { CREATION_PROTOCOL } from './creation-protocol'
 
 const ENV = import.meta.env as Record<string, string | undefined>
 
@@ -227,12 +226,15 @@ export async function coordinatorCreationMin(): Promise<number | null> {
 export async function registerVault(
   groupKeyHex: string,
   name: string,
-  threshold = 0,
-  total = 0,
+  threshold: number,
+  total: number,
+  cp: number,
 ): Promise<HelperVault | null> {
-  // `cp`: the creation protocol this vault was made with. The coordinator refuses a registration
-  // without it, so an outdated app's vault never gets an address (creation-protocol.ts).
-  return postJson<HelperVault>('/api/vault', { group_key: groupKeyHex, name, threshold, total, cp: CREATION_PROTOCOL })
+  // `cp`: the creation protocol this vault was made with, REQUIRED and never defaulted to the
+  // app's own number: a registration that stamped today's protocol on an older vault would be a
+  // false statement. The coordinator refuses a registration without it, so an outdated app's vault
+  // never gets an address. Its only caller reads it from the device's record (conclude-registration.ts).
+  return postJson<HelperVault>('/api/vault', { group_key: groupKeyHex, name, threshold, total, cp })
 }
 
 /** A payment proposal on a browser-native vault, as the helper stores it. All public. */

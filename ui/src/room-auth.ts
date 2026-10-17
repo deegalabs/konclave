@@ -84,10 +84,13 @@ function armedMessage(seat: number, groupVkHex: string, tag: string, at: number,
 }
 
 /** The canonical bytes an `unarmed` signs. The failure code is inside it so it cannot be swapped
- *  for a different reason in flight - each device writes its own sentence from that code. */
-function unarmedMessage(seat: number, groupVkHex: string, tag: string, code: string, proposal: string): Uint8Array {
+ *  for a different reason in flight - each device writes its own sentence from that code. `of` is the
+ *  completing seat's own signature time for the completion it withdraws (SIGNER-SEAT1): with it inside
+ *  the signature, a withdrawal ends that completion and no later one, so an old one posted again does
+ *  nothing. A withdrawal from a build that predates it carries none, and is not taken. */
+function unarmedMessage(seat: number, groupVkHex: string, tag: string, code: string, proposal: string, of?: number): Uint8Array {
   return new TextEncoder().encode(
-    `unarmed:${seat}:${groupVkHex.trim().toLowerCase()}:${tag}:${code}:${proposal}`,
+    `unarmed:${seat}:${groupVkHex.trim().toLowerCase()}:${tag}:${code}:${proposal}` + (of === undefined ? '' : `:${of}`),
   )
 }
 
@@ -101,9 +104,9 @@ export function signArmed(
 /** Sign this device's `unarmed`. `code` absent is signed as `-`, so "no reason given" is itself
  *  a signed fact rather than a field an attacker can add. */
 export function signUnarmed(
-  keyPackage: Uint8Array, seat: number, groupVkHex: string, tag: string, proposal: string, code?: string,
+  keyPackage: Uint8Array, seat: number, groupVkHex: string, tag: string, proposal: string, code?: string, of?: number,
 ): string {
-  return bytesToHex(signRoomMsg(keyPackage, unarmedMessage(seat, groupVkHex, tag, code ?? '-', proposal)))
+  return bytesToHex(signRoomMsg(keyPackage, unarmedMessage(seat, groupVkHex, tag, code ?? '-', proposal, of)))
 }
 
 /** Is this `armed` a real announcement by that seat's share-holder? Never throws. */
@@ -122,13 +125,14 @@ export function armedIsProven(
 
 /** Is this `unarmed` a real withdrawal by that seat's share-holder? Never throws. */
 export function unarmedIsProven(
-  mat: RoomMaterial, seat: number, tag: string, proposal: string, code: unknown, sig: unknown,
+  mat: RoomMaterial, seat: number, tag: string, proposal: string, code: unknown, sig: unknown, of?: unknown,
 ): boolean {
   if (typeof sig !== 'string') return false
   const c = typeof code === 'string' ? code : '-'
+  const o = typeof of === 'number' ? of : undefined
   try {
     return verifyRoomSig(
-      mat.pubkeys, seat, unarmedMessage(seat, bytesToHex(mat.groupVk), tag, c, proposal), hexToBytes(sig),
+      mat.pubkeys, seat, unarmedMessage(seat, bytesToHex(mat.groupVk), tag, c, proposal, o), hexToBytes(sig),
     )
   } catch {
     return false

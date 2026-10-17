@@ -85,7 +85,10 @@ export interface UnarmedMsg {
   /** The seat withdrawing. Present so the withdrawal can be attributed and therefore PROVEN: an
    *  unsigned `unarmed` used to be enough for anyone in the room to zero every device (#425). */
   seat?: number
-  /** Signed by that seat's own share, over seat+vault+tag+code+proposal. */
+  /** The completing seat's own signature time for the completion this withdraws (SIGNER-SEAT1); signed,
+   *  so an old withdrawal posted again cannot end a later completion. */
+  of?: number
+  /** Signed by that seat's own share, over seat+vault+tag+code+proposal(+of). */
   sig?: string
 }
 
@@ -113,10 +116,12 @@ export class BackgroundSession {
    *  last completion, and the newest signatures taken. Keyed by SEAT so a device that reloads (new
    *  tag, same seat) replaces its own arming instead of counting twice. */
   private tally: Tally = emptyTally()
-  /** The window of the last completion that named a sender (its newest signature's time): while it
-   *  runs, a full count on screen is someone sending; after it, it is signatures waiting for the
-   *  next one past the window (#626 review). */
-  private namedAt: number | null = null
+  /** The quorum's last completion for the current payment: the tag and seat whose signature completed
+   *  it, and the newest signature's time. Set from the room's order alone, never from this device's
+   *  clock, so every device holds the same one (SIGNER-SEAT1, review B1). It is the ONE record of who
+   *  was named: the coordinator of the ceremony, the "someone is sending" line and the live decision
+   *  to call the send (`onArmed`'s trigger) all read it. */
+  private completion: { tag: string; seat: number; at: number; own: number; seats: number[] } | null = null
   /** Seats whose signature for this payment was dropped as dated too far ahead, logged once each. */
   private readonly warnedAhead = new Set<number>()
   /** Seats whose proven signature for this payment the tally ignored, logged once each. */
@@ -150,6 +155,8 @@ export class BackgroundSession {
       seatOf: (tag) => this.seats.seatOf(tag),
       seatIsProven: (tag) => this.seats.isProven(tag),
       mySeat: () => this.seats.mySeat(),
+      myTag: () => deps.myTag,
+      coordinatorTag: () => this.coordinatorTag(),
       threshold: deps.threshold,
       hasVault: () => true, // an unlocked, restored vault always exists
       decideApproval: deps.decideApproval,
@@ -180,9 +187,9 @@ export class BackgroundSession {
    *  signing message that arrived before its sender was seated now proceeds); everything else goes
    *  to the signer. Call from RelaySession.onMessage. */
   async onMessage(from: string, data: string, historical = false): Promise<void> {
-    let parsed: { type?: string; seat?: number; sig?: string; proposal?: string; at?: number; code?: FailureCode } | null = null
+    let parsed: { type?: string; seat?: number; sig?: string; proposal?: string; at?: number; code?: FailureCode; of?: number } | null = null
     try {
-      parsed = JSON.parse(data) as { type?: string; seat?: number; sig?: string; proposal?: string; at?: number; code?: FailureCode }
+      parsed = JSON.parse(data) as { type?: string; seat?: number; sig?: string; proposal?: string; at?: number; code?: FailureCode; of?: number }
     } catch {
       /* not JSON - hand to the signer, which ignores unparseable input */
     }
@@ -200,15 +207,26 @@ export class BackgroundSession {
       if (parsed.proposal !== this.currentProposal) return
       const proven =
         typeof parsed.seat === 'number' &&
-        unarmedIsProven(this.signingMaterial(), parsed.seat, from, parsed.proposal, parsed.code, parsed.sig)
+        unarmedIsProven(this.signingMaterial(), parsed.seat, from, parsed.proposal, parsed.code, parsed.sig, parsed.of)
       if (!proven) {
         this.onLog?.(`~ ignored an unproven withdrawal for seat ${String(parsed.seat)}`)
+        return
+      }
+      // Only the seat the room named sender withdraws (in the app, when its send failed), and only the
+      // completion it names. From anyone else a proven withdrawal used to reset the tally, the coordinator
+      // and every signer's consent, so a member who never signed could stop an approved send at every
+      // attempt (review A1). The seat, not the tag: the relay takes the sender a client writes, so a tag
+      // proves nothing (security delta B1), and the sender's own panel reopened has a new tag (B3). The
+      // completion's time, signed inside: an old withdrawal posted again ends nothing later (B2). Read in
+      // the room's order, a withdrawal still matches the completion it was made for.
+      if (this.completion === null || parsed.seat !== this.completion.seat || parsed.of !== this.completion.own) {
+        this.onLog?.(`~ ignored a withdrawal from a device that is not sending this payment (seat ${String(parsed.seat)})`)
         return
       }
       // A withdrawn attempt holds no window, so the next round may send at once; what was taken stays
       // taken, so the withdrawn signatures cannot be posted back in.
       this.tally = { ...this.tally, entries: new Map(), completedAt: null }
-      this.namedAt = null
+      this.completion = null
       this.onArmed?.([], null)
       // The reason is for the other devices. This one already says its own, and the room delivers a
       // device's messages back to it: taking its own withdrawal as a peer's failure replaced what it
@@ -242,7 +260,17 @@ export class BackgroundSession {
         this.onLog?.(`~ ignored an unproven arming for seat ${parsed.seat}`)
         return
       }
-      this.handleArmed(from, parsed.seat, parsed.proposal, at)
+      // The relay takes the sender a client writes, so a member could sign its own arming under another
+      // device's tag and have the room name that device, which never signed (review A2). A tag already
+      // seated at another seat is not this seat's.
+      const tagSeat = this.seats.seatOf(from)
+      if (tagSeat !== undefined && tagSeat !== parsed.seat) {
+        this.onLog?.(`~ ignored an arming for seat ${parsed.seat} posted under seat ${tagSeat}'s device`)
+        return
+      }
+      // A signature that completes the quorum names the coordinator: a request that was waiting for one
+      // may now proceed, as a signing message waiting for its sender's seat does after a rejoin.
+      if (this.handleArmed(from, parsed.seat, parsed.proposal, at)) await this.signer.retry()
       return
     }
     if (parsed?.type === 'rejoin' && typeof parsed.seat === 'number') {
@@ -296,7 +324,7 @@ export class BackgroundSession {
     if (this.currentProposal === id) return
     this.currentProposal = id
     this.tally = emptyTally()
-    this.namedAt = null
+    this.completion = null
     this.onArmed?.([], null)
     this.warnedAhead.clear()
     this.warnedIgnored.clear()
@@ -324,8 +352,13 @@ export class BackgroundSession {
   async unarm(proposal: string, code?: FailureCode): Promise<void> {
     const seat = this.seats.mySeat()
     const mat = this.signingMaterial()
-    const sig = signUnarmed(mat.keyPackage, seat, bytesToHex(mat.groupVk), this.myTag, proposal, code)
-    const msg: UnarmedMsg = { type: 'unarmed', proposal, seat, sig, ...(code ? { code } : {}) }
+    // A withdrawal names the completion it ends by the completing seat's own signature time (C1), and
+    // a device that knows no completion has none to end: it posts nothing (C2), rather than a
+    // withdrawal no device would take.
+    if (this.completion === null) return
+    const of = this.completion.own
+    const sig = signUnarmed(mat.keyPackage, seat, bytesToHex(mat.groupVk), this.myTag, proposal, code, of)
+    const msg: UnarmedMsg = { type: 'unarmed', proposal, seat, sig, ...(code ? { code } : {}), ...(of === undefined ? {} : { of }) }
     await this.send(JSON.stringify(msg))
   }
 
@@ -333,8 +366,8 @@ export class BackgroundSession {
    *  history on join can never build a tally for the payment on screen. Who sends is `tallyAfter`'s
    *  decision, made from the room's order and the signatures' own times, so every device reaches the
    *  same one (#626). */
-  private handleArmed(from: string, seat: number, proposal: string, at: number): void {
-    if (proposal !== this.currentProposal) return
+  private handleArmed(from: string, seat: number, proposal: string, at: number): boolean {
+    if (proposal !== this.currentProposal) return false
     const step = tallyAfter(this.tally, seat, from, at, this.threshold())
     if (step.ignored) {
       // Said like a signature dated ahead, once per seat and payment: the member whose signature it
@@ -347,17 +380,32 @@ export class BackgroundSession {
         this.warnedIgnored.add(seat)
         this.say(line)
       }
-      return
+      return false
     }
     for (const s of step.pruned) {
       this.say(`~ seat ${s}'s signature, dated ${Math.round((step.tally.newest! - this.tally.entries.get(s)!.at) / 1000)}s before the newest, no longer counts`)
     }
     this.tally = step.tally
-    // A completion read back from an old attempt holds its window like any other, so every device
-    // keeps the same latch, but names nobody: its sender's tab is gone (#326).
+    // Who completed is recorded from the room alone, on every device the same (review B1).
+    if (step.completes) this.completion = { tag: from, seat, at: step.tally.completedAt!, own: at, seats: [...step.tally.entries.keys()].sort((a, b) => a - b) }
+    // Whether to CALL the send is this device's live decision, and only that reads the clock: a
+    // completion read back from an old attempt holds its window like any other, so every device keeps
+    // the same latch, but names nobody to send, because its sender's tab is gone (#326).
     const named = step.completes && !armExpiredBy(at, this.now()) ? from : null
-    if (named !== null) this.namedAt = step.tally.completedAt
     this.onArmed?.(this.armedSeats(), named)
+    return step.completes
+  }
+
+  /** The tag that coordinates the payment's ceremony: the one whose signature last completed the
+   *  quorum, or null while none has (SIGNER-SEAT1). */
+  coordinatorTag(): string | null {
+    return this.completion?.tag ?? null
+  }
+
+  /** Whose signature completed the quorum and when (its newest signature's time), for the screen to
+   *  name the device that is sending. Null while none has. */
+  completed(): { seat: number; at: number; own: number; seats: number[] } | null {
+    return this.completion ? { seat: this.completion.seat, at: this.completion.at, own: this.completion.own, seats: this.completion.seats } : null
   }
 
   /** The seats whose signature for the current proposal still counts, ascending: what the screen
@@ -379,7 +427,7 @@ export class BackgroundSession {
   /** Is a sender the room named still within its window? What lets the screen say someone is
    *  sending: a full count alone does not, once that window has passed with nobody named since. */
   sendingNamed(now: number = this.now()): boolean {
-    return this.namedAt !== null && !armExpiredBy(this.namedAt, now)
+    return this.completion !== null && !armExpiredBy(this.completion.at, now)
   }
 
   /** A tally line: to the ceremony log, and to the console, because the app path leaves `onLog`
@@ -395,7 +443,7 @@ export class BackgroundSession {
   rearm(): void {
     this.signer.rearm()
     this.tally = emptyTally()
-    this.namedAt = null
+    this.completion = null
     this.currentProposal = null
     this.machineProposal = null
   }

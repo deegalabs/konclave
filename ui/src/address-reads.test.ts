@@ -19,6 +19,9 @@ describe('a stored address that is not text is read as none on every screen', ()
   })
 
   it('the creation screen reads the registered address through it', () => {
-    expect(codeOf('./screens/NetVault.tsx')).toContain('setHostedAddress(addressText(v.address))')
+    // The screen takes the address the one registration function approved; that function reads the
+    // coordinator's answer through `addressText` and `depositAddress` before it returns one.
+    expect(codeOf('./screens/NetVault.tsx')).toContain('setHostedAddress(r.address)')
+    expect(codeOf('./conclude-registration.ts')).toMatch(/depositAddress\([^)]*addressText\(v\.address\)/)
   })
 })

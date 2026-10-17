@@ -30,9 +30,12 @@ describe('registering this device', () => {
   })
 
   it('the creation waits for it before it asks for the viewing key', () => {
+    // The registration lives in the one function the creation awaits; the backup is built after it.
+    const fn = codeAt(new URL('./conclude-registration.ts', import.meta.url).pathname)
+    expect(fn).toMatch(/await registerThisDevice\(/)
+    expect(fn).not.toMatch(/void registerThisDevice\(/)
     const code = codeAt(new URL('./screens/NetVault.tsx', import.meta.url).pathname)
-    expect(code).toMatch(/await registerThisDevice\(/)
-    expect(code).not.toMatch(/void registerThisDevice\(/)
-    expect(code.indexOf('await registerThisDevice(')).toBeLessThan(code.indexOf('getUfvk(saved.vaultId'))
+    expect(code).toMatch(/await concludeRegistration\(/)
+    expect(code.indexOf('await concludeRegistration(')).toBeLessThan(code.indexOf('buildVaultBackup(saved.vaultId'))
   })
 })

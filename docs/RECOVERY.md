@@ -86,6 +86,9 @@ Precondition: an out-of-band backup of the vault's `registration.json` (see D).
    re-syncs `wallet/` from chain"*. **It does not, and never did** (#434): `register_vault` returns
    as soon as it finds a `registration.json`, before any wallet init, and never checks that the
    wallet directory is still there. A restore that stops at step 2 leaves a vault whose reads fail.
+   **If the restore also brought back `wallet/keys.toml`** (the backup in D keeps it, on purpose),
+   `init-fvk` refuses the directory (it opens that file with `create_new`). Move `wallet/keys.toml`
+   aside first and keep it: it holds the birthday.
    ```
    zcash-devtool wallet -w /data/vaults/<id>/wallet init-fvk \
      --name <id> --fvk <ufvk from registration.json> \
@@ -130,7 +133,7 @@ touched by a deploy after that carries it in both places. **Take `keys.toml` any
 backup should not depend on knowing which those are.
 
 ```
-railway ssh 'cd /data/vaults && tar czf - --exclude=*/wallet/[!k]* . | base64 -w0' \
+railway ssh 'cd /data/vaults && tar czf - --exclude=*/wallet/[!k]* --exclude=*/wallet.unpersisted-* . | base64 -w0' \
   | grep -E '^[A-Za-z0-9+/=]+$' | base64 -d | tar xzf - -C <local-backup-dir>
 ```
 
@@ -157,7 +160,7 @@ The chain settles it, on its own:
 
 - **Mined:** the proposal becomes `sent` with its txid, the next time someone presses Send for it, or
   the vault's proposals or ledger are read once the coordinator's wallet has synced past the
-  transaction (a balance read, or a Send, syncs it; a read of the proposals does not). This matters
+  transaction (a balance read, a history read, or a Send, syncs it; a read of the proposals does not). This matters
   because a held proposal can pass its own 72-hour deadline and read `expired`, and then nobody
   presses Send. A read looks at the wallet at most every 15 seconds per vault (the time of the last
   look is the file `<vault>/last_promote`), whatever it finds, and for as long as any payment is held.
@@ -300,6 +303,48 @@ the vault id. The members see an EMPTY vault, not an error: no balance and no pr
   app sets the key again after the vault is created). A random 64-hex value in the file keeps the
   vault closed, but no member's device holds it, so the members still cannot read until a way to set
   their own key exists, and there is no tool for that yet. Decide with the members, and tell them.
+
+### I. A registration that could not be recorded (503 `registration_not_persisted` / `registration_cleanup_failed`)
+
+Until this fix the coordinator answered a registration with an address even when it could not write
+the vault's `registration.json`: the vault was served from memory and, at the next restart, no longer
+found. The identity is minted at random and cannot be derived again, so its address was gone from the
+coordinator and its viewing key stayed, on the coordinator, only in the `wallet/` directory, which
+nothing read. A registration whose write fails is now refused, and nothing is served.
+
+- **`503 registration_not_persisted`**: the identity was created, its record could not be written, and
+  the wallet directory the attempt created was renamed to `<id>/wallet.unpersisted-<unix>`. Nothing was
+  served, stored or lost, and nothing was deleted. The volume is the thing to look at: a full or
+  read-only volume is the usual cause. **When it is healthy, the coordinator accepts a new registration
+  of the same vault and gives it a NEW address**, which is correct: the first one never left the
+  coordinator. (The app has no retry for it, see the coordinator's Known limits.)
+- **`503 registration_cleanup_failed`**: an operator has to act before another attempt can work, and
+  nothing is touched by the coordinator. Four causes, each with its own log line naming the vault by its
+  8-character prefix: the wallet directory of a failed attempt could not be set aside (whether the
+  record write or the engine failed); the vault already has three `wallet.unpersisted-*` directories
+  from earlier attempts; a `wallet/` is in place with no `registration.json`; or a `registration.json`
+  is in place and cannot be read. The engine refuses a wallet directory that already holds a
+  `keys.toml`, so no further attempt would succeed while one is there, and a new registration would
+  write over an unreadable record with a new identity.
+- **What the operator does.** Look first, over ssh, with `ls -la /data/vaults/<prefix>*/`, and read the
+  log line of the attempt.
+  - **Only `wallet.unpersisted-*` directories, no `wallet/` and no `registration.json`**: nothing a
+    member could have been told about. Move them aside (`mv /data/vaults/<id>/wallet.unpersisted-<unix>
+    /data/vaults/_retired/<id>-<unix>`, as in C) and the registration can be tried again.
+  - **A `wallet/` with no `registration.json` may be a vault this coordinator served before this
+    fix.** Its `wallet/data.sqlite` holds the coordinator's only copy of that vault's viewing key (the
+    backup in D excludes it; a member's backup of a Private vault may carry another), and members may
+    have funded its address. Do not move or remove it. The boot log lists these by prefix (`vault
+    directories hold a wallet and no registration`). Putting such a vault back means writing a
+    `registration.json` from that key, and nothing in this repository does that for you: stop and ask. Only the log line
+    of a failed attempt (`its wallet directory could NOT be set aside`) says that a `wallet/` came from
+    one; without it, treat the directory as a served vault.
+  - **A `registration.json` that cannot be read** (the boot log says `hold a registration that cannot
+    be read`): it is the only record of that vault's address and viewing key. Do not overwrite or
+    remove it. Copy it aside, restore the vault's `registration.json` from the ops backup (D), which
+    carries it, put it in place with `mv -T` as in F, and read it back before anything else.
+- The leftovers are not part of any vault's identity. The backup command in D takes them unless it is
+  given `--exclude=*/wallet.unpersisted-*`, which it now is.
 
 ## Opening an export without Konclave
 

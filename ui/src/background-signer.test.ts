@@ -72,6 +72,10 @@ function makeDev(tag: string, bus: Bus, mat: () => { keyPackage: Uint8Array; gro
     seatIsProven: () => true, // #399 is exercised in signing-machine.test.ts; all seats real here
 
     mySeat: () => SEATS[tag]!,
+    myTag: () => tag,
+    // This file exercises the governance gate with no signing tally; the room is taken to have named
+    // A. Who the room names is tested in background-session.test.ts (SIGNER-SEAT1).
+    coordinatorTag: () => 'A',
     threshold: () => 2,
     hasVault: () => true,
     send: async (m) => { dev.bus.post(tag, JSON.stringify(m)) },

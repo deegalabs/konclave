@@ -3,7 +3,9 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { I18nProvider } from './i18n'
 import { en } from './i18n/en'
 import { ptBR } from './i18n/pt-BR'
-import { AddressNotice } from './screens/Receive'
+import { AddressNotice, HistoryStatus } from './screens/Receive'
+import { historyReadKind } from './useVaultBalance'
+import { WALLET_BUSY } from './helper'
 import { codeOf } from './source-scan'
 
 // A9 (#610 review). Which address Add funds shows is decided once, in `getVault`, and tested there
@@ -84,5 +86,70 @@ describe('the screens take the address from getVault and say what they know befo
     for (const f of ['./screens/Dashboard.tsx', './screens/Receive.tsx', './screens/Settings.tsx', './screens/Vaults.tsx']) {
       expect(codeOf(f), f).not.toMatch(/banner-warn/)
     }
+  })
+})
+
+// Daniel (16/10): the history list filled in a while after the screen opened, and nothing said it was
+// being read, so the empty list read as an answer. The status shows when a read is in flight and when
+// the list last answered, on every refresh. Nothing is announced (a11y audit: a status changing every
+// 15 s talked over the member); the time stays visible while a read runs (GSP critique).
+describe('the on-chain history says when it is being read', () => {
+  const at1041 = new Date(2026, 9, 16, 10, 41).getTime()
+  const status = (checking: boolean, checkedAt: number | null) =>
+    renderToStaticMarkup(<I18nProvider><HistoryStatus checking={checking} checkedAt={checkedAt} /></I18nProvider>)
+
+  it('shows a spinner and says it is checking while a read is in flight, without hiding the time', () => {
+    const html = status(true, at1041)
+    expect(html).toContain('class="rcv-hist-checking" aria-hidden="true"><span class="loader-ring sm"></span>Checking the network…')
+    expect(html).toMatch(/<span>Last checked at 10:41/)
+  })
+
+  it('says only when the list was last read once a read has answered', () => {
+    const html = status(false, at1041)
+    expect(html).toMatch(/<span>Last checked at 10:41/)
+    expect(html).not.toContain('loader-ring')
+    expect(html).not.toContain('Checking')
+  })
+
+  it('is not a live region in any state: a status that changes every 15 s would talk over the screen', () => {
+    for (const html of [status(true, at1041), status(false, at1041), status(false, null), status(true, null)]) {
+      expect(html).not.toContain('role=')
+      expect(html).not.toContain('aria-live')
+    }
+  })
+  it('the screen shows it beside the title once loaded', () => {
+    expect(codeOf('./screens/Receive.tsx')).toMatch(/<HistoryStatus checking=\{checking\} checkedAt=\{checkedAt\} failed=\{failed\} \/>/)
+  })
+
+  it('says it in both languages, and the empty list no longer reads as final', () => {
+    expect(en['receive.historyChecking']).toBe('Checking the network…')
+    expect(ptBR['receive.historyChecking']).toBe('Consultando a rede…')
+    expect(ptBR['receive.historyChecked']).toBe('Conferido às {time}')
+    expect(en['receive.historyEmpty']).toMatch(/this list checks again on its own/)
+    expect(ptBR['receive.historyEmpty']).toMatch(/esta lista confere de novo sozinha/)
+  })
+})
+
+// Daniel (16/10): right after unlocking, the history said "Nothing has arrived yet" and "Last checked
+// at" for 20 to 40 seconds on a vault that had three transactions. A read that FAILS (a 401 before the
+// read key is in the session, a timeout, a 5xx) comes back as null, and the screen took null for an
+// empty answer. A failure is not an answer: it must not empty the list, must not be shown as a check,
+// and is retried soon rather than at the next 15 s poll.
+describe('a history read that fails is not an answer', () => {
+  it('tells the three outcomes apart', () => {
+    expect(historyReadKind(WALLET_BUSY)).toBe('busy')
+    expect(historyReadKind(null)).toBe('failed')
+    expect(historyReadKind([])).toBe('answer')
+    expect(historyReadKind([{ txid: 'ab', mined_height: 1 } as never])).toBe('answer')
+  })
+
+  it('says so, beside the title once loaded and in place of the list before', () => {
+    const html = renderToStaticMarkup(<I18nProvider><HistoryStatus checking={false} checkedAt={null} failed /></I18nProvider>)
+    expect(html).toContain('Could not check, trying again…')
+    expect(en['receive.historyUnreadable']).toMatch(/Could not read the history yet/)
+    expect(ptBR['receive.historyUnreadable']).toMatch(/Não deu para ler o histórico ainda/)
+    expect(ptBR['receive.historyRetry']).toBe('Não deu para conferir, tentando de novo…')
+    // A retry in flight shows the loader again, not the failure text.
+    expect(codeOf('./screens/Receive.tsx')).toMatch(/failed && !checking \? <p className="rcv-note">\{t\('receive\.historyUnreadable'\)\}<\/p> : <Loading \/>/)
   })
 })

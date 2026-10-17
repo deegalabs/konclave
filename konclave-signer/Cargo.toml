@@ -11,9 +11,10 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1"
+# The one rule for which spends of a PCZT this vault signs, shared with konclave-wasm.
+konclave-seal = { path = "../konclave-seal", features = ["pczt"] }
 clap = { version = "4", features = ["derive"] }
 hex = "0.4"
-ff = "0.13"
 # Published crates.io release, no fork rev and no [patch.crates-io]. 0.15.5 declares
 # `unstable-frost` itself, and already contains the deferred-anchor work (PR #535, released in
 # 0.15.2) that the old fork pin existed for. Same orchard release zcash-devtool resolves (ADR-0002).

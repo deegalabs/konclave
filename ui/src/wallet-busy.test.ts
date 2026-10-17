@@ -24,7 +24,7 @@ localStorage.setItem('konclave.selectedVault', vault)
 vi.stubGlobal('fetch', async () => answer())
 const api = await import('./api')
 const { WALLET_BUSY } = await import('./helper')
-const { nextBalanceView, balanceReader, keepOnBusy } = await import('./useVaultBalance')
+const { nextBalanceView, balanceReader, historyReadKind } = await import('./useVaultBalance')
 
 const busy = () => new Response(JSON.stringify({ error: 'the vault is sending', busy: 'wallet' }), { status: 503 })
 
@@ -88,13 +88,21 @@ describe('one balance read at a time', () => {
   })
 })
 
-describe('a list keeps what it had through a busy read', () => {
-  it('busy keeps the previous value; anything else replaces it', () => {
-    const prev = [{ txid: 'a', mined_height: 1 }]
-    expect(keepOnBusy(prev, WALLET_BUSY)).toBe(prev)
-    expect(keepOnBusy(prev, null)).toBeNull()
-    const next = [{ txid: 'b', mined_height: 2 }]
-    expect(keepOnBusy(prev, next)).toBe(next)
+describe('a list keeps what it had through a busy read, and through a failed one', () => {
+  // One rule for both screens that read the history (Daniel, 16/10): a failed read (null: a 401
+  // before the read key, a timeout, a 5xx) used to replace the list with nothing, and the screens
+  // said "no transactions". Only a list is an answer.
+  it('tells answer, busy and failed apart', () => {
+    expect(historyReadKind(WALLET_BUSY)).toBe('busy')
+    expect(historyReadKind(null)).toBe('failed')
+    expect(historyReadKind([])).toBe('answer')
+    expect(historyReadKind([{ txid: 'b', mined_height: 2 }])).toBe('answer')
+  })
+  it('lives once: no screen keeps its own copy, and the old rule that emptied the list is gone', () => {
+    expect(codeOf('./useVaultBalance.ts')).toMatch(/return historyReadKind\(read\) === 'answer'/)
+    expect(codeOf('./useVaultBalance.ts')).not.toMatch(/export function keepOnBusy/)
+    expect(codeOf('./screens/Receive.tsx')).not.toMatch(/function historyReadKind/)
+    expect(codeOf('./screens/Dashboard.tsx')).not.toMatch(/function historyReadKind/)
   })
 })
 
@@ -109,8 +117,11 @@ describe('the screens keep what they had while the wallet is busy', () => {
   it('the dashboard and the receive screen keep their transactions while busy', () => {
     const rcv = codeOf('./screens/Receive.tsx')
     expect(rcv).toContain('readTransactions(')
-    expect(rcv).toMatch(/setTxs\(\(prev\) => keepOnBusy\(prev, r\)\)/)
-    expect(codeOf('./screens/Dashboard.tsx')).toMatch(/setTxs\(\(prev\) => keepOnBusy\(prev, list\)\)/)
+    // Receive sets its list only from an answer (`historyReadKind`), so busy and failed both keep it.
+    expect(rcv).toMatch(/if \(isHistoryAnswer\(r\)\) \{\s*setTxs\(r\)/)
+    expect(rcv).not.toMatch(/setTxs\(\(prev\)/)
+    // The dashboard too: only an answer replaces its list.
+    expect(codeOf('./screens/Dashboard.tsx')).toMatch(/if \(!isHistoryAnswer\(list\)\) return\s*setTxs\(list\)/)
     // /net keeps its balance through a busy read too.
     expect(codeOf('./screens/NetVault.tsx')).toMatch(/setBalance\(\(prev\) => \(b === WALLET_BUSY \? prev :/)
     expect(codeOf('./api.ts')).not.toContain('export async function getTransactions')
@@ -138,7 +149,8 @@ describe('what the delta audit on 6445e5c asked to be pinned', () => {
   })
   it('a busy read is not a load: no "not connected", no empty history', () => {
     expect(codeOf('./screens/Dashboard.tsx')).toMatch(/if \(b !== WALLET_BUSY\) setBalLoaded\(true\)/)
-    expect(codeOf('./screens/Receive.tsx')).toMatch(/if \(r !== WALLET_BUSY\) setTxLoaded\(true\)/)
+    // Receive tells busy, failed and answered apart in `historyReadKind` (receive-address.test.tsx).
+    expect(codeOf('./screens/Receive.tsx')).toMatch(/if \(isHistoryAnswer\(r\)\) \{\s*setTxs\(r\)\s*setTxLoaded\(true\)/)
   })
   it('the free-funds row says it does not know while no balance has been read, busy or syncing', () => {
     const src = codeOf('./screens/Dashboard.tsx')

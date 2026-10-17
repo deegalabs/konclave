@@ -35,6 +35,8 @@ vi.mock('./VaultSigner', () => ({
 vi.mock('./session', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./session')>()),
   getUnlockedShare: () => state.share,
+  // The panel asks `unlockedHere` whether it can sign; the test's share is what answers it.
+  unlockedHere: () => !!state.share,
 }))
 vi.mock('./toast', () => ({ useToast: () => ({ show: () => {}, ok: () => {}, err: () => {}, success: () => {}, error: () => {} }) }))
 
@@ -53,7 +55,7 @@ const reading: SignPreview = {
   ],
   feeZat: 20_000,
 }
-const baseBg = { ready: true, phase: 'idle', error: '', what: null, seatCount: 2, armedSeats: [], iSend: false, peerFailure: null, clearPeerFailure: () => {}, signature: null, wouldComplete: () => false, sendingNamed: () => false }
+const baseBg = { ready: true, phase: 'idle', error: '', what: null, seatCount: 2, armedSeats: [], iSend: false, peerFailure: null, clearPeerFailure: () => {}, signature: null, wouldComplete: () => false, sendingNamed: () => false, completed: () => null }
 
 function render(bg: Record<string, unknown>, opts: { ours?: (r: string | null) => boolean } = {}): string {
   state.bg = { ...baseBg, ...bg }
@@ -437,5 +439,43 @@ describe('links to app pages go through the router', () => {
   it('the book links in the signing panel close it, so the book is what is seen', () => {
     const src = codeOf('./screens/SigningPanel.tsx')
     expect(src.match(/<Link className="btn ghost sm-btn(?: mt-sm)?" to="\/ledger" onClick=\{close\}>/g)?.length).toBe(2)
+  })
+})
+
+// SIGNER-SEAT1: the device that completed the quorum runs the send; the panel names it, keeps the
+// minutes it waits outside the announced status, and offers the button to a member who has not signed.
+describe('the device that is sending, named', () => {
+  const full = { armedSeats: [1, 2], seatCount: 2, sendingNamed: () => true }
+  const withShare = (f: () => void) => {
+    state.share = { myName: 'Ana' }
+    state.armed = true
+    try { f() } finally { state.share = undefined; state.armed = false }
+  }
+  it('names the device whose signature completed the quorum', () => withShare(() => {
+    const html = render({ ...full, completed: () => ({ seat: 2, at: Date.now(), seats: [1, 2] }) })
+    expect(html).toContain('Bia&#x27;s device is sending')
+  }))
+  it('after a minute with no round, says whose device it waits on, the minutes outside the live status', () => withShare(() => {
+    const html = render({ ...full, completed: () => ({ seat: 2, at: Date.now() - 120_000, seats: [1, 2] }) })
+    const status = /<div class="confirm quorum" role="status">([^<]*)<\/div>/.exec(html)?.[1] ?? ''
+    expect(status).toContain('Waiting for Bia&#x27;s device to send')
+    expect(status, 'the countdown is not re-announced every minute').not.toMatch(/\bmin\b/)
+    expect(html).toMatch(/If Bia&#x27;s screen is closed, the signatures expire in \d+ min/)
+    expect(html, 'one countdown, not two').not.toContain('Your signature counts for')
+  }))
+  it('a started round whose sender went past its window says to reopen, and nothing contradicts it', () => withShare(() => {
+    const html = render({ ...full, phase: 'signing', sendingNamed: () => false, completed: () => ({ seat: 2, at: Date.now() - 700_000, seats: [1, 2] }) })
+    expect(html).toContain('has not finished in time')
+    expect(codeOf('./screens/SigningPanel.tsx')).toMatch(/elapsed > 180 && !stalled &&/)
+  }))
+  it('a member who has not signed keeps the button while the others have', () => {
+    state.share = { myName: 'Ana' }
+    try {
+      const html = render({ armedSeats: [2], seatCount: 2, completed: () => null })
+      expect(html).toMatch(/<button class="btn ok mt-sm"(?![^>]*disabled)[^>]*>/)
+    } finally { state.share = undefined }
+  })
+  it('once sent, the roster reads who signed from the completed quorum, which does not expire', () => {
+    expect(codeOf('./screens/SigningPanel.tsx')).toMatch(/const rosterSigned = sent && done \? done\.seats : signedSeats/)
   })
 })

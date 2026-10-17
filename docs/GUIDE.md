@@ -584,7 +584,7 @@ sequenceDiagram
     autonumber
     participant H as Helper / Orchestrator (blind to shares)
     participant BR as Blind Relay (room)
-    participant DA as Device A (seat 1 / coordinator)
+    participant DA as Device A (completed the quorum / coordinator)
     participant DB as Device B (seat 2)
     participant Z as Zcash mainnet
 
@@ -716,7 +716,7 @@ What is shipped, dry-run-only, or roadmap - validated against the code (not just
 | `/net` multi-device - **multi-note over the live relay** | **Wired + unit-tested; live proof pending** |
 | On-device share persistence + sign-after-restore | **Wired + live-exercised; `storage.ts` lacks a direct unit test** |
 | Social recovery (RTS) / Inheritance policy engine | **Core proven by tests; not yet wired into a live vault UI** |
-| Tauri single desktop binary | **Shipped** (first released as **v0.2.0** on 2026-08-03, latest **v0.8.0**, a pre-release; `src-tauri/`: Windows, Linux and Apple Silicon macOS installers, not code-signed or notarized). Open: embedding the orchestrator and the OS keychain (#212), live per-platform hardware validation, and signed installers (#606). The loopback bridge remains the local delivery form; see [ADR-0004](adr/0004-local-http-bridge.md) |
+| Tauri single desktop binary | **Shipped** (first released as **v0.2.0** on 2026-08-03, now **v0.13.1**, a pre-release; `src-tauri/`: Windows, Linux and Apple Silicon macOS installers, not code-signed or notarized). Open: embedding the orchestrator and the OS keychain (#212), live per-platform hardware validation, and signed installers (#606). The loopback bridge remains the local delivery form; see [ADR-0004](adr/0004-local-http-bridge.md) |
 
 See [CLAIMS.md](CLAIMS.md) and [PROOF.md](PROOF.md) for the authoritative, evidence-linked ladder.
 

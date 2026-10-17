@@ -43,7 +43,7 @@ describe('local-first degradation (no VITE_HELPER_BASE)', () => {
   it('never calls fetch and resolves everything to null', async () => {
     const spy = vi.spyOn(globalThis, 'fetch')
     expect(await helperHealth()).toBeNull()
-    expect(await registerVault('deadbeef', 'v')).toBeNull()
+    expect(await registerVault('deadbeef', 'v', 0, 0, 2)).toBeNull()
     expect(await getVault('deadbeef')).toBeNull()
     // The whole point: no network egress when the helper is not configured.
     expect(spy).not.toHaveBeenCalled()

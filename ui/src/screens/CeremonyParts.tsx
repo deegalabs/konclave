@@ -2,11 +2,35 @@
 // comparing the code, and stopping. Kept apart from NetVault so the copy that carries the security
 // (the PIN travels apart; each person reads THEIR code first; an unknown name is a stop) is in one
 // place.
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import encodeQR from '@paulmillr/qr'
 import { formatInvite, inviteLink } from '../net'
 
 type Pe = (pt: string, en: string) => string
+
+/** The status line of a step that waits on other people. It stays mounted for the whole step, so a
+ *  screen reader hears its text change rather than missing a region that arrived already filled
+ *  (a11y audit); it is empty until there is something to wait for. While `busy`, a small spinner
+ *  sits beside the sentence so the screen does not look frozen (Daniel, 16/10); the sentence is the
+ *  status and the spinner is decorative. */
+export function WaitLine({ busy, children }: { busy: boolean; children?: ReactNode }) {
+  return (
+    <p className="cv-seatlabel cv-wait" role="status">
+      {busy && <span className="loader-ring sm" aria-hidden="true" />}
+      <span>{children}</span>
+    </p>
+  )
+}
+
+/** What the save step says while others have not saved: how many have, then who is left, so the wait
+ *  visibly moves even without motion. One sentence for both creation screens. */
+export function saveWaitText(total: number, waiting: string[], pe: Pe): string {
+  const saved = Math.max(0, total - waiting.length)
+  return pe(
+    `${saved} de ${total} guardaram. Esperando: ${waiting.join(', ')}.`,
+    `${saved} of ${total} saved. Waiting for: ${waiting.join(', ')}.`,
+  )
+}
 
 /** Visually the code; to a screen reader, its characters one by one, group by group. */
 export function CodeText({ code, label, className }: { code: string; label: string; className?: string }) {

@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest'
-import { readdirSync } from 'node:fs'
 import { codeOf } from './source-scan'
 
 // An outdated cached app still runs the pre-v0.12.0 creation flow. The coordinator will refuse a
@@ -40,7 +39,7 @@ describe('every registration names its creation protocol', () => {
   })
   it('registerVault sends cp itself', async () => {
     sent.length = 0
-    await helper.registerVault('aa'.repeat(32), 'v', 2, 2)
+    await helper.registerVault('aa'.repeat(32), 'v', 2, 2, 2)
     const reg = sent.find((s) => s.url.endsWith('/api/vault'))
     expect(reg?.body).toMatchObject({ cp: CREATION_PROTOCOL })
     expect(reg?.body).not.toHaveProperty('cv')
@@ -58,22 +57,11 @@ describe('every registration names its creation protocol', () => {
     // And a creation records it when it saves the vault.
     expect(codeOf('./screens/NetVault.tsx')).toMatch(/saveVault\(vaultId, \{[^}]*cp: CREATION_PROTOCOL[^}]*\}, savePass\)/)
   })
-  it('registerVault has one caller, the end of a creation: nothing can register an old vault later', () => {
-    // Counted as mentions, not files: an alias, a reference or a second call all show up.
-    const mentions: string[] = []
-    const walk = (sub: string) => {
-      for (const e of readdirSync(new URL(sub, new URL('./', import.meta.url)), { withFileTypes: true })) {
-        if (e.isDirectory()) { if (e.name !== 'wasm-pkg') walk(`${sub}${e.name}/`) }
-        else if (/\.tsx?$/.test(e.name) && !/\.test\.tsx?$/.test(e.name)) {
-          const src = codeOf(`./${sub}${e.name}`).replace(/export async function registerVault\(/, '')
-          for (const m of src.matchAll(/\bregisterVault\b/g)) mentions.push(`${sub}${e.name}@${m.index}`)
-        }
-      }
-    }
-    walk('')
-    // NetVault: its import and its one call; nothing anywhere else.
-    expect(mentions.filter((m) => !m.startsWith('screens/NetVault.tsx@'))).toEqual([])
-    expect(mentions.filter((m) => m.startsWith('screens/NetVault.tsx@')).length).toBe(2)
+  // The single-caller pin moved to conclude-registration.test.ts, where the one caller now lives.
+  it('registerVault sends the protocol it is GIVEN, not the app\'s', async () => {
+    sent.length = 0
+    await helper.registerVault('dd'.repeat(32), 'v', 2, 2, 1)
+    expect(sent.find((s) => s.url.endsWith('/api/vault'))?.body).toMatchObject({ cp: 1 })
   })
 })
 
@@ -119,11 +107,11 @@ describe('an outdated client says so, before it starts and if it is refused', ()
   })
   it('the registration failure keeps the update flag', async () => {
     registerAnswer = () => new Response(JSON.stringify({ error: 'update the app', update_required: true, min_creation: 3 }), { status: 409 })
-    expect(await helper.registerVault('bb'.repeat(32), 'v', 2, 2)).toBeNull()
+    expect(await helper.registerVault('bb'.repeat(32), 'v', 2, 2, 2)).toBeNull()
     expect(helper.lastHelperPostFailure()).toMatchObject({ status: 409, updateRequired: true })
     // Only a real `true` asks for an update; anything else is an ordinary failure.
     registerAnswer = () => new Response(JSON.stringify({ error: 'no', update_required: 'yes' }), { status: 409 })
-    await helper.registerVault('cc'.repeat(32), 'v', 2, 2)
+    await helper.registerVault('cc'.repeat(32), 'v', 2, 2, 2)
     expect(helper.lastHelperPostFailure()?.updateRequired).toBe(false)
   })
   it('creating and joining ask before starting, and a refused registration says update instead of hanging', () => {
@@ -131,6 +119,28 @@ describe('an outdated client says so, before it starts and if it is refused', ()
     // Before anything starts: the member stays on the screen they were on, with the message and no
     // counters of a ceremony that never began, and can try again after updating.
     expect(src).toMatch(/startGuardRef\.current = true\s*try \{\s*if \(!creationAllowed\(CREATION_PROTOCOL, await coordinatorCreationMin\(\)\)\) \{\s*setError\(tt\('net\.err\.updateRequired'\)\)\s*startGuardRef\.current = false\s*return\s*\}/)
-    expect(src).toMatch(/if \(isUpdateRequired\(lastHelperPostFailure\(\)\)\) setError\(tt\('net\.err\.updateRequired'\)\)/)
+    // The refusal itself is read where the registration happens (conclude-registration.ts), once.
+    expect(codeOf('./conclude-registration.ts')).toMatch(/isUpdateRequired\(failure\)/)
+  })
+})
+
+describe('resumable: a record by fact, in one place', () => {
+  it('reads the record, with or without pending, and needs a coordinator', async () => {
+    const { resumable } = await import('./creation-protocol')
+    localStorage.setItem('konclave.coord.mode', 'custom')
+    localStorage.setItem('konclave.coord.url', 'https://coordinator.invalid')
+    // A v2 record still pending, no address.
+    expect(resumable({ cp: 2, threshold: 2, total: 2, pending: true, address: '' })).toBe(true)
+    // Finished from the card with no address (the old "yes" flipped it locally): still resumable.
+    expect(resumable({ cp: 2, threshold: 2, total: 2, pending: false, address: '' })).toBe(true)
+    expect(resumable({ threshold: 2, total: 2, address: '' })).toBe(true) // v0.12.0 shape
+    // It has an address: nothing to finish.
+    expect(resumable({ cp: 2, threshold: 2, total: 2, address: 'u1abc' })).toBe(false)
+    // Old flow: never.
+    expect(resumable({ pending: true, address: '' })).toBe(false)
+    // No coordinator configured: nothing to register with.
+    localStorage.setItem('konclave.coord.mode', 'local')
+    expect(resumable({ cp: 2, threshold: 2, total: 2, pending: true, address: '' })).toBe(false)
+    localStorage.setItem('konclave.coord.mode', 'custom')
   })
 })
