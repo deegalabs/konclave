@@ -6,6 +6,8 @@
 //! wiring supplies a thin blocking HTTP transport. The relay wire format (mirrored here):
 //!   - POST `/api/relay/{room}`  body `{"from","data"}`   -> `{"seq","peers"}`
 //!   - GET  `/api/relay/{room}?since={seq}&from={tag}`     -> `{"messages":[{seq,from,data}],"next","peers"}`
+//!   - a refusal is `{"error":"<code>"}` with a 4xx or 5xx status (`relay_full`, `rate limited`,
+//!     `message too large`, ...); `post` and `poll` hand it back as words (`refusal_in_words`)
 
 use serde::Deserialize;
 
@@ -43,6 +45,39 @@ struct PollResp {
     next: u64,
 }
 
+/// What the relay says when it refuses a request: `{"error":"<code>"}`, with a 4xx or 5xx status.
+/// `curl` runs without `-f`, so that answer reaches `post` and `poll` as a body like any other, and
+/// would be read as a success answer that lacks its fields ("missing field `seq`"). A body that is
+/// such a refusal comes back here as a sentence an operator can act on; anything else is `None`
+/// and is read as the answer it should be.
+///
+/// The codes the relay has are named, and matched on their exact text: one with a stray space is
+/// another code. Any other is shown as it came, but only its printable ASCII, taken out FIRST,
+/// and then at most 64 of those characters: the text of an answer from the network is not
+/// trusted to be short or to be plain.
+fn refusal_in_words(body: &[u8]) -> Option<String> {
+    #[derive(Deserialize)]
+    struct Refusal {
+        error: String,
+    }
+    let code = serde_json::from_slice::<Refusal>(body).ok()?.error;
+    Some(match code.as_str() {
+        "relay_full" => "the relay is full right now, try again in a moment".to_string(),
+        "rate limited" => {
+            "the relay is limiting this server's requests, try again in a moment".to_string()
+        }
+        "message too large" => "the relay refused the message because it is too large".to_string(),
+        other => {
+            let shown: String = other
+                .chars()
+                .filter(|c| (' '..='~').contains(c))
+                .take(64)
+                .collect();
+            format!("the relay refused the request ({shown})")
+        }
+    })
+}
+
 /// A client bound to one relay base URL, room, and `from` tag.
 pub struct RelayClient<T: Transport> {
     transport: T,
@@ -75,6 +110,9 @@ impl<T: Transport> RelayClient<T> {
         let body = serde_json::to_vec(&serde_json::json!({ "from": self.from, "data": data }))
             .map_err(|e| e.to_string())?;
         let resp = self.transport.post(&url, &body)?;
+        if let Some(words) = refusal_in_words(&resp) {
+            return Err(words);
+        }
         let v: PostResp = serde_json::from_slice(&resp).map_err(|e| format!("post resp: {e}"))?;
         Ok(v.seq)
     }
@@ -87,6 +125,9 @@ impl<T: Transport> RelayClient<T> {
             self.base, self.room, since, self.from
         );
         let resp = self.transport.get(&url)?;
+        if let Some(words) = refusal_in_words(&resp) {
+            return Err(words);
+        }
         let v: PollResp = serde_json::from_slice(&resp).map_err(|e| format!("poll resp: {e}"))?;
         Ok(Poll {
             messages: v.messages,
@@ -575,5 +616,135 @@ mod tests {
         assert_eq!(retry(&|| t.post(url, b"{}")).unwrap(), b"ok");
         assert_eq!(recorded(), curl_args(true, url));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A transport that answers every call with one fixed body, as `curl` without `-f` hands back
+    /// whatever the relay said, an error answer included.
+    struct Canned(Vec<u8>);
+
+    impl Transport for Canned {
+        fn post(&self, _url: &str, _body: &[u8]) -> Result<Vec<u8>, String> {
+            Ok(self.0.clone())
+        }
+        fn get(&self, _url: &str) -> Result<Vec<u8>, String> {
+            Ok(self.0.clone())
+        }
+    }
+
+    fn canned(body: &str) -> RelayClient<Canned> {
+        RelayClient::new(Canned(body.as_bytes().to_vec()), "", "room-xyz", "helper")
+    }
+
+    #[test]
+    fn a_relay_refusal_is_shown_in_words() {
+        for (body, words) in [
+            (
+                r#"{"error":"relay_full"}"#,
+                "the relay is full right now, try again in a moment",
+            ),
+            (
+                r#"{"error":"rate limited"}"#,
+                "the relay is limiting this server's requests, try again in a moment",
+            ),
+            (
+                r#"{"error":"message too large"}"#,
+                "the relay refused the message because it is too large",
+            ),
+            (
+                r#"{"error":"bad from tag"}"#,
+                "the relay refused the request (bad from tag)",
+            ),
+            (
+                r#"{"error":"method not allowed"}"#,
+                "the relay refused the request (method not allowed)",
+            ),
+        ] {
+            assert_eq!(
+                canned(body).post("x"),
+                Err(words.to_string()),
+                "post {body}"
+            );
+            assert_eq!(canned(body).poll(0), Err(words.to_string()), "poll {body}");
+        }
+    }
+
+    #[test]
+    fn a_refusal_code_the_client_does_not_know_is_cut_to_printable_characters() {
+        let long = serde_json::json!({ "error": format!("{}\u{7}\n", "a".repeat(100)) });
+        assert_eq!(
+            canned(&long.to_string()).post("x"),
+            Err(format!(
+                "the relay refused the request ({})",
+                "a".repeat(64)
+            ))
+        );
+        // Printable ASCII from the space to the tilde stays; the rest is dropped: an escape, a
+        // line break, DEL, and anything outside ASCII.
+        let odd = serde_json::json!({ "error": "ba\u{1b}[31md\u{e9}\n\u{7f} code~" });
+        assert_eq!(
+            canned(&odd.to_string()).poll(0),
+            Err("the relay refused the request (ba[31md code~)".to_string())
+        );
+    }
+
+    #[test]
+    fn a_normal_answer_is_not_taken_for_a_refusal() {
+        assert_eq!(canned(r#"{"seq":7,"peers":1}"#).post("x"), Ok(7));
+        let p = canned(r#"{"messages":[{"seq":1,"from":"a","data":"d"}],"next":1,"peers":0}"#)
+            .poll(0)
+            .unwrap();
+        assert_eq!((p.messages.len(), p.next), (1, 1));
+        // A message that merely contains the words is a message, not a refusal.
+        let body = serde_json::json!({
+            "messages": [{ "seq": 1, "from": "a", "data": r#"{"error":"relay_full"}"# }],
+            "next": 1,
+            "peers": 0
+        });
+        let p = canned(&body.to_string()).poll(0).unwrap();
+        assert_eq!(p.messages[0].data, r#"{"error":"relay_full"}"#);
+    }
+
+    #[test]
+    fn an_answer_that_is_neither_is_still_reported_as_unreadable() {
+        let e = canned("<html>bad gateway</html>").post("x").unwrap_err();
+        assert!(e.starts_with("post resp: "), "{e}");
+        let e = canned("<html>bad gateway</html>").poll(0).unwrap_err();
+        assert!(e.starts_with("poll resp: "), "{e}");
+        // An error that is not a word is not a refusal either.
+        let e = canned(r#"{"error":5}"#).post("x").unwrap_err();
+        assert!(e.starts_with("post resp: "), "{e}");
+    }
+
+    /// What is shown is the first 64 PRINTABLE characters of the code: what is not printable is
+    /// dropped first and the cut comes after, so a code that starts with control characters still
+    /// shows 64 characters, not the few that are left of its first 64.
+    #[test]
+    fn an_unknown_code_shows_sixty_four_printable_characters_even_when_it_starts_with_control_ones()
+    {
+        let code = format!("{}{}", "\u{7}".repeat(30), "a".repeat(100));
+        let body = serde_json::json!({ "error": code }).to_string();
+        let shown = format!("the relay refused the request ({})", "a".repeat(64));
+        assert_eq!(canned(&body).post("x"), Err(shown.clone()));
+        assert_eq!(canned(&body).poll(0), Err(shown));
+    }
+
+    /// A known code is named by its exact text: one with stray spaces is an unknown code and is
+    /// shown as it came, not matched after trimming.
+    #[test]
+    fn a_known_code_with_stray_spaces_is_an_unknown_code() {
+        for code in [
+            " relay_full ",
+            "relay_full ",
+            " rate limited",
+            "message too large\t",
+        ] {
+            let body = serde_json::json!({ "error": code }).to_string();
+            let shown = format!(
+                "the relay refused the request ({})",
+                code.trim_matches('\t')
+            );
+            assert_eq!(canned(&body).post("x"), Err(shown.clone()), "{code:?}");
+            assert_eq!(canned(&body).poll(0), Err(shown), "{code:?}");
+        }
     }
 }

@@ -131,6 +131,13 @@ explicitly accepted.
   address its requests count under, and the fix under Security reaches no further than that. Tracked
   in #400.
 
+### Fixed
+
+- **A refusal from the relay is shown in words.** When the relay refused a request the coordinator
+  makes (it was full, it was limiting this server, the message was too large), the operator read
+  "failed to parse relay: post resp: missing field `seq`". It now reads the relay's reason in a
+  sentence after that prefix. This takes effect when the coordinator is next deployed.
+
 ## [0.13.2] 2026-10-17
 
 > **Services deployed when this was cut (2026-10-17):** coordinator `4223028`, relay `42da05bf003afc41`.
