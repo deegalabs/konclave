@@ -40,7 +40,7 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
-## [0.13.2] 2026-10-16
+## [0.13.2] 2026-10-17
 
 ### Fixed
 
