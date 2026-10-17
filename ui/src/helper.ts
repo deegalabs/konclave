@@ -560,7 +560,7 @@ export async function executeProposal(args: {
     })
     const data = (await res.json().catch(() => null)) as
       | { txid: string | null; dry_run: boolean; state: string }
-      | { error?: string; state?: unknown; txid?: unknown }
+      | { error?: string; state?: unknown; txid?: unknown; reason?: unknown; held_until?: unknown }
       | null
     if (!res.ok) {
       const raw = data && 'error' in data && typeof data.error === 'string' ? data.error : ''
@@ -569,7 +569,19 @@ export async function executeProposal(args: {
       // is what tells the endings apart.
       const state = data && 'error' in data && typeof data.state === 'string' ? data.state : ''
       const txid = data && 'error' in data && typeof data.txid === 'string' && data.txid.trim() ? data.txid.trim() : ''
-      if (raw) return { error: raw, ...(state ? { state } : {}), ...(txid ? { txid } : {}) }
+      // `reason` and `held_until` are the coordinator's structured account of a refusal caused by a
+      // network upgrade (#638): kept, so the screen decides by them and not by the English text.
+      const reason = data && 'reason' in data && typeof data.reason === 'string' ? data.reason : ''
+      const heldUntil = data && 'held_until' in data && typeof data.held_until === 'number' ? data.held_until : undefined
+      if (raw) {
+        return {
+          error: raw,
+          ...(state ? { state } : {}),
+          ...(txid ? { txid } : {}),
+          ...(reason ? { reason } : {}),
+          ...(heldUntil !== undefined ? { heldUntil } : {}),
+        }
+      }
       // A gateway status with NO reason is the dangerous case (#280). The reply comes after a blocking
       // build+prove+broadcast that routinely outlives a proxy idle timeout. So
       // a bare 502 is at least as likely to mean "it went out and the answer was lost" as "nothing

@@ -46,7 +46,7 @@ describe('the owner signing on this device', () => {
     reloaded.give('p1', Date.now())
     // ...does not cover another transaction for the same approval while the first is alive.
     expect(await reloaded.claim('v1', 'p1', B, ALIVE)).toEqual('second')
-    expect(reloaded.lastSecond).toEqual({ proposal: 'p1', firstExpiry: ALIVE, firstUntil: expect.any(Number), byEpoch: false, sighash: B })
+    expect(reloaded.lastSecond).toEqual({ proposal: 'p1', firstExpiry: ALIVE, firstUntil: expect.any(Number), untilHeight: null, byEpoch: false, sighash: B })
     expect(reloaded.allows('p1'), 'the refused click is spent').toBe(false)
   })
 

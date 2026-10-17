@@ -480,7 +480,7 @@ describe('the device that is sending, named', () => {
   })
 })
 
-describe('the confirm for signing again, when an upgrade ended the earlier attempt (#638)', () => {
+describe('the confirm for signing again, when an upgrade ends the earlier attempt (#638)', () => {
   const t = (k: string, v?: Record<string, string | number>) => {
     let s = k
     for (const [n, x] of Object.entries(v ?? {})) s += ` ${n}=${x}`
@@ -488,14 +488,34 @@ describe('the confirm for signing again, when an upgrade ended the earlier attem
   }
   const NOW = 1_792_490_400_000
   const base = { amt: '1', usd: '', dest: 'u1dest', isPayroll: false, iWouldBeLast: false, t, onCancel: () => {}, onConfirm: () => {}, now: NOW }
-  it('says the network no longer accepts it, with the same time the decision turns at', () => {
-    const html = renderToStaticMarkup(<SignConfirm {...base} again byEpoch firstUntil={1_792_497_600} locale="en" />)
-    expect(html).toMatch(/signing\.againUntilEpoch when=/)
+  it('names the last block the earlier transaction can be mined in, and the time, when the upgrade cuts it', () => {
+    const html = renderToStaticMarkup(<SignConfirm {...base} again byEpoch untilHeight={3499999} firstUntil={1_792_497_600} locale="en" />)
+    expect(html).toMatch(/signing\.againUntilEpoch when=[^ ]+.* block=3499999/)
     expect(html).not.toContain('signing.againUntil when=')
   })
   it('keeps the ordinary wording for an attempt that simply has not expired', () => {
     const html = renderToStaticMarkup(<SignConfirm {...base} again firstUntil={1_792_497_600} locale="en" />)
     expect(html).toMatch(/signing\.againUntil when=/)
     expect(html).not.toContain('againUntilEpoch')
+  })
+  it('does not word it as the upgrade\'s when WASM named no block', () => {
+    const html = renderToStaticMarkup(<SignConfirm {...base} again byEpoch firstUntil={1_792_497_600} locale="en" />)
+    expect(html).not.toContain('againUntilEpoch')
+    expect(html).toMatch(/signing\.againUntil when=/)
+  })
+  it('says the time is unknown instead of staying silent', () => {
+    const html = renderToStaticMarkup(<SignConfirm {...base} again firstUntil={0} locale="en" />)
+    expect(html).toContain('signing.againNoTime')
+    expect(html).not.toContain('signing.againUntil when')
+  })
+  it('never claims the network already refuses it: the text promises only what WASM knows', async () => {
+    const { en } = await import('./i18n/en')
+    const { ptBR } = await import('./i18n/pt-BR')
+    for (const d of [en, ptBR]) {
+      expect(d['signing.againUntilEpoch']).toContain('{block}')
+      expect(d['signing.againUntilEpoch']).toContain('{when}')
+    }
+    expect(en['signing.againUntilEpoch']).not.toMatch(/no longer accepts|refuses/i)
+    expect(ptBR['signing.againUntilEpoch']).not.toMatch(/não a aceita mais|recusa/i)
   })
 })

@@ -72,7 +72,7 @@ export type SendReply =
   /** `state` is the payment's state when the coordinator refused because it is not ready to send
    *  (`sent` when another device sent it; `ready` when it says the payment may be on the network). `txid` when
    *  it broadcast and got an error back: the payment may be on the network. */
-  | { error: string; state?: string; txid?: string }
+  | { error: string; state?: string; txid?: string; reason?: string; heldUntil?: number }
   /** The coordinator did not answer, or gave a gateway error with no reason. The money may have
    *  moved. The caller MUST resolve it against the vault before saying anything (#280). */
   | { unknown: true }
@@ -86,10 +86,23 @@ export type ReplyEnd =
   | { kind: 'not-sent'; why: 'unreachable' }
   | { kind: 'not-sent'; why: 'no-txid' }
   | { kind: 'not-sent'; why: 'not-sendable'; state: string; raw: string }
-  | { kind: 'not-sent'; why: 'error'; raw: string }
+  | { kind: 'not-sent'; why: 'error'; raw: string; epoch?: EpochEnding }
   /** `sentElsewhere`: the coordinator refused because another device sent it. */
   | { kind: 'resolve'; sentElsewhere?: true }
   | { kind: 'held'; txid?: string }
+
+/** The endings the coordinator names with a `reason` when a network upgrade is behind a refusal. The
+ *  app decides by the reason, never by the coordinator's wording (which is a draft and changes). The
+ *  four values are the coordinator's (`orchestrator::epoch`), pinned by `epoch-reply.test.ts`. */
+export const EPOCH_REASONS = ['hold', 'crossing_hold', 'not_updated', 'needs_new_signature'] as const
+export type EpochReason = (typeof EPOCH_REASONS)[number]
+export interface EpochEnding { reason: EpochReason; heldUntil?: number }
+
+function epochOf(r: { reason?: string; heldUntil?: number }): EpochEnding | undefined {
+  const reason = EPOCH_REASONS.find((x) => x === r.reason)
+  if (!reason) return undefined
+  return typeof r.heldUntil === 'number' ? { reason, heldUntil: r.heldUntil } : { reason }
+}
 
 export function readReply(r: SendReply): ReplyEnd {
   if (!r) return { kind: 'not-sent', why: 'unreachable' }
@@ -100,7 +113,10 @@ export function readReply(r: SendReply): ReplyEnd {
   // Refused while the payment still reads ready: the coordinator says it may be on the network.
   if ('error' in r && r.state === 'ready') return { kind: 'held' }
   if ('error' in r && r.state) return { kind: 'not-sent', why: 'not-sendable', state: r.state, raw: r.error }
-  if ('error' in r) return { kind: 'not-sent', why: 'error', raw: r.error }
+  if ('error' in r) {
+    const epoch = epochOf(r)
+    return epoch ? { kind: 'not-sent', why: 'error', raw: r.error, epoch } : { kind: 'not-sent', why: 'error', raw: r.error }
+  }
   if (!r.txid) return { kind: 'not-sent', why: 'no-txid' }
   return { kind: 'sent', txid: r.txid }
 }

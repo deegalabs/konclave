@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs'
 import { beforeAll, describe, expect, it } from 'vitest'
 import init, { approvalDecision } from './wasm-pkg/konclave_wasm.js'
-import { decideFor, hashSighash, readSigned, recordSigned, type RecordStore } from './signed-record'
+import { decideFor, hashSighash, readSigned, recordSigned, validBranch, type RecordStore } from './signed-record'
 
 beforeAll(async () => {
   await init(readFileSync(new URL('./wasm-pkg/konclave_wasm_bg.wasm', import.meta.url)))
@@ -109,6 +109,23 @@ describe('the branch of what this device signed', () => {
     }
   })
 
+  it('refuses to record an entry with no usable branch, rather than let it read as NU6.3', async () => {
+    for (const bad of [undefined, null, 0, -1, 1.5, NaN, 2 ** 32, '3', {}]) {
+      const s = memory()
+      await expect(recordSigned(s, 'v1', 'p1', A, ALIVE, bad as unknown as number), String(bad)).rejects.toThrow('[record]')
+      expect(s.data.size, 'nothing was written').toBe(0)
+    }
+    expect([1, NU63, 2 ** 32 - 1].every(validBranch)).toBe(true)
+    expect([undefined, 0, -3, 1.5, 2 ** 32, '1'].some(validBranch)).toBe(false)
+  })
+
+  it('a record that never stops counting gives no time: Second carries null, not a moment', async () => {
+    const s = memory()
+    await recordSigned(s, 'v1', 'p1', A, 0, NU63) // no expiry
+    const d = await decideFor(s, 'v1', 'p1', B)
+    expect(d).toEqual({ kind: 'second', firstExpiry: 0, untilUnix: null, untilHeight: null, byEpoch: false })
+  })
+
   it('Second carries the time the decision turns, from the same rule (no second reading of it)', async () => {
     const s = memory()
     // An expiry a few days out: the time is in the future, and is where the decision turns.
@@ -128,7 +145,7 @@ describe('what a new transaction is, by the rule in WASM', () => {
     expect(await decideFor(s, 'v1', 'p1', A)).toEqual({ kind: 'first' })
     await recordSigned(s, 'v1', 'p1', A, ALIVE, NU63)
     expect(await decideFor(s, 'v1', 'p1', A)).toEqual({ kind: 'same' })
-    expect(await decideFor(s, 'v1', 'p1', B)).toEqual({ kind: 'second', firstExpiry: ALIVE, untilUnix: expect.any(Number), byEpoch: false })
+    expect(await decideFor(s, 'v1', 'p1', B)).toEqual({ kind: 'second', firstExpiry: ALIVE, untilUnix: expect.any(Number), untilHeight: null, byEpoch: false })
     const t = memory()
     await recordSigned(t, 'v1', 'p1', A, DEAD, NU63)
     expect(await decideFor(t, 'v1', 'p1', B)).toEqual({ kind: 'afterExpiry' })

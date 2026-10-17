@@ -10,7 +10,10 @@
 import { readOutcome, type PanelResult, type ReplyEnd, type Resolution, type SentProbe } from './send-outcome'
 import { startVisiblePoll } from './usePoll'
 import type { TFn } from './i18n'
-import { humanError, netState } from './api'
+import { epochMessage, humanError, netState } from './api'
+import { interpolate } from './i18n'
+import { en } from './i18n/en'
+import { ptBR } from './i18n/pt-BR'
 
 /** The txid of the payment if the coordinator records it as sent, or null. The rule that reads a
  *  send's outcome (`readOutcome`), so the check, the watch and the resolution of a lost reply agree.
@@ -92,6 +95,12 @@ export function panelStep(end: ReplyEnd, t: TFn): PanelStep {
   if (end.why === 'unreachable') return { do: 'fail', text: t('signing.errUnreachable') }
   if (end.why === 'no-txid') return { do: 'fail', text: t('signing.errNoTxid') } // a reply with no txid is NOT a send
   if (end.why === 'not-sendable') return { do: 'fail', text: notSendableText(t, end.state), raw: end.raw }
+  // A refusal a network upgrade is behind is worded by the coordinator's structured reason, never by
+  // matching its English text (#638).
+  if (end.epoch) {
+    const m = epochMessage(end.epoch)
+    return { do: 'fail', text: t(m.key, m.vars), raw: end.raw }
+  }
   // Through humanError, so the money path never shows a binary path and a Rust struct.
   return { do: 'fail', text: humanError(t, end.raw), raw: end.raw }
 }
@@ -139,6 +148,11 @@ export function netReplyText(end: ReplyEnd): { pt: string; en: string; stop: boo
   }
   if (end.why === 'unreachable') return { pt: 'Falha ao executar: não foi possível falar com o coordenador.', en: 'Execute failed: could not reach the coordinator.', stop: true }
   if (end.why === 'no-txid') return { pt: 'Falha ao executar: o coordenador respondeu sem txid.', en: 'Execute failed: the coordinator replied with no txid.', stop: true }
+  // /net has no translator: the upgrade refusals are worded from both dictionaries, by reason.
+  if (end.why === 'error' && end.epoch) {
+    const m = epochMessage(end.epoch)
+    return { pt: interpolate(ptBR[m.key] ?? m.key, m.vars), en: interpolate(en[m.key] ?? m.key, m.vars), stop: true }
+  }
   const raw = end.why === 'not-sendable' ? `${end.raw} (${end.state})` : end.raw
   return { pt: `Falha ao executar: ${raw}`, en: `Execute failed: ${raw}`, stop: true }
 }

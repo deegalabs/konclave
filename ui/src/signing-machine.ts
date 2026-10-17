@@ -10,6 +10,7 @@
 // keeps the exact preconditions and the exact boolean return contract the caller's fixpoint
 // relies on (`false` = "not ready, re-apply me later"; `true` = "consumed").
 
+import { validBranch } from './signed-record'
 import { Coordinator, identifierBytes, participantRound1, participantRound2WithRandomizer, readForSigning, pcztSighash } from './wasm-pkg/konclave_wasm.js'
 import type { GateDecision, PcztOutput, PcztPayment } from './approved-payment'
 import { b64, unb64, bytesEqual } from './net'
@@ -439,6 +440,12 @@ export class SigningMachine {
       // The expiry and the branch are THIS device's reading of the header it just checked, never a
       // field of the request: the record keeps what the device saw, not what it was told.
       const read = payment as PcztPayment & { expiry: number; branch: number }
+      // A reading with no usable branch is not recorded under a default: nothing is signed.
+      if (!validBranch(read.branch)) {
+        this.d.onError(this.d.tt(refusalKey('[record]')))
+        this.d.onLog('~ [record] the reading carries no usable consensus branch')
+        return true
+      }
       this.expiry = read.expiry
       this.branch = read.branch
       let claimed: boolean

@@ -43,7 +43,7 @@ interface VaultSignerCtx {
   armActive: (opts?: { again?: boolean }) => Promise<void>
   /** A second transaction for this payment was refused: until when the first one stays valid. */
   /** The first transaction's expiry block, and when this device stops counting it (unix seconds, 0 when unknown). */
-  signedBefore: { proposal: string; firstExpiry: number; firstUntil: number; byEpoch: boolean } | null
+  signedBefore: { proposal: string; firstExpiry: number; firstUntil: number; untilHeight: number | null; byEpoch: boolean } | null
   /** When this device's signature stops counting (epoch ms), or null when it is not armed. */
   armedUntil: number | null
   /** Is this receiver one of the vault's own, by the same `ourReceivers` the money gate decides
@@ -182,7 +182,7 @@ export function VaultSignerProvider({ children }: { children: ReactNode }) {
   vaultIdRef.current = vault?.id ?? null
   // A second transaction for an approval this device already signed, refused: what the panel tells
   // its owner (until when the first stays valid) before they may sign again knowing it.
-  const [signedBefore, setSignedBefore] = useState<{ proposal: string; firstExpiry: number; firstUntil: number; byEpoch: boolean } | null>(null)
+  const [signedBefore, setSignedBefore] = useState<{ proposal: string; firstExpiry: number; firstUntil: number; untilHeight: number | null; byEpoch: boolean } | null>(null)
   const gate = useMemo(
     () => makeSigningGate({
       mode: () => 'manual',
@@ -206,7 +206,7 @@ export function VaultSignerProvider({ children }: { children: ReactNode }) {
       // it is counted), so the screen says exactly when this warning stops.
       // The machine words this one itself: a record it could not read is not a second transaction.
       if (r === 'unreadable') throw new Error('[unreadable] this device could not read what it signed')
-      if (r === 'second' && last) setSignedBefore({ proposal: last.proposal, firstExpiry: last.firstExpiry, firstUntil: last.firstUntil, byEpoch: last.byEpoch })
+      if (r === 'second' && last) setSignedBefore({ proposal: last.proposal, firstExpiry: last.firstExpiry, firstUntil: last.firstUntil, untilHeight: last.untilHeight, byEpoch: last.byEpoch })
       return r === 'ok'
     },
     [],

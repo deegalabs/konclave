@@ -886,7 +886,8 @@ export const en: Record<string, string> = {
   'signing.againUntil': 'Until about {when}, this device treats the earlier attempt as able to reach the network (the network itself gives up on it earlier). Waiting until then is the safe choice: after that, this device stops asking about the earlier attempt, and signing works as usual.',
   // DRAFT (#638), for the maintainer to approve before merge. A network upgrade is behind each of the next
   // texts; none can appear until the upgrade's row is in the build.
-  'signing.againUntilEpoch': 'The earlier attempt for this payment was signed before the network upgrade, so the network no longer accepts it. This device still counts it until about {when}, because it judges by its own clock. Waiting until then is the safe choice.',
+  'signing.againUntilEpoch': 'An earlier transaction for this payment can only be mined until block {block} (about {when}). If it is mined first, signing again pays this payment twice. Waiting until then is the safe choice.',
+  'signing.againNoTime': 'This device cannot tell when the earlier attempt stops being able to reach the network. Check the book before signing again.',
   'error.needsNewSignature': 'This payment needs a new signature: the network upgraded before the earlier attempt was mined. The approval stands; sign and send again.',
   'error.fundsHeldUntil': 'This payment needs a new signature, and the network keeps its funds reserved until block {height}. It can be sent again after that.',
   'error.upgradeHold': 'The network is about to upgrade. This payment can be sent once the upgrade block is mined; nothing was built.',

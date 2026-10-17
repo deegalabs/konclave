@@ -21,7 +21,7 @@ export class OwnerSigning {
    *  withdrawn; a new click on the same payment keeps it, so a ceremony under way is not cut. */
   private claimed: { vault: string; proposal: string; sighash: string } | null = null
   /** The last second transaction refused, for the screen: which approval, and until when the first stays valid. */
-  lastSecond: { proposal: string; firstExpiry: number; firstUntil: number; byEpoch: boolean; sighash: string } | null = null
+  lastSecond: { proposal: string; firstExpiry: number; firstUntil: number; untilHeight: number | null; byEpoch: boolean; sighash: string } | null = null
 
   private readonly store: RecordStore
   private readonly now: () => number
@@ -70,7 +70,7 @@ export class OwnerSigning {
     const h = sighashHex.trim().toLowerCase()
     if (decision.kind === 'second' && !(this.again?.proposal === activeId && this.again.sighash === h)) {
       this.consent.spent = true
-      this.lastSecond = { proposal: activeId, firstExpiry: decision.firstExpiry, firstUntil: decision.untilUnix, byEpoch: decision.byEpoch, sighash: h }
+      this.lastSecond = { proposal: activeId, firstExpiry: decision.firstExpiry, firstUntil: decision.untilUnix ?? 0, untilHeight: decision.untilHeight, byEpoch: decision.byEpoch, sighash: h }
       return 'second'
     }
     if (!claimConsent(this.consent, activeId, this.now(), sighashHex)) return 'refused'

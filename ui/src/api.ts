@@ -6,6 +6,7 @@
 // resilient if the local daemon is momentarily down).
 
 import type { TFn } from './i18n'
+import type { EpochEnding, EpochReason } from './send-outcome'
 import {
   helperConfigured,
   helperHealth,
@@ -514,6 +515,22 @@ export function errorCode(error?: string, detail?: string): FailureCode {
 export const CONFIRMATIONS_UNTRUSTED = 10
 export const CONFIRMATIONS_TRUSTED = 3
 
+/** The message for a refusal a network upgrade is behind, decided by the coordinator's structured
+ *  `reason` (and `held_until`), never by its English text: the text is a draft that will change, and a
+ *  screen that read it would silently fall back to a raw sentence the day it did (#638). */
+export const EPOCH_KEYS: Record<EpochReason, string> = {
+  hold: 'error.upgradeHold',
+  crossing_hold: 'error.upgradeHoldCrossing',
+  not_updated: 'error.coordinatorNotUpdated',
+  needs_new_signature: 'error.needsNewSignature',
+}
+/** The key and variables of an epoch ending's message (shared by the panel, which translates through
+ *  `t`, and /net, which has both dictionaries). */
+export function epochMessage(e: EpochEnding): { key: string; vars?: Record<string, number> } {
+  if (e.reason === 'needs_new_signature' && e.heldUntil !== undefined) return { key: 'error.fundsHeldUntil', vars: { height: e.heldUntil } }
+  return { key: EPOCH_KEYS[e.reason] }
+}
+
 export function humanError(t: TFn, error?: string, detail?: string): string {
   const e = (error ?? '').toLowerCase()
   const d = (detail ?? '').toLowerCase()
@@ -534,14 +551,6 @@ export function humanError(t: TFn, error?: string, detail?: string): string {
       return t('error.insufficientExact', { have: fmtZecExact(have / 1e8), need: fmtZecExact(need / 1e8) })
     }
   }
-  // The network upgrade (#638). The coordinator's own wordings, matched before `signature` below
-  // (the first of them contains it) and before anything that reads a refusal as a connection fault.
-  const heldUntil = /held by the network until block (\d+)/i.exec(`${error ?? ''} ${detail ?? ''}`)
-  if (heldUntil) return t('error.fundsHeldUntil', { height: heldUntil[1]! })
-  if (has('needs a new signature')) return t('error.needsNewSignature')
-  if (has('the network is upgrading')) return t('error.upgradeHold')
-  if (has('moves funds between pools')) return t('error.upgradeHoldCrossing')
-  if (has('has not been updated for the network upgrade')) return t('error.coordinatorNotUpdated')
   if (has('insufficient') || has('saldo')) return t('error.insufficient')
   // A client-side fetch failure surfaces as 'no connection' - match it BEFORE the ceremony
   // rule below, whose bare 'connection' substring would otherwise swallow it.

@@ -55,7 +55,9 @@ interface Wire { seq: number; from: string; data: string }
 class Bus {
   readonly msgs: Wire[] = []
   private seq = 0
-  post(from: string, data: string) { this.msgs.push({ seq: this.seq++, from, data }) }
+  /** A hostile relay or coordinator: rewrites what a device posts before the others read it. */
+  tamper?: (data: string) => string
+  post(from: string, data: string) { this.msgs.push({ seq: this.seq++, from, data: this.tamper ? this.tamper(data) : data }) }
 }
 
 interface Device {
@@ -598,22 +600,49 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     expect(A.claimExpiries).toEqual([expiry])
   })
 
-  // The branch the record keeps is what THIS device read in the header it checked. A request that
-  // names another branch in its own metadata (any field, any spelling) changes nothing: that value
-  // is the coordinator's word, and a record written from it would say what the device was told.
-  it('records the branch it read from the transaction even when the request names another (#638)', async () => {
-    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+  // The branch (and expiry) the record keeps is what THIS device read in the header it checked. Whatever
+  // the request, the `sreq` the coordinator relays, or the sealed request names in its own metadata
+  // (any field, any spelling) changes nothing: that is the coordinator's word, and a record written
+  // from it would say what the device was told. The lie rides in all three places, so a driver that
+  // read the branch from any of them is caught.
+  const LIE = { branch: 0x77190ad9, branch_id: 0x77190ad9, b: 0x77190ad9, consensus_branch_id: 0x77190ad9, expiry: 7, expiry_height: 7 }
+  const lyingBus = () => {
     const bus = new Bus()
-    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
-    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
-    const pczt = withExpiry(dkgProvenPczt(), honestExpiry())
-    const honest = JSON.parse(signRequestFor(pczt).json) as Record<string, unknown>
-    const lying = { ...honest, branch: 0x77190ad9, branch_id: 0x77190ad9, b: 0x77190ad9, consensus_branch_id: 0x77190ad9 }
-    bus.post('helper', JSON.stringify(lying))
-    await runCeremony(A, B, bus)
-    expect(A.sig?.ok).toBe(true)
-    expect(A.records.length).toBeGreaterThan(0)
-    for (const r of A.records) expect(r[2]).toBe(NU63)
+    bus.tamper = (data) => {
+      try {
+        const m = JSON.parse(data) as { type?: string }
+        return m.type === 'sreq' ? JSON.stringify({ ...m, ...LIE }) : data
+      } catch { return data }
+    }
+    return bus
+  }
+  for (const sealed of [false, true]) {
+    it(`records the branch it read from the transaction even when the ${sealed ? 'sealed ' : ''}request and the sreq name another (#638)`, async () => {
+      const { s0, s1, groupVk, pubkeys } = dkg2of3()
+      const bus = lyingBus()
+      const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+      const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+      const expiry = honestExpiry()
+      const pczt = withExpiry(dkgProvenPczt(), expiry)
+      const honest = JSON.parse(signRequestFor(pczt).json) as Record<string, unknown>
+      bus.post('helper', JSON.stringify({ ...honest, ...LIE, ...(sealed ? { sealed: true } : {}) }))
+      await runCeremony(A, B, bus)
+      // The lie was really on the wire for the devices to read.
+      const sreqs = bus.msgs.map((m) => { try { return JSON.parse(m.data) as Record<string, unknown> } catch { return {} } }).filter((p) => p.type === 'sreq')
+      expect(sreqs.length).toBeGreaterThan(0)
+      for (const s of sreqs) expect(s.branch).toBe(LIE.branch)
+      expect(A.sig?.ok).toBe(true)
+      for (const dev of [A, B]) {
+        expect(dev.records.length).toBeGreaterThan(0)
+        for (const r of dev.records) expect([r[1], r[2]]).toEqual([expiry, NU63])
+      }
+    })
+  }
+
+  it('refuses to record under a branch it could not read (the reading carries none)', () => {
+    const src = codeOf('./signing-machine.ts')
+    expect(src).toMatch(/if \(!validBranch\(read\.branch\)\) \{/)
+    expect(src.indexOf('validBranch(read.branch)')).toBeLessThan(src.indexOf('this.branch = read.branch'))
   })
 
   it('a record refused because its owner withdrew lets no share leave, and is not called a storage failure', async () => {
