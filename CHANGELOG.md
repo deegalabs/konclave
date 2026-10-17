@@ -102,6 +102,18 @@ explicitly accepted.
   600 s to be mined, at 75 s a block) and `K_c` (288 blocks, about six hours, for cross-pool
   payments). The wasm export `approvalLapsesAt` is gone: the time on the confirm now comes with the
   decision, from the same rule.
+- The relay bounds the message bytes it holds: 4 MiB per room and 256 MiB in total. Past a room's
+  4 MiB its oldest messages leave first. When the relay as a whole is full, rooms nobody has used
+  for 45 seconds give up their oldest messages first, then rooms in use down to 384 KiB, and
+  `/health` says how full the relay is in steps of ten percent. What it does, when it takes
+  effect, and Known limits: see [relay-server/CHANGELOG.md](relay-server/CHANGELOG.md).
+
+### Fixed
+
+- **A refusal from the relay is shown in words.** When the relay refused a request the coordinator
+  makes (it was full, it was limiting this server, the message was too large), the operator read
+  "failed to parse relay: post resp: missing field `seq`". It now reads the relay's reason in a
+  sentence after that prefix. This takes effect when the coordinator is next deployed.
 
 ### Known limits
 
@@ -130,13 +142,6 @@ explicitly accepted.
   platform in front of one of them keeps a value the client sent, a client can still choose which
   address its requests count under, and the fix under Security reaches no further than that. Tracked
   in #400.
-
-### Fixed
-
-- **A refusal from the relay is shown in words.** When the relay refused a request the coordinator
-  makes (it was full, it was limiting this server, the message was too large), the operator read
-  "failed to parse relay: post resp: missing field `seq`". It now reads the relay's reason in a
-  sentence after that prefix. This takes effect when the coordinator is next deployed.
 
 ## [0.13.2] 2026-10-17
 
