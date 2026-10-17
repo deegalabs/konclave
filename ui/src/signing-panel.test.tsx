@@ -35,6 +35,8 @@ vi.mock('./VaultSigner', () => ({
 vi.mock('./session', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./session')>()),
   getUnlockedShare: () => state.share,
+  // The panel asks `unlockedHere` whether it can sign; the test's share is what answers it.
+  unlockedHere: () => !!state.share,
 }))
 vi.mock('./toast', () => ({ useToast: () => ({ show: () => {}, ok: () => {}, err: () => {}, success: () => {}, error: () => {} }) }))
 

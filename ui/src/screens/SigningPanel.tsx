@@ -22,7 +22,7 @@ import { errorCode, getBalance, getProposalDetail, writeProof } from '../api'
 import { relayBase } from '../net'
 import { OutcomeBook, peerFailureMayShow, readReply, resolveOutcome, sentTxidOf, RESOLVE_ATTEMPTS, type PanelResult } from '../send-outcome'
 import { endSend, newSendAttempt, takeSend } from '../send-attempt'
-import { getUnlockedShare } from '../session'
+import { getUnlockedShare, unlockedHere } from '../session'
 import { usdEnabled, cachedRate, fetchRate, zecToUsd, type Rate } from '../price'
 import { describeSigningError } from '../signing-refusal'
 import { readingRows } from '../device-reading'
@@ -30,6 +30,13 @@ import { againFromPanel } from '../sign-again'
 import { estimatedFeeZat } from '../fee-estimate'
 import type { SignPreview } from '../signing-machine'
 import { ARM_TTL_MS } from '../signing-gate'
+
+/** Is the panel waiting on the signer to come up? Only while a share is unlocked here and the signer
+ *  has not seated yet, or while a passphrase is being checked. With no share, the panel shows the
+ *  unlock form instead, never "Connecting": that is what a lock leads to. Exported for its test. */
+export function panelConnecting(s: { started: boolean; result: boolean; unlocking: boolean; hasShare: boolean; ready: boolean }): boolean {
+  return !s.started && !s.result && (s.unlocking || (s.hasShare && !s.ready))
+}
 
 /** What this device read from the transaction it is signing, or refused to sign (#610): every
  *  output that moves value and the fee, each checked against what the signature covers. Exact
@@ -297,8 +304,10 @@ export default function SigningPanel() {
 
   // This device can only sign if its share is unlocked in this session. If not, the ceremony can
   // never seat (0/N forever) - show a clear "unlock" path instead of hanging on "Opening…".
+  // The same question the background signer asks (`unlockedHere`), so the panel never says "you can
+  // sign" while the signer has not started; the share itself is read only for its fields.
   const loaded = vault ? getUnlockedShare(vault.id) : undefined
-  const hasShare = !!loaded
+  const hasShare = !!vault && unlockedHere(vault.id)
   // Identify "you" from the on-device record first (it reflects a rename immediately); fall back to
   // the session share's name. A stale name here made the panel fail to find your seat and light the
   // first member instead.
@@ -374,7 +383,7 @@ export default function SigningPanel() {
   // joined the signing room yet, so nobody reads as present (honest: real presence needs the share).
   // The loader appears only once you SUBMIT the passphrase (unlocking) and while the signer seats;
   // then the roster comes back with its real present/absent flags once THIS device is seated.
-  const connecting = !started && !result && (unlocking || (hasShare && !bg.ready))
+  const connecting = panelConnecting({ started, result: !!result, unlocking, hasShare, ready: bg.ready })
 
   // In full, here and in the confirm: the last thing read before a share moves is the whole address.
   const dest = active.to_address ?? '-'

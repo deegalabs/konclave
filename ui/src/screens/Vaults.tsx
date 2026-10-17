@@ -9,7 +9,7 @@ import { resumable, isCurrentFlow, sameCoordinator } from '../creation-protocol'
 import { concludeRegistration, refusalKey } from '../conclude-registration'
 import { buildVaultBackup, type VaultBackup } from '../build-backup'
 import { downloadText } from '../download'
-import { clearUnlockedShare, clearReadSecret, getUnlockedShare } from '../session'
+import { clearUnlockedShare, clearReadSecret, getUnlockedShare, unlockedHere } from '../session'
 import { loadPrfWrap, clearPrfWrap } from '../prf-store'
 import { unlockWithPasskey } from '../passkey-unlock'
 import { OPEN_DENIAL_COPY } from '../prf-denial-copy'
@@ -89,7 +89,7 @@ export default function Vaults() {
   /** Whether this device holds the vault's SHARE in session. A passkey unlock marks a vault unlocked
    *  with the read secret only, and registering needs the share, so the card asks this, not
    *  `isVaultUnlocked`. */
-  const hasShare = (id: string) => !!getUnlockedShare(id)
+  const hasShare = (id: string) => unlockedHere(id)
   // One registration at a time per vault: a second click while one runs does nothing.
   const concluding = useRef(new Set<string>())
   const [backupPass, setBackupPass] = useState('')
