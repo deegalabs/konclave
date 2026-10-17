@@ -5,6 +5,8 @@
 //! Confidentiality comes from here; plaintext authenticity is guaranteed independently (the DKG
 //! checks each round-2 share; the transport signs every relay message).
 
+pub mod epochs;
+
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{Key, XChaCha20Poly1305, XNonce};
 use hkdf::Hkdf;
