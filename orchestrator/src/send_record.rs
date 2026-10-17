@@ -271,9 +271,7 @@ pub fn settle_with(a: &Attempt, view: &WalletView, table: &Table, cap_on: bool) 
     }
     if cap_on {
         // Capped only when a LATER upgrade exists and the transaction outlives the block before it.
-        let capped = table
-            .next_activation_after(a.branch_id)
-            .is_some_and(|next| a.expiry_height == 0 || a.expiry_height >= next);
+        let capped = table.capped_by_next(a.branch_id, a.expiry_height);
         if let (true, Some(last)) = (capped, table.minable_until(a.branch_id, a.expiry_height)) {
             let scanned = match view.scanned {
                 Some(s) => s.min(tip),

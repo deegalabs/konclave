@@ -85,7 +85,9 @@ fn without_test_items(src: &str) -> String {
                         }
                         if b.get(k) == Some(&b'"') {
                             let end = format!("\"{}", "#".repeat(hashes));
-                            j = src[k + 1..].find(&end).map_or(b.len(), |p| k + 1 + p + end.len() - 1);
+                            j = src[k + 1..]
+                                .find(&end)
+                                .map_or(b.len(), |p| k + 1 + p + end.len() - 1);
                         }
                     }
                     b'\'' => {
@@ -162,7 +164,10 @@ fn the_scan_really_cuts_test_items_and_keeps_the_code_after_them() {
     };
     // Kept: production code on both sides of the test modules.
     let wasm = find("konclave-wasm/src/lib.rs");
-    assert!(wasm.contains("pub fn approval_lapses_at"), "the code after the tests is scanned");
+    assert!(
+        wasm.contains("pub fn pczt_sighash"),
+        "the code after the tests is scanned"
+    );
     assert!(wasm.contains("pub fn parse_signed"));
     // Cut: test bodies, with their oracle literals.
     assert!(!wasm.contains("PINNED_BOUNDS"));

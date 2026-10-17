@@ -134,6 +134,13 @@ impl Table {
         Some(if expiry == 0 { cap } else { expiry.min(cap) })
     }
 
+    /// Whether a later upgrade, and not the transaction's own expiry, ends its life: one exists after
+    /// the branch's row and the transaction (no expiry counts as one) outlives the block before it.
+    pub fn capped_by_next(&self, branch_id: u32, expiry: u32) -> bool {
+        self.next_activation_after(branch_id)
+            .is_some_and(|next| expiry == 0 || expiry >= next)
+    }
+
     /// Whether the transaction may still be mined as of `height`: [`REORG_MARGIN`] past the last height
     /// it can be in a block. A branch the table does not know cannot be judged dead, so it counts.
     /// The device feeds its window's floor in, the coordinator the chain tip.
@@ -308,6 +315,22 @@ mod tests {
         assert_eq!(t.minable_until(NU7, A + 40), Some(A + 40));
         assert_eq!(t.minable_until(NU7, 0), Some(u32::MAX));
         assert_eq!(t.minable_until(0xdead_beef, 5), None, "unknown branch");
+    }
+
+    #[test]
+    fn capped_by_next_is_true_only_for_a_transaction_that_outlives_the_block_before_it() {
+        assert!(WITH_NEXT.capped_by_next(NU63, A));
+        assert!(WITH_NEXT.capped_by_next(NU63, 0));
+        assert!(!WITH_NEXT.capped_by_next(NU63, A - 1));
+        assert!(
+            !WITH_NEXT.capped_by_next(NU7, A + 100),
+            "the latest row has no later upgrade"
+        );
+        assert!(!WITH_NEXT.capped_by_next(0xdead_beef, A));
+        assert!(
+            !MAINNET.capped_by_next(NU63, 0),
+            "no later row: nothing caps it"
+        );
     }
 
     #[test]

@@ -2171,9 +2171,13 @@ pub mod pczt_bridge {
         /// `first_expiry` is the latest expiry among the earlier transactions still counted;
         /// `until_unix` the moment the last of them stops counting, from the SAME rule the decision
         /// reads (`lapses_at`), so the time on the screen is where the decision turns. 0 = unknown.
+        ///
+        /// `by_epoch`: the earlier transaction that lasts longest is ended by a network upgrade
+        /// rather than by its own expiry, which the screen words apart.
         Second {
             first_expiry: u32,
             until_unix: i64,
+            by_epoch: bool,
         },
     }
 
@@ -2205,14 +2209,18 @@ pub mod pczt_bridge {
             .filter(|t| still_counted(rules, t.expiry, t.branch, now_unix))
             .collect();
         match counted.iter().map(|t| t.expiry).max() {
-            Some(first_expiry) => ApprovalDecision::Second {
-                first_expiry,
-                until_unix: counted
+            Some(first_expiry) => {
+                // The one that stops counting last decides what the screen says and until when.
+                let last = counted
                     .iter()
-                    .filter_map(|t| lapses_at(rules, t.expiry, t.branch))
-                    .max()
-                    .unwrap_or(0),
-            },
+                    .filter_map(|t| lapses_at(rules, t.expiry, t.branch).map(|at| (at, *t)))
+                    .max_by_key(|(at, _)| *at);
+                ApprovalDecision::Second {
+                    first_expiry,
+                    until_unix: last.map_or(0, |(at, _)| at),
+                    by_epoch: last.is_some_and(|(_, t)| rules.capped_by_next(t.branch, t.expiry)),
+                }
+            }
             None => ApprovalDecision::AfterExpiry,
         }
     }
@@ -3606,6 +3614,7 @@ pub mod pczt_bridge {
             ApprovalDecision::Second {
                 first_expiry,
                 until_unix: lapses_at(&MAINNET, first_expiry, NU6_3).unwrap_or(0),
+                by_epoch: false,
             }
         }
         fn honest(now: i64) -> TxHeader {
@@ -4162,7 +4171,8 @@ pub mod pczt_bridge {
                 approval_decision(&NEXT, &rec, "bb", t - 1),
                 ApprovalDecision::Second {
                     first_expiry: expiry,
-                    until_unix: t
+                    until_unix: t,
+                    by_epoch: true
                 }
             );
             assert_eq!(
@@ -4192,10 +4202,21 @@ pub mod pczt_bridge {
                 }];
                 let t = lapses_at(&NEXT, expiry, branch).expect("lapses");
                 let before = approval_decision(&NEXT, &rec, "bb", t - 1);
-                let ApprovalDecision::Second { until_unix, .. } = before else {
+                let ApprovalDecision::Second {
+                    until_unix,
+                    by_epoch,
+                    ..
+                } = before
+                else {
                     panic!("{expiry}/{branch}: not Second one second before the turn: {before:?}");
                 };
                 assert_eq!(until_unix, t, "{expiry}/{branch}");
+                // Only a record the upgrade ends (not its own expiry) is worded as the upgrade's.
+                assert_eq!(
+                    by_epoch,
+                    branch == NU6_3 && expiry >= A_TEST,
+                    "{expiry}/{branch}"
+                );
                 assert_eq!(
                     approval_decision(&NEXT, &rec, "bb", t),
                     ApprovalDecision::AfterExpiry,
@@ -5569,15 +5590,6 @@ mod js_pczt {
         ))
     }
 
-    /// When this device stops counting a transaction of consensus branch `branch` that expires at
-    /// `expiry` (`lapses_at`), in unix seconds: the moment `approvalDecision` turns from "second" to
-    /// "afterExpiry". 0 when unknown. The branch is part of the question: an upgrade can end a
-    /// transaction's life before its expiry.
-    #[wasm_bindgen(js_name = approvalLapsesAt)]
-    pub fn approval_lapses_at(expiry: u32, branch: u32) -> f64 {
-        pczt_bridge::lapses_at(&pczt_bridge::MAINNET, expiry, branch).unwrap_or(0) as f64
-    }
-
     /// What a new transaction is for an approval this device already signed (`approval_decision`),
     /// with the DEVICE's own clock read here. `signed` is this device's record as
     /// `"sighash:expiry[:branch],..."` (no branch = NU6.3); the answer is JSON `{"kind":
@@ -5599,9 +5611,10 @@ mod js_pczt {
                 pczt_bridge::ApprovalDecision::Second {
                     first_expiry,
                     until_unix,
+                    by_epoch,
                 } => {
                     format!(
-                        "{{\"kind\":\"second\",\"firstExpiry\":{first_expiry},\"untilUnix\":{until_unix}}}"
+                        "{{\"kind\":\"second\",\"firstExpiry\":{first_expiry},\"untilUnix\":{until_unix},\"byEpoch\":{by_epoch}}}"
                     )
                 }
             },
