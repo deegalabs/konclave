@@ -47,7 +47,8 @@ history to tidy it is how context gets lost.
   no error, and the payment could not be signed on that device until the page was reloaded and the
   vault unlocked. The panel and the device's signer now ask the same question, whether the vault's
   share is unlocked here, so the creating device signs at once, as one that was unlocked does.
-  Opening the vault from the list after a creation still asks for the passphrase once, as before.
+  Opening the vault from the list after a creation still asks for the passphrase once, as before
+  (#696).
 
 - **Any t of n devices can complete a send, without a fixed device starting the signing.** The
   signing used to be started by one fixed device of the vault, and when that device was not among
