@@ -2170,13 +2170,18 @@ pub mod pczt_bridge {
         AfterExpiry,
         /// `first_expiry` is the latest expiry among the earlier transactions still counted;
         /// `until_unix` the moment the last of them stops counting, from the SAME rule the decision
-        /// reads (`lapses_at`), so the time on the screen is where the decision turns. 0 = unknown.
+        /// reads (`lapses_at`), so the time on the screen is where the decision turns. `None` when
+        /// some earlier transaction never stops counting (no expiry, no later upgrade): the decision
+        /// then has no turning point, and a time on the screen would be a promise it cannot keep.
         ///
         /// `by_epoch`: the earlier transaction that lasts longest is ended by a network upgrade
-        /// rather than by its own expiry, which the screen words apart.
+        /// rather than by its own expiry, which the screen words apart; `until_height` is then the
+        /// last block it can be mined in (the block before the upgrade). Both are unset when the
+        /// time is unknown.
         Second {
             first_expiry: u32,
-            until_unix: i64,
+            until_unix: Option<i64>,
+            until_height: Option<u32>,
             by_epoch: bool,
         },
     }
@@ -2210,15 +2215,21 @@ pub mod pczt_bridge {
             .collect();
         match counted.iter().map(|t| t.expiry).max() {
             Some(first_expiry) => {
-                // The one that stops counting last decides what the screen says and until when.
-                let last = counted
+                // The one that stops counting last decides what the screen says and until when. If
+                // any counted one never stops, there is no time to give.
+                let turns: Option<Vec<(i64, &SignedTx)>> = counted
                     .iter()
-                    .filter_map(|t| lapses_at(rules, t.expiry, t.branch).map(|at| (at, *t)))
-                    .max_by_key(|(at, _)| *at);
+                    .map(|t| lapses_at(rules, t.expiry, t.branch).map(|at| (at, *t)))
+                    .collect();
+                let last = turns.and_then(|v| v.into_iter().max_by_key(|(at, _)| *at));
+                let by_epoch = last.is_some_and(|(_, t)| rules.capped_by_next(t.branch, t.expiry));
                 ApprovalDecision::Second {
                     first_expiry,
-                    until_unix: last.map_or(0, |(at, _)| at),
-                    by_epoch: last.is_some_and(|(_, t)| rules.capped_by_next(t.branch, t.expiry)),
+                    until_unix: last.map(|(at, _)| at),
+                    until_height: last
+                        .filter(|_| by_epoch)
+                        .and_then(|(_, t)| rules.minable_until(t.branch, t.expiry)),
+                    by_epoch,
                 }
             }
             None => ApprovalDecision::AfterExpiry,
@@ -3613,7 +3624,8 @@ pub mod pczt_bridge {
         fn second(first_expiry: u32) -> ApprovalDecision {
             ApprovalDecision::Second {
                 first_expiry,
-                until_unix: lapses_at(&MAINNET, first_expiry, NU6_3).unwrap_or(0),
+                until_unix: lapses_at(&MAINNET, first_expiry, NU6_3),
+                until_height: None,
                 by_epoch: false,
             }
         }
@@ -3803,7 +3815,12 @@ pub mod pczt_bridge {
         // A network table anchored where this testnet fixture was built, so its honest header
         // passes: the fixture's expiry is its builder's tip + 40.
         fn rules_for_fixture() -> (NetworkRules, i64) {
-            let p = Pczt::parse(IW_PROVEN).unwrap();
+            rules_for(IW_PROVEN)
+        }
+
+        /// The same for any PCZT of the fixture's family (its branch, whatever it is).
+        fn rules_for(pczt: &[u8]) -> (NetworkRules, i64) {
+            let p = Pczt::parse(pczt).unwrap();
             let expiry = *p.global().expiry_height();
             let e: &'static [Epoch] = Box::leak(Box::new([Epoch {
                 activation_height: expiry - 41,
@@ -4171,7 +4188,8 @@ pub mod pczt_bridge {
                 approval_decision(&NEXT, &rec, "bb", t - 1),
                 ApprovalDecision::Second {
                     first_expiry: expiry,
-                    until_unix: t,
+                    until_unix: Some(t),
+                    until_height: Some(A_TEST - 1),
                     by_epoch: true
                 }
             );
@@ -4204,17 +4222,24 @@ pub mod pczt_bridge {
                 let before = approval_decision(&NEXT, &rec, "bb", t - 1);
                 let ApprovalDecision::Second {
                     until_unix,
+                    until_height,
                     by_epoch,
                     ..
                 } = before
                 else {
                     panic!("{expiry}/{branch}: not Second one second before the turn: {before:?}");
                 };
-                assert_eq!(until_unix, t, "{expiry}/{branch}");
+                assert_eq!(until_unix, Some(t), "{expiry}/{branch}");
                 // Only a record the upgrade ends (not its own expiry) is worded as the upgrade's.
                 assert_eq!(
                     by_epoch,
                     branch == NU6_3 && expiry >= A_TEST,
+                    "{expiry}/{branch}"
+                );
+                // The block the screen names is the last one the earlier transaction can be mined in.
+                assert_eq!(
+                    until_height,
+                    by_epoch.then_some(A_TEST - 1),
                     "{expiry}/{branch}"
                 );
                 assert_eq!(
@@ -4225,6 +4250,32 @@ pub mod pczt_bridge {
             }
             // A record whose branch is unknown has no turn to show.
             assert_eq!(lapses_at(&NEXT, 5, 12345), None);
+        }
+
+        #[test]
+        fn a_record_that_never_stops_counting_gives_no_time() {
+            // Expiry 0 and no later upgrade: the decision has no turning point. A time on the screen
+            // would say the warning stops somewhere it does not (the moment of another record's turn).
+            let now = T_ANCHOR + 75 * 87_500;
+            let b = MAINNET.height_bounds(now);
+            let rec = [signed("aa", 0), signed("cc", b.est + 41)];
+            let d = approval_decision(&MAINNET, &rec, "bb", now);
+            let ApprovalDecision::Second {
+                until_unix,
+                until_height,
+                by_epoch,
+                ..
+            } = d
+            else {
+                panic!("{d:?}")
+            };
+            assert_eq!((until_unix, until_height, by_epoch), (None, None, false));
+            // And it is still Second long after the other record's turn: nothing was promised.
+            let later = now + 86_400 * 400;
+            assert!(matches!(
+                approval_decision(&MAINNET, &rec, "bb", later),
+                ApprovalDecision::Second { .. }
+            ));
         }
 
         #[test]
@@ -4304,13 +4355,29 @@ pub mod pczt_bridge {
 
         #[test]
         fn what_a_device_reads_gives_the_branch_of_the_header_it_checked() {
-            // The branch the record keeps comes from the header THIS device read and checked, here the
-            // fixture's own, and not from anything a caller passes in.
+            // The branch the record keeps is the one in the header THIS device read and checked. The
+            // fixture is NU6.3, which a constant would also return, so the same PCZT is patched onto
+            // ANOTHER branch the pczt crate knows (NU6; it refuses a branch it does not know) and a
+            // table that has it: only a reading of the header gives that back.
+            const OTHER_KNOWN_BRANCH: u32 = 0xc8e7_1055;
             let (r, now) = rules_for_fixture();
             let f = read_for_signing_with(&r, IW_PROVEN, now).unwrap();
             let p = Pczt::parse(IW_PROVEN).unwrap();
             assert_eq!(f.branch_id, *p.global().consensus_branch_id());
             assert_eq!(f.branch_id, NU6_3);
+            let other = patch_once(
+                IW_PROVEN,
+                &varint(u64::from(NU6_3)),
+                &varint(u64::from(OTHER_KNOWN_BRANCH)),
+            );
+            assert_eq!(
+                *Pczt::parse(&other).unwrap().global().consensus_branch_id(),
+                OTHER_KNOWN_BRANCH
+            );
+            let (r, now) = rules_for(&other);
+            let f = read_for_signing_with(&r, &other, now).unwrap();
+            assert_eq!(f.branch_id, OTHER_KNOWN_BRANCH);
+            assert_ne!(f.branch_id, NU6_3);
         }
 
         #[test]
@@ -5593,7 +5660,8 @@ mod js_pczt {
     /// What a new transaction is for an approval this device already signed (`approval_decision`),
     /// with the DEVICE's own clock read here. `signed` is this device's record as
     /// `"sighash:expiry[:branch],..."` (no branch = NU6.3); the answer is JSON `{"kind":
-    /// "first"|"same"|"afterExpiry"|"second", "firstExpiry"?: number, "untilUnix"?: number, "byEpoch"?: boolean}`. A
+    /// "first"|"same"|"afterExpiry"|"second", "firstExpiry"?: number, "untilUnix"?: number|null, "untilHeight"?: number|null,
+    /// "byEpoch"?: boolean}`. A
     /// malformed entry, or a branch this build does not know, is an error, never skipped: a record
     /// that cannot be read must not read as "nothing signed".
     #[wasm_bindgen(js_name = approvalDecision)]
@@ -5611,10 +5679,14 @@ mod js_pczt {
                 pczt_bridge::ApprovalDecision::Second {
                     first_expiry,
                     until_unix,
+                    until_height,
                     by_epoch,
                 } => {
+                    let num = |n: Option<String>| n.unwrap_or_else(|| "null".to_string());
                     format!(
-                        "{{\"kind\":\"second\",\"firstExpiry\":{first_expiry},\"untilUnix\":{until_unix},\"byEpoch\":{by_epoch}}}"
+                        "{{\"kind\":\"second\",\"firstExpiry\":{first_expiry},\"untilUnix\":{},\"untilHeight\":{},\"byEpoch\":{by_epoch}}}",
+                        num(until_unix.map(|n| n.to_string())),
+                        num(until_height.map(|n| n.to_string())),
                     )
                 }
             },

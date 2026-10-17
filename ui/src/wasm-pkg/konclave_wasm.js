@@ -905,7 +905,8 @@ if (Symbol.dispose) TestVault.prototype[Symbol.dispose] = TestVault.prototype.fr
  * What a new transaction is for an approval this device already signed (`approval_decision`),
  * with the DEVICE's own clock read here. `signed` is this device's record as
  * `"sighash:expiry[:branch],..."` (no branch = NU6.3); the answer is JSON `{"kind":
- * "first"|"same"|"afterExpiry"|"second", "firstExpiry"?: number, "untilUnix"?: number, "byEpoch"?: boolean}`. A
+ * "first"|"same"|"afterExpiry"|"second", "firstExpiry"?: number, "untilUnix"?: number|null, "untilHeight"?: number|null,
+ * "byEpoch"?: boolean}`. A
  * malformed entry, or a branch this build does not know, is an error, never skipped: a record
  * that cannot be read must not read as "nothing signed".
  * @param {string} signed
