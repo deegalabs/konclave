@@ -40,6 +40,17 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Changed
+
+- **The device keeps the network upgrade a transaction was signed under (#638).** Its record of what
+  it signed now stores the consensus branch it read in the transaction, beside the expiry, so a later
+  upgrade is counted when it decides whether signing again could pay twice. Nothing changes until the
+  next upgrade's row is added: an older record without a branch reads as NU6.3, which is true of
+  every record that exists. When the earlier attempt is ended by an upgrade rather than by its own
+  expiry, the confirm says so. Three new texts (English and Portuguese) are drafts: a payment that
+  needs a new signature after an upgrade, funds the network holds until a block, and the device's
+  note about an attempt the network no longer accepts. None can appear yet.
+
 ### Fixed
 
 - **The site names the 0.13.2 desktop pre-release.** The landing and the help named 0.13.1 after

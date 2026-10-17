@@ -56,6 +56,36 @@ explicitly accepted.
 
 ## [Unreleased]
 
+### Changed
+
+- **Groundwork for the next network upgrade (NU7): one table, one margin, and nothing different for
+  you until the upgrade's height is known.** The device (the browser signer) and the coordinator each
+  decided when an earlier transaction could no longer be mined from its expiry alone, each with its
+  own copy of a ten-block margin, and the device picked the network upgrade it was in from its clock.
+  Neither knew that a transaction signed for one upgrade cannot be mined once the next one is active,
+  so across an upgrade a payment would have been held until its expiry (days or weeks for a
+  cross-pool one) and the device would have warned "this pays twice" about a transaction the network
+  already refuses. Both now read the same rules from `konclave-seal::epochs`: the table of upgrades,
+  the margin (one copy), the height estimate and the header acceptance. A source scan fails the build
+  if a second copy appears. The table has one row today (NU6.3), so every number the device and the
+  coordinator produce is what it was; the new rules only act once a row for NU7 is added, which is
+  done when its activation height is decided. The device's record of what it signed now keeps the
+  consensus branch it read from the transaction, and an old record without one reads as NU6.3.
+  Defaults to confirm: `K` (24 blocks: the 600 s ceremony ceiling plus 600 s to build and prove and
+  600 s to be mined, at 75 s a block) and `K_c` (288 blocks, about six hours, for cross-pool
+  payments). The wasm export `approvalLapsesAt` is gone: the time on the confirm now comes with the
+  decision, from the same rule.
+
+### Known limits
+
+- **The upgrade rules are inert until NU7's row exists.** The coordinator's cap on a transaction's
+  life also needs the engine to report the same activation height, and the engine that runs today
+  reports none, so the cap stays off and says why in the boot log. The wallet reports the tip it
+  knows and not the height it scanned, so a transaction is called dead because of an upgrade only
+  100 blocks after the margin. A cross-pool payment caught by the upgrade keeps its funds reserved
+  in the wallet until its own expiry, which can be weeks away; the build hold exists to keep new
+  ones out of that window.
+
 ## [0.13.2] 2026-10-17
 
 > **Services deployed when this was cut (2026-10-17):** coordinator `4223028`, relay `42da05bf003afc41`.

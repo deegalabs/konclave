@@ -40,6 +40,18 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Changed
+
+- **The coordinator knows about a network upgrade it has not been given yet (#638).** Nothing
+  changes today: the table has no row for the next upgrade (NU7), so none of this can act. Once the
+  row is added it will refuse to build a new payment in the last blocks before the upgrade ("the
+  network is upgrading", 409, `reason: epoch`), refuse a cross-pool payment further out, refuse a
+  transaction the engine built on the wrong branch ("the coordinator has not been updated for the
+  network upgrade"), and tell a payment whose earlier attempt the upgrade ended that it needs a new
+  signature, naming the block its funds are held until when the wallet still reserves them. The boot
+  log now says whether the cap on a transaction's life is on and why. The ceremony ceiling (600
+  polls) is one constant shared with the hold.
+
 ## [0.13.2] 2026-10-17
 
 ### Fixed
