@@ -30,6 +30,13 @@ pub const SCAN_MARGIN: u32 = 100;
 /// branch as this one).
 pub const NU6_3: u32 = 0x37a5_165b;
 
+/// Whether a transaction whose last mineable height is `last` is still within the reorg margin as of
+/// `height`. THE one expression of the margin: the device's window floor and the coordinator's
+/// chain tip both go through here.
+pub fn within_margin(last: u32, height: impl Into<u64>) -> bool {
+    u64::from(last) + u64::from(REORG_MARGIN) >= height.into()
+}
+
 /// One network upgrade, from `activation_height` until the next row's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Epoch {
@@ -132,7 +139,7 @@ impl Table {
     /// The device feeds its window's floor in, the coordinator the chain tip.
     pub fn can_still_be_mined(&self, branch_id: u32, expiry: u32, height: u32) -> bool {
         match self.minable_until(branch_id, expiry) {
-            Some(last) => last.saturating_add(REORG_MARGIN) >= height,
+            Some(last) => within_margin(last, height),
             None => true,
         }
     }
