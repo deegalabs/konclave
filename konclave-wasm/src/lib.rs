@@ -3592,6 +3592,90 @@ pub mod pczt_bridge {
             assert_eq!(b.hi - b.est, 40 + 144 + 875);
         }
 
+        // Characterisation (#638): what the device's clock gives TODAY, captured from the code
+        // BEFORE the table moved to konclave-seal::epochs. Literals on purpose: the refactor must
+        // reproduce these, not re-derive them. (clock offset from the anchor, lo, est, hi)
+        const PINNED_BOUNDS: [(i64, u32, u32, u32); 28] = [
+            (0, 3427999, 3428143, 3428327),
+            (1, 3427999, 3428143, 3428327),
+            (74, 3427999, 3428143, 3428327),
+            (75, 3427999, 3428144, 3428329),
+            (76, 3427999, 3428144, 3428329),
+            (149, 3427999, 3428144, 3428329),
+            (150, 3428000, 3428145, 3428330),
+            (3600, 3428046, 3428191, 3428376),
+            (10800, 3428141, 3428287, 3428473),
+            (86399, 3429138, 3429294, 3429490),
+            (86400, 3429139, 3429295, 3429491),
+            (604800, 3435982, 3436207, 3436472),
+            (2592000, 3462213, 3462703, 3463233),
+            (5000000, 3493998, 3494809, 3495660),
+            (6562500, 3514624, 3515643, 3516702),
+            (7776000, 3530642, 3531823, 3533044),
+            (8640000, 3542047, 3543343, 3544679),
+            (10000000, 3559998, 3561476, 3562994),
+            (15552000, 3633285, 3635503, 3637761),
+            (20000000, 3691998, 3694809, 3697660),
+            (31536000, 3844274, 3848623, 3853012),
+            (40000000, 3955998, 3961476, 3966994),
+            (63072000, 4260549, 4269103, 4277697),
+            (94608000, 4676824, 4689583, 4702382),
+            (126144000, 5093099, 5110063, 5127067),
+            (157680000, 5509375, 5530543, 5551751),
+            (315360000, 7590751, 7632943, 7675175),
+            (1000000000, 16627998, 16761476, 16894994),
+        ];
+        // (expiry, the moment the device stops counting a transaction that expires there)
+        const PINNED_LAPSES: [(u32, i64); 7] = [
+            (1, 1785247643),
+            (3_428_000, 1785248618),
+            (3_428_143, 1785259418),
+            (3_428_183, 1785262418),
+            (3_430_000, 1785400118),
+            (3_600_000, 1798278893),
+            (7_000_000, 2055854618),
+        ];
+
+        #[test]
+        fn height_bounds_reproduce_what_the_device_gave_before_the_table_moved() {
+            for (d, lo, est, hi) in PINNED_BOUNDS {
+                let b = height_bounds(&MAINNET, T_ANCHOR + d);
+                assert_eq!((b.lo, b.est, b.hi), (lo, est, hi), "clock anchor+{d}");
+            }
+            // A clock before the anchor confirms nothing: the empty window.
+            for d in [-86_400i64, -1] {
+                let b = height_bounds(&MAINNET, T_ANCHOR + d);
+                assert_eq!((b.lo, b.est, b.hi), (u32::MAX, 0, 0), "clock anchor{d}");
+            }
+        }
+
+        #[test]
+        fn lapses_at_reproduces_what_the_device_gave_before_the_table_moved() {
+            for (expiry, t) in PINNED_LAPSES {
+                assert_eq!(lapses_at(&MAINNET, expiry), Some(t), "expiry {expiry}");
+            }
+        }
+
+        #[test]
+        fn the_decision_turns_ten_blocks_below_the_floor_across_the_sweep() {
+            // The oracle is today's rule written out (`expiry + 10 >= lo`), with its own literal 10:
+            // the production rule must agree with it at every clock, on both sides of the turn.
+            for (d, lo, _, _) in PINNED_BOUNDS {
+                let now = T_ANCHOR + d;
+                for (expiry, counted) in [(lo - 11, false), (lo - 10, true), (lo - 9, true)] {
+                    let got = approval_decision(&MAINNET, &[("aa".into(), expiry)], "bb", now);
+                    let want = if counted {
+                        ApprovalDecision::Second {
+                            first_expiry: expiry,
+                        }
+                    } else {
+                        ApprovalDecision::AfterExpiry
+                    };
+                    assert_eq!(got, want, "clock anchor+{d}, expiry {expiry}");
+                }
+            }
+        }
+
         #[test]
         fn an_honest_header_passes_today() {
             let now = T_ANCHOR + 75 * 87_500;
