@@ -57,6 +57,17 @@ pub const NOT_UPDATED_TEXT: &str = "the coordinator has not been updated for the
 pub const NEEDS_NEW_SIGNATURE_TEXT: &str =
     "this payment needs a new signature: the network upgraded before it was mined";
 
+/// The same, for a payment whose earlier transaction the wallet still holds the funds of until block
+/// `height` (a crossing's expiry is weeks away, and the wallet keeps its note reserved until then).
+pub fn needs_new_signature_text(held_until: Option<u32>) -> String {
+    match held_until {
+        None => NEEDS_NEW_SIGNATURE_TEXT.to_string(),
+        Some(height) => format!(
+            "this payment needs a new signature, and its funds are held by the network until block {height}; send it again after that"
+        ),
+    }
+}
+
 /// `ToolError::Parse { what, .. }` carrying one of the texts above: how a refusal of this module
 /// crosses `SendSteps::prepare` without a new error type in every match over `ToolError`.
 pub const REFUSAL: &str = "epoch";
@@ -317,6 +328,24 @@ mod tests {
         check_built(&WITH_NEXT, u64::from(A), NU7, A + 121).unwrap();
         // And a branch the table does not know is refused on any table.
         assert!(check_built(&MAINNET, 3_500_000, 0xdead_beef, 3_500_041).is_err());
+    }
+
+    #[test]
+    fn the_texts_fit_the_screen_and_the_held_one_names_the_block() {
+        for t in [
+            HOLD_TEXT,
+            CROSSING_HOLD_TEXT,
+            NOT_UPDATED_TEXT,
+            NEEDS_NEW_SIGNATURE_TEXT,
+        ] {
+            assert!(t.len() < 140, "{t}");
+        }
+        let held = needs_new_signature_text(Some(3_534_560));
+        assert!(
+            held.len() < 140 && held.contains("held by the network until block 3534560"),
+            "{held}"
+        );
+        assert_eq!(needs_new_signature_text(None), NEEDS_NEW_SIGNATURE_TEXT);
     }
 
     #[test]

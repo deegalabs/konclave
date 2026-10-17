@@ -1372,11 +1372,13 @@ fn send_result_resp(result: SendResult<Resp>) -> Resp {
             json!({ "error": UNSETTLED_TEXT, "state": "ready" }).to_string(),
         ),
         SendResult::Refused(r) => r,
-        // The network upgrade overtook an earlier attempt: archived, nothing built. The reason tells
-        // the app to word it itself; `held_until` is when the wallet frees a crossing's funds.
+        // The network upgrade overtook an earlier attempt: archived, nothing built. No `state`: the
+        // app reads `state: ready` on an error as "it may be on the network", and here it cannot be
+        // (the upgrade ended it) or was never built. `held_until` is when the wallet frees a
+        // crossing's funds.
         SendResult::NeedsNewSignature { held_until } => resp(
             409,
-            json!({ "error": orchestrator::epoch::NEEDS_NEW_SIGNATURE_TEXT, "state": "ready",
+            json!({ "error": orchestrator::epoch::needs_new_signature_text(held_until),
                     "reason": "epoch", "held_until": held_until })
             .to_string(),
         ),
@@ -1384,9 +1386,8 @@ fn send_result_resp(result: SendResult<Resp>) -> Resp {
         // engine failure.
         SendResult::PrepareFailed(e) if orchestrator::epoch::refusal_text(&e).is_some() => resp(
             409,
-            json!({ "error": orchestrator::epoch::refusal_text(&e), "state": "ready",
-                    "reason": "epoch" })
-            .to_string(),
+            json!({ "error": orchestrator::epoch::refusal_text(&e), "reason": "epoch" })
+                .to_string(),
         ),
         SendResult::PrepareFailed(e) => resp(502, json!({ "error": e.to_string() }).to_string()),
         SendResult::RecordFailed(_) => resp(500, json!({ "error": RECORD_TEXT }).to_string()),
@@ -2606,13 +2607,22 @@ mod tests {
         });
         assert_eq!(r.status, 409);
         let b = body(r);
-        assert_eq!(b["error"], orchestrator::epoch::NEEDS_NEW_SIGNATURE_TEXT);
+        assert_eq!(
+            b["error"],
+            orchestrator::epoch::needs_new_signature_text(Some(3_534_560))
+        );
         assert_eq!(
             (b["reason"].as_str(), b["held_until"].as_u64()),
             (Some("epoch"), Some(3_534_560))
         );
+        assert!(
+            b.get("state").is_none(),
+            "an error that says `ready` reads as 'may be on the network'"
+        );
         let r = send_result_resp(SendResult::NeedsNewSignature { held_until: None });
-        assert!(body(r)["held_until"].is_null());
+        let b = body(r);
+        assert!(b["held_until"].is_null());
+        assert_eq!(b["error"], orchestrator::epoch::NEEDS_NEW_SIGNATURE_TEXT);
         for text in [
             orchestrator::epoch::HOLD_TEXT,
             orchestrator::epoch::CROSSING_HOLD_TEXT,
@@ -2627,6 +2637,7 @@ mod tests {
                 (b["error"].as_str(), b["reason"].as_str()),
                 (Some(text), Some("epoch"))
             );
+            assert!(b.get("state").is_none(), "{text}");
             assert!(text.len() < 140, "the screen shows it verbatim: {text}");
         }
         // An ordinary engine failure stays a 502.
