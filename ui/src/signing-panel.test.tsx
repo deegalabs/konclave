@@ -479,3 +479,23 @@ describe('the device that is sending, named', () => {
     expect(codeOf('./screens/SigningPanel.tsx')).toMatch(/const rosterSigned = sent && done \? done\.seats : signedSeats/)
   })
 })
+
+describe('the confirm for signing again, when an upgrade ended the earlier attempt (#638)', () => {
+  const t = (k: string, v?: Record<string, string | number>) => {
+    let s = k
+    for (const [n, x] of Object.entries(v ?? {})) s += ` ${n}=${x}`
+    return s
+  }
+  const NOW = 1_792_490_400_000
+  const base = { amt: '1', usd: '', dest: 'u1dest', isPayroll: false, iWouldBeLast: false, t, onCancel: () => {}, onConfirm: () => {}, now: NOW }
+  it('says the network no longer accepts it, with the same time the decision turns at', () => {
+    const html = renderToStaticMarkup(<SignConfirm {...base} again byEpoch firstUntil={1_792_497_600} locale="en" />)
+    expect(html).toMatch(/signing\.againUntilEpoch when=/)
+    expect(html).not.toContain('signing.againUntil when=')
+  })
+  it('keeps the ordinary wording for an attempt that simply has not expired', () => {
+    const html = renderToStaticMarkup(<SignConfirm {...base} again firstUntil={1_792_497_600} locale="en" />)
+    expect(html).toMatch(/signing\.againUntil when=/)
+    expect(html).not.toContain('againUntilEpoch')
+  })
+})

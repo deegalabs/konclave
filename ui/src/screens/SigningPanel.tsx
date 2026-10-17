@@ -78,10 +78,13 @@ function fmtWhen(unix: number, locale: 'pt-BR' | 'en'): string {
  *  nothing when unknown or past), and its CTA stays off until the owner says
  *  they checked the book. It opens on the dialog itself, described by that text, so the warning is
  *  heard before the acknowledgement can be pressed. */
-export function SignConfirm({ again, firstUntil, locale, amt, usd, dest, isPayroll, iWouldBeLast, t, onCancel, onConfirm, now = Date.now(), fee, total }: {
+export function SignConfirm({ again, firstUntil, byEpoch = false, locale, amt, usd, dest, isPayroll, iWouldBeLast, t, onCancel, onConfirm, now = Date.now(), fee, total }: {
   again: boolean
   /** When this device stops counting the earlier attempt (unix seconds, `approvalLapsesAt`); 0 when unknown. */
   firstUntil: number
+  /** The earlier attempt is ended by a network upgrade, not by its own expiry (computed in WASM, by the
+   *  rule that made the decision): the screen then says so. */
+  byEpoch?: boolean
   locale: 'pt-BR' | 'en'
   amt: string
   usd?: string | null
@@ -101,7 +104,7 @@ export function SignConfirm({ again, firstUntil, locale, amt, usd, dest, isPayro
   const title = again ? t('signing.againTitle') : iWouldBeLast ? t('signing.confirmTitle') : t('signing.confirmSignTitle')
   // The rule's own turning point: after it, a new attempt is signed without this confirm. Nothing
   // is said when it is unknown or already past (the confirm then no longer applies).
-  const until = firstUntil * 1000 > now ? t('signing.againUntil', { when: fmtWhen(firstUntil, locale) }) : ''
+  const until = firstUntil * 1000 > now ? t(byEpoch ? 'signing.againUntilEpoch' : 'signing.againUntil', { when: fmtWhen(firstUntil, locale) }) : ''
   const cta = again
     ? iWouldBeLast ? t('signing.againCtaSend', { amt }) : t('signing.againCta', { amt })
     : iWouldBeLast ? t('signing.confirmSend', { amt }) : t('signing.confirmSignCta', { amt })
@@ -833,6 +836,7 @@ export default function SigningPanel() {
         <SignConfirm
           again={confirming === 'again'}
           firstUntil={signedBefore?.firstUntil ?? 0}
+          byEpoch={signedBefore?.byEpoch ?? false}
           fee={amountZat !== null && feeKnown ? fmtZecExact(feeZat / 1e8) : undefined}
           total={amountZat !== null && feeKnown ? fmtZecExact((amountZat + feeZat) / 1e8) : undefined}
           locale={locale}

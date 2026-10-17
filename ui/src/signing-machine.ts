@@ -101,10 +101,11 @@ export interface SigningDeps {
    *  its construction site. */
   claim: (sighashHex: string, expiry: number) => boolean | Promise<boolean>
   /** Record that this device's share goes into the transaction (its sighash, derived here, and the
-   *  block it expires at), written ONCE, just before the first share leaves: a ceremony that stalls
+   *  block it expires at and the consensus branch it is under, both from this device's own reading),
+   *  written ONCE, just before the first share leaves: a ceremony that stalls
    *  in round 1 leaves no record. A record that cannot be written lets no share leave. REQUIRED for
    *  the same reason as `claim`. */
-  record: (sighashHex: string, expiry: number) => Promise<void>
+  record: (sighashHex: string, expiry: number, branch: number) => Promise<void>
   onSignature: (hex: string, ok: boolean) => void
   /** i18n lookup for log/error strings (net.log.* / net.err.*). */
   tt: (key: string, params?: Record<string, string | number>) => string
@@ -201,6 +202,8 @@ export class SigningMachine {
   private cleared = false
   /** The expiry this device read for the transaction. */
   private expiry = 0
+  /** The consensus branch of the header this device read and checked, with `expiry`. */
+  private branch = 0
   /** The coordinator of THIS ceremony, fixed where the gate clears it and kept until `rearm`. Read
    *  live, a withdrawal by any seat (one that never signed included) resets the room's tally and with
    *  it who the room names, so a member who did not sign could stall a send already under way. */
@@ -245,6 +248,7 @@ export class SigningMachine {
     this.started = false
     this.cleared = false
     this.expiry = 0
+    this.branch = 0
     this.coordinator = null
     this.done = false
     this.msg = new Uint8Array()
@@ -432,7 +436,11 @@ export class SigningMachine {
         return true
       }
       // The owner's consent covers one transaction: the first one cleared under it.
-      this.expiry = (payment as PcztPayment & { expiry: number }).expiry
+      // The expiry and the branch are THIS device's reading of the header it just checked, never a
+      // field of the request: the record keeps what the device saw, not what it was told.
+      const read = payment as PcztPayment & { expiry: number; branch: number }
+      this.expiry = read.expiry
+      this.branch = read.branch
       let claimed: boolean
       try {
         claimed = await this.d.claim(bytesToHex(this.msg!), this.expiry)
@@ -629,7 +637,7 @@ export class SigningMachine {
       // asked again, so a package that arrives after they withdrew gets nothing (the store keeps
       // one entry per transaction however often it is asked).
       try {
-        await this.d.record(bytesToHex(this.msg), this.expiry)
+        await this.d.record(bytesToHex(this.msg), this.expiry, this.branch)
       } catch (e) {
         // A withdrawn consent is the owner's own choice, already said on their screen and to the
         // room; anything else is a record this device could not keep.

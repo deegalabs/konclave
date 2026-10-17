@@ -21,7 +21,7 @@ export class OwnerSigning {
    *  withdrawn; a new click on the same payment keeps it, so a ceremony under way is not cut. */
   private claimed: { vault: string; proposal: string; sighash: string } | null = null
   /** The last second transaction refused, for the screen: which approval, and until when the first stays valid. */
-  lastSecond: { proposal: string; firstExpiry: number; sighash: string } | null = null
+  lastSecond: { proposal: string; firstExpiry: number; firstUntil: number; byEpoch: boolean; sighash: string } | null = null
 
   private readonly store: RecordStore
   private readonly now: () => number
@@ -70,7 +70,7 @@ export class OwnerSigning {
     const h = sighashHex.trim().toLowerCase()
     if (decision.kind === 'second' && !(this.again?.proposal === activeId && this.again.sighash === h)) {
       this.consent.spent = true
-      this.lastSecond = { proposal: activeId, firstExpiry: decision.firstExpiry, sighash: h }
+      this.lastSecond = { proposal: activeId, firstExpiry: decision.firstExpiry, firstUntil: decision.untilUnix, byEpoch: decision.byEpoch, sighash: h }
       return 'second'
     }
     if (!claimConsent(this.consent, activeId, this.now(), sighashHex)) return 'refused'
@@ -83,13 +83,13 @@ export class OwnerSigning {
    *  it was claimed for. Throws `[withdrawn]` when no live consent claimed this transaction (its owner
    *  withdrew after the claim, or it is another one), and when the record cannot be written: either
    *  way, no share. */
-  async record(sighashHex: string, expiry: number): Promise<void> {
+  async record(sighashHex: string, expiry: number, branch: number): Promise<void> {
     const c = this.claimed
     // The same test the gate makes, read now: the screen's timer may never have run (a device that
     // slept), and a package held back by the relay must not outlive the owner's window.
     if (!c || c.sighash !== sighashHex.trim().toLowerCase() || !consentAllows(this.consent, c.proposal, this.now(), sighashHex)) {
       throw new Error('[withdrawn] no live consent for this transaction')
     }
-    await recordSigned(this.store, c.vault, c.proposal, sighashHex, expiry)
+    await recordSigned(this.store, c.vault, c.proposal, sighashHex, expiry, branch)
   }
 }

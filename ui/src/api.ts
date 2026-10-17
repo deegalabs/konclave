@@ -534,6 +534,14 @@ export function humanError(t: TFn, error?: string, detail?: string): string {
       return t('error.insufficientExact', { have: fmtZecExact(have / 1e8), need: fmtZecExact(need / 1e8) })
     }
   }
+  // The network upgrade (#638). The coordinator's own wordings, matched before `signature` below
+  // (the first of them contains it) and before anything that reads a refusal as a connection fault.
+  const heldUntil = /held by the network until block (\d+)/i.exec(`${error ?? ''} ${detail ?? ''}`)
+  if (heldUntil) return t('error.fundsHeldUntil', { height: heldUntil[1]! })
+  if (has('needs a new signature')) return t('error.needsNewSignature')
+  if (has('the network is upgrading')) return t('error.upgradeHold')
+  if (has('moves funds between pools')) return t('error.upgradeHoldCrossing')
+  if (has('has not been updated for the network upgrade')) return t('error.coordinatorNotUpdated')
   if (has('insufficient') || has('saldo')) return t('error.insufficient')
   // A client-side fetch failure surfaces as 'no connection' - match it BEFORE the ceremony
   // rule below, whose bare 'connection' substring would otherwise swallow it.

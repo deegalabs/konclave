@@ -63,7 +63,7 @@ interface Device {
   claims: string[]
   claimAnswer: boolean
   /** What this device recorded as signed, and whether recording fails. */
-  records: Array<[string, number]>
+  records: Array<[string, number, number]>
   recordFails: boolean
   /** The owner withdrew between the claim and the share. */
   recordWithdrawn?: boolean
@@ -166,6 +166,9 @@ vi.mock('./signing', async (importOriginal) => {
   }
 })
 
+// NU6.3's consensus branch id: an oracle written out here, not read from the code under test.
+const NU63 = 0x37a5165b
+
 const SEATS: Record<string, number> = { A: 1, B: 2, C: 3 }
 
 function makeDevice(
@@ -201,7 +204,7 @@ function makeDevice(
     // refusal is asserted in its own test below, which overrides this.
     decideApproval: (outputs) => (dev.gate ? dev.gate(outputs) : dev.decision),
     claim: async (h, expiry) => { if (dev.claimUnreadable) throw new Error('[unreadable] blocked'); dev.claims.push(h); dev.claimExpiries.push(expiry); return dev.claimAnswer },
-    record: async (h, expiry) => { if (dev.recordFails) throw new Error('blocked'); if (dev.recordWithdrawn || (dev.withdrawAfter !== undefined && dev.records.length >= dev.withdrawAfter)) throw new Error('[withdrawn] no consent'); dev.records.push([h, expiry]) },
+    record: async (h, expiry, branch) => { if (dev.recordFails) throw new Error('blocked'); if (dev.recordWithdrawn || (dev.withdrawAfter !== undefined && dev.records.length >= dev.withdrawAfter)) throw new Error('[withdrawn] no consent'); dev.records.push([h, expiry, branch]) },
   }
   dev.machine = new SigningMachine(deps)
   return dev
@@ -591,8 +594,26 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     // share. The store keeps one entry per transaction however often it is asked.
     expect(A.records.length).toBe(parseAlphas(pczt).length)
     expect(A.records.length).toBeGreaterThan(1)
-    for (const r of A.records) expect(r).toEqual([local, expiry])
+    for (const r of A.records) expect(r).toEqual([local, expiry, NU63])
     expect(A.claimExpiries).toEqual([expiry])
+  })
+
+  // The branch the record keeps is what THIS device read in the header it checked. A request that
+  // names another branch in its own metadata (any field, any spelling) changes nothing: that value
+  // is the coordinator's word, and a record written from it would say what the device was told.
+  it('records the branch it read from the transaction even when the request names another (#638)', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    const pczt = withExpiry(dkgProvenPczt(), honestExpiry())
+    const honest = JSON.parse(signRequestFor(pczt).json) as Record<string, unknown>
+    const lying = { ...honest, branch: 0x77190ad9, branch_id: 0x77190ad9, b: 0x77190ad9, consensus_branch_id: 0x77190ad9 }
+    bus.post('helper', JSON.stringify(lying))
+    await runCeremony(A, B, bus)
+    expect(A.sig?.ok).toBe(true)
+    expect(A.records.length).toBeGreaterThan(0)
+    for (const r of A.records) expect(r[2]).toBe(NU63)
   })
 
   it('a record refused because its owner withdrew lets no share leave, and is not called a storage failure', async () => {

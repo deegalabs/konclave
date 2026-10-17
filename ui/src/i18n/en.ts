@@ -884,6 +884,14 @@ export const en: Record<string, string> = {
   'signing.againTitle': 'Sign this payment again?',
   'signing.againBody': 'This device already signed an earlier attempt at this payment. If that attempt goes out, signing again could pay it twice: {amt} ZEC a second time. Do this only if the book does not show the payment as sent.',
   'signing.againUntil': 'Until about {when}, this device treats the earlier attempt as able to reach the network (the network itself gives up on it earlier). Waiting until then is the safe choice: after that, this device stops asking about the earlier attempt, and signing works as usual.',
+  // DRAFT (#638), for the maintainer to approve before merge. A network upgrade is behind each of the next
+  // texts; none can appear until the upgrade's row is in the build.
+  'signing.againUntilEpoch': 'The earlier attempt for this payment was signed before the network upgrade, so the network no longer accepts it. This device still counts it until about {when}, because it judges by its own clock. Waiting until then is the safe choice.',
+  'error.needsNewSignature': 'This payment needs a new signature: the network upgraded before the earlier attempt was mined. The approval stands; sign and send again.',
+  'error.fundsHeldUntil': 'This payment needs a new signature, and the network keeps its funds reserved until block {height}. It can be sent again after that.',
+  'error.upgradeHold': 'The network is about to upgrade. This payment can be sent once the upgrade block is mined; nothing was built.',
+  'error.upgradeHoldCrossing': 'This payment moves funds between pools and could be held by the network across the upgrade. Send it after the upgrade; nothing was built.',
+  'error.coordinatorNotUpdated': 'The coordinator has not been updated for the network upgrade yet. Nothing was signed or sent; try again later.',
   'signing.againChecked': 'I checked the book: this payment does not show as sent.',
   'signing.againCta': 'Sign again: {amt} ZEC',
   'signing.readAgainHeading': 'What the vault built this time',

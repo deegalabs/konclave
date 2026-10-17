@@ -92,7 +92,7 @@ describe("the owner's claim and record reach the signer", () => {
     const src = codeOf('./VaultSigner.tsx')
     expect(src).toMatch(/useBackgroundSigner\(unlocked, gate, decideApproval, claim, record, endConsent\)/)
     expect(src).toMatch(/const r = await owner\.current\.claim\(vaultIdRef\.current \?\? '', activeIdRef\.current, sighashHex, expiry\)/)
-    expect(src).toMatch(/\(sighashHex: string, expiry: number\) => owner\.current\.record\(sighashHex, expiry\)/)
+    expect(src).toMatch(/\(sighashHex: string, expiry: number, branch: number\) => owner\.current\.record\(sighashHex, expiry, branch\)/)
     expect(src).toMatch(/return r === 'ok'/)
   })
   it('the hook hands them to the session unchanged', () => {

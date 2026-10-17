@@ -157,3 +157,24 @@ describe('humanError - the helper 422 and the raw engine error say the same thin
       .toBe('have 0.0002 need 0.00024')
   })
 })
+
+// The coordinator's wordings for a network upgrade (#638), as the helper sends them. The strings are
+// written out here on purpose: this is what the screen has to recognise, not what the code under test
+// says. Each must reach its own message, and none the generic "signature" or "refused" ones.
+describe('humanError: the network upgrade', () => {
+  it('words each coordinator refusal for the upgrade apart', () => {
+    expect(humanError(t, 'this payment needs a new signature: the network upgraded before it was mined')).toBe('error.needsNewSignature')
+    expect(humanError(t, 'the network is upgrading; this payment can be sent once the upgrade block is mined')).toBe('error.upgradeHold')
+    expect(humanError(t, 'this payment moves funds between pools and would be held by the network across the upgrade; send it after the upgrade')).toBe('error.upgradeHoldCrossing')
+    expect(humanError(t, 'the coordinator has not been updated for the network upgrade')).toBe('error.coordinatorNotUpdated')
+  })
+  it('names the block the funds are held until', () => {
+    const seen: Array<[string, unknown]> = []
+    const tt: TFn = (key, vars) => { seen.push([key, vars]); return key }
+    humanError(tt, 'this payment needs a new signature, and its funds are held by the network until block 3534560; send it again after that')
+    expect(seen).toEqual([['error.fundsHeldUntil', { height: '3534560' }]])
+  })
+  it('leaves the ordinary signature failures where they were', () => {
+    expect(humanError(t, 'apply_signature failed')).toBe('error.share')
+  })
+})
