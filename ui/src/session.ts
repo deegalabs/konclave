@@ -21,11 +21,14 @@ export function getUnlockedShare(id: string): VaultLoaded | undefined {
 }
 
 /** Is this vault unlocked on this device right now: is its share in this session? The one answer
- *  the signing panel and the background signer read (16/10). Every path that can sign puts the
- *  share here (the unlock screen, a passkey, the end of a creation, finishing a registration) and a
- *  lock takes it out. `isVaultUnlocked` (api.ts) is a different question, the local bridge's: did
- *  the unlock screen run for a bridge-locked vault. Asking that one here is what left a member who
- *  had just created a vault on "Connecting" until a reload. */
+ *  the signing panel, the background signer and the vault cards read (16/10). Two paths put a share
+ *  here: the passphrase (`unlock.ts`) and the end of a creation, right after the member chose the
+ *  passphrase (NetVault). A passkey does NOT: it opens the read key only, so a vault opened with a
+ *  passkey can be read but not signed for until the passphrase is typed. Finishing a registration and
+ *  a rename only rewrite a share already here. Removing the vault from this device takes it out, and
+ *  so does a reload. `isVaultUnlocked` (api.ts) is another question, the navigation's and the local
+ *  bridge's: did an unlock screen or a passkey run. Asking that one for signing is what left a member
+ *  who had just created a vault on "Connecting" until a reload. */
 export function unlockedHere(id: string): boolean {
   return unlocked.has(id)
 }

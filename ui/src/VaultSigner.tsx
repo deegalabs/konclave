@@ -55,6 +55,13 @@ interface VaultSignerCtx {
 const Ctx = createContext<VaultSignerCtx | null>(null)
 
 /** Access the in-vault signer + panel controls. Safe to call from any in-vault screen. */
+/** Which vault the background signer runs for: the selected browser-native vault, while a payment is
+ *  open in the panel, and only if its share is unlocked on this device (`unlockedHere`, the question
+ *  the panel asks too). Null otherwise. Exported for its test. */
+export function signerVault(panelOpen: boolean, isNet: boolean, vault: { id: string } | null, nonce: number): { id: string; nonce: number } | null {
+  return panelOpen && isNet && vault && unlockedHere(vault.id) ? { id: vault.id, nonce } : null
+}
+
 export function useVaultSigner(): VaultSignerCtx {
   const ctx = useContext(Ctx)
   if (!ctx) throw new Error('useVaultSigner must be used within a VaultSignerProvider')
@@ -96,7 +103,7 @@ export function VaultSignerProvider({ children }: { children: ReactNode }) {
   // Requires a browser-native (/net) vault, unlocked in this session; otherwise inert.
   // The share in this session is what the signer needs, so that is what it asks (`unlockedHere`), the
   // same question the panel asks; a creation puts the share there without the unlock screen.
-  const unlocked = active && IS_NET && vault && unlockedHere(vault.id) ? { id: vault.id, nonce } : null
+  const unlocked = signerVault(!!active, IS_NET, vault, nonce)
 
   // MANUAL: this device contributes its share only for a payment its owner explicitly signed on
   // this screen. Approval (K4) is consent to the payment; signing is the act that spends, and it is

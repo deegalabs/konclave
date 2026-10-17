@@ -20,7 +20,7 @@ vi.mock('./useBackgroundSigner', () => ({
     return { ready: false, phase: 'idle', error: '', what: null, setProposal: () => {}, unarm: async () => {} }
   },
 }))
-vi.mock('./api', () => ({ getVault: async () => null, getProposalDetail: async () => null, isVaultUnlocked: () => false, IS_NET: true }))
+vi.mock('./api', () => ({ getVault: async () => null, getProposalDetail: async () => null, IS_NET: true }))
 vi.mock('./storage', () => ({ listVaults: async () => [] }))
 vi.mock('./wasm-ready', () => ({ ensureWasm: async () => {} }))
 vi.mock('./wasm-pkg/konclave_wasm.js', () => ({ uaReceiver: () => '' }))

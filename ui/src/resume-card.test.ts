@@ -18,7 +18,8 @@ describe('the end of a creation records what it proved before it asks the coordi
 
 describe('the vault card', () => {
   it('decides "unlocked" by the share in session, not by the unlocked mark a passkey also sets', () => {
-    expect(vl).toMatch(/const hasShare = \(id: string\) => !!getUnlockedShare\(id\)/)
+    // The share in session, through the one function the panel and the signer ask too (16/10).
+    expect(vl).toMatch(/const hasShare = \(id: string\) => unlockedHere\(id\)/)
     const panel = vl.slice(vl.indexOf('async function doResume'), vl.indexOf('async function openUnlocked'))
     expect(panel).not.toMatch(/isVaultUnlocked/)
   })
