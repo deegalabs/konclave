@@ -38,3 +38,11 @@ This file starts on 2026-09-20. Relay changes before that date are in the root
 ---
 
 ## [Unreleased]
+
+### Changed
+
+- The relay builds its request-limit keys in one place, scoped to the client address it attributes
+  to the request. A poll whose `from` tag is longer than the 128 bytes a post allows is now refused
+  with `400`, as a post is. Different spellings of one address, such as upper or lower case,
+  compressed or expanded IPv6, or IPv4-mapped IPv6, are one address. This takes effect when the
+  relay is next deployed.

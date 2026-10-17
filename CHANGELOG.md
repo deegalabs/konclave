@@ -84,6 +84,9 @@ explicitly accepted.
   600 s to be mined, at 75 s a block) and `K_c` (288 blocks, about six hours, for cross-pool
   payments). The wasm export `approvalLapsesAt` is gone: the time on the confirm now comes with the
   decision, from the same rule.
+- The relay and the coordinator build their request-limit keys in one place (`konclave-http`),
+  scoped to the client address the server attributes to the request. A relay poll whose tag is
+  longer than a post's limit is refused.
 
 ### Known limits
 
