@@ -250,6 +250,9 @@ pub const ENGINE_ANSWER_WITHIN: std::time::Duration = std::time::Duration::from_
 /// observation of the chain. Before the cap may turn on, `Dead { by_epoch }` must also need the
 /// branch the chain reports (lightwalletd's `consensusBranchId`, read by the same backend as
 /// `settle_wallet`) to be the next row's. A postponed activation otherwise passes this check.
+/// Also for that PR: the local bridge (`orchestrate_send`, `send.rs`) builds with no hold, no branch
+/// check and no attempt record, and `check_cap` asks for the row after NU6.3 by name, so a third row
+/// would be confirmed against the wrong height.
 pub fn read_engine_activation(konclave_signer: &Path) -> Option<u32> {
     read_engine_activation_within(konclave_signer, ENGINE_ANSWER_WITHIN)
 }
@@ -510,6 +513,73 @@ mod tests {
         for p in [ok, hangs, reads, fails] {
             let _ = std::fs::remove_file(p);
         }
+    }
+
+    /// A trap, not a rule. The cap in `settle` turns on when the table and the engine agree, and both
+    /// are copies of OUR pinned constant: nothing observes the chain. While the mainnet table has one
+    /// row the cap cannot turn on, which is what keeps that gap closed. This fails the day a second
+    /// row is added, so that it cannot be added silently. Remove it ONLY in the PR that makes
+    /// `Dead { by_epoch }` need the branch the chain reports (lightwalletd's `consensusBranchId`,
+    /// #638 security M1), together with the other two items in the TODO at `read_engine_activation`.
+    #[test]
+    fn the_cap_cannot_turn_on_before_it_reads_the_chain() {
+        assert_eq!(
+            konclave_seal::epochs::MAINNET.epochs.len(),
+            1,
+            "a second mainnet row makes the epoch cap reachable: add the chain's branch to the \
+             verdict first (#638 security M1, TODO at read_engine_activation) and only then remove \
+             this test"
+        );
+    }
+
+    /// The boot check gives the signer NO stdin, whatever stdin the harness itself has. A test that
+    /// only runs the check passes with the null removed whenever `cargo test` is started with stdin
+    /// on /dev/null. So the check runs in a child of this very test binary whose stdin is a pipe that
+    /// stays open: a signer that inherits it blocks reading and the deadline turns that into "none".
+    #[cfg(unix)]
+    #[test]
+    fn the_boot_check_gives_the_signer_no_stdin_whatever_the_harness_has() {
+        use std::time::Duration;
+        if std::env::var("KC_EPOCH_STDIN_CHILD").is_ok() {
+            let reads = fake_signer(
+                "stdin-child",
+                "cat >/dev/null; echo '{\"activation_height\": 3500000}'",
+            );
+            let got = read_engine_activation_within(&reads, Duration::from_secs(3));
+            let _ = std::fs::remove_file(reads);
+            assert_eq!(
+                got,
+                Some(A),
+                "the signer was left waiting on an inherited stdin"
+            );
+            return;
+        }
+        let me = std::env::current_exe().unwrap();
+        let mut child = std::process::Command::new(me)
+            .args([
+                "--exact",
+                "epoch::tests::the_boot_check_gives_the_signer_no_stdin_whatever_the_harness_has",
+                "--test-threads=1",
+            ])
+            .env("KC_EPOCH_STDIN_CHILD", "1")
+            .stdin(std::process::Stdio::piped()) // open, never written, never closed
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let started = std::time::Instant::now();
+        let status = loop {
+            if let Some(s) = child.try_wait().unwrap() {
+                break s;
+            }
+            if started.elapsed() > Duration::from_secs(30) {
+                let _ = child.kill();
+                panic!("the child test hung");
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        };
+        drop(child.stdin.take());
+        assert!(status.success(), "the child test failed: {status:?}");
     }
 
     #[test]

@@ -268,8 +268,11 @@ pub fn settle_with(a: &Attempt, view: &WalletView, table: &Table, cap_on: bool) 
     if a.expiry_height != 0 && !epochs::within_margin(a.expiry_height, tip) {
         return Settlement::Dead { by_epoch: false };
     }
-    // Only a record that knows its branch can be capped by an upgrade.
-    if let (true, Some(branch)) = (cap_on, a.branch_id) {
+    // Only a record that knows its branch can be capped by an upgrade, and only one that HAS an expiry:
+    // the wallet keeps the note of a transaction with none reserved for ever (zcash_client_sqlite
+    // 0.22, `tx_unexpired_condition`), so declaring it dead would invite a resend that can only fail on
+    // balance. It stays held, as `expiry 0 is never dead` always did.
+    if let (true, Some(branch), true) = (cap_on, a.branch_id, a.expiry_height != 0) {
         // Capped only when a LATER upgrade exists and the transaction outlives the block before it.
         let capped = table.capped_by_next(branch, a.expiry_height);
         if let (true, Some(last)) = (capped, table.minable_until(branch, a.expiry_height)) {
@@ -453,19 +456,24 @@ pub(crate) fn send_with<S: SendSteps, R>(
                                 "earlier attempt overtaken by a network upgrade; archived",
                             );
                             return SendResult::NeedsNewSignature {
-                                // The wallet keeps the note reserved until the expiry is reached.
-                                held_until: (u64::from(a.expiry_height) >= view.tip)
+                                // The wallet keeps the note reserved while `expiry >= tip + 1` (the target
+                                // height of its next selection): at the tip itself it is free. (No
+                                // expiry never reaches here: it is not dead by an upgrade, above.)
+                                held_until: (u64::from(a.expiry_height) > view.tip)
                                     .then_some(a.expiry_height),
                             };
                         }
                         if by_epoch {
+                            // Not ready (expired in the meantime): it is the upgrade that ended the
+                            // attempt, not its expiry, and the log says only that.
                             log(
                                 &vault,
                                 &id,
                                 "earlier attempt overtaken by a network upgrade; archived",
                             );
+                        } else {
+                            log(&vault, &id, "earlier attempt expired unmined; archived");
                         }
-                        log(&vault, &id, "earlier attempt expired unmined; archived");
                     }
                 }
             }
@@ -2233,12 +2241,13 @@ mod tests {
         );
     }
 
-    /// The wallet keeps the note reserved until the expiry is REACHED: at the tip itself, and after
-    /// it, the funds are still held, and at a saturating tip nothing wraps.
+    /// The wallet keeps the note reserved while `expiry >= tip + 1`: at the tip itself it is free, one
+    /// block ahead it is held. A saturating tip wraps nothing, and an attempt with no expiry is never
+    /// declared dead by an upgrade (the wallet would hold its note for ever).
     #[test]
     fn funds_are_held_until_the_expiry_is_reached() {
         for (expiry, tip, held) in [
-            (A + 120, A + 120, true),
+            (A + 120, A + 120, false),
             (A + 121, A + 120, true),
             (A + 119, A + 120, false),
         ] {
@@ -2253,6 +2262,19 @@ mod tests {
             };
             assert_eq!(held_until.is_some(), held, "expiry {expiry}, tip {tip}");
         }
+        // No expiry: held for ever by the wallet, so not dead by an upgrade at any tip.
+        let v = view(u64::from(A) + 500, &[]);
+        assert_eq!(
+            settle_with(&on(NU6_3, 0), &v, &WITH_NEXT, true),
+            Settlement::StillPossible
+        );
+        let dir = vaults();
+        record_attempt(&dir, &on(NU6_3, 0)).unwrap();
+        let mut f = Fake::new();
+        f.rules = Some((WITH_NEXT, true));
+        f.view = Ok(v);
+        let r = go(&dir, proposal("ready"), false, &f);
+        assert!(matches!(r, SendResult::Unsettled { .. }), "{r:?}");
         // A tip at the top of the range does not overflow anything.
         let dir = vaults();
         record_attempt(&dir, &on(NU6_3, A + 5)).unwrap();

@@ -126,6 +126,17 @@ describe('the branch of what this device signed', () => {
     expect(d).toEqual({ kind: 'second', firstExpiry: 0, untilUnix: null, untilHeight: null, byEpoch: false })
   })
 
+  it('one record that never stops counting hides the turn of another: no time at all', async () => {
+    // The old rule skipped the record with no end and gave the OTHER one's moment, which a member
+    // would wait for and find the warning still there.
+    const s = memory()
+    const soon = (await import('./test-vectors')).honestExpiry()
+    await recordSigned(s, 'v1', 'p1', A, 0, NU63)
+    await recordSigned(s, 'v1', 'p1', 'ee'.repeat(32), soon, NU63)
+    const d = await decideFor(s, 'v1', 'p1', B)
+    expect(d).toEqual({ kind: 'second', firstExpiry: soon, untilUnix: null, untilHeight: null, byEpoch: false })
+  })
+
   it('Second carries the time the decision turns, from the same rule (no second reading of it)', async () => {
     const s = memory()
     // An expiry a few days out: the time is in the future, and is where the decision turns.

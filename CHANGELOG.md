@@ -98,6 +98,10 @@ explicitly accepted.
   its own clock with a margin that is about a day wide at that distance from its anchor, so it keeps
   asking "this could pay twice" while the coordinator, which sees the chain, already says the payment
   needs a new signature. The release that re-anchors the clock after the upgrade shortens this.
+- **The local bridge sends without the upgrade rules.** The desktop's local bridge (`orchestrate_send`)
+  builds a payment with no build hold, no check of the branch the engine built, and no record of the
+  attempt, so the protections above cover the hosted coordinator only. It is a path an operator drives
+  at a terminal, and it is on the list for the change that adds NU7's row (#638).
 - **The rules are inert until NU7's row exists.** The wallet reports the tip it
   knows and not the height it scanned, so a transaction is called dead because of an upgrade only
   100 blocks after the margin. A cross-pool payment caught by the upgrade keeps its funds reserved
