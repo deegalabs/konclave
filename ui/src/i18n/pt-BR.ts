@@ -880,6 +880,15 @@ export const ptBR: Record<string, string> = {
   'signing.againTitle': 'Assinar este pagamento de novo?',
   'signing.againBody': 'Este aparelho já assinou uma tentativa anterior deste pagamento. Se aquela tentativa sair, assinar de novo pode pagá-lo duas vezes: {amt} ZEC uma segunda vez. Faça isso só se o livro não mostrar o pagamento como enviado.',
   'signing.againUntil': 'Até por volta de {when}, este aparelho trata a tentativa anterior como capaz de chegar à rede (a própria rede desiste dela antes). Esperar até lá é o caminho seguro: depois disso, este aparelho deixa de perguntar pela tentativa anterior, e assinar volta ao normal.',
+  // RASCUNHO (#638), para o mantenedor aprovar antes do merge. Uma atualizacao da rede esta por tras de cada
+  // um dos proximos textos; nenhum aparece ate a linha da atualizacao entrar na versao.
+  'signing.againUntilEpoch': 'Uma transação anterior deste pagamento só pode ser minerada até o bloco {block} (por volta de {when}). Se ela for minerada antes, assinar de novo paga este pagamento duas vezes. Esperar até lá é o caminho seguro.',
+  'signing.againNoTime': 'Este aparelho não sabe dizer quando a tentativa anterior deixa de poder chegar à rede. Confira o livro antes de assinar de novo.',
+  'error.needsNewSignature': 'Este pagamento precisa de uma nova assinatura: a rede foi atualizada antes de a tentativa anterior ser minerada. A aprovação continua valendo; assine e envie de novo.',
+  'error.fundsHeldUntil': 'Este pagamento precisa de uma nova assinatura, e a rede mantém os fundos reservados até o bloco {height}. Ele pode ser enviado de novo depois disso.',
+  'error.upgradeHold': 'A rede vai ser atualizada em breve. Este pagamento pode ser enviado depois que o bloco da atualização for minerado; nada foi montado.',
+  'error.upgradeHoldCrossing': 'Este pagamento move fundos entre pools e poderia ficar preso na rede durante a atualização. Envie depois da atualização; nada foi montado.',
+  'error.coordinatorNotUpdated': 'O coordenador ainda não foi atualizado para a atualização da rede. Nada foi assinado nem enviado; tente de novo mais tarde.',
   'signing.againChecked': 'Conferi o livro: este pagamento não aparece como enviado.',
   'signing.againCta': 'Assinar de novo: {amt} ZEC',
   'signing.readAgainHeading': 'O que o cofre montou desta vez',

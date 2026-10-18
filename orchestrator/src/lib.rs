@@ -28,6 +28,7 @@ pub mod store;
 // --- orchestration layer (drives the official tools + our bridge) ---
 pub mod ceremony;
 pub mod dkg;
+pub mod epoch;
 pub mod helper;
 pub mod pczt;
 pub mod send;

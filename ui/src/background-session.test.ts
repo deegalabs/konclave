@@ -20,6 +20,9 @@ import { ARM_TTL_MS } from './signing-gate'
 import type { GovernanceGate } from './background-signer'
 import type { GateDecision } from './approved-payment'
 
+// NU6.3's consensus branch id: an oracle written out here, not read from the code under test.
+const NU63 = 0x37a5165b
+
 beforeAll(async () => {
   await init(readFileSync(new URL('./wasm-pkg/konclave_wasm_bg.wasm', import.meta.url)))
 })
@@ -57,7 +60,7 @@ class Bus {
 interface Dev { tag: string; session: BackgroundSession; delivered: Set<number>; sig: { hex: string; ok: boolean } | null; errors: string[]; seats: number; armedSeats: number[]; namedSender: string | null; failure: string | null; logs: string[]; withdrawn: number }
 
 let NOW = 1_700_000_000_000
-function makeDev(tag: string, seat: number, bus: Bus, mat: () => { keyPackage: Uint8Array; groupVk: Uint8Array; pubkeys: Uint8Array }, gate: GovernanceGate, decide: () => GateDecision = () => 'match', skewMs = 0, t = 2, owner?: { claim: (h: string, e: number) => Promise<boolean>; record: (h: string, e: number) => Promise<void> }): Dev {
+function makeDev(tag: string, seat: number, bus: Bus, mat: () => { keyPackage: Uint8Array; groupVk: Uint8Array; pubkeys: Uint8Array }, gate: GovernanceGate, decide: () => GateDecision = () => 'match', skewMs = 0, t = 2, owner?: { claim: (h: string, e: number) => Promise<boolean>; record: (h: string, e: number, b: number) => Promise<void> }): Dev {
   const dev: Dev = { tag, session: null as unknown as BackgroundSession, delivered: new Set(), sig: null, errors: [], seats: 0, armedSeats: [], namedSender: null, failure: null, logs: [], withdrawn: 0 }
   dev.session = new BackgroundSession({
     myTag: tag,
@@ -1170,7 +1173,7 @@ describe('a second transaction for an approval, through the real session', () =>
   }
   const hooks = (o: OwnerSigning) => ({
     claim: async (h: string, e: number) => (await o.claim('v1', 'p1', h, e)) === 'ok',
-    record: (h: string, e: number) => o.record(h, e),
+    record: (h: string, e: number, b: number) => o.record(h, e, b),
   })
 
   it('gets no share in a new session until its owner signs again knowing it', async () => {
@@ -1215,7 +1218,7 @@ describe('a second transaction for an approval, through the real session', () =>
     const mb = () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys })
     const sa = memoryStore()
     const oa = new OwnerSigning(sa), ob = new OwnerSigning(memoryStore())
-    await recordSigned(sa, 'v1', 'p1', bytesToHex(pcztSighash(withExpiry(dkgProvenPczt()))), honestExpiry())
+    await recordSigned(sa, 'v1', 'p1', bytesToHex(pcztSighash(withExpiry(dkgProvenPczt()))), honestExpiry(), NU63)
     const bus = new Bus()
     const A = makeDev('a-tag', 1, bus, ma, () => oa.allows('p1'), () => 'match', 0, 2, hooks(oa))
     const B = makeDev('b-tag', 2, bus, mb, () => ob.allows('p1'), () => 'match', 0, 2, hooks(ob))
@@ -1237,7 +1240,7 @@ describe('a second transaction for an approval, through the real session', () =>
     const sa = memoryStore()
     const oa = new OwnerSigning(sa), ob = new OwnerSigning(memoryStore())
     // A signed an earlier attempt (its record says so); B never did.
-    await recordSigned(sa, 'v1', 'p1', bytesToHex(pcztSighash(withExpiry(dkgProvenPczt()))), honestExpiry())
+    await recordSigned(sa, 'v1', 'p1', bytesToHex(pcztSighash(withExpiry(dkgProvenPczt()))), honestExpiry(), NU63)
     const bus = new Bus()
     const A = makeDev('a-tag', 1, bus, ma, () => oa.allows('p1'), () => 'match', 0, 2, hooks(oa))
     const B = makeDev('b-tag', 2, bus, mb, () => ob.allows('p1'), () => 'match', 0, 2, hooks(ob))

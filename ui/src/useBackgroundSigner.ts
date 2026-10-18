@@ -75,7 +75,7 @@ export function useBackgroundSigner(
   // The owner's consent claims the transaction the machine cleared. Required for the same reason.
   claim: (sighashHex: string, expiry: number) => boolean | Promise<boolean>,
   // This device's record of what it signed, written before its share leaves. Required likewise.
-  record: (sighashHex: string, expiry: number) => Promise<void>,
+  record: (sighashHex: string, expiry: number, branch: number) => Promise<void>,
   // Another device withdrew its signature for the open payment: the caller ends its owner's consent.
   onPeerWithdrew: () => void,
 ): BackgroundSignerState {
