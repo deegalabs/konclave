@@ -56,6 +56,24 @@ explicitly accepted.
 
 ## [Unreleased]
 
+### Security
+
+- **A client could use up another client's request budget at the relay.** The relay refuses a
+  sender that makes too many requests in a short window (`429`). That budget was counted under a key
+  built from a string the requester supplied, and the per-address and per-sender budgets were kept
+  in one table, so a supplied string could name someone else's budget. A request that named another
+  address, or another member's tag, was counted against that other budget, and once it was used up
+  the other party's own requests were refused for as long as this went on. Anyone who knew an
+  address could do it to that address, and anyone who had a room's id could do it to a member's tag
+  there. It affected whether requests were answered, not what the relay carries. The code keyed the
+  per-sender budget this way from 2026-07-15 and the per-address one from 2026-08-22, the earliest
+  dates it could have been exposed. We have no report that it was used; we did not check. What a
+  member can notice: nothing, unless a ceremony stalled with no message to explain it. Every budget
+  is now scoped to the address the relay attributes to the request, and a poll whose tag is longer
+  than a post's limit is refused. The hosted relay has run this since 2026-10-19; the coordinator
+  builds its own limit keys the same way from the same code (`konclave-http`), which takes effect
+  when it is next deployed.
+
 ### Changed
 
 - **Groundwork for the next network upgrade (NU7): one table, one margin, and almost nothing different
@@ -84,9 +102,6 @@ explicitly accepted.
   600 s to be mined, at 75 s a block) and `K_c` (288 blocks, about six hours, for cross-pool
   payments). The wasm export `approvalLapsesAt` is gone: the time on the confirm now comes with the
   decision, from the same rule.
-- The relay and the coordinator build their request-limit keys in one place (`konclave-http`),
-  scoped to the client address the server attributes to the request. A relay poll whose tag is
-  longer than a post's limit is refused.
 
 ### Known limits
 
@@ -110,6 +125,10 @@ explicitly accepted.
   100 blocks after the margin. A cross-pool payment caught by the upgrade keeps its funds reserved
   in the wallet until its own expiry, which can be weeks away; the build hold exists to keep new
   ones out of that window.
+- **The address the relay counts a request under is only as good as the forwarding header it is
+  given.** The relay takes it from the first hop of `X-Forwarded-For`. Where the platform in front of
+  it keeps a value the client sent, a client can still choose which address its requests count
+  under, and the fix under Security reaches no further than that. Tracked in #400.
 
 ## [0.13.2] 2026-10-17
 
