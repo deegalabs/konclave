@@ -1,6 +1,7 @@
 # The commit list of a release's notes (git-cliff), appended by `scripts/release.mjs --notes` under
 # the CHANGELOG's prose. The prose says what a member meets; this list says what changed, grouped by
-# the Conventional type of each squashed commit. Pinned in CI: git-cliff 2.14.2.
+# the Conventional type of each squashed commit, one line each as `hash [scope] description`; an issue
+# number appears only when the commit's summary ends with one. Pinned in CI: git-cliff 2.14.2.
 
 [changelog]
 header = ""
@@ -8,7 +9,7 @@ body = """
 {% for group, commits in commits | group_by(attribute="group") %}
 ### {{ group | striptags | trim }}
 {% for commit in commits %}
-- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.message | split(pat="\n") | first | trim }} ([`{{ commit.id | truncate(length=7, end="") }}`](https://github.com/deegalabs/konclave/commit/{{ commit.id }}))
+- [`{{ commit.id | truncate(length=7, end="") }}`](https://github.com/deegalabs/konclave/commit/{{ commit.id }}) {% if commit.scope %}[{{ commit.scope }}] {% endif %}{{ commit.message | split(pat="\n") | first | trim }}
 {%- endfor %}
 {% endfor %}
 """

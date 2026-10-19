@@ -80,10 +80,14 @@ explicitly accepted.
   it signed keeps the consensus branch it read from the transaction; an older entry without one reads
   as NU6.3 (true of every one, an older bundle cannot sign a later upgrade), while the coordinator's
   record of a send with no branch is treated as UNKNOWN and is never ended by an upgrade.
-  Defaults to confirm: `K` (24 blocks: the 600 s ceremony ceiling plus 600 s to build and prove and
+  Confirmed by the maintainer: `K` (24 blocks: the 600 s ceremony ceiling plus 600 s to build and prove and
   600 s to be mined, at 75 s a block) and `K_c` (288 blocks, about six hours, for cross-pool
   payments). The wasm export `approvalLapsesAt` is gone: the time on the confirm now comes with the
   decision, from the same rule.
+- **The commit list in the release notes reads `hash [scope] description`.** One line per commit,
+  the short hash first and linked to the commit, then the scope in brackets and the summary as written,
+  with the issue number when the summary ends with one. It used to put the scope in bold and the hash at the end.
+  The grouping by type (Security, Added, Fixed, and so on) is unchanged (`cliff.toml`).
 
 ### Known limits
 
