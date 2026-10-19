@@ -1,20 +1,39 @@
 import { describe, expect, it } from 'vitest'
 import { SECTIONS } from './content'
-import { REF_TITLES, ROADMAP_LATER, ROADMAP_STEPS, refKey, refUrl } from './roadmap'
+import { REF_TITLES, ROADMAP_LATER, ROADMAP_NOW, ROADMAP_STEPS, refKey, refUrl } from './roadmap'
 
-const ALL = [...ROADMAP_STEPS, ...ROADMAP_LATER]
+const ALL = [...ROADMAP_NOW, ...ROADMAP_STEPS, ...ROADMAP_LATER]
 const roadmapSection = () => SECTIONS.find((s) => s.id === 'roadmap')
 
 describe('the public roadmap', () => {
-  it('is a docs section that shows the steps and the later work', () => {
+  it('is a docs section that shows the work outside the order, the steps and the later work', () => {
     const section = roadmapSection()
     expect(section).toBeDefined()
-    expect(section!.blocks.filter((b) => b.k === 'stages')).toHaveLength(2)
+    const stages = section!.blocks.filter((b) => b.k === 'stages')
+    expect(stages).toHaveLength(3)
+    // The work outside the order comes first, before the numbered steps.
+    expect(stages.map((b) => b.k === 'stages' && b.items)).toEqual([ROADMAP_NOW, ROADMAP_STEPS, ROADMAP_LATER])
+  })
+
+  it('keeps the network upgrade outside the order, as current work with no number', () => {
+    expect(ROADMAP_NOW.length).toBeGreaterThan(0)
+    for (const s of ROADMAP_NOW) {
+      expect(s.n, s.id).toBeUndefined()
+      expect(s.status, s.id).toBe('now')
+    }
+    expect(ROADMAP_NOW.flatMap((s) => s.refs.map(refKey))).toEqual(expect.arrayContaining(['issue:638', 'pull:701']))
+  })
+
+  it('does not say a step waits for the one before it to be done', () => {
+    // The order is the intended order; a step can start before the one before it closes (step 1 did).
+    const text = JSON.stringify(roadmapSection())
+    expect(text).not.toMatch(/starts once the one before it is done|começa quando a anterior termina/)
   })
 
   it('numbers the steps in order, from 0', () => {
     expect(ROADMAP_STEPS.map((s) => s.n)).toEqual(ROADMAP_STEPS.map((_, i) => i))
     expect(ROADMAP_LATER.every((s) => s.n === undefined)).toBe(true)
+    expect(ROADMAP_NOW.every((s) => s.n === undefined)).toBe(true)
   })
 
   it('points every step at the work that tracks it, and knows each title', () => {
