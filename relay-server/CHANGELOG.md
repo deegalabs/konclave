@@ -56,9 +56,6 @@ This file starts on 2026-09-20. Relay changes before that date are in the root
   refused with `400`, as a post is, and different spellings of one address (upper or lower case,
   compressed or expanded IPv6, IPv4-mapped IPv6) are one address. The hosted relay has run this
   since 2026-10-19 (its `/health` then reported `64f79ca010322c31`).
-
-### Changed
-
 - The relay bounds the message bytes it holds, per room and in total, and a poll's answer with
   them. What counts is what a message takes in a poll answer: its `data` and its `from` tag as
   JSON writes them (a quote, a backslash or a control character takes two or six bytes) plus 64
@@ -80,8 +77,8 @@ This file starts on 2026-09-20. Relay changes before that date are in the root
   poll still returns every message after `since` in one answer, which the room ceiling bounds.
   `/health` carries `fill`, the share of the 256 MiB held in steps of 10 percent, worked out at
   most once a minute, and `relay_full`, how many posts have been answered `503` since the
-  process started. The hosted relay has run this since 2026-10-19 (its `/health` reports
-  `f8dc88d0970337a3`).
+  process started. The hosted relay has run this since 2026-10-19 22:48 BRT (2026-10-20 01:48
+  UTC); its `/health` reports `f8dc88d0970337a3`.
 
 ### Known limits
 

@@ -81,13 +81,13 @@ explicitly accepted.
   killed and restarted, and every room is lost, so a ceremony in progress would stop. Separately, a
   poll of a room full of large messages built its whole answer while holding the relay's one lock,
   so every other request waited behind it (measured at 2.1 seconds in a test build, not measured in
-  a release build). It affected whether the relay answered, not what it carries: the relay holds
-  sealed or public material only. The code had no byte bound from 2026-07-15, the day the relay was
+  a release build). It affected whether the relay answered, not what it carries: nothing in this
+  gave access to the messages. The code had no byte bound from 2026-07-15, the day the relay was
   added, which is the earliest it could have been exposed. We have no report that it was used; we
   did not check. What a member can notice: nothing, unless a ceremony stopped with no message to
   explain it. The relay now holds at most 4 MiB per room and 256 MiB in all, drops the oldest
   messages first, and builds a poll's answer outside the lock. The hosted relay has run this since
-  2026-10-19.
+  2026-10-19 22:48 BRT (2026-10-20 01:48 UTC).
 
 ### Changed
 
