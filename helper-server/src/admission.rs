@@ -22,7 +22,7 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use konclave_http::RateLimiter;
+use konclave_http::{ClientAddress, RateKey, RateLimiter};
 
 /// Requests one client address may make per window, on every route but health. These are the
 /// relay's numbers. Read from the app: one member with one tab sends about 4 requests per 10
@@ -74,7 +74,12 @@ impl Limits {
 
     /// A registration that WILL reach the engine: a well-formed body naming a group key the
     /// coordinator does not know. The caller decides that; this only counts.
-    pub fn new_vault(&self, client: &str, group_key: &str, now: i64) -> Result<(), Refused> {
+    pub fn new_vault(
+        &self,
+        client: &ClientAddress,
+        group_key: &str,
+        now: i64,
+    ) -> Result<(), Refused> {
         if self.new_vaults.admit(client, group_key, now) {
             Ok(())
         } else {
@@ -89,12 +94,20 @@ impl Limits {
 /// Health is how anyone tells "busy" from "dead" (2026-08-27). It is never refused and never
 /// counted, so a monitor cannot be locked out and cannot use up the allowance of whoever shares its
 /// address.
-pub fn refuse_flood(limits: &Limits, client: &str, path: &str, now: i64) -> Option<Refused> {
+pub fn refuse_flood(
+    limits: &Limits,
+    client: &ClientAddress,
+    path: &str,
+    now: i64,
+) -> Option<Refused> {
     let (route, _) = path.split_once('?').unwrap_or((path, ""));
     if route == "/api/health" {
         return None;
     }
-    if limits.flood.allow(client, now, FLOOD_MAX) {
+    if limits
+        .flood
+        .allow(&RateKey::address(client), now, FLOOD_MAX)
+    {
         None
     } else {
         Some(Refused::Flood)
@@ -109,17 +122,18 @@ struct Window {
 
 #[derive(Default)]
 struct NewVaults {
-    seen: Mutex<HashMap<String, Window>>,
+    // Keyed by the address itself, so two spellings of one address are one entry.
+    seen: Mutex<HashMap<ClientAddress, Window>>,
 }
 
 impl NewVaults {
-    fn admit(&self, client: &str, group_key: &str, now: i64) -> bool {
+    fn admit(&self, client: &ClientAddress, group_key: &str, now: i64) -> bool {
         // The counts are advisory, so a poisoned lock must not wedge registration for everyone.
         let mut seen = self.seen.lock().unwrap_or_else(|e| e.into_inner());
         if seen.len() > MAX_RATE_KEYS {
             seen.retain(|_, w| now.saturating_sub(w.start) < NEW_VAULT_WINDOW_SECS);
         }
-        let window = seen.entry(client.to_string()).or_insert_with(|| Window {
+        let window = seen.entry(*client).or_insert_with(|| Window {
             start: now,
             vaults: HashMap::new(),
         });
@@ -145,9 +159,12 @@ impl NewVaults {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::net::{IpAddr, Ipv4Addr};
 
     const T0: i64 = 1_800_000_000;
-    const OFFICE: &str = "203.0.113.7";
+    const OFFICE: ClientAddress = ClientAddress::from_ip(IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7)));
+    const NEIGHBOUR: ClientAddress =
+        ClientAddress::from_ip(IpAddr::V4(Ipv4Addr::new(198, 51, 100, 9)));
 
     fn vault(n: u32) -> String {
         format!("{n:064x}")
@@ -160,17 +177,17 @@ mod tests {
         let l = Limits::new();
         for device in 0..8 {
             assert_eq!(
-                l.new_vault(OFFICE, &vault(1), T0),
+                l.new_vault(&OFFICE, &vault(1), T0),
                 Ok(()),
                 "device {device} of the same vault"
             );
         }
         // Eight registrations, one vault: four more vaults still fit in the hour.
         for n in 2..=5 {
-            assert_eq!(l.new_vault(OFFICE, &vault(n), T0), Ok(()), "vault {n}");
+            assert_eq!(l.new_vault(&OFFICE, &vault(n), T0), Ok(()), "vault {n}");
         }
         assert_eq!(
-            l.new_vault(OFFICE, &vault(6), T0),
+            l.new_vault(&OFFICE, &vault(6), T0),
             Err(Refused::TooManyNewVaults),
             "the sixth distinct vault in the hour"
         );
@@ -182,17 +199,17 @@ mod tests {
     fn a_refused_vault_stays_refused_when_it_retries() {
         let l = Limits::new();
         for n in 1..=5 {
-            assert_eq!(l.new_vault(OFFICE, &vault(n), T0), Ok(()));
+            assert_eq!(l.new_vault(&OFFICE, &vault(n), T0), Ok(()));
         }
         for attempt in 0..3 {
             assert_eq!(
-                l.new_vault(OFFICE, &vault(6), T0 + attempt),
+                l.new_vault(&OFFICE, &vault(6), T0 + attempt),
                 Err(Refused::TooManyNewVaults),
                 "attempt {attempt}"
             );
         }
         // And the vaults it WAS allowed keep registering their other devices.
-        assert_eq!(l.new_vault(OFFICE, &vault(3), T0 + 5), Ok(()));
+        assert_eq!(l.new_vault(&OFFICE, &vault(3), T0 + 5), Ok(()));
     }
 
     /// One unknown key must not be a way to spawn the engine without end.
@@ -201,13 +218,13 @@ mod tests {
         let l = Limits::new();
         for attempt in 0..ATTEMPTS_PER_VAULT_MAX {
             assert_eq!(
-                l.new_vault(OFFICE, &vault(1), T0),
+                l.new_vault(&OFFICE, &vault(1), T0),
                 Ok(()),
                 "attempt {attempt}"
             );
         }
         assert_eq!(
-            l.new_vault(OFFICE, &vault(1), T0),
+            l.new_vault(&OFFICE, &vault(1), T0),
             Err(Refused::TooManyNewVaults)
         );
     }
@@ -216,15 +233,15 @@ mod tests {
     fn another_address_is_not_made_to_pay_and_the_next_hour_starts_over() {
         let l = Limits::new();
         for n in 1..=5 {
-            assert_eq!(l.new_vault(OFFICE, &vault(n), T0), Ok(()));
+            assert_eq!(l.new_vault(&OFFICE, &vault(n), T0), Ok(()));
         }
         assert_eq!(
-            l.new_vault(OFFICE, &vault(6), T0),
+            l.new_vault(&OFFICE, &vault(6), T0),
             Err(Refused::TooManyNewVaults)
         );
-        assert_eq!(l.new_vault("198.51.100.9", &vault(6), T0), Ok(()));
+        assert_eq!(l.new_vault(&NEIGHBOUR, &vault(6), T0), Ok(()));
         assert_eq!(
-            l.new_vault(OFFICE, &vault(6), T0 + NEW_VAULT_WINDOW_SECS),
+            l.new_vault(&OFFICE, &vault(6), T0 + NEW_VAULT_WINDOW_SECS),
             Ok(())
         );
     }
@@ -234,11 +251,56 @@ mod tests {
         let l = Limits::new();
         let read = "/api/vault/balance?vault=zzzz";
         for i in 0..FLOOD_MAX {
-            assert_eq!(refuse_flood(&l, OFFICE, read, T0), None, "request {i}");
+            assert_eq!(refuse_flood(&l, &OFFICE, read, T0), None, "request {i}");
         }
-        assert_eq!(refuse_flood(&l, OFFICE, read, T0), Some(Refused::Flood));
-        assert_eq!(refuse_flood(&l, "198.51.100.9", read, T0), None);
-        assert_eq!(refuse_flood(&l, OFFICE, read, T0 + FLOOD_WINDOW_SECS), None);
+        assert_eq!(refuse_flood(&l, &OFFICE, read, T0), Some(Refused::Flood));
+        assert_eq!(refuse_flood(&l, &NEIGHBOUR, read, T0), None);
+        assert_eq!(
+            refuse_flood(&l, &OFFICE, read, T0 + FLOOD_WINDOW_SECS),
+            None
+        );
+    }
+
+    /// One client is one budget however its address is written. The text of an address reaches the
+    /// limits only through `client_address`, which hands back the canonical value, so the two
+    /// spellings share the flood allowance and the new-vault one. The first pair is an IPv4 client
+    /// written as an IPv4-mapped IPv6 address in a forwarded header and as plain IPv4 on the
+    /// socket, which only `to_canonical` joins; the second differs in the case of a hex digit.
+    #[test]
+    fn two_spellings_of_one_address_share_one_budget() {
+        let pairs = [
+            (
+                konclave_http::client_address(["::ffff:203.0.113.7"], None),
+                konclave_http::client_address([], Some("203.0.113.7")),
+            ),
+            (
+                konclave_http::client_address(["2001:DB8::1"], None),
+                konclave_http::client_address(["2001:db8::1"], None),
+            ),
+        ];
+        for (first, second) in pairs {
+            assert_eq!(first, second, "the two spellings are one value");
+
+            let l = Limits::new();
+            let read = "/api/vault/balance?vault=zzzz";
+            for i in 0..FLOOD_MAX {
+                assert_eq!(refuse_flood(&l, &first, read, T0), None, "request {i}");
+            }
+            assert_eq!(
+                refuse_flood(&l, &second, read, T0),
+                Some(Refused::Flood),
+                "the other spelling of the same address has no allowance of its own"
+            );
+
+            for n in 1..=5 {
+                assert_eq!(l.new_vault(&first, &vault(n), T0), Ok(()), "vault {n}");
+            }
+            assert_eq!(
+                l.new_vault(&second, &vault(6), T0),
+                Err(Refused::TooManyNewVaults),
+                "nor does it get a second set of new vaults"
+            );
+        }
     }
 
     /// A monitor polling health must never be refused, and must not use up the allowance of
@@ -248,14 +310,14 @@ mod tests {
         let l = Limits::new();
         for i in 0..(FLOOD_MAX * 3) {
             assert_eq!(
-                refuse_flood(&l, OFFICE, "/api/health", T0),
+                refuse_flood(&l, &OFFICE, "/api/health", T0),
                 None,
                 "health check {i}"
             );
         }
         for i in 0..FLOOD_MAX {
             assert_eq!(
-                refuse_flood(&l, OFFICE, "/api/vault?vault=zzzz", T0),
+                refuse_flood(&l, &OFFICE, "/api/vault?vault=zzzz", T0),
                 None,
                 "the whole allowance is still there, request {i}"
             );
@@ -268,13 +330,13 @@ mod tests {
     fn only_the_health_route_itself_is_exempt() {
         let l = Limits::new();
         for _ in 0..(FLOOD_MAX + 1) {
-            let _ = refuse_flood(&l, OFFICE, "/api/vault?x=/api/health", T0);
+            let _ = refuse_flood(&l, &OFFICE, "/api/vault?x=/api/health", T0);
         }
         assert_eq!(
-            refuse_flood(&l, OFFICE, "/api/vault?x=/api/health", T0),
+            refuse_flood(&l, &OFFICE, "/api/vault?x=/api/health", T0),
             Some(Refused::Flood),
             "a query that mentions health is counted like any other read"
         );
-        assert_eq!(refuse_flood(&l, OFFICE, "/api/health?verbose=1", T0), None);
+        assert_eq!(refuse_flood(&l, &OFFICE, "/api/health?verbose=1", T0), None);
     }
 }
