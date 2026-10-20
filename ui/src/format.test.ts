@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fmtZec, fmtZecExact, parseZecToZat, zatToZec, expiryLabel, fmtDate, fingerprintCode, vaultFingerprint } from './format'
+import { amountTyped, fmtZec, fmtZecExact, parseZecToZat, zatToZec, expiryLabel, fmtDate, fingerprintCode, vaultFingerprint } from './format'
 import type { TFn } from './i18n'
 
 // A fake translator: echoes the key with its vars, so we can assert which label was chosen.
@@ -185,5 +185,33 @@ describe('fmtZecExact - figures shown to be compared must not collide', () => {
 
   it('names the shortfall as itself, not as zero', () => {
     expect(fmtZecExact(4000 / 1e8)).toBe('0.00004')
+  })
+})
+
+// The pt-BR payment screen refused "0,0005": the field kept the comma and `parseZecToZat`, which
+// mirrors the backend's parser, rejects it, so a member typing their own decimal separator met a
+// dead button. The parser stays strict (it is also what the proposal carries to the backend); what
+// a member TYPES is turned into the canonical decimal once, in `amountTyped`.
+describe('amountTyped (what a member types becomes the canonical decimal)', () => {
+  it('reads a comma decimal as the decimal point', () => {
+    expect(amountTyped('0,0005')).toBe('0.0005')
+    expect(parseZecToZat(amountTyped('0,0005'))).toBe(50_000)
+    expect(amountTyped(',5')).toBe('.5')
+    expect(amountTyped('5,')).toBe('5.')
+    expect(amountTyped(' 0,5 ')).toBe('0.5')
+  })
+
+  it('leaves a dot decimal and anything else as typed', () => {
+    expect(amountTyped('0.0005')).toBe('0.0005')
+    expect(amountTyped('')).toBe('')
+    expect(amountTyped('abc')).toBe('abc')
+  })
+
+  it('never guesses a thousands separator: two separators stay unreadable', () => {
+    // "1.000,5" and "1,000.5" mean different amounts in pt-BR and en; reading either would be a
+    // guess about money, so both stay as typed and the parser refuses them.
+    expect(parseZecToZat(amountTyped('1.000,5'))).toBeNull()
+    expect(parseZecToZat(amountTyped('1,000.5'))).toBeNull()
+    expect(parseZecToZat(amountTyped('1,2,3'))).toBeNull()
   })
 })

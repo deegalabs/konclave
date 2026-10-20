@@ -43,3 +43,29 @@ describe('a blocked money screen watches the thing that blocked it', () => {
       .not.toMatch(/\+\$\{/)
   })
 })
+
+describe('an amount field takes the decimal separator the member types', () => {
+  // The pt-BR pay screen said "Use ponto no decimal" for 0,0005 while showing every amount with a
+  // comma. What the member typed stays in the field as typed (the phone's pt-BR keypad has only the
+  // comma); it is read through the one function wherever it is parsed or sent, so the gate, the
+  // preview and the proposal read the same amount.
+  it('the payment screen reads and sends the amount through amountTyped, and leaves the field as typed', () => {
+    const code = codeOf('screens/NewPayment.tsx')
+    expect(code).toMatch(/parseZecToZat\(amountTyped\(value\)\)/)
+    expect(code).toMatch(/value_zec: amountTyped\(value\)/)
+    expect(code, 'the raw amount is parsed somewhere without amountTyped').not.toMatch(/parseZecToZat\(value\)/)
+    expect(code, 'the field rewrites what the member types').not.toMatch(/setValue\(amountTyped/)
+  })
+
+  it('every payroll row is read and sent through amountTyped', () => {
+    const code = codeOf('screens/NewPayroll.tsx')
+    expect(code.match(/parseZecToZat\(amountTyped\(r\.value\)\)/g)?.length).toBe(2)
+    expect(code).toMatch(/value_zec: amountTyped\(r\.value\)/)
+    expect(code).not.toMatch(/parseZecToZat\(r\.value\)/)
+  })
+
+  it('the refusal no longer tells a pt-BR member to type a dot', async () => {
+    const { ptBR: pt } = await import('./i18n/pt-BR')
+    expect(pt['money.blockAmount']).not.toMatch(/ponto no decimal/)
+  })
+})
