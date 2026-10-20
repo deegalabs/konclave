@@ -11,7 +11,7 @@ import type { L } from './content'
 export const REPO = 'deegalabs/konclave'
 
 /** When the steps and the titles below were last checked against GitHub. Shown on the page. */
-export const ROADMAP_AS_OF = { iso: '2026-10-03', 'pt-BR': '3 de outubro de 2026', en: '3 October 2026' }
+export const ROADMAP_AS_OF = { iso: '2026-10-18', 'pt-BR': '18 de outubro de 2026', en: '18 October 2026' }
 
 export type RefKind = 'issue' | 'pull'
 export type Ref = { kind: RefKind; n: number }
@@ -19,7 +19,7 @@ export type StageStatus = 'now' | 'next' | 'planned' | 'later'
 
 export type Stage = {
   id: string
-  /** The step's place in the order. Only the numbered steps have one; later work does not. */
+  /** The step's place in the order. Only the numbered steps have one; work outside the order does not. */
   n?: number
   status: StageStatus
   title: L
@@ -28,6 +28,7 @@ export type Stage = {
 }
 
 const issue = (n: number): Ref => ({ kind: 'issue', n })
+const pull = (n: number): Ref => ({ kind: 'pull', n })
 
 export const refKey = (r: Ref): string => `${r.kind}:${r.n}`
 
@@ -37,7 +38,7 @@ export const refUrl = (r: Ref): string =>
 /** Titles as they read on GitHub. Every key is used by some step, and every step's refs are here. */
 export const REF_TITLES: Record<string, string> = {
   'issue:599': 'A restored vault keeps its viewing key unencrypted in browser storage',
-  'issue:567': 'Proposal anchor: bind approvals to content first, then timestamp on chain (design for review)',
+  'issue:567': 'Bind each approval to the content it approves, and have the device check it before signing',
   'issue:577': "A member can claim a colleague's unclaimed seat, and then vote as them",
   'issue:575': 'An approval planted while a vault took unsigned writes keeps counting after it requires signatures',
   'issue:605': 'Let anyone check that the web app is a published release, and refuse updates that are not',
@@ -75,9 +76,28 @@ export const REF_TITLES: Record<string, string> = {
   'issue:370': 'A staging vault: somewhere to break things that is not the one holding real ZEC',
   'issue:141': 'Git/CI-based deploy for the helper and relay (stop manual railway up)',
   'issue:565': 'Scaling: what grows with vault count, and what must hold before 9,000 vaults',
+  'issue:638': 'Carry NU7 in the engine before it activates on mainnet: the consensus branch id changes',
+  'pull:701': 'feat: NU7 groundwork, the epoch rules in one place, inert until the next row (#638)',
 }
 
-/** The steps, in the order we intend to work on them. A step starts once the one before it is done. */
+/** Current work that keeps the vault working as the network changes. It has a date set by the network, so it runs
+ *  alongside the steps and has no place in their order. */
+export const ROADMAP_NOW: Stage[] = [
+  {
+    id: 'network-upgrade-nu7',
+    status: 'now',
+    title: { 'pt-BR': 'Acompanhar a atualização da rede (NU7)', en: 'Keep up with the network upgrade (NU7)' },
+    body: {
+      'pt-BR':
+        'A próxima atualização da rede Zcash, a NU7, muda um identificador que toda transação precisa carregar para ser válida. O app e o coordenador precisam conhecê-la antes de ela ativar na mainnet, ou os pagamentos param. A base já foi integrada e espera ser testada no nosso ambiente de teste e publicada numa versão; o resto espera a altura de ativação que a rede define e as bibliotecas Zcash que a trazem.',
+      en:
+        'Zcash’s next network upgrade, NU7, changes an identifier every transaction must carry to be valid. The app and the coordinator must know it before it activates on mainnet, or payments stop. The groundwork is merged and waits to be tried in our test environment and released; the rest waits on the activation height the network sets and on the Zcash libraries that carry it.',
+    },
+    refs: [issue(638), pull(701)],
+  },
+]
+
+/** The steps, in the order we intend to work on them (a step may start before the one before it is done). */
 export const ROADMAP_STEPS: Stage[] = [
   {
     id: 'own-defects',
@@ -99,9 +119,9 @@ export const ROADMAP_STEPS: Stage[] = [
     title: { 'pt-BR': 'Medir, desenhar e revisar', en: 'Measure, design and review' },
     body: {
       'pt-BR':
-        'Medir quanto custa, no navegador de um celular, procurar na blockchain os pagamentos do cofre e gerar a prova de cada transação, com um teste que qualquer pessoa roda. Escrever o plano técnico para tirar a chave de visualização do coordenador. E ter uma revisão independente desse plano, publicada na íntegra. Esta etapa espera por um revisor de fora do time.',
+        'Parte desta etapa está feita: o tempo de gerar a prova de uma transação pequena (duas ações) no navegador de um celular já foi medido, com um teste que qualquer pessoa roda ([konclave-prove-poc](https://github.com/deegalabs/konclave-prove-poc)). A mediana de cinco execuções foi de 17 a 35 segundos num Galaxy S24 Ultra, cerca de 49 num Galaxy A72, e 132 num Galaxy A14 com o Firefox e 279 com o Chrome. Falta medir: procurar na blockchain os pagamentos do cofre, como a prova cresce numa folha de pagamento, o armazenamento e a bateria. Depois: escrever o plano técnico para tirar a chave de visualização do coordenador, e ter uma revisão independente desse plano, publicada na íntegra. Esta etapa espera por um revisor de fora do time.',
       en:
-        'Measure what it costs, in a phone’s browser, to find the vault’s payments on the blockchain and to make the proof for each transaction, with a test anyone can run. Write the technical plan for taking the viewing key off the coordinator. And have an independent review of that plan, published in full. This step waits on a reviewer from outside the team.',
+        'Part of this step is done: making the proof for one small transaction (two actions) in a phone’s browser is measured, with a test anyone can run ([konclave-prove-poc](https://github.com/deegalabs/konclave-prove-poc)). The median of five runs was 17 to 35 seconds on a Galaxy S24 Ultra, about 49 on a Galaxy A72, and 132 on a Galaxy A14 with Firefox and 279 with Chrome. Still to measure: finding the vault’s payments on the blockchain, how the proof grows with a payroll, storage and battery. Then: write the technical plan for taking the viewing key off the coordinator, and have an independent review of that plan, published in full. This step waits on a reviewer from outside the team.',
     },
     refs: [issue(516)],
   },

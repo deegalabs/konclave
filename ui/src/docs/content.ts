@@ -5,7 +5,7 @@
 
 import { PROOF_TXS, proofOriginCounts } from '../proof-record'
 import { DESKTOP_VERSION } from '../desktop-release'
-import { ROADMAP_AS_OF, ROADMAP_LATER, ROADMAP_STEPS, type Stage } from './roadmap'
+import { ROADMAP_AS_OF, ROADMAP_LATER, ROADMAP_NOW, ROADMAP_STEPS, type Stage } from './roadmap'
 
 export type Locale = 'pt-BR' | 'en'
 export type L = { 'pt-BR': string; en: string }
@@ -894,9 +894,9 @@ export const SECTIONS: Section[] = [
         k: 'p',
         t: {
           'pt-BR':
-            'As etapas estão na ordem em que pretendemos trabalhar, e uma começa quando a anterior termina. Quando uma etapa espera por alguém de fora do time (uma revisão, quem mantém uma biblioteca), dizemos aqui o que ela espera. Os nossos próprios defeitos vêm antes de qualquer coisa nova. Quando uma etapa toca uma biblioteca que a comunidade usa, primeiro oferecemos a melhoria a quem a mantém.',
+            'As etapas estão na ordem em que pretendemos trabalhar. Uma etapa pode começar antes de a anterior terminar; quando uma espera por outra, ou por alguém de fora do time (uma revisão, quem mantém uma biblioteca), dizemos aqui o que ela espera. Os nossos próprios defeitos vêm antes de qualquer coisa nova. Quando uma etapa toca uma biblioteca que a comunidade usa, primeiro oferecemos a melhoria a quem a mantém.',
           en:
-            'The steps are in the order we intend to work on them, and each starts once the one before it is done. When a step waits on someone outside the team (a reviewer, a library’s maintainers), we say here what it is waiting for. Our own defects come before anything new. When a step touches a library the community uses, we first offer the improvement to the people who maintain it.',
+            'The steps are in the order we intend to work on them. A step can start before the one before it is done; when one waits on another, or on someone outside the team (a reviewer, a library’s maintainers), we say here what it is waiting for. Our own defects come before anything new. When a step touches a library the community uses, we first offer the improvement to the people who maintain it.',
         },
       },
       {
@@ -917,6 +917,8 @@ export const SECTIONS: Section[] = [
             'Each step points at the GitHub issues where the work is tracked. Hover over a number, or reach it with the keyboard, to see the title; on a phone, the titles are listed under each step. Reading this page makes no request to GitHub; only opening an issue does.',
         },
       },
+      { k: 'h', t: { 'pt-BR': 'Em paralelo às etapas', en: 'Alongside the steps' } },
+      { k: 'stages', numbered: false, items: ROADMAP_NOW },
       { k: 'h', t: { 'pt-BR': 'As etapas', en: 'The steps' } },
       { k: 'stages', numbered: true, items: ROADMAP_STEPS },
       { k: 'h', t: { 'pt-BR': 'Mais adiante', en: 'Further ahead' } },
