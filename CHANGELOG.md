@@ -73,6 +73,21 @@ explicitly accepted.
   than a post's limit is refused. The hosted relay has run this since 2026-10-19. The coordinator
   never had a per-sender budget, so the mechanism above did not exist there; it now counts under the
   same typed address, which takes effect when it is next deployed.
+- The relay had no limit on how many bytes it held, so one sender could fill its memory. The relay
+  kept at most 512 messages per room and 512 rooms, with messages up to 128 KiB, and counted nothing
+  in bytes. At those bounds that is 32 GiB. A single address at the per-address request limit could
+  post about 37 MiB every ten seconds, so it could reach a few GiB in minutes (this is arithmetic
+  from the limits, not a run against the hosted relay). When a process runs out of memory it is
+  killed and restarted, and every room is lost, so a ceremony in progress would stop. Separately, a
+  poll of a room full of large messages built its whole answer while holding the relay's one lock,
+  so every other request waited behind it (measured at 2.1 seconds in a test build, not measured in
+  a release build). It affected whether the relay answered, not what it carries: nothing in this
+  gave access to the messages. The code had no byte bound from 2026-07-15, the day the relay was
+  added, which is the earliest it could have been exposed. We have no report that it was used; we
+  did not check. What a member can notice: nothing, unless a ceremony stopped with no message to
+  explain it. The relay now holds at most 4 MiB per room and 256 MiB in all, drops the oldest
+  messages first, and builds a poll's answer outside the lock. The hosted relay has run this since
+  2026-10-19 22:48 BRT (2026-10-20 01:48 UTC).
 
 ### Changed
 
@@ -106,6 +121,13 @@ explicitly accepted.
   the short hash first and linked to the commit, then the scope in brackets and the summary as written,
   with the issue number when the summary ends with one. It used to put the scope in bold and the hash at the end.
   The grouping by type (Security, Added, Fixed, and so on) is unchanged (`cliff.toml`).
+
+### Fixed
+
+- **A refusal from the relay is shown in words.** When the relay refused a request the coordinator
+  makes (it was full, it was limiting this server, the message was too large), the operator read
+  "failed to parse relay: post resp: missing field `seq`". It now reads the relay's reason in a
+  sentence after that prefix. This takes effect when the coordinator is next deployed.
 
 ### Known limits
 
