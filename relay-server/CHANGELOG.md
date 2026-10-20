@@ -55,7 +55,7 @@ This file starts on 2026-09-20. Relay changes before that date are in the root
   attributes to the request. A poll whose `from` tag is longer than the 128 bytes a post allows is
   refused with `400`, as a post is, and different spellings of one address (upper or lower case,
   compressed or expanded IPv6, IPv4-mapped IPv6) are one address. The hosted relay has run this
-  since 2026-10-19 (`/health` reports `64f79ca010322c31`).
+  since 2026-10-19 (its `/health` then reported `64f79ca010322c31`).
 
 ### Changed
 
@@ -80,7 +80,8 @@ This file starts on 2026-09-20. Relay changes before that date are in the root
   poll still returns every message after `since` in one answer, which the room ceiling bounds.
   `/health` carries `fill`, the share of the 256 MiB held in steps of 10 percent, worked out at
   most once a minute, and `relay_full`, how many posts have been answered `503` since the
-  process started. This takes effect when the relay is next deployed.
+  process started. The hosted relay has run this since 2026-10-19 (its `/health` reports
+  `f8dc88d0970337a3`).
 
 ### Known limits
 
@@ -125,8 +126,9 @@ This file starts on 2026-09-20. Relay changes before that date are in the root
   to 64 threads by default and up to 256 when `KONCLAVE_RELAY_WORKERS` sets it, and the
   allocator may keep the memory of the largest answer each worker has served: with 64 workers
   and 256 MiB held the process was measured at about 740 MiB resident, beyond the 256 MiB. The
-  numbers, 4 MiB, 256 MiB and 384 KiB, are starting values, not derived from the memory limit of
-  the container, which has not been measured.
+  hosted relay sets `MALLOC_ARENA_MAX=2`, which cut that to about 260 MiB in the same test; neither
+  figure has been measured on the hosted relay. The numbers, 4 MiB, 256 MiB and 384 KiB, are
+  starting values, not derived from the memory limit of the container, which has not been measured.
 - **A room can lose messages its devices have not read yet after far fewer messages than under
   the 512-message rule.** It holds about 32 messages of the largest size a post may carry (128
   KiB). A device that reads after that sees a first `seq` that is not 1.

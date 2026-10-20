@@ -105,8 +105,9 @@ explicitly accepted.
 - The relay bounds the message bytes it holds: 4 MiB per room and 256 MiB in total. Past a room's
   4 MiB its oldest messages leave first. When the relay as a whole is full, rooms nobody has used
   for 45 seconds give up their oldest messages first, then rooms in use down to 384 KiB, and
-  `/health` says how full the relay is in steps of ten percent. What it does, when it takes
-  effect, and Known limits: see [relay-server/CHANGELOG.md](relay-server/CHANGELOG.md).
+  `/health` says how full the relay is in steps of ten percent. The hosted relay has run this
+  since 2026-10-19. What it does and Known limits: see
+  [relay-server/CHANGELOG.md](relay-server/CHANGELOG.md).
 
 ### Fixed
 
