@@ -59,7 +59,8 @@ This file starts on 2026-09-20. Relay changes before that date are in the root
 
 ### Known limits
 
-- **The address the relay counts a request under is only as good as the forwarding header it is
-  given.** The relay takes it from the first hop of `X-Forwarded-For`. Where the platform in front of
-  it keeps a value the client sent, a client can still choose which address its requests count
-  under, and the fix under Security reaches no further than that. Tracked in #400.
+- **The address the relay and the coordinator count a request under is only as good as the
+  forwarding header they are given.** Both take it from the first hop of `X-Forwarded-For`. Where the
+  platform in front of one of them keeps a value the client sent, a client can still choose which
+  address its requests count under, and the fix under Security reaches no further than that. Tracked
+  in #400.

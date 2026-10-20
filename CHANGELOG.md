@@ -70,9 +70,9 @@ explicitly accepted.
   dates it could have been exposed. We have no report that it was used; we did not check. What a
   member can notice: nothing, unless a ceremony stalled with no message to explain it. Every budget
   is now scoped to the address the relay attributes to the request, and a poll whose tag is longer
-  than a post's limit is refused. The hosted relay has run this since 2026-10-19; the coordinator
-  builds its own limit keys the same way from the same code (`konclave-http`), which takes effect
-  when it is next deployed.
+  than a post's limit is refused. The hosted relay has run this since 2026-10-19. The coordinator
+  never had a per-sender budget, so the mechanism above did not exist there; it now counts under the
+  same typed address, which takes effect when it is next deployed.
 
 ### Changed
 
@@ -125,10 +125,11 @@ explicitly accepted.
   100 blocks after the margin. A cross-pool payment caught by the upgrade keeps its funds reserved
   in the wallet until its own expiry, which can be weeks away; the build hold exists to keep new
   ones out of that window.
-- **The address the relay counts a request under is only as good as the forwarding header it is
-  given.** The relay takes it from the first hop of `X-Forwarded-For`. Where the platform in front of
-  it keeps a value the client sent, a client can still choose which address its requests count
-  under, and the fix under Security reaches no further than that. Tracked in #400.
+- **The address the relay and the coordinator count a request under is only as good as the
+  forwarding header they are given.** Both take it from the first hop of `X-Forwarded-For`. Where the
+  platform in front of one of them keeps a value the client sent, a client can still choose which
+  address its requests count under, and the fix under Security reaches no further than that. Tracked
+  in #400.
 
 ## [0.13.2] 2026-10-17
 
