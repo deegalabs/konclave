@@ -49,11 +49,17 @@ history to tidy it is how context gets lost.
   every record that exists. When the earlier attempt is ended by an upgrade rather than by its own
   expiry, the confirm names the last block it can be mined in and when that is expected, and when
   the device has no turning point to give (a record that never stops counting) it says so instead of
-  naming a time. Seven new texts (English and Portuguese) are drafts for the maintainer to approve:
+  naming a time. Seven new texts (English and Portuguese), approved by the maintainer as written:
   `signing.againUntilEpoch`, `signing.againNoTime`, `error.needsNewSignature`,
   `error.fundsHeldUntil`, `error.upgradeHold`, `error.upgradeHoldCrossing` and
   `error.coordinatorNotUpdated`. The app words the coordinator's refusals by the `reason` it sends,
   also on `/net`, in both languages. None can appear yet.
+- **The public roadmap is current as of 18 October 2026.** Step 1 says what is already measured
+  (making one transaction's proof in a phone's browser, with the median times on three phones and a test anyone
+  can run) and what is still to measure. The page no longer says a step starts only once the one before
+  it is done: a step can start earlier, and the page says what each one waits on. The network upgrade
+  (NU7, #638) is listed as current work outside the numbered order, and #567 carries its title as it
+  reads on GitHub now.
 
 ### Fixed
 
