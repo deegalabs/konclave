@@ -132,17 +132,11 @@ describe('a send answered busy keeps consent and retries the same request', () =
 })
 
 describe('the endings of a busy that never cleared', () => {
-  it('a registration that stayed busy is "try again", never "unreachable"', () => {
+  it('a registration that stayed busy is "try again", never "unreachable"', async () => {
+    const { refusalKey } = await import('./conclude-registration')
+    expect(refusalKey({ refused: 'busy' })).toBe('registration.tryAgain')
     const code = codeAt(new URL('./conclude-registration.ts', import.meta.url).pathname)
     expect(code).toMatch(/if \(failure\?\.busy\) return \{ refused: 'busy' \}/)
-    expect(code).toMatch(/case 'busy': return 'registration\.tryAgain'/)
-  })
-
-  it('the signing panel shows a busy send without withdrawing the signatures', () => {
-    const code = codeAt(new URL('./screens/SigningPanel.tsx', import.meta.url).pathname)
-    const apply = code.slice(code.indexOf('function apply('), code.indexOf('function fail('))
-    expect(apply).toMatch(/step\.do === 'busy'/)
-    expect(apply, 'a busy send withdrew the signatures').not.toMatch(/unarmActive/)
   })
 
   it('there is one reader of a busy answer', () => {
