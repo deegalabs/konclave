@@ -62,6 +62,8 @@ describe('an amount field is read by one rule on every screen (Daniel, 2026-10-2
     expect(code, 'the field rewrites what the member types').not.toMatch(/setValue\(amountTyped/)
     expect(code, 'the dollar preview parses the raw text').not.toMatch(/zecToUsd\(value/)
     expect(code, 'the pays row shows the raw text').not.toMatch(/\{value \|\| '-'\} ZEC/)
+    // The confirming preview shows the amount as it will be proposed.
+    expect(code).toMatch(/amountZat != null \? fmtZecExact\(amountZat \/ 1e8\)/)
     expect(code).toMatch(/amountAmbiguous: amountAmbiguous\(value\)/)
   })
 
