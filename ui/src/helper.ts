@@ -120,23 +120,33 @@ export function busyOf(status: number, body: unknown): BusyKind | null {
 const WRITE_BUSY = { tries: 3, ms: 20_000 }
 const SEND_BUSY = { tries: Infinity, ms: 120_000 }
 
+/** A busy that means "this write was not served": `vault` or `service`. `wallet` is a read's. */
+function busyWrite(kind: BusyKind | null): kind is 'vault' | 'service' {
+  return kind === 'vault' || kind === 'service'
+}
+
 /** `fetch` that retries a write the coordinator answered busy (`vault` or `service`), waiting the
  *  `retry_after` it advised (from the body: a page cannot read the header across origins), longer
  *  each time, at most 10 s a wait. Returns the last answer and its parsed body. */
 async function fetchRetryingBusy(
   doFetch: () => Promise<Response>,
   budget: { tries: number; ms: number },
+  onBusy?: () => void,
 ): Promise<{ res: Response; body: unknown }> {
   const start = Date.now()
   for (let attempt = 1; ; attempt++) {
     const res = await doFetch()
     const body: unknown = await res.json().catch(() => null)
-    const kind = busyOf(res.status, body)
-    if (kind !== 'vault' && kind !== 'service') return { res, body }
-    const advised = (body as { retry_after?: unknown }).retry_after
-    const step = typeof advised === 'number' && Number.isFinite(advised) && advised > 0 ? advised * 1000 : 2000
-    const wait = Math.min(step * attempt, 10_000)
+    // A busy that also names a txid or a state is not a clean busy: the payment may be on the
+    // network, so it is never retried and reaches `readReply`, which puts the txid first.
+    const b = body as { retry_after?: unknown; txid?: unknown; state?: unknown } | null
+    if (!busyWrite(busyOf(res.status, body)) || b?.txid !== undefined || b?.state !== undefined) return { res, body }
+    // Advice from the coordinator, held between 1 and 10 s, longer each time.
+    const advised = b?.retry_after
+    const secs = typeof advised === 'number' && Number.isFinite(advised) ? Math.min(Math.max(advised, 1), 10) : 2
+    const wait = Math.min(secs * 1000 * attempt, 10_000)
     if (attempt >= budget.tries || Date.now() - start + wait > budget.ms) return { res, body }
+    onBusy?.()
     await new Promise((r) => setTimeout(r, wait))
   }
 }
@@ -196,7 +206,7 @@ async function postJson<T>(path: string, body: unknown, extra: Record<string, st
       const j = answer as { error?: string; update_required?: unknown } | null
       // Still busy after the retries: `vault busy` is the code `humanError` words, so no caller
       // shows the coordinator's English sentence or reads it as "unreachable".
-      const stillBusy = busyOf(res.status, answer) !== null
+      const stillBusy = busyWrite(busyOf(res.status, answer))
       lastPostFailure = stillBusy
         ? { status: res.status, error: 'vault busy', busy: true }
         : { status: res.status, error: j?.error, updateRequired: j?.update_required === true }
@@ -412,14 +422,16 @@ export async function renameMember(
   try {
     // Read the body even on a 400 (postJson drops it) so the specific reason - name taken / unknown
     // seat / empty - reaches the UI instead of a generic failure.
-    const res = await fetch(`${base}/api/vault/members/rename`, {
+    // `proof` is present when this device holds its share unlocked, and the coordinator
+    // requires it once the vault has a registered write key.
+    const sent = JSON.stringify({ vault: groupKeyHex, old, new: next, ...(proof ?? {}) })
+    const { res, body } = await fetchRetryingBusy(() => fetch(`${base}/api/vault/members/rename`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      // `proof` is present when this device holds its share unlocked, and the coordinator
-      // requires it once the vault has a registered write key.
-      body: JSON.stringify({ vault: groupKeyHex, old, new: next, ...(proof ?? {}) }),
-    })
-    const data = (await res.json().catch(() => null)) as { members?: string[]; error?: string } | null
+      body: sent,
+    }), WRITE_BUSY)
+    if (busyWrite(busyOf(res.status, body))) return { error: 'vault busy' }
+    const data = body as { members?: string[]; error?: string } | null
     if (res.ok && data?.members) return { members: data.members }
     return { error: data?.error ?? 'rename failed' }
   } catch {
@@ -586,6 +598,8 @@ export async function executeProposal(args: {
   dryRun?: boolean
   /** #288: firing a broadcast is a governance write. Bound to the proposal id. */
   proof?: WriteProof
+  /** Called each time the send waits on a busy vault, so the screen can say it is trying again. */
+  onBusy?: () => void
 }): Promise<SendReply> {
   // A send can fail at any of ~7 stages (build/prove/sign/inject/broadcast); the helper returns a
   // precise `{error}` with an accurate status. We read that body instead of collapsing every
@@ -604,12 +618,11 @@ export async function executeProposal(args: {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: sent,
-    }), SEND_BUSY)
-    // Still busy after about two minutes: the coordinator did not start this send. Not a failure and
-    // not "nothing was sent" in the sense that withdraws the signatures: `readReply` ends it as busy,
-    // which keeps every signer's consent.
-    const stillBusy = busyOf(res.status, body)
-    if (stillBusy === 'vault' || stillBusy === 'service') return { error: 'vault busy', busy: stillBusy }
+    }), SEND_BUSY, args.onBusy)
+    // Still busy after about two minutes: the coordinator did not start this send. `readReply` ends
+    // it as busy, which keeps every signer's consent, unless the answer also named a txid or a state.
+    const kind = busyOf(res.status, body)
+    const stillBusy = busyWrite(kind) ? kind : undefined
     const data = body as
       | { txid: string | null; dry_run: boolean; state: string }
       | { error?: string; state?: unknown; txid?: unknown; reason?: unknown; held_until?: unknown }
@@ -625,9 +638,10 @@ export async function executeProposal(args: {
       // network upgrade (#638): kept, so the screen decides by them and not by the English text.
       const reason = data && 'reason' in data && typeof data.reason === 'string' ? data.reason : ''
       const heldUntil = data && 'held_until' in data && typeof data.held_until === 'number' ? data.held_until : undefined
-      if (raw) {
+      if (raw || stillBusy) {
         return {
-          error: raw,
+          error: raw || 'vault busy',
+          ...(stillBusy ? { busy: stillBusy } : {}),
           ...(state ? { state } : {}),
           ...(txid ? { txid } : {}),
           ...(reason ? { reason } : {}),

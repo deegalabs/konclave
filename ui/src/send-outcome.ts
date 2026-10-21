@@ -112,12 +112,12 @@ export function readReply(r: SendReply): ReplyEnd {
   if ('unknown' in r) return { kind: 'resolve' }
   // A broadcast that errored carries its txid: the payment may be on the network.
   if ('error' in r && r.txid) return { kind: 'held', txid: r.txid }
-  // A typed busy never carries a state or a txid: the coordinator did nothing.
-  if ('error' in r && r.busy) return { kind: 'busy' }
   if ('error' in r && r.state === 'sent') return { kind: 'resolve', sentElsewhere: true }
   // Refused while the payment still reads ready: the coordinator says it may be on the network.
   if ('error' in r && r.state === 'ready') return { kind: 'held' }
   if ('error' in r && r.state) return { kind: 'not-sent', why: 'not-sendable', state: r.state, raw: r.error }
+  // A clean busy (no txid, no state, which outrank it above): the coordinator did not start the send.
+  if ('error' in r && r.busy) return { kind: 'busy' }
   if ('error' in r) {
     const epoch = epochOf(r)
     return epoch ? { kind: 'not-sent', why: 'error', raw: r.error, epoch } : { kind: 'not-sent', why: 'error', raw: r.error }

@@ -8,6 +8,7 @@
 // payment that had gone out (#280). So the coordinator's record of the payment is the last word:
 // checked before the request, and read again when the coordinator refuses because it was sent.
 import { readOutcome, type PanelResult, type ReplyEnd, type Resolution, type SentProbe } from './send-outcome'
+import type { SendEnd } from './send-attempt'
 import { startVisiblePoll } from './usePoll'
 import type { TFn } from './i18n'
 import { epochMessage, humanError, netState } from './api'
@@ -119,6 +120,17 @@ export function unresolvedNoteKey(why: 'lost' | 'held' | 'broadcast'): string {
   return why === 'held' ? 'signing.heldNote' : why === 'broadcast' ? 'signing.broadcastNote' : 'signing.unresolvedNote'
 }
 
+/** What a shown step does to this device's send memory and to the signatures. Only a failure
+ *  withdraws them (nothing went out); a busy coordinator did not start the send, so the memory is
+ *  released for "Try sending again" and every signature stands; an unknown outcome keeps both (the
+ *  money may have moved, #280). One rule, read by the panel's `apply`. */
+export function stepEffects(step: ShownStep): { endAs: SendEnd | null; withdraw: boolean } {
+  if (step.do === 'fail') return { endAs: 'not-sent', withdraw: true }
+  if (step.do === 'busy') return { endAs: 'not-sent', withdraw: false }
+  if (step.do === 'unknown') return { endAs: 'unknown', withdraw: false }
+  return { endAs: null, withdraw: false }
+}
+
 /** What the panel shows for a step that is not `resolve` (the caller asks the record for that one). */
 export function stepResult(step: ShownStep): PanelResult {
   if (step.do === 'sent') return { txid: step.txid }
@@ -142,8 +154,8 @@ export function netReplyText(end: ReplyEnd): { pt: string; en: string; stop: boo
   }
   if (end.kind === 'busy') {
     return {
-      pt: 'O cofre está ocupado com outro pedido e não começou este envio. As assinaturas foram mantidas: tente enviar de novo em instantes.',
-      en: 'The vault is busy with another request and did not start this send. The signatures are kept: try sending again in a moment.',
+      pt: 'O cofre está ocupado agora e não começou este envio. As assinaturas continuam valendo por alguns minutos: tente enviar de novo em instantes.',
+      en: 'The vault is busy right now and did not start this send. The signatures still stand for a few minutes: try sending again in a moment.',
       stop: true,
     }
   }

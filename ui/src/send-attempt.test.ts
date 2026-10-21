@@ -43,18 +43,16 @@ describe('the send memory', () => {
 describe('the panel goes through the send memory', () => {
   const panel = codeOf('./screens/SigningPanel.tsx')
 
-  it('fires from the effect only through takeSend, and keeps no memory of its own', () => {
-    expect(panel).toMatch(/if \(!takeSend\(attempt\.current, active\.id\)\) return\s*void doSend\(\)/)
-    // The send effect depends on the decision, the payment and this device's signature.
-    expect(panel).toMatch(/if \(!bg\.iSend \|\| !active \|\| !armed\) return\s*if \(!takeSend/)
+  it('fires from the effect only through fireSend, and keeps no memory of its own', () => {
+    // fireSend (send-attempt.ts) is takeSend behind the decision and this device's signature.
+    expect(panel).toMatch(/if \(!active \|\| !fireSend\(attempt\.current, active\.id, \{ named: bg\.iSend, armed \}\)\) return\s*void doSend\(\)/)
     expect(panel).not.toMatch(/sentOnce/)
   })
 
   it('the failure path releases the memory, the unknown path keeps it', () => {
-    const fail = panel.slice(panel.indexOf('function fail('), panel.indexOf('async function doSend('))
-    expect(fail).toContain("endSend(attempt.current, pid, 'not-sent')")
-    const apply = panel.slice(panel.indexOf('function apply('))
-    expect(apply.slice(0, apply.indexOf('\n  }'))).toContain("endSend(attempt.current, pid, 'unknown')")
+    // Which ending releases it is stepEffects (busy-endings.test.ts); the panel applies that verdict.
+    const apply = panel.slice(panel.indexOf('function apply('), panel.indexOf('function fail('))
+    expect(apply).toContain('if (fx.endAs) endSend(attempt.current, pid, fx.endAs)')
   })
 
   it('"Try again" only clears what is shown: it never sends by itself', () => {
