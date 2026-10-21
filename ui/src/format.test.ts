@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { amountAmbiguous, amountTyped, fmtZec, fmtZecExact, parseZecToZat, zatToZec, expiryLabel, fmtDate, fingerprintCode, vaultFingerprint } from './format'
+import { amountAmbiguous, amountTyped, typedAmountZat, fmtZec, fmtZecExact, parseZecToZat, zatToZec, expiryLabel, fmtDate, fingerprintCode, vaultFingerprint } from './format'
 import type { TFn } from './i18n'
 
 // A fake translator: echoes the key with its vars, so we can assert which label was chosen.
@@ -222,21 +222,34 @@ describe('amountTyped (what a member types becomes the canonical decimal)', () =
   })
 })
 
-// Daniel, 2026-10-21: a lone comma followed by exactly three digits ("1,500") is ambiguous between
-// 1.5 and 1500, and is refused with its own message rather than read either way.
-describe('amountAmbiguous (a lone comma before exactly three digits)', () => {
-  it('is ambiguous when a thousands separator could have been meant', () => {
-    for (const s of ['1,500', '12,345', '999,000', ' 1,500 ']) expect(amountAmbiguous(s), s).toBe(true)
+// Daniel, 2026-10-21: one rule everywhere. A separator (dot or comma) followed by exactly three
+// digits, with an integer part other than zero, is ambiguous between a decimal and a thousands
+// separator (1.500 / 1,500: 1.5 or 1500) and is refused with its own message.
+describe('amountAmbiguous (a separator before exactly three digits, integer part not zero)', () => {
+  it('is ambiguous on either separator', () => {
+    for (const s of ['1,500', '1.500', '12,345', '12.345', '999,000', '1234.500', ' 1,500 ']) expect(amountAmbiguous(s), s).toBe(true)
   })
 
-  it('is not ambiguous when no thousands separator fits', () => {
-    // 0,500 cannot be a thousands separator after a zero; 1234,5 and 1,50 have the wrong group size;
-    // a dot keeps its old reading.
-    for (const s of ['0,500', '1,5', '1,50', '1,5000', '1234,500', '1.500', '0,0005', '']) expect(amountAmbiguous(s), s).toBe(false)
+  it('is not ambiguous with a zero integer part or another group size', () => {
+    for (const s of ['0.001', '0,0005', '0,500', '0.500', '.500', ',500', '1,5', '1.50', '1,5000', '1.5', '1000', '']) expect(amountAmbiguous(s), s).toBe(false)
+  })
+})
+
+describe('typedAmountZat (the one reader of a typed amount)', () => {
+  it('reads either decimal separator', () => {
+    expect(typedAmountZat('0.001')).toBe(100_000)
+    expect(typedAmountZat('0,0005')).toBe(50_000)
+    expect(typedAmountZat('1,5')).toBe(150_000_000)
   })
 
-  it('is never read as an amount', () => {
-    expect(parseZecToZat(amountTyped('1,500'))).toBeNull()
-    expect(parseZecToZat(amountTyped('0,500'))).toBe(50_000_000)
+  it('refuses what is ambiguous, even what the strict parser would read', () => {
+    // parseZecToZat('1.500') is 1.5 ZEC; typed by a member it may mean 1500.
+    expect(parseZecToZat('1.500')).toBe(150_000_000)
+    expect(typedAmountZat('1.500')).toBeNull()
+    expect(typedAmountZat('1,500')).toBeNull()
+  })
+
+  it('refuses what the parser refuses', () => {
+    for (const s of ['1.000,5', '1,2,3', '0,123456789', 'abc', '-0,5', '']) expect(typedAmountZat(s), s).toBeNull()
   })
 })

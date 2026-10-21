@@ -44,49 +44,41 @@ describe('a blocked money screen watches the thing that blocked it', () => {
   })
 })
 
-describe('an amount field takes the decimal separator the member types', () => {
-  // The pt-BR pay screen said "Use ponto no decimal" for 0,0005 while showing every amount with a
-  // comma. What the member typed stays in the field as typed (the phone's pt-BR keypad has only the
-  // comma); it is read through the one function wherever it is parsed or sent, so the gate, the
-  // preview and the proposal read the same amount.
-  it('the payment screen reads and sends the amount through amountTyped, and leaves the field as typed', () => {
+describe('an amount field is read by one rule on every screen (Daniel, 2026-10-21)', () => {
+  // The pt-BR pay screen said "Use ponto no decimal" for 0,0005. What the member typed stays in the
+  // field as typed (the phone's pt-BR keypad has only the comma) and is read by `typedAmountZat`,
+  // the one reader, which also refuses an ambiguous amount (1.500 / 1,500). No screen calls the
+  // strict parser on a typed field, because the parser alone would read 1.500 as 1.5.
+  const screens = ['screens/NewPayment.tsx', 'screens/NewPayroll.tsx', 'screens/Receive.tsx']
+
+  it('no screen parses a typed amount without the one reader', () => {
+    for (const f of screens) expect(codeOf(f), f).not.toMatch(/parseZecToZat\(/)
+  })
+
+  it('the payment screen reads, previews and sends through it, and leaves the field as typed', () => {
     const code = codeOf('screens/NewPayment.tsx')
-    expect(code).toMatch(/parseZecToZat\(amountTyped\(value\)\)/)
+    expect(code).toMatch(/typedAmountZat\(value\)/)
     expect(code).toMatch(/value_zec: amountTyped\(value\)/)
-    expect(code, 'the raw amount is parsed somewhere without amountTyped').not.toMatch(/parseZecToZat\(value\)/)
     expect(code, 'the field rewrites what the member types').not.toMatch(/setValue\(amountTyped/)
-    // parseFloat('0,5') is 0: the dollar preview has to read the same parsed amount, not the raw text.
     expect(code, 'the dollar preview parses the raw text').not.toMatch(/zecToUsd\(value/)
-    // The confirming preview shows what the proposal will carry, not the raw text: '1,000' typed in
-    // English is read as 1 ZEC, and the member must see that before proposing.
     expect(code, 'the pays row shows the raw text').not.toMatch(/\{value \|\| '-'\} ZEC/)
-    expect(code).toMatch(/amountZat != null \? fmtZecExact\(amountZat \/ 1e8\)/)
+    expect(code).toMatch(/amountAmbiguous: amountAmbiguous\(value\)/)
   })
 
-  it('every payroll row is read and sent through amountTyped', () => {
+  it('every payroll row is read through it, and an ambiguous row says so', () => {
     const code = codeOf('screens/NewPayroll.tsx')
-    expect(code.match(/parseZecToZat\(amountTyped\(r\.value\)\)/g)?.length).toBe(2)
+    expect(code).toMatch(/typedAmountZat\(r\.value\)/)
     expect(code).toMatch(/value_zec: amountTyped\(r\.value\)/)
-    expect(code).not.toMatch(/parseZecToZat\(r\.value\)/)
+    expect(code).toMatch(/if \(amountAmbiguous\(r\.value\)\) return 'money\.blockAmountAmbiguous'/)
   })
 
-  it('the refusal no longer tells a pt-BR member to type a dot', async () => {
-    const { ptBR: pt } = await import('./i18n/pt-BR')
-    expect(pt['money.blockAmount']).not.toMatch(/ponto no decimal/)
-  })
-})
-
-describe('the receive request reads its amount through the same rule', () => {
-  // A second normaliser lived here (`replace(',', '.')` and its own regex) and had already drifted:
-  // it accepted more than 8 decimals and put them in the ZIP-321 URI.
-  it('Receive parses the requested amount with amountTyped and parseZecToZat', () => {
+  it('the receive request is read through it, and an ambiguous amount says so', () => {
     const code = codeOf('screens/Receive.tsx')
-    expect(code).toMatch(/parseZecToZat\(amountTyped\(amount\)\)/)
+    expect(code).toMatch(/typedAmountZat\(amount\)/)
+    expect(code).toMatch(/amountAmbiguous\(amount\) && .*t\('money\.blockAmountAmbiguous'\)/)
     expect(code, 'Receive normalises the comma by itself again').not.toMatch(/replace\(',', '\.'\)/)
   })
-})
 
-describe('the amount refusals say what to type (Daniel, 2026-10-21)', () => {
   it('both languages carry the approved sentences', async () => {
     const { ptBR } = await import('./i18n/pt-BR')
     const { en } = await import('./i18n/en')
@@ -94,9 +86,5 @@ describe('the amount refusals say what to type (Daniel, 2026-10-21)', () => {
     expect(en['money.blockAmount']).toBe('Use a single decimal point. For example, type 1.5.')
     expect(ptBR['money.blockAmountAmbiguous']).toBe('Esse valor é ambíguo. Digite 1,5 ou 1500.')
     expect(en['money.blockAmountAmbiguous']).toBe('That amount is ambiguous. Type 1.5 or 1500.')
-  })
-
-  it('the payment screen tells the gate when the amount is ambiguous', () => {
-    expect(codeOf('screens/NewPayment.tsx')).toMatch(/amountAmbiguous: amountAmbiguous\(value\)/)
   })
 })

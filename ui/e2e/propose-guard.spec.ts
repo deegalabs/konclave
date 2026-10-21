@@ -125,7 +125,7 @@ for (const { id: locale, dict } of LOCALES) {
       await expect(page.getByText(message(dict, 'amount'))).toBeVisible()
     })
 
-    test('a lone comma before three digits is ambiguous, and says what to type', async ({ page }) => {
+    test('a separator before three digits is ambiguous, and says what to type', async ({ page }) => {
       // `1,500` is 1.5 in pt-BR and 1500 in en: refused, never read either way.
       await stub(page, locale, 'ok')
       await page.goto('/#/pay')
@@ -133,6 +133,12 @@ for (const { id: locale, dict } of LOCALES) {
       await amount(page).fill('1,500')
       await expect(proposeBtn(page)).toBeDisabled()
       await expect(page.getByText(message(dict, 'amount-ambiguous'))).toBeVisible()
+      // The same rule on the dot: 1.500 is 1.5 or 1500.
+      await amount(page).fill('1.500')
+      await expect(proposeBtn(page)).toBeDisabled()
+      await expect(page.getByText(message(dict, 'amount-ambiguous'))).toBeVisible()
+      await amount(page).fill('0.001')
+      await expect(proposeBtn(page)).toBeEnabled()
     })
 
     test('an unreadable balance blocks instead of silently waving the payment through', async ({ page }) => {
