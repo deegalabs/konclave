@@ -33,7 +33,7 @@ export const SINGLE_PAYMENT_FEE_ZAT = 15000
 export type ProposeBlock =
   | 'memo'
   | 'amount'
-  /** A lone comma before exactly three digits: 1.5 or 1500 (`amountAmbiguous`). */
+  /** A separator before exactly three digits, integer part not zero: 1.5 or 1500 (`amountAmbiguous`). */
   | 'amount-ambiguous'
   | 'balance-unknown'
   | 'no-funds'
@@ -46,7 +46,7 @@ export type ProposeBlock =
   | null
 
 export interface ProposeInput {
-  /** The amount in zatoshis, already parsed with `parseZecToZat`. `null` = unparseable. */
+  /** The amount in zatoshis, read with `typedAmountZat`. `null` = cannot be paid as typed. */
   amountZat: number | null
   /** The typed amount is ambiguous (`amountAmbiguous`), which is why it did not parse. */
   amountAmbiguous?: boolean

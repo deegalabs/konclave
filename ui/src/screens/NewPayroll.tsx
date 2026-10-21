@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Secret, activateOnKey, Loading, Soon } from '../components'
 import { PageHeader } from '../page'
-import { amountTyped, fmtZec, fmtZecExact, parseZecToZat, zatToZec } from '../format'
+import { amountAmbiguous, amountTyped, fmtZec, fmtZecExact, typedAmountZat, zatToZec } from '../format'
 import { estimatedFeeZat } from '../fee-estimate'
 import { useT, useTr } from '../i18n'
 import { useToast } from '../toast'
@@ -27,7 +27,8 @@ function rowIssue(r: Row): string | null {
   if (!r.address.trim()) return 'payroll.issueEmpty'
   const k = classifyAddress(r.address.trim())
   if (k === 'unknown') return 'payroll.issueUnknown'
-  const zat = parseZecToZat(amountTyped(r.value))
+  if (amountAmbiguous(r.value)) return 'money.blockAmountAmbiguous'
+  const zat = typedAmountZat(r.value)
   if (zat === null || zat <= 0) return 'payroll.issueInvalid'
   if (k === 'transparent' && r.memo.trim()) return 'payroll.issueMemoPublic'
   return null
@@ -152,7 +153,7 @@ export default function NewPayroll() {
   // Live aggregates over the valid rows.
   const validRows = rows.filter((r) => rowTouched(r) && rowIssue(r) === null)
   const count = validRows.length
-  const totalZat = validRows.reduce((acc, r) => acc + (parseZecToZat(amountTyped(r.value)) ?? 0), 0)
+  const totalZat = validRows.reduce((acc, r) => acc + (typedAmountZat(r.value) ?? 0), 0)
   // ZIP-317: 5000 zat per logical action, minimum 2. `max(spends, outputs)` - one spend, N lines
   // plus change - which is what EVERY successful send has actually been charged:
   //

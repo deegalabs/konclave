@@ -5,7 +5,7 @@ import { Loading } from '../components'
 import { PageHeader } from '../page'
 import { useT, useTr } from '../i18n'
 import { useToast } from '../toast'
-import { amountAmbiguous, amountTyped, fmtZecExact, parseZecToZat, zatToZec } from '../format'
+import { amountAmbiguous, amountTyped, fmtZecExact, typedAmountZat, zatToZec } from '../format'
 import { freeZatOf, reservedZatOf } from '../balance-parts'
 import { isOpen } from '../desk'
 import {
@@ -148,7 +148,7 @@ export default function NewPayment() {
   const shownAvailable = freeZat == null ? '-' : fmtZecExact(freeZat / 1e8)
   // Preview the balance after this payment (like the payroll screen). Display only - the backend
   // stays authoritative on the real fee; ~0.0001 ZEC is a reasonable single-payment estimate.
-  const amountZat = parseZecToZat(amountTyped(value))
+  const amountZat = typedAmountZat(value)
   const availableZat = freeZat
   // ZIP-317 conservative estimate covering the change output (the real single-payment fee observed
   // on mainnet was 15000). Better to slightly over-estimate so we never let an unsendable amount
