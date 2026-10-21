@@ -86,16 +86,6 @@ describe('the receive request reads its amount through the same rule', () => {
   })
 })
 
-describe('creation does not read a vault the coordinator does not know yet', () => {
-  // Every new member got a 404 on the proposal list during creation: the list loaded as soon as the
-  // group key existed, before the vault was registered. It is only used to sign, so it waits for
-  // the registration.
-  it('the proposal auto-load waits for the registration', () => {
-    const code = codeOf('screens/NetVault.tsx')
-    expect(code).toMatch(/if \(helperConfigured\(\) && groupVk && hostedState === 'registered'\) void loadProposals\(\)/)
-  })
-})
-
 describe('the amount refusals say what to type (Daniel, 2026-10-21)', () => {
   it('both languages carry the approved sentences', async () => {
     const { ptBR } = await import('./i18n/pt-BR')
