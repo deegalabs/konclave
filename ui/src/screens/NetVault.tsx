@@ -818,8 +818,8 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
 
   // Auto-load the proposals once the vault is known (helper configured + group key set).
   useEffect(() => {
-    if (helperConfigured() && groupVk) void loadProposals()
-  }, [groupVk, loadProposals])
+    if (helperConfigured() && groupVk && hostedState === 'registered') void loadProposals()
+  }, [groupVk, hostedState, loadProposals])
 
   // Export the accounting ledger (the vault's confirmed governed payments) as a CSV download.
   // ---- on-device persistence handlers (Marco 5), all additive to the flow above ----

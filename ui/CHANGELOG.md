@@ -64,11 +64,15 @@ history to tidy it is how context gets lost.
 ### Fixed
 
 - **An amount typed with a comma is accepted.** In Portuguese the payment screen refused `0,0005`
-  and asked for a dot, while it showed every other amount with a comma. A comma used as the decimal
-  point now reads as one, on the payment screen and in each payroll line, and the field keeps what
-  was typed. The dollar estimate under the amount read `0,5` as zero; it now reads the same amount.
-  An amount with two separators (`1.000,5`) is still refused rather than guessed, and the message
-  says why.
+  and asked for a dot, although a phone's Portuguese keypad offers only the comma. A comma used as
+  the decimal point now reads as one, on the payment screen and in each payroll line, and the field
+  keeps what was typed. The preview shows the amount as it will be proposed, and the dollar estimate
+  under the amount no longer reads `0,5` as zero. An amount with two separators (`1.000,5`) is still
+  refused rather than guessed, and the message says why. The amount in a receive request follows the
+  same rule, so its link and QR code never carry more than 8 decimals.
+- **Creating a vault no longer asks the coordinator for proposals it cannot have.** Every member got
+  an error in the browser console during creation, because the list of payments was read before the
+  vault was registered. It is read once the vault is registered.
 - **The site names the 0.13.2 desktop pre-release.** The landing and the help named 0.13.1 after
   the 0.13.2 installers were published. The download buttons stay off until the desktop app is
   validated on each platform (#212).

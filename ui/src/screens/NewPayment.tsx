@@ -277,7 +277,7 @@ export default function NewPayment() {
           <div className="preview">
             <div className="pv-tag">◆ {t('payment.reviewTag')}</div>
             <div className="pv-row"><span className="pv-k">{t('payment.pvProposes')}</span><span className="pv-v"><b>{proposer}</b></span></div>
-            <div className="pv-row"><span className="pv-k">{t('payment.pvPays')}</span><span className="pv-v"><b>{value || '-'} ZEC</b>{usdOn && amountZat != null && zecToUsd(amountZat / 1e8, rate) ? <span className="pv-usd"> ≈ {zecToUsd(amountZat / 1e8, rate)}</span> : null}</span></div>
+            <div className="pv-row"><span className="pv-k">{t('payment.pvPays')}</span><span className="pv-v"><b>{amountZat != null ? fmtZecExact(amountZat / 1e8) : (value || '-')} ZEC</b>{usdOn && amountZat != null && zecToUsd(amountZat / 1e8, rate) ? <span className="pv-usd"> ≈ {zecToUsd(amountZat / 1e8, rate)}</span> : null}</span></div>
             <div className="pv-row"><span className="pv-k">{t('payment.pvTo')}</span><span className="pv-v">{toName ? <><b>{toName}</b> · {to ? shortAddr(to) : '…'}</> : (to ? shortAddr(to) : '…')}</span></div>
             {memo.trim() && !publicDest && <div className="pv-row"><span className="pv-k">{t('payment.pvMemo')}</span><span className="pv-v">“{memo.trim()}”</span></div>}
             <div className="pv-row"><span className="pv-k">{t('payment.pvApprovals')}</span><span className="pv-v"><b>{threshold}</b> {t('payment.includingYours')}</span></div>
