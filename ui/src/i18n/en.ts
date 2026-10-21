@@ -701,7 +701,8 @@ export const en: Record<string, string> = {
   'payment.avalPlural': 'approvals',
   'payment.proposing': 'Proposing…',
   'payment.proposeBtn': 'Propose payment',
-  'money.blockAmount': "That amount is not a number the vault can pay. Use one decimal separator and no thousands separator, for example 0.5.",
+  'money.blockAmount': "Use a single decimal point. For example, type 1.5.",
+  'money.blockAmountAmbiguous': "That amount is ambiguous. Type 1.5 or 1500.",
   'money.blockBalanceUnknown': "The vault balance could not be read, so this cannot be checked yet. Try again in a moment.",
   'money.blockCrossesPools': "This amount is more than can be sent in a single payment. The vault holds it, but split across two internal pools, and one payment draws on one of them. Send it as two payments, or ask a member to consolidate the vault first.",
   // Reservation is OUR rule, not the network's (\u00a76.14) - the funds are real and the engine would

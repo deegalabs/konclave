@@ -33,6 +33,8 @@ export const SINGLE_PAYMENT_FEE_ZAT = 15000
 export type ProposeBlock =
   | 'memo'
   | 'amount'
+  /** A lone comma before exactly three digits: 1.5 or 1500 (`amountAmbiguous`). */
+  | 'amount-ambiguous'
   | 'balance-unknown'
   | 'no-funds'
   | 'over-balance'
@@ -46,6 +48,8 @@ export type ProposeBlock =
 export interface ProposeInput {
   /** The amount in zatoshis, already parsed with `parseZecToZat`. `null` = unparseable. */
   amountZat: number | null
+  /** The typed amount is ambiguous (`amountAmbiguous`), which is why it did not parse. */
+  amountAmbiguous?: boolean
   /** What a NEW payment may draw on: spendable MINUS what open proposals hold (`freeZatOf`).
    *  `null` = we could not read it. Not the raw spendable: the payment screen used that, and
    *  disagreed with the Dashboard about whether the vault could pay. */
@@ -86,6 +90,8 @@ export function blockMessageKey(b: ProposeBlock): string | null {
   switch (b) {
     case 'amount':
       return 'money.blockAmount'
+    case 'amount-ambiguous':
+      return 'money.blockAmountAmbiguous'
     case 'balance-unknown':
       return 'money.blockBalanceUnknown'
     case 'no-funds':
@@ -118,9 +124,10 @@ export function poolsOf(
 }
 
 export function proposeBlock(input: ProposeInput): ProposeBlock {
-  const { amountZat, availableZat, feeZat, memoOver = false, pools, reservedZat = 0 } = input
+  const { amountZat, amountAmbiguous = false, availableZat, feeZat, memoOver = false, pools, reservedZat = 0 } = input
 
   if (memoOver) return 'memo'
+  if (amountAmbiguous) return 'amount-ambiguous'
   if (amountZat === null || amountZat <= 0) return 'amount'
   if (availableZat === null) return 'balance-unknown'
   if (availableZat === 0) return reservedZat > 0 ? 'reserved' : 'no-funds'

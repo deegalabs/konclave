@@ -5,7 +5,7 @@ import { Loading } from '../components'
 import { PageHeader } from '../page'
 import { useT, useTr } from '../i18n'
 import { useToast } from '../toast'
-import { amountTyped, fmtZecExact, parseZecToZat, zatToZec } from '../format'
+import { amountAmbiguous, amountTyped, fmtZecExact, parseZecToZat, zatToZec } from '../format'
 import { freeZatOf, reservedZatOf } from '../balance-parts'
 import { isOpen } from '../desk'
 import {
@@ -162,7 +162,7 @@ export default function NewPayment() {
   // used to live inline in both and FAIL OPEN in both: any figure that would not parse made the
   // over-balance test false, which the screen read as "all clear". A balance we cannot read and an
   // amount we cannot parse now block instead of waving the payment through.
-  const block = proposeBlock({ amountZat, availableZat, feeZat, memoOver, pools, reservedZat })
+  const block = proposeBlock({ amountZat, amountAmbiguous: amountAmbiguous(value), availableZat, feeZat, memoOver, pools, reservedZat })
   const overBalance = block === 'over-balance'
 
   async function submit() {

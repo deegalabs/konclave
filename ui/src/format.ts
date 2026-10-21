@@ -72,7 +72,14 @@ export function parseZecToZat(zec: string): number | null {
  *  separator would be a guess about money. */
 export function amountTyped(raw: string): string {
   const s = (raw ?? '').trim()
-  return s.includes('.') || s.indexOf(',') !== s.lastIndexOf(',') ? s : s.replace(',', '.')
+  return s.includes('.') || s.indexOf(',') !== s.lastIndexOf(',') || amountAmbiguous(s) ? s : s.replace(',', '.')
+}
+
+/** A lone comma before exactly three digits (`1,500`, `12,345`) reads as 1.5 in Portuguese and as
+ *  1500 in English. It is refused with its own message, never read either way (Daniel, 2026-10-21).
+ *  `0,500` is not ambiguous: no thousands separator follows a zero. */
+export function amountAmbiguous(raw: string): boolean {
+  return /^[1-9]\d{0,2},\d{3}$/.test((raw ?? '').trim())
 }
 
 /** Format integer zatoshis as a full ZEC decimal string (8 places). */

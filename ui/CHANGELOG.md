@@ -68,7 +68,8 @@ history to tidy it is how context gets lost.
   the decimal point now reads as one, on the payment screen and in each payroll line, and the field
   keeps what was typed. The preview shows the amount as it will be proposed, and the dollar estimate
   under the amount no longer reads `0,5` as zero. An amount with two separators (`1.000,5`) is still
-  refused rather than guessed, and the message says why. The amount in a receive request follows the
+  refused rather than guessed, and so is a lone comma before exactly three digits (`1,500`, which
+  reads as 1.5 or as 1500): each refusal says what to type instead. The amount in a receive request follows the
   same rule, so its link and QR code never carry more than 8 decimals.
 - **Creating a vault no longer asks the coordinator for proposals it cannot have.** Every member got
   an error in the browser console during creation, because the list of payments was read before the
