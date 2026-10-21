@@ -55,6 +55,8 @@ describe('an amount field takes the decimal separator the member types', () => {
     expect(code).toMatch(/value_zec: amountTyped\(value\)/)
     expect(code, 'the raw amount is parsed somewhere without amountTyped').not.toMatch(/parseZecToZat\(value\)/)
     expect(code, 'the field rewrites what the member types').not.toMatch(/setValue\(amountTyped/)
+    // parseFloat('0,5') is 0: the dollar preview has to read the same parsed amount, not the raw text.
+    expect(code, 'the dollar preview parses the raw text').not.toMatch(/zecToUsd\(value/)
   })
 
   it('every payroll row is read and sent through amountTyped', () => {

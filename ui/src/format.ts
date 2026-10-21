@@ -65,6 +65,16 @@ export function parseZecToZat(zec: string): number | null {
   return Number.isSafeInteger(zat) ? zat : null
 }
 
+/** What a member typed in an amount field, as the canonical decimal `parseZecToZat` reads and the
+ *  proposal carries. The field keeps what was typed (a pt-BR keypad has only the comma); this is
+ *  applied wherever the amount is read or sent. A lone comma is the decimal point. Two separators
+ *  (`1.000,5`, `1,000.5`) are left as typed, so the parser refuses them: reading a thousands
+ *  separator would be a guess about money. */
+export function amountTyped(raw: string): string {
+  const s = (raw ?? '').trim()
+  return s.includes('.') || s.indexOf(',') !== s.lastIndexOf(',') ? s : s.replace(',', '.')
+}
+
 /** Format integer zatoshis as a full ZEC decimal string (8 places). */
 export function zatToZec(zat: number): string {
   return (zat / ZAT_PER_ZEC).toFixed(8)

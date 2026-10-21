@@ -5,7 +5,7 @@ import { Loading } from '../components'
 import { PageHeader } from '../page'
 import { useT, useTr } from '../i18n'
 import { useToast } from '../toast'
-import { fmtZecExact, parseZecToZat, zatToZec } from '../format'
+import { amountTyped, fmtZecExact, parseZecToZat, zatToZec } from '../format'
 import { freeZatOf, reservedZatOf } from '../balance-parts'
 import { isOpen } from '../desk'
 import {
@@ -148,7 +148,7 @@ export default function NewPayment() {
   const shownAvailable = freeZat == null ? '-' : fmtZecExact(freeZat / 1e8)
   // Preview the balance after this payment (like the payroll screen). Display only - the backend
   // stays authoritative on the real fee; ~0.0001 ZEC is a reasonable single-payment estimate.
-  const amountZat = parseZecToZat(value)
+  const amountZat = parseZecToZat(amountTyped(value))
   const availableZat = freeZat
   // ZIP-317 conservative estimate covering the change output (the real single-payment fee observed
   // on mainnet was 15000). Better to slightly over-estimate so we never let an unsendable amount
@@ -172,7 +172,7 @@ export default function NewPayment() {
     const res = await createProposal({
       proposer, // the member seat this device holds
       to_address: to.trim(),
-      value_zec: value.trim(),
+      value_zec: amountTyped(value),
       memo: memo.trim() || undefined,
     })
     setBusy(false)
@@ -233,7 +233,7 @@ export default function NewPayment() {
             <div className="payamt-meta">
               {usdOn ? (
                 <>
-                  <span className="payamt-echo">{zecToUsd(value, rate) ? `≈ ${zecToUsd(value, rate)}` : '≈ $-'}</span>
+                  <span className="payamt-echo">{amountZat != null && zecToUsd(amountZat / 1e8, rate) ? `≈ ${zecToUsd(amountZat / 1e8, rate)}` : '≈ $-'}</span>
                   <span className="payamt-rate">
                     <span className="payamt-live" aria-hidden="true" />
                     {rate ? `${rate.source} · ${rateAgo(rate)}${rateIsStale(rate) ? ` · ${t('dashboard.rateStale')}` : ''}` : t('dashboard.rateNone')}
@@ -277,7 +277,7 @@ export default function NewPayment() {
           <div className="preview">
             <div className="pv-tag">◆ {t('payment.reviewTag')}</div>
             <div className="pv-row"><span className="pv-k">{t('payment.pvProposes')}</span><span className="pv-v"><b>{proposer}</b></span></div>
-            <div className="pv-row"><span className="pv-k">{t('payment.pvPays')}</span><span className="pv-v"><b>{value || '-'} ZEC</b>{usdOn && zecToUsd(value, rate) ? <span className="pv-usd"> ≈ {zecToUsd(value, rate)}</span> : null}</span></div>
+            <div className="pv-row"><span className="pv-k">{t('payment.pvPays')}</span><span className="pv-v"><b>{value || '-'} ZEC</b>{usdOn && amountZat != null && zecToUsd(amountZat / 1e8, rate) ? <span className="pv-usd"> ≈ {zecToUsd(amountZat / 1e8, rate)}</span> : null}</span></div>
             <div className="pv-row"><span className="pv-k">{t('payment.pvTo')}</span><span className="pv-v">{toName ? <><b>{toName}</b> · {to ? shortAddr(to) : '…'}</> : (to ? shortAddr(to) : '…')}</span></div>
             {memo.trim() && !publicDest && <div className="pv-row"><span className="pv-k">{t('payment.pvMemo')}</span><span className="pv-v">“{memo.trim()}”</span></div>}
             <div className="pv-row"><span className="pv-k">{t('payment.pvApprovals')}</span><span className="pv-v"><b>{threshold}</b> {t('payment.includingYours')}</span></div>

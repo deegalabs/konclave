@@ -697,7 +697,7 @@ export const ptBR: Record<string, string> = {
   'payment.avalPlural': 'avais',
   'payment.proposing': 'Propondo…',
   'payment.proposeBtn': 'Propor pagamento',
-  'money.blockAmount': "Esse valor não é um número que o cofre consiga pagar. Use ponto no decimal, por exemplo 0.5.",
+  'money.blockAmount': "Esse valor não é um número que o cofre consiga pagar. Use um só separador decimal e nenhum separador de milhar, por exemplo 0,5.",
   'money.blockBalanceUnknown': "Não foi possível ler o saldo do cofre, então isso ainda não dá para conferir. Tente de novo em instantes.",
   'money.blockCrossesPools': "Este valor é maior do que cabe em um único pagamento. O cofre tem o saldo, mas dividido em dois grupos internos, e um pagamento usa um deles. Envie em dois pagamentos, ou peça a um membro para consolidar o cofre antes.",
   // Reserva \u00e9 regra NOSSA, n\u00e3o da rede (\u00a76.14) - o dinheiro existe e o engine gastaria. Ent\u00e3o a

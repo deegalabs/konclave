@@ -63,6 +63,12 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **An amount typed with a comma is accepted.** In Portuguese the payment screen refused `0,0005`
+  and asked for a dot, while it showed every other amount with a comma. A comma used as the decimal
+  point now reads as one, on the payment screen and in each payroll line, and the field keeps what
+  was typed. The dollar estimate under the amount read `0,5` as zero; it now reads the same amount.
+  An amount with two separators (`1.000,5`) is still refused rather than guessed, and the message
+  says why.
 - **The site names the 0.13.2 desktop pre-release.** The landing and the help named 0.13.1 after
   the 0.13.2 installers were published. The download buttons stay off until the desktop app is
   validated on each platform (#212).
