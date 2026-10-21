@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { amountTyped, fmtZec, fmtZecExact, parseZecToZat, zatToZec, expiryLabel, fmtDate, fingerprintCode, vaultFingerprint } from './format'
+import { amountAmbiguous, amountTyped, fmtZec, fmtZecExact, parseZecToZat, zatToZec, expiryLabel, fmtDate, fingerprintCode, vaultFingerprint } from './format'
 import type { TFn } from './i18n'
 
 // A fake translator: echoes the key with its vars, so we can assert which label was chosen.
@@ -219,5 +219,24 @@ describe('amountTyped (what a member types becomes the canonical decimal)', () =
     expect(parseZecToZat(amountTyped('1 000,5'))).toBeNull()
     expect(parseZecToZat(amountTyped('0,123456789'))).toBeNull() // 9 decimals
     expect(parseZecToZat(amountTyped('0,00000001'))).toBe(1) // one zatoshi
+  })
+})
+
+// Daniel, 2026-10-21: a lone comma followed by exactly three digits ("1,500") is ambiguous between
+// 1.5 and 1500, and is refused with its own message rather than read either way.
+describe('amountAmbiguous (a lone comma before exactly three digits)', () => {
+  it('is ambiguous when a thousands separator could have been meant', () => {
+    for (const s of ['1,500', '12,345', '999,000', ' 1,500 ']) expect(amountAmbiguous(s), s).toBe(true)
+  })
+
+  it('is not ambiguous when no thousands separator fits', () => {
+    // 0,500 cannot be a thousands separator after a zero; 1234,5 and 1,50 have the wrong group size;
+    // a dot keeps its old reading.
+    for (const s of ['0,500', '1,5', '1,50', '1,5000', '1234,500', '1.500', '0,0005', '']) expect(amountAmbiguous(s), s).toBe(false)
+  })
+
+  it('is never read as an amount', () => {
+    expect(parseZecToZat(amountTyped('1,500'))).toBeNull()
+    expect(parseZecToZat(amountTyped('0,500'))).toBe(50_000_000)
   })
 })

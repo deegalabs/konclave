@@ -125,6 +125,16 @@ for (const { id: locale, dict } of LOCALES) {
       await expect(page.getByText(message(dict, 'amount'))).toBeVisible()
     })
 
+    test('a lone comma before three digits is ambiguous, and says what to type', async ({ page }) => {
+      // `1,500` is 1.5 in pt-BR and 1500 in en: refused, never read either way.
+      await stub(page, locale, 'ok')
+      await page.goto('/#/pay')
+      await fillRecipient(page)
+      await amount(page).fill('1,500')
+      await expect(proposeBtn(page)).toBeDisabled()
+      await expect(page.getByText(message(dict, 'amount-ambiguous'))).toBeVisible()
+    })
+
     test('an unreadable balance blocks instead of silently waving the payment through', async ({ page }) => {
       // The fail-open: `available` falls back to '-', which does not parse, which made the
       // over-balance test false, which the screen read as "all clear".

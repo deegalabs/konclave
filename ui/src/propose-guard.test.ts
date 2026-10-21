@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
-import { proposeBlock, poolsOf } from './propose-guard'
+import { blockMessageKey, proposeBlock, poolsOf } from './propose-guard'
 import { codeAt } from './source-scan'
 
 // The submit gate for a payment or a payroll, as a pure rule.
@@ -212,5 +212,12 @@ describe('the fee a member is SHOWN is the fee they are BLOCKED by (#427 follow-
       /const feeZat = \d+/.test(screen),
       'a bare numeric fee is back, and the copy will not follow it',
     ).toBe(false)
+  })
+})
+
+describe('an ambiguous amount blocks with its own reason', () => {
+  it('names the ambiguity before anything about the balance', () => {
+    expect(proposeBlock({ amountZat: null, amountAmbiguous: true, availableZat: null, feeZat: 15000 })).toBe('amount-ambiguous')
+    expect(blockMessageKey('amount-ambiguous')).toBe('money.blockAmountAmbiguous')
   })
 })

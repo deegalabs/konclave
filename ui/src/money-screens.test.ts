@@ -95,3 +95,18 @@ describe('creation does not read a vault the coordinator does not know yet', () 
     expect(code).toMatch(/if \(helperConfigured\(\) && groupVk && hostedState === 'registered'\) void loadProposals\(\)/)
   })
 })
+
+describe('the amount refusals say what to type (Daniel, 2026-10-21)', () => {
+  it('both languages carry the approved sentences', async () => {
+    const { ptBR } = await import('./i18n/pt-BR')
+    const { en } = await import('./i18n/en')
+    expect(ptBR['money.blockAmount']).toBe('Use um só separador decimal. Por exemplo, digite 1,5.')
+    expect(en['money.blockAmount']).toBe('Use a single decimal point. For example, type 1.5.')
+    expect(ptBR['money.blockAmountAmbiguous']).toBe('Esse valor é ambíguo. Digite 1,5 ou 1500.')
+    expect(en['money.blockAmountAmbiguous']).toBe('That amount is ambiguous. Type 1.5 or 1500.')
+  })
+
+  it('the payment screen tells the gate when the amount is ambiguous', () => {
+    expect(codeOf('screens/NewPayment.tsx')).toMatch(/amountAmbiguous: amountAmbiguous\(value\)/)
+  })
+})
