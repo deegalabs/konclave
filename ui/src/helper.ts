@@ -587,7 +587,8 @@ export async function vaultCeremonies(groupKeyHex: string): Promise<CeremonyReco
 /**
  * Execute a READY proposal: the helper builds the PCZT for the proposal's payment, the browsers in
  * `room` sign over the relay, and (unless `dryRun`) the helper broadcasts and marks the proposal
- * `sent` with its txid. `dryRun` defaults TRUE so a broadcast is always an explicit choice. Returns
+ * `sent` with its txid. `dryRun` has no default: every caller says whether the send broadcasts, so
+ * a forgotten flag is a type error rather than a silent dry run or a silent broadcast. Returns
  * the outcome (with the proposal's new `state`), or `null` on failure (e.g. 409 if not ready).
  */
 export async function executeProposal(args: {
@@ -595,7 +596,7 @@ export async function executeProposal(args: {
   proposalId: string
   relayBase: string
   room: string
-  dryRun?: boolean
+  dryRun: boolean
   /** #288: firing a broadcast is a governance write. Bound to the proposal id. */
   proof?: WriteProof
   /** Called each time the send waits on a busy vault, so the screen can say it is trying again. */
@@ -611,7 +612,7 @@ export async function executeProposal(args: {
       vault: args.vault,
       relay_base: args.relayBase,
       room: args.room,
-      dry_run: args.dryRun ?? true,
+      dry_run: args.dryRun,
       ...(args.proof ?? {}),
     })
     const { res, body } = await fetchRetryingBusy(() => fetch(`${base}/api/vault/proposals/${q(args.proposalId)}/send`, {
