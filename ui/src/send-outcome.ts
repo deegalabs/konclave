@@ -72,7 +72,7 @@ export type SendReply =
   /** `state` is the payment's state when the coordinator refused because it is not ready to send
    *  (`sent` when another device sent it; `ready` when it says the payment may be on the network). `txid` when
    *  it broadcast and got an error back: the payment may be on the network. */
-  | { error: string; state?: string; txid?: string; reason?: string; heldUntil?: number }
+  | { error: string; state?: string; txid?: string; reason?: string; heldUntil?: number; busy?: 'vault' | 'service' }
   /** The coordinator did not answer, or gave a gateway error with no reason. The money may have
    *  moved. The caller MUST resolve it against the vault before saying anything (#280). */
   | { unknown: true }
@@ -90,6 +90,9 @@ export type ReplyEnd =
   /** `sentElsewhere`: the coordinator refused because another device sent it. */
   | { kind: 'resolve'; sentElsewhere?: true }
   | { kind: 'held'; txid?: string }
+  /** The coordinator stayed busy for about two minutes and did not start this send: the signatures
+   *  are kept and the member can send again (busy contract v1). */
+  | { kind: 'busy' }
 
 /** The endings the coordinator names with a `reason` when a network upgrade is behind a refusal. The
  *  app decides by the reason, never by the coordinator's wording (which is a draft and changes). The
@@ -109,6 +112,8 @@ export function readReply(r: SendReply): ReplyEnd {
   if ('unknown' in r) return { kind: 'resolve' }
   // A broadcast that errored carries its txid: the payment may be on the network.
   if ('error' in r && r.txid) return { kind: 'held', txid: r.txid }
+  // A typed busy never carries a state or a txid: the coordinator did nothing.
+  if ('error' in r && r.busy) return { kind: 'busy' }
   if ('error' in r && r.state === 'sent') return { kind: 'resolve', sentElsewhere: true }
   // Refused while the payment still reads ready: the coordinator says it may be on the network.
   if ('error' in r && r.state === 'ready') return { kind: 'held' }
@@ -129,6 +134,8 @@ export type PanelResult =
   | { txid: string | null }
   | { error: string }
   | { unresolved: 'lost' | 'held' | 'broadcast'; txid?: string }
+  /** A send the coordinator was too busy to start: signatures kept, send again offered. */
+  | { busy: true }
   | null
 
 /** The txid of a payment the panel may show as sent, or null. A txid on an unresolved result is one to

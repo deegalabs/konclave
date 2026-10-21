@@ -386,6 +386,8 @@ export default function SigningPanel() {
   // The send's outcome is not known and may never be. This is deliberately NOT an error state: no
   // failure wording, and above all no Retry, because the money may already have moved (#280).
   const unresolved = result && 'unresolved' in result ? result : null
+  // The coordinator was too busy to start the send: the signatures stand and the member sends again.
+  const busySend = !!result && 'busy' in result
   // What this device can do now is SIGN. The send is not a button any more: it follows from the
   // quorum closing, on the device the room named.
   // The signer is still coming up: has a share but hasn't seated yet. Show a loading line instead of
@@ -465,6 +467,15 @@ export default function SigningPanel() {
   // caller, which asks the record; a failure has its own path, `fail`.
   function apply(pid: string, step: ShownStep) {
     if (step.do === 'fail') return fail(pid, step.text, step.raw)
+    // The coordinator stayed busy and did not start this send. Nothing went out, but nothing failed
+    // either: every signature is kept (no withdrawal), and this device's send memory is released so
+    // "Send again" can fire the same send once the vault is free (busy contract v1).
+    if (step.do === 'busy') {
+      endSend(attempt.current, pid, 'not-sent')
+      showFor(pid, stepResult(step))
+      toast.warn(t('signing.busy'))
+      return
+    }
     // An unknown outcome: the payment may be on the network. Not a failure: no withdrawal and no Try
     // again, and this device keeps the memory of its send (#280).
     if (step.do === 'unknown') endSend(attempt.current, pid, 'unknown')
@@ -699,6 +710,12 @@ export default function SigningPanel() {
                 <span>{t('signing.checking')}</span>
               </div>
               <div className="note">{t('signing.checkingNote', { n: checking })}</div>
+            </div>
+          ) : busySend ? (
+            <div key="busy" className="sign-err" role="alert" tabIndex={-1} ref={focusOnMount}>
+              <div className="hint warn">{t('signing.busy')}</div>
+              <div className="note">{t('signing.busyNote')}</div>
+              <button className="btn ghost sm-btn mt-sm" onClick={() => { if (active && takeSend(attempt.current, active.id)) void doSend() }}>{t('signing.sendAgain')}</button>
             </div>
           ) : unresolved ? (
             // One alert for the block: the instruction that keeps a payment from going out twice is

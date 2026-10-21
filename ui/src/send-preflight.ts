@@ -81,6 +81,8 @@ export type PanelStep =
   | { do: 'sent'; txid: string }
   | { do: 'resolve' }
   | { do: 'unknown'; why: 'lost' | 'held' | 'broadcast'; txid?: string }
+  /** Not started: the coordinator was busy. Signatures kept, no withdrawal, send again offered. */
+  | { do: 'busy' }
   | { do: 'fail'; text: string; raw?: string }
 
 /** A step the panel shows: every one but `resolve`, which asks the record first. */
@@ -91,6 +93,7 @@ export function panelStep(end: ReplyEnd, t: TFn): PanelStep {
     case 'sent': return { do: 'sent', txid: end.txid }
     case 'resolve': return { do: 'resolve' }
     case 'held': return end.txid ? { do: 'unknown', why: 'broadcast', txid: end.txid } : { do: 'unknown', why: 'held' }
+    case 'busy': return { do: 'busy' }
   }
   if (end.why === 'unreachable') return { do: 'fail', text: t('signing.errUnreachable') }
   if (end.why === 'no-txid') return { do: 'fail', text: t('signing.errNoTxid') } // a reply with no txid is NOT a send
@@ -120,6 +123,7 @@ export function unresolvedNoteKey(why: 'lost' | 'held' | 'broadcast'): string {
 export function stepResult(step: ShownStep): PanelResult {
   if (step.do === 'sent') return { txid: step.txid }
   if (step.do === 'fail') return { error: step.text }
+  if (step.do === 'busy') return { busy: true }
   return { unresolved: step.why, ...(step.txid ? { txid: step.txid } : {}) }
 }
 
@@ -134,6 +138,13 @@ export function netReplyText(end: ReplyEnd): { pt: string; en: string; stop: boo
       pt: `O coordenador tem uma tentativa de envio deste pagamento que pode estar na rede${tx}. Não tente de novo: confira a proposta na lista.`,
       en: `The coordinator has an attempt to send this payment that may be on the network${tx}. Do not retry: check the proposal in the list.`,
       stop: false,
+    }
+  }
+  if (end.kind === 'busy') {
+    return {
+      pt: 'O cofre está ocupado com outro pedido e não começou este envio. As assinaturas foram mantidas: tente enviar de novo em instantes.',
+      en: 'The vault is busy with another request and did not start this send. The signatures are kept: try sending again in a moment.',
+      stop: true,
     }
   }
   if (end.kind === 'resolve' && end.sentElsewhere) {
