@@ -57,6 +57,10 @@ describe('an amount field takes the decimal separator the member types', () => {
     expect(code, 'the field rewrites what the member types').not.toMatch(/setValue\(amountTyped/)
     // parseFloat('0,5') is 0: the dollar preview has to read the same parsed amount, not the raw text.
     expect(code, 'the dollar preview parses the raw text').not.toMatch(/zecToUsd\(value/)
+    // The confirming preview shows what the proposal will carry, not the raw text: '1,000' typed in
+    // English is read as 1 ZEC, and the member must see that before proposing.
+    expect(code, 'the pays row shows the raw text').not.toMatch(/\{value \|\| '-'\} ZEC/)
+    expect(code).toMatch(/amountZat != null \? fmtZecExact\(amountZat \/ 1e8\)/)
   })
 
   it('every payroll row is read and sent through amountTyped', () => {
@@ -69,5 +73,25 @@ describe('an amount field takes the decimal separator the member types', () => {
   it('the refusal no longer tells a pt-BR member to type a dot', async () => {
     const { ptBR: pt } = await import('./i18n/pt-BR')
     expect(pt['money.blockAmount']).not.toMatch(/ponto no decimal/)
+  })
+})
+
+describe('the receive request reads its amount through the same rule', () => {
+  // A second normaliser lived here (`replace(',', '.')` and its own regex) and had already drifted:
+  // it accepted more than 8 decimals and put them in the ZIP-321 URI.
+  it('Receive parses the requested amount with amountTyped and parseZecToZat', () => {
+    const code = codeOf('screens/Receive.tsx')
+    expect(code).toMatch(/parseZecToZat\(amountTyped\(amount\)\)/)
+    expect(code, 'Receive normalises the comma by itself again').not.toMatch(/replace\(',', '\.'\)/)
+  })
+})
+
+describe('creation does not read a vault the coordinator does not know yet', () => {
+  // Every new member got a 404 on the proposal list during creation: the list loaded as soon as the
+  // group key existed, before the vault was registered. It is only used to sign, so it waits for
+  // the registration.
+  it('the proposal auto-load waits for the registration', () => {
+    const code = codeOf('screens/NetVault.tsx')
+    expect(code).toMatch(/if \(helperConfigured\(\) && groupVk && hostedState === 'registered'\) void loadProposals\(\)/)
   })
 })

@@ -213,5 +213,8 @@ describe('amountTyped (what a member types becomes the canonical decimal)', () =
     expect(parseZecToZat(amountTyped('1.000,5'))).toBeNull()
     expect(parseZecToZat(amountTyped('1,000.5'))).toBeNull()
     expect(parseZecToZat(amountTyped('1,2,3'))).toBeNull()
+    expect(parseZecToZat(amountTyped('1 000,5'))).toBeNull()
+    expect(parseZecToZat(amountTyped('0,123456789'))).toBeNull() // 9 decimals
+    expect(parseZecToZat(amountTyped('0,00000001'))).toBe(1) // one zatoshi
   })
 })
