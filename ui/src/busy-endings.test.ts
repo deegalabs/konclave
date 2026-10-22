@@ -139,12 +139,61 @@ describe('what each send ending does to the signatures (one rule for the panel)'
     expect(stepResult({ do: 'busy' })).toEqual({ busy: true })
   })
 
-  it('the panel withdraws only when the rule says so', () => {
+  it('the panel does what applyPlan says, and decides nothing itself', () => {
     const code = codeAt(new URL('./screens/SigningPanel.tsx', import.meta.url).pathname)
-    const apply = code.slice(code.indexOf('function apply('), code.indexOf('async function doSend('))
-    expect(apply).toMatch(/stepEffects\(/)
-    expect(apply.match(/unarmActive\(/g)?.length).toBe(1)
-    expect(apply).toMatch(/if \(fx\.withdraw\) void unarmActive\(/)
+    const apply = code.slice(code.indexOf('function apply('), code.indexOf('function fail('))
+    expect(apply).toMatch(/const plan = applyPlan\(step, refusingRef\.current\)/)
+    expect(apply, 'apply branches on the step itself again').not.toMatch(/step\.do/)
+    expect(apply, 'apply routes a step to the failure path').not.toMatch(/fail\(/)
+    expect(apply).toMatch(/if \(plan\.withdraw !== null\) void unarmActive\(errorCode\(plan\.withdraw\)\)/)
+  })
+})
+
+describe('applyPlan: what the panel does for each ending', () => {
+  it('a busy send keeps every signature, shows busy, and frees the send for one more try', async () => {
+    const { applyPlan } = await import('./send-preflight')
+    expect(applyPlan({ do: 'busy' }, false)).toEqual({ endAs: 'not-sent', result: { busy: true }, toast: { kind: 'warn', key: 'signing.busy' }, withdraw: null })
+  })
+
+  it('only a failure withdraws, with its reason; a refusal on this device is not announced again', async () => {
+    const { applyPlan } = await import('./send-preflight')
+    expect(applyPlan({ do: 'fail', text: 'no', raw: 'r' }, false)).toEqual({ endAs: 'not-sent', result: { error: 'no' }, toast: { kind: 'err', text: 'no' }, withdraw: 'r' })
+    expect(applyPlan({ do: 'fail', text: 'no' }, true).toast).toBeNull()
+    expect(applyPlan({ do: 'fail', text: 'no' }, true).withdraw).toBe('no')
+  })
+
+  it('a sent or unknown ending never withdraws', async () => {
+    const { applyPlan } = await import('./send-preflight')
+    expect(applyPlan({ do: 'sent', txid: 't' }, false)).toEqual({ endAs: null, result: { txid: 't' }, toast: { kind: 'ok', key: 'toast.sent' }, withdraw: null })
+    expect(applyPlan({ do: 'unknown', why: 'lost' }, false)).toEqual({ endAs: 'unknown', result: { unresolved: 'lost' }, toast: { kind: 'warn', key: 'toast.sendUnresolved' }, withdraw: null })
+  })
+})
+
+describe('the busy waits, exactly', () => {
+  it('a busy that names a state is not retried', async () => {
+    const { executeProposal } = await import('./helper')
+    coordinator([busy({ state: 'pending' })])
+    await settle(executeProposal(sendArgs))
+    expect(calls).toHaveLength(1)
+  })
+
+  it('waits what the coordinator advised, and never more than 10 s at a time', async () => {
+    const { registerReadKey } = await import('./helper')
+    coordinator([busy({ retry_after: 4 }), { status: 200, body: { ok: true } }])
+    await settle(registerReadKey(GK, 'b'.repeat(64)))
+    expect(calls[1]!.at - calls[0]!.at).toBe(4000)
+    coordinator([busy({ retry_after: 1e9 })])
+    await settle(registerReadKey(GK, 'b'.repeat(64)))
+    expect(calls.map((c) => c.at - calls[0]!.at)).toEqual([0, 10_000, 20_000])
+  })
+})
+
+describe('the panel while a send waits on a busy vault', () => {
+  it('tells the member it is trying again, and drops the busy ending when the go-ahead lapses', () => {
+    const code = codeAt(new URL('./screens/SigningPanel.tsx', import.meta.url).pathname)
+    expect(code).toMatch(/onBusy: \(\) => setBusyWaiting\(true\)/)
+    expect(code).toMatch(/\{busyWaiting && <div className="hint warn mt-sm" role="status">\{t\('signing\.busyWaiting'\)\}<\/div>\}/)
+    expect(code).toMatch(/if \(result && 'busy' in result && !armed\) setResult\(null\)/)
   })
 })
 
