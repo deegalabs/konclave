@@ -46,9 +46,9 @@ describe('send preflight', () => {
     expect(panel).not.toMatch(/function unknown\(/)
     // apply: every step, a failure included, goes through one rule for what it does to the send
     // memory and the signatures (stepEffects, busy-endings.test.ts), and is shown through stepResult.
-    expect(panel).toMatch(/const fx = stepEffects\(step\)/)
+    expect(panel).toMatch(/const plan = applyPlan\(step, refusingRef\.current\)/)
     expect(panel).toMatch(/function fail\(pid: string, msg: string, raw\?: string\) \{\s*apply\(pid, \{ do: 'fail', text: msg, raw \}\)\s*\}/)
-    expect(panel).toMatch(/showFor\(pid, stepResult\(step\)\)/)
+    expect(panel).toMatch(/showFor\(pid, plan\.result\)/)
     // The countdown is guarded by payment, and reset when another payment opens.
     expect(panel).toMatch(/onAttempt: count,/)
     expect(panel).toMatch(/const count = \(n: number\) => \{ if \(boundTo\.current === proposalId\) setChecking\(n\) \}/)

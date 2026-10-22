@@ -131,6 +131,28 @@ export function stepEffects(step: ShownStep): { endAs: SendEnd | null; withdraw:
   return { endAs: null, withdraw: false }
 }
 
+/** Everything the signing panel does for a shown step, decided here so the panel decides nothing:
+ *  what happens to its send memory, what it shows, what it announces, and whether every signature is
+ *  withdrawn (with the reason that travels with the withdrawal). Only a failure withdraws; a busy
+ *  send keeps them. When this device refused the transaction, its failure is not announced again: the
+ *  refusal is what the panel shows. */
+export interface ApplyPlan {
+  endAs: SendEnd | null
+  result: PanelResult
+  toast: { kind: 'ok' | 'warn' | 'err'; key?: string; text?: string } | null
+  withdraw: string | null
+}
+export function applyPlan(step: ShownStep, refusing: boolean): ApplyPlan {
+  const { endAs, withdraw } = stepEffects(step)
+  const result = stepResult(step)
+  if (step.do === 'sent') return { endAs, result, toast: { kind: 'ok', key: 'toast.sent' }, withdraw: null }
+  if (step.do === 'busy') return { endAs, result, toast: { kind: 'warn', key: 'signing.busy' }, withdraw: null }
+  if (step.do === 'fail') {
+    return { endAs, result, toast: refusing ? null : { kind: 'err', text: step.text }, withdraw: withdraw ? (step.raw ?? step.text) : null }
+  }
+  return { endAs, result, toast: { kind: 'warn', key: 'toast.sendUnresolved' }, withdraw: null }
+}
+
 /** What the panel shows for a step that is not `resolve` (the caller asks the record for that one). */
 export function stepResult(step: ShownStep): PanelResult {
   if (step.do === 'sent') return { txid: step.txid }

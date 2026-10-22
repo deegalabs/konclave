@@ -52,7 +52,7 @@ describe('the panel goes through the send memory', () => {
   it('the failure path releases the memory, the unknown path keeps it', () => {
     // Which ending releases it is stepEffects (busy-endings.test.ts); the panel applies that verdict.
     const apply = panel.slice(panel.indexOf('function apply('), panel.indexOf('function fail('))
-    expect(apply).toContain('if (fx.endAs) endSend(attempt.current, pid, fx.endAs)')
+    expect(apply).toContain('if (plan.endAs) endSend(attempt.current, pid, plan.endAs)')
   })
 
   it('"Try again" only clears what is shown: it never sends by itself', () => {

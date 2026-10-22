@@ -17,7 +17,7 @@ import { fmtZecExact, parseZecToZat } from '../format'
 import { useVaultSigner } from '../VaultSigner'
 import { unlockOnDevice } from '../unlock'
 import { executeProposal, listProposals } from '../helper'
-import { alreadySent, panelStep, resolvedStep, stepEffects, stepResult, unresolvedNoteKey, watchSent, type ShownStep } from '../send-preflight'
+import { alreadySent, applyPlan, panelStep, resolvedStep, unresolvedNoteKey, watchSent, type ShownStep } from '../send-preflight'
 import { errorCode, getBalance, getProposalDetail, writeProof } from '../api'
 import { relayBase } from '../net'
 import { OutcomeBook, peerFailureMayShow, readReply, resolveOutcome, sentTxidOf, RESOLVE_ATTEMPTS, type PanelResult } from '../send-outcome'
@@ -471,26 +471,21 @@ export default function SigningPanel() {
   }
 
   // What a step of the send does on screen (panelStep, resolvedStep). `resolve` is handled by the
-  // caller, which asks the record. What it does to the send memory and to the signatures is one rule,
-  // `stepEffects`: only a failure withdraws them; a busy coordinator did not start the send, so they
-  // stand and "Try sending again" can fire it; an unknown outcome keeps both (#280).
+  // caller, which asks the record. Everything else is one tested plan (`applyPlan`): only a failure
+  // withdraws the signatures, with its reason as a code, so every other member who signed learns the
+  // payment is not coming; a busy coordinator did not start the send, so they stand and "Try sending
+  // again" can fire it; an unknown outcome keeps both (#280). This function only carries it out.
   function apply(pid: string, step: ShownStep) {
-    const fx = stepEffects(step)
-    if (fx.endAs) endSend(attempt.current, pid, fx.endAs)
-    showFor(pid, stepResult(step))
-    if (step.do === 'sent') toast.ok(t('toast.sent'))
-    else if (step.do === 'busy') toast.warn(t('signing.busy'))
-    // A failed send keeps its message on the panel and is announced as well, because the run takes
-    // minutes and nobody watches a panel for that long. When this device refused the transaction, the
-    // failure is a consequence of that refusal, which the panel shows instead; announcing "could not
-    // send" over it invites the retry it rules out.
-    else if (step.do === 'fail') { if (!refusingRef.current) toast.err(step.text) }
-    else toast.warn(t('toast.sendUnresolved'))
-    // Nothing moved, so the payment goes back to unsigned everywhere. Left standing, the failed
-    // attempt's signatures sit in the permanent room and the payment reads as already signed by
-    // devices that have gone. The reason travels with it, as a code: only THIS device gets the reply,
-    // so without it every other member who signed sits on "sending" and never learns it is not coming.
-    if (fx.withdraw) void unarmActive(errorCode(step.do === 'fail' ? (step.raw ?? step.text) : ''))
+    const plan = applyPlan(step, refusingRef.current)
+    if (plan.endAs) endSend(attempt.current, pid, plan.endAs)
+    showFor(pid, plan.result)
+    if (plan.toast) {
+      const msg = plan.toast.text ?? t(plan.toast.key ?? '')
+      if (plan.toast.kind === 'ok') toast.ok(msg)
+      else if (plan.toast.kind === 'warn') toast.warn(msg)
+      else toast.err(msg)
+    }
+    if (plan.withdraw !== null) void unarmActive(errorCode(plan.withdraw))
   }
 
   function fail(pid: string, msg: string, raw?: string) {
