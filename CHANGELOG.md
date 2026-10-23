@@ -56,6 +56,13 @@ explicitly accepted.
 
 ## [Unreleased]
 
+## [0.14.0] 2026-10-23
+
+> **Services deployed when this was cut (2026-10-23):** coordinator `404a8bb`, relay `f8dc88d0970337a3`.
+> The web app is this release's own commit. The two services are deployed by hand and may be
+> older than it - recording what they were ANSWERING is the point, not what they should have been.
+
+
 ### Security
 
 - **A client could use up another client's request budget at the relay.** The relay refuses a
@@ -72,7 +79,7 @@ explicitly accepted.
   is now scoped to the address the relay attributes to the request, and a poll whose tag is longer
   than a post's limit is refused. The hosted relay has run this since 2026-10-19. The coordinator
   never had a per-sender budget, so the mechanism above did not exist there; it now counts under the
-  same typed address, which takes effect when it is next deployed.
+  same typed address, which the hosted coordinator has done since 2026-10-22.
 - The relay had no limit on how many bytes it held, so one sender could fill its memory. The relay
   kept at most 512 messages per room and 512 rooms, with messages up to 128 KiB, and counted nothing
   in bytes. At those bounds that is 32 GiB. A single address at the per-address request limit could
@@ -127,7 +134,7 @@ explicitly accepted.
 - **A refusal from the relay is shown in words.** When the relay refused a request the coordinator
   makes (it was full, it was limiting this server, the message was too large), the operator read
   "failed to parse relay: post resp: missing field `seq`". It now reads the relay's reason in a
-  sentence after that prefix. This takes effect when the coordinator is next deployed.
+  sentence after that prefix. The hosted coordinator has run this since 2026-10-22.
 
 ### Known limits
 
