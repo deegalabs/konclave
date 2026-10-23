@@ -59,8 +59,8 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   polls) is one constant shared with the hold.
 - The coordinator builds its request-limit keys in the same place as the relay, scoped to the client
   address it attributes to the request. Different spellings of one address, such as upper or lower
-  case, compressed or expanded IPv6, or IPv4-mapped IPv6, are one address. This takes effect when
-  the coordinator is next built and deployed.
+  case, compressed or expanded IPv6, or IPv4-mapped IPv6, are one address. The hosted coordinator
+  has run this since 2026-10-22.
 
 ## [0.13.2] 2026-10-17
 

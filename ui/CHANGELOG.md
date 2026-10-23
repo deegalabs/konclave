@@ -40,6 +40,8 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+## [0.14.0] 2026-10-23
+
 ### Changed
 
 - **The device keeps the network upgrade a transaction was signed under (#638).** Its record of what
