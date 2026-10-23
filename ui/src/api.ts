@@ -6,6 +6,7 @@
 // resilient if the local daemon is momentarily down).
 
 import type { TFn } from './i18n'
+import type { EpochEnding, EpochReason } from './send-outcome'
 import {
   helperConfigured,
   helperHealth,
@@ -513,6 +514,22 @@ export function errorCode(error?: string, detail?: string): FailureCode {
  */
 export const CONFIRMATIONS_UNTRUSTED = 10
 export const CONFIRMATIONS_TRUSTED = 3
+
+/** The message for a refusal a network upgrade is behind, decided by the coordinator's structured
+ *  `reason` (and `held_until`), never by its English text: the text is a draft that will change, and a
+ *  screen that read it would silently fall back to a raw sentence the day it did (#638). */
+export const EPOCH_KEYS: Record<EpochReason, string> = {
+  hold: 'error.upgradeHold',
+  crossing_hold: 'error.upgradeHoldCrossing',
+  not_updated: 'error.coordinatorNotUpdated',
+  needs_new_signature: 'error.needsNewSignature',
+}
+/** The key and variables of an epoch ending's message (shared by the panel, which translates through
+ *  `t`, and /net, which has both dictionaries). */
+export function epochMessage(e: EpochEnding): { key: string; vars?: Record<string, number> } {
+  if (e.reason === 'needs_new_signature' && e.heldUntil !== undefined) return { key: 'error.fundsHeldUntil', vars: { height: e.heldUntil } }
+  return { key: EPOCH_KEYS[e.reason] }
+}
 
 export function humanError(t: TFn, error?: string, detail?: string): string {
   const e = (error ?? '').toLowerCase()

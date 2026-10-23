@@ -40,6 +40,35 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+## [0.14.0] 2026-10-23
+
+### Changed
+
+- **The device keeps the network upgrade a transaction was signed under (#638).** Its record of what
+  it signed now stores the consensus branch it read in the transaction, beside the expiry, so a later
+  upgrade is counted when it decides whether signing again could pay twice. Nothing changes until the
+  next upgrade's row is added: an older record without a branch reads as NU6.3, which is true of
+  every record that exists. When the earlier attempt is ended by an upgrade rather than by its own
+  expiry, the confirm names the last block it can be mined in and when that is expected, and when
+  the device has no turning point to give (a record that never stops counting) it says so instead of
+  naming a time. Seven new texts (English and Portuguese), approved by the maintainer as written:
+  `signing.againUntilEpoch`, `signing.againNoTime`, `error.needsNewSignature`,
+  `error.fundsHeldUntil`, `error.upgradeHold`, `error.upgradeHoldCrossing` and
+  `error.coordinatorNotUpdated`. The app words the coordinator's refusals by the `reason` it sends,
+  also on `/net`, in both languages. None can appear yet.
+- **The public roadmap is current as of 18 October 2026.** Step 1 says what is already measured
+  (making one transaction's proof in a phone's browser, with the median times on three phones and a test anyone
+  can run) and what is still to measure. The page no longer says a step starts only once the one before
+  it is done: a step can start earlier, and the page says what each one waits on. The network upgrade
+  (NU7, #638) is listed as current work outside the numbered order, and #567 carries its title as it
+  reads on GitHub now.
+
+### Fixed
+
+- **The site names the 0.13.2 desktop pre-release.** The landing and the help named 0.13.1 after
+  the 0.13.2 installers were published. The download buttons stay off until the desktop app is
+  validated on each platform (#212).
+
 ## [0.13.2] 2026-10-17
 
 ### Fixed

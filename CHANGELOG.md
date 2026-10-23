@@ -56,6 +56,114 @@ explicitly accepted.
 
 ## [Unreleased]
 
+## [0.14.0] 2026-10-23
+
+> **Services deployed when this was cut (2026-10-23):** coordinator `404a8bb`, relay `f8dc88d0970337a3`.
+> The web app is this release's own commit. The two services are deployed by hand and may be
+> older than it - recording what they were ANSWERING is the point, not what they should have been.
+
+
+### Security
+
+- **A client could use up another client's request budget at the relay.** The relay refuses a
+  sender that makes too many requests in a short window (`429`). That budget was counted under a key
+  built from a string the requester supplied, and the per-address and per-sender budgets were kept
+  in one table, so a supplied string could name someone else's budget. A request that named another
+  address, or another member's tag, was counted against that other budget, and once it was used up
+  the other party's own requests were refused for as long as this went on. Anyone who knew an
+  address could do it to that address, and anyone who had a room's id could do it to a member's tag
+  there. It affected whether requests were answered, not what the relay carries. The code keyed the
+  per-sender budget this way from 2026-07-15 and the per-address one from 2026-08-22, the earliest
+  dates it could have been exposed. We have no report that it was used; we did not check. What a
+  member can notice: nothing, unless a ceremony stalled with no message to explain it. Every budget
+  is now scoped to the address the relay attributes to the request, and a poll whose tag is longer
+  than a post's limit is refused. The hosted relay has run this since 2026-10-19. The coordinator
+  never had a per-sender budget, so the mechanism above did not exist there; it now counts under the
+  same typed address, which the hosted coordinator has done since 2026-10-22.
+- The relay had no limit on how many bytes it held, so one sender could fill its memory. The relay
+  kept at most 512 messages per room and 512 rooms, with messages up to 128 KiB, and counted nothing
+  in bytes. At those bounds that is 32 GiB. A single address at the per-address request limit could
+  post about 37 MiB every ten seconds, so it could reach a few GiB in minutes (this is arithmetic
+  from the limits, not a run against the hosted relay). When a process runs out of memory it is
+  killed and restarted, and every room is lost, so a ceremony in progress would stop. Separately, a
+  poll of a room full of large messages built its whole answer while holding the relay's one lock,
+  so every other request waited behind it (measured at 2.1 seconds in a test build, not measured in
+  a release build). It affected whether the relay answered, not what it carries: nothing in this
+  gave access to the messages. The code had no byte bound from 2026-07-15, the day the relay was
+  added, which is the earliest it could have been exposed. We have no report that it was used; we
+  did not check. What a member can notice: nothing, unless a ceremony stopped with no message to
+  explain it. The relay now holds at most 4 MiB per room and 256 MiB in all, drops the oldest
+  messages first, and builds a poll's answer outside the lock. The hosted relay has run this since
+  2026-10-19 22:48 BRT (2026-10-20 01:48 UTC).
+
+### Changed
+
+- **Groundwork for the next network upgrade (NU7): one table, one margin, and almost nothing different
+  for you until the upgrade's height is known.** The device (the browser signer) and the coordinator each
+  decided when an earlier transaction could no longer be mined from its expiry alone, each with its
+  own copy of a ten-block margin, and the device picked the network upgrade it was in from its clock.
+  Neither knew that a transaction signed for one upgrade cannot be mined once the next one is active,
+  so across an upgrade a payment would have been held until its expiry (days or weeks for a
+  cross-pool one) and the device would have warned "this pays twice" about a transaction the network
+  already refuses. Both now read the same rules from `konclave-seal::epochs`: the table of upgrades,
+  the margin (one copy), the height estimate and the header acceptance. A source scan fails the build
+  if a second copy appears. The table has one row today (NU6.3), and the window of heights, the lapse
+  times and the verdict on a sent payment are the numbers they were (pinned by tests written against
+  the old code). The new rules act on an upgrade only once a row for NU7 is added, which is done when
+  its activation height is decided. Three things are different today, and are named so that "nothing
+  changed" is not read as more than it is: a device record with no expiry (none can be written, a
+  header with no expiry is refused) used to count as dead at once and now never stops counting; the
+  coordinator already refuses to sign a transaction its engine built on any branch but NU6.3 (it
+  could not happen, and says "the coordinator has not been updated for the network upgrade"); and a
+  header whose expiry is below the NU6.3 activation block, with the clock in the first days after
+  it, is now refused as being for another upgrade (not reachable now). The device's record of what
+  it signed keeps the consensus branch it read from the transaction; an older entry without one reads
+  as NU6.3 (true of every one, an older bundle cannot sign a later upgrade), while the coordinator's
+  record of a send with no branch is treated as UNKNOWN and is never ended by an upgrade.
+  Confirmed by the maintainer: `K` (24 blocks: the 600 s ceremony ceiling plus 600 s to build and prove and
+  600 s to be mined, at 75 s a block) and `K_c` (288 blocks, about six hours, for cross-pool
+  payments). The wasm export `approvalLapsesAt` is gone: the time on the confirm now comes with the
+  decision, from the same rule.
+- **The commit list in the release notes reads `hash [scope] description`.** One line per commit,
+  the short hash first and linked to the commit, then the scope in brackets and the summary as written,
+  with the issue number when the summary ends with one. It used to put the scope in bold and the hash at the end.
+  The grouping by type (Security, Added, Fixed, and so on) is unchanged (`cliff.toml`).
+
+### Fixed
+
+- **A refusal from the relay is shown in words.** When the relay refused a request the coordinator
+  makes (it was full, it was limiting this server, the message was too large), the operator read
+  "failed to parse relay: post resp: missing field `seq`". It now reads the relay's reason in a
+  sentence after that prefix. The hosted coordinator has run this since 2026-10-22.
+
+### Known limits
+
+- **This change alone does not deliver the cap on a transaction's life.** It stays off until the
+  engine move (the next commit) adds the `konclave-signer next-upgrade` command: the coordinator
+  turns the cap on only when its table and the engine agree on the next upgrade's height, and the
+  engine that runs today reports none (the boot log says so). Until then a cross-pool payment signed
+  for NU6.3 and caught by the upgrade is held until its own expiry, as before. Turning it on also
+  needs the PR that adds the NU7 row to make the verdict depend on the branch the chain reports, not
+  only on the two copies of our own constant (#638).
+- **For about a day after the upgrade the device and the coordinator disagree.** The device judges by
+  its own clock with a margin that is about a day wide at that distance from its anchor, so it keeps
+  asking "this could pay twice" while the coordinator, which sees the chain, already says the payment
+  needs a new signature. The release that re-anchors the clock after the upgrade shortens this.
+- **The local bridge sends without the upgrade rules.** The desktop's local bridge (`orchestrate_send`)
+  builds a payment with no build hold, no check of the branch the engine built, and no record of the
+  attempt, so the protections above cover the hosted coordinator only. It is a path an operator drives
+  at a terminal, and it is on the list for the change that adds NU7's row (#638).
+- **The rules are inert until NU7's row exists.** The wallet reports the tip it
+  knows and not the height it scanned, so a transaction is called dead because of an upgrade only
+  100 blocks after the margin. A cross-pool payment caught by the upgrade keeps its funds reserved
+  in the wallet until its own expiry, which can be weeks away; the build hold exists to keep new
+  ones out of that window.
+- **The address the relay and the coordinator count a request under is only as good as the
+  forwarding header they are given.** Both take it from the first hop of `X-Forwarded-For`. Where the
+  platform in front of one of them keeps a value the client sent, a client can still choose which
+  address its requests count under, and the fix under Security reaches no further than that. Tracked
+  in #400.
+
 ## [0.13.2] 2026-10-17
 
 > **Services deployed when this was cut (2026-10-17):** coordinator `4223028`, relay `42da05bf003afc41`.

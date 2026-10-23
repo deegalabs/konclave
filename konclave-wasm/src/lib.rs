@@ -2069,46 +2069,11 @@ pub mod pczt_bridge {
     /// heights the builder writes. (The PCZT's `coin_type` is not readable through pczt's API and
     /// is not in the sighash; another network shows here as a branch, a version or heights outside
     /// the window: testnet shares NU6.3's branch id but runs hundreds of thousands of blocks ahead.)
-    #[derive(Clone, Copy, Debug)]
-    pub struct Epoch {
-        pub anchor_height: u32,
-        pub anchor_unix: i64,
-        pub spacing_s: i64,
-        pub expiry_delta: u32,
-        pub branch_id: u32,
-        pub tx_version: u32,
-        pub version_group_id: u32,
-    }
-    #[derive(Clone, Copy, Debug)]
-    pub struct NetworkRules {
-        pub epochs: &'static [Epoch],
-    }
-    /// Mainnet. NU6.3 activated at block 3,428,143, whose header time is 1785247643
-    /// (2026-07-28 14:07:23 UTC). A new upgrade (NU7, #638) is a new row, shipped before it activates:
-    /// a device on a bundle without it refuses every transaction of the new epoch.
-    pub const MAINNET: NetworkRules = NetworkRules {
-        epochs: &[Epoch {
-            anchor_height: 3_428_143,
-            anchor_unix: 1_785_247_643,
-            spacing_s: 75,
-            expiry_delta: 40,
-            branch_id: 0x37a5_165b,
-            tx_version: 6,
-            version_group_id: 0xD884_B698,
-        }],
-    };
+    ///
+    /// The table, the height rules and the margin are `konclave_seal::epochs`: one implementation,
+    /// read by the coordinator too (#638). What stays here is what only a device does.
+    pub use konclave_seal::epochs::{Epoch, HeightBounds, Table as NetworkRules, MAINNET, NU6_3};
 
-    /// The epoch the device's clock is in: the last one anchored at or before `now_unix`.
-    fn epoch_at(rules: &NetworkRules, now_unix: i64) -> Option<&'static Epoch> {
-        rules.epochs.iter().rfind(|e| e.anchor_unix <= now_unix)
-    }
-
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub struct HeightBounds {
-        pub lo: u32,
-        pub est: u32,
-        pub hi: u32,
-    }
     #[derive(Clone, Copy, Debug)]
     pub struct TxHeader {
         pub tx_version: u32,
@@ -2118,64 +2083,58 @@ pub mod pczt_bridge {
         pub expiry_height: u32,
     }
 
-    /// Whether a transaction expiring at `expiry` may still be mined, by this device's clock: its
-    /// expiry is not ten blocks below the window's floor. The one test `approval_decision` and
-    /// `lapses_at` both read, so what the screen says and what the device decides cannot drift.
-    fn still_counted(rules: &NetworkRules, expiry: u32, now_unix: i64) -> bool {
-        expiry.saturating_add(10) >= height_bounds(rules, now_unix).lo
+    /// One transaction this device's share went into, as its record keeps it: the hash of its
+    /// sighash and the expiry and branch THIS device read in the header it checked (never a wire
+    /// value). A record written before the branch was kept reads as NU6.3.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct SignedTx {
+        pub sighash: String,
+        pub expiry: u32,
+        pub branch: u32,
     }
 
-    /// The first moment (unix seconds) this device stops counting a transaction that expires at
-    /// `expiry`: from then on a new transaction for the same approval is `AfterExpiry`, not `Second`.
-    /// The screen says this time ("until about ..."), so it is the rule's own turning point, not an
-    /// estimate of when the block comes (the chain runs behind the nominal spacing, so that estimate
-    /// would be hours early). None when it is not found within the first epoch's reach.
-    pub fn lapses_at(rules: &NetworkRules, expiry: u32) -> Option<i64> {
-        let first = rules.epochs.first()?;
-        let mut lo = first.anchor_unix;
-        if !still_counted(rules, expiry, lo) {
+    /// Whether a transaction of `branch` expiring at `expiry` may still be mined, by this device's
+    /// clock: the last height it can be in a block (its expiry, or the block before the next upgrade)
+    /// plus the reorg margin is not below the window's floor. The one test `approval_decision` and
+    /// `lapses_at` both read, so what the screen says and what the device decides cannot drift; the
+    /// rule itself is `epochs`', the coordinator's `settle` reads the same one with the chain tip.
+    fn still_counted(rules: &NetworkRules, expiry: u32, branch: u32, now_unix: i64) -> bool {
+        rules.can_still_be_mined(branch, expiry, rules.height_bounds(now_unix).lo)
+    }
+
+    /// The first moment (unix seconds) this device stops counting a transaction of `branch` that
+    /// expires at `expiry`: from then on a new transaction for the same approval is `AfterExpiry`,
+    /// not `Second`. The screen says this time ("until about ..."), so it is the rule's own turning
+    /// point, not an estimate of when the block comes (the chain runs behind the nominal spacing, so
+    /// that estimate would be hours early). None when it is not found within the table's reach, when
+    /// the transaction never ceases to count, or when the branch is not in the table.
+    pub fn lapses_at(rules: &NetworkRules, expiry: u32, branch: u32) -> Option<i64> {
+        let mut lo = rules.anchor.unix;
+        let last = rules.minable_until(branch, expiry)?;
+        if !still_counted(rules, expiry, branch, lo) {
             return Some(lo);
         }
-        // The floor of the window rises at most one block per spacing, and at least ~99% of that,
-        // so twice the nominal time to `expiry` (plus the margin) is always past the turn.
-        let blocks = (expiry as i64 - first.anchor_height as i64).max(0) + 1_000;
-        let mut hi = first.anchor_unix + blocks * first.spacing_s * 2;
-        if still_counted(rules, expiry, hi) {
+        if last == u32::MAX {
             return None;
         }
-        // Counted at `lo`, not at `hi`: the floor never falls as the clock advances within an epoch.
+        // The floor of the window rises at most one block per spacing, and at least ~99% of that,
+        // so twice the nominal time to the last height (plus the margin) is always past the turn.
+        let slowest = rules.epochs.iter().map(|e| e.spacing_s).max()?;
+        let blocks = (i64::from(last) - i64::from(rules.anchor.height)).max(0) + 1_000;
+        let mut hi = rules.anchor.unix + blocks * slowest * 2;
+        if still_counted(rules, expiry, branch, hi) {
+            return None;
+        }
+        // Counted at `lo`, not at `hi`: the floor never falls as the clock advances.
         while hi - lo > 1 {
             let mid = lo + (hi - lo) / 2;
-            if still_counted(rules, expiry, mid) {
+            if still_counted(rules, expiry, branch, mid) {
                 lo = mid;
             } else {
                 hi = mid;
             }
         }
         Some(hi)
-    }
-
-    /// The heights a transaction built now may honestly expire at, from the DEVICE's clock alone:
-    /// `est` counts blocks since the epoch's anchor at its nominal spacing. The chain drifts from
-    /// that (blocks run slightly slower than 75 s), so the window is widened by a margin that grows
-    /// with time since the anchor: 144 blocks plus one per hundred since it. A clock before every
-    /// anchor confirms nothing (an empty window).
-    pub fn height_bounds(rules: &NetworkRules, now_unix: i64) -> HeightBounds {
-        let Some(e) = epoch_at(rules, now_unix) else {
-            return HeightBounds {
-                lo: u32::MAX,
-                est: 0,
-                hi: 0,
-            };
-        };
-        let since = ((now_unix - e.anchor_unix) / e.spacing_s) as u32;
-        let est = e.anchor_height.saturating_add(since);
-        let margin = 144 + since.div_ceil(100);
-        HeightBounds {
-            lo: est.saturating_sub(margin),
-            est,
-            hi: est.saturating_add(e.expiry_delta).saturating_add(margin),
-        }
     }
 
     /// What a device can confirm about a transaction's header before its share leaves: the network
@@ -2209,18 +2168,34 @@ pub mod pczt_bridge {
         First,
         Same,
         AfterExpiry,
-        Second { first_expiry: u32 },
+        /// `first_expiry` is the latest expiry among the earlier transactions still counted;
+        /// `until_unix` the moment the last of them stops counting, from the SAME rule the decision
+        /// reads (`lapses_at`), so the time on the screen is where the decision turns. `None` when
+        /// some earlier transaction never stops counting (no expiry, no later upgrade): the decision
+        /// then has no turning point, and a time on the screen would be a promise it cannot keep.
+        ///
+        /// `by_epoch`: the earlier transaction that lasts longest is ended by a network upgrade
+        /// rather than by its own expiry, which the screen words apart; `until_height` is then the
+        /// last block it can be mined in (the block before the upgrade). Both are unset when the
+        /// time is unknown.
+        Second {
+            first_expiry: u32,
+            until_unix: Option<i64>,
+            until_height: Option<u32>,
+            by_epoch: bool,
+        },
     }
 
     /// What a new transaction is, for an approval this device already put its share into: `signed`
-    /// is this device's record of those transactions (their sighash and expiry). `Same` is a ceremony
-    /// restarted on the same transaction; `AfterExpiry` a new one once every earlier one can no longer
-    /// be mined by this device's clock (its expiry ten blocks below the window's floor); `Second` a
-    /// new one while an earlier one may still be mined, which pays twice if both are: the member
-    /// confirms it, told until when the earlier one stays valid.
+    /// is this device's record of those transactions (their sighash, expiry and branch). `Same` is a
+    /// ceremony restarted on the same transaction; `AfterExpiry` a new one once every earlier one can
+    /// no longer be mined by this device's clock (past the last height it can be in a block, by the
+    /// reorg margin below the window's floor); `Second` a new one while an earlier one may still be
+    /// mined, which pays twice if both are: the member confirms it, told until when the earlier one
+    /// stays valid.
     pub fn approval_decision(
         rules: &NetworkRules,
-        signed: &[(String, u32)],
+        signed: &[SignedTx],
         sighash: &str,
         now_unix: i64,
     ) -> ApprovalDecision {
@@ -2230,24 +2205,83 @@ pub mod pczt_bridge {
         }
         if signed
             .iter()
-            .any(|(h, _)| h.trim().eq_ignore_ascii_case(&s))
+            .any(|t| t.sighash.trim().eq_ignore_ascii_case(&s))
         {
             return ApprovalDecision::Same;
         }
-        match signed
+        let counted: Vec<&SignedTx> = signed
             .iter()
-            .map(|(_, e)| *e)
-            .filter(|e| still_counted(rules, *e, now_unix))
-            .max()
-        {
-            Some(first_expiry) => ApprovalDecision::Second { first_expiry },
+            .filter(|t| still_counted(rules, t.expiry, t.branch, now_unix))
+            .collect();
+        match counted.iter().map(|t| t.expiry).max() {
+            Some(first_expiry) => {
+                // The one that stops counting last decides what the screen says and until when. If
+                // any counted one never stops, there is no time to give.
+                let turns: Option<Vec<(i64, &SignedTx)>> = counted
+                    .iter()
+                    .map(|t| lapses_at(rules, t.expiry, t.branch).map(|at| (at, *t)))
+                    .collect();
+                let last = turns.and_then(|v| v.into_iter().max_by_key(|(at, _)| *at));
+                let by_epoch = last.is_some_and(|(_, t)| rules.capped_by_next(t.branch, t.expiry));
+                ApprovalDecision::Second {
+                    first_expiry,
+                    until_unix: last.map(|(at, _)| at),
+                    until_height: last
+                        .filter(|_| by_epoch)
+                        .and_then(|(_, t)| rules.minable_until(t.branch, t.expiry)),
+                    by_epoch,
+                }
+            }
             None => ApprovalDecision::AfterExpiry,
         }
     }
 
+    /// Read the device's record as `"sighash:expiry[:branch],..."`. An entry without a branch was
+    /// written before the branch was kept and reads as NU6.3 (the only upgrade any such record can
+    /// have been signed under). A malformed entry, or a branch this table does not know, is an
+    /// error and never skipped: a record the device cannot judge must not read as "nothing signed".
+    pub fn parse_signed(rules: &NetworkRules, signed: &str) -> Result<Vec<SignedTx>, String> {
+        let mut records = vec![];
+        for entry in signed.split(',').map(str::trim).filter(|e| !e.is_empty()) {
+            let parts: Vec<&str> = entry.split(':').collect();
+            if !(2..=3).contains(&parts.len()) {
+                return Err("[record] malformed entry".into());
+            }
+            let expiry: u32 = parts[1]
+                .parse()
+                .map_err(|_| "[record] malformed expiry".to_string())?;
+            let branch: u32 = match parts.get(2) {
+                None => NU6_3,
+                Some(b) => b
+                    .parse()
+                    .map_err(|_| "[record] malformed branch".to_string())?,
+            };
+            if rules.epoch_by_branch(branch).is_none() {
+                return Err(
+                    "[record] this device's record names a network upgrade this app does not know"
+                        .into(),
+                );
+            }
+            records.push(SignedTx {
+                sighash: parts[0].to_string(),
+                expiry,
+                branch,
+            });
+        }
+        Ok(records)
+    }
+
     /// `check_header`, with ZIP 318's rolling expiry accepted for a canonical crossing: exactly
-    /// `t - t % 34,560 + 69,120` for a target height `t` the device's clock allows, never any other
-    /// long expiry. Below its window the expiry is refused as for any transaction.
+    /// `t - t % 34,560 + 69,120` for a target height `t` the device's clock allows (and the header's
+    /// own upgrade still allows), never any other long expiry. Below its window the expiry is refused
+    /// as for any transaction.
+    ///
+    /// What a header must be, from the device's clock alone (never the coordinator's height, never
+    /// the PCZT's own claims): its branch, version and version group are a row of the table; it has
+    /// no lock time; it expires inside the window the clock allows, so whoever holds it signed
+    /// cannot broadcast it much later; and the heights it could be mined at (the window, cut at the
+    /// last height its branch is valid) meet that branch's own range. Far from an upgrade one row
+    /// qualifies; around it both do, which is the device's own uncertainty.
     pub fn check_header_for(
         rules: &NetworkRules,
         h: &TxHeader,
@@ -2255,41 +2289,23 @@ pub mod pczt_bridge {
         crossing: bool,
     ) -> Result<(), String> {
         use zcash_protocol::zip318::{EXPIRY_MODULUS, EXPIRY_WINDOW};
-        let plain = check_header(rules, h, now_unix);
-        if plain.is_ok() || !crossing || !plain.as_ref().unwrap_err().starts_with("[expiry]") {
-            return plain;
-        }
-        let b = height_bounds(rules, now_unix);
-        let e = h.expiry_height;
-        let target_hi =
-            b.hi.saturating_sub(epoch_at(rules, now_unix).map_or(0, |e| e.expiry_delta));
-        let zip318_at = |t: u32| t - t % EXPIRY_MODULUS + EXPIRY_WINDOW;
-        if e > b.lo
-            && e.is_multiple_of(EXPIRY_MODULUS)
-            && e >= zip318_at(b.lo)
-            && e <= zip318_at(target_hi)
-        {
-            // The header's other fields passed `check_header` (it fails on the expiry last).
-            return Ok(());
-        }
-        plain
-    }
-
-    pub fn check_header(rules: &NetworkRules, h: &TxHeader, now_unix: i64) -> Result<(), String> {
-        let Some(e) = epoch_at(rules, now_unix) else {
+        if now_unix < rules.anchor.unix {
             return Err(
                 "[expiry] this device's clock is earlier than the network this app signs for"
                     .into(),
             );
-        };
-        if h.branch_id != e.branch_id
-            || h.tx_version != e.tx_version
-            || h.version_group_id != e.version_group_id
-        {
-            return Err(format!(
+        }
+        let network_err = || {
+            format!(
                 "[network] the transaction is for another network or upgrade (branch {:08x}, v{})",
                 h.branch_id, h.tx_version
-            ));
+            )
+        };
+        let Some(row) = rules.epoch_by_branch(h.branch_id) else {
+            return Err(network_err());
+        };
+        if h.tx_version != row.tx_version || h.version_group_id != row.version_group_id {
+            return Err(network_err());
         }
         if h.lock_time != 0 {
             return Err(format!(
@@ -2297,23 +2313,47 @@ pub mod pczt_bridge {
                 h.lock_time
             ));
         }
-        let b = height_bounds(rules, now_unix);
-        if h.expiry_height == 0 {
-            return Err("[expiry] the transaction never expires".into());
+        let b = rules.height_bounds(now_unix);
+        let e = h.expiry_height;
+        let plain = if e == 0 {
+            Err("[expiry] the transaction never expires".to_string())
+        } else if e <= b.lo {
+            Err(format!(
+                "[expiry] the transaction expires at block {e}, already past by this device's clock"
+            ))
+        } else if e > b.hi {
+            Err(format!(
+                "[expiry] the transaction stays valid until block {e}, much later than a payment built now"
+            ))
+        } else {
+            Ok(())
+        };
+        if let Err(plain_err) = plain {
+            let last = rules
+                .next_activation_after(h.branch_id)
+                .map_or(u32::MAX, |a| a - 1);
+            let target_hi = b.top.min(last);
+            let zip318_at = |t: u32| t - t % EXPIRY_MODULUS + EXPIRY_WINDOW;
+            let is_zip318 = crossing
+                && e > b.lo
+                && e.is_multiple_of(EXPIRY_MODULUS)
+                && e >= zip318_at(b.lo)
+                && e <= zip318_at(target_hi);
+            if !is_zip318 {
+                return Err(plain_err);
+            }
         }
-        if h.expiry_height <= b.lo {
+        if !rules.header_may_be_mined(h.branch_id, e, b.lo, b.hi) {
             return Err(format!(
-                "[expiry] the transaction expires at block {}, already past by this device's clock",
-                h.expiry_height
-            ));
-        }
-        if h.expiry_height > b.hi {
-            return Err(format!(
-                "[expiry] the transaction stays valid until block {}, much later than a payment built now",
-                h.expiry_height
+                "[network] by this device's clock the network is no longer on the upgrade this transaction is for (branch {:08x})",
+                h.branch_id
             ));
         }
         Ok(())
+    }
+
+    pub fn check_header(rules: &NetworkRules, h: &TxHeader, now_unix: i64) -> Result<(), String> {
+        check_header_for(rules, h, now_unix, false)
     }
 
     const MARGINAL_FEE: u64 = 5_000;
@@ -2644,6 +2684,9 @@ pub mod pczt_bridge {
         pub sighash: [u8; 32],
         pub txid: String,
         pub expiry_height: u32,
+        /// The consensus branch of the header THIS device read and checked: what the signed record
+        /// keeps beside the expiry, never a value the coordinator sends.
+        pub branch_id: u32,
     }
 
     fn header_of(pczt: &Pczt) -> Result<TxHeader, String> {
@@ -2682,6 +2725,7 @@ pub mod pczt_bridge {
             sighash,
             txid,
             expiry_height: header.expiry_height,
+            branch_id: header.branch_id,
         })
     }
 
@@ -3567,8 +3611,26 @@ pub mod pczt_bridge {
         // The header a device can check before its share leaves, from its own clock and the network
         // the build is for, never from the coordinator's height or the PCZT's own claims.
         const T_ANCHOR: i64 = 1_785_247_643; // block 3,428,143 (NU6.3 activation), header time
+        /// A record entry of an NU6.3 transaction, as every record written so far is.
+        fn signed(sighash: &str, expiry: u32) -> SignedTx {
+            SignedTx {
+                sighash: sighash.into(),
+                expiry,
+                branch: NU6_3,
+            }
+        }
+        /// What `Second` is for an NU6.3 transaction expiring at `first_expiry`: the time shown is
+        /// the rule's own turning point (`lapses_at`).
+        fn second(first_expiry: u32) -> ApprovalDecision {
+            ApprovalDecision::Second {
+                first_expiry,
+                until_unix: lapses_at(&MAINNET, first_expiry, NU6_3),
+                until_height: None,
+                by_epoch: false,
+            }
+        }
         fn honest(now: i64) -> TxHeader {
-            let b = height_bounds(&MAINNET, now);
+            let b = MAINNET.height_bounds(now);
             // An honest builder: the chain runs slower than 75 s a block, so its tip is behind `est`.
             TxHeader {
                 tx_version: 6,
@@ -3581,15 +3643,101 @@ pub mod pczt_bridge {
 
         #[test]
         fn height_bounds_hold_a_margin_that_grows_with_time_since_the_anchor() {
-            let b = height_bounds(&MAINNET, T_ANCHOR);
+            let b = MAINNET.height_bounds(T_ANCHOR);
             assert_eq!(
                 (b.lo, b.est, b.hi),
                 (3_428_143 - 144, 3_428_143, 3_428_143 + 40 + 144)
             );
-            let b = height_bounds(&MAINNET, T_ANCHOR + 75 * 87_500);
+            let b = MAINNET.height_bounds(T_ANCHOR + 75 * 87_500);
             assert_eq!(b.est, 3_428_143 + 87_500);
             assert_eq!(b.est - b.lo, 144 + 875);
             assert_eq!(b.hi - b.est, 40 + 144 + 875);
+        }
+
+        // Characterisation (#638): what the device's clock gives TODAY, captured from the code
+        // BEFORE the table moved to konclave-seal::epochs. Literals on purpose: the refactor must
+        // reproduce these, not re-derive them. (clock offset from the anchor, lo, est, hi)
+        const PINNED_BOUNDS: [(i64, u32, u32, u32); 28] = [
+            (0, 3427999, 3428143, 3428327),
+            (1, 3427999, 3428143, 3428327),
+            (74, 3427999, 3428143, 3428327),
+            (75, 3427999, 3428144, 3428329),
+            (76, 3427999, 3428144, 3428329),
+            (149, 3427999, 3428144, 3428329),
+            (150, 3428000, 3428145, 3428330),
+            (3600, 3428046, 3428191, 3428376),
+            (10800, 3428141, 3428287, 3428473),
+            (86399, 3429138, 3429294, 3429490),
+            (86400, 3429139, 3429295, 3429491),
+            (604800, 3435982, 3436207, 3436472),
+            (2592000, 3462213, 3462703, 3463233),
+            (5000000, 3493998, 3494809, 3495660),
+            (6562500, 3514624, 3515643, 3516702),
+            (7776000, 3530642, 3531823, 3533044),
+            (8640000, 3542047, 3543343, 3544679),
+            (10000000, 3559998, 3561476, 3562994),
+            (15552000, 3633285, 3635503, 3637761),
+            (20000000, 3691998, 3694809, 3697660),
+            (31536000, 3844274, 3848623, 3853012),
+            (40000000, 3955998, 3961476, 3966994),
+            (63072000, 4260549, 4269103, 4277697),
+            (94608000, 4676824, 4689583, 4702382),
+            (126144000, 5093099, 5110063, 5127067),
+            (157680000, 5509375, 5530543, 5551751),
+            (315360000, 7590751, 7632943, 7675175),
+            (1000000000, 16627998, 16761476, 16894994),
+        ];
+        // (expiry, the moment the device stops counting a transaction that expires there)
+        const PINNED_LAPSES: [(u32, i64); 7] = [
+            (1, 1785247643),
+            (3_428_000, 1785248618),
+            (3_428_143, 1785259418),
+            (3_428_183, 1785262418),
+            (3_430_000, 1785400118),
+            (3_600_000, 1798278893),
+            (7_000_000, 2055854618),
+        ];
+
+        #[test]
+        fn height_bounds_reproduce_what_the_device_gave_before_the_table_moved() {
+            for (d, lo, est, hi) in PINNED_BOUNDS {
+                let b = MAINNET.height_bounds(T_ANCHOR + d);
+                assert_eq!((b.lo, b.est, b.hi), (lo, est, hi), "clock anchor+{d}");
+            }
+            // A clock before the anchor confirms nothing: the empty window.
+            for d in [-86_400i64, -1] {
+                let b = MAINNET.height_bounds(T_ANCHOR + d);
+                assert_eq!((b.lo, b.est, b.hi), (u32::MAX, 0, 0), "clock anchor{d}");
+            }
+        }
+
+        #[test]
+        fn lapses_at_reproduces_what_the_device_gave_before_the_table_moved() {
+            for (expiry, t) in PINNED_LAPSES {
+                assert_eq!(
+                    lapses_at(&MAINNET, expiry, NU6_3),
+                    Some(t),
+                    "expiry {expiry}"
+                );
+            }
+        }
+
+        #[test]
+        fn the_decision_turns_ten_blocks_below_the_floor_across_the_sweep() {
+            // The oracle is today's rule written out (`expiry + 10 >= lo`), with its own literal 10:
+            // the production rule must agree with it at every clock, on both sides of the turn.
+            for (d, lo, _, _) in PINNED_BOUNDS {
+                let now = T_ANCHOR + d;
+                for (expiry, counted) in [(lo - 11, false), (lo - 10, true), (lo - 9, true)] {
+                    let got = approval_decision(&MAINNET, &[signed("aa", expiry)], "bb", now);
+                    let want = if counted {
+                        second(expiry)
+                    } else {
+                        ApprovalDecision::AfterExpiry
+                    };
+                    assert_eq!(got, want, "clock anchor+{d}, expiry {expiry}");
+                }
+            }
         }
 
         #[test]
@@ -3602,7 +3750,7 @@ pub mod pczt_bridge {
         fn a_header_outside_what_the_device_can_confirm_is_refused() {
             let now = T_ANCHOR + 75 * 87_500;
             let h = honest(now);
-            let b = height_bounds(&MAINNET, now);
+            let b = MAINNET.height_bounds(now);
             let refused = |h: TxHeader, tag: &str| {
                 let e = check_header(&MAINNET, &h, now).unwrap_err();
                 assert!(e.starts_with(tag), "{tag}: {e}");
@@ -3667,18 +3815,26 @@ pub mod pczt_bridge {
         // A network table anchored where this testnet fixture was built, so its honest header
         // passes: the fixture's expiry is its builder's tip + 40.
         fn rules_for_fixture() -> (NetworkRules, i64) {
-            let p = Pczt::parse(IW_PROVEN).unwrap();
+            rules_for(IW_PROVEN)
+        }
+
+        /// The same for any PCZT of the fixture's family (its branch, whatever it is).
+        fn rules_for(pczt: &[u8]) -> (NetworkRules, i64) {
+            let p = Pczt::parse(pczt).unwrap();
             let expiry = *p.global().expiry_height();
             let e: &'static [Epoch] = Box::leak(Box::new([Epoch {
-                anchor_height: expiry - 41,
-                anchor_unix: T_ANCHOR,
+                activation_height: expiry - 41,
                 spacing_s: 75,
                 expiry_delta: 40,
                 branch_id: *p.global().consensus_branch_id(),
                 tx_version: 6,
                 version_group_id: 0xD884_B698,
             }]));
-            (NetworkRules { epochs: e }, T_ANCHOR)
+            let anchor = konclave_seal::epochs::Anchor {
+                height: expiry - 41,
+                unix: T_ANCHOR,
+            };
+            (NetworkRules { epochs: e, anchor }, T_ANCHOR)
         }
 
         #[test]
@@ -3763,7 +3919,7 @@ pub mod pczt_bridge {
         fn a_crossing_still_needs_the_right_network_and_no_lock_time() {
             // The exemption is for the expiry only: the rest of the header is checked as always.
             let now = T_ANCHOR + 75 * 87_500;
-            let b = height_bounds(&MAINNET, now);
+            let b = MAINNET.height_bounds(now);
             let long = zip318_expiry(b.est - 412);
             let h = TxHeader {
                 branch_id: 0xc8e7_1055,
@@ -3787,7 +3943,7 @@ pub mod pczt_bridge {
             let k = 3_428_143 / period + 3;
             let since = k * period + 5 - 3_428_143;
             let now = T_ANCHOR + 75 * since as i64;
-            let b = height_bounds(&MAINNET, now);
+            let b = MAINNET.height_bounds(now);
             let target_hi = b.hi - 40;
             assert!(
                 zip318_expiry(b.lo) < zip318_expiry(target_hi),
@@ -3811,7 +3967,7 @@ pub mod pczt_bridge {
         #[test]
         fn a_crossing_expiry_one_period_early_is_refused() {
             let now = T_ANCHOR + 75 * 87_500;
-            let b = height_bounds(&MAINNET, now);
+            let b = MAINNET.height_bounds(now);
             let h = TxHeader {
                 expiry_height: zip318_expiry(b.lo) - 34_560,
                 ..honest(now)
@@ -3830,26 +3986,21 @@ pub mod pczt_bridge {
         fn a_second_transaction_is_judged_by_the_latest_earlier_one() {
             // The screen says until when the earlier attempts can go out: the last of them.
             let now = T_ANCHOR + 75 * 87_500;
-            let b = height_bounds(&MAINNET, now);
+            let b = MAINNET.height_bounds(now);
             let d = approval_decision(
                 &MAINNET,
-                &[("aa".into(), b.est + 41), ("cc".into(), b.est + 30)],
+                &[signed("aa", b.est + 41), signed("cc", b.est + 30)],
                 "bb",
                 now,
             );
-            assert_eq!(
-                d,
-                ApprovalDecision::Second {
-                    first_expiry: b.est + 41
-                }
-            );
+            assert_eq!(d, second(b.est + 41));
         }
 
         #[test]
         fn a_crossing_may_carry_the_zip318_expiry_and_nothing_else_may() {
             let now = T_ANCHOR + 75 * 87_500;
             let h = honest(now);
-            let b = height_bounds(&MAINNET, now);
+            let b = MAINNET.height_bounds(now);
             let target = b.est - 412;
             let zip318 = target - target % 34_560 + 69_120;
             let long = TxHeader {
@@ -3885,7 +4036,7 @@ pub mod pczt_bridge {
         #[test]
         fn a_new_transaction_for_an_approval_is_judged_against_what_this_device_signed() {
             let now = T_ANCHOR + 75 * 87_500;
-            let b = height_bounds(&MAINNET, now);
+            let b = MAINNET.height_bounds(now);
             let alive = b.est + 41;
             let dead = b.lo - 11;
             assert_eq!(
@@ -3893,37 +4044,31 @@ pub mod pczt_bridge {
                 ApprovalDecision::First
             );
             assert_eq!(
-                approval_decision(&MAINNET, &[("aa".into(), alive)], "AA", now),
+                approval_decision(&MAINNET, &[signed("aa", alive)], "AA", now),
                 ApprovalDecision::Same
             );
             assert_eq!(
-                approval_decision(&MAINNET, &[("aa".into(), alive)], "bb", now),
-                ApprovalDecision::Second {
-                    first_expiry: alive
-                }
+                approval_decision(&MAINNET, &[signed("aa", alive)], "bb", now),
+                second(alive)
             );
             assert_eq!(
-                approval_decision(&MAINNET, &[("aa".into(), dead)], "bb", now),
+                approval_decision(&MAINNET, &[signed("aa", dead)], "bb", now),
                 ApprovalDecision::AfterExpiry
             );
             // Any signed transaction still alive counts, whichever came first.
             assert_eq!(
                 approval_decision(
                     &MAINNET,
-                    &[("aa".into(), dead), ("cc".into(), alive)],
+                    &[signed("aa", dead), signed("cc", alive)],
                     "bb",
                     now
                 ),
-                ApprovalDecision::Second {
-                    first_expiry: alive
-                }
+                second(alive)
             );
             // Just past the window's floor is not yet dead: ten blocks of margin.
             assert_eq!(
-                approval_decision(&MAINNET, &[("aa".into(), b.lo - 5)], "bb", now),
-                ApprovalDecision::Second {
-                    first_expiry: b.lo - 5
-                }
+                approval_decision(&MAINNET, &[signed("aa", b.lo - 5)], "bb", now),
+                second(b.lo - 5)
             );
         }
 
@@ -3934,14 +4079,13 @@ pub mod pczt_bridge {
             // exactly when the other does, for expiries across months.
             for days in [1i64, 30, 76, 200] {
                 let built = T_ANCHOR + days * 86_400;
-                let expiry = height_bounds(&MAINNET, built).est + 40;
-                let t = lapses_at(&MAINNET, expiry).expect("an expiry above the anchor lapses");
-                let rec = [("aa".to_string(), expiry)];
+                let expiry = MAINNET.height_bounds(built).est + 40;
+                let t =
+                    lapses_at(&MAINNET, expiry, NU6_3).expect("an expiry above the anchor lapses");
+                let rec = [signed("aa", expiry)];
                 assert_eq!(
                     approval_decision(&MAINNET, &rec, "bb", t - 1),
-                    ApprovalDecision::Second {
-                        first_expiry: expiry
-                    },
+                    second(expiry),
                     "{days}d: still counted one second before"
                 );
                 assert_eq!(
@@ -3952,7 +4096,7 @@ pub mod pczt_bridge {
                 assert!(t > built, "{days}d: never in the past of when it was built");
             }
             assert_eq!(
-                lapses_at(&MAINNET, 1),
+                lapses_at(&MAINNET, 1, NU6_3),
                 Some(T_ANCHOR),
                 "below the anchor: lapsed from the start"
             );
@@ -3963,6 +4107,277 @@ pub mod pczt_bridge {
             let h = honest(T_ANCHOR);
             let e = check_header(&MAINNET, &h, T_ANCHOR - 86_400).unwrap_err();
             assert!(e.starts_with("[expiry]"), "{e}");
+        }
+
+        // ---- The epoch rules across an upgrade (#638). The mainnet table has no row after NU6.3 yet, so
+        // these run on a table WITH one, defined here and nowhere in production code.
+        const NU7_TEST: u32 = 0x7719_0ad9;
+        const A_TEST: u32 = 3_500_000;
+        const NEXT: NetworkRules = NetworkRules {
+            epochs: &[
+                Epoch {
+                    activation_height: 3_428_143,
+                    branch_id: NU6_3,
+                    tx_version: 6,
+                    version_group_id: 0xD884_B698,
+                    spacing_s: 75,
+                    expiry_delta: 40,
+                },
+                Epoch {
+                    activation_height: A_TEST,
+                    branch_id: NU7_TEST,
+                    tx_version: 6,
+                    version_group_id: 0xD884_B698,
+                    spacing_s: 25,
+                    expiry_delta: 120,
+                },
+            ],
+            anchor: konclave_seal::epochs::Anchor {
+                height: 3_428_143,
+                unix: T_ANCHOR,
+            },
+        };
+        /// The clock at which block A_TEST is estimated.
+        fn t_a() -> i64 {
+            T_ANCHOR + 75 * i64::from(A_TEST - 3_428_143)
+        }
+        fn hdr(branch_id: u32, expiry_height: u32) -> TxHeader {
+            TxHeader {
+                tx_version: 6,
+                version_group_id: 0xD884_B698,
+                branch_id,
+                lock_time: 0,
+                expiry_height,
+            }
+        }
+
+        #[test]
+        fn a_record_entry_without_a_branch_reads_as_nu6_3_and_an_unknown_branch_refuses() {
+            let r = parse_signed(&NEXT, &format!("aa:3500050,bb:3500060:{NU7_TEST}")).unwrap();
+            assert_eq!(r[0].branch, NU6_3, "no branch: NU6.3");
+            assert_eq!(r[1].branch, NU7_TEST);
+            assert_eq!(
+                parse_signed(&NEXT, &format!("aa:5:{NU6_3}")).unwrap()[0].branch,
+                NU6_3
+            );
+            // The table of this build does not know the branch: the device cannot judge, so it refuses.
+            let e = parse_signed(&NEXT, "aa:5:12345").unwrap_err();
+            assert!(e.starts_with("[record]"), "{e}");
+            // Mainnet today has no NU7 row either: a record naming it cannot be judged here.
+            assert!(parse_signed(&MAINNET, &format!("aa:5:{NU7_TEST}")).is_err());
+            assert!(parse_signed(&MAINNET, "aa").is_err());
+            assert!(parse_signed(&MAINNET, "aa:x").is_err());
+            assert!(parse_signed(&MAINNET, "aa:5:x").is_err());
+            assert!(parse_signed(&MAINNET, "aa:5:6:7").is_err());
+            assert_eq!(parse_signed(&MAINNET, "").unwrap(), vec![]);
+        }
+
+        #[test]
+        fn an_nu6_3_record_past_the_upgrade_is_afterexpiry_once_the_floor_passes_a_plus_nine() {
+            // Signed under NU6.3 with an expiry after A (a crossing's is weeks away): it can never be
+            // mined at or after A, so the device stops counting it ten blocks after A, not at its expiry.
+            let expiry = A_TEST + 34_560;
+            let rec = [signed("aa", expiry)];
+            let t = lapses_at(&NEXT, expiry, NU6_3).expect("it lapses");
+            let lo = |t: i64| NEXT.height_bounds(t).lo;
+            assert!(
+                lo(t) > A_TEST - 1 + 10 && lo(t - 1) <= A_TEST - 1 + 10,
+                "the turn is at A+9"
+            );
+            assert_eq!(
+                approval_decision(&NEXT, &rec, "bb", t - 1),
+                ApprovalDecision::Second {
+                    first_expiry: expiry,
+                    until_unix: Some(t),
+                    until_height: Some(A_TEST - 1),
+                    by_epoch: true
+                }
+            );
+            assert_eq!(
+                approval_decision(&NEXT, &rec, "bb", t),
+                ApprovalDecision::AfterExpiry
+            );
+            // Without the later row the same record is still counted at that moment: the cap does it.
+            assert!(matches!(
+                approval_decision(&MAINNET, &[signed("aa", expiry)], "bb", t),
+                ApprovalDecision::Second { .. }
+            ));
+        }
+
+        #[test]
+        fn the_time_second_carries_is_the_moment_the_decision_turns_afterexpiry() {
+            // For records of several shapes: an ordinary one before A, one capped by A, and a NU7 one.
+            for (expiry, branch) in [
+                (A_TEST - 5_000, NU6_3),
+                (A_TEST + 40, NU6_3),
+                (A_TEST + 69_120, NU6_3),
+                (A_TEST + 100, NU7_TEST),
+            ] {
+                let rec = [SignedTx {
+                    sighash: "aa".into(),
+                    expiry,
+                    branch,
+                }];
+                let t = lapses_at(&NEXT, expiry, branch).expect("lapses");
+                let before = approval_decision(&NEXT, &rec, "bb", t - 1);
+                let ApprovalDecision::Second {
+                    until_unix,
+                    until_height,
+                    by_epoch,
+                    ..
+                } = before
+                else {
+                    panic!("{expiry}/{branch}: not Second one second before the turn: {before:?}");
+                };
+                assert_eq!(until_unix, Some(t), "{expiry}/{branch}");
+                // Only a record the upgrade ends (not its own expiry) is worded as the upgrade's.
+                assert_eq!(
+                    by_epoch,
+                    branch == NU6_3 && expiry >= A_TEST,
+                    "{expiry}/{branch}"
+                );
+                // The block the screen names is the last one the earlier transaction can be mined in.
+                assert_eq!(
+                    until_height,
+                    by_epoch.then_some(A_TEST - 1),
+                    "{expiry}/{branch}"
+                );
+                assert_eq!(
+                    approval_decision(&NEXT, &rec, "bb", t),
+                    ApprovalDecision::AfterExpiry,
+                    "{expiry}/{branch}"
+                );
+            }
+            // A record whose branch is unknown has no turn to show.
+            assert_eq!(lapses_at(&NEXT, 5, 12345), None);
+        }
+
+        #[test]
+        fn a_record_that_never_stops_counting_gives_no_time() {
+            // Expiry 0 and no later upgrade: the decision has no turning point. A time on the screen
+            // would say the warning stops somewhere it does not (the moment of another record's turn).
+            let now = T_ANCHOR + 75 * 87_500;
+            let b = MAINNET.height_bounds(now);
+            let rec = [signed("aa", 0), signed("cc", b.est + 41)];
+            let d = approval_decision(&MAINNET, &rec, "bb", now);
+            let ApprovalDecision::Second {
+                until_unix,
+                until_height,
+                by_epoch,
+                ..
+            } = d
+            else {
+                panic!("{d:?}")
+            };
+            assert_eq!((until_unix, until_height, by_epoch), (None, None, false));
+            // And it is still Second long after the other record's turn: nothing was promised.
+            let later = now + 86_400 * 400;
+            assert!(matches!(
+                approval_decision(&MAINNET, &rec, "bb", later),
+                ApprovalDecision::Second { .. }
+            ));
+        }
+
+        #[test]
+        fn the_window_and_its_floor_never_fall_across_the_upgrade_on_the_device() {
+            let mut prev = NEXT.height_bounds(t_a() - 300_000);
+            let mut t = t_a() - 300_000;
+            while t < t_a() + 600_000 {
+                t += 1_013;
+                let b = NEXT.height_bounds(t);
+                assert!(b.lo >= prev.lo && b.est >= prev.est, "fell at {t}");
+                prev = b;
+            }
+        }
+
+        #[test]
+        fn a_header_is_accepted_by_the_heights_it_could_be_mined_at() {
+            let near = |dt: i64| t_a() + dt;
+            let e = |r: Result<(), String>| r.unwrap_err();
+            // Far before A: an NU7 header is refused, an NU6.3 one accepted.
+            let now = near(-10 * 86_400);
+            let b = NEXT.height_bounds(now);
+            assert!(b.hi < A_TEST);
+            assert!(
+                e(check_header(&NEXT, &hdr(NU7_TEST, b.est + 41), now)).starts_with("[network]")
+            );
+            check_header(&NEXT, &hdr(NU6_3, b.est + 41), now).unwrap();
+            // Where the clock's window crosses A both are accepted: the device's own uncertainty.
+            let now = near(0);
+            let b = NEXT.height_bounds(now);
+            assert!(b.lo < A_TEST && b.top >= A_TEST);
+            check_header(&NEXT, &hdr(NU7_TEST, b.est + 41), now).unwrap();
+            check_header(&NEXT, &hdr(NU6_3, b.est + 41), now).unwrap();
+            // Once the floor has passed A an NU6.3 header is refused: it cannot be mined any more.
+            let now = near(5 * 86_400);
+            let b = NEXT.height_bounds(now);
+            assert!(b.lo > A_TEST);
+            assert!(e(check_header(&NEXT, &hdr(NU6_3, b.est + 41), now)).starts_with("[network]"));
+            check_header(&NEXT, &hdr(NU7_TEST, b.est + 41), now).unwrap();
+            // The expiry limits still apply to either row: an NU7 header expiring at 120 past a target
+            // far beyond the window is refused for its expiry, not accepted for its branch.
+            let e2 = e(check_header(&NEXT, &hdr(NU7_TEST, b.hi + 1), now));
+            assert!(e2.starts_with("[expiry]"), "{e2}");
+        }
+
+        #[test]
+        fn a_crossing_under_nu6_3_is_accepted_before_the_upgrade_and_refused_after_the_floor_passes_it(
+        ) {
+            let crossing_expiry = |target: u32| target - target % 34_560 + 69_120;
+            let now = t_a() - 3 * 86_400;
+            let b = NEXT.height_bounds(now);
+            let long = crossing_expiry(b.est - 412);
+            assert!(long > b.hi, "a long expiry, outside the plain window");
+            check_header_for(&NEXT, &hdr(NU6_3, long), now, true).unwrap();
+            let now = t_a() + 5 * 86_400;
+            let b = NEXT.height_bounds(now);
+            let long = crossing_expiry(b.est - 412);
+            let e = check_header_for(&NEXT, &hdr(NU6_3, long), now, true).unwrap_err();
+            assert!(
+                e.starts_with("[network]") || e.starts_with("[expiry]"),
+                "{e}"
+            );
+            // And the same long expiry on an NU6.3 header can never be accepted past the floor: the
+            // interval it could be mined at is empty.
+            assert!(!NEXT.header_may_be_mined(NU6_3, long, b.lo, b.hi));
+        }
+
+        #[test]
+        fn a_clock_before_the_anchor_gives_an_empty_window_with_a_later_row_too() {
+            let now = T_ANCHOR - 86_400;
+            let b = NEXT.height_bounds(now);
+            assert_eq!((b.lo, b.est, b.hi), (u32::MAX, 0, 0));
+            let e = check_header(&NEXT, &hdr(NU6_3, 3_500_000), now).unwrap_err();
+            assert!(e.starts_with("[expiry]"), "{e}");
+            let e = check_header(&NEXT, &hdr(NU7_TEST, 3_500_000), now).unwrap_err();
+            assert!(e.starts_with("[expiry]"), "{e}");
+        }
+
+        #[test]
+        fn what_a_device_reads_gives_the_branch_of_the_header_it_checked() {
+            // The branch the record keeps is the one in the header THIS device read and checked. The
+            // fixture is NU6.3, which a constant would also return, so the same PCZT is patched onto
+            // ANOTHER branch the pczt crate knows (NU6; it refuses a branch it does not know) and a
+            // table that has it: only a reading of the header gives that back.
+            const OTHER_KNOWN_BRANCH: u32 = 0xc8e7_1055;
+            let (r, now) = rules_for_fixture();
+            let f = read_for_signing_with(&r, IW_PROVEN, now).unwrap();
+            let p = Pczt::parse(IW_PROVEN).unwrap();
+            assert_eq!(f.branch_id, *p.global().consensus_branch_id());
+            assert_eq!(f.branch_id, NU6_3);
+            let other = patch_once(
+                IW_PROVEN,
+                &varint(u64::from(NU6_3)),
+                &varint(u64::from(OTHER_KNOWN_BRANCH)),
+            );
+            assert_eq!(
+                *Pczt::parse(&other).unwrap().global().consensus_branch_id(),
+                OTHER_KNOWN_BRANCH
+            );
+            let (r, now) = rules_for(&other);
+            let f = read_for_signing_with(&r, &other, now).unwrap();
+            assert_eq!(f.branch_id, OTHER_KNOWN_BRANCH);
+            assert_ne!(f.branch_id, NU6_3);
         }
 
         #[test]
@@ -5242,28 +5657,16 @@ mod js_pczt {
         ))
     }
 
-    /// When this device stops counting a transaction that expires at `expiry` (`lapses_at`), in unix
-    /// seconds: the moment `approvalDecision` turns from "second" to "afterExpiry". 0 when unknown.
-    #[wasm_bindgen(js_name = approvalLapsesAt)]
-    pub fn approval_lapses_at(expiry: u32) -> f64 {
-        pczt_bridge::lapses_at(&pczt_bridge::MAINNET, expiry).unwrap_or(0) as f64
-    }
-
     /// What a new transaction is for an approval this device already signed (`approval_decision`),
     /// with the DEVICE's own clock read here. `signed` is this device's record as
-    /// `"sighash:expiry,sighash:expiry"`; the answer is JSON `{"kind": "first"|"same"|"afterExpiry"|
-    /// "second", "firstExpiry"?: number}`. A malformed record entry is an error, never skipped: a
-    /// record that cannot be read must not read as "nothing signed".
+    /// `"sighash:expiry[:branch],..."` (no branch = NU6.3); the answer is JSON `{"kind":
+    /// "first"|"same"|"afterExpiry"|"second", "firstExpiry"?: number, "untilUnix"?: number|null, "untilHeight"?: number|null,
+    /// "byEpoch"?: boolean}`. A
+    /// malformed entry, or a branch this build does not know, is an error, never skipped: a record
+    /// that cannot be read must not read as "nothing signed".
     #[wasm_bindgen(js_name = approvalDecision)]
     pub fn approval_decision(signed: &str, sighash: &str) -> Result<String, JsValue> {
-        let mut records = vec![];
-        for entry in signed.split(',').map(str::trim).filter(|e| !e.is_empty()) {
-            let (h, e) = entry
-                .split_once(':')
-                .ok_or_else(|| je("[record] malformed entry"))?;
-            let e: u32 = e.parse().map_err(|_| je("[record] malformed expiry"))?;
-            records.push((h.to_string(), e));
-        }
+        let records = pczt_bridge::parse_signed(&pczt_bridge::MAINNET, signed).map_err(je)?;
         let now_unix = (js_sys::Date::now() / 1000.0) as i64;
         Ok(
             match pczt_bridge::approval_decision(&pczt_bridge::MAINNET, &records, sighash, now_unix)
@@ -5273,15 +5676,25 @@ mod js_pczt {
                 pczt_bridge::ApprovalDecision::AfterExpiry => {
                     "{\"kind\":\"afterExpiry\"}".to_string()
                 }
-                pczt_bridge::ApprovalDecision::Second { first_expiry } => {
-                    format!("{{\"kind\":\"second\",\"firstExpiry\":{first_expiry}}}")
+                pczt_bridge::ApprovalDecision::Second {
+                    first_expiry,
+                    until_unix,
+                    until_height,
+                    by_epoch,
+                } => {
+                    let num = |n: Option<String>| n.unwrap_or_else(|| "null".to_string());
+                    format!(
+                        "{{\"kind\":\"second\",\"firstExpiry\":{first_expiry},\"untilUnix\":{},\"untilHeight\":{},\"byEpoch\":{by_epoch}}}",
+                        num(until_unix.map(|n| n.to_string())),
+                        num(until_height.map(|n| n.to_string())),
+                    )
                 }
             },
         )
     }
 
     /// What this device signs on, as JSON: `{"outputs": [...], "feeZat", "actions", "sighash": hex,
-    /// "txid": hex, "expiry": number}`. `readPayment`'s reading plus the header checked against the
+    /// "txid": hex, "expiry": number, "branch": number}`. `readPayment`'s reading plus the header checked against the
     /// network this build signs for, with the DEVICE's own clock read here (never passed in by a
     /// caller, never the coordinator's height). The one call a signing driver makes before its share
     /// leaves; a refusal is an error starting with a bracketed code (`[expiry]`, `[network]`,
@@ -5292,13 +5705,14 @@ mod js_pczt {
         let f = pczt_bridge::read_for_signing(pczt, now_unix).map_err(je)?;
         let sighash: String = f.sighash.iter().map(|b| format!("{b:02x}")).collect();
         Ok(format!(
-            "{{\"outputs\":{},\"feeZat\":{},\"actions\":{},\"sighash\":\"{}\",\"txid\":\"{}\",\"expiry\":{}}}",
+            "{{\"outputs\":{},\"feeZat\":{},\"actions\":{},\"sighash\":\"{}\",\"txid\":\"{}\",\"expiry\":{},\"branch\":{}}}",
             outputs_json(&f.payment.outputs),
             f.payment.fee_zat,
             f.payment.actions,
             sighash,
             f.txid,
-            f.expiry_height
+            f.expiry_height,
+            f.branch_id
         ))
     }
 

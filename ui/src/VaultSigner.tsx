@@ -12,7 +12,7 @@ import { getVault, getProposalDetail, IS_NET, type Proposal, type Vault } from '
 import { listVaults } from './storage'
 import { gateDecision, ourReceiversFrom, paysOurselves, type ApprovedLine, type GateDecision, type PcztOutput } from './approved-payment'
 import { ensureWasm } from './wasm-ready'
-import { approvalLapsesAt, uaReceiver } from './wasm-pkg/konclave_wasm.js'
+import { uaReceiver } from './wasm-pkg/konclave_wasm.js'
 import { useBackgroundSigner, type BackgroundSignerState } from './useBackgroundSigner'
 import { ARM_TTL_MS, makeSigningGate } from './signing-gate'
 import { OwnerSigning } from './owner-signing'
@@ -43,7 +43,7 @@ interface VaultSignerCtx {
   armActive: (opts?: { again?: boolean }) => Promise<void>
   /** A second transaction for this payment was refused: until when the first one stays valid. */
   /** The first transaction's expiry block, and when this device stops counting it (unix seconds, 0 when unknown). */
-  signedBefore: { proposal: string; firstExpiry: number; firstUntil: number } | null
+  signedBefore: { proposal: string; firstExpiry: number; firstUntil: number; untilHeight: number | null; byEpoch: boolean } | null
   /** When this device's signature stops counting (epoch ms), or null when it is not armed. */
   armedUntil: number | null
   /** Is this receiver one of the vault's own, by the same `ourReceivers` the money gate decides
@@ -182,7 +182,7 @@ export function VaultSignerProvider({ children }: { children: ReactNode }) {
   vaultIdRef.current = vault?.id ?? null
   // A second transaction for an approval this device already signed, refused: what the panel tells
   // its owner (until when the first stays valid) before they may sign again knowing it.
-  const [signedBefore, setSignedBefore] = useState<{ proposal: string; firstExpiry: number; firstUntil: number } | null>(null)
+  const [signedBefore, setSignedBefore] = useState<{ proposal: string; firstExpiry: number; firstUntil: number; untilHeight: number | null; byEpoch: boolean } | null>(null)
   const gate = useMemo(
     () => makeSigningGate({
       mode: () => 'manual',
@@ -201,18 +201,19 @@ export function VaultSignerProvider({ children }: { children: ReactNode }) {
       const r = await owner.current.claim(vaultIdRef.current ?? '', activeIdRef.current, sighashHex, expiry)
       if (r !== 'ok') { setArmedProposal(null); setArmedAt(null) }
       const last = owner.current.lastSecond
-      // The machine read this transaction, so the WASM is ready. The time is the rule's own turning
-      // point (approvalLapsesAt), so the screen says exactly when this warning stops.
+      // The machine read this transaction, so the WASM is ready. The time was computed by WASM, by the
+      // same rule that made the decision (with the earlier transaction's branch, so an upgrade that ends
+      // it is counted), so the screen says exactly when this warning stops.
       // The machine words this one itself: a record it could not read is not a second transaction.
       if (r === 'unreadable') throw new Error('[unreadable] this device could not read what it signed')
-      if (r === 'second' && last) setSignedBefore({ proposal: last.proposal, firstExpiry: last.firstExpiry, firstUntil: approvalLapsesAt(last.firstExpiry) })
+      if (r === 'second' && last) setSignedBefore({ proposal: last.proposal, firstExpiry: last.firstExpiry, firstUntil: last.firstUntil, untilHeight: last.untilHeight, byEpoch: last.byEpoch })
       return r === 'ok'
     },
     [],
   )
   // Before this device's share leaves: written down, or no share.
   const record = useMemo(
-    () => (sighashHex: string, expiry: number) => owner.current.record(sighashHex, expiry),
+    () => (sighashHex: string, expiry: number, branch: number) => owner.current.record(sighashHex, expiry, branch),
     [],
   )
   // Another device's live withdrawal says the send went nowhere: this device's click ends with it,

@@ -40,6 +40,28 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Changed
+
+- **The coordinator knows about a network upgrade it has not been given yet (#638).** Nothing
+  changes today: the table has no row for the next upgrade (NU7), so none of this can act. Once the
+  row is added it will refuse to build a new payment in the last blocks before the upgrade ("the
+  network is upgrading", 409, `reason: epoch`), refuse a cross-pool payment further out, refuse a
+  transaction the engine built on the wrong branch ("the coordinator has not been updated for the
+  network upgrade"), and tell a payment whose earlier attempt the upgrade ended that it needs a new
+  signature, naming the block its funds are held until when the wallet still reserves them. Each of
+  these answers carries a stable `reason` (`hold`, `crossing_hold`, `not_updated`,
+  `needs_new_signature`) and `held_until`, which the app decides by; the English text is only for a
+  reader of the reply. A proposal that expired in the meantime is answered as not ready, not as
+  needing a new signature. A send record with no branch (every record written before this) is never
+  ended by an upgrade. The boot log now says whether the cap on a transaction's life is on and why;
+  with the engine that runs today it is off, because the engine has no `next-upgrade` command to
+  confirm the height (the boot check gives it five seconds and no input). The ceremony ceiling (600
+  polls) is one constant shared with the hold.
+- The coordinator builds its request-limit keys in the same place as the relay, scoped to the client
+  address it attributes to the request. Different spellings of one address, such as upper or lower
+  case, compressed or expanded IPv6, or IPv4-mapped IPv6, are one address. The hosted coordinator
+  has run this since 2026-10-22.
+
 ## [0.13.2] 2026-10-17
 
 ### Fixed

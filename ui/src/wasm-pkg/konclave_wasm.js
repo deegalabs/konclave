@@ -904,9 +904,11 @@ if (Symbol.dispose) TestVault.prototype[Symbol.dispose] = TestVault.prototype.fr
 /**
  * What a new transaction is for an approval this device already signed (`approval_decision`),
  * with the DEVICE's own clock read here. `signed` is this device's record as
- * `"sighash:expiry,sighash:expiry"`; the answer is JSON `{"kind": "first"|"same"|"afterExpiry"|
- * "second", "firstExpiry"?: number}`. A malformed record entry is an error, never skipped: a
- * record that cannot be read must not read as "nothing signed".
+ * `"sighash:expiry[:branch],..."` (no branch = NU6.3); the answer is JSON `{"kind":
+ * "first"|"same"|"afterExpiry"|"second", "firstExpiry"?: number, "untilUnix"?: number|null, "untilHeight"?: number|null,
+ * "byEpoch"?: boolean}`. A
+ * malformed entry, or a branch this build does not know, is an error, never skipped: a record
+ * that cannot be read must not read as "nothing signed".
  * @param {string} signed
  * @param {string} sighash
  * @returns {string}
@@ -932,17 +934,6 @@ export function approvalDecision(signed, sighash) {
     } finally {
         wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
     }
-}
-
-/**
- * When this device stops counting a transaction that expires at `expiry` (`lapses_at`), in unix
- * seconds: the moment `approvalDecision` turns from "second" to "afterExpiry". 0 when unknown.
- * @param {number} expiry
- * @returns {number}
- */
-export function approvalLapsesAt(expiry) {
-    const ret = wasm.approvalLapsesAt(expiry);
-    return ret;
 }
 
 /**
@@ -1175,7 +1166,7 @@ export function pcztSighash(pczt) {
 
 /**
  * What this device signs on, as JSON: `{"outputs": [...], "feeZat", "actions", "sighash": hex,
- * "txid": hex, "expiry": number}`. `readPayment`'s reading plus the header checked against the
+ * "txid": hex, "expiry": number, "branch": number}`. `readPayment`'s reading plus the header checked against the
  * network this build signs for, with the DEVICE's own clock read here (never passed in by a
  * caller, never the coordinator's height). The one call a signing driver makes before its share
  * leaves; a refusal is an error starting with a bracketed code (`[expiry]`, `[network]`,

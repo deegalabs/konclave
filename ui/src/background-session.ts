@@ -30,7 +30,7 @@ export interface BackgroundSessionDeps {
    *  calls it once per ceremony right after its own sighash check and before any share moves. */
   decideApproval: (outputs: PcztOutput[]) => GateDecision
   claim: (sighashHex: string, expiry: number) => boolean | Promise<boolean>
-  record: (sighashHex: string, expiry: number) => Promise<void>
+  record: (sighashHex: string, expiry: number, branch: number) => Promise<void>
   /** Governance gate: whether this device signs this payment (policy lives in the caller). */
   gate: GovernanceGate
   onLog?: (line: string) => void
