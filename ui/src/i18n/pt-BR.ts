@@ -877,7 +877,7 @@ export const ptBR: Record<string, string> = {
   'signing.peerFailed.unknown': 'O envio falhou. Nada foi transmitido. Dá para assinar de novo.',
   'signing.blockedShort': 'Faltam {short} ZEC para o cofre pagar isto com a taxa da rede. Assinar está bloqueado até o saldo chegar; nada foi perdido.',
   'signing.busy': 'O cofre está ocupado agora e não começou este envio.',
-  'signing.busyNote': "A sua assinatura e a dos outros continuam valendo por alguns minutos. Tente enviar de novo em instantes.",
+  'signing.busyNote': "A sua aprovação e a dos outros continuam valendo. Tente enviar de novo em instantes.",
   'signing.busyWaiting': 'O cofre está ocupado agora; tentando de novo…',
   'signing.sendAgain': 'Tentar enviar de novo',
   'signing.tryAgain': 'Tentar de novo',

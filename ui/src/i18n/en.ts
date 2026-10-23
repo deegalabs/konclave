@@ -881,7 +881,7 @@ export const en: Record<string, string> = {
   'signing.peerFailed.unknown': 'The send failed. Nothing was broadcast. You can sign again.',
   'signing.blockedShort': 'The vault is {short} ZEC short of paying this with the network fee. Signing is blocked until the funds arrive; nothing is lost.',
   'signing.busy': 'The vault is busy right now and did not start this send.',
-  'signing.busyNote': "Your signature and the others' still stand for a few minutes. Try sending again in a moment.",
+  'signing.busyNote': "Your approval and the others' still stand. Try sending again in a moment.",
   'signing.busyWaiting': 'The vault is busy right now; trying again…',
   'signing.sendAgain': 'Try sending again',
   'signing.tryAgain': 'Try again',

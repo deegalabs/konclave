@@ -176,8 +176,8 @@ export function netReplyText(end: ReplyEnd): { pt: string; en: string; stop: boo
   }
   if (end.kind === 'busy') {
     return {
-      pt: 'O cofre está ocupado agora e não começou este envio. As assinaturas continuam valendo por alguns minutos: tente enviar de novo em instantes.',
-      en: 'The vault is busy right now and did not start this send. The signatures still stand for a few minutes: try sending again in a moment.',
+      pt: 'O cofre está ocupado agora e não começou este envio. A sua aprovação e a dos outros continuam valendo. Tente enviar de novo em instantes.',
+      en: "The vault is busy right now and did not start this send. Your approval and the others' still stand. Try sending again in a moment.",
       stop: true,
     }
   }
