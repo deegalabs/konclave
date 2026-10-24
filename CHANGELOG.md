@@ -56,6 +56,15 @@ explicitly accepted.
 
 ## [Unreleased]
 
+### Security
+
+- **The coordinator reads hex in one place, and answers a request it cannot handle with an error.**
+  Hex that arrives from outside is now read by one function that accepts hex digits and nothing
+  else. A request the coordinator cannot handle is answered with an error and logged by file and
+  line. Each device's sealed key is filed under one spelling of the device's key. A member sees no
+  difference, unless a vault's device list holds a key that is not a key: a send is then refused
+  with a message. The hosted coordinator has run this since 2026-10-24.
+
 ## [0.14.0] 2026-10-23
 
 > **Services deployed when this was cut (2026-10-23):** coordinator `404a8bb`, relay `f8dc88d0970337a3`.

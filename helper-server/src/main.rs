@@ -29,7 +29,7 @@
 mod admission;
 mod concurrency;
 
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -1205,6 +1205,23 @@ fn handle_proposal_send(
                 json!({ "error": UNSEALED_SEND_TEXT }).to_string(),
             ));
         }
+        // A key in the list that cannot be sealed to would fail this send after its transaction had
+        // been built and proved. Say so before the engine is touched.
+        if let Ok(list) = &recipients {
+            if list
+                .iter()
+                .any(|key| !orchestrator::helper::device_key_usable(key))
+            {
+                eprintln!(
+                    "vault {}: a send was refused: its device list holds a key that cannot be sealed to",
+                    orchestrator::helper::short_id(&reg.vault_id)
+                );
+                return Err(resp(
+                    409,
+                    json!({ "error": DEVICE_LIST_UNUSABLE_TEXT }).to_string(),
+                ));
+            }
+        }
         // Capacity guard (#135): refuse a memory-heavy prove up front when the instance is low.
         if over_capacity() {
             return Err(resp(
@@ -1278,6 +1295,11 @@ fn settle_mined_sends(
 /// and clear of the screen's keywords (`send_error_texts_stay_clear_of_the_screens_keywords`).
 const UNSEALED_SEND_TEXT: &str =
     "this vault still has members whose devices are not registered; open it on a current build so a seat can sign the send";
+
+/// What a member is told when a send would have to be sealed to a device key that cannot be sealed
+/// to. Short, and clear of the screen's keywords like the texts around it.
+const DEVICE_LIST_UNUSABLE_TEXT: &str =
+    "this vault's device list holds a key that cannot be used, so the send cannot be sealed; ask the operator to restore it";
 
 /// What a member is told when the vault's device registry is there and cannot be read. Kept short and
 /// clear of every keyword the web app turns into another message (`humanError`), like the send texts.
@@ -1800,6 +1822,50 @@ fn with_cors(mut r: Response<std::io::Cursor<Vec<u8>>>) -> Response<std::io::Cur
     ));
     r.add_header(header("Content-Type", "application/json"));
     r
+}
+
+/// What a caller is told when the work for its request failed in a way nobody planned for. Short, and
+/// clear of the screen's keywords like the texts around it.
+const REQUEST_PANICKED_TEXT: &str = "the coordinator could not handle this request";
+
+/// Do one request's work so that an unplanned failure in it is an answer, and the thread that ran it
+/// goes on. State a failure can leave behind is already handled: the vault locks take a poisoned
+/// mutex, the "sending" mark clears when it is dropped, and a send's scratch directory is removed by
+/// its guard.
+///
+/// The answer for a SEND has no text. The app reads an error with text as "nothing was sent" and
+/// withdraws the signatures, and reads a bare 5xx as "ask the record" (`ui/src/helper.ts`,
+/// `readReply`); an unplanned failure may come after a broadcast, so the send gets the answer that
+/// makes no claim. That is also what such a failure looked like before the guard existed.
+fn guarded(method: &Method, path: &str, work: impl FnOnce() -> Resp) -> Resp {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(work)) {
+        Ok(r) => r,
+        Err(_)
+            if *method == Method::Post && is_send_path(path.split('?').next().unwrap_or(path)) =>
+        {
+            resp(500, json!({}).to_string())
+        }
+        Err(_) => resp(500, json!({ "error": REQUEST_PANICKED_TEXT }).to_string()),
+    }
+}
+
+/// The line a failed handler leaves in the log: where, and nothing else. The default hook prints the
+/// failure's message, and a message is built from the values the code was holding.
+fn panic_line(location: Option<(&str, u32)>) -> String {
+    match location {
+        Some((file, line)) => {
+            format!("konclave-helper: a request handler panicked at {file}:{line}")
+        }
+        None => "konclave-helper: a request handler panicked".to_string(),
+    }
+}
+
+fn install_panic_hook() {
+    std::panic::set_hook(Box::new(|info| {
+        let line = panic_line(info.location().map(|l| (l.file(), l.line())));
+        // Ignoring a write error on purpose: a hook that panics aborts the process.
+        let _ = writeln!(std::io::stderr(), "{line}");
+    }));
 }
 
 /// Build a HelperConfig from env vars. All paths are public tooling; nothing secret.
@@ -2389,6 +2455,27 @@ fn main() {
     for vault in unreadable_registries.iter().take(20) {
         eprintln!("device registries: UNREADABLE, vault {vault}");
     }
+    // A registered comms key that is not a key cannot be sealed to: the vault's sealed sends are
+    // refused until the entry is restored. Name the vault, by prefix, once.
+    let unusable_keys: Vec<(String, usize)> = std::fs::read_dir(&cfg.vaults_dir)
+        .map(|dirs| {
+            dirs.flatten()
+                .filter(|e| e.path().is_dir())
+                .filter_map(|e| {
+                    let vault = e.file_name().to_string_lossy().into_owned();
+                    let n = orchestrator::helper::unusable_device_keys(&cfg.vaults_dir, &vault);
+                    (n > 0).then(|| (orchestrator::helper::short_id(&vault).to_string(), n))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    eprintln!(
+        "device registries: {} vault(s) hold a device key that is not a key (their sealed sends are refused until it is restored)",
+        unusable_keys.len()
+    );
+    for (vault, n) in unusable_keys.iter().take(20) {
+        eprintln!("device registries: NOT A KEY, vault {vault}, {n} entry(ies)");
+    }
     // A read key file that is there and cannot be read refuses every read of its vault. Same boot line.
     let unreadable_read_keys = unreadable_read_keys(&cfg.vaults_dir);
     eprintln!(
@@ -2427,6 +2514,7 @@ fn main() {
     // one vault, and only those: reads take no write lock, and the wallet has a second lock that
     // readers only try or wait a few seconds for. A send still holds its own vault's writes for as long as the quorum
     // takes; what it stops holding is everybody else, and every read.
+    install_panic_hook();
     let locks = Arc::new(concurrency::VaultLocks::new());
     let workers = concurrency::worker_count(
         std::env::var("KONCLAVE_HELPER_WORKERS").ok().as_deref(),
@@ -2496,18 +2584,20 @@ fn main() {
                 konclave_http::ReadPlan::Skip => { /* over the cap: handle an empty body */ }
             }
 
-            let r = serve(
-                &state,
-                &cfg,
-                &locks,
-                &limits,
-                &client,
-                now,
-                &method,
-                &path,
-                &body,
-                read_token.as_deref(),
-            );
+            let r = guarded(&method, &path, || {
+                serve(
+                    &state,
+                    &cfg,
+                    &locks,
+                    &limits,
+                    &client,
+                    now,
+                    &method,
+                    &path,
+                    &body,
+                    read_token.as_deref(),
+                )
+            });
             let _ = req.respond(http_response(r));
         }));
     }
@@ -2594,6 +2684,8 @@ mod tests {
             RECORD_TEXT,
             REGISTRY_UNREADABLE_TEXT,
             UNSEALED_SEND_TEXT,
+            REQUEST_PANICKED_TEXT,
+            DEVICE_LIST_UNUSABLE_TEXT,
             WALLET_BUSY_TEXT,
             WALLET_BUSY_SENDING_TEXT,
             CREATION_UPDATE_TEXT,
@@ -2951,6 +3043,141 @@ mod tests {
         // an earlier send lists the wallet's transactions.
         let ran = std::fs::read_to_string(&log).unwrap_or_default();
         assert!(!ran.contains("list-tx"), "{ran}");
+    }
+
+    /// The work for a request that fails unexpectedly is answered, and the thread that ran it is still
+    /// there to answer the next.
+    #[test]
+    fn an_unplanned_failure_in_a_request_is_answered_and_the_next_one_is_served() {
+        let r = guarded(&Method::Post, "/api/vault/proposals/p1/approve", || {
+            panic!("a handler met something nobody planned for")
+        });
+        assert_eq!(r.status, 500);
+        assert!(r.body.contains(REQUEST_PANICKED_TEXT), "{}", r.body);
+        // The same thread, straight after.
+        let next = guarded(&Method::Get, "/api/health", || {
+            resp(200, json!({ "ok": true }).to_string())
+        });
+        assert_eq!(next.status, 200);
+        // And not by a convention of the caller: the serving loop's own call goes through it, the hook is
+        // installed as a statement of its own (a comment does not count), and the hook reads the
+        // panic's location and never its payload.
+        let src = include_str!("main.rs");
+        let call = src
+            .find(concat!("let r = guarded(&method, &path, ", "|| {"))
+            .expect("the serving loop must run `serve` through `guarded`");
+        // `serve` is INSIDE that closure (before the answer is sent), not run beside it.
+        let after = &src[call..];
+        let closure = &after[..after.find("req.respond").unwrap()];
+        assert!(
+            closure.contains("serve("),
+            "the closure the guard runs must be the one that calls `serve`"
+        );
+        assert!(
+            src.lines()
+                .any(|l| l.trim() == concat!("install_panic", "_hook();")),
+            "the hook must be installed before the pool starts"
+        );
+        let hook_body = &src[src.find(concat!("fn install_panic", "_hook()")).unwrap()..];
+        let hook_body = &hook_body[..hook_body.find("\n}\n").unwrap()];
+        for forbidden in [
+            concat!("pay", "load("),
+            concat!("downcast", "_ref"),
+            "{info",
+        ] {
+            assert!(
+                !hook_body.contains(forbidden),
+                "the hook must not print the panic's message ({forbidden})"
+            );
+        }
+    }
+
+    /// The answer for a send has no text and no state: the app reads an error with text as "nothing
+    /// was sent" and a bare 5xx as "ask the record", and a failure may come after a broadcast.
+    #[test]
+    fn the_answer_for_a_send_that_failed_unexpectedly_makes_no_claim() {
+        let r = guarded(&Method::Post, "/api/vault/proposals/p1/send", || {
+            panic!("after the broadcast")
+        });
+        assert_eq!(r.status, 500);
+        let body: serde_json::Value = serde_json::from_str(&r.body).unwrap();
+        for key in ["error", "state", "txid", "reason"] {
+            assert!(body.get(key).is_none(), "{key} in {}", r.body);
+        }
+        // The same path with a query string, and the other routes keep their text.
+        let q = guarded(&Method::Post, "/api/vault/proposals/p1/send?x=1", || {
+            panic!("again")
+        });
+        assert!(!q.body.contains("error"), "{}", q.body);
+        let other = guarded(&Method::Post, "/api/vault/proposals/p1/refuse", || {
+            panic!("no")
+        });
+        assert!(other.body.contains(REQUEST_PANICKED_TEXT), "{}", other.body);
+    }
+
+    /// The line a failed handler leaves in the log carries a place and nothing it was holding.
+    #[test]
+    fn the_panic_line_names_the_place_and_nothing_else() {
+        assert_eq!(
+            panic_line(Some(("src/x.rs", 42))),
+            "konclave-helper: a request handler panicked at src/x.rs:42"
+        );
+        assert_eq!(
+            panic_line(None),
+            "konclave-helper: a request handler panicked"
+        );
+    }
+
+    /// A send whose list holds a key that cannot be sealed to is refused before the engine is
+    /// touched, not after its transaction has been built and proved.
+    #[cfg(unix)]
+    #[test]
+    fn a_send_to_a_device_list_with_an_unusable_key_is_refused_before_the_engine() {
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let mut c = cfg();
+        let (fake, log) = fake_devtool(&c.vaults_dir, None);
+        c.devtool = fake;
+        a_ready_proposal(&c.vaults_dir, "relayv");
+        every_seat_has_a_device(&c.vaults_dir, "relayv");
+        // One more entry that is not a key: the list is complete for the seats, so the send would be
+        // sealed to all of it.
+        orchestrator::helper::upsert_device(&c.vaults_dir, "relayv", &"zz".repeat(32), None)
+            .unwrap();
+        let r = send_as(&st, &c, true, None);
+        assert_eq!(r.status, 409, "{}", r.body);
+        assert!(r.body.contains(DEVICE_LIST_UNUSABLE_TEXT), "{}", r.body);
+        let ran = std::fs::read_to_string(&log).unwrap_or_default();
+        assert!(!ran.contains("pczt"), "nothing was built: {ran}");
+    }
+
+    /// The signature of a signed write is the caller's: whatever it holds, the answer is a refusal.
+    #[cfg(unix)]
+    #[test]
+    fn a_signed_write_with_a_signature_that_is_not_hex_is_refused() {
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let c = cfg();
+        a_ready_proposal(&c.vaults_dir, "relayv");
+        let _sk = alice_registers_seat_one(&c.vaults_dir, "relayv");
+        for sig in ["€€", "ab€c", &"€".repeat(64), &"+f".repeat(64)] {
+            let body = json!({ "vault": "relayv", "member": "alice", "seat": 1,
+                "ts": 1_700_000_000_000i64, "nonce": "n-bad", "sig": sig })
+            .to_string();
+            let r = handle(
+                &st,
+                &c,
+                &Method::Post,
+                "/api/vault/proposals/p1/approve",
+                body.as_bytes(),
+            );
+            assert!(
+                (400..500).contains(&r.status),
+                "{sig:?}: {} {}",
+                r.status,
+                r.body
+            );
+        }
     }
 
     /// The proposal is authorized under the vault the request names; its record is keyed by its own.
@@ -3759,9 +3986,7 @@ mod tests {
     fn every_small_order_spelling_is_refused_as_a_comms_key() {
         let le = |hex_be: &str| -> String {
             // the published u-coordinates are written big-endian; the wire is little-endian
-            let mut b: Vec<u8> = (0..hex_be.len() / 2)
-                .map(|i| u8::from_str_radix(&hex_be[2 * i..2 * i + 2], 16).unwrap())
-                .collect();
+            let mut b: Vec<u8> = konclave_seal::hex::decode(hex_be).unwrap();
             b.reverse();
             plain_hex(&b)
         };
@@ -3777,9 +4002,8 @@ mod tests {
         let aliases: Vec<String> = all
             .iter()
             .map(|h| {
-                let mut b: Vec<u8> = (0..32)
-                    .map(|i| u8::from_str_radix(&h[2 * i..2 * i + 2], 16).unwrap())
-                    .collect();
+                let mut b: Vec<u8> = konclave_seal::hex::decode(h).unwrap();
+                assert_eq!(b.len(), 32, "a small-order spelling is 32 bytes");
                 b[31] |= 0x80;
                 plain_hex(&b)
             })
@@ -4783,12 +5007,7 @@ mod tests {
 
         // And the device opens it, which is what makes closing the plaintext path safe to do.
         let env: serde_json::Value = serde_json::from_str(&after.body).expect("an envelope");
-        let unhex = |s: &str| -> Vec<u8> {
-            (0..s.len())
-                .step_by(2)
-                .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
-                .collect()
-        };
+        let unhex = |s: &str| -> Vec<u8> { konclave_seal::hex::decode(s).unwrap() };
         let mine = env["boxes"][&pubhex].as_str().expect("my box");
         let body_key: [u8; 32] = konclave_seal::open(&dk, &unhex(mine), &unhex(&pubhex))
             .expect("my own box opens")

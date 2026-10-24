@@ -40,6 +40,18 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Security
+
+- **The coordinator reads hex in one place, and answers a request it cannot handle with an error.**
+  A request the coordinator cannot handle is answered 500 and logged by file and line, with
+  nothing the request carried; a send's answer carries no text, so the app resolves it against the
+  vault's record. Hex is read by one function that accepts hex digits and nothing else
+  (`konclave-seal`'s `hex`). A sealed key is filed under one spelling of the device's key. A send
+  to a vault whose device list holds a key that cannot be sealed to is refused before anything is
+  built (409), and the boot log counts such vaults and names them by prefix: their sealed sends
+  are refused until the entry is restored (`docs/RECOVERY.md`, G2), not sent in the clear. The
+  hosted coordinator has run this since 2026-10-24.
+
 ### Changed
 
 - **The coordinator knows about a network upgrade it has not been given yet (#638).** Nothing

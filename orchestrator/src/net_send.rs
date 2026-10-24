@@ -88,13 +88,7 @@ fn hexenc(bytes: &[u8]) -> String {
 }
 
 fn hexdec(s: &str, what: &str) -> Result<Vec<u8>, String> {
-    if !s.len().is_multiple_of(2) {
-        return Err(format!("{what}: odd-length hex"));
-    }
-    (0..s.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).map_err(|_| format!("{what}: invalid hex")))
-        .collect()
+    konclave_seal::hex::decode(s).ok_or_else(|| format!("{what}: invalid hex"))
 }
 
 impl SignRequest {
@@ -412,6 +406,24 @@ mod tests {
         let mut badsig = response_for(&req);
         badsig.sigs[0].sig = "ab".repeat(10);
         assert!(badsig.into_sigs(&req).is_err());
+    }
+
+    /// A response comes out of a room anyone who can compute the room may write to: whatever its
+    /// signature field holds, the answer is an error.
+    #[test]
+    fn a_signature_that_is_not_ascii_hex_is_an_error() {
+        let req = SignRequest::from_signing_input(&ironwood_input(), &[]);
+        for bad in [
+            "€€".to_string(),
+            "ab€c".to_string(),
+            "€".repeat(64),
+            format!("{}€", "ab".repeat(63)),
+            "+f".repeat(64),
+        ] {
+            let mut r = response_for(&req);
+            r.sigs[0].sig = bad.clone();
+            assert!(r.into_sigs(&req).is_err(), "{bad:?}");
+        }
     }
 
     // ---- The relay handshake, end to end in-process (helper <-> relay <-> device) ----

@@ -870,11 +870,7 @@ mod tests {
         include_bytes!("../../konclave-signer/tests/vectors/ironwood_zero_value_spend.proven.pczt");
     fn vector_sighash() -> [u8; 32] {
         let hex = "332de126200c22131337474ae50367218ec87815c23d297dcdc8278ecb8903b0";
-        let mut out = [0u8; 32];
-        for (i, b) in out.iter_mut().enumerate() {
-            *b = u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap();
-        }
-        out
+        konclave_seal::hex::decode_exact(hex).unwrap()
     }
 
     /// The wiring between what the quorum signed and what gets recorded: the id comes from THE
@@ -1215,9 +1211,7 @@ mod tests {
         // The room saw the published copy, not the PCZT the signatures are applied to and not the
         // one the engine proved.
         assert_eq!(seen.len(), 1, "one signing request was published");
-        let in_the_room: Vec<u8> = (0..seen[0].len() / 2)
-            .map(|i| u8::from_str_radix(&seen[0][2 * i..2 * i + 2], 16).unwrap())
-            .collect();
+        let in_the_room: Vec<u8> = konclave_seal::hex::decode(&seen[0]).unwrap();
         assert!(
             in_the_room.len() < PROVEN.len(),
             "the room saw the full PCZT"
