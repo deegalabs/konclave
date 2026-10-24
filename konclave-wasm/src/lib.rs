@@ -3611,6 +3611,14 @@ pub mod pczt_bridge {
         // The header a device can check before its share leaves, from its own clock and the network
         // the build is for, never from the coordinator's height or the PCZT's own claims.
         const T_ANCHOR: i64 = 1_785_247_643; // block 3,428,143 (NU6.3 activation), header time
+        /// What the device read before NU7's row existed: the NU6.3 row alone, with mainnet's anchor.
+        /// The tests that pin the behaviour that did not change (the pinned window, the turning point of
+        /// a record, a record that never stops counting) read it, because past the real upgrade height
+        /// the real table rightly answers differently. They are tests of the rule, not of the date.
+        const ONE_ROW: NetworkRules = NetworkRules {
+            epochs: &[MAINNET.epochs[0]],
+            anchor: MAINNET.anchor,
+        };
         /// A record entry of an NU6.3 transaction, as every record written so far is.
         fn signed(sighash: &str, expiry: u32) -> SignedTx {
             SignedTx {
@@ -3620,11 +3628,11 @@ pub mod pczt_bridge {
             }
         }
         /// What `Second` is for an NU6.3 transaction expiring at `first_expiry`: the time shown is
-        /// the rule's own turning point (`lapses_at`).
+        /// the rule's own turning point (`lapses_at`) on the one-row table, which is what the pinned tests read.
         fn second(first_expiry: u32) -> ApprovalDecision {
             ApprovalDecision::Second {
                 first_expiry,
-                until_unix: lapses_at(&MAINNET, first_expiry, NU6_3),
+                until_unix: lapses_at(&ONE_ROW, first_expiry, NU6_3),
                 until_height: None,
                 by_epoch: false,
             }
@@ -3701,12 +3709,12 @@ pub mod pczt_bridge {
         #[test]
         fn height_bounds_reproduce_what_the_device_gave_before_the_table_moved() {
             for (d, lo, est, hi) in PINNED_BOUNDS {
-                let b = MAINNET.height_bounds(T_ANCHOR + d);
+                let b = ONE_ROW.height_bounds(T_ANCHOR + d);
                 assert_eq!((b.lo, b.est, b.hi), (lo, est, hi), "clock anchor+{d}");
             }
             // A clock before the anchor confirms nothing: the empty window.
             for d in [-86_400i64, -1] {
-                let b = MAINNET.height_bounds(T_ANCHOR + d);
+                let b = ONE_ROW.height_bounds(T_ANCHOR + d);
                 assert_eq!((b.lo, b.est, b.hi), (u32::MAX, 0, 0), "clock anchor{d}");
             }
         }
@@ -3715,7 +3723,7 @@ pub mod pczt_bridge {
         fn lapses_at_reproduces_what_the_device_gave_before_the_table_moved() {
             for (expiry, t) in PINNED_LAPSES {
                 assert_eq!(
-                    lapses_at(&MAINNET, expiry, NU6_3),
+                    lapses_at(&ONE_ROW, expiry, NU6_3),
                     Some(t),
                     "expiry {expiry}"
                 );
@@ -3729,7 +3737,7 @@ pub mod pczt_bridge {
             for (d, lo, _, _) in PINNED_BOUNDS {
                 let now = T_ANCHOR + d;
                 for (expiry, counted) in [(lo - 11, false), (lo - 10, true), (lo - 9, true)] {
-                    let got = approval_decision(&MAINNET, &[signed("aa", expiry)], "bb", now);
+                    let got = approval_decision(&ONE_ROW, &[signed("aa", expiry)], "bb", now);
                     let want = if counted {
                         second(expiry)
                     } else {
@@ -4079,24 +4087,24 @@ pub mod pczt_bridge {
             // exactly when the other does, for expiries across months.
             for days in [1i64, 30, 76, 200] {
                 let built = T_ANCHOR + days * 86_400;
-                let expiry = MAINNET.height_bounds(built).est + 40;
+                let expiry = ONE_ROW.height_bounds(built).est + 40;
                 let t =
-                    lapses_at(&MAINNET, expiry, NU6_3).expect("an expiry above the anchor lapses");
+                    lapses_at(&ONE_ROW, expiry, NU6_3).expect("an expiry above the anchor lapses");
                 let rec = [signed("aa", expiry)];
                 assert_eq!(
-                    approval_decision(&MAINNET, &rec, "bb", t - 1),
+                    approval_decision(&ONE_ROW, &rec, "bb", t - 1),
                     second(expiry),
                     "{days}d: still counted one second before"
                 );
                 assert_eq!(
-                    approval_decision(&MAINNET, &rec, "bb", t),
+                    approval_decision(&ONE_ROW, &rec, "bb", t),
                     ApprovalDecision::AfterExpiry,
                     "{days}d: lapsed at the time shown"
                 );
                 assert!(t > built, "{days}d: never in the past of when it was built");
             }
             assert_eq!(
-                lapses_at(&MAINNET, 1, NU6_3),
+                lapses_at(&ONE_ROW, 1, NU6_3),
                 Some(T_ANCHOR),
                 "below the anchor: lapsed from the start"
             );
@@ -4163,8 +4171,14 @@ pub mod pczt_bridge {
             // The table of this build does not know the branch: the device cannot judge, so it refuses.
             let e = parse_signed(&NEXT, "aa:5:12345").unwrap_err();
             assert!(e.starts_with("[record]"), "{e}");
-            // Mainnet today has no NU7 row either: a record naming it cannot be judged here.
-            assert!(parse_signed(&MAINNET, &format!("aa:5:{NU7_TEST}")).is_err());
+            // Mainnet knows NU7 since its row was added (#638): a record naming it is judged, and a branch
+            // it does not know is not.
+            assert_eq!(
+                parse_signed(&MAINNET, &format!("aa:5:{NU7_TEST}")).unwrap()[0].branch,
+                NU7_TEST
+            );
+            assert!(parse_signed(&ONE_ROW, &format!("aa:5:{NU7_TEST}")).is_err());
+            assert!(parse_signed(&MAINNET, "aa:5:12345").is_err());
             assert!(parse_signed(&MAINNET, "aa").is_err());
             assert!(parse_signed(&MAINNET, "aa:x").is_err());
             assert!(parse_signed(&MAINNET, "aa:5:x").is_err());
@@ -4199,9 +4213,76 @@ pub mod pczt_bridge {
             );
             // Without the later row the same record is still counted at that moment: the cap does it.
             assert!(matches!(
-                approval_decision(&MAINNET, &[signed("aa", expiry)], "bb", t),
+                approval_decision(&ONE_ROW, &[signed("aa", expiry)], "bb", t),
                 ApprovalDecision::Second { .. }
             ));
+        }
+
+        // ---- The same rules on the REAL mainnet table, with NU7's real height (#638). The tests above
+        // use a table with a made-up height so they stay true whatever the chain does; these pin what
+        // this build does at block 3,543,405.
+        const A_MAIN: u32 = 3_543_405;
+        const NU7_MAIN: u32 = 0x7719_0ad9;
+        /// The clock at which block A_MAIN is estimated on mainnet (75 s a block from the anchor).
+        const T_A_MAIN: i64 = T_ANCHOR + 75 * (A_MAIN as i64 - 3_428_143);
+
+        #[test]
+        fn on_mainnet_an_nu7_header_is_accepted_only_once_the_clock_can_reach_the_upgrade() {
+            let nu7 = |expiry| hdr(NU7_MAIN, expiry);
+            // Seventy-five days after the anchor the window is nowhere near A: NU7 is refused.
+            let early = T_ANCHOR + 75 * 86_400;
+            let b = MAINNET.height_bounds(early);
+            let e = check_header(&MAINNET, &nu7(b.est + 100), early).unwrap_err();
+            assert!(e.starts_with("[network]"), "{e}");
+            // At the estimated moment of A the window straddles it: both branches are accepted.
+            let b = MAINNET.height_bounds(T_A_MAIN);
+            assert!(b.lo < A_MAIN && b.top > A_MAIN);
+            check_header(&MAINNET, &nu7(A_MAIN + 100), T_A_MAIN).unwrap();
+            check_header(&MAINNET, &hdr(NU6_3, A_MAIN - 20), T_A_MAIN).unwrap();
+            // Three days later the floor is past A: an NU6.3 header (which cannot be mined) is refused,
+            // an NU7 one still accepted.
+            let late = T_A_MAIN + 3 * 86_400;
+            let b = MAINNET.height_bounds(late);
+            assert!(b.lo > A_MAIN);
+            let e = check_header(&MAINNET, &hdr(NU6_3, b.est + 40), late).unwrap_err();
+            assert!(e.starts_with("[network]"), "{e}");
+            check_header(&MAINNET, &nu7(b.est + 100), late).unwrap();
+        }
+
+        #[test]
+        fn on_mainnet_an_nu63_record_turns_after_expiry_a_few_blocks_after_the_upgrade() {
+            // Signed under NU6.3 before A and not mined, expiring after A (a crossing's is weeks away):
+            // dead at A, so the device stops warning "pays twice" once its floor is past A + 9.
+            for expiry in [A_MAIN + 50, A_MAIN + 34_560] {
+                let rec = [signed("aa", expiry)];
+                let t = lapses_at(&MAINNET, expiry, NU6_3).expect("it lapses");
+                let lo = |t: i64| MAINNET.height_bounds(t).lo;
+                assert!(
+                    lo(t) > A_MAIN - 1 + 10 && lo(t - 1) <= A_MAIN - 1 + 10,
+                    "expiry {expiry}: the turn is at A + 9"
+                );
+                assert_eq!(
+                    approval_decision(&MAINNET, &rec, "bb", t - 1),
+                    ApprovalDecision::Second {
+                        first_expiry: expiry,
+                        until_unix: Some(t),
+                        until_height: Some(A_MAIN - 1),
+                        by_epoch: true
+                    },
+                    "expiry {expiry}"
+                );
+                assert_eq!(
+                    approval_decision(&MAINNET, &rec, "bb", t),
+                    ApprovalDecision::AfterExpiry,
+                    "expiry {expiry}"
+                );
+                // About a day after A with the NU6.3 anchor: the slack there is 27 hours.
+                assert!(
+                    (T_A_MAIN..T_A_MAIN + 40 * 3_600).contains(&t),
+                    "expiry {expiry}: turns {} h after A",
+                    (t - T_A_MAIN) / 3_600
+                );
+            }
         }
 
         #[test]
@@ -4257,9 +4338,9 @@ pub mod pczt_bridge {
             // Expiry 0 and no later upgrade: the decision has no turning point. A time on the screen
             // would say the warning stops somewhere it does not (the moment of another record's turn).
             let now = T_ANCHOR + 75 * 87_500;
-            let b = MAINNET.height_bounds(now);
+            let b = ONE_ROW.height_bounds(now);
             let rec = [signed("aa", 0), signed("cc", b.est + 41)];
-            let d = approval_decision(&MAINNET, &rec, "bb", now);
+            let d = approval_decision(&ONE_ROW, &rec, "bb", now);
             let ApprovalDecision::Second {
                 until_unix,
                 until_height,
@@ -4273,7 +4354,7 @@ pub mod pczt_bridge {
             // And it is still Second long after the other record's turn: nothing was promised.
             let later = now + 86_400 * 400;
             assert!(matches!(
-                approval_decision(&MAINNET, &rec, "bb", later),
+                approval_decision(&ONE_ROW, &rec, "bb", later),
                 ApprovalDecision::Second { .. }
             ));
         }

@@ -622,7 +622,7 @@ pub fn net_prepare_send_with<T: Transport>(
     tip: &dyn Fn() -> Result<u64, ToolError>,
 ) -> Result<SignedSend, ToolError> {
     // The live gate: mainnet's table, and the caller's tip (asked only when the table has a later
-    // upgrade to be near; with one row it decides nothing).
+    // upgrade to be near, which it has since the NU7 row).
     let gate = EpochGate {
         table: &konclave_seal::epochs::MAINNET,
         tip,
@@ -1044,7 +1044,9 @@ mod tests {
             "helper",
         );
 
-        let no_tip = || -> Result<u64, ToolError> { panic!("one row: the tip decides nothing") };
+        // Mainnet has a row after NU6.3 (NU7), so the gate asks for the tip: well before the upgrade,
+        // far from any hold.
+        let no_tip = || -> Result<u64, ToolError> { Ok(3_500_000) };
         let result = net_prepare_send_with(
             &sc,
             &plan,

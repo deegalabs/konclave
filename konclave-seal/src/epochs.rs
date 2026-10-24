@@ -65,19 +65,35 @@ pub struct Table {
     pub anchor: Anchor,
 }
 
+/// The consensus branch of NU7 (ZIP 259), carried by `zcash_protocol` 0.11.0 as `BranchId::Nu7`. The
+/// id proposed earlier (0x77190AD8) is retired.
+pub const NU7: u32 = 0x7719_0ad9;
+
 /// Mainnet. NU6.3 activated at block 3,428,143, whose header time is 1785247643 (2026-07-28
-/// 14:07:23 UTC). The row of the next upgrade (NU7, #638) is added when its activation height is
-/// decided and shipped before it activates: a device on a bundle without it refuses every
-/// transaction of the new epoch. It is ABSENT today on purpose.
+/// 14:07:23 UTC). NU7 (#638) activates at block 3,543,405 (`zcash_protocol` 0.11.0, consensus.rs:567;
+/// Zebra 7.0.0): its row is shipped before it activates, because a device on a bundle without it
+/// refuses every transaction of the new epoch. It keeps the v6 transaction format and group id; its
+/// blocks come every 25 s (ZIP 218), so an ordinary transaction expires 120 blocks past its target
+/// (`NU7_DEFAULT_TX_EXPIRY_DELTA` = 3 x 40, `zcash_primitives` 0.31.0).
 pub const MAINNET: Table = Table {
-    epochs: &[Epoch {
-        activation_height: 3_428_143,
-        branch_id: NU6_3,
-        tx_version: 6,
-        version_group_id: 0xD884_B698,
-        spacing_s: 75,
-        expiry_delta: 40,
-    }],
+    epochs: &[
+        Epoch {
+            activation_height: 3_428_143,
+            branch_id: NU6_3,
+            tx_version: 6,
+            version_group_id: 0xD884_B698,
+            spacing_s: 75,
+            expiry_delta: 40,
+        },
+        Epoch {
+            activation_height: 3_543_405,
+            branch_id: NU7,
+            tx_version: 6,
+            version_group_id: 0xD884_B698,
+            spacing_s: 25,
+            expiry_delta: 120,
+        },
+    ],
     anchor: Anchor {
         height: 3_428_143,
         unix: 1_785_247_643,
@@ -258,7 +274,6 @@ mod tests {
     use super::*;
 
     const NU63: u32 = NU6_3;
-    const NU7: u32 = 0x7719_0ad9;
     const A: u32 = 3_500_000;
 
     /// A table WITH a later row, for the rules that only act across an upgrade. Defined here, never in
@@ -289,6 +304,20 @@ mod tests {
     /// 2026-10-24, with Zebra 7.0.0 saying the same. The branch, version, group and spacing come from
     /// the same crate and `zcash_primitives` 0.31.0 (`NU7_DEFAULT_TX_EXPIRY_DELTA` = 3 x 40).
     const NU7_HEIGHT: u32 = 3_543_405;
+
+    /// A table with NO later row: the rules that only matter when nothing follows (a cap that is the
+    /// expiry alone, a latest row). Defined here, never in the production table, which has two rows.
+    const ONE_ROW: Table = Table {
+        epochs: &[Epoch {
+            activation_height: 3_428_143,
+            branch_id: NU63,
+            tx_version: 6,
+            version_group_id: 0xD884_B698,
+            spacing_s: 75,
+            expiry_delta: 40,
+        }],
+        anchor: MAINNET.anchor,
+    };
 
     #[test]
     fn the_mainnet_table_has_the_nu63_row_then_the_nu7_row_and_is_ordered() {
@@ -344,16 +373,16 @@ mod tests {
         );
         assert!(!WITH_NEXT.capped_by_next(0xdead_beef, A));
         assert!(
-            !MAINNET.capped_by_next(NU63, 0),
+            !ONE_ROW.capped_by_next(NU63, 0),
             "no later row: nothing caps it"
         );
     }
 
     #[test]
     fn without_a_later_row_the_cap_is_the_expiry_alone() {
-        assert_eq!(MAINNET.minable_until(NU63, 3_500_000), Some(3_500_000));
-        assert_eq!(MAINNET.minable_until(NU63, 0), Some(u32::MAX));
-        assert_eq!(MAINNET.next_activation_after(NU63), None);
+        assert_eq!(ONE_ROW.minable_until(NU63, 3_500_000), Some(3_500_000));
+        assert_eq!(ONE_ROW.minable_until(NU63, 0), Some(u32::MAX));
+        assert_eq!(ONE_ROW.next_activation_after(NU63), None);
     }
 
     #[test]
@@ -369,7 +398,7 @@ mod tests {
         // An unknown branch cannot be judged dead.
         assert!(WITH_NEXT.can_still_be_mined(0xdead_beef, 1, u32::MAX));
         // No expiry, no later row: never dead.
-        assert!(MAINNET.can_still_be_mined(NU63, 0, u32::MAX - REORG_MARGIN));
+        assert!(ONE_ROW.can_still_be_mined(NU63, 0, u32::MAX - REORG_MARGIN));
     }
 
     #[test]
@@ -377,7 +406,7 @@ mod tests {
         assert_eq!(WITH_NEXT.epoch_of(A - 1).branch_id, NU63);
         assert_eq!(WITH_NEXT.epoch_of(A).branch_id, NU7);
         assert_eq!(WITH_NEXT.epoch_of(0).branch_id, NU63, "below the table");
-        assert_eq!(MAINNET.epoch_of(u32::MAX).branch_id, NU63);
+        assert_eq!(ONE_ROW.epoch_of(u32::MAX).branch_id, NU63);
     }
 
     #[test]

@@ -299,11 +299,28 @@ pub(crate) fn set_cap_for_test(on: bool) {
     CAP_ON.store(on, Ordering::Relaxed);
 }
 
-/// A table WITH a later row, for the tests of every module that acts across an upgrade. It exists
-/// only when testing: the mainnet row is added the day its height is decided.
+/// Test tables: one WITH a later row, for the tests of every module that acts across an upgrade, and
+/// one WITHOUT, for the rules that must stay what they were when nothing follows NU6.3. They exist
+/// only when testing; mainnet has had its NU7 row since #638.
 #[cfg(test)]
 pub(crate) mod test_table {
     use konclave_seal::epochs::{Anchor, Epoch, Table, NU6_3};
+
+    /// NU6.3 alone, with mainnet's anchor.
+    pub const ONE_ROW: Table = Table {
+        epochs: &[Epoch {
+            activation_height: 3_428_143,
+            branch_id: NU6_3,
+            tx_version: 6,
+            version_group_id: 0xD884_B698,
+            spacing_s: 75,
+            expiry_delta: 40,
+        }],
+        anchor: Anchor {
+            height: 3_428_143,
+            unix: 1_785_247_643,
+        },
+    };
 
     pub const NU7: u32 = 0x7719_0ad9;
     pub const A: u32 = 3_500_000;
@@ -629,12 +646,23 @@ mod tests {
         let panics = || -> Result<u64, ToolError> { panic!("the tip was read") };
         assert_eq!(
             EpochGate {
-                table: &MAINNET,
+                table: &ONE_ROW,
                 tip: &panics
             }
             .tip()
             .unwrap(),
             0
+        );
+        // Mainnet has a later row (NU7): its gate asks for the tip, because there is an upgrade to be near.
+        let seven = || -> Result<u64, ToolError> { Ok(7) };
+        assert_eq!(
+            EpochGate {
+                table: &MAINNET,
+                tip: &seven
+            }
+            .tip()
+            .unwrap(),
+            7
         );
         let tip = || -> Result<u64, ToolError> { Ok(7) };
         assert_eq!(
