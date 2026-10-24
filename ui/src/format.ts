@@ -65,6 +65,33 @@ export function parseZecToZat(zec: string): number | null {
   return Number.isSafeInteger(zat) ? zat : null
 }
 
+/** What a member typed in an amount field, as the canonical decimal `parseZecToZat` reads and the
+ *  proposal carries. The field keeps what was typed (a pt-BR keypad has only the comma); this is
+ *  applied wherever the amount is read or sent. A lone comma is the decimal point. Two separators
+ *  (`1.000,5`, `1,000.5`) are left as typed, so the parser refuses them: reading a thousands
+ *  separator would be a guess about money. */
+export function amountTyped(raw: string): string {
+  const s = (raw ?? '').trim()
+  return s.includes('.') || s.indexOf(',') !== s.lastIndexOf(',') || amountAmbiguous(s) ? s : s.replace(',', '.')
+}
+
+/** A separator (dot or comma) before exactly three digits, with an integer part other than zero
+ *  (`1.500`, `1,500`, `12.345`), reads as 1.5 in one language and as 1500 in the other. It is
+ *  refused with its own message, never read either way (Daniel, 2026-10-21). `0.001` and `0,500`
+ *  are not ambiguous: no thousands separator follows a zero. */
+export function amountAmbiguous(raw: string): boolean {
+  const m = /^(\d+)[.,]\d{3}$/.exec((raw ?? '').trim())
+  return !!m && /[1-9]/.test(m[1]!)
+}
+
+/** The one reader of an amount a member typed, in zatoshis, or `null` when it cannot be paid as
+ *  typed: ambiguous (`amountAmbiguous`), or refused by the strict parser. Every screen with an
+ *  amount field reads it here; none calls `parseZecToZat` on a typed field, which alone would read
+ *  `1.500` as 1.5. */
+export function typedAmountZat(raw: string): number | null {
+  return amountAmbiguous(raw) ? null : parseZecToZat(amountTyped(raw))
+}
+
 /** Format integer zatoshis as a full ZEC decimal string (8 places). */
 export function zatToZec(zat: number): string {
   return (zat / ZAT_PER_ZEC).toFixed(8)
