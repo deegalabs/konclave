@@ -102,16 +102,43 @@ for (const { id: locale, dict } of LOCALES) {
       await expect(proposeBtn(page)).toBeEnabled()
     })
 
-    test('a comma decimal blocks, and says why instead of leaving a dead button', async ({ page }) => {
-      // `parseZecToZat` rejects a comma. The screen used to enable the button anyway (a looser
-      // `parseFloat` in `canSubmit`), send it, and fail afterwards. Now it blocks - and because a
-      // silent disabled button would be worse than the old behaviour for a pt-BR member, it explains.
+    test('a comma decimal is read as the decimal point, as a pt-BR keypad types it', async ({ page }) => {
+      // The screen used to refuse `0,5` and ask for a dot, while a phone's Portuguese keypad offers
+      // only the comma. A lone comma is the decimal point now, read through the same rule the gate
+      // and the proposal use.
       await stub(page, locale, 'ok')
       await page.goto('/#/pay')
       await fillRecipient(page)
       await amount(page).fill('0,5')
+      await expect(proposeBtn(page)).toBeEnabled()
+      await expect(page.getByText(message(dict, 'amount'))).toHaveCount(0)
+    })
+
+    test('two separators block, and say why instead of leaving a dead button', async ({ page }) => {
+      // `1.000,5` and `1,000.5` mean different amounts in pt-BR and en; reading either would be a
+      // guess about money, so the gate refuses and explains.
+      await stub(page, locale, 'ok')
+      await page.goto('/#/pay')
+      await fillRecipient(page)
+      await amount(page).fill('1.000,5')
       await expect(proposeBtn(page)).toBeDisabled()
       await expect(page.getByText(message(dict, 'amount'))).toBeVisible()
+    })
+
+    test('a separator before three digits is ambiguous, and says what to type', async ({ page }) => {
+      // `1,500` is 1.5 in pt-BR and 1500 in en: refused, never read either way.
+      await stub(page, locale, 'ok')
+      await page.goto('/#/pay')
+      await fillRecipient(page)
+      await amount(page).fill('1,500')
+      await expect(proposeBtn(page)).toBeDisabled()
+      await expect(page.getByText(message(dict, 'amount-ambiguous'))).toBeVisible()
+      // The same rule on the dot: 1.500 is 1.5 or 1500.
+      await amount(page).fill('1.500')
+      await expect(proposeBtn(page)).toBeDisabled()
+      await expect(page.getByText(message(dict, 'amount-ambiguous'))).toBeVisible()
+      await amount(page).fill('0.001')
+      await expect(proposeBtn(page)).toBeEnabled()
     })
 
     test('an unreadable balance blocks instead of silently waving the payment through', async ({ page }) => {

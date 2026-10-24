@@ -9,6 +9,7 @@ import '../receive.css'
 import { historyReadKind, historyReader, isHistoryAnswer } from '../useVaultBalance'
 import { useOutletContext } from 'react-router-dom'
 import type { VaultLockContext } from '../Layout'
+import { amountAmbiguous, fmtZecExact, typedAmountZat } from '../format'
 
 // "Add funds" is the easy side of a vault: receiving needs no key and no signature. The vault
 // has a shielded Orchard address (derived from the group key by zcash-sign); anyone sends ZEC to
@@ -136,10 +137,10 @@ export default function Receive() {
   const describedBy = vault?.served_address_differs ? noticeId : undefined
   const uri = useMemo(() => {
     if (!address) return ''
-    const raw = amount.trim().replace(',', '.')
-    // Only a well-formed positive number becomes a ZIP-321 amount; anything else is ignored so the
-    // URI/QR never carries a malformed value.
-    const amt = /^\d+(\.\d+)?$/.test(raw) && Number(raw) > 0 ? raw : ''
+    // Only an amount the vault could pay becomes a ZIP-321 amount (the same rule as the pay screen,
+    // at most 8 decimals); anything else is ignored so the URI/QR never carries a malformed value.
+    const zat = typedAmountZat(amount)
+    const amt = zat != null && zat > 0 ? fmtZecExact(zat / 1e8) : ''
     return `zcash:${address}${amt ? `?amount=${encodeURIComponent(amt)}` : ''}`
   }, [address, amount])
 
@@ -196,6 +197,9 @@ export default function Receive() {
               onChange={(e) => setAmount(e.target.value)}
             />
           </label>
+          {/* The same rule and sentence as the pay screen: an ambiguous amount is left out of the
+              request, and the member is told why rather than finding it missing from the link. */}
+          {amountAmbiguous(amount) && <div className="hint warn" role="status">{t('money.blockAmountAmbiguous')}</div>}
 
           <span className="klab" style={{ marginTop: 4 }}>{t('receive.uri')}</span>
           <div className="rcv-uri">{uri}</div>
