@@ -17,11 +17,11 @@ import { fmtZecExact, parseZecToZat } from '../format'
 import { useVaultSigner } from '../VaultSigner'
 import { unlockOnDevice } from '../unlock'
 import { executeProposal, listProposals } from '../helper'
-import { alreadySent, panelStep, resolvedStep, stepResult, unresolvedNoteKey, watchSent, type ShownStep } from '../send-preflight'
+import { alreadySent, applyPlan, panelStep, resolvedStep, unresolvedNoteKey, watchSent, type ShownStep } from '../send-preflight'
 import { errorCode, getBalance, getProposalDetail, writeProof } from '../api'
 import { relayBase } from '../net'
 import { OutcomeBook, peerFailureMayShow, readReply, resolveOutcome, sentTxidOf, RESOLVE_ATTEMPTS, type PanelResult } from '../send-outcome'
-import { endSend, newSendAttempt, takeSend } from '../send-attempt'
+import { endSend, fireSend, newSendAttempt } from '../send-attempt'
 import { getUnlockedShare, unlockedHere } from '../session'
 import { usdEnabled, cachedRate, fetchRate, zecToUsd, type Rate } from '../price'
 import { describeSigningError } from '../signing-refusal'
@@ -164,6 +164,8 @@ export default function SigningPanel() {
   // Which confirm is open: the usual one, or the one for a second signature on this payment.
   const [confirming, setConfirming] = useState<null | 'sign' | 'again'>(null)
   const [sending, setSending] = useState(false)
+  // The coordinator answered busy and the send is waiting to try again (busy contract v1).
+  const [busyWaiting, setBusyWaiting] = useState(false)
   // When the ceremony started on THIS device. The run is minutes long and emits no event we can
   // observe, so a clock is the only honest sign that the vault is working rather than stuck - and
   // every device that signed needs it, not just the one that sent. A member who signed first sat
@@ -267,12 +269,17 @@ export default function SigningPanel() {
   // The room decided this device sends. Its owner already passed the money confirm (that is what
   // `iWouldBeLast` gates). Fire once per attempt (send-attempt.ts).
   useEffect(() => {
-    if (!bg.iSend || !active || !armed) return
-    if (!takeSend(attempt.current, active.id)) return
+    if (!active || !fireSend(attempt.current, active.id, { named: bg.iSend, armed })) return
     void doSend()
     // Deliberately keyed on the decision, the payment and the signature only: doSend closes over
     // state that changes during the send, and re-running it would be a second broadcast.
   }, [bg.iSend, active?.id, armed]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A busy ending says the signatures still stand; once this device's arming lapses that is no
+  // longer true, so the ending is dropped and the panel offers signing again.
+  useEffect(() => {
+    if (result && 'busy' in result && !armed) setResult(null)
+  }, [result, armed])
 
   useEffect(() => {
     if (!active || !usdEnabled()) return
@@ -386,6 +393,8 @@ export default function SigningPanel() {
   // The send's outcome is not known and may never be. This is deliberately NOT an error state: no
   // failure wording, and above all no Retry, because the money may already have moved (#280).
   const unresolved = result && 'unresolved' in result ? result : null
+  // The coordinator was too busy to start the send: the signatures stand and the member sends again.
+  const busySend = !!result && 'busy' in result
   // What this device can do now is SIGN. The send is not a button any more: it follows from the
   // quorum closing, on the device the room named.
   // The signer is still coming up: has a share but hasn't seated yet. Show a loading line instead of
@@ -462,32 +471,25 @@ export default function SigningPanel() {
   }
 
   // What a step of the send does on screen (panelStep, resolvedStep). `resolve` is handled by the
-  // caller, which asks the record; a failure has its own path, `fail`.
+  // caller, which asks the record. Everything else is one tested plan (`applyPlan`): only a failure
+  // withdraws the signatures, with its reason as a code, so every other member who signed learns the
+  // payment is not coming; a busy coordinator did not start the send, so they stand and "Try sending
+  // again" can fire it; an unknown outcome keeps both (#280). This function only carries it out.
   function apply(pid: string, step: ShownStep) {
-    if (step.do === 'fail') return fail(pid, step.text, step.raw)
-    // An unknown outcome: the payment may be on the network. Not a failure: no withdrawal and no Try
-    // again, and this device keeps the memory of its send (#280).
-    if (step.do === 'unknown') endSend(attempt.current, pid, 'unknown')
-    showFor(pid, stepResult(step))
-    if (step.do === 'sent') toast.ok(t('toast.sent'))
-    else toast.warn(t('toast.sendUnresolved'))
+    const plan = applyPlan(step, refusingRef.current)
+    if (plan.endAs) endSend(attempt.current, pid, plan.endAs)
+    showFor(pid, plan.result)
+    if (plan.toast) {
+      const msg = plan.toast.text ?? t(plan.toast.key ?? '')
+      if (plan.toast.kind === 'ok') toast.ok(msg)
+      else if (plan.toast.kind === 'warn') toast.warn(msg)
+      else toast.err(msg)
+    }
+    if (plan.withdraw !== null) void unarmActive(errorCode(plan.withdraw))
   }
 
-  // A failed send keeps its message on the panel - the reader has to act on it - and is announced
-  // as well, because the run takes minutes and nobody watches a panel for that long.
   function fail(pid: string, msg: string, raw?: string) {
-    showFor(pid, stepResult({ do: 'fail', text: msg }))
-    // When this device refused the transaction, the send's failure is a consequence of that refusal,
-    // which the panel shows instead; announcing "could not send" over it invites the retry it rules out.
-    if (!refusingRef.current) toast.err(msg)
-    endSend(attempt.current, pid, 'not-sent')
-    // Nothing moved, so the payment goes back to unsigned everywhere. Left standing, the failed
-    // attempt's signatures sit in the permanent room and the payment reads as already signed by
-    // devices that have gone - with no button to sign it and no one to send it.
-    //
-    // The reason travels with it, as a code. Only THIS device gets the reply, so without it every
-    // other member who signed sits on "sending" and never learns the payment is not coming.
-    void unarmActive(errorCode(raw ?? msg))
+    apply(pid, { do: 'fail', text: msg, raw })
   }
 
   async function doSend() {
@@ -505,6 +507,7 @@ export default function SigningPanel() {
       relayBase: relayBase(),
       room: bg.room,
       dryRun: false,
+      onBusy: () => setBusyWaiting(true),
       // #288: firing the broadcast is a governance write, bound to this proposal's id. Undefined on
       // a locked device, which the helper still accepts while the vault has no write keys.
       proof: await writeProof(vault.group_pubkey, 'send', active!.id),
@@ -515,6 +518,7 @@ export default function SigningPanel() {
     setConfirming(null)
     let asked = false
     setSending(true)
+    setBusyWaiting(false)
     outcomes.current.clear(pid)
     setResult(null)
     try {
@@ -542,6 +546,7 @@ export default function SigningPanel() {
       else fail(pid, e instanceof Error ? e.message : String(e))
     } finally {
       setSending(false)
+      setBusyWaiting(false)
     }
   }
 
@@ -700,6 +705,12 @@ export default function SigningPanel() {
               </div>
               <div className="note">{t('signing.checkingNote', { n: checking })}</div>
             </div>
+          ) : busySend && armed ? (
+            <div key="busy" className="sign-err" role="alert" tabIndex={-1} ref={focusOnMount}>
+              <div className="hint warn">{t('signing.busy')}</div>
+              <div className="note">{t('signing.busyNote')}</div>
+              <button className="btn ghost sm-btn mt-sm" onClick={() => { if (active && fireSend(attempt.current, active.id, { named: bg.iSend, armed })) void doSend() }}>{t('signing.sendAgain')}</button>
+            </div>
           ) : unresolved ? (
             // One alert for the block: the instruction that keeps a payment from going out twice is
             // in the note, and a screen reader has to hear it with the headline.
@@ -760,6 +771,7 @@ export default function SigningPanel() {
               <div className="hint mt-sm">
                 {t('signing.takesMinutes')} <span aria-hidden="true">·</span> <span className="num">{Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, '0')}</span>
               </div>
+              {busyWaiting && <div className="hint warn mt-sm" role="status">{t('signing.busyWaiting')}</div>}
               {elapsed > 180 && !stalled && <div className="hint err mt-sm" role="alert">{t('signing.slowHint')}</div>}
               {/* The device running the send has not finished within its window after the round began: a
                   started round has no abort yet (#284), so the one thing that helps is a fresh panel. */}
