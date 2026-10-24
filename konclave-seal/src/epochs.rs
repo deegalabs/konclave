@@ -285,10 +285,26 @@ mod tests {
         anchor: MAINNET.anchor,
     };
 
+    /// The published mainnet height of NU7, read from `zcash_protocol` 0.11.0 (consensus.rs:567) on
+    /// 2026-10-24, with Zebra 7.0.0 saying the same. The branch, version, group and spacing come from
+    /// the same crate and `zcash_primitives` 0.31.0 (`NU7_DEFAULT_TX_EXPIRY_DELTA` = 3 x 40).
+    const NU7_HEIGHT: u32 = 3_543_405;
+
     #[test]
-    fn the_mainnet_table_has_the_one_row_and_is_ordered() {
-        assert_eq!(MAINNET.epochs.len(), 1, "NU7's row is absent until decided");
+    fn the_mainnet_table_has_the_nu63_row_then_the_nu7_row_and_is_ordered() {
+        assert_eq!(MAINNET.epochs.len(), 2);
         assert_eq!(MAINNET.epochs[0].branch_id, NU63);
+        assert_eq!(
+            MAINNET.epochs[1],
+            Epoch {
+                activation_height: NU7_HEIGHT,
+                branch_id: NU7,
+                tx_version: 6,
+                version_group_id: 0xD884_B698,
+                spacing_s: 25,
+                expiry_delta: 120,
+            }
+        );
         assert_eq!(MAINNET.anchor.height, 3_428_143);
         assert_eq!(MAINNET.anchor.unix, 1_785_247_643);
         for t in [&MAINNET, &WITH_NEXT] {
@@ -469,5 +485,68 @@ mod tests {
         let b = MAINNET.height_bounds(MAINNET.anchor.unix + 86_400 * 30);
         assert!(MAINNET.header_may_be_mined(NU63, b.est, b.lo, b.hi));
         assert!(!MAINNET.header_may_be_mined(NU7, b.est, b.lo, b.hi));
+    }
+
+    // The rules of this file, read on the MAINNET table with its real upgrade height: the numbers the
+    // design note (section 9) promised and nothing else.
+
+    #[test]
+    fn on_mainnet_an_nu63_transaction_is_capped_at_the_block_before_nu7() {
+        let last = NU7_HEIGHT - 1;
+        assert_eq!(MAINNET.next_activation_after(NU63), Some(NU7_HEIGHT));
+        assert_eq!(MAINNET.minable_until(NU63, NU7_HEIGHT + 5), Some(last));
+        assert_eq!(MAINNET.minable_until(NU63, 0), Some(last));
+        assert_eq!(MAINNET.minable_until(NU63, NU7_HEIGHT - 100), Some(NU7_HEIGHT - 100));
+        // A ZIP 318 crossing weeks away is dead at the upgrade too.
+        assert_eq!(MAINNET.minable_until(NU63, 69_120_000), Some(last));
+        assert!(MAINNET.capped_by_next(NU63, NU7_HEIGHT));
+        assert!(!MAINNET.capped_by_next(NU7, NU7_HEIGHT + 100));
+        // Dead (no longer minable even with the reorg margin) from A + 10, still counted at A + 9.
+        assert!(MAINNET.can_still_be_mined(NU63, NU7_HEIGHT + 20, NU7_HEIGHT + 9));
+        assert!(!MAINNET.can_still_be_mined(NU63, NU7_HEIGHT + 20, NU7_HEIGHT + 10));
+    }
+
+    #[test]
+    fn on_mainnet_a_header_is_accepted_only_under_the_branch_its_window_can_reach() {
+        let (lo, hi) = (NU7_HEIGHT - 2_000, NU7_HEIGHT - 1_000);
+        // Well before A: NU6.3 yes, NU7 no.
+        assert!(MAINNET.header_may_be_mined(NU63, hi + 40, lo, hi));
+        assert!(!MAINNET.header_may_be_mined(NU7, hi + 120, lo, hi));
+        // The window straddles A (the device's own uncertainty): both are accepted.
+        let (lo, hi) = (NU7_HEIGHT - 500, NU7_HEIGHT + 500);
+        assert!(MAINNET.header_may_be_mined(NU63, NU7_HEIGHT - 10, lo, hi));
+        assert!(MAINNET.header_may_be_mined(NU7, NU7_HEIGHT + 120, lo, hi));
+        // Past A: an NU6.3 header that cannot be mined before A is refused, NU7 is accepted.
+        let (lo, hi) = (NU7_HEIGHT + 1_000, NU7_HEIGHT + 2_000);
+        assert!(!MAINNET.header_may_be_mined(NU63, NU7_HEIGHT + 1_020, lo, hi));
+        assert!(MAINNET.header_may_be_mined(NU7, hi + 120, lo, hi));
+    }
+
+    #[test]
+    fn on_mainnet_the_clock_crosses_a_at_75_seconds_a_block_and_then_runs_at_25() {
+        // 115,262 blocks of 75 s from the NU6.3 anchor: 2026-11-06 01:06:33 UTC if blocks keep 75 s.
+        let at_a = MAINNET.anchor.unix + i64::from(NU7_HEIGHT - MAINNET.anchor.height) * 75;
+        assert_eq!(at_a, 1_793_892_293);
+        assert_eq!(MAINNET.height_at(at_a - 75), NU7_HEIGHT - 1);
+        assert_eq!(MAINNET.height_at(at_a), NU7_HEIGHT);
+        // After A each block is 25 s: ten blocks in 250 s.
+        assert_eq!(MAINNET.height_at(at_a + 250), NU7_HEIGHT + 10);
+        // Monotonic across A, which the bisection of `lapses_at` relies on.
+        let mut prev = 0;
+        for t in (at_a - 10_000..at_a + 10_000).step_by(7) {
+            let h = MAINNET.height_at(t);
+            assert!(h >= prev);
+            prev = h;
+        }
+    }
+
+    #[test]
+    fn on_mainnet_the_slack_at_a_is_about_27_hours_with_the_nu63_anchor() {
+        // The design note's figure, pinned: (144 + 1153) blocks at 75 s. A re-anchored release shortens it.
+        let at_a = MAINNET.anchor.unix + i64::from(NU7_HEIGHT - MAINNET.anchor.height) * 75;
+        assert_eq!(MAINNET.slack(at_a), 97_275);
+        let b = MAINNET.height_bounds(at_a);
+        assert!(b.lo < NU7_HEIGHT - 1_000 && b.top > NU7_HEIGHT);
+        assert_eq!(b.hi, b.top + 120, "the window meets the NU7 row, whose delta is 120");
     }
 }
