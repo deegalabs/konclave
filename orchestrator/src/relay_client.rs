@@ -145,16 +145,40 @@ impl<T: Transport> RelayClient<T> {
         }
     }
 
-    /// Poll once and return the first message (after `since`, in sequence order) whose `data`
-    /// satisfies `pred`, along with the sequence to continue from. `None` if none matched yet.
-    /// The caller owns the retry loop and its delay, so this stays synchronous and testable.
-    pub fn find<F>(&self, since: u64, pred: F) -> Result<(Option<InMsg>, u64), String>
+    /// Poll once and return the messages (after `since`, in sequence order) whose `data` satisfies
+    /// `pred`, at most `limit` of them, along with the sequence to continue from.
+    ///
+    /// Every match is returned, not the first: the first message that looks like what the caller
+    /// wants is not necessarily the one it wants.
+    ///
+    /// When more than `limit` match, the sequence returned stops at the last one handed back, so the
+    /// next poll from it returns the rest: the cap bounds the work of one poll. When
+    /// at most `limit` match, it is the poll's own `next`. The caller owns the retry loop and its
+    /// delay, so this stays synchronous and testable.
+    pub fn matching<F>(
+        &self,
+        since: u64,
+        pred: F,
+        limit: usize,
+    ) -> Result<(Vec<InMsg>, u64), String>
     where
         F: Fn(&str) -> bool,
     {
         let p = self.poll(since)?;
-        let hit = p.messages.iter().find(|m| pred(&m.data)).cloned();
-        Ok((hit, p.next))
+        let mut hits: Vec<InMsg> = p
+            .messages
+            .iter()
+            .filter(|m| pred(&m.data))
+            .cloned()
+            .collect();
+        if hits.len() > limit {
+            hits.truncate(limit);
+            // `limit` is at least 1 for any caller that wants an answer; at 0 nothing is handed back
+            // and `since` is returned unchanged.
+            let next = hits.last().map_or(since, |m| m.seq);
+            return Ok((hits, next));
+        }
+        Ok((hits, p.next))
     }
 }
 
@@ -416,23 +440,59 @@ mod tests {
     }
 
     #[test]
-    fn find_returns_the_first_matching_message() {
+    fn matching_returns_every_matching_message_in_order() {
         let state = Arc::new(RelayState::new());
         let helper = client(state.clone(), "helper");
         helper.post("net-sign-request:...").unwrap();
+        helper.post("net-sign-response:first").unwrap();
         helper.post("ceremony-noise").unwrap();
-        helper.post("net-sign-response:...").unwrap();
+        helper.post("net-sign-response:second").unwrap();
 
         let reader = client(state, "reader");
-        let (hit, next) = reader
-            .find(0, |d| d.starts_with("net-sign-response"))
+        let (hits, next) = reader
+            .matching(0, |d| d.starts_with("net-sign-response"), 16)
             .unwrap();
-        assert_eq!(hit.unwrap().data, "net-sign-response:...");
-        assert_eq!(next, 3);
+        let data: Vec<&str> = hits.iter().map(|m| m.data.as_str()).collect();
+        assert_eq!(
+            data,
+            ["net-sign-response:first", "net-sign-response:second"]
+        );
+        assert_eq!(next, 4, "within the limit, `next` is the poll's own");
 
-        // Nothing matches -> None, but `next` still advances so we don't re-scan.
-        let (miss, _) = reader.find(0, |d| d == "absent").unwrap();
-        assert!(miss.is_none());
+        // Nothing matches -> empty, but `next` still advances so we don't re-scan.
+        let (miss, next) = reader.matching(0, |d| d == "absent", 16).unwrap();
+        assert!(miss.is_empty());
+        assert_eq!(next, 4);
+    }
+
+    /// One poll's work is limited, and later polls reach the messages that remain.
+    #[test]
+    fn later_polls_reach_the_remaining_messages() {
+        let state = Arc::new(RelayState::new());
+        let helper = client(state.clone(), "helper");
+        for i in 0..5 {
+            helper.post(&format!("hit-{i}")).unwrap();
+            helper.post(&format!("noise-{i}")).unwrap();
+        }
+        let reader = client(state, "reader");
+        let mut since = 0;
+        let mut seen = vec![];
+        let mut polls = 0;
+        loop {
+            let (hits, next) = reader.matching(since, |d| d.starts_with("hit"), 2).unwrap();
+            polls += 1;
+            assert!(hits.len() <= 2, "at most the limit in one poll");
+            seen.extend(hits.into_iter().map(|m| m.data));
+            if next == since || polls > 10 {
+                break;
+            }
+            since = next;
+        }
+        assert_eq!(seen, ["hit-0", "hit-1", "hit-2", "hit-3", "hit-4"]);
+        assert_eq!(
+            polls, 4,
+            "5 hits at 2 per poll, then one poll that finds nothing new"
+        );
     }
 
     #[test]

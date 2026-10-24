@@ -73,6 +73,10 @@ explicitly accepted.
 
 ### Fixed
 
+- **A send looked at one candidate answer per poll.** While a send waits for the devices, the
+  coordinator and the operator's command line now look at more than one candidate message in a
+  poll. The hosted coordinator has run this since 2026-10-24; the command line has it when next
+  built.
 - **A call to the relay that never answered could leave a send waiting indefinitely.** The operator's
   command line and the coordinator now give every call to the relay a time limit: 10 seconds to
   connect and 30 in all. A poll that runs past it counts as a failed poll, which ends the wait, as

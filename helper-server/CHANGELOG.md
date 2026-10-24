@@ -88,6 +88,10 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **A send looked at one candidate answer per poll.** While a send waits for the devices, the
+  coordinator and the operator's command line now look at more than one candidate message in a
+  poll. The hosted coordinator has run this since 2026-10-24; the command line has it when next
+  built.
 - **A call to the relay that never answered could leave a send waiting indefinitely.** Each call the
   coordinator makes to the relay now has a time limit: 10 seconds to connect and 30 in all. A poll
   that runs past it counts as a failed poll, which ends the wait, as any failed poll already did.
