@@ -384,8 +384,8 @@ Cross-cutting guarantees that hold across every use case:
 - **Honest limits:** a proposal can hit `expired` (72h placeholder) - terminal, cannot be sent.
 
 ### UC-6 - Sign & send (FROST broadcast)
-- **Flow:** optionally **validate (dry-run)** - the whole chain except broadcast, returning a
-  sighash with no funds moved. **Sign & send** requires the explicit danger-dialog confirm, then
+- **Flow:** optionally **validate (dry-run)**, in the local build only (the hosted coordinator takes
+  no dry run) - the whole chain except broadcast, returning a sighash with no funds moved. **Sign & send** requires the explicit danger-dialog confirm, then
   broadcasts. On success the proposal becomes `sent` with the `txid` + explorer link.
 - **Postcondition:** `sent` (later `confirmed` via reconcile); only the approvers' shares signed.
 - **Honest limits:** in the local build `frostd` is started fresh per call, killed on drop, and the

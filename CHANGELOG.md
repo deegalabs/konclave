@@ -58,6 +58,12 @@ explicitly accepted.
 
 ### Security
 
+- **The hosted send takes no practice run.** The coordinator used to accept a send request that
+  asked for a practice run. It no longer does: a request that asks for one, or does not say which it
+  wants, is answered 400 before anything is built or asked of a device, and only a request for the
+  send itself goes on. The app's send always asks for the send itself, so a member sees no
+  difference. This changes the hosted coordinator only. The hosted coordinator has run this since
+  2026-10-24.
 - **The coordinator reads hex in one place, and answers a request it cannot handle with an error.**
   Hex that arrives from outside is now read by one function that accepts hex digits and nothing
   else. A request the coordinator cannot handle is answered with an error and logged by file and
