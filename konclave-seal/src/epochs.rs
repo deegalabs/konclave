@@ -37,6 +37,16 @@ pub fn within_margin(last: u32, height: impl Into<u64>) -> bool {
     u64::from(last) + u64::from(REORG_MARGIN) >= height.into()
 }
 
+/// ZIP 318: a pool crossing expires at the same height for every wallet in a modulus period, so that
+/// nothing singles it out. The modulus and the window are given in REFERENCE blocks of 75 s and are
+/// scaled by how many blocks of the row's spacing make one reference block (3 at 25 s), which is what
+/// `zcash_protocol` 0.11.0 does (zip318.rs:195-211): 34,560 blocks before NU7, 103,680 from it. The
+/// device read the 75 s numbers for ever; this is the ONE place that scales them.
+pub const ZIP318_MODULUS: u32 = 34_560;
+pub const ZIP318_WINDOW: u32 = 69_120;
+/// The spacing, in seconds, the two numbers above are written in.
+const REFERENCE_SPACING_S: i64 = 75;
+
 /// One network upgrade, from `activation_height` until the next row's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Epoch {
@@ -246,6 +256,37 @@ impl Table {
             hi: top.saturating_add(delta),
             top,
         }
+    }
+
+    /// The modulus in force for a target in `row`: [`ZIP318_MODULUS`] reference blocks, scaled by the
+    /// row's spacing (a row of 25 s blocks has three blocks to the reference block).
+    fn zip318_modulus(row: &Epoch) -> u32 {
+        let ratio = (REFERENCE_SPACING_S / row.spacing_s.max(1)).max(1) as u32;
+        ZIP318_MODULUS.saturating_mul(ratio)
+    }
+
+    /// The expiry a pool crossing built at `target` has (ZIP 318): the next-but-one modulus boundary,
+    /// at the modulus of the row `target` is in. Always past `target`; saturates at `u32::MAX`.
+    pub fn crossing_expiry(&self, target: u32) -> u32 {
+        let m = u64::from(Self::zip318_modulus(self.epoch_of(target)));
+        let h = u64::from(target);
+        u32::try_from(h - h % m + 2 * m).unwrap_or(u32::MAX)
+    }
+
+    /// Whether `expiry` is the expiry of a crossing built at some target in `[lo, top]`: one of the
+    /// values `crossing_expiry` gives over that window, read row by row, so a window that straddles an
+    /// upgrade accepts both scales and a window wholly past it only the new one.
+    pub fn is_crossing_expiry(&self, expiry: u32, lo: u32, top: u32) -> bool {
+        self.epochs.iter().enumerate().any(|(i, row)| {
+            let end = self
+                .epochs
+                .get(i + 1)
+                .map_or(u32::MAX, |next| next.activation_height - 1);
+            let (a, b) = (lo.max(row.activation_height), top.min(end));
+            a <= b
+                && expiry % Self::zip318_modulus(row) == 0
+                && (self.crossing_expiry(a)..=self.crossing_expiry(b)).contains(&expiry)
+        })
     }
 
     /// Whether a header naming `branch_id` and expiring at `expiry` may be accepted when the window of
@@ -577,5 +618,42 @@ mod tests {
         let b = MAINNET.height_bounds(at_a);
         assert!(b.lo < NU7_HEIGHT - 1_000 && b.top > NU7_HEIGHT);
         assert_eq!(b.hi, b.top + 120, "the window meets the NU7 row, whose delta is 120");
+    }
+
+    // ZIP 318: a pool crossing's expiry is the same for every wallet in a modulus period, and the
+    // period is 34,560 blocks of 75 s before NU7 and 103,680 blocks of 25 s from it (both about 30
+    // days; zcash_protocol 0.11.0 zip318.rs:195-211). The device used the first modulus for ever. The
+    // values below were computed outside this code: `h - h % m + 2 * m` with m = 34,560 x (75 / spacing).
+
+    #[test]
+    fn on_mainnet_the_zip318_expiry_changes_scale_at_the_upgrade() {
+        assert_eq!(MAINNET.crossing_expiry(3_500_000), 3_559_680);
+        assert_eq!(MAINNET.crossing_expiry(NU7_HEIGHT - 1), 3_594_240);
+        assert_eq!(MAINNET.crossing_expiry(NU7_HEIGHT), 3_732_480);
+        assert_eq!(MAINNET.crossing_expiry(3_600_000), 3_732_480);
+        // Always past its target, and never going back as the target rises.
+        let mut prev = 0;
+        for t in (NU7_HEIGHT - 5_000..NU7_HEIGHT + 5_000).step_by(37) {
+            let e = MAINNET.crossing_expiry(t);
+            assert!(e > t && e >= prev, "target {t}");
+            prev = e;
+        }
+    }
+
+    #[test]
+    fn a_crossing_expiry_is_read_by_the_scale_of_the_row_its_target_is_in() {
+        let (lo, top) = (NU7_HEIGHT - 100, NU7_HEIGHT + 100);
+        // Targets straddling A: a builder just before it gave the old scale, just after the new one.
+        assert!(MAINNET.is_crossing_expiry(3_594_240, lo, top));
+        assert!(MAINNET.is_crossing_expiry(3_732_480, lo, top));
+        // Wholly after A only the new scale is honest: the old one is a pre-NU7 builder's.
+        assert!(MAINNET.is_crossing_expiry(3_732_480, NU7_HEIGHT + 1_000, NU7_HEIGHT + 2_000));
+        assert!(!MAINNET.is_crossing_expiry(3_594_240, NU7_HEIGHT + 1_000, NU7_HEIGHT + 2_000));
+        // Wholly before A the new scale does not exist yet.
+        assert!(MAINNET.is_crossing_expiry(3_594_240, NU7_HEIGHT - 2_000, NU7_HEIGHT - 1_000));
+        assert!(!MAINNET.is_crossing_expiry(3_732_480, NU7_HEIGHT - 2_000, NU7_HEIGHT - 1_000));
+        // Not a multiple of any modulus, or not what any target in the window gives.
+        assert!(!MAINNET.is_crossing_expiry(3_594_241, lo, top));
+        assert!(!MAINNET.is_crossing_expiry(3_559_680, NU7_HEIGHT + 1_000, NU7_HEIGHT + 2_000));
     }
 }
