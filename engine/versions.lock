@@ -104,6 +104,32 @@ patch_sha256 = "238677420e320f7922323641b81a42da757098fc11d30938b4776d72701cf05e
 #   To rebuild: export 539ae81d, `git apply` the patch, `cargo build --release --locked`.
 # Superseded: 045c32288b359caea337a1334dce60a813f9295a3b94eb8abf51a44a93965ce7 (2026-08-22, rc pins).
 
+# THE NU7 DEVTOOL (recorded 2026-10-26, BEFORE any build of it; local branch, nothing deployed).
+# zcash-devtool upstream has no build that follows NU7 on mainnet: its `main` still pins the
+# `-pre.N` crates and a librustzcash git rev, and `zcash_protocol 0.11.0-pre.1` has no mainnet NU7
+# height. The released stable line (2026-10-21: zcash_protocol 0.11.0 = NU7 at 3,543,405, branch
+# 0x77190AD9) is what this patch moves the manifest to. Same recipe as the entry above: upstream
+# rev PLUS a patch, rebuilt with `cargo build --release --locked`.
+[source.zcash-devtool-stable]
+repo         = "https://github.com/zcash/zcash-devtool"
+rev          = "0b3436bb"                                          # main as of 2026-10-17 (merge of PR 258)
+patch        = "engine/patches/zcash-devtool-0b3436bb-stable-crates.patch"
+patch_sha256 = "7fa2670a2d2418ea7aaa8f7b3413dedc1d627d0d407aaddfa9891c4ae6f19d0c"
+lockfile        = "engine/patches/zcash-devtool-0b3436bb-stable-crates.Cargo.lock"
+lockfile_sha256 = "250569dfaab9520804b0b76b251635c54d860d0ea7949eb4f97f76ff8c5dfe18"
+status       = "recorded, not built"
+# What the patch does: the 11 pre-release pins of the manifest go to the released crates (protocol
+# 0.11.0, primitives 0.31.0, backend 0.25.0, sqlite 0.23.0, pczt 0.10.0, keys 0.17.0, address 0.14.0,
+# transparent 0.11.0, zip321 0.10.0, pool_migration 0.2.0, proofs 0.31.0), the `[patch.crates-io]`
+# git block is removed, and five command files move to `PrecomputedSighashData` and
+# `BlockSpacing`. No edit in `pczt create`, `pczt prove`, `pczt send` or the `wallet` tree, the
+# only commands Konclave calls. To apply: export 0b3436bb, `patch -p1` the patch (paths carry one
+# leading directory), copy the lockfile over `Cargo.lock`, `cargo build --release --locked`.
+# Resolves, with zero git sources: orchard 0.16.0, sapling-crypto 0.9.0, rusqlite 0.37.0 and the
+# crates above. `zcash_client_sqlite` 0.23.0 adds migrations that cannot be reverted: this devtool
+# is only ever opened on COPIES of wallets until the production snapshot is taken (README of the
+# deploy, "the upgrade is one-way").
+
 # Binaries produced from the frost-tools source above (sha256 of THIS build; see NOTE).
 # Rebuilt on the build host 2026-08-22 at frost-tools 06c0dbdbb1ba; the sha256 below are the real
 # values of that build (not bit-reproducible across machines; see NOTE):
