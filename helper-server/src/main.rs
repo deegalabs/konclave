@@ -44,7 +44,9 @@ use orchestrator::helper::{
 };
 use orchestrator::relay_client::{configured_relay, parse_relay_config, valid_room, RelayRefusal};
 use orchestrator::send::{funding_check, Funding, PayrollDest, SpendPlan};
-use orchestrator::send_record::{promote_mined_attempts, send_proposal, LiveSend, SendResult};
+use orchestrator::send_record::{
+    promote_mined_attempts, send_proposal, Broadcast, LiveSend, SendResult,
+};
 use orchestrator::write_auth::{
     authorize_write, same_member, seat_acts_as, seat_holder, SignedWrite, WriteAction, WriteAuth,
 };
@@ -783,11 +785,10 @@ fn over_capacity() -> bool {
 
 /// Architecture-B send: the helper builds/proves the PCZT for the vault's own spend, publishes a
 /// signing request into the vault's relay room, waits for the **browsers'** aggregate FROST
-/// signature, injects it, and (unless `dry_run`) broadcasts. It never sees a share. Every
+/// signature, injects it, and broadcasts. It never sees a share. Every
 /// caller-fixable rejection (bad json, unknown vault, bad destination/amount) is decided BEFORE
 /// the engine runs, so those branches are unit-testable; only the happy path touches the tooling
-/// and the relay. `dry_run` defaults to **true** (safe): the caller must pass `"dry_run": false`
-/// to actually broadcast, so a single call never fires funds by accident.
+/// and the relay.
 /// Ask the wallet whether the vault can actually pay `plan`, and turn a "no" into an answer a
 /// person can act on.
 ///
@@ -1051,13 +1052,13 @@ fn polls_for(requested: u32) -> u32 {
 }
 
 /// Execute a READY proposal over Architecture B: build the PCZT for the proposal's payment, run the
-/// browser ceremony over the relay, and (unless `dry_run`) broadcast. On a real broadcast the
+/// browser ceremony over the relay, and broadcast. On a broadcast the
 /// proposal is marked `sent` with its txid.
 ///
 /// SECURITY (audit): `ready` is advisory (the approval votes are social, unauthenticated). The
 /// money gate is the ceremony itself, which needs the real quorum of browser shares to produce a
 /// valid signature, so a forged "ready" cannot move funds on its own. Non-ready proposals are
-/// refused (409); `dry_run` defaults true so a broadcast is always explicit.
+/// refused (409); a broadcast is always explicit (`dry_run` must be `false`).
 fn handle_proposal_send(
     state: &HelperState,
     cfg: &HelperConfig,
@@ -1073,8 +1074,8 @@ fn handle_proposal_send(
         vault: String,
         relay_base: String,
         room: String,
-        #[serde(default = "psend_dry_run")]
-        dry_run: bool,
+        /// Must be `false`: the hosted send runs no practice send. Absent is not taken for either.
+        dry_run: Option<bool>,
         #[serde(default = "psend_max_polls")]
         max_polls: u32,
         /// The signed-write envelope (#288 / ADR-0011 D2). Absent on a device with no registered
@@ -1084,15 +1085,17 @@ fn handle_proposal_send(
         nonce: Option<String>,
         sig: Option<String>,
     }
-    fn psend_dry_run() -> bool {
-        true
-    }
     fn psend_max_polls() -> u32 {
         300
     }
     let req: Req = match serde_json::from_slice(body) {
         Ok(r) => r,
         Err(_) => return resp(400, json!({ "error": "invalid json" }).to_string()),
+    };
+    // First of all: nothing below runs for a request that asks for a practice send, or does not say.
+    // What comes back is what `send_proposal` needs, so this cannot be taken out and leave a call.
+    let Some(asked) = Broadcast::asked(req.dry_run) else {
+        return resp(400, json!({ "error": NO_DRY_RUN_TEXT }).to_string());
     };
     // #270: the relay is this coordinator's own, never the request's. The request used to name it,
     // and it went to `curl` unchecked: any URL fetched from the coordinator's network, and on a
@@ -1189,7 +1192,7 @@ fn handle_proposal_send(
     let proposal_id = p.id.clone();
     let sending: std::cell::RefCell<Option<concurrency::SendingMark<'_>>> =
         std::cell::RefCell::new(None);
-    let result = send_proposal(&cfg.vaults_dir, p, req.dry_run, &steps, |_| {
+    let result = send_proposal(&cfg.vaults_dir, p, asked, &steps, |_| {
         let plan = match &plan {
             Ok(plan) => plan,
             Err(refused) => return Err(resp(refused.status, refused.body.clone())),
@@ -1296,6 +1299,11 @@ fn settle_mined_sends(
 const UNSEALED_SEND_TEXT: &str =
     "this vault still has members whose devices are not registered; open it on a current build so a seat can sign the send";
 
+/// What a caller is told when it asks the hosted send for a practice run, or does not say which it
+/// wants. Short, and clear of the screen's keywords like the texts around it.
+const NO_DRY_RUN_TEXT: &str =
+    "this coordinator runs no practice send; ask for the send itself with dry_run set to false";
+
 /// What a member is told when a send would have to be sealed to a device key that cannot be sealed
 /// to. Short, and clear of the screen's keywords like the texts around it.
 const DEVICE_LIST_UNUSABLE_TEXT: &str =
@@ -1366,11 +1374,6 @@ const RECORD_TEXT: &str =
 /// The one place a send's result becomes a status and a body.
 fn send_result_resp(result: SendResult<Resp>) -> Resp {
     match result {
-        SendResult::DryRun { sighash } => resp(
-            200,
-            json!({ "txid": null, "dry_run": true, "sighash": sighash, "state": "ready" })
-                .to_string(),
-        ),
         SendResult::Sent {
             txid,
             sighash,
@@ -2684,6 +2687,7 @@ mod tests {
             RECORD_TEXT,
             REGISTRY_UNREADABLE_TEXT,
             UNSEALED_SEND_TEXT,
+            NO_DRY_RUN_TEXT,
             REQUEST_PANICKED_TEXT,
             DEVICE_LIST_UNUSABLE_TEXT,
             WALLET_BUSY_TEXT,
@@ -3012,37 +3016,44 @@ mod tests {
         assert_eq!(saved.state, "ready");
     }
 
-    /// A dry run is forwarded as a dry run: it does not settle an earlier send,
-    /// so a held payment does not answer it with "not settled". (Forcing it to a real send would.)
+    /// The hosted send takes no practice run, and does not guess which one a request meant: a body
+    /// that asks for one, or says nothing, is refused before the engine is touched and before
+    /// anything is written, whatever else is true of the vault (a ready proposal, an earlier send
+    /// held, every seat's device registered).
     #[cfg(unix)]
     #[test]
-    fn a_dry_run_through_the_handler_is_not_held_by_an_earlier_send() {
-        let st = HelperState::new();
-        seed(&st, "relayv");
-        let mut c = cfg();
-        let (fake, log) = fake_devtool(&c.vaults_dir, None);
-        c.devtool = fake;
-        a_ready_proposal(&c.vaults_dir, "relayv");
-        held_send(&c.vaults_dir, &"11".repeat(32));
-        // Sealable, so the refusal of an unsigned unsealed send is not what this test meets.
-        every_seat_has_a_device(&c.vaults_dir, "relayv");
+    fn the_hosted_send_takes_no_dry_run() {
+        for dry_run in [Some(true), None] {
+            let st = HelperState::new();
+            seed(&st, "relayv");
+            let mut c = cfg();
+            let (fake, log) = fake_devtool(&c.vaults_dir, None);
+            c.devtool = fake;
+            a_ready_proposal(&c.vaults_dir, "relayv");
+            held_send(&c.vaults_dir, &"11".repeat(32));
+            every_seat_has_a_device(&c.vaults_dir, "relayv");
 
-        let body = json!({ "vault": "relayv", "relay_base": TEST_RELAY,
-            "room": "0123456789abcdef0123456789abcdef", "dry_run": true })
-        .to_string();
-        let r = handle(
-            &st,
-            &c,
-            &Method::Post,
-            "/api/vault/proposals/p1/send",
-            body.as_bytes(),
-        );
-        assert_ne!(r.status, 409, "{}", r.body);
-        assert!(!r.body.contains(UNSETTLED_TEXT), "{}", r.body);
-        // The funding gate reads the balance (upgrade, sync, balance) as it always did; only settling
-        // an earlier send lists the wallet's transactions.
-        let ran = std::fs::read_to_string(&log).unwrap_or_default();
-        assert!(!ran.contains("list-tx"), "{ran}");
+            let mut body = json!({ "vault": "relayv", "relay_base": TEST_RELAY,
+                "room": "0123456789abcdef0123456789abcdef" });
+            if let Some(dry_run) = dry_run {
+                body["dry_run"] = json!(dry_run);
+            }
+            let r = handle(
+                &st,
+                &c,
+                &Method::Post,
+                "/api/vault/proposals/p1/send",
+                body.to_string().as_bytes(),
+            );
+            assert_eq!(r.status, 400, "dry_run {dry_run:?}: {}", r.body);
+            assert!(r.body.contains(NO_DRY_RUN_TEXT), "{}", r.body);
+            let ran = std::fs::read_to_string(&log).unwrap_or_default();
+            assert!(ran.is_empty(), "the engine was not touched: {ran}");
+            assert!(
+                orchestrator::helper::load_ceremonies(&c.vaults_dir, "relayv").is_empty(),
+                "nothing was written to the ceremony trail"
+            );
+        }
     }
 
     /// The work for a request that fails unexpectedly is answered, and the thread that ran it is still
@@ -3144,11 +3155,121 @@ mod tests {
         // sealed to all of it.
         orchestrator::helper::upsert_device(&c.vaults_dir, "relayv", &"zz".repeat(32), None)
             .unwrap();
-        let r = send_as(&st, &c, true, None);
+        let r = send_as(&st, &c, None);
         assert_eq!(r.status, 409, "{}", r.body);
         assert!(r.body.contains(DEVICE_LIST_UNUSABLE_TEXT), "{}", r.body);
         let ran = std::fs::read_to_string(&log).unwrap_or_default();
         assert!(!ran.contains("pczt"), "nothing was built: {ran}");
+    }
+
+    /// The refusal comes before every other check, not merely before the engine: a request that asks
+    /// for a practice run is told so even when its relay is wrong, and a validly signed one does not
+    /// spend its nonce.
+    #[cfg(unix)]
+    #[test]
+    fn the_dry_run_refusal_comes_before_the_relay_and_the_write_gate() {
+        use konclave_seal::WriteAction;
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let mut c = cfg();
+        let (fake, log) = fake_devtool(&c.vaults_dir, None);
+        c.devtool = fake;
+        a_ready_proposal(&c.vaults_dir, "relayv");
+        let sk = alice_registers_seat_one(&c.vaults_dir, "relayv");
+        let send = |body: serde_json::Value| {
+            handle(
+                &st,
+                &c,
+                &Method::Post,
+                "/api/vault/proposals/p1/send",
+                body.to_string().as_bytes(),
+            )
+        };
+
+        // The three ways of not asking for the send: the flag true, the flag null, no flag at all. Each
+        // is refused at the same place, ahead of everything else.
+        let flags = [Some(json!(true)), Some(json!(null)), None];
+        for (n, flag) in flags.into_iter().enumerate() {
+            let with_flag = |mut body: serde_json::Value| {
+                if let Some(flag) = &flag {
+                    body["dry_run"] = flag.clone();
+                }
+                body
+            };
+
+            // A relay that is not ours: the missing ask is what is refused, not the relay.
+            let r = send(with_flag(json!({ "vault": "relayv",
+                "relay_base": "https://evil.example",
+                "room": "0123456789abcdef0123456789abcdef" })));
+            assert_eq!(r.status, 400, "{flag:?}: {}", r.body);
+            assert!(r.body.contains(NO_DRY_RUN_TEXT), "{flag:?}: {}", r.body);
+
+            // A validly signed send that does not ask for the send is refused, and its nonce is not
+            // spent.
+            let nonce = format!("n-practice-{n}");
+            let fields = signed_as_seat_one(&sk, "relayv", WriteAction::Send, "p1", &nonce);
+            let mut body = with_flag(json!({ "vault": "relayv", "relay_base": TEST_RELAY,
+                "room": "0123456789abcdef0123456789abcdef" }));
+            let extra: serde_json::Value = serde_json::from_str(&format!("{{{fields}}}")).unwrap();
+            for (k, v) in extra.as_object().unwrap() {
+                body[k] = v.clone();
+            }
+            let r = send(body);
+            assert_eq!(r.status, 400, "{flag:?}: {}", r.body);
+            assert!(r.body.contains(NO_DRY_RUN_TEXT), "{flag:?}: {}", r.body);
+            assert!(
+                !orchestrator::helper::write_nonce_seen(&c.vaults_dir, "relayv", &nonce),
+                "{flag:?}: a refused request spent the nonce of its signature"
+            );
+        }
+        let ran = std::fs::read_to_string(&log).unwrap_or_default();
+        assert!(ran.is_empty(), "the engine was not touched: {ran}");
+    }
+
+    /// Every odd shape of the flag is refused before the engine: `null` as a practice run, anything
+    /// that is not a boolean, the key twice, and bodies that are not a request at all.
+    #[cfg(unix)]
+    #[test]
+    fn every_odd_shape_of_the_dry_run_flag_is_refused_before_the_engine() {
+        let request = |extra: &str| {
+            format!(
+                r#"{{"vault":"relayv","relay_base":"{TEST_RELAY}","room":"0123456789abcdef0123456789abcdef"{extra}}}"#
+            )
+            .into_bytes()
+        };
+        let cases: Vec<(&str, Vec<u8>, &str)> = vec![
+            ("null", request(r#","dry_run":null"#), NO_DRY_RUN_TEXT),
+            ("a string", request(r#","dry_run":"false""#), "invalid json"),
+            ("a number", request(r#","dry_run":0"#), "invalid json"),
+            ("a list", request(r#","dry_run":[false]"#), "invalid json"),
+            (
+                "the key twice",
+                request(r#","dry_run":true,"dry_run":false"#),
+                "invalid json",
+            ),
+            ("an empty body", Vec::new(), "invalid json"),
+            ("bytes that are not text", vec![0xff; 4096], "invalid json"),
+        ];
+        for (name, body, text) in cases {
+            let st = HelperState::new();
+            seed(&st, "relayv");
+            let mut c = cfg();
+            let (fake, log) = fake_devtool(&c.vaults_dir, None);
+            c.devtool = fake;
+            a_ready_proposal(&c.vaults_dir, "relayv");
+            every_seat_has_a_device(&c.vaults_dir, "relayv");
+            let r = handle(
+                &st,
+                &c,
+                &Method::Post,
+                "/api/vault/proposals/p1/send",
+                &body,
+            );
+            assert_eq!(r.status, 400, "{name}: {}", r.body);
+            assert!(r.body.contains(text), "{name}: {}", r.body);
+            let ran = std::fs::read_to_string(&log).unwrap_or_default();
+            assert!(ran.is_empty(), "{name}: the engine was not touched: {ran}");
+        }
     }
 
     /// The signature of a signed write is the caller's: whatever it holds, the answer is a refusal.
@@ -3917,7 +4038,7 @@ mod tests {
             (
                 "/api/vault/proposals/p1/send",
                 format!(
-                    r#"{{"vault":"{v}","relay_base":"{TEST_RELAY}","room":"0123456789abcdef0123456789abcdef","dry_run":true}}"#
+                    r#"{{"vault":"{v}","relay_base":"{TEST_RELAY}","room":"0123456789abcdef0123456789abcdef","dry_run":false}}"#
                 ),
             ),
             (
@@ -5895,7 +6016,8 @@ mod tests {
         seed(&st, "aaaa"); // 2 of 3
 
         // unknown vault -> 404
-        let body = br#"{"vault":"zzzz","relay_base":"https://relay.test","room":"r"}"#;
+        let body =
+            br#"{"vault":"zzzz","relay_base":"https://relay.test","room":"r","dry_run":false}"#;
         assert_eq!(
             handle(
                 &st,
@@ -5908,7 +6030,8 @@ mod tests {
             404
         );
         // unknown proposal -> 404
-        let body2 = br#"{"vault":"aaaa","relay_base":"https://relay.test","room":"r"}"#;
+        let body2 =
+            br#"{"vault":"aaaa","relay_base":"https://relay.test","room":"r","dry_run":false}"#;
         assert_eq!(
             handle(
                 &st,
@@ -6593,7 +6716,7 @@ mod tests {
                 &Method::Post,
                 &format!("/api/vault/proposals/{id}/send"),
                 format!(
-                    r#"{{"vault":"planted","relay_base":"https://relay.test","room":"r",{env}}}"#
+                    r#"{{"vault":"planted","relay_base":"https://relay.test","room":"r","dry_run":false,{env}}}"#
                 )
                 .as_bytes(),
             );
@@ -6665,7 +6788,9 @@ mod tests {
     }
 
     fn send_to(st: &HelperState, c: &HelperConfig, relay: &str, room: &str) -> Resp {
-        let body = json!({ "vault": "relayv", "relay_base": relay, "room": room }).to_string();
+        let body =
+            json!({ "vault": "relayv", "relay_base": relay, "room": room, "dry_run": false })
+                .to_string();
         handle(
             st,
             c,
@@ -6762,9 +6887,9 @@ mod tests {
     /// A send body, optionally carrying a signed-write envelope (`fields` is what
     /// `signed_as_seat_one` returns).
     #[cfg(unix)]
-    fn send_as(st: &HelperState, c: &HelperConfig, dry_run: bool, fields: Option<&str>) -> Resp {
+    fn send_as(st: &HelperState, c: &HelperConfig, fields: Option<&str>) -> Resp {
         let mut body = json!({ "vault": "relayv", "relay_base": TEST_RELAY,
-            "room": "0123456789abcdef0123456789abcdef", "dry_run": dry_run });
+            "room": "0123456789abcdef0123456789abcdef", "dry_run": false });
         if let Some(fields) = fields {
             let extra: serde_json::Value = serde_json::from_str(&format!("{{{fields}}}")).unwrap();
             for (k, v) in extra.as_object().unwrap() {
@@ -6787,23 +6912,21 @@ mod tests {
     #[test]
     fn an_unsigned_send_from_an_incompletely_registered_vault_is_refused_before_anything_is_built()
     {
-        for dry_run in [true, false] {
-            let st = HelperState::new();
-            seed(&st, "relayv"); // open: no write key, no device key
-            let mut c = cfg();
-            let (fake, log) = fake_devtool(&c.vaults_dir, None);
-            c.devtool = fake;
-            a_ready_proposal(&c.vaults_dir, "relayv");
+        let st = HelperState::new();
+        seed(&st, "relayv"); // open: no write key, no device key
+        let mut c = cfg();
+        let (fake, log) = fake_devtool(&c.vaults_dir, None);
+        c.devtool = fake;
+        a_ready_proposal(&c.vaults_dir, "relayv");
 
-            let r = send_as(&st, &c, dry_run, None);
-            assert_eq!(r.status, 409, "dry_run={dry_run}: {}", r.body);
-            assert!(r.body.contains(UNSEALED_SEND_TEXT), "{}", r.body);
-            let ran = std::fs::read_to_string(&log).unwrap_or_default();
-            assert!(
-                !ran.contains("pczt"),
-                "nothing is built or published (dry_run={dry_run}): {ran}"
-            );
-        }
+        let r = send_as(&st, &c, None);
+        assert_eq!(r.status, 409, "{}", r.body);
+        assert!(r.body.contains(UNSEALED_SEND_TEXT), "{}", r.body);
+        let ran = std::fs::read_to_string(&log).unwrap_or_default();
+        assert!(
+            !ran.contains("pczt"),
+            "nothing is built or published: {ran}"
+        );
     }
 
     /// The other side of the rule, so it cannot be met by refusing everything: a member who signs
@@ -6821,9 +6944,12 @@ mod tests {
         let sk = alice_registers_seat_one(&c.vaults_dir, "relayv"); // 1 of 3 seats
 
         let fields = signed_as_seat_one(&sk, "relayv", WriteAction::Send, "p1", "r1-signed");
-        let r = send_as(&st, &c, true, Some(&fields));
+        let r = send_as(&st, &c, Some(&fields));
         assert!(!r.body.contains(UNSEALED_SEND_TEXT), "{}", r.body);
         assert_ne!(r.status, 401, "{}", r.body);
+        // Past the refusal of a practice run too, or this test says nothing about the seal.
+        assert_ne!(r.status, 400, "{}", r.body);
+        assert!(!r.body.contains(NO_DRY_RUN_TEXT), "{}", r.body);
     }
 
     /// A body that LOOKS signed proves nothing on a vault with no write key: the send is still
@@ -6838,12 +6964,7 @@ mod tests {
         c.devtool = fake;
         a_ready_proposal(&c.vaults_dir, "relayv");
 
-        let r = send_as(
-            &st,
-            &c,
-            true,
-            Some(r#""seat":1,"ts":1,"nonce":"zz","sig":"00""#),
-        );
+        let r = send_as(&st, &c, Some(r#""seat":1,"ts":1,"nonce":"zz","sig":"00""#));
         assert_eq!(r.status, 409, "{}", r.body);
         assert!(r.body.contains(UNSEALED_SEND_TEXT), "{}", r.body);
         assert!(!std::fs::read_to_string(&log)
@@ -6890,8 +7011,10 @@ mod tests {
         a_ready_proposal(&c.vaults_dir, "relayv");
         every_seat_has_a_device(&c.vaults_dir, "relayv");
 
-        let r = send_as(&st, &c, true, None);
+        let r = send_as(&st, &c, None);
         assert!(!r.body.contains(UNSEALED_SEND_TEXT), "{}", r.body);
+        assert_ne!(r.status, 400, "{}", r.body);
+        assert!(!r.body.contains(NO_DRY_RUN_TEXT), "{}", r.body);
     }
 
     /// A key file that is there and is not a key refuses, as an unreadable device registry does. Read
@@ -7924,7 +8047,7 @@ mod tests {
         limits: &admission::Limits,
     ) -> u16 {
         let body = json!({ "vault": "relayv", "relay_base": TEST_RELAY,
-            "room": "0123456789abcdef0123456789abcdef", "dry_run": true })
+            "room": "0123456789abcdef0123456789abcdef", "dry_run": false })
         .to_string();
         serve(
             st,

@@ -42,6 +42,13 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Security
 
+- **The hosted send takes no practice run.** A send request could ask for a practice run. It no longer does: a request that asks for one
+  (`dry_run` true), or does not say which it wants, is answered 400 before the relay, the vault or
+  the engine is looked at, and only a request with `dry_run` false goes on. The app's send always
+  asks for the send itself, so a member sees no difference. The hosted send path in the
+  orchestrator (`send_record::send_proposal`) has no practice branch, and takes a token that only a
+  request for the send itself can obtain. This changes the hosted coordinator only. The hosted
+  coordinator has run this since 2026-10-24.
 - **The coordinator reads hex in one place, and answers a request it cannot handle with an error.**
   A request the coordinator cannot handle is answered 500 and logged by file and line, with
   nothing the request carried; a send's answer carries no text, so the app resolves it against the
