@@ -2777,6 +2777,7 @@ dependencies = [
  "clap",
  "hex",
  "konclave-seal",
+ "konclave-wasm",
  "orchard",
  "pczt",
  "rand 0.10.3",

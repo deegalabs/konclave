@@ -43,3 +43,7 @@ zcash_client_sqlite = { version = "0.23.0", features = ["transparent-inputs", "o
 # Every zcash crate above is a released crates.io version. The workspace root carries NO
 # [patch.crates-io] and Cargo.lock has zero git sources; see the root Cargo.toml for why, and
 # keep engine/versions.lock in sync when these move.
+
+[dev-dependencies]
+# The device's own sighash, to run the signer and the device side by side on the real NU7 vector.
+konclave-wasm = { path = "../konclave-wasm" }

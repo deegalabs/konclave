@@ -579,4 +579,33 @@ mod tests {
             .to_string();
         assert!(err.contains("dummy_sk"), "{err}");
     }
+
+    /// The REAL NU7 vector (testnet, 2026-10-26, a throwaway wallet's own 0.1 TAZ self-payment: public
+    /// data only), built and proven by the patched `zcash-devtool` while the testnet was past NU7. The
+    /// signer reads it with the branch id of NU7, and the device's hand-written ZIP 244 recompute and the
+    /// `pczt` crate's agree on its sighash. What this does NOT prove: that a node accepts a transaction
+    /// signed over this digest (needs a signed broadcast on testnet; the devtool's own `pczt sign` does
+    /// not sign Ironwood spends, so there was no independent signature to verify here). The pinned hex
+    /// is what both produced on the day, to catch a drift in either.
+    #[test]
+    fn a_real_nu7_pczt_reads_the_same_in_the_signer_and_on_the_device() {
+        const PROVEN: &[u8] = include_bytes!("../tests/vectors/nu7_testnet.proven.pczt");
+        let proven = parse(PROVEN);
+        assert_eq!(*proven.global().consensus_branch_id(), 0x7719_0ad9);
+        assert_eq!(
+            extract_randomizers(&proven).unwrap().len(),
+            1,
+            "one real spend"
+        );
+        let sighash = shielded_sighash(&proven).unwrap();
+        assert_eq!(
+            sighash,
+            konclave_wasm::pczt_bridge::shielded_sighash(&proven).unwrap(),
+            "the signer and the device disagree on a real NU7 transaction"
+        );
+        assert_eq!(
+            hex::encode(sighash),
+            "e7002fa86ed26a033d10bbcb25dc19fd3daf0dd64c5b4028ac9af83092bd8392"
+        );
+    }
 }
