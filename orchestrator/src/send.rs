@@ -1034,6 +1034,145 @@ mod tests {
         (result, seen)
     }
 
+    /// A relay nobody answers on: it takes the signing request and counts the polls it is asked, and it
+    /// can fail the n-th one the way curl does when a call outlives its limit.
+    struct SilentRelay {
+        state: std::sync::Arc<crate::relay::RelayState>,
+        gets: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+        /// The poll (1-based) that fails; 0 for none.
+        fail_on: usize,
+    }
+    impl SilentRelay {
+        fn call(&self, method: &str, url: &str, body: &[u8]) -> Result<Vec<u8>, String> {
+            let raw = &url[url.find("/api/relay/").unwrap()..];
+            let path = raw.split('?').next().unwrap();
+            let r = self.state.handle(method, path, raw, body, 1000);
+            (r.status == 200)
+                .then_some(r.body)
+                .ok_or(format!("relay {}", r.status))
+        }
+    }
+    impl Transport for SilentRelay {
+        fn post(&self, url: &str, body: &[u8]) -> Result<Vec<u8>, String> {
+            self.call("POST", url, body)
+        }
+        fn get(&self, url: &str) -> Result<Vec<u8>, String> {
+            let n = self.gets.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+            if n == self.fail_on {
+                return Err("curl GET failed: curl: (28) Operation timed out".into());
+            }
+            self.call("GET", url, &[])
+        }
+    }
+
+    /// `net_prepare_send_with` against stand-in tools and a relay on which nobody answers, with
+    /// `max_polls` polls of a millisecond. Returns what came out and how many polls were made.
+    #[cfg(unix)]
+    fn prepare_on_a_silent_relay(
+        tag: &str,
+        max_polls: u32,
+        fail_on: usize,
+    ) -> (Result<SignedSend, ToolError>, usize) {
+        use std::os::unix::fs::PermissionsExt;
+        let dir =
+            std::env::temp_dir().join(format!("konclave-silent-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let vector = dir.join("signed.pczt");
+        std::fs::write(&vector, VECTOR).unwrap();
+        let script = |name: &str, body: String| {
+            let path = dir.join(name);
+            std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+            let mut perm = std::fs::metadata(&path).unwrap().permissions();
+            perm.set_mode(0o755);
+            std::fs::set_permissions(&path, perm).unwrap();
+            path
+        };
+        let proven = dir.join("proven.pczt");
+        std::fs::write(&proven, PROVEN).unwrap();
+        let devtool = script(
+            "devtool",
+            format!(
+                "case \"$4\" in create) printf unproven;; prove) cat >/dev/null; cat {};; esac",
+                proven.display()
+            ),
+        );
+        let signer = script(
+            "signer",
+            format!(
+                "case \"$1\" in extract) echo 'SIGHASH {}'; echo 'RANDOMIZER 0 {}';; inject) cp {} \"$3\";; esac",
+                "332de126200c22131337474ae50367218ec87815c23d297dcdc8278ecb8903b0",
+                "11".repeat(32),
+                vector.display()
+            ),
+        );
+        let sc: SendConfig = serde_json::from_value(serde_json::json!({
+            "devtool": devtool, "wallet_dir": "/w", "lightwalletd": "zec.rocks:443",
+            "account": "acc", "konclave_signer": signer, "frostd": "/x", "frost_client": "/x",
+            "members": [], "threshold": 2, "group": "g", "frostd_cert": "c", "frostd_key": "k",
+            "server_url": "s", "work_dir": dir.join("work"),
+        }))
+        .unwrap();
+        let plan = SpendPlan::Payment {
+            to: "utest1x".into(),
+            value_zat: 1000,
+            memo: None,
+        };
+        let gets = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let relay = RelayClient::new(
+            SilentRelay {
+                state: std::sync::Arc::new(crate::relay::RelayState::new()),
+                gets: gets.clone(),
+                fail_on,
+            },
+            "",
+            "room",
+            "helper",
+        );
+        let no_tip = || -> Result<u64, ToolError> { panic!("one row: the tip decides nothing") };
+        let result = net_prepare_send_with(
+            &sc,
+            &plan,
+            &relay,
+            &[],
+            max_polls,
+            Duration::from_millis(1),
+            &no_tip,
+        );
+        std::fs::remove_dir_all(&dir).ok();
+        (result, gets.load(std::sync::atomic::Ordering::SeqCst))
+    }
+
+    /// The wait is as many polls as it was given, no more and no fewer: nothing answers, and the
+    /// relay is asked exactly `max_polls` times before the send gives up.
+    #[cfg(unix)]
+    #[test]
+    fn the_wait_ends_after_exactly_max_polls_polls() {
+        for polls in [1u32, 3, 7] {
+            let (r, gets) = prepare_on_a_silent_relay(&format!("exact{polls}"), polls, 0);
+            let Err(why) = r else {
+                panic!("nobody answered, so the send must have given up");
+            };
+            let why = why.to_string();
+            assert!(why.contains("timed out"), "{why}");
+            assert_eq!(gets, polls as usize, "polls made for max_polls={polls}");
+        }
+    }
+
+    /// A poll that fails ends the wait at once, whatever is left of it: what the call limits of the
+    /// relay client turn a stuck call into, and the reason the limits are not set tighter.
+    #[cfg(unix)]
+    #[test]
+    fn a_poll_that_fails_ends_the_wait_at_once() {
+        let (r, gets) = prepare_on_a_silent_relay("failed", 50, 2);
+        let Err(why) = r else {
+            panic!("the second poll failed, so the send must have stopped");
+        };
+        let why = why.to_string();
+        assert!(why.contains("(28)"), "{why}");
+        assert_eq!(gets, 2, "no poll after the failed one");
+    }
+
     /// `net_prepare_send_gated` against the same stand-ins, with a table that has a later upgrade and
     /// a tip, for either kind of plan. Returns what came out, the `pczt_hex` of every signing request
     /// the room was shown, and which of the engine's steps ran.

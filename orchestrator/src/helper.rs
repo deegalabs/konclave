@@ -35,7 +35,13 @@ pub struct HelperConfig {
     /// The relay base URLs this coordinator may publish a signing request to (#270), from its own
     /// configuration and never from a request. Empty means none: every send is refused.
     pub relays: Vec<String>,
+    /// The most a send waits for the devices' signatures, in polls (about a second each). The
+    /// operator's setting (`KONCLAVE_SEND_MAX_POLLS`).
+    pub send_max_polls: u32,
 }
+
+/// What a send waits for the devices when the operator has not said: five minutes.
+pub const DEFAULT_SEND_MAX_POLLS: u32 = 300;
 
 impl HelperConfig {
     /// The `NetworkType` for `network` (defaults to mainnet for any non-"test" value; the
@@ -3121,6 +3127,7 @@ mod tests {
             konclave_signer: PathBuf::from("/nonexistent/konclave-signer"),
             vaults_dir,
             relays: Vec::new(),
+            send_max_polls: DEFAULT_SEND_MAX_POLLS,
         }
     }
 
@@ -3956,6 +3963,7 @@ mod tests {
             konclave_signer: PathBuf::from("/nonexistent/konclave-signer"),
             vaults_dir: PathBuf::from("/tmp/konclave-helper-vaults"),
             relays: Vec::new(),
+            send_max_polls: DEFAULT_SEND_MAX_POLLS,
         };
         assert!(register_vault(&cfg, "not-a-valid-key", "demo", 2, 3, None).is_err());
     }
@@ -3969,6 +3977,7 @@ mod tests {
             konclave_signer: PathBuf::from("/bin/konclave-signer"),
             vaults_dir: PathBuf::from("/srv/vaults"),
             relays: Vec::new(),
+            send_max_polls: DEFAULT_SEND_MAX_POLLS,
         }
     }
 
@@ -4951,6 +4960,7 @@ mod change_receiver_tests {
             konclave_signer: PathBuf::from("/unused"),
             vaults_dir: dir.join("vaults"),
             relays: Vec::new(),
+            send_max_polls: DEFAULT_SEND_MAX_POLLS,
         };
         let key = format!("{:064x}", 0xabc);
         let before = now_secs();
@@ -5031,6 +5041,7 @@ mod change_receiver_tests {
             konclave_signer: PathBuf::from("/unused"),
             vaults_dir: dir.join("vaults"),
             relays: Vec::new(),
+            send_max_polls: DEFAULT_SEND_MAX_POLLS,
         };
         (cfg, dir)
     }

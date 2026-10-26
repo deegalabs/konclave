@@ -1040,15 +1040,45 @@ fn not_your_seat(action: WriteAction) -> &'static str {
     }
 }
 
-/// The most a send waits for the quorum, in polls (one a second): twice the default. The request
-/// names its own `max_polls`, and a send holds its vault and a worker for as long as it waits.
+/// The most the operator can let a send wait for the quorum, in polls (about a second each): twice
+/// the default.
 const MAX_POLLS_CEILING: u32 = orchestrator::epoch::CEREMONY_MAX_POLLS;
 // The number helper-server/CHANGELOG.md states. Checked when the code is built, so a larger one does
 // not compile.
 const _: () = assert!(MAX_POLLS_CEILING <= 600);
 
-fn polls_for(requested: u32) -> u32 {
-    requested.clamp(1, MAX_POLLS_CEILING)
+/// The fewest polls the operator can set. A ceremony over the public relay took more than two
+/// minutes in 2026-08 (docs/CLAIMS.md), so a smaller number would end honest sends before the
+/// devices answer. The devices keep their consent for ten minutes, so the ceiling is the other
+/// side of the same window.
+const MIN_POLLS_FLOOR: u32 = 120;
+
+/// How long a send waits for the devices' signatures, in polls of about a second each, from
+/// `KONCLAVE_SEND_MAX_POLLS`: the operator's setting, never a request's. Unset is the default.
+/// Between the floor and the ceiling is taken as written. Above the ceiling is the ceiling, however
+/// large the number. Anything else (below the floor, zero, a sign, a fraction, text) is the default.
+/// The second value says why a given value was not taken as written.
+fn send_polls_from(raw: Option<&str>) -> (u32, Option<&'static str>) {
+    let default = orchestrator::helper::DEFAULT_SEND_MAX_POLLS;
+    let Some(raw) = raw else {
+        return (default, None);
+    };
+    let digits = raw.trim();
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return (default, Some("not a whole number, so the default is used"));
+    }
+    // A number too long for u64 is still a number above the ceiling.
+    let n = digits.parse::<u64>().unwrap_or(u64::MAX);
+    if n > u64::from(MAX_POLLS_CEILING) {
+        (
+            MAX_POLLS_CEILING,
+            Some("above the ceiling, so the ceiling is used"),
+        )
+    } else if n < u64::from(MIN_POLLS_FLOOR) {
+        (default, Some("below the floor, so the default is used"))
+    } else {
+        (n as u32, None)
+    }
 }
 
 /// Execute a READY proposal over Architecture B: build the PCZT for the proposal's payment, run the
@@ -1076,17 +1106,12 @@ fn handle_proposal_send(
         room: String,
         /// Must be `false`: the hosted send runs no practice send. Absent is not taken for either.
         dry_run: Option<bool>,
-        #[serde(default = "psend_max_polls")]
-        max_polls: u32,
         /// The signed-write envelope (#288 / ADR-0011 D2). Absent on a device with no registered
         /// write key, which a vault with no registered keys still accepts.
         seat: Option<u16>,
         ts: Option<i64>,
         nonce: Option<String>,
         sig: Option<String>,
-    }
-    fn psend_max_polls() -> u32 {
-        300
     }
     let req: Req = match serde_json::from_slice(body) {
         Ok(r) => r,
@@ -1179,7 +1204,7 @@ fn handle_proposal_send(
         relay_base: relay,
         room: &req.room,
         recipients: &recipients,
-        max_polls: polls_for(req.max_polls),
+        max_polls: cfg.send_max_polls,
         vault_id: &reg.vault_id,
         vaults_dir: &cfg.vaults_dir,
     };
@@ -1873,8 +1898,31 @@ fn install_panic_hook() {
 
 /// Build a HelperConfig from env vars. All paths are public tooling; nothing secret.
 fn config_from_env() -> HelperConfig {
-    let env = |k: &str, d: &str| std::env::var(k).unwrap_or_else(|_| d.to_string());
-    HelperConfig {
+    // A value that is not UTF-8 is read as text, which is not a number, and the log says so.
+    let (config, send_polls_note) = config_with(&|k| match std::env::var(k) {
+        Ok(v) => Some(v),
+        Err(std::env::VarError::NotUnicode(v)) if k == "KONCLAVE_SEND_MAX_POLLS" => {
+            Some(v.to_string_lossy().into_owned())
+        }
+        Err(_) => None,
+    });
+    eprintln!(
+        "konclave-helper: a send waits at most {} polls (about a second each) for the devices (KONCLAVE_SEND_MAX_POLLS)",
+        config.send_max_polls
+    );
+    if let Some(note) = send_polls_note {
+        eprintln!("konclave-helper: KONCLAVE_SEND_MAX_POLLS was {note}");
+    }
+    config
+}
+
+/// The configuration, from whatever answers for the variables: the process environment in the
+/// binary, a table in a test. Returns the note about the wait setting when it was not taken as given.
+fn config_with(get: &dyn Fn(&str) -> Option<String>) -> (HelperConfig, Option<&'static str>) {
+    let env = |k: &str, d: &str| get(k).unwrap_or_else(|| d.to_string());
+    let (send_max_polls, send_polls_note) =
+        send_polls_from(get("KONCLAVE_SEND_MAX_POLLS").as_deref());
+    let config = HelperConfig {
         zcash_sign: PathBuf::from(env("KONCLAVE_ZCASH_SIGN", "zcash-sign")),
         devtool: PathBuf::from(env("KONCLAVE_DEVTOOL", "zcash-devtool")),
         // Default to MAINNET: this is a mainnet product, and a testnet default silently mints
@@ -1883,8 +1931,10 @@ fn config_from_env() -> HelperConfig {
         network: env("KONCLAVE_NETWORK", "main"),
         konclave_signer: PathBuf::from(env("KONCLAVE_SIGNER", "konclave-signer")),
         vaults_dir: PathBuf::from(env("KONCLAVE_VAULTS_DIR", "./helper-vaults")),
-        relays: relays_from_env(),
-    }
+        relays: relays_from(&get("KONCLAVE_RELAY_BASES").unwrap_or_default()),
+        send_max_polls,
+    };
+    (config, send_polls_note)
 }
 
 /// The relays this coordinator may publish a signing request to (#270), from
@@ -1893,9 +1943,8 @@ fn config_from_env() -> HelperConfig {
 /// There is no default. A compiled-in relay would let the staging coordinator publish to the
 /// production relay, or the reverse, so a coordinator nobody configured refuses every send and says
 /// so here, at boot, where it is seen.
-fn relays_from_env() -> Vec<String> {
-    let (relays, rejected) =
-        parse_relay_config(&std::env::var("KONCLAVE_RELAY_BASES").unwrap_or_default());
+fn relays_from(raw: &str) -> Vec<String> {
+    let (relays, rejected) = parse_relay_config(raw);
     for entry in &rejected {
         eprintln!(
             "konclave-helper: KONCLAVE_RELAY_BASES entry ignored, not an https origin: {entry:?}"
@@ -4242,6 +4291,7 @@ mod tests {
                 dir
             },
             relays: vec![TEST_RELAY.into()],
+            send_max_polls: orchestrator::helper::DEFAULT_SEND_MAX_POLLS,
         }
     }
 
@@ -6972,31 +7022,93 @@ mod tests {
             .contains("pczt"));
     }
 
-    /// The request names its own `max_polls`, and a send holds its vault and a worker for as long
-    /// as it waits.
+    /// How long a send waits for the devices is the operator's to set.
     #[test]
-    fn a_send_cannot_wait_longer_than_the_ceiling() {
-        // The VALUE, not the constant it is compared with: comparing against `MAX_POLLS_CEILING`
-        // stays green with the constant set to `u32::MAX` or to an hour.
-        assert_eq!(polls_for(u32::MAX), 600);
-        assert_eq!(polls_for(4_000_000_000), 600);
-        assert_eq!(polls_for(601), 600);
-        assert_eq!(polls_for(600), 600);
-        assert_eq!(polls_for(300), 300, "the default is untouched");
-        assert_eq!(polls_for(1), 1);
+    fn the_operator_sets_how_long_a_send_waits() {
+        // The VALUES, not the constants they are compared with: comparing against the ceiling stays
+        // green with the ceiling set to `u32::MAX` or to an hour.
         assert_eq!(
-            polls_for(0),
-            1,
-            "zero polls would arm a room nobody collects"
+            send_polls_from(None),
+            (300, None),
+            "unset is the old default"
         );
-        // And the handler really goes through it. The needle is built in two pieces, so that this
-        // test's own text is not what satisfies it, and it ends at the comma, so a call that undoes
-        // the clamp after the scanned text no longer matches.
-        let needle = concat!("max_polls: polls_for", "(req.max_polls),");
+        for (raw, polls) in [("300", 300), ("120", 120), (" 130 ", 130), ("600", 600)] {
+            assert_eq!(send_polls_from(Some(raw)), (polls, None), "{raw:?}");
+        }
+        // Above the ceiling is the ceiling, however large the number, so one setting cannot undo the
+        // number the changelog states.
+        for raw in [
+            "601",
+            "4000000000",
+            "4294967296",
+            "99999999999",
+            "99999999999999999999999999",
+        ] {
+            assert_eq!(
+                send_polls_from(Some(raw)),
+                (600, Some("above the ceiling, so the ceiling is used")),
+                "{raw:?}"
+            );
+        }
+        // Below the floor and zero are the default, whatever the operator meant by them.
+        for raw in ["0", "1", "3", "60", "119"] {
+            assert_eq!(
+                send_polls_from(Some(raw)),
+                (300, Some("below the floor, so the default is used")),
+                "{raw:?}"
+            );
+        }
+        // Anything that is not a whole number is the default, and says so in its own words.
+        for raw in [
+            "", " ", "abc", "-5", "+300", "1.5", "300 s", "1e3", "0x78", "\u{FFFD}",
+        ] {
+            assert_eq!(
+                send_polls_from(Some(raw)),
+                (300, Some("not a whole number, so the default is used")),
+                "{raw:?}"
+            );
+        }
+    }
+
+    /// The environment reaches the wait: what the variable says is what the configuration holds, and
+    /// the note comes with it when the value was not taken as given.
+    #[test]
+    fn the_environment_reaches_the_send_wait() {
+        let with = |value: Option<&str>| {
+            let value = value.map(str::to_string);
+            config_with(&move |k| {
+                (k == "KONCLAVE_SEND_MAX_POLLS")
+                    .then(|| value.clone())
+                    .flatten()
+            })
+        };
+        assert_eq!(with(Some("240")).0.send_max_polls, 240);
+        assert_eq!(with(Some("240")).1, None);
+        assert_eq!(with(None).0.send_max_polls, 300);
+        let (config, note) = with(Some("3"));
+        assert_eq!(config.send_max_polls, 300);
+        assert!(note.is_some(), "a value that was not taken says so");
+        assert_eq!(with(Some("9999")).0.send_max_polls, 600);
+    }
+
+    /// A request cannot choose how long its send waits: the value the send is built with comes from
+    /// the coordinator's configuration, and the request type has no field for it.
+    #[test]
+    fn a_request_cannot_choose_how_long_a_send_waits() {
+        // The needles are built in two pieces, so that this test's own text is not what satisfies or
+        // trips them.
+        let src = include_str!("main.rs");
+        let from_config = concat!("max_polls: cfg.send_", "max_polls,");
         assert!(
-            include_str!("main.rs").contains(needle),
-            "the send must clamp the polls it is asked for"
+            src.contains(from_config),
+            "the send must wait as long as the operator's setting says"
         );
+        for from_request in [concat!("req.max", "_polls"), concat!("psend_max", "_polls")] {
+            assert!(
+                !src.contains(from_request),
+                "the request must not name its own wait: {from_request}"
+            );
+        }
     }
 
     /// And the sealed case needs no signature, as before: nothing is published unsealed.

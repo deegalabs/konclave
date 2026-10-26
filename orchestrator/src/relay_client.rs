@@ -271,6 +271,11 @@ fn curl_args(post: bool, url: &str) -> Vec<&str> {
         "=https",
         "--proto-redir",
         "=https",
+        // Every call ends: a call that never answered would wait for good.
+        "--connect-timeout",
+        "10",
+        "--max-time",
+        "30",
     ];
     if post {
         args.extend([
@@ -561,6 +566,11 @@ mod tests {
                 w.contains(&["--proto-redir", "=https"].as_slice()),
                 "{args:?}"
             );
+            assert!(
+                w.contains(&["--connect-timeout", "10"].as_slice()),
+                "{args:?}"
+            );
+            assert!(w.contains(&["--max-time", "30"].as_slice()), "{args:?}");
             assert_eq!(args[args.len() - 2..], ["--", "-K/etc/passwd"], "{args:?}");
         }
         assert!(curl_args(true, "u")

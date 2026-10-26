@@ -23,8 +23,9 @@ use konclave_seal::epochs::{Table, NU6_3};
 
 use crate::tools::ToolError;
 
-/// The most polls (one a second) a send waits for the quorum's ceremony: helper-server clamps the
-/// request's `max_polls` to this, and the build hold reads the same number, so the two cannot drift.
+/// The most polls (about a second each) a send waits for the quorum's ceremony: helper-server clamps
+/// the operator's `KONCLAVE_SEND_MAX_POLLS` to this, and the build hold reads the same number, so the
+/// two cannot drift.
 pub const CEREMONY_MAX_POLLS: u32 = 600;
 /// Seconds between those polls.
 pub const CEREMONY_POLL_SECS: i64 = 1;

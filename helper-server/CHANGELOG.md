@@ -61,6 +61,11 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ### Changed
 
+- **How long a send waits for the devices is the operator's setting.** The coordinator waits for
+  `KONCLAVE_SEND_MAX_POLLS` polls (one a second when the relay answers at once, longer when it does not): default 300, from 120 to 600. Below 120,
+  zero or a value that is not a whole number is read as 300, and above 600 as 600; the boot log
+  says when it did not take the value given. The app never sent the field, so a member sees no
+  difference. The hosted coordinator has run this since 2026-10-24.
 - **The coordinator knows about a network upgrade it has not been given yet (#638).** Nothing
   changes today: the table has no row for the next upgrade (NU7), so none of this can act. Once the
   row is added it will refuse to build a new payment in the last blocks before the upgrade ("the
@@ -80,6 +85,14 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   address it attributes to the request. Different spellings of one address, such as upper or lower
   case, compressed or expanded IPv6, or IPv4-mapped IPv6, are one address. The hosted coordinator
   has run this since 2026-10-22.
+
+### Fixed
+
+- **A call to the relay that never answered could leave a send waiting indefinitely.** Each call the
+  coordinator makes to the relay now has a time limit: 10 seconds to connect and 30 in all. A poll
+  that runs past it counts as a failed poll, which ends the wait, as any failed poll already did.
+  The wait is still counted in polls and not in minutes. The hosted coordinator has run this since
+  2026-10-24.
 
 ## [0.13.2] 2026-10-17
 

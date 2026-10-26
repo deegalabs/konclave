@@ -848,7 +848,7 @@ impl SendSteps for LiveSend<'_> {
             self.room,
             device_pubs,
             self.max_polls,
-            Duration::from_secs(1),
+            Duration::from_secs(crate::epoch::CEREMONY_POLL_SECS as u64),
             &tip,
         )
     }
@@ -1337,6 +1337,30 @@ mod tests {
         assert!(Broadcast::asked(Some(false)).is_some());
         assert!(Broadcast::asked(Some(true)).is_none());
         assert!(Broadcast::asked(None).is_none());
+    }
+
+    /// The number of polls a live send makes is the one it was built with: nothing in `prepare`
+    /// substitutes its own. (The wait itself needs a relay; this is the seam a test can reach.)
+    #[test]
+    fn a_live_send_polls_as_often_as_it_was_built_to() {
+        let src = include_str!("send_record.rs");
+        let from_self = concat!("self.max_", "polls,");
+        assert_eq!(
+            src.matches(from_self).count(),
+            1,
+            "`LiveSend::prepare` must pass its own poll count to the relay wait, once"
+        );
+        // And the unit of a poll is the one the hold of the network upgrade counts in, not a second
+        // literal that could drift from it.
+        let unit = concat!(
+            "Duration::from_secs(crate::epoch::CEREMONY_POLL",
+            "_SECS as u64)"
+        );
+        assert_eq!(
+            src.matches(unit).count(),
+            1,
+            "the poll delay must be the epoch's unit"
+        );
     }
 
     #[test]

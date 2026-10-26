@@ -71,6 +71,14 @@ explicitly accepted.
   difference, unless a vault's device list holds a key that is not a key: a send is then refused
   with a message. The hosted coordinator has run this since 2026-10-24.
 
+### Fixed
+
+- **A call to the relay that never answered could leave a send waiting indefinitely.** The operator's
+  command line and the coordinator now give every call to the relay a time limit: 10 seconds to
+  connect and 30 in all. A poll that runs past it counts as a failed poll, which ends the wait, as
+  any failed poll already did. The hosted coordinator has run this since 2026-10-24; the command
+  line has it when next built.
+
 ## [0.14.0] 2026-10-23
 
 > **Services deployed when this was cut (2026-10-23):** coordinator `404a8bb`, relay `f8dc88d0970337a3`.
