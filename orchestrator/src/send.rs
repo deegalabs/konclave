@@ -1156,7 +1156,9 @@ mod tests {
             "room",
             "helper",
         );
-        let no_tip = || -> Result<u64, ToolError> { panic!("one row: the tip decides nothing") };
+        // Mainnet has a row after NU6.3 (NU7), so the gate asks for the tip: well before the upgrade,
+        // far from any hold.
+        let no_tip = || -> Result<u64, ToolError> { Ok(3_500_000) };
         let result = net_prepare_send_with(
             &sc,
             &plan,
