@@ -33,13 +33,7 @@ fn hexenc(b: &[u8]) -> String {
 }
 
 fn hexdec(s: &str, what: &str) -> Result<Vec<u8>, String> {
-    if !s.len().is_multiple_of(2) {
-        return Err(format!("{what}: odd hex length"));
-    }
-    (0..s.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).map_err(|e| format!("{what}: {e}")))
-        .collect()
+    konclave_seal::hex::decode(s).ok_or_else(|| format!("{what}: not hex"))
 }
 
 /// Seal `plaintext` to every device in `device_pubs`.
@@ -67,7 +61,9 @@ pub fn seal_to_devices(
         // AAD = the recipient's own pubkey, so a box cannot be lifted out of one device's slot and
         // replayed into another's.
         let sealed_key = konclave_seal::seal(&pk, &key, &pk).map_err(|e| format!("seal: {e}"))?;
-        boxes.insert(ph.clone(), hexenc(&sealed_key));
+        // Filed under the one spelling of the key a device looks itself up by (lower case), however
+        // the registry spelled it.
+        boxes.insert(hexenc(&pk), hexenc(&sealed_key));
     }
     Ok(Some(SealedEnvelope {
         kind: kind.to_string(),
@@ -150,5 +146,39 @@ mod tests {
             seal_to_devices("k", b"x", &["ab".into()]).is_err(),
             "a short key is not silently padded"
         );
+    }
+
+    /// The registry is read from the volume, and a key in it is whatever was written there. One that
+    /// is not ASCII is an error.
+    #[test]
+    fn a_device_pubkey_that_is_not_ascii_is_an_error() {
+        for bad in [
+            "€".repeat(32),
+            "€€€€".to_string(),
+            format!("ab{}", "€".repeat(21)),
+            "é".repeat(32),
+            "+f".repeat(32),
+        ] {
+            assert!(
+                seal_to_devices("k", b"x", std::slice::from_ref(&bad)).is_err(),
+                "{bad:?}"
+            );
+        }
+    }
+
+    /// One key has one spelling in the envelope: a device looks its box up by the lower-case hex of
+    /// its own key, so a registry entry in capitals must still be found.
+    #[test]
+    fn a_box_is_filed_under_the_lower_case_spelling_of_its_key() {
+        let dk = konclave_seal::DeviceKey::generate();
+        let lower: String = dk
+            .public_bytes()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        let upper = lower.to_uppercase();
+        let env = seal_to_devices("k", b"x", &[upper]).unwrap().unwrap();
+        assert!(env.boxes.contains_key(&lower), "{:?}", env.boxes.keys());
+        assert_eq!(env.boxes.len(), 1);
     }
 }

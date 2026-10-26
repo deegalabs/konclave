@@ -217,26 +217,14 @@ fn member_name(name: &str) -> Option<&str> {
 }
 
 /// Exactly 32 bytes from hex, or `None`. Length is part of the check: a short key is malformed, not
-/// something to pad.
+/// something to pad. Read by the one decoder.
 fn unhex32(h: &str) -> Option<[u8; 32]> {
-    let v = unhex(h)?;
-    v.try_into().ok()
+    konclave_seal::hex::decode_exact(h)
 }
 
 /// Exactly 64 bytes from hex (an Ed25519 signature), or `None`.
 fn unhex32x2(h: &str) -> Option<[u8; 64]> {
-    let v = unhex(h)?;
-    v.try_into().ok()
-}
-
-fn unhex(h: &str) -> Option<Vec<u8>> {
-    if !h.len().is_multiple_of(2) {
-        return None;
-    }
-    (0..h.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&h[i..i + 2], 16).ok())
-        .collect()
+    konclave_seal::hex::decode_exact(h)
 }
 
 #[cfg(test)]
@@ -531,7 +519,20 @@ mod tests {
         // This runs on attacker-controlled input on an internet-facing endpoint.
         let alice = Device::new(1, 1);
         let keys = [alice.registered()];
-        for bad in ["", "zz", "ff", &"ab".repeat(63), &"ab".repeat(65)] {
+        // Text that is not ASCII is refused like any other garbage, and a sign is not a digit.
+        for bad in [
+            "",
+            "zz",
+            "ff",
+            &"ab".repeat(63),
+            &"ab".repeat(65),
+            "€€",
+            "ab€c",
+            &"€".repeat(64),
+            &format!("{}€", "ab".repeat(63)),
+            &"+f".repeat(64),
+            &" f".repeat(64),
+        ] {
             let w = SignedWrite {
                 seat: 1,
                 ts: 1,
@@ -542,6 +543,30 @@ mod tests {
                 authorize_write(&keys, V, WriteAction::Approve, "p", &w, never_seen),
                 WriteAuth::Refused(WriteRefusal::Malformed),
                 "sig {bad:?}"
+            );
+        }
+    }
+
+    /// The registered key is read from the volume with the same decoder as the signature: a key that
+    /// is not hex is a refusal, whatever it holds.
+    #[test]
+    fn a_registered_key_that_is_not_hex_is_refused_as_malformed() {
+        let alice = Device::new(1, 1);
+        let w = alice.sign(V, WriteAction::Approve, "p", "n1");
+        for bad in [
+            "€".repeat(32),
+            "ab€c".to_string(),
+            "zz".repeat(32),
+            "+f".repeat(32),
+        ] {
+            let keys = [WriteKey {
+                seat: 1,
+                pubkey: bad.clone(),
+            }];
+            assert_eq!(
+                authorize_write(&keys, V, WriteAction::Approve, "p", &w, never_seen),
+                WriteAuth::Refused(WriteRefusal::Malformed),
+                "key {bad:?}"
             );
         }
     }
