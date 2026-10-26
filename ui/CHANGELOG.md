@@ -40,6 +40,8 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+## [0.15.0] 2026-10-26
+
 ### Fixed
 
 - **An amount typed with a comma is accepted.** In Portuguese the payment screen refused `0,0005`

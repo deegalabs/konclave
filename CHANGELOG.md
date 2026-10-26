@@ -56,6 +56,13 @@ explicitly accepted.
 
 ## [Unreleased]
 
+## [0.15.0] 2026-10-26
+
+> **Services deployed when this was cut (2026-10-26):** coordinator `c08c935`, relay `f8dc88d0970337a3`.
+> The web app is this release's own commit. The two services are deployed by hand and may be
+> older than it - recording what they were ANSWERING is the point, not what they should have been.
+
+
 ### Security
 
 - **The hosted send takes no practice run.** The coordinator used to accept a send request that
