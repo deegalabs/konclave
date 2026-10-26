@@ -161,20 +161,20 @@ zcash_client_backend = "0.24.0-rc.1"
 # engine is not a binary swap (deploy/helper/README.md, "the upgrade is one-way").
 # The `konclave` bridge is not part of the helper image, so it has no entry here.
 [deploy_build]
-date        = "2026-10-22"
-commit      = "404a8bb"
+date        = "2026-10-24"
+commit      = "c08c935"
 line        = "released crates.io (pczt 0.9.3 / zcash_client_backend 0.24.0 / zcash_primitives 0.30.1 / orchard 0.15.5)"
 
 [[deploy_binary]]
 name   = "konclave-signer"
-sha256 = "87ccca85b244057ad11e2d03669b7bf08cf2f220c683e71eb8a9ea0a18ba54d5"
-bytes  = 7976856
+sha256 = "d9201668309ddcdd0a5f41be2f7183828265db137a6a315a6b4fb3eebf259d67"
+bytes  = 7976752
 role   = "FROST<->PCZT bridge: extract shielded sighash + per-spend randomizers; inject the aggregate signature (pool-aware: Orchard pre-NU6.3, Ironwood post-NU6.3)"
 
 [[deploy_binary]]
 name   = "helper-server"
-sha256 = "2eb72aad9de81b6118f0b22b9d136e14e3709367a418055e63ab0ad1ad776e57"
-bytes  = 3499752
+sha256 = "be7f0d36d204e2fead0920888a7cf5750606a28a25d78383669454c4eb9accf3"
+bytes  = 3500480
 role   = "hosted BLIND helper (ADR-0006 Rung A): registers a vault by group key, keeps a view-only wallet, builds/proves/broadcasts while the browsers sign. Never receives, derives, or stores a share"
 
 # The external tools used alongside them in the helper image. zcash-devtool is the build recorded
@@ -192,9 +192,30 @@ sha256 = "27f58e7ceb6aa0405cc3d6e0947f999c21d1157206401b24fb71faddb02be5f1"
 bytes  = 2793296
 role   = "register: derive the Orchard address + UFVK from the group key (`generate --ak`)"
 
-# The current [deploy_build] above is the coordinator built from commit 404a8bb (the tip of `staging`
-# after #704) and deployed to production on 2026-10-22 (Railway deployment 78d6f575, created 21:04 UTC);
-# `/api/health` reports 404a8bb, built 2026-10-20T21:32:47Z. THESE ARE THE FILES THAT RAN ON STAGING
+# The current [deploy_build] above is the coordinator built from commit c08c935 and deployed to
+# production on 2026-10-24 (Railway deployment c305750a, created 17:49 BRT); `/api/health` reports
+# c08c935, built 2026-10-23T12:16:26Z. HONEST NOTE ON THAT COMMIT: c08c935 is a LOCAL merge commit
+# (the tip of a local build branch that merged four local item branches onto the 0.14.0 `staging`
+# tip e569618); it was never pushed and does not exist on the remote, so this build cannot be
+# rebuilt from a public commit. The same changes reached `staging` afterwards as #712 (cf38c5a),
+# #713 (c47d711), #714 (fb81b0e) and #715 (293d29c). A tree check of 2026-10-26 compared c08c935
+# with `staging` at 293d29c over the coordinator and device crates, `Cargo.toml`, `Cargo.lock`,
+# `deploy` and `engine`: no production-code line differs (13 files, comments and tests removed);
+# what differs is tests, comments, `DEPLOY.md`, `deploy/helper/README.md` and the changelogs. A
+# rebuild from 293d29c would therefore run the same code, but would not be byte-identical (the
+# commit and the build time are embedded in the binary). `zcash-devtool` and `zcash-sign` are
+# unchanged, `Cargo.lock` has no diff against the previous build, and no persisted format changed,
+# so the wallet databases were not migrated by this deploy. The files ran on staging from
+# 2026-10-23 10:24 BRT (staging deployment 1f6b6924). The boot lines read after the production deploy:
+# 6 vaults, no held payment, no unreadable record or key, 64 workers. The first send on it is
+# `8d198b01...810c8e` (V6, block 3,529,405, 2026-10-24).
+# PREVIOUS DEPLOY (0.14.0, 2026-10-22, commit 404a8bb): replaced on 2026-10-24.
+#   helper-server   2eb72aad9de81b6118f0b22b9d136e14e3709367a418055e63ab0ad1ad776e57 (3499752 bytes)
+#   konclave-signer 87ccca85b244057ad11e2d03669b7bf08cf2f220c683e71eb8a9ea0a18ba54d5 (7976856 bytes)
+#   zcash-devtool and zcash-sign are unchanged.
+# That deploy was the coordinator built from commit 404a8bb (the tip of `staging`
+# after #704), deployed on 2026-10-22 (Railway deployment 78d6f575, created 21:04 UTC);
+# `/api/health` reported 404a8bb, built 2026-10-20T21:32:47Z. THOSE WERE THE FILES THAT RAN ON STAGING
 # since 2026-10-20 18:35 BRT (staging deployment 180d8699), byte for byte, not a rebuild: all four were
 # checked by sha256 against the staging set before the production context was assembled. The
 # konclave-signer was rebuilt because konclave-seal gained the `epochs` module (its own source is
