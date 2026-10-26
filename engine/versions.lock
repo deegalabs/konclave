@@ -117,7 +117,17 @@ patch        = "engine/patches/zcash-devtool-0b3436bb-stable-crates.patch"
 patch_sha256 = "7fa2670a2d2418ea7aaa8f7b3413dedc1d627d0d407aaddfa9891c4ae6f19d0c"
 lockfile        = "engine/patches/zcash-devtool-0b3436bb-stable-crates.Cargo.lock"
 lockfile_sha256 = "250569dfaab9520804b0b76b251635c54d860d0ea7949eb4f97f76ff8c5dfe18"
-status       = "recorded, not built"
+status       = "built 2026-10-26 from the recorded inputs, NOT deployed anywhere"
+built_sha256 = "5df38d2cd1aa857ab6fc83d7b57769da389c47c015d8971562ed071b9f743c08"
+built_bytes  = 103881728
+# Built from an export of 0b3436bb plus the patch and the lockfile above, `cargo build --release
+# --locked --bin zcash-devtool`, rustc 1.99.0, own target directory, 2026-10-26. Not bit-reproducible
+# across hosts (build paths and the build time end up in the binary). The same engine set of that day,
+# `bin.nu7-recut-c196c03` on the build host: our helper-server (3567816 bytes, sha256 27b73b4a53b1...),
+# our konclave-signer (8230640 bytes, sha256 fbfd5247419b...) built from commit c196c03 of the re-cut
+# branch, this devtool, and the unchanged zcash-sign. Checked against the previous devtool: the usage
+# of the 11 subcommands Konclave calls is identical, `balance --json` has the same keys, and a COPY of a
+# wallet written by the previous engine opens, migrates (71 to 75 migrations, one new table) and syncs.
 # What the patch does: the 11 pre-release pins of the manifest go to the released crates (protocol
 # 0.11.0, primitives 0.31.0, backend 0.25.0, sqlite 0.23.0, pczt 0.10.0, keys 0.17.0, address 0.14.0,
 # transparent 0.11.0, zip321 0.10.0, pool_migration 0.2.0, proofs 0.31.0), the `[patch.crates-io]`
