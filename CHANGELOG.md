@@ -62,8 +62,8 @@ explicitly accepted.
   table in `konclave-seal` has its second row (consensus branch `0x77190AD9`, version 6, 25-second
   blocks, ordinary transactions expiring 120 blocks past their target). The coordinator pauses new
   payments shortly before the upgrade (about 80 minutes for an ordinary payment, about six hours for a
-  payment that moves funds between pools, so a transaction built for the previous branch cannot be
-  caught by it) and, after the upgrade, refuses to hand a device a transaction the previous engine
+  payment that moves funds between pools), so that no transaction is built that the upgrade would catch
+  before it is mined, and, after the upgrade, refuses to hand a device a transaction the previous engine
   built, before any signature is asked. A pool crossing's expiry (ZIP 318) is computed at the modulus
   of the upgrade its target is in (34,560 blocks before it, 103,680 from it); nothing reads it yet.
 
