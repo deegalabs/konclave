@@ -1,5 +1,6 @@
 import { ensureWasm } from '../wasm-ready'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { proposalsReadable, type HostedState, type NetPhase } from '../net-proposals'
 import { useNavigate } from 'react-router-dom'
 import { setSelectedVault, getSelectedVault } from '../api'
 import CopyButton from '../CopyButton'
@@ -73,7 +74,7 @@ const ABORT_MESSAGE: Record<DkgAbort, string> = {
   secret: 'net.err.secretConflict',
 }
 
-type Phase = 'idle' | 'roster' | 'confirm' | 'dkg' | 'done' | 'error' | 'restored' | 'signsession'
+type Phase = NetPhase
 
 
 // Wire messages (JSON inside the relay's opaque `data`; the relay never parses them).
@@ -207,7 +208,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
   // Hosted-helper registration (ADR-0006 Rung A): after DKG, register the vault with the blind
   // helper so it derives the vault's real Orchard address (view-only). Only runs when a helper is
   // configured; otherwise `/net` stays a pure two-device ceremony.
-  const [hostedState, setHostedState] = useState<'idle' | 'registering' | 'registered' | 'failed'>(
+  const [hostedState, setHostedState] = useState<HostedState>(
     'idle',
   )
   const [hostedAddress, setHostedAddress] = useState('')
@@ -818,8 +819,8 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
 
   // Auto-load the proposals once the vault is known (helper configured + group key set).
   useEffect(() => {
-    if (helperConfigured() && groupVk) void loadProposals()
-  }, [groupVk, loadProposals])
+    if (helperConfigured() && groupVk && proposalsReadable(phase, hostedState)) void loadProposals()
+  }, [groupVk, phase, hostedState, loadProposals])
 
   // Export the accounting ledger (the vault's confirmed governed payments) as a CSV download.
   // ---- on-device persistence handlers (Marco 5), all additive to the flow above ----

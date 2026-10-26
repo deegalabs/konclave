@@ -35,7 +35,13 @@ pub struct HelperConfig {
     /// The relay base URLs this coordinator may publish a signing request to (#270), from its own
     /// configuration and never from a request. Empty means none: every send is refused.
     pub relays: Vec<String>,
+    /// The most a send waits for the devices' signatures, in polls (about a second each). The
+    /// operator's setting (`KONCLAVE_SEND_MAX_POLLS`).
+    pub send_max_polls: u32,
 }
+
+/// What a send waits for the devices when the operator has not said: five minutes.
+pub const DEFAULT_SEND_MAX_POLLS: u32 = 300;
 
 impl HelperConfig {
     /// The `NetworkType` for `network` (defaults to mainnet for any non-"test" value; the
@@ -868,6 +874,24 @@ pub fn load_device_keys(vaults_dir: &Path, vault: &str) -> Result<Vec<String>, R
         .collect())
 }
 
+/// Whether a registered comms key can be sealed to: the rule that decides it is the one that will
+/// seal to it ([`crate::envelope::seal_to_devices`]), not a second table of bad keys, so a key of
+/// small order is as unusable as one that is not hex.
+pub fn device_key_usable(comms: &str) -> bool {
+    crate::envelope::seal_to_devices("check", b"", &[comms.to_string()]).is_ok()
+}
+
+/// How many registered comms keys cannot be sealed to. Counted for the boot log and nowhere else: the
+/// registry is NOT filtered by this. An entry taken out would lower the count of registered devices
+/// below the seats, and a signed send would then go out unsealed, a quiet step down in privacy. Kept,
+/// it refuses the vault's sealed sends with an error until the operator restores the entry
+/// (`docs/RECOVERY.md`, G2), and the boot log says which vault.
+pub fn unusable_device_keys(vaults_dir: &Path, vault: &str) -> usize {
+    load_device_records(vaults_dir, vault)
+        .map(|recs| recs.iter().filter(|r| !device_key_usable(&r.comms)).count())
+        .unwrap_or(0)
+}
+
 /// What the registry says about whether this vault's governance writes must be signed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WriteGate {
@@ -945,15 +969,12 @@ impl std::fmt::Display for DeviceError {
 }
 impl std::error::Error for DeviceError {}
 
+/// 32 bytes as 64 LOWER-case hex digits: one spelling per key, read by the one decoder.
 fn is_lower_hex_32(h: &str) -> Option<[u8; 32]> {
-    if h.len() != 64 || !h.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')) {
+    if h.bytes().any(|b| b.is_ascii_uppercase()) {
         return None;
     }
-    let mut out = [0u8; 32];
-    for (i, b) in out.iter_mut().enumerate() {
-        *b = u8::from_str_radix(&h[2 * i..2 * i + 2], 16).ok()?;
-    }
-    Some(out)
+    konclave_seal::hex::decode_exact(h)
 }
 
 /// A comms key the coordinator can actually seal to: 64 lower-case hex (one spelling per key) and
@@ -2384,7 +2405,7 @@ impl HelperState {
     pub fn insert(&self, reg: VaultRegistration) {
         self.vaults
             .lock()
-            .expect("helper state mutex")
+            .unwrap_or_else(|e| e.into_inner())
             .insert(reg.vault_id.clone(), reg);
     }
 
@@ -2392,7 +2413,7 @@ impl HelperState {
     pub fn get(&self, vault_id: &str) -> Option<VaultRegistration> {
         self.vaults
             .lock()
-            .expect("helper state mutex")
+            .unwrap_or_else(|e| e.into_inner())
             .get(vault_id)
             .cloned()
     }
@@ -2404,16 +2425,19 @@ impl HelperState {
     pub fn contains(&self, vault_id: &str) -> bool {
         self.vaults
             .lock()
-            .expect("helper state mutex")
+            .unwrap_or_else(|e| e.into_inner())
             .contains_key(vault_id)
     }
 
     pub fn len(&self) -> usize {
-        self.vaults.lock().expect("helper state mutex").len()
+        self.vaults.lock().unwrap_or_else(|e| e.into_inner()).len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.vaults.lock().expect("helper state mutex").is_empty()
+        self.vaults
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_empty()
     }
 }
 
@@ -2660,6 +2684,26 @@ mod tests {
     /// ADR-0011 D4: the write key rides in the record that already exists, so there is never a
     /// second answer to "which device belongs to this vault". These cover the migration and the
     /// one place an attacker would push.
+    /// The registry of vaults is shared by every request. A failure while one holds its lock must
+    /// leave it usable for the next, as the vault locks are.
+    #[test]
+    fn the_registry_of_vaults_is_usable_after_a_failure_while_it_was_locked() {
+        let st = HelperState::new();
+        let failed = std::thread::scope(|scope| {
+            scope
+                .spawn(|| {
+                    let _held = st.vaults.lock().unwrap();
+                    panic!("a failure while the registry is locked");
+                })
+                .join()
+        });
+        assert!(failed.is_err());
+        assert!(st.is_empty());
+        assert_eq!(st.len(), 0);
+        assert!(!st.contains("nobody"));
+        assert!(st.get("nobody").is_none());
+    }
+
     #[test]
     fn the_live_flat_device_key_file_still_reads() {
         // Every vault on the volume today carries `["hex", "hex"]`. If this stopped reading, the
@@ -2678,6 +2722,37 @@ mod tests {
             load_write_keys(&dir, &v).unwrap().is_empty(),
             "so the vault stays on the fail-open path, not frozen"
         );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// An entry that is not a key stays in the registry (taking it out would make a signed send go
+    /// out unsealed) and is counted, so the boot log can name the vault.
+    #[test]
+    fn registry_entries_that_are_not_keys_are_counted_and_kept() {
+        let dir = std::env::temp_dir().join(format!("konclave-dev-bad-{}", std::process::id()));
+        let v = "c".repeat(64);
+        std::fs::create_dir_all(dir.join(&v)).unwrap();
+        let good = "ab".repeat(32);
+        let file = format!(
+            r#"["{good}","aabb","{}","{}","{}","{}"]"#,
+            "€".repeat(32),
+            "zz".repeat(32),
+            "00".repeat(32),
+            good.to_uppercase()
+        );
+        std::fs::write(dir.join(&v).join("device-keys.json"), file).unwrap();
+
+        assert_eq!(
+            unusable_device_keys(&dir, &v),
+            4,
+            "short, non-ASCII, not hex, and a key of small order"
+        );
+        assert_eq!(
+            load_device_keys(&dir, &v).unwrap().len(),
+            6,
+            "every entry is still a registered device"
+        );
+        assert_eq!(unusable_device_keys(&dir, "no-such-vault"), 0);
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -3052,6 +3127,7 @@ mod tests {
             konclave_signer: PathBuf::from("/nonexistent/konclave-signer"),
             vaults_dir,
             relays: Vec::new(),
+            send_max_polls: DEFAULT_SEND_MAX_POLLS,
         }
     }
 
@@ -3887,6 +3963,7 @@ mod tests {
             konclave_signer: PathBuf::from("/nonexistent/konclave-signer"),
             vaults_dir: PathBuf::from("/tmp/konclave-helper-vaults"),
             relays: Vec::new(),
+            send_max_polls: DEFAULT_SEND_MAX_POLLS,
         };
         assert!(register_vault(&cfg, "not-a-valid-key", "demo", 2, 3, None).is_err());
     }
@@ -3900,6 +3977,7 @@ mod tests {
             konclave_signer: PathBuf::from("/bin/konclave-signer"),
             vaults_dir: PathBuf::from("/srv/vaults"),
             relays: Vec::new(),
+            send_max_polls: DEFAULT_SEND_MAX_POLLS,
         }
     }
 
@@ -4882,6 +4960,7 @@ mod change_receiver_tests {
             konclave_signer: PathBuf::from("/unused"),
             vaults_dir: dir.join("vaults"),
             relays: Vec::new(),
+            send_max_polls: DEFAULT_SEND_MAX_POLLS,
         };
         let key = format!("{:064x}", 0xabc);
         let before = now_secs();
@@ -4962,6 +5041,7 @@ mod change_receiver_tests {
             konclave_signer: PathBuf::from("/unused"),
             vaults_dir: dir.join("vaults"),
             relays: Vec::new(),
+            send_max_polls: DEFAULT_SEND_MAX_POLLS,
         };
         (cfg, dir)
     }

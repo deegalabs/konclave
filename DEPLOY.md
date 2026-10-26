@@ -89,13 +89,14 @@ running, which ignores it. Then verify by behaviour, with no vault needed:
 
 ```sh
 curl -s -X POST .../api/vault/proposals/x/send -H 'content-type: application/json' \
-  -d '{"vault":"x","relay_base":"https://example.invalid","room":"ROOM2345"}'
+  -d '{"vault":"x","relay_base":"https://example.invalid","room":"ROOM2345","dry_run":false}'
+# (Without "dry_run":false the answer is 400 "this coordinator runs no practice send", before the relay is looked at.)
 # 400 "only talks to its own relay": configured. 503 "no relay configured": the variable is missing.
 # 404 "no such vault": a build from before #270.
 # Then once per relay name the app sends (the table below), expecting 404 "no such vault": a 400
 # here means the variable spells that relay differently from the app, and every real send fails.
 curl -s -X POST .../api/vault/proposals/x/send -H 'content-type: application/json' \
-  -d '{"vault":"x","relay_base":"https://relay.konclave.xyz","room":"ROOM2345"}'
+  -d '{"vault":"x","relay_base":"https://relay.konclave.xyz","room":"ROOM2345","dry_run":false}'
 ```
 
 Spell each value exactly as the app sends it (`VITE_RELAY_BASE`): the match is exact, so `:443` or a

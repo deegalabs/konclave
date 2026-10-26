@@ -307,8 +307,6 @@ pub(crate) trait SendSteps {
 /// What a send ended in. The coordinator maps this to a status and a text in one place.
 #[derive(Debug)]
 pub enum SendResult<R> {
-    /// A dry run: signed, not broadcast.
-    DryRun { sighash: String },
     /// Broadcast. `record_error` is set when the proposal's own record could not be written; the send
     /// itself went out and the attempt record guards against a repeat.
     Sent {
@@ -363,6 +361,20 @@ fn log(vault: &str, proposal: &str, what: &str) {
     eprintln!("{}", log_line(vault, proposal, what));
 }
 
+/// What a request asked for, once it asked for the send itself. The only way to get one is
+/// [`Broadcast::asked`], and [`send_proposal`] takes one, so a caller cannot reach the send without
+/// having decided what its request meant: taking the refusal out of a caller leaves nothing to pass.
+#[derive(Debug, Clone, Copy)]
+pub struct Broadcast(());
+
+impl Broadcast {
+    /// `Some(false)` is a request for the send itself. A request that asks for anything else, or
+    /// does not say, gets nothing.
+    pub fn asked(dry_run: Option<bool>) -> Option<Broadcast> {
+        (dry_run == Some(false)).then_some(Broadcast(()))
+    }
+}
+
 /// Send an approved proposal: the one place that decides whether a transaction may leave.
 ///
 /// The hosted coordinator's whole entry point; the work is [`send_with`], which tests drive with a
@@ -370,28 +382,25 @@ fn log(vault: &str, proposal: &str, what: &str) {
 pub fn send_proposal<R>(
     vaults_dir: &Path,
     p: HelperProposal,
-    dry_run: bool,
+    _asked: Broadcast,
     steps: &LiveSend<'_>,
     preflight: impl FnOnce(&HelperProposal) -> Result<(), R>,
 ) -> SendResult<R> {
-    send_with(vaults_dir, p, dry_run, steps, preflight)
+    send_with(vaults_dir, p, steps, preflight)
 }
 
 /// Order, and why it is this order:
 /// 1. A proposal already `sent` is done.
-/// 2. A real send first SETTLES any earlier attempt against the chain, BEFORE the state check: a
+/// 2. A send first SETTLES any earlier attempt against the chain, BEFORE the state check: a
 ///    payment that went out can read `expired` or `pending` by now (the state is recomputed on every
 ///    load), and checking state first would leave it out of the ledger for good.
 /// 3. Only a `ready` proposal goes on, through the caller's own gates (`preflight`: plan, capacity,
 ///    funding), which run before any room opens.
 /// 4. The volume is checked able to hold a record, then `prepare`, then the record, then the
 ///    broadcast. If the record cannot be written, nothing is broadcast.
-///
-/// A dry run never reads or writes a record and never touches the wallet: it cannot broadcast.
 pub(crate) fn send_with<S: SendSteps, R>(
     vaults_dir: &Path,
     p: HelperProposal,
-    dry_run: bool,
     steps: &S,
     preflight: impl FnOnce(&HelperProposal) -> Result<(), R>,
 ) -> SendResult<R> {
@@ -402,78 +411,74 @@ pub(crate) fn send_with<S: SendSteps, R>(
         return SendResult::NotReady { state: p.state };
     }
 
-    if !dry_run {
-        match load_attempt(vaults_dir, &vault, &id) {
-            Err(why) => {
-                log(
-                    &vault,
-                    &id,
-                    &format!("earlier send record: {why}; refusing"),
-                );
-                return SendResult::Unsettled { why };
-            }
-            Ok(None) => {}
-            Ok(Some(a)) => {
-                let view = match steps.settle_wallet() {
-                    Ok(v) => v,
-                    Err(e) => {
-                        let why = format!("the wallet could not be read: {e}");
-                        log(&vault, &id, &format!("earlier send unsettled, {why}"));
+    match load_attempt(vaults_dir, &vault, &id) {
+        Err(why) => {
+            log(
+                &vault,
+                &id,
+                &format!("earlier send record: {why}; refusing"),
+            );
+            return SendResult::Unsettled { why };
+        }
+        Ok(None) => {}
+        Ok(Some(a)) => {
+            let view = match steps.settle_wallet() {
+                Ok(v) => v,
+                Err(e) => {
+                    let why = format!("the wallet could not be read: {e}");
+                    log(&vault, &id, &format!("earlier send unsettled, {why}"));
+                    return SendResult::Unsettled { why };
+                }
+            };
+            let (table, cap_on) = steps.epoch_rules();
+            match settle_with(&a, &view, &table, cap_on) {
+                Settlement::Mined => return settle_as_sent(vaults_dir, p, &a, &view),
+                Settlement::StillPossible => {
+                    // The last height it can be in a block: its expiry, or the block before the
+                    // upgrade that ends it when the cap is on and the branch is known.
+                    let until = match (cap_on, a.branch_id) {
+                        (true, Some(b)) => table.minable_until(b, a.expiry_height),
+                        _ => None,
+                    }
+                    .filter(|last| *last != u32::MAX)
+                    .unwrap_or(a.expiry_height);
+                    return SendResult::Unsettled {
+                        why: format!("transaction not mined yet; it can be until height {until}"),
+                    };
+                }
+                Settlement::Dead { by_epoch } => {
+                    if let Err(e) = archive_attempt(vaults_dir, &vault, &id, now_unix()) {
+                        let why = format!("the dead attempt could not be archived: {e}");
+                        log(&vault, &id, &why);
                         return SendResult::Unsettled { why };
                     }
-                };
-                let (table, cap_on) = steps.epoch_rules();
-                match settle_with(&a, &view, &table, cap_on) {
-                    Settlement::Mined => return settle_as_sent(vaults_dir, p, &a, &view),
-                    Settlement::StillPossible => {
-                        // The last height it can be in a block: its expiry, or the block before the
-                        // upgrade that ends it when the cap is on and the branch is known.
-                        let until = match (cap_on, a.branch_id) {
-                            (true, Some(b)) => table.minable_until(b, a.expiry_height),
-                            _ => None,
-                        }
-                        .filter(|last| *last != u32::MAX)
-                        .unwrap_or(a.expiry_height);
-                        return SendResult::Unsettled {
-                            why: format!(
-                                "transaction not mined yet; it can be until height {until}"
-                            ),
+                    // Told "your approval stands" only while the proposal is still ready: one that
+                    // expired in the meantime falls to the state check below, as a dead attempt
+                    // always did.
+                    if by_epoch && p.state == "ready" {
+                        log(
+                            &vault,
+                            &id,
+                            "earlier attempt overtaken by a network upgrade; archived",
+                        );
+                        return SendResult::NeedsNewSignature {
+                            // The wallet keeps the note reserved while `expiry >= tip + 1` (the target
+                            // height of its next selection): at the tip itself it is free. (No
+                            // expiry never reaches here: it is not dead by an upgrade, above.)
+                            held_until: (u64::from(a.expiry_height) > view.tip)
+                                .then_some(a.expiry_height),
                         };
                     }
-                    Settlement::Dead { by_epoch } => {
-                        if let Err(e) = archive_attempt(vaults_dir, &vault, &id, now_unix()) {
-                            let why = format!("the dead attempt could not be archived: {e}");
-                            log(&vault, &id, &why);
-                            return SendResult::Unsettled { why };
-                        }
-                        // Told "your approval stands" only while the proposal is still ready: one that
-                        // expired in the meantime falls to the state check below, as a dead attempt
-                        // always did.
-                        if by_epoch && p.state == "ready" {
-                            log(
-                                &vault,
-                                &id,
-                                "earlier attempt overtaken by a network upgrade; archived",
-                            );
-                            return SendResult::NeedsNewSignature {
-                                // The wallet keeps the note reserved while `expiry >= tip + 1` (the target
-                                // height of its next selection): at the tip itself it is free. (No
-                                // expiry never reaches here: it is not dead by an upgrade, above.)
-                                held_until: (u64::from(a.expiry_height) > view.tip)
-                                    .then_some(a.expiry_height),
-                            };
-                        }
-                        if by_epoch {
-                            // Not ready (expired in the meantime): it is the upgrade that ended the
-                            // attempt, not its expiry, and the log says only that.
-                            log(
-                                &vault,
-                                &id,
-                                "earlier attempt overtaken by a network upgrade; archived",
-                            );
-                        } else {
-                            log(&vault, &id, "earlier attempt expired unmined; archived");
-                        }
+                    if by_epoch {
+                        // Not ready (expired in the meantime): it is the upgrade that ended the
+                        // attempt, not its expiry, and the log says only that.
+                        log(
+                            &vault,
+                            &id,
+                            "earlier attempt overtaken by a network upgrade; archived",
+                        );
+                    } else {
+                        log(&vault, &id, "earlier attempt expired unmined; archived");
                     }
                 }
             }
@@ -487,42 +492,19 @@ pub(crate) fn send_with<S: SendSteps, R>(
         return SendResult::Refused(r);
     }
     // Before any device is asked to sign: a volume that cannot hold the record refuses here.
-    if !dry_run {
-        if let Err(why) = probe_record_dir(vaults_dir, &vault) {
-            log(
-                &vault,
-                &id,
-                &format!("no record possible, nothing built: {why}"),
-            );
-            return SendResult::RecordFailed(why);
-        }
+    if let Err(why) = probe_record_dir(vaults_dir, &vault) {
+        log(
+            &vault,
+            &id,
+            &format!("no record possible, nothing built: {why}"),
+        );
+        return SendResult::RecordFailed(why);
     }
 
     let signed = match steps.prepare() {
         Ok(s) => s,
         Err(e) => return SendResult::PrepareFailed(e),
     };
-    if dry_run {
-        let dry = CeremonyRecord {
-            vault_id: vault.clone(),
-            sighash: signed.sighash().to_string(),
-            signatures: signed.signatures().to_vec(),
-            txid: None,
-            dry_run: true,
-            created_at_unix: now_unix(),
-        };
-        if let Err(e) = append_ceremony(vaults_dir, &dry) {
-            log(
-                &vault,
-                &id,
-                &format!("dry-run ceremony record not written: {e}"),
-            );
-        }
-        return SendResult::DryRun {
-            sighash: signed.sighash().to_string(),
-        };
-    }
-
     // The record comes first. From here on a later request can ask the chain what became of this.
     let mut attempt = Attempt {
         version: record_version(),
@@ -866,7 +848,7 @@ impl SendSteps for LiveSend<'_> {
             self.room,
             device_pubs,
             self.max_polls,
-            Duration::from_secs(1),
+            Duration::from_secs(crate::epoch::CEREMONY_POLL_SECS as u64),
             &tip,
         )
     }
@@ -1037,9 +1019,9 @@ mod tests {
         }
     }
 
-    fn go(dir: &Path, p: HelperProposal, dry: bool, f: &Fake) -> SendResult<()> {
+    fn go(dir: &Path, p: HelperProposal, f: &Fake) -> SendResult<()> {
         f.dir.replace(Some(dir.to_path_buf()));
-        send_with(dir, p, dry, f, |_| Ok::<(), ()>(()))
+        send_with(dir, p, f, |_| Ok::<(), ()>(()))
     }
 
     fn load(dir: &Path) -> HelperProposal {
@@ -1060,7 +1042,7 @@ mod tests {
         // broadcast, the record is already on disk. Holds on every platform.
         let dir = vaults();
         let f = Fake::new();
-        let _ = go(&dir, proposal("ready"), false, &f);
+        let _ = go(&dir, proposal("ready"), &f);
         assert!(f.ran("broadcast_with_record"), "{:?}", f.calls.borrow());
         assert!(!f.ran("broadcast_without_record"));
     }
@@ -1070,7 +1052,7 @@ mod tests {
         let dir = vaults();
         break_proposal_writes(&dir);
         let f = Fake::new();
-        let r = go(&dir, proposal("ready"), false, &f);
+        let r = go(&dir, proposal("ready"), &f);
         match r {
             SendResult::Sent {
                 txid, record_error, ..
@@ -1098,11 +1080,11 @@ mod tests {
         let dir = vaults();
         break_proposal_writes(&dir);
         let first = Fake::new();
-        let _ = go(&dir, proposal("ready"), false, &first);
+        let _ = go(&dir, proposal("ready"), &first);
 
         // The save was lost, so the proposal still reads `ready`. The wallet has not mined it yet.
         let second = Fake::new();
-        let r = go(&dir, proposal("ready"), false, &second);
+        let r = go(&dir, proposal("ready"), &second);
         assert!(matches!(r, SendResult::Unsettled { .. }), "{r:?}");
         assert!(!second.ran("prepare"), "no room, no build");
         assert!(!second.ran("broadcast"), "no second transaction");
@@ -1116,7 +1098,7 @@ mod tests {
         // the directory fails - the one way "no record yet" and "no record possible" come apart.
         std::os::unix::fs::symlink("/nonexistent/elsewhere", attempts_dir(&dir, VAULT)).unwrap();
         let f = Fake::new();
-        let r = go(&dir, proposal("ready"), false, &f);
+        let r = go(&dir, proposal("ready"), &f);
         assert!(matches!(r, SendResult::RecordFailed(_)), "{r:?}");
         assert!(
             !f.ran("prepare"),
@@ -1132,7 +1114,7 @@ mod tests {
         let dir = vaults();
         let mut f = Fake::new();
         f.sabotage_records = true;
-        let r = go(&dir, proposal("ready"), false, &f);
+        let r = go(&dir, proposal("ready"), &f);
         assert!(matches!(r, SendResult::RecordFailed(_)), "{r:?}");
         assert!(f.ran("prepare"));
         assert!(!f.ran("broadcast"), "no record, no broadcast");
@@ -1145,7 +1127,7 @@ mod tests {
         let dir = vaults();
         let mut f = Fake::new();
         f.rival = Some(attempt(TXID2, 5_000));
-        let r = go(&dir, proposal("ready"), false, &f);
+        let r = go(&dir, proposal("ready"), &f);
         assert!(matches!(r, SendResult::Unsettled { .. }), "{r:?}");
         assert!(!f.ran("broadcast"));
         assert_eq!(
@@ -1159,7 +1141,7 @@ mod tests {
         let dir = vaults();
         let mut f = Fake::new();
         f.prepare_fails = true;
-        let r = go(&dir, proposal("ready"), false, &f);
+        let r = go(&dir, proposal("ready"), &f);
         assert!(matches!(r, SendResult::PrepareFailed(_)), "{r:?}");
         assert!(!f.ran("broadcast"));
         assert!(load_attempt(&dir, VAULT, "p1").unwrap().is_none());
@@ -1173,7 +1155,7 @@ mod tests {
         record_attempt(&dir, &attempt(TXID, 5_000)).unwrap();
         let mut f = Fake::new();
         f.view = Ok(view(4_100, &[TXID]));
-        let r = go(&dir, proposal("ready"), false, &f);
+        let r = go(&dir, proposal("ready"), &f);
         match r {
             SendResult::AlreadySent { txid, .. } => assert_eq!(txid, TXID),
             other => panic!("expected AlreadySent, got {other:?}"),
@@ -1197,7 +1179,7 @@ mod tests {
         record_attempt(&dir, &attempt(TXID, 5_000)).unwrap();
         let mut f = Fake::new();
         f.view = Ok(view(4_100, &[TXID]));
-        let r = go(&dir, proposal("expired"), false, &f);
+        let r = go(&dir, proposal("expired"), &f);
         assert!(matches!(r, SendResult::AlreadySent { .. }), "{r:?}");
         assert_eq!(load(&dir).state, "sent");
     }
@@ -1212,7 +1194,7 @@ mod tests {
         f.view = Ok(view(4_100, &[TXID]));
         f.dir.replace(Some(dir.clone()));
         let asked = Cell::new(false);
-        let r = send_with(&dir, proposal("ready"), false, &f, |_| {
+        let r = send_with(&dir, proposal("ready"), &f, |_| {
             asked.set(true);
             Err("refused")
         });
@@ -1225,7 +1207,7 @@ mod tests {
         let dir = vaults();
         let f = Fake::new();
         f.dir.replace(Some(dir.clone()));
-        let r = send_with(&dir, proposal("ready"), false, &f, |_| Err("unfunded"));
+        let r = send_with(&dir, proposal("ready"), &f, |_| Err("unfunded"));
         assert!(matches!(r, SendResult::Refused("unfunded")), "{r:?}");
         assert!(!f.ran("prepare") && !f.ran("broadcast"));
         assert!(load_attempt(&dir, VAULT, "p1").unwrap().is_none());
@@ -1238,7 +1220,7 @@ mod tests {
         record_attempt(&dir, &attempt(TXID, 4_000 + 50_000)).unwrap();
         let mut f = Fake::new();
         f.view = Ok(view(4_100, &[]));
-        let r = go(&dir, proposal("ready"), false, &f);
+        let r = go(&dir, proposal("ready"), &f);
         assert!(matches!(r, SendResult::Unsettled { .. }), "{r:?}");
         assert!(!f.ran("prepare"));
     }
@@ -1249,7 +1231,7 @@ mod tests {
         record_attempt(&dir, &attempt(TXID, 0)).unwrap();
         let mut f = Fake::new();
         f.view = Ok(view(u64::MAX / 2, &[]));
-        let r = go(&dir, proposal("ready"), false, &f);
+        let r = go(&dir, proposal("ready"), &f);
         assert!(matches!(r, SendResult::Unsettled { .. }), "{r:?}");
     }
 
@@ -1260,7 +1242,7 @@ mod tests {
         let mut f = Fake::new();
         f.txid = TXID2;
         f.view = Ok(view(1_000 + u64::from(REORG_MARGIN) + 1, &[]));
-        let r = go(&dir, proposal("ready"), false, &f);
+        let r = go(&dir, proposal("ready"), &f);
         assert!(matches!(r, SendResult::Sent { .. }), "{r:?}");
         // The new attempt owns the name; the old one is kept as a trail.
         assert_eq!(
@@ -1281,7 +1263,7 @@ mod tests {
         let mut f = Fake::new();
         f.view = Ok(view(1_000 + u64::from(REORG_MARGIN), &[]));
         assert!(matches!(
-            go(&dir, proposal("ready"), false, &f),
+            go(&dir, proposal("ready"), &f),
             SendResult::Unsettled { .. }
         ));
     }
@@ -1299,7 +1281,7 @@ mod tests {
         record_attempt(&dir, &attempt(TXID, 1_000)).unwrap();
         let mut f = Fake::new();
         f.view = Err(());
-        let r = go(&dir, proposal("ready"), false, &f);
+        let r = go(&dir, proposal("ready"), &f);
         assert!(matches!(r, SendResult::Unsettled { .. }), "{r:?}");
         assert!(!f.ran("prepare"));
     }
@@ -1310,7 +1292,7 @@ mod tests {
         std::fs::create_dir_all(attempts_dir(&dir, VAULT)).unwrap();
         std::fs::write(attempt_path(&dir, VAULT, "p1"), b"{ half a record").unwrap();
         let f = Fake::new();
-        let r = go(&dir, proposal("ready"), false, &f);
+        let r = go(&dir, proposal("ready"), &f);
         assert!(matches!(r, SendResult::Unsettled { .. }), "{r:?}");
         assert!(!f.ran("prepare"));
     }
@@ -1321,31 +1303,64 @@ mod tests {
         // `send-attempts` is a file: whether a record exists is unknowable, which is not "none".
         std::fs::write(attempts_dir(&dir, VAULT), b"not a directory").unwrap();
         let f = Fake::new();
-        let r = go(&dir, proposal("ready"), false, &f);
+        let r = go(&dir, proposal("ready"), &f);
         assert!(matches!(r, SendResult::Unsettled { .. }), "{r:?}");
         assert!(!f.ran("prepare") && !f.ran("broadcast"));
     }
 
+    /// A broadcast, whether it succeeds or errors, leaves its record on disk with the signatures.
     #[test]
-    fn a_dry_run_neither_reads_nor_writes_a_record() {
-        let dir = vaults();
-        // An unsettled attempt does not block a dry run: it never broadcasts.
-        record_attempt(&dir, &attempt(TXID, 4_000 + 50_000)).unwrap();
-        let f = Fake::new();
-        let r = go(&dir, proposal("ready"), true, &f);
-        assert!(matches!(r, SendResult::DryRun { .. }), "{r:?}");
-        assert!(
-            !f.ran("settle_wallet"),
-            "a dry run does not touch the wallet"
+    fn a_broadcast_leaves_its_record_whether_it_succeeds_or_errors() {
+        for (broadcast_fails, name) in [(false, "sent"), (true, "broadcast failed")] {
+            let dir = vaults();
+            let mut f = Fake::new();
+            f.broadcast_fails = broadcast_fails;
+            let r = go(&dir, proposal("ready"), &f);
+            assert!(
+                matches!(
+                    r,
+                    SendResult::Sent { .. } | SendResult::BroadcastFailed { .. }
+                ),
+                "{name}: {r:?}"
+            );
+            let kept = load_attempt(&dir, VAULT, "p1").unwrap();
+            assert!(
+                kept.is_some_and(|a| !a.signatures.is_empty()),
+                "{name}: a record exists with the signatures"
+            );
+        }
+    }
+
+    /// Only a request that says it wants the send itself gets to the send.
+    #[test]
+    fn only_a_request_for_the_send_itself_is_a_request_to_send() {
+        assert!(Broadcast::asked(Some(false)).is_some());
+        assert!(Broadcast::asked(Some(true)).is_none());
+        assert!(Broadcast::asked(None).is_none());
+    }
+
+    /// The number of polls a live send makes is the one it was built with: nothing in `prepare`
+    /// substitutes its own. (The wait itself needs a relay; this is the seam a test can reach.)
+    #[test]
+    fn a_live_send_polls_as_often_as_it_was_built_to() {
+        let src = include_str!("send_record.rs");
+        let from_self = concat!("self.max_", "polls,");
+        assert_eq!(
+            src.matches(from_self).count(),
+            1,
+            "`LiveSend::prepare` must pass its own poll count to the relay wait, once"
         );
-        assert!(!f.ran("broadcast"));
-        // And on a clean vault a dry run leaves no record behind, only its own ceremony entry.
-        let clean = vaults();
-        let _ = go(&clean, proposal("ready"), true, &Fake::new());
-        assert!(load_attempt(&clean, VAULT, "p1").unwrap().is_none());
-        let trail = load_ceremonies(&clean, VAULT);
-        assert_eq!(trail.len(), 1);
-        assert!(trail[0].dry_run && trail[0].txid.is_none());
+        // And the unit of a poll is the one the hold of the network upgrade counts in, not a second
+        // literal that could drift from it.
+        let unit = concat!(
+            "Duration::from_secs(crate::epoch::CEREMONY_POLL",
+            "_SECS as u64)"
+        );
+        assert_eq!(
+            src.matches(unit).count(),
+            1,
+            "the poll delay must be the epoch's unit"
+        );
     }
 
     #[test]
@@ -1353,13 +1368,13 @@ mod tests {
         let dir = vaults();
         let mut f = Fake::new();
         f.broadcast_fails = true;
-        let r = go(&dir, proposal("ready"), false, &f);
+        let r = go(&dir, proposal("ready"), &f);
         assert!(matches!(r, SendResult::BroadcastFailed { .. }), "{r:?}");
         assert!(load_attempt(&dir, VAULT, "p1").unwrap().is_some());
 
         let again = Fake::new();
         assert!(matches!(
-            go(&dir, proposal("ready"), false, &again),
+            go(&dir, proposal("ready"), &again),
             SendResult::Unsettled { .. }
         ));
         assert!(!again.ran("broadcast"));
@@ -1369,7 +1384,7 @@ mod tests {
     fn a_normal_send_writes_the_ceremony_trail_and_marks_the_proposal_sent() {
         let dir = vaults();
         let f = Fake::new();
-        let r = go(&dir, proposal("ready"), false, &f);
+        let r = go(&dir, proposal("ready"), &f);
         assert!(
             matches!(
                 r,
@@ -1399,7 +1414,7 @@ mod tests {
         let dir = vaults();
         let mut f = Fake::new();
         f.reported = Some(TXID2);
-        let r = go(&dir, proposal("ready"), false, &f);
+        let r = go(&dir, proposal("ready"), &f);
         // What the tool reports is what the chain shows: that is what the member is told and what
         // the proposal carries.
         match r {
@@ -1461,7 +1476,7 @@ mod tests {
         assert!(load_attempt(&dir, VAULT, "p1").is_err());
         let f = Fake::new();
         assert!(matches!(
-            go(&dir, proposal("ready"), false, &f),
+            go(&dir, proposal("ready"), &f),
             SendResult::Unsettled { .. }
         ));
         assert!(!f.ran("prepare"));
@@ -1487,7 +1502,7 @@ mod tests {
         record_attempt(&dir, &a).unwrap();
         let mut f = Fake::new();
         f.view = Ok(view(4_100, &[TXID2]));
-        match go(&dir, proposal("ready"), false, &f) {
+        match go(&dir, proposal("ready"), &f) {
             SendResult::AlreadySent { txid, .. } => assert_eq!(txid, TXID2),
             other => panic!("expected AlreadySent, got {other:?}"),
         }
@@ -1500,7 +1515,7 @@ mod tests {
         let dir = vaults();
         let mut f = Fake::new();
         f.reported = Some("11111111111111111111111111111111111111111111111111111111111111AA");
-        let _ = go(&dir, proposal("ready"), false, &f);
+        let _ = go(&dir, proposal("ready"), &f);
         let a = load_attempt(&dir, VAULT, "p1").unwrap().unwrap();
         assert_eq!(a.reported_txid, None, "{a:?}");
         assert_eq!(load(&dir).txid.as_deref(), Some(TXID));
@@ -1554,7 +1569,7 @@ mod tests {
     fn the_txid_recorded_is_the_one_derived_before_the_broadcast() {
         let dir = vaults();
         let f = Fake::new();
-        let _ = go(&dir, proposal("ready"), false, &f);
+        let _ = go(&dir, proposal("ready"), &f);
         assert_eq!(load_attempt(&dir, VAULT, "p1").unwrap().unwrap().txid, TXID);
     }
 
@@ -1820,7 +1835,7 @@ mod tests {
         std::fs::create_dir_all(&trail).unwrap();
 
         let f = Fake::new();
-        match go(&dir, proposal("ready"), false, &f) {
+        match go(&dir, proposal("ready"), &f) {
             SendResult::Sent {
                 txid, record_error, ..
             } => {
@@ -2201,7 +2216,7 @@ mod tests {
         let mut f = Fake::new();
         f.rules = Some((WITH_NEXT, true));
         f.view = Ok(view(u64::from(A) + 1_000, &[]));
-        let r = go(&dir, proposal("ready"), false, &f);
+        let r = go(&dir, proposal("ready"), &f);
         // A crossing's funds stay reserved by the wallet until its expiry: the screen is told when.
         assert!(
             matches!(r, SendResult::NeedsNewSignature { held_until: Some(e) } if e == A + 34_560),
@@ -2221,7 +2236,7 @@ mod tests {
             .any(|e| e.file_name().to_string_lossy().contains(".expired-"));
         assert!(kept, "kept as a trail");
         // Pressing Send again builds the new transaction.
-        let again = go(&dir, proposal("ready"), false, &f);
+        let again = go(&dir, proposal("ready"), &f);
         assert!(matches!(again, SendResult::Sent { .. }), "{again:?}");
     }
 
@@ -2234,7 +2249,7 @@ mod tests {
         let mut f = Fake::new();
         f.rules = Some((WITH_NEXT, true));
         f.view = Ok(view(u64::from(A) + 120, &[]));
-        let r = go(&dir, proposal("ready"), false, &f);
+        let r = go(&dir, proposal("ready"), &f);
         assert!(
             matches!(r, SendResult::NeedsNewSignature { held_until: None }),
             "{r:?}"
@@ -2256,7 +2271,7 @@ mod tests {
             let mut f = Fake::new();
             f.rules = Some((WITH_NEXT, true));
             f.view = Ok(view(u64::from(tip), &[]));
-            let r = go(&dir, proposal("ready"), false, &f);
+            let r = go(&dir, proposal("ready"), &f);
             let SendResult::NeedsNewSignature { held_until } = r else {
                 panic!("{expiry}/{tip}: {r:?}")
             };
@@ -2273,7 +2288,7 @@ mod tests {
         let mut f = Fake::new();
         f.rules = Some((WITH_NEXT, true));
         f.view = Ok(v);
-        let r = go(&dir, proposal("ready"), false, &f);
+        let r = go(&dir, proposal("ready"), &f);
         assert!(matches!(r, SendResult::Unsettled { .. }), "{r:?}");
         // A tip at the top of the range does not overflow anything.
         let dir = vaults();
@@ -2281,7 +2296,7 @@ mod tests {
         let mut f = Fake::new();
         f.rules = Some((WITH_NEXT, true));
         f.view = Ok(view(u64::MAX, &[]));
-        let r = go(&dir, proposal("ready"), false, &f);
+        let r = go(&dir, proposal("ready"), &f);
         assert!(
             matches!(r, SendResult::Sent { .. } | SendResult::NotReady { .. }),
             "{r:?}"
@@ -2297,7 +2312,7 @@ mod tests {
         let mut f = Fake::new();
         f.rules = Some((WITH_NEXT, true));
         f.view = Ok(view(u64::from(A) + 1_000, &[]));
-        let r = go(&dir, proposal("expired"), false, &f);
+        let r = go(&dir, proposal("expired"), &f);
         assert!(
             matches!(&r, SendResult::NotReady { state } if state == "expired"),
             "{r:?}"
@@ -2318,14 +2333,14 @@ mod tests {
         let mut f = Fake::new();
         f.rules = Some((WITH_NEXT, true));
         f.view = Ok(view(u64::from(A) - 5, &[]));
-        let r = go(&dir, proposal("ready"), false, &f);
+        let r = go(&dir, proposal("ready"), &f);
         let SendResult::Unsettled { why } = r else {
             panic!("{r:?}")
         };
         assert!(why.ends_with(&format!("height {}", A - 1)), "{why}");
         // With the cap off it is the expiry, as before.
         f.rules = Some((WITH_NEXT, false));
-        let r = go(&dir, proposal("ready"), false, &f);
+        let r = go(&dir, proposal("ready"), &f);
         let SendResult::Unsettled { why } = r else {
             panic!("{r:?}")
         };

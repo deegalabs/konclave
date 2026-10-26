@@ -160,10 +160,7 @@ mod tests {
 
     #[test]
     fn the_txid_is_the_sighash_reversed_as_the_devtool_prints_it() {
-        let mut sighash = [0u8; 32];
-        for (i, b) in sighash.iter_mut().enumerate() {
-            *b = u8::from_str_radix(&VECTOR_SIGHASH[2 * i..2 * i + 2], 16).unwrap();
-        }
+        let sighash: [u8; 32] = konclave_seal::hex::decode_exact(VECTOR_SIGHASH).unwrap();
         assert_eq!(txid_from_sighash(&sighash), VECTOR_TXID);
     }
 
@@ -177,10 +174,7 @@ mod tests {
 
     #[test]
     fn the_txid_is_the_sighash_reversed_on_a_v5_orchard_transaction_too() {
-        let mut sighash = [0u8; 32];
-        for (i, b) in sighash.iter_mut().enumerate() {
-            *b = u8::from_str_radix(&ORCHARD_SIGHASH[2 * i..2 * i + 2], 16).unwrap();
-        }
+        let sighash: [u8; 32] = konclave_seal::hex::decode_exact(ORCHARD_SIGHASH).unwrap();
         assert_eq!(txid_from_sighash(&sighash), ORCHARD_TXID);
     }
 

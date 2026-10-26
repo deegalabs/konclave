@@ -40,8 +40,32 @@ They were not moved: rewriting history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Security
+
+- **The hosted send takes no practice run.** A send request could ask for a practice run. It no longer does: a request that asks for one
+  (`dry_run` true), or does not say which it wants, is answered 400 before the relay, the vault or
+  the engine is looked at, and only a request with `dry_run` false goes on. The app's send always
+  asks for the send itself, so a member sees no difference. The hosted send path in the
+  orchestrator (`send_record::send_proposal`) has no practice branch, and takes a token that only a
+  request for the send itself can obtain. This changes the hosted coordinator only. The hosted
+  coordinator has run this since 2026-10-24.
+- **The coordinator reads hex in one place, and answers a request it cannot handle with an error.**
+  A request the coordinator cannot handle is answered 500 and logged by file and line, with
+  nothing the request carried; a send's answer carries no text, so the app resolves it against the
+  vault's record. Hex is read by one function that accepts hex digits and nothing else
+  (`konclave-seal`'s `hex`). A sealed key is filed under one spelling of the device's key. A send
+  to a vault whose device list holds a key that cannot be sealed to is refused before anything is
+  built (409), and the boot log counts such vaults and names them by prefix: their sealed sends
+  are refused until the entry is restored (`docs/RECOVERY.md`, G2), not sent in the clear. The
+  hosted coordinator has run this since 2026-10-24.
+
 ### Changed
 
+- **How long a send waits for the devices is the operator's setting.** The coordinator waits for
+  `KONCLAVE_SEND_MAX_POLLS` polls (one a second when the relay answers at once, longer when it does not): default 300, from 120 to 600. Below 120,
+  zero or a value that is not a whole number is read as 300, and above 600 as 600; the boot log
+  says when it did not take the value given. The app never sent the field, so a member sees no
+  difference. The hosted coordinator has run this since 2026-10-24.
 - **The coordinator knows about a network upgrade it has not been given yet (#638).** Nothing
   changes today: the table has no row for the next upgrade (NU7), so none of this can act. Once the
   row is added it will refuse to build a new payment in the last blocks before the upgrade ("the
@@ -61,6 +85,18 @@ They were not moved: rewriting history to tidy it is how context gets lost.
   address it attributes to the request. Different spellings of one address, such as upper or lower
   case, compressed or expanded IPv6, or IPv4-mapped IPv6, are one address. The hosted coordinator
   has run this since 2026-10-22.
+
+### Fixed
+
+- **A send looked at one candidate answer per poll.** While a send waits for the devices, the
+  coordinator and the operator's command line now look at more than one candidate message in a
+  poll. The hosted coordinator has run this since 2026-10-24; the command line has it when next
+  built.
+- **A call to the relay that never answered could leave a send waiting indefinitely.** Each call the
+  coordinator makes to the relay now has a time limit: 10 seconds to connect and 30 in all. A poll
+  that runs past it counts as a failed poll, which ends the wait, as any failed poll already did.
+  The wait is still counted in polls and not in minutes. The hosted coordinator has run this since
+  2026-10-24.
 
 ## [0.13.2] 2026-10-17
 

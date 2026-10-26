@@ -88,13 +88,7 @@ fn hexenc(bytes: &[u8]) -> String {
 }
 
 fn hexdec(s: &str, what: &str) -> Result<Vec<u8>, String> {
-    if !s.len().is_multiple_of(2) {
-        return Err(format!("{what}: odd-length hex"));
-    }
-    (0..s.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).map_err(|_| format!("{what}: invalid hex")))
-        .collect()
+    konclave_seal::hex::decode(s).ok_or_else(|| format!("{what}: invalid hex"))
 }
 
 impl SignRequest {
@@ -199,10 +193,15 @@ pub fn publish_sealed_request<T: Transport>(
     client.post(&seal_request_wire(req, device_pubs)?)
 }
 
+/// The most candidate answers one poll looks at. Each is verified by trial-injecting it, a
+/// subprocess, so the work of one poll is bounded here.
+pub const MAX_CANDIDATES_PER_POLL: usize = 16;
+
 /// Look for the devices' signing response after `since`. Returns `(Some(sigs), next)` once a
 /// valid response has arrived - decoded into the inject-ready `(action_index, sig)` pairs - or
-/// `(None, next)` while still waiting. A response that does not cover the request exactly is an
-/// error, never a silent wait, so a partial or tampered reply can't slip through to a broadcast.
+/// `(None, next)` while still waiting. A message that does not decode, does not cover the request
+/// exactly or does not verify is passed over as noise, so only a verified response is accepted and a
+/// partial or tampered reply can't slip through to a broadcast.
 /// The caller owns the retry loop and its delay, keeping this synchronous and testable.
 pub fn collect_response<T: Transport>(
     client: &RelayClient<T>,
@@ -210,22 +209,24 @@ pub fn collect_response<T: Transport>(
     since: u64,
     verify: impl Fn(&SpendSigs) -> bool,
 ) -> Result<(Option<SpendSigs>, u64), String> {
-    let (hit, next) = client.find(since, |d| d.contains(RESPONSE_KIND))?;
-    match hit {
-        Some(msg) => {
-            // Skip a candidate that does not decode, does not cover the request exactly, or does
-            // not VERIFY, and keep polling. An outsider who knows the (public) room can post a
-            // structurally-valid but cryptographically-bogus response; taking the first such
-            // message and failing at inject is what let any outsider DoS every send (#391). Only a
-            // real, verified response is accepted; a bad one is noise, never fatal.
-            let accepted = serde_json::from_str::<SignResponse>(&msg.data)
-                .ok()
-                .and_then(|resp| resp.into_sigs(req).ok())
-                .filter(|sigs| verify(sigs));
-            Ok((accepted, next))
+    let (candidates, next) = client.matching(
+        since,
+        |d| d.contains(RESPONSE_KIND),
+        MAX_CANDIDATES_PER_POLL,
+    )?;
+    // Look at every candidate of the poll, in order, and take the first that is real. Pass over one
+    // that does not decode, does not cover the request exactly, or does not VERIFY, and go on to the
+    // next (#391). Only a real, verified response is accepted; a bad one is noise, never fatal.
+    for msg in candidates {
+        let accepted = serde_json::from_str::<SignResponse>(&msg.data)
+            .ok()
+            .and_then(|resp| resp.into_sigs(req).ok())
+            .filter(|sigs| verify(sigs));
+        if accepted.is_some() {
+            return Ok((accepted, next));
         }
-        None => Ok((None, next)),
     }
+    Ok((None, next))
 }
 
 #[cfg(test)]
@@ -414,6 +415,24 @@ mod tests {
         assert!(badsig.into_sigs(&req).is_err());
     }
 
+    /// A response comes out of a room anyone who can compute the room may write to: whatever its
+    /// signature field holds, the answer is an error.
+    #[test]
+    fn a_signature_that_is_not_ascii_hex_is_an_error() {
+        let req = SignRequest::from_signing_input(&ironwood_input(), &[]);
+        for bad in [
+            "€€".to_string(),
+            "ab€c".to_string(),
+            "€".repeat(64),
+            format!("{}€", "ab".repeat(63)),
+            "+f".repeat(64),
+        ] {
+            let mut r = response_for(&req);
+            r.sigs[0].sig = bad.clone();
+            assert!(r.into_sigs(&req).is_err(), "{bad:?}");
+        }
+    }
+
     // ---- The relay handshake, end to end in-process (helper <-> relay <-> device) ----
 
     use crate::relay::RelayState;
@@ -506,6 +525,152 @@ mod tests {
         assert!(
             got.is_none(),
             "a malformed response must be skipped, not fatal"
+        );
+    }
+
+    /// A message that carries the response marker and is not the response is passed over, and the
+    /// real one after it is still looked at.
+    #[test]
+    fn a_message_that_is_not_the_answer_is_passed_over() {
+        let state = Arc::new(RelayState::new());
+        let helper = client(state.clone(), "helper");
+        let other_writer = client(state.clone(), "other_writer");
+        let device = client(state, "device");
+        let req = SignRequest::from_signing_input(&ironwood_input(), &[0xaa, 0xbb]);
+        let posted = publish_request(&helper, &req).unwrap();
+
+        // Ahead of the real answer, in the same poll: one that does not parse, and one that parses and
+        // covers the request but carries signatures that do not verify.
+        other_writer
+            .post(&format!(
+                "{{\"kind\":\"{RESPONSE_KIND}\",\"garbage\":true}}"
+            ))
+            .unwrap();
+        let mut bogus = response_for(&req);
+        for s in &mut bogus.sigs {
+            s.sig = "cd".repeat(64);
+        }
+        other_writer
+            .post(&serde_json::to_string(&bogus).unwrap())
+            .unwrap();
+        device
+            .post(&serde_json::to_string(&response_for(&req)).unwrap())
+            .unwrap();
+
+        let real = |sigs: &SpendSigs| sigs.iter().all(|(_, sig)| *sig == [0xabu8; 64]);
+        let (got, _) = collect_response(&helper, &req, posted, real).unwrap();
+        assert!(got.is_some(), "the devices' answer was not looked at");
+    }
+
+    /// One poll's reading is bounded here, and the next poll reads what the previous one left: each
+    /// candidate is looked at once and none is skipped. This bounds the coordinator's work.
+    #[test]
+    fn candidates_past_one_polls_reading_are_read_by_the_next() {
+        let state = Arc::new(RelayState::new());
+        let helper = client(state.clone(), "helper");
+        let other_writer = client(state.clone(), "other_writer");
+        let device = client(state, "device");
+        let req = SignRequest::from_signing_input(&ironwood_input(), &[0xaa, 0xbb]);
+        let mut since = publish_request(&helper, &req).unwrap();
+
+        let mut bogus = response_for(&req);
+        for s in &mut bogus.sigs {
+            s.sig = "cd".repeat(64);
+        }
+        let junk = serde_json::to_string(&bogus).unwrap();
+        for _ in 0..40 {
+            other_writer.post(&junk).unwrap();
+        }
+        device
+            .post(&serde_json::to_string(&response_for(&req)).unwrap())
+            .unwrap();
+
+        let checked = std::cell::Cell::new(0usize);
+        let mut per_poll = vec![];
+        let mut found = None;
+        for _ in 0..10 {
+            checked.set(0);
+            let (got, next) = collect_response(&helper, &req, since, |sigs| {
+                checked.set(checked.get() + 1);
+                sigs.iter().all(|(_, sig)| *sig == [0xabu8; 64])
+            })
+            .unwrap();
+            per_poll.push(checked.get());
+            since = next;
+            if got.is_some() {
+                found = got;
+                break;
+            }
+        }
+        assert!(found.is_some(), "the real answer was reached: {per_poll:?}");
+        assert!(
+            per_poll.iter().all(|n| *n <= MAX_CANDIDATES_PER_POLL),
+            "every poll stayed within the cap: {per_poll:?}"
+        );
+        assert_eq!(
+            per_poll.iter().sum::<usize>(),
+            41,
+            "all 40 junk messages and then the real one were each looked at once: {per_poll:?}"
+        );
+    }
+
+    /// The number of candidates one poll looks at is a number somebody chose, and a test says it, so
+    /// that neither a larger nor a smaller one goes unnoticed.
+    #[test]
+    fn one_poll_looks_at_the_chosen_number_of_candidates() {
+        assert_eq!(MAX_CANDIDATES_PER_POLL, 16);
+        let state = Arc::new(RelayState::new());
+        let helper = client(state.clone(), "helper");
+        let other_writer = client(state, "other_writer");
+        let req = SignRequest::from_signing_input(&ironwood_input(), &[0xaa, 0xbb]);
+        let since = publish_request(&helper, &req).unwrap();
+        let mut bogus = response_for(&req);
+        for s in &mut bogus.sigs {
+            s.sig = "cd".repeat(64);
+        }
+        let junk = serde_json::to_string(&bogus).unwrap();
+        for _ in 0..(MAX_CANDIDATES_PER_POLL + 5) {
+            other_writer.post(&junk).unwrap();
+        }
+        let checked = std::cell::Cell::new(0usize);
+        let (got, _) = collect_response(&helper, &req, since, |_| {
+            checked.set(checked.get() + 1);
+            false
+        })
+        .unwrap();
+        assert!(got.is_none());
+        assert_eq!(
+            checked.get(),
+            MAX_CANDIDATES_PER_POLL,
+            "the first poll looked at the chosen number"
+        );
+    }
+
+    /// A message that decodes but does not cover the request exactly is passed over inside the poll,
+    /// and the real answer behind it, in the same poll, is still found.
+    #[test]
+    fn a_message_that_decodes_but_does_not_cover_the_request_is_passed_over() {
+        let state = Arc::new(RelayState::new());
+        let helper = client(state.clone(), "helper");
+        let other_writer = client(state.clone(), "other_writer");
+        let device = client(state, "device");
+        let req = SignRequest::from_signing_input(&ironwood_input(), &[0xaa, 0xbb]);
+        let since = publish_request(&helper, &req).unwrap();
+
+        let mut short = response_for(&req);
+        short.sigs.clear();
+        other_writer
+            .post(&serde_json::to_string(&short).unwrap())
+            .unwrap();
+        device
+            .post(&serde_json::to_string(&response_for(&req)).unwrap())
+            .unwrap();
+
+        let real = |sigs: &SpendSigs| sigs.iter().all(|(_, sig)| *sig == [0xabu8; 64]);
+        let (got, _) = collect_response(&helper, &req, since, real).unwrap();
+        assert!(
+            got.is_some(),
+            "the devices' answer was behind a message that does not cover the request"
         );
     }
 

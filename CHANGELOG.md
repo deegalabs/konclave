@@ -56,6 +56,40 @@ explicitly accepted.
 
 ## [Unreleased]
 
+## [0.15.0] 2026-10-26
+
+> **Services deployed when this was cut (2026-10-26):** coordinator `c08c935`, relay `f8dc88d0970337a3`.
+> The web app is this release's own commit. The two services are deployed by hand and may be
+> older than it - recording what they were ANSWERING is the point, not what they should have been.
+
+
+### Security
+
+- **The hosted send takes no practice run.** The coordinator used to accept a send request that
+  asked for a practice run. It no longer does: a request that asks for one, or does not say which it
+  wants, is answered 400 before anything is built or asked of a device, and only a request for the
+  send itself goes on. The app's send always asks for the send itself, so a member sees no
+  difference. This changes the hosted coordinator only. The hosted coordinator has run this since
+  2026-10-24.
+- **The coordinator reads hex in one place, and answers a request it cannot handle with an error.**
+  Hex that arrives from outside is now read by one function that accepts hex digits and nothing
+  else. A request the coordinator cannot handle is answered with an error and logged by file and
+  line. Each device's sealed key is filed under one spelling of the device's key. A member sees no
+  difference, unless a vault's device list holds a key that is not a key: a send is then refused
+  with a message. The hosted coordinator has run this since 2026-10-24.
+
+### Fixed
+
+- **A send looked at one candidate answer per poll.** While a send waits for the devices, the
+  coordinator and the operator's command line now look at more than one candidate message in a
+  poll. The hosted coordinator has run this since 2026-10-24; the command line has it when next
+  built.
+- **A call to the relay that never answered could leave a send waiting indefinitely.** The operator's
+  command line and the coordinator now give every call to the relay a time limit: 10 seconds to
+  connect and 30 in all. A poll that runs past it counts as a failed poll, which ends the wait, as
+  any failed poll already did. The hosted coordinator has run this since 2026-10-24; the command
+  line has it when next built.
+
 ## [0.14.0] 2026-10-23
 
 > **Services deployed when this was cut (2026-10-23):** coordinator `404a8bb`, relay `f8dc88d0970337a3`.

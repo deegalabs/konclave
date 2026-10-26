@@ -282,6 +282,34 @@ and the viewing key is served in clear text again (to a holder of the read key) 
 Take the same care as in F: build and check the replacement on your own machine, put it on the volume
 under a temporary name, `chown` and `chmod`, then `mv -T`.
 
+### G2. A device list holds a key that is not a key
+
+The boot log says `device registries: NOT A KEY, vault <prefix>, <n> entry(ies)`. `device-keys.json`
+reads, but one or more of its comms keys cannot be sealed to (not 64 hex digits, not hex at all, or a
+key of small order). The coordinator keeps the entry on purpose: taking it out would lower the number
+of registered devices below the seats, and a send a seat signs would then go out UNSEALED. So the
+vault's sealed sends are refused (409, "this vault's device list holds a key that cannot be used ..."),
+before anything is built, and the viewing key is refused too (it is sealed to the same list). Reading
+and voting keep working.
+
+The way out is a decision for the founders, at the desk:
+
+1. Find the entry, read-only: `jq -r '.[] | [.comms, (.seat // "-"), (.write // "-")] | @tsv'
+   device-keys.json` (an old flat file is a list of strings: `jq -r '.[]'`). The bad one is the comms key
+   that is not 64 hex digits.
+2. **An entry with no seat and no write key** (a device that registered for sealing and nothing else,
+   or a flat string) is safe to remove: it protects nothing and no member's seat depends on it. An entry
+   that holds a seat or a write key is NOT: that is procedure F, and removing it would open the vault to
+   unsigned writes.
+3. Build the replacement on your own machine from a copy, with that one entry removed, and check it with
+   the `jq -e` and the `diff` of F step 4; put it on the volume under a temporary name, `chown`/`chmod`,
+   and `mv -T` it over the old one when no member is unlocking.
+4. Restart is not needed. Read the file again, ask a member to try the send, and check the next boot
+   line says the vault is no longer listed.
+
+A member's device registers its own comms key again the next time it unlocks, so a removed entry that
+belonged to a real device comes back correct.
+
 ### H. A vault's read key file is unreadable
 
 `read-key.json` that exists and is not a key (zero bytes, half a document, `null`, an empty or blank

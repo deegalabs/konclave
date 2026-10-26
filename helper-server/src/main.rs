@@ -29,7 +29,7 @@
 mod admission;
 mod concurrency;
 
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -44,7 +44,9 @@ use orchestrator::helper::{
 };
 use orchestrator::relay_client::{configured_relay, parse_relay_config, valid_room, RelayRefusal};
 use orchestrator::send::{funding_check, Funding, PayrollDest, SpendPlan};
-use orchestrator::send_record::{promote_mined_attempts, send_proposal, LiveSend, SendResult};
+use orchestrator::send_record::{
+    promote_mined_attempts, send_proposal, Broadcast, LiveSend, SendResult,
+};
 use orchestrator::write_auth::{
     authorize_write, same_member, seat_acts_as, seat_holder, SignedWrite, WriteAction, WriteAuth,
 };
@@ -783,11 +785,10 @@ fn over_capacity() -> bool {
 
 /// Architecture-B send: the helper builds/proves the PCZT for the vault's own spend, publishes a
 /// signing request into the vault's relay room, waits for the **browsers'** aggregate FROST
-/// signature, injects it, and (unless `dry_run`) broadcasts. It never sees a share. Every
+/// signature, injects it, and broadcasts. It never sees a share. Every
 /// caller-fixable rejection (bad json, unknown vault, bad destination/amount) is decided BEFORE
 /// the engine runs, so those branches are unit-testable; only the happy path touches the tooling
-/// and the relay. `dry_run` defaults to **true** (safe): the caller must pass `"dry_run": false`
-/// to actually broadcast, so a single call never fires funds by accident.
+/// and the relay.
 /// Ask the wallet whether the vault can actually pay `plan`, and turn a "no" into an answer a
 /// person can act on.
 ///
@@ -1039,25 +1040,55 @@ fn not_your_seat(action: WriteAction) -> &'static str {
     }
 }
 
-/// The most a send waits for the quorum, in polls (one a second): twice the default. The request
-/// names its own `max_polls`, and a send holds its vault and a worker for as long as it waits.
+/// The most the operator can let a send wait for the quorum, in polls (about a second each): twice
+/// the default.
 const MAX_POLLS_CEILING: u32 = orchestrator::epoch::CEREMONY_MAX_POLLS;
 // The number helper-server/CHANGELOG.md states. Checked when the code is built, so a larger one does
 // not compile.
 const _: () = assert!(MAX_POLLS_CEILING <= 600);
 
-fn polls_for(requested: u32) -> u32 {
-    requested.clamp(1, MAX_POLLS_CEILING)
+/// The fewest polls the operator can set. A ceremony over the public relay took more than two
+/// minutes in 2026-08 (docs/CLAIMS.md), so a smaller number would end honest sends before the
+/// devices answer. The devices keep their consent for ten minutes, so the ceiling is the other
+/// side of the same window.
+const MIN_POLLS_FLOOR: u32 = 120;
+
+/// How long a send waits for the devices' signatures, in polls of about a second each, from
+/// `KONCLAVE_SEND_MAX_POLLS`: the operator's setting, never a request's. Unset is the default.
+/// Between the floor and the ceiling is taken as written. Above the ceiling is the ceiling, however
+/// large the number. Anything else (below the floor, zero, a sign, a fraction, text) is the default.
+/// The second value says why a given value was not taken as written.
+fn send_polls_from(raw: Option<&str>) -> (u32, Option<&'static str>) {
+    let default = orchestrator::helper::DEFAULT_SEND_MAX_POLLS;
+    let Some(raw) = raw else {
+        return (default, None);
+    };
+    let digits = raw.trim();
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return (default, Some("not a whole number, so the default is used"));
+    }
+    // A number too long for u64 is still a number above the ceiling.
+    let n = digits.parse::<u64>().unwrap_or(u64::MAX);
+    if n > u64::from(MAX_POLLS_CEILING) {
+        (
+            MAX_POLLS_CEILING,
+            Some("above the ceiling, so the ceiling is used"),
+        )
+    } else if n < u64::from(MIN_POLLS_FLOOR) {
+        (default, Some("below the floor, so the default is used"))
+    } else {
+        (n as u32, None)
+    }
 }
 
 /// Execute a READY proposal over Architecture B: build the PCZT for the proposal's payment, run the
-/// browser ceremony over the relay, and (unless `dry_run`) broadcast. On a real broadcast the
+/// browser ceremony over the relay, and broadcast. On a broadcast the
 /// proposal is marked `sent` with its txid.
 ///
 /// SECURITY (audit): `ready` is advisory (the approval votes are social, unauthenticated). The
 /// money gate is the ceremony itself, which needs the real quorum of browser shares to produce a
 /// valid signature, so a forged "ready" cannot move funds on its own. Non-ready proposals are
-/// refused (409); `dry_run` defaults true so a broadcast is always explicit.
+/// refused (409); a broadcast is always explicit (`dry_run` must be `false`).
 fn handle_proposal_send(
     state: &HelperState,
     cfg: &HelperConfig,
@@ -1073,10 +1104,8 @@ fn handle_proposal_send(
         vault: String,
         relay_base: String,
         room: String,
-        #[serde(default = "psend_dry_run")]
-        dry_run: bool,
-        #[serde(default = "psend_max_polls")]
-        max_polls: u32,
+        /// Must be `false`: the hosted send runs no practice send. Absent is not taken for either.
+        dry_run: Option<bool>,
         /// The signed-write envelope (#288 / ADR-0011 D2). Absent on a device with no registered
         /// write key, which a vault with no registered keys still accepts.
         seat: Option<u16>,
@@ -1084,15 +1113,14 @@ fn handle_proposal_send(
         nonce: Option<String>,
         sig: Option<String>,
     }
-    fn psend_dry_run() -> bool {
-        true
-    }
-    fn psend_max_polls() -> u32 {
-        300
-    }
     let req: Req = match serde_json::from_slice(body) {
         Ok(r) => r,
         Err(_) => return resp(400, json!({ "error": "invalid json" }).to_string()),
+    };
+    // First of all: nothing below runs for a request that asks for a practice send, or does not say.
+    // What comes back is what `send_proposal` needs, so this cannot be taken out and leave a call.
+    let Some(asked) = Broadcast::asked(req.dry_run) else {
+        return resp(400, json!({ "error": NO_DRY_RUN_TEXT }).to_string());
     };
     // #270: the relay is this coordinator's own, never the request's. The request used to name it,
     // and it went to `curl` unchecked: any URL fetched from the coordinator's network, and on a
@@ -1176,7 +1204,7 @@ fn handle_proposal_send(
         relay_base: relay,
         room: &req.room,
         recipients: &recipients,
-        max_polls: polls_for(req.max_polls),
+        max_polls: cfg.send_max_polls,
         vault_id: &reg.vault_id,
         vaults_dir: &cfg.vaults_dir,
     };
@@ -1189,7 +1217,7 @@ fn handle_proposal_send(
     let proposal_id = p.id.clone();
     let sending: std::cell::RefCell<Option<concurrency::SendingMark<'_>>> =
         std::cell::RefCell::new(None);
-    let result = send_proposal(&cfg.vaults_dir, p, req.dry_run, &steps, |_| {
+    let result = send_proposal(&cfg.vaults_dir, p, asked, &steps, |_| {
         let plan = match &plan {
             Ok(plan) => plan,
             Err(refused) => return Err(resp(refused.status, refused.body.clone())),
@@ -1204,6 +1232,23 @@ fn handle_proposal_send(
                 409,
                 json!({ "error": UNSEALED_SEND_TEXT }).to_string(),
             ));
+        }
+        // A key in the list that cannot be sealed to would fail this send after its transaction had
+        // been built and proved. Say so before the engine is touched.
+        if let Ok(list) = &recipients {
+            if list
+                .iter()
+                .any(|key| !orchestrator::helper::device_key_usable(key))
+            {
+                eprintln!(
+                    "vault {}: a send was refused: its device list holds a key that cannot be sealed to",
+                    orchestrator::helper::short_id(&reg.vault_id)
+                );
+                return Err(resp(
+                    409,
+                    json!({ "error": DEVICE_LIST_UNUSABLE_TEXT }).to_string(),
+                ));
+            }
         }
         // Capacity guard (#135): refuse a memory-heavy prove up front when the instance is low.
         if over_capacity() {
@@ -1279,6 +1324,16 @@ fn settle_mined_sends(
 const UNSEALED_SEND_TEXT: &str =
     "this vault still has members whose devices are not registered; open it on a current build so a seat can sign the send";
 
+/// What a caller is told when it asks the hosted send for a practice run, or does not say which it
+/// wants. Short, and clear of the screen's keywords like the texts around it.
+const NO_DRY_RUN_TEXT: &str =
+    "this coordinator runs no practice send; ask for the send itself with dry_run set to false";
+
+/// What a member is told when a send would have to be sealed to a device key that cannot be sealed
+/// to. Short, and clear of the screen's keywords like the texts around it.
+const DEVICE_LIST_UNUSABLE_TEXT: &str =
+    "this vault's device list holds a key that cannot be used, so the send cannot be sealed; ask the operator to restore it";
+
 /// What a member is told when the vault's device registry is there and cannot be read. Kept short and
 /// clear of every keyword the web app turns into another message (`humanError`), like the send texts.
 const REGISTRY_UNREADABLE_TEXT: &str =
@@ -1344,11 +1399,6 @@ const RECORD_TEXT: &str =
 /// The one place a send's result becomes a status and a body.
 fn send_result_resp(result: SendResult<Resp>) -> Resp {
     match result {
-        SendResult::DryRun { sighash } => resp(
-            200,
-            json!({ "txid": null, "dry_run": true, "sighash": sighash, "state": "ready" })
-                .to_string(),
-        ),
         SendResult::Sent {
             txid,
             sighash,
@@ -1802,10 +1852,77 @@ fn with_cors(mut r: Response<std::io::Cursor<Vec<u8>>>) -> Response<std::io::Cur
     r
 }
 
+/// What a caller is told when the work for its request failed in a way nobody planned for. Short, and
+/// clear of the screen's keywords like the texts around it.
+const REQUEST_PANICKED_TEXT: &str = "the coordinator could not handle this request";
+
+/// Do one request's work so that an unplanned failure in it is an answer, and the thread that ran it
+/// goes on. State a failure can leave behind is already handled: the vault locks take a poisoned
+/// mutex, the "sending" mark clears when it is dropped, and a send's scratch directory is removed by
+/// its guard.
+///
+/// The answer for a SEND has no text. The app reads an error with text as "nothing was sent" and
+/// withdraws the signatures, and reads a bare 5xx as "ask the record" (`ui/src/helper.ts`,
+/// `readReply`); an unplanned failure may come after a broadcast, so the send gets the answer that
+/// makes no claim. That is also what such a failure looked like before the guard existed.
+fn guarded(method: &Method, path: &str, work: impl FnOnce() -> Resp) -> Resp {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(work)) {
+        Ok(r) => r,
+        Err(_)
+            if *method == Method::Post && is_send_path(path.split('?').next().unwrap_or(path)) =>
+        {
+            resp(500, json!({}).to_string())
+        }
+        Err(_) => resp(500, json!({ "error": REQUEST_PANICKED_TEXT }).to_string()),
+    }
+}
+
+/// The line a failed handler leaves in the log: where, and nothing else. The default hook prints the
+/// failure's message, and a message is built from the values the code was holding.
+fn panic_line(location: Option<(&str, u32)>) -> String {
+    match location {
+        Some((file, line)) => {
+            format!("konclave-helper: a request handler panicked at {file}:{line}")
+        }
+        None => "konclave-helper: a request handler panicked".to_string(),
+    }
+}
+
+fn install_panic_hook() {
+    std::panic::set_hook(Box::new(|info| {
+        let line = panic_line(info.location().map(|l| (l.file(), l.line())));
+        // Ignoring a write error on purpose: a hook that panics aborts the process.
+        let _ = writeln!(std::io::stderr(), "{line}");
+    }));
+}
+
 /// Build a HelperConfig from env vars. All paths are public tooling; nothing secret.
 fn config_from_env() -> HelperConfig {
-    let env = |k: &str, d: &str| std::env::var(k).unwrap_or_else(|_| d.to_string());
-    HelperConfig {
+    // A value that is not UTF-8 is read as text, which is not a number, and the log says so.
+    let (config, send_polls_note) = config_with(&|k| match std::env::var(k) {
+        Ok(v) => Some(v),
+        Err(std::env::VarError::NotUnicode(v)) if k == "KONCLAVE_SEND_MAX_POLLS" => {
+            Some(v.to_string_lossy().into_owned())
+        }
+        Err(_) => None,
+    });
+    eprintln!(
+        "konclave-helper: a send waits at most {} polls (about a second each) for the devices (KONCLAVE_SEND_MAX_POLLS)",
+        config.send_max_polls
+    );
+    if let Some(note) = send_polls_note {
+        eprintln!("konclave-helper: KONCLAVE_SEND_MAX_POLLS was {note}");
+    }
+    config
+}
+
+/// The configuration, from whatever answers for the variables: the process environment in the
+/// binary, a table in a test. Returns the note about the wait setting when it was not taken as given.
+fn config_with(get: &dyn Fn(&str) -> Option<String>) -> (HelperConfig, Option<&'static str>) {
+    let env = |k: &str, d: &str| get(k).unwrap_or_else(|| d.to_string());
+    let (send_max_polls, send_polls_note) =
+        send_polls_from(get("KONCLAVE_SEND_MAX_POLLS").as_deref());
+    let config = HelperConfig {
         zcash_sign: PathBuf::from(env("KONCLAVE_ZCASH_SIGN", "zcash-sign")),
         devtool: PathBuf::from(env("KONCLAVE_DEVTOOL", "zcash-devtool")),
         // Default to MAINNET: this is a mainnet product, and a testnet default silently mints
@@ -1814,8 +1931,10 @@ fn config_from_env() -> HelperConfig {
         network: env("KONCLAVE_NETWORK", "main"),
         konclave_signer: PathBuf::from(env("KONCLAVE_SIGNER", "konclave-signer")),
         vaults_dir: PathBuf::from(env("KONCLAVE_VAULTS_DIR", "./helper-vaults")),
-        relays: relays_from_env(),
-    }
+        relays: relays_from(&get("KONCLAVE_RELAY_BASES").unwrap_or_default()),
+        send_max_polls,
+    };
+    (config, send_polls_note)
 }
 
 /// The relays this coordinator may publish a signing request to (#270), from
@@ -1824,9 +1943,8 @@ fn config_from_env() -> HelperConfig {
 /// There is no default. A compiled-in relay would let the staging coordinator publish to the
 /// production relay, or the reverse, so a coordinator nobody configured refuses every send and says
 /// so here, at boot, where it is seen.
-fn relays_from_env() -> Vec<String> {
-    let (relays, rejected) =
-        parse_relay_config(&std::env::var("KONCLAVE_RELAY_BASES").unwrap_or_default());
+fn relays_from(raw: &str) -> Vec<String> {
+    let (relays, rejected) = parse_relay_config(raw);
     for entry in &rejected {
         eprintln!(
             "konclave-helper: KONCLAVE_RELAY_BASES entry ignored, not an https origin: {entry:?}"
@@ -2389,6 +2507,27 @@ fn main() {
     for vault in unreadable_registries.iter().take(20) {
         eprintln!("device registries: UNREADABLE, vault {vault}");
     }
+    // A registered comms key that is not a key cannot be sealed to: the vault's sealed sends are
+    // refused until the entry is restored. Name the vault, by prefix, once.
+    let unusable_keys: Vec<(String, usize)> = std::fs::read_dir(&cfg.vaults_dir)
+        .map(|dirs| {
+            dirs.flatten()
+                .filter(|e| e.path().is_dir())
+                .filter_map(|e| {
+                    let vault = e.file_name().to_string_lossy().into_owned();
+                    let n = orchestrator::helper::unusable_device_keys(&cfg.vaults_dir, &vault);
+                    (n > 0).then(|| (orchestrator::helper::short_id(&vault).to_string(), n))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    eprintln!(
+        "device registries: {} vault(s) hold a device key that is not a key (their sealed sends are refused until it is restored)",
+        unusable_keys.len()
+    );
+    for (vault, n) in unusable_keys.iter().take(20) {
+        eprintln!("device registries: NOT A KEY, vault {vault}, {n} entry(ies)");
+    }
     // A read key file that is there and cannot be read refuses every read of its vault. Same boot line.
     let unreadable_read_keys = unreadable_read_keys(&cfg.vaults_dir);
     eprintln!(
@@ -2427,6 +2566,7 @@ fn main() {
     // one vault, and only those: reads take no write lock, and the wallet has a second lock that
     // readers only try or wait a few seconds for. A send still holds its own vault's writes for as long as the quorum
     // takes; what it stops holding is everybody else, and every read.
+    install_panic_hook();
     let locks = Arc::new(concurrency::VaultLocks::new());
     let workers = concurrency::worker_count(
         std::env::var("KONCLAVE_HELPER_WORKERS").ok().as_deref(),
@@ -2496,18 +2636,20 @@ fn main() {
                 konclave_http::ReadPlan::Skip => { /* over the cap: handle an empty body */ }
             }
 
-            let r = serve(
-                &state,
-                &cfg,
-                &locks,
-                &limits,
-                &client,
-                now,
-                &method,
-                &path,
-                &body,
-                read_token.as_deref(),
-            );
+            let r = guarded(&method, &path, || {
+                serve(
+                    &state,
+                    &cfg,
+                    &locks,
+                    &limits,
+                    &client,
+                    now,
+                    &method,
+                    &path,
+                    &body,
+                    read_token.as_deref(),
+                )
+            });
             let _ = req.respond(http_response(r));
         }));
     }
@@ -2594,6 +2736,9 @@ mod tests {
             RECORD_TEXT,
             REGISTRY_UNREADABLE_TEXT,
             UNSEALED_SEND_TEXT,
+            NO_DRY_RUN_TEXT,
+            REQUEST_PANICKED_TEXT,
+            DEVICE_LIST_UNUSABLE_TEXT,
             WALLET_BUSY_TEXT,
             WALLET_BUSY_SENDING_TEXT,
             CREATION_UPDATE_TEXT,
@@ -2920,37 +3065,289 @@ mod tests {
         assert_eq!(saved.state, "ready");
     }
 
-    /// A dry run is forwarded as a dry run: it does not settle an earlier send,
-    /// so a held payment does not answer it with "not settled". (Forcing it to a real send would.)
+    /// The hosted send takes no practice run, and does not guess which one a request meant: a body
+    /// that asks for one, or says nothing, is refused before the engine is touched and before
+    /// anything is written, whatever else is true of the vault (a ready proposal, an earlier send
+    /// held, every seat's device registered).
     #[cfg(unix)]
     #[test]
-    fn a_dry_run_through_the_handler_is_not_held_by_an_earlier_send() {
+    fn the_hosted_send_takes_no_dry_run() {
+        for dry_run in [Some(true), None] {
+            let st = HelperState::new();
+            seed(&st, "relayv");
+            let mut c = cfg();
+            let (fake, log) = fake_devtool(&c.vaults_dir, None);
+            c.devtool = fake;
+            a_ready_proposal(&c.vaults_dir, "relayv");
+            held_send(&c.vaults_dir, &"11".repeat(32));
+            every_seat_has_a_device(&c.vaults_dir, "relayv");
+
+            let mut body = json!({ "vault": "relayv", "relay_base": TEST_RELAY,
+                "room": "0123456789abcdef0123456789abcdef" });
+            if let Some(dry_run) = dry_run {
+                body["dry_run"] = json!(dry_run);
+            }
+            let r = handle(
+                &st,
+                &c,
+                &Method::Post,
+                "/api/vault/proposals/p1/send",
+                body.to_string().as_bytes(),
+            );
+            assert_eq!(r.status, 400, "dry_run {dry_run:?}: {}", r.body);
+            assert!(r.body.contains(NO_DRY_RUN_TEXT), "{}", r.body);
+            let ran = std::fs::read_to_string(&log).unwrap_or_default();
+            assert!(ran.is_empty(), "the engine was not touched: {ran}");
+            assert!(
+                orchestrator::helper::load_ceremonies(&c.vaults_dir, "relayv").is_empty(),
+                "nothing was written to the ceremony trail"
+            );
+        }
+    }
+
+    /// The work for a request that fails unexpectedly is answered, and the thread that ran it is still
+    /// there to answer the next.
+    #[test]
+    fn an_unplanned_failure_in_a_request_is_answered_and_the_next_one_is_served() {
+        let r = guarded(&Method::Post, "/api/vault/proposals/p1/approve", || {
+            panic!("a handler met something nobody planned for")
+        });
+        assert_eq!(r.status, 500);
+        assert!(r.body.contains(REQUEST_PANICKED_TEXT), "{}", r.body);
+        // The same thread, straight after.
+        let next = guarded(&Method::Get, "/api/health", || {
+            resp(200, json!({ "ok": true }).to_string())
+        });
+        assert_eq!(next.status, 200);
+        // And not by a convention of the caller: the serving loop's own call goes through it, the hook is
+        // installed as a statement of its own (a comment does not count), and the hook reads the
+        // panic's location and never its payload.
+        let src = include_str!("main.rs");
+        let call = src
+            .find(concat!("let r = guarded(&method, &path, ", "|| {"))
+            .expect("the serving loop must run `serve` through `guarded`");
+        // `serve` is INSIDE that closure (before the answer is sent), not run beside it.
+        let after = &src[call..];
+        let closure = &after[..after.find("req.respond").unwrap()];
+        assert!(
+            closure.contains("serve("),
+            "the closure the guard runs must be the one that calls `serve`"
+        );
+        assert!(
+            src.lines()
+                .any(|l| l.trim() == concat!("install_panic", "_hook();")),
+            "the hook must be installed before the pool starts"
+        );
+        let hook_body = &src[src.find(concat!("fn install_panic", "_hook()")).unwrap()..];
+        let hook_body = &hook_body[..hook_body.find("\n}\n").unwrap()];
+        for forbidden in [
+            concat!("pay", "load("),
+            concat!("downcast", "_ref"),
+            "{info",
+        ] {
+            assert!(
+                !hook_body.contains(forbidden),
+                "the hook must not print the panic's message ({forbidden})"
+            );
+        }
+    }
+
+    /// The answer for a send has no text and no state: the app reads an error with text as "nothing
+    /// was sent" and a bare 5xx as "ask the record", and a failure may come after a broadcast.
+    #[test]
+    fn the_answer_for_a_send_that_failed_unexpectedly_makes_no_claim() {
+        let r = guarded(&Method::Post, "/api/vault/proposals/p1/send", || {
+            panic!("after the broadcast")
+        });
+        assert_eq!(r.status, 500);
+        let body: serde_json::Value = serde_json::from_str(&r.body).unwrap();
+        for key in ["error", "state", "txid", "reason"] {
+            assert!(body.get(key).is_none(), "{key} in {}", r.body);
+        }
+        // The same path with a query string, and the other routes keep their text.
+        let q = guarded(&Method::Post, "/api/vault/proposals/p1/send?x=1", || {
+            panic!("again")
+        });
+        assert!(!q.body.contains("error"), "{}", q.body);
+        let other = guarded(&Method::Post, "/api/vault/proposals/p1/refuse", || {
+            panic!("no")
+        });
+        assert!(other.body.contains(REQUEST_PANICKED_TEXT), "{}", other.body);
+    }
+
+    /// The line a failed handler leaves in the log carries a place and nothing it was holding.
+    #[test]
+    fn the_panic_line_names_the_place_and_nothing_else() {
+        assert_eq!(
+            panic_line(Some(("src/x.rs", 42))),
+            "konclave-helper: a request handler panicked at src/x.rs:42"
+        );
+        assert_eq!(
+            panic_line(None),
+            "konclave-helper: a request handler panicked"
+        );
+    }
+
+    /// A send whose list holds a key that cannot be sealed to is refused before the engine is
+    /// touched, not after its transaction has been built and proved.
+    #[cfg(unix)]
+    #[test]
+    fn a_send_to_a_device_list_with_an_unusable_key_is_refused_before_the_engine() {
         let st = HelperState::new();
         seed(&st, "relayv");
         let mut c = cfg();
         let (fake, log) = fake_devtool(&c.vaults_dir, None);
         c.devtool = fake;
         a_ready_proposal(&c.vaults_dir, "relayv");
-        held_send(&c.vaults_dir, &"11".repeat(32));
-        // Sealable, so the refusal of an unsigned unsealed send is not what this test meets.
         every_seat_has_a_device(&c.vaults_dir, "relayv");
-
-        let body = json!({ "vault": "relayv", "relay_base": TEST_RELAY,
-            "room": "0123456789abcdef0123456789abcdef", "dry_run": true })
-        .to_string();
-        let r = handle(
-            &st,
-            &c,
-            &Method::Post,
-            "/api/vault/proposals/p1/send",
-            body.as_bytes(),
-        );
-        assert_ne!(r.status, 409, "{}", r.body);
-        assert!(!r.body.contains(UNSETTLED_TEXT), "{}", r.body);
-        // The funding gate reads the balance (upgrade, sync, balance) as it always did; only settling
-        // an earlier send lists the wallet's transactions.
+        // One more entry that is not a key: the list is complete for the seats, so the send would be
+        // sealed to all of it.
+        orchestrator::helper::upsert_device(&c.vaults_dir, "relayv", &"zz".repeat(32), None)
+            .unwrap();
+        let r = send_as(&st, &c, None);
+        assert_eq!(r.status, 409, "{}", r.body);
+        assert!(r.body.contains(DEVICE_LIST_UNUSABLE_TEXT), "{}", r.body);
         let ran = std::fs::read_to_string(&log).unwrap_or_default();
-        assert!(!ran.contains("list-tx"), "{ran}");
+        assert!(!ran.contains("pczt"), "nothing was built: {ran}");
+    }
+
+    /// The refusal comes before every other check, not merely before the engine: a request that asks
+    /// for a practice run is told so even when its relay is wrong, and a validly signed one does not
+    /// spend its nonce.
+    #[cfg(unix)]
+    #[test]
+    fn the_dry_run_refusal_comes_before_the_relay_and_the_write_gate() {
+        use konclave_seal::WriteAction;
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let mut c = cfg();
+        let (fake, log) = fake_devtool(&c.vaults_dir, None);
+        c.devtool = fake;
+        a_ready_proposal(&c.vaults_dir, "relayv");
+        let sk = alice_registers_seat_one(&c.vaults_dir, "relayv");
+        let send = |body: serde_json::Value| {
+            handle(
+                &st,
+                &c,
+                &Method::Post,
+                "/api/vault/proposals/p1/send",
+                body.to_string().as_bytes(),
+            )
+        };
+
+        // The three ways of not asking for the send: the flag true, the flag null, no flag at all. Each
+        // is refused at the same place, ahead of everything else.
+        let flags = [Some(json!(true)), Some(json!(null)), None];
+        for (n, flag) in flags.into_iter().enumerate() {
+            let with_flag = |mut body: serde_json::Value| {
+                if let Some(flag) = &flag {
+                    body["dry_run"] = flag.clone();
+                }
+                body
+            };
+
+            // A relay that is not ours: the missing ask is what is refused, not the relay.
+            let r = send(with_flag(json!({ "vault": "relayv",
+                "relay_base": "https://evil.example",
+                "room": "0123456789abcdef0123456789abcdef" })));
+            assert_eq!(r.status, 400, "{flag:?}: {}", r.body);
+            assert!(r.body.contains(NO_DRY_RUN_TEXT), "{flag:?}: {}", r.body);
+
+            // A validly signed send that does not ask for the send is refused, and its nonce is not
+            // spent.
+            let nonce = format!("n-practice-{n}");
+            let fields = signed_as_seat_one(&sk, "relayv", WriteAction::Send, "p1", &nonce);
+            let mut body = with_flag(json!({ "vault": "relayv", "relay_base": TEST_RELAY,
+                "room": "0123456789abcdef0123456789abcdef" }));
+            let extra: serde_json::Value = serde_json::from_str(&format!("{{{fields}}}")).unwrap();
+            for (k, v) in extra.as_object().unwrap() {
+                body[k] = v.clone();
+            }
+            let r = send(body);
+            assert_eq!(r.status, 400, "{flag:?}: {}", r.body);
+            assert!(r.body.contains(NO_DRY_RUN_TEXT), "{flag:?}: {}", r.body);
+            assert!(
+                !orchestrator::helper::write_nonce_seen(&c.vaults_dir, "relayv", &nonce),
+                "{flag:?}: a refused request spent the nonce of its signature"
+            );
+        }
+        let ran = std::fs::read_to_string(&log).unwrap_or_default();
+        assert!(ran.is_empty(), "the engine was not touched: {ran}");
+    }
+
+    /// Every odd shape of the flag is refused before the engine: `null` as a practice run, anything
+    /// that is not a boolean, the key twice, and bodies that are not a request at all.
+    #[cfg(unix)]
+    #[test]
+    fn every_odd_shape_of_the_dry_run_flag_is_refused_before_the_engine() {
+        let request = |extra: &str| {
+            format!(
+                r#"{{"vault":"relayv","relay_base":"{TEST_RELAY}","room":"0123456789abcdef0123456789abcdef"{extra}}}"#
+            )
+            .into_bytes()
+        };
+        let cases: Vec<(&str, Vec<u8>, &str)> = vec![
+            ("null", request(r#","dry_run":null"#), NO_DRY_RUN_TEXT),
+            ("a string", request(r#","dry_run":"false""#), "invalid json"),
+            ("a number", request(r#","dry_run":0"#), "invalid json"),
+            ("a list", request(r#","dry_run":[false]"#), "invalid json"),
+            (
+                "the key twice",
+                request(r#","dry_run":true,"dry_run":false"#),
+                "invalid json",
+            ),
+            ("an empty body", Vec::new(), "invalid json"),
+            ("bytes that are not text", vec![0xff; 4096], "invalid json"),
+        ];
+        for (name, body, text) in cases {
+            let st = HelperState::new();
+            seed(&st, "relayv");
+            let mut c = cfg();
+            let (fake, log) = fake_devtool(&c.vaults_dir, None);
+            c.devtool = fake;
+            a_ready_proposal(&c.vaults_dir, "relayv");
+            every_seat_has_a_device(&c.vaults_dir, "relayv");
+            let r = handle(
+                &st,
+                &c,
+                &Method::Post,
+                "/api/vault/proposals/p1/send",
+                &body,
+            );
+            assert_eq!(r.status, 400, "{name}: {}", r.body);
+            assert!(r.body.contains(text), "{name}: {}", r.body);
+            let ran = std::fs::read_to_string(&log).unwrap_or_default();
+            assert!(ran.is_empty(), "{name}: the engine was not touched: {ran}");
+        }
+    }
+
+    /// The signature of a signed write is the caller's: whatever it holds, the answer is a refusal.
+    #[cfg(unix)]
+    #[test]
+    fn a_signed_write_with_a_signature_that_is_not_hex_is_refused() {
+        let st = HelperState::new();
+        seed(&st, "relayv");
+        let c = cfg();
+        a_ready_proposal(&c.vaults_dir, "relayv");
+        let _sk = alice_registers_seat_one(&c.vaults_dir, "relayv");
+        for sig in ["€€", "ab€c", &"€".repeat(64), &"+f".repeat(64)] {
+            let body = json!({ "vault": "relayv", "member": "alice", "seat": 1,
+                "ts": 1_700_000_000_000i64, "nonce": "n-bad", "sig": sig })
+            .to_string();
+            let r = handle(
+                &st,
+                &c,
+                &Method::Post,
+                "/api/vault/proposals/p1/approve",
+                body.as_bytes(),
+            );
+            assert!(
+                (400..500).contains(&r.status),
+                "{sig:?}: {} {}",
+                r.status,
+                r.body
+            );
+        }
     }
 
     /// The proposal is authorized under the vault the request names; its record is keyed by its own.
@@ -3690,7 +4087,7 @@ mod tests {
             (
                 "/api/vault/proposals/p1/send",
                 format!(
-                    r#"{{"vault":"{v}","relay_base":"{TEST_RELAY}","room":"0123456789abcdef0123456789abcdef","dry_run":true}}"#
+                    r#"{{"vault":"{v}","relay_base":"{TEST_RELAY}","room":"0123456789abcdef0123456789abcdef","dry_run":false}}"#
                 ),
             ),
             (
@@ -3759,9 +4156,7 @@ mod tests {
     fn every_small_order_spelling_is_refused_as_a_comms_key() {
         let le = |hex_be: &str| -> String {
             // the published u-coordinates are written big-endian; the wire is little-endian
-            let mut b: Vec<u8> = (0..hex_be.len() / 2)
-                .map(|i| u8::from_str_radix(&hex_be[2 * i..2 * i + 2], 16).unwrap())
-                .collect();
+            let mut b: Vec<u8> = konclave_seal::hex::decode(hex_be).unwrap();
             b.reverse();
             plain_hex(&b)
         };
@@ -3777,9 +4172,8 @@ mod tests {
         let aliases: Vec<String> = all
             .iter()
             .map(|h| {
-                let mut b: Vec<u8> = (0..32)
-                    .map(|i| u8::from_str_radix(&h[2 * i..2 * i + 2], 16).unwrap())
-                    .collect();
+                let mut b: Vec<u8> = konclave_seal::hex::decode(h).unwrap();
+                assert_eq!(b.len(), 32, "a small-order spelling is 32 bytes");
                 b[31] |= 0x80;
                 plain_hex(&b)
             })
@@ -3897,6 +4291,7 @@ mod tests {
                 dir
             },
             relays: vec![TEST_RELAY.into()],
+            send_max_polls: orchestrator::helper::DEFAULT_SEND_MAX_POLLS,
         }
     }
 
@@ -4783,12 +5178,7 @@ mod tests {
 
         // And the device opens it, which is what makes closing the plaintext path safe to do.
         let env: serde_json::Value = serde_json::from_str(&after.body).expect("an envelope");
-        let unhex = |s: &str| -> Vec<u8> {
-            (0..s.len())
-                .step_by(2)
-                .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
-                .collect()
-        };
+        let unhex = |s: &str| -> Vec<u8> { konclave_seal::hex::decode(s).unwrap() };
         let mine = env["boxes"][&pubhex].as_str().expect("my box");
         let body_key: [u8; 32] = konclave_seal::open(&dk, &unhex(mine), &unhex(&pubhex))
             .expect("my own box opens")
@@ -5676,7 +6066,8 @@ mod tests {
         seed(&st, "aaaa"); // 2 of 3
 
         // unknown vault -> 404
-        let body = br#"{"vault":"zzzz","relay_base":"https://relay.test","room":"r"}"#;
+        let body =
+            br#"{"vault":"zzzz","relay_base":"https://relay.test","room":"r","dry_run":false}"#;
         assert_eq!(
             handle(
                 &st,
@@ -5689,7 +6080,8 @@ mod tests {
             404
         );
         // unknown proposal -> 404
-        let body2 = br#"{"vault":"aaaa","relay_base":"https://relay.test","room":"r"}"#;
+        let body2 =
+            br#"{"vault":"aaaa","relay_base":"https://relay.test","room":"r","dry_run":false}"#;
         assert_eq!(
             handle(
                 &st,
@@ -6374,7 +6766,7 @@ mod tests {
                 &Method::Post,
                 &format!("/api/vault/proposals/{id}/send"),
                 format!(
-                    r#"{{"vault":"planted","relay_base":"https://relay.test","room":"r",{env}}}"#
+                    r#"{{"vault":"planted","relay_base":"https://relay.test","room":"r","dry_run":false,{env}}}"#
                 )
                 .as_bytes(),
             );
@@ -6446,7 +6838,9 @@ mod tests {
     }
 
     fn send_to(st: &HelperState, c: &HelperConfig, relay: &str, room: &str) -> Resp {
-        let body = json!({ "vault": "relayv", "relay_base": relay, "room": room }).to_string();
+        let body =
+            json!({ "vault": "relayv", "relay_base": relay, "room": room, "dry_run": false })
+                .to_string();
         handle(
             st,
             c,
@@ -6543,9 +6937,9 @@ mod tests {
     /// A send body, optionally carrying a signed-write envelope (`fields` is what
     /// `signed_as_seat_one` returns).
     #[cfg(unix)]
-    fn send_as(st: &HelperState, c: &HelperConfig, dry_run: bool, fields: Option<&str>) -> Resp {
+    fn send_as(st: &HelperState, c: &HelperConfig, fields: Option<&str>) -> Resp {
         let mut body = json!({ "vault": "relayv", "relay_base": TEST_RELAY,
-            "room": "0123456789abcdef0123456789abcdef", "dry_run": dry_run });
+            "room": "0123456789abcdef0123456789abcdef", "dry_run": false });
         if let Some(fields) = fields {
             let extra: serde_json::Value = serde_json::from_str(&format!("{{{fields}}}")).unwrap();
             for (k, v) in extra.as_object().unwrap() {
@@ -6568,23 +6962,21 @@ mod tests {
     #[test]
     fn an_unsigned_send_from_an_incompletely_registered_vault_is_refused_before_anything_is_built()
     {
-        for dry_run in [true, false] {
-            let st = HelperState::new();
-            seed(&st, "relayv"); // open: no write key, no device key
-            let mut c = cfg();
-            let (fake, log) = fake_devtool(&c.vaults_dir, None);
-            c.devtool = fake;
-            a_ready_proposal(&c.vaults_dir, "relayv");
+        let st = HelperState::new();
+        seed(&st, "relayv"); // open: no write key, no device key
+        let mut c = cfg();
+        let (fake, log) = fake_devtool(&c.vaults_dir, None);
+        c.devtool = fake;
+        a_ready_proposal(&c.vaults_dir, "relayv");
 
-            let r = send_as(&st, &c, dry_run, None);
-            assert_eq!(r.status, 409, "dry_run={dry_run}: {}", r.body);
-            assert!(r.body.contains(UNSEALED_SEND_TEXT), "{}", r.body);
-            let ran = std::fs::read_to_string(&log).unwrap_or_default();
-            assert!(
-                !ran.contains("pczt"),
-                "nothing is built or published (dry_run={dry_run}): {ran}"
-            );
-        }
+        let r = send_as(&st, &c, None);
+        assert_eq!(r.status, 409, "{}", r.body);
+        assert!(r.body.contains(UNSEALED_SEND_TEXT), "{}", r.body);
+        let ran = std::fs::read_to_string(&log).unwrap_or_default();
+        assert!(
+            !ran.contains("pczt"),
+            "nothing is built or published: {ran}"
+        );
     }
 
     /// The other side of the rule, so it cannot be met by refusing everything: a member who signs
@@ -6602,9 +6994,12 @@ mod tests {
         let sk = alice_registers_seat_one(&c.vaults_dir, "relayv"); // 1 of 3 seats
 
         let fields = signed_as_seat_one(&sk, "relayv", WriteAction::Send, "p1", "r1-signed");
-        let r = send_as(&st, &c, true, Some(&fields));
+        let r = send_as(&st, &c, Some(&fields));
         assert!(!r.body.contains(UNSEALED_SEND_TEXT), "{}", r.body);
         assert_ne!(r.status, 401, "{}", r.body);
+        // Past the refusal of a practice run too, or this test says nothing about the seal.
+        assert_ne!(r.status, 400, "{}", r.body);
+        assert!(!r.body.contains(NO_DRY_RUN_TEXT), "{}", r.body);
     }
 
     /// A body that LOOKS signed proves nothing on a vault with no write key: the send is still
@@ -6619,12 +7014,7 @@ mod tests {
         c.devtool = fake;
         a_ready_proposal(&c.vaults_dir, "relayv");
 
-        let r = send_as(
-            &st,
-            &c,
-            true,
-            Some(r#""seat":1,"ts":1,"nonce":"zz","sig":"00""#),
-        );
+        let r = send_as(&st, &c, Some(r#""seat":1,"ts":1,"nonce":"zz","sig":"00""#));
         assert_eq!(r.status, 409, "{}", r.body);
         assert!(r.body.contains(UNSEALED_SEND_TEXT), "{}", r.body);
         assert!(!std::fs::read_to_string(&log)
@@ -6632,31 +7022,93 @@ mod tests {
             .contains("pczt"));
     }
 
-    /// The request names its own `max_polls`, and a send holds its vault and a worker for as long
-    /// as it waits.
+    /// How long a send waits for the devices is the operator's to set.
     #[test]
-    fn a_send_cannot_wait_longer_than_the_ceiling() {
-        // The VALUE, not the constant it is compared with: comparing against `MAX_POLLS_CEILING`
-        // stays green with the constant set to `u32::MAX` or to an hour.
-        assert_eq!(polls_for(u32::MAX), 600);
-        assert_eq!(polls_for(4_000_000_000), 600);
-        assert_eq!(polls_for(601), 600);
-        assert_eq!(polls_for(600), 600);
-        assert_eq!(polls_for(300), 300, "the default is untouched");
-        assert_eq!(polls_for(1), 1);
+    fn the_operator_sets_how_long_a_send_waits() {
+        // The VALUES, not the constants they are compared with: comparing against the ceiling stays
+        // green with the ceiling set to `u32::MAX` or to an hour.
         assert_eq!(
-            polls_for(0),
-            1,
-            "zero polls would arm a room nobody collects"
+            send_polls_from(None),
+            (300, None),
+            "unset is the old default"
         );
-        // And the handler really goes through it. The needle is built in two pieces, so that this
-        // test's own text is not what satisfies it, and it ends at the comma, so a call that undoes
-        // the clamp after the scanned text no longer matches.
-        let needle = concat!("max_polls: polls_for", "(req.max_polls),");
+        for (raw, polls) in [("300", 300), ("120", 120), (" 130 ", 130), ("600", 600)] {
+            assert_eq!(send_polls_from(Some(raw)), (polls, None), "{raw:?}");
+        }
+        // Above the ceiling is the ceiling, however large the number, so one setting cannot undo the
+        // number the changelog states.
+        for raw in [
+            "601",
+            "4000000000",
+            "4294967296",
+            "99999999999",
+            "99999999999999999999999999",
+        ] {
+            assert_eq!(
+                send_polls_from(Some(raw)),
+                (600, Some("above the ceiling, so the ceiling is used")),
+                "{raw:?}"
+            );
+        }
+        // Below the floor and zero are the default, whatever the operator meant by them.
+        for raw in ["0", "1", "3", "60", "119"] {
+            assert_eq!(
+                send_polls_from(Some(raw)),
+                (300, Some("below the floor, so the default is used")),
+                "{raw:?}"
+            );
+        }
+        // Anything that is not a whole number is the default, and says so in its own words.
+        for raw in [
+            "", " ", "abc", "-5", "+300", "1.5", "300 s", "1e3", "0x78", "\u{FFFD}",
+        ] {
+            assert_eq!(
+                send_polls_from(Some(raw)),
+                (300, Some("not a whole number, so the default is used")),
+                "{raw:?}"
+            );
+        }
+    }
+
+    /// The environment reaches the wait: what the variable says is what the configuration holds, and
+    /// the note comes with it when the value was not taken as given.
+    #[test]
+    fn the_environment_reaches_the_send_wait() {
+        let with = |value: Option<&str>| {
+            let value = value.map(str::to_string);
+            config_with(&move |k| {
+                (k == "KONCLAVE_SEND_MAX_POLLS")
+                    .then(|| value.clone())
+                    .flatten()
+            })
+        };
+        assert_eq!(with(Some("240")).0.send_max_polls, 240);
+        assert_eq!(with(Some("240")).1, None);
+        assert_eq!(with(None).0.send_max_polls, 300);
+        let (config, note) = with(Some("3"));
+        assert_eq!(config.send_max_polls, 300);
+        assert!(note.is_some(), "a value that was not taken says so");
+        assert_eq!(with(Some("9999")).0.send_max_polls, 600);
+    }
+
+    /// A request cannot choose how long its send waits: the value the send is built with comes from
+    /// the coordinator's configuration, and the request type has no field for it.
+    #[test]
+    fn a_request_cannot_choose_how_long_a_send_waits() {
+        // The needles are built in two pieces, so that this test's own text is not what satisfies or
+        // trips them.
+        let src = include_str!("main.rs");
+        let from_config = concat!("max_polls: cfg.send_", "max_polls,");
         assert!(
-            include_str!("main.rs").contains(needle),
-            "the send must clamp the polls it is asked for"
+            src.contains(from_config),
+            "the send must wait as long as the operator's setting says"
         );
+        for from_request in [concat!("req.max", "_polls"), concat!("psend_max", "_polls")] {
+            assert!(
+                !src.contains(from_request),
+                "the request must not name its own wait: {from_request}"
+            );
+        }
     }
 
     /// And the sealed case needs no signature, as before: nothing is published unsealed.
@@ -6671,8 +7123,10 @@ mod tests {
         a_ready_proposal(&c.vaults_dir, "relayv");
         every_seat_has_a_device(&c.vaults_dir, "relayv");
 
-        let r = send_as(&st, &c, true, None);
+        let r = send_as(&st, &c, None);
         assert!(!r.body.contains(UNSEALED_SEND_TEXT), "{}", r.body);
+        assert_ne!(r.status, 400, "{}", r.body);
+        assert!(!r.body.contains(NO_DRY_RUN_TEXT), "{}", r.body);
     }
 
     /// A key file that is there and is not a key refuses, as an unreadable device registry does. Read
@@ -7705,7 +8159,7 @@ mod tests {
         limits: &admission::Limits,
     ) -> u16 {
         let body = json!({ "vault": "relayv", "relay_base": TEST_RELAY,
-            "room": "0123456789abcdef0123456789abcdef", "dry_run": true })
+            "room": "0123456789abcdef0123456789abcdef", "dry_run": false })
         .to_string();
         serve(
             st,

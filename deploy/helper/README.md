@@ -194,6 +194,7 @@ deployment values.
 | `KONCLAVE_LIGHTWALLETD` | `zec.rocks:443` | lightwalletd for the view-only wallets (mainnet default; `testnet.zec.rocks:443` for testnet) |
 | `KONCLAVE_ZCASH_SIGN` / `KONCLAVE_DEVTOOL` / `KONCLAVE_SIGNER` | `/usr/local/bin/...` | engine binary paths |
 | `KONCLAVE_VAULTS_DIR` | `/data/vaults` | per-vault view-only wallets + send scratch (per the Dockerfile) |
+| `KONCLAVE_SEND_MAX_POLLS` | `300` | how long a send waits for the devices' signatures, in polls (one a second when the relay answers at once, longer when it does not): from `120` to `600`. Below 120, zero or anything that is not a whole number is `300`; above 600, however large, is `600`. The operator's setting. The devices keep their consent for ten minutes, and 600 polls take ten minutes at best, so keep it well below that. The boot log prints the value in use and says when it did not take the one given |
 | `KONCLAVE_RELAY_BASES` | none | the relays a send may be published to, comma-separated `https://` origins (#270). **No default: unset, every send is refused.** Production: `https://relay.konclave.xyz,https://konclave-relay-production.up.railway.app`; staging: `https://konclave-relay-staging.up.railway.app` (see `DEPLOY.md`) |
 
 > With the Railway volume mounted at `/data` (see "Deploy" above), `KONCLAVE_VAULTS_DIR=/data/vaults`
@@ -206,6 +207,7 @@ deployment values.
 
 See [`helper-server/src/main.rs`](../../helper-server/src/main.rs). Read paths never leak the
 UFVK or account (audit M1). A send is solicited only for an **approved proposal** via
-`POST /api/vault/proposals/{id}/send` (refused unless the proposal is `ready`), which defaults
-`dry_run` to **true** so a single call never fires funds. The old ungoverned `POST /api/vault/send`
+`POST /api/vault/proposals/{id}/send` (refused unless the proposal is `ready`), which requires
+`"dry_run": false`: a body that asks for a practice run, or does not say, is answered 400 before
+anything else is looked at, so a request that forgot the flag fires nothing. The old ungoverned `POST /api/vault/send`
 (arbitrary destination, no approval) was removed in #387.

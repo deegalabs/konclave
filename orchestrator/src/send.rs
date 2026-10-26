@@ -700,8 +700,8 @@ pub fn net_prepare_send_gated<T: Transport>(
         // room fails the crypto and is SKIPPED - noise, not a kill (#391). Before this, the send
         // accepted the first structurally-valid message and died at inject, so any outsider could
         // DoS every send by posting one junk response. (Cost: an inject subprocess per structurally
-        // -valid candidate; bounded by max_polls and the relay's rate limit. Authenticating room
-        // writes, #63, would stop the injection at the source.)
+        // -valid candidate. Authenticating room writes, #63, would stop the injection at the
+        // source.)
         let verify = |sigs: &net_send::SpendSigs| {
             signer::inject(&sc.konclave_signer, &tx2_path, &tx3_path, sigs).is_ok()
         };
@@ -870,11 +870,7 @@ mod tests {
         include_bytes!("../../konclave-signer/tests/vectors/ironwood_zero_value_spend.proven.pczt");
     fn vector_sighash() -> [u8; 32] {
         let hex = "332de126200c22131337474ae50367218ec87815c23d297dcdc8278ecb8903b0";
-        let mut out = [0u8; 32];
-        for (i, b) in out.iter_mut().enumerate() {
-            *b = u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap();
-        }
-        out
+        konclave_seal::hex::decode_exact(hex).unwrap()
     }
 
     /// The wiring between what the quorum signed and what gets recorded: the id comes from THE
@@ -914,6 +910,8 @@ mod tests {
         state: std::sync::Arc<crate::relay::RelayState>,
         /// The `pczt_hex` of every signing request posted into the room, as the room saw it.
         published: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+        /// How many other responses are posted into the room before the devices' answer.
+        extra: usize,
     }
     impl DevicesOnTheRelay {
         fn call(&self, method: &str, url: &str, body: &[u8]) -> Result<Vec<u8>, String> {
@@ -943,6 +941,15 @@ mod tests {
                         })
                         .collect(),
                 };
+                let mut bogus = answer.clone();
+                for s in &mut bogus.sigs {
+                    s.sig = "cd".repeat(64);
+                }
+                for _ in 0..self.extra {
+                    let msg = serde_json::json!({ "from": "other_writer",
+                        "data": serde_json::to_string(&bogus).unwrap() });
+                    self.call("POST", url, msg.to_string().as_bytes())?;
+                }
                 let msg = serde_json::json!({ "from": "device",
                     "data": serde_json::to_string(&answer).unwrap() });
                 self.call("POST", url, msg.to_string().as_bytes())?;
@@ -961,6 +968,18 @@ mod tests {
     fn prepare_against_stand_ins(
         tag: &str,
         proven_bytes: &[u8],
+    ) -> (Result<SignedSend, ToolError>, Vec<String>) {
+        prepare_against_stand_ins_with_extra(tag, proven_bytes, 0)
+    }
+
+    /// The same, with `extra` other responses posted before the devices' answer. The stand-in `inject`
+    /// accepts only the devices' signature, as the real one does, so the answer is told from the
+    /// others by what it carries.
+    #[cfg(unix)]
+    fn prepare_against_stand_ins_with_extra(
+        tag: &str,
+        proven_bytes: &[u8],
+        extra: usize,
     ) -> (Result<SignedSend, ToolError>, Vec<String>) {
         use std::os::unix::fs::PermissionsExt;
         let dir =
@@ -994,9 +1013,10 @@ mod tests {
         let signer = script(
             "signer",
             format!(
-                "case \"$1\" in extract) echo 'SIGHASH {}'; echo 'RANDOMIZER 0 {}';; inject) cp {} \"$3\";; esac",
+                "case \"$1\" in extract) echo 'SIGHASH {}'; echo 'RANDOMIZER 0 {}';; inject) case \"$*\" in *{}*) cp {} \"$3\";; *) exit 1;; esac;; esac",
                 "332de126200c22131337474ae50367218ec87815c23d297dcdc8278ecb8903b0",
                 "11".repeat(32),
+                "ab".repeat(64),
                 vector.display()
             ),
         );
@@ -1017,6 +1037,7 @@ mod tests {
             DevicesOnTheRelay {
                 state: std::sync::Arc::new(crate::relay::RelayState::new()),
                 published: published.clone(),
+                extra,
             },
             "",
             "room",
@@ -1036,6 +1057,145 @@ mod tests {
         let seen = published.lock().unwrap().clone();
         std::fs::remove_dir_all(&dir).ok();
         (result, seen)
+    }
+
+    /// A relay nobody answers on: it takes the signing request and counts the polls it is asked, and it
+    /// can fail the n-th one the way curl does when a call outlives its limit.
+    struct SilentRelay {
+        state: std::sync::Arc<crate::relay::RelayState>,
+        gets: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+        /// The poll (1-based) that fails; 0 for none.
+        fail_on: usize,
+    }
+    impl SilentRelay {
+        fn call(&self, method: &str, url: &str, body: &[u8]) -> Result<Vec<u8>, String> {
+            let raw = &url[url.find("/api/relay/").unwrap()..];
+            let path = raw.split('?').next().unwrap();
+            let r = self.state.handle(method, path, raw, body, 1000);
+            (r.status == 200)
+                .then_some(r.body)
+                .ok_or(format!("relay {}", r.status))
+        }
+    }
+    impl Transport for SilentRelay {
+        fn post(&self, url: &str, body: &[u8]) -> Result<Vec<u8>, String> {
+            self.call("POST", url, body)
+        }
+        fn get(&self, url: &str) -> Result<Vec<u8>, String> {
+            let n = self.gets.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+            if n == self.fail_on {
+                return Err("curl GET failed: curl: (28) Operation timed out".into());
+            }
+            self.call("GET", url, &[])
+        }
+    }
+
+    /// `net_prepare_send_with` against stand-in tools and a relay on which nobody answers, with
+    /// `max_polls` polls of a millisecond. Returns what came out and how many polls were made.
+    #[cfg(unix)]
+    fn prepare_on_a_silent_relay(
+        tag: &str,
+        max_polls: u32,
+        fail_on: usize,
+    ) -> (Result<SignedSend, ToolError>, usize) {
+        use std::os::unix::fs::PermissionsExt;
+        let dir =
+            std::env::temp_dir().join(format!("konclave-silent-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let vector = dir.join("signed.pczt");
+        std::fs::write(&vector, VECTOR).unwrap();
+        let script = |name: &str, body: String| {
+            let path = dir.join(name);
+            std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+            let mut perm = std::fs::metadata(&path).unwrap().permissions();
+            perm.set_mode(0o755);
+            std::fs::set_permissions(&path, perm).unwrap();
+            path
+        };
+        let proven = dir.join("proven.pczt");
+        std::fs::write(&proven, PROVEN).unwrap();
+        let devtool = script(
+            "devtool",
+            format!(
+                "case \"$4\" in create) printf unproven;; prove) cat >/dev/null; cat {};; esac",
+                proven.display()
+            ),
+        );
+        let signer = script(
+            "signer",
+            format!(
+                "case \"$1\" in extract) echo 'SIGHASH {}'; echo 'RANDOMIZER 0 {}';; inject) cp {} \"$3\";; esac",
+                "332de126200c22131337474ae50367218ec87815c23d297dcdc8278ecb8903b0",
+                "11".repeat(32),
+                vector.display()
+            ),
+        );
+        let sc: SendConfig = serde_json::from_value(serde_json::json!({
+            "devtool": devtool, "wallet_dir": "/w", "lightwalletd": "zec.rocks:443",
+            "account": "acc", "konclave_signer": signer, "frostd": "/x", "frost_client": "/x",
+            "members": [], "threshold": 2, "group": "g", "frostd_cert": "c", "frostd_key": "k",
+            "server_url": "s", "work_dir": dir.join("work"),
+        }))
+        .unwrap();
+        let plan = SpendPlan::Payment {
+            to: "utest1x".into(),
+            value_zat: 1000,
+            memo: None,
+        };
+        let gets = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let relay = RelayClient::new(
+            SilentRelay {
+                state: std::sync::Arc::new(crate::relay::RelayState::new()),
+                gets: gets.clone(),
+                fail_on,
+            },
+            "",
+            "room",
+            "helper",
+        );
+        let no_tip = || -> Result<u64, ToolError> { panic!("one row: the tip decides nothing") };
+        let result = net_prepare_send_with(
+            &sc,
+            &plan,
+            &relay,
+            &[],
+            max_polls,
+            Duration::from_millis(1),
+            &no_tip,
+        );
+        std::fs::remove_dir_all(&dir).ok();
+        (result, gets.load(std::sync::atomic::Ordering::SeqCst))
+    }
+
+    /// The wait is as many polls as it was given, no more and no fewer: nothing answers, and the
+    /// relay is asked exactly `max_polls` times before the send gives up.
+    #[cfg(unix)]
+    #[test]
+    fn the_wait_ends_after_exactly_max_polls_polls() {
+        for polls in [1u32, 3, 7] {
+            let (r, gets) = prepare_on_a_silent_relay(&format!("exact{polls}"), polls, 0);
+            let Err(why) = r else {
+                panic!("nobody answered, so the send must have given up");
+            };
+            let why = why.to_string();
+            assert!(why.contains("timed out"), "{why}");
+            assert_eq!(gets, polls as usize, "polls made for max_polls={polls}");
+        }
+    }
+
+    /// A poll that fails ends the wait at once, whatever is left of it: what the call limits of the
+    /// relay client turn a stuck call into, and the reason the limits are not set tighter.
+    #[cfg(unix)]
+    #[test]
+    fn a_poll_that_fails_ends_the_wait_at_once() {
+        let (r, gets) = prepare_on_a_silent_relay("failed", 50, 2);
+        let Err(why) = r else {
+            panic!("the second poll failed, so the send must have stopped");
+        };
+        let why = why.to_string();
+        assert!(why.contains("(28)"), "{why}");
+        assert_eq!(gets, 2, "no poll after the failed one");
     }
 
     /// `net_prepare_send_gated` against the same stand-ins, with a table that has a later upgrade and
@@ -1098,6 +1258,7 @@ mod tests {
             DevicesOnTheRelay {
                 state: std::sync::Arc::new(crate::relay::RelayState::new()),
                 published: published.clone(),
+                extra: 0,
             },
             "",
             "room",
@@ -1202,6 +1363,22 @@ mod tests {
         assert!(seen.is_empty());
     }
 
+    /// The send loop reads on from where the previous poll stopped, so the answer is reached within
+    /// the polls given even when it is not in the first poll's reading. `collect_response`'s own tests
+    /// run a copy of the loop; this one runs the real consumer.
+    #[cfg(unix)]
+    #[test]
+    fn the_send_loop_keeps_reading_past_one_poll() {
+        let extra = net_send::MAX_CANDIDATES_PER_POLL + 4;
+        let (result, _) = prepare_against_stand_ins_with_extra("behind", PROVEN, extra);
+        let signed = result.expect("the devices' answer was reached");
+        assert_eq!(
+            signed.signatures(),
+            ["ab".repeat(64)],
+            "the signature that was taken is the devices', not a junk one"
+        );
+    }
+
     /// The whole of `net_prepare_send_with`, against stand-ins for the engine's tools and a relay
     /// that answers like the devices: what comes out is described from THE SIGHASH THE SIGNER
     /// PRINTED and THE PCZT THAT WAS INJECTED (not the proven one), carries the devices' signatures,
@@ -1215,9 +1392,7 @@ mod tests {
         // The room saw the published copy, not the PCZT the signatures are applied to and not the
         // one the engine proved.
         assert_eq!(seen.len(), 1, "one signing request was published");
-        let in_the_room: Vec<u8> = (0..seen[0].len() / 2)
-            .map(|i| u8::from_str_radix(&seen[0][2 * i..2 * i + 2], 16).unwrap())
-            .collect();
+        let in_the_room: Vec<u8> = konclave_seal::hex::decode(&seen[0]).unwrap();
         assert!(
             in_the_room.len() < PROVEN.len(),
             "the room saw the full PCZT"

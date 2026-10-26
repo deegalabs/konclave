@@ -40,6 +40,24 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+## [0.15.0] 2026-10-26
+
+### Fixed
+
+- **An amount typed with a comma is accepted.** In Portuguese the payment screen refused `0,0005`
+  and asked for a dot, although the Portuguese number format uses the comma. A comma used as
+  the decimal point now reads as one, on the payment screen and in each payroll line, and the field
+  keeps what was typed. The preview shows the amount as it will be proposed, and the dollar estimate
+  under the amount no longer reads `0,5` as zero. An amount with two separators (`1.000,5`) is still
+  refused rather than guessed, and so is a dot or a comma before exactly three digits when the
+  whole part is not zero (`1.500` or `1,500`, which reads as 1.5 or as 1500), on the payment screen,
+  in each payroll line and in a receive request: each refusal says what to type instead. `0.001` and
+  `0,0005` are read as before. The amount in a receive request follows the
+  same rule, so its link and QR code never carry more than 8 decimals.
+- **Creating a vault no longer asks the coordinator for proposals it cannot have.** Every member got
+  an error in the browser console during creation, because the list of payments was read before the
+  vault was registered. It is read once the vault is registered.
+
 ## [0.14.0] 2026-10-23
 
 ### Changed
