@@ -62,7 +62,7 @@ export default function Ceremonies({ embedded = false }: { embedded?: boolean })
             {/* The cryptographic proof is kept for the auditor, behind a disclosure (§7). */}
             <details className="cer-tech">
               <summary>{t('ceremonies.techDetails')}</summary>
-              <div className="cer-kv"><span className="cer-k">sighash</span><code>{shortAddr(c.sighash, 10, 8)}</code></div>
+              <div className="cer-kv"><span className="cer-k">{t('ceremonies.sighash')}</span><code>{shortAddr(c.sighash, 10, 8)}</code></div>
               <div className="cer-kv">
                 <span className="cer-k">{t('ceremonies.signature')}</span>
                 <code>{c.signatures.map((s) => shortAddr(s, 8, 6)).join(', ') || '-'}</code>

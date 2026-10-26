@@ -40,6 +40,13 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Changed
+
+- **Everyday screens stop naming pools and protocol terms.** Where a member used to read
+  "Orchard", "Sapling" or "sighash", the screens now say "shielded", "older shielded (Sapling)" and
+  "signed digest (sighash)". Nothing behind the words changed: the vault still receives only at
+  its shielded address, and an older shielded destination is still warned about. (#127)
+
 ## [0.15.0] 2026-10-26
 
 ### Fixed
