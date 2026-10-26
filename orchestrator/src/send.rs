@@ -700,8 +700,8 @@ pub fn net_prepare_send_gated<T: Transport>(
         // room fails the crypto and is SKIPPED - noise, not a kill (#391). Before this, the send
         // accepted the first structurally-valid message and died at inject, so any outsider could
         // DoS every send by posting one junk response. (Cost: an inject subprocess per structurally
-        // -valid candidate; bounded by max_polls and the relay's rate limit. Authenticating room
-        // writes, #63, would stop the injection at the source.)
+        // -valid candidate. Authenticating room writes, #63, would stop the injection at the
+        // source.)
         let verify = |sigs: &net_send::SpendSigs| {
             signer::inject(&sc.konclave_signer, &tx2_path, &tx3_path, sigs).is_ok()
         };
@@ -910,6 +910,8 @@ mod tests {
         state: std::sync::Arc<crate::relay::RelayState>,
         /// The `pczt_hex` of every signing request posted into the room, as the room saw it.
         published: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+        /// How many other responses are posted into the room before the devices' answer.
+        extra: usize,
     }
     impl DevicesOnTheRelay {
         fn call(&self, method: &str, url: &str, body: &[u8]) -> Result<Vec<u8>, String> {
@@ -939,6 +941,15 @@ mod tests {
                         })
                         .collect(),
                 };
+                let mut bogus = answer.clone();
+                for s in &mut bogus.sigs {
+                    s.sig = "cd".repeat(64);
+                }
+                for _ in 0..self.extra {
+                    let msg = serde_json::json!({ "from": "other_writer",
+                        "data": serde_json::to_string(&bogus).unwrap() });
+                    self.call("POST", url, msg.to_string().as_bytes())?;
+                }
                 let msg = serde_json::json!({ "from": "device",
                     "data": serde_json::to_string(&answer).unwrap() });
                 self.call("POST", url, msg.to_string().as_bytes())?;
@@ -957,6 +968,18 @@ mod tests {
     fn prepare_against_stand_ins(
         tag: &str,
         proven_bytes: &[u8],
+    ) -> (Result<SignedSend, ToolError>, Vec<String>) {
+        prepare_against_stand_ins_with_extra(tag, proven_bytes, 0)
+    }
+
+    /// The same, with `extra` other responses posted before the devices' answer. The stand-in `inject`
+    /// accepts only the devices' signature, as the real one does, so the answer is told from the
+    /// others by what it carries.
+    #[cfg(unix)]
+    fn prepare_against_stand_ins_with_extra(
+        tag: &str,
+        proven_bytes: &[u8],
+        extra: usize,
     ) -> (Result<SignedSend, ToolError>, Vec<String>) {
         use std::os::unix::fs::PermissionsExt;
         let dir =
@@ -990,9 +1013,10 @@ mod tests {
         let signer = script(
             "signer",
             format!(
-                "case \"$1\" in extract) echo 'SIGHASH {}'; echo 'RANDOMIZER 0 {}';; inject) cp {} \"$3\";; esac",
+                "case \"$1\" in extract) echo 'SIGHASH {}'; echo 'RANDOMIZER 0 {}';; inject) case \"$*\" in *{}*) cp {} \"$3\";; *) exit 1;; esac;; esac",
                 "332de126200c22131337474ae50367218ec87815c23d297dcdc8278ecb8903b0",
                 "11".repeat(32),
+                "ab".repeat(64),
                 vector.display()
             ),
         );
@@ -1013,6 +1037,7 @@ mod tests {
             DevicesOnTheRelay {
                 state: std::sync::Arc::new(crate::relay::RelayState::new()),
                 published: published.clone(),
+                extra,
             },
             "",
             "room",
@@ -1233,6 +1258,7 @@ mod tests {
             DevicesOnTheRelay {
                 state: std::sync::Arc::new(crate::relay::RelayState::new()),
                 published: published.clone(),
+                extra: 0,
             },
             "",
             "room",
@@ -1335,6 +1361,22 @@ mod tests {
         let e = r.expect_err("a crossing this close to the upgrade");
         assert_eq!(crate::epoch::refusal_of(&e), Some(Refusal::CrossingHold));
         assert!(seen.is_empty());
+    }
+
+    /// The send loop reads on from where the previous poll stopped, so the answer is reached within
+    /// the polls given even when it is not in the first poll's reading. `collect_response`'s own tests
+    /// run a copy of the loop; this one runs the real consumer.
+    #[cfg(unix)]
+    #[test]
+    fn the_send_loop_keeps_reading_past_one_poll() {
+        let extra = net_send::MAX_CANDIDATES_PER_POLL + 4;
+        let (result, _) = prepare_against_stand_ins_with_extra("behind", PROVEN, extra);
+        let signed = result.expect("the devices' answer was reached");
+        assert_eq!(
+            signed.signatures(),
+            ["ab".repeat(64)],
+            "the signature that was taken is the devices', not a junk one"
+        );
     }
 
     /// The whole of `net_prepare_send_with`, against stand-ins for the engine's tools and a relay
