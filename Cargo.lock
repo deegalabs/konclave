@@ -2820,6 +2820,7 @@ dependencies = [
  "wasm-bindgen",
  "zcash_address",
  "zcash_note_encryption",
+ "zcash_primitives",
  "zcash_protocol",
 ]
 
@@ -3471,6 +3472,7 @@ dependencies = [
  "tiny_http",
  "zcash_address",
  "zcash_keys",
+ "zcash_primitives",
  "zcash_protocol",
  "zeroize",
 ]

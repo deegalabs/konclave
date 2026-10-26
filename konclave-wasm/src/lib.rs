@@ -2756,6 +2756,16 @@ pub mod pczt_bridge {
     const MARGINAL_FEE: u64 = 5_000;
     const GRACE_ACTIONS: u64 = 2;
 
+    /// These two are a copy of the chain crate's ZIP 317 numbers (the device cannot link the crate:
+    /// `zcash_primitives` stays off-device). The crate is a dev-dependency only, for this tie.
+    #[cfg(test)]
+    #[test]
+    fn the_zip317_constants_are_the_chain_crates() {
+        use zcash_primitives::transaction::fees::zip317;
+        assert_eq!(MARGINAL_FEE, zip317::MARGINAL_FEE.into_u64());
+        assert_eq!(GRACE_ACTIONS, zip317::GRACE_ACTIONS as u64);
+    }
+
     /// What the fee rule needs to know about one bundle.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     struct BundleShape {

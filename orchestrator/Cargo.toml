@@ -70,3 +70,6 @@ name = "konclave"
 path = "src/main.rs"
 
 [dev-dependencies]
+# The chain crates' own numbers, for tests/chain_crates_drift.rs (the epoch table and ZIP 317 constants
+# are copies of them). Same release the signer builds with.
+zcash_primitives = "0.31.0"
