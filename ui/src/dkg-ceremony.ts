@@ -74,8 +74,13 @@ export interface Applied {
 const MAX_SEATS = 32
 const MAX_NAME = 64
 
+/** A quorum the signing library accepts: frost-core refuses `min_signers < 2` (#589). Shared with the
+ * screen so the floor is written once. */
+export const quorumIsPossible = (t: number, n: number) =>
+  Number.isInteger(n) && Number.isInteger(t) && t >= 2 && t <= n && n >= 2 && n <= MAX_SEATS
+
 const validConfig = (c: DkgConfig) =>
-  Number.isInteger(c.n) && Number.isInteger(c.t) && c.t >= 1 && c.t <= c.n && c.n >= 2 && c.n <= MAX_SEATS
+  quorumIsPossible(c.t, c.n)
   && (c.g === undefined || c.g === 'quorum' || c.g === 'open')
   && (c.cn === undefined || (typeof c.cn === 'string' && c.cn.length <= MAX_NAME))
   && (c.vn === undefined || (typeof c.vn === 'string' && c.vn.length <= MAX_NAME))

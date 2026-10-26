@@ -40,6 +40,18 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A vault can no longer be asked for with a quorum of 1 anywhere.** The signing library refuses a
+  quorum below 2, and the main create screen already stopped at 2 (0.8.0), but the older `/net`
+  screen still listed "1 of 3", a config built by hand or by an older client still reached the
+  ceremony, and when the library finally refused it, after every member had joined, the screen stayed
+  on the roster with no message. Now the floor is written once (`quorumIsPossible`), read by the
+  screen and by the ceremony: the `/net` select starts at 2, creating with an impossible quorum says
+  so before anything is sent to the room, and a failure at the start of the ceremony is shown as a
+  failed creation instead of disappearing. Still open, on the coordinator: registration accepts
+  `threshold: 1` (#589).
+
 ## [0.15.0] 2026-10-26
 
 ### Fixed
