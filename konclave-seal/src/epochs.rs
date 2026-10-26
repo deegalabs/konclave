@@ -284,7 +284,7 @@ impl Table {
                 .map_or(u32::MAX, |next| next.activation_height - 1);
             let (a, b) = (lo.max(row.activation_height), top.min(end));
             a <= b
-                && expiry % Self::zip318_modulus(row) == 0
+                && expiry.is_multiple_of(Self::zip318_modulus(row))
                 && (self.crossing_expiry(a)..=self.crossing_expiry(b)).contains(&expiry)
         })
     }
@@ -566,7 +566,10 @@ mod tests {
         assert_eq!(MAINNET.next_activation_after(NU63), Some(NU7_HEIGHT));
         assert_eq!(MAINNET.minable_until(NU63, NU7_HEIGHT + 5), Some(last));
         assert_eq!(MAINNET.minable_until(NU63, 0), Some(last));
-        assert_eq!(MAINNET.minable_until(NU63, NU7_HEIGHT - 100), Some(NU7_HEIGHT - 100));
+        assert_eq!(
+            MAINNET.minable_until(NU63, NU7_HEIGHT - 100),
+            Some(NU7_HEIGHT - 100)
+        );
         // A ZIP 318 crossing weeks away is dead at the upgrade too.
         assert_eq!(MAINNET.minable_until(NU63, 69_120_000), Some(last));
         assert!(MAINNET.capped_by_next(NU63, NU7_HEIGHT));
@@ -617,7 +620,11 @@ mod tests {
         assert_eq!(MAINNET.slack(at_a), 97_275);
         let b = MAINNET.height_bounds(at_a);
         assert!(b.lo < NU7_HEIGHT - 1_000 && b.top > NU7_HEIGHT);
-        assert_eq!(b.hi, b.top + 120, "the window meets the NU7 row, whose delta is 120");
+        assert_eq!(
+            b.hi,
+            b.top + 120,
+            "the window meets the NU7 row, whose delta is 120"
+        );
     }
 
     // ZIP 318: a pool crossing's expiry is the same for every wallet in a modulus period, and the
