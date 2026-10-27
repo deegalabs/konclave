@@ -1168,4 +1168,8 @@ export const ptBR: Record<string, string> = {
   'receive.viewTx': 'Ver',
   'receive.txReceived': 'recebido',
   'receive.txSent': 'enviado',
+
+  // Toast and Receive polish (#320)
+  'toast.dismiss': 'Fechar aviso',
+  'receive.qrFailed': 'Não deu para desenhar o QR deste pedido. Copie o endereço ou o link abaixo.',
 }

@@ -1172,4 +1172,8 @@ export const en: Record<string, string> = {
   'receive.viewTx': 'View',
   'receive.txReceived': 'received',
   'receive.txSent': 'sent',
+
+  // Toast and Receive polish (#320)
+  'toast.dismiss': 'Dismiss notice',
+  'receive.qrFailed': 'Could not draw the QR for this request. Copy the address or the link below.',
 }
