@@ -87,6 +87,9 @@ export class DkgCeremony {
   private readonly deviceKey: DeviceKey
   private readonly myEncPub: Uint8Array
   private readonly room: string
+  /** The name this device's owner typed, as it is announced. The wasm module holds the creation to it:
+   *  it refuses a transcript that names this device's seat anything else. */
+  readonly myName: string
   config: DkgConfig | null = null
   aborted: DkgAbort | null = null
   session: CreationSession | null = null
@@ -118,7 +121,8 @@ export class DkgCeremony {
   /** Progress worth showing in the ceremony log. */
   onLog?: (what: 'r2From' | 'cantOpen' | 'anomaly', seat: number) => void
 
-  constructor(myTag: string, deviceKey: DeviceKey, room: string) {
+  constructor(myTag: string, deviceKey: DeviceKey, room: string, myName: string) {
+    this.myName = myName.trim().slice(0, MAX_NAME)
     this.myTag = myTag
     this.deviceKey = deviceKey
     this.myEncPub = deviceKey.publicBytes()
@@ -259,7 +263,7 @@ export class DkgCeremony {
       return []
     }
     try {
-      this.session = new CreationSession(this.deviceKey, this.mySeat, cfg.n, cfg.t)
+      this.session = new CreationSession(this.deviceKey, this.mySeat, cfg.n, cfg.t, this.myName)
     } catch {
       this.abort('failed')
       return []

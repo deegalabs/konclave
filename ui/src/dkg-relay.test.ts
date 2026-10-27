@@ -38,7 +38,7 @@ class SplitRelay {
 interface Device { c: DkgCeremony; key: DeviceKey; consumed: Set<number>; name: string }
 const device = (tag: string, name: string): Device => {
   const key = new DeviceKey()
-  return { c: new DkgCeremony(tag, key, ROOM), key, consumed: new Set(), name }
+  return { c: new DkgCeremony(tag, key, ROOM, name), key, consumed: new Set(), name }
 }
 const hello = (d: Device): DkgMsg => ({ type: 'hello', v: DKG_VERSION, encPub: b64(d.key.publicBytes()), name: d.name })
 
@@ -100,7 +100,7 @@ describe('a relay that shows each device a different room', () => {
     // The relay runs its own session for Bia's seat with its own key, and shows it only to Ana.
     const relayKey = new DeviceKey()
     let fake: CreationSession | null = null
-    const fakeFor = (seat: number) => (fake ??= new CreationSession(relayKey, seat, 3, 2))
+    const fakeFor = (seat: number) => (fake ??= new CreationSession(relayKey, seat, 3, 2, 'relay'))
     const { relay, a, b, c, people } = begin((viewer, w) => {
       if (viewer !== 'p-a' || w.from !== 'p-b') return [w]
       const seat = a.c.seatOf('p-b')
@@ -143,7 +143,7 @@ describe('a relay that shows each device a different room', () => {
   it('showing one device a different round 1 for a seat stops it or gives it another code', () => {
     // In Ana's room, Caio's commitment and reveal are another session's (same seat, its own round 1).
     let fake: CreationSession | null = null
-    const fakeFor = (seat: number) => (fake ??= new CreationSession(new DeviceKey(), seat, 3, 2))
+    const fakeFor = (seat: number) => (fake ??= new CreationSession(new DeviceKey(), seat, 3, 2, 'relay'))
     const { relay, a, b, c, people } = begin((viewer, w) => {
       if (viewer !== 'p-a' || w.from !== 'p-c') return [w]
       const seat = a.c.seatOf('p-c')

@@ -58,7 +58,7 @@ export class CreationSession {
     myCommitment(): Uint8Array;
     myNonce(): Uint8Array;
     myRound1(): Uint8Array;
-    constructor(device: DeviceKey, my_seat: number, n: number, t: number);
+    constructor(device: DeviceKey, my_seat: number, n: number, t: number, my_name: string);
     openFromSeat(from: number, sealed: Uint8Array): Uint8Array;
     /**
      * Round 2. Returns, for each other seat, `[to_hi, to_lo, ...sealed box]` flattened into one
@@ -412,7 +412,7 @@ export interface InitOutput {
     readonly creationsession_myCommitment: (a: number) => [number, number];
     readonly creationsession_myNonce: (a: number) => [number, number];
     readonly creationsession_myRound1: (a: number) => [number, number];
-    readonly creationsession_new: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly creationsession_new: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly creationsession_openFromSeat: (a: number, b: number, c: number, d: number) => [number, number, number, number];
     readonly creationsession_part2: (a: number) => [number, number, number];
     readonly creationsession_pubkeys: (a: number) => [number, number];
