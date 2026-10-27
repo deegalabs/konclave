@@ -203,10 +203,10 @@ describe('executeProposal passes the state of a refused send', () => {
     vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ error: 'proposal is not ready to send', state: 'sent' }), { status: 409 }))
     try {
       const { executeProposal } = await import('./helper')
-      const r = await executeProposal({ vault: 'gk', proposalId: 'p1', relayBase: '', room: 'r' })
+      const r = await executeProposal({ vault: 'gk', proposalId: 'p1', relayBase: '', room: 'r', dryRun: false })
       expect(r).toEqual({ error: 'proposal is not ready to send', state: 'sent' })
       vi.stubGlobal('fetch', async () => new Response(JSON.stringify({ error: 'build failed' }), { status: 500 }))
-      expect(await executeProposal({ vault: 'gk', proposalId: 'p1', relayBase: '', room: 'r' })).toEqual({ error: 'build failed' })
+      expect(await executeProposal({ vault: 'gk', proposalId: 'p1', relayBase: '', room: 'r', dryRun: false })).toEqual({ error: 'build failed' })
     } finally {
       vi.unstubAllGlobals()
     }
