@@ -267,12 +267,45 @@ pub mod ceremony {
         Ok(())
     }
 
+    /// What a round-2 call answers when the nonce it was handed has already produced a share.
+    pub const NONCE_ALREADY_USED: &str =
+        "this device's signing nonce already produced a share; a new round 1 is needed";
+
+    /// A signer's nonces for ONE signing round: they make one share and are then dropped. The rule
+    /// lives here, in the thing both round-2 functions sign through.
+    ///
+    /// The nonces are spent only when a share came out. Every `Err` in the signing call comes before
+    /// the share is computed, so a refusal (a package over another message, a commitment that is not
+    /// this device's, a malformed input) emits nothing and leaves them in place for the next package.
+    pub struct NonceSlot(Option<SigningNonces>);
+
+    impl NonceSlot {
+        pub fn new(nonces: SigningNonces) -> Self {
+            NonceSlot(Some(nonces))
+        }
+
+        /// Run `sign` with the nonce and, only if it returns a share, drop the nonce (frost-core
+        /// zeroizes `SigningNonces` on drop).
+        fn sign_once(
+            &mut self,
+            sign: impl FnOnce(&SigningNonces) -> Result<SignatureShare, E>,
+        ) -> Result<Vec<u8>, E> {
+            let nonces = self
+                .0
+                .as_ref()
+                .ok_or_else(|| NONCE_ALREADY_USED.to_string())?;
+            let share = sign(nonces)?;
+            self.0 = None;
+            Ok(share.serialize())
+        }
+    }
+
     /// Participant device, round 1: produce local secret nonces + a public commitment (bytes).
     /// The nonces are kept in the browser session; only the commitment goes to the relay.
-    pub fn participant_round1(kp: &KeyPackage) -> (SigningNonces, Vec<u8>) {
+    pub fn participant_round1(kp: &KeyPackage) -> (NonceSlot, Vec<u8>) {
         let (nonces, commitments) = frost::round1::commit(kp.signing_share(), &mut OsRng);
         (
-            nonces,
+            NonceSlot::new(nonces),
             commitments.serialize().expect("commitment serialize"),
         )
     }
@@ -310,15 +343,14 @@ pub mod ceremony {
     /// exactly that, for the reason given on `participant_round2_with_randomizer`.
     pub fn participant_round2(
         sp_bytes: &[u8],
-        nonces: &SigningNonces,
+        nonces: &mut NonceSlot,
         kp: &KeyPackage,
         seed: &[u8],
         message: &[u8],
     ) -> Result<Vec<u8>, E> {
         let sp = SigningPackage::deserialize(sp_bytes).map_err(e)?;
         require_message(&sp, message)?;
-        let share = rerandomized::sign_with_randomizer_seed(&sp, nonces, kp, seed).map_err(e)?;
-        Ok(share.serialize())
+        nonces.sign_once(|n| rerandomized::sign_with_randomizer_seed(&sp, n, kp, seed).map_err(e))
     }
 
     /// Coordinator: rebuild the randomized params from the seed and aggregate the shares.
@@ -392,7 +424,7 @@ pub mod ceremony {
     #[allow(deprecated)]
     pub fn participant_round2_with_randomizer(
         sp_bytes: &[u8],
-        nonces: &SigningNonces,
+        nonces: &mut NonceSlot,
         kp: &KeyPackage,
         randomizer: &[u8],
         message: &[u8],
@@ -400,8 +432,7 @@ pub mod ceremony {
         let sp = SigningPackage::deserialize(sp_bytes).map_err(e)?;
         require_message(&sp, message)?;
         let r = rerandomized::Randomizer::deserialize(randomizer).map_err(e)?;
-        let share = frost_rerandomized::sign(&sp, nonces, kp, r).map_err(e)?;
-        Ok(share.serialize())
+        nonces.sign_once(|n| frost_rerandomized::sign(&sp, n, kp, r).map_err(e))
     }
 
     /// Coordinator: aggregate the shares under the given randomizer (alpha) into a group signature.
@@ -516,7 +547,7 @@ pub mod ceremony {
 
             // Each device round 2 - sign with local nonces + seed, send share bytes.
             let mut wire_shares = Vec::new();
-            for ((id, kp), (_id2, nonces)) in signers.iter().zip(local_nonces.iter()) {
+            for ((id, kp), (_id2, nonces)) in signers.iter().zip(local_nonces.iter_mut()) {
                 let share_bytes =
                     participant_round2(&sp_bytes, nonces, kp, &seed, message).unwrap();
                 wire_shares.push((id.serialize(), share_bytes));
@@ -561,23 +592,199 @@ pub mod ceremony {
                 wire_commitments.push((id.serialize(), commit_bytes));
             }
             // Built over the LIVE commitments, so nothing about it is malformed.
-            let forged = coordinator_signing_package(&wire_commitments, handed).unwrap();
-            let honest = coordinator_signing_package(&wire_commitments, derived).unwrap();
+            let other_package = coordinator_signing_package(&wire_commitments, handed).unwrap();
+            let own_package = coordinator_signing_package(&wire_commitments, derived).unwrap();
 
             let (_, kp) = signers[0];
-            let refused =
-                participant_round2_with_randomizer(&forged, &local_nonces[0], kp, &alpha, derived);
+            let outcome = participant_round2_with_randomizer(
+                &other_package,
+                &mut local_nonces[0],
+                kp,
+                &alpha,
+                derived,
+            );
             assert_eq!(
-                refused.unwrap_err(),
+                outcome.unwrap_err(),
                 PACKAGE_SIGNS_ANOTHER_MESSAGE,
                 "a package over another message must be refused, and for this reason"
             );
-            // The same device, the same nonces, the honest package: the refusal above is about the
+            // The same device, the same nonces, the package over the derived message: the refusal above is about the
             // message and nothing else.
             assert!(
-                participant_round2_with_randomizer(&honest, &local_nonces[0], kp, &alpha, derived)
-                    .is_ok(),
+                participant_round2_with_randomizer(
+                    &own_package,
+                    &mut local_nonces[0],
+                    kp,
+                    &alpha,
+                    derived
+                )
+                .is_ok(),
                 "the package over the derived message is signed"
+            );
+        }
+
+        /// Two devices of a 2-of-3 vault, their round 1 done: the key packages, the nonce slots, the
+        /// commitments as they travel, and the vault's public keys.
+        #[allow(clippy::type_complexity)]
+        fn two_signers() -> (
+            Vec<KeyPackage>,
+            Vec<NonceSlot>,
+            Vec<(Vec<u8>, Vec<u8>)>,
+            Vec<Identifier>,
+        ) {
+            let (shares, _pubkeys) = frost::keys::generate_with_dealer(
+                3,
+                2,
+                frost::keys::IdentifierList::Default,
+                OsRng,
+            )
+            .unwrap();
+            let kps: std::collections::BTreeMap<_, _> = shares
+                .into_iter()
+                .map(|(id, s)| (id, KeyPackage::try_from(s).unwrap()))
+                .collect();
+            let mut kp_list = Vec::new();
+            let mut slots = Vec::new();
+            let mut commitments = Vec::new();
+            let mut ids = Vec::new();
+            for (id, kp) in kps.iter().take(2) {
+                let (slot, commit_bytes) = participant_round1(kp);
+                kp_list.push(kp.clone());
+                slots.push(slot);
+                commitments.push((id.serialize(), commit_bytes));
+                ids.push(*id);
+            }
+            (kp_list, slots, commitments, ids)
+        }
+
+        /// A nonce makes one share: the module refuses a second call with the same nonce, whatever
+        /// the caller kept beside it.
+        #[test]
+        fn a_nonce_makes_one_share_on_the_randomizer_path() {
+            let alpha =
+                hex::decode("b2ad61e8bf0de877dd01c52356526adf39b036ffed2e0217ece19407e1717624")
+                    .unwrap();
+            let (kps, mut slots, commitments, _ids) = two_signers();
+            let first = b"the sighash of the first payment";
+            let second = b"the sighash of another payment";
+            let sp1 = coordinator_signing_package(&commitments, first).unwrap();
+            let sp2 = coordinator_signing_package(&commitments, second).unwrap();
+
+            assert!(
+                participant_round2_with_randomizer(&sp1, &mut slots[0], &kps[0], &alpha, first)
+                    .is_ok(),
+                "the first use of the nonce makes a share"
+            );
+            // The same nonce with a second package, over another message the device also holds.
+            assert_eq!(
+                participant_round2_with_randomizer(&sp2, &mut slots[0], &kps[0], &alpha, second)
+                    .unwrap_err(),
+                NONCE_ALREADY_USED,
+                "the second use of the same nonce is refused, and for this reason"
+            );
+            // And the very same package again: also refused.
+            assert_eq!(
+                participant_round2_with_randomizer(&sp1, &mut slots[0], &kps[0], &alpha, first)
+                    .unwrap_err(),
+                NONCE_ALREADY_USED
+            );
+        }
+
+        #[test]
+        fn a_nonce_makes_one_share_on_the_seed_path() {
+            let (shares, pubkeys) = frost::keys::generate_with_dealer(
+                3,
+                2,
+                frost::keys::IdentifierList::Default,
+                OsRng,
+            )
+            .unwrap();
+            let group_vk = *pubkeys.verifying_key();
+            let kps: std::collections::BTreeMap<_, _> = shares
+                .into_iter()
+                .map(|(id, s)| (id, KeyPackage::try_from(s).unwrap()))
+                .collect();
+            let first = b"the message of the first round";
+            let second = b"the message of another round";
+            let mut slots = Vec::new();
+            let mut commitments = Vec::new();
+            for (id, kp) in kps.iter().take(2) {
+                let (slot, c) = participant_round1(kp);
+                slots.push(slot);
+                commitments.push((id.serialize(), c));
+            }
+            let sp1 = coordinator_signing_package(&commitments, first).unwrap();
+            let sp2 = coordinator_signing_package(&commitments, second).unwrap();
+            let seed1 = coordinator_randomizer_seed(&group_vk, &sp1).unwrap();
+            let seed2 = coordinator_randomizer_seed(&group_vk, &sp2).unwrap();
+            let kp = kps.values().next().unwrap();
+
+            assert!(participant_round2(&sp1, &mut slots[0], kp, &seed1, first).is_ok());
+            assert_eq!(
+                participant_round2(&sp2, &mut slots[0], kp, &seed2, second).unwrap_err(),
+                NONCE_ALREADY_USED,
+                "the seed path spends the nonce too"
+            );
+        }
+
+        /// The other half of the rule: a refusal makes no share, so it does not spend the nonce.
+        #[test]
+        fn a_refused_package_does_not_spend_the_nonce() {
+            let alpha =
+                hex::decode("b2ad61e8bf0de877dd01c52356526adf39b036ffed2e0217ece19407e1717624")
+                    .unwrap();
+            let (kps, mut slots, commitments, ids) = two_signers();
+            let message = b"the sighash this device derived";
+            let own_package = coordinator_signing_package(&commitments, message).unwrap();
+
+            // A package over the right message that carries a commitment this device never made
+            // for seat 1 (the one from another round 1): frost refuses it inside the signing call.
+            let (_other_slot, other_commit) = participant_round1(&kps[0]);
+            let foreign: Vec<(Vec<u8>, Vec<u8>)> =
+                vec![(ids[0].serialize(), other_commit), commitments[1].clone()];
+            let foreign_sp = coordinator_signing_package(&foreign, message).unwrap();
+            let outcome = participant_round2_with_randomizer(
+                &foreign_sp,
+                &mut slots[0],
+                &kps[0],
+                &alpha,
+                message,
+            )
+            .unwrap_err();
+            assert_ne!(
+                outcome, NONCE_ALREADY_USED,
+                "the first call cannot find the nonce spent"
+            );
+            assert_ne!(
+                outcome, PACKAGE_SIGNS_ANOTHER_MESSAGE,
+                "the message is the right one"
+            );
+            assert!(
+                outcome.to_lowercase().contains("commitment"),
+                "refused because the commitment is not this device's, not for another reason: {outcome}"
+            );
+
+            // Malformed inputs fail before the signing call too.
+            assert!(participant_round2_with_randomizer(
+                &own_package,
+                &mut slots[0],
+                &kps[0],
+                &[1, 2, 3],
+                message
+            )
+            .is_err());
+
+            // The nonce is still there for the package that does belong to it.
+            assert!(
+                participant_round2_with_randomizer(
+                    &own_package,
+                    &mut slots[0],
+                    &kps[0],
+                    &alpha,
+                    message
+                )
+                .is_ok(),
+                "the package that belongs to this device is answered after the refusals"
             );
         }
 
@@ -613,7 +820,8 @@ pub mod ceremony {
             let seed = coordinator_randomizer_seed(&group_vk, &own_package).unwrap();
 
             let (_, kp) = signers[0];
-            let outcome = participant_round2(&other_package, &local_nonces[0], kp, &seed, derived);
+            let outcome =
+                participant_round2(&other_package, &mut local_nonces[0], kp, &seed, derived);
             assert_eq!(
                 outcome.unwrap_err(),
                 PACKAGE_SIGNS_ANOTHER_MESSAGE,
@@ -652,7 +860,7 @@ pub mod ceremony {
             let sp_bytes = coordinator_signing_package(&wire_commitments, message).unwrap();
             let own_share = participant_round2_with_randomizer(
                 &sp_bytes,
-                &local_nonces[0],
+                &mut local_nonces[0],
                 signers[0].1,
                 &alpha,
                 message,
@@ -719,7 +927,7 @@ pub mod ceremony {
 
             // Round 2 with the EXPLICIT Orchard alpha (no seed).
             let mut wire_shares = Vec::new();
-            for ((id, kp), (_id2, nonces)) in signers.iter().zip(local_nonces.iter()) {
+            for ((id, kp), (_id2, nonces)) in signers.iter().zip(local_nonces.iter_mut()) {
                 let share =
                     participant_round2_with_randomizer(&sp_bytes, nonces, kp, &alpha, message)
                         .unwrap();
@@ -933,7 +1141,7 @@ pub mod dkg {
                     .unwrap();
             let seed = super::super::ceremony::coordinator_randomizer_seed(&group_vk, &sp).unwrap();
             let mut wire_shares = Vec::new();
-            for ((id, kp), (_id2, nonces)) in signers.iter().zip(local_nonces.iter()) {
+            for ((id, kp), (_id2, nonces)) in signers.iter().zip(local_nonces.iter_mut()) {
                 let share =
                     super::super::ceremony::participant_round2(&sp, nonces, kp, &seed, message)
                         .unwrap();
@@ -1999,7 +2207,7 @@ pub mod recovery {
                 super::super::ceremony::coordinator_signing_package(&commits, message).unwrap();
             let seed = super::super::ceremony::coordinator_randomizer_seed(&group_vk, &sp).unwrap();
             let mut shares_wire = Vec::new();
-            for ((id, kp), (_id, nc)) in signers.iter().zip(nonces.iter()) {
+            for ((id, kp), (_id, nc)) in signers.iter().zip(nonces.iter_mut()) {
                 shares_wire.push((
                     id.serialize(),
                     super::super::ceremony::participant_round2(&sp, nc, kp, &seed, message)
@@ -5021,7 +5229,6 @@ mod js {
     use super::frost;
     use super::OsRng;
     use frost::keys::KeyPackage;
-    use frost::round1::SigningNonces;
     use wasm_bindgen::prelude::*;
 
     fn je(e: impl core::fmt::Display) -> JsValue {
@@ -5086,14 +5293,11 @@ mod js {
     /// Participant round-1 output: nonces stay on THIS device; commitment goes to the relay.
     #[wasm_bindgen]
     pub struct Round1 {
-        nonces: Vec<u8>,
+        nonces: ceremony::NonceSlot,
         commitment: Vec<u8>,
     }
     #[wasm_bindgen]
     impl Round1 {
-        pub fn nonces(&self) -> Vec<u8> {
-            self.nonces.clone()
-        }
         pub fn commitment(&self) -> Vec<u8> {
             self.commitment.clone()
         }
@@ -5104,10 +5308,7 @@ mod js {
     pub fn participant_round1(kp_bytes: &[u8]) -> Result<Round1, JsValue> {
         let kp = KeyPackage::deserialize(kp_bytes).map_err(je)?;
         let (nonces, commitment) = ceremony::participant_round1(&kp);
-        Ok(Round1 {
-            nonces: nonces.serialize().map_err(je)?,
-            commitment,
-        })
+        Ok(Round1 { nonces, commitment })
     }
 
     /// Participant device, round 2 (JS): sign with the local nonces + seed. `message` is what this
@@ -5115,14 +5316,13 @@ mod js {
     #[wasm_bindgen(js_name = participantRound2)]
     pub fn participant_round2(
         sp: &[u8],
-        nonces_bytes: &[u8],
+        round1: &mut Round1,
         kp_bytes: &[u8],
         seed: &[u8],
         message: &[u8],
     ) -> Result<Vec<u8>, JsValue> {
-        let nonces = SigningNonces::deserialize(nonces_bytes).map_err(je)?;
         let kp = KeyPackage::deserialize(kp_bytes).map_err(je)?;
-        ceremony::participant_round2(sp, &nonces, &kp, seed, message).map_err(je)
+        ceremony::participant_round2(sp, &mut round1.nonces, &kp, seed, message).map_err(je)
     }
 
     /// Participant device, round 2 (JS), REAL-TRANSACTION path: sign with the given Orchard
@@ -5135,15 +5335,20 @@ mod js {
     #[wasm_bindgen(js_name = participantRound2WithRandomizer)]
     pub fn participant_round2_with_randomizer(
         sp: &[u8],
-        nonces_bytes: &[u8],
+        round1: &mut Round1,
         kp_bytes: &[u8],
         randomizer: &[u8],
         message: &[u8],
     ) -> Result<Vec<u8>, JsValue> {
-        let nonces = SigningNonces::deserialize(nonces_bytes).map_err(je)?;
         let kp = KeyPackage::deserialize(kp_bytes).map_err(je)?;
-        ceremony::participant_round2_with_randomizer(sp, &nonces, &kp, randomizer, message)
-            .map_err(je)
+        ceremony::participant_round2_with_randomizer(
+            sp,
+            &mut round1.nonces,
+            &kp,
+            randomizer,
+            message,
+        )
+        .map_err(je)
     }
 
     /// Coordinator (JS): accumulates the public wire material and produces the signature.

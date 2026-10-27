@@ -67,8 +67,8 @@ async function main(): Promise<void> {
   const seed = coord.seed()
 
   // 6) Round 2 - each device signs with ITS OWN nonces. Only the resulting share crosses the wire.
-  coord.addShare(vault.id(0), participantRound2(signingPackage, deviceA.nonces(), vault.key_package(0), seed, message))
-  coord.addShare(vault.id(1), participantRound2(signingPackage, deviceB.nonces(), vault.key_package(1), seed, message))
+  coord.addShare(vault.id(0), participantRound2(signingPackage, deviceA, vault.key_package(0), seed, message))
+  coord.addShare(vault.id(1), participantRound2(signingPackage, deviceB, vault.key_package(1), seed, message))
 
   // 7) Aggregate the two shares into one group signature.
   const signature = coord.aggregate()
