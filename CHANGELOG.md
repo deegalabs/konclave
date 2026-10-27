@@ -56,6 +56,31 @@ explicitly accepted.
 
 ## [Unreleased]
 
+### Added
+
+- **The coordinator knows the NU7 network upgrade (block 3,543,405, about 6 November 2026).** The epoch
+  table in `konclave-seal` has its second row (consensus branch `0x77190AD9`, version 6, 25-second
+  blocks, ordinary transactions expiring 120 blocks past their target). The coordinator pauses new
+  payments shortly before the upgrade (about 80 minutes for an ordinary payment, about six hours for a
+  payment that moves funds between pools), so that no transaction is built that the upgrade would catch
+  before it is mined, and, after the upgrade, refuses to hand a device a transaction the previous engine
+  built, before any signature is asked. A pool crossing's expiry (ZIP 318) is computed at the modulus
+  of the upgrade its target is in (34,560 blocks before it, 103,680 from it); nothing reads it yet.
+
+### Known limits
+
+- **After the upgrade, until the coordinator's engine is updated, payments are refused rather than
+  built.** This release does not move the engine; that is the next one. A member sees "the coordinator
+  has not been updated for the network upgrade yet": nothing was signed or sent, and approvals stay
+  valid until the proposal expires (72 hours). The text shown before the upgrade still says a payment
+  can be sent once the upgrade block is mined, which holds only once the engine is updated; the web
+  release that rewords it comes before the pause starts.
+- **The cap that would declare an earlier unmined transaction dead at the upgrade stays off.** It does
+  not yet read the branch the chain reports (#638), so an earlier signed and unmined transaction is
+  held until its own expiry plus ten blocks, as before.
+- **A payment that moves funds between pools, built shortly before the upgrade, can keep its funds
+  reserved by the network for weeks.**
+
 ## [0.15.0] 2026-10-26
 
 > **Services deployed when this was cut (2026-10-26):** coordinator `c08c935`, relay `f8dc88d0970337a3`.
