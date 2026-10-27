@@ -1092,9 +1092,9 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
   })
 
   it('the machine has ONE way to make a share, and it is the one that binds the message', () => {
-    // The wasm exports two round-2 functions. The seed one signs whatever package it is given and
-    // exists for the self-contained demos; the randomizer one takes the message and refuses a
-    // package over anything else. The money path must only ever reach the second. Comments are
+    // The wasm exports two round-2 functions. Both take the device's message; the seed one exists
+    // for the self-contained demos (round2-callers.test.ts pins who calls it) and the randomizer
+    // one is the real-transaction path. The money path must only ever reach the second. Comments are
     // stripped before looking, since a scan that can be satisfied by a comment checks nothing.
     const code = codeOf('./signing-machine.ts')
     expect(code).not.toMatch(/\bparticipantRound2\(/)

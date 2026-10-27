@@ -1084,14 +1084,16 @@ export function participantRound1(kp_bytes) {
 }
 
 /**
- * Participant device, round 2 (JS): sign with the local nonces + seed.
+ * Participant device, round 2 (JS): sign with the local nonces + seed. `message` is what this
+ * device holds for itself; the share is refused unless the package signs exactly that.
  * @param {Uint8Array} sp
  * @param {Uint8Array} nonces_bytes
  * @param {Uint8Array} kp_bytes
  * @param {Uint8Array} seed
+ * @param {Uint8Array} message
  * @returns {Uint8Array}
  */
-export function participantRound2(sp, nonces_bytes, kp_bytes, seed) {
+export function participantRound2(sp, nonces_bytes, kp_bytes, seed, message) {
     const ptr0 = passArray8ToWasm0(sp, wasm.__wbindgen_malloc);
     const len0 = WASM_VECTOR_LEN;
     const ptr1 = passArray8ToWasm0(nonces_bytes, wasm.__wbindgen_malloc);
@@ -1100,13 +1102,15 @@ export function participantRound2(sp, nonces_bytes, kp_bytes, seed) {
     const len2 = WASM_VECTOR_LEN;
     const ptr3 = passArray8ToWasm0(seed, wasm.__wbindgen_malloc);
     const len3 = WASM_VECTOR_LEN;
-    const ret = wasm.participantRound2(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3);
+    const ptr4 = passArray8ToWasm0(message, wasm.__wbindgen_malloc);
+    const len4 = WASM_VECTOR_LEN;
+    const ret = wasm.participantRound2(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4);
     if (ret[3]) {
         throw takeFromExternrefTable0(ret[2]);
     }
-    var v5 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    var v6 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
     wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
-    return v5;
+    return v6;
 }
 
 /**

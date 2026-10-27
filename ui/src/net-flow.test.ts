@@ -73,12 +73,34 @@ describe('/net multi-device flow (DKG → sign → verify)', () => {
     coord.prepare()
     const sp = coord.signingPackage()
     const seed = coord.seed()
-    coord.addShare(id0, participantRound2(sp, a.nonces(), s0.keyPackage(), seed))
-    coord.addShare(id1, participantRound2(sp, b.nonces(), s1.keyPackage(), seed))
+    coord.addShare(id0, participantRound2(sp, a.nonces(), s0.keyPackage(), seed, msg))
+    coord.addShare(id1, participantRound2(sp, b.nonces(), s1.keyPackage(), seed, msg))
     const sig = coord.aggregate()
 
     expect(coord.verify(sig)).toBe(true)
     expect(verifyRedpallas(groupVk, sp, seed, msg, sig)).toBe(true)
+  })
+
+  it('neither round-2 export signs a package over a message the device did not hold', () => {
+    // The package comes from the coordinator; the message is the device's own. Both exports take
+    // the message and refuse the package, for the same reason, before any share exists.
+    const { s0, s1, id0, id1, groupVk, pubkeys } = dkg2of3()
+    const held = hexToBytes(DKG_SIGHASH)
+    const handed = new TextEncoder().encode('a payment nobody here approved')
+    const a = participantRound1(s0.keyPackage())
+    const b = participantRound1(s1.keyPackage())
+    const coord = new Coordinator(groupVk, pubkeys, handed)
+    coord.addCommitment(id0, a.commitment())
+    coord.addCommitment(id1, b.commitment())
+    coord.prepare()
+    const sp = coord.signingPackage()
+    const seed = coord.seed()
+    expect(() => participantRound2(sp, a.nonces(), s0.keyPackage(), seed, held)).toThrow(/different message/)
+    expect(() =>
+      participantRound2WithRandomizer(sp, a.nonces(), s0.keyPackage(), DKG_ALPHA, held),
+    ).toThrow(/different message/)
+    // The same package, signed by the device that holds ITS message, is fine.
+    expect(participantRound2(sp, a.nonces(), s0.keyPackage(), seed, handed).length).toBeGreaterThan(0)
   })
 
   it('the /net path: a 2-of-3 signs under the PCZT alpha and verifies under ak+alpha', () => {
