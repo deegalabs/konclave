@@ -64,6 +64,12 @@ history to tidy it is how context gets lost.
   known seat), and a second request that lands while a signature is being made does not replace
   the one in hand. A device that already holds the helper's request takes the transaction from it,
   and an incoming request has to name the same sighash.
+- **The proof page no longer offers a check that could not run.** Its "verify on-chain now" button
+  asked an explorer's API, and the site's own security policy refused that request before it left,
+  so pressing it always ended in "blocked", which reads as a broken claim. The button is gone; the
+  page says how to check instead: the two explorer links on every transaction, and the
+  `verify-proof.mjs` script for the whole list at once. A test now holds the page's network origins
+  to the policy (#615).
 
 ## [0.15.0] 2026-10-26
 
