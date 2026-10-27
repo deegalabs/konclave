@@ -102,14 +102,64 @@ async function readAuthHeaders(path: string): Promise<Record<string, string>> {
 export const WALLET_BUSY = 'wallet-busy' as const
 export type WalletBusy = typeof WALLET_BUSY
 
+/** Why the coordinator did not serve a request now, from its typed 503 (the busy contract, v1):
+ *  `wallet` for a read whose wallet is in use; `vault` for a write that found the vault's lock held;
+ *  `service` when the coordinator is saturated. Anything else, or no `busy` at all, is `null`, and the
+ *  caller reads the answer exactly as it did before the contract (an old coordinator never sends it).
+ *  The one reader of the field: every caller decides by this, never by the sentence. */
+export type BusyKind = 'wallet' | 'vault' | 'service'
+export function busyOf(status: number, body: unknown): BusyKind | null {
+  if (status !== 503 || !body || typeof body !== 'object') return null
+  const b = (body as { busy?: unknown }).busy
+  return b === 'wallet' || b === 'vault' || b === 'service' ? b : null
+}
+
+/** A write the coordinator answered busy is retried at most 3 times within about 20 s; a send for
+ *  about two minutes, because the vault may be held by another proposal's send while its quorum
+ *  signs. The refusal comes before the coordinator does anything, so the SAME request is sent again. */
+const WRITE_BUSY = { tries: 3, ms: 20_000 }
+const SEND_BUSY = { tries: Infinity, ms: 120_000 }
+
+/** A busy that means "this write was not served": `vault` or `service`. `wallet` is a read's. */
+function busyWrite(kind: BusyKind | null): kind is 'vault' | 'service' {
+  return kind === 'vault' || kind === 'service'
+}
+
+/** `fetch` that retries a write the coordinator answered busy (`vault` or `service`), waiting the
+ *  `retry_after` it advised (from the body: a page cannot read the header across origins), longer
+ *  each time, at most 10 s a wait. Returns the last answer and its parsed body. */
+async function fetchRetryingBusy(
+  doFetch: () => Promise<Response>,
+  budget: { tries: number; ms: number },
+  onBusy?: () => void,
+): Promise<{ res: Response; body: unknown }> {
+  const start = Date.now()
+  for (let attempt = 1; ; attempt++) {
+    const res = await doFetch()
+    const body: unknown = await res.json().catch(() => null)
+    // A busy that also names a txid or a state is not a clean busy: the payment may be on the
+    // network, so it is never retried and reaches `readReply`, which puts the txid first.
+    const b = body as { retry_after?: unknown; txid?: unknown; state?: unknown } | null
+    if (!busyWrite(busyOf(res.status, body)) || b?.txid !== undefined || b?.state !== undefined) return { res, body }
+    // Advice from the coordinator, held between 1 and 10 s, longer each time.
+    const advised = b?.retry_after
+    const secs = typeof advised === 'number' && Number.isFinite(advised) ? Math.min(Math.max(advised, 1), 10) : 2
+    const wait = Math.min(secs * 1000 * attempt, 10_000)
+    if (attempt >= budget.tries || Date.now() - start + wait > budget.ms) return { res, body }
+    onBusy?.()
+    await new Promise((r) => setTimeout(r, wait))
+  }
+}
+
 async function getJsonOrBusy<T>(path: string): Promise<T | null | WalletBusy> {
   const base = helperBase()
   if (!base) return null
   try {
     const res = await fetch(`${base}${path}`, { headers: await readAuthHeaders(path) })
     if (res.status === 503) {
-      const body = (await res.json().catch(() => null)) as { busy?: unknown } | null
-      return body?.busy === 'wallet' ? WALLET_BUSY : null
+      // A saturated coordinator is read like a busy wallet: the screen keeps what it shows.
+      const kind = busyOf(res.status, await res.json().catch(() => null))
+      return kind === 'wallet' || kind === 'service' ? WALLET_BUSY : null
     }
     if (!res.ok) return null
     return (await res.json()) as T
@@ -134,10 +184,10 @@ async function getJson<T>(path: string): Promise<T | null> {
  *  Rather than change `postJson`'s signature at forty call sites, the last failure is recorded here
  *  and read by the one caller that needs it. Single-threaded and read immediately after the await,
  *  so there is no interleaving to worry about. */
-let lastPostFailure: { status: number; error?: string; updateRequired?: boolean } | null = null
+let lastPostFailure: { status: number; error?: string; updateRequired?: boolean; busy?: boolean } | null = null
 
 /** The failure from the most recent `postJson`, or null. Cleared by the next call. */
-export function lastHelperPostFailure(): { status: number; error?: string; updateRequired?: boolean } | null {
+export function lastHelperPostFailure(): { status: number; error?: string; updateRequired?: boolean; busy?: boolean } | null {
   return lastPostFailure
 }
 
@@ -146,17 +196,23 @@ async function postJson<T>(path: string, body: unknown, extra: Record<string, st
   lastPostFailure = null
   if (!base) return null
   try {
-    const res = await fetch(`${base}${path}`, {
+    const sent = JSON.stringify(body)
+    const { res, body: answer } = await fetchRetryingBusy(() => fetch(`${base}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...extra },
-      body: JSON.stringify(body),
-    })
+      body: sent,
+    }), WRITE_BUSY)
     if (!res.ok) {
-      const j = (await res.json().catch(() => null)) as { error?: string; update_required?: unknown } | null
-      lastPostFailure = { status: res.status, error: j?.error, updateRequired: j?.update_required === true }
+      const j = answer as { error?: string; update_required?: unknown } | null
+      // Still busy after the retries: `vault busy` is the code `humanError` words, so no caller
+      // shows the coordinator's English sentence or reads it as "unreachable".
+      const stillBusy = busyWrite(busyOf(res.status, answer))
+      lastPostFailure = stillBusy
+        ? { status: res.status, error: 'vault busy', busy: true }
+        : { status: res.status, error: j?.error, updateRequired: j?.update_required === true }
       return null
     }
-    return (await res.json()) as T
+    return answer as T
   } catch {
     return null
   }
@@ -366,14 +422,16 @@ export async function renameMember(
   try {
     // Read the body even on a 400 (postJson drops it) so the specific reason - name taken / unknown
     // seat / empty - reaches the UI instead of a generic failure.
-    const res = await fetch(`${base}/api/vault/members/rename`, {
+    // `proof` is present when this device holds its share unlocked, and the coordinator
+    // requires it once the vault has a registered write key.
+    const sent = JSON.stringify({ vault: groupKeyHex, old, new: next, ...(proof ?? {}) })
+    const { res, body } = await fetchRetryingBusy(() => fetch(`${base}/api/vault/members/rename`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      // `proof` is present when this device holds its share unlocked, and the coordinator
-      // requires it once the vault has a registered write key.
-      body: JSON.stringify({ vault: groupKeyHex, old, new: next, ...(proof ?? {}) }),
-    })
-    const data = (await res.json().catch(() => null)) as { members?: string[]; error?: string } | null
+      body: sent,
+    }), WRITE_BUSY)
+    if (busyWrite(busyOf(res.status, body))) return { error: 'vault busy' }
+    const data = body as { members?: string[]; error?: string } | null
     if (res.ok && data?.members) return { members: data.members }
     return { error: data?.error ?? 'rename failed' }
   } catch {
@@ -540,6 +598,8 @@ export async function executeProposal(args: {
   dryRun?: boolean
   /** #288: firing a broadcast is a governance write. Bound to the proposal id. */
   proof?: WriteProof
+  /** Called each time the send waits on a busy vault, so the screen can say it is trying again. */
+  onBusy?: () => void
 }): Promise<SendReply> {
   // A send can fail at any of ~7 stages (build/prove/sign/inject/broadcast); the helper returns a
   // precise `{error}` with an accurate status. We read that body instead of collapsing every
@@ -547,18 +607,23 @@ export async function executeProposal(args: {
   const base = helperBase()
   if (!base) return null
   try {
-    const res = await fetch(`${base}/api/vault/proposals/${q(args.proposalId)}/send`, {
+    const sent = JSON.stringify({
+      vault: args.vault,
+      relay_base: args.relayBase,
+      room: args.room,
+      dry_run: args.dryRun ?? true,
+      ...(args.proof ?? {}),
+    })
+    const { res, body } = await fetchRetryingBusy(() => fetch(`${base}/api/vault/proposals/${q(args.proposalId)}/send`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        vault: args.vault,
-        relay_base: args.relayBase,
-        room: args.room,
-        dry_run: args.dryRun ?? true,
-        ...(args.proof ?? {}),
-      }),
-    })
-    const data = (await res.json().catch(() => null)) as
+      body: sent,
+    }), SEND_BUSY, args.onBusy)
+    // Still busy after about two minutes: the coordinator did not start this send. `readReply` ends
+    // it as busy, which keeps every signer's consent, unless the answer also named a txid or a state.
+    const kind = busyOf(res.status, body)
+    const stillBusy = busyWrite(kind) ? kind : undefined
+    const data = body as
       | { txid: string | null; dry_run: boolean; state: string }
       | { error?: string; state?: unknown; txid?: unknown; reason?: unknown; held_until?: unknown }
       | null
@@ -573,9 +638,10 @@ export async function executeProposal(args: {
       // network upgrade (#638): kept, so the screen decides by them and not by the English text.
       const reason = data && 'reason' in data && typeof data.reason === 'string' ? data.reason : ''
       const heldUntil = data && 'held_until' in data && typeof data.held_until === 'number' ? data.held_until : undefined
-      if (raw) {
+      if (raw || stillBusy) {
         return {
-          error: raw,
+          error: raw || 'vault busy',
+          ...(stillBusy ? { busy: stillBusy } : {}),
           ...(state ? { state } : {}),
           ...(txid ? { txid } : {}),
           ...(reason ? { reason } : {}),

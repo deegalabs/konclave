@@ -8,6 +8,7 @@
 // payment that had gone out (#280). So the coordinator's record of the payment is the last word:
 // checked before the request, and read again when the coordinator refuses because it was sent.
 import { readOutcome, type PanelResult, type ReplyEnd, type Resolution, type SentProbe } from './send-outcome'
+import type { SendEnd } from './send-attempt'
 import { startVisiblePoll } from './usePoll'
 import type { TFn } from './i18n'
 import { epochMessage, humanError, netState } from './api'
@@ -81,6 +82,8 @@ export type PanelStep =
   | { do: 'sent'; txid: string }
   | { do: 'resolve' }
   | { do: 'unknown'; why: 'lost' | 'held' | 'broadcast'; txid?: string }
+  /** Not started: the coordinator was busy. Signatures kept, no withdrawal, send again offered. */
+  | { do: 'busy' }
   | { do: 'fail'; text: string; raw?: string }
 
 /** A step the panel shows: every one but `resolve`, which asks the record first. */
@@ -91,6 +94,7 @@ export function panelStep(end: ReplyEnd, t: TFn): PanelStep {
     case 'sent': return { do: 'sent', txid: end.txid }
     case 'resolve': return { do: 'resolve' }
     case 'held': return end.txid ? { do: 'unknown', why: 'broadcast', txid: end.txid } : { do: 'unknown', why: 'held' }
+    case 'busy': return { do: 'busy' }
   }
   if (end.why === 'unreachable') return { do: 'fail', text: t('signing.errUnreachable') }
   if (end.why === 'no-txid') return { do: 'fail', text: t('signing.errNoTxid') } // a reply with no txid is NOT a send
@@ -116,10 +120,44 @@ export function unresolvedNoteKey(why: 'lost' | 'held' | 'broadcast'): string {
   return why === 'held' ? 'signing.heldNote' : why === 'broadcast' ? 'signing.broadcastNote' : 'signing.unresolvedNote'
 }
 
+/** What a shown step does to this device's send memory and to the signatures. Only a failure
+ *  withdraws them (nothing went out); a busy coordinator did not start the send, so the memory is
+ *  released for "Try sending again" and every signature stands; an unknown outcome keeps both (the
+ *  money may have moved, #280). One rule, read by the panel's `apply`. */
+export function stepEffects(step: ShownStep): { endAs: SendEnd | null; withdraw: boolean } {
+  if (step.do === 'fail') return { endAs: 'not-sent', withdraw: true }
+  if (step.do === 'busy') return { endAs: 'not-sent', withdraw: false }
+  if (step.do === 'unknown') return { endAs: 'unknown', withdraw: false }
+  return { endAs: null, withdraw: false }
+}
+
+/** Everything the signing panel does for a shown step, decided here so the panel decides nothing:
+ *  what happens to its send memory, what it shows, what it announces, and whether every signature is
+ *  withdrawn (with the reason that travels with the withdrawal). Only a failure withdraws; a busy
+ *  send keeps them. When this device refused the transaction, its failure is not announced again: the
+ *  refusal is what the panel shows. */
+export interface ApplyPlan {
+  endAs: SendEnd | null
+  result: PanelResult
+  toast: { kind: 'ok' | 'warn' | 'err'; key?: string; text?: string } | null
+  withdraw: string | null
+}
+export function applyPlan(step: ShownStep, refusing: boolean): ApplyPlan {
+  const { endAs, withdraw } = stepEffects(step)
+  const result = stepResult(step)
+  if (step.do === 'sent') return { endAs, result, toast: { kind: 'ok', key: 'toast.sent' }, withdraw: null }
+  if (step.do === 'busy') return { endAs, result, toast: { kind: 'warn', key: 'signing.busy' }, withdraw: null }
+  if (step.do === 'fail') {
+    return { endAs, result, toast: refusing ? null : { kind: 'err', text: step.text }, withdraw: withdraw ? (step.raw ?? step.text) : null }
+  }
+  return { endAs, result, toast: { kind: 'warn', key: 'toast.sendUnresolved' }, withdraw: null }
+}
+
 /** What the panel shows for a step that is not `resolve` (the caller asks the record for that one). */
 export function stepResult(step: ShownStep): PanelResult {
   if (step.do === 'sent') return { txid: step.txid }
   if (step.do === 'fail') return { error: step.text }
+  if (step.do === 'busy') return { busy: true }
   return { unresolved: step.why, ...(step.txid ? { txid: step.txid } : {}) }
 }
 
@@ -134,6 +172,13 @@ export function netReplyText(end: ReplyEnd): { pt: string; en: string; stop: boo
       pt: `O coordenador tem uma tentativa de envio deste pagamento que pode estar na rede${tx}. Não tente de novo: confira a proposta na lista.`,
       en: `The coordinator has an attempt to send this payment that may be on the network${tx}. Do not retry: check the proposal in the list.`,
       stop: false,
+    }
+  }
+  if (end.kind === 'busy') {
+    return {
+      pt: 'O cofre está ocupado agora e não começou este envio. A sua aprovação e a dos outros continuam valendo. Tente enviar de novo em instantes.',
+      en: "The vault is busy right now and did not start this send. Your approval and the others' still stand. Try sending again in a moment.",
+      stop: true,
     }
   }
   if (end.kind === 'resolve' && end.sentElsewhere) {
