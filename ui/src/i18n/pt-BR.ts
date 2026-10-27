@@ -1167,4 +1167,16 @@ export const ptBR: Record<string, string> = {
   'receive.viewTx': 'Ver',
   'receive.txReceived': 'recebido',
   'receive.txSent': 'enviado',
+
+  // 404 and the crash screen (#318): a member's worst moment, in their language
+  'notFound.label': '404 · página não encontrada',
+  'notFound.title': 'Esta página não existe.',
+  'notFound.lead': 'O link pode estar velho ou errado. Volte para os seus cofres.',
+  'notFound.vaults': 'Meus cofres',
+  'notFound.how': 'Como funciona',
+  'crash.label': 'Algo quebrou',
+  'crash.title': 'A tela encontrou um erro inesperado.',
+  'crash.lead': 'Seu cofre e a sua parte da chave estão seguros neste aparelho · nada foi enviado. Recarregue para continuar.',
+  'crash.reload': 'Recarregar',
+  'crash.vaults': 'Meus cofres',
 }

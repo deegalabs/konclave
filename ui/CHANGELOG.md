@@ -40,6 +40,14 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The "page not found" and the crash screen now speak the member's language.** Both were
+  English-only, with no way to translate them: a Portuguese member hit a dead link or a crashed
+  screen and read it in the wrong language, at the worst moment. Both now read the dictionary; the
+  crash screen reads it directly, without the rest of the app, so it still works when what crashed
+  is the app itself (#318, part A).
+
 ### Added
 
 - The proof screen lists two more mainnet transactions, the 21st and the 22nd: the first production send on the redeployed

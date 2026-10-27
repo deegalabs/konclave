@@ -27,6 +27,12 @@ function detectLocale(): Locale {
 
 export type TFn = (key: string, vars?: Record<string, string | number>) => string
 
+/** Translate outside React: for a class component (the error boundary cannot use hooks) or a
+ *  moment with no provider. Reads the same saved choice the provider does (#318). */
+export function translateStatic(key: string, vars?: Record<string, string | number>, locale: Locale = detectLocale()): string {
+  return interpolate(DICTS[locale][key] ?? DICTS.en[key] ?? key, vars)
+}
+
 /** Substitute `{name}` placeholders in a translated string. Pure (no locale state) so it
  *  can be unit-tested directly. Unknown placeholders are left untouched. */
 export function interpolate(s: string, vars?: Record<string, string | number>): string {
