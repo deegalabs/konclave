@@ -1168,4 +1168,10 @@ export const ptBR: Record<string, string> = {
   'receive.viewTx': 'Ver',
   'receive.txReceived': 'recebido',
   'receive.txSent': 'enviado',
+
+  // Members: the list could not be read (#315)
+  'members.unreadTitle': 'Não deu para ler a lista de membros',
+  'members.unreadLead': 'O coordenador não respondeu. O cofre e a sua parte da chave continuam neste aparelho; só a lista não veio. Confira a conexão e tente de novo.',
+  'members.retry': 'Tentar de novo',
+  'members.footUnread': 'lista não lida',
 }

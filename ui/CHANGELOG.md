@@ -64,6 +64,11 @@ history to tidy it is how context gets lost.
   known seat), and a second request that lands while a signature is being made does not replace
   the one in hand. A device that already holds the helper's request takes the transaction from it,
   and an incoming request has to name the same sighash.
+- **The Members screen says when it could not read the list.** With the coordinator offline it
+  drew an empty roster under "0 members", with no message and no way to retry, and every seat it
+  did draw carried a "holds a share, votes" chip it had never checked. Now a list that was not read
+  says so, says the vault and your share are still on this device, and offers "Try again"; the chip
+  appears only on a list that was actually read (#315).
 
 ## [0.15.0] 2026-10-26
 
