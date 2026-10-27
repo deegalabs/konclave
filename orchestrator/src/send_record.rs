@@ -2017,7 +2017,7 @@ mod tests {
 
     // ---- The epoch cap (#638). Tables with a later row are the tests' own (`epoch::test_table`).
 
-    use crate::epoch::test_table::{A, NU7, WITH_NEXT};
+    use crate::epoch::test_table::{A, NU7, ONE_ROW, WITH_NEXT};
 
     use konclave_seal::epochs::{NU6_3, REORG_MARGIN};
 
@@ -2117,7 +2117,7 @@ mod tests {
                             Settlement::StillPossible
                         };
                         assert_eq!(
-                            settle_with(&attempt(TXID, e), &v, &MAINNET, cap_on),
+                            settle_with(&attempt(TXID, e), &v, &ONE_ROW, cap_on),
                             want,
                             "expiry {e}, tip {t}, cap {cap_on}, scanned {scanned:?}"
                         );

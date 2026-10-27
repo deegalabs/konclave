@@ -40,12 +40,37 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Added
+
+- The proof screen lists two more mainnet transactions, the 21st and the 22nd: the first production send on the redeployed
+  coordinator (block 3,527,232) and a send on the 0.15.0 coordinator (block 3,529,405). `docs/PROOF.md` carries the rows,
+  and the counts in the documents say 22.
+
 ### Changed
 
-- **Everyday screens stop naming pools and protocol terms.** Where a member used to read
-  "Orchard", "Sapling" or "sighash", the screens now say "shielded", "older shielded (Sapling)" and
-  "signed digest (sighash)". Nothing behind the words changed: the vault still receives only at
-  its shielded address, and an older shielded destination is still warned about. (#127)
+- **The signing demonstration and the share-repair demonstration pass the device's message to the
+  signing module.** The module's seed-path signing call now requires it (see the root changelog). The
+  screens behave as before.
+
+### Fixed
+
+- **A signing part that does not check out is left out, and its signer is named.** The device that
+  puts a signature together checks each part as it arrives and counts a part only from a signer the
+  signing package names. It takes its own part from its own computation and reads only the package
+  it sent itself. A failed combination is now reported instead of leaving the signature
+  unfinished. One new text, `net.err.badShare` (English and Portuguese).
+- **A device now takes a signing request only from the device that is assembling the signature.**
+  A request from any other device in the signing room is ignored (and said, when it comes from a
+  known seat), and a second request that lands while a signature is being made does not replace
+  the one in hand. A device that already holds the helper's request takes the transaction from it,
+  and an incoming request has to name the same sighash.
+- **An older shielded (Sapling) destination is refused, and the screens now say so.** The warning on
+  the payment, payroll, people and recipient fields said such an address "works, but prefer a modern
+  one", while the vault cannot pay it: the backend refuses a Sapling-only destination before any
+  transaction is built. Every one of those strings now says the same true thing: this vault cannot
+  pay an older shielded (Sapling) address; ask for a current shielded one (u1…). In the same pass the
+  everyday screens stop naming pools and protocol terms: "Orchard" and "Sapling" read as "shielded"
+  and "older shielded (Sapling)", and "sighash" as "signed digest (sighash)" (#127).
 
 ## [0.15.0] 2026-10-26
 
@@ -64,6 +89,7 @@ history to tidy it is how context gets lost.
 - **Creating a vault no longer asks the coordinator for proposals it cannot have.** Every member got
   an error in the browser console during creation, because the list of payments was read before the
   vault was registered. It is read once the vault is registered.
+
 
 ## [0.14.0] 2026-10-23
 

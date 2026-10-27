@@ -562,6 +562,8 @@ export function humanError(t: TFn, error?: string, detail?: string): string {
   if (e === 'write not authorized') return t('error.writeNotAuthorized')
   if (has('device list cannot be read')) return t('error.devicesUnreadable')
   if (e === 'coordinator unavailable') return t('error.coordinatorUnavailable')
+  // A write the coordinator stayed busy for (busy contract v1): nothing was done; try again.
+  if (e === 'vault busy') return t('registration.tryAgain')
   // The coordinator's three wordings for one refusal (#568): the write carries a name that is not
   // the seat which signed it.
   if (has('you can only vote for your own seat') || has('you can only propose under your own name') || has('you can only rename your own seat'))

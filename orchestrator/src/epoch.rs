@@ -299,11 +299,28 @@ pub(crate) fn set_cap_for_test(on: bool) {
     CAP_ON.store(on, Ordering::Relaxed);
 }
 
-/// A table WITH a later row, for the tests of every module that acts across an upgrade. It exists
-/// only when testing: the mainnet row is added the day its height is decided.
+/// Test tables: one WITH a later row, for the tests of every module that acts across an upgrade, and
+/// one WITHOUT, for the rules that must stay what they were when nothing follows NU6.3. They exist
+/// only when testing; mainnet has had its NU7 row since #638.
 #[cfg(test)]
 pub(crate) mod test_table {
     use konclave_seal::epochs::{Anchor, Epoch, Table, NU6_3};
+
+    /// NU6.3 alone, with mainnet's anchor.
+    pub const ONE_ROW: Table = Table {
+        epochs: &[Epoch {
+            activation_height: 3_428_143,
+            branch_id: NU6_3,
+            tx_version: 6,
+            version_group_id: 0xD884_B698,
+            spacing_s: 75,
+            expiry_delta: 40,
+        }],
+        anchor: Anchor {
+            height: 3_428_143,
+            unix: 1_785_247_643,
+        },
+    };
 
     pub const NU7: u32 = 0x7719_0ad9;
     pub const A: u32 = 3_500_000;
@@ -517,20 +534,26 @@ mod tests {
     }
 
     /// A trap, not a rule. The cap in `settle` turns on when the table and the engine agree, and both
-    /// are copies of OUR pinned constant: nothing observes the chain. While the mainnet table has one
-    /// row the cap cannot turn on, which is what keeps that gap closed. This fails the day a second
-    /// row is added, so that it cannot be added silently. Remove it ONLY in the PR that makes
-    /// `Dead { by_epoch }` need the branch the chain reports (lightwalletd's `consensusBranchId`,
-    /// #638 security M1), together with the other two items in the TODO at `read_engine_activation`.
+    /// are copies of OUR pinned constant: nothing observes the chain. What keeps the cap off, whatever
+    /// the number of mainnet rows, is the engine side: the signer that ships has no `next-upgrade`
+    /// command, so the boot check reads "none" and the cap stays off. This goes red the day the signer
+    /// gains the command, because from then the two copies can agree on a height the chain never
+    /// reaches (a postponed activation). It replaces a check that counted the table's rows, which a
+    /// second row would have turned red for a reason unrelated to the cap.
+    /// Remove it ONLY in the PR that makes `Dead { by_epoch }` need the branch the chain reports
+    /// (lightwalletd's `consensusBranchId`, #638 security M1), together with the other two items in
+    /// the TODO at `read_engine_activation`.
     #[test]
     fn the_cap_cannot_turn_on_before_it_reads_the_chain() {
-        assert_eq!(
-            konclave_seal::epochs::MAINNET.epochs.len(),
-            1,
-            "a second mainnet row makes the epoch cap reachable: add the chain's branch to the \
-             verdict first (#638 security M1, TODO at read_engine_activation) and only then remove \
-             this test"
+        let signer = include_str!("../../konclave-signer/src/main.rs");
+        assert!(
+            !signer.contains("next-upgrade") && !signer.contains("NextUpgrade"),
+            "the signer now answers `next-upgrade`, so the epoch cap can turn on from two copies of our \
+             own constant: make the verdict need the chain's branch first (#638 security M1, TODO at \
+             read_engine_activation) and only then remove this test"
         );
+        // Agreement alone is what turns the cap on, which is why the check above matters.
+        assert_eq!(check_cap(&WITH_NEXT, Some(A)), Cap::On);
     }
 
     /// The boot check gives the signer NO stdin, whatever stdin the harness itself has. A test that
@@ -623,12 +646,23 @@ mod tests {
         let panics = || -> Result<u64, ToolError> { panic!("the tip was read") };
         assert_eq!(
             EpochGate {
-                table: &MAINNET,
+                table: &ONE_ROW,
                 tip: &panics
             }
             .tip()
             .unwrap(),
             0
+        );
+        // Mainnet has a later row (NU7): its gate asks for the tip, because there is an upgrade to be near.
+        let seven = || -> Result<u64, ToolError> { Ok(7) };
+        assert_eq!(
+            EpochGate {
+                table: &MAINNET,
+                tip: &seven
+            }
+            .tip()
+            .unwrap(),
+            7
         );
         let tip = || -> Result<u64, ToolError> { Ok(7) };
         assert_eq!(
