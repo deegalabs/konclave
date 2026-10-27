@@ -67,6 +67,26 @@ export class Coordinator {
         return v2;
     }
     /**
+     * Does this one share verify, for this signer, in this package, under this randomizer
+     * (alpha)? Throws when it does not, or is not a share at all. Ask it of every share before
+     * `addShare`: one that fails never takes the signer's place.
+     * @param {Uint8Array} id
+     * @param {Uint8Array} share
+     * @param {Uint8Array} randomizer
+     */
+    checkShare(id, share, randomizer) {
+        const ptr0 = passArray8ToWasm0(id, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArray8ToWasm0(share, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passArray8ToWasm0(randomizer, wasm.__wbindgen_malloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ret = wasm.coordinator_checkShare(this.__wbg_ptr, ptr0, len0, ptr1, len1, ptr2, len2);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
      * @param {Uint8Array} group_vk
      * @param {Uint8Array} pubkeys
      * @param {Uint8Array} message

@@ -52,6 +52,14 @@ history to tidy it is how context gets lost.
   signing module.** The module's seed-path signing call now requires it (see the root changelog). The
   screens behave as before.
 
+### Fixed
+
+- **A signing part that does not check out is left out, and its signer is named.** The device that
+  puts a signature together checks each part as it arrives and counts a part only from a signer the
+  signing package names. It takes its own part from its own computation and reads only the package
+  it sent itself. A failed combination is now reported instead of leaving the signature
+  unfinished. One new text, `net.err.badShare` (English and Portuguese).
+
 ## [0.15.0] 2026-10-26
 
 ### Fixed
