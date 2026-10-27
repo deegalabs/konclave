@@ -425,6 +425,43 @@ pub mod ceremony {
         sig.serialize().map_err(e)
     }
 
+    /// Coordinator: does this ONE share verify, for this signer, in this signing package, under
+    /// this randomizer? The coordinator asks it of every share before the share counts, so a share
+    /// that does not verify is not counted, and the next share from that signer is checked in its
+    /// turn. A share of the wrong length or encoding is refused the same way.
+    pub fn check_share_with_randomizer(
+        sp_bytes: &[u8],
+        group_vk: &VerifyingKey,
+        randomizer: &[u8],
+        id_bytes: &[u8],
+        share_bytes: &[u8],
+        pubkeys: &PublicKeyPackage,
+    ) -> Result<(), E> {
+        let sp = SigningPackage::deserialize(sp_bytes).map_err(e)?;
+        let r = rerandomized::Randomizer::deserialize(randomizer).map_err(e)?;
+        let params = RandomizedParams::from_randomizer(group_vk, r);
+        let id = Identifier::deserialize(id_bytes).map_err(e)?;
+        let share = SignatureShare::deserialize(share_bytes).map_err(e)?;
+        // The shares are checked against the RANDOMIZED key, the one the signature is made under.
+        // (frost-rerandomized does the same to the public key package inside `aggregate`: each
+        // verifying share plus the randomizer's point, under the randomized verifying key.)
+        let verifying_share = pubkeys
+            .verifying_shares()
+            .get(&id)
+            .ok_or_else(|| "this signer is not part of the vault".to_string())?;
+        let randomized_share = frost::keys::VerifyingShare::new(
+            verifying_share.to_element() + *params.randomizer_element(),
+        );
+        frost_rerandomized::frost_core::verify_signature_share(
+            id,
+            &randomized_share,
+            &share,
+            &sp,
+            params.randomized_verifying_key(),
+        )
+        .map_err(e)
+    }
+
     /// Verify the group signature under the key re-randomized by the given alpha (what an Orchard
     /// spend commits to). This is the check `pczt_bridge::inject_sigs` will pass on-chain.
     pub fn verify_with_randomizer(
@@ -582,6 +619,70 @@ pub mod ceremony {
                 PACKAGE_SIGNS_ANOTHER_MESSAGE,
                 "a package over another message must be refused on the seed path, and for this reason"
             );
+        }
+
+        /// A share is checked on its own before it counts: one that does not verify, or is not even
+        /// a share, is refused, so it never takes a signer's place.
+        #[test]
+        fn a_share_is_checked_before_it_counts() {
+            let alpha =
+                hex::decode("b2ad61e8bf0de877dd01c52356526adf39b036ffed2e0217ece19407e1717624")
+                    .unwrap();
+            let (shares, pubkeys) = frost::keys::generate_with_dealer(
+                3,
+                2,
+                frost::keys::IdentifierList::Default,
+                OsRng,
+            )
+            .unwrap();
+            let kps: std::collections::BTreeMap<_, _> = shares
+                .into_iter()
+                .map(|(id, s)| (id, KeyPackage::try_from(s).unwrap()))
+                .collect();
+            let group_vk = *pubkeys.verifying_key();
+            let message = b"konclave: a share that does not verify";
+            let signers: Vec<_> = kps.iter().take(2).collect();
+            let mut local_nonces = Vec::new();
+            let mut wire_commitments = Vec::new();
+            for (id, kp) in &signers {
+                let (nonces, commit_bytes) = participant_round1(kp);
+                local_nonces.push(nonces);
+                wire_commitments.push((id.serialize(), commit_bytes));
+            }
+            let sp_bytes = coordinator_signing_package(&wire_commitments, message).unwrap();
+            let own_share = participant_round2_with_randomizer(
+                &sp_bytes,
+                &local_nonces[0],
+                signers[0].1,
+                &alpha,
+                message,
+            )
+            .unwrap();
+            let id1 = signers[0].0.serialize();
+            let id2 = signers[1].0.serialize();
+            let check = |id: &[u8], share: &[u8]| {
+                check_share_with_randomizer(&sp_bytes, &group_vk, &alpha, id, share, &pubkeys)
+            };
+            assert!(
+                check(&id1, &own_share).is_ok(),
+                "a share that verifies passes"
+            );
+            // Seat 1's share offered for seat 2: well formed, wrong for seat 2.
+            assert!(
+                check(&id2, &own_share).is_err(),
+                "another signer's share is refused"
+            );
+            // The wrong length or encoding is refused the same way, before it can take a place.
+            assert!(
+                check(&id1, &own_share[..own_share.len() - 1]).is_err(),
+                "too short"
+            );
+            assert!(
+                check(&id1, &[own_share.clone(), vec![0]].concat()).is_err(),
+                "too long"
+            );
+            assert!(check(&id1, &[0xff; 32]).is_err(), "not a scalar");
+            assert!(check(&id1, &[]).is_err(), "empty");
         }
 
         #[test]
@@ -5092,6 +5193,21 @@ mod js {
         #[wasm_bindgen(js_name = addShare)]
         pub fn add_share(&mut self, id: &[u8], share: &[u8]) {
             self.shares.push((id.into(), share.into()));
+        }
+        /// Does this one share verify, for this signer, in this package, under this randomizer
+        /// (alpha)? Throws when it does not, or is not a share at all. Ask it of every share before
+        /// `addShare`: one that fails never takes the signer's place.
+        #[wasm_bindgen(js_name = checkShare)]
+        pub fn check_share(
+            &self,
+            id: &[u8],
+            share: &[u8],
+            randomizer: &[u8],
+        ) -> Result<(), JsValue> {
+            let vk = frost::VerifyingKey::deserialize(&self.group_vk).map_err(je)?;
+            let pubkeys = frost::keys::PublicKeyPackage::deserialize(&self.pubkeys).map_err(je)?;
+            ceremony::check_share_with_randomizer(&self.sp, &vk, randomizer, id, share, &pubkeys)
+                .map_err(je)
         }
         pub fn aggregate(&self) -> Result<Vec<u8>, JsValue> {
             let vk = frost::VerifyingKey::deserialize(&self.group_vk).map_err(je)?;

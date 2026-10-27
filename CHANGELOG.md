@@ -73,6 +73,12 @@ explicitly accepted.
   argument.** In the SDK this is `participantRound2`, so a call with the old four arguments now
   fails. Nothing a member does with a vault changes.
 
+### Fixed
+
+- **The browser signing module can check one signer's share on its own.** `Coordinator.checkShare`
+  says whether a share verifies for its signer, in its signing package, under the spend's randomizer,
+  so the coordinator can decide before the share counts. The module is rebuilt into the app.
+
 ### Known limits
 
 - **After the upgrade, until the coordinator's engine is updated, payments are refused rather than
