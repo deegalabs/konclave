@@ -1172,4 +1172,16 @@ export const en: Record<string, string> = {
   'receive.viewTx': 'View',
   'receive.txReceived': 'received',
   'receive.txSent': 'sent',
+
+  // What the storage layer refuses, in the member's language (#586)
+  'storage.err.noStorage': 'This browser cannot store the vault (no IndexedDB or WebCrypto). Try another browser, outside private mode.',
+  'storage.err.noVault': 'No saved vault with that id on this device.',
+  'storage.err.passphraseRequired': 'Enter the passphrase.',
+  'storage.err.wrongPassphrase': 'Wrong passphrase for this export. Nothing was imported.',
+  'storage.err.wrongPassphraseSaved': 'Wrong passphrase, or the vault saved on this device was altered.',
+  'storage.err.notAnExport': 'This is not a Konclave vault export.',
+  'storage.err.corrupt': 'The export is incomplete or corrupt. Nothing was imported. Use another copy of the file.',
+  'storage.err.unsupportedVersion': 'This export is from a newer version. Update Konclave and try again.',
+  'storage.err.alreadyExists': 'A vault with this id already exists on this device. Nothing was imported.',
+  'storage.err.samePassphrase': 'The new passphrase is the same as the current one.',
 }

@@ -4,6 +4,7 @@ import Hint from '../Hint'
 import { Dialog, PassphraseField, Secret } from '../components'
 import CopyButton from '../CopyButton'
 import { changePassphrase } from '../storage'
+import { storageErrorKey } from '../storage-errors'
 import { useNavigate, Link } from 'react-router-dom'
 import { Seal, Loading } from '../components'
 import { PageHeader, PageFooter } from '../page'
@@ -179,7 +180,7 @@ export default function Settings() {
       const b = await buildVaultBackup(id, xpPass, getUnlockedShare(id), vault?.name)
       return { json: b.json, name: b.name }
     } catch (e) {
-      setXpErr(e instanceof Error ? e.message : t('export.errGeneric'))
+      setXpErr(t(storageErrorKey(e, 'export.errGeneric')))
       return null
     }
   }

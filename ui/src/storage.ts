@@ -10,6 +10,7 @@
 // missing/blocked API surfaces a clear failure instead of a silent loss (a boundary, §6.8).
 
 import { bytesToHex as hex, hexToBytes as unhex } from './bytes'
+import { storageError } from './storage-errors'
 import { addressText } from './approved-payment'
 import { CREATION_PROTOCOL } from './creation-protocol'
 
@@ -319,9 +320,9 @@ function bufOf(b: Uint8Array): ArrayBuffer {
  * Overwrites any existing record with the same id. Public metadata is stored in the clear.
  */
 export async function saveVault(id: string, data: VaultData, passphrase: string): Promise<void> {
-  if (!storageAvailable()) throw new Error('This browser cannot store the vault (no IndexedDB/WebCrypto)')
-  if (!id) throw new Error('A vault id is required to save')
-  if (!passphrase) throw new Error('A passphrase is required to save the vault')
+  if (!storageAvailable()) throw storageError('no-storage', 'This browser cannot store the vault (no IndexedDB/WebCrypto)')
+  if (!id) throw storageError('no-vault', 'A vault id is required to save')
+  if (!passphrase) throw storageError('passphrase-required', 'A passphrase is required to save the vault')
 
   const salt = crypto.getRandomValues(new Uint8Array(16))
   const iv = crypto.getRandomValues(new Uint8Array(12))
@@ -396,10 +397,10 @@ async function readRecord(id: string): Promise<VaultRecord | undefined> {
  * (AES-GCM authentication fails), and a distinct one when no such vault exists.
  */
 export async function loadVault(id: string, passphrase: string): Promise<VaultLoaded> {
-  if (!storageAvailable()) throw new Error('This browser cannot read the vault (no IndexedDB/WebCrypto)')
+  if (!storageAvailable()) throw storageError('no-storage', 'This browser cannot read the vault (no IndexedDB/WebCrypto)')
 
   const record = await readRecord(id)
-  if (!record) throw new Error('No saved vault with that id on this device')
+  if (!record) throw storageError('no-vault', 'No saved vault with that id on this device')
 
   // What this record was sealed with. Absent on records written before the parameter travelled
   // with the ciphertext (#435), and those are all at the legacy count by definition.
@@ -408,7 +409,7 @@ export async function loadVault(id: string, passphrase: string): Promise<VaultLo
   try {
     plainBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bufOf(record.iv) }, key, bufOf(record.cipher))
   } catch {
-    throw new Error('Wrong passphrase, or the saved vault was tampered with')
+    throw storageError('wrong-passphrase-saved', 'Wrong passphrase, or the saved vault was tampered with')
   }
 
   // The #388 access secret, when this vault has one (same key, its own iv). The share already
@@ -576,8 +577,8 @@ export async function exportVault(
   ufvk?: string,
   birthday?: number,
 ): Promise<VaultExportV2> {
-  if (!storageAvailable()) throw new Error('This browser cannot read the vault (no IndexedDB/WebCrypto)')
-  if (!passphrase) throw new Error('A passphrase is required to export the vault')
+  if (!storageAvailable()) throw storageError('no-storage', 'This browser cannot read the vault (no IndexedDB/WebCrypto)')
+  if (!passphrase) throw storageError('passphrase-required', 'A passphrase is required to export the vault')
 
   // loadVault decrypts the share + S with the passphrase (and throws on a wrong one), so the export
   // is guaranteed usable and we never touch ciphertext we could not open.
@@ -634,7 +635,7 @@ export function parseVaultExport(raw: string): VaultExport {
   try {
     obj = JSON.parse(raw)
   } catch {
-    throw new Error('This does not look like a Konclave vault export (not valid JSON)')
+    throw storageError('not-an-export', 'This does not look like a Konclave vault export (not valid JSON)')
   }
   const b = obj as {
     format?: unknown
@@ -644,19 +645,19 @@ export function parseVaultExport(raw: string): VaultExport {
     cipher?: unknown
     vault?: VaultExportV1['vault']
   }
-  if (!b || b.format !== 'konclave-vault-export') throw new Error('This is not a Konclave vault export')
+  if (!b || b.format !== 'konclave-vault-export') throw storageError('not-an-export', 'This is not a Konclave vault export')
   if (b.version === 2) {
-    if (!b.salt || !b.iv || !b.cipher) throw new Error('The export is incomplete or corrupt')
+    if (!b.salt || !b.iv || !b.cipher) throw storageError('corrupt', 'The export is incomplete or corrupt')
     return b as unknown as VaultExportV2
   }
   if (b.version === 1) {
     const v = b.vault
     if (!v || !v.id || !v.groupKey || !v.cipher || !v.salt || !v.iv || !Array.isArray(v.roster)) {
-      throw new Error('The export is incomplete or corrupt')
+      throw storageError('corrupt', 'The export is incomplete or corrupt')
     }
     return b as unknown as VaultExportV1
   }
-  throw new Error('Unsupported export version - update Konclave')
+  throw storageError('unsupported-version', 'Unsupported export version - update Konclave')
 }
 
 /**
@@ -702,7 +703,7 @@ function quorumOfExport(p: V2Payload): { threshold?: number; total?: number } {
     bundle = JSON.parse(new TextDecoder().decode(unhex(p.share)))
   } catch { /* not a device bundle: nothing to compare with */ }
   if (bundle.t !== undefined && (bundle.t !== p.threshold || bundle.n !== p.total)) {
-    throw new Error('The export is corrupt')
+    throw storageError('corrupt', 'The export is corrupt')
   }
   return { threshold: p.threshold, total: p.total }
 }
@@ -716,28 +717,28 @@ function vaultIdOf(id: unknown, groupKey: unknown): string {
   const idText = String(id).trim()
   const groupKeyText = String(groupKey ?? '').trim()
   if (!KEY_HEX.test(idText) || !KEY_HEX.test(groupKeyText) || idText.toLowerCase() !== groupKeyText.toLowerCase()) {
-    throw new Error('The export is incomplete or corrupt')
+    throw storageError('corrupt', 'The export is incomplete or corrupt')
   }
   return idText.toLowerCase()
 }
 
 /** Decode a v2 opaque blob: decrypt the whole payload with the passphrase, then read the fields. */
 async function decodeV2(b: VaultExportV2, passphrase: string): Promise<DecodedImport> {
-  if (!b.salt || !b.iv || !b.cipher) throw new Error('The export is incomplete or corrupt')
+  if (!b.salt || !b.iv || !b.cipher) throw storageError('corrupt', 'The export is incomplete or corrupt')
   const key = await deriveKey(passphrase, unhex(b.salt), b.kdfIters ?? PBKDF2_ITERS_LEGACY)
   let plainBuf: ArrayBuffer
   try {
     plainBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bufOf(unhex(b.iv)) }, key, bufOf(unhex(b.cipher)))
   } catch {
-    throw new Error('Wrong passphrase for this export')
+    throw storageError('wrong-passphrase', 'Wrong passphrase for this export')
   }
   let p: V2Payload
   try {
     p = JSON.parse(new TextDecoder().decode(plainBuf)) as V2Payload
   } catch {
-    throw new Error('The export is corrupt')
+    throw storageError('corrupt', 'The export is corrupt')
   }
-  if (!p.id || !p.groupKey || !p.share || !Array.isArray(p.roster)) throw new Error('The export is incomplete or corrupt')
+  if (!p.id || !p.groupKey || !p.share || !Array.isArray(p.roster)) throw storageError('corrupt', 'The export is incomplete or corrupt')
   // A vault's id IS its group key, in a v2 as in a v1 (see `vaultIdOf`).
   const id = vaultIdOf(p.id, p.groupKey)
   return {
@@ -774,20 +775,20 @@ function isShareBundle(bytes: Uint8Array): boolean {
 /** Decode a legacy v1 bundle: the share is `cipher` (decrypt it); metadata is cleartext. */
 async function decodeV1(b: VaultExportV1, passphrase: string): Promise<DecodedImport> {
   const v = b.vault
-  if (!v || !v.id || !v.cipher || !v.salt || !v.iv) throw new Error('The export is incomplete or corrupt')
+  if (!v || !v.id || !v.cipher || !v.salt || !v.iv) throw storageError('corrupt', 'The export is incomplete or corrupt')
   const key = await deriveKey(passphrase, unhex(v.salt), v.kdfIters ?? PBKDF2_ITERS_LEGACY)
   let shareBuf: ArrayBuffer
   try {
     shareBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bufOf(unhex(v.iv)) }, key, bufOf(unhex(v.cipher)))
   } catch {
-    throw new Error('Wrong passphrase for this export')
+    throw storageError('wrong-passphrase', 'Wrong passphrase for this export')
   }
   // What a v1 sealed was the device bundle (JSON with the key package and the group's public keys).
   // The vault id beside it is cleartext, so anyone who can edit the file could copy a v2 export's
   // sealed payload in here and write another vault's id: the passphrase opens it, and the seat would
   // restore under that id, whose address Add funds then shows (#610 review, A9). Anything that is not
   // a share is refused.
-  if (!isShareBundle(new Uint8Array(shareBuf))) throw new Error('The export is incomplete or corrupt')
+  if (!isShareBundle(new Uint8Array(shareBuf))) throw storageError('corrupt', 'The export is incomplete or corrupt')
   // A vault's id IS its group key (every v1 the app wrote has them equal). Edited apart, the seat
   // would restore under another vault's id, whose address Add funds shows, while the fingerprint,
   // drawn from the group key, stayed the member's own (#610 closing check). Edited together, the
@@ -843,9 +844,9 @@ async function decodeV1(b: VaultExportV1, passphrase: string): Promise<DecodedIm
  * IndexedDB `put`: the record is either the old one or the new one, never half of each.
  */
 export async function changePassphrase(id: string, oldPassphrase: string, newPassphrase: string): Promise<void> {
-  if (!storageAvailable()) throw new Error('This browser cannot store the vault (no IndexedDB/WebCrypto)')
-  if (!newPassphrase) throw new Error('A new passphrase is required')
-  if (newPassphrase === oldPassphrase) throw new Error('The new passphrase is the same as the current one')
+  if (!storageAvailable()) throw storageError('no-storage', 'This browser cannot store the vault (no IndexedDB/WebCrypto)')
+  if (!newPassphrase) throw storageError('passphrase-required', 'A new passphrase is required')
+  if (newPassphrase === oldPassphrase) throw storageError('same-passphrase', 'The new passphrase is the same as the current one')
 
   // Throws on a wrong current passphrase, which is also the proof that the member can still open
   // the vault. A rotation must never be a way to re-seal a share you cannot read.
@@ -872,7 +873,7 @@ export async function changePassphrase(id: string, oldPassphrase: string, newPas
   // whatever the helper answered then, so a rotation reopened the write-once slot the money gate
   // depends on. Carrying the record whole means a field added later cannot be lost here either.
   const stored = await readRecord(id)
-  if (!stored) throw new Error('No saved vault with that id on this device')
+  if (!stored) throw storageError('no-vault', 'No saved vault with that id on this device')
   const record: VaultRecord = {
     ...stored,
     salt,
@@ -898,8 +899,8 @@ export async function importVault(
   passphrase: string,
   opts?: { overwrite?: boolean },
 ): Promise<VaultPublic> {
-  if (!storageAvailable()) throw new Error('This browser cannot store the vault (no IndexedDB/WebCrypto)')
-  if (!passphrase) throw new Error('A passphrase is required to import the vault')
+  if (!storageAvailable()) throw storageError('no-storage', 'This browser cannot store the vault (no IndexedDB/WebCrypto)')
+  if (!passphrase) throw storageError('passphrase-required', 'A passphrase is required to import the vault')
 
   const d = bundle?.version === 2
     ? await decodeV2(bundle, passphrase)
@@ -907,7 +908,7 @@ export async function importVault(
 
   // Never silently clobber a different vault already on this device.
   const existing = (await listVaults()).find((s) => s.id === d.id)
-  if (existing && !opts?.overwrite) throw new Error('A vault with this id already exists on this device')
+  if (existing && !opts?.overwrite) throw storageError('already-exists', 'A vault with this id already exists on this device')
 
   // Re-encrypt the secrets at rest (fresh salt/iv), preserving the original createdAt.
   const salt = crypto.getRandomValues(new Uint8Array(16))

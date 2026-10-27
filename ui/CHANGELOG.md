@@ -64,6 +64,11 @@ history to tidy it is how context gets lost.
   known seat), and a second request that lands while a signature is being made does not replace
   the one in hand. A device that already holds the helper's request takes the transaction from it,
   and an incoming request has to name the same sighash.
+- **Import and export errors now appear in the member's language.** A wrong passphrase, a corrupt or
+  incomplete file, a vault already on the device: each of those came straight from the storage layer,
+  in English, on the screen of a member restoring the one copy of their seat. The storage layer now
+  refuses with a code and the dialogs turn the code into a sentence from the dictionary, in
+  Portuguese or English; the generic line stays as the fallback (#586).
 
 ## [0.15.0] 2026-10-26
 

@@ -1168,4 +1168,16 @@ export const ptBR: Record<string, string> = {
   'receive.viewTx': 'Ver',
   'receive.txReceived': 'recebido',
   'receive.txSent': 'enviado',
+
+  // What the storage layer refuses, in the member's language (#586)
+  'storage.err.noStorage': 'Este navegador não consegue guardar o cofre (sem IndexedDB ou WebCrypto). Tente outro navegador, fora do modo anônimo.',
+  'storage.err.noVault': 'Não há cofre salvo com esse id neste aparelho.',
+  'storage.err.passphraseRequired': 'Digite a frase-senha.',
+  'storage.err.wrongPassphrase': 'Frase-senha errada para esta exportação. Nada foi importado.',
+  'storage.err.wrongPassphraseSaved': 'Frase-senha errada, ou o cofre salvo neste aparelho foi alterado.',
+  'storage.err.notAnExport': 'Isto não é uma exportação de cofre do Konclave.',
+  'storage.err.corrupt': 'A exportação está incompleta ou corrompida. Nada foi importado. Use outra cópia do arquivo.',
+  'storage.err.unsupportedVersion': 'Esta exportação é de uma versão mais nova. Atualize o Konclave e tente de novo.',
+  'storage.err.alreadyExists': 'Já existe um cofre com este id neste aparelho. Nada foi importado.',
+  'storage.err.samePassphrase': 'A nova frase-senha é igual à atual.',
 }
