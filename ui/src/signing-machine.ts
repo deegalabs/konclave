@@ -184,6 +184,11 @@ export class SigningMachine {
   private alpha: Uint8Array | null = null
   private sentS2 = false
   private sharesSeen = new Set<number>()
+  /** The seats the signing package names: only they can have a share that belongs to this
+   *  signature. And the seats already told to the member as refused, so a seat that keeps sending
+   *  bad shares is said once. */
+  private chosenSeats: number[] = []
+  private toldAside = new Set<number>()
   private sigDone = false
   // Architecture B: a helper's raw sign-request; the aggregate signature is posted back to it RAW.
   private helperReq: SignRequest | null = null
@@ -263,6 +268,8 @@ export class SigningMachine {
     this.alpha = null
     this.sentS2 = false
     this.sharesSeen = new Set()
+    this.chosenSeats = []
+    this.toldAside = new Set()
     this.sigDone = false
     this.helperReq = null
     this.spends = []
@@ -276,6 +283,9 @@ export class SigningMachine {
   async tryHelperRequest(rawData: string): Promise<boolean> {
     const helperReq = parseSignRequest(rawData)
     if (!helperReq) return false
+    // A request that arrives while a ceremony is under way is not taken up, and not kept: the next
+    // ceremony reads the room afresh (`rearm`).
+    if (this.started) return false
     this.helperReq = helperReq
     // Nobody is named yet (the completing signature has not reached this device): the request waits,
     // unconsumed, and the session re-drives the signer when a signature changes the tally.
@@ -306,7 +316,7 @@ export class SigningMachine {
     // depth, so a refactor that moves this line still leaves each step that signs asking on its own.
     if (this.started && !this.cleared) return true
     switch (parsed.type) {
-      case 'sreq': return this.onSreq(parsed)
+      case 'sreq': return this.onSreq(parsed, fromTag)
       case 's1': return this.onS1(parsed, fromTag)
       case 'sp': return this.onSp(parsed, fromTag)
       case 's2': return this.onS2(parsed, fromTag)
@@ -330,6 +340,8 @@ export class SigningMachine {
     this.sp = null
     this.sentS2 = false
     this.sharesSeen = new Set()
+    this.chosenSeats = []
+    this.toldAside = new Set()
     this.sigDone = false
     this.coord = null
     const r1 = participantRound1(this.d.signingMaterial().keyPackage)
@@ -339,21 +351,38 @@ export class SigningMachine {
     this.d.onLog(n > 1 ? `~ signing spend ${k + 1}/${n}` : this.d.tt('net.log.signCommit'))
   }
 
-  private async onSreq(parsed: Extract<SignWireMsg, { type: 'sreq' }>): Promise<boolean> {
+  private async onSreq(parsed: Extract<SignWireMsg, { type: 'sreq' }>, fromTag: string): Promise<boolean> {
     if (!this.d.hasVault()) return false // no vault yet
     if (!this.started) {
       // The ceremony needs a coordinator every device agrees on; until the completing signature reaches
       // this device, the request waits (unconsumed) rather than starting a ceremony nobody can finish.
       const coordinator = this.coordinatorNow()
       if (coordinator === null) return false
+      // Only the coordinator's request opens a ceremony. The `sreq` comes out of the
+      // coordinator and nowhere else (`tryHelperRequest`), so a request from any other tag is
+      // not read at all. As in `onSp`, a tag not seated YET is not refused, only deferred until
+      // its rejoin says who it is.
+      if (!this.isCoordinator(fromTag)) {
+        if (this.d.seatOf(fromTag) === undefined) return false
+        this.d.onError(this.d.tt('net.err.notCoordinator'))
+        return true
+      }
       // The PCZT to sign: from the sreq inline (an older, plaintext coordinator), or - for a sealed
       // request where the coordinator omitted it so it never touches the relay (#63) - the PCZT this
       // device already opened from the helper request. If neither is available yet, wait.
-      const pczt = parsed.pczt
-        ? unb64(parsed.pczt)
-        : this.helperReq
-          ? hexBytes(this.helperReq.pcztHex)
-          : null
+      //
+      // A device that already holds the helper's request signs that PCZT, and the sreq has to name
+      // its sighash. The inline PCZT is only for a device that holds no request.
+      let pczt: Uint8Array | null
+      if (this.helperReq) {
+        if (!bytesEqual(unb64(parsed.msg), hexBytes(this.helperReq.sighash))) {
+          this.d.onError(this.d.tt('net.err.sighashMismatch'))
+          return true
+        }
+        pczt = hexBytes(this.helperReq.pcztHex)
+      } else {
+        pczt = parsed.pczt ? unb64(parsed.pczt) : null
+      }
       if (!pczt) return false
       // H1 / ADR-0007 I2 (transaction-swap defense): recompute the ZIP-244 sighash from OUR OWN
       // PCZT and sign THAT, refusing if it disagrees with the requested one. A hostile helper or
@@ -579,6 +608,7 @@ export class SigningMachine {
       for (const s of chosen) coord.addCommitment(identifierBytes(s), this.commits.get(s)!)
       coord.prepare()
       this.coord = coord
+      this.chosenSeats = chosen
       this.sp = coord.signingPackage()
       this.spSent = true
       await this.d.send({ type: 'sp', signers: chosen, sp: b64(this.sp), msg: b64(this.msg), k: this.cur, h: this.tag() })
@@ -622,6 +652,9 @@ export class SigningMachine {
     if (!this.cleared) return true // refused here: no share for it, whoever asks
     if (this.otherCeremony(parsed)) return true
     if (parsed.k !== this.cur) return parsed.k > this.cur ? false : true
+    // The package this device assembled is the one it knows: one that is not the package it sent
+    // is not read.
+    if (fromTag === this.d.myTag() && this.sp && !bytesEqual(unb64(parsed.sp), this.sp)) return true
     // H1 / ADR-0007, the second half. `onSreq` recomputes the ZIP-244 sighash from THIS device's own
     // PCZT and refuses a request that disagrees - and this line used to hand that back, overwriting
     // the locally derived sighash with whatever the coordinator put on the wire, unchecked. The
@@ -672,6 +705,12 @@ export class SigningMachine {
       this.sentS2 = true
       await this.d.send({ type: 's2', share: b64(share), k: this.cur, h: this.tag() })
       this.d.onLog(this.d.tt('net.log.signShare'))
+      // The coordinator takes its own share from here, not from the room's echo of it (`onS2`).
+      if (this.coord && this.isCoordinator(this.d.myTag())) {
+        this.coord.addShare(identifierBytes(this.d.mySeat()), share)
+        this.sharesSeen.add(this.d.mySeat())
+        await this.tryAggregate()
+      }
     }
     return true
   }
@@ -685,21 +724,59 @@ export class SigningMachine {
     if (!this.coord) return false
     const seat = this.d.seatOf(fromTag)
     if (seat === undefined) return false
+    // This device's own share is the one it computed itself (`onSp`), never what the room says it
+    // sent.
+    if (seat === this.d.mySeat()) return true
     if (this.sharesSeen.has(seat)) return true
-    this.coord.addShare(identifierBytes(seat), unb64(parsed.share))
-    this.sharesSeen.add(seat)
-    const t = this.d.threshold()
-    if (this.sharesSeen.size >= t && !this.sigDone && this.alpha) {
-      this.sigDone = true
-      const sig = this.coord.aggregateWithRandomizer(this.alpha)
-      const ok = this.coord.verifyWithRandomizer(this.alpha, sig)
-      // Broadcast this spend's signature tagged with `k`; every device records it and either
-      // advances to the next spend or finalizes (the `signed` handler). The Architecture B
-      // response for the WHOLE set is posted once, at the last spend.
-      await this.d.send({ type: 'signed', sig: b64(sig), ok, k: this.cur, h: this.tag() })
-      this.d.onLog(this.d.tt('net.log.signAggregate'))
+    // A share counts only from a seat the package names: any other cannot belong to this signature.
+    if (!this.chosenSeats.includes(seat)) return true
+    // A share counts only if it verifies on its own, for this seat, in this package, under this
+    // spend's alpha. One that does not (or is not even a share: not base64, the wrong length)
+    // is not counted, and the next share from that seat is checked in its turn.
+    let share: Uint8Array
+    try {
+      if (typeof parsed.share !== 'string' || !this.alpha) return true
+      share = unb64(parsed.share)
+      this.coord.checkShare(identifierBytes(seat), share, this.alpha)
+    } catch {
+      if (!this.toldAside.has(seat)) {
+        this.toldAside.add(seat)
+        // The seat follows the key, as the other notices carry their detail: the background path
+        // hands the key out untranslated and the screen words it (`describeSigningError`).
+        this.d.onError(this.d.tt('net.err.badShare') + ' ' + seat)
+      }
+      return true
     }
+    this.coord.addShare(identifierBytes(seat), share)
+    this.sharesSeen.add(seat)
+    await this.tryAggregate()
     return true
+  }
+
+  /** Put the shares together once there are enough. The count is closed (`sigDone`) only once an
+   *  aggregate exists. */
+  private async tryAggregate() {
+    const coord = this.coord
+    if (!coord || this.sigDone || !this.alpha || this.sharesSeen.size < this.d.threshold()) return
+    let sig: Uint8Array
+    let ok: boolean
+    try {
+      sig = coord.aggregateWithRandomizer(this.alpha)
+      // A signature that does not verify is still announced with `ok: false`, as it always was:
+      // every device checks it again under ak+alpha and records it only if it holds (`onSigned`).
+      ok = coord.verifyWithRandomizer(this.alpha, sig)
+    } catch (e) {
+      // Every share was checked before it counted, so this is not a share a signer can be blamed
+      // for. Nothing here would retry by itself: say so rather than sit silent.
+      this.d.onError(this.d.tt('net.err.stepFailed') + ' ' + String(e))
+      return
+    }
+    this.sigDone = true
+    // Broadcast this spend's signature tagged with `k`; every device records it and either
+    // advances to the next spend or finalizes (the `signed` handler). The Architecture B
+    // response for the WHOLE set is posted once, at the last spend.
+    await this.d.send({ type: 'signed', sig: b64(sig), ok, k: this.cur, h: this.tag() })
+    this.d.onLog(this.d.tt('net.log.signAggregate'))
   }
 
   private async onSigned(parsed: Extract<SignWireMsg, { type: 'signed' }>, fromTag: string): Promise<boolean> {

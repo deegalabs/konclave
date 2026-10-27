@@ -12,6 +12,8 @@ import init, {
   Coordinator,
   DkgSession,
   identifierBytes,
+  participantRound1,
+  participantRound2WithRandomizer,
   pcztSighash,
   readPayment,
 } from './wasm-pkg/konclave_wasm.js'
@@ -181,6 +183,9 @@ function makeDevice(
   // ceremony test wants; the #519 companion passes a partial one, because the live map is fed by each
   // peer's `rejoin` and a device genuinely does not know a peer's seat until that rejoin is processed.
   seats: Record<string, number> = SEATS,
+  // How many shares complete a signature on this device. Two for every ceremony test but the one
+  // that needs a third signer.
+  threshold = 2,
 ): Device {
   const dev: Device = { claims: [], claimAnswer: true, records: [], recordFails: false, claimExpiries: [], tag, machine: null as unknown as SigningMachine, consumed: new Set(), sig: null, errors: [], bus, unprovenTags: new Set(), decision: 'match', what: null }
   const deps: SigningDeps = {
@@ -192,7 +197,7 @@ function makeDevice(
     mySeat: () => SEATS[tag]!,
     myTag: () => tag,
     coordinatorTag: () => (dev.coordinator === undefined ? 'A' : dev.coordinator),
-    threshold: () => 2,
+    threshold: () => threshold,
     hasVault: () => true,
     send: async (m) => { dev.bus.post(tag, JSON.stringify(m)) },
     rawSend: async (data) => { dev.bus.post(tag, data); return true },
@@ -457,6 +462,8 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
 
     const pczt = withExpiry(dkgProvenPczt())
     bus.post('helper', signRequestFor(pczt).json)
+    // The named coordinator's request, which is the only kind B takes up now: X's own is not read.
+    bus.post('A', JSON.stringify({ type: 'sreq', msg: b64(pcztSighash(pczt)), pczt: b64(pczt) }))
 
     // B starts and publishes its commitment. X reads it and coordinates over the live commitments.
     for (let i = 0; i < 6; i++) { await pump(B, bus); await pump(X, bus) }
@@ -516,7 +523,10 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     const C = makeDevice('C', bus, () => ({ keyPackage: s2.keyPackage(), groupVk, pubkeys }))
     C.coordinator = 'C' // in its own view; every peer's room named seat 1's tag
 
-    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
+    const pczt = withExpiry(dkgProvenPczt())
+    bus.post('helper', signRequestFor(pczt).json)
+    // The named coordinator's request (seat 1's tag), the only kind B takes up: C's own is not read.
+    bus.post('A', JSON.stringify({ type: 'sreq', msg: b64(pcztSighash(pczt)), pczt: b64(pczt) }))
     for (let i = 0; i < 8; i++) { await pump(B, bus); await pump(C, bus) }
 
     const sp = bus.msgs.find((m) => m.data.includes('"sp"'))
@@ -1092,9 +1102,9 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
   })
 
   it('the machine has ONE way to make a share, and it is the one that binds the message', () => {
-    // The wasm exports two round-2 functions. The seed one signs whatever package it is given and
-    // exists for the self-contained demos; the randomizer one takes the message and refuses a
-    // package over anything else. The money path must only ever reach the second. Comments are
+    // The wasm exports two round-2 functions. Both take the device's message; the seed one exists
+    // for the self-contained demos (round2-callers.test.ts pins who calls it) and the randomizer
+    // one is the real-transaction path. The money path must only ever reach the second. Comments are
     // stripped before looking, since a scan that can be satisfied by a comment checks nothing.
     const code = codeOf('./signing-machine.ts')
     expect(code).not.toMatch(/\bparticipantRound2\(/)
@@ -1293,14 +1303,16 @@ describe('a device signs the transaction it checked', () => {
     return { A, B, s1Tags, approvedTag: tagOf(approved) }
   }
 
-  it('the first reading is of one transaction and the message of another: nothing is signed', async () => {
+  it('the first reading is of one transaction and the message of another: that request is refused, only the approved payment is signed', async () => {
     const approved = withExpiry(dkgProvenPczt())
     const other = otherPczt()
     const r = await run(approved, other, pcztSighash(other))
     expect(r.A.errors.length + r.B.errors.length, 'the request was refused').toBeGreaterThan(0)
     expect(r.s1Tags.every((h) => h === r.approvedTag), 'every commitment is for the approved payment').toBe(true)
-    expect(r.A.sig).toBeNull()
-    expect(r.B.sig).toBeNull()
+    // The device holds the helper's request, so the sreq over another transaction is not taken for
+    // it, and the coordinator's own request for the approved one then runs.
+    expect(r.A.sig?.ok).toBe(true)
+    expect(r.B.sig?.ok).toBe(true)
   })
 
   it('the helper request holds another transaction than the coordinator message: nothing is signed', async () => {
@@ -1311,5 +1323,284 @@ describe('a device signs the transaction it checked', () => {
     expect(r.s1Tags.every((h) => h === r.approvedTag), 'every commitment is for the approved payment').toBe(true)
     expect(r.A.sig).toBeNull()
     expect(r.B.sig).toBeNull()
+  })
+})
+
+// A share that does not belong does not end the ceremony: the coordinator checks each share before
+// it counts, and the valid one that follows completes the signature.
+describe('SigningMachine - a share that does not check out is left out, the ceremony goes on', () => {
+  const typeOf = (m: Wire) => { try { return (JSON.parse(m.data) as { type?: string }).type } catch { return undefined } }
+  /** Start a 2-of-3 ceremony with A (seat 1, coordinator) and B (seat 2), and stop the moment the
+   *  signing package is on the bus, before either share: that is where an extra share would arrive. */
+  async function untilPackage() {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
+    for (let i = 0; i < 20 && !bus.msgs.some((m) => typeOf(m) === 'sp'); i++) {
+      await pump(A, bus) // A assembles the package here, so B has not read it yet
+      if (bus.msgs.some((m) => typeOf(m) === 'sp')) break
+      await pump(B, bus)
+    }
+    expect(bus.msgs.some((m) => typeOf(m) === 'sp'), 'the package is on the bus').toBe(true)
+    return { A, B, bus }
+  }
+  const junk = () => b64(new Uint8Array(32).fill(7))
+
+  it('a share from a seat that is not in the package does not count toward the threshold', async () => {
+    const { A, B, bus } = await untilPackage()
+    // Seat 3 is seated, but the package names seats 1 and 2. Its share cannot belong to this signature.
+    bus.post('C', JSON.stringify({ type: 's2', share: junk(), k: 0 }))
+    await runCeremony(A, B, bus)
+    expect(A.errors).toEqual([])
+    expect(A.sig?.ok, 'the valid shares still complete it').toBe(true)
+    expect(B.sig?.ok).toBe(true)
+  })
+
+  it('a share that does not verify is dropped, named, and the valid one that follows completes it', async () => {
+    const { A, B, bus } = await untilPackage()
+    // Under seat 2's own tag, before seat 2's valid share. It is well formed for the wire and wrong
+    // for the signature, so only the aggregate can tell.
+    bus.post('B', JSON.stringify({ type: 's2', share: junk(), k: 0 }))
+    await runCeremony(A, B, bus)
+    expect(A.errors, 'the coordinator says a share was refused, and from which seat').toEqual(['net.err.badShare 2'])
+    expect(A.sig?.ok, "seat 2's valid share then completes the signature").toBe(true)
+    expect(B.sig?.ok).toBe(true)
+    expect(A.sig?.hex).toBe(B.sig?.hex)
+  })
+
+  it('a share that is not even base64 neither counts nor throws out of the drain', async () => {
+    const { A, B, bus } = await untilPackage()
+    bus.post('B', JSON.stringify({ type: 's2', share: '!!! not base64 !!!', k: 0 }))
+    bus.post('B', JSON.stringify({ type: 's2', share: 42, k: 0 }))
+    await runCeremony(A, B, bus)
+    expect(A.sig?.ok, "seat 2's valid share still completes it").toBe(true)
+    expect(B.sig?.ok).toBe(true)
+  })
+
+  it('the coordinator\'s own share is the one it computed', async () => {
+    const { A, B, bus } = await untilPackage()
+    // The coordinator's own share is the one it computed.
+    bus.post('A', JSON.stringify({ type: 's2', share: junk(), k: 0 }))
+    await runCeremony(A, B, bus)
+    expect(A.errors, 'nothing was refused, so nothing is said').toEqual([])
+    expect(A.sig?.ok).toBe(true)
+    expect(B.sig?.ok).toBe(true)
+  })
+
+  it('with three signers, one bad share takes out that share only and the valid ones stay', async () => {
+    // A device sends its share once. Taking every share out because one was bad would leave the
+    // valid ones unable to come back: this is the case that shows it.
+    const { s0, s1, s2, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const mat = (s: { keyPackage: () => Uint8Array }) => () => ({ keyPackage: s.keyPackage(), groupVk, pubkeys })
+    const A = makeDevice('A', bus, mat(s0), SEATS, 3)
+    const B = makeDevice('B', bus, mat(s1), SEATS, 3)
+    const C = makeDevice('C', bus, mat(s2), SEATS, 3)
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
+    for (let i = 0; i < 30 && !bus.msgs.some((m) => typeOf(m) === 'sp'); i++) {
+      await pump(A, bus)
+      if (bus.msgs.some((m) => typeOf(m) === 'sp')) break
+      await pump(B, bus)
+      await pump(C, bus)
+    }
+    expect(bus.msgs.some((m) => typeOf(m) === 'sp'), 'the package is on the bus').toBe(true)
+    bus.post('C', JSON.stringify({ type: 's2', share: junk(), k: 0 }))
+    let prev = -1
+    for (let i = 0; i < 60 && bus.msgs.length !== prev; i++) {
+      prev = bus.msgs.length
+      await pump(A, bus)
+      await pump(B, bus)
+      await pump(C, bus)
+    }
+    expect(A.errors, 'seat 3 is named, once').toEqual(['net.err.badShare 3'])
+    expect(A.sig?.ok, "seat 3's valid share then completes it, with seat 2's kept").toBe(true)
+  })
+
+  it('a share of the wrong length, or not a scalar, never takes the seat: the valid one still completes it', async () => {
+    const { A, B, bus } = await untilPackage()
+    for (const bad of [new Uint8Array(0), new Uint8Array(5), new Uint8Array(33), new Uint8Array(32).fill(0xff)]) {
+      bus.post('B', JSON.stringify({ type: 's2', share: b64(bad), k: 0 }))
+    }
+    await runCeremony(A, B, bus)
+    expect(A.errors, 'said once for the seat, however many it sent').toEqual(['net.err.badShare 2'])
+    expect(A.sig?.ok, "seat 2's valid share is the first one accepted").toBe(true)
+    expect(B.sig?.ok).toBe(true)
+  })
+
+  it('with three signers, a part that does not check out under a seat does not cost that seat its place', async () => {
+    const { s0, s1, s2, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const mat = (s: { keyPackage: () => Uint8Array }) => () => ({ keyPackage: s.keyPackage(), groupVk, pubkeys })
+    const A = makeDevice('A', bus, mat(s0), SEATS, 3)
+    const B = makeDevice('B', bus, mat(s1), SEATS, 3)
+    const C = makeDevice('C', bus, mat(s2), SEATS, 3)
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
+    for (let i = 0; i < 30 && !bus.msgs.some((m) => typeOf(m) === 'sp'); i++) {
+      await pump(A, bus)
+      if (bus.msgs.some((m) => typeOf(m) === 'sp')) break
+      await pump(B, bus)
+      await pump(C, bus)
+    }
+    // Both devices read the package and answer; the part under seat 3 sits BEFORE its valid share
+    // in the room, after seat 2's.
+    await pump(B, bus)
+    bus.post('C', JSON.stringify({ type: 's2', share: junk(), k: 0 }))
+    let prev = -1
+    for (let i = 0; i < 60 && bus.msgs.length !== prev; i++) {
+      prev = bus.msgs.length
+      await pump(A, bus)
+      await pump(B, bus)
+      await pump(C, bus)
+    }
+    expect(A.errors).toEqual(['net.err.badShare 3'])
+    expect(A.sig?.ok, 'all three valid shares were kept, seat 3\'s the first it sent').toBe(true)
+  })
+
+  it('the coordinator\'s own share is taken from its own computation, whatever order the room delivers in', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    // A's own package comes back to it LATE, as a relay may deliver it: hold it.
+    let hold = true
+    const handle = A.machine.handle.bind(A.machine)
+    A.machine.handle = (async (m: { type?: string }, from: string) =>
+      hold && m.type === 'sp' ? false : handle(m as never, from)) as typeof A.machine.handle
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
+    for (let i = 0; i < 20 && !bus.msgs.some((m) => typeOf(m) === 'sp'); i++) {
+      await pump(A, bus)
+      if (bus.msgs.some((m) => typeOf(m) === 'sp')) break
+      await pump(B, bus)
+    }
+    await pump(B, bus) // B answers the package
+    bus.post('A', JSON.stringify({ type: 's2', share: junk(), k: 0 }))
+    await pump(A, bus) // an extra part and B's share arrive before A's own package does
+    hold = false
+    await runCeremony(A, B, bus)
+    expect(A.errors).toEqual([])
+    expect(A.sig?.ok, 'its own share is the one it computed').toBe(true)
+  })
+
+  it('a package that is not the one the coordinator sent is not read', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    let hold = true
+    const otherPkg = b64(new Uint8Array(40).fill(9))
+    const handle = A.machine.handle.bind(A.machine)
+    A.machine.handle = (async (m: { type?: string; sp?: string }, from: string) =>
+      hold && m.type === 'sp' && m.sp !== otherPkg ? false : handle(m as never, from)) as typeof A.machine.handle
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
+    for (let i = 0; i < 20 && !bus.msgs.some((m) => typeOf(m) === 'sp'); i++) {
+      await pump(A, bus)
+      if (bus.msgs.some((m) => typeOf(m) === 'sp')) break
+      await pump(B, bus)
+    }
+    // A package other than the one A sent arrives before A's own comes back.
+    const sent = JSON.parse(bus.msgs.find((m) => typeOf(m) === 'sp')!.data) as { msg: string; k: number }
+    bus.post('A', JSON.stringify({ type: 'sp', signers: [1, 2], sp: otherPkg, msg: sent.msg, k: sent.k }))
+    await pump(A, bus)
+    hold = false
+    await runCeremony(A, B, bus)
+    expect(A.errors, 'A signs only the package it sent').toEqual([])
+    expect(A.sig?.ok).toBe(true)
+  })
+
+  it('the engine checks one share on its own, for its signer, under the spend\'s alpha', () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const id0 = identifierBytes(1)
+    const id1 = identifierBytes(2)
+    const msg = new Uint8Array(32).fill(3)
+    const alpha = new Uint8Array(hexb('b2ad61e8bf0de877dd01c52356526adf39b036ffed2e0217ece19407e1717624'))
+    const a = participantRound1(s0.keyPackage())
+    const b = participantRound1(s1.keyPackage())
+    const coord = new Coordinator(groupVk, pubkeys, msg)
+    coord.addCommitment(id0, a.commitment())
+    coord.addCommitment(id1, b.commitment())
+    coord.prepare()
+    const sp = coord.signingPackage()
+    const share0 = participantRound2WithRandomizer(sp, a.nonces(), s0.keyPackage(), alpha, msg)
+    const share1 = participantRound2WithRandomizer(sp, b.nonces(), s1.keyPackage(), alpha, msg)
+    expect(() => coord.checkShare(id0, share0, alpha)).not.toThrow()
+    expect(() => coord.checkShare(id1, share1, alpha)).not.toThrow()
+    expect(() => coord.checkShare(id1, share0, alpha), 'seat 1\'s share offered for seat 2').toThrow()
+    expect(() => coord.checkShare(id0, share0, new Uint8Array(32).fill(1)), 'under another alpha').toThrow()
+    expect(() => coord.checkShare(id0, share0.slice(0, 31), alpha)).toThrow()
+    coord.addShare(id0, share0)
+    coord.addShare(id1, share1)
+    expect(coord.aggregateWithRandomizer(alpha).length).toBe(64)
+  })
+})
+
+// Only the coordinator opens a signing request on the room, as only it opens round 2: the `sreq`
+// comes out of the coordinator and nowhere else (`tryHelperRequest`). A request from any other device is
+// not taken, and a request the helper did not send does not replace the one in hand while a
+// ceremony is under way.
+describe('a signing request is the coordinator\'s', () => {
+  const otherPczt = () => new Uint8Array(readFileSync(new URL('../../konclave-wasm/tests/vectors/orchard_mainnet_two_spend.proven.pczt', import.meta.url)))
+  const typeOf = (m: Wire) => { try { return (JSON.parse(m.data) as { type?: string }).type } catch { return undefined } }
+  const otherSreq = (p: Uint8Array) => JSON.stringify({ type: 'sreq', msg: b64(pcztSighash(p)), pczt: b64(p) })
+
+  it('an sreq from a seated device that is not the coordinator starts nothing, and the valid one still runs', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
+    // Seat 3 is seated and is not the coordinator: a request from it is not taken.
+    bus.post('C', otherSreq(otherPczt()))
+    await runCeremony(A, B, bus)
+    expect(B.errors, 'B says it ignored a request that is not the coordinator\'s').toContain('net.err.notCoordinator')
+    expect(A.sig?.ok).toBe(true)
+    expect(B.sig?.ok, 'B signed the approved transaction').toBe(true)
+  })
+
+  it('an sreq from a tag that holds no seat waits, unread, and starts nothing', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
+    bus.post('X', otherSreq(otherPczt()))
+    await runCeremony(A, B, bus)
+    expect(B.errors, 'a tag not seated yet is waited for, not reported').toEqual([])
+    expect(A.sig?.ok).toBe(true)
+    expect(B.sig?.ok, 'B signed the approved transaction').toBe(true)
+  })
+
+  it('a request that arrives while the device holds the helper\'s request does not replace it', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
+    // The device holds the helper's request already; a PCZT inline in a later request does not
+    // replace it.
+    bus.post('A', otherSreq(otherPczt()))
+    await runCeremony(A, B, bus)
+    expect(B.sig?.ok, 'B signed the transaction the helper asked for').toBe(true)
+    expect(A.sig?.ok).toBe(true)
+  })
+
+  it('a second helper request while a ceremony is under way is not taken up', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
+    for (let i = 0; i < 20 && !bus.msgs.some((m) => typeOf(m) === 'sp'); i++) {
+      await pump(A, bus)
+      if (bus.msgs.some((m) => typeOf(m) === 'sp')) break
+      await pump(B, bus)
+    }
+    // The package is out, the ceremony is under way. Another raw request lands in the room.
+    bus.post('helper', signRequestFor(otherPczt()).json)
+    await runCeremony(A, B, bus)
+    expect(bus.msgs.filter((m) => m.from === 'A' && typeOf(m) === 'sreq'), 'the coordinator asked once').toHaveLength(1)
+    expect(A.sig?.ok).toBe(true)
+    expect(B.sig?.ok).toBe(true)
   })
 })
