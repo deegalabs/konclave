@@ -1,5 +1,10 @@
 import 'fake-indexeddb/auto'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+// #669: this file derives keys (PBKDF2 at 600k rounds, AES-GCM) in most of its tests. Measured on
+// an idle machine the slowest took 3.1 s, so under load they cross the 5 s default and read as a
+// regression. The limit is raised for this file only; the global one in vite.config.ts stays.
+vi.setConfig({ testTimeout: 30_000 })
+
 // @ts-expect-error - a plain .mjs script, deliberately not part of the app's TS build
 import { openExport, examine, reportLines } from '../../scripts/open-export.mjs'
 import { saveVault, loadVault, exportVault, importVault, parseVaultExport, type VaultData } from './storage'

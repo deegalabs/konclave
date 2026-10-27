@@ -1,5 +1,10 @@
 import 'fake-indexeddb/auto'
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
+// #669: this file derives keys (PBKDF2 at 600k rounds, AES-GCM) in most of its tests. Measured on
+// an idle machine the slowest took 3.8 s, so under load they cross the 5 s default and read as a
+// regression. The limit is raised for this file only; the global one in vite.config.ts stays.
+vi.setConfig({ testTimeout: 30_000 })
+
 import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import {
