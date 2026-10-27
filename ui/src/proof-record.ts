@@ -212,6 +212,24 @@ export const PROOF_TXS: readonly ProofTx[] = [
       'pt-BR': 'Primeira transação no motor lançado, em produção (#608, #120): folha privada de uma linha, uma transação V6, de um cofre que o operador descreve como 2-de-3 criado no app web, transmitida pelo coordenador de produção logo depois de a versão de 04/10/2026 entrar no ar. A cadeia não mostra qual motor a montou. O que atesta é o registro do deploy em engine/versions.lock: o sha256 conferido na máquina do deploy, os tamanhos conferidos no contêiner e o commit que o coordenador informa.',
     },
   },
+  {
+    txid: 'ac696b9f5e261cf7c38e017a5651a57705360d0756e803b8199cc81f1ad75c58',
+    block: 3527232,
+    origin: 'dkg',
+    label: {
+      en: 'First production send on the redeployed coordinator (commit 404a8bb, deployed for the 0.14.0 release): a vault its operator describes as 2-of-2, signed on two devices in the 0.13.2 web app about three hours after the new coordinator went live. The chain shows an ordinary shielded V6 transaction with nothing transparent and cannot show which coordinator built it, nor the 2-of-2 shape. That rests on the commit the coordinator reports, the build recorded in engine/versions.lock and the operator, not on the block.',
+      'pt-BR': 'Primeiro envio de produção no coordenador reimplantado (commit 404a8bb, implantado para a versão 0.14.0): um cofre que o operador descreve como 2-de-2, assinado em dois aparelhos no app web 0.13.2, cerca de três horas depois de o novo coordenador entrar no ar. A cadeia mostra uma transação blindada V6 comum, sem nada transparente, e não mostra qual coordenador a montou nem o formato 2-de-2. Isso se apoia no commit que o coordenador informa, no build registrado em engine/versions.lock e no operador, não no bloco.',
+    },
+  },
+  {
+    txid: '8d198b019078abce564dfdfa3cb8588089a413733b41e549b8222599bc810c8e',
+    block: 3529405,
+    origin: 'dkg',
+    label: {
+      en: 'A send on the coordinator built at c08c935 (the 0.15.0 coordinator, deployed 2026-10-24 17:49 in Brasilia): a vault its operator describes as 2-of-2, signed on two devices in the web app about 45 minutes after that coordinator went live. The chain shows an ordinary shielded V6 transaction with nothing transparent and cannot show which coordinator built it. That rests on the commit the coordinator reports and on the operator, not on the block.',
+      'pt-BR': 'Um envio no coordenador construído em c08c935 (o coordenador da 0.15.0, implantado em 24/10/2026 às 17:49 em Brasília): um cofre que o operador descreve como 2-de-2, assinado em dois aparelhos no app web cerca de 45 minutos depois de esse coordenador entrar no ar. A cadeia mostra uma transação blindada V6 comum, sem nada transparente, e não mostra qual coordenador a montou. Isso se apoia no commit que o coordenador informa e no operador, não no bloco.',
+    },
+  },
 ]
 
 /** How many of the listed transactions came from each kind of vault. Counted, never typed. */

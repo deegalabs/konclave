@@ -40,6 +40,12 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Added
+
+- The proof screen lists two more mainnet transactions, the 21st and the 22nd: the first production send on the redeployed
+  coordinator (block 3,527,232) and a send on the 0.15.0 coordinator (block 3,529,405). `docs/PROOF.md` carries the rows,
+  and the counts in the documents say 22.
+
 ## [0.15.0] 2026-10-26
 
 ### Fixed

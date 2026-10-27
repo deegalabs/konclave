@@ -8,7 +8,7 @@
 ## Status - 2026-08-19 (post-hackathon)
 
 The core runs end to end (payment + payroll: propose -> validate -> approve/refuse -> sign with
-FROST -> account) and is **proven on mainnet** (20 verifiable mainnet txids as of 2026-10-04, see
+FROST -> account) and is **proven on mainnet** (22 verifiable mainnet txids as of 2026-10-24, see
 `docs/PROOF.md`; this line said 12, which was the count on 2026-08-26, when it was last edited).
 This cycle's work:
 
@@ -218,7 +218,7 @@ slice slips, Phase 6 is the escape valve, never the core.
 > fingerprint (#67/#68, ADR-0007). Open security follow-up: H2 (seal the SignRequest, #63).
 
 The core crypto is proven (real FROST over Orchard and Ironwood,
-**20 verifiable mainnet txids** as of 2026-10-04, listed in `docs/PROOF.md`, incl. a
+**22 verifiable mainnet txids** as of 2026-10-24, listed in `docs/PROOF.md`, incl. a
 DKG-vault send, a private multi-output payroll, and - on NU6.3 activation day - an
 Orchard→Ironwood migration plus the first **Ironwood-pool spend** (both V6/NU6.3, FROST 2-of-3),
 and browser-side signing of a real **Ironwood** spend (the eighth txid, `3022420a…`, a V6/NU6.3
