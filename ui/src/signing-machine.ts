@@ -283,6 +283,9 @@ export class SigningMachine {
   async tryHelperRequest(rawData: string): Promise<boolean> {
     const helperReq = parseSignRequest(rawData)
     if (!helperReq) return false
+    // A request that arrives while a ceremony is under way is not taken up, and not kept: the next
+    // ceremony reads the room afresh (`rearm`).
+    if (this.started) return false
     this.helperReq = helperReq
     // Nobody is named yet (the completing signature has not reached this device): the request waits,
     // unconsumed, and the session re-drives the signer when a signature changes the tally.
@@ -313,7 +316,7 @@ export class SigningMachine {
     // depth, so a refactor that moves this line still leaves each step that signs asking on its own.
     if (this.started && !this.cleared) return true
     switch (parsed.type) {
-      case 'sreq': return this.onSreq(parsed)
+      case 'sreq': return this.onSreq(parsed, fromTag)
       case 's1': return this.onS1(parsed, fromTag)
       case 'sp': return this.onSp(parsed, fromTag)
       case 's2': return this.onS2(parsed, fromTag)
@@ -348,21 +351,38 @@ export class SigningMachine {
     this.d.onLog(n > 1 ? `~ signing spend ${k + 1}/${n}` : this.d.tt('net.log.signCommit'))
   }
 
-  private async onSreq(parsed: Extract<SignWireMsg, { type: 'sreq' }>): Promise<boolean> {
+  private async onSreq(parsed: Extract<SignWireMsg, { type: 'sreq' }>, fromTag: string): Promise<boolean> {
     if (!this.d.hasVault()) return false // no vault yet
     if (!this.started) {
       // The ceremony needs a coordinator every device agrees on; until the completing signature reaches
       // this device, the request waits (unconsumed) rather than starting a ceremony nobody can finish.
       const coordinator = this.coordinatorNow()
       if (coordinator === null) return false
+      // Only the coordinator's request opens a ceremony. The `sreq` comes out of the
+      // coordinator and nowhere else (`tryHelperRequest`), so a request from any other tag is
+      // not read at all. As in `onSp`, a tag not seated YET is not refused, only deferred until
+      // its rejoin says who it is.
+      if (!this.isCoordinator(fromTag)) {
+        if (this.d.seatOf(fromTag) === undefined) return false
+        this.d.onError(this.d.tt('net.err.notCoordinator'))
+        return true
+      }
       // The PCZT to sign: from the sreq inline (an older, plaintext coordinator), or - for a sealed
       // request where the coordinator omitted it so it never touches the relay (#63) - the PCZT this
       // device already opened from the helper request. If neither is available yet, wait.
-      const pczt = parsed.pczt
-        ? unb64(parsed.pczt)
-        : this.helperReq
-          ? hexBytes(this.helperReq.pcztHex)
-          : null
+      //
+      // A device that already holds the helper's request signs that PCZT, and the sreq has to name
+      // its sighash. The inline PCZT is only for a device that holds no request.
+      let pczt: Uint8Array | null
+      if (this.helperReq) {
+        if (!bytesEqual(unb64(parsed.msg), hexBytes(this.helperReq.sighash))) {
+          this.d.onError(this.d.tt('net.err.sighashMismatch'))
+          return true
+        }
+        pczt = hexBytes(this.helperReq.pcztHex)
+      } else {
+        pczt = parsed.pczt ? unb64(parsed.pczt) : null
+      }
       if (!pczt) return false
       // H1 / ADR-0007 I2 (transaction-swap defense): recompute the ZIP-244 sighash from OUR OWN
       // PCZT and sign THAT, refusing if it disagrees with the requested one. A hostile helper or

@@ -462,6 +462,8 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
 
     const pczt = withExpiry(dkgProvenPczt())
     bus.post('helper', signRequestFor(pczt).json)
+    // The named coordinator's request, which is the only kind B takes up now: X's own is not read.
+    bus.post('A', JSON.stringify({ type: 'sreq', msg: b64(pcztSighash(pczt)), pczt: b64(pczt) }))
 
     // B starts and publishes its commitment. X reads it and coordinates over the live commitments.
     for (let i = 0; i < 6; i++) { await pump(B, bus); await pump(X, bus) }
@@ -521,7 +523,10 @@ describe('SigningMachine - relay orchestration (the /net ceremony state machine)
     const C = makeDevice('C', bus, () => ({ keyPackage: s2.keyPackage(), groupVk, pubkeys }))
     C.coordinator = 'C' // in its own view; every peer's room named seat 1's tag
 
-    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
+    const pczt = withExpiry(dkgProvenPczt())
+    bus.post('helper', signRequestFor(pczt).json)
+    // The named coordinator's request (seat 1's tag), the only kind B takes up: C's own is not read.
+    bus.post('A', JSON.stringify({ type: 'sreq', msg: b64(pcztSighash(pczt)), pczt: b64(pczt) }))
     for (let i = 0; i < 8; i++) { await pump(B, bus); await pump(C, bus) }
 
     const sp = bus.msgs.find((m) => m.data.includes('"sp"'))
@@ -1298,14 +1303,16 @@ describe('a device signs the transaction it checked', () => {
     return { A, B, s1Tags, approvedTag: tagOf(approved) }
   }
 
-  it('the first reading is of one transaction and the message of another: nothing is signed', async () => {
+  it('the first reading is of one transaction and the message of another: that request is refused, only the approved payment is signed', async () => {
     const approved = withExpiry(dkgProvenPczt())
     const other = otherPczt()
     const r = await run(approved, other, pcztSighash(other))
     expect(r.A.errors.length + r.B.errors.length, 'the request was refused').toBeGreaterThan(0)
     expect(r.s1Tags.every((h) => h === r.approvedTag), 'every commitment is for the approved payment').toBe(true)
-    expect(r.A.sig).toBeNull()
-    expect(r.B.sig).toBeNull()
+    // The device holds the helper's request, so the sreq over another transaction is not taken for
+    // it, and the coordinator's own request for the approved one then runs.
+    expect(r.A.sig?.ok).toBe(true)
+    expect(r.B.sig?.ok).toBe(true)
   })
 
   it('the helper request holds another transaction than the coordinator message: nothing is signed', async () => {
@@ -1493,8 +1500,8 @@ describe('SigningMachine - a share that does not check out is left out, the cere
       await pump(B, bus)
     }
     // A package other than the one A sent arrives before A's own comes back.
-    const honest = JSON.parse(bus.msgs.find((m) => typeOf(m) === 'sp')!.data) as { msg: string; k: number }
-    bus.post('A', JSON.stringify({ type: 'sp', signers: [1, 2], sp: otherPkg, msg: honest.msg, k: honest.k }))
+    const sent = JSON.parse(bus.msgs.find((m) => typeOf(m) === 'sp')!.data) as { msg: string; k: number }
+    bus.post('A', JSON.stringify({ type: 'sp', signers: [1, 2], sp: otherPkg, msg: sent.msg, k: sent.k }))
     await pump(A, bus)
     hold = false
     await runCeremony(A, B, bus)
@@ -1525,5 +1532,75 @@ describe('SigningMachine - a share that does not check out is left out, the cere
     coord.addShare(id0, share0)
     coord.addShare(id1, share1)
     expect(coord.aggregateWithRandomizer(alpha).length).toBe(64)
+  })
+})
+
+// Only the coordinator opens a signing request on the room, as only it opens round 2: the `sreq`
+// comes out of the coordinator and nowhere else (`tryHelperRequest`). A request from any other device is
+// not taken, and a request the helper did not send does not replace the one in hand while a
+// ceremony is under way.
+describe('a signing request is the coordinator\'s', () => {
+  const otherPczt = () => new Uint8Array(readFileSync(new URL('../../konclave-wasm/tests/vectors/orchard_mainnet_two_spend.proven.pczt', import.meta.url)))
+  const typeOf = (m: Wire) => { try { return (JSON.parse(m.data) as { type?: string }).type } catch { return undefined } }
+  const otherSreq = (p: Uint8Array) => JSON.stringify({ type: 'sreq', msg: b64(pcztSighash(p)), pczt: b64(p) })
+
+  it('an sreq from a seated device that is not the coordinator starts nothing, and the valid one still runs', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
+    // Seat 3 is seated and is not the coordinator: a request from it is not taken.
+    bus.post('C', otherSreq(otherPczt()))
+    await runCeremony(A, B, bus)
+    expect(B.errors, 'B says it ignored a request that is not the coordinator\'s').toContain('net.err.notCoordinator')
+    expect(A.sig?.ok).toBe(true)
+    expect(B.sig?.ok, 'B signed the approved transaction').toBe(true)
+  })
+
+  it('an sreq from a tag that holds no seat waits, unread, and starts nothing', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
+    bus.post('X', otherSreq(otherPczt()))
+    await runCeremony(A, B, bus)
+    expect(B.errors, 'a tag not seated yet is waited for, not reported').toEqual([])
+    expect(A.sig?.ok).toBe(true)
+    expect(B.sig?.ok, 'B signed the approved transaction').toBe(true)
+  })
+
+  it('a request that arrives while the device holds the helper\'s request does not replace it', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
+    // The device holds the helper's request already; a PCZT inline in a later request does not
+    // replace it.
+    bus.post('A', otherSreq(otherPczt()))
+    await runCeremony(A, B, bus)
+    expect(B.sig?.ok, 'B signed the transaction the helper asked for').toBe(true)
+    expect(A.sig?.ok).toBe(true)
+  })
+
+  it('a second helper request while a ceremony is under way is not taken up', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
+    for (let i = 0; i < 20 && !bus.msgs.some((m) => typeOf(m) === 'sp'); i++) {
+      await pump(A, bus)
+      if (bus.msgs.some((m) => typeOf(m) === 'sp')) break
+      await pump(B, bus)
+    }
+    // The package is out, the ceremony is under way. Another raw request lands in the room.
+    bus.post('helper', signRequestFor(otherPczt()).json)
+    await runCeremony(A, B, bus)
+    expect(bus.msgs.filter((m) => m.from === 'A' && typeOf(m) === 'sreq'), 'the coordinator asked once').toHaveLength(1)
+    expect(A.sig?.ok).toBe(true)
+    expect(B.sig?.ok).toBe(true)
   })
 })
