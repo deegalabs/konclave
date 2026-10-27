@@ -496,15 +496,6 @@ export class DeviceKey {
         wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
         return v1;
     }
-    /**
-     * @returns {Uint8Array}
-     */
-    secretBytes() {
-        const ret = wasm.devicekey_secretBytes(this.__wbg_ptr);
-        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
-        return v1;
-    }
 }
 if (Symbol.dispose) DeviceKey.prototype[Symbol.dispose] = DeviceKey.prototype.free;
 

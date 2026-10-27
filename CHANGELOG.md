@@ -78,6 +78,11 @@ explicitly accepted.
   of the module passes the handle it got from `participantRound1`. A package the module refuses
   (another message, a commitment that is not this device's, malformed input) makes no share and
   leaves the handle usable. Nothing a member does with a vault changes.
+- **The browser signing module keeps a device key inside itself.** `DeviceKey.secretBytes()` is
+  removed: the key a device announces while a vault is created stays inside the module. The
+  public half is unchanged. The Ed25519 signing key objects the module holds (the ones that sign
+  governance writes) are wiped when dropped. Backups of vaults created before this change still
+  carry the old field; it is ignored.
 
 ### Fixed
 

@@ -89,7 +89,6 @@ export class DeviceKey {
      */
     open(sealed: Uint8Array, aad: Uint8Array): Uint8Array;
     publicBytes(): Uint8Array;
-    secretBytes(): Uint8Array;
 }
 
 /**
@@ -424,7 +423,6 @@ export interface InitOutput {
     readonly devicekey_new: () => number;
     readonly devicekey_open: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
     readonly devicekey_publicBytes: (a: number) => [number, number];
-    readonly devicekey_secretBytes: (a: number) => [number, number];
     readonly dkgsession_addRound1: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly dkgsession_addRound2: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly dkgsession_groupVk: (a: number) => [number, number];

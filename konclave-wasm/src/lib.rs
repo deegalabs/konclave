@@ -5740,10 +5740,6 @@ mod js_dkg {
                 inner: seal::device_key_from_share(key_package),
             }
         }
-        #[wasm_bindgen(js_name = secretBytes)]
-        pub fn secret_bytes(&self) -> Vec<u8> {
-            self.inner.secret_bytes().to_vec()
-        }
         #[wasm_bindgen(js_name = publicBytes)]
         pub fn public_bytes(&self) -> Vec<u8> {
             self.inner.public_bytes().to_vec()
