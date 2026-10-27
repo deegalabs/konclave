@@ -257,6 +257,16 @@ pub mod ceremony {
     pub const PACKAGE_SIGNS_ANOTHER_MESSAGE: &str =
         "the signing package signs a different message than the one this device derived";
 
+    /// The one place a device's own message is held against the package it was handed. Both round-2
+    /// functions call it before anything is signed, so neither path can sign a package it has not
+    /// compared.
+    fn require_message(sp: &SigningPackage, message: &[u8]) -> Result<(), E> {
+        if sp.message().as_slice() != message {
+            return Err(PACKAGE_SIGNS_ANOTHER_MESSAGE.to_string());
+        }
+        Ok(())
+    }
+
     /// Participant device, round 1: produce local secret nonces + a public commitment (bytes).
     /// The nonces are kept in the browser session; only the commitment goes to the relay.
     pub fn participant_round1(kp: &KeyPackage) -> (SigningNonces, Vec<u8>) {
@@ -296,13 +306,17 @@ pub mod ceremony {
     }
 
     /// Participant device, round 2: sign with the seed. Uses the LOCAL nonces + key package.
+    /// `message` is what this device holds for itself; the package is refused unless it signs
+    /// exactly that, for the reason given on `participant_round2_with_randomizer`.
     pub fn participant_round2(
         sp_bytes: &[u8],
         nonces: &SigningNonces,
         kp: &KeyPackage,
         seed: &[u8],
+        message: &[u8],
     ) -> Result<Vec<u8>, E> {
         let sp = SigningPackage::deserialize(sp_bytes).map_err(e)?;
+        require_message(&sp, message)?;
         let share = rerandomized::sign_with_randomizer_seed(&sp, nonces, kp, seed).map_err(e)?;
         Ok(share.serialize())
     }
@@ -384,9 +398,7 @@ pub mod ceremony {
         message: &[u8],
     ) -> Result<Vec<u8>, E> {
         let sp = SigningPackage::deserialize(sp_bytes).map_err(e)?;
-        if sp.message().as_slice() != message {
-            return Err(PACKAGE_SIGNS_ANOTHER_MESSAGE.to_string());
-        }
+        require_message(&sp, message)?;
         let r = rerandomized::Randomizer::deserialize(randomizer).map_err(e)?;
         let share = frost_rerandomized::sign(&sp, nonces, kp, r).map_err(e)?;
         Ok(share.serialize())
@@ -468,7 +480,8 @@ pub mod ceremony {
             // Each device round 2 - sign with local nonces + seed, send share bytes.
             let mut wire_shares = Vec::new();
             for ((id, kp), (_id2, nonces)) in signers.iter().zip(local_nonces.iter()) {
-                let share_bytes = participant_round2(&sp_bytes, nonces, kp, &seed).unwrap();
+                let share_bytes =
+                    participant_round2(&sp_bytes, nonces, kp, &seed, message).unwrap();
                 wire_shares.push((id.serialize(), share_bytes));
             }
 
@@ -528,6 +541,46 @@ pub mod ceremony {
                 participant_round2_with_randomizer(&honest, &local_nonces[0], kp, &alpha, derived)
                     .is_ok(),
                 "the package over the derived message is signed"
+            );
+        }
+
+        /// The seed path signs the message inside the package too, so it is bound the same way: a
+        /// package over another message gets no share on either path.
+        #[test]
+        fn the_seed_path_refuses_a_package_over_another_message() {
+            let (shares, pubkeys) = frost::keys::generate_with_dealer(
+                3,
+                2,
+                frost::keys::IdentifierList::Default,
+                OsRng,
+            )
+            .unwrap();
+            let group_vk = *pubkeys.verifying_key();
+            let kps: std::collections::BTreeMap<_, _> = shares
+                .into_iter()
+                .map(|(id, s)| (id, KeyPackage::try_from(s).unwrap()))
+                .collect();
+            let derived = b"the message this device derived from its own copy";
+            let handed = b"a message nobody here approved";
+
+            let signers: Vec<_> = kps.iter().take(2).collect();
+            let mut local_nonces = Vec::new();
+            let mut wire_commitments = Vec::new();
+            for (id, kp) in &signers {
+                let (nonces, commit_bytes) = participant_round1(kp);
+                local_nonces.push(nonces);
+                wire_commitments.push((id.serialize(), commit_bytes));
+            }
+            let other_package = coordinator_signing_package(&wire_commitments, handed).unwrap();
+            let own_package = coordinator_signing_package(&wire_commitments, derived).unwrap();
+            let seed = coordinator_randomizer_seed(&group_vk, &own_package).unwrap();
+
+            let (_, kp) = signers[0];
+            let outcome = participant_round2(&other_package, &local_nonces[0], kp, &seed, derived);
+            assert_eq!(
+                outcome.unwrap_err(),
+                PACKAGE_SIGNS_ANOTHER_MESSAGE,
+                "a package over another message must be refused on the seed path, and for this reason"
             );
         }
 
@@ -781,7 +834,8 @@ pub mod dkg {
             let mut wire_shares = Vec::new();
             for ((id, kp), (_id2, nonces)) in signers.iter().zip(local_nonces.iter()) {
                 let share =
-                    super::super::ceremony::participant_round2(&sp, nonces, kp, &seed).unwrap();
+                    super::super::ceremony::participant_round2(&sp, nonces, kp, &seed, message)
+                        .unwrap();
                 wire_shares.push((id.serialize(), share));
             }
             let sig = super::super::ceremony::coordinator_aggregate(
@@ -1847,7 +1901,8 @@ pub mod recovery {
             for ((id, kp), (_id, nc)) in signers.iter().zip(nonces.iter()) {
                 shares_wire.push((
                     id.serialize(),
-                    super::super::ceremony::participant_round2(&sp, nc, kp, &seed).unwrap(),
+                    super::super::ceremony::participant_round2(&sp, nc, kp, &seed, message)
+                        .unwrap(),
                 ));
             }
             let sig = super::super::ceremony::coordinator_aggregate(
@@ -4954,17 +5009,19 @@ mod js {
         })
     }
 
-    /// Participant device, round 2 (JS): sign with the local nonces + seed.
+    /// Participant device, round 2 (JS): sign with the local nonces + seed. `message` is what this
+    /// device holds for itself; the share is refused unless the package signs exactly that.
     #[wasm_bindgen(js_name = participantRound2)]
     pub fn participant_round2(
         sp: &[u8],
         nonces_bytes: &[u8],
         kp_bytes: &[u8],
         seed: &[u8],
+        message: &[u8],
     ) -> Result<Vec<u8>, JsValue> {
         let nonces = SigningNonces::deserialize(nonces_bytes).map_err(je)?;
         let kp = KeyPackage::deserialize(kp_bytes).map_err(je)?;
-        ceremony::participant_round2(sp, &nonces, &kp, seed).map_err(je)
+        ceremony::participant_round2(sp, &nonces, &kp, seed, message).map_err(je)
     }
 
     /// Participant device, round 2 (JS), REAL-TRANSACTION path: sign with the given Orchard

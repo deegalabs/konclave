@@ -67,6 +67,12 @@ explicitly accepted.
   built, before any signature is asked. A pool crossing's expiry (ZIP 318) is computed at the modulus
   of the upgrade its target is in (34,560 blocks before it, 103,680 from it); nothing reads it yet.
 
+### Changed
+
+- **The browser module's seed-path signing call takes the device's message as a required last
+  argument.** In the SDK this is `participantRound2`, so a call with the old four arguments now
+  fails. Nothing a member does with a vault changes.
+
 ### Known limits
 
 - **After the upgrade, until the coordinator's engine is updated, payments are refused rather than

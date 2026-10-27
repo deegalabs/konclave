@@ -46,6 +46,12 @@ history to tidy it is how context gets lost.
   coordinator (block 3,527,232) and a send on the 0.15.0 coordinator (block 3,529,405). `docs/PROOF.md` carries the rows,
   and the counts in the documents say 22.
 
+### Changed
+
+- **The signing demonstration and the share-repair demonstration pass the device's message to the
+  signing module.** The module's seed-path signing call now requires it (see the root changelog). The
+  screens behave as before.
+
 ## [0.15.0] 2026-10-26
 
 ### Fixed

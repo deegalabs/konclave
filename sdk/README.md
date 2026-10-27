@@ -126,8 +126,8 @@ const sp = coord.signingPackage()
 const seed = coord.seed()
 
 // Round 2: each device signs with ITS OWN nonces; only the share crosses.
-coord.addShare(vault.id(0), participantRound2(sp, a.nonces(), vault.key_package(0), seed))
-coord.addShare(vault.id(1), participantRound2(sp, b.nonces(), vault.key_package(1), seed))
+coord.addShare(vault.id(0), participantRound2(sp, a.nonces(), vault.key_package(0), seed, message))
+coord.addShare(vault.id(1), participantRound2(sp, b.nonces(), vault.key_package(1), seed, message))
 
 const sig = coord.aggregate()
 const ok = verifyRedpallas(vault.groupVk(), sp, seed, message, sig)
@@ -137,6 +137,10 @@ console.log(ok, toHex(sig))
 To wire this across devices, move each public blob (`commitment()`, `signingPackage()`, `seed()`,
 each `addShare` payload) over your transport with `toBase64` / `fromBase64`. Use `identifierBytes(i)`
 so every device agrees on who is seat `i` with no central registry.
+
+`participantRound2` takes the message the device holds for itself, and refuses a signing package
+that signs anything else: the package comes from the coordinator, so the device compares before it
+signs.
 
 The example above signs an arbitrary message on the **seed path** (`participantRound2` + `aggregate`
 + `verifyRedpallas`). That is the right surface for a generic redpallas signature, but it is **not**
