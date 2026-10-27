@@ -59,6 +59,11 @@ history to tidy it is how context gets lost.
   signing package names. It takes its own part from its own computation and reads only the package
   it sent itself. A failed combination is now reported instead of leaving the signature
   unfinished. One new text, `net.err.badShare` (English and Portuguese).
+- **A device now takes a signing request only from the device that is assembling the signature.**
+  A request from any other device in the signing room is ignored (and said, when it comes from a
+  known seat), and a second request that lands while a signature is being made does not replace
+  the one in hand. A device that already holds the helper's request takes the transaction from it,
+  and an incoming request has to name the same sighash.
 
 ## [0.15.0] 2026-10-26
 
@@ -77,6 +82,7 @@ history to tidy it is how context gets lost.
 - **Creating a vault no longer asks the coordinator for proposals it cannot have.** Every member got
   an error in the browser console during creation, because the list of payments was read before the
   vault was registered. It is read once the vault is registered.
+
 
 ## [0.14.0] 2026-10-23
 
