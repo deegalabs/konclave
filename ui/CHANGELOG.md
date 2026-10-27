@@ -64,6 +64,13 @@ history to tidy it is how context gets lost.
   known seat), and a second request that lands while a signature is being made does not replace
   the one in hand. A device that already holds the helper's request takes the transaction from it,
   and an incoming request has to name the same sighash.
+- **An older shielded (Sapling) destination is refused, and the screens now say so.** The warning on
+  the payment, payroll, people and recipient fields said such an address "works, but prefer a modern
+  one", while the vault cannot pay it: the backend refuses a Sapling-only destination before any
+  transaction is built. Every one of those strings now says the same true thing: this vault cannot
+  pay an older shielded (Sapling) address; ask for a current shielded one (u1…). In the same pass the
+  everyday screens stop naming pools and protocol terms: "Orchard" and "Sapling" read as "shielded"
+  and "older shielded (Sapling)", and "sighash" as "signed digest (sighash)" (#127).
 
 ## [0.15.0] 2026-10-26
 
