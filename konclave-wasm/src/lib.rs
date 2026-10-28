@@ -2923,10 +2923,7 @@ pub mod pczt_bridge {
     ) -> Option<[u8; 512]>
     where
         D: zcash_note_encryption::Domain<Note = orchard::Note, Memo = [u8; 512]>,
-        orchard::pczt::Action: zcash_note_encryption::ShieldedOutput<
-            D,
-            { zcash_note_encryption::ENC_CIPHERTEXT_SIZE },
-        >,
+        orchard::pczt::Action: zcash_note_encryption::ShieldedOutput<D>,
     {
         let esk = D::derive_esk(note)?;
         let pk_d = D::get_pk_d(note);
@@ -3957,9 +3954,9 @@ pub mod pczt_bridge {
 
         /// A real testnet unified address whose only receiver is `receiver`.
         fn testnet_ua(receiver: &[u8]) -> String {
-            use zcash_address::unified::{Address, Encoding, Receiver};
+            use zcash_address::unified::{Address, Encoding, Receiver, Revision, Uitem};
             let r: [u8; 43] = receiver.try_into().unwrap();
-            Address::try_from_items(vec![Receiver::Orchard(r)])
+            Address::try_from_items(Revision::R0, vec![Uitem::Data(Receiver::Orchard(r))])
                 .unwrap()
                 .encode(&zcash_protocol::consensus::NetworkType::Test)
         }
@@ -4933,7 +4930,7 @@ pub mod pczt_bridge {
                         .iter()
                         .find(|a| a.output().user_address().is_some())
                         .unwrap();
-                    slice = a.output().encrypted_note().enc_ciphertext[200..232].to_vec();
+                    slice = a.output().encrypted_note().enc_ciphertext.0[200..232].to_vec();
                     Ok::<(), OErr>(())
                 })
                 .unwrap();
@@ -5212,6 +5209,24 @@ pub mod pczt_bridge {
             // The other half of every refusal above: the untouched PCZT passes the same checks.
             let outs = describe_outputs(IW_PROVEN).expect("an honest PCZT reads");
             assert_eq!(outs.len(), 4, "four actions, four outputs");
+        }
+
+        #[test]
+        fn shielded_sighash_of_an_nu7_pczt_matches_the_signer_on_the_stable_crates() {
+            // The same fixture with its branch rewritten to NU7 (see konclave-signer's `as_nu7`): the device's
+            // hand-written ZIP-244 recompute must meet the crate's (zcash_primitives 0.31, pczt 0.10) on one
+            // value, and that value commits to the new branch.
+            let nu7 = patch_once(IW_PROVEN, &varint(0x37a5_165b), &varint(0x7719_0ad9));
+            let got = shielded_sighash(&Pczt::parse(&nu7).unwrap()).unwrap();
+            assert_ne!(
+                hex::encode(got),
+                hex::encode(IW_SIGHASH),
+                "the branch id is hashed in"
+            );
+            assert_eq!(
+                hex::encode(got),
+                "9b869f2332ef5a0d8e987612e9bdbe67275a6fdc1d742b77b929d4bbb0a0601d"
+            );
         }
 
         #[test]

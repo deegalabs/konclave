@@ -69,6 +69,14 @@ explicitly accepted.
 
 ### Changed
 
+- **The Rust workspace moves to the stable NU7 crate line** (pczt 0.10.0, orchard 0.16.0,
+  zcash_protocol 0.11.0, zcash_primitives 0.31.0, zcash_client_backend 0.25.0, zcash_client_sqlite
+  0.23.0, zcash_keys 0.17.0, zcash_address 0.14.0, zip321 0.10.0, released 2026-10-21). A transaction
+  signed under the previous branch cannot be mined after the upgrade, and an engine on the previous
+  crates cannot build one for it. The device's own recompute of the signature hash still matches the
+  signer byte for byte on the old fixtures and on a fixture rewritten to the new branch. The wallet
+  database migrations of `zcash_client_sqlite` 0.23 are not reversible; going back to the previous
+  engine after the deploy is not a binary swap.
 - **The browser module's seed-path signing call takes the device's message as a required last
   argument.** In the SDK this is `participantRound2`, so a call with the old four arguments now
   fails. Nothing a member does with a vault changes.
