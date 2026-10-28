@@ -1253,6 +1253,9 @@ pub mod creation {
 
     pub struct Creation {
         my_seat: u16,
+        /// The name this device announced for itself (what its owner typed). The code binds every
+        /// seat's name, so this seat's announcement is held to it like its key and commitment.
+        my_name: String,
         n: u16,
         t: u16,
         device: seal::DeviceKey,
@@ -1272,7 +1275,13 @@ pub mod creation {
     impl Creation {
         /// Seated: run round 1 and draw the nonce. `device_secret` is the key whose public half
         /// this device announced in its hello.
-        pub fn new(device_secret: &[u8; 32], my_seat: u16, n: u16, t: u16) -> Result<Self, E> {
+        pub fn new(
+            device_secret: &[u8; 32],
+            my_seat: u16,
+            n: u16,
+            t: u16,
+            my_name: &str,
+        ) -> Result<Self, E> {
             if !(2..=32).contains(&n) || t < 1 || t > n || my_seat < 1 || my_seat > n {
                 return Err("invalid seat or quorum".into());
             }
@@ -1281,6 +1290,7 @@ pub mod creation {
             rand::RngCore::fill_bytes(&mut OsRng, &mut nonce);
             Ok(Creation {
                 my_seat,
+                my_name: my_name.to_string(),
                 n,
                 t,
                 device: seal::DeviceKey::from_secret_bytes(device_secret),
@@ -1333,7 +1343,9 @@ pub mod creation {
                 .try_into()
                 .map_err(|_| "commitment must be 32 bytes")?;
             if seat == self.my_seat
-                && (enc_pub != self.device.public_bytes() || commit != self.my_commitment())
+                && (enc_pub != self.device.public_bytes()
+                    || commit != self.my_commitment()
+                    || name != self.my_name)
             {
                 return Err("this seat's announcement is not this device's".into());
             }
@@ -1566,7 +1578,7 @@ pub mod creation {
                     let secret = seal::DeviceKey::generate().secret_bytes();
                     Dev {
                         secret,
-                        c: Creation::new(&secret, seat, n, t).unwrap(),
+                        c: Creation::new(&secret, seat, n, t, &format!("m{seat}")).unwrap(),
                     }
                 })
                 .collect()
@@ -1700,9 +1712,10 @@ pub mod creation {
                 })
                 .collect();
             // In device 1's view, seat 3 committed to and revealed another round 1 (same key).
-            let (r1x, nx) = Creation::new(&seal::DeviceKey::generate().secret_bytes(), 3, 3, 2)
-                .unwrap()
-                .my_reveal();
+            let (r1x, nx) =
+                Creation::new(&seal::DeviceKey::generate().secret_bytes(), 3, 3, 2, "m3")
+                    .unwrap()
+                    .my_reveal();
             let cx = commitment(3, &ann[2].1, &r1x, &nx);
             for (i, d) in ds.iter_mut().enumerate() {
                 let view = |seat: u16| {
@@ -1736,16 +1749,16 @@ pub mod creation {
             let a = (pub_of(&ds[0]), ds[0].c.my_commitment(), ds[0].c.my_reveal());
             let b = (pub_of(&ds[1]), ds[1].c.my_commitment(), ds[1].c.my_reveal());
             let d = &mut ds[0].c;
-            d.add_member(1, &a.0, "a", &a.1).unwrap();
+            d.add_member(1, &a.0, "m1", &a.1).unwrap();
             assert!(
                 d.add_reveal(1, &a.2 .0, &a.2 .1).is_err(),
                 "no reveal before every seat committed"
             );
             assert!(
-                d.add_member(1, &a.0, "a", &a.1).is_err(),
+                d.add_member(1, &a.0, "m1", &a.1).is_err(),
                 "a seat commits once"
             );
-            d.add_member(2, &b.0, "b", &b.1).unwrap();
+            d.add_member(2, &b.0, "m2", &b.1).unwrap();
             assert!(
                 d.add_reveal(2, &a.2 .0, &b.2 .1).is_err(),
                 "a reveal must match its commitment"
@@ -1762,9 +1775,28 @@ pub mod creation {
             d.add_reveal(1, &a.2 .0, &a.2 .1).unwrap();
             d.freeze(b"room", "quorum", "v", "a", 1).unwrap();
             assert!(
-                d.add_member(2, &b.0, "b", &b.1).is_err(),
+                d.add_member(2, &b.0, "m2", &b.1).is_err(),
                 "the roster is closed"
             );
+        }
+
+        /// The code the members compare binds every seat's name, so a device also refuses a
+        /// transcript that gives ITS OWN seat a name other than the one its owner typed.
+        #[test]
+        fn this_device_seat_must_carry_its_own_name() {
+            let mut ds = devices(2, 2);
+            let pk = pub_of(&ds[0]);
+            let cm = ds[0].c.my_commitment();
+            assert_eq!(
+                ds[0].c.add_member(1, &pk, "someone else", &cm).unwrap_err(),
+                "this seat's announcement is not this device's",
+                "own key and commitment, another name"
+            );
+            // The refusal left the seat free: the right announcement is still taken.
+            assert!(ds[0].c.add_member(1, &pk, "m1", &cm).is_ok());
+            let other = pub_of(&ds[1]);
+            let ocm = ds[1].c.my_commitment();
+            assert!(ds[0].c.add_member(2, &other, "anything", &ocm).is_ok());
         }
 
         #[test]
@@ -1772,7 +1804,7 @@ pub mod creation {
             let mut ds = devices(2, 2);
             let other = seal::DeviceKey::generate().public_bytes();
             let cm = ds[0].c.my_commitment();
-            assert!(ds[0].c.add_member(1, &other, "a", &cm).is_err());
+            assert!(ds[0].c.add_member(1, &other, "m1", &cm).is_err());
         }
 
         #[test]
@@ -1805,10 +1837,11 @@ pub mod creation {
                 pub1: Option<[u8; 32]>,
             }
             // Another round 1 and another key for seat 1, each with a commitment that matches it.
-            let other_r1 = Creation::new(&seal::DeviceKey::generate().secret_bytes(), 1, 3, 2)
-                .unwrap()
-                .my_reveal()
-                .0;
+            let other_r1 =
+                Creation::new(&seal::DeviceKey::generate().secret_bytes(), 1, 3, 2, "m1")
+                    .unwrap()
+                    .my_reveal()
+                    .0;
             let other_pub = seal::DeviceKey::generate().public_bytes();
             let base = V {
                 names: ["a", "b", "c"],
@@ -1823,7 +1856,7 @@ pub mod creation {
                 pub1: None,
             };
             let code = |v: V| {
-                let mut o = Creation::new(&d[1].secret, 2, 3, v.t).unwrap();
+                let mut o = Creation::new(&d[1].secret, 2, 3, v.t, v.names[1]).unwrap();
                 o.r1 = ann[1].3 .0.clone();
                 o.nonce = ann[1].3 .1;
                 let seat1 = |i: usize, r1: &Vec<u8>, n: &[u8; 32], pk: &[u8; 32]| {
@@ -5611,10 +5644,12 @@ mod js_dkg {
             my_seat: u16,
             n: u16,
             t: u16,
+            my_name: &str,
         ) -> Result<CreationSession, JsValue> {
             let secret = device.inner.secret_bytes();
             Ok(CreationSession {
-                inner: super::creation::Creation::new(&secret, my_seat, n, t).map_err(je)?,
+                inner: super::creation::Creation::new(&secret, my_seat, n, t, my_name)
+                    .map_err(je)?,
             })
         }
         #[wasm_bindgen(js_name = myCommitment)]

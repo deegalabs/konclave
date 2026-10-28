@@ -348,10 +348,13 @@ export class CreationSession {
      * @param {number} my_seat
      * @param {number} n
      * @param {number} t
+     * @param {string} my_name
      */
-    constructor(device, my_seat, n, t) {
+    constructor(device, my_seat, n, t, my_name) {
         _assertClass(device, DeviceKey);
-        const ret = wasm.creationsession_new(device.__wbg_ptr, my_seat, n, t);
+        const ptr0 = passStringToWasm0(my_name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.creationsession_new(device.__wbg_ptr, my_seat, n, t, ptr0, len0);
         if (ret[2]) {
             throw takeFromExternrefTable0(ret[1]);
         }

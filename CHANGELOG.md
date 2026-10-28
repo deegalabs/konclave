@@ -83,6 +83,11 @@ explicitly accepted.
   public half is unchanged. The Ed25519 signing key objects the module holds (the ones that sign
   governance writes) are wiped when dropped. Backups of vaults created before this change still
   carry the old field; it is ignored.
+- **The browser module's vault-creation session takes the name its device announced.**
+  `CreationSession` has a fifth constructor argument, the name; a call with four arguments now fails.
+  The session refuses to take an announcement for its own seat under any other name. The creation
+  protocol number does not change: devices on the old and the new build still create a vault
+  together.
 
 ### Fixed
 
