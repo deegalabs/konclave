@@ -70,6 +70,7 @@ export const signRoomMsg: (a: number, b: number, c: number, d: number) => [numbe
 export const signWrite: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number) => [number, number, number, number];
 export const verifyRedpallas: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
 export const verifyRoomSig: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number];
+export const selftest: () => [number, number];
 export const __wbg_coordinator_free: (a: number, b: number) => void;
 export const __wbg_round1_free: (a: number, b: number) => void;
 export const __wbg_testvault_free: (a: number, b: number) => void;
@@ -93,7 +94,6 @@ export const testvault_id: (a: number, b: number) => [number, number];
 export const testvault_key_package: (a: number, b: number) => [number, number];
 export const testvault_new: () => [number, number, number];
 export const testvault_pubkeys: (a: number) => [number, number];
-export const selftest: () => [number, number];
 export const __wbindgen_exn_store: (a: number) => void;
 export const __externref_table_alloc: () => number;
 export const __wbindgen_externrefs: WebAssembly.Table;
