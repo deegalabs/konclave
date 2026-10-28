@@ -1,6 +1,6 @@
 import { Component, type ReactNode } from 'react'
 import { Mark } from './components'
-import { translateStatic, type Locale } from './i18n'
+import { detectLocale, translateStatic, type Locale } from './i18n'
 
 type Props = { children: ReactNode }
 type State = { error: Error | null }
@@ -29,9 +29,12 @@ export default class ErrorBoundary extends Component<Props, State> {
 /** The fallback itself. A class component cannot use hooks, and the provider above may be part of
  *  what crashed, so the dictionary is read directly, in the member's saved language (#318). */
 export function CrashScreen({ locale }: { locale?: Locale }) {
-  const t = (k: string) => translateStatic(k, undefined, locale)
+  const lang = locale ?? detectLocale()
+  const t = (k: string) => translateStatic(k, undefined, lang)
+  // A landmark of its own, announced at once, and pronounced in the member's language even when the
+  // provider that keeps <html lang> in sync is part of what crashed.
   return (
-      <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24, position: 'relative', zIndex: 1 }}>
+      <main role="alert" lang={lang} style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 24, position: 'relative', zIndex: 1 }}>
         <div style={{
           maxWidth: 440, textAlign: 'center', background: 'var(--surface-1)', border: '1px solid var(--line)',
           borderRadius: 'var(--radius-lg)', padding: '34px 30px', boxShadow: 'var(--shadow-overlay)',
@@ -45,6 +48,6 @@ export function CrashScreen({ locale }: { locale?: Locale }) {
             <a className="btn ghost" href="#/vaults">{t('crash.vaults')}</a>
           </div>
         </div>
-      </div>
+      </main>
     )
 }

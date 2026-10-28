@@ -1183,7 +1183,7 @@ export const en: Record<string, string> = {
   'notFound.how': 'How it works',
   'crash.label': 'Something broke',
   'crash.title': 'The screen hit an unexpected error.',
-  'crash.lead': 'Your vault and your share are safe on this device · nothing was sent. Reload to continue.',
+  'crash.lead': 'Reload the page. If you were sending a payment, check the ledger before trying again.',
   'crash.reload': 'Reload',
   'crash.vaults': 'My vaults',
 }

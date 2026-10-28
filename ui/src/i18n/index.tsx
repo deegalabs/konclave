@@ -12,7 +12,7 @@ type Dict = Record<string, string>
 const DICTS: Record<Locale, Dict> = { en, 'pt-BR': ptBR }
 const LOCALE_KEY = 'konclave.locale'
 
-function detectLocale(): Locale {
+export function detectLocale(): Locale {
   try {
     const saved = localStorage.getItem(LOCALE_KEY)
     if (saved === 'en' || saved === 'pt-BR') return saved
@@ -58,11 +58,8 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     try { document.documentElement.lang = locale } catch { /* no document (SSR/test) */ }
   }, [locale])
 
-  const t = useCallback<TFn>((key, vars) => {
-    // Fall back to English, then to the raw key, so a missing translation is never a blank.
-    const s = DICTS[locale][key] ?? DICTS.en[key] ?? key
-    return interpolate(s, vars)
-  }, [locale])
+  // One fallback chain (English, then the raw key), the same one the crash screen uses without a provider.
+  const t = useCallback<TFn>((key, vars) => translateStatic(key, vars, locale), [locale])
 
   return <Ctx.Provider value={{ locale, setLocale, t }}>{children}</Ctx.Provider>
 }

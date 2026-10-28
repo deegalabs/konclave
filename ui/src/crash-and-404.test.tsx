@@ -15,6 +15,7 @@ describe("the 404 and the crash screen speak the member's language (#318)", () =
     const pt = renderToStaticMarkup(<CrashScreen locale="pt-BR" />)
     expect(pt).toContain(ptBR['crash.title'])
     expect(pt).toContain(ptBR['crash.reload'])
+    expect(pt).toMatch(/<main[^>]*role="alert"[^>]*lang="pt-BR"/)
     const enHtml = renderToStaticMarkup(<CrashScreen locale="en" />)
     expect(enHtml).toContain(en['crash.title'])
     expect(enHtml).not.toContain(ptBR['crash.title'])
