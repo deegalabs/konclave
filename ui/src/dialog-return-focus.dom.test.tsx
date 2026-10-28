@@ -14,7 +14,7 @@ function Host({ autoFocusField, focusCard }: { autoFocusField: boolean; focusCar
     <main>
       <button onClick={() => setOpen(true)}>Open</button>
       {open && (
-        <Dialog labelledBy="t" onClose={() => setOpen(false)} className="ov" cardClassName="card" focusCard={focusCard}>
+        <Dialog labelledBy="t" onClose={() => setOpen(false)} className="unlock-overlay" cardClassName="unlock-card" focusCard={focusCard}>
           <h2 id="t">Title</h2>
           <input aria-label="word" autoFocus={autoFocusField} />
           <button onClick={() => setOpen(false)}>Close</button>
