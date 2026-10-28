@@ -93,10 +93,29 @@ describe('the PRF wrap (#446 C)', () => {
     expect(await openPrf(cancels, wrap, RP)).toBe('cancelled')
   })
 
+  // Flip one bit of the first byte: the result ALWAYS differs from the input. Assigning a fixed
+  // value (`replace(/^../, 'ff')`) did not: the ciphertext is random, so about one run in 256 it
+  // already started with `ff`, the "tampered" wrap equalled the original, and it opened (#668).
+  const flipFirstBit = (hex: string) => (parseInt(hex.slice(0, 2), 16) ^ 0x01).toString(16).padStart(2, '0') + hex.slice(2)
+
   it('a tampered wrap does not open', async () => {
     const auth = fakeAuth('A')
     const wrap = wrapOf(await enrolPrf(auth, 'ab'.repeat(32), S, RP, 'member'))
-    const tampered = { ...wrap, cipher: wrap.cipher.replace(/^../, 'ff') }
+    const tampered = { ...wrap, cipher: flipFirstBit(wrap.cipher) }
+    expect(tampered.cipher).not.toBe(wrap.cipher)
+    expect(await openPrf(auth, tampered, RP)).toBe('different-key')
+  })
+
+  it('a tampered wrap does not open, even when the cipher already starts with ff (#668)', async () => {
+    // The case the old test lost one run in 256, made certain: enrol until the ciphertext starts
+    // with `ff` (random iv, so about 256 tries), then tamper it the old way and the new way.
+    const auth = fakeAuth('A')
+    let wrap: PrfWrap
+    do wrap = wrapOf(await enrolPrf(auth, 'ab'.repeat(32), S, RP, 'member'))
+    while (!wrap.cipher.startsWith('ff'))
+    expect(wrap.cipher.replace(/^../, 'ff')).toBe(wrap.cipher) // the old tampering changed nothing
+    const tampered = { ...wrap, cipher: flipFirstBit(wrap.cipher) }
+    expect(tampered.cipher).not.toBe(wrap.cipher)
     expect(await openPrf(auth, tampered, RP)).toBe('different-key')
   })
 

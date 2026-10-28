@@ -1,5 +1,8 @@
 /// <reference types="node" />
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+// #669: two tests below walk and parse EVERY source file (3.6 s idle for the import-line one), so
+// under load they cross the 5 s default. Raised for this file only; the global limit stays.
+vi.setConfig({ testTimeout: 30_000 })
 import { readdirSync, readFileSync } from 'node:fs'
 import ts from 'typescript'
 import { stripComments } from './source-scan'

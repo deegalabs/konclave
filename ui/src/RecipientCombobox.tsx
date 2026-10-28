@@ -166,7 +166,7 @@ export function RecipientCombobox({
 
   const chip = (k: ReturnType<typeof classifyAddress>) =>
     k === 'transparent' ? <span className="rcb-chip pub">{t('rec.chipPublic')}</span>
-    : k === 'sapling' ? <span className="rcb-chip pub">Sapling</span>
+    : k === 'sapling' ? <span className="rcb-chip pub">{t('rec.chipSapling')}</span>
     : k === 'unified' ? <span className="rcb-chip ok">{t('rec.chipShielded')}</span> : null
 
   return (

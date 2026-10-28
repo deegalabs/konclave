@@ -11,7 +11,7 @@
 // relies on (`false` = "not ready, re-apply me later"; `true` = "consumed").
 
 import { validBranch } from './signed-record'
-import { Coordinator, identifierBytes, participantRound1, participantRound2WithRandomizer, readForSigning, pcztSighash } from './wasm-pkg/konclave_wasm.js'
+import { Coordinator, identifierBytes, participantRound1, type Round1, participantRound2WithRandomizer, readForSigning, pcztSighash } from './wasm-pkg/konclave_wasm.js'
 import type { GateDecision, PcztOutput, PcztPayment } from './approved-payment'
 import { b64, unb64, bytesEqual } from './net'
 import { parseSignRequest, buildSignResponse, hexToBytes as hexBytes, bytesToHex, type SignRequest } from './net-sign'
@@ -171,7 +171,9 @@ export class SigningMachine {
   // --- per-session signing state (was the sign* refs in NetVault) ---
   private started = false
   private msg: Uint8Array = new Uint8Array()
-  private nonces: Uint8Array | null = null
+  /** This spend's round-1 handle. The nonces are inside it, in the wasm module, and are spent there
+   *  by the one call that makes a share from them. */
+  private round1: Round1 | null = null
   private commits = new Map<number, Uint8Array>()
   /** Seats whose committing tag proved it holds that seat's share (#399). Reset wherever `commits`
    *  is, or a seat proven in one ceremony would still count as proven in the next. */
@@ -239,6 +241,13 @@ export class SigningMachine {
     return this.coordinator ?? (this.started ? null : this.d.coordinatorTag())
   }
 
+  /** Free the round-1 handle (drops the nonces, which frost-core zeroizes on drop). Safe to call
+   *  twice and with nothing held. */
+  dropRound1(): void {
+    this.round1?.free()
+    this.round1 = null
+  }
+
   /** True once the current ceremony has fully finished (every spend signed). A long-lived signer
    *  (the background service, Stage 3) polls this to know when it may `rearm()` for a next payment. */
   isDone(): boolean {
@@ -258,7 +267,7 @@ export class SigningMachine {
     this.coordinator = null
     this.done = false
     this.msg = new Uint8Array()
-    this.nonces = null
+    this.dropRound1()
     this.commits = new Map()
     this.provenSeats = new Set()
     this.deferredForProof = false
@@ -344,8 +353,9 @@ export class SigningMachine {
     this.toldAside = new Set()
     this.sigDone = false
     this.coord = null
+    this.dropRound1() // the previous spend's handle, if it is still there
     const r1 = participantRound1(this.d.signingMaterial().keyPackage)
-    this.nonces = r1.nonces()
+    this.round1 = r1
     await this.d.send({ type: 's1', commit: b64(r1.commitment()), k, h: this.tag() })
     const n = this.spends.length
     this.d.onLog(n > 1 ? `~ signing spend ${k + 1}/${n}` : this.d.tt('net.log.signCommit'))
@@ -672,7 +682,7 @@ export class SigningMachine {
     // signs, which refuses a package that signs anything else. It cannot be skipped from here,
     // because there is no longer a way to ask for the share without it.
     const sp = unb64(parsed.sp)
-    if (this.cleared && parsed.signers.includes(this.d.mySeat()) && !this.sentS2 && this.nonces && this.alpha) {
+    if (this.cleared && parsed.signers.includes(this.d.mySeat()) && !this.sentS2 && this.round1 && this.alpha) {
       // Before EVERY share, not once per ceremony: the record is also where the owner's consent is
       // asked again, so a package that arrives after they withdrew gets nothing (the store keeps
       // one entry per transaction however often it is asked).
@@ -682,6 +692,9 @@ export class SigningMachine {
         // A withdrawn consent is the owner's own choice, already said on their screen and to the
         // room; anything else is a record this device could not keep.
         if (!String(e).includes('[withdrawn]')) this.d.onError(this.d.tt(refusalKey('[record]')))
+        // Withdrawn: this device will not sign this spend, so its nonce goes now. A record that
+        // could not be kept is not that: a later package may still be answered with the same one.
+        else this.dropRound1()
         this.d.onLog(`~ ${String(e)}`)
         return true
       }
@@ -689,7 +702,7 @@ export class SigningMachine {
       try {
         share = participantRound2WithRandomizer(
           sp,
-          this.nonces,
+          this.round1,
           this.d.signingMaterial().keyPackage,
           this.alpha, // the current spend's alpha (set by beginSpend)
           this.msg, // what THIS device derived from its own PCZT, never the wire value
@@ -703,6 +716,7 @@ export class SigningMachine {
       }
       this.sp = sp
       this.sentS2 = true
+      this.dropRound1() // the nonce is spent; free the handle so nothing of it outlives the share
       await this.d.send({ type: 's2', share: b64(share), k: this.cur, h: this.tag() })
       this.d.onLog(this.d.tt('net.log.signShare'))
       // The coordinator takes its own share from here, not from the room's echo of it (`onS2`).
@@ -819,6 +833,7 @@ export class SigningMachine {
     }
     // Last spend done: show the result and (Architecture B) hand the FULL set of signatures back
     // to the helper RAW so it can inject every one and broadcast.
+    this.dropRound1()
     this.done = true // the whole ceremony finished; a re-armable signer may now take a next payment
     this.d.onSignature(hex(sig), ok)
     this.d.onPhase('signed')

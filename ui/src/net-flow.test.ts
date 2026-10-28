@@ -73,8 +73,8 @@ describe('/net multi-device flow (DKG → sign → verify)', () => {
     coord.prepare()
     const sp = coord.signingPackage()
     const seed = coord.seed()
-    coord.addShare(id0, participantRound2(sp, a.nonces(), s0.keyPackage(), seed, msg))
-    coord.addShare(id1, participantRound2(sp, b.nonces(), s1.keyPackage(), seed, msg))
+    coord.addShare(id0, participantRound2(sp, a, s0.keyPackage(), seed, msg))
+    coord.addShare(id1, participantRound2(sp, b, s1.keyPackage(), seed, msg))
     const sig = coord.aggregate()
 
     expect(coord.verify(sig)).toBe(true)
@@ -95,12 +95,12 @@ describe('/net multi-device flow (DKG → sign → verify)', () => {
     coord.prepare()
     const sp = coord.signingPackage()
     const seed = coord.seed()
-    expect(() => participantRound2(sp, a.nonces(), s0.keyPackage(), seed, held)).toThrow(/different message/)
+    expect(() => participantRound2(sp, a, s0.keyPackage(), seed, held)).toThrow(/different message/)
     expect(() =>
-      participantRound2WithRandomizer(sp, a.nonces(), s0.keyPackage(), DKG_ALPHA, held),
+      participantRound2WithRandomizer(sp, a, s0.keyPackage(), DKG_ALPHA, held),
     ).toThrow(/different message/)
     // The same package, signed by the device that holds ITS message, is fine.
-    expect(participantRound2(sp, a.nonces(), s0.keyPackage(), seed, handed).length).toBeGreaterThan(0)
+    expect(participantRound2(sp, a, s0.keyPackage(), seed, handed).length).toBeGreaterThan(0)
   })
 
   it('the /net path: a 2-of-3 signs under the PCZT alpha and verifies under ak+alpha', () => {
@@ -116,8 +116,8 @@ describe('/net multi-device flow (DKG → sign → verify)', () => {
     coord.addCommitment(id1, b.commitment())
     coord.prepare()
     const sp = coord.signingPackage()
-    coord.addShare(id0, participantRound2WithRandomizer(sp, a.nonces(), s0.keyPackage(), DKG_ALPHA, msg))
-    coord.addShare(id1, participantRound2WithRandomizer(sp, b.nonces(), s1.keyPackage(), DKG_ALPHA, msg))
+    coord.addShare(id0, participantRound2WithRandomizer(sp, a, s0.keyPackage(), DKG_ALPHA, msg))
+    coord.addShare(id1, participantRound2WithRandomizer(sp, b, s1.keyPackage(), DKG_ALPHA, msg))
     const sig = coord.aggregateWithRandomizer(DKG_ALPHA)
 
     // Verifies under the key randomized by this alpha...
@@ -149,8 +149,8 @@ describe('/net multi-device flow (DKG → sign → verify)', () => {
     coord.addCommitment(id1, b.commitment())
     coord.prepare()
     const sp = coord.signingPackage()
-    coord.addShare(id0, participantRound2WithRandomizer(sp, a.nonces(), r0.kp, DKG_ALPHA, msg))
-    coord.addShare(id1, participantRound2WithRandomizer(sp, b.nonces(), r1.kp, DKG_ALPHA, msg))
+    coord.addShare(id0, participantRound2WithRandomizer(sp, a, r0.kp, DKG_ALPHA, msg))
+    coord.addShare(id1, participantRound2WithRandomizer(sp, b, r1.kp, DKG_ALPHA, msg))
     const sig = coord.aggregateWithRandomizer(DKG_ALPHA)
     expect(coord.verifyWithRandomizer(DKG_ALPHA, sig)).toBe(true)
   })
@@ -190,8 +190,8 @@ describe('/net multi-device flow (DKG → sign → verify)', () => {
     coord.addCommitment(idB, r1b.commitment())
     coord.prepare()
     const sp = coord.signingPackage()
-    coord.addShare(idA, participantRound2WithRandomizer(sp, r1a.nonces(), a.kp, DKG_ALPHA, msg))
-    coord.addShare(idB, participantRound2WithRandomizer(sp, r1b.nonces(), b.kp, DKG_ALPHA, msg))
+    coord.addShare(idA, participantRound2WithRandomizer(sp, r1a, a.kp, DKG_ALPHA, msg))
+    coord.addShare(idB, participantRound2WithRandomizer(sp, r1b, b.kp, DKG_ALPHA, msg))
     const sig = coord.aggregateWithRandomizer(DKG_ALPHA)
 
     // A verifying Orchard signature from two reloaded devices - no DKG redo.
@@ -235,8 +235,8 @@ describe('/net multi-device flow (DKG → sign → verify)', () => {
     coord.addCommitment(id1, b.commitment())
     coord.prepare()
     const sp = coord.signingPackage()
-    coord.addShare(id0, participantRound2WithRandomizer(sp, a.nonces(), s0.keyPackage(), alpha, msg))
-    coord.addShare(id1, participantRound2WithRandomizer(sp, b.nonces(), s1.keyPackage(), alpha, msg))
+    coord.addShare(id0, participantRound2WithRandomizer(sp, a, s0.keyPackage(), alpha, msg))
+    coord.addShare(id1, participantRound2WithRandomizer(sp, b, s1.keyPackage(), alpha, msg))
     const sig = coord.aggregateWithRandomizer(alpha)
     expect(coord.verifyWithRandomizer(alpha, sig)).toBe(true)
 
@@ -272,8 +272,8 @@ describe('/net multi-device flow (DKG → sign → verify)', () => {
       coord.addCommitment(id1, b.commitment())
       coord.prepare()
       const sp = coord.signingPackage()
-      coord.addShare(id0, participantRound2WithRandomizer(sp, a.nonces(), s0.keyPackage(), alpha, msg))
-      coord.addShare(id1, participantRound2WithRandomizer(sp, b.nonces(), s1.keyPackage(), alpha, msg))
+      coord.addShare(id0, participantRound2WithRandomizer(sp, a, s0.keyPackage(), alpha, msg))
+      coord.addShare(id1, participantRound2WithRandomizer(sp, b, s1.keyPackage(), alpha, msg))
       const sig = coord.aggregateWithRandomizer(alpha)
       // Each spend verifies under its OWN alpha, and not the other's - the randomizer binds each
       // signature to its specific spend.
@@ -296,5 +296,65 @@ describe('/net multi-device flow (DKG → sign → verify)', () => {
     expect(parseSignRequest('not json')).toBeNull()
     expect(parseSignRequest(JSON.stringify({ kind: 'something-else' }))).toBeNull()
     expect(parseSignRequest(JSON.stringify({ kind: 'net-sign-request', sighash: 'x' }))).toBeNull()
+  })
+})
+
+// A nonce makes one share, so the module that signs spends it itself. The rule is in the wasm
+// (konclave-wasm `NonceSlot`); this is the same rule seen from the boundary the app crosses.
+describe('a round-1 handle makes one share', () => {
+  const packageFor = (id0: Uint8Array, id1: Uint8Array, groupVk: Uint8Array, pubkeys: Uint8Array, msg: Uint8Array, a: ReturnType<typeof participantRound1>, b: ReturnType<typeof participantRound1>) => {
+    const coord = new Coordinator(groupVk, pubkeys, msg)
+    coord.addCommitment(id0, a.commitment())
+    coord.addCommitment(id1, b.commitment())
+    coord.prepare()
+    return { sp: coord.signingPackage(), seed: coord.seed() }
+  }
+
+  it('the second share from one handle throws, on the real-transaction path and on the seed path', () => {
+    const { s0, s1, id0, id1, groupVk, pubkeys } = dkg2of3()
+    const first = hexToBytes(DKG_SIGHASH)
+    const second = new TextEncoder().encode('another payment this device was also asked about')
+    const a = participantRound1(s0.keyPackage())
+    const b = participantRound1(s1.keyPackage())
+    const one = packageFor(id0, id1, groupVk, pubkeys, first, a, b)
+    const two = packageFor(id0, id1, groupVk, pubkeys, second, a, b)
+    expect(participantRound2WithRandomizer(one.sp, a, s0.keyPackage(), DKG_ALPHA, first).length).toBeGreaterThan(0)
+    expect(() => participantRound2WithRandomizer(two.sp, a, s0.keyPackage(), DKG_ALPHA, second)).toThrow(/already produced a share/)
+    expect(() => participantRound2WithRandomizer(one.sp, a, s0.keyPackage(), DKG_ALPHA, first), 'the same package again').toThrow(/already produced a share/)
+
+    const c = participantRound1(s0.keyPackage())
+    const d = participantRound1(s1.keyPackage())
+    const three = packageFor(id0, id1, groupVk, pubkeys, first, c, d)
+    const four = packageFor(id0, id1, groupVk, pubkeys, second, c, d)
+    expect(participantRound2(three.sp, c, s0.keyPackage(), three.seed, first).length).toBeGreaterThan(0)
+    expect(() => participantRound2(four.sp, c, s0.keyPackage(), four.seed, second)).toThrow(/already produced a share/)
+  })
+
+  it('a package that is refused does not spend the handle, so the valid one after it is answered', () => {
+    const { s0, s1, id0, id1, groupVk, pubkeys } = dkg2of3()
+    const held = hexToBytes(DKG_SIGHASH)
+    const handed = new TextEncoder().encode('a payment nobody here approved')
+    const a = participantRound1(s0.keyPackage())
+    const b = participantRound1(s1.keyPackage())
+    const other = packageFor(id0, id1, groupVk, pubkeys, handed, a, b)
+    const own = packageFor(id0, id1, groupVk, pubkeys, held, a, b)
+    expect(() => participantRound2WithRandomizer(other.sp, a, s0.keyPackage(), DKG_ALPHA, held)).toThrow(/different message/)
+    expect(participantRound2WithRandomizer(own.sp, a, s0.keyPackage(), DKG_ALPHA, held).length).toBeGreaterThan(0)
+  })
+
+  it('a handle that was freed cannot make a share', () => {
+    const { s0, s1, id0, id1, groupVk, pubkeys } = dkg2of3()
+    const msg = hexToBytes(DKG_SIGHASH)
+    const a = participantRound1(s0.keyPackage())
+    const b = participantRound1(s1.keyPackage())
+    const { sp } = packageFor(id0, id1, groupVk, pubkeys, msg, a, b)
+    a.free()
+    expect(() => participantRound2WithRandomizer(sp, a, s0.keyPackage(), DKG_ALPHA, msg)).toThrow()
+  })
+
+  it('the handle no longer hands the nonces to JS', () => {
+    const { s0 } = dkg2of3()
+    const a = participantRound1(s0.keyPackage())
+    expect((a as unknown as { nonces?: unknown }).nonces, 'the accessor that returned them is gone').toBeUndefined()
   })
 })

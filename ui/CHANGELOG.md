@@ -70,6 +70,20 @@ history to tidy it is how context gets lost.
   page says how to check instead: the two explorer links on every transaction, and the
   `verify-proof.mjs` script for the whole list at once. A test now holds the page's network origins
   to the policy (#615).
+- **An older shielded (Sapling) destination is refused, and the screens now say so.** The warning on
+  the payment, payroll, people and recipient fields said such an address "works, but prefer a modern
+  one", while the vault cannot pay it: the backend refuses a Sapling-only destination before any
+  transaction is built. Every one of those strings now says the same true thing: this vault cannot
+  pay an older shielded (Sapling) address; ask for a current shielded one (u1…). In the same pass the
+  everyday screens stop naming pools and protocol terms: "Orchard" and "Sapling" read as "shielded"
+  and "older shielded (Sapling)", and "sighash" as "signed digest (sighash)" (#127).
+- **A device checks its own name in the creation transcript.** If the name shown for a device's own
+  seat is not the one its owner typed, creation stops with the same message as any other conflict.
+  Nothing changes when the names agree.
+
+### Known limits
+
+- The own-name check runs on the devices that carry this build.
 
 ## [0.15.0] 2026-10-26
 
@@ -88,7 +102,6 @@ history to tidy it is how context gets lost.
 - **Creating a vault no longer asks the coordinator for proposals it cannot have.** Every member got
   an error in the browser console during creation, because the list of payments was read before the
   vault was registered. It is read once the vault is registered.
-
 
 ## [0.14.0] 2026-10-23
 
