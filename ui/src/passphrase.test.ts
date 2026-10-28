@@ -53,7 +53,7 @@ describe('generatePassphrase', () => {
     expect(malformed, 'every password is 20 characters and uses every class').toEqual([])
     expect(notStrong.length, `${notStrong.length} of ${N} were not rated strong, e.g. ${notStrong.slice(0, 3).join(' ')}`)
       .toBe(0)
-  })
+  }, 30_000) // #669: 10,000 rounds take 3.4 s idle; under load they crossed the 5 s default
 
   it('stops after a bounded number of draws and says so, instead of looping forever', () => {
     let draws = 0
