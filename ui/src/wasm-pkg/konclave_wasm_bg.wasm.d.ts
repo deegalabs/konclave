@@ -22,6 +22,7 @@ export const recoveryhelper_deltaRecipient: (a: number, b: number) => [number, n
 export const recoveryhelper_new: (a: number, b: number, c: number, d: number) => number;
 export const recoveryhelper_sigma: (a: number) => [number, number, number, number];
 export const uaReceiver: (a: number, b: number) => [number, number, number, number];
+export const upgradeHeight: () => number;
 export const __wbg_creationsession_free: (a: number, b: number) => void;
 export const __wbg_devicekey_free: (a: number, b: number) => void;
 export const __wbg_dkgsession_free: (a: number, b: number) => void;

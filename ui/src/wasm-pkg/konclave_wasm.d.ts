@@ -358,6 +358,13 @@ export function signWrite(key_package: Uint8Array, vault_id: string, action: str
 export function uaReceiver(ua: string): string;
 
 /**
+ * The height at which the last upgrade in this build's table activates (NU7 on mainnet). The app
+ * reads it for the notice it shows before a payment: the same number the device and the
+ * coordinator use, never one typed in the app.
+ */
+export function upgradeHeight(): number;
+
+/**
  * Verify a group signature against the vault's key - so EVERY device confirms the result
  * for itself, not on the coordinator's word. All inputs are public (signing package, seed,
  * message, signature); the share never enters.
@@ -396,6 +403,7 @@ export interface InitOutput {
     readonly recoveryhelper_new: (a: number, b: number, c: number, d: number) => number;
     readonly recoveryhelper_sigma: (a: number) => [number, number, number, number];
     readonly uaReceiver: (a: number, b: number) => [number, number, number, number];
+    readonly upgradeHeight: () => number;
     readonly __wbg_creationsession_free: (a: number, b: number) => void;
     readonly __wbg_devicekey_free: (a: number, b: number) => void;
     readonly __wbg_dkgsession_free: (a: number, b: number) => void;
