@@ -49,7 +49,6 @@ export const devicekey_fromShare: (a: number, b: number) => number;
 export const devicekey_new: () => number;
 export const devicekey_open: (a: number, b: number, c: number, d: number, e: number) => [number, number, number, number];
 export const devicekey_publicBytes: (a: number) => [number, number];
-export const devicekey_secretBytes: (a: number) => [number, number];
 export const dkgsession_addRound1: (a: number, b: number, c: number, d: number, e: number) => void;
 export const dkgsession_addRound2: (a: number, b: number, c: number, d: number, e: number) => void;
 export const dkgsession_groupVk: (a: number) => [number, number];

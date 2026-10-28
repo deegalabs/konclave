@@ -858,7 +858,6 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
         JSON.stringify({
           kp: b64(dkg.keyPackage()),
           pubkeys: b64(dkg.pubkeys()),
-          deviceSecret: b64(deviceKeyRef.current?.secretBytes() ?? new Uint8Array()),
           seat: mySeatRef.current,
           n: cfg?.n ?? 0,
           t: cfg?.t ?? 0,

@@ -22,7 +22,7 @@ frost-rerandomized = "=3.0.0"
 orchard = { version = "0.15.5", default-features = false, features = ["unstable-frost"] }
 # ADR-0011 D1: the device signs governance writes with an Ed25519 key derived from its share.
 # The secret half never leaves WASM; only the public half is registered.
-ed25519-dalek = { version = "2", default-features = false }
+ed25519-dalek = { version = "2", default-features = false, features = ["zeroize"] }
 # ZIP-244 sig_digest recompute (proven wasm-clean: wasm-sighash-probe)
 blake2b_simd = "1"
 # PCZT parse + FROST signature injection (the FROST<->PCZT bridge, ported from konclave-signer).

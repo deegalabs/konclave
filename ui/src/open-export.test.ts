@@ -27,7 +27,8 @@ const PASS = 'correct horse battery staple'
 const ROSTER = ['Alice', 'Bob', 'Carol']
 const b64 = (u: Uint8Array) => btoa(String.fromCharCode(...u))
 
-/** The sealed share, in the shape the create screen writes it (NetVault, "The secret bundle"). */
+/** The sealed share, in the shape older builds of the create screen wrote it: with a `deviceSecret`
+ *  the current build no longer writes and no reader uses, so loading it proves the field is ignored. */
 function shareBundle(seat: number, n: number, t: number): Uint8Array {
   return new TextEncoder().encode(JSON.stringify({
     kp: b64(new Uint8Array(40).fill(1)),
