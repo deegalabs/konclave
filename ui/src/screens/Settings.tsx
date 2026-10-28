@@ -4,7 +4,7 @@ import Hint from '../Hint'
 import { Dialog, PassphraseField, Secret } from '../components'
 import CopyButton from '../CopyButton'
 import { changePassphrase } from '../storage'
-import { storageErrorKey } from '../storage-errors'
+import { StorageError, storageErrorKey } from '../storage-errors'
 import { useNavigate, Link } from 'react-router-dom'
 import { Seal, Loading } from '../components'
 import { PageHeader, PageFooter } from '../page'
@@ -162,7 +162,7 @@ export default function Settings() {
     } catch (e) {
       // `changePassphrase` proves the new seal opens before it writes, so a failure here means the
       // record was NOT touched - which is what the message promises.
-      setRotErr(String(e).includes('same as') ? t('rotate.errSame') : t('rotate.errWrong'))
+      setRotErr(e instanceof StorageError && e.code === 'same-passphrase' ? t('rotate.errSame') : t('rotate.errWrong'))
     } finally {
       setRotBusy(false)
     }

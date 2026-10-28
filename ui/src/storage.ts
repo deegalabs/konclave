@@ -321,7 +321,7 @@ function bufOf(b: Uint8Array): ArrayBuffer {
  */
 export async function saveVault(id: string, data: VaultData, passphrase: string): Promise<void> {
   if (!storageAvailable()) throw storageError('no-storage', 'This browser cannot store the vault (no IndexedDB/WebCrypto)')
-  if (!id) throw storageError('no-vault', 'A vault id is required to save')
+  if (!id) throw storageError('no-id', 'A vault id is required to save')
   if (!passphrase) throw storageError('passphrase-required', 'A passphrase is required to save the vault')
 
   const salt = crypto.getRandomValues(new Uint8Array(16))
@@ -845,7 +845,7 @@ async function decodeV1(b: VaultExportV1, passphrase: string): Promise<DecodedIm
  */
 export async function changePassphrase(id: string, oldPassphrase: string, newPassphrase: string): Promise<void> {
   if (!storageAvailable()) throw storageError('no-storage', 'This browser cannot store the vault (no IndexedDB/WebCrypto)')
-  if (!newPassphrase) throw storageError('passphrase-required', 'A new passphrase is required')
+  if (!newPassphrase) throw storageError('new-passphrase-required', 'A new passphrase is required')
   if (newPassphrase === oldPassphrase) throw storageError('same-passphrase', 'The new passphrase is the same as the current one')
 
   // Throws on a wrong current passphrase, which is also the proof that the member can still open

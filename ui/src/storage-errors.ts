@@ -6,7 +6,9 @@
 export type StorageErrorCode =
   | 'no-storage'
   | 'no-vault'
+  | 'no-id'
   | 'passphrase-required'
+  | 'new-passphrase-required'
   | 'wrong-passphrase'
   | 'wrong-passphrase-saved'
   | 'not-an-export'
@@ -31,7 +33,9 @@ export const storageError = (code: StorageErrorCode, message: string) => new Sto
 const KEY: Record<StorageErrorCode, string> = {
   'no-storage': 'storage.err.noStorage',
   'no-vault': 'storage.err.noVault',
+  'no-id': 'storage.err.noId',
   'passphrase-required': 'storage.err.passphraseRequired',
+  'new-passphrase-required': 'storage.err.newPassphraseRequired',
   'wrong-passphrase': 'storage.err.wrongPassphrase',
   'wrong-passphrase-saved': 'storage.err.wrongPassphraseSaved',
   'not-an-export': 'storage.err.notAnExport',

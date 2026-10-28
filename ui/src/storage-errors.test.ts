@@ -39,7 +39,7 @@ describe('storage refusals reach the member in their language (#586)', () => {
     const bundle = await exportVault(GK7, pass)
     const key = await keyOf(importVault(bundle, pass))
     expect(key).toBe('storage.err.alreadyExists')
-    expect(ptBR[key]).toMatch(/Já existe um cofre/)
+    expect(ptBR[key]).toMatch(/Este cofre já está neste aparelho/)
     await deleteVault(GK7)
   })
 
@@ -49,7 +49,7 @@ describe('storage refusals reach the member in their language (#586)', () => {
   })
 
   it('every code has a key in both dictionaries, and an error without a code falls back', () => {
-    const codes = ['no-storage', 'no-vault', 'passphrase-required', 'wrong-passphrase', 'wrong-passphrase-saved',
+    const codes = ['no-storage', 'no-vault', 'no-id', 'passphrase-required', 'new-passphrase-required', 'wrong-passphrase', 'wrong-passphrase-saved',
       'not-an-export', 'corrupt', 'unsupported-version', 'already-exists', 'same-passphrase'] as const
     for (const c of codes) {
       const k = storageErrorKey(new StorageError(c, 'x'), 'fallback')
@@ -59,6 +59,19 @@ describe('storage refusals reach the member in their language (#586)', () => {
     }
     expect(storageErrorKey(new Error('plain'), 'import.errGeneric')).toBe('import.errGeneric')
     expect(storageErrorKey('a string', 'export.errGeneric')).toBe('export.errGeneric')
+  })
+
+  it('the rotate dialog tells "same passphrase" apart by its code, not by its English text', () => {
+    const src = codeOf('./screens/Settings.tsx')
+    expect(src).not.toMatch(/includes\('same as'\)/)
+    expect(src).toMatch(/e instanceof StorageError && e\.code === 'same-passphrase'/)
+  })
+
+  it('the help text quotes the sentences the member now sees, in each language', () => {
+    const docs = codeOf('./docs/content.ts')
+    expect(docs).not.toMatch(/aparece em inglês|também em inglês/)
+    expect(docs).toContain('Frase-senha errada para este backup')
+    expect(docs).toContain('Wrong passphrase for this backup')
   })
 
   it('the storage layer keeps no UI strings, and both dialogs translate through the one mapping', () => {
