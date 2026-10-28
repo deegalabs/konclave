@@ -38,13 +38,13 @@ pub fn within_margin(last: u32, height: impl Into<u64>) -> bool {
 }
 
 /// ZIP 318: a pool crossing expires at the same height for every wallet in a modulus period, so that
-/// nothing singles it out. The modulus and the window are given in REFERENCE blocks of 75 s and are
-/// scaled by how many blocks of the row's spacing make one reference block (3 at 25 s), which is what
+/// nothing singles it out. The modulus is given in REFERENCE blocks of 75 s (the expiry is two moduli
+/// past the last boundary) and is scaled by how many blocks of the row's spacing make one reference
+/// block (3 at 25 s), which is what
 /// `zcash_protocol` 0.11.0 does (zip318.rs:195-211): 34,560 blocks before NU7, 103,680 from it. The
 /// device read the 75 s numbers for ever; this is the ONE place that scales them.
 pub const ZIP318_MODULUS: u32 = 34_560;
-pub const ZIP318_WINDOW: u32 = 69_120;
-/// The spacing, in seconds, the two numbers above are written in.
+/// The spacing, in seconds, the modulus above is written in.
 const REFERENCE_SPACING_S: i64 = 75;
 
 /// One network upgrade, from `activation_height` until the next row's.
@@ -273,20 +273,25 @@ impl Table {
         u32::try_from(h - h % m + 2 * m).unwrap_or(u32::MAX)
     }
 
-    /// Whether `expiry` is the expiry of a crossing built at some target in `[lo, top]`: one of the
-    /// values `crossing_expiry` gives over that window, read row by row, so a window that straddles an
-    /// upgrade accepts both scales and a window wholly past it only the new one.
-    pub fn is_crossing_expiry(&self, expiry: u32, lo: u32, top: u32) -> bool {
-        self.epochs.iter().enumerate().any(|(i, row)| {
-            let end = self
-                .epochs
-                .get(i + 1)
-                .map_or(u32::MAX, |next| next.activation_height - 1);
-            let (a, b) = (lo.max(row.activation_height), top.min(end));
-            a <= b
-                && expiry.is_multiple_of(Self::zip318_modulus(row))
-                && (self.crossing_expiry(a)..=self.crossing_expiry(b)).contains(&expiry)
-        })
+    /// Whether `expiry` is the expiry of a crossing a header naming `branch_id` can carry: one of the
+    /// values `crossing_expiry` gives for a target in `[lo, top]` that lies in that branch's own row.
+    /// The branch decides which scale is honest. Without it a window that straddles an upgrade would
+    /// accept the old scale for a header of the new branch (and the new scale for the old one), and
+    /// whoever builds the transaction would pick the crossing's expiry, hence how long its notes stay
+    /// reserved. An unknown branch is refused.
+    pub fn is_crossing_expiry(&self, expiry: u32, branch_id: u32, lo: u32, top: u32) -> bool {
+        let Some(i) = self.epochs.iter().position(|e| e.branch_id == branch_id) else {
+            return false;
+        };
+        let row = &self.epochs[i];
+        let end = self
+            .epochs
+            .get(i + 1)
+            .map_or(u32::MAX, |next| next.activation_height - 1);
+        let (a, b) = (lo.max(row.activation_height), top.min(end));
+        a <= b
+            && expiry.is_multiple_of(Self::zip318_modulus(row))
+            && (self.crossing_expiry(a)..=self.crossing_expiry(b)).contains(&expiry)
     }
 
     /// Whether a header naming `branch_id` and expiring at `expiry` may be accepted when the window of
@@ -349,14 +354,7 @@ mod tests {
     /// A table with NO later row: the rules that only matter when nothing follows (a cap that is the
     /// expiry alone, a latest row). Defined here, never in the production table, which has two rows.
     const ONE_ROW: Table = Table {
-        epochs: &[Epoch {
-            activation_height: 3_428_143,
-            branch_id: NU63,
-            tx_version: 6,
-            version_group_id: 0xD884_B698,
-            spacing_s: 75,
-            expiry_delta: 40,
-        }],
+        epochs: &[MAINNET.epochs[0]],
         anchor: MAINNET.anchor,
     };
 
@@ -597,7 +595,9 @@ mod tests {
 
     #[test]
     fn on_mainnet_the_clock_crosses_a_at_75_seconds_a_block_and_then_runs_at_25() {
-        // 115,262 blocks of 75 s from the NU6.3 anchor: 2026-11-06 01:06:33 UTC if blocks keep 75 s.
+        // 115,262 blocks of 75 s from the NU6.3 anchor: 2026-11-05 15:24:53 UTC by the device's clock (the
+        // anchor's time plus 75 s a block). The chain has run about 0.5% slower, so the real time is later; the
+        // margin around this estimate (about 27 hours) is what covers the difference.
         let at_a = MAINNET.anchor.unix + i64::from(NU7_HEIGHT - MAINNET.anchor.height) * 75;
         assert_eq!(at_a, 1_793_892_293);
         assert_eq!(MAINNET.height_at(at_a - 75), NU7_HEIGHT - 1);
@@ -651,16 +651,56 @@ mod tests {
     fn a_crossing_expiry_is_read_by_the_scale_of_the_row_its_target_is_in() {
         let (lo, top) = (NU7_HEIGHT - 100, NU7_HEIGHT + 100);
         // Targets straddling A: a builder just before it gave the old scale, just after the new one.
-        assert!(MAINNET.is_crossing_expiry(3_594_240, lo, top));
-        assert!(MAINNET.is_crossing_expiry(3_732_480, lo, top));
+        assert!(MAINNET.is_crossing_expiry(3_594_240, NU63, lo, top));
+        assert!(MAINNET.is_crossing_expiry(3_732_480, NU7, lo, top));
         // Wholly after A only the new scale is honest: the old one is a pre-NU7 builder's.
-        assert!(MAINNET.is_crossing_expiry(3_732_480, NU7_HEIGHT + 1_000, NU7_HEIGHT + 2_000));
-        assert!(!MAINNET.is_crossing_expiry(3_594_240, NU7_HEIGHT + 1_000, NU7_HEIGHT + 2_000));
+        assert!(MAINNET.is_crossing_expiry(3_732_480, NU7, NU7_HEIGHT + 1_000, NU7_HEIGHT + 2_000));
+        assert!(!MAINNET.is_crossing_expiry(
+            3_594_240,
+            NU7,
+            NU7_HEIGHT + 1_000,
+            NU7_HEIGHT + 2_000
+        ));
         // Wholly before A the new scale does not exist yet.
-        assert!(MAINNET.is_crossing_expiry(3_594_240, NU7_HEIGHT - 2_000, NU7_HEIGHT - 1_000));
-        assert!(!MAINNET.is_crossing_expiry(3_732_480, NU7_HEIGHT - 2_000, NU7_HEIGHT - 1_000));
+        assert!(MAINNET.is_crossing_expiry(
+            3_594_240,
+            NU63,
+            NU7_HEIGHT - 2_000,
+            NU7_HEIGHT - 1_000
+        ));
+        assert!(!MAINNET.is_crossing_expiry(
+            3_732_480,
+            NU63,
+            NU7_HEIGHT - 2_000,
+            NU7_HEIGHT - 1_000
+        ));
         // Not a multiple of any modulus, or not what any target in the window gives.
-        assert!(!MAINNET.is_crossing_expiry(3_594_241, lo, top));
-        assert!(!MAINNET.is_crossing_expiry(3_559_680, NU7_HEIGHT + 1_000, NU7_HEIGHT + 2_000));
+        assert!(!MAINNET.is_crossing_expiry(3_594_241, NU63, lo, top));
+        assert!(!MAINNET.is_crossing_expiry(
+            3_559_680,
+            NU7,
+            NU7_HEIGHT + 1_000,
+            NU7_HEIGHT + 2_000
+        ));
+    }
+
+    // The branch of the header decides which row's scale applies: the window straddling A would
+    // otherwise accept the old scale for a NU7 header and the new one for a NU6.3 header, and the
+    // coordinator would be the one choosing a crossing's expiry (and how long its notes stay reserved).
+    #[test]
+    fn a_crossing_expiry_is_read_only_at_the_scale_of_the_branch_the_header_names() {
+        let (lo, top) = (NU7_HEIGHT - 100, NU7_HEIGHT + 100);
+        assert!(
+            !MAINNET.is_crossing_expiry(3_594_240, NU7, lo, top),
+            "a NU7 header with the old scale"
+        );
+        assert!(
+            !MAINNET.is_crossing_expiry(3_732_480, NU63, lo, top),
+            "a NU6.3 header with the new scale"
+        );
+        assert!(
+            !MAINNET.is_crossing_expiry(3_594_240, 0xdead_beef, lo, top),
+            "an unknown branch"
+        );
     }
 }

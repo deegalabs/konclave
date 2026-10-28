@@ -2583,6 +2583,12 @@ pub mod pczt_bridge {
         },
     }
 
+    /// The height at which the last upgrade in the table activates: the number the app's upgrade notice
+    /// reads, so the notice carries no height of its own (the table is the one home of it).
+    pub fn latest_upgrade_height(rules: &NetworkRules) -> u32 {
+        rules.epochs.last().map_or(0, |row| row.activation_height)
+    }
+
     /// What a new transaction is, for an approval this device already put its share into: `signed`
     /// is this device's record of those transactions (their sighash, expiry and branch). `Same` is a
     /// ceremony restarted on the same transaction; `AfterExpiry` a new one once every earlier one can
@@ -2668,10 +2674,11 @@ pub mod pczt_bridge {
         Ok(records)
     }
 
-    /// `check_header`, with ZIP 318's rolling expiry accepted for a canonical crossing: exactly
-    /// `t - t % 34,560 + 69,120` for a target height `t` the device's clock allows (and the header's
-    /// own upgrade still allows), never any other long expiry. Below its window the expiry is refused
-    /// as for any transaction.
+    /// `check_header`, with ZIP 318's rolling expiry accepted for a canonical crossing: exactly what
+    /// `Table::crossing_expiry` gives for a target height the device's clock allows and the header's
+    /// own branch covers (the modulus is 34,560 blocks before NU7 and 103,680 from it, and the table is
+    /// the one home of that), never any other long expiry. Below its window the expiry is refused as
+    /// for any transaction.
     ///
     /// What a header must be, from the device's clock alone (never the coordinator's height, never
     /// the PCZT's own claims): its branch, version and version group are a row of the table; it has
@@ -2685,7 +2692,6 @@ pub mod pczt_bridge {
         now_unix: i64,
         crossing: bool,
     ) -> Result<(), String> {
-        use zcash_protocol::zip318::{EXPIRY_MODULUS, EXPIRY_WINDOW};
         if now_unix < rules.anchor.unix {
             return Err(
                 "[expiry] this device's clock is earlier than the network this app signs for"
@@ -2730,12 +2736,8 @@ pub mod pczt_bridge {
                 .next_activation_after(h.branch_id)
                 .map_or(u32::MAX, |a| a - 1);
             let target_hi = b.top.min(last);
-            let zip318_at = |t: u32| t - t % EXPIRY_MODULUS + EXPIRY_WINDOW;
-            let is_zip318 = crossing
-                && e > b.lo
-                && e.is_multiple_of(EXPIRY_MODULUS)
-                && e >= zip318_at(b.lo)
-                && e <= zip318_at(target_hi);
+            let is_zip318 =
+                crossing && e > b.lo && rules.is_crossing_expiry(e, h.branch_id, b.lo, target_hi);
             if !is_zip318 {
                 return Err(plain_err);
             }
@@ -4621,6 +4623,13 @@ pub mod pczt_bridge {
         const T_A_MAIN: i64 = T_ANCHOR + 75 * (A_MAIN as i64 - 3_428_143);
 
         #[test]
+        fn the_app_is_told_the_height_of_the_last_upgrade_in_the_table() {
+            // The dashboard's notice reads it through WASM, so the app carries no height of its own.
+            assert_eq!(latest_upgrade_height(&MAINNET), A_MAIN);
+            assert_eq!(latest_upgrade_height(&ONE_ROW), 3_428_143);
+        }
+
+        #[test]
         fn on_mainnet_an_nu7_header_is_accepted_only_once_the_clock_can_reach_the_upgrade() {
             let nu7 = |expiry| hdr(NU7_MAIN, expiry);
             // Seventy-five days after the anchor the window is nowhere near A: NU7 is refused.
@@ -4638,9 +4647,50 @@ pub mod pczt_bridge {
             let late = T_A_MAIN + 3 * 86_400;
             let b = MAINNET.height_bounds(late);
             assert!(b.lo > A_MAIN);
+            assert_eq!(
+                b.hi - b.top,
+                120,
+                "an ordinary NU7 transaction expires 120 blocks past its target"
+            );
             let e = check_header(&MAINNET, &hdr(NU6_3, b.est + 40), late).unwrap_err();
             assert!(e.starts_with("[network]"), "{e}");
             check_header(&MAINNET, &nu7(b.est + 100), late).unwrap();
+        }
+
+        #[test]
+        fn on_mainnet_a_zip318_crossing_after_the_upgrade_is_accepted_at_its_new_scale() {
+            // Past A the modulus is 103,680 blocks (ZIP 318 at 25 s blocks): an honest crossing built by
+            // the new engine has that expiry, and the device must not read it with the old 34,560.
+            let late = T_A_MAIN + 3 * 86_400;
+            let b = MAINNET.height_bounds(late);
+            let new_scale = MAINNET.crossing_expiry(b.est);
+            assert_eq!(new_scale % 103_680, 0);
+            check_header_for(&MAINNET, &hdr(NU7_MAIN, new_scale), late, true).unwrap();
+            // The old scale for a target past A is a pre-NU7 builder's: refused.
+            let old_scale = b.est - b.est % 34_560 + 69_120;
+            assert!(check_header_for(&MAINNET, &hdr(NU7_MAIN, old_scale), late, true).is_err());
+            // A crossing built just before A at the old scale is still accepted around A.
+            let around = T_A_MAIN;
+            let b = MAINNET.height_bounds(around);
+            let before = MAINNET.crossing_expiry(A_MAIN - 50);
+            check_header_for(&MAINNET, &hdr(NU6_3, before), around, true).unwrap();
+            assert!(b.lo < A_MAIN);
+        }
+
+        #[test]
+        fn on_mainnet_a_crossing_expiry_is_accepted_only_at_the_scale_of_its_own_branch() {
+            // Around A the window straddles both scales; the header's branch decides which one is honest.
+            let b = MAINNET.height_bounds(T_A_MAIN);
+            assert!(b.lo < A_MAIN && b.top > A_MAIN);
+            let (old_scale, new_scale) = (
+                MAINNET.crossing_expiry(A_MAIN - 1),
+                MAINNET.crossing_expiry(A_MAIN),
+            );
+            assert_ne!(old_scale, new_scale);
+            check_header_for(&MAINNET, &hdr(NU6_3, old_scale), T_A_MAIN, true).unwrap();
+            check_header_for(&MAINNET, &hdr(NU7_MAIN, new_scale), T_A_MAIN, true).unwrap();
+            assert!(check_header_for(&MAINNET, &hdr(NU7_MAIN, old_scale), T_A_MAIN, true).is_err());
+            assert!(check_header_for(&MAINNET, &hdr(NU6_3, new_scale), T_A_MAIN, true).is_err());
         }
 
         #[test]
@@ -6160,6 +6210,14 @@ mod js_pczt {
             p.fee_zat,
             p.actions
         ))
+    }
+
+    /// The height at which the last upgrade in this build's table activates (NU7 on mainnet). The app
+    /// reads it for the notice it shows before a payment: the same number the device and the
+    /// coordinator use, never one typed in the app.
+    #[wasm_bindgen(js_name = upgradeHeight)]
+    pub fn upgrade_height() -> u32 {
+        pczt_bridge::latest_upgrade_height(&pczt_bridge::MAINNET)
     }
 
     /// What a new transaction is for an approval this device already signed (`approval_decision`),

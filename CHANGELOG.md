@@ -58,6 +58,11 @@ explicitly accepted.
 
 ### Added
 
+- **The device and the browser module are ready for the NU7 upgrade.** The device accepts transactions of
+  the new branch and, about a day after the upgrade by its own clock (it keeps a margin of about 27 hours
+  around its estimate), stops accepting those of the old one. A pool crossing's expiry is accepted only at
+  the scale of the branch the transaction's header names. The browser module also tells the app the
+  upgrade height, which the dashboard's new notice reads.
 - **The coordinator knows the NU7 network upgrade (block 3,543,405, about 6 November 2026).** The epoch
   table in `konclave-seal` has its second row (consensus branch `0x77190AD9`, version 6, 25-second
   blocks, ordinary transactions expiring 120 blocks past their target). The coordinator pauses new
@@ -112,6 +117,10 @@ explicitly accepted.
 
 ### Known limits
 
+- **The sighash of a transaction under the new branch is proved on a fixture whose branch was rewritten
+  and on a real testnet transaction, not on one mined on mainnet.** The device and the signer agree on
+  both, and a FROST signature over such a digest was mined on the testnet. The first mainnet one is the
+  proof that is left; it is made at the desk after the upgrade.
 - The module does not promise that no copy of a signing round's nonces is left in the runtime's
   memory from when they were made, and the device's key package still crosses into the module as
   bytes on each signing call.

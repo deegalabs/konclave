@@ -308,18 +308,8 @@ pub(crate) mod test_table {
 
     /// NU6.3 alone, with mainnet's anchor.
     pub const ONE_ROW: Table = Table {
-        epochs: &[Epoch {
-            activation_height: 3_428_143,
-            branch_id: NU6_3,
-            tx_version: 6,
-            version_group_id: 0xD884_B698,
-            spacing_s: 75,
-            expiry_delta: 40,
-        }],
-        anchor: Anchor {
-            height: 3_428_143,
-            unix: 1_785_247_643,
-        },
+        epochs: &[konclave_seal::epochs::MAINNET.epochs[0]],
+        anchor: konclave_seal::epochs::MAINNET.anchor,
     };
 
     pub const NU7: u32 = 0x7719_0ad9;
