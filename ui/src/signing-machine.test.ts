@@ -8,7 +8,7 @@
 // the proven money path's behavior, off the browser.
 import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { beforeAll, describe, expect, it, vi } from 'vitest'
+import { beforeAll, describe, expect, it, vi, afterAll } from 'vitest'
 import init, {
   Coordinator,
   DkgSession,
@@ -20,12 +20,15 @@ import init, {
 } from './wasm-pkg/konclave_wasm.js'
 import { bytesEqual, b64, unb64 } from './net'
 import { dkgProvenPczt } from './demo-vector'
-import { VECTOR_EXPIRY, honestExpiry, withExpiry } from './test-vectors'
+import { VECTOR_EXPIRY, honestExpiry, withExpiry, pinClock, unpinClock } from './test-vectors'
 import { parseAlphas } from './signing'
 import { bytesToHex, parseSignRequest, RESPONSE_KIND } from './net-sign'
 import { SigningMachine, refusalKey, type SignPreview, type SigningDeps } from './signing-machine'
 import type { GateDecision } from './approved-payment'
 import { codeAt, codeOf } from './source-scan'
+
+beforeAll(pinClock)
+afterAll(unpinClock)
 
 beforeAll(async () => {
   await init(readFileSync(new URL('./wasm-pkg/konclave_wasm_bg.wasm', import.meta.url)))
