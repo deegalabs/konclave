@@ -222,6 +222,11 @@ caller, `ui/src/screens/NetVault.tsx`). That is a statement about the product, n
   - **seed path** (`participantRound2` / `Coordinator.aggregate`) derives its own randomizer from
     the commitments. It proves group signing over a message but is **not** a valid Orchard spend
     authorization. Used only by the `/signer` group-signing demo.
+  - On both paths a device's signing nonce is held inside the module (`Round1`) and spent by the
+    call that makes a share from it, so one nonce makes one share;
+    this is enforced in `konclave-wasm`, not by the page. What it does not claim: that no copy of
+    the nonce is left in the runtime's memory from when it was made, or that the key package stays
+    out of the page (it still crosses into the module on each call).
 - So: the live `/net` ceremony signs a real Orchard/Ironwood sighash under the transaction's real
   alpha (the randomizer path). As of 2026-07-30 this is **broadcastable and broadcast**: the helper
   builds/proves a PCZT for the `/net` vault's **own** address, the browser signs it under that real

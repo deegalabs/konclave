@@ -14,8 +14,8 @@ try {
   coord.addCommitment(v.id(1), b.commitment());
   coord.prepare();
   const sp = coord.signingPackage(), seed = coord.seed();
-  coord.addShare(v.id(0), participantRound2(sp, a.nonces(), v.key_package(0), seed, message));
-  coord.addShare(v.id(1), participantRound2(sp, b.nonces(), v.key_package(1), seed, message));
+  coord.addShare(v.id(0), participantRound2(sp, a, v.key_package(0), seed, message));
+  coord.addShare(v.id(1), participantRound2(sp, b, v.key_package(1), seed, message));
   const sig = coord.aggregate();
   document.title = coord.verify(sig) ? ("JS-CEREMONY-OK sig=" + sig.length + "B") : "VERIFY-FAILED";
 } catch (e) { document.title = "ERR: " + e; }

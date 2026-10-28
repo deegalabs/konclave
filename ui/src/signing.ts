@@ -41,7 +41,7 @@ export interface RestoredShare {
 
 /**
  * Decode the sealed bundle of an unlocked vault into signing material. Signing needs only the
- * KeyPackage, the group PublicKeyPackage, and this device's seat (NOT the DKG-only deviceSecret).
+ * KeyPackage, the group PublicKeyPackage, and this device's seat (older bundles carry a field that nothing reads).
  * (Moved verbatim from NetVault's `applyLoaded` inline decode.)
  */
 export function decodeBundle(v: VaultLoaded): RestoredShare {
