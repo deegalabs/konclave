@@ -72,6 +72,22 @@ explicitly accepted.
 - **The browser module's seed-path signing call takes the device's message as a required last
   argument.** In the SDK this is `participantRound2`, so a call with the old four arguments now
   fails. Nothing a member does with a vault changes.
+- **The browser signing module keeps a signing round's state inside itself.** `participantRound1`
+  returns a handle (`Round1`); `participantRound2` and `participantRound2WithRandomizer` take that
+  handle in place of bytes and use it once. `Round1.nonces()` is removed, so a caller of the SDK or
+  of the module passes the handle it got from `participantRound1`. A package the module refuses
+  (another message, a commitment that is not this device's, malformed input) makes no share and
+  leaves the handle usable. Nothing a member does with a vault changes.
+- **The browser signing module keeps a device key inside itself.** `DeviceKey.secretBytes()` is
+  removed: the key a device announces while a vault is created stays inside the module. The
+  public half is unchanged. The Ed25519 signing key objects the module holds (the ones that sign
+  governance writes) are wiped when dropped. Backups of vaults created before this change still
+  carry the old field; it is ignored.
+- **The browser module's vault-creation session takes the name its device announced.**
+  `CreationSession` has a fifth constructor argument, the name; a call with four arguments now fails.
+  The session refuses to take an announcement for its own seat under any other name. The creation
+  protocol number does not change: devices on the old and the new build still create a vault
+  together.
 
 ### Fixed
 
@@ -81,6 +97,9 @@ explicitly accepted.
 
 ### Known limits
 
+- The module does not promise that no copy of a signing round's nonces is left in the runtime's
+  memory from when they were made, and the device's key package still crosses into the module as
+  bytes on each signing call.
 - **After the upgrade, until the coordinator's engine is updated, payments are refused rather than
   built.** This release does not move the engine; that is the next one. A member sees "the coordinator
   has not been updated for the network upgrade yet": nothing was signed or sent, and approvals stay
