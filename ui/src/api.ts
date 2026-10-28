@@ -61,6 +61,9 @@ export type Vault = {
   secured?: boolean
   /** Creation not finished on this device: no address, and a warning not to fund it. */
   pending?: boolean
+  /** Hosted path: whether the coordinator's member list was read. `false` when the names come from
+   *  this device's own roster or are placeholders (#315). Absent on the local-bridge path. */
+  members_read?: boolean
 }
 
 export type Proposal = {
@@ -261,7 +264,8 @@ export async function getVault(): Promise<Vault | null> {
     // Showing a placeholder while holding the answer is worse than a stale name.
     // The member count the members confirmed, where the device recorded it; the coordinator's otherwise.
     const total = rec?.total ?? v.total ?? 0
-    const names = (await netListMembers(id)) ?? []
+    const read = await netListMembers(id)
+    const names = read ?? []
     const local = rec?.roster ?? []
     const member_list = Array.from({ length: total }, (_, i) => {
       const name =
@@ -316,6 +320,7 @@ export async function getVault(): Promise<Vault | null> {
       total,
       members: total,
       member_list,
+      members_read: read !== null,
       group_pubkey: id,
       orchard_address: deposit.address,
       // Compared without case: an all-capitals encoding is the same address.
