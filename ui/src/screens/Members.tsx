@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Seal, Loading } from '../components'
 import { PageHeader, PageFooter } from '../page'
 import { Identicon } from '../avatar'
@@ -12,7 +12,9 @@ import { listVaults, type Governance } from '../storage'
 export type MembersView = 'loading' | 'unread' | 'roster'
 export function membersView(live: boolean | null, vault: Vault | null): MembersView {
   if (live === null) return 'loading'
-  return live && vault ? 'roster' : 'unread'
+  // A vault whose names came from this device's roster, not the coordinator, is not a list that
+  // was read (api.ts falls back to the on-device names so the ceremony drawer keeps its names).
+  return live && vault && vault.members_read !== false ? 'roster' : 'unread'
 }
 
 
@@ -31,6 +33,7 @@ export default function Members() {
   // Read from the on-device record but not shown: the governance nudge it used to gate was
   // removed. Kept as a setter-only so the record read stays intact for whatever needs it next.
   const [, setGov] = useState<Governance | null>(null)
+  // The vault's public group identity, hashed to a short code members compare out of band (#65 I4).
   // The name THIS device chose at create/join, so "you" marks the right seat. Without an on-device
   // record there is no "you" to mark - never guess a seat.
   const [me, setMe] = useState<string | null>(null)
@@ -40,6 +43,9 @@ export default function Members() {
   // Bumped by the retry button: the read runs again from the start (#315).
   const [attempt, setAttempt] = useState(0)
   const retry = useCallback(() => { setLive(null); setVault(null); setAttempt((a) => a + 1) }, [])
+  // The retry button unmounts with the message; focus moves to the message when it comes back,
+  // so a keyboard or screen-reader member is not dropped at the top of the page.
+  const unreadRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     let on = true
     void (async () => {
@@ -105,6 +111,7 @@ export default function Members() {
   // this device, so it is "stuck". The editor self-heals (adopt an existing roster name); flag it.
   const meOutOfSync = !!me && members.length > 0 && !members.some((m) => m.name === me)
   const view = membersView(live, vault)
+  useEffect(() => { if (view === 'unread' && attempt > 0) unreadRef.current?.focus() }, [view, attempt])
 
   return (
     <>
@@ -121,7 +128,7 @@ export default function Members() {
 
         {view === 'loading' && <Loading />}
         {view === 'unread' && (
-          <div className="confirm mt" role="alert">
+          <div className="hint warn mt" role="alert" tabIndex={-1} ref={unreadRef}>
             <div className="who-name mb-sm">{t('members.unreadTitle')}</div>
             <p className="dim">{t('members.unreadLead')}</p>
             <button className="btn ok sm-btn mt-sm" onClick={retry}>{t('members.retry')}</button>

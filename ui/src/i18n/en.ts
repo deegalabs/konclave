@@ -1177,7 +1177,7 @@ export const en: Record<string, string> = {
 
   // Members: the list could not be read (#315)
   'members.unreadTitle': 'Could not read the member list',
-  'members.unreadLead': 'The coordinator did not answer. Your vault and your share are still on this device; only the list did not arrive. Check the connection and try again.',
+  'members.unreadLead': 'The member list could not be read. Your vault and your share are still on this device; only the list did not arrive. Check the connection and try again.',
   'members.retry': 'Try again',
-  'members.footUnread': 'list not read',
+  'members.footUnread': 'list unavailable',
 }

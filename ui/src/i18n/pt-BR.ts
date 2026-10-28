@@ -1173,7 +1173,7 @@ export const ptBR: Record<string, string> = {
 
   // Members: the list could not be read (#315)
   'members.unreadTitle': 'Não deu para ler a lista de membros',
-  'members.unreadLead': 'O coordenador não respondeu. O cofre e a sua parte da chave continuam neste aparelho; só a lista não veio. Confira a conexão e tente de novo.',
+  'members.unreadLead': 'A lista de membros não pôde ser lida. O cofre e a sua parte da chave continuam neste aparelho; só a lista não veio. Confira a conexão e tente de novo.',
   'members.retry': 'Tentar de novo',
-  'members.footUnread': 'lista não lida',
+  'members.footUnread': 'lista indisponível',
 }
