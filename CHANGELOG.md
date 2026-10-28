@@ -72,6 +72,12 @@ explicitly accepted.
 - **The browser module's seed-path signing call takes the device's message as a required last
   argument.** In the SDK this is `participantRound2`, so a call with the old four arguments now
   fails. Nothing a member does with a vault changes.
+- **The browser signing module keeps a signing round's state inside itself.** `participantRound1`
+  returns a handle (`Round1`); `participantRound2` and `participantRound2WithRandomizer` take that
+  handle in place of bytes and use it once. `Round1.nonces()` is removed, so a caller of the SDK or
+  of the module passes the handle it got from `participantRound1`. A package the module refuses
+  (another message, a commitment that is not this device's, malformed input) makes no share and
+  leaves the handle usable. Nothing a member does with a vault changes.
 
 ### Fixed
 
@@ -81,6 +87,9 @@ explicitly accepted.
 
 ### Known limits
 
+- The module does not promise that no copy of a signing round's nonces is left in the runtime's
+  memory from when they were made, and the device's key package still crosses into the module as
+  bytes on each signing call.
 - **After the upgrade, until the coordinator's engine is updated, payments are refused rather than
   built.** This release does not move the engine; that is the next one. A member sees "the coordinator
   has not been updated for the network upgrade yet": nothing was signed or sent, and approvals stay
