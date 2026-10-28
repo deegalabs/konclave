@@ -61,8 +61,8 @@ export default function WasmSigner() {
       coord.prepare()
       const sp = coord.signingPackage(); const seed = coord.seed()
       // round 2 - each device signs with ITS local nonces
-      coord.addShare(v.id(0), participantRound2(sp, a.nonces(), v.key_package(0), seed, message))
-      coord.addShare(v.id(1), participantRound2(sp, b.nonces(), v.key_package(1), seed, message))
+      coord.addShare(v.id(0), participantRound2(sp, a, v.key_package(0), seed, message))
+      coord.addShare(v.id(1), participantRound2(sp, b, v.key_package(1), seed, message))
       const sig = coord.aggregate()
       const ok = coord.verify(sig)
       const ms = Math.round(performance.now() - t0)

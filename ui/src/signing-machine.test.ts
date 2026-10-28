@@ -6,7 +6,8 @@
 // must reach a verifying aggregate signature. A single-note self-contained ceremony, seeded by a
 // helper sign-request, exactly as Architecture B drives it - proving the extracted machine keeps
 // the proven money path's behavior, off the browser.
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import init, {
   Coordinator,
@@ -24,7 +25,7 @@ import { parseAlphas } from './signing'
 import { bytesToHex, parseSignRequest, RESPONSE_KIND } from './net-sign'
 import { SigningMachine, refusalKey, type SignPreview, type SigningDeps } from './signing-machine'
 import type { GateDecision } from './approved-payment'
-import { codeOf } from './source-scan'
+import { codeAt, codeOf } from './source-scan'
 
 beforeAll(async () => {
   await init(readFileSync(new URL('./wasm-pkg/konclave_wasm_bg.wasm', import.meta.url)))
@@ -1522,8 +1523,8 @@ describe('SigningMachine - a share that does not check out is left out, the cere
     coord.addCommitment(id1, b.commitment())
     coord.prepare()
     const sp = coord.signingPackage()
-    const share0 = participantRound2WithRandomizer(sp, a.nonces(), s0.keyPackage(), alpha, msg)
-    const share1 = participantRound2WithRandomizer(sp, b.nonces(), s1.keyPackage(), alpha, msg)
+    const share0 = participantRound2WithRandomizer(sp, a, s0.keyPackage(), alpha, msg)
+    const share1 = participantRound2WithRandomizer(sp, b, s1.keyPackage(), alpha, msg)
     expect(() => coord.checkShare(id0, share0, alpha)).not.toThrow()
     expect(() => coord.checkShare(id1, share1, alpha)).not.toThrow()
     expect(() => coord.checkShare(id1, share0, alpha), 'seat 1\'s share offered for seat 2').toThrow()
@@ -1602,5 +1603,119 @@ describe('a signing request is the coordinator\'s', () => {
     expect(bus.msgs.filter((m) => m.from === 'A' && typeOf(m) === 'sreq'), 'the coordinator asked once').toHaveLength(1)
     expect(A.sig?.ok).toBe(true)
     expect(B.sig?.ok).toBe(true)
+  })
+})
+
+// The nonces are spent INSIDE the wasm module, by the call that makes a share from
+// them (konclave-wasm `NonceSlot`), and the machine holds only the handle. These pin what the
+// machine adds: it never holds the nonces itself, and the handle does not outlive the share.
+describe('SigningMachine - the round-1 handle', () => {
+  const handleOf = (d: Device) => (d.machine as unknown as { round1: unknown }).round1
+  const spOnBus = (bus: Bus) => bus.msgs.some((m) => m.from === 'A' && /"type":"sp"/.test(m.data))
+
+  it('is held while a spend waits for its package, and freed once the share is made and at the end', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
+    for (let i = 0; i < 20 && !spOnBus(bus); i++) {
+      await pump(A, bus)
+      if (spOnBus(bus)) break
+      await pump(B, bus)
+    }
+    expect(handleOf(B), 'B committed and waits for the package: it holds the handle').not.toBeNull()
+    await runCeremony(A, B, bus)
+    expect(A.sig?.ok).toBe(true)
+    expect(B.sig?.ok).toBe(true)
+    expect(handleOf(A), 'no handle outlives the ceremony').toBeNull()
+    expect(handleOf(B)).toBeNull()
+  })
+
+  it('the handle is freed as soon as the share is made, before the ceremony ends', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
+    for (let i = 0; i < 20 && !spOnBus(bus); i++) {
+      await pump(A, bus)
+      if (spOnBus(bus)) break
+      await pump(B, bus)
+    }
+    await pump(B, bus) // B reads the package and answers; A has not aggregated
+    expect(bus.msgs.some((m) => m.from === 'B' && /"type":"s2"/.test(m.data)), 'B made its share').toBe(true)
+    expect(B.sig, 'and the ceremony is not over for B').toBeNull()
+    expect(handleOf(B), 'the nonce is spent, so the handle goes with it').toBeNull()
+  })
+
+  it('dropRound1 is safe with nothing held and twice, and rearm leaves nothing held', async () => {
+    const { s0, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    expect(() => { A.machine.dropRound1(); A.machine.dropRound1() }).not.toThrow()
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
+    await pump(A, bus)
+    expect(handleOf(A), 'A committed').not.toBeNull()
+    A.machine.rearm()
+    expect(handleOf(A)).toBeNull()
+  })
+
+  it('a package that arrives after the handle was dropped makes no share and throws nothing', async () => {
+    const { s0, s1, groupVk, pubkeys } = dkg2of3()
+    const bus = new Bus()
+    const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+    const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+    bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
+    for (let i = 0; i < 20 && !spOnBus(bus); i++) {
+      await pump(A, bus)
+      if (spOnBus(bus)) break
+      await pump(B, bus)
+    }
+    B.machine.dropRound1() // the handle goes (a withdrawn consent, a reload) before the package is read
+    await expect(pump(B, bus)).resolves.not.toThrow()
+    expect(bus.msgs.some((m) => m.from === 'B' && /"type":"s2"/.test(m.data)), 'no share without the nonce').toBe(false)
+  })
+
+  it('a withdrawn consent frees the handle, and a record that could not be kept does not', async () => {
+    for (const [flag, held] of [['recordWithdrawn', false], ['recordFails', true]] as const) {
+      const { s0, s1, groupVk, pubkeys } = dkg2of3()
+      const bus = new Bus()
+      const A = makeDevice('A', bus, () => ({ keyPackage: s0.keyPackage(), groupVk, pubkeys }))
+      const B = makeDevice('B', bus, () => ({ keyPackage: s1.keyPackage(), groupVk, pubkeys }))
+      bus.post('helper', signRequestFor(withExpiry(dkgProvenPczt())).json)
+      for (let i = 0; i < 20 && !spOnBus(bus); i++) {
+        await pump(A, bus)
+        if (spOnBus(bus)) break
+        await pump(B, bus)
+      }
+      B[flag] = true
+      await pump(B, bus)
+      expect(bus.msgs.some((m) => m.from === 'B' && /"type":"s2"/.test(m.data)), `${flag}: no share`).toBe(false)
+      expect(handleOf(B) !== null, `${flag}: handle held`).toBe(held)
+    }
+  })
+
+  it('nothing in the app, the SDK or the demos asks the module for the nonces', () => {
+    const here = fileURLToPath(new URL('.', import.meta.url))
+    const files: string[] = []
+    const walkDir = (dir: string) => {
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        if (e.isDirectory()) {
+          if (!['wasm-pkg', 'node_modules', 'dist', 'pkg'].includes(e.name)) walkDir(`${dir}/${e.name}`)
+        } else if (/\.(ts|tsx)$/.test(e.name) && !/\.d\.ts$/.test(e.name)) files.push(`${dir}/${e.name}`)
+      }
+    }
+    walkDir(here)
+    walkDir(`${here}../../sdk/src`)
+    walkDir(`${here}../../sdk/examples`)
+    expect(files.length, 'the scan found the sources').toBeGreaterThan(20)
+    // Built from parts so that this file does not trip its own scan. Comments are stripped before
+    // looking (a scan a comment can satisfy checks nothing).
+    const call = new RegExp('\\.' + 'nonces' + '\\s*\\(')
+    const offenders = files.filter((f) => call.test(codeAt(f)))
+    expect(offenders).toEqual([])
+    const demo = readFileSync(`${here}../../konclave-wasm/js-test/ceremony.html`, 'utf8')
+    expect(call.test(demo), 'the browser test page too').toBe(false)
   })
 })
