@@ -81,6 +81,11 @@ history to tidy it is how context gets lost.
   screen and read it in the wrong language, at the worst moment. Both now read the dictionary; the
   crash screen reads it directly, without the rest of the app, so it still works when what crashed
   is the app itself (#318, part A).
+- **The Members screen says when it could not read the list.** With the coordinator offline it
+  drew an empty roster under "0 members", with no message and no way to retry, and every seat it
+  did draw carried a "holds a share, votes" chip it had never checked. Now a list that was not read
+  says so, says the vault and your share are still on this device, and offers "Try again"; the chip
+  appears only on a list that was actually read (#315).
 - **An older shielded (Sapling) destination is refused, and the screens now say so.** The warning on
   the payment, payroll, people and recipient fields said such an address "works, but prefer a modern
   one", while the vault cannot pay it: the backend refuses a Sapling-only destination before any

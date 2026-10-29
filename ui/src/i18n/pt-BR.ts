@@ -1185,4 +1185,9 @@ export const ptBR: Record<string, string> = {
   'crash.lead': 'Recarregue a página. Se estava enviando um pagamento, confira o registro antes de tentar de novo.',
   'crash.reload': 'Recarregar',
   'crash.vaults': 'Meus cofres',
+  // Members: the list could not be read (#315)
+  'members.unreadTitle': 'Não deu para ler a lista de membros',
+  'members.unreadLead': 'A lista de membros não pôde ser lida. O cofre e a sua parte da chave continuam neste aparelho; só a lista não veio. Confira a conexão e tente de novo.',
+  'members.retry': 'Tentar de novo',
+  'members.footUnread': 'lista indisponível',
 }
