@@ -1178,4 +1178,15 @@ export const en: Record<string, string> = {
   // Toast and Receive polish (#320)
   'toast.dismiss': 'Dismiss notice',
   'receive.qrFailed': 'Could not draw the QR for this request. Copy the address or the link below.',
+  // 404 and the crash screen (#318): a member's worst moment, in their language
+  'notFound.label': '404 · page not found',
+  'notFound.title': 'This page doesn’t exist.',
+  'notFound.lead': 'The link may be old or mistyped. Head back to your vaults.',
+  'notFound.vaults': 'My vaults',
+  'notFound.how': 'How it works',
+  'crash.label': 'Something broke',
+  'crash.title': 'The screen hit an unexpected error.',
+  'crash.lead': 'Reload the page. If you were sending a payment, check the ledger before trying again.',
+  'crash.reload': 'Reload',
+  'crash.vaults': 'My vaults',
 }
