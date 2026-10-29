@@ -70,6 +70,12 @@ history to tidy it is how context gets lost.
   could not be drawn left a blank square (now a sentence pointing to the address and the link). The
   rest of #320 (the app frame's live region and vault switcher) waits for the keyboard work on that
   file (#317, #662).
+- **The proof page no longer offers a check that could not run.** Its "verify on-chain now" button
+  asked an explorer's API, and the site's own security policy refused that request before it left,
+  so pressing it always ended in "blocked", which reads as a broken claim. The button is gone; the
+  page says how to check instead: the two explorer links on every transaction, and the
+  `verify-proof.mjs` script for the whole list at once. A test now holds the page's network origins
+  to the policy (#615).
 - **The "page not found" and the crash screen now speak the member's language.** Both were
   English-only, with no way to translate them: a Portuguese member hit a dead link or a crashed
   screen and read it in the wrong language, at the worst moment. Both now read the dictionary; the
