@@ -64,6 +64,12 @@ history to tidy it is how context gets lost.
   known seat), and a second request that lands while a signature is being made does not replace
   the one in hand. A device that already holds the helper's request takes the transaction from it,
   and an incoming request has to name the same sighash.
+- **Small accessibility fixes on notices and the Receive screen.** The close button on a notice was
+  smaller than a fingertip (now at least 24 by 24) and its label was English-only; "Copied" on the
+  Receive screen was silent to a screen reader (now announced once, for either button); and a QR that
+  could not be drawn left a blank square (now a sentence pointing to the address and the link). The
+  rest of #320 (the app frame's live region and vault switcher) waits for the keyboard work on that
+  file (#317, #662).
 - **The Members screen says when it could not read the list.** With the coordinator offline it
   drew an empty roster under "0 members", with no message and no way to retry, and every seat it
   did draw carried a "holds a share, votes" chip it had never checked. Now a list that was not read

@@ -1175,6 +1175,9 @@ export const en: Record<string, string> = {
   'receive.txReceived': 'received',
   'receive.txSent': 'sent',
 
+  // Toast and Receive polish (#320)
+  'toast.dismiss': 'Dismiss notice',
+  'receive.qrFailed': 'Could not draw the QR for this request. Copy the address or the link below.',
   // Members: the list could not be read (#315)
   'members.unreadTitle': 'Could not read the member list',
   'members.unreadLead': 'The member list could not be read. Your vault and your share are still on this device; only the list did not arrive. Check the connection and try again.',

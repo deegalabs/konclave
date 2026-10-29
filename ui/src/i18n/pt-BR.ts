@@ -1171,6 +1171,9 @@ export const ptBR: Record<string, string> = {
   'receive.txReceived': 'recebido',
   'receive.txSent': 'enviado',
 
+  // Toast and Receive polish (#320)
+  'toast.dismiss': 'Fechar aviso',
+  'receive.qrFailed': 'Não deu para desenhar o QR deste pedido. Copie o endereço ou o link abaixo.',
   // Members: the list could not be read (#315)
   'members.unreadTitle': 'Não deu para ler a lista de membros',
   'members.unreadLead': 'A lista de membros não pôde ser lida. O cofre e a sua parte da chave continuam neste aparelho; só a lista não veio. Confira a conexão e tente de novo.',
