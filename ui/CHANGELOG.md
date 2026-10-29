@@ -73,6 +73,11 @@ history to tidy it is how context gets lost.
   and "older shielded (Sapling)", and "sighash" as "signed digest (sighash)" (#127).
 - **A device checks its own name in the creation transcript.** If the name shown for a device's own
   seat is not the one its owner typed, creation stops with the same message as any other conflict.
+- **The landing page and the loading placeholders read the dictionary.** The landing carried its
+  own copy in both languages, outside the dictionary, so the test that keeps the two languages in
+  step never saw it, and the loading placeholders announced "Loading" in English whatever the
+  language. Nothing reads differently today; a sentence changed in one language can no longer be
+  missed in the other, and a screen reader hears "Carregando" in Portuguese (#318, part B).
   Nothing changes when the names agree.
 
 ### Known limits

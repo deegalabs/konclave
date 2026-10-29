@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Letterhead, Dialog, Soon } from '../components'
-import { useI18n } from '../i18n'
+import { useT, useTr } from '../i18n'
 import { getTheme, setTheme, type Theme } from '../theme'
 import '../redesign.css'
 import '../landing-vault.css'
@@ -31,12 +31,11 @@ type OS = keyof typeof BUILDS
  *  right as a seamless loop; the pitch sits on the left. Header carries theme + download; the
  *  install modal lists every platform. Everything else lives in Docs. */
 export default function Intro() {
-  const { locale } = useI18n()
-  const pt = locale === 'pt-BR'
-  // The landing has its own copy (it predates the i18n dictionary), so the reason lives here.
-  const soonWhy = pt
-    ? `O aplicativo de mesa existe (v${VER}, uma pré-release), mas ainda não é assinado por um editor verificado nem foi validado em cada plataforma. Enquanto isso, o cofre roda inteiro no navegador.`
-    : `The desktop app exists (v${VER}, a pre-release), but it is not yet signed by a verified publisher nor validated on each platform. Meanwhile the vault runs entirely in the browser.`
+  // The landing predates the dictionary and carried its own bilingual copy; it reads the
+  // dictionary now like every other screen, so the parity test sees it (#318).
+  const t = useT()
+  const tr = useTr()
+  const soonWhy = t('lv.soonWhy', { ver: VER })
   const vid = useRef<HTMLVideoElement>(null)
   const [theme, setTh] = useState<Theme>(getTheme())
   const [install, setInstall] = useState(false)
@@ -79,63 +78,56 @@ export default function Intro() {
         <Letterhead right={<>
           <Link to="/docs" className="doclink">Docs</Link>
           <a className="doclink" href={REPO} target="_blank" rel="noreferrer">GitHub</a>
-          <button className="lv-icon" onClick={toggleTheme} aria-pressed={theme === 'dark'} aria-label={pt ? 'Alternar tema' : 'Toggle theme'}>
+          <button className="lv-icon" onClick={toggleTheme} aria-pressed={theme === 'dark'} aria-label={t('lv.toggleTheme')}>
             {theme === 'dark'
               ? <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" /></svg>
               : <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M19 5l-1.5 1.5M6.5 17.5 5 19" /></svg>}
           </button>
           {/* On a narrow phone this collapses to the icon alone (landing-vault.css), so the
               label lives in its own element and the button carries the name for both shapes. */}
-          <button className="lv-dl" onClick={() => setInstall(true)} aria-label={pt ? 'Baixar' : 'Download'}>
+          <button className="lv-dl" onClick={() => setInstall(true)} aria-label={t('lv.download')}>
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
-            <span className="lv-dl-t">{pt ? 'Baixar' : 'Download'}</span>
+            <span className="lv-dl-t">{t('lv.download')}</span>
           </button>
         </>} />
       </div>
 
       <main className="lv-hero">
         <div className="lv-in">
-          <span className="lv-eyebrow"><span className="dot" />{pt ? 'Tesouraria Zcash coletiva · FROST' : 'Collective Zcash treasury · FROST'}</span>
+          <span className="lv-eyebrow"><span className="dot" />{t('lv.eyebrow')}</span>
 
-          <h1>{pt
-            ? <>O cofre que seu grupo <span className="em">abre junto.</span></>
-            : <>The vault your group <span className="em">opens together.</span></>}</h1>
+          <h1>{t('lv.h1')} <span className="em">{t('lv.h1em')}</span></h1>
 
-          <p className="lv-sub">{pt
-            ? <>A chave nasce dividida entre os membros e nunca é remontada. Todo pagamento só sai quando o quórum aprova. <b>Privado por fora, transparente por dentro.</b></>
-            : <>The key is born split across your members and never assembled. Every payment leaves only when your quorum approves it. <b>Private outside, transparent inside.</b></>}</p>
+          <p className="lv-sub">{tr('lv.sub')}</p>
 
           <div className="lv-ctas">
             <Link className="lv-btn pri" to="/vaults">
-              {pt ? 'Criar um cofre' : 'Create a vault'}
+              {t('lv.create')}
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
             </Link>
             <button className="lv-btn dl" onClick={() => setInstall(true)}>
               <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
-              {pt ? 'Baixar o app' : 'Download the app'}
+              {t('lv.downloadApp')}
             </button>
           </div>
 
           <div className="lv-trust">
-            <span><b>Local-first</b> · {pt ? 'sua chave nunca sai do aparelho' : 'your key never leaves the device'}</span><i />
-            <span><b>{pt ? 'Sem telemetria' : 'No telemetry'}</b> · {pt ? 'sem análise, sem rastreadores' : 'no analytics, no trackers'}</span><i />
-            <span><b>{pt ? 'ZEC real' : 'Real ZEC'}</b> · {pt ? 'provado na mainnet, txids verificáveis' : 'proven on mainnet, verifiable txids'}</span><i />
-            <span><b>{pt ? 'Código aberto' : 'Open source'}</b> · Apache-2.0 / MIT</span>
+            <span>{tr('lv.trust1')}</span><i />
+            <span>{tr('lv.trust2')}</span><i />
+            <span>{tr('lv.trust3')}</span><i />
+            <span>{tr('lv.trust4')}</span>
           </div>
 
-          <p className="lv-docs">{pt
-            ? <>Veja por dentro: a arquitetura, a cerimônia de aprovação e cada prova on-chain - tudo nas </>
-            : <>See under the hood: the architecture, the approval ceremony, and every on-chain proof - all in </>}
-            <Link to="/docs">Docs →</Link></p>
+          <p className="lv-docs">{t('lv.docsLead')} <Link to="/docs">Docs →</Link></p>
           <p className="lv-docs"><VersionBadge /></p>
         </div>
       </main>
 
       {install && (
         <Dialog labelledBy="lv-install-t" onClose={() => setInstall(false)} className="lv-ov" cardClassName="lv-card">
-          <button className="lv-x" onClick={() => setInstall(false)}>✕ {pt ? 'fechar' : 'close'}</button>
-          <h2 id="lv-install-t">{pt ? 'Baixe o Konclave' : 'Get Konclave'}</h2>
-          <p className="lv-msub">{pt ? 'Sua parte da chave nunca sai do aparelho - em qualquer plataforma.' : 'Your key share never leaves your device - on every platform.'}</p>
+          <button className="lv-x" onClick={() => setInstall(false)}>✕ {t('lv.close')}</button>
+          <h2 id="lv-install-t">{t('lv.getTitle')}</h2>
+          <p className="lv-msub">{t('lv.getSub')}</p>
 
           {/* The web line used to end at "nothing to install", which on a phone is the opposite of
               true: the app IS installable and this dialog is where the offer belongs. What can be
@@ -143,33 +135,31 @@ export default function Intro() {
           <div className="lv-plat hi">
             <span className="lv-pic"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7"><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18" /></svg></span>
             <div className="lv-mm">
-              <div className="lv-t">{pt ? 'App web' : 'Web app'} <span className="lv-chip live">{pt ? 'no ar' : 'live'}</span></div>
+              <div className="lv-t">{t('lv.web')} <span className="lv-chip live">{t('lv.live')}</span></div>
               <div className="lv-d">{offer.kind === 'none'
-                ? (pt ? 'Roda no navegador. Nada pra instalar.' : 'Runs in your browser. Nothing to install.')
-                : (pt ? 'Roda no navegador, e cabe na sua tela inicial.' : 'Runs in your browser, and fits on your home screen.')}</div>
+                ? t('lv.webNoInstall')
+                : t('lv.webInstallable')}</div>
               {offer.kind === 'prompt' && (
                 <button type="button" className="lv-btn dl sm lv-inst" onClick={() => void promptInstall()}>
                   <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14" /></svg>
-                  {pt ? 'Instalar no aparelho' : 'Install on this device'}
+                  {t('lv.installHere')}
                 </button>
               )}
               {offer.kind === 'ios' && (
-                <div className="lv-ver lv-inst-hint">{pt
-                  ? 'No iPhone: Compartilhar → Adicionar à Tela de Início'
-                  : 'On iPhone: Share → Add to Home Screen'}</div>
+                <div className="lv-ver lv-inst-hint">{t('lv.iosHint')}</div>
               )}
               {offer.kind === 'installed' && (
-                <div className="lv-ver lv-inst-hint">{pt ? 'Já instalado neste aparelho' : 'Already installed on this device'}</div>
+                <div className="lv-ver lv-inst-hint">{t('lv.installed')}</div>
               )}
             </div>
-            <Link className="lv-btn pri sm" to="/vaults" onClick={() => setInstall(false)}>{pt ? 'Abrir' : 'Open'}</Link>
+            <Link className="lv-btn pri sm" to="/vaults" onClick={() => setInstall(false)}>{t('lv.open')}</Link>
           </div>
 
           <div className="lv-plat">
             <span className="lv-pic"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="3" y="4" width="18" height="13" rx="1.5" /><path d="M8 20h8M12 17v3" /></svg></span>
             <div className="lv-mm">
               <div className="lv-t">{os}</div>
-              <div className="lv-d">{pt ? 'Um app de janela única; nada roda na nuvem.' : 'A single-window app; nothing runs in the cloud.'}</div>
+              <div className="lv-d">{t('lv.desktopDesc')}</div>
               <div className="lv-ver">v{VER} · {BUILDS[os].ext}</div>
             </div>
             {/* The desktop line is built (a pre-release, DESKTOP_VERSION; not code-signed or notarized) but
@@ -177,11 +167,11 @@ export default function Intro() {
                 a tool that holds money is a worse promise than saying "not yet" - so the option
                 stays visible and inert. */}
             <Soon reason={soonWhy}>
-              <span className="lv-btn dl sm">{pt ? 'Baixar' : 'Download'}</span>
+              <span className="lv-btn dl sm">{t('lv.download')}</span>
             </Soon>
           </div>
 
-          <button className="lv-more" onClick={() => setShowAll((s) => !s)}>{pt ? 'Outras plataformas' : 'Other platforms'} {showAll ? '▴' : '▾'}</button>
+          <button className="lv-more" onClick={() => setShowAll((s) => !s)}>{t('lv.otherPlatforms')} {showAll ? '▴' : '▾'}</button>
           {showAll && (
             <>
               {others.map((p) => (
@@ -192,12 +182,12 @@ export default function Intro() {
                     <div className="lv-ver">v{VER} · {BUILDS[p].ext}</div>
                   </div>
                   <Soon reason={soonWhy}>
-                    <span className="lv-btn dl sm">{pt ? 'Baixar' : 'Download'}</span>
+                    <span className="lv-btn dl sm">{t('lv.download')}</span>
                   </Soon>
                 </div>
               ))}
               <a className="lv-more" href={RELEASES} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: 4 }}>
-                {pt ? 'Todas as versões (.deb · .rpm · .exe) →' : 'All builds (.deb · .rpm · .exe) →'}
+                {t('lv.allBuilds')}
               </a>
             </>
           )}
@@ -205,19 +195,19 @@ export default function Intro() {
           <div className="lv-plat" style={{ marginTop: 10 }}>
             <span className="lv-pic"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.6"><rect x="7" y="3" width="10" height="18" rx="2" /><path d="M11 18h2" /></svg></span>
             <div className="lv-mm">
-              <div className="lv-t">{pt ? 'Celular - instale como PWA' : 'Mobile - install as PWA'}</div>
-              <div className="lv-d">{pt ? 'Adicione à tela inicial. Abre como um app.' : 'Add to home screen. Opens as an app.'}</div>
+              <div className="lv-t">{t('lv.mobile')}</div>
+              <div className="lv-d">{t('lv.mobileDesc')}</div>
             </div>
-            <Link className="lv-btn dl sm" to="/docs/faq" onClick={() => setInstall(false)}>{pt ? 'Como' : 'How'}</Link>
+            <Link className="lv-btn dl sm" to="/docs/faq" onClick={() => setInstall(false)}>{t('lv.how')}</Link>
           </div>
 
           <div className="lv-plat road">
             <span className="lv-pic"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="M10 4v4a2 2 0 0 1-2 2H4M14 4v4a2 2 0 0 0 2 2h4" /><rect x="4" y="10" width="16" height="10" rx="2" /></svg></span>
             <div className="lv-mm">
-              <div className="lv-t">{pt ? 'Extensão de navegador' : 'Browser extension'} <span className="lv-chip">roadmap</span></div>
-              <div className="lv-d">{pt ? 'Um assinador no navegador, em andamento - ainda sem instalação.' : 'A browser signer, in progress - no install yet.'}</div>
+              <div className="lv-t">{t('lv.extension')} <span className="lv-chip">roadmap</span></div>
+              <div className="lv-d">{t('lv.extensionDesc')}</div>
             </div>
-            <a className="lv-more" href={REPO} target="_blank" rel="noreferrer">{pt ? 'Acompanhe no GitHub →' : 'Follow on GitHub →'}</a>
+            <a className="lv-more" href={REPO} target="_blank" rel="noreferrer">{t('lv.github')}</a>
           </div>
         </Dialog>
       )}
