@@ -1247,5 +1247,5 @@ export const en: Record<string, string> = {
   'ledger.colMemo': 'Memo',
   'ledger.colTxid': 'Transaction (txid)',
   'ledger.xlsxFilter': 'Filter',
-  'ledger.xlsxIncludes': 'The file includes each payment’s memo and transaction id.',
+  'ledger.xlsxIncludes': 'The XLSX file includes each payment’s memo and transaction id.',
 }
