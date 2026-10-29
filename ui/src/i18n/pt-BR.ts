@@ -1194,4 +1194,5 @@ export const ptBR: Record<string, string> = {
   'ledger.colMemo': 'Memo',
   'ledger.colTxid': 'Transação (txid)',
   'ledger.xlsxFilter': 'Filtro',
+  'ledger.xlsxIncludes': 'O arquivo inclui o memo e o identificador da transação de cada pagamento.',
 }

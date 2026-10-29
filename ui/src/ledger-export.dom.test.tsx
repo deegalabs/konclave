@@ -87,4 +87,11 @@ describe('the Ledger screen exports what it shows (#302)', () => {
     const link = screen.getByRole('link', { name: `${en('state.confirmed')} ↗` })
     expect(link.getAttribute('href')).toBe(explorerTxUrl(TX1))
   })
+
+  it('says, beside the export, that the file carries the memo and txid of each payment', async () => {
+    mount()
+    await screen.findByText('October rent')
+    expect(screen.getByText(en('ledger.xlsxIncludes'))).toBeTruthy()
+    expect(screen.getByRole('button', { name: en('ledger.exportXlsx') }).getAttribute('title')).toBe(en('ledger.xlsxIncludes'))
+  })
 })

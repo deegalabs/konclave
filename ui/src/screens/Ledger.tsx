@@ -152,7 +152,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
       ) : (
         <a className="btn ghost sm-btn" href={ledgerCsvUrl()} download="konclave-ledger.csv">{t('ledger.exportCsv')}</a>
       )}
-      <button className="btn ghost sm-btn" disabled={xlsxBusy} onClick={() => void exportXlsx()}>{xlsxBusy ? t('ledger.exporting') : t('ledger.exportXlsx')}</button>
+      <button className="btn ghost sm-btn" disabled={xlsxBusy} title={t('ledger.xlsxIncludes')} onClick={() => void exportXlsx()}>{xlsxBusy ? t('ledger.exporting') : t('ledger.exportXlsx')}</button>
       <button className="btn ghost sm-btn" onClick={() => window.print()}>{t('ledger.pdf')}</button>
     </>
   )
@@ -173,7 +173,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
             <span className="db-reveal"><RevealButton /></span>
           </div>
         </div>
-        <div className="cap">{t('ledger.capLive')}</div>
+        <div className="cap">{t('ledger.capLive')}<br /><span>{t('ledger.xlsxIncludes')}</span></div>
 
         <div className="filters">
           <span className="chip-group">
