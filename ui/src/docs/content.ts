@@ -702,12 +702,12 @@ export const SECTIONS: Section[] = [
         k: 'ul',
         items: [
           {
-            'pt-BR': '**"Wrong passphrase for this export"** (esta mensagem aparece em inglês): é a frase-senha que você usava quando gerou aquele arquivo, que pode ser uma antiga.',
-            en: '**"Wrong passphrase for this export"**: it is the passphrase you had when you made that file, which may be an older one.',
+            'pt-BR': '**"Frase-senha errada para este backup"**: é a frase-senha que você usava quando gerou aquele arquivo, que pode ser uma antiga.',
+            en: '**"Wrong passphrase for this backup"**: it is the passphrase you had when you made that file, which may be an older one.',
           },
           {
-            'pt-BR': '**"A vault with this id already exists on this device"** (também em inglês): o cofre já está aqui. Abra pela lista.',
-            en: '**"A vault with this id already exists on this device"**: the vault is already here. Open it from the list.',
+            'pt-BR': '**"Este cofre já está neste aparelho"**: o cofre já está aqui. Abra pela lista.',
+            en: '**"This vault is already on this device"**: the vault is already here. Open it from the list.',
           },
           {
             'pt-BR': 'Se o aparelho antigo ainda funciona: sugerimos manter o assento num aparelho só. Quando o novo abrir o cofre, use **Remover deste aparelho** em Ajustes no antigo.',
