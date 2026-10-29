@@ -8,6 +8,7 @@ const VAULT_ID = 'a'.repeat(64)
 const UPGRADE = 3_543_405
 
 async function openDashboardAt(page: Page, tip: number) {
+  const now = { tip }
   await page.addInitScript((id) => {
     localStorage.setItem('konclave.locale', 'en')
     localStorage.setItem('konclave.selectedVault', id as string)
@@ -40,7 +41,7 @@ async function openDashboardAt(page: Page, tip: number) {
     r.fulfill({
       json: {
         configured: true, total_zat: 0, total_zec: '0', spendable_zat: 0, spendable_zec: '0',
-        chain_tip_height: tip, orchard_spendable_zat: 0, ironwood_spendable_zat: 0,
+        chain_tip_height: now.tip, orchard_spendable_zat: 0, ironwood_spendable_zat: 0,
       },
     }),
   )
@@ -48,6 +49,9 @@ async function openDashboardAt(page: Page, tip: number) {
     await page.route(p, (r) => r.fulfill({ json: {} }))
   }
   await page.goto('/#/dashboard')
+  return (to: number) => {
+    now.tip = to
+  }
 }
 
 test('a tip just before the upgrade shows the notice with the block, from the table', async ({ page }) => {
@@ -62,7 +66,14 @@ test('a tip just after it says what to expect, without promising a time', async 
 })
 
 test('a tip far from it shows no notice', async ({ page }) => {
-  await openDashboardAt(page, UPGRADE - 20_000)
-  await page.waitForTimeout(1_500)
+  // A positive control first, on the same stub: near the upgrade the notice shows, so the balance, the
+  // table in WASM and the screen all work. Without it this test would also pass with a broken pipeline.
+  const setTip = await openDashboardAt(page, UPGRADE - 200)
+  await expect(page.getByRole('status').filter({ hasText: /upgrades at block 3,543,405/ })).toBeVisible()
+  setTip(UPGRADE - 20_000)
+  const balance = page.waitForResponse(/\/api\/balance/)
+  await page.reload()
+  await balance
+  await page.waitForTimeout(1_000)
   await expect(page.getByText(/Zcash network (upgrades|has upgraded)/)).toHaveCount(0)
 })

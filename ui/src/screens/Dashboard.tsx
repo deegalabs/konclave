@@ -460,16 +460,18 @@ export default function Dashboard() {
         {/* The pause around a network upgrade is enforced by the coordinator and reaches a member as an
             error when they try to pay. This tells them before, from the tip the balance already carries.
             Not an alarm (nothing is wrong, nothing is lost): the quiet notice the install prompt uses. */}
-        {notice !== null && upgradeAt !== undefined && (
-          <div className="dash-persist" role="status">
-            <span className="dp-ic" aria-hidden="true">◆</span>
-            <span>
-              {t(notice === 'before' ? 'dashboard.upgradeBefore' : 'dashboard.upgradeAfter', {
-                height: upgradeAt.toLocaleString(dpt() ? 'pt-BR' : 'en-US'),
-              })}
-            </span>
-          </div>
-        )}
+        <div role="status" aria-live="polite">
+          {notice !== null && upgradeAt !== undefined && (
+            <div className="dash-persist">
+              <span className="dp-ic" aria-hidden="true">◆</span>
+              <span>
+                {t(notice === 'before' ? 'dashboard.upgradeBefore' : 'dashboard.upgradeAfter', {
+                  height: upgradeAt.toLocaleString(dpt() ? 'pt-BR' : 'en-US'),
+                })}
+              </span>
+            </div>
+          )}
+        </div>
 
         {/* #307: the browser did not promise to keep the share. Not a bug in the app - it is how
             browser storage works - but staying silent about it is how someone loses a seat with no
