@@ -1194,4 +1194,17 @@ export const en: Record<string, string> = {
   'members.unreadLead': 'The member list could not be read. Your vault and your share are still on this device; only the list did not arrive. Check the connection and try again.',
   'members.retry': 'Try again',
   'members.footUnread': 'list unavailable',
+  // What the storage layer refuses, in the member's language (#586)
+  'storage.err.noStorage': 'This browser cannot keep a vault. Try another browser, outside private mode.',
+  'storage.err.noVault': 'This vault is not saved on this device.',
+  'storage.err.noId': 'This vault has no identifier and cannot be saved.',
+  'storage.err.passphraseRequired': 'Enter the passphrase.',
+  'storage.err.newPassphraseRequired': 'Enter the new passphrase.',
+  'storage.err.wrongPassphrase': 'Wrong passphrase for this backup. Nothing was imported.',
+  'storage.err.wrongPassphraseSaved': 'Wrong passphrase for the vault saved on this device.',
+  'storage.err.notAnExport': 'This file is not a Konclave vault backup.',
+  'storage.err.corrupt': 'This backup is incomplete or damaged. Nothing was imported. Use another copy of the file.',
+  'storage.err.unsupportedVersion': 'This backup is from a newer version. Update Konclave and try again.',
+  'storage.err.alreadyExists': 'This vault is already on this device. Open it from the list.',
+  'storage.err.samePassphrase': 'The new passphrase is the same as the current one.',
 }

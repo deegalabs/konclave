@@ -86,6 +86,12 @@ history to tidy it is how context gets lost.
   did draw carried a "holds a share, votes" chip it had never checked. Now a list that was not read
   says so, says the vault and your share are still on this device, and offers "Try again"; the chip
   appears only on a list that was actually read (#315).
+- **Import and export errors now appear in the member's language.** A wrong passphrase, a corrupt or
+  incomplete file, a vault already on the device: each of those came straight from the storage layer,
+  in English, on the screen of a member restoring the one copy of their seat. The storage layer now
+  refuses with a code and the dialogs turn the code into a sentence from the dictionary, in
+  Portuguese or English; the generic line stays as the fallback, and is still what a failure of
+  the browser's own storage shows (#586).
 - **An older shielded (Sapling) destination is refused, and the screens now say so.** The warning on
   the payment, payroll, people and recipient fields said such an address "works, but prefer a modern
   one", while the vault cannot pay it: the backend refuses a Sapling-only destination before any
