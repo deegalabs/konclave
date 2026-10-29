@@ -52,9 +52,13 @@ export function Dialog({ labelledBy, describedBy, focusCard = false, onClose, on
   dismissRef.current = onDismiss ?? onClose
   // Read once, on open, like the rest of this effect.
   const focusCardRef = useRef(focusCard)
+  // What opened the dialog, read during the FIRST RENDER: an autofocused field takes focus at
+  // commit, before any effect runs, so reading it in the effect recorded the field, which is gone
+  // on close, and focus fell to the page instead of the opener (#667).
+  const openerRef = useRef<HTMLElement | null | undefined>(undefined)
+  if (openerRef.current === undefined) openerRef.current = typeof document === 'undefined' ? null : (document.activeElement as HTMLElement | null)
   useEffect(() => {
     const node = ref.current
-    const prev = document.activeElement as HTMLElement | null
     const sel = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
     const focusables = () => (node ? Array.from(node.querySelectorAll<HTMLElement>(sel)) : [])
     // Focus moves inside, unless something inside already took it (an autofocused field); opened on
@@ -76,7 +80,7 @@ export function Dialog({ labelledBy, describedBy, focusCard = false, onClose, on
     }
     document.addEventListener('keydown', onKey)
     // Focus goes back to what opened the dialog only if it is still on the page.
-    return () => { document.removeEventListener('keydown', onKey); if (prev?.isConnected) prev.focus() }
+    return () => { document.removeEventListener('keydown', onKey); const opener = openerRef.current; if (opener?.isConnected) opener.focus() }
   }, [])
   return (
     <div className={className} onClick={() => dismissRef.current()}>

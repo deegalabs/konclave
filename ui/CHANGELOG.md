@@ -86,6 +86,12 @@ history to tidy it is how context gets lost.
   did draw carried a "holds a share, votes" chip it had never checked. Now a list that was not read
   says so, says the vault and your share are still on this device, and offers "Try again"; the chip
   appears only on a list that was actually read (#315).
+- **Import and export errors now appear in the member's language.** A wrong passphrase, a corrupt or
+  incomplete file, a vault already on the device: each of those came straight from the storage layer,
+  in English, on the screen of a member restoring the one copy of their seat. The storage layer now
+  refuses with a code and the dialogs turn the code into a sentence from the dictionary, in
+  Portuguese or English; the generic line stays as the fallback, and is still what a failure of
+  the browser's own storage shows (#586).
 - **An older shielded (Sapling) destination is refused, and the screens now say so.** The warning on
   the payment, payroll, people and recipient fields said such an address "works, but prefer a modern
   one", while the vault cannot pay it: the backend refuses a Sapling-only destination before any
@@ -96,6 +102,11 @@ history to tidy it is how context gets lost.
 - **A device checks its own name in the creation transcript.** If the name shown for a device's own
   seat is not the one its owner typed, creation stops with the same message as any other conflict.
   Nothing changes when the names agree.
+- **Closing a dialog that opened on a field returns focus to the button that opened it.** Remove,
+  import and unlock a vault, the creation dialog, rotate passphrase and export all put focus in a
+  field as they open; on close, focus fell to the page instead of the opener, because the dialog
+  recorded where to return after the field had already taken focus. It now records the opener before
+  any focus moves. The signing confirm and the lock overlay were not affected (#667).
 - **The spreadsheet export carries the transaction id and the memo, and exports what the screen
   shows.** The XLSX, the export meant for the accountant, had no txid column, so no row could be
   tied to the block explorer, and no memo; it ignored the state and kind filters, so a book
