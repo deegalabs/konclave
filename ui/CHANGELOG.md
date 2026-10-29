@@ -70,12 +70,17 @@ history to tidy it is how context gets lost.
   could not be drawn left a blank square (now a sentence pointing to the address and the link). The
   rest of #320 (the app frame's live region and vault switcher) waits for the keyboard work on that
   file (#317, #662).
+- **The proof page no longer offers a check that could not run.** Its "verify on-chain now" button
+  asked an explorer's API, and the site's own security policy refused that request before it left,
+  so pressing it always ended in "blocked", which reads as a broken claim. The button is gone; the
+  page says how to check instead: the two explorer links on every transaction, and the
+  `verify-proof.mjs` script for the whole list at once. A test now holds the page's network origins
+  to the policy (#615).
 - **The "page not found" and the crash screen now speak the member's language.** Both were
   English-only, with no way to translate them: a Portuguese member hit a dead link or a crashed
   screen and read it in the wrong language, at the worst moment. Both now read the dictionary; the
   crash screen reads it directly, without the rest of the app, so it still works when what crashed
   is the app itself (#318, part A).
-
 - **The Members screen says when it could not read the list.** With the coordinator offline it
   drew an empty roster under "0 members", with no message and no way to retry, and every seat it
   did draw carried a "holds a share, votes" chip it had never checked. Now a list that was not read
