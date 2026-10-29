@@ -1174,6 +1174,10 @@ export const en: Record<string, string> = {
   'receive.viewTx': 'View',
   'receive.txReceived': 'received',
   'receive.txSent': 'sent',
+
+  // Toast and Receive polish (#320)
+  'toast.dismiss': 'Dismiss notice',
+  'receive.qrFailed': 'Could not draw the QR for this request. Copy the address or the link below.',
   // The landing (#318, part B): it carried its own bilingual copy, outside the dictionary.
   'lv.soonWhy': 'The desktop app exists (v{ver}, a pre-release), but it is not yet signed by a verified publisher nor validated on each platform. Meanwhile the vault runs entirely in the browser.',
   'lv.toggleTheme': 'Toggle theme',

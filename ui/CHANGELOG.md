@@ -64,6 +64,12 @@ history to tidy it is how context gets lost.
   known seat), and a second request that lands while a signature is being made does not replace
   the one in hand. A device that already holds the helper's request takes the transaction from it,
   and an incoming request has to name the same sighash.
+- **Small accessibility fixes on notices and the Receive screen.** The close button on a notice was
+  smaller than a fingertip (now at least 24 by 24) and its label was English-only; "Copied" on the
+  Receive screen was silent to a screen reader (now announced once, for either button); and a QR that
+  could not be drawn left a blank square (now a sentence pointing to the address and the link). The
+  rest of #320 (the app frame's live region and vault switcher) waits for the keyboard work on that
+  file (#317, #662).
 - **An older shielded (Sapling) destination is refused, and the screens now say so.** The warning on
   the payment, payroll, people and recipient fields said such an address "works, but prefer a modern
   one", while the vault cannot pay it: the backend refuses a Sapling-only destination before any

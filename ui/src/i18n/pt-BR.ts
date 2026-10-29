@@ -1170,6 +1170,10 @@ export const ptBR: Record<string, string> = {
   'receive.viewTx': 'Ver',
   'receive.txReceived': 'recebido',
   'receive.txSent': 'enviado',
+
+  // Toast and Receive polish (#320)
+  'toast.dismiss': 'Fechar aviso',
+  'receive.qrFailed': 'Não deu para desenhar o QR deste pedido. Copie o endereço ou o link abaixo.',
   // The landing (#318, part B): it carried its own bilingual copy, outside the dictionary.
   'lv.soonWhy': 'O aplicativo de mesa existe (v{ver}, uma pré-release), mas ainda não é assinado por um editor verificado nem foi validado em cada plataforma. Enquanto isso, o cofre roda inteiro no navegador.',
   'lv.toggleTheme': 'Alternar tema',
