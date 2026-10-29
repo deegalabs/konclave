@@ -1174,4 +1174,8 @@ export const en: Record<string, string> = {
   'receive.viewTx': 'View',
   'receive.txReceived': 'received',
   'receive.txSent': 'sent',
+  // #302: the XLSX export names the memo and the txid, and says when it is a filtered view.
+  'ledger.colMemo': 'Memo',
+  'ledger.colTxid': 'Transaction (txid)',
+  'ledger.xlsxFilter': 'Filter',
 }

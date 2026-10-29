@@ -73,11 +73,23 @@ history to tidy it is how context gets lost.
   and "older shielded (Sapling)", and "sighash" as "signed digest (sighash)" (#127).
 - **A device checks its own name in the creation transcript.** If the name shown for a device's own
   seat is not the one its owner typed, creation stops with the same message as any other conflict.
+- **The spreadsheet export carries the transaction id and the memo, and exports what the screen
+  shows.** The XLSX, the export meant for the accountant, had no txid column, so no row could be
+  tied to the block explorer, and no memo; it ignored the state and kind filters, so a book
+  filtered to settled payrolls exported everything, silently; an empty book produced a total that
+  summed itself, which Excel opens with a circular-reference warning; and the file named the app as
+  its author in the hidden document properties. Now every row carries its memo and its txid, linked
+  to the public explorer; the export holds exactly the rows on screen, and its Summary names the
+  active filter; an empty book exports zeros instead of formulas; and the hidden properties say
+  nothing the Summary sheet does not. The CSV link still exports the whole book: it comes from the
+  coordinator, which does not know the screen's filters (#302, with #301).
   Nothing changes when the names agree.
 
 ### Known limits
 
 - The own-name check runs on the devices that carry this build.
+- In the hidden properties of the spreadsheet export, the application is still named as Microsoft
+  Excel. The library writes that line and the app cannot change it (#302).
 
 ## [0.15.0] 2026-10-26
 

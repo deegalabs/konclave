@@ -128,6 +128,12 @@ export function shortAddr(addr: string, head = 6, tail = 6): string {
 }
 
 // Crockford base32 (no I/L/O/U) - unambiguous when read aloud or copied by hand.
+/** The public explorer's page for a mainnet transaction. The one place the app writes that URL,
+ *  so the book, its export and the screens open the same page (#302). */
+export function explorerTxUrl(txid: string): string {
+  return `https://mainnet.zcashexplorer.app/transactions/${txid}`
+}
+
 export const CROCKFORD = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'
 
 /** Pure: encode the first bytes of a digest as a 9-char code grouped 3-3-3 (≈45 bits).

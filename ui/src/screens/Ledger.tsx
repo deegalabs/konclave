@@ -4,7 +4,7 @@ import { Secret, RevealButton, activateOnKey, Soon } from '../components'
 import { SkeletonRows } from '../skeleton'
 import { PageHeader, PageFooter } from '../page'
 import { getLedger, getProposalDetail, getVault, ledgerCsvUrl, shortAddr, IS_NET, type Proposal, type PayrollLine } from '../api'
-import { fmtDate, fmtZec } from '../format'
+import { explorerTxUrl, fmtDate, fmtZec } from '../format'
 import { exportLedgerXlsx, type LedgerXlsxItem } from '../ledgerXlsx'
 import { useLoading } from '../loading'
 import { useT, useI18n } from '../i18n'
@@ -67,11 +67,14 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
       const iso = (ts?: number) => (ts ? new Date(ts * 1000).toISOString().slice(0, 10) : '')
       const items: LedgerXlsxItem[] = []
       // Itemize: a payment = one row; a payroll = one row per beneficiary (fetch its lines if not
-      // already open), mirroring the CSV export. Runs from the ledger data already in memory.
-      for (const p of (rows ?? [])) {
+      // already open), mirroring the CSV export. Runs from the ledger data already in memory, and
+      // from the rows the screen shows: the export honours the filters (#302). Each row carries its
+      // own memo (a payroll line's, not the payroll's) and the txid, shared by a payroll's rows.
+      for (const p of filtered) {
         const stLabel = t('state.' + p.state)
         const isSettled = SETTLED(p.state)
         const doc = p.memo || (p.kind === 'payroll' ? t('kind.payroll') : t('kind.payment'))
+        const base = { dateISO: iso(p.created_at), document: doc, state: stLabel, settled: isSettled, txid: p.txid ?? '' }
         if (p.kind === 'payroll') {
           let lines = linesById[p.id]
           if (!lines) {
@@ -80,29 +83,30 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
             setLinesById((m) => ({ ...m, [p.id]: lines! }))
           }
           if (lines.length === 0) {
-            items.push({ dateISO: iso(p.created_at), document: doc, kind: t('kind.payroll'), beneficiary: '', address: '', state: stLabel, settled: isSettled, zec: Number(p.value_zec) })
+            items.push({ ...base, kind: t('kind.payroll'), beneficiary: '', address: '', memo: p.memo ?? '', zec: Number(p.value_zec) })
           } else {
             for (const l of lines) {
-              items.push({ dateISO: iso(p.created_at), document: doc, kind: t('kind.payroll'), beneficiary: l.label || '', address: l.address, state: stLabel, settled: isSettled, zec: Number(l.value_zec) })
+              items.push({ ...base, kind: t('kind.payroll'), beneficiary: l.label || '', address: l.address, memo: l.memo ?? '', zec: Number(l.value_zec) })
             }
           }
         } else {
-          items.push({ dateISO: iso(p.created_at), document: doc, kind: t('kind.payment'), beneficiary: '', address: p.to_address ?? '', state: stLabel, settled: isSettled, zec: Number(p.value_zec) })
+          items.push({ ...base, kind: t('kind.payment'), beneficiary: '', address: p.to_address ?? '', memo: p.memo ?? '', zec: Number(p.value_zec) })
         }
       }
       await exportLedgerXlsx({
         vaultName: vaultName ?? 'Konclave',
-        period,
-        generatedISO: new Date().toISOString().slice(0, 16).replace('T', ' '),
+        period: periodOf(filtered),
+        filter: filterLabel,
+        generatedAt: new Date(),
         items,
         labels: {
           summary: t('ledger.xlsxSummary'), movements: t('ledger.xlsxMovements'),
-          vault: t('ledger.vault'), period: t('ledger.period'), generated: t('ledger.xlsxGenerated'),
+          vault: t('ledger.vault'), period: t('ledger.period'), filter: t('ledger.xlsxFilter'), generated: t('ledger.xlsxGenerated'),
           entries: t('ledger.entries'), settledOut: t('ledger.settledOut'), open: t('ledger.open'),
           colDate: t('ledger.colDate'), colDocument: t('ledger.colDocument'), colKind: t('ledger.colKind'),
-          colBeneficiary: t('ledger.colBeneficiary'), colAddress: t('ledger.colAddress'), colState: t('ledger.colState'),
-          colSettled: t('ledger.colSettled'), colValue: t('ledger.colValue'), total: t('ledger.total'),
-          yes: t('ledger.yes'), no: t('ledger.no'),
+          colBeneficiary: t('ledger.colBeneficiary'), colAddress: t('ledger.colAddress'), colMemo: t('ledger.colMemo'),
+          colState: t('ledger.colState'), colSettled: t('ledger.colSettled'), colValue: t('ledger.colValue'),
+          colTxid: t('ledger.colTxid'), total: t('ledger.total'), yes: t('ledger.yes'), no: t('ledger.no'),
         },
       })
     } finally {
@@ -115,21 +119,32 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
   const pending = ledger.filter((p) => p.state === 'awaiting' || p.state === 'ready')
   const totalOut = settled.reduce((acc, p) => acc + Number(p.value_zec), 0)
   const totalPending = pending.reduce((acc, p) => acc + Number(p.value_zec), 0)
-  // Period from the entries' real creation dates.
-  const dates = ledger.map((p) => p.created_at).filter(Boolean) as number[]
-  const lo = dates.length ? Math.min(...dates) : 0
-  const hi = dates.length ? Math.max(...dates) : 0
-  const period = !dates.length ? '-' : lo === hi ? fmtDate(lo, locale) : `${fmtDate(lo, locale)} - ${fmtDate(hi, locale)}`
+  // Period from the entries' real creation dates: the screen's from the whole book, the export's
+  // from the rows it carries (#302).
+  const periodOf = (list: Proposal[]) => {
+    const dates = list.map((p) => p.created_at).filter(Boolean) as number[]
+    if (!dates.length) return '-'
+    const lo = Math.min(...dates)
+    const hi = Math.max(...dates)
+    return lo === hi ? fmtDate(lo, locale) : `${fmtDate(lo, locale)} - ${fmtDate(hi, locale)}`
+  }
+  const period = periodOf(ledger)
   const filtered = ledger.filter((p) => {
     const stOk = fState === 'all' || (fState === 'settled' ? SETTLED(p.state) : p.state === 'awaiting' || p.state === 'ready')
     const knOk = fKind === 'all' || p.kind === fKind
     return stOk && knOk
   })
+  // The active filters in the chips' own words, so a filtered export says it is a part of the book.
+  const filterLabel = [
+    fState === 'settled' ? t('ledger.filterSettled') : fState === 'openp' ? t('ledger.open') : '',
+    fKind === 'payment' ? t('ledger.filterPayments') : fKind === 'payroll' ? t('ledger.filterPayrolls') : '',
+  ].filter(Boolean).join(' · ')
 
   const exportActions = (
     <>
-      {/* The CSV comes from the bridge's endpoint and is dead on the primary path (#301). The XLSX
-          and the print view are built in the browser and work everywhere, so only this one waits. */}
+      {/* The CSV comes from the bridge's endpoint and is dead on the primary path (#301), and that
+          endpoint does not know the screen's filters, so the CSV is always the whole book (#302).
+          The XLSX and the print view are built in the browser and work everywhere. */}
       {IS_NET ? (
         <Soon reason={t('ledger.exportSoonWhy')}>
           <span className="btn ghost sm-btn">{t('ledger.exportCsv')}</span>
@@ -220,7 +235,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
                       <Secret sm><span>−{fmtZec(p.value_zec)}</span></Secret>
                       <div className="by">
                         {settledRow && p.txid
-                          ? <a className="link" href={`https://mainnet.zcashexplorer.app/transactions/${p.txid}`} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>{t('state.' + p.state)} ↗</a>
+                          ? <a className="link" href={explorerTxUrl(p.txid)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>{t('state.' + p.state)} ↗</a>
                           : t('state.' + p.state)}
                       </div>
                     </td>

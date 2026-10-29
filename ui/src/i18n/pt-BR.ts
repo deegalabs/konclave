@@ -1170,4 +1170,8 @@ export const ptBR: Record<string, string> = {
   'receive.viewTx': 'Ver',
   'receive.txReceived': 'recebido',
   'receive.txSent': 'enviado',
+  // #302: the XLSX export names the memo and the txid, and says when it is a filtered view.
+  'ledger.colMemo': 'Memo',
+  'ledger.colTxid': 'Transação (txid)',
+  'ledger.xlsxFilter': 'Filtro',
 }
