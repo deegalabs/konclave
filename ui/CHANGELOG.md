@@ -107,6 +107,11 @@ history to tidy it is how context gets lost.
   field as they open; on close, focus fell to the page instead of the opener, because the dialog
   recorded where to return after the field had already taken focus. It now records the opener before
   any focus moves. The signing confirm and the lock overlay were not affected (#667).
+- **The landing page and the loading placeholders read the dictionary.** The landing carried its
+  own copy in both languages, outside the dictionary, so the test that keeps the two languages in
+  step never saw it, and the loading placeholders announced "Loading" in English whatever the
+  language. Nothing reads differently today; a sentence changed in one language can no longer be
+  missed in the other, and a screen reader hears "Carregando" in Portuguese (#318, part B).
 - **The spreadsheet export carries the transaction id and the memo, and exports what the screen
   shows.** The XLSX, the export meant for the accountant, had no txid column, so no row could be
   tied to the block explorer, and no memo; it ignored the state and kind filters, so a book
