@@ -1175,6 +1175,9 @@ export const en: Record<string, string> = {
   'receive.txReceived': 'received',
   'receive.txSent': 'sent',
 
+  // Toast and Receive polish (#320)
+  'toast.dismiss': 'Dismiss notice',
+  'receive.qrFailed': 'Could not draw the QR for this request. Copy the address or the link below.',
   // 404 and the crash screen (#318): a member's worst moment, in their language
   'notFound.label': '404 · page not found',
   'notFound.title': 'This page doesn’t exist.',
