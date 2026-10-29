@@ -96,6 +96,11 @@ history to tidy it is how context gets lost.
 - **A device checks its own name in the creation transcript.** If the name shown for a device's own
   seat is not the one its owner typed, creation stops with the same message as any other conflict.
   Nothing changes when the names agree.
+- **Closing a dialog that opened on a field returns focus to the button that opened it.** Remove,
+  import and unlock a vault, the creation dialog, rotate passphrase and export all put focus in a
+  field as they open; on close, focus fell to the page instead of the opener, because the dialog
+  recorded where to return after the field had already taken focus. It now records the opener before
+  any focus moves. The signing confirm and the lock overlay were not affected (#667).
 
 ### Known limits
 
