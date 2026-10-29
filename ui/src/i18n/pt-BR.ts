@@ -1171,6 +1171,9 @@ export const ptBR: Record<string, string> = {
   'receive.txReceived': 'recebido',
   'receive.txSent': 'enviado',
 
+  // Toast and Receive polish (#320)
+  'toast.dismiss': 'Fechar aviso',
+  'receive.qrFailed': 'Não deu para desenhar o QR deste pedido. Copie o endereço ou o link abaixo.',
   // 404 and the crash screen (#318): a member's worst moment, in their language
   'notFound.label': '404 · página não encontrada',
   'notFound.title': 'Esta página não existe.',
