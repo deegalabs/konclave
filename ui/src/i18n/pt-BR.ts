@@ -1171,6 +1171,9 @@ export const ptBR: Record<string, string> = {
   'receive.txReceived': 'recebido',
   'receive.txSent': 'enviado',
 
+  // Toast and Receive polish (#320)
+  'toast.dismiss': 'Fechar aviso',
+  'receive.qrFailed': 'Não deu para desenhar o QR deste pedido. Copie o endereço ou o link abaixo.',
   // What the storage layer refuses, in the member's language (#586)
   'storage.err.noStorage': 'Este navegador não consegue guardar um cofre. Tente outro navegador, fora do modo anônimo.',
   'storage.err.noVault': 'Este cofre não está salvo neste aparelho.',

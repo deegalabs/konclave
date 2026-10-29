@@ -1175,6 +1175,9 @@ export const en: Record<string, string> = {
   'receive.txReceived': 'received',
   'receive.txSent': 'sent',
 
+  // Toast and Receive polish (#320)
+  'toast.dismiss': 'Dismiss notice',
+  'receive.qrFailed': 'Could not draw the QR for this request. Copy the address or the link below.',
   // What the storage layer refuses, in the member's language (#586)
   'storage.err.noStorage': 'This browser cannot keep a vault. Try another browser, outside private mode.',
   'storage.err.noVault': 'This vault is not saved on this device.',
