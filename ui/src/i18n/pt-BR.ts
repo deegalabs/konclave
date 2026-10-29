@@ -1174,6 +1174,22 @@ export const ptBR: Record<string, string> = {
   // Toast and Receive polish (#320)
   'toast.dismiss': 'Fechar aviso',
   'receive.qrFailed': 'Não deu para desenhar o QR deste pedido. Copie o endereço ou o link abaixo.',
+  // 404 and the crash screen (#318): a member's worst moment, in their language
+  'notFound.label': '404 · página não encontrada',
+  'notFound.title': 'Esta página não existe.',
+  'notFound.lead': 'O link pode estar antigo ou errado. Volte para os seus cofres.',
+  'notFound.vaults': 'Meus cofres',
+  'notFound.how': 'Como funciona',
+  'crash.label': 'Algo quebrou',
+  'crash.title': 'A tela encontrou um erro inesperado.',
+  'crash.lead': 'Recarregue a página. Se estava enviando um pagamento, confira o registro antes de tentar de novo.',
+  'crash.reload': 'Recarregar',
+  'crash.vaults': 'Meus cofres',
+  // Members: the list could not be read (#315)
+  'members.unreadTitle': 'Não deu para ler a lista de membros',
+  'members.unreadLead': 'A lista de membros não pôde ser lida. O cofre e a sua parte da chave continuam neste aparelho; só a lista não veio. Confira a conexão e tente de novo.',
+  'members.retry': 'Tentar de novo',
+  'members.footUnread': 'lista indisponível',
   // The landing (#318, part B): it carried its own bilingual copy, outside the dictionary.
   'lv.soonWhy': 'O aplicativo de mesa existe (v{ver}, uma pré-release), mas ainda não é assinado por um editor verificado nem foi validado em cada plataforma. Enquanto isso, o cofre roda inteiro no navegador.',
   'lv.toggleTheme': 'Alternar tema',

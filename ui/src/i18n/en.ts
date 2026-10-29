@@ -1178,6 +1178,22 @@ export const en: Record<string, string> = {
   // Toast and Receive polish (#320)
   'toast.dismiss': 'Dismiss notice',
   'receive.qrFailed': 'Could not draw the QR for this request. Copy the address or the link below.',
+  // 404 and the crash screen (#318): a member's worst moment, in their language
+  'notFound.label': '404 · page not found',
+  'notFound.title': 'This page doesn’t exist.',
+  'notFound.lead': 'The link may be old or mistyped. Head back to your vaults.',
+  'notFound.vaults': 'My vaults',
+  'notFound.how': 'How it works',
+  'crash.label': 'Something broke',
+  'crash.title': 'The screen hit an unexpected error.',
+  'crash.lead': 'Reload the page. If you were sending a payment, check the ledger before trying again.',
+  'crash.reload': 'Reload',
+  'crash.vaults': 'My vaults',
+  // Members: the list could not be read (#315)
+  'members.unreadTitle': 'Could not read the member list',
+  'members.unreadLead': 'The member list could not be read. Your vault and your share are still on this device; only the list did not arrive. Check the connection and try again.',
+  'members.retry': 'Try again',
+  'members.footUnread': 'list unavailable',
   // The landing (#318, part B): it carried its own bilingual copy, outside the dictionary.
   'lv.soonWhy': 'The desktop app exists (v{ver}, a pre-release), but it is not yet signed by a verified publisher nor validated on each platform. Meanwhile the vault runs entirely in the browser.',
   'lv.toggleTheme': 'Toggle theme',
