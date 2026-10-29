@@ -1,13 +1,13 @@
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { en } from './i18n/en'
 import { ptBR } from './i18n/pt-BR'
+import { codeOf } from './source-scan'
 
 // #318 part B: the landing carried its own bilingual copy (`pt ? '…' : '…'`), outside the
 // dictionary, so the parity test never saw it. These pin that the landing and the loading
-// placeholders read the dictionary, and that what they read exists in both languages.
-const src = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
+// placeholders read the dictionary, and that what they read exists in both languages. Source is
+// read with comments stripped, so a comment cannot satisfy or trip a pin.
+const src = codeOf
 
 describe('the landing and the skeletons read the dictionary (#318)', () => {
   it('Intro.tsx carries no inline bilingual copy and no English-only aria-label', () => {
