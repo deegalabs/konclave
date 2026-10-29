@@ -35,7 +35,7 @@ const lines = [
 ]
 
 const mount = () => render(<MemoryRouter><I18nProvider><Ledger /></I18nProvider></MemoryRouter>)
-const exported = (): LedgerXlsxData => exportLedgerXlsx.mock.calls[exportLedgerXlsx.mock.calls.length - 1][0]
+const exported = (): LedgerXlsxData => exportLedgerXlsx.mock.lastCall![0]
 const clickExport = async () => {
   fireEvent.click(screen.getByRole('button', { name: en('ledger.exportXlsx') }))
   await waitFor(() => expect(exportLedgerXlsx).toHaveBeenCalled())
