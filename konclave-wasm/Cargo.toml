@@ -16,9 +16,10 @@ reddsa = { version = "0.5.2", features = ["frost"] }
 # ciphersuite types unify.
 frost-rerandomized = "=3.0.0"
 # Orchard action verification + digest surface (proven wasm-clean: wasm-orchard-probe).
-# Ironwood: 0.15.x matches the engine's NU6.3 line so the PCZT wire format (v2) parses.
-# Released crates.io 0.15.5, same as konclave-signer and zcash-devtool - no fork rev and no
-# [patch.crates-io]. 0.15.5 declares `unstable-frost` itself, so the feature survives the move.
+# Ironwood: 0.16.x matches the engine's stable NU7 line so the PCZT wire format (v2) parses.
+# Released crates.io 0.16.0, same as konclave-signer - no fork rev and no [patch.crates-io]. The
+# zcash-devtool we run must resolve the same release (see the root Cargo.toml). 0.16.0 declares
+# `unstable-frost` itself, so the feature survives the move.
 orchard = { version = "0.16.0", default-features = false, features = ["unstable-frost"] }
 # ADR-0011 D1: the device signs governance writes with an Ed25519 key derived from its share.
 # The secret half never leaves WASM; only the public half is registered.

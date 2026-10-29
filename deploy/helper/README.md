@@ -129,6 +129,19 @@ that backup, together. Restoring only the binaries leaves every migrated vault u
 Without the backup, the only way back is rebuilding each wallet from its birthday (RECOVERY.md B),
 with every balance offline until the rescan finishes.
 
+The move to the stable NU7 crate line (`zcash_client_sqlite` 0.23.0) works the same way. Only
+`zcash-devtool wallet upgrade` migrates a wallet, and the coordinator runs it before the first sync
+or read of each vault (`orchestrator/src/wallet.rs` `upgrade`, `helper.rs` `upgrade_logged`); the new
+`konclave-signer` opens a wallet with `WalletDb::for_path` and does not migrate it, and the new
+devtool's `sync` fails on an unmigrated wallet until `upgrade` has run. The signer and the devtool
+ship as ONE set. Before the deploy, copy `/data/vaults/*/wallet` (the ops backup excludes it) and keep
+the copy until the first reads and one send have gone through: going back after the first read is
+not proven safe outside the wallet shape that was tried (one Orchard/Ironwood note, where the
+previous signer and devtool still worked; the migrations that rewrite rows were not exercised). The
+pins named in this file (`pczt 0.9.3`, `zcash_client_backend 0.24.0`) describe the engine deployed
+today; the records for the new line arrive with the follow-up change to `engine/versions.lock` and
+are not part of the crate move.
+
 Validate locally before deploying:
 
 ```sh

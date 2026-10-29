@@ -15,9 +15,10 @@ anyhow = "1"
 konclave-seal = { path = "../konclave-seal", features = ["pczt"] }
 clap = { version = "4", features = ["derive"] }
 hex = "0.4"
-# Published crates.io release, no fork rev and no [patch.crates-io]. 0.15.5 declares
+# Published crates.io release, no fork rev and no [patch.crates-io]. 0.16.0 declares
 # `unstable-frost` itself, and already contains the deferred-anchor work (PR #535, released in
-# 0.15.2) that the old fork pin existed for. Same orchard release zcash-devtool resolves (ADR-0002).
+# 0.15.2) that the old fork pin existed for. The zcash-devtool we run must resolve the same orchard
+# release (ADR-0002); see the root Cargo.toml for where that devtool's patch arrives.
 orchard = { version = "0.16.0", default-features = false, features = ["unstable-frost"] }
 # 0.9.3's `default` gained "orchard"+"sapling", which is inert here: the `signer` feature
 # already implies both. A crate that must stay lean (konclave-wasm) sets default-features = false.
