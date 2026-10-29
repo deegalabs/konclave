@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
+import { useT } from './i18n'
 
 // Transient feedback for Konclave: a context exposes `useToast()` with `ok/warn/err/info`, and a
 // single <Toaster/> renders the live stack (bottom-right on desktop, bottom-centre on mobile).
@@ -19,7 +20,9 @@ import {
 //
 // Severity is never colour alone: each kind carries a glyph and its own dwell time, and warnings and
 // errors are announced assertively while the quiet kinds stay polite. Hovering or focusing the stack
-// holds every timer, so a toast cannot slip away while it is being read.
+// holds every timer, so a toast cannot slip away while it is being read. Escape dismisses the newest
+// wherever focus is (the listener is on the document, not on the close button, which never holds
+// focus on its own).
 
 export type ToastKind = 'ok' | 'warn' | 'err' | 'info'
 
@@ -55,6 +58,7 @@ export function queueToast(stack: Toast[], t: Toast, max = MAX_TOASTS): Toast[] 
 let nextId = 1
 
 export function ToastProvider({ children }: { children: ReactNode }) {
+  const t = useT()
   const [toasts, setToasts] = useState<Toast[]>([])
   const timers = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map())
   const held = useRef(false)
@@ -123,17 +127,17 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <ToastContext.Provider value={api}>
       {children}
       <div className="kc-toaster" onMouseEnter={hold} onMouseLeave={release} onFocus={hold} onBlur={release}>
-        {toasts.map((t) => (
+        {toasts.map((row) => (
           <div
-            key={t.id}
-            className={'kc-toast' + (t.leaving ? ' out' : '')}
-            data-kind={t.kind}
-            role={t.kind === 'err' || t.kind === 'warn' ? 'alert' : 'status'}
-            aria-live={t.kind === 'err' || t.kind === 'warn' ? 'assertive' : 'polite'}
+            key={row.id}
+            className={'kc-toast' + (row.leaving ? ' out' : '')}
+            data-kind={row.kind}
+            role={row.kind === 'err' || row.kind === 'warn' ? 'alert' : 'status'}
+            aria-live={row.kind === 'err' || row.kind === 'warn' ? 'assertive' : 'polite'}
           >
-            <span className="kc-toast-glyph" aria-hidden="true">{GLYPH[t.kind]}</span>
-            <span className="kc-toast-msg">{t.message}</span>
-            <button type="button" className="kc-toast-close" onClick={() => dismiss(t.id)} aria-label="Dismiss">×</button>
+            <span className="kc-toast-glyph" aria-hidden="true">{GLYPH[row.kind]}</span>
+            <span className="kc-toast-msg">{row.message}</span>
+            <button type="button" className="kc-toast-close" onClick={() => dismiss(row.id)} aria-label={t('toast.dismiss')}>×</button>
           </div>
         ))}
       </div>

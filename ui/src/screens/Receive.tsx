@@ -177,7 +177,9 @@ export default function Receive() {
 
       {address && (
       <div className="rcv-grid">
-        <div className="rcv-qr" dangerouslySetInnerHTML={{ __html: qrSvg }} role="img" aria-label={t('receive.qrAlt')} />
+        {qrSvg
+          ? <div className="rcv-qr" dangerouslySetInnerHTML={{ __html: qrSvg }} role="img" aria-label={t('receive.qrAlt')} />
+          : <div className="rcv-qr rcv-qr-off"><p className="rcv-note">{t('receive.qrFailed')}</p></div>}
 
         <div className="rcv-side">
           <span className="klab">{t('receive.address')}</span>
@@ -187,6 +189,9 @@ export default function Receive() {
               {copied === 'a' ? t('receive.copied') : t('receive.copy')}
             </button>
           </div>
+          {/* The button's label changes, which a screen reader does not read on its own: one live
+              region says "Copied" for either button (#320). */}
+          <span className="visually-hidden" role="status">{copied ? t('receive.copied') : ''}</span>
 
           <label className="field"><span>{t('receive.amount')}</span>
             <input

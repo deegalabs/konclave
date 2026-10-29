@@ -64,6 +64,12 @@ history to tidy it is how context gets lost.
   known seat), and a second request that lands while a signature is being made does not replace
   the one in hand. A device that already holds the helper's request takes the transaction from it,
   and an incoming request has to name the same sighash.
+- **Small accessibility fixes on notices and the Receive screen.** The close button on a notice was
+  smaller than a fingertip (now at least 24 by 24) and its label was English-only; "Copied" on the
+  Receive screen was silent to a screen reader (now announced once, for either button); and a QR that
+  could not be drawn left a blank square (now a sentence pointing to the address and the link). The
+  rest of #320 (the app frame's live region and vault switcher) waits for the keyboard work on that
+  file (#317, #662).
 - **The "page not found" and the crash screen now speak the member's language.** Both were
   English-only, with no way to translate them: a Portuguese member hit a dead link or a crashed
   screen and read it in the wrong language, at the worst moment. Both now read the dictionary; the
