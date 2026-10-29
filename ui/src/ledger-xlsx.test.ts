@@ -1,0 +1,91 @@
+import { describe, expect, it } from 'vitest'
+import { buildLedgerWorkbook, type LedgerXlsxData, type LedgerXlsxItem } from './ledgerXlsx'
+import { explorerTxUrl } from './format'
+
+// #302: the XLSX is the export meant for the accountant. It carried no txid and no memo, so no row
+// could be tied to the chain; an empty book wrote a total that summed itself; and the file named
+// the app as its author in the hidden properties. These build the workbook (no browser needed) and
+// read the cells, and one writes the file and loads it back to check what the hidden properties say.
+
+const labels: LedgerXlsxData['labels'] = {
+  summary: 'Summary', movements: 'Movements', vault: 'Vault', period: 'Period', filter: 'Filter',
+  generated: 'Generated', entries: 'Entries', settledOut: 'Settled out', open: 'Open',
+  colDate: 'Date', colDocument: 'Document', colKind: 'Kind', colBeneficiary: 'Beneficiary',
+  colAddress: 'Address', colMemo: 'Memo', colState: 'State', colSettled: 'Settled', colValue: 'Value',
+  colTxid: 'Transaction (txid)', total: 'TOTAL', yes: 'yes', no: 'no',
+}
+const TXID = 'a'.repeat(64)
+const item = (over: Partial<LedgerXlsxItem> = {}): LedgerXlsxItem => ({
+  dateISO: '2026-10-01', document: 'Rent', kind: 'Payment', beneficiary: '', address: 'u1rent',
+  memo: '', state: 'confirmed', settled: true, zec: 1.5, txid: '', ...over,
+})
+const generatedAt = new Date('2026-10-29T12:34:56Z')
+const data = (items: LedgerXlsxItem[], filter = ''): LedgerXlsxData => ({ vaultName: 'Caixa', period: '2026-10-01', filter, generatedAt, items, labels })
+
+/** The value next to a label on the Summary sheet, or undefined when the label is not there. */
+function summaryValue(wb: Awaited<ReturnType<typeof buildLedgerWorkbook>>, label: string): unknown {
+  const sm = wb.getWorksheet('Summary')!
+  let found: unknown
+  // By column number: a workbook read back from a file has no column keys.
+  sm.eachRow((row) => { if (row.getCell(1).value === label) found = row.getCell(2).value })
+  return found
+}
+
+describe('the XLSX ledger export (#302)', () => {
+  it('gives every movement its memo and its txid, linked to the public explorer', async () => {
+    const wb = await buildLedgerWorkbook(data([
+      item({ memo: 'October rent', txid: TXID }),
+      item({ document: 'Payroll', kind: 'Payroll', beneficiary: 'Alice', address: 'u1alice', memo: 'Alice Oct', state: 'awaiting', settled: false, zec: 0.25 }),
+    ]))
+    const mv = wb.getWorksheet('Movements')!
+    expect((mv.getRow(1).values as unknown[]).slice(1)).toEqual([
+      'Date', 'Document', 'Kind', 'Beneficiary', 'Address', 'Memo', 'State', 'Settled', 'Value', 'Transaction (txid)',
+    ])
+    expect(mv.getRow(2).getCell('memo').value).toBe('October rent')
+    expect(mv.getRow(2).getCell('txid').value).toMatchObject({ text: TXID, hyperlink: explorerTxUrl(TXID) })
+    expect(mv.getRow(3).getCell('memo').value).toBe('Alice Oct')
+    expect(mv.getRow(3).getCell('txid').value ?? '').toBe('') // not sent: no txid, no link
+  })
+
+  it('sums exactly the data rows, on the sheet and in the summary, whatever the columns are', async () => {
+    const wb = await buildLedgerWorkbook(data([item(), item({ settled: false, state: 'awaiting', zec: 0.25 })]))
+    const mv = wb.getWorksheet('Movements')!
+    const total = mv.getRow(4) // header, two rows, total
+    expect(total.getCell('document').value).toBe('TOTAL')
+    expect(total.getCell('zec').formula).toBe('SUM(I2:I3)')
+    expect(summaryValue(wb, 'Settled out')).toMatchObject({ formula: 'SUMIF(Movements!H2:H3,"yes",Movements!I2:I3)' })
+    expect(summaryValue(wb, 'Open')).toMatchObject({ formula: 'SUMIF(Movements!H2:H3,"no",Movements!I2:I3)' })
+    expect(summaryValue(wb, 'Entries')).toBe(2)
+  })
+
+  it('writes zeros, not formulas, for an empty book, so nothing sums itself', async () => {
+    const wb = await buildLedgerWorkbook(data([]))
+    const mv = wb.getWorksheet('Movements')!
+    const total = mv.getRow(2) // the total row is the first row under the header
+    expect(total.getCell('document').value).toBe('TOTAL')
+    expect(total.getCell('zec').value).toBe(0)
+    expect(total.getCell('zec').formula).toBeFalsy()
+    expect(summaryValue(wb, 'Settled out')).toBe(0)
+    expect(summaryValue(wb, 'Open')).toBe(0)
+  })
+
+  it('names the active filter on the summary only when the export is a part of the book', async () => {
+    expect(summaryValue(await buildLedgerWorkbook(data([item()], 'Settled · Payments')), 'Filter')).toBe('Settled · Payments')
+    expect(summaryValue(await buildLedgerWorkbook(data([item()])), 'Filter')).toBeUndefined()
+  })
+
+  it('carries no author and no time the summary does not show, once written and read back', async () => {
+    const wb = await buildLedgerWorkbook(data([item()]))
+    const buf = await wb.xlsx.writeBuffer()
+    const mod = await import('exceljs')
+    const ExcelJS = (mod as unknown as { default?: typeof import('exceljs') }).default ?? mod
+    const back = new ExcelJS.Workbook()
+    await back.xlsx.load(buf as ArrayBuffer)
+    // The library writes "Unknown" where there is no author; what must not be there is the app.
+    expect(['Unknown', '', undefined]).toContain(back.creator)
+    expect(['Unknown', '', undefined]).toContain(back.lastModifiedBy)
+    expect(back.created.getTime()).toBe(generatedAt.getTime())
+    expect(back.modified.getTime()).toBe(generatedAt.getTime())
+    expect(summaryValue(back, 'Generated')).toBe('2026-10-29 12:34')
+  })
+})

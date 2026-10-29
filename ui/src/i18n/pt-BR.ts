@@ -1239,4 +1239,9 @@ export const ptBR: Record<string, string> = {
   'lv.extensionDesc': 'Um assinador no navegador, em andamento - ainda sem instalação.',
   'lv.github': 'Acompanhe no GitHub →',
   'skeleton.loading': 'Carregando',
+  // #302: the XLSX export names the memo and the txid, and says when it is a filtered view.
+  'ledger.colMemo': 'Memo',
+  'ledger.colTxid': 'Transação (txid)',
+  'ledger.xlsxFilter': 'Filtro',
+  'ledger.xlsxIncludes': 'O arquivo XLSX inclui o memo e o identificador da transação de cada pagamento.',
 }

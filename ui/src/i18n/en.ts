@@ -1243,4 +1243,9 @@ export const en: Record<string, string> = {
   'lv.extensionDesc': 'A browser signer, in progress - no install yet.',
   'lv.github': 'Follow on GitHub →',
   'skeleton.loading': 'Loading',
+  // #302: the XLSX export names the memo and the txid, and says when it is a filtered view.
+  'ledger.colMemo': 'Memo',
+  'ledger.colTxid': 'Transaction (txid)',
+  'ledger.xlsxFilter': 'Filter',
+  'ledger.xlsxIncludes': 'The XLSX file includes each payment’s memo and transaction id.',
 }
