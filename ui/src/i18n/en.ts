@@ -1174,6 +1174,25 @@ export const en: Record<string, string> = {
   'receive.viewTx': 'View',
   'receive.txReceived': 'received',
   'receive.txSent': 'sent',
+
+  // 404 and the crash screen (#318): a member's worst moment, in their language
+  'notFound.label': '404 · page not found',
+  'notFound.title': 'This page doesn’t exist.',
+  'notFound.lead': 'The link may be old or mistyped. Head back to your vaults.',
+  'notFound.vaults': 'My vaults',
+  'notFound.how': 'How it works',
+  'crash.label': 'Something broke',
+  'crash.title': 'The screen hit an unexpected error.',
+  'crash.lead': 'Reload the page. If you were sending a payment, check the ledger before trying again.',
+  'crash.reload': 'Reload',
+  'crash.vaults': 'My vaults',
+
+  // Members: the list could not be read (#315)
+  'members.unreadTitle': 'Could not read the member list',
+  'members.unreadLead': 'The member list could not be read. Your vault and your share are still on this device; only the list did not arrive. Check the connection and try again.',
+  'members.retry': 'Try again',
+  'members.footUnread': 'list unavailable',
+
   // #302: the XLSX export names the memo and the txid, and says when it is a filtered view.
   'ledger.colMemo': 'Memo',
   'ledger.colTxid': 'Transaction (txid)',
