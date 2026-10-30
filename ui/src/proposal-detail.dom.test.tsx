@@ -4,7 +4,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { I18nProvider } from './i18n'
 import { en as dict } from './i18n/en'
-import { fmtDate } from './format'
+import { fmtDateTime } from './format'
 const en = (k: string): string => dict[k] ?? k
 
 // The proposal screen carries facts it had and did not show: when it was created, until when it
@@ -49,7 +49,7 @@ describe('the proposal screen states its facts', () => {
   it('a sent payment: creation date, the whole address, and how many confirmations it has', async () => {
     mount('p1')
     await screen.findByText('October rent')
-    expect(await screen.findByText(fmtDate(sent.created_at, 'en'))).toBeTruthy()
+    expect(await screen.findByText(fmtDateTime(sent.created_at, 'en'))).toBeTruthy()
     expect(screen.getByText(ADDR)).toBeTruthy()
     expect(await screen.findByText(en('proposal.confirmationsN').replace('{n}', '21'))).toBeTruthy()
   })
@@ -57,7 +57,18 @@ describe('the proposal screen states its facts', () => {
   it('an awaiting payment: until when it can be approved', async () => {
     mount('p2')
     await screen.findByText('Chairs')
-    expect(screen.getByText(en('proposal.factExpires'))).toBeTruthy()
+    expect(screen.getByText(en('proposal.factDeadline'))).toBeTruthy()
+    expect(screen.getByText(fmtDateTime(awaiting.expiry_unix, 'en'), { exact: false })).toBeTruthy()
     expect(screen.getByText(en('expiry.days').replace('{d}', '2'))).toBeTruthy()
+  })
+
+  it('one confirmation is singular, and a list that could not be read is said as such', async () => {
+    readTransactions.mockResolvedValue([{ txid: TX1, mined_height: 3500120 }])
+    mount('p1')
+    expect(await screen.findByText(en('proposal.confirmationsOne'))).toBeTruthy()
+    cleanup()
+    readTransactions.mockResolvedValue(null)
+    mount('p1')
+    expect(await screen.findByText(en('proposal.confirmationsUnknown'))).toBeTruthy()
   })
 })

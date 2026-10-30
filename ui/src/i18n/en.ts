@@ -1252,11 +1252,14 @@ export const en: Record<string, string> = {
   'ledger.xlsxIncludes': 'The XLSX file includes each payment’s memo and transaction id.',
   // Proposal facts: when it was created, until when it can be approved, the whole address, confirmations.
   'proposal.factCreated': 'Created',
-  'proposal.factExpires': 'Approve until',
+  'proposal.factDeadline': 'Deadline',
   'proposal.noExpiry': 'no deadline',
   'proposal.factAddress': 'Destination address',
   'proposal.factConfirmations': 'Confirmations',
   'proposal.confirmationsN': '{n} confirmations',
-  'proposal.confirmationsNone': 'not in a block yet',
-  'proposal.confirmedBlock': 'in block {h}',
+  'proposal.confirmationsOne': '1 confirmation',
+  'proposal.confirmationsNone': 'not confirmed yet',
+  'proposal.confirmationsUnknown': 'could not read the chain',
+  'proposal.confirmedBlock': 'confirmed, block {h}',
+  'proposal.copyAddress': 'Copy address',
 }

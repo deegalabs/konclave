@@ -1513,8 +1513,11 @@ body:has(.pwa-update) .page{padding-bottom:140px}
 .passkey-btn:disabled { opacity: .6; cursor: default; }
 .passkey-btn svg { flex: 0 0 auto; }
 /* Proposal facts: label and value pairs under the amount. */
-.p-facts{display:grid; gap:6px; margin:12px 0 0}
-.p-facts div{display:grid; grid-template-columns:150px 1fr; gap:8px; align-items:start}
-.p-facts dt{font-family:var(--font-mono); font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--text-muted); padding-top:2px}
+.p-facts{display:grid; gap:6px; margin:14px 0 0; padding-top:12px; border-top:1px solid var(--line)}
+.p-facts div{display:grid; grid-template-columns:minmax(max-content,10rem) 1fr; gap:8px; align-items:start}
+.p-facts dt{font-family:var(--font-mono); font-size:10px; letter-spacing:.05em; text-transform:uppercase; color:var(--text-muted); padding-top:3px; overflow-wrap:anywhere}
 .p-facts dd{margin:0; overflow-wrap:anywhere}
-@media (max-width:520px){.p-facts div{grid-template-columns:1fr}}
+.p-facts dd.addr-full{display:flex; align-items:flex-start; gap:8px}
+.p-facts dd.addr-full span{flex:1 1 auto; min-width:0}
+.p-facts dd.addr-full .copy-btn{flex:0 0 auto}
+@media (max-width:520px){.p-facts{gap:12px} .p-facts div{grid-template-columns:1fr; gap:2px}}

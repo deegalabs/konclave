@@ -4,7 +4,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Secret, Dialog, Loading } from '../components'
 import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
-import { fmtZec, fmtZecExact, parseZecToZat, fmtDate, expiryLabel } from '../format'
+import { fmtZec, fmtZecExact, parseZecToZat, fmtDateTime, expiryLabel } from '../format'
 import CopyButton from '../CopyButton'
 import { settlementOf, isConfirmed } from '../settlement'
 import { estimatedFeeZat } from '../fee-estimate'
@@ -28,7 +28,8 @@ export default function Proposal() {
   // top of it. Confirmation is a fact about the chain, derived in settlement.ts, never read from
   // the proposal's state.
   const [tip, setTip] = useState<number | undefined>(undefined)
-  const [txs, setTxs] = useState<WalletTx[] | null>(null)
+  // undefined = not read yet, null = could not be read, a list = what the wallet knows.
+  const [txs, setTxs] = useState<WalletTx[] | null | undefined>(undefined)
   const { locale } = useI18n()
   const tr = useTr()
   const loc = useLocation() as { state?: { id?: string } }
@@ -112,9 +113,11 @@ export default function Proposal() {
   useEffect(() => {
     if (!sentTxid) return
     let on = true
-    void readTransactions().then((list) => { if (on && Array.isArray(list)) setTxs(list) })
+    void readTransactions().then((list) => { if (on) setTxs(Array.isArray(list) ? list : null) })
     return () => { on = false }
   }, [sentTxid])
+  // The count moves while the screen is open: re-read the list once a minute.
+  usePoll(() => { void readTransactions().then((list) => { if (Array.isArray(list)) setTxs(list) }) }, 60_000, !!sentTxid)
 
   async function vote(approve: boolean) {
     if (!p) return
@@ -190,7 +193,8 @@ export default function Proposal() {
   // Title carries meaning (what/referente), not just a stamp.
   const eyebrow = isPayroll ? t('kind.payroll') : t('kind.payment')
   const title = p.memo?.trim() || (isPayroll ? t('kind.payroll') : t('proposal.paymentTo', { dest }))
-  const subtitle = isPayroll ? t('proposal.payrollSubtitle', { n: lines.length }) : t('proposal.paymentSubtitle', { dest })
+  // The payment's destination is stated in full in the facts below, so the subtitle does not repeat it shortened.
+  const subtitle = isPayroll ? t('proposal.payrollSubtitle', { n: lines.length }) : ''
 
   // State trail: Approval → Signature → Sent (null while terminal-negative).
   const trailIdx = isAwaiting ? 0 : isReady ? 1 : isSent ? 2 : null
@@ -228,25 +232,6 @@ export default function Proposal() {
 
         <div className="p-amt mt"><Secret><span>{val}</span></Secret> <span className="dim small">ZEC</span></div>
 
-        {/* The facts the proposal already carries, said once: when, until when, to whom, and how far
-            it is in the chain. */}
-        <dl className="p-facts">
-          <div><dt>{t('proposal.factCreated')}</dt><dd className="mono">{fmtDate(p.created_at, locale)}</dd></div>
-          {(isAwaiting || isReady) && (
-            <div><dt>{t('proposal.factExpires')}</dt><dd className="mono">{expiryLabel(p.expiry_unix, t) || t('proposal.noExpiry')}</dd></div>
-          )}
-          {!isPayroll && p.to_address && (
-            <div><dt>{t('proposal.factAddress')}</dt><dd className="mono addr-full">{p.to_address} <CopyButton value={p.to_address} /></dd></div>
-          )}
-          {isSent && (() => {
-            const s = settlementOf(p, txs)
-            const text = !isConfirmed(s) ? t('proposal.confirmationsNone')
-              : tip !== undefined && tip >= s.height ? t('proposal.confirmationsN', { n: String(tip - s.height + 1) })
-              : t('proposal.confirmedBlock', { h: String(s.height) })
-            return <div><dt>{t('proposal.factConfirmations')}</dt><dd className="mono">{text}</dd></div>
-          })()}
-        </dl>
-
         {/* What this actually costs the vault. The amount alone is not the cost: on a small payroll
             the network fee was five times the payment and appeared nowhere, so people approved
             something the vault could not pay and only found out after everyone had signed. */}
@@ -273,6 +258,30 @@ export default function Proposal() {
             )}
           </div>
         )}
+
+        {/* The facts the proposal already carries, said once and after the money: when, until when,
+            to whom, and how far it is in the chain. */}
+        <dl className="p-facts">
+          <div><dt>{t('proposal.factCreated')}</dt><dd className="mono">{fmtDateTime(p.created_at, locale)}</dd></div>
+          {(isAwaiting || isReady) && (
+            <div><dt>{t('proposal.factDeadline')}</dt><dd className="mono">
+              {p.expiry_unix ? <>{fmtDateTime(p.expiry_unix, locale)} <span className="dim">{expiryLabel(p.expiry_unix, t)}</span></> : t('proposal.noExpiry')}
+            </dd></div>
+          )}
+          {!isPayroll && p.to_address && (
+            <div><dt>{t('proposal.factAddress')}</dt><dd className="mono addr-full"><span>{p.to_address}</span><CopyButton value={p.to_address} label={t('proposal.copyAddress')} /></dd></div>
+          )}
+          {isSent && (() => {
+            // Loading is not "unconfirmed": say nothing until the list has answered.
+            if (txs === undefined) return <div><dt>{t('proposal.factConfirmations')}</dt><dd className="mono dim">…</dd></div>
+            const s = settlementOf(p, txs)
+            const text = txs === null ? t('proposal.confirmationsUnknown')
+              : !isConfirmed(s) ? t('proposal.confirmationsNone')
+              : tip !== undefined && tip >= s.height ? (tip === s.height ? t('proposal.confirmationsOne') : t('proposal.confirmationsN', { n: String(tip - s.height + 1) }))
+              : t('proposal.confirmedBlock', { h: String(s.height) })
+            return <div><dt>{t('proposal.factConfirmations')}</dt><dd className="mono">{text}</dd></div>
+          })()}
+        </dl>
         {isPayroll && (
           <table className="tbl folha-read mt">
             <thead><tr><th>{t('proposal.colLabel')}</th><th>{t('proposal.colDest')}</th><th>{t('proposal.colValue')}</th><th>{t('proposal.colMemo')}</th></tr></thead>
