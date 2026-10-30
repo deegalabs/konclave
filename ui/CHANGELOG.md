@@ -48,6 +48,11 @@ history to tidy it is how context gets lost.
 
 ### Changed
 
+- **The signing module reads a pool crossing's expiry at the scale of the network upgrade the transaction's
+  header names, and reports the height of the last upgrade in its table.** A crossing's expiry (ZIP 318)
+  is accepted only at the scale of that upgrade, so a header cannot borrow the other scale around the
+  upgrade. The module is rebuilt (see the root changelog). Nothing on a screen changes yet; the
+  dashboard notice that reads the reported height comes in a later change.
 - **The signing module in the web app is rebuilt on the stable NU7 crate line** (orchard 0.16.0, pczt
   0.10.0, zcash_primitives 0.31.0, and the crates that go with them; see the root changelog). The
   packaged module in the app is a new build of the same code against newer releases of those crates.
