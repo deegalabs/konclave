@@ -58,7 +58,7 @@ explicitly accepted.
 
 ### Added
 
-- **The device and the browser module are ready for the NU7 upgrade.** The device accepts transactions of
+- **The device and the browser module know the NU7 upgrade.** The device accepts transactions of
   the new branch. It stops accepting those of the old one about 27 hours after its own estimate of when the
   upgrade happens, a margin it keeps because its clock is not the chain's; counted from the real upgrade
   that is between about 15 and 39 hours, depending on how fast blocks come. A pool crossing's expiry is
@@ -71,7 +71,8 @@ explicitly accepted.
   payment that moves funds between pools), so that no transaction is built that the upgrade would catch
   before it is mined, and, after the upgrade, refuses to hand a device a transaction the previous engine
   built, before any signature is asked. A pool crossing's expiry (ZIP 318) is computed at the modulus
-  of the upgrade its target is in (34,560 blocks before it, 103,680 from it); nothing reads it yet.
+  of the upgrade its target is in (34,560 blocks before it, 103,680 from it), and the device applies the
+  same rule (see the entry above).
 
 ### Changed
 
@@ -82,9 +83,9 @@ explicitly accepted.
   A transaction signed under the previous branch cannot be mined after the upgrade, and an engine on
   the previous crates cannot build one for it. The device's own recompute of the signature hash still
   matches the signer byte for byte on the old fixtures and on a fixture rewritten to the new branch.
-  **Only the Rust workspace moves in this change.** The `zcash-devtool` the engine runs, and the
-  records that pin it (`engine/patches`, `engine/versions.lock`), follow in a separate change, so the
-  engine is not complete from this commit alone and must not be deployed from it. The wallet database
+  **The engine moves with this release, as one set:** the Rust workspace here, and the `zcash-devtool`
+  the coordinator runs, built from a recorded patch (`engine/patches`) that moves it to the same
+  releases and pinned in `engine/versions.lock`. The wallet database
   migrations of `zcash_client_sqlite` 0.23 are not reversible. They run when the new `zcash-devtool`
   upgrades a wallet, which the coordinator does before the first read of each vault; the new signer
   opens a wallet without migrating it. The signer and the devtool ship as one set, and a copy of
@@ -125,12 +126,18 @@ explicitly accepted.
 - The module does not promise that no copy of a signing round's nonces is left in the runtime's
   memory from when they were made, and the device's key package still crosses into the module as
   bytes on each signing call.
-- **After the upgrade, until the coordinator's engine is updated, payments are refused rather than
-  built.** This release does not move the engine; that is the next one. A member sees "the coordinator
-  has not been updated for the network upgrade yet": nothing was signed or sent, and approvals stay
-  valid until the proposal expires (72 hours). The text shown before the upgrade still says a payment
-  can be sent once the upgrade block is mined, which holds only once the engine is updated; the web
-  release that rewords it comes before the pause starts.
+- **Around the upgrade, payments are paused and then built for the new branch; a coordinator that is
+  not on the new engine refuses them.** This release carries the engine (see Changed) and the app's
+  wording together. Before the upgrade block a member who tries to pay is told that payments are paused
+  around it and that nothing was built; after it, a coordinator still on the previous engine answers
+  "the coordinator has not been updated for the network upgrade yet", and nothing was signed or sent.
+  Either way the member's vote on the proposal stays (until it expires, 72 hours), and each member is
+  asked to sign again once the payment can be built: the refusal withdraws the signatures that were
+  given.
+- **This release is live before the upgrade, and the first send on the new branch happens after it.**
+  The new branch has been exercised end to end only on the testnet (a transaction built by the new
+  engine, signed with FROST and mined) and in tests; on mainnet the first send under it is made after
+  the upgrade block.
 - **The cap that would declare an earlier unmined transaction dead at the upgrade stays off.** It does
   not yet read the branch the chain reports (#638), so an earlier signed and unmined transaction is
   held until its own expiry plus ten blocks, as before.
