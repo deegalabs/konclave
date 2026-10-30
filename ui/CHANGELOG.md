@@ -40,6 +40,21 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Security
+
+These fixes reach a device when it runs this version. If the app says "New version available", press
+Update once any signing in progress has finished. Your vault and your share stay on the device.
+
+- **The app's side of the six signing fixes listed under Security in the root changelog.** The signing
+  machine takes a signing request only from the device assembling the signature and does not let a
+  second one replace the one in hand (#730); it checks each signature part on its own and names the
+  signer of one that does not check out, with the new text `net.err.badShare` (#729); it holds the
+  signing module's round handle and frees it as soon as the share is made, when a spend ends, when the
+  device is re-armed and when the owner withdraws consent (#731); the signing demonstration and the
+  share-repair demonstration pass the device's message to the module (#725); a new vault's sealed backup
+  no longer carries the creation device key (#738); and a device checks its own name in the creation
+  transcript, which runs on the devices that carry this build (#739).
+
 ### Added
 
 - The proof screen lists two more mainnet transactions, the 21st and the 22nd: the first production send on the redeployed
@@ -69,9 +84,6 @@ history to tidy it is how context gets lost.
   packaged module in the app is a new build of the same code against newer releases of those crates.
   What a member sees is unchanged, and the device's own recompute of the signature hash still matches
   the signer on the transactions it matched before.
-- **The signing demonstration and the share-repair demonstration pass the device's message to the
-  signing module.** The module's seed-path signing call now requires it (see the root changelog). The
-  screens behave as before.
 - **The refusal around the upgrade says what is true in both cases.** Before it: payments are paused
   around the upgrade block, nothing was built, your vote stands and you will be asked to sign again
   after the upgrade. After it, if the coordinator is not updated yet: nothing was signed or sent, your
@@ -81,16 +93,6 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
-- **A signing part that does not check out is left out, and its signer is named.** The device that
-  puts a signature together checks each part as it arrives and counts a part only from a signer the
-  signing package names. It takes its own part from its own computation and reads only the package
-  it sent itself. A failed combination is now reported instead of leaving the signature
-  unfinished. One new text, `net.err.badShare` (English and Portuguese).
-- **A device now takes a signing request only from the device that is assembling the signature.**
-  A request from any other device in the signing room is ignored (and said, when it comes from a
-  known seat), and a second request that lands while a signature is being made does not replace
-  the one in hand. A device that already holds the helper's request takes the transaction from it,
-  and an incoming request has to name the same sighash.
 - **Small accessibility fixes on notices and the Receive screen.** The close button on a notice was
   smaller than a fingertip (now at least 24 by 24) and its label was English-only; "Copied" on the
   Receive screen was silent to a screen reader (now announced once, for either button); and a QR that
@@ -126,9 +128,6 @@ history to tidy it is how context gets lost.
   pay an older shielded (Sapling) address; ask for a current shielded one (u1…). In the same pass the
   everyday screens stop naming pools and protocol terms: "Orchard" and "Sapling" read as "shielded"
   and "older shielded (Sapling)", and "sighash" as "signed digest (sighash)" (#127).
-- **A device checks its own name in the creation transcript.** If the name shown for a device's own
-  seat is not the one its owner typed, creation stops with the same message as any other conflict.
-  Nothing changes when the names agree.
 - **Closing a dialog that opened on a field returns focus to the button that opened it.** Remove,
   import and unlock a vault, the creation dialog, rotate passphrase and export all put focus in a
   field as they open; on close, focus fell to the page instead of the opener, because the dialog

@@ -56,6 +56,77 @@ explicitly accepted.
 
 ## [Unreleased]
 
+### Security
+
+These fixes reach a device when it runs this version. If the app says "New version available", press
+Update once any signing in progress has finished. Your vault and your share stay on the device.
+
+- **The seed-path signing call signed any package it was handed (#725).** The browser module has two
+  calls that make a device's signature share. The one the app uses for a real payment (the randomizer
+  call) already refused a signing package over any message other than the one the device had derived
+  itself. The other (the seed call, used by the signing demonstration, the share-repair demonstration
+  and the SDK's `participantRound2`) did not take the device's message and signed whatever message the
+  package carried, so a caller of the SDK could be made to sign a package built over a different
+  message than the one it believed it was signing. It concerned the SDK's call and the two demonstration
+  pages, not a vault's money path in the app (a source scan, `round2-callers.test.ts`, pins that only
+  the two demonstrations call the seed path). It existed since 2026-07-14. The seed call now takes the
+  device's message and refuses a package over another one, the same rule as the money path; the SDK
+  signature changes (a call with the old four arguments now fails).
+- **One bad signature part could stop a payment from finishing (#729).** The device that puts a
+  signature together counted any share from a seated sender, closed the count at the threshold and
+  marked itself done before it had combined them. So one share that did not verify made the
+  combination fail with nothing said, the honest share that followed was ignored, and the payment
+  stayed in "signing". It also accepted a share from a seat the signing package did not name, took its
+  own share from the room's copy instead of its own computation, and would read a package under its own
+  tag that was not the one it had sent. It could stop a payment, not move money: the other devices
+  still check the transaction they sign. Whoever could write into a vault's signing room under a seated
+  member's tag could do it. A flood of the room can still stall a ceremony (#400); this fix does not touch
+  that. It existed since the first browser signing ceremony, 2026-07-15. Each share is now checked on its own, for its
+  signer, before it counts (`Coordinator.checkShare`), a share from a seat the package does not name is
+  not counted, the assembling device uses its own computed share, and a failed combination is reported.
+- **A signing request from a device other than the one assembling the signature could start a ceremony (#730).** A
+  device accepted a signing request from any seated device, not only from the one assembling the
+  signature, and a second request arriving while a ceremony ran could replace the one in hand. A request
+  that carried a transaction also took the place of the copy the device held from the coordinator. That
+  did not get a device past its check of the content: before any share moves, the device reads what the
+  transaction pays and refuses it unless it matches the lines the coordinator reports as approved (those
+  lines still come from the coordinator at signing, #567). It existed since 2026-07-15. A request is now
+  taken only from the device that is assembling the signature, a second request during a ceremony does
+  not replace the first, and one from another device in the room is ignored. A device that holds the
+  coordinator's request signs that transaction, and an incoming request has to name its sighash.
+- **A signing nonce could be used for two shares (#731).** The module returned a round's nonces to the
+  page as bytes (`Round1.nonces()`), and the signing calls took those bytes. Nothing in the module
+  stopped a caller from making two shares from one nonce over two packages with different binding
+  factors, and shares made that way can reveal the signer's secret share (RFC 9591, sections 5.2 and
+  7.3). The app's
+  signing machine guarded against it with a flag, so the app did not do it; an SDK caller or a
+  demonstration page had no guard. It existed since 2026-07-14. The nonces now stay inside the module in a handle that the signing
+  call spends when it makes a share; a second use is an error, and a package the module refuses
+  leaves the handle usable. The accessor is removed: `participantRound1` returns a handle (`Round1`),
+  and both round-2 calls take that handle in place of bytes. The module does not promise that no copy of the
+  nonces is left in the runtime's memory from when they were made, and the device's key package still
+  crosses into the module as bytes on each signing call.
+- **The creation device key left the module and was stored for ever (#738).** During vault creation
+  each device announces a key used to seal the round-2 packages of the key generation. The module
+  returned that key's secret to the page (`DeviceKey.secretBytes()`), and the creation screen wrote it
+  into every vault's sealed backup bundle, where nothing ever read it again. A holder of a backup who
+  also knew its passphrase would find, besides the share, a key with no further use that could open
+  the creation messages sealed to it. Vaults created since 2026-07-15 carry it. The accessor is
+  removed and the key stays inside the module; a new vault's bundle no longer carries it. Backups of
+  vaults created earlier still carry the field, which is ignored and not removed.
+- **A device did not check its own name in the creation transcript (#739).** The code the members
+  compare in vault creation covers every member's name, but a device checked only its own key and
+  commitment in that transcript, not its own name. Whoever relays the creation hellos could show the
+  other members a roster that names a device differently from what its owner typed, and the device
+  would confirm a code over that roster. The vault's money is unaffected; the roster is. Since the
+  names were bound into the code, v0.12.0. A device now refuses a transcript that gives its own seat a
+  name other than the one its owner typed. `CreationSession` takes the name as a fifth constructor
+  argument, and a call with four arguments now fails. The creation protocol number does not change, so
+  devices on the old and the new build still create a vault together. The check runs on the devices that
+  carry this build; a device on the previous build in the same creation does not make it. Not fixed here: the creator's name
+  in the configuration is not checked against its seat's name, and nothing rejects two members with the
+  same name.
+
 ### Added
 
 - **The device and the browser module know the NU7 upgrade.** The device accepts transactions of
@@ -91,41 +162,16 @@ explicitly accepted.
   opens a wallet without migrating it. The signer and the devtool ship as one set, and a copy of
   `/data/vaults/*/wallet` is taken first, because going back after the first read is not proven safe
   outside the wallet shape that was tried (`deploy/helper/README.md`).
-- **The browser module's seed-path signing call takes the device's message as a required last
-  argument.** In the SDK this is `participantRound2`, so a call with the old four arguments now
-  fails. Nothing a member does with a vault changes.
-- **The browser signing module keeps a signing round's state inside itself.** `participantRound1`
-  returns a handle (`Round1`); `participantRound2` and `participantRound2WithRandomizer` take that
-  handle in place of bytes and use it once. `Round1.nonces()` is removed, so a caller of the SDK or
-  of the module passes the handle it got from `participantRound1`. A package the module refuses
-  (another message, a commitment that is not this device's, malformed input) makes no share and
-  leaves the handle usable. Nothing a member does with a vault changes.
-- **The browser signing module keeps a device key inside itself.** `DeviceKey.secretBytes()` is
-  removed: the key a device announces while a vault is created stays inside the module. The
-  public half is unchanged. The Ed25519 signing key objects the module holds (the ones that sign
-  governance writes) are wiped when dropped. Backups of vaults created before this change still
-  carry the old field; it is ignored.
-- **The browser module's vault-creation session takes the name its device announced.**
-  `CreationSession` has a fifth constructor argument, the name; a call with four arguments now fails.
-  The session refuses to take an announcement for its own seat under any other name. The creation
-  protocol number does not change: devices on the old and the new build still create a vault
-  together.
-
-### Fixed
-
-- **The browser signing module can check one signer's share on its own.** `Coordinator.checkShare`
-  says whether a share verifies for its signer, in its signing package, under the spend's randomizer,
-  so the coordinator can decide before the share counts. The module is rebuilt into the app.
 
 ### Known limits
 
-- **The sighash of a transaction under the new branch is proved on a fixture whose branch was rewritten
-  and on a real testnet transaction, not on one mined on mainnet.** The device and the signer agree on
-  both, and a FROST signature over such a digest was mined on the testnet. The first mainnet one is the
-  proof that is left; it is made at the desk after the upgrade.
 - The module does not promise that no copy of a signing round's nonces is left in the runtime's
   memory from when they were made, and the device's key package still crosses into the module as
   bytes on each signing call.
+- **The sighash of a transaction under the new branch is proved on a fixture whose branch was rewritten
+  and on a real testnet transaction, not on one mined on mainnet.** The device and the signer agree on
+  both, and a FROST signature over such a digest was mined on the testnet (`60fb3642…`, block 4,546,261). The first mainnet one is the
+  proof that is left; it is made at the desk after the upgrade.
 - **Around the upgrade, payments are paused and then built for the new branch; a coordinator that is
   not on the new engine refuses them.** This release carries the engine (see Changed) and the app's
   wording together. Before the upgrade block a member who tries to pay is told that payments are paused
