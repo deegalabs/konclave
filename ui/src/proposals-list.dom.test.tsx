@@ -31,7 +31,7 @@ const mount = () => render(<MemoryRouter><I18nProvider><Proposals /></I18nProvid
 const titlesUnder = (heading: string) => {
   const head = screen.getByText(heading).closest('.plist-head')!
   const list = head.nextElementSibling as HTMLElement
-  return within(list).getAllByText(/./, { selector: '.plist-title' }).map((el) => el.textContent)
+  return within(list).getAllByText(/./, { selector: '.plist-link' }).map((el) => el.textContent)
 }
 
 describe('the proposals list (#292)', () => {
@@ -52,6 +52,8 @@ describe('the proposals list (#292)', () => {
     expect(screen.queryByText('Refused chairs')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: en('proposals.showClosed').replace('{n}', '1') }))
     expect(screen.getByText('Refused chairs')).toBeTruthy()
+    expect(screen.getByRole('button', { name: en('proposals.hideClosed').replace('{n}', '1') })).toBeTruthy()
+    expect(within(screen.getByText('Ready to sign').closest('.plist-row')!).getByText(en('desk.band.sign'))).toBeTruthy()
   })
 
   it('a sent proposal leaves the list once the chain has it in a block', async () => {

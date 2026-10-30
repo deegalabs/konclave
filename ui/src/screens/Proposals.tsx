@@ -1,20 +1,72 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { startVisiblePoll } from '../usePoll'
 import { Link, useNavigate } from 'react-router-dom'
-import { Secret, activateOnKey } from '../components'
+import { Secret } from '../components'
 import { SkeletonRows } from '../skeleton'
 import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
 import { getProposals, getVault, readTransactions, type Proposal, type WalletTx } from '../api'
 import { listVaults } from '../storage'
-import { rankDesk } from '../desk'
+import { rankDesk, type Band } from '../desk'
 import { settlementOf, isConfirmed } from '../settlement'
 import { expiryLabel, fmtZec } from '../format'
 import { useLoading } from '../loading'
-import { useT, useTr } from '../i18n'
+import { useT, useTr, type TFn, type TRichFn } from '../i18n'
 
-// Closed without payment: shown only on request, so the desk stays about what can still move.
+// Closed without payment: shown only on request, so the desk stays about what can still move. An
+// awaiting proposal whose clock has run out joins them on this device before the coordinator
+// recomputes it, so it never sits under "needs you" as expired.
 const CLOSED = new Set(['rejected', 'expired', 'cancelled', 'superseded'])
+const expiredByClock = (p: Proposal) => p.state === 'awaiting' && !!p.expiry_unix && p.expiry_unix * 1000 < Date.now()
+const isClosed = (p: Proposal) => CLOSED.has(p.state) || expiredByClock(p)
+
+type RowProps = { p: Proposal; band?: Band; last?: boolean; threshold: number; t: TFn; tr: TRichFn; open: (p: Proposal) => void }
+
+// Module-level, so a poll does not remount every row (and drop the focus or hover a member has on
+// one). The title is the link; the whole row answers a click as a convenience, nothing more.
+function Row({ p, band, last, threshold, t, tr, open }: RowProps) {
+  const closed = isClosed(p)
+  const sent = p.state === 'sent'
+  const stamp = closed ? t('state.' + (expiredByClock(p) ? 'expired' : p.state)) : sent ? '' : band ? t('desk.band.' + band) : ''
+  const tail = sent && p.txid ? `tx ${p.txid.slice(0, 8)}…` : closed ? '' : (p.expiry_unix ? expiryLabel(p.expiry_unix, t) : '')
+  return (
+    <div className={'plist-row' + (closed ? ' closed' : '')} role="listitem" onClick={() => open(p)}>
+      <Identicon seed={p.proposer} size={34} />
+      <div className="plist-main">
+        <div className="plist-title">
+          <Link to="/proposal" state={{ id: p.id }} className="plist-link" onClick={(e) => e.stopPropagation()}>
+            {p.memo || (p.kind === 'payroll' ? t('kind.payroll') : t('kind.payment'))}
+          </Link>
+          {stamp && <span className={'plist-stamp' + (band === 'sign' ? ' sign' : '')}>{stamp}</span>}
+          {last && <span className="plist-stamp sign">{t('desk.signSends')}</span>}
+        </div>
+        <div className="plist-sub">
+          {tr('proposals.subProposedBy', { kind: p.kind === 'payroll' ? t('kindShort.payroll') : t('kindShort.payment'), proposer: p.proposer })}
+          {tail ? ` · ${tail}` : ''}
+        </div>
+      </div>
+      <div className="plist-right">
+        <div className="plist-val"><Secret sm><span>{fmtZec(p.value_zec)} ZEC</span></Secret></div>
+        {!closed && (
+          <div className="plist-prog">
+            <span className="prog" aria-hidden="true">{Array.from({ length: threshold }, (_, i) => <i key={i} className={i < p.approvals_count ? 'on' : ''} />)}</span>
+            {' '}{t('ledger.approvalsOf', { count: p.approvals_count, total: threshold })}
+          </div>
+        )}
+      </div>
+      <span className="plist-go" aria-hidden="true">→</span>
+    </div>
+  )
+}
+
+function Group({ id, label, children, count, ready }: { id: string; label: string; children: React.ReactNode; count: number; ready?: boolean }) {
+  return (
+    <section aria-labelledby={id} className="mt">
+      <div className="plist-head"><h2 className="klab" id={id}>{label}</h2><span className={'plist-count' + (ready ? ' ready' : '')}>{count}</span></div>
+      <div className="plist" role="list">{children}</div>
+    </section>
+  )
+}
 
 export default function Proposals({ embedded = false }: { embedded?: boolean }) {
   const t = useT()
@@ -74,47 +126,19 @@ export default function Proposals({ embedded = false }: { embedded?: boolean }) 
   const retry = useCallback(() => { setUnread(false); setAttempt((a) => a + 1) }, [])
   useEffect(() => { if (unread && attempt > 0) unreadRef.current?.focus() }, [unread, attempt])
 
-  const open = (p: Proposal) => nav('/proposal', { state: { id: p.id } })
+  const open = useCallback((p: Proposal) => nav('/proposal', { state: { id: p.id } }), [nav])
 
   // One ranking for the open proposals, the Dashboard's (desk.ts): what needs this member first
   // (its signature, then its vote), soonest deadline first inside a band; then what is with the
-  // others. Sent ones stay until the chain has them in a block (settlement.ts), then leave for
-  // the ledger. Closed ones wait behind a toggle.
+  // other members. Sent ones stay until the chain has them in a block (settlement.ts), then leave
+  // for the ledger. Closed ones wait behind a toggle.
   const all = rows ?? []
-  const desk = rankDesk(all, me, threshold)
-  const needsYou = desk.items.filter((i) => i.band === 'sign' || i.band === 'vote').map((i) => i.p)
-  const withOthers = desk.items.filter((i) => i.band === 'wait' || i.band === 'voted').map((i) => i.p)
+  const desk = rankDesk(all.filter((p) => !expiredByClock(p)), me, threshold)
+  const needsYou = desk.items.filter((i) => i.band === 'sign' || i.band === 'vote')
+  const withOthers = desk.items.filter((i) => i.band === 'wait' || i.band === 'voted')
   const sentOpen = all.filter((p) => p.state === 'sent' && !isConfirmed(settlementOf(p, txs)))
-  const closed = all.filter((p) => CLOSED.has(p.state))
-
-  const Row = ({ p }: { p: Proposal }) => (
-    <div className={'plist-row' + (CLOSED.has(p.state) ? ' closed' : '')} role="button" tabIndex={0} onClick={() => open(p)} onKeyDown={activateOnKey(() => open(p))}>
-      <Identicon seed={p.proposer} size={34} />
-      <div className="plist-main">
-        <div className="plist-title">{p.memo || (p.kind === 'payroll' ? t('kind.payroll') : t('kind.payment'))}</div>
-        <div className="plist-sub">
-          {tr('proposals.subProposedBy', { kind: p.kind === 'payroll' ? t('kindShort.payroll') : t('kindShort.payment'), proposer: p.proposer })}
-          {(() => { const e = p.expiry_unix && !CLOSED.has(p.state) && p.state !== 'sent' ? expiryLabel(p.expiry_unix, t) : ''; return e ? ` · ${e}` : '' })()}
-          {(CLOSED.has(p.state) || p.state === 'sent') && ` · ${t('state.' + p.state)}`}
-        </div>
-      </div>
-      <div className="plist-right">
-        <div className="plist-val"><Secret sm><span>{fmtZec(p.value_zec)} ZEC</span></Secret></div>
-        <div className="plist-prog">
-          <span className="prog">{Array.from({ length: threshold }, (_, i) => <i key={i} className={i < p.approvals_count ? 'on' : ''} />)}</span>
-          {' '}{t('proposal.ofN', { count: p.approvals_count, total: threshold })}
-        </div>
-      </div>
-      <span className="plist-go">→</span>
-    </div>
-  )
-
-  const Group = ({ label, items, count }: { label: string; items: Proposal[]; count?: 'ready' | '' }) => (
-    <>
-      <div className="plist-head mt"><span className="klab">{label}</span><span className={'plist-count' + (count === 'ready' ? ' ready' : '')}>{items.length}</span></div>
-      <div className="plist">{items.map((p) => <Row key={p.id} p={p} />)}</div>
-    </>
-  )
+  const closed = all.filter(isClosed)
+  const rowProps = { threshold, t, tr, open }
 
   const body = (
     <>
@@ -130,18 +154,34 @@ export default function Proposals({ embedded = false }: { embedded?: boolean }) 
 
       {rows !== null && (
         <>
-          {needsYou.length > 0 && <Group label={desk.personal ? t('proposals.needsYou') : t('proposals.readyToSign')} items={needsYou} count="ready" />}
-          {withOthers.length > 0 && <Group label={desk.personal ? t('proposals.withOthers') : t('proposals.awaitingApproval')} items={withOthers} />}
-          {needsYou.length === 0 && withOthers.length === 0 && (
-            <div className="empty-note mt">{t('proposals.nothingAwaiting')} <Link className="link" to="/pay">{t('proposal.proposePaymentLink')}</Link></div>
+          {needsYou.length > 0 && (
+            <Group id="pl-needs-you" label={desk.personal ? t('proposals.needsYou') : t('proposals.readyToSign')} count={needsYou.length} ready={needsYou.some((i) => i.band === 'sign')}>
+              {needsYou.map((i) => <Row key={i.p.id} p={i.p} band={i.band} last={i.last} {...rowProps} />)}
+            </Group>
           )}
-          {sentOpen.length > 0 && <Group label={t('proposals.sentAwaiting')} items={sentOpen} />}
+          {withOthers.length > 0 && (
+            <Group id="pl-with-others" label={desk.personal ? t('proposals.withOthers') : t('proposals.awaitingApproval')} count={withOthers.length}>
+              {withOthers.map((i) => <Row key={i.p.id} p={i.p} band={i.band} {...rowProps} />)}
+            </Group>
+          )}
+          {needsYou.length === 0 && withOthers.length === 0 && (
+            <div className="empty-note mt">{desk.personal ? t('proposals.nothingForYou') : t('proposals.nothingAwaiting')} <Link className="link" to="/pay">{t('proposal.proposePaymentLink')}</Link></div>
+          )}
+          {sentOpen.length > 0 && (
+            <Group id="pl-sent" label={t('proposals.sentAwaiting')} count={sentOpen.length}>
+              {sentOpen.map((p) => <Row key={p.id} p={p} {...rowProps} />)}
+            </Group>
+          )}
           {closed.length > 0 && (
             <div className="mt">
-              <button className="chip" aria-pressed={showClosed} onClick={() => setShowClosed((v) => !v)}>
-                {showClosed ? t('proposals.hideClosed') : t('proposals.showClosed', { n: String(closed.length) })}
+              <button className={'chip' + (showClosed ? ' on' : '')} aria-expanded={showClosed} aria-controls="pl-closed" onClick={() => setShowClosed((v) => !v)}>
+                {t(showClosed ? 'proposals.hideClosed' : 'proposals.showClosed', { n: String(closed.length) })}
               </button>
-              {showClosed && <div className="plist mt-sm">{closed.map((p) => <Row key={p.id} p={p} />)}</div>}
+              {showClosed && (
+                <Group id="pl-closed" label={t('proposals.closedGroup')} count={closed.length}>
+                  {closed.map((p) => <Row key={p.id} p={p} {...rowProps} />)}
+                </Group>
+              )}
             </div>
           )}
           <div className="hint mt">{t('proposals.ledgerHint')} <Link className="link" to="/ledger">{t('proposals.viewLedger')}</Link></div>

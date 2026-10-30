@@ -61,7 +61,10 @@ history to tidy it is how context gets lost.
   sent; and when the list could not be read the screen drew an empty desk, as if nothing were
   pending. Now "Needs you" comes first (your signature, then your vote, soonest deadline first),
   then what is with the others, then the sent ones until a block holds them; closed proposals sit
-  behind a "Show closed" button; and a read that failed says so, with "Try again" (#292).
+  behind a "Show closed" button; and a read that failed says so, with "Try again". Each row says
+  what it waits for from you (your signature, your vote) and when your signature sends; the title is
+  a link, the groups are headings a screen reader can jump to, and a proposal whose clock has run
+  out leaves "Needs you" on the device before the coordinator notices (#292).
 
 ### Changed
 

@@ -1248,11 +1248,13 @@ export const ptBR: Record<string, string> = {
   'ledger.xlsxIncludes': 'O arquivo XLSX inclui o memo e o identificador da transação de cada pagamento.',
   // Proposals list (#292): what needs this member first, sent until confirmed, closed on request, a read that failed is said.
   'proposals.needsYou': 'Precisa de você',
-  'proposals.withOthers': 'Com os outros',
+  'proposals.withOthers': 'Com os outros membros',
   'proposals.sentAwaiting': 'Enviadas, aguardando confirmação',
   'proposals.showClosed': 'Mostrar encerradas ({n})',
-  'proposals.hideClosed': 'Esconder encerradas',
-  'proposals.unreadTitle': 'Não deu para ler as propostas',
+  'proposals.hideClosed': 'Esconder encerradas ({n})',
+  'proposals.closedGroup': 'Encerradas',
+  'proposals.nothingForYou': 'Nada precisa de você agora.',
+  'proposals.unreadTitle': 'Não foi possível ler as propostas',
   'proposals.unreadLead': 'A lista não pôde ser lida. O cofre e a sua parte continuam neste aparelho; só a lista não chegou.',
   'proposals.retry': 'Tentar de novo',
 }
