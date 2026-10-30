@@ -121,22 +121,27 @@ status       = "built 2026-10-26 from the recorded inputs, NOT deployed anywhere
 built_sha256 = "5df38d2cd1aa857ab6fc83d7b57769da389c47c015d8971562ed071b9f743c08"
 built_bytes  = 103881728
 # Built from an export of 0b3436bb plus the patch and the lockfile above, `cargo build --release
-# --locked --bin zcash-devtool`, rustc 1.99.0, own target directory, 2026-10-26. Not bit-reproducible
-# across hosts (build paths and the build time end up in the binary). The same engine set of that day,
+# --locked --bin zcash-devtool`, rustc 1.99.0, own target directory, 2026-10-26. A second build on the
+# same host came out byte-identical (observed once; across hosts it is not claimed, since build paths
+# end up in the binary). The same engine set of that day,
 # `bin.nu7-recut-c196c03` on the build host: our helper-server (3567816 bytes, sha256 27b73b4a53b1...),
 # our konclave-signer (8230640 bytes, sha256 fbfd5247419b...) built from commit c196c03 of the re-cut
 # branch, this devtool, and the unchanged zcash-sign. Checked against the previous devtool: the usage
-# of the 11 subcommands Konclave calls is identical, `balance --json` has the same keys, and a COPY of a
-# wallet written by the previous engine opens, migrates (71 to 75 migrations, one new table) and syncs.
+# of the subcommands Konclave calls (8 of them, plus `pczt inspect`, `wallet list-accounts` and
+# `wallet get-info`, which are only inspected) is identical, `balance --json` has the same keys, and a
+# COPY of an EMPTY view-only wallet written by the previous engine opens and migrates (71 to 75
+# migrations, one new table) and syncs. A wallet WITH history has not been rehearsed yet: until it is,
+# the upgrade of a vault's wallet is not proven on real notes, and that is a blocker for production.
 # What the patch does: the 11 pre-release pins of the manifest go to the released crates (protocol
 # 0.11.0, primitives 0.31.0, backend 0.25.0, sqlite 0.23.0, pczt 0.10.0, keys 0.17.0, address 0.14.0,
 # transparent 0.11.0, zip321 0.10.0, pool_migration 0.2.0, proofs 0.31.0), the `[patch.crates-io]`
 # git block is removed, and five command files move to `PrecomputedSighashData` and
 # `BlockSpacing`. No edit in `pczt create`, `pczt prove`, `pczt send` or the `wallet` tree, the
-# only commands Konclave calls. To apply: export 0b3436bb, `patch -p1` the patch (paths carry one
+# commands Konclave sends money through. To apply: export 0b3436bb, `patch -p1` the patch (paths carry one
 # leading directory), copy the lockfile over `Cargo.lock`, `cargo build --release --locked`.
 # Resolves, with zero git sources: orchard 0.16.0, sapling-crypto 0.9.0, rusqlite 0.37.0 and the
-# crates above. `zcash_client_sqlite` 0.23.0 adds migrations that cannot be reverted: this devtool
+# crates above, plus one pre-release left in the graph by a dependency (`kem 0.3.0-pre.0`, transitive).
+# `zcash_client_sqlite` 0.23.0 adds migrations that cannot be reverted: this devtool
 # is only ever opened on COPIES of wallets until the production snapshot is taken (README of the
 # deploy, "the upgrade is one-way").
 
