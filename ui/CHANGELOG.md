@@ -45,12 +45,13 @@ history to tidy it is how context gets lost.
 - The proof screen lists two more mainnet transactions, the 21st and the 22nd: the first production send on the redeployed
   coordinator (block 3,527,232) and a send on the 0.15.0 coordinator (block 3,529,405). `docs/PROOF.md` carries the rows,
   and the counts in the documents say 22.
-- **The app is ready for the NU7 network upgrade (block 3,543,405, about 6 November 2026).** The
+- **The app knows the NU7 network upgrade (block 3,543,405, about 6 November 2026).** The
   device accepts transactions built for it, in blocks of 25 seconds, and about 27 hours after its own
   estimate of the upgrade (between about 15 and 39 hours after the real one) it stops accepting
   transactions built for the previous one, which the network no longer mines. A pool crossing's
-  expiry is read at the new scale of ZIP 318 (103,680 blocks after the upgrade, 34,560 before). Until the engine that builds transactions is updated on the coordinator,
-  payments are paused around the upgrade rather than built for the wrong one.
+  expiry is read at the new scale of ZIP 318 (103,680 blocks after the upgrade, 34,560 before).
+  Payments are paused around the upgrade rather than built for the wrong one, and after it a
+  coordinator that is not updated yet refuses them.
 - **A notice before the upgrade.** From about six hours before it until about a night after, the
   dashboard says that the network upgrades, that payments are paused for a while around it, and that
   nothing is lost and approvals stand. Until now a member learned it only when a payment was refused.
@@ -61,8 +62,8 @@ history to tidy it is how context gets lost.
 - **The signing module reads a pool crossing's expiry at the scale of the network upgrade the transaction's
   header names, and reports the height of the last upgrade in its table.** A crossing's expiry (ZIP 318)
   is accepted only at the scale of that upgrade, so a header cannot borrow the other scale around the
-  upgrade. The module is rebuilt (see the root changelog). Nothing on a screen changes yet; the
-  dashboard notice that reads the reported height comes in a later change.
+  upgrade. The module is rebuilt (see the root changelog). The dashboard notice listed under Added
+  reads the reported height.
 - **The signing module in the web app is rebuilt on the stable NU7 crate line** (orchard 0.16.0, pczt
   0.10.0, zcash_primitives 0.31.0, and the crates that go with them; see the root changelog). The
   packaged module in the app is a new build of the same code against newer releases of those crates.
@@ -72,10 +73,11 @@ history to tidy it is how context gets lost.
   signing module.** The module's seed-path signing call now requires it (see the root changelog). The
   screens behave as before.
 - **The refusal around the upgrade says what is true in both cases.** Before it: payments are paused
-  around the upgrade block, nothing was built, the approval stands, try again after the upgrade. After
-  it, if the coordinator is not updated yet: nothing was signed or sent, try again later, and approvals
-  stay valid until the proposal expires (72 hours). The old text promised a send as soon as the
-  upgrade block was mined, which is not true while the coordinator is still on the previous engine.
+  around the upgrade block, nothing was built, your vote stands and you will be asked to sign again
+  after the upgrade. After it, if the coordinator is not updated yet: nothing was signed or sent, your
+  vote stands until the proposal expires (72 hours), and you will be asked to sign again when the
+  payment can be built. The refusal withdraws the signatures that were given, which "your approval
+  stands" did not say. The old text promised a send as soon as the upgrade block was mined.
 
 ### Fixed
 
