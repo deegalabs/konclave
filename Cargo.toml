@@ -17,16 +17,18 @@ members = [
 # pins were reaching for (#120, re-cut of #259).
 #
 # ADR-0002 (byte-compat with the reference devtool) is SATISFIED BY, not weakened by, this move:
-# zcash-devtool is itself built on the same published releases (orchard 0.15.5, pczt 0.9.3,
-# zcash_client_backend 0.24.0, zcash_primitives 0.30.1) with no patch table of its own, so producer
-# and consumer share the same crate artifacts instead of merely pointing at the same git rev.
+# the zcash-devtool we run is built on the same published releases as this workspace (orchard 0.16.0,
+# pczt 0.10.0, zcash_client_backend 0.25.0, zcash_primitives 0.31.0), so producer and consumer share
+# the same crate artifacts instead of merely pointing at the same git rev. The recorded patch that
+# moves the devtool to this line (engine/patches) arrives in a follow-up change; until that devtool
+# is deployed, producer and consumer are on different lines and must not be mixed.
 #
 # Two things the old patch table existed for, and where they went:
 #   - orchard `unstable-frost` (RedPallas spend-auth extraction for konclave-signer/konclave-wasm):
-#     published orchard 0.15.5 declares `unstable-frost = []` in its own [features] table, so no
+#     published orchard 0.16.0 declares `unstable-frost = []` in its own [features] table, so no
 #     fork rev is needed. Enable the feature per-crate, not here.
 #   - the deferred-anchor work (zcash/orchard PR #535) the fork rev 3bd2b736 carried: released in
-#     orchard 0.15.2, so 0.15.5 is a strict superset of that rev.
+#     orchard 0.15.2, so every later release is a strict superset of that rev.
 #
 # Version pins live per-member (konclave-signer, konclave-wasm, orchestrator). Bump them together,
 # and keep engine/versions.lock in sync.

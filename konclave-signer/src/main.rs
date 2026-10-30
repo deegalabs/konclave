@@ -223,7 +223,7 @@ fn build_payroll(
     use std::num::NonZeroUsize;
     use std::str::FromStr;
 
-    use rand::rngs::OsRng;
+    use rand10::{rand_core::UnwrapErr, rngs::SysRng};
     use serde::Deserialize;
     use uuid::Uuid;
     use zcash_address::ZcashAddress;
@@ -269,7 +269,7 @@ fn build_payroll(
         }
     };
     let db_path = format!("{}/data.sqlite", wallet.trim_end_matches('/'));
-    let mut db = WalletDb::for_path(&db_path, params, SystemClock, OsRng)
+    let mut db = WalletDb::for_path(&db_path, params, SystemClock, UnwrapErr(SysRng))
         .map_err(|e| anyhow!("open wallet {db_path}: {e:?}"))?;
 
     let uuid = Uuid::from_str(account_uuid).map_err(|_| anyhow!("invalid account uuid"))?;
@@ -338,6 +338,8 @@ fn build_payroll(
     let pczt = create_pczt_from_proposal(
         &mut db,
         &params,
+        &SystemClock,
+        &mut UnwrapErr(SysRng),
         account.id(),
         OvkPolicy::Sender,
         &proposal,
@@ -415,6 +417,41 @@ mod tests {
     #[test]
     fn ironwood_tx_is_detected_as_ironwood_pool() {
         assert_eq!(active_pool(&parse(IW_PROVEN)).unwrap(), Pool::Ironwood);
+    }
+
+    /// The proven Ironwood fixture with its consensus branch rewritten to NU7's (0x77190AD9). The branch id
+    /// sits once in the PCZT's global section, as a postcard varint (5 bytes for either id), so the
+    /// patch changes no length. The proofs and the signatures do not depend on it; the sighash does.
+    fn as_nu7(bytes: &[u8]) -> Vec<u8> {
+        let (nu6_3, nu7) = (
+            [0xdb, 0xac, 0x94, 0xbd, 0x03],
+            [0xd9, 0x95, 0xe4, 0xb8, 0x07],
+        );
+        let at: Vec<usize> = bytes
+            .windows(5)
+            .enumerate()
+            .filter(|(_, w)| *w == nu6_3)
+            .map(|(i, _)| i)
+            .collect();
+        assert_eq!(
+            at.len(),
+            1,
+            "the NU6.3 branch id occurs once in the fixture"
+        );
+        [&bytes[..at[0]], &nu7[..], &bytes[at[0] + 5..]].concat()
+    }
+
+    #[test]
+    fn an_nu7_pczt_has_the_sighash_the_stable_crate_computes_and_it_commits_to_the_branch() {
+        let nu6_3 = shielded_sighash(&parse(IW_PROVEN)).unwrap();
+        let nu7 = shielded_sighash(&parse(&as_nu7(IW_PROVEN))).unwrap();
+        assert_ne!(nu6_3, nu7, "the branch id is hashed into the sighash");
+        // The ORACLE for the device's own recompute: konclave-wasm's test of the same name holds this
+        // literal too, so the two implementations meet on one value.
+        assert_eq!(
+            hex::encode(nu7),
+            "9b869f2332ef5a0d8e987612e9bdbe67275a6fdc1d742b77b929d4bbb0a0601d"
+        );
     }
 
     #[test]
@@ -541,5 +578,34 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("dummy_sk"), "{err}");
+    }
+
+    /// The REAL NU7 vector (testnet, 2026-10-26, a throwaway wallet's own 0.1 TAZ self-payment: public
+    /// data only), built and proven by the patched `zcash-devtool` while the testnet was past NU7. The
+    /// signer reads it with the branch id of NU7, and the device's hand-written ZIP 244 recompute and the
+    /// `pczt` crate's agree on its sighash. What this does NOT prove: that a node accepts a transaction
+    /// signed over this digest (needs a signed broadcast on testnet; the devtool's own `pczt sign` does
+    /// not sign Ironwood spends, so there was no independent signature to verify here). The pinned hex
+    /// is what both produced on the day, to catch a drift in either.
+    #[test]
+    fn a_real_nu7_pczt_reads_the_same_in_the_signer_and_on_the_device() {
+        const PROVEN: &[u8] = include_bytes!("../tests/vectors/nu7_testnet.proven.pczt");
+        let proven = parse(PROVEN);
+        assert_eq!(*proven.global().consensus_branch_id(), 0x7719_0ad9);
+        assert_eq!(
+            extract_randomizers(&proven).unwrap().len(),
+            1,
+            "one real spend"
+        );
+        let sighash = shielded_sighash(&proven).unwrap();
+        assert_eq!(
+            sighash,
+            konclave_wasm::pczt_bridge::shielded_sighash(&proven).unwrap(),
+            "the signer and the device disagree on a real NU7 transaction"
+        );
+        assert_eq!(
+            hex::encode(sighash),
+            "e7002fa86ed26a033d10bbcb25dc19fd3daf0dd64c5b4028ac9af83092bd8392"
+        );
     }
 }

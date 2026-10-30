@@ -37,6 +37,16 @@ pub fn within_margin(last: u32, height: impl Into<u64>) -> bool {
     u64::from(last) + u64::from(REORG_MARGIN) >= height.into()
 }
 
+/// ZIP 318: a pool crossing expires at the same height for every wallet in a modulus period, so that
+/// nothing singles it out. The modulus is given in REFERENCE blocks of 75 s (the expiry is two moduli
+/// past the last boundary) and is scaled by how many blocks of the row's spacing make one reference
+/// block (3 at 25 s), which is what
+/// `zcash_protocol` 0.11.0 does (zip318.rs:195-211): 34,560 blocks before NU7, 103,680 from it. The
+/// device read the 75 s numbers for ever; this is the ONE place that scales them.
+pub const ZIP318_MODULUS: u32 = 34_560;
+/// The spacing, in seconds, the modulus above is written in.
+const REFERENCE_SPACING_S: i64 = 75;
+
 /// One network upgrade, from `activation_height` until the next row's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Epoch {
@@ -65,19 +75,35 @@ pub struct Table {
     pub anchor: Anchor,
 }
 
+/// The consensus branch of NU7 (ZIP 259), carried by `zcash_protocol` 0.11.0 as `BranchId::Nu7`. The
+/// id proposed earlier (0x77190AD8) is retired.
+pub const NU7: u32 = 0x7719_0ad9;
+
 /// Mainnet. NU6.3 activated at block 3,428,143, whose header time is 1785247643 (2026-07-28
-/// 14:07:23 UTC). The row of the next upgrade (NU7, #638) is added when its activation height is
-/// decided and shipped before it activates: a device on a bundle without it refuses every
-/// transaction of the new epoch. It is ABSENT today on purpose.
+/// 14:07:23 UTC). NU7 (#638) activates at block 3,543,405 (`zcash_protocol` 0.11.0, consensus.rs:567;
+/// Zebra 7.0.0): its row is shipped before it activates, because a device on a bundle without it
+/// refuses every transaction of the new epoch. It keeps the v6 transaction format and group id; its
+/// blocks come every 25 s (ZIP 218), so an ordinary transaction expires 120 blocks past its target
+/// (`NU7_DEFAULT_TX_EXPIRY_DELTA` = 3 x 40, `zcash_primitives` 0.31.0).
 pub const MAINNET: Table = Table {
-    epochs: &[Epoch {
-        activation_height: 3_428_143,
-        branch_id: NU6_3,
-        tx_version: 6,
-        version_group_id: 0xD884_B698,
-        spacing_s: 75,
-        expiry_delta: 40,
-    }],
+    epochs: &[
+        Epoch {
+            activation_height: 3_428_143,
+            branch_id: NU6_3,
+            tx_version: 6,
+            version_group_id: 0xD884_B698,
+            spacing_s: 75,
+            expiry_delta: 40,
+        },
+        Epoch {
+            activation_height: 3_543_405,
+            branch_id: NU7,
+            tx_version: 6,
+            version_group_id: 0xD884_B698,
+            spacing_s: 25,
+            expiry_delta: 120,
+        },
+    ],
     anchor: Anchor {
         height: 3_428_143,
         unix: 1_785_247_643,
@@ -232,6 +258,42 @@ impl Table {
         }
     }
 
+    /// The modulus in force for a target in `row`: [`ZIP318_MODULUS`] reference blocks, scaled by the
+    /// row's spacing (a row of 25 s blocks has three blocks to the reference block).
+    fn zip318_modulus(row: &Epoch) -> u32 {
+        let ratio = (REFERENCE_SPACING_S / row.spacing_s.max(1)).max(1) as u32;
+        ZIP318_MODULUS.saturating_mul(ratio)
+    }
+
+    /// The expiry a pool crossing built at `target` has (ZIP 318): the next-but-one modulus boundary,
+    /// at the modulus of the row `target` is in. Always past `target`; saturates at `u32::MAX`.
+    pub fn crossing_expiry(&self, target: u32) -> u32 {
+        let m = u64::from(Self::zip318_modulus(self.epoch_of(target)));
+        let h = u64::from(target);
+        u32::try_from(h - h % m + 2 * m).unwrap_or(u32::MAX)
+    }
+
+    /// Whether `expiry` is the expiry of a crossing a header naming `branch_id` can carry: one of the
+    /// values `crossing_expiry` gives for a target in `[lo, top]` that lies in that branch's own row.
+    /// The branch decides which scale is honest. Without it a window that straddles an upgrade would
+    /// accept the old scale for a header of the new branch (and the new scale for the old one), and
+    /// whoever builds the transaction would pick the crossing's expiry, hence how long its notes stay
+    /// reserved. An unknown branch is refused.
+    pub fn is_crossing_expiry(&self, expiry: u32, branch_id: u32, lo: u32, top: u32) -> bool {
+        let Some(i) = self.epochs.iter().position(|e| e.branch_id == branch_id) else {
+            return false;
+        };
+        let row = &self.epochs[i];
+        let end = self
+            .epochs
+            .get(i + 1)
+            .map_or(u32::MAX, |next| next.activation_height - 1);
+        let (a, b) = (lo.max(row.activation_height), top.min(end));
+        a <= b
+            && expiry.is_multiple_of(Self::zip318_modulus(row))
+            && (self.crossing_expiry(a)..=self.crossing_expiry(b)).contains(&expiry)
+    }
+
     /// Whether a header naming `branch_id` and expiring at `expiry` may be accepted when the window of
     /// heights it could be mined at is `[lo, hi]`: that window, cut at the last height the transaction
     /// can be in a block, must meet the branch's own range. Far from an upgrade only one row qualifies;
@@ -258,7 +320,6 @@ mod tests {
     use super::*;
 
     const NU63: u32 = NU6_3;
-    const NU7: u32 = 0x7719_0ad9;
     const A: u32 = 3_500_000;
 
     /// A table WITH a later row, for the rules that only act across an upgrade. Defined here, never in
@@ -285,10 +346,33 @@ mod tests {
         anchor: MAINNET.anchor,
     };
 
+    /// The published mainnet height of NU7, read from `zcash_protocol` 0.11.0 (consensus.rs:567) on
+    /// 2026-10-24, with Zebra 7.0.0 saying the same. The branch, version, group and spacing come from
+    /// the same crate and `zcash_primitives` 0.31.0 (`NU7_DEFAULT_TX_EXPIRY_DELTA` = 3 x 40).
+    const NU7_HEIGHT: u32 = 3_543_405;
+
+    /// A table with NO later row: the rules that only matter when nothing follows (a cap that is the
+    /// expiry alone, a latest row). Defined here, never in the production table, which has two rows.
+    const ONE_ROW: Table = Table {
+        epochs: &[MAINNET.epochs[0]],
+        anchor: MAINNET.anchor,
+    };
+
     #[test]
-    fn the_mainnet_table_has_the_one_row_and_is_ordered() {
-        assert_eq!(MAINNET.epochs.len(), 1, "NU7's row is absent until decided");
+    fn the_mainnet_table_has_the_nu63_row_then_the_nu7_row_and_is_ordered() {
+        assert_eq!(MAINNET.epochs.len(), 2);
         assert_eq!(MAINNET.epochs[0].branch_id, NU63);
+        assert_eq!(
+            MAINNET.epochs[1],
+            Epoch {
+                activation_height: NU7_HEIGHT,
+                branch_id: NU7,
+                tx_version: 6,
+                version_group_id: 0xD884_B698,
+                spacing_s: 25,
+                expiry_delta: 120,
+            }
+        );
         assert_eq!(MAINNET.anchor.height, 3_428_143);
         assert_eq!(MAINNET.anchor.unix, 1_785_247_643);
         for t in [&MAINNET, &WITH_NEXT] {
@@ -328,16 +412,16 @@ mod tests {
         );
         assert!(!WITH_NEXT.capped_by_next(0xdead_beef, A));
         assert!(
-            !MAINNET.capped_by_next(NU63, 0),
+            !ONE_ROW.capped_by_next(NU63, 0),
             "no later row: nothing caps it"
         );
     }
 
     #[test]
     fn without_a_later_row_the_cap_is_the_expiry_alone() {
-        assert_eq!(MAINNET.minable_until(NU63, 3_500_000), Some(3_500_000));
-        assert_eq!(MAINNET.minable_until(NU63, 0), Some(u32::MAX));
-        assert_eq!(MAINNET.next_activation_after(NU63), None);
+        assert_eq!(ONE_ROW.minable_until(NU63, 3_500_000), Some(3_500_000));
+        assert_eq!(ONE_ROW.minable_until(NU63, 0), Some(u32::MAX));
+        assert_eq!(ONE_ROW.next_activation_after(NU63), None);
     }
 
     #[test]
@@ -353,7 +437,7 @@ mod tests {
         // An unknown branch cannot be judged dead.
         assert!(WITH_NEXT.can_still_be_mined(0xdead_beef, 1, u32::MAX));
         // No expiry, no later row: never dead.
-        assert!(MAINNET.can_still_be_mined(NU63, 0, u32::MAX - REORG_MARGIN));
+        assert!(ONE_ROW.can_still_be_mined(NU63, 0, u32::MAX - REORG_MARGIN));
     }
 
     #[test]
@@ -361,7 +445,7 @@ mod tests {
         assert_eq!(WITH_NEXT.epoch_of(A - 1).branch_id, NU63);
         assert_eq!(WITH_NEXT.epoch_of(A).branch_id, NU7);
         assert_eq!(WITH_NEXT.epoch_of(0).branch_id, NU63, "below the table");
-        assert_eq!(MAINNET.epoch_of(u32::MAX).branch_id, NU63);
+        assert_eq!(ONE_ROW.epoch_of(u32::MAX).branch_id, NU63);
     }
 
     #[test]
@@ -469,5 +553,154 @@ mod tests {
         let b = MAINNET.height_bounds(MAINNET.anchor.unix + 86_400 * 30);
         assert!(MAINNET.header_may_be_mined(NU63, b.est, b.lo, b.hi));
         assert!(!MAINNET.header_may_be_mined(NU7, b.est, b.lo, b.hi));
+    }
+
+    // The rules of this file, read on the MAINNET table with its real upgrade height: the numbers the
+    // design note (section 9) promised and nothing else.
+
+    #[test]
+    fn on_mainnet_an_nu63_transaction_is_capped_at_the_block_before_nu7() {
+        let last = NU7_HEIGHT - 1;
+        assert_eq!(MAINNET.next_activation_after(NU63), Some(NU7_HEIGHT));
+        assert_eq!(MAINNET.minable_until(NU63, NU7_HEIGHT + 5), Some(last));
+        assert_eq!(MAINNET.minable_until(NU63, 0), Some(last));
+        assert_eq!(
+            MAINNET.minable_until(NU63, NU7_HEIGHT - 100),
+            Some(NU7_HEIGHT - 100)
+        );
+        // A ZIP 318 crossing weeks away is dead at the upgrade too.
+        assert_eq!(MAINNET.minable_until(NU63, 69_120_000), Some(last));
+        assert!(MAINNET.capped_by_next(NU63, NU7_HEIGHT));
+        assert!(!MAINNET.capped_by_next(NU7, NU7_HEIGHT + 100));
+        // Dead (no longer minable even with the reorg margin) from A + 10, still counted at A + 9.
+        assert!(MAINNET.can_still_be_mined(NU63, NU7_HEIGHT + 20, NU7_HEIGHT + 9));
+        assert!(!MAINNET.can_still_be_mined(NU63, NU7_HEIGHT + 20, NU7_HEIGHT + 10));
+    }
+
+    #[test]
+    fn on_mainnet_a_header_is_accepted_only_under_the_branch_its_window_can_reach() {
+        let (lo, hi) = (NU7_HEIGHT - 2_000, NU7_HEIGHT - 1_000);
+        // Well before A: NU6.3 yes, NU7 no.
+        assert!(MAINNET.header_may_be_mined(NU63, hi + 40, lo, hi));
+        assert!(!MAINNET.header_may_be_mined(NU7, hi + 120, lo, hi));
+        // The window straddles A (the device's own uncertainty): both are accepted.
+        let (lo, hi) = (NU7_HEIGHT - 500, NU7_HEIGHT + 500);
+        assert!(MAINNET.header_may_be_mined(NU63, NU7_HEIGHT - 10, lo, hi));
+        assert!(MAINNET.header_may_be_mined(NU7, NU7_HEIGHT + 120, lo, hi));
+        // Past A: an NU6.3 header that cannot be mined before A is refused, NU7 is accepted.
+        let (lo, hi) = (NU7_HEIGHT + 1_000, NU7_HEIGHT + 2_000);
+        assert!(!MAINNET.header_may_be_mined(NU63, NU7_HEIGHT + 1_020, lo, hi));
+        assert!(MAINNET.header_may_be_mined(NU7, hi + 120, lo, hi));
+    }
+
+    #[test]
+    fn on_mainnet_the_clock_crosses_a_at_75_seconds_a_block_and_then_runs_at_25() {
+        // 115,262 blocks of 75 s from the NU6.3 anchor: 2026-11-05 15:24:53 UTC by the device's clock (the
+        // anchor's time plus 75 s a block). The chain has run about 0.5% slower, so the real time is later; the
+        // margin around this estimate (about 27 hours) is what covers the difference.
+        let at_a = MAINNET.anchor.unix + i64::from(NU7_HEIGHT - MAINNET.anchor.height) * 75;
+        assert_eq!(at_a, 1_793_892_293);
+        assert_eq!(MAINNET.height_at(at_a - 75), NU7_HEIGHT - 1);
+        assert_eq!(MAINNET.height_at(at_a), NU7_HEIGHT);
+        // After A each block is 25 s: ten blocks in 250 s.
+        assert_eq!(MAINNET.height_at(at_a + 250), NU7_HEIGHT + 10);
+        // Monotonic across A, which the bisection of `lapses_at` relies on.
+        let mut prev = 0;
+        for t in (at_a - 10_000..at_a + 10_000).step_by(7) {
+            let h = MAINNET.height_at(t);
+            assert!(h >= prev);
+            prev = h;
+        }
+    }
+
+    #[test]
+    fn on_mainnet_the_slack_at_a_is_about_27_hours_with_the_nu63_anchor() {
+        // The design note's figure, pinned: (144 + 1153) blocks at 75 s. A re-anchored release shortens it.
+        let at_a = MAINNET.anchor.unix + i64::from(NU7_HEIGHT - MAINNET.anchor.height) * 75;
+        assert_eq!(MAINNET.slack(at_a), 97_275);
+        let b = MAINNET.height_bounds(at_a);
+        assert!(b.lo < NU7_HEIGHT - 1_000 && b.top > NU7_HEIGHT);
+        assert_eq!(
+            b.hi,
+            b.top + 120,
+            "the window meets the NU7 row, whose delta is 120"
+        );
+    }
+
+    // ZIP 318: a pool crossing's expiry is the same for every wallet in a modulus period, and the
+    // period is 34,560 blocks of 75 s before NU7 and 103,680 blocks of 25 s from it (both about 30
+    // days; zcash_protocol 0.11.0 zip318.rs:195-211). The device used the first modulus for ever. The
+    // values below were computed outside this code: `h - h % m + 2 * m` with m = 34,560 x (75 / spacing).
+
+    #[test]
+    fn on_mainnet_the_zip318_expiry_changes_scale_at_the_upgrade() {
+        assert_eq!(MAINNET.crossing_expiry(3_500_000), 3_559_680);
+        assert_eq!(MAINNET.crossing_expiry(NU7_HEIGHT - 1), 3_594_240);
+        assert_eq!(MAINNET.crossing_expiry(NU7_HEIGHT), 3_732_480);
+        assert_eq!(MAINNET.crossing_expiry(3_600_000), 3_732_480);
+        // Always past its target, and never going back as the target rises.
+        let mut prev = 0;
+        for t in (NU7_HEIGHT - 5_000..NU7_HEIGHT + 5_000).step_by(37) {
+            let e = MAINNET.crossing_expiry(t);
+            assert!(e > t && e >= prev, "target {t}");
+            prev = e;
+        }
+    }
+
+    #[test]
+    fn a_crossing_expiry_is_read_by_the_scale_of_the_row_its_target_is_in() {
+        let (lo, top) = (NU7_HEIGHT - 100, NU7_HEIGHT + 100);
+        // Targets straddling A: a builder just before it gave the old scale, just after the new one.
+        assert!(MAINNET.is_crossing_expiry(3_594_240, NU63, lo, top));
+        assert!(MAINNET.is_crossing_expiry(3_732_480, NU7, lo, top));
+        // Wholly after A only the new scale is honest: the old one is a pre-NU7 builder's.
+        assert!(MAINNET.is_crossing_expiry(3_732_480, NU7, NU7_HEIGHT + 1_000, NU7_HEIGHT + 2_000));
+        assert!(!MAINNET.is_crossing_expiry(
+            3_594_240,
+            NU7,
+            NU7_HEIGHT + 1_000,
+            NU7_HEIGHT + 2_000
+        ));
+        // Wholly before A the new scale does not exist yet.
+        assert!(MAINNET.is_crossing_expiry(
+            3_594_240,
+            NU63,
+            NU7_HEIGHT - 2_000,
+            NU7_HEIGHT - 1_000
+        ));
+        assert!(!MAINNET.is_crossing_expiry(
+            3_732_480,
+            NU63,
+            NU7_HEIGHT - 2_000,
+            NU7_HEIGHT - 1_000
+        ));
+        // Not a multiple of any modulus, or not what any target in the window gives.
+        assert!(!MAINNET.is_crossing_expiry(3_594_241, NU63, lo, top));
+        assert!(!MAINNET.is_crossing_expiry(
+            3_559_680,
+            NU7,
+            NU7_HEIGHT + 1_000,
+            NU7_HEIGHT + 2_000
+        ));
+    }
+
+    // The branch of the header decides which row's scale applies: the window straddling A would
+    // otherwise accept the old scale for a NU7 header and the new one for a NU6.3 header, and the
+    // coordinator would be the one choosing a crossing's expiry (and how long its notes stay reserved).
+    #[test]
+    fn a_crossing_expiry_is_read_only_at_the_scale_of_the_branch_the_header_names() {
+        let (lo, top) = (NU7_HEIGHT - 100, NU7_HEIGHT + 100);
+        assert!(
+            !MAINNET.is_crossing_expiry(3_594_240, NU7, lo, top),
+            "a NU7 header with the old scale"
+        );
+        assert!(
+            !MAINNET.is_crossing_expiry(3_732_480, NU63, lo, top),
+            "a NU6.3 header with the new scale"
+        );
+        assert!(
+            !MAINNET.is_crossing_expiry(3_594_240, 0xdead_beef, lo, top),
+            "an unknown branch"
+        );
     }
 }

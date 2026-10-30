@@ -1,4 +1,5 @@
 import './skeleton.css'
+import { useT } from './i18n'
 
 type Variant = 'line' | 'block' | 'pill'
 
@@ -34,8 +35,9 @@ export function Skeleton({ width, height, radius, variant = 'line', className, s
 
 /** A big-number placeholder for the balance figure (amount line + a thin sub line). */
 export function SkeletonStat({ className }: { className?: string }) {
+  const t = useT()
   return (
-    <div className={['skel-stat', className].filter(Boolean).join(' ')} role="status" aria-label="Loading">
+    <div className={['skel-stat', className].filter(Boolean).join(' ')} role="status" aria-label={t('skeleton.loading')}>
       <span aria-hidden="true" className="skel skel-amt" />
       <span aria-hidden="true" className="skel skel-sub" />
     </div>
@@ -44,8 +46,9 @@ export function SkeletonStat({ className }: { className?: string }) {
 
 /** `n` placeholder rows for a table/list body (date · title/sub · value). */
 export function SkeletonRows({ n = 4, className }: { n?: number; className?: string }) {
+  const t = useT()
   return (
-    <div className={['skel-rows', className].filter(Boolean).join(' ')} role="status" aria-label="Loading">
+    <div className={['skel-rows', className].filter(Boolean).join(' ')} role="status" aria-label={t('skeleton.loading')}>
       {Array.from({ length: n }, (_, i) => (
         <div className="skel-row" key={i}>
           <span aria-hidden="true" className="skel skel-line skel-r-date" />

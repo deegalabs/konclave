@@ -24,8 +24,9 @@ export function takeSend(a: SendAttempt, id: string): boolean {
   return true
 }
 
-/** How a fired send ended. `not-sent`: the coordinator said nothing went out, and the panel
- *  withdraws this device's signature. `sent`, or `unknown` when the money may have moved. */
+/** How a fired send ended. `not-sent`: nothing went out, so the memory is released (the panel
+ *  withdraws the signatures after a failure, and keeps them when the coordinator was only busy:
+ *  `stepEffects`). `sent`, or `unknown` when the money may have moved. */
 export type SendEnd = 'sent' | 'not-sent' | 'unknown'
 
 /** A send that ended with nothing sent releases the memory, so the next time the room names this
@@ -33,4 +34,12 @@ export type SendEnd = 'sent' | 'not-sent' | 'unknown'
 export function endSend(a: SendAttempt, id: string, end: SendEnd): void {
   // Only the payment whose send ended: another payment's failure never releases this one.
   if (end === 'not-sent' && a.fired === id) a.fired = null
+}
+
+/** Whether this device fires the send of `id` now: only when the room named it the sender, while
+ *  its signature is armed, and once per attempt. The room's decision and "Try sending again" both
+ *  ask this, so there is one rule for who may start a send. */
+export function fireSend(a: SendAttempt, id: string, now: { named: boolean; armed: boolean }): boolean {
+  if (!now.named || !now.armed) return false
+  return takeSend(a, id)
 }

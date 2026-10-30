@@ -17,8 +17,8 @@ rand = "0.8"
 # Only for the `pczt` feature: the rule for which spends of a PCZT a vault signs, read by both
 # signers (konclave-wasm and konclave-signer), so it is written once. The same orchard release and
 # features both of them already link; the orchestrator and the helper leave the feature off.
-orchard = { version = "0.15.5", default-features = false, features = ["unstable-frost"], optional = true }
-ff = { version = "0.13", optional = true }
+orchard = { version = "0.16.0", default-features = false, features = ["unstable-frost"], optional = true }
+ff = { version = "0.14", optional = true }
 
 [features]
 pczt = ["dep:orchard", "dep:ff"]

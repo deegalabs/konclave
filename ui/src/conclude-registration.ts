@@ -31,6 +31,8 @@ export type Concluded =
   | { refused: 'update'; older: boolean }
   | { refused: 'mismatch' }
   | { refused: 'unreachable' }
+  /** The coordinator stayed busy through the retries: try again, never "unreachable". */
+  | { refused: 'busy' }
   | { refused: 'rejected'; status: number }
 
 /** The dictionary key that says a refusal to the member: one wording per cause, for every screen. */
@@ -41,6 +43,7 @@ export function refusalKey(r: Exclude<Concluded, { address: string }>): string {
     case 'update': return r.older ? 'registration.updateOlder' : 'net.err.updateRequired'
     case 'mismatch': return 'net.err.registrationMismatch'
     case 'unreachable': return 'registration.unreachable'
+    case 'busy': return 'registration.tryAgain'
     case 'rejected': return r.status === 429 ? 'registration.tryAgain' : 'registration.rejected'
   }
 }
@@ -67,6 +70,7 @@ export async function concludeRegistration(vaultId: string): Promise<Concluded> 
   if (!v) {
     const failure = lastHelperPostFailure()
     if (isUpdateRequired(failure)) return { refused: 'update', older: cp < CREATION_PROTOCOL }
+    if (failure?.busy) return { refused: 'busy' }
     // Only a 4xx is the coordinator saying no; a 5xx is it failing to answer, which is the network's case.
     if (failure && failure.status < 500) return { refused: 'rejected', status: failure.status }
     return { refused: 'unreachable' }

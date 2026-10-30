@@ -4,11 +4,11 @@
 // (rejoin) and then sign an (approved) payment entirely in the background - the full "send from the
 // Dashboard" mechanism minus the React/RelaySession glue and the live broadcast.
 import { readFileSync } from 'node:fs'
-import { beforeAll, describe, expect, it, vi } from 'vitest'
+import { beforeAll, describe, expect, it, vi, afterAll } from 'vitest'
 import init, { DkgSession, identifierBytes, pcztSighash } from './wasm-pkg/konclave_wasm.js'
 import { bytesEqual } from './net'
 import { dkgProvenPczt } from './demo-vector'
-import { honestExpiry, withExpiry } from './test-vectors'
+import { honestExpiry, withExpiry, pinClock, unpinClock } from './test-vectors'
 import { OwnerSigning } from './owner-signing'
 import { recordSigned, type RecordStore } from './signed-record'
 import { parseAlphas } from './signing'
@@ -22,6 +22,9 @@ import type { GateDecision } from './approved-payment'
 
 // NU6.3's consensus branch id: an oracle written out here, not read from the code under test.
 const NU63 = 0x37a5165b
+
+beforeAll(pinClock)
+afterAll(unpinClock)
 
 beforeAll(async () => {
   await init(readFileSync(new URL('./wasm-pkg/konclave_wasm_bg.wasm', import.meta.url)))

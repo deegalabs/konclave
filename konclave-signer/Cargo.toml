@@ -15,28 +15,35 @@ anyhow = "1"
 konclave-seal = { path = "../konclave-seal", features = ["pczt"] }
 clap = { version = "4", features = ["derive"] }
 hex = "0.4"
-# Published crates.io release, no fork rev and no [patch.crates-io]. 0.15.5 declares
+# Published crates.io release, no fork rev and no [patch.crates-io]. 0.16.0 declares
 # `unstable-frost` itself, and already contains the deferred-anchor work (PR #535, released in
-# 0.15.2) that the old fork pin existed for. Same orchard release zcash-devtool resolves (ADR-0002).
-orchard = { version = "0.15.5", default-features = false, features = ["unstable-frost"] }
-# 0.9.3's `default` gained "orchard"+"sapling", which is inert here: the `signer` feature
+# 0.15.2) that the old fork pin existed for. The zcash-devtool we run must resolve the same orchard
+# release (ADR-0002); see the root Cargo.toml for where that devtool's patch arrives.
+orchard = { version = "0.16.0", default-features = false, features = ["unstable-frost"] }
+# pczt's `default` includes "orchard"+"sapling" (since 0.9.3), which is inert here: the `signer` feature
 # already implies both. A crate that must stay lean (konclave-wasm) sets default-features = false.
-pczt = { version = "0.9.3", features = ["signer"] }
-zcash_primitives = "0.30.1"
-zcash_protocol = "0.10.6"
+pczt = { version = "0.10.0", features = ["signer"] }
+zcash_primitives = "0.31.0"
+zcash_protocol = "0.11.0"
 
 # Multi-output PCZT construction for payroll (5-B.2): link zcash_client_backend directly
 # (§2 "link zcash_client_backend for the plan"), building an N-output Orchard PCZT the
 # CLI can't. Same released librustzcash line as the bridge above so the wire format matches.
-rand = "0.8"
+# zcash_client_backend / zcash_client_sqlite 0.25 / 0.23 take their randomness from rand 0.10's
+# `CryptoRng` (the only rand this crate uses; rand 0.8 was dropped with the move).
+rand10 = { package = "rand", version = "0.10", default-features = false, features = ["sys_rng"] }
 uuid = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-zcash_address = "0.13.0"
-zip321 = "0.9.0"
-zcash_client_backend = { version = "0.24.0", features = ["orchard", "pczt", "unstable"] }
-zcash_client_sqlite = { version = "0.22.0", features = ["transparent-inputs", "orchard", "unstable", "serde"] }
+zcash_address = "0.14.0"
+zip321 = "0.10.0"
+zcash_client_backend = { version = "0.25.0", features = ["orchard", "pczt", "unstable"] }
+zcash_client_sqlite = { version = "0.23.0", features = ["transparent-inputs", "orchard", "unstable", "serde"] }
 
 # Every zcash crate above is a released crates.io version. The workspace root carries NO
 # [patch.crates-io] and Cargo.lock has zero git sources; see the root Cargo.toml for why, and
 # keep engine/versions.lock in sync when these move.
+
+[dev-dependencies]
+# The device's own sighash, to run the signer and the device side by side on the real NU7 vector.
+konclave-wasm = { path = "../konclave-wasm" }

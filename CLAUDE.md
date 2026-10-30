@@ -383,7 +383,7 @@ vault by **real DKG across devices over a blind relay** and signs over it; a **h
 helper** builds/proves/broadcasts the tx without ever seeing a share, holding the vault's viewing
 key (Architecture B, ADR-0006).
 
-**Proven on mainnet.** **20 verifiable txids** (`docs/PROOF.md` / `scripts/verify-proof.mjs`),
+**Proven on mainnet.** **22 verifiable txids** (`docs/PROOF.md` / `scripts/verify-proof.mjs`),
 including the Orchard→Ironwood migration + the first Ironwood-pool spend (V6/NU6.3), a send from a
 real-DKG vault, a **browser-signed** send, a **3-of-4** vault operated by someone other than the
 maintainer, and - since 2026-08-26 - a **private payroll on the web path** (2 beneficiaries in one V6

@@ -5,6 +5,7 @@ import { getVaults, health, setSelectedVault, getSelectedVault, clearSelectedVau
 import { helperConfigured, helperBase, getCustomHelper, setCoordMode, HELPER_BASE } from '../helper'
 import { isDesktop } from '../platform'
 import { listVaults, parseVaultExport, forgetVault, updateVaultMeta, type VaultExport, type VaultPublic } from '../storage'
+import { storageErrorKey } from '../storage-errors'
 import { resumable, isCurrentFlow, sameCoordinator } from '../creation-protocol'
 import { concludeRegistration, refusalKey } from '../conclude-registration'
 import { buildVaultBackup, type VaultBackup } from '../build-backup'
@@ -285,7 +286,7 @@ export default function Vaults() {
       setRows((prev) => (prev.some((r) => r.v.id === meta.id) ? prev.map((r) => (r.v.id === meta.id ? row : r)) : [row, ...prev]))
       resetImport()
     } catch (e) {
-      setImpErr(e instanceof Error ? e.message : t('import.errGeneric'))
+      setImpErr(t(storageErrorKey(e, 'import.errGeneric')))
     } finally {
       setImpBusy(false)
     }

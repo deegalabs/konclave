@@ -21,7 +21,7 @@ function appFiles(dir: string, out: string[] = []): string[] {
 
 describe('the app carries no row of the epoch table', () => {
   it('has no branch id, activation height, anchor time or group id of an upgrade in its own code', () => {
-    const literals = ['37a5165b', '77190ad9', '3428143', '1785247643', 'd884b698']
+    const literals = ['37a5165b', '77190ad9', '3428143', '1785247643', 'd884b698', '3543405']
     for (const file of appFiles(SRC)) {
       const text = readFileSync(file, 'utf8')
         .split('\n')

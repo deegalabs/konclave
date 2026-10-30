@@ -67,6 +67,26 @@ export class Coordinator {
         return v2;
     }
     /**
+     * Does this one share verify, for this signer, in this package, under this randomizer
+     * (alpha)? Throws when it does not, or is not a share at all. Ask it of every share before
+     * `addShare`: one that fails never takes the signer's place.
+     * @param {Uint8Array} id
+     * @param {Uint8Array} share
+     * @param {Uint8Array} randomizer
+     */
+    checkShare(id, share, randomizer) {
+        const ptr0 = passArray8ToWasm0(id, wasm.__wbindgen_malloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArray8ToWasm0(share, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passArray8ToWasm0(randomizer, wasm.__wbindgen_malloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ret = wasm.coordinator_checkShare(this.__wbg_ptr, ptr0, len0, ptr1, len1, ptr2, len2);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
      * @param {Uint8Array} group_vk
      * @param {Uint8Array} pubkeys
      * @param {Uint8Array} message
@@ -328,10 +348,13 @@ export class CreationSession {
      * @param {number} my_seat
      * @param {number} n
      * @param {number} t
+     * @param {string} my_name
      */
-    constructor(device, my_seat, n, t) {
+    constructor(device, my_seat, n, t, my_name) {
         _assertClass(device, DeviceKey);
-        const ret = wasm.creationsession_new(device.__wbg_ptr, my_seat, n, t);
+        const ptr0 = passStringToWasm0(my_name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.creationsession_new(device.__wbg_ptr, my_seat, n, t, ptr0, len0);
         if (ret[2]) {
             throw takeFromExternrefTable0(ret[1]);
         }
@@ -472,15 +495,6 @@ export class DeviceKey {
      */
     publicBytes() {
         const ret = wasm.devicekey_publicBytes(this.__wbg_ptr);
-        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
-        return v1;
-    }
-    /**
-     * @returns {Uint8Array}
-     */
-    secretBytes() {
-        const ret = wasm.devicekey_secretBytes(this.__wbg_ptr);
         var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
         wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
         return v1;
@@ -824,15 +838,6 @@ export class Round1 {
         wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
         return v1;
     }
-    /**
-     * @returns {Uint8Array}
-     */
-    nonces() {
-        const ret = wasm.round1_nonces(this.__wbg_ptr);
-        var v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
-        wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
-        return v1;
-    }
 }
 if (Symbol.dispose) Round1.prototype[Symbol.dispose] = Round1.prototype.free;
 
@@ -1084,23 +1089,26 @@ export function participantRound1(kp_bytes) {
 }
 
 /**
- * Participant device, round 2 (JS): sign with the local nonces + seed.
+ * Participant device, round 2 (JS): sign with the local nonces + seed. `message` is what this
+ * device holds for itself; the share is refused unless the package signs exactly that.
  * @param {Uint8Array} sp
- * @param {Uint8Array} nonces_bytes
+ * @param {Round1} round1
  * @param {Uint8Array} kp_bytes
  * @param {Uint8Array} seed
+ * @param {Uint8Array} message
  * @returns {Uint8Array}
  */
-export function participantRound2(sp, nonces_bytes, kp_bytes, seed) {
+export function participantRound2(sp, round1, kp_bytes, seed, message) {
     const ptr0 = passArray8ToWasm0(sp, wasm.__wbindgen_malloc);
     const len0 = WASM_VECTOR_LEN;
-    const ptr1 = passArray8ToWasm0(nonces_bytes, wasm.__wbindgen_malloc);
+    _assertClass(round1, Round1);
+    const ptr1 = passArray8ToWasm0(kp_bytes, wasm.__wbindgen_malloc);
     const len1 = WASM_VECTOR_LEN;
-    const ptr2 = passArray8ToWasm0(kp_bytes, wasm.__wbindgen_malloc);
+    const ptr2 = passArray8ToWasm0(seed, wasm.__wbindgen_malloc);
     const len2 = WASM_VECTOR_LEN;
-    const ptr3 = passArray8ToWasm0(seed, wasm.__wbindgen_malloc);
+    const ptr3 = passArray8ToWasm0(message, wasm.__wbindgen_malloc);
     const len3 = WASM_VECTOR_LEN;
-    const ret = wasm.participantRound2(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3);
+    const ret = wasm.participantRound2(ptr0, len0, round1.__wbg_ptr, ptr1, len1, ptr2, len2, ptr3, len3);
     if (ret[3]) {
         throw takeFromExternrefTable0(ret[2]);
     }
@@ -1118,30 +1126,29 @@ export function participantRound2(sp, nonces_bytes, kp_bytes, seed) {
  * share is refused unless the signing package signs exactly that message, so a device cannot
  * be handed a package built over something else.
  * @param {Uint8Array} sp
- * @param {Uint8Array} nonces_bytes
+ * @param {Round1} round1
  * @param {Uint8Array} kp_bytes
  * @param {Uint8Array} randomizer
  * @param {Uint8Array} message
  * @returns {Uint8Array}
  */
-export function participantRound2WithRandomizer(sp, nonces_bytes, kp_bytes, randomizer, message) {
+export function participantRound2WithRandomizer(sp, round1, kp_bytes, randomizer, message) {
     const ptr0 = passArray8ToWasm0(sp, wasm.__wbindgen_malloc);
     const len0 = WASM_VECTOR_LEN;
-    const ptr1 = passArray8ToWasm0(nonces_bytes, wasm.__wbindgen_malloc);
+    _assertClass(round1, Round1);
+    const ptr1 = passArray8ToWasm0(kp_bytes, wasm.__wbindgen_malloc);
     const len1 = WASM_VECTOR_LEN;
-    const ptr2 = passArray8ToWasm0(kp_bytes, wasm.__wbindgen_malloc);
+    const ptr2 = passArray8ToWasm0(randomizer, wasm.__wbindgen_malloc);
     const len2 = WASM_VECTOR_LEN;
-    const ptr3 = passArray8ToWasm0(randomizer, wasm.__wbindgen_malloc);
+    const ptr3 = passArray8ToWasm0(message, wasm.__wbindgen_malloc);
     const len3 = WASM_VECTOR_LEN;
-    const ptr4 = passArray8ToWasm0(message, wasm.__wbindgen_malloc);
-    const len4 = WASM_VECTOR_LEN;
-    const ret = wasm.participantRound2WithRandomizer(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, ptr4, len4);
+    const ret = wasm.participantRound2WithRandomizer(ptr0, len0, round1.__wbg_ptr, ptr1, len1, ptr2, len2, ptr3, len3);
     if (ret[3]) {
         throw takeFromExternrefTable0(ret[2]);
     }
-    var v6 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    var v5 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
     wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
-    return v6;
+    return v5;
 }
 
 /**
@@ -1391,6 +1398,17 @@ export function uaReceiver(ua) {
     } finally {
         wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
     }
+}
+
+/**
+ * The height at which the last upgrade in this build's table activates (NU7 on mainnet). The app
+ * reads it for the notice it shows before a payment: the same number the device and the
+ * coordinator use, never one typed in the app.
+ * @returns {number}
+ */
+export function upgradeHeight() {
+    const ret = wasm.upgradeHeight();
+    return ret >>> 0;
 }
 
 /**
