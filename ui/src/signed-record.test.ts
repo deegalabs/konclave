@@ -1,8 +1,12 @@
 /// <reference types="node" />
 import { readFileSync } from 'node:fs'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it, afterAll } from 'vitest'
 import init, { approvalDecision } from './wasm-pkg/konclave_wasm.js'
 import { decideFor, hashSighash, readSigned, recordSigned, validBranch, type RecordStore } from './signed-record'
+import { pinClock, unpinClock } from './test-vectors'
+
+beforeAll(pinClock)
+afterAll(unpinClock)
 
 beforeAll(async () => {
   await init(readFileSync(new URL('./wasm-pkg/konclave_wasm_bg.wasm', import.meta.url)))
@@ -36,10 +40,10 @@ describe('what this device signed, per vault and approval', () => {
 
   it('records a transaction once, and keeps vaults and approvals apart', async () => {
     const s = memory()
-    await recordSigned(s, 'v1', 'p1', A, ALIVE, NU63)
-    await recordSigned(s, 'v1', 'p1', A.toUpperCase(), ALIVE, NU63)
-    await recordSigned(s, 'v1', 'p2', B, ALIVE, NU63)
-    await recordSigned(s, 'v2', 'p1', B, ALIVE, NU63)
+    await recordSigned(s, 'v1', 'p1', A, ALIVE, NU7)
+    await recordSigned(s, 'v1', 'p1', A.toUpperCase(), ALIVE, NU7)
+    await recordSigned(s, 'v1', 'p2', B, ALIVE, NU7)
+    await recordSigned(s, 'v2', 'p1', B, ALIVE, NU7)
     expect(readSigned(s, 'v1', 'p1')).toHaveLength(1)
     expect(readSigned(s, 'v1', 'p2')).toHaveLength(1)
     expect(readSigned(s, 'v2', 'p1')).toHaveLength(1)
@@ -149,6 +153,22 @@ describe('the branch of what this device signed', () => {
     if (d.kind !== 'second') return
     expect(d.untilUnix).toBeGreaterThan(Date.now() / 1000)
     expect(d.byEpoch).toBe(false)
+  })
+})
+
+describe('an NU6.3 record that outlives the NU7 upgrade (#638)', () => {
+  it('ends at the upgrade, not at its expiry: the time and the block come from the table WASM carries', async () => {
+    const { upgradeHeight } = await import('./wasm-pkg/konclave_wasm.js')
+    const s = memory()
+    // An expiry far past the upgrade (a pool crossing's is weeks away): it can never be mined at or after
+    // the upgrade, so the warning ends a few blocks after it and says it is the upgrade that ends it.
+    await recordSigned(s, 'v1', 'p1', A, ALIVE, NU63)
+    const d = await decideFor(s, 'v1', 'p1', B)
+    expect(d.kind).toBe('second')
+    if (d.kind !== 'second') return
+    expect(d.byEpoch).toBe(true)
+    expect(d.untilHeight).toBe(upgradeHeight() - 1)
+    expect(d.untilUnix).toBeGreaterThan(Date.now() / 1000)
   })
 })
 

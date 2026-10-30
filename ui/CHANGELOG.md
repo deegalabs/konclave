@@ -45,6 +45,16 @@ history to tidy it is how context gets lost.
 - The proof screen lists two more mainnet transactions, the 21st and the 22nd: the first production send on the redeployed
   coordinator (block 3,527,232) and a send on the 0.15.0 coordinator (block 3,529,405). `docs/PROOF.md` carries the rows,
   and the counts in the documents say 22.
+- **The app is ready for the NU7 network upgrade (block 3,543,405, about 6 November 2026).** The
+  device accepts transactions built for it, in blocks of 25 seconds, and about 27 hours after its own
+  estimate of the upgrade (between about 15 and 39 hours after the real one) it stops accepting
+  transactions built for the previous one, which the network no longer mines. A pool crossing's
+  expiry is read at the new scale of ZIP 318 (103,680 blocks after the upgrade, 34,560 before). Until the engine that builds transactions is updated on the coordinator,
+  payments are paused around the upgrade rather than built for the wrong one.
+- **A notice before the upgrade.** From about six hours before it until about a night after, the
+  dashboard says that the network upgrades, that payments are paused for a while around it, and that
+  nothing is lost and approvals stand. Until now a member learned it only when a payment was refused.
+  The block number comes from the same table the device and the coordinator use, not from the app.
 
 ### Changed
 
@@ -61,6 +71,11 @@ history to tidy it is how context gets lost.
 - **The signing demonstration and the share-repair demonstration pass the device's message to the
   signing module.** The module's seed-path signing call now requires it (see the root changelog). The
   screens behave as before.
+- **The refusal around the upgrade says what is true in both cases.** Before it: payments are paused
+  around the upgrade block, nothing was built, the approval stands, try again after the upgrade. After
+  it, if the coordinator is not updated yet: nothing was signed or sent, try again later, and approvals
+  stay valid until the proposal expires (72 hours). The old text promised a send as soon as the
+  upgrade block was mined, which is not true while the coordinator is still on the previous engine.
 
 ### Fixed
 
@@ -138,6 +153,22 @@ history to tidy it is how context gets lost.
 - The own-name check runs on the devices that carry this build.
 - In the hidden properties of the spreadsheet export, the application is still named as Microsoft
   Excel. The library writes that line and the app cannot change it (#302).
+- **The notice before the upgrade reads the chain tip the coordinator reports, and it goes away about
+  14 hours after the upgrade even if the coordinator has not been updated by then.** It says nothing
+  that depends on the update. A payment that moves funds between pools, built shortly before the
+  upgrade, can keep its funds reserved by the network for weeks: "nothing is lost" is true, and "the
+  funds are available again" is not promised.
+
+- **The notice before the upgrade appears only on the dashboard, and only once the vault's balance has
+  loaded.** The chain tip it reads comes with the balance answer, so a locked or protected vault that
+  cannot be read yet, a read that failed, and the screens to propose or approve a payment show no
+  notice. The refusal texts still apply there: a payment that the pause holds back is refused with its
+  own sentence.
+- **For some 15 to 39 hours after the upgrade a device can still warn that signing again could pay twice**
+  about an earlier payment that the network already refuses. The device estimates the upgrade from its
+  clock and stops accepting the old branch about 27 hours after that estimate; the coordinator, which
+  sees the chain, already says the payment needs a new signature. A release that anchors the clock to
+  the real time of the upgrade block shortens this.
 
 ## [0.15.0] 2026-10-26
 

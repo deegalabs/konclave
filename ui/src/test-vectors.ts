@@ -4,6 +4,8 @@
 // mainnet device accepts: the sighash, recomputed by the device, covers the new expiry, and every
 // other check runs on the vector as it is. Real mainnet fixtures replace this once captured.
 
+import { vi } from 'vitest'
+
 /** The vectors' own expiry (`ironwood_single_spend.proven.pczt`, the demo vector). */
 export const VECTOR_EXPIRY = 4_203_034
 
@@ -40,4 +42,21 @@ export function withExpiry(pczt: Uint8Array, expiry = honestExpiry()): Uint8Arra
   const out = pczt.slice()
   to.forEach((b, j) => { out[at[0]! + j] = b })
   return out
+}
+
+/** The instant the tests that sign a vector run at: 2026-10-26 12:00 UTC, well inside the NU6.3 epoch
+ *  and before the NU7 activation (block 3,543,405, about 6 November 2026). WASM reads the clock
+ *  (`Date.now()`) to decide which transactions this device accepts, and a NU6.3 vector is, correctly,
+ *  refused once that clock is past the activation; left on the real clock these tests would all fail on
+ *  the same day. `honestExpiry` and the device then agree for ever, because they read the same instant. */
+export const PINNED_NOW_MS = Date.UTC(2026, 9, 26, 12, 0, 0)
+
+/** Fakes `Date` only (timers stay real) and sets it to [`PINNED_NOW_MS`]. Pair with `unpinClock`. */
+export function pinClock(): void {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(PINNED_NOW_MS)
+}
+
+export function unpinClock(): void {
+  vi.useRealTimers()
 }
