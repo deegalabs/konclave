@@ -1250,4 +1250,13 @@ export const en: Record<string, string> = {
   'ledger.colTxid': 'Transaction (txid)',
   'ledger.xlsxFilter': 'Filter',
   'ledger.xlsxIncludes': 'The XLSX file includes each payment’s memo and transaction id.',
+  // Proposal facts: when it was created, until when it can be approved, the whole address, confirmations.
+  'proposal.factCreated': 'Created',
+  'proposal.factExpires': 'Approve until',
+  'proposal.noExpiry': 'no deadline',
+  'proposal.factAddress': 'Destination address',
+  'proposal.factConfirmations': 'Confirmations',
+  'proposal.confirmationsN': '{n} confirmations',
+  'proposal.confirmationsNone': 'not in a block yet',
+  'proposal.confirmedBlock': 'in block {h}',
 }

@@ -4,13 +4,15 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Secret, Dialog, Loading } from '../components'
 import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
-import { fmtZec, fmtZecExact, parseZecToZat } from '../format'
+import { fmtZec, fmtZecExact, parseZecToZat, fmtDate, expiryLabel } from '../format'
+import CopyButton from '../CopyButton'
+import { settlementOf, isConfirmed } from '../settlement'
 import { estimatedFeeZat } from '../fee-estimate'
-import { useT, useTr } from '../i18n'
+import { useT, useTr, useI18n } from '../i18n'
 import { useToast } from '../toast'
 import {
   getProposalDetail, getProposals, getVault, voteProposal, sendProposal, shortAddr, humanError, getBalance,
-  IS_NET, type Proposal, type PayrollLine,
+  readTransactions, IS_NET, type Proposal, type PayrollLine, type WalletTx,
 } from '../api'
 import { listVaults } from '../storage'
 import { useVaultSigner } from '../VaultSigner'
@@ -22,6 +24,12 @@ export default function Proposal() {
   // is consent, not spending, so a short balance never blocks the vote - but it must be visible:
   // the fee on a small payroll was five times the payment and appeared nowhere on this screen.
   const [spendableZat, setSpendableZat] = useState<number | null>(null)
+  // The chain tip and the vault's transactions, so a sent payment can say how many blocks sit on
+  // top of it. Confirmation is a fact about the chain, derived in settlement.ts, never read from
+  // the proposal's state.
+  const [tip, setTip] = useState<number | undefined>(undefined)
+  const [txs, setTxs] = useState<WalletTx[] | null>(null)
+  const { locale } = useI18n()
   const tr = useTr()
   const loc = useLocation() as { state?: { id?: string } }
   const nav = useNavigate()
@@ -93,9 +101,20 @@ export default function Proposal() {
 
   useEffect(() => {
     let on = true
-    void getBalance().then((b) => { if (on && b?.configured) setSpendableZat(b.spendable_zat ?? b.total_zat ?? null) })
+    void getBalance().then((b) => {
+      if (on && b?.configured) { setSpendableZat(b.spendable_zat ?? b.total_zat ?? null); setTip(b.chain_tip_height) }
+    })
     return () => { on = false }
   }, [])
+
+  // Only a sent payment has a block to count; the list is read once per sent proposal.
+  const sentTxid = p?.state === 'sent' || p?.state === 'confirmed' ? p.txid : undefined
+  useEffect(() => {
+    if (!sentTxid) return
+    let on = true
+    void readTransactions().then((list) => { if (on && Array.isArray(list)) setTxs(list) })
+    return () => { on = false }
+  }, [sentTxid])
 
   async function vote(approve: boolean) {
     if (!p) return
@@ -208,6 +227,25 @@ export default function Proposal() {
         </div>
 
         <div className="p-amt mt"><Secret><span>{val}</span></Secret> <span className="dim small">ZEC</span></div>
+
+        {/* The facts the proposal already carries, said once: when, until when, to whom, and how far
+            it is in the chain. */}
+        <dl className="p-facts">
+          <div><dt>{t('proposal.factCreated')}</dt><dd className="mono">{fmtDate(p.created_at, locale)}</dd></div>
+          {(isAwaiting || isReady) && (
+            <div><dt>{t('proposal.factExpires')}</dt><dd className="mono">{expiryLabel(p.expiry_unix, t) || t('proposal.noExpiry')}</dd></div>
+          )}
+          {!isPayroll && p.to_address && (
+            <div><dt>{t('proposal.factAddress')}</dt><dd className="mono addr-full">{p.to_address} <CopyButton value={p.to_address} /></dd></div>
+          )}
+          {isSent && (() => {
+            const s = settlementOf(p, txs)
+            const text = !isConfirmed(s) ? t('proposal.confirmationsNone')
+              : tip !== undefined && tip >= s.height ? t('proposal.confirmationsN', { n: String(tip - s.height + 1) })
+              : t('proposal.confirmedBlock', { h: String(s.height) })
+            return <div><dt>{t('proposal.factConfirmations')}</dt><dd className="mono">{text}</dd></div>
+          })()}
+        </dl>
 
         {/* What this actually costs the vault. The amount alone is not the cost: on a small payroll
             the network fee was five times the payment and appeared nowhere, so people approved

@@ -55,6 +55,11 @@ history to tidy it is how context gets lost.
   dashboard says that the network upgrades, that payments are paused for a while around it, and that
   nothing is lost and approvals stand. Until now a member learned it only when a payment was refused.
   The block number comes from the same table the device and the coordinator use, not from the app.
+- **A proposal states its facts.** Under the amount, the screen now says when the proposal was
+  created, until when it can be approved (or that it has no deadline), the whole destination address
+  with a copy button, and, once sent, how many confirmations the payment has, counted from the
+  chain, or that it is not in a block yet. The address used to be shortened everywhere, the deadline
+  appeared only in the list, and confirmations were nowhere on this screen.
 
 ### Changed
 

@@ -1246,4 +1246,13 @@ export const ptBR: Record<string, string> = {
   'ledger.colTxid': 'Transação (txid)',
   'ledger.xlsxFilter': 'Filtro',
   'ledger.xlsxIncludes': 'O arquivo XLSX inclui o memo e o identificador da transação de cada pagamento.',
+  // Proposal facts: when it was created, until when it can be approved, the whole address, confirmations.
+  'proposal.factCreated': 'Criada em',
+  'proposal.factExpires': 'Aprovar até',
+  'proposal.noExpiry': 'sem prazo',
+  'proposal.factAddress': 'Endereço de destino',
+  'proposal.factConfirmations': 'Confirmações',
+  'proposal.confirmationsN': '{n} confirmações',
+  'proposal.confirmationsNone': 'ainda fora de bloco',
+  'proposal.confirmedBlock': 'no bloco {h}',
 }
