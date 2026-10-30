@@ -147,6 +147,12 @@ history to tidy it is how context gets lost.
   active filter; an empty book exports zeros instead of formulas; and the hidden properties say
   nothing the Summary sheet does not. The CSV link still exports the whole book: it comes from the
   coordinator, which does not know the screen's filters (#302, with #301).
+- **The spreadsheet's "Open" total no longer counts refused or expired proposals.** The Summary
+  sheet took as open everything that was not settled, so a refused, expired or invalidated proposal,
+  whose money never left, was added to "Open", and the figure disagreed with the one the screen
+  shows. The Movements sheet now carries an "Open" column (yes for a proposal still awaiting
+  approval or ready to sign), the Summary's "Open" sums that column, and the screen's total, its
+  filter and the export read one rule (#302).
 
 ### Known limits
 

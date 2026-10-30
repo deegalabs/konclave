@@ -94,4 +94,16 @@ describe('the Ledger screen exports what it shows (#302)', () => {
     expect(screen.getByText(en('ledger.xlsxIncludes'))).toBeTruthy()
     expect(screen.getByRole('button', { name: en('ledger.exportXlsx') }).getAttribute('title')).toBe(en('ledger.xlsxIncludes'))
   })
+  it("marks each row open by the screen's own rule, so a refused proposal is neither settled nor open", async () => {
+    const refused = { ...base, id: 'p4', kind: 'payment', state: 'rejected', memo: 'Refused office chairs', to_address: 'u1no', value_zat: 75000000, value_zec: '0.75', created_at: 1760100000, approvals: [], refusals: ['Alice', 'Bob'], approvals_count: 0 }
+    getLedger.mockResolvedValue([pending, refused, rent])
+    mount()
+    await screen.findByText('Refused office chairs')
+    await clickExport()
+    expect(exported().items.map((i) => [i.memo, i.settled, i.open])).toEqual([
+      ['', false, true], // awaiting: can still move
+      ['Refused office chairs', false, false], // closed without payment
+      ['October rent', true, false],
+    ])
+  })
 })

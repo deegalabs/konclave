@@ -11,13 +11,13 @@ const labels: LedgerXlsxData['labels'] = {
   summary: 'Summary', movements: 'Movements', vault: 'Vault', period: 'Period', filter: 'Filter',
   generated: 'Generated', entries: 'Entries', settledOut: 'Settled out', open: 'Open',
   colDate: 'Date', colDocument: 'Document', colKind: 'Kind', colBeneficiary: 'Beneficiary',
-  colAddress: 'Address', colMemo: 'Memo', colState: 'State', colSettled: 'Settled', colValue: 'Value',
+  colAddress: 'Address', colMemo: 'Memo', colState: 'State', colSettled: 'Settled', colOpen: 'Open', colValue: 'Value',
   colTxid: 'Transaction (txid)', total: 'TOTAL', yes: 'yes', no: 'no',
 }
 const TXID = 'a'.repeat(64)
 const item = (over: Partial<LedgerXlsxItem> = {}): LedgerXlsxItem => ({
   dateISO: '2026-10-01', document: 'Rent', kind: 'Payment', beneficiary: '', address: 'u1rent',
-  memo: '', state: 'confirmed', settled: true, zec: 1.5, txid: '', ...over,
+  memo: '', state: 'confirmed', settled: true, open: false, zec: 1.5, txid: '', ...over,
 })
 const generatedAt = new Date('2026-10-29T12:34:56Z')
 const data = (items: LedgerXlsxItem[], filter = ''): LedgerXlsxData => ({ vaultName: 'Caixa', period: '2026-10-01', filter, generatedAt, items, labels })
@@ -31,15 +31,36 @@ function summaryValue(wb: Awaited<ReturnType<typeof buildLedgerWorkbook>>, label
   return found
 }
 
+/**
+ * What a spreadsheet app shows for a Summary cell: a number as is, or a SUMIF formula evaluated
+ * over the Movements cells, so a test asserts the figure and not which column the formula names.
+ */
+function shown(wb: Awaited<ReturnType<typeof buildLedgerWorkbook>>, v: unknown): number {
+  if (typeof v === 'number') return v
+  const f = (v as { formula?: string } | undefined)?.formula ?? ''
+  const cells = (sheet: string, from: string, to: string): unknown[] => {
+    const ws = wb.getWorksheet(sheet)!
+    const out: unknown[] = []
+    for (let r = Number(from.slice(1)); r <= Number(to.slice(1)); r++) out.push(ws.getCell(`${from[0]}${r}`).value)
+    return out
+  }
+  const m = /^SUMIF\((\w+)!([A-Z]\d+):([A-Z]\d+),"([^"]*)",(\w+)!([A-Z]\d+):([A-Z]\d+)\)$/.exec(f)
+  if (!m) throw new Error(`not a formula this test evaluates: ${f}`)
+  const [, cSheet = '', cFrom = '', cTo = '', crit = '', vSheet = '', vFrom = '', vTo = ''] = m
+  const crits = cells(cSheet, cFrom, cTo)
+  const vals = cells(vSheet, vFrom, vTo)
+  return vals.reduce<number>((acc, x, i) => acc + (crits[i] === crit ? Number(x) : 0), 0)
+}
+
 describe('the XLSX ledger export (#302)', () => {
   it('gives every movement its memo and its txid, linked to the public explorer', async () => {
     const wb = await buildLedgerWorkbook(data([
       item({ memo: 'October rent', txid: TXID }),
-      item({ document: 'Payroll', kind: 'Payroll', beneficiary: 'Alice', address: 'u1alice', memo: 'Alice Oct', state: 'awaiting', settled: false, zec: 0.25 }),
+      item({ document: 'Payroll', kind: 'Payroll', beneficiary: 'Alice', address: 'u1alice', memo: 'Alice Oct', state: 'awaiting', settled: false, open: true, zec: 0.25 }),
     ]))
     const mv = wb.getWorksheet('Movements')!
     expect((mv.getRow(1).values as unknown[]).slice(1)).toEqual([
-      'Date', 'Document', 'Kind', 'Beneficiary', 'Address', 'Memo', 'State', 'Settled', 'Value', 'Transaction (txid)',
+      'Date', 'Document', 'Kind', 'Beneficiary', 'Address', 'Memo', 'State', 'Settled', 'Open', 'Value', 'Transaction (txid)',
     ])
     expect(mv.getRow(2).getCell('memo').value).toBe('October rent')
     expect(mv.getRow(2).getCell('txid').value).toMatchObject({ text: TXID, hyperlink: explorerTxUrl(TXID) })
@@ -48,13 +69,13 @@ describe('the XLSX ledger export (#302)', () => {
   })
 
   it('sums exactly the data rows, on the sheet and in the summary, whatever the columns are', async () => {
-    const wb = await buildLedgerWorkbook(data([item(), item({ settled: false, state: 'awaiting', zec: 0.25 })]))
+    const wb = await buildLedgerWorkbook(data([item(), item({ settled: false, open: true, state: 'awaiting', zec: 0.25 })]))
     const mv = wb.getWorksheet('Movements')!
     const total = mv.getRow(4) // header, two rows, total
     expect(total.getCell('document').value).toBe('TOTAL')
-    expect(total.getCell('zec').formula).toBe('SUM(I2:I3)')
-    expect(summaryValue(wb, 'Settled out')).toMatchObject({ formula: 'SUMIF(Movements!H2:H3,"yes",Movements!I2:I3)' })
-    expect(summaryValue(wb, 'Open')).toMatchObject({ formula: 'SUMIF(Movements!H2:H3,"no",Movements!I2:I3)' })
+    expect(total.getCell('zec').formula).toBe('SUM(J2:J3)')
+    expect(summaryValue(wb, 'Settled out')).toMatchObject({ formula: 'SUMIF(Movements!H2:H3,"yes",Movements!J2:J3)' })
+    expect(summaryValue(wb, 'Open')).toMatchObject({ formula: 'SUMIF(Movements!I2:I3,"yes",Movements!J2:J3)' })
     expect(summaryValue(wb, 'Entries')).toBe(2)
   })
 
@@ -87,5 +108,15 @@ describe('the XLSX ledger export (#302)', () => {
     expect(back.created.getTime()).toBe(generatedAt.getTime())
     expect(back.modified.getTime()).toBe(generatedAt.getTime())
     expect(summaryValue(back, 'Generated')).toBe('2026-10-29 12:34')
+  })
+  it('counts as open only what can still move: a refused or expired row is neither settled nor open', async () => {
+    const wb = await buildLedgerWorkbook(data([
+      item(), // confirmed, 1.5: settled
+      item({ state: 'awaiting', settled: false, open: true, zec: 0.25 }), // still able to move
+      item({ state: 'rejected', settled: false, open: false, zec: 0.75 }), // closed, no money moved
+      item({ state: 'expired', settled: false, open: false, zec: 0.5 }),
+    ]))
+    expect(shown(wb, summaryValue(wb, 'Settled out'))).toBe(1.5)
+    expect(shown(wb, summaryValue(wb, 'Open'))).toBe(0.25)
   })
 })
