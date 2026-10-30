@@ -106,3 +106,28 @@ fn the_zip317_constants_the_coordinator_validates_with_are_the_crates() {
         zip317::GRACE_ACTIONS as u64
     );
 }
+
+/// The device keeps its own copy of the two ZIP 317 numbers (`konclave-wasm`, private constants: it cannot link
+/// `zcash_primitives`). Reading them from the SOURCE ties them to the crate without touching that file, which
+/// the signing work edits and which is packaged into the browser module (a test inside it would move every line
+/// number after it, and the module embeds them).
+#[test]
+fn the_zip317_constants_the_device_keeps_are_the_crates() {
+    let src = include_str!("../../konclave-wasm/src/lib.rs");
+    let value = |name: &str| -> u64 {
+        let line = src
+            .lines()
+            .find(|l| l.trim_start().starts_with(&format!("const {name}: u64 =")))
+            .unwrap_or_else(|| panic!("the device no longer declares `const {name}: u64 = ...;`"));
+        line.split('=')
+            .nth(1)
+            .unwrap()
+            .trim()
+            .trim_end_matches(';')
+            .replace('_', "")
+            .parse()
+            .unwrap_or_else(|_| panic!("cannot read the value of {name} from: {line}"))
+    };
+    assert_eq!(value("MARGINAL_FEE"), zip317::MARGINAL_FEE.into_u64());
+    assert_eq!(value("GRACE_ACTIONS"), zip317::GRACE_ACTIONS as u64);
+}
