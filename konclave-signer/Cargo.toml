@@ -20,7 +20,7 @@ hex = "0.4"
 # 0.15.2) that the old fork pin existed for. The zcash-devtool we run must resolve the same orchard
 # release (ADR-0002); see the root Cargo.toml for where that devtool's patch arrives.
 orchard = { version = "0.16.0", default-features = false, features = ["unstable-frost"] }
-# 0.9.3's `default` gained "orchard"+"sapling", which is inert here: the `signer` feature
+# pczt's `default` includes "orchard"+"sapling" (since 0.9.3), which is inert here: the `signer` feature
 # already implies both. A crate that must stay lean (konclave-wasm) sets default-features = false.
 pczt = { version = "0.10.0", features = ["signer"] }
 zcash_primitives = "0.31.0"
@@ -29,9 +29,8 @@ zcash_protocol = "0.11.0"
 # Multi-output PCZT construction for payroll (5-B.2): link zcash_client_backend directly
 # (§2 "link zcash_client_backend for the plan"), building an N-output Orchard PCZT the
 # CLI can't. Same released librustzcash line as the bridge above so the wire format matches.
-rand = "0.8"
 # zcash_client_backend / zcash_client_sqlite 0.25 / 0.23 take their randomness from rand 0.10's
-# `CryptoRng`, which rand 0.8's OsRng does not implement. Only the wallet code uses this one.
+# `CryptoRng` (the only rand this crate uses; rand 0.8 was dropped with the move).
 rand10 = { package = "rand", version = "0.10", default-features = false, features = ["sys_rng"] }
 uuid = "1"
 serde = { version = "1", features = ["derive"] }
