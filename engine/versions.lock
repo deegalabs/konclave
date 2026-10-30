@@ -104,6 +104,55 @@ patch_sha256 = "238677420e320f7922323641b81a42da757098fc11d30938b4776d72701cf05e
 #   To rebuild: export 539ae81d, `git apply` the patch, `cargo build --release --locked`.
 # Superseded: 045c32288b359caea337a1334dce60a813f9295a3b94eb8abf51a44a93965ce7 (2026-08-22, rc pins).
 
+# THE NU7 DEVTOOL (recorded 2026-10-26, BEFORE any build of it; local branch, nothing deployed).
+# zcash-devtool upstream has no build that follows NU7 on mainnet: its `main` still pins the
+# `-pre.N` crates and a librustzcash git rev, and `zcash_protocol 0.11.0-pre.1` has no mainnet NU7
+# height. The released stable line (2026-10-21: zcash_protocol 0.11.0 = NU7 at 3,543,405, branch
+# 0x77190AD9) is what this patch moves the manifest to. Same recipe as the entry above: upstream
+# rev PLUS a patch, rebuilt with `cargo build --release --locked`.
+[source.zcash-devtool-stable]
+repo         = "https://github.com/zcash/zcash-devtool"
+rev          = "0b3436bb"                                          # main as of 2026-10-17 (merge of PR 258)
+patch        = "engine/patches/zcash-devtool-0b3436bb-stable-crates.patch"
+patch_sha256 = "7fa2670a2d2418ea7aaa8f7b3413dedc1d627d0d407aaddfa9891c4ae6f19d0c"
+lockfile        = "engine/patches/zcash-devtool-0b3436bb-stable-crates.Cargo.lock"
+lockfile_sha256 = "250569dfaab9520804b0b76b251635c54d860d0ea7949eb4f97f76ff8c5dfe18"
+status       = "built 2026-10-26 from the recorded inputs, NOT deployed anywhere"
+built_sha256 = "5df38d2cd1aa857ab6fc83d7b57769da389c47c015d8971562ed071b9f743c08"
+built_bytes  = 103881728
+# Built from an export of 0b3436bb plus the patch and the lockfile above, `cargo build --release
+# --locked --bin zcash-devtool`, rustc 1.99.0, own target directory, 2026-10-26. A second build on the
+# same host came out byte-identical (observed once; across hosts it is not claimed, since build paths
+# end up in the binary). The same engine set of that day,
+# `bin.nu7-recut-c196c03` on the build host: our helper-server (3567816 bytes, sha256 27b73b4a53b1...),
+# our konclave-signer (8230640 bytes, sha256 fbfd5247419b...) built from commit c196c03 of the re-cut
+# branch, this devtool, and the unchanged zcash-sign. Checked against the previous devtool: the usage
+# of the subcommands Konclave calls (8 of them, plus `pczt inspect`, `wallet list-accounts` and
+# `wallet get-info`, which are only inspected) is identical, `balance --json` has the same keys, and a
+# COPY of an EMPTY view-only wallet written by the previous engine opens and migrates (71 to 75
+# migrations, one new table) and syncs. A wallet WITH history has not been rehearsed yet: until it is,
+# the upgrade of a vault's wallet is not proven on real notes, and that is a blocker for production.
+# What the patch does: the 11 pre-release pins of the manifest go to the released crates (protocol
+# 0.11.0, primitives 0.31.0, backend 0.25.0, sqlite 0.23.0, pczt 0.10.0, keys 0.17.0, address 0.14.0,
+# transparent 0.11.0, zip321 0.10.0, pool_migration 0.2.0, proofs 0.31.0), the `[patch.crates-io]`
+# git block is removed, and five command files move to `PrecomputedSighashData` and
+# `BlockSpacing`. No edit in `pczt create`, `pczt prove`, `pczt send` or the `wallet` tree, the
+# commands Konclave sends money through. To apply: export 0b3436bb, `patch -p1` the patch (paths carry one
+# leading directory), copy the lockfile over `Cargo.lock`, `cargo build --release --locked`.
+# Resolves, with zero git sources: orchard 0.16.0, sapling-crypto 0.9.0, rusqlite 0.37.0 and the
+# crates above, plus one pre-release left in the graph by a dependency (`kem 0.3.0-pre.0`, transitive).
+# `zcash_client_sqlite` 0.23.0 adds migrations that cannot be reverted: this devtool
+# is only ever opened on COPIES of wallets until the production snapshot is taken (README of the
+# deploy, "the upgrade is one-way").
+# What runs the migrations, checked 2026-10-29 on copies of a funded wallet: ONLY `zcash-devtool wallet
+# upgrade`, which the coordinator runs before a sync or a read (`orchestrator/src/wallet.rs`, `upgrade`).
+# `konclave-signer` only opens the wallet (`WalletDb::for_path`) and never migrates it, and `wallet
+# balance` does not either; the new devtool's `wallet sync` on an unmigrated wallet FAILS ("no such table")
+# until `upgrade` has run. So the four binaries ship as ONE set and the wallet copies are taken BEFORE
+# the first read after the deploy. The previous signer and devtool did open, upgrade (a no-op) and sync a
+# migrated wallet without error on that one-note wallet: a rollback is not proven to fail on such a wallet,
+# and it is not proven safe on one with Sapling or transparent history, so the wallet copy stays the rollback.
+
 # Binaries produced from the frost-tools source above (sha256 of THIS build; see NOTE).
 # Rebuilt on the build host 2026-08-22 at frost-tools 06c0dbdbb1ba; the sha256 below are the real
 # values of that build (not bit-reproducible across machines; see NOTE):
