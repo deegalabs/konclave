@@ -2376,15 +2376,25 @@ pub fn change_receiver(ufvk: &str, network: &str) -> Result<String, ToolError> {
     })?;
 
     let addr = fvk.address_at(0u32, orchard::keys::Scope::Internal);
+    // Built from the address bytes with `zcash_address`, not `UnifiedAddress::from_receivers`: that
+    // constructor takes a different set of arguments depending on which pools other crates of the
+    // workspace switch on (and, since zcash_keys 0.17, an expiry), so one call would not compile
+    // under every feature set. This is the plain Revision 0 `u1` address, as before.
+    use zcash_address::unified::{Address as Ua, Encoding, Receiver, Revision, Uitem};
+    let ua = Ua::try_from_items(
+        Revision::R0,
+        vec![Uitem::Data(Receiver::Orchard(addr.to_raw_address_bytes()))],
+    )
+    .map_err(|_| {
+        ToolError::parse(
+            "change_receiver",
+            "the change receiver is not a valid UA".to_string(),
+        )
+    })?;
     Ok(
-        zcash_keys::address::UnifiedAddress::from_receivers(Some(addr), None)
-            .ok_or_else(|| {
-                ToolError::parse(
-                    "change_receiver",
-                    "the change receiver is not a valid UA".to_string(),
-                )
-            })?
-            .encode(&params),
+        ua.encode(&zcash_protocol::consensus::Parameters::network_type(
+            &params,
+        )),
     )
 }
 
@@ -4814,6 +4824,12 @@ mod change_receiver_tests {
             "and it is THE change receiver"
         );
         assert_ne!(filled, after(&a).address, "never the receiving address");
+        // Pinned by value: the string the implementation before the crate move (UnifiedAddress::from_receivers)
+        // gave for this key, so rebuilding the address another way cannot change what a vault announces.
+        assert_eq!(
+            filled,
+            "u1d06pafex5wdk529qnu4lnsdkukajnzncx27gn2t4a6mq7hj4tdx78xe4vl65n97hcq7n7tpu6dqz3kn49yrggdwh25ernx0sag0pvgn2",
+        );
         assert_eq!(
             after(&b).change_receiver,
             "u1already",

@@ -48,6 +48,11 @@ history to tidy it is how context gets lost.
 
 ### Changed
 
+- **The signing module in the web app is rebuilt on the stable NU7 crate line** (orchard 0.16.0, pczt
+  0.10.0, zcash_primitives 0.31.0, and the crates that go with them; see the root changelog). The
+  packaged module in the app is a new build of the same code against newer releases of those crates.
+  What a member sees is unchanged, and the device's own recompute of the signature hash still matches
+  the signer on the transactions it matched before.
 - **The signing demonstration and the share-repair demonstration pass the device's message to the
   signing module.** The module's seed-path signing call now requires it (see the root changelog). The
   screens behave as before.

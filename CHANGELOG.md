@@ -69,6 +69,21 @@ explicitly accepted.
 
 ### Changed
 
+- **The Rust workspace moves to the stable NU7 crate line** (pczt 0.10.0, orchard 0.16.0,
+  zcash_protocol 0.11.0, zcash_primitives 0.31.0, zcash_client_backend 0.25.0, zcash_client_sqlite
+  0.23.0, zcash_keys 0.17.0, zcash_address 0.14.0, zip321 0.10.0, released 2026-10-21; under them
+  `zcash_note_encryption` 0.5.1, `ff` 0.14 and `rand` 0.10, the signer's wallet randomness).
+  A transaction signed under the previous branch cannot be mined after the upgrade, and an engine on
+  the previous crates cannot build one for it. The device's own recompute of the signature hash still
+  matches the signer byte for byte on the old fixtures and on a fixture rewritten to the new branch.
+  **Only the Rust workspace moves in this change.** The `zcash-devtool` the engine runs, and the
+  records that pin it (`engine/patches`, `engine/versions.lock`), follow in a separate change, so the
+  engine is not complete from this commit alone and must not be deployed from it. The wallet database
+  migrations of `zcash_client_sqlite` 0.23 are not reversible. They run when the new `zcash-devtool`
+  upgrades a wallet, which the coordinator does before the first read of each vault; the new signer
+  opens a wallet without migrating it. The signer and the devtool ship as one set, and a copy of
+  `/data/vaults/*/wallet` is taken first, because going back after the first read is not proven safe
+  outside the wallet shape that was tried (`deploy/helper/README.md`).
 - **The browser module's seed-path signing call takes the device's message as a required last
   argument.** In the SDK this is `participantRound2`, so a call with the old four arguments now
   fails. Nothing a member does with a vault changes.
