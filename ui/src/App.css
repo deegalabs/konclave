@@ -1512,3 +1512,5 @@ body:has(.pwa-update) .page{padding-bottom:140px}
 .passkey-btn:hover:not(:disabled), .passkey-btn:focus-visible { border-color: var(--accent); }
 .passkey-btn:disabled { opacity: .6; cursor: default; }
 .passkey-btn svg { flex: 0 0 auto; }
+/* A closed proposal, shown on request: muted, with its state in the subtitle. */
+.plist-row.closed .plist-title, .plist-row.closed .plist-val{color:var(--text-muted)}

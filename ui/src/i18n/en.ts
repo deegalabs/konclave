@@ -1250,4 +1250,13 @@ export const en: Record<string, string> = {
   'ledger.colTxid': 'Transaction (txid)',
   'ledger.xlsxFilter': 'Filter',
   'ledger.xlsxIncludes': 'The XLSX file includes each payment’s memo and transaction id.',
+  // Proposals list (#292): what needs this member first, sent until confirmed, closed on request, a read that failed is said.
+  'proposals.needsYou': 'Needs you',
+  'proposals.withOthers': 'With the others',
+  'proposals.sentAwaiting': 'Sent, awaiting confirmation',
+  'proposals.showClosed': 'Show closed ({n})',
+  'proposals.hideClosed': 'Hide closed',
+  'proposals.unreadTitle': 'Could not read the proposals',
+  'proposals.unreadLead': 'The list could not be read. Your vault and your share are still on this device; only the list did not arrive.',
+  'proposals.retry': 'Try again',
 }

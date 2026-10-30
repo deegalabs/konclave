@@ -55,6 +55,13 @@ history to tidy it is how context gets lost.
   dashboard says that the network upgrades, that payments are paused for a while around it, and that
   nothing is lost and approvals stand. Until now a member learned it only when a payment was refused.
   The block number comes from the same table the device and the coordinator use, not from the app.
+- **The proposals list puts what needs you first, keeps a sent payment until the chain confirms
+  it, and says when it could not be read.** The list came in the coordinator's order, with no group
+  for what waits on this member and no deadline order; a payment vanished from it the moment it was
+  sent; and when the list could not be read the screen drew an empty desk, as if nothing were
+  pending. Now "Needs you" comes first (your signature, then your vote, soonest deadline first),
+  then what is with the others, then the sent ones until a block holds them; closed proposals sit
+  behind a "Show closed" button; and a read that failed says so, with "Try again" (#292).
 
 ### Changed
 
