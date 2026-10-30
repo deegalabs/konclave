@@ -1401,6 +1401,17 @@ export function uaReceiver(ua) {
 }
 
 /**
+ * The height at which the last upgrade in this build's table activates (NU7 on mainnet). The app
+ * reads it for the notice it shows before a payment: the same number the device and the
+ * coordinator use, never one typed in the app.
+ * @returns {number}
+ */
+export function upgradeHeight() {
+    const ret = wasm.upgradeHeight();
+    return ret >>> 0;
+}
+
+/**
  * Verify a group signature against the vault's key - so EVERY device confirms the result
  * for itself, not on the coordinator's word. All inputs are public (signing package, seed,
  * message, signature); the share never enters.

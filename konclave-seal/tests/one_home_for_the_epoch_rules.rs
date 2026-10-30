@@ -209,7 +209,17 @@ fn the_table_and_the_margin_are_defined_in_epochs_and_nowhere_else() {
     assert!(home.contains("pub const REORG_MARGIN: u32 = 10;"));
     for (path, text) in production_sources() {
         let code = code_only(&text).to_ascii_lowercase().replace('_', "");
-        for literal in ["37a5165b", "3428143", "1785247643", "d884b698", "77190ad9"] {
+        for literal in [
+            "37a5165b",
+            "3428143",
+            "1785247643",
+            "d884b698",
+            "77190ad9",
+            "3543405",
+            "34560",
+            "69120",
+            "103680",
+        ] {
             assert!(
                 !code.contains(literal),
                 "{path}: {literal} is a row of the epoch table; it lives in konclave-seal::epochs only"
