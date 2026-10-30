@@ -76,11 +76,13 @@ history to tidy it is how context gets lost.
   it, if the coordinator is not updated yet: nothing was signed or sent, try again later, and approvals
   stay valid until the proposal expires (72 hours). The old text promised a send as soon as the
   upgrade block was mined, which is not true while the coordinator is still on the previous engine.
-- **The Portuguese menu calls the book by the screen's name.** The side menu said "Registro" while
-  the screen it opens is titled "Razão" and the activity tab says "Razão": one book, two names, and
-  the member had to work out that they were the same thing. The menu now says "Razão" and the caption
-  under the title reads "Razão ao vivo". English already used one word. A test now keeps the three
-  labels equal in every language.
+- **The book has one name in Portuguese: "Livro".** The side menu said "Registro", the screen it
+  opens was titled "Razão", the activity tab said "Razão" and the dashboard card "Razão / contas": one
+  book, three names, and the member had to work out that they were the same thing. Everything now
+  says "Livro" (the menu, the title, the tab, the dashboard card, the links from Proposals, the
+  caption "Livro ao vivo" and the in-app docs), the plain word over the accounting term. English
+  already used one word, "Ledger". A test keeps the menu entry, the screen title and the activity
+  tab equal in every language.
 
 ### Fixed
 

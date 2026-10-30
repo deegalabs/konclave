@@ -242,7 +242,7 @@ export const SECTIONS: Section[] = [
           { 'pt-BR': '**Aprovar/recusar** (`/proposals`) - quórum real; nada move sem as aprovações, e as propostas expiram. A aprovação ainda não fica presa ao conteúdo exato da proposta (#567).', en: '**Approve/refuse** (`/proposals`) - real quorum; nothing moves without the approvals, and proposals expire. An approval is not yet tied to the exact content of the proposal (#567).' },
           { 'pt-BR': '**Assinar e enviar** - cerimônia FROST com as partes de quem aprovou; preview + confirmação; a chave nunca é remontada.', en: "**Sign & send** - a FROST ceremony with the approvers' shares; preview + confirm; the key is never reassembled." },
           { 'pt-BR': '**Folha privada** (`/payroll`) - N beneficiários numa única transação blindada, aprovada uma vez, cada holerite num memo cifrado (CSV só na versão local).', en: '**Private payroll** (`/payroll`) - N beneficiaries in one shielded transaction, approved once, each payslip in an encrypted memo (CSV import in the local build only).' },
-          { 'pt-BR': '**Razão/contas** (`/ledger`) - livro interno completo + exportação CSV itemizada (folha de N vira N linhas).', en: '**Ledger/accounting** (`/ledger`) - a full internal book + itemized CSV export (payroll of N becomes N rows).' },
+          { 'pt-BR': '**Livro/contas** (`/ledger`) - livro interno completo + exportação CSV itemizada (folha de N vira N linhas).', en: '**Ledger/accounting** (`/ledger`) - a full internal book + itemized CSV export (payroll of N becomes N rows).' },
         ],
       },
       { k: 'h', t: { 'pt-BR': 'Além do básico', en: 'Beyond the basics' } },
