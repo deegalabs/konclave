@@ -56,6 +56,13 @@ explicitly accepted.
 
 ## [Unreleased]
 
+## [0.16.0] 2026-10-30
+
+> **Services deployed when this was cut (2026-10-30):** coordinator `e47215d`, relay `f8dc88d0970337a3`.
+> The web app is this release's own commit. The two services are deployed by hand and may be
+> older than it - recording what they were ANSWERING is the point, not what they should have been.
+
+
 ### Security
 
 These fixes reach a device when it runs this version. If the app says "New version available", press

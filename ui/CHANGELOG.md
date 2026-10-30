@@ -40,6 +40,8 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+## [0.16.0] 2026-10-30
+
 ### Security
 
 These fixes reach a device when it runs this version. If the app says "New version available", press
