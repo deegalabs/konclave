@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { startVisiblePoll } from '../usePoll'
+import { startVisiblePoll, usePoll } from '../usePoll'
 import { Link, useNavigate } from 'react-router-dom'
 import { Secret } from '../components'
 import { SkeletonRows } from '../skeleton'
@@ -7,27 +7,27 @@ import { PageHeader } from '../page'
 import { Identicon } from '../avatar'
 import { getProposals, getVault, readTransactions, type Proposal, type WalletTx } from '../api'
 import { listVaults } from '../storage'
-import { rankDesk, type Band } from '../desk'
+import { rankDesk, expiredByClock, stampKey, type Band } from '../desk'
 import { settlementOf, isConfirmed } from '../settlement'
 import { expiryLabel, fmtZec } from '../format'
 import { useLoading } from '../loading'
 import { useT, useTr, type TFn, type TRichFn } from '../i18n'
 
 // Closed without payment: shown only on request, so the desk stays about what can still move. An
-// awaiting proposal whose clock has run out joins them on this device before the coordinator
-// recomputes it, so it never sits under "needs you" as expired.
+// open proposal whose clock has run out (awaiting or ready: `expiredByClock`, desk.ts) joins them
+// on this device before the coordinator recomputes it, so it never sits under "needs you" as expired.
 const CLOSED = new Set(['rejected', 'expired', 'cancelled', 'superseded'])
-const expiredByClock = (p: Proposal) => p.state === 'awaiting' && !!p.expiry_unix && p.expiry_unix * 1000 < Date.now()
 const isClosed = (p: Proposal) => CLOSED.has(p.state) || expiredByClock(p)
 
-type RowProps = { p: Proposal; band?: Band; last?: boolean; threshold: number; t: TFn; tr: TRichFn; open: (p: Proposal) => void }
+type RowProps = { p: Proposal; band?: Band; last?: boolean; personal: boolean; threshold: number; t: TFn; tr: TRichFn; open: (p: Proposal) => void }
 
 // Module-level, so a poll does not remount every row (and drop the focus or hover a member has on
 // one). The title is the link; the whole row answers a click as a convenience, nothing more.
-function Row({ p, band, last, threshold, t, tr, open }: RowProps) {
+function Row({ p, band, last, personal, threshold, t, tr, open }: RowProps) {
   const closed = isClosed(p)
   const sent = p.state === 'sent'
-  const stamp = closed ? t('state.' + (expiredByClock(p) ? 'expired' : p.state)) : sent ? '' : band ? t('desk.band.' + band) : ''
+  // Neutral wording when the device does not know its member name (stampKey, desk.ts).
+  const stamp = closed ? t('state.' + (expiredByClock(p) ? 'expired' : p.state)) : sent ? '' : band ? t(stampKey(band, personal)) : ''
   const tail = sent && p.txid ? `tx ${p.txid.slice(0, 8)}…` : closed ? '' : (p.expiry_unix ? expiryLabel(p.expiry_unix, t) : '')
   return (
     <div className={'plist-row' + (closed ? ' closed' : '')} role="listitem" onClick={() => open(p)}>
@@ -72,8 +72,8 @@ export default function Proposals({ embedded = false }: { embedded?: boolean }) 
   const t = useT()
   const tr = useTr()
   const nav = useNavigate()
-  // null until the first read answers; stays null when it could not be read (#292, class 5 of the
-  // feedback ruler: a failed read is said, never drawn as an empty desk).
+  // null until the first read answers; stays null when it could not be read (#292: a failed read
+  // is said, never drawn as an empty desk).
   const [rows, setRows] = useState<Proposal[] | null>(null)
   const [unread, setUnread] = useState(false)
   const [threshold, setThreshold] = useState(2)
@@ -97,7 +97,7 @@ export default function Proposals({ embedded = false }: { embedded?: boolean }) 
       inFlight = true
       if (first) begin()
       try {
-        const [ps, v, list] = await Promise.all([getProposals(), getVault(), readTransactions()])
+        const [ps, v] = await Promise.all([getProposals(), getVault()])
         if (!on) return
         if (v) {
           setThreshold(v.threshold)
@@ -106,7 +106,6 @@ export default function Proposals({ embedded = false }: { embedded?: boolean }) 
             if (on) setMe(saved.find((s) => s.id === v.id)?.myName ?? null)
           } catch { /* local-bridge mode: no on-device record */ }
         }
-        if (Array.isArray(list)) setTxs(list)
         if (ps) { setRows(ps); setUnread(false) } else if (first) setUnread(true)
       } finally {
         inFlight = false
@@ -120,6 +119,18 @@ export default function Proposals({ embedded = false }: { embedded?: boolean }) 
     // retry button that had just appeared (the read it offered was taken away from under it).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attempt])
+
+  // The wallet's transaction list is read apart from the proposals, and only while a sent proposal
+  // is on the list: it is what tells a sent one from one the chain already holds (settlement.ts),
+  // and nothing else here needs it. Once when a sent proposal appears, then once a minute.
+  const hasSent = (rows ?? []).some((p) => p.state === 'sent')
+  useEffect(() => {
+    if (!hasSent) return
+    let on = true
+    void readTransactions().then((list) => { if (on && Array.isArray(list)) setTxs(list) })
+    return () => { on = false }
+  }, [hasSent])
+  usePoll(() => { void readTransactions().then((list) => { if (Array.isArray(list)) setTxs(list) }) }, 60_000, hasSent)
 
   // Bumped by the retry button: the read runs again from the start, and focus returns to the message
   // if it comes back.
@@ -138,7 +149,7 @@ export default function Proposals({ embedded = false }: { embedded?: boolean }) 
   const withOthers = desk.items.filter((i) => i.band === 'wait' || i.band === 'voted')
   const sentOpen = all.filter((p) => p.state === 'sent' && !isConfirmed(settlementOf(p, txs)))
   const closed = all.filter(isClosed)
-  const rowProps = { threshold, t, tr, open }
+  const rowProps = { personal: desk.personal, threshold, t, tr, open }
 
   const body = (
     <>
