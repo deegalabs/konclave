@@ -70,6 +70,15 @@ history to tidy it is how context gets lost.
   what it waits for from you (your signature, your vote) and when your signature sends; the title is
   a link, the groups are headings a screen reader can jump to, and a proposal whose clock has run
   out leaves "Needs you" on the device before the coordinator notices (#292).
+- **A payroll can start from a previous one.** Each past payroll at the foot of the screen gains
+  "Start from this one": the sheet is filled with its lines (name, address, value, memo), each
+  marked "copied, check address and amount" until its address is looked at, and nothing else comes
+  along: the period and the approvals start fresh, and whether it fits the balance is asked again.
+  A copied line whose person now has a different address in the registry says so. Typed lines are
+  never replaced without a yes, and the sheet counts the copied lines still unchecked beside the
+  button. A line whose address repeats an earlier line now says so. Until now a new payroll
+  started empty every month, and an address retyped by hand is the riskiest moment in the product
+  (#332).
 - **The payroll's actions sit above the table, and the registry fills lines in batch.** "From the
   registry", "Add line" and "Import CSV" moved from under the table to above it, in the order they
   are used. "From the registry" opens the people on record with a box each: the chosen ones become
