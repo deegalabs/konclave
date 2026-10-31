@@ -1259,4 +1259,15 @@ export const ptBR: Record<string, string> = {
   'proposal.confirmationsUnknown': 'não deu para ler a cadeia',
   'proposal.confirmedBlock': 'confirmada, bloco {h}',
   'proposal.copyAddress': 'Copiar endereço',
+  // Proposals list (#292): what needs this member first, sent until confirmed, closed on request, a read that failed is said.
+  'proposals.needsYou': 'Precisa de você',
+  'proposals.withOthers': 'Com os outros membros',
+  'proposals.sentAwaiting': 'Enviadas, aguardando confirmação',
+  'proposals.showClosed': 'Mostrar encerradas ({n})',
+  'proposals.hideClosed': 'Esconder encerradas ({n})',
+  'proposals.closedGroup': 'Encerradas',
+  'proposals.nothingForYou': 'Nada precisa de você agora.',
+  'proposals.unreadTitle': 'Não foi possível ler as propostas',
+  'proposals.unreadLead': 'A lista não pôde ser lida. O cofre e a sua parte continuam neste aparelho; só a lista não chegou.',
+  'proposals.retry': 'Tentar de novo',
 }
