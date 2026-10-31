@@ -86,6 +86,10 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **The short-of-funds message says what to expect.** On a proposal and on the signing panel it
+  said how much was missing and that signing waited for the funds, and nothing about the funds a
+  member had just sent. It now says they count once the network mines them and can be spent after
+  10 confirmations (about 12 minutes), and that nothing is lost, in both languages (#710).
 - **The Dashboard loads in its own shape and says "Loading" once.** Until its first read landed
   it was one spinner in an empty page, and the layout jumped when the page replaced it; once the
   page was up, a reload of the desk still showed a spinner, and the movements and the balance each
