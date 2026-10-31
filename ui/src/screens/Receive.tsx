@@ -10,6 +10,7 @@ import { historyReadKind, historyReader, isHistoryAnswer } from '../useVaultBala
 import { useOutletContext } from 'react-router-dom'
 import type { VaultLockContext } from '../Layout'
 import { amountAmbiguous, fmtZecExact, typedAmountZat } from '../format'
+import { copyText } from '../clipboard'
 
 // "Add funds" is the easy side of a vault: receiving needs no key and no signature. The vault
 // has a shielded Orchard address (derived from the group key by zcash-sign); anyone sends ZEC to
@@ -70,6 +71,8 @@ export default function Receive() {
   const [loaded, setLoaded] = useState(false)
   const [amount, setAmount] = useState('')
   const [copied, setCopied] = useState<string | null>(null)
+  // #313: said only after the clipboard confirmed the write; a refusal is said instead.
+  const [copyErr, setCopyErr] = useState(false)
   // The vault's full on-chain record since creation (browser-native path). Loaded once; the txids
   // link to a block explorer where the amounts are visible (per-tx amount/direction is a follow-up).
   const [txs, setTxs] = useState<WalletTx[] | null>(null)
@@ -153,8 +156,10 @@ export default function Receive() {
     }
   }, [uri])
 
-  const copy = (text: string, tag: string) => {
-    void navigator.clipboard?.writeText(text)
+  const copy = async (text: string, tag: string) => {
+    const ok = await copyText(text)
+    setCopyErr(!ok)
+    if (!ok) return
     setCopied(tag)
     setTimeout(() => setCopied(null), 1600)
   }
@@ -185,13 +190,14 @@ export default function Receive() {
           <span className="klab">{t('receive.address')}</span>
           <div className="rcv-addr">{address}</div>
           <div className="rcv-actions">
-            <button className="btn" onClick={() => copy(address, 'a')} aria-describedby={describedBy}>
+            <button className="btn" onClick={() => void copy(address, 'a')} aria-describedby={describedBy}>
               {copied === 'a' ? t('receive.copied') : t('receive.copy')}
             </button>
           </div>
           {/* The button's label changes, which a screen reader does not read on its own: one live
               region says "Copied" for either button (#320). */}
           <span className="visually-hidden" role="status">{copied ? t('receive.copied') : ''}</span>
+          <div role="alert">{copyErr && <div className="hint warn mt-sm">{t('receive.copyErr')}</div>}</div>
 
           <label className="field"><span>{t('receive.amount')}</span>
             <input
@@ -209,7 +215,7 @@ export default function Receive() {
           <span className="klab" style={{ marginTop: 4 }}>{t('receive.uri')}</span>
           <div className="rcv-uri">{uri}</div>
           <div className="rcv-actions">
-            <button className="btn" onClick={() => copy(uri, 'u')} aria-describedby={describedBy}>
+            <button className="btn" onClick={() => void copy(uri, 'u')} aria-describedby={describedBy}>
               {copied === 'u' ? t('receive.copied') : t('receive.copyUri')}
             </button>
             <a className="btn ok" href={uri} aria-describedby={describedBy}>{t('receive.openWallet')}</a>
