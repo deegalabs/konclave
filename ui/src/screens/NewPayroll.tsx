@@ -56,7 +56,7 @@ export default function NewPayroll() {
   // payrolls against the same funds both validated and the second died at build.
   const [openProps, setOpenProps] = useState<Proposal[] | null>(null)
   const reservedZat = reservedZatOf(openProps)
-  const openHolding = (openProps ?? []).filter(isOpen).map((x) => x.proposer).join(', ')
+  const openHolding = [...new Set((openProps ?? []).filter(isOpen).map((x) => x.proposer))].join(', ')
   const balanceZat = freeZatOf(bal, openProps)
   // Funds that are merely confirming, derived (total minus spendable): never `pending_zat`, which
   // the web path does not fill (#352).
@@ -143,7 +143,9 @@ export default function NewPayroll() {
   // Funds are released when someone else's proposal is sent or refused, and a payroll blocked by a
   // reservation must see it lift without a reload: the same cadence as the balance and as Pay.
   usePoll(() => {
-    void getProposals().then(setOpenProps)
+    // A failed read answers null; the last list is kept, or a dropped tick would erase the
+    // reservation and enable the button for the double-commit this exists to stop.
+    void getProposals().then((ps) => { if (ps) setOpenProps(ps) })
   }, 12_000)
 
   const reloadBenefs = () => { void getBeneficiaries().then((b) => { if (b) setBenefs(b) }) }
@@ -202,6 +204,20 @@ export default function NewPayroll() {
   // When the whole shortfall is confirmations, say that, not "exceeds the balance" (#352).
   const onlyConfirming = (block === 'over-balance' || block === 'no-funds') && shortfallIsConfirming(bal, reservedZat, totalZat, feeZat)
   const overBalance = block === 'over-balance' && !onlyConfirming
+  // The "after" figure subtracts from FREE funds; while a reservation or confirmations are the
+  // block, a negative figure beside "the vault has the funds" would contradict it: a dash.
+  const hideAfter = block === 'reserved' || onlyConfirming
+  // One sentence for the block, composed once, in one live region the button points at (same
+  // shape as Pay). The reserved clause stays when both a reservation and confirmations stand.
+  const moneyVars = { free: fmtZecExact((balanceZat ?? 0) / 1e8), reserved: fmtZecExact(reservedZat / 1e8), held: String(openHolding) }
+  const blockMsg = (() => {
+    if (count === 0 || block === null) return null
+    if (walletBusy && block === 'balance-unknown') return null
+    if (onlyConfirming) return [reservedZat > 0 ? t('money.blockReserved', moneyVars) : null, t('money.blockConfirming', { confirming: fmtZecExact((confirmingZat ?? 0) / 1e8) })].filter(Boolean).join(' ')
+    if (block === 'over-balance') return t('payroll.warnExceeds')
+    const k = blockMessageKey(block)
+    return k ? t(k, moneyVars) : null
+  })()
   const anyBadTouched = rows.some((r) => rowTouched(r) && rowIssue(r) !== null)
   const canSubmit = count > 0 && !anyBadTouched && !busy && block === null
 
@@ -355,14 +371,14 @@ export default function NewPayroll() {
             <span className={'plf-fig' + (overBalance ? ' bad' : '')}>
               <span className="plf-k">{t('payroll.pvAfter')}</span>
               <span className="plf-v num">
-                {afterZat === null ? <b className="dim">-</b>
+                {afterZat === null || hideAfter ? <b className="dim">-</b>
                   : <b className={count > 0 ? undefined : 'dim'}>{fmtZecExact(afterZat / 1e8)} ZEC</b>}
               </span>
             </span>
           </div>
 
           <div className="plf-act">
-            <button className="btn ok" onClick={submit} disabled={!canSubmit} aria-describedby={walletBusy && block === 'balance-unknown' ? "payroll-busy" : undefined}>{busy ? t('payroll.sending') : t('payroll.submitBtn')}</button>
+            <button className="btn ok" onClick={submit} disabled={!canSubmit} aria-describedby={[walletBusy && block === 'balance-unknown' ? 'payroll-busy' : null, blockMsg ? 'payroll-block' : null].filter(Boolean).join(' ') || undefined}>{busy ? t('payroll.sending') : t('payroll.submitBtn')}</button>
             <span className="plf-note">{tr('payroll.pvApprovalValue', { proposer })}</span>
           </div>
 
@@ -379,20 +395,12 @@ export default function NewPayroll() {
           </div>
         </div>
 
-        {overBalance && <div className="hint warn mt-sm">{t('payroll.warnExceeds')}</div>}
         {/* Same reason as the payment screen: the gate fails closed, so name the block. Only once
             there is a valid row - on an empty sheet the total is 0 and would always warn. */}
         <div role="status" id="payroll-busy">{walletBusy && <div className="hint mt-sm">{t(bal ? 'wallet.busyKept' : 'wallet.busyBlocked')}</div>}</div>
-        {count > 0 && onlyConfirming && (
-          <div className="hint warn mt-sm">{t('money.blockConfirming', { confirming: fmtZecExact((confirmingZat ?? 0) / 1e8) })}</div>
-        )}
-        {count > 0 && !onlyConfirming && blockMessageKey(block) && !(walletBusy && block === 'balance-unknown') && (
-          <div className="hint warn mt-sm">{t(blockMessageKey(block)!, {
-            free: fmtZecExact((balanceZat ?? 0) / 1e8),
-            reserved: fmtZecExact(reservedZat / 1e8),
-            held: String(openHolding),
-          })}</div>
-        )}
+        {/* The region stays mounted and the sentence swaps inside it, so a screen reader hears the
+            block appear, change and clear. */}
+        <div role="status" id="payroll-block">{blockMsg && <div className="hint warn mt-sm">{blockMsg}</div>}</div>
         {error && <div className="hint err mt-sm" role="alert">{error}</div>}
 
         {/* THE VEIL (tarja). It hides the VAULT's own figures - its balance, its history, its pending

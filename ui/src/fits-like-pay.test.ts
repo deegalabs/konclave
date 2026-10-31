@@ -81,10 +81,22 @@ describe('Payroll fits the way Pay does, from the one file', () => {
       expect(code, 'nothing may read the never-filled field').not.toMatch(/pending_zat/)
     })
   }
-  it('the sentence exists in both languages, with the amount and the confirmation count', () => {
+  it('the sentence exists in both languages, with the amount and no confirmation count', () => {
+    // The count is 10 for untrusted notes and 3 for the vault's own change (CONFIRMATIONS_* in
+    // api.ts); a number in the copy would be a third place that says it, and wrong half the time.
     for (const d of [en, ptBR]) {
       expect(d['money.blockConfirming']).toContain('{confirming}')
-      expect(d['money.blockConfirming']).toMatch(/10/)
+      expect(d['money.blockConfirming']).not.toMatch(/\d/)
     }
   })
+  for (const [name, code, id] of [['Pay', pay, 'pay-block'], ['Payroll', payroll, 'payroll-block']] as const) {
+    it(`${name} keeps the block in one live region the button points at`, () => {
+      expect(code).toMatch(new RegExp(`<div role="status" id="${id}">`))
+      expect(code).toMatch(new RegExp(`blockMsg \\? '${id}'`))
+    })
+    it(`${name} keeps the last list of open proposals when a poll fails`, () => {
+      expect(code).toMatch(/getProposals\(\)\.then\(\(ps\) => \{ if \(ps\) setOpenProps\(ps\) \}\)/)
+      expect(code).not.toMatch(/then\(setOpenProps\)/)
+    })
+  }
 })

@@ -156,8 +156,10 @@ Update once any signing in progress has finished. Your vault and your share stay
   second died at signing. Both screens now draw on one rule (free = spendable minus what open
   proposals hold), and Payroll shows the same arithmetic, naming who holds the money. And when the
   vault holds the amount but part of it is still confirming, both say so ("{confirming} ZEC is
-  still confirming, spendable after 10 confirmations") instead of "exceeds the vault balance"
-  (#293, #352).
+  still confirming. Propose it once that lands") instead of "exceeds the vault balance". The
+  block is read from one live region the button points at, so a screen reader hears it appear,
+  change and clear; the "after" figure is labelled as free funds and shows a dash while a
+  reservation or confirmations are the block (#293, #352).
 
 ### Known limits
 

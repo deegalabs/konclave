@@ -710,7 +710,7 @@ export const ptBR: Record<string, string> = {
   // e esconderia a \u00fanica coisa em que o membro pode agir.
   'money.blockReserved': 'O cofre tem o valor, mas {reserved} ZEC est\u00e3o comprometidos em propostas abertas ({held}). Livre para propor agora: {free} ZEC \u00b7 libera quando aquelas forem enviadas ou recusadas.',
   'money.blockNoFunds': "Este cofre ainda não tem saldo gastável. Fundos recebidos há pouco podem estar confirmando.",
-  'money.blockConfirming': 'O cofre tem o valor, mas {confirming} ZEC ainda estão confirmando (gastáveis depois de 10 confirmações). Vai caber quando confirmar.',
+  'money.blockConfirming': 'O cofre tem o valor, mas {confirming} ZEC ainda estão confirmando. Proponha quando confirmar.',
   'payment.warnOverBalance': 'O valor mais a taxa de rede passa do que o cofre pode gastar agora. Reduza o valor.',
 
   // New payroll
@@ -759,10 +759,10 @@ export const ptBR: Record<string, string> = {
   'payroll.feeSaved': 'uma transação em vez de {n} · economiza {saved} ZEC',
   'payroll.pvFeeK': 'Taxa est.',
   'payroll.pvPlusFee': '+ taxa est. {fee}',
-  'payroll.pvAfter': 'Saldo após',
+  'payroll.pvAfter': 'Livre após',
   'payroll.pvApproval': 'Aprovação',
   'payroll.pvApprovalValue': 'Enviar já conta como a de **{proposer}**',
-  'payroll.warnExceeds': 'Total + taxa excede o saldo do cofre.',
+  'payroll.warnExceeds': 'O total mais a taxa de rede passa do que o cofre pode gastar agora. Reduza os valores.',
   'payroll.sending': 'Enviando…',
   'payroll.submitBtn': 'Enviar para aprovação',
 
