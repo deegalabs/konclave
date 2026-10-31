@@ -14,7 +14,7 @@ The short answer first.
   file you downloaded. No service holds it, so no service disappearing can take it.
 - **With the backups alone, the group can prove what it has and see the money, but not move it.**
   Seeing needs the vault's viewing key and scan height, which a backup made on a **Private** vault
-  carries. Moving needs a coordinator, and today a coordinator cannot adopt an existing vault
+  carries and an Open vault's does not. Moving needs a coordinator, and today a coordinator cannot adopt an existing vault
   without the operator's own backup of it. That gap is #214, and it is written out plainly below.
 - **Everything that ran as a service can be run again by anyone with the source.** The web app, the
   coordinator and the relay are in this repository, with their deploy guides.
@@ -25,7 +25,7 @@ The short answer first.
 |---|---|---|
 | **Your backup file** (`konclave-backup-<date>.konclave.json`) | wherever you saved it when you exported from Settings, or from the card at creation | It is the only spare copy of your share. Nothing else restores your seat. |
 | **Your passphrase** | your memory, or wherever you keep it | The backup opens with nothing else. A passkey is a shortcut on one device, not a key to the file. |
-| **Which kind of vault yours is** | the vault list shows a **Private** or **Open** badge | A backup made on a Private vault carries the vault's address, viewing key and scan height. A backup made on an **Open** vault carries the address only: it restores your **seat**, not the vault, and the money cannot even be seen from it. |
+| **Which kind of vault yours is** | the vault list shows a **Private** or **Open** badge | A backup made on a Private vault carries the vault's address, viewing key and scan height. A backup made on an **Open** vault carries the address only: it restores your **seat**, not the vault (see "If your vault is Open" below). |
 
 Each member holds their **own** file. Do not gather every member's backup in one place: it restores
 full control to whoever holds the pile, which is the one thing the vault exists to prevent
@@ -58,27 +58,57 @@ Konclave"). The script's decisions are exercised by the app's tests against a re
 wrote (`ui/src/open-export.test.ts`); running it by hand against a backup for this page was **not
 done**.
 
-### See the vault with the viewing key
+### See the vault's balance and history with the viewing key
 
-A viewing key reads the vault's whole history and balance and cannot move a coin. With it and the
-scan height from a Private backup, a wallet that accepts a unified full viewing key shows the vault's
-money. The one this project uses is `zcash-devtool` (the Zcash tools this product is built on, see
-`engine/versions.lock`), with the command the coordinator itself runs when it rebuilds a wallet:
+A viewing key reads the vault's whole history and balance and cannot move a coin. The one tool this
+page can speak for is `zcash-devtool`, the Zcash tool the coordinator itself runs: the **build that
+`engine/versions.lock` records** (sha256 `8c41afd3...`, built from upstream `539ae81d` plus the patch
+the lock names). Use that build, or one newer that **knows the current network upgrade**: a wallet
+tool that does not know the upgrade the chain is on cannot sync past it, and the app's changelog
+says when the next one (NU7) activates. With the viewing key and the scan height from a Private
+backup, the commands the coordinator runs when it rebuilds and reads a wallet:
 
 ```sh
 zcash-devtool wallet -w <a new folder> init-fvk \
   --name <any name> --fvk <the viewing key from the backup> \
   --birthday <the scan height from the backup> \
   -s zec.rocks:443 --connection direct
+zcash-devtool wallet -w <the same folder> sync
+zcash-devtool wallet -w <the same folder> balance      # what the vault holds
+zcash-devtool wallet -w <the same folder> list-tx      # its history, one line per transaction
 ```
 
-then `wallet sync` and `wallet balance`. **The `--birthday` is not optional**: without it the wallet
-scans from today and shows an empty vault, and there is no rescan.
+**The `--birthday` is not optional**: without it the wallet scans from today and shows an empty vault,
+and there is no rescan. `list-tx` is what the coordinator reads to say a payment is confirmed; its
+`--json` form is what the app's ledger is built from.
 
-**Checked:** read in `docs/RECOVERY.md`, procedure B, step 3, which is where the command and the
-warning come from, and in `helper-server/src` (the coordinator's wallet is initialised the same way).
-**Not run from a member's backup for this page.** The warning about the birthday is not theoretical:
-it is #434, found on a live vault.
+**Checked:** read in `docs/RECOVERY.md`, procedure B, step 3 (the `init-fvk` line and the birthday
+warning), in `helper-server/src/main.rs` (the coordinator runs `sync`, `balance` and `list-tx` on
+its wallets in that order) and in `engine/versions.lock` (which build ships and why). **Not run from
+a member's backup for this page.** The warning about the birthday is not theoretical: it is #434,
+found on a live vault.
+
+### If your vault is Open
+
+An Open vault (no read secret; the badge on the vault list says so) is one the coordinator refuses
+the viewing key to, so a backup made on it carries your share and the vault's address and nothing
+that reads the chain. From that backup alone, with every service gone:
+
+- **Recovered:** your seat. The share is in the file, and the opener script proves it.
+- **Recovered:** the vault's address, so a payment to it can be found on an explorer by whoever
+  knows the transaction id.
+- **Not recovered:** the balance and the history. Without the viewing key nothing can read the
+  vault's notes, and no member's backup of an Open vault has that key.
+- **Not recovered:** the vault itself on a new coordinator, for the reason in section 4, and here
+  without even the viewing key to wait on #214 with.
+
+Only the operator's backup of the coordinator's files (procedure D) carries an Open vault's viewing
+key. The honest advice is in section 5: make the vault Private, which means re-creating it (#406),
+while the services are up.
+
+**Checked:** read in `docs/RECOVERY.md` ("The complete recovery kit": the viewing key and the scan
+floor ride only on a Private vault) and in `scripts/open-export.mjs` (what it says of a backup with
+no read secret). Not run.
 
 ### Prove a payment happened
 
