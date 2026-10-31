@@ -40,17 +40,35 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+## [0.16.0] 2026-10-30
+
+### Security
+
+These fixes reach a device when it runs this version. If the app says "New version available", press
+Update once any signing in progress has finished. Your vault and your share stay on the device.
+
+- **The app's side of the six signing fixes listed under Security in the root changelog.** The signing
+  machine takes a signing request only from the device assembling the signature and does not let a
+  second one replace the one in hand (#730); it checks each signature part on its own and names the
+  signer of one that does not check out, with the new text `net.err.badShare` (#729); it holds the
+  signing module's round handle and frees it as soon as the share is made, when a spend ends, when the
+  device is re-armed and when the owner withdraws consent (#731); the signing demonstration and the
+  share-repair demonstration pass the device's message to the module (#725); a new vault's sealed backup
+  no longer carries the creation device key (#738); and a device checks its own name in the creation
+  transcript, which runs on the devices that carry this build (#739).
+
 ### Added
 
 - The proof screen lists two more mainnet transactions, the 21st and the 22nd: the first production send on the redeployed
   coordinator (block 3,527,232) and a send on the 0.15.0 coordinator (block 3,529,405). `docs/PROOF.md` carries the rows,
   and the counts in the documents say 22.
-- **The app is ready for the NU7 network upgrade (block 3,543,405, about 6 November 2026).** The
+- **The app knows the NU7 network upgrade (block 3,543,405, about 6 November 2026).** The
   device accepts transactions built for it, in blocks of 25 seconds, and about 27 hours after its own
   estimate of the upgrade (between about 15 and 39 hours after the real one) it stops accepting
   transactions built for the previous one, which the network no longer mines. A pool crossing's
-  expiry is read at the new scale of ZIP 318 (103,680 blocks after the upgrade, 34,560 before). Until the engine that builds transactions is updated on the coordinator,
-  payments are paused around the upgrade rather than built for the wrong one.
+  expiry is read at the new scale of ZIP 318 (103,680 blocks after the upgrade, 34,560 before).
+  Payments are paused around the upgrade rather than built for the wrong one, and after it a
+  coordinator that is not updated yet refuses them.
 - **A notice before the upgrade.** From about six hours before it until about a night after, the
   dashboard says that the network upgrades, that payments are paused for a while around it, and that
   nothing is lost and approvals stand. Until now a member learned it only when a payment was refused.
@@ -71,34 +89,22 @@ history to tidy it is how context gets lost.
 - **The signing module reads a pool crossing's expiry at the scale of the network upgrade the transaction's
   header names, and reports the height of the last upgrade in its table.** A crossing's expiry (ZIP 318)
   is accepted only at the scale of that upgrade, so a header cannot borrow the other scale around the
-  upgrade. The module is rebuilt (see the root changelog). Nothing on a screen changes yet; the
-  dashboard notice that reads the reported height comes in a later change.
+  upgrade. The module is rebuilt (see the root changelog). The dashboard notice listed under Added
+  reads the reported height.
 - **The signing module in the web app is rebuilt on the stable NU7 crate line** (orchard 0.16.0, pczt
   0.10.0, zcash_primitives 0.31.0, and the crates that go with them; see the root changelog). The
   packaged module in the app is a new build of the same code against newer releases of those crates.
   What a member sees is unchanged, and the device's own recompute of the signature hash still matches
   the signer on the transactions it matched before.
-- **The signing demonstration and the share-repair demonstration pass the device's message to the
-  signing module.** The module's seed-path signing call now requires it (see the root changelog). The
-  screens behave as before.
 - **The refusal around the upgrade says what is true in both cases.** Before it: payments are paused
-  around the upgrade block, nothing was built, the approval stands, try again after the upgrade. After
-  it, if the coordinator is not updated yet: nothing was signed or sent, try again later, and approvals
-  stay valid until the proposal expires (72 hours). The old text promised a send as soon as the
-  upgrade block was mined, which is not true while the coordinator is still on the previous engine.
+  around the upgrade block, nothing was built, your vote stands and you will be asked to sign again
+  after the upgrade. After it, if the coordinator is not updated yet: nothing was signed or sent, your
+  vote stands until the proposal expires (72 hours), and you will be asked to sign again when the
+  payment can be built. The refusal withdraws the signatures that were given, which "your approval
+  stands" did not say. The old text promised a send as soon as the upgrade block was mined.
 
 ### Fixed
 
-- **A signing part that does not check out is left out, and its signer is named.** The device that
-  puts a signature together checks each part as it arrives and counts a part only from a signer the
-  signing package names. It takes its own part from its own computation and reads only the package
-  it sent itself. A failed combination is now reported instead of leaving the signature
-  unfinished. One new text, `net.err.badShare` (English and Portuguese).
-- **A device now takes a signing request only from the device that is assembling the signature.**
-  A request from any other device in the signing room is ignored (and said, when it comes from a
-  known seat), and a second request that lands while a signature is being made does not replace
-  the one in hand. A device that already holds the helper's request takes the transaction from it,
-  and an incoming request has to name the same sighash.
 - **Small accessibility fixes on notices and the Receive screen.** The close button on a notice was
   smaller than a fingertip (now at least 24 by 24) and its label was English-only; "Copied" on the
   Receive screen was silent to a screen reader (now announced once, for either button); and a QR that
@@ -134,9 +140,6 @@ history to tidy it is how context gets lost.
   pay an older shielded (Sapling) address; ask for a current shielded one (u1…). In the same pass the
   everyday screens stop naming pools and protocol terms: "Orchard" and "Sapling" read as "shielded"
   and "older shielded (Sapling)", and "sighash" as "signed digest (sighash)" (#127).
-- **A device checks its own name in the creation transcript.** If the name shown for a device's own
-  seat is not the one its owner typed, creation stops with the same message as any other conflict.
-  Nothing changes when the names agree.
 - **Closing a dialog that opened on a field returns focus to the button that opened it.** Remove,
   import and unlock a vault, the creation dialog, rotate passphrase and export all put focus in a
   field as they open; on close, focus fell to the page instead of the opener, because the dialog
