@@ -73,6 +73,14 @@ history to tidy it is how context gets lost.
   failed creation instead of disappearing. Still open: on the coordinator, registration accepts
   `threshold: 1`; and the main create screen's own check (`Ceremony.tsx`) still lets 1 through to
   the ceremony, which then refuses it (#589).
+- **The spreadsheet's "Open" total no longer counts refused or expired proposals.** The Summary
+  sheet took as open everything that was not settled, so a refused, expired or invalidated proposal,
+  whose money never left, was added to "Open", and the figure disagreed with the one the screen
+  shows. The Movements sheet now carries an "Open" column (yes for a proposal still awaiting
+  approval or ready to sign), the Summary's "Open" sums that column, and the screen's total, its
+  filter and the export read one rule. The TOTAL row of the Movements sheet added every row,
+  refused and expired ones included, so it agreed with neither summary total; it is now what
+  moved plus what can still move, the two summary totals added together (#302).
 - **Loading takes the shape of what is coming.** Signers, Pay, Payroll and Settings showed a generic
   spinner while they loaded; they now draw a placeholder in the shape of the content (a roster for
   the signers, label and field for a form, headed sections for Settings), so the content lands
