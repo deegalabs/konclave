@@ -53,6 +53,19 @@ history to tidy it is how context gets lost.
   a link, the groups are headings a screen reader can jump to, and a proposal whose clock has run
   out leaves "Needs you" on the device before the coordinator notices (#292).
 
+### Fixed
+
+- **A vault can no longer be asked for with a quorum of 1 on the `/net` screen and in the ceremony.** The signing library refuses a
+  quorum below 2, and the main create screen already stopped at 2 (0.8.0), but the older `/net`
+  screen still listed "1 of 3", a config built by hand or by an older client still reached the
+  ceremony, and when the library finally refused it, after every member had joined, the screen stayed
+  on the roster with no message. Now the floor is written once (`quorumIsPossible`), read by the
+  screen and by the ceremony: the `/net` select starts at 2, creating with an impossible quorum says
+  so before anything is sent to the room, and a failure at the start of the ceremony is shown as a
+  failed creation instead of disappearing. Still open: on the coordinator, registration accepts
+  `threshold: 1`; and the main create screen's own check (`Ceremony.tsx`) still lets 1 through to
+  the ceremony, which then refuses it (#589).
+
 ## [0.16.0] 2026-10-30
 
 ### Security

@@ -1125,6 +1125,7 @@ export const en: Record<string, string> = {
   'net.err.sighashMismatch': 'This device ignored a signing message it could not match with the transaction it read. It signs only what matches.',
   'net.err.badShare': 'A signature part from a signer listed below did not check out and was left out. If a valid one arrives, signing goes on. If not, tell the other signers and start this payment again. Signer(s):',
   'net.err.creationFailed': 'A step of the vault creation failed on this device, so it stopped. No vault was saved. Whoever creates the vault makes a new invite.',
+  'net.err.quorumImpossible': 'This vault cannot be created as {t} of {n}: so that nobody sends alone, at least 2 members must approve, and the quorum cannot exceed the total. Adjust it and try again.',
   'net.err.seatConflict': 'More devices joined than this vault has seats, or two devices claimed the same seat, so the vault was not created. Before anyone joins a new invite, confirm on a call who should be in it; then whoever creates the vault makes a new invite.',
   'net.err.registrationMismatch': 'The coordinator holds this vault with a different quorum than the one you all confirmed. Do not fund it: no address is shown. Tell the others, and whoever creates the vault makes a new invite.',
   'net.err.updateRequired': 'The coordinator asks for a newer app to create or join a vault. Reload the page to get the latest version; on the desktop app, install the latest release from github.com/deegalabs/konclave/releases. Then try again.',
