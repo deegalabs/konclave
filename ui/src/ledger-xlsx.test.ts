@@ -11,13 +11,13 @@ const labels: LedgerXlsxData['labels'] = {
   summary: 'Summary', movements: 'Movements', vault: 'Vault', period: 'Period', filter: 'Filter',
   generated: 'Generated', entries: 'Entries', settledOut: 'Settled out', open: 'Open',
   colDate: 'Date', colDocument: 'Document', colKind: 'Kind', colBeneficiary: 'Beneficiary',
-  colAddress: 'Address', colMemo: 'Memo', colState: 'State', colSettled: 'Settled', colOpen: 'Open', colValue: 'Value',
+  colAddress: 'Address', colMemo: 'Memo', colProposedBy: 'Proposed by', colApprovedBy: 'Approved by', colState: 'State', colSettled: 'Settled', colOpen: 'Open', colValue: 'Value',
   colTxid: 'Transaction (txid)', total: 'TOTAL', yes: 'yes', no: 'no',
 }
 const TXID = 'a'.repeat(64)
 const item = (over: Partial<LedgerXlsxItem> = {}): LedgerXlsxItem => ({
   dateISO: '2026-10-01', document: 'Rent', kind: 'Payment', beneficiary: '', address: 'u1rent',
-  memo: '', state: 'confirmed', settled: true, open: false, zec: 1.5, txid: '', ...over,
+  memo: '', proposer: 'Alice', approvers: 'Alice, Bob', state: 'confirmed', settled: true, open: false, zec: 1.5, txid: '', ...over,
 })
 const generatedAt = new Date('2026-10-29T12:34:56Z')
 const data = (items: LedgerXlsxItem[], filter = ''): LedgerXlsxData => ({ vaultName: 'Caixa', period: '2026-10-01', filter, generatedAt, items, labels })
@@ -60,7 +60,7 @@ describe('the XLSX ledger export (#302)', () => {
     ]))
     const mv = wb.getWorksheet('Movements')!
     expect((mv.getRow(1).values as unknown[]).slice(1)).toEqual([
-      'Date', 'Document', 'Kind', 'Beneficiary', 'Address', 'Memo', 'State', 'Settled', 'Open', 'Value', 'Transaction (txid)',
+      'Date', 'Document', 'Kind', 'Beneficiary', 'Address', 'Memo', 'Proposed by', 'Approved by', 'State', 'Settled', 'Open', 'Value', 'Transaction (txid)',
     ])
     expect(mv.getRow(2).getCell('memo').value).toBe('October rent')
     expect(mv.getRow(2).getCell('txid').value).toMatchObject({ text: TXID, hyperlink: explorerTxUrl(TXID) })
@@ -78,9 +78,9 @@ describe('the XLSX ledger export (#302)', () => {
     const mv = wb.getWorksheet('Movements')!
     const total = mv.getRow(5) // header, three rows, total
     expect(total.getCell('document').value).toBe('TOTAL')
-    expect(total.getCell('zec').formula).toBe('SUMIF(H2:H4,"yes",J2:J4)+SUMIF(I2:I4,"yes",J2:J4)')
-    expect(summaryValue(wb, 'Settled out')).toMatchObject({ formula: 'SUMIF(Movements!H2:H4,"yes",Movements!J2:J4)' })
-    expect(summaryValue(wb, 'Open')).toMatchObject({ formula: 'SUMIF(Movements!I2:I4,"yes",Movements!J2:J4)' })
+    expect(total.getCell('zec').formula).toBe('SUMIF(J2:J4,"yes",L2:L4)+SUMIF(K2:K4,"yes",L2:L4)')
+    expect(summaryValue(wb, 'Settled out')).toMatchObject({ formula: 'SUMIF(Movements!J2:J4,"yes",Movements!L2:L4)' })
+    expect(summaryValue(wb, 'Open')).toMatchObject({ formula: 'SUMIF(Movements!K2:K4,"yes",Movements!L2:L4)' })
     expect(summaryValue(wb, 'Entries')).toBe(3)
   })
 
@@ -123,5 +123,19 @@ describe('the XLSX ledger export (#302)', () => {
     ]))
     expect(shown(wb, summaryValue(wb, 'Settled out'))).toBe(1.5)
     expect(shown(wb, summaryValue(wb, 'Open'))).toBe(0.25)
+  })
+  it('names who proposed and who approved on every movement, as the vault records them', async () => {
+    const wb = await buildLedgerWorkbook(data([
+      item({ proposer: 'Alice', approvers: 'Alice, Bob' }),
+      item({ document: 'Payroll', kind: 'Payroll', beneficiary: 'Carol', proposer: 'Bob', approvers: '', state: 'awaiting', settled: false, open: true, zec: 0.25 }),
+    ]))
+    const mv = wb.getWorksheet('Movements')!
+    const header = (mv.getRow(1).values as unknown[]).slice(1)
+    expect(header).toContain('Proposed by')
+    expect(header).toContain('Approved by')
+    expect(mv.getRow(2).getCell('proposer').value).toBe('Alice')
+    expect(mv.getRow(2).getCell('approvers').value).toBe('Alice, Bob')
+    expect(mv.getRow(3).getCell('proposer').value).toBe('Bob')
+    expect(mv.getRow(3).getCell('approvers').value ?? '').toBe('') // nobody yet: an empty cell, not a guess
   })
 })

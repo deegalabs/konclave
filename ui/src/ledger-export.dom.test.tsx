@@ -106,4 +106,15 @@ describe('the Ledger screen exports what it shows (#302)', () => {
       ['October rent', true, false],
     ])
   })
+  it('hands the export who proposed and who approved each row, as the vault records them', async () => {
+    mount()
+    await screen.findByText('October rent')
+    await clickExport()
+    expect(exported().items.map((i) => [i.proposer, i.approvers])).toEqual([
+      ['Alice', 'Alice'], // the awaiting payment: the proposer approved, nobody else yet
+      ['Alice', 'Alice, Bob'], // the payroll, one row per line
+      ['Alice', 'Alice, Bob'],
+      ['Alice', 'Alice, Bob'], // the confirmed rent
+    ])
+  })
 })

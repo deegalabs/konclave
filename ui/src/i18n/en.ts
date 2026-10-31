@@ -1251,7 +1251,6 @@ export const en: Record<string, string> = {
   'ledger.colMemo': 'Memo',
   'ledger.colTxid': 'Transaction (txid)',
   'ledger.xlsxFilter': 'Filter',
-  'ledger.xlsxIncludes': 'The XLSX file includes each payment’s memo and transaction id.',
   // Proposal facts: when it was created, until when it can be approved, the whole address, confirmations.
   'proposal.factCreated': 'Created',
   'proposal.factDeadline': 'Deadline',
@@ -1275,4 +1274,8 @@ export const en: Record<string, string> = {
   'proposals.unreadTitle': 'Could not read the proposals',
   'proposals.unreadLead': 'The list could not be read. Your vault and your share are still on this device; only the list did not arrive.',
   'proposals.retry': 'Try again',
+  'ledger.xlsxIncludes': 'The XLSX file includes each payment’s memo, transaction id, and who proposed and approved it.',
+  // #302: the XLSX export names who proposed and who approved each movement.
+  'ledger.colProposedBy': 'Proposed by',
+  'ledger.colApprovedBy': 'Approved by',
 }
