@@ -1,4 +1,5 @@
 import { asEnvelope, openEnvelope, type Opener } from './envelope'
+import { recordRead, classifyRead } from './read-failure'
 import { ensureWasm } from './wasm-ready'
 
 /** The `kind` the helper stamps on a sealed viewing-key response (#481), matching
@@ -159,11 +160,16 @@ async function getJsonOrBusy<T>(path: string): Promise<T | null | WalletBusy> {
     if (res.status === 503) {
       // A saturated coordinator is read like a busy wallet: the screen keeps what it shows.
       const kind = busyOf(res.status, await res.json().catch(() => null))
+      recordRead(path, 'unavailable', 'coordinator')
       return kind === 'wallet' || kind === 'service' ? WALLET_BUSY : null
     }
-    if (!res.ok) return null
-    return (await res.json()) as T
-  } catch {
+    if (!res.ok) { recordRead(path, classifyRead({ status: res.status }), 'coordinator'); return null }
+    const data = (await res.json()) as T
+    recordRead(path, null)
+    return data
+  } catch (error) {
+    // The shape stays `null`; the reason is left where the screen can ask for it (read-failure.ts).
+    recordRead(path, classifyRead({ error }), 'coordinator')
     return null
   }
 }

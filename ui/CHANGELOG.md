@@ -70,6 +70,15 @@ history to tidy it is how context gets lost.
   what it waits for from you (your signature, your vote) and when your signature sends; the title is
   a link, the groups are headings a screen reader can jump to, and a proposal whose clock has run
   out leaves "Needs you" on the device before the coordinator notices (#292).
+- **A read that fails says why, and the people register no longer looks empty when it could not be
+  read.** Every read in the app answered "nothing" for any failure, so a screen could not tell an
+  empty list from a list it did not get, nor no network from access denied. The two read routines
+  now leave the reason behind (no network, took too long, access refused, nothing there, server did
+  not answer, unreadable answer), and a shared "could not read" state says it, with what still holds
+  and "Try again", naming who was asked: the Konclave on this device, or the vault's server. The
+  people register is the first screen to use it, keeps the people it already read when a refresh
+  fails, and does not offer to register someone into a list it cannot see; the others follow one by
+  one.
 
 ### Fixed
 

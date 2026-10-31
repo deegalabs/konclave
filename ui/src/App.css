@@ -1533,3 +1533,8 @@ body:has(.pwa-update) .page{padding-bottom:140px}
 .plist-link:hover{text-decoration:underline}
 .plist-stamp{display:inline-block; margin-left:8px; font-family:var(--font-mono); font-size:9.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--text-muted); border:1px solid var(--line); border-radius:var(--radius-pill); padding:1px 6px; vertical-align:middle}
 .plist-stamp.sign{color:var(--success); border-color:var(--success-line); background:var(--success-soft)}
+/* The shared "could not read" state (ReadState.tsx). */
+.read-state p{font-size:15px}
+.read-state h2{margin:0 0 6px; font-size:15px}
+.read-state.compact{display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; margin:0 0 10px; font-size:13px}
+.read-state.compact .btn{margin-top:0}
