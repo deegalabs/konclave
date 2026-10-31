@@ -45,6 +45,26 @@ export function isOpen(p: Proposal): boolean {
   return p.state === 'awaiting' || p.state === 'ready'
 }
 
+/**
+ * An open proposal whose deadline has passed on this device's clock. The coordinator expires an
+ * awaiting AND a ready proposal once it recomputes them; until it does, the device treats both as
+ * closed, so neither sits first on the desk as "Sign" or "Your vote" with a clock that has run out.
+ * `now` is a parameter so the rule can be tested without touching the clock.
+ */
+export function expiredByClock(p: Proposal, now: number = Date.now()): boolean {
+  return isOpen(p) && !!p.expiry_unix && p.expiry_unix * 1000 < now
+}
+
+/**
+ * The stamp on a row. It falls back to neutral, vault-level wording when this device does not know
+ * its own member name (`Desk.personal === false`): we will not say "Your vote" to someone when we
+ * cannot tell whether they voted. The Dashboard carries the same rule; this is the one the list reads.
+ */
+export function stampKey(band: Band, personal: boolean): string {
+  if (!personal) return band === 'sign' ? 'stamp.ready' : 'stamp.awaiting'
+  return `desk.band.${band}`
+}
+
 function voted(p: Proposal, me: string): boolean {
   return p.approvals.includes(me) || p.refusals.includes(me)
 }

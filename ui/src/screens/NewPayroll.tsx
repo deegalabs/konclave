@@ -1,4 +1,7 @@
 import { useEffect, useState } from 'react'
+import { usePoll } from '../usePoll'
+import { confirmingZatOf, freeZatOf, reservedZatOf, shortfallIsConfirming } from '../balance-parts'
+import { isOpen } from '../desk'
 import { SkeletonForm, SkeletonRows } from '../skeleton'
 import { useNavigate } from 'react-router-dom'
 import { Secret, activateOnKey, Soon } from '../components'
@@ -8,7 +11,7 @@ import { estimatedFeeZat } from '../fee-estimate'
 import { useT, useTr } from '../i18n'
 import { useToast } from '../toast'
 import {
-  previewPayroll, createPayroll, getBeneficiaries, getLedger, getVault, health, classifyAddress, humanError, IS_NET,
+  previewPayroll, createPayroll, getBeneficiaries, getLedger, getProposals, getVault, health, classifyAddress, humanError, IS_NET,
   type Beneficiary, type Proposal, type Member,
 } from '../api'
 import { listVaults } from '../storage'
@@ -48,10 +51,17 @@ export default function NewPayroll() {
   const [csv, setCsv] = useState('')
   // The same balance the payment screen reads, refreshed on the same cadence (useVaultBalance): this
   // screen used to read it once, so a payroll opened while the wallet was busy stayed blocked.
-  // Spendable, not total: only confirmed spendable funds can be sent, so the balance-after and the
-  // over-balance block are against spendable (catches amount+fee overspend at propose).
   const { bal, busy: walletBusy } = useVaultBalance()
-  const balanceZat = bal ? bal.spendable_zat ?? bal.total_zat ?? null : null
+  // What this payroll may draw on, from the ONE function Pay and the Dashboard use (#293): spendable
+  // minus what open proposals already hold. This screen read `spendable_zat` on its own, so two
+  // payrolls against the same funds both validated and the second died at build.
+  const [openProps, setOpenProps] = useState<Proposal[] | null>(null)
+  const reservedZat = reservedZatOf(openProps)
+  const openHolding = [...new Set((openProps ?? []).filter(isOpen).map((x) => x.proposer))].join(', ')
+  const balanceZat = freeZatOf(bal, openProps)
+  // Funds that are merely confirming, derived (total minus spendable): never `pending_zat`, which
+  // the web path does not fill (#352).
+  const confirmingZat = confirmingZatOf(bal)
   // #427: the two shielded pools separately. `spendable` is their sum, and one payment cannot
   // always spend the sum.
   const pools = bal ? poolsOf(bal) : undefined
@@ -91,6 +101,7 @@ export default function NewPayroll() {
       if (await health()) {
         const [bs, led, v] = await Promise.all([getBeneficiaries(), getLedger(), getVault()])
         if (!on) return
+        void getProposals().then((ps) => { if (on) setOpenProps(ps) })
         if (bs) setBenefs(bs)
         if (led) setPastFolhas(led.filter((x) => x.kind === 'payroll'))
         if (v) {
@@ -130,6 +141,14 @@ export default function NewPayroll() {
   }
   const addRow = () => setRows((prev) => [...prev, emptyRow()])
   const removeRow = (i: number) => setRows((prev) => (prev.length > 1 ? prev.filter((_, idx) => idx !== i) : [emptyRow()]))
+  // Funds are released when someone else's proposal is sent or refused, and a payroll blocked by a
+  // reservation must see it lift without a reload: the same cadence as the balance and as Pay.
+  usePoll(() => {
+    // A failed read answers null; the last list is kept, or a dropped tick would erase the
+    // reservation and enable the button for the double-commit this exists to stop.
+    void getProposals().then((ps) => { if (ps) setOpenProps(ps) })
+  }, 12_000)
+
   const reloadBenefs = () => { void getBeneficiaries().then((b) => { if (b) setBenefs(b) }) }
 
   async function importCsv() {
@@ -182,8 +201,24 @@ export default function NewPayroll() {
   // Same pure gate as the payment screen (`propose-guard.ts`). This screen had the identical
   // fail-open: a balance we could not read left `overBalance` false, and the payroll submitted
   // against an unknown balance.
-  const block = proposeBlock({ amountZat: totalZat, availableZat: balanceZat, feeZat, pools })
-  const overBalance = block === 'over-balance'
+  const block = proposeBlock({ amountZat: totalZat, availableZat: balanceZat, feeZat, pools, reservedZat })
+  // When the whole shortfall is confirmations, say that, not "exceeds the balance" (#352).
+  const onlyConfirming = (block === 'over-balance' || block === 'no-funds') && shortfallIsConfirming(bal, reservedZat, totalZat, feeZat)
+  const overBalance = block === 'over-balance' && !onlyConfirming
+  // The "after" figure subtracts from FREE funds; while a reservation or confirmations are the
+  // block, a negative figure beside "the vault has the funds" would contradict it: a dash.
+  const hideAfter = block === 'reserved' || onlyConfirming
+  // One sentence for the block, composed once, in one live region the button points at (same
+  // shape as Pay). The reserved clause stays when both a reservation and confirmations stand.
+  const moneyVars = { free: fmtZecExact((balanceZat ?? 0) / 1e8), reserved: fmtZecExact(reservedZat / 1e8), held: String(openHolding) }
+  const blockMsg = (() => {
+    if (count === 0 || block === null) return null
+    if (walletBusy && block === 'balance-unknown') return null
+    if (onlyConfirming) return [reservedZat > 0 ? t('money.blockReserved', moneyVars) : null, t('money.blockConfirming', { confirming: fmtZecExact((confirmingZat ?? 0) / 1e8) })].filter(Boolean).join(' ')
+    if (block === 'over-balance') return t('payroll.warnExceeds')
+    const k = blockMessageKey(block)
+    return k ? t(k, moneyVars) : null
+  })()
   const anyBadTouched = rows.some((r) => rowTouched(r) && rowIssue(r) !== null)
   const canSubmit = count > 0 && !anyBadTouched && !busy && block === null
 
@@ -337,14 +372,14 @@ export default function NewPayroll() {
             <span className={'plf-fig' + (overBalance ? ' bad' : '')}>
               <span className="plf-k">{t('payroll.pvAfter')}</span>
               <span className="plf-v num">
-                {afterZat === null ? <b className="dim">-</b>
+                {afterZat === null || hideAfter ? <b className="dim">-</b>
                   : <b className={count > 0 ? undefined : 'dim'}>{fmtZecExact(afterZat / 1e8)} ZEC</b>}
               </span>
             </span>
           </div>
 
           <div className="plf-act">
-            <button className="btn ok" onClick={submit} disabled={!canSubmit} aria-describedby={walletBusy && block === 'balance-unknown' ? "payroll-busy" : undefined}>{busy ? t('payroll.sending') : t('payroll.submitBtn')}</button>
+            <button className="btn ok" onClick={submit} disabled={!canSubmit} aria-describedby={[walletBusy && block === 'balance-unknown' ? 'payroll-busy' : null, blockMsg ? 'payroll-block' : null].filter(Boolean).join(' ') || undefined}>{busy ? t('payroll.sending') : t('payroll.submitBtn')}</button>
             <span className="plf-note">{tr('payroll.pvApprovalValue', { proposer })}</span>
           </div>
 
@@ -361,13 +396,12 @@ export default function NewPayroll() {
           </div>
         </div>
 
-        {overBalance && <div className="hint warn mt-sm">{t('payroll.warnExceeds')}</div>}
         {/* Same reason as the payment screen: the gate fails closed, so name the block. Only once
             there is a valid row - on an empty sheet the total is 0 and would always warn. */}
         <div role="status" id="payroll-busy">{walletBusy && <div className="hint mt-sm">{t(bal ? 'wallet.busyKept' : 'wallet.busyBlocked')}</div>}</div>
-        {count > 0 && blockMessageKey(block) && !(walletBusy && block === 'balance-unknown') && (
-          <div className="hint warn mt-sm">{t(blockMessageKey(block)!)}</div>
-        )}
+        {/* The region stays mounted and the sentence swaps inside it, so a screen reader hears the
+            block appear, change and clear. */}
+        <div role="status" id="payroll-block">{blockMsg && <div className="hint warn mt-sm">{blockMsg}</div>}</div>
         {error && <div className="hint err mt-sm" role="alert">{error}</div>}
 
         {/* THE VEIL (tarja). It hides the VAULT's own figures - its balance, its history, its pending

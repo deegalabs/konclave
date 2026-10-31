@@ -60,6 +60,16 @@ history to tidy it is how context gets lost.
   as a date and hour with the time left beside it; while the chain has not answered the screen says
   nothing rather than "not confirmed"; and the copy button names what it copies and announces
   "Copied" to a screen reader.
+- **The proposals list puts what needs you first, keeps a sent payment until the chain confirms
+  it, and says when it could not be read.** The list came in the coordinator's order, with no group
+  for what waits on this member and no deadline order; a payment vanished from it the moment it was
+  sent; and when the list could not be read the screen drew an empty desk, as if nothing were
+  pending. Now "Needs you" comes first (your signature, then your vote, soonest deadline first),
+  then what is with the others, then the sent ones until a block holds them; closed proposals sit
+  behind a "Show closed" button; and a read that failed says so, with "Try again". Each row says
+  what it waits for from you (your signature, your vote) and when your signature sends; the title is
+  a link, the groups are headings a screen reader can jump to, and a proposal whose clock has run
+  out leaves "Needs you" on the device before the coordinator notices (#292).
 
 ### Fixed
 
@@ -88,6 +98,16 @@ history to tidy it is how context gets lost.
   these four screens a screen reader hears the word once, from one live region, not once per grey
   block; the word also appears as a caption when the wait passes 400 ms, and the blocks keep an
   outline under forced colours (#320).
+- **Payroll checks whether it fits the way Pay does, and both say when the funds are only
+  confirming.** Pay subtracted what open proposals already hold before accepting an amount; Payroll
+  read the raw spendable balance, so two payrolls against the same funds both validated and the
+  second died at signing. Both screens now draw on one rule (free = spendable minus what open
+  proposals hold), and Payroll shows the same arithmetic, naming who holds the money. And when the
+  vault holds the amount but part of it is still confirming, both say so ("{confirming} ZEC is
+  still confirming. Propose it once that lands") instead of "exceeds the vault balance". The
+  block is read from one live region the button points at, so a screen reader hears it appear,
+  change and clear; the "after" figure is labelled as free funds and shows a dash while a
+  reservation or confirmations are the block (#293, #352).
 - **The proposal screen shows the amount exactly.** The figure at the top of a proposal, each
   payroll line and the send confirmation were rounded to four places, so a payment of 0.00009 ZEC
   read 0.0001 while the fee and the total beside it were exact and the signing panel read 0.00009.
