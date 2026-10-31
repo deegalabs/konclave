@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { SkeletonForm } from '../skeleton'
+import { SkeletonForm, SkeletonRows } from '../skeleton'
 import { useNavigate } from 'react-router-dom'
 import { Secret, activateOnKey, Soon } from '../components'
 import { PageHeader } from '../page'
@@ -221,7 +221,7 @@ export default function NewPayroll() {
           subtitle={<>{t('payroll.cap')} {saved && <span className="draft-note" title={t('payroll.draftSavedTitle')} aria-live="polite">{t('payroll.draftSaved')}</span>}</>}
         />
 
-        {!loaded ? <SkeletonForm fields={2} /> : (<>
+        {!loaded ? <><SkeletonForm fields={2} inline /><SkeletonRows n={2} compact status={false} /></> : (<>
         <div className="ctx">
           <span>{tr('payment.fromVault', { name: vaultName })}</span>
           {membersList.length > 0 && (

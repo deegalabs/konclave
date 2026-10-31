@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { SkeletonRows } from '../skeleton'
+import { SkeletonRoster } from '../skeleton'
 import { Seal } from '../components'
 import { PageHeader, PageFooter } from '../page'
 import { Identicon } from '../avatar'
@@ -127,7 +127,7 @@ export default function Members() {
         />
 
 
-        {view === 'loading' && <SkeletonRows n={4} />}
+        {view === 'loading' && <SkeletonRoster n={4} />}
         {view === 'unread' && (
           <div className="hint warn mt" role="alert" tabIndex={-1} ref={unreadRef}>
             <div className="who-name mb-sm">{t('members.unreadTitle')}</div>

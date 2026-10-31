@@ -9,7 +9,7 @@ describe('loading is a skeleton, not a spinner', () => {
     it(`${f} draws a skeleton while it loads`, () => {
       const src = codeOf(`screens/${f}`)
       expect(src).not.toMatch(/<Loading\b/)
-      expect(src).toMatch(/<Skeleton(Rows|Form|Stat|Detail)?\b/)
+      expect(src).toMatch(/<Skeleton(Rows|Roster|Form|Stat|Detail)?\b/)
     })
   }
 })

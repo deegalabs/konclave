@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Skeleton, SkeletonForm } from '../skeleton'
+import { Skeleton, SkeletonDetail } from '../skeleton'
 import Hint from '../Hint'
 import { Dialog, PassphraseField, Secret } from '../components'
 import CopyButton from '../CopyButton'
@@ -268,7 +268,7 @@ export default function Settings() {
       {/* Relay selection (#213) is PARKED (single relay via VITE_RELAY_BASE for now); the picker lives
           on the feat/relay-in-invite branch until a real relay network exists. */}
 
-      {live === null && <SkeletonForm fields={2} />}
+      {live === null && <SkeletonDetail rows={4} />}
 
       {live !== null && <>
       {/* #488: a section index, the way a settings screen with named sections earns one. Only where

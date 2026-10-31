@@ -151,8 +151,11 @@ Update once any signing in progress has finished. Your vault and your share stay
   nothing the Summary sheet does not. The CSV link still exports the whole book: it comes from the
   coordinator, which does not know the screen's filters (#302, with #301).
 - **Loading takes the shape of what is coming.** Signers, Pay, Payroll and Settings showed a generic
-  spinner while they loaded; they now draw a placeholder in the shape of the content (rows for a
-  list, label and field for a form), so the page never jumps when the real thing arrives (#320).
+  spinner while they loaded; they now draw a placeholder in the shape of the content (a roster for
+  the signers, label and field for a form, headed sections for Settings), so the page never jumps
+  when the real thing arrives. A screen reader hears the word once per screen, from one live
+  region, not once per grey block; the word also appears as a caption when the wait passes 400 ms,
+  and the blocks keep an outline under forced colours (#320).
 
 ### Known limits
 
