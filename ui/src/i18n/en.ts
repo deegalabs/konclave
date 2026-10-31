@@ -1159,6 +1159,7 @@ export const en: Record<string, string> = {
   'receive.reload': 'Reload',
   'receive.copy': 'Copy address',
   'receive.copied': 'Copied',
+  'receive.copyErr': 'Could not copy. Select the address or the link and copy it by hand.',
   'receive.amount': 'Amount (optional, ZEC)',
   'receive.uri': 'Payment link (ZIP-321)',
   'receive.copyUri': 'Copy link',

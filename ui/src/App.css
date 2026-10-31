@@ -176,7 +176,12 @@
   box-shadow:0 10px 30px rgba(0,0,0,.18);
   opacity:0; visibility:hidden; transform:translateY(-4px);
   transition:opacity .14s ease, transform .14s ease, visibility .14s}
-.members-peek:hover .members-pop, .members-peek:focus-within .members-pop{opacity:1; visibility:visible; transform:translateY(0)}
+/* Open is a state the component sets (#602): hover and focus open it, mouse leave, blur and Escape
+   close it. CSS alone could not hear Escape. */
+.members-peek.open .members-pop{opacity:1; visibility:visible; transform:translateY(0)}
+/* The 8px gap between the link and the popover is bridged, so the pointer crossing it does not
+   leave the element and close the popover on the way to it. */
+.members-pop::before{content:''; position:absolute; left:0; right:0; top:-8px; height:8px}
 .members-pop-head{font-family:var(--font-mono); font-size:10px; letter-spacing:.09em; text-transform:uppercase; color:var(--text-muted)}
 .members-pop-list{display:flex; flex-direction:column; gap:8px}
 .members-pop-row{display:flex; align-items:center; gap:9px; font-size:13px; color:var(--text)}
