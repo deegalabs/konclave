@@ -79,6 +79,8 @@ history to tidy it is how context gets lost.
   people register is the first screen to use it, keeps the people it already read when a refresh
   fails, and does not offer to register someone into a list it cannot see; the others follow one by
   one.
+- **The proposals list's "could not read" state says why.** It now uses the shared state: the reason,
+  who was asked, what still holds, and "Try again" that says when it is trying.
 
 ### Fixed
 

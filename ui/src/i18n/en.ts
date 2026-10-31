@@ -1279,8 +1279,6 @@ export const en: Record<string, string> = {
   'proposals.closedGroup': 'Closed',
   'proposals.nothingForYou': 'Nothing needs you right now.',
   'proposals.unreadTitle': 'Could not read the proposals',
-  'proposals.unreadLead': 'The list could not be read. Your vault and your share are still on this device; only the list did not arrive.',
-  'proposals.retry': 'Try again',
   'ledger.xlsxIncludes': 'The XLSX file includes each payment’s memo, transaction id, and who proposed and approved it.',
   // #302: the XLSX export names who proposed and who approved each movement.
   'ledger.colProposedBy': 'Proposed by',
