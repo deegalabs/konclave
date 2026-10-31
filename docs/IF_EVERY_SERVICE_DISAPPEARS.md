@@ -61,13 +61,13 @@ done**.
 ### See the vault's balance and history with the viewing key
 
 A viewing key reads the vault's whole history and balance and cannot move a coin. The one tool this
-page can speak for is `zcash-devtool`, the Zcash tool the coordinator itself runs: the **build that
-`engine/versions.lock` records** (sha256 `8c41afd3...`, built from upstream `539ae81d` plus the patch
-the lock names). Use that build, or one newer that **knows the current network upgrade**: a wallet
-tool that does not know the upgrade the chain is on cannot sync past it. The chain is on NU6.3
-today; the next upgrade (NU7) has no activation height yet, and the app shows a notice on the vault
-home before one activates, from the chain tip the coordinator reports. With the viewing key and the scan height from a Private
-backup, the commands the coordinator runs when it rebuilds and reads a wallet:
+page can speak for is `zcash-devtool`, the Zcash tool the coordinator itself runs. The build you use
+must **know the network upgrade the chain is on**: a wallet tool that does not know it cannot sync
+past it. The chain is on NU6.3 today and NU7 activates at mainnet block 3,543,405 (ZIP 259;
+`konclave-seal/src/epochs.rs` carries the same number), so from that block on the build must know
+NU7. Which exact build to use is left for the engine record (`engine/versions.lock`) once its
+correction lands. With the viewing key and the scan height from a Private backup, the commands the
+coordinator runs when it rebuilds and reads a wallet:
 
 ```sh
 zcash-devtool wallet -w <a new folder> init-fvk \
@@ -85,7 +85,7 @@ and there is no rescan. `list-tx` is what the coordinator reads to say a payment
 
 **Checked:** read in `docs/RECOVERY.md`, procedure B, step 3 (the `init-fvk` line and the birthday
 warning), in `helper-server/src/main.rs` (the coordinator runs `sync`, `balance` and `list-tx` on
-its wallets in that order) and in `engine/versions.lock` (which build ships and why). **Not run from
+its wallets in that order) and in `konclave-seal/src/epochs.rs` (the NU7 activation height). **Not run from
 a member's backup for this page.** The warning about the birthday is not theoretical: it is #434,
 found on a live vault.
 
