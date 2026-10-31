@@ -114,6 +114,17 @@ describe('the XLSX ledger export (#302)', () => {
     expect(back.modified.getTime()).toBe(generatedAt.getTime())
     expect(summaryValue(back, 'Generated')).toBe('2026-10-29 12:34')
   })
+  it('shows every amount to the zatoshi: eight decimals on the rows, the total and the summary (#303)', async () => {
+    const wb = await buildLedgerWorkbook(data([item({ zec: 0.00001234, settled: true })]))
+    const mv = wb.getWorksheet('Movements')!
+    expect(mv.getColumn('zec').numFmt).toBe('0.00000000')
+    expect(mv.getRow(3).getCell('zec').numFmt).toBe('0.00000000') // the total row
+    const sm = wb.getWorksheet('Summary')!
+    let fmt: string | undefined
+    sm.eachRow((row) => { if (row.getCell(1).value === 'Settled out') fmt = row.getCell(2).numFmt })
+    expect(fmt).toBe('0.00000000')
+  })
+
   it('counts as open only what can still move: a refused or expired row is neither settled nor open', async () => {
     const wb = await buildLedgerWorkbook(data([
       item(), // confirmed, 1.5: settled
