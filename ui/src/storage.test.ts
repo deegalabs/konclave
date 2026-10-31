@@ -7,7 +7,7 @@ vi.setConfig({ testTimeout: 30_000 })
 
 import {
   saveVault, loadVault, listVaults, deleteVault, forgetVault, storageAvailable,
-  exportVault, importVault, parseVaultExport, changePassphrase, recordChangeReceiver, type VaultData,
+  exportVault, importVault, parseVaultExport, changePassphrase, recordChangeReceiver, updateVaultMeta, type VaultData,
   warnsAboutEviction, storagePersistence,
 } from './storage'
 
@@ -768,5 +768,243 @@ describe('the export carries the scan floor (#480)', () => {
     const bundle = await exportVault(noKey, 'pass')
     await importVault(bundle, 'pass', { overwrite: true })
     expect((await loadVault(noKey, 'pass')).birthday).toBeUndefined()
+  })
+})
+
+// #599: the record kept the share and `S` sealed and the viewing key beside them in the clear, so
+// anyone who could read the browser profile read the vault's whole history without the passphrase.
+// These read the record straight out of IndexedDB: going through `loadVault` would pass either way.
+describe('the viewing key is sealed at rest (#599)', () => {
+  const UFVK = 'uview1testviewingkey'
+  const id = GK7
+
+  async function db(): Promise<IDBDatabase> {
+    return await new Promise((resolve, reject) => {
+      const req = indexedDB.open('konclave', 1)
+      req.onerror = () => reject(req.error)
+      req.onsuccess = () => resolve(req.result)
+    })
+  }
+  async function rawRecord(): Promise<Record<string, unknown>> {
+    const g = (await db()).transaction('vaults', 'readonly').objectStore('vaults').get(id)
+    return await new Promise((resolve, reject) => {
+      g.onsuccess = () => resolve(g.result as Record<string, unknown>)
+      g.onerror = () => reject(g.error)
+    })
+  }
+  async function putRaw(rec: Record<string, unknown>): Promise<void> {
+    const tx = (await db()).transaction('vaults', 'readwrite')
+    tx.objectStore('vaults').put(rec)
+    await new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error)
+    })
+  }
+  /** Everything in the record as text, bytes included, so the key is found under any field name. */
+  function holdsClearKey(rec: Record<string, unknown>): boolean {
+    const text = JSON.stringify(rec, (_k, v) =>
+      v instanceof Uint8Array ? new TextDecoder().decode(v) : v)
+    return text.includes(UFVK)
+  }
+  async function imported(pass = 'pass'): Promise<void> {
+    await saveVault(id, { ...data, accessSecret: new Uint8Array(32).fill(3) }, pass)
+    await importVault(await exportVault(id, pass, UFVK, 3_470_000), pass, { overwrite: true })
+  }
+  /** The record a build before this fix wrote on import: same envelope, the key in the clear. */
+  async function writtenBeforeTheFix(pass = 'pass'): Promise<void> {
+    await saveVault(id, { ...data, accessSecret: new Uint8Array(32).fill(3) }, pass)
+    await putRaw({ ...(await rawRecord()), ufvk: UFVK, birthday: 3_470_000, changeReceiver: 'u1change' })
+  }
+
+  it('an import writes no plain viewing key, and the passphrase opens it', async () => {
+    await imported()
+    const rec = await rawRecord()
+    expect('ufvk' in rec, 'the plain field is not written at all').toBe(false)
+    expect(holdsClearKey(rec)).toBe(false)
+    expect((await loadVault(id, 'pass')).ufvk).toBe(UFVK)
+    await expect(loadVault(id, 'wrong')).rejects.toThrow(/wrong passphrase|tampered/i)
+  })
+
+  it('a record from before the fix is rewritten sealed on the next unlock, and nothing else moves', async () => {
+    await writtenBeforeTheFix()
+    const before = await rawRecord()
+    expect(holdsClearKey(before), 'precondition: the old record holds the key in the clear').toBe(true)
+
+    const loaded = await loadVault(id, 'pass')
+    expect(loaded.ufvk).toBe(UFVK)
+
+    const after = await rawRecord()
+    expect('ufvk' in after, 'the plain field is gone').toBe(false)
+    expect(holdsClearKey(after)).toBe(false)
+    expect(after.birthday).toBe(3_470_000)
+    expect(after.changeReceiver).toBe('u1change')
+    expect(after.createdAt).toBe(before.createdAt)
+    expect(after.cipher, 'the share envelope is not re-sealed').toEqual(before.cipher)
+
+    const again = await loadVault(id, 'pass')
+    expect(again.ufvk).toBe(UFVK)
+    expect(Array.from(again.sealedShare)).toEqual(Array.from(share))
+    expect(Array.from(again.accessSecret!)).toEqual(Array.from(new Uint8Array(32).fill(3)))
+  })
+
+  it('a wrong passphrase migrates nothing', async () => {
+    await writtenBeforeTheFix()
+    await expect(loadVault(id, 'wrong')).rejects.toThrow()
+    expect((await rawRecord()).ufvk).toBe(UFVK)
+  })
+
+  it('a passphrase change re-seals it: the old envelope would not open under the new key', async () => {
+    await imported('old-one')
+    await changePassphrase(id, 'old-one', 'new-one')
+    expect(holdsClearKey(await rawRecord())).toBe(false)
+    expect((await loadVault(id, 'new-one')).ufvk).toBe(UFVK)
+    await expect(loadVault(id, 'old-one')).rejects.toThrow()
+  })
+
+  it('a passphrase change on a record from before the fix leaves no plain field either', async () => {
+    await writtenBeforeTheFix('old-one')
+    await changePassphrase(id, 'old-one', 'new-one')
+    const rec = await rawRecord()
+    expect('ufvk' in rec).toBe(false)
+    expect(holdsClearKey(rec)).toBe(false)
+    expect((await loadVault(id, 'new-one')).ufvk).toBe(UFVK)
+  })
+
+  /** Run `during` in the gap between the migration reading the record and writing it: the seal is
+   *  the first encryption an unlock of an old record makes. `Promise.all` never reaches this gap. */
+  function inTheMigrationGap(during: () => Promise<unknown>) {
+    const real = crypto.subtle.encrypt.bind(crypto.subtle)
+    return vi.spyOn(crypto.subtle, 'encrypt').mockImplementationOnce(async (...args) => {
+      await during()
+      return real(...args)
+    })
+  }
+
+  it('a passphrase change landing during the migration is not undone', async () => {
+    await writtenBeforeTheFix('old-one')
+    const spy = inTheMigrationGap(() => changePassphrase(id, 'old-one', 'new-one'))
+    await loadVault(id, 'old-one')
+    spy.mockRestore()
+    const back = await loadVault(id, 'new-one')
+    expect(Array.from(back.sealedShare)).toEqual(Array.from(share))
+    expect(back.ufvk).toBe(UFVK)
+    await expect(loadVault(id, 'old-one')).rejects.toThrow()
+  })
+
+  it('a record re-sealed by an older build during the migration keeps its plain field for the next unlock', async () => {
+    // An old tab rotates without touching `ufvk`, so only the salt shows the key in hand is stale.
+    await writtenBeforeTheFix()
+    const spy = inTheMigrationGap(async () => putRaw({ ...(await rawRecord()), salt: new Uint8Array(16).fill(9) }))
+    await loadVault(id, 'pass')
+    spy.mockRestore()
+    const rec = await rawRecord()
+    expect(rec.ufvk).toBe(UFVK)
+    expect(rec.ufvkCipher, 'nothing sealed under a key that is no longer the record\'s').toBeUndefined()
+  })
+
+  it('a rename landing during the migration is kept', async () => {
+    await writtenBeforeTheFix()
+    const spy = inTheMigrationGap(() => updateVaultMeta(id, { name: 'Renamed' }))
+    await loadVault(id, 'pass')
+    spy.mockRestore()
+    const rec = await rawRecord()
+    expect(rec.name).toBe('Renamed')
+    expect('ufvk' in rec).toBe(false)
+  })
+
+  it('a change landing during a passphrase change is kept, and a vault removed meanwhile is an error', async () => {
+    await imported('old-one')
+    const rename = inTheMigrationGap(() => updateVaultMeta(id, { name: 'Renamed' }))
+    await changePassphrase(id, 'old-one', 'new-one')
+    rename.mockRestore()
+    expect((await rawRecord()).name).toBe('Renamed')
+
+    const removal = inTheMigrationGap(() => deleteVault(id))
+    await expect(changePassphrase(id, 'new-one', 'third-one')).rejects.toThrow(/no saved vault/i)
+    removal.mockRestore()
+  })
+
+  it('a passphrase change writes in the transaction it reads the record in', async () => {
+    await imported('old-one')
+    const open = vi.spyOn(IDBDatabase.prototype, 'transaction')
+    await changePassphrase(id, 'old-one', 'new-one')
+    expect(open, 'the unlock that proves the passphrase, then one read-and-write').toHaveBeenCalledTimes(2)
+    open.mockRestore()
+  })
+
+  it('a migration that fails costs the unlock nothing and leaves the record for the next one', async () => {
+    await writtenBeforeTheFix()
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const spy = vi.spyOn(crypto.subtle, 'encrypt').mockRejectedValueOnce(new Error('no'))
+    expect((await loadVault(id, 'pass')).ufvk).toBe(UFVK)
+    spy.mockRestore()
+    expect(error).toHaveBeenCalled()
+    error.mockRestore()
+    expect((await rawRecord()).ufvk).toBe(UFVK)
+    await loadVault(id, 'pass')
+    expect('ufvk' in (await rawRecord())).toBe(false)
+  })
+
+  it('a passphrase change removes the plain field even when the migration before it failed', async () => {
+    await writtenBeforeTheFix('old-one')
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const spy = vi.spyOn(crypto.subtle, 'encrypt').mockRejectedValueOnce(new Error('no'))
+    await changePassphrase(id, 'old-one', 'new-one')
+    spy.mockRestore()
+    error.mockRestore()
+    const rec = await rawRecord()
+    expect('ufvk' in rec).toBe(false)
+    expect((await loadVault(id, 'new-one')).ufvk).toBe(UFVK)
+  })
+
+  it('the viewing-key field cannot be pointed at another envelope of the record', async () => {
+    await imported()
+    const rec = await rawRecord()
+    await putRaw({ ...rec, ufvkIv: rec.secretIv, ufvkCipher: rec.secretCipher })
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    expect((await loadVault(id, 'pass')).ufvk).toBeUndefined()
+    error.mockRestore()
+  })
+
+  it('the writes that patch a record read and write in ONE transaction', async () => {
+    // A write built from an earlier read puts that read back: it would undo a passphrase change that
+    // landed in between, and restore a plain field the migration had removed.
+    await writtenBeforeTheFix()
+    const open = vi.spyOn(IDBDatabase.prototype, 'transaction')
+    await updateVaultMeta(id, { name: 'Renamed' })
+    expect(open).toHaveBeenCalledTimes(1)
+    open.mockClear()
+    await putRaw({ ...(await rawRecord()), changeReceiver: undefined })
+    open.mockClear()
+    expect(await recordChangeReceiver(id, 'u1pinned')).toBe(true)
+    expect(open).toHaveBeenCalledTimes(1)
+    open.mockRestore()
+    const rec = await rawRecord()
+    expect(rec.name).toBe('Renamed')
+    expect(rec.changeReceiver).toBe('u1pinned')
+  })
+
+  it('an export from a sealed record still carries it, with no fetch to supply it', async () => {
+    await imported()
+    const blob = parseVaultExport(JSON.stringify(await exportVault(id, 'pass')))
+    await deleteVault(id)
+    await importVault(blob, 'pass')
+    expect((await loadVault(id, 'pass')).ufvk).toBe(UFVK)
+  })
+
+  it('a damaged viewing-key field does not lock the member out of the share', async () => {
+    // The share already proved the passphrase, so calling this a wrong passphrase would be false,
+    // and the viewing key can be fetched again while the share cannot.
+    await imported()
+    const rec = await rawRecord()
+    const damaged = (rec.ufvkCipher as Uint8Array).slice()
+    damaged[0]! ^= 0xff
+    await putRaw({ ...rec, ufvkCipher: damaged })
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const back = await loadVault(id, 'pass')
+    expect(error).toHaveBeenCalled()
+    error.mockRestore()
+    expect(back.ufvk).toBeUndefined()
+    expect(Array.from(back.sealedShare)).toEqual(Array.from(share))
   })
 })
