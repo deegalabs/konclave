@@ -4,7 +4,7 @@ import { Secret, RevealButton, activateOnKey, Soon } from '../components'
 import { SkeletonRows } from '../skeleton'
 import { PageHeader, PageFooter } from '../page'
 import { getLedger, getProposalDetail, getVault, ledgerCsvUrl, shortAddr, IS_NET, type Proposal, type PayrollLine } from '../api'
-import { explorerTxUrl, fmtDate, fmtZec } from '../format'
+import { explorerTxUrl, fmtDate, fmtZecExact, sumZat, zatToZec } from '../format'
 import { exportLedgerXlsx, type LedgerXlsxItem } from '../ledgerXlsx'
 import { isOpen } from '../desk'
 import { useLoading } from '../loading'
@@ -86,14 +86,14 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
             setLinesById((m) => ({ ...m, [p.id]: lines! }))
           }
           if (lines.length === 0) {
-            items.push({ ...base, kind: t('kind.payroll'), beneficiary: '', address: '', memo: p.memo ?? '', zec: Number(p.value_zec) })
+            items.push({ ...base, kind: t('kind.payroll'), beneficiary: '', address: '', memo: p.memo ?? '', zec: Number(zatToZec(p.value_zat)) })
           } else {
             for (const l of lines) {
-              items.push({ ...base, kind: t('kind.payroll'), beneficiary: l.label || '', address: l.address, memo: l.memo ?? '', zec: Number(l.value_zec) })
+              items.push({ ...base, kind: t('kind.payroll'), beneficiary: l.label || '', address: l.address, memo: l.memo ?? '', zec: Number(zatToZec(l.value_zat)) })
             }
           }
         } else {
-          items.push({ ...base, kind: t('kind.payment'), beneficiary: '', address: p.to_address ?? '', memo: p.memo ?? '', zec: Number(p.value_zec) })
+          items.push({ ...base, kind: t('kind.payment'), beneficiary: '', address: p.to_address ?? '', memo: p.memo ?? '', zec: Number(zatToZec(p.value_zat)) })
         }
       }
       await exportLedgerXlsx({
@@ -120,8 +120,9 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
   const ledger = rows ?? []
   const settled = ledger.filter((p) => SETTLED(p.state))
   const pending = ledger.filter(isOpen)
-  const totalOut = settled.reduce((acc, p) => acc + Number(p.value_zec), 0)
-  const totalPending = pending.reduce((acc, p) => acc + Number(p.value_zec), 0)
+  // Totals in integer zatoshi, formatted once: a float sum of the decimal strings drifts (#303).
+  const totalOut = zatToZec(sumZat(settled))
+  const totalPending = zatToZec(sumZat(pending))
   // Period from the entries' real creation dates: the screen's from the whole book, the export's
   // from the rows it carries (#302).
   const periodOf = (list: Proposal[]) => {
@@ -171,8 +172,8 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
             <div><span className="klab">{t('ledger.entries')}</span><b>{ledger.length}</b></div>
           </div>
           <div className="db-totals">
-            <div className="db-t"><span className="klab">{t('ledger.settledOut')}</span><Secret sm><b className="out">−{fmtZec(totalOut)}</b></Secret></div>
-            <div className="db-t"><span className="klab">{t('ledger.open')}</span><Secret sm><b className="dim">{fmtZec(totalPending)}</b></Secret></div>
+            <div className="db-t"><span className="klab">{t('ledger.settledOut')}</span><Secret sm><b className="out">−{fmtZecExact(Number(totalOut))}</b></Secret></div>
+            <div className="db-t"><span className="klab">{t('ledger.open')}</span><Secret sm><b className="dim">{fmtZecExact(Number(totalPending))}</b></Secret></div>
             <span className="db-reveal"><RevealButton /></span>
           </div>
         </div>
@@ -235,7 +236,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
                     </td>
                     <td className="by">{who}</td>
                     <td className="num out">
-                      <Secret sm><span>−{fmtZec(p.value_zec)}</span></Secret>
+                      <Secret sm><span>−{fmtZecExact(p.value_zat / 1e8)}</span></Secret>
                       <div className="by">
                         {settledRow && p.txid
                           ? <a className="link" href={explorerTxUrl(p.txid)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>{t('state.' + p.state)} ↗</a>
@@ -249,7 +250,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
                         <td></td>
                         <td className="mono dim">↳ {l.label || shortAddr(l.address)}<div className="by">{shortAddr(l.address)}{l.is_public ? t('ledger.publicSuffix') : ''}{l.memo ? ` · ${l.memo}` : ''}</div></td>
                         <td></td>
-                        <td className="num"><Secret sm><span>−{fmtZec(l.value_zec)}</span></Secret></td>
+                        <td className="num"><Secret sm><span>−{fmtZecExact(l.value_zat / 1e8)}</span></Secret></td>
                       </tr>
                     ))
                     : <tr className="li-sub"><td></td><td className="by" colSpan={3}>{t('ledger.loadingBeneficiaries')}</td></tr>

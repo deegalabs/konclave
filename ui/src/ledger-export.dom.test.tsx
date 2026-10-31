@@ -81,6 +81,15 @@ describe('the Ledger screen exports what it shows (#302)', () => {
     expect(d.period).toBe(fmtDate(rent.created_at, 'en'))
   })
 
+  it('shows a row and the totals to the zatoshi, not rounded to four places (#303)', async () => {
+    const stipend = { ...rent, id: 'p4', memo: 'Stipend', to_address: 'u1stip', value_zat: 1234, value_zec: '0.00001234' }
+    getLedger.mockResolvedValue([stipend, pending])
+    mount()
+    await screen.findByText('Stipend')
+    expect(screen.getAllByText('−0.00001234').length).toBe(2) // the row, and the band's "Settled out"
+    expect(screen.getByText('0.2500')).toBeTruthy() // the band's "Open": four places at least, zeros past them trimmed
+  })
+
   it('links a settled row to the same explorer page the export does', async () => {
     mount()
     await screen.findByText('October rent')

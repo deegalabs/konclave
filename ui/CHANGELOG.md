@@ -80,6 +80,12 @@ history to tidy it is how context gets lost.
   clipboard value where they believed the address was. Both screens now wait for the write, say
   "Copied" only when it was confirmed, and otherwise say that it could not copy and to select the
   text by hand. The creation invite already did this (#313).
+- **Moving between screens moves keyboard focus to the new screen's heading, and the tab says
+  where you are.** The app replaces the content without reloading, so focus stayed on the link that
+  was used or on the page body, and a screen-reader or keyboard user had no sign that the page had
+  changed. On every route change focus now goes to the main heading, without scrolling the page
+  away from the top, and the browser tab is named after it; the first load and a change made while
+  a dialog is open are left alone (#662).
 - **A vault can no longer be asked for with a quorum of 1 on the `/net` screen and in the ceremony.** The signing library refuses a
   quorum below 2, and the main create screen already stopped at 2 (0.8.0), but the older `/net`
   screen still listed "1 of 3", a config built by hand or by an older client still reached the
@@ -90,6 +96,15 @@ history to tidy it is how context gets lost.
   failed creation instead of disappearing. Still open: on the coordinator, registration accepts
   `threshold: 1`; and the main create screen's own check (`Ceremony.tsx`) still lets 1 through to
   the ceremony, which then refuses it (#589).
+- **The spreadsheet shows every amount to the zatoshi, and the book's totals are exact.** The XLSX
+  formatted amounts with four decimals, so a small stipend (0.00001234 ZEC) read as 0.0000 in the
+  accountant's copy, and the book on screen rounded each row and its totals to four places; and the
+  screen's "Settled out" and "Open" totals added the decimal amounts as floating-point numbers, which
+  drifts over dozens of eight-place entries. The workbook now carries eight decimals on every row,
+  the total and the summary; the book's rows and totals show every place down to the zatoshi; and
+  the totals are summed in whole zatoshi and formatted once. A test forbids the Ledger from adding
+  amounts as floating point (#303).
+
 - **The spreadsheet's "Open" total no longer counts refused or expired proposals.** The Summary
   sheet took as open everything that was not settled, so a refused, expired or invalidated proposal,
   whose money never left, was added to "Open", and the figure disagreed with the one the screen
@@ -124,6 +139,12 @@ history to tidy it is how context gets lost.
   the page and could only close it by moving focus away. It now opens on hover and on focus and
   closes on mouse leave, on blur and on Escape, and the small gap between the link and the popover
   no longer closes it on the way to it (#602).
+- **The backup file's name no longer says which vault it is.** The export's contents reveal nothing
+  without the passphrase, not even which vault the file belongs to, but the file was named after
+  the vault, so a downloads folder, a synced drive, a mail attachment or a USB stick showed the
+  vault's name to whoever saw the listing. The file is now `konclave-backup-<date>-<time>.konclave.json`
+  from every screen that offers a backup; the date and time tell copies apart. Open the file in
+  the app, or with the opener script, to see which vault it is (#587).
 - **A device that only unlocks with the passkey is told when it still holds the viewing key
   unencrypted.** Since the viewing key started being encrypted on import, typing the passphrase
   encrypts a key an older import left in the clear, but the passkey cannot (it does not open what
