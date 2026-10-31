@@ -51,6 +51,7 @@ describe('the proposals list (#292)', () => {
     await screen.findByText('Near deadline')
     expect(titlesUnder(en('proposals.needsYou'))).toEqual(['Ready rent', 'Near deadline', 'Far deadline'])
     expect(titlesUnder(en('proposals.withOthers'))).toEqual(['Bob already voted'])
+    await screen.findByText('Sent rent') // the sent group waits for the transaction list's first answer
     expect(titlesUnder(en('proposals.sentAwaiting'))).toEqual(['Sent rent'])
     expect(screen.queryByText('Refused chairs')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: en('proposals.showClosed').replace('{n}', '1') }))
@@ -63,10 +64,26 @@ describe('the proposals list (#292)', () => {
     listVaults.mockResolvedValue([])
     mount()
     await screen.findByText('Near deadline')
-    expect(screen.getByText(en('proposals.readyToSign'))).toBeTruthy()
     expect(screen.queryByText(en('desk.band.vote'))).toBeNull()
     expect(within(screen.getByText('Ready rent').closest('.plist-row') as HTMLElement).getByText(en('stamp.ready'))).toBeTruthy()
     expect(within(screen.getByText('Near deadline').closest('.plist-row') as HTMLElement).getByText(en('stamp.awaiting'))).toBeTruthy()
+    // The headings cannot say "Needs you" either: ready ones under "Ready to sign", awaiting ones
+    // under "Awaiting approval", so no awaiting proposal sits under a heading that promises a signature.
+    expect(screen.queryByText(en('proposals.needsYou'))).toBeNull()
+    expect(titlesUnder(en('proposals.readyToSign'))).toEqual(['Ready rent'])
+    expect(titlesUnder(en('proposals.awaitingApproval'))).toEqual(['Near deadline', 'Bob already voted', 'Far deadline'])
+  })
+
+  it('holds the sent group until the transaction list has answered once', async () => {
+    let answer: (v: unknown) => void = () => {}
+    readTransactions.mockReturnValue(new Promise((r) => { answer = r }))
+    mount()
+    await screen.findByText('Near deadline')
+    expect(screen.queryByText(en('proposals.sentAwaiting'))).toBeNull()
+    expect(screen.queryByText('Sent rent')).toBeNull()
+    answer([])
+    await screen.findByText('Sent rent')
+    expect(screen.getByText(en('proposals.sentAwaiting'))).toBeTruthy()
   })
 
   it('a READY proposal past its deadline is closed on the device too, stamped expired, not first under "Sign"', async () => {

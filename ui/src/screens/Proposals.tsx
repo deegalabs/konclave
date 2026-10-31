@@ -81,6 +81,9 @@ export default function Proposals({ embedded = false }: { embedded?: boolean }) 
   // in which case the groups speak of the vault, not of the person.
   const [me, setMe] = useState<string | null>(null)
   const [txs, setTxs] = useState<WalletTx[] | null>(null)
+  // The sent group waits for the first answer of the transaction list: until then a sent proposal
+  // cannot be told from one the chain already holds, and the group would show it as still pending.
+  const [txsAsked, setTxsAsked] = useState(false)
   const [showClosed, setShowClosed] = useState(false)
   const [attempt, setAttempt] = useState(0)
   const unreadRef = useRef<HTMLDivElement>(null)
@@ -127,7 +130,7 @@ export default function Proposals({ embedded = false }: { embedded?: boolean }) 
   useEffect(() => {
     if (!hasSent) return
     let on = true
-    void readTransactions().then((list) => { if (on && Array.isArray(list)) setTxs(list) })
+    void readTransactions().then((list) => { if (!on) return; if (Array.isArray(list)) setTxs(list); setTxsAsked(true) })
     return () => { on = false }
   }, [hasSent])
   usePoll(() => { void readTransactions().then((list) => { if (Array.isArray(list)) setTxs(list) }) }, 60_000, hasSent)
@@ -145,9 +148,12 @@ export default function Proposals({ embedded = false }: { embedded?: boolean }) 
   // for the ledger. Closed ones wait behind a toggle.
   const all = rows ?? []
   const desk = rankDesk(all.filter((p) => !expiredByClock(p)), me, threshold)
-  const needsYou = desk.items.filter((i) => i.band === 'sign' || i.band === 'vote')
-  const withOthers = desk.items.filter((i) => i.band === 'wait' || i.band === 'voted')
-  const sentOpen = all.filter((p) => p.state === 'sent' && !isConfirmed(settlementOf(p, txs)))
+  // With no known member name the bands are statements about the vault (desk.ts), so the first
+  // group holds only what is ready to sign and the second everything still awaiting approval:
+  // no awaiting proposal sits under a heading that promises a signature.
+  const needsYou = desk.items.filter((i) => desk.personal ? i.band === 'sign' || i.band === 'vote' : i.band === 'sign')
+  const withOthers = desk.items.filter((i) => desk.personal ? i.band === 'wait' || i.band === 'voted' : i.band !== 'sign')
+  const sentOpen = txsAsked ? all.filter((p) => p.state === 'sent' && !isConfirmed(settlementOf(p, txs))) : []
   const closed = all.filter(isClosed)
   const rowProps = { personal: desk.personal, threshold, t, tr, open }
 
