@@ -145,6 +145,13 @@ history to tidy it is how context gets lost.
   vault's name to whoever saw the listing. The file is now `konclave-backup-<date>-<time>.konclave.json`
   from every screen that offers a backup; the date and time tell copies apart. Open the file in
   the app, or with the opener script, to see which vault it is (#587).
+- **A device that only unlocks with the passkey is told when it still holds the viewing key
+  unencrypted.** Since the viewing key started being encrypted on import, typing the passphrase
+  encrypts a key an older import left in the clear, but the passkey cannot (it does not open what
+  the key is encrypted under), so a member who only used the passkey kept the old record with
+  nothing on screen saying so. The vault list now carries a short notice on that vault's card
+  asking for the passphrase once on this device; typing it runs the same rewrite, and the notice
+  goes away. The check reads only whether the field is present, never its value (#784).
 
 ### Known limits
 

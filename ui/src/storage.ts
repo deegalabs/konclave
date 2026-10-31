@@ -71,6 +71,11 @@ export interface VaultPublic {
    *  `false` = a legacy/open vault (a leaked id can read its books). Derived from the presence of the
    *  sealed S, never the secret itself, so it is safe to expose without unlocking. */
   secured?: boolean
+  /** #784: whether the record still carries the viewing key IN THE CLEAR, as imports wrote it before
+   *  #599. Presence only, derived here so no screen touches the value; the value itself is never
+   *  listed. True means the passphrase has not been typed on this device since; `loadVault` seals
+   *  the key and removes the clear field. */
+  plainViewingKey?: boolean
   /** The vault's internal (change) receiver, captured once (#281). Present means the money gate can
    *  tell this vault's own change from a stranger; absent means UNKNOWN, and the gate must stay
    *  unarmed rather than read it as an empty allowlist. */
@@ -1060,7 +1065,7 @@ export async function listVaults(): Promise<VaultPublic[]> {
     const records = await reqDone(tx.objectStore(STORE).getAll() as IDBRequest<VaultRecord[]>)
     await txDone(tx)
     return records
-      .map((r) => ({ id: r.id, name: r.name, governance: r.governance, myName: r.myName, creatorName: r.creatorName, groupKey: r.groupKey, address: r.address, roster: r.roster, createdAt: r.createdAt, secured: !!r.secretCipher, changeReceiver: r.changeReceiver, pending: r.pending, threshold: r.threshold, total: r.total, cp: r.cp, allSaved: r.allSaved, coordinator: r.coordinator }))
+      .map((r) => ({ id: r.id, name: r.name, governance: r.governance, myName: r.myName, creatorName: r.creatorName, groupKey: r.groupKey, address: r.address, roster: r.roster, createdAt: r.createdAt, secured: !!r.secretCipher, plainViewingKey: typeof r.ufvk === 'string', changeReceiver: r.changeReceiver, pending: r.pending, threshold: r.threshold, total: r.total, cp: r.cp, allSaved: r.allSaved, coordinator: r.coordinator }))
       .sort((a, b) => b.createdAt - a.createdAt)
   } finally {
     db.close()
