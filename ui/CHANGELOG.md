@@ -86,6 +86,15 @@ history to tidy it is how context gets lost.
   It opens cleanly in Excel: a UTF-8 marker for accents, the delimiter and decimal mark of the
   member's language, the entry's local date. A memo or a payee name that starts with "=", "+", "-"
   or "@" is written so a spreadsheet cannot run it as a formula (#301, #304).
+- **A read that fails says why, and the people register no longer looks empty when it could not be
+  read.** Every read in the app answered "nothing" for any failure, so a screen could not tell an
+  empty list from a list it did not get, nor no network from access denied. The two read routines
+  now leave the reason behind (no network, took too long, access refused, nothing there, server did
+  not answer, unreadable answer), and a shared "could not read" state says it, with what still holds
+  and "Try again", naming who was asked: the Konclave on this device, or the vault's server. The
+  people register is the first screen to use it, keeps the people it already read when a refresh
+  fails, and does not offer to register someone into a list it cannot see; the others follow one by
+  one.
 
 ### Fixed
 
@@ -181,6 +190,10 @@ history to tidy it is how context gets lost.
   contrast minimum in the light theme. Each chip now carries its pressed state, each row is a named
   group, the period name is announced when it changes, and the selected text is darker. Found by the
   accessibility pass on the period picker.
+- **The book no longer stays on its loading skeleton when it could not be read.** A failed read is
+  said as such, with the reason, who was asked and "Try again". On the web the reason is the one of
+  the read the book actually makes, the vault's proposals; the first version asked for a route the
+  web never reads, so the reason never showed (#320).
 
 ### Known limits
 
