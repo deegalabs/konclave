@@ -73,12 +73,6 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
-- **The backup file's name no longer says which vault it is.** The export's contents reveal nothing
-  without the passphrase, not even which vault the file belongs to, but the file was named after
-  the vault, so a downloads folder, a synced drive, a mail attachment or a USB stick showed the
-  vault's name to whoever saw the listing. The file is now `konclave-backup-<date>-<time>.konclave.json`
-  from every screen that offers a backup; the date and time tell copies apart. Open the file in
-  the app, or with the opener script, to see which vault it is (#587).
 - **A vault can no longer be asked for with a quorum of 1 on the `/net` screen and in the ceremony.** The signing library refuses a
   quorum below 2, and the main create screen already stopped at 2 (0.8.0), but the older `/net`
   screen still listed "1 of 3", a config built by hand or by an older client still reached the
@@ -118,6 +112,12 @@ history to tidy it is how context gets lost.
   payroll line and the send confirmation were rounded to four places, so a payment of 0.00009 ZEC
   read 0.0001 while the fee and the total beside it were exact and the signing panel read 0.00009.
   They now show every place down to the zatoshi. The amount sent was never affected (#777).
+- **The backup file's name no longer says which vault it is.** The export's contents reveal nothing
+  without the passphrase, not even which vault the file belongs to, but the file was named after
+  the vault, so a downloads folder, a synced drive, a mail attachment or a USB stick showed the
+  vault's name to whoever saw the listing. The file is now `konclave-backup-<date>-<time>.konclave.json`
+  from every screen that offers a backup; the date and time tell copies apart. Open the file in
+  the app, or with the opener script, to see which vault it is (#587).
 
 ### Known limits
 
