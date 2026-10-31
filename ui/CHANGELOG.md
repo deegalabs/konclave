@@ -87,6 +87,13 @@ history to tidy it is how context gets lost.
   or invalidated proposal sat in the ledger like any other line, with an outflow sign on an amount
   that never left. Its row is now muted, the amount carries no sign, the state is followed by "no
   payment", and a "Closed" filter shows only those lines. They were already outside both totals.
+- **The payroll's actions sit above the table, and the registry fills lines in batch.** "From the
+  registry", "Add line" and "Import CSV" moved from under the table to above it, in the order they
+  are used. "From the registry" opens the people on record with a box each: the chosen ones become
+  lines with name, address and memo filled, the value left to type, and someone already on the
+  sheet is marked and skipped. Until now the key existed and no button used it: a treasurer with
+  twelve people typed twelve lines through the picker of each row. Each line's memo field and
+  remove button now carry a name with the line number for a screen reader (part of #299).
 - **The CSV export works on the web, from the rows on screen, and is safe to open.** The button
   was "soon" on the web and, on the local build, downloaded a server file that ignored the period and
   the filters. The CSV is now built in the browser from the same rows as the XLSX, with the period
