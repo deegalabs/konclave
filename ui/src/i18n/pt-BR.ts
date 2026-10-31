@@ -90,7 +90,6 @@ export const ptBR: Record<string, string> = {
   'common.reveal': 'Revelar',
   'payroll.importSoonWhy': 'A leitura de CSV ainda roda só na versão local. Por enquanto, digite as linhas na tabela ou escolha do cadastro.',
   'settings.removeNoLocal': 'Este aparelho não guarda nenhuma parte deste cofre, então não há o que remover aqui. Ele é lido pelo ajudante.',
-  'ledger.exportSoonWhy': 'A exportação do livro ainda roda só na versão local.',
   'landing.downloadSoonWhy': 'O aplicativo de mesa existe e está assinado, mas ainda não foi validado em cada plataforma. Enquanto isso, o cofre roda inteiro no navegador.',
   'common.soon': 'em breve',
   'common.cancel': 'Cancelar',
@@ -1305,12 +1304,12 @@ export const ptBR: Record<string, string> = {
   'ledger.periodQuarterLabel': 'T{q} {y}',
   'ledger.periodHint': 'Os lançamentos entram pela data de criação.',
   'ledger.emptyPeriod': 'Nenhum lançamento em {period}.',
-  'ledger.csvWholeBook': 'O CSV é sempre o livro inteiro, qualquer que seja o período.',
   // Evidence and payment point at each other (same txid); the join is on the screen.
   'ceremonies.viewProposal': 'Ver proposta →',
   'ceremonies.noProposal': 'Nenhuma proposta deste cofre tem esta transação.',
   'ceremonies.thisPayment': 'Este pagamento',
   'proposal.viewEvidence': 'Ver a evidência da assinatura →',
+  'ledger.csvIncludes': 'O CSV traz as mesmas linhas do XLSX, com o período e os filtros da tela.',
   // Ledger: a proposal closed without payment is shown as such and can be filtered on its own.
   'ledger.filterClosed': 'Encerradas',
   'ledger.closedNoMoney': 'sem pagamento',

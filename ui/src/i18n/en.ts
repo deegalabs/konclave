@@ -90,7 +90,6 @@ export const en: Record<string, string> = {
   'common.reveal': 'Reveal',
   'payroll.importSoonWhy': 'Reading a CSV still runs only in the local build. For now, type the lines in the table or pick from the registry.',
   'settings.removeNoLocal': 'This device holds no share of this vault, so there is nothing here to remove. It is read through the helper.',
-  'ledger.exportSoonWhy': 'Exporting the book still runs only in the local build.',
   'landing.downloadSoonWhy': 'The desktop app exists and is signed, but has not been validated on each platform yet. Meanwhile the vault runs entirely in the browser.',
   'common.soon': 'soon',
   'common.cancel': 'Cancel',
@@ -1309,12 +1308,12 @@ export const en: Record<string, string> = {
   'ledger.periodQuarterLabel': 'Q{q} {y}',
   'ledger.periodHint': 'Entries are placed by their creation date.',
   'ledger.emptyPeriod': 'No entries in {period}.',
-  'ledger.csvWholeBook': 'The CSV is always the whole book, whatever the period.',
   // Evidence and payment point at each other (same txid); the join is on the screen.
   'ceremonies.viewProposal': 'View proposal →',
   'ceremonies.noProposal': 'No proposal in this vault carries this transaction.',
   'ceremonies.thisPayment': 'This payment',
   'proposal.viewEvidence': 'View the signing evidence →',
+  'ledger.csvIncludes': 'The CSV carries the same rows as the XLSX, with the period and filters on screen.',
   // Ledger: a proposal closed without payment is shown as such and can be filtered on its own.
   'ledger.filterClosed': 'Closed',
   'ledger.closedNoMoney': 'no payment',
