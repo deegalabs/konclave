@@ -653,6 +653,9 @@ export const en: Record<string, string> = {
 
   // New payment (also shared by payroll: payment.fromVault, payment.proposingAs)
   'payment.errNoAddress': 'Enter the destination address.',
+  'payment.toSapling': 'This is an older shielded (Sapling) address, which this vault cannot pay. Ask for an address that starts with u1.',
+  'payment.toTransparent': 'This is a transparent address, and this vault pays shielded addresses only. Ask for an address that starts with u1.',
+  'payment.toUnknown': 'This is not an address this vault can pay. Check it, or pick another beneficiary.',
   'payment.title': 'New payment',
   'payment.cap': 'Propose a payment for the quorum to approve. Nothing leaves the vault until it is approved.',
   'payment.fromVault': 'From vault **{name}**',
@@ -667,6 +670,7 @@ export const en: Record<string, string> = {
   'rec.pasted': 'Pasted address',
   'rec.addrShielded': 'Shielded address',
   'rec.addrPublic': 'Transparent address',
+  'rec.addrSapling': 'Older shielded address',
   'rec.add': 'Add “{q}”',
   'rec.addAddr': 'Payee’s address (starts with u1)',
   'rec.addMemo': 'Default memo (optional)',
@@ -677,8 +681,6 @@ export const en: Record<string, string> = {
   'rec.chipSapling': 'older shielded',
   'rec.shieldedOk': '✓ Shielded address. Private.',
   'rec.publicWarn': '⚠ Transparent address. This payment is visible on the blockchain.',
-  'rec.saplingWarn': 'Older shielded (Sapling) address · this vault cannot pay it. Ask for an address that starts with u1.',
-  'rec.unknownWarn': 'Unrecognized address. Check it before proposing.',
   'rec.errFill': 'Fill the name and the address.',
   'rec.errAddr': 'Unrecognized address.',
   'rec.errSave': 'Could not save the payee.',
@@ -753,6 +755,7 @@ export const en: Record<string, string> = {
   'payroll.addrPlaceholder': 'u1… (shielded)',
   'payroll.cellPublic': 'public',
   'payroll.cellSapling': 'older shielded (Sapling) address · ask for one that starts with u1',
+  'payroll.cellTransparent': 'transparent address · ask for an address that starts with u1',
   'payroll.memoPublicPlaceholder': 'no memo (public)',
   'payroll.memoPlaceholder': 'payslip…',
   'payroll.addRow': '+ Add line',
@@ -1217,6 +1220,7 @@ export const en: Record<string, string> = {
   'storage.err.corrupt': 'This backup is incomplete or damaged. Nothing was imported. Use another copy of the file.',
   'storage.err.unsupportedVersion': 'This backup is from a newer version. Update Konclave and try again.',
   'storage.err.alreadyExists': 'This vault is already on this device. Open it from the list.',
+  'storage.err.sealedFieldUnreadable': 'Part of this vault on this device did not open, so the passphrase was not changed and nothing was lost. To choose a new one, make a backup, check that it says it is complete, and restore it in another browser profile, keeping this copy until that works. This copy and earlier backups still open with the current passphrase.',
   'storage.err.samePassphrase': 'The new passphrase is the same as the current one.',
   // The landing (#318, part B): it carried its own bilingual copy, outside the dictionary.
   'lv.soonWhy': 'The desktop app exists (v{ver}, a pre-release), but it is not yet signed by a verified publisher nor validated on each platform. Meanwhile the vault runs entirely in the browser.',

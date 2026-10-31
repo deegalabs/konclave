@@ -649,6 +649,9 @@ export const ptBR: Record<string, string> = {
 
   // New payment (also shared by payroll: payment.fromVault, payment.proposingAs)
   'payment.errNoAddress': 'Informe o endereço de destino.',
+  'payment.toSapling': 'Este é um endereço blindado antigo (Sapling), que este cofre não consegue pagar. Peça um endereço que começa com u1.',
+  'payment.toTransparent': 'Este é um endereço transparente, e este cofre paga só endereços blindados. Peça um endereço que começa com u1.',
+  'payment.toUnknown': 'Este não é um endereço que este cofre consiga pagar. Confira, ou escolha outro beneficiário.',
   'payment.title': 'Novo pagamento',
   'payment.cap': 'Proponha um pagamento para o quórum aprovar. Nada sai do cofre enquanto não for aprovado.',
   'payment.fromVault': 'Do cofre **{name}**',
@@ -663,6 +666,7 @@ export const ptBR: Record<string, string> = {
   'rec.pasted': 'Endereço colado',
   'rec.addrShielded': 'Endereço blindado',
   'rec.addrPublic': 'Endereço transparente',
+  'rec.addrSapling': 'Endereço blindado antigo',
   'rec.add': 'Adicionar “{q}”',
   'rec.addAddr': 'Endereço do destinatário (começa com u1)',
   'rec.addMemo': 'Memo padrão (opcional)',
@@ -673,8 +677,6 @@ export const ptBR: Record<string, string> = {
   'rec.chipSapling': 'blindado antigo',
   'rec.shieldedOk': '✓ Endereço blindado. Privado.',
   'rec.publicWarn': '⚠ Endereço transparente. Este pagamento fica visível na blockchain.',
-  'rec.saplingWarn': 'Endereço blindado antigo (Sapling) · este cofre não consegue pagar nele. Peça um endereço que começa com u1.',
-  'rec.unknownWarn': 'Endereço não reconhecido. Confira antes de propor.',
   'rec.errFill': 'Preencha o nome e o endereço.',
   'rec.errAddr': 'Endereço não reconhecido.',
   'rec.errSave': 'Não foi possível salvar o destinatário.',
@@ -749,6 +751,7 @@ export const ptBR: Record<string, string> = {
   'payroll.addrPlaceholder': 'u1… (blindado)',
   'payroll.cellPublic': 'público',
   'payroll.cellSapling': 'endereço blindado antigo (Sapling) · peça um que começa com u1',
+  'payroll.cellTransparent': 'endereço transparente · peça um endereço que começa com u1',
   'payroll.memoPublicPlaceholder': 'sem memo (público)',
   'payroll.memoPlaceholder': 'holerite…',
   'payroll.addRow': '+ Adicionar linha',
@@ -1213,6 +1216,7 @@ export const ptBR: Record<string, string> = {
   'storage.err.corrupt': 'Este backup está incompleto ou danificado. Nada foi importado. Use outra cópia do arquivo.',
   'storage.err.unsupportedVersion': 'Este backup é de uma versão mais nova. Atualize o Konclave e tente de novo.',
   'storage.err.alreadyExists': 'Este cofre já está neste aparelho. Abra pela lista.',
+  'storage.err.sealedFieldUnreadable': 'Uma parte deste cofre neste aparelho não abriu, então a frase-senha não foi trocada e nada se perdeu. Para escolher outra, faça um backup, confira se ele diz que está completo e restaure em outro perfil do navegador, mantendo esta cópia até dar certo. Esta cópia e os backups anteriores ainda abrem com a frase-senha atual.',
   'storage.err.samePassphrase': 'A nova frase-senha é igual à atual.',
   // The landing (#318, part B): it carried its own bilingual copy, outside the dictionary.
   'lv.soonWhy': 'O aplicativo de mesa existe (v{ver}, uma pré-release), mas ainda não é assinado por um editor verificado nem foi validado em cada plataforma. Enquanto isso, o cofre roda inteiro no navegador.',

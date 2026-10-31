@@ -86,6 +86,25 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **A pasted Sapling address is called what it is.** Pasting a `zs1` address as a payment's
+  recipient named it "Transparent address" beside its own "older shielded" chip. The row now says
+  "Older shielded address", and a transparent one still says "Transparent address".
+
+- **Propose stays closed for an address the vault cannot pay, and says why.** A pasted Sapling
+  address, a transparent one on the web (where the coordinator pays only addresses with an Orchard
+  receiver), or a saved beneficiary whose address is not one, left "Propose" open on the payment
+  screen, and the coordinator refused it only after the click. The field now says what is wrong, once,
+  and the button waits, by the same rule the payroll line uses. The browser reads the address's prefix;
+  an address with the right prefix and a damaged checksum, or a u1 address with no Orchard receiver,
+  is still refused only by the coordinator (#294).
+
+- **A locked vault asks for its passphrase instead of saying it could not be read.** Opening
+  Approvals on a protected vault after a reload said "Could not read the proposals", and the ledger
+  showed an empty book: those screens read at once, before the shell had found the vault locked, and
+  the refused read looked like a failure. Approvals, the ledger, Signers and Add funds now wait for
+  the same unlock rule the shell uses, read nothing while the vault is locked, and read once the
+  passphrase is given (#292).
+
 - **The Dashboard loads in its own shape and says "Loading" once.** Until its first read landed
   it was one spinner in an empty page, and the layout jumped when the page replaced it; once the
   page was up, a reload of the desk still showed a spinner, and the movements and the balance each
@@ -98,6 +117,8 @@ history to tidy it is how context gets lost.
   the relay "sees only public material"; a signing request, with who the vault pays and how much,
   crosses it unsealed until every device in the vault has registered its key. Each sentence now
   says what happens, in both languages (#802).
+- A passphrase change could drop an encrypted viewing key that did not open, a regression from #781 that was never released.
+  The change is now refused and the vault is left as it was.
 - **"Copied" is said only when the clipboard really took the text.** On Add funds (the vault's
   address and the payment link) and on the proof page (transaction ids), the copy button said
   "Copied" without waiting for the browser's answer, so a refused write (a page not in focus, a

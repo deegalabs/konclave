@@ -10,6 +10,7 @@ import { isOpen } from '../desk'
 import { periodWindow, periodLabel, inPeriod, offsetFor, type PeriodKind } from '../period'
 import { useLoading } from '../loading'
 import { useT, useI18n } from '../i18n'
+import { useVaultReadable } from '../vault-readable'
 
 const SETTLED = (s: string) => s === 'sent' || s === 'confirmed'
 // "Open" (awaiting or ready) is `isOpen` from desk.ts: one rule for the dashboard, this screen's
@@ -19,6 +20,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
   const t = useT()
   const { locale } = useI18n()
   const { begin, end } = useLoading()
+  const readable = useVaultReadable()
   const [rows, setRows] = useState<Proposal[] | null>(null)
   const [vaultName, setVaultName] = useState<string | null>(null)
   const [threshold, setThreshold] = useState(2)
@@ -35,6 +37,8 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
   // without a manual reload. Poll on the same 12s cadence as the Dashboard/Proposals, in-flight
   // guarded so calls never overlap; only the FIRST load drives the top-progress bar.
   useEffect(() => {
+    // Locked: a 401 here reads as an empty book, so nothing is read until the passphrase lands (#439).
+    if (!readable) return
     let on = true
     let inFlight = false
     const load = async (first: boolean) => {
@@ -54,7 +58,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
     void load(true)
     const stop = startVisiblePoll(() => void load(false), 12_000) // pause when hidden, refresh on return (#123)
     return () => { on = false; stop() }
-  }, [begin, end])
+  }, [begin, end, readable])
 
   async function toggle(p: Proposal) {
     if (p.kind !== 'payroll') return

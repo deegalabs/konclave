@@ -4,6 +4,7 @@ import { Seal } from '../components'
 import { PageHeader, PageFooter } from '../page'
 import { Identicon } from '../avatar'
 import { useT, useTr } from '../i18n'
+import { useVaultReadable } from '../vault-readable'
 import { getVault, health, humanError, shortAddr, IS_NET, renameSelf, adoptSelfName, type Vault } from '../api'
 import { listVaults, type Governance } from '../storage'
 
@@ -43,11 +44,14 @@ export default function Members() {
   const [creator, setCreator] = useState<string | null>(null)
   // Bumped by the retry button: the read runs again from the start (#315).
   const [attempt, setAttempt] = useState(0)
+  const readable = useVaultReadable()
   const retry = useCallback(() => { setLive(null); setVault(null); setAttempt((a) => a + 1) }, [])
   // The retry button unmounts with the message; focus moves to the message when it comes back,
   // so a keyboard or screen-reader member is not dropped at the top of the page.
   const unreadRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
+    // Locked: the roster read would 401; nothing is read until the passphrase lands (#439).
+    if (!readable) return
     let on = true
     void (async () => {
       const ok = await health()
@@ -68,7 +72,7 @@ export default function Members() {
       setLive(ok)
     })()
     return () => { on = false }
-  }, [attempt])
+  }, [attempt, readable])
 
   async function saveMyName() {
     const next = myNewName.trim()
