@@ -752,7 +752,7 @@ export const en: Record<string, string> = {
   'payroll.namePlaceholder': 'name',
   'payroll.addrPlaceholder': 'u1… (shielded)',
   'payroll.cellPublic': 'public',
-  'payroll.cellSapling': 'older shielded (Sapling) · cannot be paid · use u1…',
+  'payroll.cellSapling': 'older shielded (Sapling) address · ask for a u1… address',
   'payroll.memoPublicPlaceholder': 'no memo (public)',
   'payroll.memoPlaceholder': 'payslip…',
   'payroll.addRow': '+ Add line',
@@ -1285,6 +1285,18 @@ export const en: Record<string, string> = {
   // #302: the XLSX export names who proposed and who approved each movement.
   'ledger.colProposedBy': 'Proposed by',
   'ledger.colApprovedBy': 'Approved by',
+  // Ledger period picker: a window by month, quarter or year, placed by creation date.
+  'ledger.periodLabel': 'PERIOD',
+  'ledger.periodAll': 'All time',
+  'ledger.periodMonth': 'Month',
+  'ledger.periodQuarter': 'Quarter',
+  'ledger.periodYear': 'Year',
+  'ledger.periodPrev': 'Previous period',
+  'ledger.periodNext': 'Next period',
+  'ledger.periodQuarterLabel': 'Q{q} {y}',
+  'ledger.periodHint': 'Entries are placed by their creation date.',
+  'ledger.emptyPeriod': 'No entries in {period}.',
+  'ledger.csvWholeBook': 'The CSV is always the whole book, whatever the period.',
   // Evidence and payment point at each other (same txid); the join is on the screen.
   'ceremonies.viewProposal': 'View proposal →',
   'ceremonies.noProposal': 'No proposal in this vault carries this transaction.',

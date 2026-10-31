@@ -24,7 +24,7 @@ function pushRecent(addr: string): void {
 export type Recipient = { address: string; name: string | null; memo?: string }
 
 export function RecipientCombobox({
-  benefs, address, name, onChange, onReloadBenefs, placeholder, autoFocus, compact,
+  benefs, address, name, onChange, onReloadBenefs, placeholder, autoFocus, compact, invalid, describedBy,
 }: {
   benefs: Beneficiary[]
   address: string
@@ -34,6 +34,9 @@ export function RecipientCombobox({
   placeholder?: string
   autoFocus?: boolean
   compact?: boolean
+  /** The row this field sits in has a problem; the id names where it is said. */
+  invalid?: boolean
+  describedBy?: string
 }) {
   const t = useT()
   const [open, setOpen] = useState(false)
@@ -190,6 +193,8 @@ export function RecipientCombobox({
             aria-expanded={open}
             aria-autocomplete="list"
             aria-controls="rcb-pop"
+            aria-invalid={invalid || undefined}
+            aria-describedby={describedBy}
             autoComplete="off"
             spellCheck={false}
             placeholder={placeholder ?? t('rec.placeholder')}
@@ -266,8 +271,10 @@ export function RecipientCombobox({
         </div>
       )}
 
-      {/* Under-field validation for a raw / picked address. */}
-      {!open && kind && (
+      {/* Under-field validation for a raw / picked address. In a payroll row (compact) a Sapling
+          address is a blocking problem of the line, said in the line's own slot, so the sentence
+          is not repeated here. */}
+      {!open && kind && !(compact && kind === 'sapling') && (
         <div className={'hint mt-xs ' + (kind === 'unified' ? 'rcb-ok' : 'warn')}>
           {kind === 'unified' ? t('rec.shieldedOk')
             : kind === 'transparent' ? t('rec.publicWarn')

@@ -26,11 +26,16 @@ type Row = { label: string; address: string; value: string; memo: string }
 const emptyRow = (): Row => ({ label: '', address: '', value: '', memo: '' })
 
 
-// A blocking problem with a row (null = ok); returns an i18n key. Warnings (public/sapling) separate.
-function rowIssue(r: Row): string | null {
+// A blocking problem with a row (null = ok); returns an i18n key. The public-address warning is
+// separate (the memo placeholder says it). Exported for its test; it is pure.
+export function rowIssue(r: Row): string | null {
   if (!r.address.trim()) return 'payroll.issueEmpty'
   const k = classifyAddress(r.address.trim())
   if (k === 'unknown') return 'payroll.issueUnknown'
+  // (#294): the vault pays Orchard receivers only, and the coordinator refuses a Sapling
+  // line for the whole sheet. Said on the line, before the sheet is composed, with the word that
+  // had been written for it and never used.
+  if (k === 'sapling') return 'payroll.cellSapling'
   if (amountAmbiguous(r.value)) return 'money.blockAmountAmbiguous'
   const zat = typedAmountZat(r.value)
   if (zat === null || zat <= 0) return 'payroll.issueInvalid'
@@ -211,7 +216,11 @@ export default function NewPayroll() {
   // One sentence for the block, composed once, in one live region the button points at (same
   // shape as Pay). The reserved clause stays when both a reservation and confirmations stand.
   const moneyVars = { free: fmtZecExact((balanceZat ?? 0) / 1e8), reserved: fmtZecExact(reservedZat / 1e8), held: String(openHolding) }
+  const anyBadTouched = rows.some((r) => rowTouched(r) && rowIssue(r) !== null)
   const blockMsg = (() => {
+    // A flagged line disables the button too; say so here, where the button points, instead of
+    // leaving a greyed button and a red line to find above it.
+    if (anyBadTouched) return t('payroll.errFixRows')
     if (count === 0 || block === null) return null
     if (walletBusy && block === 'balance-unknown') return null
     if (onlyConfirming) return [reservedZat > 0 ? t('money.blockReserved', moneyVars) : null, t('money.blockConfirming', { confirming: fmtZecExact((confirmingZat ?? 0) / 1e8) })].filter(Boolean).join(' ')
@@ -219,7 +228,6 @@ export default function NewPayroll() {
     const k = blockMessageKey(block)
     return k ? t(k, moneyVars) : null
   })()
-  const anyBadTouched = rows.some((r) => rowTouched(r) && rowIssue(r) !== null)
   const canSubmit = count > 0 && !anyBadTouched && !busy && block === null
 
   async function submit() {
@@ -291,6 +299,8 @@ export default function NewPayroll() {
                   <div className="plr-to">
                     <RecipientCombobox
                       compact
+                      invalid={!!issue}
+                      describedBy={issue ? `plr-issue-${i}` : undefined}
                       benefs={benefs}
                       address={r.address}
                       name={r.label || null}
@@ -302,12 +312,13 @@ export default function NewPayroll() {
                   {/* The unit lives in the field, so the column reads as money and the number has
                       room to be a number. */}
                   <span className="plr-valwrap">
-                    <input className="plr-val num" inputMode="decimal" placeholder="0.0000" value={r.value} onChange={(e) => updateRow(i, { value: e.target.value })} aria-label={t('payroll.colValue')} />
+                    <input className="plr-val num" inputMode="decimal" placeholder="0.0000" value={r.value} onChange={(e) => updateRow(i, { value: e.target.value })} aria-label={t('payroll.colValue')} aria-invalid={issue ? true : undefined} aria-describedby={issue ? `plr-issue-${i}` : undefined} />
                     <span className="plr-unit" aria-hidden="true">ZEC</span>
                   </span>
                   <input className="plr-memo" placeholder={k === 'transparent' ? t('payroll.memoPublicPlaceholder') : t('payroll.memoPlaceholder')} value={r.memo} onChange={(e) => updateRow(i, { memo: e.target.value })} disabled={k === 'transparent'} />
                   <button className="row-del plr-del" title={t('common.remove')} onClick={() => removeRow(i)}>×</button>
-                  {issue && <div className="cell-warn err plr-issue">{t(issue)}</div>}
+                  {/* Named so the row's inputs can point at it, and live so a newly flagged line is heard once. */}
+                  {issue && <div className="cell-warn err plr-issue" id={`plr-issue-${i}`} role="status">{t(issue)}</div>}
                 </div>
               )
             })}
