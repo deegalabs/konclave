@@ -92,6 +92,15 @@ export function typedAmountZat(raw: string): number | null {
   return amountAmbiguous(raw) ? null : parseZecToZat(amountTyped(raw))
 }
 
+/**
+ * Sum amounts in integer zatoshi (#303). A ledger total is the sum of its rows to the last digit;
+ * adding the decimal strings as floating-point numbers drifts over dozens of 8-place entries. The
+ * Ledger's totals go through here and are formatted once, with `zatToZec`.
+ */
+export function sumZat(items: ReadonlyArray<{ value_zat: number }>): number {
+  return items.reduce((acc, i) => acc + (Number.isSafeInteger(i.value_zat) ? i.value_zat : 0), 0)
+}
+
 /** Format integer zatoshis as a full ZEC decimal string (8 places). */
 export function zatToZec(zat: number): string {
   return (zat / ZAT_PER_ZEC).toFixed(8)

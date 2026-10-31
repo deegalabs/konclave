@@ -90,6 +90,15 @@ history to tidy it is how context gets lost.
   failed creation instead of disappearing. Still open: on the coordinator, registration accepts
   `threshold: 1`; and the main create screen's own check (`Ceremony.tsx`) still lets 1 through to
   the ceremony, which then refuses it (#589).
+- **The spreadsheet shows every amount to the zatoshi, and the book's totals are exact.** The XLSX
+  formatted amounts with four decimals, so a small stipend (0.00001234 ZEC) read as 0.0000 in the
+  accountant's copy, and the book on screen rounded each row and its totals to four places; and the
+  screen's "Settled out" and "Open" totals added the decimal amounts as floating-point numbers, which
+  drifts over dozens of eight-place entries. The workbook now carries eight decimals on every row,
+  the total and the summary; the book's rows and totals show every place down to the zatoshi; and
+  the totals are summed in whole zatoshi and formatted once. A test forbids the Ledger from adding
+  amounts as floating point (#303).
+
 - **The spreadsheet's "Open" total no longer counts refused or expired proposals.** The Summary
   sheet took as open everything that was not settled, so a refused, expired or invalidated proposal,
   whose money never left, was added to "Open", and the figure disagreed with the one the screen

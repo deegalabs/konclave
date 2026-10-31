@@ -25,7 +25,7 @@ export interface LedgerXlsxItem {
   state: string // localized state label
   settled: boolean // sent/confirmed → counts toward "settled out"
   open: boolean // awaiting/ready → counts toward "open"; a refused or expired row is neither
-  zec: number // outflow for this row
+  zec: number // outflow for this row, in ZEC with all 8 places (from integer zatoshi, #303)
   txid: string // '' until the proposal was sent; a payroll's rows share one (#302)
 }
 
@@ -116,7 +116,7 @@ export async function buildLedgerWorkbook(data: LedgerXlsxData): Promise<Workboo
     const row = sm.addRow({ k, v })
     row.getCell('k').font = { bold: true }
     if (opts?.bold) row.getCell('v').font = { bold: true }
-    if (opts?.money) row.getCell('v').numFmt = '0.0000'
+    if (opts?.money) row.getCell('v').numFmt = '0.00000000'
     return row
   }
   const titleRow = sm.addRow({ k: 'Konclave', v: L.summary })
@@ -159,9 +159,9 @@ export async function buildLedgerWorkbook(data: LedgerXlsxData): Promise<Workboo
   header.font = { bold: true }
   header.alignment = { vertical: 'middle' }
   totalRow.font = { bold: true }
-  mv.getColumn('zec').numFmt = '0.0000'
+  mv.getColumn('zec').numFmt = '0.00000000'
   mv.getColumn('zec').alignment = { horizontal: 'right' }
-  totalRow.getCell('zec').numFmt = '0.0000'
+  totalRow.getCell('zec').numFmt = '0.00000000'
   return wb
 }
 
