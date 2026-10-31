@@ -40,12 +40,21 @@ history to tidy it is how context gets lost.
 
 ## [Unreleased]
 
+### Added
+
+- **The proposals list puts what needs you first, keeps a sent payment until the chain confirms
+  it, and says when it could not be read.** The list came in the coordinator's order, with no group
+  for what waits on this member and no deadline order; a payment vanished from it the moment it was
+  sent; and when the list could not be read the screen drew an empty desk, as if nothing were
+  pending. Now "Needs you" comes first (your signature, then your vote, soonest deadline first),
+  then what is with the others, then the sent ones until a block holds them; closed proposals sit
+  behind a "Show closed" button; and a read that failed says so, with "Try again". Each row says
+  what it waits for from you (your signature, your vote) and when your signature sends; the title is
+  a link, the groups are headings a screen reader can jump to, and a proposal whose clock has run
+  out leaves "Needs you" on the device before the coordinator notices (#292).
 ## [0.16.0] 2026-10-30
 
 ### Security
-
-These fixes reach a device when it runs this version. If the app says "New version available", press
-Update once any signing in progress has finished. Your vault and your share stay on the device.
 
 - **The app's side of the six signing fixes listed under Security in the root changelog.** The signing
   machine takes a signing request only from the device assembling the signature and does not let a
@@ -73,16 +82,6 @@ Update once any signing in progress has finished. Your vault and your share stay
   dashboard says that the network upgrades, that payments are paused for a while around it, and that
   nothing is lost and approvals stand. Until now a member learned it only when a payment was refused.
   The block number comes from the same table the device and the coordinator use, not from the app.
-- **The proposals list puts what needs you first, keeps a sent payment until the chain confirms
-  it, and says when it could not be read.** The list came in the coordinator's order, with no group
-  for what waits on this member and no deadline order; a payment vanished from it the moment it was
-  sent; and when the list could not be read the screen drew an empty desk, as if nothing were
-  pending. Now "Needs you" comes first (your signature, then your vote, soonest deadline first),
-  then what is with the others, then the sent ones until a block holds them; closed proposals sit
-  behind a "Show closed" button; and a read that failed says so, with "Try again". Each row says
-  what it waits for from you (your signature, your vote) and when your signature sends; the title is
-  a link, the groups are headings a screen reader can jump to, and a proposal whose clock has run
-  out leaves "Needs you" on the device before the coordinator notices (#292).
 
 ### Changed
 
@@ -171,7 +170,6 @@ Update once any signing in progress has finished. Your vault and your share stay
   that depends on the update. A payment that moves funds between pools, built shortly before the
   upgrade, can keep its funds reserved by the network for weeks: "nothing is lost" is true, and "the
   funds are available again" is not promised.
-
 - **The notice before the upgrade appears only on the dashboard, and only once the vault's balance has
   loaded.** The chain tip it reads comes with the balance answer, so a locked or protected vault that
   cannot be read yet, a read that failed, and the screens to propose or approve a payment show no
@@ -182,7 +180,6 @@ Update once any signing in progress has finished. Your vault and your share stay
   clock and stops accepting the old branch about 27 hours after that estimate; the coordinator, which
   sees the chain, already says the payment needs a new signature. A release that anchors the clock to
   the real time of the upgrade block shortens this.
-
 ## [0.15.0] 2026-10-26
 
 ### Fixed
