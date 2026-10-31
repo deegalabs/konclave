@@ -4,15 +4,15 @@ import { confirmingZatOf, freeZatOf, reservedZatOf, shortfallIsConfirming } from
 import { isOpen } from '../desk'
 import { SkeletonForm, SkeletonRows } from '../skeleton'
 import { useNavigate } from 'react-router-dom'
-import { Secret, activateOnKey, Soon } from '../components'
+import { Secret, Soon } from '../components'
 import { PageHeader } from '../page'
 import { amountAmbiguous, amountTyped, fmtZec, fmtZecExact, typedAmountZat, zatToZec } from '../format'
 import { estimatedFeeZat } from '../fee-estimate'
 import { useT, useTr } from '../i18n'
 import { useToast } from '../toast'
 import {
-  previewPayroll, createPayroll, getBeneficiaries, getLedger, getProposals, getVault, health, classifyAddress, humanError, IS_NET,
-  type Beneficiary, type Proposal, type Member,
+  previewPayroll, createPayroll, getBeneficiaries, getLedger, getProposals, getProposalDetail, getVault, health, classifyAddress, humanError, IS_NET,
+  type Beneficiary, type Proposal, type Member, type PayrollLine,
 } from '../api'
 import { listVaults } from '../storage'
 import { RecipientCombobox } from '../RecipientCombobox'
@@ -22,7 +22,10 @@ import { useVaultBalance } from '../useVaultBalance'
 
 const DRAFT_KEY = 'konclave.folha.rascunho'
 
-export type Row = { label: string; address: string; value: string; memo: string }
+/** Two marks, kept apart (#332). `copied` says the line came from a previous payroll, and stays:
+ *  it is what lets the sheet compare the line with the registry for as long as the line exists.
+ *  `check` says its address has not been looked at yet, and goes when it is. */
+export type Row = { label: string; address: string; value: string; memo: string; copied?: boolean; check?: boolean }
 const emptyRow = (): Row => ({ label: '', address: '', value: '', memo: '' })
 const shortAddrOf = (a: string) => (a.length > 18 ? `${a.slice(0, 8)}…${a.slice(-6)}` : a)
 const rowEmpty = (r: Row) => !(r.address.trim() || r.value.trim() || r.label.trim() || r.memo.trim())
@@ -63,6 +66,54 @@ export function rowIssue(r: Row): string | null {
   return null
 }
 const rowTouched = (r: Row) => !!(r.address.trim() || r.value.trim() || r.label.trim() || r.memo.trim())
+
+/** The lines of a previous payroll as a fresh sheet: label, address, value and memo, each marked
+ *  to be checked. Nothing else of the old document comes along. Pure, exported for its test. */
+export function rowsFromPrevious(lines: readonly PayrollLine[]): Row[] {
+  return lines.map((l) => ({ label: l.label ?? '', address: l.address, value: l.value_zec, memo: l.memo ?? '', copied: true, check: true }))
+}
+
+/** One line edited. The "check" mark goes only when the ADDRESS was touched: edited, or left
+ *  after being looked at (an empty patch, sent on blur). Typing an amount or a memo retires
+ *  nothing, since "check the address" was not done. The "copied" mark never goes here: looking at
+ *  a line does not make it agree with the registry. Pure, exported for its test. */
+export function patchRow(rows: readonly Row[], i: number, patch: Partial<Row>): Row[] {
+  const looked = 'address' in patch || Object.keys(patch).length === 0
+  return rows.map((r, idx) => {
+    if (idx !== i) return r
+    if (!looked) return { ...r, ...patch }
+    const { check: _check, ...rest } = r
+    return { ...rest, ...patch }
+  })
+}
+
+/** What line `i` says under itself, as an i18n key and its values, or null. In order: a problem
+ *  that blocks the sheet; a copied line whose name the registry now holds with another address,
+ *  which is the one that can send money to an old address, so it comes before the duplicate note;
+ *  the same address as an earlier line; a copied line not yet looked at. Pure, exported for its test. */
+export function rowNote(rows: readonly Row[], i: number, benefs: readonly Beneficiary[]): { key: string; vars?: Record<string, string | number> } | null {
+  const r = rows[i]
+  if (!r) return null
+  const issue = rowTouched(r) ? rowIssue(r) : null
+  if (issue) return { key: issue }
+  const name = r.label.trim()
+  if (r.copied && name && benefs.some((b) => b.name === name && b.address.trim() !== r.address.trim())) {
+    return { key: 'payroll.rowStale', vars: { name } }
+  }
+  const dup = duplicateOf(rows, i)
+  if (dup !== null) return { key: 'payroll.rowDuplicate', vars: { n: dup + 1 } }
+  if (r.check) return { key: 'payroll.rowCopied' }
+  return null
+}
+
+/** The first earlier line that holds the same address as line `i`, or null. A repeated recipient
+ *  is flagged, not silently paid twice (#295). */
+export function duplicateOf(rows: readonly Row[], i: number): number | null {
+  const a = rows[i]?.address.trim()
+  if (!a) return null
+  const first = rows.findIndex((r) => r.address.trim() === a)
+  return first >= 0 && first < i ? first : null
+}
 
 export default function NewPayroll() {
   const t = useT()
@@ -106,6 +157,44 @@ export default function NewPayroll() {
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [pastFolhas, setPastFolhas] = useState<Proposal[]>([])
+  const [copiedFrom, setCopiedFrom] = useState<string | null>(null)
+  const [pendingFrom, setPendingFrom] = useState<Proposal | null>(null)
+  const competenceRef = useRef<HTMLInputElement>(null)
+  const docName = (f: Proposal) => f.memo || t('kind.payroll')
+  // Start a new payroll from a previous one: its lines, each marked to be checked, and nothing
+  // else. The period is never copied ("April" carried into May is a document that lies about
+  // itself): it keeps whatever the member typed for this payroll, empty if nothing. Approvals,
+  // txid and the funding check belong to the old one (#332).
+  const [startingFrom, setStartingFrom] = useState<string | null>(null)
+  const pendingBtn = useRef<HTMLButtonElement | null>(null)
+  const confirmBox = useRef<HTMLDivElement>(null)
+  async function startFromPrevious(f: Proposal) {
+    setError(null)
+    setStartingFrom(f.id)
+    const d = await getProposalDetail(f.id)
+    setStartingFrom(null)
+    if (!d) { setError(t('payroll.errPrevious')); return }
+    if (d.lines.length === 0) { setError(t('payroll.errPreviousEmpty')); return }
+    // Only the lines come. The period and the description are this payroll's own: whatever the
+    // member typed there stays, and nothing of the old document reaches them.
+    setRows(rowsFromPrevious(d.lines))
+    setCopiedFrom(docName(f))
+    setAddedNote('')
+    setTimeout(() => setAddedNote(t('payroll.copiedFrom', { doc: docName(f) })), 0)
+    setPendingFrom(null)
+    setShowImport(false); setShowRegistry(false)
+    competenceRef.current?.focus()
+    window.scrollTo({ top: 0 })
+  }
+  // Typed lines are never replaced without a yes; the question takes focus, and a no returns it.
+  function askStartFrom(f: Proposal, btn: HTMLButtonElement) {
+    pendingBtn.current = btn
+    if (rows.some(rowTouched)) setPendingFrom(f)
+    else void startFromPrevious(f)
+  }
+  function cancelStartFrom() { setPendingFrom(null); pendingBtn.current?.focus() }
+  useEffect(() => { if (pendingFrom) confirmBox.current?.focus() }, [pendingFrom])
+  const uncheckedCount = rows.filter((r) => r.check).length
   // Neutral placeholder while the real vault name loads (never a fake name).
   const [vaultName, setVaultName] = useState('…')
   const [membersList, setMembersList] = useState<Member[]>([])
@@ -121,15 +210,16 @@ export default function NewPayroll() {
         setCompetencia(d.competencia ?? '')
         setDescription(d.description ?? '')
         if (Array.isArray(d.rows) && d.rows.length) setRows(d.rows)
+        if (typeof d.copiedFrom === 'string') setCopiedFrom(d.copiedFrom)
       } catch { /* ignore corrupt draft */ }
     }
   }, [])
 
   // Auto-save the local draft (local-first: stays on this device).
   useEffect(() => {
-    localStorage.setItem(DRAFT_KEY, JSON.stringify({ competencia, description, rows }))
+    localStorage.setItem(DRAFT_KEY, JSON.stringify({ competencia, description, rows, copiedFrom }))
     setSaved(true)
-  }, [competencia, description, rows])
+  }, [competencia, description, rows, copiedFrom])
 
   useEffect(() => {
     let on = true
@@ -173,7 +263,7 @@ export default function NewPayroll() {
   useEffect(() => { if (usdOn && rateIsStale(cachedRate())) void refreshRate() }, [usdOn])
 
   function updateRow(i: number, patch: Partial<Row>) {
-    setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, ...patch } : r)))
+    setRows((prev) => patchRow(prev, i, patch))
   }
   const addRow = () => setRows((prev) => [...prev, emptyRow()])
   const removeRow = (i: number) => setRows((prev) => (prev.length > 1 ? prev.filter((_, idx) => idx !== i) : [emptyRow()]))
@@ -310,7 +400,7 @@ export default function NewPayroll() {
         <div className="payroll-doc">
           <div className="doc-head">
             <label className="field inline"><span>{t('payroll.competence')}</span>
-              <input className="input mono" placeholder={t('payroll.competencePlaceholder')} value={competencia} onChange={(e) => setCompetencia(e.target.value)} />
+              <input ref={competenceRef} className="input mono" placeholder={t('payroll.competencePlaceholder')} value={competencia} onChange={(e) => setCompetencia(e.target.value)} />
             </label>
             <label className="field inline wide"><span>{t('payroll.description')}</span>
               <input className="input" placeholder={t('payroll.descriptionPlaceholder')} value={description} onChange={(e) => setDescription(e.target.value)} />
@@ -372,6 +462,10 @@ export default function NewPayroll() {
             </div>
           )}
 
+          {copiedFrom && uncheckedCount > 0 && (
+            <div className="hint mt-sm">{t('payroll.copiedFrom', { doc: copiedFrom })}</div>
+          )}
+
           {/* What a screen reader hears after "Add n lines": the picker is gone and the rows are below. */}
           <div className="visually-hidden" role="status">{addedNote}</div>
 
@@ -388,15 +482,18 @@ export default function NewPayroll() {
           <div className="plr-list">
             {rows.map((r, i) => {
               const k = r.address.trim().length > 1 ? classifyAddress(r.address.trim()) : null
+              const said = rowNote(rows, i, benefs)
               const issue = rowTouched(r) ? rowIssue(r) : null
+              const note = said ? t(said.key, said.vars) : null
               return (
-                <div key={i} className={'plr-line' + (issue ? ' bad' : '')}>
+                <div key={i} className={'plr-line' + (issue ? ' bad' : said ? ' copied' : '')}>
                   <span className="plr-n mono">{i + 1}</span>
-                  <div className="plr-to">
+                  {/* Leaving the address field after looking at it retires the "check" mark (blur bubbles). */}
+                  <div className="plr-to" onBlur={() => { if (r.check) updateRow(i, {}) }}>
                     <RecipientCombobox
                       compact
                       invalid={!!issue}
-                      describedBy={issue ? `plr-issue-${i}` : undefined}
+                      describedBy={note ? `plr-issue-${i}` : undefined}
                       benefs={benefs}
                       address={r.address}
                       name={r.label || null}
@@ -408,13 +505,13 @@ export default function NewPayroll() {
                   {/* The unit lives in the field, so the column reads as money and the number has
                       room to be a number. */}
                   <span className="plr-valwrap">
-                    <input className="plr-val num" inputMode="decimal" placeholder="0.0000" value={r.value} onChange={(e) => updateRow(i, { value: e.target.value })} aria-label={t('payroll.colValue')} aria-invalid={issue ? true : undefined} aria-describedby={issue ? `plr-issue-${i}` : undefined} />
+                    <input className="plr-val num" inputMode="decimal" placeholder="0.0000" value={r.value} onChange={(e) => updateRow(i, { value: e.target.value })} aria-label={t('payroll.colValue')} aria-invalid={issue ? true : undefined} aria-describedby={note ? `plr-issue-${i}` : undefined} />
                     <span className="plr-unit" aria-hidden="true">ZEC</span>
                   </span>
                   <input className="plr-memo" aria-label={t('payroll.memoLine', { n: i + 1 })} placeholder={k === 'transparent' ? t('payroll.memoPublicPlaceholder') : t('payroll.memoPlaceholder')} value={r.memo} onChange={(e) => updateRow(i, { memo: e.target.value })} disabled={k === 'transparent'} />
                   <button className="row-del plr-del" title={t('common.remove')} aria-label={t('payroll.removeLine', { n: i + 1 })} onClick={() => removeRow(i)}>×</button>
                   {/* Named so the row's inputs can point at it, and live so a newly flagged line is heard once. */}
-                  {issue && <div className="cell-warn err plr-issue" id={`plr-issue-${i}`} role="status">{t(issue)}</div>}
+                  {note && <div className={'cell-warn plr-issue' + (issue ? ' err' : ' warn')} id={`plr-issue-${i}`} role={issue ? 'status' : undefined}>{note}</div>}
                 </div>
               )
             })}
@@ -489,6 +586,7 @@ export default function NewPayroll() {
         {/* The region stays mounted and the sentence swaps inside it, so a screen reader hears the
             block appear, change and clear. */}
         <div role="status" id="payroll-block">{blockMsg && <div className="hint warn mt-sm">{blockMsg}</div>}</div>
+        {uncheckedCount > 0 && <div className="hint mt-sm">{uncheckedCount === 1 ? t('payroll.copiedUncheckedOne') : t('payroll.copiedUnchecked', { n: uncheckedCount })}</div>}
         {error && <div className="hint err mt-sm" role="alert">{error}</div>}
 
         {/* THE VEIL (tarja). It hides the VAULT's own figures - its balance, its history, its pending
@@ -501,17 +599,31 @@ export default function NewPayroll() {
           <div className="past-folhas mt">
             <span className="klab">{t('payroll.pastPayrolls')}</span>
             {pastFolhas.slice(0, 4).map((f) => (
-              <div className="pf-row" key={f.id} role="button" tabIndex={0}
-                onClick={() => nav('/proposal', { state: { id: f.id } })}
-                onKeyDown={activateOnKey(() => nav('/proposal', { state: { id: f.id } }))}>
-                <span className="pf-name">{f.memo || t('kind.payroll')}</span>
+              <div className="pf-row" key={f.id}>
+                <button type="button" className="pf-open" onClick={() => nav('/proposal', { state: { id: f.id } })}>
+                  <span className="pf-name">{docName(f)}</span>
+                  <span className="pf-go" aria-hidden="true">→</span>
+                </button>
                 <span className="pf-meta">
                   <span className="pf-val"><Secret sm><span>{fmtZec(f.value_zec)} ZEC</span></Secret></span>
                   <span className={'pf-st ' + f.state}>{t('state.' + f.state)}</span>
-                  <span className="pf-go">→</span>
                 </span>
+                <button type="button" className="btn ghost sm-btn pf-start" disabled={startingFrom !== null} aria-busy={startingFrom === f.id}
+                  onClick={(e) => askStartFrom(f, e.currentTarget)} aria-label={`${t('payroll.startFromThis')}: ${docName(f)}`}>
+                  {t('payroll.startFromThis')}
+                </button>
               </div>
             ))}
+            {pendingFrom && (
+              <div className="pf-confirm" role="group" aria-labelledby="pf-confirm-q" ref={confirmBox} tabIndex={-1}
+                onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); cancelStartFrom() } }}>
+                <p id="pf-confirm-q" className="hint">{t('payroll.replaceLinesQ', { doc: docName(pendingFrom) })}</p>
+                <div className="folha-actions">
+                  <button type="button" className="btn ok sm-btn" onClick={() => void startFromPrevious(pendingFrom)}>{t('payroll.replaceLines')}</button>
+                  <button type="button" className="btn ghost sm-btn" onClick={cancelStartFrom}>{t('common.cancel')}</button>
+                </div>
+              </div>
+            )}
           </div>
         )}
         </>)}
