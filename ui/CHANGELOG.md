@@ -73,6 +73,13 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **A device that still keeps the viewing key readable now says so and asks for the passphrase (#784).**
+  The fix for #599 encrypts the key the next time the passphrase is typed on the device, but a member
+  who unlocks with a passkey never types it, so the key stayed readable on that device and nothing on
+  screen said so. Above every screen of such a vault, a notice now names the condition, explains what
+  the key can and cannot do, and takes the passphrase once; the notice goes away when the record is
+  encrypted. A passphrase unlock still does the same on its own.
+
 - **A vault can no longer be asked for with a quorum of 1 on the `/net` screen and in the ceremony.** The signing library refuses a
   quorum below 2, and the main create screen already stopped at 2 (0.8.0), but the older `/net`
   screen still listed "1 of 3", a config built by hand or by an older client still reached the
@@ -118,7 +125,8 @@ history to tidy it is how context gets lost.
   key cannot be changed, so a copy taken before the rewrite stays valid for the life of the vault. Removing the
   field does not promise the browser has wiped the old bytes from its files on disk. Unlocking with a
   passkey does not rewrite the record, because a passkey does not open what the key is encrypted
-  under: on a device that imported a backup, type the passphrase once for each vault. An extension or script running in the page while the vault is unlocked can still read the viewing key.
+  under: on a device that imported a backup, the app asks for the passphrase once for each such vault
+  (#784). An extension or script running in the page while the vault is unlocked can still read the viewing key.
 
 ## [0.16.0] 2026-10-30
 

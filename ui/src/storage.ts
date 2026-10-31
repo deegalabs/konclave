@@ -476,6 +476,18 @@ async function readRecord(id: string): Promise<VaultRecord | undefined> {
 }
 
 /**
+ * Whether the record for `id` still carries the viewing key in the clear (#784). Presence only:
+ * the value is never returned, so a screen can say "type the passphrase once" without reading
+ * what the passphrase is there to seal. A passkey unlock cannot do the rewrite (it does not open
+ * what the key is sealed under), which is why a screen has to ask.
+ */
+export async function hasClearViewingKey(id: string): Promise<boolean> {
+  if (!storageAvailable()) return false
+  const record = await readRecord(id)
+  return record?.ufvk !== undefined
+}
+
+/**
  * Decrypt and return a saved vault. Throws a clear error on a wrong passphrase or tampering
  * (AES-GCM authentication fails), and a distinct one when no such vault exists.
  */

@@ -14,6 +14,7 @@ import SigningPanel from './screens/SigningPanel'
 import { VersionBadge } from './UpdatePrompt'
 import AppPrefs from './AppPrefs'
 import LockOverlay from './LockOverlay'
+import ClearKeyNotice from './ClearKeyNotice'
 import type { VaultSrc } from './unlock'
 
 /** What the in-vault screens get from `Layout` (#467).
@@ -318,6 +319,10 @@ export default function Layout() {
       </aside>
 
       <div className="railcontent">
+        {/* #784: a device that imported a backup before the viewing key was sealed keeps it in the
+            clear until the passphrase is typed here. Above every screen, for the selected vault,
+            and gone once the record is rewritten. */}
+        {vault && <ClearKeyNotice vaultId={vault.id} unlockNonce={unlockNonce} />}
         {/* The screens read `locked` so they do not fetch behind the overlay - every read would
             401 - and `unlockNonce` so they refetch the moment it opens. Outlet context rather than
             a new provider: this is one value going one level down. */}

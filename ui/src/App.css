@@ -1528,3 +1528,12 @@ body:has(.pwa-update) .page{padding-bottom:140px}
 .plist-link:hover{text-decoration:underline}
 .plist-stamp{display:inline-block; margin-left:8px; font-family:var(--font-mono); font-size:9.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--text-muted); border:1px solid var(--line); border-radius:var(--radius-pill); padding:1px 6px; vertical-align:middle}
 .plist-stamp.sign{color:var(--success); border-color:var(--success-line); background:var(--success-soft)}
+/* The notice above a screen while the viewing key is still in the clear on this device (#784). */
+.clearkey{margin:0 0 16px; padding:14px 16px; border:1px solid var(--line); border-left:4px solid var(--warn); border-radius:var(--radius-sm); background:var(--surface-1)}
+.clearkey-title{margin:0 0 6px; font-size:15px; font-weight:600; color:var(--text)}
+.clearkey-body{margin:0; max-width:65ch; color:var(--text-muted); line-height:1.45}
+.clearkey-form{display:flex; flex-wrap:wrap; align-items:flex-end; gap:10px 14px; margin-top:4px}
+.clearkey-form .field{flex:1 1 240px; margin:8px 0 0}
+.clearkey-form .field > span{display:block; font-family:var(--font-mono); font-size:11px; color:var(--text-muted); margin-bottom:5px; text-transform:uppercase; letter-spacing:.04em}
+.clearkey-form .hint.err{flex-basis:100%; margin:0}
+.clearkey-done{margin:0 0 12px}
