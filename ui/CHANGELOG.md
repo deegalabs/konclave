@@ -70,6 +70,23 @@ history to tidy it is how context gets lost.
   what it waits for from you (your signature, your vote) and when your signature sends; the title is
   a link, the groups are headings a screen reader can jump to, and a proposal whose clock has run
   out leaves "Needs you" on the device before the coordinator notices (#292).
+- **The book can be read by period.** Month, quarter or year, walked back and forth, or all time;
+  entries are placed by their creation date. The entry count and the "Settled out" and "Open" totals
+  follow the chosen period (and the kind filter), the table shows only its rows, and the spreadsheet
+  export carries the period's name as its period. Until now the period was only read off
+  the data, and the totals ignored every filter. New texts under `ledger.period*` in both languages.
+- **The signing evidence names the payment it belongs to, and a sent payment points at its
+  evidence.** The evidence list carried a transaction id and a digest and nothing a treasurer
+  recognises; now each record that reached the chain shows the proposal with the same transaction
+  id (its document and amount) with a link to it, and says when no proposal on this device matches.
+  The sent proposal links to its evidence record, which is highlighted on arrival. The join happens
+  on the screen, from what the device already reads; nothing new is recorded (#290 still owns
+  recording who signed and which proposal). The link lands on Activity's evidence tab, where the
+  menu leads, and the record is focused and tagged "This payment" on arrival.
+- **A proposal closed without payment reads as closed in the book.** A refused, expired, cancelled
+  or invalidated proposal sat in the ledger like any other line, with an outflow sign on an amount
+  that never left. Its row is now muted, the amount carries no sign, the state is followed by "no
+  payment", and a "Closed" filter shows only those lines. They were already outside both totals.
 - **The payroll's actions sit above the table, and the registry fills lines in batch.** "From the
   registry", "Add line" and "Import CSV" moved from under the table to above it, in the order they
   are used. "From the registry" opens the people on record with a box each: the chosen ones become
@@ -80,6 +97,39 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **A pasted Sapling address is called what it is.** Pasting a `zs1` address as a payment's
+  recipient named it "Transparent address" beside its own "older shielded" chip. The row now says
+  "Older shielded address", and a transparent one still says "Transparent address".
+
+- **Propose stays closed for an address the vault cannot pay, and says why.** A pasted Sapling
+  address, a transparent one on the web (where the coordinator pays only addresses with an Orchard
+  receiver), or a saved beneficiary whose address is not one, left "Propose" open on the payment
+  screen, and the coordinator refused it only after the click. The field now says what is wrong, once,
+  and the button waits, by the same rule the payroll line uses. The browser reads the address's prefix;
+  an address with the right prefix and a damaged checksum, or a u1 address with no Orchard receiver,
+  is still refused only by the coordinator (#294).
+
+- **A locked vault asks for its passphrase instead of saying it could not be read.** Opening
+  Approvals on a protected vault after a reload said "Could not read the proposals", and the ledger
+  showed an empty book: those screens read at once, before the shell had found the vault locked, and
+  the refused read looked like a failure. Approvals, the ledger, Signers and Add funds now wait for
+  the same unlock rule the shell uses, read nothing while the vault is locked, and read once the
+  passphrase is given (#292).
+
+- **The Dashboard loads in its own shape and says "Loading" once.** Until its first read landed
+  it was one spinner in an empty page, and the layout jumped when the page replaced it; once the
+  page was up, a reload of the desk still showed a spinner, and the movements and the balance each
+  announced their loading, so a screen reader heard it twice. It now draws the vault's name, the
+  desk, the movements and the balance as placeholders where they will be, and the word is heard
+  once; a balance that is only syncing still says it on its own (#320).
+- **Six sentences no longer promise more than the code does.** The two landing pages said the key
+  "never leaves the device", and the signing panel said the share "never leaves this device"; a
+  share does leave, sealed under the passphrase, inside the backup a member exports. Settings said
+  the relay "sees only public material"; a signing request, with who the vault pays and how much,
+  crosses it unsealed until every device in the vault has registered its key. Each sentence now
+  says what happens, in both languages (#802).
+- A passphrase change could drop an encrypted viewing key that did not open, a regression from #781 that was never released.
+  The change is now refused and the vault is left as it was.
 - **"Copied" is said only when the clipboard really took the text.** On Add funds (the vault's
   address and the payment link) and on the proof page (transaction ids), the copy button said
   "Copied" without waiting for the browser's answer, so a refused write (a page not in focus, a
@@ -174,6 +224,12 @@ history to tidy it is how context gets lost.
   sentence under a payroll line. The note under the sheet now says why the button is off when a
   line is flagged, and each flagged line is marked invalid and linked to its own note, so a screen
   reader hears it on the line (#294).
+- **The ledger's filter chips say which one is selected, and the groups have names.** A screen reader
+  read "Mês" or "Liquidados" as plain buttons, with nothing to tell which was active and no group
+  boundary between PERIOD, STATE and KIND; the selected chip's blue text also fell just under the
+  contrast minimum in the light theme. Each chip now carries its pressed state, each row is a named
+  group, the period name is announced when it changes, and the selected text is darker. Found by the
+  accessibility pass on the period picker.
 - **The money screens speak the member's words.** The memo label said "the coordinator" can read
   it; on screen that is "the vault's server" (the word stays in the docs and the trust panel). The
   block for an amount split across the vault's two shielded parts named "internal pools"; it now
@@ -184,8 +240,6 @@ history to tidy it is how context gets lost.
 
 ### Known limits
 
-- The Dashboard keeps its spinner and still announces its loading twice, once per placeholder; it
-  is not among the four screens above (#320).
 - **The fix for #599 cannot take back a copy already made, and it needs the passphrase.** A viewing
   key cannot be changed, so a copy taken before the rewrite stays valid for the life of the vault. Removing the
   field does not promise the browser has wiped the old bytes from its files on disk. Unlocking with a

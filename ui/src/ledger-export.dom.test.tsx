@@ -126,4 +126,50 @@ describe('the Ledger screen exports what it shows (#302)', () => {
       ['Alice', 'Alice, Bob'], // the confirmed rent
     ])
   })
+  it('narrows the book to a chosen period, by creation date, and the export follows', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2025, 10, 15, 12)) // the fixture's entries are all in October 2025
+    try {
+      mount()
+      await screen.findByText('October rent')
+      fireEvent.click(screen.getByRole('button', { name: en('ledger.periodMonth') }))
+      expect(screen.queryByText('October rent')).toBeNull() // November holds nothing
+      fireEvent.click(screen.getByRole('button', { name: en('ledger.periodPrev') }))
+      await screen.findByText('October rent')
+      const label = new Date(2025, 9, 1).toLocaleDateString('en', { month: 'long', year: 'numeric' })
+      expect(screen.getAllByText(label).length).toBeGreaterThan(0)
+      await clickExport()
+      const d = exported()
+      expect(d.items).toHaveLength(4)
+      expect(d.period).toBe(label)
+      expect(d.filter).toBe('') // the period line already names the window; the filter line does not repeat it
+      expect(screen.getByRole('button', { name: en('ledger.periodMonth') }).getAttribute('aria-pressed')).toBe('true')
+      // Forward to November, where nothing is: the empty row names the period and offers the way back.
+      fireEvent.click(screen.getByRole('button', { name: en('ledger.periodNext') }))
+      expect(screen.queryByText('October rent')).toBeNull()
+      const novLabel = new Date(2025, 10, 1).toLocaleDateString('en', { month: 'long', year: 'numeric' })
+      expect(screen.getByText(en('ledger.emptyPeriod').replace('{period}', novLabel))).toBeTruthy()
+      const back = screen.getAllByRole('button', { name: en('ledger.periodAll') })
+      fireEvent.click(back[back.length - 1]!) // the way back the empty row offers
+      await screen.findByText('October rent')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+  it('shows a closed proposal as closed: its own state, no outflow sign, and a filter of its own', async () => {
+    const refused = { ...base, id: 'p4', kind: 'payment', state: 'rejected', memo: 'Refused chairs', to_address: 'u1no', value_zat: 75000000, value_zec: '0.75', created_at: 1760100000, approvals: [], refusals: ['Alice', 'Bob'], approvals_count: 0 }
+    getLedger.mockResolvedValue([pending, refused, rent])
+    mount()
+    const cell = await screen.findByText('Refused chairs')
+    const row = cell.closest('tr')!
+    expect(row.className).toContain('closed')
+    expect(row.textContent).toContain(en('ledger.closedNoMoney'))
+    expect(row.textContent).not.toContain('−0.75') // money never left: no outflow sign
+    fireEvent.click(screen.getByRole('button', { name: en('ledger.filterClosed') }))
+    expect(screen.queryByText('October rent')).toBeNull()
+    expect(screen.getByText('Refused chairs')).toBeTruthy()
+    await clickExport()
+    expect(exported().items.map((i) => i.memo)).toEqual(['Refused chairs'])
+    expect(exported().filter).toBe(en('ledger.filterClosed'))
+  })
 })
