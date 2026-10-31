@@ -288,8 +288,10 @@ export default function NewPayment() {
             {t('payment.memoLabel')}{' '}
             <span className={'dim ns num' + (memoOver ? ' over' : '')}>({memoLen}/{MEMO_MAX})</span>
           </span>
-            <input className="input" value={memo} onChange={(e) => setMemo(e.target.value)}
+            <input className="input" value={memo} onChange={(e) => setMemo(e.target.value)} aria-describedby="pay-memo-help"
               disabled={publicDest} placeholder={publicDest ? t('payment.memoDisabledPlaceholder') : ''} />
+            {/* Who can read the memo, under the field: on the label it made a line that wrapped on a phone. */}
+            <small className="field-help" id="pay-memo-help">{t('payment.memoHelp')}</small>
           </label>
         </div>
 

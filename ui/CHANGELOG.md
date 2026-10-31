@@ -73,6 +73,11 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **Four strings the money-copy pass left now speak the member's words too.** Receive's payment
+  link no longer names its standard ("ZIP-321"), and its history is "Vault history", not "on-chain".
+  The memo label on Pay was long enough to wrap on a phone; it is now just the label, and who can
+  read the memo is said under the field. People explained the address as "u1…" in its warning and
+  in its field; both now say "starts with u1", like the rest of the app (#799).
 - **"Copied" is said only when the clipboard really took the text.** On Add funds (the vault's
   address and the payment link) and on the proof page (transaction ids), the copy button said
   "Copied" without waiting for the browser's answer, so a refused write (a page not in focus, a

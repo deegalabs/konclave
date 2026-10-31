@@ -389,6 +389,8 @@
 .req{font-family:var(--font-mono); font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--accent); display:flex; align-items:center; gap:9px}
 .a-amt{font-family:var(--font-num); font-variant-numeric:tabular-nums; font-weight:500; font-size:28px; margin:16px 0 3px}
 .dim{color:var(--text-muted)} .small{font-size:15px}
+/* A sentence under a form field that says what the field implies (who reads a memo). */
+.field-help{display:block; margin-top:6px; font-size:12.5px; line-height:1.45; color:var(--text-muted)}
 .a-to{font-family:var(--font-mono); font-size:12.5px; color:var(--text-muted)}
 .a-to b{color:var(--text); font-weight:500}
 .a-meta{display:flex; align-items:center; gap:12px; margin:16px 0 20px; font-family:var(--font-mono); font-size:12px; color:var(--text-muted)}
