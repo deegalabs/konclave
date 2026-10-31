@@ -86,6 +86,18 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
+- **A pasted Sapling address is called what it is.** Pasting a `zs1` address as a payment's
+  recipient named it "Transparent address" beside its own "older shielded" chip. The row now says
+  "Older shielded address", and a transparent one still says "Transparent address".
+
+- **Propose stays closed for an address the vault cannot pay, and says why.** A pasted Sapling
+  address, a transparent one on the web (where the coordinator pays only addresses with an Orchard
+  receiver), or a saved beneficiary whose address is not one, left "Propose" open on the payment
+  screen, and the coordinator refused it only after the click. The field now says what is wrong, once,
+  and the button waits, by the same rule the payroll line uses. The browser reads the address's prefix;
+  an address with the right prefix and a damaged checksum, or a u1 address with no Orchard receiver,
+  is still refused only by the coordinator (#294).
+
 - **A locked vault asks for its passphrase instead of saying it could not be read.** Opening
   Approvals on a protected vault after a reload said "Could not read the proposals", and the ledger
   showed an empty book: those screens read at once, before the shell had found the vault locked, and
