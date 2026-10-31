@@ -8,6 +8,12 @@ description = "Konclave browser signer core (WS1): FROST redpallas round + Orcha
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+# The build that signs for the TEST network. Off by default: the mainnet build is the one that ships, and
+# the two are two artifacts of one source (briefs/design-note-testnet-build). Features are additive, so
+# this only selects `BUILD_NETWORK`; nothing about mainnet is redefined by it.
+testnet = []
+
 [dependencies]
 # FROST-redpallas signing round (proven wasm-clean: wasm-signer-spike)
 reddsa = { version = "0.5.2", features = ["frost"] }

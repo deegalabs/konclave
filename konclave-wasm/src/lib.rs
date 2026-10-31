@@ -3195,6 +3195,118 @@ pub mod pczt_bridge {
         Ok(hex::encode(bytes))
     }
 
+    /// The network THIS build signs for: mainnet, or the test network when built with the `testnet` feature.
+    #[cfg(feature = "testnet")]
+    pub const BUILD_NETWORK: zcash_protocol::consensus::NetworkType =
+        zcash_protocol::consensus::NetworkType::Test;
+    #[cfg(not(feature = "testnet"))]
+    pub const BUILD_NETWORK: zcash_protocol::consensus::NetworkType =
+        zcash_protocol::consensus::NetworkType::Main;
+
+    /// The name a network is shown by in an error, and by the app: `main`, `test` or `regtest`.
+    pub fn network_name(network: zcash_protocol::consensus::NetworkType) -> &'static str {
+        use zcash_protocol::consensus::NetworkType;
+        match network {
+            NetworkType::Main => "main",
+            NetworkType::Test => "test",
+            NetworkType::Regtest => "regtest",
+        }
+    }
+
+    /// The network a Zcash ADDRESS (unified, Sapling or transparent) is written for, read from its own
+    /// prefix (`u1`, `utest1`, ...). The ONE place the device reads it: an address that does not parse
+    /// is an error, never a default network.
+    pub fn network_of_address(
+        encoded: &str,
+    ) -> Result<zcash_protocol::consensus::NetworkType, String> {
+        use zcash_address::{unified, ConversionError, TryFromAddress, ZcashAddress};
+        use zcash_protocol::consensus::NetworkType;
+
+        /// Resolves every address kind to the network it was written for.
+        struct Net(NetworkType);
+        impl TryFromAddress for Net {
+            type Error = std::convert::Infallible;
+            fn try_from_sprout(
+                n: NetworkType,
+                _: [u8; 64],
+            ) -> Result<Self, ConversionError<Self::Error>> {
+                Ok(Net(n))
+            }
+            fn try_from_sapling(
+                n: NetworkType,
+                _: [u8; 43],
+            ) -> Result<Self, ConversionError<Self::Error>> {
+                Ok(Net(n))
+            }
+            fn try_from_unified(
+                n: NetworkType,
+                _: unified::Address,
+            ) -> Result<Self, ConversionError<Self::Error>> {
+                Ok(Net(n))
+            }
+            fn try_from_transparent_p2pkh(
+                n: NetworkType,
+                _: [u8; 20],
+            ) -> Result<Self, ConversionError<Self::Error>> {
+                Ok(Net(n))
+            }
+            fn try_from_transparent_p2sh(
+                n: NetworkType,
+                _: [u8; 20],
+            ) -> Result<Self, ConversionError<Self::Error>> {
+                Ok(Net(n))
+            }
+            fn try_from_tex(
+                n: NetworkType,
+                _: [u8; 20],
+            ) -> Result<Self, ConversionError<Self::Error>> {
+                Ok(Net(n))
+            }
+        }
+
+        let addr = ZcashAddress::try_from_encoded(encoded.trim())
+            .map_err(|e| format!("not a Zcash address: {e}"))?;
+        match addr.convert::<Net>() {
+            Ok(Net(n)) => Ok(n),
+            Err(e) => Err(format!("cannot read the network of this address: {e}")),
+        }
+    }
+
+    /// The network a unified FULL VIEWING KEY is written for, read from its own prefix (`uview1`,
+    /// `uviewtest1`). An address, or anything else, is an error.
+    pub fn network_of_ufvk(
+        encoded: &str,
+    ) -> Result<zcash_protocol::consensus::NetworkType, String> {
+        use zcash_address::unified::{Encoding, Ufvk};
+        Ufvk::decode(encoded.trim())
+            .map(|(network, _, _)| network)
+            .map_err(|e| format!("not a Zcash viewing key: {e}"))
+    }
+
+    /// Refuses an address (or, with `is_viewing_key`, a viewing key) that is written for another network
+    /// than `build`'s. The error says both networks, so a member can tell a testnet record opened in the
+    /// mainnet app from a mistyped one.
+    pub fn require_network(
+        build: zcash_protocol::consensus::NetworkType,
+        encoded: &str,
+        is_viewing_key: bool,
+    ) -> Result<(), String> {
+        let (what, found) = if is_viewing_key {
+            ("viewing key", network_of_ufvk(encoded)?)
+        } else {
+            ("address", network_of_address(encoded)?)
+        };
+        if found == build {
+            Ok(())
+        } else {
+            Err(format!(
+                "this {what} is for the {} network and this app signs for the {} network",
+                network_name(found),
+                network_name(build)
+            ))
+        }
+    }
+
     /// Apply external redpallas signatures to the given Orchard spend action indices and return the
     /// signed PCZT bytes. `sighash` is the shielded sighash the signatures commit to; each signature
     /// is verified against it as it is applied, so a bad signature or out-of-range index is an error,
@@ -3782,6 +3894,78 @@ pub mod pczt_bridge {
                 payment.recipient.as_ref().unwrap(),
                 "the decoded receiver must equal the one the prover bound into the note",
             );
+        }
+
+        /// A real unified full viewing key, for `network`, with one Orchard component.
+        fn ufvk_on(network: zcash_protocol::consensus::NetworkType) -> String {
+            use zcash_address::unified::{Encoding, Fvk, Revision, Ufvk, Uitem};
+            Ufvk::try_from_items(Revision::R0, vec![Uitem::Data(Fvk::Orchard([7u8; 96]))])
+                .unwrap()
+                .encode(&network)
+        }
+
+        /// A real unified address, for `network`, with one Orchard receiver.
+        fn ua_on(network: zcash_protocol::consensus::NetworkType) -> String {
+            use zcash_address::unified::{Address, Encoding, Receiver, Revision, Uitem};
+            Address::try_from_items(
+                Revision::R0,
+                vec![Uitem::Data(Receiver::Orchard([9u8; 43]))],
+            )
+            .unwrap()
+            .encode(&network)
+        }
+
+        /// The network an address or a viewing key is written for is read from its own prefix, in ONE
+        /// place, so a device can refuse a record from the other network before it signs anything.
+        #[test]
+        fn the_network_of_an_address_and_of_a_viewing_key_is_read_from_its_prefix() {
+            use zcash_protocol::consensus::NetworkType::{Main, Test};
+            assert_eq!(network_of_address(&ua_on(Main)), Ok(Main));
+            assert_eq!(network_of_address(&ua_on(Test)), Ok(Test));
+            assert_eq!(network_of_ufvk(&ufvk_on(Main)), Ok(Main));
+            assert_eq!(network_of_ufvk(&ufvk_on(Test)), Ok(Test));
+            assert!(ua_on(Test).starts_with("utest1") && ufvk_on(Test).starts_with("uviewtest1"));
+            assert!(ua_on(Main).starts_with("u1") && ufvk_on(Main).starts_with("uview1"));
+            // Whatever is not an address or a key is an error, never a default network.
+            assert!(network_of_address("").is_err());
+            assert!(network_of_address("not an address").is_err());
+            assert!(network_of_ufvk("").is_err());
+            assert!(
+                network_of_ufvk(&ua_on(Main)).is_err(),
+                "an address is not a viewing key"
+            );
+        }
+
+        /// A build refuses what is written for the other network, and says which network it signs for.
+        #[test]
+        fn a_build_refuses_an_address_or_a_key_of_the_other_network() {
+            use zcash_protocol::consensus::NetworkType::{Main, Test};
+            // The mainnet build (the default one).
+            assert!(require_network(Main, &ua_on(Main), false).is_ok());
+            let e = require_network(Main, &ua_on(Test), false).unwrap_err();
+            assert!(e.contains("test") && e.contains("main"), "{e}");
+            assert!(require_network(Main, &ufvk_on(Main), true).is_ok());
+            assert!(require_network(Main, &ufvk_on(Test), true).is_err());
+            // The testnet build is the mirror image.
+            assert!(require_network(Test, &ua_on(Test), false).is_ok());
+            assert!(require_network(Test, &ua_on(Main), false).is_err());
+            assert!(require_network(Test, &ufvk_on(Test), true).is_ok());
+            assert!(require_network(Test, &ufvk_on(Main), true).is_err());
+            // A key is not accepted where an address is expected, and the reverse.
+            assert!(require_network(Main, &ufvk_on(Main), false).is_err());
+            assert!(require_network(Main, &ua_on(Main), true).is_err());
+        }
+
+        /// The default build is the mainnet one. A feature only ever selects the test network.
+        #[test]
+        fn the_default_build_signs_for_mainnet() {
+            use zcash_protocol::consensus::NetworkType;
+            #[cfg(not(feature = "testnet"))]
+            assert_eq!(BUILD_NETWORK, NetworkType::Main);
+            #[cfg(feature = "testnet")]
+            assert_eq!(BUILD_NETWORK, NetworkType::Test);
+            assert_eq!(network_name(NetworkType::Main), "main");
+            assert_eq!(network_name(NetworkType::Test), "test");
         }
 
         #[test]
@@ -6132,6 +6316,22 @@ mod js_pczt {
     #[wasm_bindgen(js_name = uaReceiver)]
     pub fn ua_receiver(ua: &str) -> Result<String, JsValue> {
         pczt_bridge::ua_receiver(ua).map_err(je)
+    }
+
+    /// The network this build signs for, `main` or `test`: the one answer the app shows and compares
+    /// against, so no screen keeps its own constant.
+    #[wasm_bindgen(js_name = buildNetwork)]
+    pub fn build_network() -> String {
+        pczt_bridge::network_name(pczt_bridge::BUILD_NETWORK).to_string()
+    }
+
+    /// Refuses an address, or with `isViewingKey` a unified viewing key, that is written for another
+    /// network than this build's. Call it wherever a record enters the device or is about to be signed
+    /// for: creation, import, unlock. It reads the prefix of the text itself, never a field beside it.
+    #[wasm_bindgen(js_name = requireBuildNetwork)]
+    pub fn require_build_network(encoded: &str, is_viewing_key: bool) -> Result<(), JsValue> {
+        pczt_bridge::require_network(pczt_bridge::BUILD_NETWORK, encoded, is_viewing_key)
+            .map_err(je)
     }
 
     /// A JSON string literal. A memo is free text a member typed, so unlike the addresses and hex
