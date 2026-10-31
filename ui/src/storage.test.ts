@@ -984,6 +984,29 @@ describe('the viewing key is sealed at rest (#599)', () => {
     expect(rec.changeReceiver).toBe('u1pinned')
   })
 
+  it('a passphrase change refuses rather than erase a sealed viewing key that did not open', async () => {
+    await imported('older river stone maple')
+    const rec = await rawRecord()
+    const damaged = (rec.ufvkCipher as Uint8Array).slice()
+    damaged[0]! ^= 0xff
+    await putRaw({ ...rec, ufvkCipher: damaged })
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    expect(await changePassphrase(id, 'older river stone maple', 'newer cedar lantern harbor').then(() => 'done', (e: { code: string }) => e.code)).toBe('sealed-field-unreadable')
+    error.mockRestore()
+    const after = await rawRecord()
+    expect(after.ufvkCipher, 'the field is still there').toEqual(damaged)
+    expect(after.salt, 'and the old passphrase still opens the record').toEqual(rec.salt)
+    await expect(loadVault(id, 'older river stone maple')).resolves.toBeTruthy()
+  })
+
+  it('a passphrase change refuses rather than drop S when only half of it is there', async () => {
+    await imported('older river stone maple')
+    const rec = await rawRecord()
+    await putRaw({ ...rec, secretIv: undefined })
+    expect(await changePassphrase(id, 'older river stone maple', 'newer cedar lantern harbor').then(() => 'done', (e: { code: string }) => e.code)).toBe('sealed-field-unreadable')
+    expect((await rawRecord()).secretCipher).toEqual(rec.secretCipher)
+  })
+
   it('an export from a sealed record still carries it, with no fetch to supply it', async () => {
     await imported()
     const blob = parseVaultExport(JSON.stringify(await exportVault(id, 'pass')))
