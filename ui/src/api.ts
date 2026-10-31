@@ -496,6 +496,19 @@ export function classifyAddress(addr: string): AddressKind {
   return 'unknown'
 }
 
+/** Why the vault cannot pay this address, or null. ONE rule for the payment and the payroll line
+ *  (#294), and it is the path's. The hosted coordinator pays only an address with an Orchard
+ *  receiver (`payment_plan`, orchestrator/src/helper.rs), so on the web a transparent one is refused
+ *  too; the local bridge pays a transparent one as a warned public payment (`is_payable`,
+ *  orchestrator/src/server.rs). This reads the prefix only: the coordinator still decodes the whole
+ *  address, and a u1 with no Orchard receiver is refused by it alone. */
+export function addressRefusal(addr: string, net: boolean = NET): 'unknown' | 'sapling' | 'transparent' | null {
+  const k = classifyAddress(addr)
+  if (k === 'unknown' || k === 'sapling') return k
+  if (k === 'transparent' && net) return k
+  return null
+}
+
 /**
  * Turn a backend error (code + technical detail) into a clear, actionable message via i18n
  * (§6.11 "human-readable errors"). Matches on the backend's English error CODES; returns a
