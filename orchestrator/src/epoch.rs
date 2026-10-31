@@ -7,7 +7,7 @@
 //! * the BUILD HOLD: no new transaction is built for a branch that is about to stop being valid. An
 //!   ordinary payment is held when `tip + expiry_delta + K >= A` (A: the next upgrade's activation
 //!   height), a ZIP 318 crossing, whose notes stay reserved by the wallet until the transaction's
-//!   long expiry, when `tip + K_c >= A`;
+//!   long expiry, when `max(tip, clock's height) + K_c >= A`;
 //! * the POST-BUILD BRANCH CHECK: the PCZT the engine built must be on the branch of the epoch the
 //!   next block belongs to, else the coordinator has not been updated for the upgrade;
 //! * the BOOT CHECK of the table's A against the engine's, which decides whether `settle` may call a
@@ -138,10 +138,12 @@ pub fn hold_before_build(table: &Table, tip: u64) -> Option<Refusal> {
 
 /// The checks on a BUILT transaction, read from the PCZT itself: its branch is the one the next
 /// block is under, and, when its expiry is beyond what an ordinary payment gets (a ZIP 318
-/// crossing), the upgrade is not within `K_c` blocks.
+/// crossing), the upgrade is not within `K_c` blocks of the larger of the tip and the height the
+/// coordinator's clock puts the chain at (`now_unix`, unix seconds).
 pub fn check_built(
     table: &Table,
     tip: u64,
+    now_unix: i64,
     branch_id: u32,
     expiry_height: u32,
 ) -> Result<(), ToolError> {
@@ -155,7 +157,9 @@ pub fn check_built(
             .saturating_add(row.expiry_delta)
             .saturating_add(k_blocks(row.spacing_s));
         let long = expiry_height == 0 || expiry_height > plain_reach;
-        if long && tip.saturating_add(K_CROSSING) >= a {
+        // Second height input for the build gate: the larger of the two is used.
+        let seen = tip.max(table.height_at(now_unix));
+        if long && seen.saturating_add(K_CROSSING) >= a {
             return Err(refusal(Refusal::CrossingHold));
         }
     }
@@ -167,6 +171,21 @@ pub fn check_built(
 pub struct EpochGate<'a> {
     pub table: &'a Table,
     pub tip: &'a dyn Fn() -> Result<u64, ToolError>,
+    /// The coordinator's clock, in unix seconds: a second reading of the height for the crossing hold.
+    pub now: &'a dyn Fn() -> i64,
+}
+
+/// The coordinator's clock now, in unix seconds. A clock that cannot be read answers `i64::MAX`,
+/// which makes the crossing hold refuse (it fails closed), never `0`, which would switch it off.
+pub fn system_unix() -> i64 {
+    unix_secs_or_max(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH))
+}
+
+fn unix_secs_or_max(since_epoch: Result<std::time::Duration, std::time::SystemTimeError>) -> i64 {
+    since_epoch
+        .ok()
+        .and_then(|d| i64::try_from(d.as_secs()).ok())
+        .unwrap_or(i64::MAX)
 }
 
 impl EpochGate<'_> {
@@ -338,6 +357,24 @@ pub(crate) mod test_table {
             unix: 1_785_247_643,
         },
     };
+
+    /// A clock reading at which `table.height_at` gives `height`: the smallest such second.
+    pub fn clock_at(table: &Table, height: u64) -> i64 {
+        let height = u32::try_from(height).unwrap_or(u32::MAX);
+        let (mut lo, mut hi) = (
+            table.anchor.unix - 400_000_000,
+            table.anchor.unix + 400_000_000,
+        );
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2;
+            if table.height_at(mid) >= height {
+                hi = mid;
+            } else {
+                lo = mid + 1;
+            }
+        }
+        lo
+    }
 }
 
 #[cfg(test)]
@@ -368,7 +405,8 @@ mod tests {
             (3_500_000, 99_999_999),
             (5, 3_500_041),
         ] {
-            check_built(&MAINNET, tip, NU6_3, expiry).unwrap_or_else(|e| panic!("{tip}: {e}"));
+            check_built(&MAINNET, tip, clock_at(&MAINNET, tip), NU6_3, expiry)
+                .unwrap_or_else(|e| panic!("{tip}: {e}"));
         }
     }
 
@@ -392,27 +430,128 @@ mod tests {
     fn a_crossing_is_held_further_out_than_an_ordinary_payment() {
         let long = 3_500_000 + 34_560; // far beyond an ordinary expiry
         let edge = u64::from(A - K_CROSSING);
-        check_built(&WITH_NEXT, edge - 1, NU6_3, long).unwrap();
-        let e = check_built(&WITH_NEXT, edge, NU6_3, long).unwrap_err();
+        check_built(
+            &WITH_NEXT,
+            edge - 1,
+            clock_at(&WITH_NEXT, edge - 1),
+            NU6_3,
+            long,
+        )
+        .unwrap();
+        let e = check_built(&WITH_NEXT, edge, clock_at(&WITH_NEXT, edge), NU6_3, long).unwrap_err();
         assert_eq!(refusal_of(&e), Some(Refusal::CrossingHold));
         // An ordinary expiry at that tip is not a crossing: it passes (the pre-build hold handles it).
-        check_built(&WITH_NEXT, edge, NU6_3, (edge as u32) + 41).unwrap();
+        check_built(
+            &WITH_NEXT,
+            edge,
+            clock_at(&WITH_NEXT, edge),
+            NU6_3,
+            (edge as u32) + 41,
+        )
+        .unwrap();
         // No expiry at all counts as long.
-        assert!(check_built(&WITH_NEXT, edge, NU6_3, 0).is_err());
+        assert!(check_built(&WITH_NEXT, edge, clock_at(&WITH_NEXT, edge), NU6_3, 0).is_err());
+    }
+
+    #[test]
+    fn the_build_gate_takes_a_second_height_input() {
+        let long = A + 34_560;
+        let outside_tip = u64::from(A - K_CROSSING) - 1; // the tip input
+        let now = clock_at(&WITH_NEXT, u64::from(A - 24));
+        let e = check_built(&WITH_NEXT, outside_tip, now, NU6_3, long).unwrap_err();
+        assert_eq!(refusal_of(&e), Some(Refusal::CrossingHold));
+        // The clock's estimate is the larger one at the edge: not a block earlier, held from it.
+        let edge = clock_at(&WITH_NEXT, u64::from(A - K_CROSSING));
+        check_built(&WITH_NEXT, outside_tip, edge - 1, NU6_3, long).unwrap();
+        assert!(check_built(&WITH_NEXT, outside_tip, edge, NU6_3, long).is_err());
+        // No expiry at all counts as long here too.
+        assert!(check_built(&WITH_NEXT, outside_tip, now, NU6_3, 0).is_err());
+    }
+
+    #[test]
+    fn the_extra_height_input_never_holds_a_plain_payment() {
+        let outside_tip = u64::from(A - K_CROSSING) - 1;
+        let now = clock_at(&WITH_NEXT, u64::from(A - 24));
+        // An ordinary payment's expiry is the tip's plus its delta: not long, never held here.
+        check_built(
+            &WITH_NEXT,
+            outside_tip,
+            now,
+            NU6_3,
+            (outside_tip as u32) + 41,
+        )
+        .unwrap();
+        // The larger of the two decides.
+        let edge_tip = u64::from(A - K_CROSSING);
+        let long = A + 34_560;
+        assert!(check_built(&WITH_NEXT, edge_tip, clock_at(&WITH_NEXT, 0), NU6_3, long).is_err());
+    }
+
+    #[test]
+    fn a_clock_that_cannot_be_read_closes_the_crossing_hold_and_never_opens_it() {
+        let before_epoch = std::time::UNIX_EPOCH
+            .duration_since(std::time::UNIX_EPOCH + std::time::Duration::from_secs(1))
+            .unwrap_err();
+        let now = unix_secs_or_max(Err(before_epoch));
+        assert_eq!(now, i64::MAX);
+        let tip = u64::from(A - K_CROSSING) - 5_000;
+        assert!(check_built(&WITH_NEXT, tip, now, NU6_3, A + 34_560).is_err());
+        // An ordinary payment is still not held by it.
+        check_built(&WITH_NEXT, tip, now, NU6_3, (tip as u32) + 41).unwrap();
+        // A readable clock is read as it is.
+        assert_eq!(
+            unix_secs_or_max(Ok(std::time::Duration::from_secs(1_790_000_000))),
+            1_790_000_000
+        );
     }
 
     #[test]
     fn a_built_transaction_must_be_on_the_branch_of_the_next_block() {
         // Before the upgrade: NU6.3 passes, the new branch does not exist yet.
-        check_built(&WITH_NEXT, 3_000_000, NU6_3, 3_000_041).unwrap();
-        let e = check_built(&WITH_NEXT, 3_000_000, NU7, 3_000_041).unwrap_err();
+        check_built(
+            &WITH_NEXT,
+            3_000_000,
+            clock_at(&WITH_NEXT, 3_000_000),
+            NU6_3,
+            3_000_041,
+        )
+        .unwrap();
+        let e = check_built(
+            &WITH_NEXT,
+            3_000_000,
+            clock_at(&WITH_NEXT, 3_000_000),
+            NU7,
+            3_000_041,
+        )
+        .unwrap_err();
         assert_eq!(refusal_of(&e), Some(Refusal::NotUpdated));
         // From the upgrade: an engine that still builds NU6.3 is refused.
-        let e = check_built(&WITH_NEXT, u64::from(A), NU6_3, A + 41).unwrap_err();
+        let e = check_built(
+            &WITH_NEXT,
+            u64::from(A),
+            clock_at(&WITH_NEXT, u64::from(A)),
+            NU6_3,
+            A + 41,
+        )
+        .unwrap_err();
         assert_eq!(refusal_of(&e), Some(Refusal::NotUpdated));
-        check_built(&WITH_NEXT, u64::from(A), NU7, A + 121).unwrap();
+        check_built(
+            &WITH_NEXT,
+            u64::from(A),
+            clock_at(&WITH_NEXT, u64::from(A)),
+            NU7,
+            A + 121,
+        )
+        .unwrap();
         // And a branch the table does not know is refused on any table.
-        assert!(check_built(&MAINNET, 3_500_000, 0xdead_beef, 3_500_041).is_err());
+        assert!(check_built(
+            &MAINNET,
+            3_500_000,
+            clock_at(&MAINNET, 3_500_000),
+            0xdead_beef,
+            3_500_041
+        )
+        .is_err());
     }
 
     #[test]
@@ -637,7 +776,8 @@ mod tests {
         assert_eq!(
             EpochGate {
                 table: &ONE_ROW,
-                tip: &panics
+                tip: &panics,
+                now: &|| 0
             }
             .tip()
             .unwrap(),
@@ -648,7 +788,8 @@ mod tests {
         assert_eq!(
             EpochGate {
                 table: &MAINNET,
-                tip: &seven
+                tip: &seven,
+                now: &|| 0
             }
             .tip()
             .unwrap(),
@@ -658,7 +799,8 @@ mod tests {
         assert_eq!(
             EpochGate {
                 table: &WITH_NEXT,
-                tip: &tip
+                tip: &tip,
+                now: &|| 0
             }
             .tip()
             .unwrap(),
