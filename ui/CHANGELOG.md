@@ -153,6 +153,13 @@ history to tidy it is how context gets lost.
   asking for the passphrase once on this device; typing it runs the same rewrite, and the notice
   goes away. The check reads only whether the field is present, never its value (#784).
 
+- **The spreadsheet export says who proposed and who approved each movement.** The screen shows it
+  on every row and the caption promises it is on record, but the XLSX carried neither, so the
+  accountant's copy of the book could not say who authorised a payment. Two columns now carry the
+  names, "Proposed by" and "Approved by", as the vault records them; a payroll's rows share them.
+  When each approval was given is not recorded yet (#290), so the sheet does not pretend to know
+  it (#302).
+
 ### Known limits
 
 - The Dashboard keeps its spinner and still announces its loading twice, once per placeholder; it

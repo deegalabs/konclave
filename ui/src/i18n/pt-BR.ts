@@ -1254,7 +1254,6 @@ export const ptBR: Record<string, string> = {
   'ledger.colMemo': 'Memo',
   'ledger.colTxid': 'Transação (txid)',
   'ledger.xlsxFilter': 'Filtro',
-  'ledger.xlsxIncludes': 'O arquivo XLSX inclui o memo e o identificador da transação de cada pagamento.',
   // Proposal facts: when it was created, until when it can be approved, the whole address, confirmations.
   'proposal.factCreated': 'Criada em',
   'proposal.factDeadline': 'Prazo',
@@ -1278,4 +1277,8 @@ export const ptBR: Record<string, string> = {
   'proposals.unreadTitle': 'Não foi possível ler as propostas',
   'proposals.unreadLead': 'A lista não pôde ser lida. O cofre e a sua parte continuam neste aparelho; só a lista não chegou.',
   'proposals.retry': 'Tentar de novo',
+  'ledger.xlsxIncludes': 'O arquivo XLSX inclui o memo, o identificador da transação e quem propôs e aprovou cada pagamento.',
+  // #302: the XLSX export names who proposed and who approved each movement.
+  'ledger.colProposedBy': 'Proposto por',
+  'ledger.colApprovedBy': 'Aprovado por',
 }

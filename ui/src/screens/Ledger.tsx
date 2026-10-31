@@ -77,7 +77,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
         const stLabel = t('state.' + p.state)
         const isSettled = SETTLED(p.state)
         const doc = p.memo || (p.kind === 'payroll' ? t('kind.payroll') : t('kind.payment'))
-        const base = { dateISO: iso(p.created_at), document: doc, state: stLabel, settled: isSettled, open: isOpen(p), txid: p.txid ?? '' }
+        const base = { dateISO: iso(p.created_at), document: doc, state: stLabel, settled: isSettled, open: isOpen(p), proposer: p.proposer, approvers: p.approvals.join(', '), txid: p.txid ?? '' }
         if (p.kind === 'payroll') {
           let lines = linesById[p.id]
           if (!lines) {
@@ -108,6 +108,7 @@ export default function Ledger({ embedded = false }: { embedded?: boolean }) {
           entries: t('ledger.entries'), settledOut: t('ledger.settledOut'), open: t('ledger.open'),
           colDate: t('ledger.colDate'), colDocument: t('ledger.colDocument'), colKind: t('ledger.colKind'),
           colBeneficiary: t('ledger.colBeneficiary'), colAddress: t('ledger.colAddress'), colMemo: t('ledger.colMemo'),
+          colProposedBy: t('ledger.colProposedBy'), colApprovedBy: t('ledger.colApprovedBy'),
           colState: t('ledger.colState'), colSettled: t('ledger.colSettled'), colOpen: t('ledger.open'), colValue: t('ledger.colValue'),
           colTxid: t('ledger.colTxid'), total: t('ledger.total'), yes: t('ledger.yes'), no: t('ledger.no'),
         },
