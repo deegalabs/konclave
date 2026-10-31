@@ -219,6 +219,13 @@ history to tidy it is how context gets lost.
   contrast minimum in the light theme. Each chip now carries its pressed state, each row is a named
   group, the period name is announced when it changes, and the selected text is darker. Found by the
   accessibility pass on the period picker.
+- **The money screens speak the member's words.** The memo label said "the coordinator" can read
+  it; on screen that is "the vault's server" (the word stays in the docs and the trust panel). The
+  block for an amount split across the vault's two shielded parts named "internal pools"; it now
+  describes the split, in the same sentence whether the screen blocks it or the server refuses it,
+  and no longer sends the member to "consolidate the vault", which no button does. "u1" is
+  explained once per screen, where the address is shown or typed (on Payroll too, whose field said
+  nothing), in one form, "starts with u1", and no longer on every line that mentions it (#127).
 
 ### Known limits
 
