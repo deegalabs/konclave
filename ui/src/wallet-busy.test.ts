@@ -135,7 +135,7 @@ describe('the screens keep what they had while the wallet is busy', () => {
       // Kept balance: the button may well be on; no balance yet: it is off until the vault is free.
       expect(src, f).toMatch(/<div role="status" id="[a-z-]+">\{walletBusy && <div className="hint mt-sm">\{t\(bal \? 'wallet\.busyKept' : 'wallet\.busyBlocked'\)\}<\/div>\}<\/div>/)
       // The button is described by the note only when the busy vault is what turns it off.
-      // The busy id is the first of the two the button may point at (the block region is the second, 4.2).
+      // The busy id is the first of the two the button may point at (the block region is the second, #352).
       expect(src, f).toMatch(/aria-describedby=\{\[walletBusy && block === 'balance-unknown' \? '[a-z-]+' : null, blockMsg \? '[a-z-]+' : null\]/)
       expect(src, f).toMatch(/if \(walletBusy && block === 'balance-unknown'\) return null/)
     }

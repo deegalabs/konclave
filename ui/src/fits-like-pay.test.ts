@@ -4,7 +4,7 @@ import { codeOf } from './source-scan'
 import { en } from './i18n/en'
 import { ptBR } from './i18n/pt-BR'
 
-/* 4.2 (#293, #352): Payroll checks whether it fits the same way Pay does, from the same file.
+/* #293, #352: Payroll checks whether it fits the same way Pay does, from the same file.
  *
  * Pay subtracted what open proposals hold (reservedZatOf / freeZatOf, #293) and Payroll did not: it
  * read `spendable_zat` on its own, so two 0.006 payrolls against 0.01 spendable both validated and
