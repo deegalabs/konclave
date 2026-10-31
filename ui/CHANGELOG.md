@@ -73,11 +73,6 @@ history to tidy it is how context gets lost.
 
 ### Fixed
 
-- **The members popover on the vault home closes with Escape.** Hovering or focusing "N members"
-  opens the roster and the quorum; a keyboard user who tabbed onto the link got the popover over
-  the page and could only close it by moving focus away. It now opens on hover and on focus and
-  closes on mouse leave, on blur and on Escape, and the small gap between the link and the popover
-  no longer closes it on the way to it (#602).
 - **A vault can no longer be asked for with a quorum of 1 on the `/net` screen and in the ceremony.** The signing library refuses a
   quorum below 2, and the main create screen already stopped at 2 (0.8.0), but the older `/net`
   screen still listed "1 of 3", a config built by hand or by an older client still reached the
@@ -117,6 +112,11 @@ history to tidy it is how context gets lost.
   payroll line and the send confirmation were rounded to four places, so a payment of 0.00009 ZEC
   read 0.0001 while the fee and the total beside it were exact and the signing panel read 0.00009.
   They now show every place down to the zatoshi. The amount sent was never affected (#777).
+- **The members popover on the vault home closes with Escape.** Hovering or focusing "N members"
+  opens the roster and the quorum; a keyboard user who tabbed onto the link got the popover over
+  the page and could only close it by moving focus away. It now opens on hover and on focus and
+  closes on mouse leave, on blur and on Escape, and the small gap between the link and the popover
+  no longer closes it on the way to it (#602).
 
 ### Known limits
 
