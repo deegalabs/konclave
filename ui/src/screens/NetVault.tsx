@@ -10,7 +10,7 @@ import {
   identifierBytes,
   type CreationSession,
 } from '../wasm-pkg/konclave_wasm.js'
-import { DkgCeremony, DKG_VERSION, type DkgAbort, type DkgConfig, type DkgMsg } from '../dkg-ceremony'
+import { quorumIsPossible, DkgCeremony, DKG_VERSION, type DkgAbort, type DkgConfig, type DkgMsg } from '../dkg-ceremony'
 import { InviteCard, CodeCheck, StopPanel, WaitLine, saveWaitText } from './CeremonyParts'
 import { creationBusy, closeIntent } from '../creation-guard'
 import { RelaySession, newRoomCode, newInviteCode, parseInvite, joinParam, formatInvite, deriveRoom, ephemeralTag, b64, relayBase, type RelayMsg } from '../net'
@@ -628,6 +628,13 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
         // The drain is done: let the machine act on the whole of it, not on each message (#399).
         await machineRef.current?.afterDrain()
       } while (rerunRef.current)
+    } catch (e) {
+      // Without this, a throw here (the DKG constructor refusing the config, a send failing) was an
+      // unhandled rejection and the screen stayed on the roster forever (#589).
+      addLog(String(e))
+      setError(tt('net.err.creationFailed'))
+      setPhase('error')
+      sessionRef.current?.stop()
     } finally {
       advancingRef.current = false
       setRosterCount(ceremonyRef.current?.rosterSize ?? 0)
@@ -665,6 +672,13 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
   const begin = useCallback(
     async (asRole: 'create' | 'join', code: string, total: number, threshold: number, pin: string) => {
       if (startGuardRef.current) return
+      // A quorum the signing library would refuse never reaches the room (#589): the creator's
+      // steppers cannot build one, but a hand-made call or an older client could.
+      if (asRole === 'create' && !quorumIsPossible(threshold, total)) {
+        setError(tt('net.err.quorumImpossible', { t: threshold, n: total }))
+        setPhase('error')
+        return
+      }
       startGuardRef.current = true
       try {
         // An app the coordinator calls outdated says so before any member waits on it, creating or
@@ -1303,7 +1317,7 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
             <p>{tt('net.idle.createDesc')}</p>
             <label className="net-row">
               {tt('net.idle.devices')}
-              <select value={n} onChange={(e) => { const v = Number(e.target.value); setN(v); if (t > v) setT(v) }}>
+              <select value={n} onChange={(e) => { const v = Number(e.target.value); setN(v); setT(Math.min(Math.max(t, 2), v)) }}>
                 <option value={2}>2</option>
                 <option value={3}>3</option>
               </select>
@@ -1311,7 +1325,8 @@ export default function NetVault({ embedded, initialJoin, leaveAsk, onLeave }: {
             <label className="net-row">
               {tt('net.idle.quorum')}
               <select value={t} onChange={(e) => setT(Number(e.target.value))}>
-                {Array.from({ length: n }, (_, i) => i + 1).map((v) => (
+                {/* Never 1: the signing library refuses a quorum below 2 (#589). */}
+                {Array.from({ length: n - 1 }, (_, i) => i + 2).map((v) => (
                   <option key={v} value={v}>{tt('net.idle.quorumOption', { v, n })}</option>
                 ))}
               </select>
