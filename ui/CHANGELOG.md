@@ -108,12 +108,15 @@ history to tidy it is how context gets lost.
   block is read from one live region the button points at, so a screen reader hears it appear,
   change and clear; the "after" figure is labelled as free funds and shows a dash while a
   reservation or confirmations are the block (#293, #352).
+- **The proposal screen shows the amount exactly.** The figure at the top of a proposal, each
+  payroll line and the send confirmation were rounded to four places, so a payment of 0.00009 ZEC
+  read 0.0001 while the fee and the total beside it were exact and the signing panel read 0.00009.
+  They now show every place down to the zatoshi. The amount sent was never affected (#777).
 
 ### Known limits
 
 - The Dashboard keeps its spinner and still announces its loading twice, once per placeholder; it
   is not among the four screens above (#320).
-
 - **The fix for #599 cannot take back a copy already made, and it needs the passphrase.** A viewing
   key cannot be changed, so a copy taken before the rewrite stays valid for the life of the vault. Removing the
   field does not promise the browser has wiped the old bytes from its files on disk. Unlocking with a
