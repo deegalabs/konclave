@@ -80,6 +80,12 @@ history to tidy it is how context gets lost.
   clipboard value where they believed the address was. Both screens now wait for the write, say
   "Copied" only when it was confirmed, and otherwise say that it could not copy and to select the
   text by hand. The creation invite already did this (#313).
+- **Moving between screens moves keyboard focus to the new screen's heading, and the tab says
+  where you are.** The app replaces the content without reloading, so focus stayed on the link that
+  was used or on the page body, and a screen-reader or keyboard user had no sign that the page had
+  changed. On every route change focus now goes to the main heading, without scrolling the page
+  away from the top, and the browser tab is named after it; the first load and a change made while
+  a dialog is open are left alone (#662).
 - **A vault can no longer be asked for with a quorum of 1 on the `/net` screen and in the ceremony.** The signing library refuses a
   quorum below 2, and the main create screen already stopped at 2 (0.8.0), but the older `/net`
   screen still listed "1 of 3", a config built by hand or by an older client still reached the
