@@ -145,7 +145,7 @@ export default function People() {
                 <input className="input" placeholder={t('people.namePlaceholder')} value={name} onChange={(e) => setName(e.target.value)} />
               </label>
               <label className="field inline"><span>{t('people.address')}</span>
-                <input className="input mono" placeholder={t('payroll.addrPlaceholder')} value={address} onChange={(e) => setAddress(e.target.value)} />
+                <input className="input mono" placeholder={t('people.addrPlaceholder')} value={address} onChange={(e) => setAddress(e.target.value)} />
               </label>
               <label className="field inline"><span>{t('people.defaultMemo')}</span>
                 <input className="input" placeholder={t('people.memoPlaceholder')} value={memo} onChange={(e) => setMemo(e.target.value)} disabled={kind === 'transparent'} />
