@@ -64,8 +64,9 @@ A viewing key reads the vault's whole history and balance and cannot move a coin
 page can speak for is `zcash-devtool`, the Zcash tool the coordinator itself runs: the **build that
 `engine/versions.lock` records** (sha256 `8c41afd3...`, built from upstream `539ae81d` plus the patch
 the lock names). Use that build, or one newer that **knows the current network upgrade**: a wallet
-tool that does not know the upgrade the chain is on cannot sync past it, and the app's changelog
-says when the next one (NU7) activates. With the viewing key and the scan height from a Private
+tool that does not know the upgrade the chain is on cannot sync past it. The chain is on NU6.3
+today; the next upgrade (NU7) has no activation height yet, and the app shows a notice on the vault
+home before one activates, from the chain tip the coordinator reports. With the viewing key and the scan height from a Private
 backup, the commands the coordinator runs when it rebuilds and reads a wallet:
 
 ```sh
